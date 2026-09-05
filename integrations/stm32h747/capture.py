@@ -25,7 +25,7 @@ print("bytes", len(buf))
 # The ST-LINK VCP can deliver bytes buffered from the previous run ahead of
 # the reset; keep only what follows the last firmware banner, and recompute
 # the calibration marks over that suffix so a stale TOCK cannot pair up.
-BANNER = b"EXPANSE stm32h747 m7 harness"
+BANNER = b"EXPANSE stm32h747"   # the harness and the LCD demo share this prefix
 cut = buf.rfind(BANNER)
 if cut > 0:
     dropped = buf[:cut]

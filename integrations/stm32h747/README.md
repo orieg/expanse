@@ -72,6 +72,10 @@ passes so the dual cells can be iterated in under a minute.
   DTCM data/stack, 512 KB AXI SRAM heap via `_sbrk`), `m4.ld` (flash bank 2,
   SRAM3 data/stack, SRAM1+2 heap); `dual.h` — mailbox layout and protocol.
 - `alts.{h,c}` — the alternatives and the allocation accounting.
+- `demo/` — the "two lanes" LCD demo (#605): a separate, HAL-based firmware for the board's
+  panel that shows the interrupt contract at human timescale; its own
+  [README](demo/README.md) has the screen, the program and the deviations from
+  its pre-registration. Demo, not benchmark.
 - `layout_sweep.sh` — the layout-controlled build (design doc §8.1.3): relinks
   a given engine archive with `_layout_pre` bytes before all code and
   `_layout_gap` bytes between the library's code and the harness's (library

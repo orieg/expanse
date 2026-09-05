@@ -66,3 +66,4 @@ integrations/esp32/sdkconfig.*
 !integrations/esp32/sdkconfig.defaults
 integrations/esp32/dependencies.lock
 integrations/esp32/managed_components/
+integrations/stm32h747/demo/Makefile/CM7/build/

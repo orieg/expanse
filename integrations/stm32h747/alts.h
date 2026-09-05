@@ -26,6 +26,18 @@ typedef struct {
 
 extern const alt_ops alt_expanse, alt_sorted_array, alt_open_hash, alt_tsearch;
 
+/* Requested bytes held by an open-addressing table (header + key and value
+ * arrays), for a live bytes-per-record readout; the LCD demo uses it. */
+size_t alt_open_hash_bytes(const void *m);
+/* Insert into an open-addressing table that is allowed to grow: when the
+ * insert would take the load past 50% the table doubles first, moving every
+ * live entry, and the DWT cycles that took are returned in *grow_cycles (0
+ * when no doubling happened). The suite's fixtures pre-size their tables and
+ * never call this; the LCD demo's growth step does. */
+void alt_open_hash_insert_grow(void *m, uint32_t k, uint32_t v, uint32_t *grow_cycles);
+/* Live entries and slot count, for a load-factor readout. */
+void alt_open_hash_shape(const void *m, size_t *len, size_t *slots);
+
 /* Live requested-bytes accounting shared by every implementation (the
  * expanse_host_* hooks route through it too): allocator overhead excluded
  * symmetrically, so bytes/key compares data-structure footprints. */
