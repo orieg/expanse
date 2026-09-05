@@ -46,7 +46,7 @@ fn main() {
         .warnings(false);
 
     if rowex {
-        // The concurrent arm (#692, METHODOLOGY.md §10). ROWEX needs TBB for
+        // The concurrent arm (#692, METHODOLOGY.md §11). ROWEX needs TBB for
         // its per-thread reclamation state and nothing else; libtbb is built
         // from HOT's own pinned nested submodule into OUT_DIR so the competitor
         // runs the TBB its authors built against and no host is modified.
@@ -94,7 +94,7 @@ fn build_tbb(hot: &Path) -> PathBuf {
             "TBB sources are missing at {}\n\
              The `rowex` feature needs HOT's nested TBB submodule. From the repo root run:\n\
              \n    git -C third_party/hot submodule update --init --depth 1 third-party/tbb\n\n\
-             No system TBB is consulted, by design (METHODOLOGY.md §10.3).",
+             No system TBB is consulted, by design (METHODOLOGY.md §11.3).",
             tbb_root.display()
         );
     }

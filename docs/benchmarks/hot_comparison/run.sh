@@ -19,7 +19,7 @@ if [ ! -f "${REPO_ROOT}/third_party/hot/LICENSE" ]; then
   exit 1
 fi
 
-# The concurrent arm (#692, METHODOLOGY.md §10) links ROWEX, which needs TBB.
+# The concurrent arm (#692, METHODOLOGY.md §11) links ROWEX, which needs TBB.
 # libtbb is built from HOT's own pinned nested submodule into the cargo build
 # directory — never a system package — so the nested checkout must exist.
 case " $* " in
@@ -89,7 +89,7 @@ echo ""
 echo " Memory publishes a curve across expanse occupancy, not a cell per"
 echo " distribution: per-key cost is a sawtooth in density (METHODOLOGY §9.6)."
 echo ""
-echo " --concurrent / --only-concurrent: the HOT-ROWEX arm (#692, §10) —"
+echo " --concurrent / --only-concurrent: the HOT-ROWEX arm (#692, §11) —"
 echo " writer throughput vs writer count against SyncExpanseSet/SyncExpanseMap,"
 echo " readers alongside, protocol health, all threads inside the P-core pin."
 echo "========================================================================"

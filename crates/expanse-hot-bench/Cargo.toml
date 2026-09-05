@@ -21,13 +21,13 @@ description = "HOT (Height Optimized Trie) FFI comparison arms for Expanse — b
 [workspace]
 
 [features]
-# The HOT-ROWEX concurrent arm (#692, METHODOLOGY.md §10). Off by default:
+# The HOT-ROWEX concurrent arm (#692, METHODOLOGY.md §11). Off by default:
 # it compiles a second shim and builds libtbb from HOT's nested submodule,
 # which the single-threaded arms never need.
 rowex = []
 # Diagnostic-only, forwarded to the engine: arms the OCC event counters that
 # the protocol-health cells read. A binary built with it publishes event
-# ratios and never a timing (§10.3, decision 5).
+# ratios and never a timing (§11.3, decision 5).
 occ-stats = ["expanse-trie/occ-stats"]
 
 [dependencies]

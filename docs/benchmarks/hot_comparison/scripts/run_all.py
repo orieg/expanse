@@ -48,7 +48,7 @@ DISTRIBUTIONS = ["sequential", "clustered", "sparse", "random"]
 SCAN_K = [10, 100, 1000]
 ARMS = ["set", "map"]
 
-# The concurrent arm (#692, METHODOLOGY.md §10.4). Every cell keeps
+# The concurrent arm (#692, METHODOLOGY.md §11.4). Every cell keeps
 # writers + readers <= 16 so no thread can leave the P-core pin (decision 3).
 CONCURRENT_WRITE_SCALING = [1, 2, 4, 8, 16]            # C1: W, R = 0
 CONCURRENT_MIXED_WRITERS = [0, 1, 2, 4, 8]             # C2: W, R = 8
@@ -229,7 +229,7 @@ def sweep_latency(env: dict, quick: bool) -> dict:
 
 
 def build_concurrent_binaries(env: dict) -> None:
-    """Two builds, never one (§10.3 decision 5).
+    """Two builds, never one (§11.3 decision 5).
 
     The default build carries the throughput cells and the ROWEX memory arms;
     the `occ-stats` build carries the health cells and refuses to time anything.
@@ -256,7 +256,7 @@ def concurrent_cell(arm: str, writers: int, readers: int, env: dict) -> dict:
     """One throughput cell in its own process, harvested into BCa intervals.
 
     Ratios are Expanse ÷ ROWEX throughput, so — as everywhere in this suite —
-    above 1.000 means Expanse is faster (§10.4).
+    above 1.000 means Expanse is faster (§11.4).
     """
     rows = run_cell([str(binary("hot_concurrent")), arm, str(writers), str(readers)], env)
     if not rows:
@@ -313,7 +313,7 @@ def health_cell(arm: str, writers: int, readers: int, env: dict) -> dict:
         "write_ops": med_range("write_ops"),
         "cpus_allowed": rows[0]["cpus_allowed"], "pin_applied": rows[0]["pin_applied"],
     }
-    # The §10.5.3 falsifier, evaluated on the median: 1% or more is reader
+    # The §11.5.3 falsifier, evaluated on the median: 1% or more is reader
     # starvation and is reported as a protocol-health finding.
     cell["starvation_flag"] = cell["fallback_share"]["median"] >= 0.01
     print(f"  health {arm:>3} W={writers:<2} R={readers:<2} "
@@ -324,7 +324,7 @@ def health_cell(arm: str, writers: int, readers: int, env: dict) -> dict:
 
 
 def sweep_concurrent(env: dict, quick: bool) -> dict:
-    """C1, C2, H and M of METHODOLOGY.md §10.4, one process per cell."""
+    """C1, C2, H and M of METHODOLOGY.md §11.4, one process per cell."""
     write_w = [1, 4] if quick else CONCURRENT_WRITE_SCALING
     mixed_w = [0, 4] if quick else CONCURRENT_MIXED_WRITERS
     health_w = [4] if quick else CONCURRENT_HEALTH_WRITERS
@@ -396,7 +396,7 @@ def main() -> int:
     }
 
     if concurrent:
-        print("\n[concurrent] HOT-ROWEX arm (#692, §10) — one process per cell, "
+        print("\n[concurrent] HOT-ROWEX arm (#692, §11) — one process per cell, "
               "threads inside the P-core pin")
         conc_prov = dict(provenance)
         conc_prov["issue"] = 692

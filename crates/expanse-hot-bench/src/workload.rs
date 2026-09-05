@@ -175,7 +175,7 @@ pub fn build(dist: Dist, n: usize, keyspace_bits: u32, hit_rate: f64) -> Workloa
 }
 
 /// A concurrent-arm workload: a prefill, a probe stream against it, and a
-/// stream of fresh keys for the writers (§10.4).
+/// stream of fresh keys for the writers (§11.4).
 pub struct ConcurrentWorkload {
     /// Prefill and its probe stream, exactly as [`build`] produces them.
     pub base: Workload,
@@ -193,7 +193,7 @@ pub struct ConcurrentWorkload {
 /// The prefill and probes come from [`build`] with `hit_rate`; the `m_new`
 /// fresh keys continue the same generator so the whole workload is one
 /// reproducible stream. Only [`Dist::Random`] is supported: the concurrent arm
-/// is pre-registered on uniform random keys alone (§10.4), and a structured
+/// is pre-registered on uniform random keys alone (§11.4), and a structured
 /// shape would need its own miss-offset rule.
 pub fn build_concurrent(
     n_prefill: usize,

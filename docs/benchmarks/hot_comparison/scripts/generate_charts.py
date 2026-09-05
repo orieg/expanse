@@ -549,7 +549,7 @@ def string_charts() -> list:
         written.append("chart_string_memory_sweep.svg")
     return written
 def concurrent_charts() -> None:
-    """The HOT-ROWEX arm (#692, §10): writer and reader throughput per cell.
+    """The HOT-ROWEX arm (#692, §11): writer and reader throughput per cell.
 
     Two house per-pillar charts, higher is better. Rows come straight from the
     committed cells and the badge from each cell's BCa verdict, so a cell whose

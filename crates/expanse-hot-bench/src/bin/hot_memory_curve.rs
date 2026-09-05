@@ -6,7 +6,7 @@
 //! |---|---|
 //! | `workload_id` | `hot_memory_curve` |
 //! | `group` | 5 |
-//! | `population` | swept; reported as λ, not as N (§9.6); `rowex_set` / `rowex_map` arms (feature `rowex`) census ROWEX against `SyncExpanseSet` / `SyncExpanseMap` on the same λ targets, build-only, single writer (§10.3 decision 1) |
+//! | `population` | swept; reported as λ, not as N (§9.6); `rowex_set` / `rowex_map` arms (feature `rowex`) census ROWEX against `SyncExpanseSet` / `SyncExpanseMap` on the same λ targets, build-only, single writer (§11.3 decision 1) |
 //! | `probes_and_reuse` | N/A (memory census) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |
@@ -61,10 +61,10 @@ enum Arm {
     SetA,
     /// HOT `PairPointerKeyExtractor` vs `ExpanseMap`, full 64-bit domain.
     MapB,
-    /// ROWEX `IdentityKeyExtractor` vs `SyncExpanseSet`, 63-bit domain (§10).
+    /// ROWEX `IdentityKeyExtractor` vs `SyncExpanseSet`, 63-bit domain (§11).
     #[cfg(feature = "rowex")]
     RowexSet,
-    /// ROWEX `PairPointerKeyExtractor` vs `SyncExpanseMap`, 64-bit domain (§10).
+    /// ROWEX `PairPointerKeyExtractor` vs `SyncExpanseMap`, 64-bit domain (§11).
     #[cfg(feature = "rowex")]
     RowexMap,
 }
@@ -205,7 +205,7 @@ fn main() {
         }
         // Single writer, build only: the census counters are process-global
         // atomics and cannot be armed under concurrent writers without
-        // distorting them (§10.3, decision 1). What ROWEX's per-thread free
+        // distorting them (§11.3, decision 1). What ROWEX's per-thread free
         // lists still hold at the end of the build is inside the number, as
         // HOT's pool retention is inside Arm A's (§3.2).
         #[cfg(feature = "rowex")]
@@ -230,7 +230,7 @@ fn main() {
         }
     });
 
-    // The floor of §10.3 decision 1: a map build must count at least one pair
+    // The floor of §11.3 decision 1: a map build must count at least one pair
     // and one node per key, a set build at least one node per key. Below it the
     // instrument is not seeing the arm and the cell is void.
     #[cfg(feature = "rowex")]
@@ -239,7 +239,7 @@ fn main() {
         if hot.allocs < floor {
             eprintln!(
                 "ROWEX census counted {} allocations for {pop} keys, below the floor of {floor}; \
-                 the instrument is not seeing the arm and the cell is void (§10.7)",
+                 the instrument is not seeing the arm and the cell is void (§11.7)",
                 hot.allocs
             );
             std::process::exit(1);

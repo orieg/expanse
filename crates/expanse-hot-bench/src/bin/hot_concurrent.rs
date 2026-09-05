@@ -1,6 +1,6 @@
 //! Concurrent arm: writer throughput as writer count scales, reader throughput
 //! alongside, and the Expanse protocol's health under that write load —
-//! HOT-ROWEX against `SyncExpanseSet` / `SyncExpanseMap` (#692, METHODOLOGY.md §10).
+//! HOT-ROWEX against `SyncExpanseSet` / `SyncExpanseMap` (#692, METHODOLOGY.md §11).
 //!
 //! # Workload shape
 //!
@@ -14,7 +14,7 @@
 //! | `miss_gen_method` | same-generator rejection sampling (§8.6); fresh writer keys rejected on prefill membership |
 //! | `value_dereference` | map arm fetches the stored value on both sides and checks it against its key-derived expectation; set arm checks presence of every prefill probe |
 //! | `measured_region` | barrier release to last-writer join (writers) and to last-reader join (readers); prefill, teardown and population walks outside |
-//! | `arm_symmetry` | identical prefill, probe and fresh-key streams; both arms below any external lock through their native concurrent APIs (§8.16, §10.3 decision 4); same ISA target; W + R ≤ 16 inside the P-core pin |
+//! | `arm_symmetry` | identical prefill, probe and fresh-key streams; both arms below any external lock through their native concurrent APIs (§8.16, §11.3 decision 4); same ISA target; W + R ≤ 16 inside the P-core pin |
 //! | `statistics` | per-round throughput emitted raw, arms interleaved per round; BCa 95% CIs on the Expanse ÷ ROWEX ratio computed by the runner (§8.4); `--health` emits event ratios from a diagnostic build and never a timing |
 //! | `verdict` | pending measurement |
 //!
@@ -23,12 +23,12 @@
 //! Each writer inserts its whole slice of the fresh-key stream; the timed
 //! region ends when the last writer joins. Both arms therefore do identical
 //! work per round and grow by exactly the same population. A fixed-duration
-//! window would let the faster arm grow more and face a larger trie (§10.4).
+//! window would let the faster arm grow more and face a larger trie (§11.4).
 //!
 //! ## One cell per invocation
 //!
 //! ROWEX's reclamation strategy is a process-global singleton with thread-local
-//! free lists that outlive every trie (§10.3, decision 6). The runner drives
+//! free lists that outlive every trie (§11.3, decision 6). The runner drives
 //! the sweep; this binary runs one `(arm, writers, readers)` cell.
 //!
 //! ## Two builds, never one
@@ -59,7 +59,7 @@ const M_NEW: usize = 1 << 20;
 const ROUNDS: usize = 15;
 /// Rounds per health cell (event ratios, reported as median with range).
 const HEALTH_ROUNDS: usize = 5;
-/// The P-core pin on the reference host is 16 logical CPUs (§10.3, decision 3).
+/// The P-core pin on the reference host is 16 logical CPUs (§11.3, decision 3).
 const MAX_THREADS: usize = 16;
 
 /// The stored value for a key, so readers can verify every hit on both arms.
@@ -320,7 +320,7 @@ fn json_opt(v: Option<f64>) -> String {
 }
 
 /// The process's CPU affinity list, recorded in every row so thread placement
-/// is part of the artifact (§10.3, decision 3).
+/// is part of the artifact (§11.3, decision 3).
 fn cpus_allowed() -> String {
     std::fs::read_to_string("/proc/self/status")
         .ok()
@@ -334,7 +334,7 @@ fn cpus_allowed() -> String {
 
 fn usage() -> ! {
     eprintln!("usage: hot_concurrent <set|map> <writers> <readers> [--health]");
-    eprintln!("  writers + readers <= {MAX_THREADS}; one cell per invocation (§10.3 decision 6)");
+    eprintln!("  writers + readers <= {MAX_THREADS}; one cell per invocation (§11.3 decision 6)");
     eprintln!("  --health needs the `occ-stats` feature and emits event ratios only");
     std::process::exit(2);
 }
@@ -342,7 +342,7 @@ fn usage() -> ! {
 fn void_cell(round: usize, side: &str, r: &RoundResult, expected: usize) {
     if r.errors != 0 || r.population != expected {
         eprintln!(
-            "round {round} {side}: {} reader error(s), population {} (intended {expected}); cell is void (§10.7)",
+            "round {round} {side}: {} reader error(s), population {} (intended {expected}); cell is void (§11.7)",
             r.errors, r.population
         );
         std::process::exit(1);
@@ -373,7 +373,7 @@ fn main() {
     if health != occ_stats::enabled() {
         eprintln!(
             "build/role mismatch: occ-stats {} but --health {} — a throughput figure from a \
-             diagnostic build, or a health ratio from a default build, is void (§10.7)",
+             diagnostic build, or a health ratio from a default build, is void (§11.7)",
             if occ_stats::enabled() { "on" } else { "off" },
             if health { "given" } else { "absent" }
         );
@@ -396,7 +396,7 @@ fn main() {
 
     if health {
         // Expanse side only: ROWEX has no counterpart counter. Event ratios
-        // from a diagnostic build; nothing here is a timing (§10.3, decision 5).
+        // from a diagnostic build; nothing here is a timing (§11.3, decision 5).
         for round in 0..HEALTH_ROUNDS {
             let snap = match arm {
                 Arm::SetA => {

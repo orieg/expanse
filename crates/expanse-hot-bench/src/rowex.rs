@@ -1,4 +1,4 @@
-//! HOT's ROWEX variant — the concurrent arm (#692, METHODOLOGY.md §10).
+//! HOT's ROWEX variant — the concurrent arm (#692, METHODOLOGY.md §11).
 //!
 //! Compiled only under the `rowex` feature. The two wrappers here are the
 //! concurrent twins of [`HotSet`](crate::HotSet) and [`HotMap`](crate::HotMap):
@@ -7,7 +7,7 @@
 //! measures. `len` walks the structure and is quiescent-only — the harnesses
 //! call it after every writer has joined.
 //!
-//! Both arms are measured **below any external lock** (§8.16; §10.3 decision
+//! Both arms are measured **below any external lock** (§8.16; §11.3 decision
 //! 4): ROWEX through its own per-node write exclusion and epoch-based
 //! reclamation, Expanse through `SyncExpanseMap` / `SyncExpanseSet`. Neither is
 //! wrapped here.

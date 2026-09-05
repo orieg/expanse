@@ -1,5 +1,5 @@
 // C ABI shim over HOT's ROWEX (Read-Optimized Write EXclusion) variant — the
-// concurrent arm of the suite (#692, METHODOLOGY.md §10).
+// concurrent arm of the suite (#692, METHODOLOGY.md §11).
 //
 // Compiled only under the `rowex` cargo feature, because it drags in TBB:
 // ROWEX keeps each thread's epoch-based-reclamation state in a
@@ -13,7 +13,7 @@
 // free lists are `std::vector`s through the replaced `operator new`. What the
 // census cannot see is libtbb.so's own per-thread bookkeeping, allocated
 // through the dynamic linker (§9.7's mechanism) — once per registering thread,
-// independent of N (§10.3, decision 1).
+// independent of N (§11.3, decision 1).
 //
 // Every entry point below that says "concurrent" may be called from any number
 // of threads at once on the same trie; that is the property the arm measures.
@@ -35,7 +35,7 @@ using RowexMap = hot::rowex::HOTRowex<RowexPair *, idx::contenthelpers::PairPoin
 
 // ROWEX's child pointer tags leaves in bit 0 and recovers the payload with a
 // shift, exactly as the single-threaded variant does, so the inline payload is
-// 63 bits and the predicate binds the set arm alone (measured at the §10.2
+// 63 bits and the predicate binds the set arm alone (measured at the §11.2
 // gate: 2^63 inserted and not found). Same contract as `hot_shim.cpp`: -2
 // means "this arm cannot represent this key", reported, never used to narrow
 // the workload.
