@@ -1103,6 +1103,30 @@ fn make_map_bitmap(a: &mut Arena, entries: &[(u32, u32)]) -> Edge32 {
     node_edge(h, T_MAP_BITMAP)
 }
 
+/// No subarray entered yet: every real subarray index is `0..=7`, so this
+/// forces the first entry of a cursor to take the popcount path.
+///
+/// Spelled as a literal, not `u8::MAX`: `test_encoding_reference_sync` scans
+/// every `const NAME: u8` in this file and requires a decimal or `0x` value.
+const SUB_NONE: u8 = 0xFF;
+
+#[cfg(test)]
+impl Arena {
+    /// How many map bitmap leaves the arena holds.
+    ///
+    /// Exists so a test can pin which leaf form a benchmark's key
+    /// distribution actually reaches: the walk's bitmap path is only
+    /// measured by an arm whose keys are dense enough to promote past
+    /// `MAP_BITMAP_ENTER_32`, and nothing else would notice if a
+    /// distribution changed and quietly stopped covering it (§6).
+    pub(crate) fn map_bitmap_count(&self) -> usize {
+        self.slots
+            .iter()
+            .filter(|s| matches!(s, Some(NodeBox::MapBitmap(_))))
+            .count()
+    }
+}
+
 #[inline(always)]
 fn bitmap_sub_rank(word: u64, digit: u8) -> usize {
     let bit64 = digit & 63;
@@ -3912,6 +3936,14 @@ enum LeafCur32 {
         words: [u64; 4],
         w: u8,
         prefix: u32,
+        /// The 32-digit subarray `rank` counts within, or `SUB_NONE` before
+        /// the first entry. Ranks are per-subarray, so the running counter
+        /// has to restart whenever the walk crosses into the next one.
+        sub: u8,
+        /// Rank of the last entry yielded inside `sub`. Set bits are consumed
+        /// in ascending order, so within one subarray the next entry's rank
+        /// is always this plus one — see [`LeafCur32::next`].
+        rank: u8,
     },
 }
 
@@ -3993,6 +4025,8 @@ impl LeafCur32 {
                         words,
                         w: 0,
                         prefix,
+                        sub: SUB_NONE,
+                        rank: 0,
                     }
                 } else {
                     LeafCur32::Bitmap {
@@ -4067,6 +4101,8 @@ impl LeafCur32 {
                 words,
                 w,
                 prefix,
+                sub,
+                rank,
             } => loop {
                 if *w >= 4 {
                     return None;
@@ -4080,8 +4116,29 @@ impl LeafCur32 {
                 *word &= *word - 1;
                 let digit = (*w as usize * 64 + bit) as u8;
                 let b = a.map_bitmap(*handle);
-                let (cr, v) = map_bitmap_entry(b, digit)?;
-                return Some((*prefix | cr, v));
+                // `map_bitmap_entry` recomputes the rank with a popcount for
+                // every key. The walk consumes set bits in ascending order,
+                // so inside one 32-digit subarray each entry sits exactly one
+                // rank past the last — the popcount is only needed on the
+                // entry that opens a subarray, which is at most eight times
+                // per leaf instead of once per key. It is needed there rather
+                // than assumed zero because a range walk can start partway
+                // into a subarray, with lower set bits masked out of `words`
+                // but still present in the leaf's own bitmap.
+                let this_sub = digit >> 5;
+                if this_sub == *sub {
+                    *rank += 1;
+                } else {
+                    *rank = bitmap_sub_rank(b.header.bitmap[(digit >> 6) as usize], digit) as u8;
+                    *sub = this_sub;
+                }
+                debug_assert_eq!(
+                    usize::from(*rank),
+                    bitmap_sub_rank(b.header.bitmap[(digit >> 6) as usize], digit),
+                    "running rank diverged from the popcount it replaces"
+                );
+                let v = b.subarrays[this_sub as usize].as_ref()?[usize::from(*rank)];
+                return Some((*prefix | u32::from(digit), v));
             },
         }
     }
@@ -4204,6 +4261,15 @@ impl<'a> RawIter32<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn leaf_cursor_width_is_pinned() {
+        // #614's own finding: every leaf transition copies a whole LeafCur32,
+        // so the enum's width is set by its largest variant and a field added
+        // to any one of them is paid by all. The running-rank counter fits in
+        // MapBitmap's existing tail padding; this fails if something later
+        // does not.
+        assert_eq!(core::mem::size_of::<LeafCur32>(), 48);
+    }
 
     #[test]
     fn cap_class_matches_64bit_schedule() {
