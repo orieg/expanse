@@ -49,10 +49,10 @@ Per `AGENTS.md` §8.8 commit 2 (pre-registration locked before any main data) an
      split. What the literal divisor invalidated was absolute cycles/key at `pop=500` and every
      **cross-population** reading — a fixed-width range walk appeared to cost 20.6% more per key
      at `pop=2000` than at `pop=500` when, corrected, it is flat to slightly cheaper.
-   - The committed `pop=500` aggregation cells in `results/esp32.json` predate the derived
-     divisor and are understated by ~25%. They are **pending re-measurement** (#676) on the next
-     device harvest. No published table or chart consumes them — `docs/DATABASE.md` and
-     `scripts/generate_charts.py` both read `pop=2000` only, where the correction is 0.2%.
+   - Both populations were re-harvested with the derived divisor at commit `49b3b6c1`, so no
+     cell in `results/esp32.json` carries the literal-500 divisor any more. The `pop=500`
+     aggregation cells now report ~400 keys and the `pop=2000` cells ~501, which is what the
+     range actually holds.
 
 3. **The Dispatch Control Sizes the One Remaining Arm Asymmetry**:
    - `expanse_memtable_aggregate_range` crosses the C ABI into Rust and is called back once
@@ -80,10 +80,16 @@ Per `AGENTS.md` §8.8 commit 2 (pre-registration locked before any main data) an
    - **It is a floor, not an estimate.** Dispatch is measured in a contiguous array walk,
      not inside Expanse's leaf walk where register pressure differs. It bounds what the
      callback costs Expanse from below; it does not say what it costs there.
-   - The arm has **no measurement yet** — it needs a device run and no board is currently
-     connected. Its numbers are pending re-measurement (#676) along with the rest of the
-     aggregation cells. Nothing in this suite is corrected on its behalf until it is run:
-     the published Expanse-vs-twin ratios stand as measured, with the asymmetry disclosed.
+   - **Measured** *(ESP32-D0WD-V3 rev v3.1, 160 MHz, commit `49b3b6c1`, medians of 10)*: the
+     dispatch costs **+26.4 cycles per key** at `pop=2000` (45.06 inlined -> 71.46 indirect) and
+     **+29.3** at `pop=500` (45.73 -> 75.00). Against a `sorted_array` arm at 55.2 cycles/key,
+     that is on the order of half the twin's own walk.
+   - What that does **not** license is a corrected ratio quoted as a measurement. Adding a
+     warm-measured delta to cold-measured arms is arithmetic, so any adjusted figure is
+     **derived**; and the dispatch is measured in a contiguous array walk rather than inside
+     Expanse's leaf walk, so it bounds the cost from below rather than estimating it. The
+     published Expanse-vs-twin ratios stand as measured, with the asymmetry now sized instead
+     of merely disclosed.
 
 4. **Run-to-Run Drift & Flash Cache Sensitivity**:
    - Microcontroller execution is sensitive to binary link layout and instruction-cache / flash-cache alignment.
