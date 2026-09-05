@@ -1,0 +1,344 @@
+{
+  "provenance": {
+    "suite": "hot_comparison",
+    "issue": 660,
+    "commit": "unknown",
+    "hot_commit": "96bf6fb",
+    "cpu": "x86_64",
+    "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35",
+    "rustflags": "-C target-cpu=haswell",
+    "cxx_flags": "-march=haswell -O3 -std=c++17 -DNDEBUG",
+    "loads": [
+      {
+        "label": "start",
+        "load1": 0.97,
+        "load5": 0.46,
+        "load15": 0.18,
+        "at": "2026-09-05T03:51:27Z"
+      },
+      {
+        "label": "after-memory",
+        "load1": 0.97,
+        "load5": 0.47,
+        "load15": 0.18,
+        "at": "2026-09-05T03:51:32Z"
+      },
+      {
+        "label": "end",
+        "load1": 1.04,
+        "load5": 0.55,
+        "load15": 0.23,
+        "at": "2026-09-05T03:52:11Z"
+      }
+    ],
+    "quick": false
+  },
+  "cells": [
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "keyspace_bits": 63,
+      "population": 32768,
+      "lambda": 1.0,
+      "hot_alloc_bytes_per_key": 12.0625,
+      "expanse_alloc_bytes_per_key": 16.1755,
+      "expanse_mem_used_bytes_per_key": 14.0576,
+      "hot_allocs": 1620,
+      "expanse_allocs": 3182,
+      "lambda_target": 1.0
+    },
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "keyspace_bits": 63,
+      "population": 65536,
+      "lambda": 2.0,
+      "hot_alloc_bytes_per_key": 11.8965,
+      "expanse_alloc_bytes_per_key": 14.8768,
+      "expanse_mem_used_bytes_per_key": 13.7551,
+      "hot_allocs": 3166,
+      "expanse_allocs": 4652,
+      "lambda_target": 2.0
+    },
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "keyspace_bits": 63,
+      "population": 131072,
+      "lambda": 4.0,
+      "hot_alloc_bytes_per_key": 11.8151,
+      "expanse_alloc_bytes_per_key": 12.5029,
+      "expanse_mem_used_bytes_per_key": 11.8339,
+      "hot_allocs": 6271,
+      "expanse_allocs": 4893,
+      "lambda_target": 4.0
+    },
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "keyspace_bits": 63,
+      "population": 262144,
+      "lambda": 8.0,
+      "hot_alloc_bytes_per_key": 11.7688,
+      "expanse_alloc_bytes_per_key": 9.981,
+      "expanse_mem_used_bytes_per_key": 9.5609,
+      "hot_allocs": 12540,
+      "expanse_allocs": 5136,
+      "lambda_target": 8.0
+    },
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "keyspace_bits": 63,
+      "population": 491520,
+      "lambda": 15.0,
+      "hot_alloc_bytes_per_key": 11.7064,
+      "expanse_alloc_bytes_per_key": 8.2665,
+      "expanse_mem_used_bytes_per_key": 7.9508,
+      "hot_allocs": 22673,
+      "expanse_allocs": 5839,
+      "lambda_target": 15.0
+    },
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "keyspace_bits": 63,
+      "population": 753664,
+      "lambda": 23.0,
+      "hot_alloc_bytes_per_key": 11.6888,
+      "expanse_alloc_bytes_per_key": 8.1101,
+      "expanse_mem_used_bytes_per_key": 7.9715,
+      "hot_allocs": 35089,
+      "expanse_allocs": 18596,
+      "lambda_target": 23.0
+    },
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "keyspace_bits": 63,
+      "population": 983040,
+      "lambda": 30.0,
+      "hot_alloc_bytes_per_key": 11.6952,
+      "expanse_alloc_bytes_per_key": 13.3657,
+      "expanse_mem_used_bytes_per_key": 13.0461,
+      "hot_allocs": 45297,
+      "expanse_allocs": 45243,
+      "lambda_target": 30.0
+    },
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "keyspace_bits": 63,
+      "population": 1245184,
+      "lambda": 38.0,
+      "hot_alloc_bytes_per_key": 11.7662,
+      "expanse_alloc_bytes_per_key": 20.6977,
+      "expanse_mem_used_bytes_per_key": 20.0494,
+      "hot_allocs": 61743,
+      "expanse_allocs": 69657,
+      "lambda_target": 38.0
+    },
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "keyspace_bits": 63,
+      "population": 1507328,
+      "lambda": 46.0,
+      "hot_alloc_bytes_per_key": 11.6799,
+      "expanse_alloc_bytes_per_key": 21.9267,
+      "expanse_mem_used_bytes_per_key": 21.2384,
+      "hot_allocs": 70056,
+      "expanse_allocs": 77498,
+      "lambda_target": 46.0
+    },
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "keyspace_bits": 63,
+      "population": 1998848,
+      "lambda": 61.0,
+      "hot_alloc_bytes_per_key": 11.6991,
+      "expanse_alloc_bytes_per_key": 20.2914,
+      "expanse_mem_used_bytes_per_key": 19.6692,
+      "hot_allocs": 92765,
+      "expanse_allocs": 82068,
+      "lambda_target": 61.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "keyspace_bits": 64,
+      "population": 65536,
+      "lambda": 1.0,
+      "hot_alloc_bytes_per_key": 35.8815,
+      "expanse_alloc_bytes_per_key": 23.8768,
+      "expanse_mem_used_bytes_per_key": 22.6609,
+      "hot_allocs": 68695,
+      "expanse_allocs": 6550,
+      "lambda_target": 1.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "keyspace_bits": 64,
+      "population": 131072,
+      "lambda": 2.0,
+      "hot_alloc_bytes_per_key": 35.8004,
+      "expanse_alloc_bytes_per_key": 24.7926,
+      "expanse_mem_used_bytes_per_key": 24.0927,
+      "hot_allocs": 137352,
+      "expanse_allocs": 9606,
+      "lambda_target": 2.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "keyspace_bits": 64,
+      "population": 262144,
+      "lambda": 4.0,
+      "hot_alloc_bytes_per_key": 35.746,
+      "expanse_alloc_bytes_per_key": 22.8025,
+      "expanse_mem_used_bytes_per_key": 22.2841,
+      "hot_allocs": 274598,
+      "expanse_allocs": 11804,
+      "lambda_target": 4.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "keyspace_bits": 64,
+      "population": 524288,
+      "lambda": 8.0,
+      "hot_alloc_bytes_per_key": 35.7434,
+      "expanse_alloc_bytes_per_key": 18.9906,
+      "expanse_mem_used_bytes_per_key": 19.0479,
+      "hot_allocs": 549245,
+      "expanse_allocs": 37417,
+      "lambda_target": 8.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "keyspace_bits": 64,
+      "population": 983040,
+      "lambda": 15.0,
+      "hot_alloc_bytes_per_key": 35.6976,
+      "expanse_alloc_bytes_per_key": 16.7165,
+      "expanse_mem_used_bytes_per_key": 16.752,
+      "hot_allocs": 1028317,
+      "expanse_allocs": 102100,
+      "lambda_target": 15.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "keyspace_bits": 64,
+      "population": 1507328,
+      "lambda": 23.0,
+      "hot_alloc_bytes_per_key": 35.6799,
+      "expanse_alloc_bytes_per_key": 16.2634,
+      "expanse_mem_used_bytes_per_key": 16.2004,
+      "hot_allocs": 1577366,
+      "expanse_allocs": 214889,
+      "lambda_target": 23.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "keyspace_bits": 64,
+      "population": 1966080,
+      "lambda": 30.0,
+      "hot_alloc_bytes_per_key": 35.6919,
+      "expanse_alloc_bytes_per_key": 19.3928,
+      "expanse_mem_used_bytes_per_key": 19.0458,
+      "hot_allocs": 2056592,
+      "expanse_allocs": 322455,
+      "lambda_target": 30.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "keyspace_bits": 64,
+      "population": 2490368,
+      "lambda": 38.0,
+      "hot_alloc_bytes_per_key": 35.7574,
+      "expanse_alloc_bytes_per_key": 23.9116,
+      "expanse_mem_used_bytes_per_key": 23.2409,
+      "hot_allocs": 2613685,
+      "expanse_allocs": 397323,
+      "lambda_target": 38.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "keyspace_bits": 64,
+      "population": 3014656,
+      "lambda": 46.0,
+      "hot_alloc_bytes_per_key": 35.6749,
+      "expanse_alloc_bytes_per_key": 24.7107,
+      "expanse_mem_used_bytes_per_key": 24.0044,
+      "hot_allocs": 3154633,
+      "expanse_allocs": 417688,
+      "lambda_target": 46.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "keyspace_bits": 64,
+      "population": 3997696,
+      "lambda": 61.0,
+      "hot_alloc_bytes_per_key": 35.6939,
+      "expanse_alloc_bytes_per_key": 23.8329,
+      "expanse_mem_used_bytes_per_key": 23.1663,
+      "hot_allocs": 4182961,
+      "expanse_allocs": 428718,
+      "lambda_target": 61.0
+    }
+  ],
+  "payload_delta": {
+    "per_lambda": [
+      {
+        "lambda": 1.0,
+        "map_minus_set": 8.6033
+      },
+      {
+        "lambda": 2.0,
+        "map_minus_set": 10.3376
+      },
+      {
+        "lambda": 4.0,
+        "map_minus_set": 10.4502
+      },
+      {
+        "lambda": 8.0,
+        "map_minus_set": 9.487
+      },
+      {
+        "lambda": 15.0,
+        "map_minus_set": 8.8012
+      },
+      {
+        "lambda": 23.0,
+        "map_minus_set": 8.2289
+      },
+      {
+        "lambda": 30.0,
+        "map_minus_set": 5.9997
+      },
+      {
+        "lambda": 38.0,
+        "map_minus_set": 3.1915
+      },
+      {
+        "lambda": 46.0,
+        "map_minus_set": 2.766
+      },
+      {
+        "lambda": 61.0,
+        "map_minus_set": 3.4971
+      }
+    ],
+    "spread_bytes": 7.6842,
+    "note": "map - set at matched occupancy; expected \u2248 one value word and flat. Not a density check \u2014 the arms hold different payloads. The density falsifier is same-flavour cross-keyspace, measured by keyspace_density_probe."
+  }
+}
