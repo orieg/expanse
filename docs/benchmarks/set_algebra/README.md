@@ -47,42 +47,55 @@ the provenance check under test.
 
 ## 3. Results
 
-`(measured: reference host — Intel i9-12900F, 24 threads, 62 GiB, kernel 6.8, rustc 1.98.0,
-commit c4b1817f; paired ratio per repetition, 95% percentile bootstrap over independent runs;
-continuous 2 s contamination sampling, every repetition CLEAN)`
+`(measured: reference host — Intel i9-12900F, 8 P-cores + 8 E-cores, 24 logical CPUs, 30 MiB L3,
+Linux 6.8, rustc 1.98.1, commit fcca1c0d; 5 independent whole-harness runs through run.sh --reps 5,
+bench lock held, P-core pin, load 1.0–2.6 at each start; paired ratio per repetition, 95% percentile
+bootstrap over repetitions; results/bench_domain_algebra.json via scripts/harvest_domain.py)`
 
 ### Provenance-check cost (H1)
 
 | Arm | Raw `ExpanseSet` | `DomainSet` | Ratio (95% CI) | Verdict |
 |---|---|---|---|---|
-| `intersection()` N=10k | 1817.1 ns | 1862.0 ns | 1.0247 [1.0226, 1.0267] | **+2.5%** |
-| `intersection_len()` N=10k | 325.8 ns | 341.8 ns | 1.0492 [1.0468, 1.0517] | **+4.9%** |
-| `intersection()` N=100k | 10868.0 ns | 10871.5 ns | 1.0003 [0.9964, 1.0045] | not resolved |
-| `intersection_len()` N=100k | 1545.8 ns | 1545.6 ns | 0.9999 [0.9992, 1.0005] | not resolved |
+| `intersection()` N=10k | 1860.2 ns | 1897.1 ns | 1.0199 [1.0165, 1.0226] | **+2.0%** |
+| `intersection_len()` N=10k | 288.9 ns | 289.2 ns | 1.0013 [1.0009, 1.0015] | **+0.1%** |
+| `intersection()` N=100k | 10925.2 ns | 10926.9 ns | 1.0002 [0.9970, 1.0034] | not resolved |
+| `intersection_len()` N=100k | 1657.3 ns | 1648.3 ns | 0.9946 [0.9835, 1.0019] | not resolved |
 
-**H1 is refuted at N=10k and holds at N=100k.** The methodology pre-registered H1 as a null —
-the pass condition being overlapping intervals. That holds at N=100k, where the base algebra
-cost dominates. It fails at N=10k, where the check is a reproducible 2.5%–4.9%, separated on
-two independent clean series (1.0247/1.0492 here; 1.0283/1.0473 in an earlier clean series).
-Reporting the refutation rather than the population where the null survives is the point of
-pre-registering it (§8.7).
+**H1 is refuted at N=10k on `intersection()` and holds at N=100k.** The methodology
+pre-registered H1 as a null — the pass condition being overlapping intervals. That holds at
+N=100k, where the base algebra cost dominates. It fails at N=10k on `intersection()`, where the
+check is a reproducible 2.0% [1.65%, 2.26%] over five independent runs; on `intersection_len()`
+at N=10k the interval also excludes 1.0, but at +0.1% [0.09%, 0.15%] the effect is at the edge of
+what the instrument resolves. Reporting the refutation rather than the population where the null
+survives is the point of pre-registering it (§8.7).
+
+**Correction.** These cells were re-measured at `fcca1c0d` after #701, which pinned the harness's
+allocator policy (glibc heap trimming off, a top pad) so the measured region no longer depends on
+which arms ran earlier in the process; the earlier cells, taken at `c4b1817f`, are superseded
+rather than overwritten silently. The `intersection()` ratios reproduce within the between-run
+interval. The `intersection_len()` N=10k cell does not: it was published as a resolved overhead of
+about 5% and now reads 0.1%, and its absolute time fell by 11%. The cardinality walk changed
+between the two measurements — #638 gave it runtime `popcnt` dispatch — so the two cells are
+different code, not a drift; which of the two changes moved the ratio is not separated here.
+The previous figures are registered in `.github/superseded-figures.json` so they cannot be
+republished.
 
 ### Ingestion (H2, H3)
 
 | Keys | Scalar | Batch-128 | Speedup (95% CI) |
 |---|---|---|---|
-| Text, N=10k | 11.36 M keys/s | 11.69 M keys/s | 1.029× [1.027, 1.031] |
-| Text, N=50k | 10.84 M keys/s | 11.18 M keys/s | 1.031× [1.029, 1.033] |
-| Binary UUID, N=10k | 5.69 M keys/s | 5.75 M keys/s | 1.010× [1.010, 1.011] |
-| Binary UUID, N=50k | 5.88 M keys/s | 5.92 M keys/s | 1.007× [1.006, 1.008] |
+| Text, N=10k | 11.42 M keys/s | 11.73 M keys/s | 1.028× [1.026, 1.029] |
+| Text, N=50k | 10.91 M keys/s | 11.14 M keys/s | 1.021× [1.017, 1.025] |
+| Binary UUID, N=10k | 5.79 M keys/s | 5.84 M keys/s | 1.009× [1.005, 1.013] |
+| Binary UUID, N=50k | 5.97 M keys/s | 6.02 M keys/s | 1.008× [1.007, 1.009] |
 
 H2 and H3 predicted batching would win, and it does — by 1%–3%. H3 further predicted the UUID
 margin would be *narrower* than text because byte-stuffing is per-key work amortisation cannot
-remove; measured 1.007×–1.010× against 1.029×–1.031×, so H3 holds in direction and magnitude.
+remove; measured 1.008×–1.009× against 1.021×–1.028×, so H3 holds in direction and magnitude.
 
 ### Resolution (H4)
 
-604.4 M keys/s (1.655 ns/key) at N=10k; 609.5 M keys/s (1.641 ns/key) at N=100k; zero heap
+608.9 M keys/s (1.642 ns/key) at N=10k; 615.8 M keys/s (1.624 ns/key) at N=100k; zero heap
 allocations during traversal.
 
 ### Cardinality walk `popcnt` dispatch (#638)

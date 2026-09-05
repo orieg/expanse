@@ -1,192 +1,414 @@
 {
-  "_readme": "Source data for docs/benchmarks/set_algebra/results/bench_domain_algebra.svg rendered by docs/benchmarks/set_algebra/scripts/generate_charts.py. Provenance is per-section: each block below states its own harness and issue, and records host/commit as \"unresolved\" where the source did not distinguish them. A section whose host is unresolved must not be paired with another in prose or in a ratio (AGENTS.md 8.12).",
-  "meta": {
-    "source": "docs/DATABASE.md §4.3; suite: docs/benchmarks/set_algebra/",
-    "attribution": "Panels 1-2 (#348, #610, benches/search_boolean.rs) retain unresolved host and commit: they were NOT re-measured by this work and keep the position recorded in #646. Panel 3 (#611, benches/domain.rs) was re-measured on the reference host after the per-iteration leak fix (#647); its provenance is stated per section above. The two panel groups therefore carry different provenance and must not be compared.",
-    "note": "Set algebra evolution (#348 materialization, #610 k-way aggregate) from benches/search_boolean.rs, and the interned set domain (#611) from benches/domain.rs. Two harnesses: the panels are not a paired comparison and must not be read as one."
+ "_readme": "Source data for docs/benchmarks/set_algebra/results/bench_domain_algebra.svg rendered by docs/benchmarks/set_algebra/scripts/generate_charts.py. Provenance is per-section: each block below states its own harness and issue, and records host/commit as \"unresolved\" where the source did not distinguish them. A section whose host is unresolved must not be paired with another in prose or in a ratio (AGENTS.md 8.12).",
+ "meta": {
+  "source": "docs/DATABASE.md §4.3; suite: docs/benchmarks/set_algebra/",
+  "attribution": "Panels 1-2 (#348, #610, benches/search_boolean.rs) retain unresolved host and commit: they were NOT re-measured by this work and keep the position recorded in #646. Panel 3 (#611, benches/domain.rs) was re-measured on the reference host after the per-iteration leak fix (#647); its provenance is stated per section above. The two panel groups therefore carry different provenance and must not be compared.",
+  "note": "Set algebra evolution (#348 materialization, #610 k-way aggregate) from benches/search_boolean.rs, and the interned set domain (#611) from benches/domain.rs. Two harnesses: the panels are not a paired comparison and must not be read as one."
+ },
+ "materialization_348": [
+  {
+   "distribution": "Dense",
+   "subtitle": "N=100k, symmetric |A|=|B|",
+   "v2_us": 9.7,
+   "v1_us": 293.5,
+   "roaring_us": 1.3,
+   "speedup_vs_v1": 30.3
   },
-  "materialization_348": [
-    {
-      "distribution": "Dense",
-      "subtitle": "N=100k, symmetric |A|=|B|",
-      "v2_us": 9.7,
-      "v1_us": 293.5,
-      "roaring_us": 1.3,
-      "speedup_vs_v1": 30.3
-    },
-    {
-      "distribution": "Clustered",
-      "subtitle": "N=100k, symmetric |A|=|B|",
-      "v2_us": 24.3,
-      "v1_us": 788.4,
-      "roaring_us": 107.6,
-      "speedup_vs_v1": 32.4
-    },
-    {
-      "distribution": "Sparse",
-      "subtitle": "N=100k, symmetric |A|=|B|",
-      "v2_us": 29.8,
-      "v1_us": 1120.0,
-      "roaring_us": 28.5,
-      "speedup_vs_v1": 37.6
-    },
-    {
-      "distribution": "Zipfian",
-      "subtitle": "N=100k, symmetric |A|=|B|",
-      "v2_us": 48.9,
-      "v1_us": 1410.0,
-      "roaring_us": 34.2,
-      "speedup_vs_v1": 28.8
-    }
-  ],
-  "kway_610": [
-    {
-      "distribution": "Dense",
-      "subtitle": "k=5, N=100k",
-      "kway_us": 0.55,
-      "pairwise_us": 565.8,
-      "roaring_us": 0.62,
-      "speedup_vs_pairwise": 1028.7,
-      "speedup_vs_roaring": 1.13
-    },
-    {
-      "distribution": "Clustered",
-      "subtitle": "k=5, N=100k",
-      "kway_us": 16.9,
-      "pairwise_us": 108.6,
-      "roaring_us": 26.4,
-      "speedup_vs_pairwise": 6.43,
-      "speedup_vs_roaring": 1.56
-    },
-    {
-      "distribution": "Zipfian",
-      "subtitle": "k=5, N=100k",
-      "kway_us": 28.4,
-      "pairwise_us": 142.1,
-      "roaring_us": 31.8,
-      "speedup_vs_pairwise": 5.0,
-      "speedup_vs_roaring": 1.12
-    },
-    {
-      "distribution": "Sparse",
-      "subtitle": "k=5, N=100k",
-      "kway_us": 617.1,
-      "pairwise_us": 3248.7,
-      "roaring_us": 1093.0,
-      "speedup_vs_pairwise": 5.26,
-      "speedup_vs_roaring": 1.77
-    }
-  ],
-  "domain_parity_611": {
-    "_note": "Paired ratio domain/raw per repetition; interval is a percentile bootstrap over independent runs, so it carries between-run variance. Criterion's own within-run interval is 0.2-0.5% here and cannot see that, which is why single-run figures appeared separated when they were not (AGENTS.md 8.4).",
-    "intersection_10k": {
-      "raw_ns": 1817.1,
-      "domain_ns": 1862.0,
-      "ratio": 1.0247,
-      "ci": [
-        1.0226,
-        1.0267
-      ],
-      "verdict": "overhead resolved"
-    },
-    "intersection_100k": {
-      "raw_ns": 10868.0,
-      "domain_ns": 10871.5,
-      "ratio": 1.0003,
-      "ci": [
-        0.9964,
-        1.0045
-      ],
-      "verdict": "not resolved"
-    },
-    "intersection_len_10k": {
-      "raw_ns": 325.8,
-      "domain_ns": 341.8,
-      "ratio": 1.0492,
-      "ci": [
-        1.0468,
-        1.0517
-      ],
-      "verdict": "overhead resolved"
-    },
-    "intersection_len_100k": {
-      "raw_ns": 1545.8,
-      "domain_ns": 1545.6,
-      "ratio": 0.9999,
-      "ci": [
-        0.9992,
-        1.0005
-      ],
-      "verdict": "not resolved"
-    }
+  {
+   "distribution": "Clustered",
+   "subtitle": "N=100k, symmetric |A|=|B|",
+   "v2_us": 24.3,
+   "v1_us": 788.4,
+   "roaring_us": 107.6,
+   "speedup_vs_v1": 32.4
   },
-  "domain_ingestion_611": [
-    {
-      "key_type": "Text Keys (entity:...)",
-      "scalar_mops": 11.36,
-      "batch128_mops": 11.69,
-      "speedup": 1.029,
-      "ci": [
-        1.027,
-        1.031
-      ],
-      "population": 10000
-    },
-    {
-      "key_type": "Binary UUID (escaped)",
-      "scalar_mops": 5.69,
-      "batch128_mops": 5.75,
-      "speedup": 1.01,
-      "ci": [
-        1.01,
-        1.011
-      ],
-      "population": 10000
-    }
-  ],
-  "domain_resolution_611": {
-    "scan_mops": 604.4,
-    "latency_ns": 1.655,
-    "allocation": "0 heap allocs (borrowed &[u8] from BlobArena chunk)",
-    "population": 10000,
-    "_note": "N=100k agrees: 164.06 us total, 1.641 ns/key, 609.5 M keys/s."
+  {
+   "distribution": "Sparse",
+   "subtitle": "N=100k, symmetric |A|=|B|",
+   "v2_us": 29.8,
+   "v1_us": 1120.0,
+   "roaring_us": 28.5,
+   "speedup_vs_v1": 37.6
   },
-  "provenance": {
-    "materialization_348": {
-      "issue": "#348",
-      "harness": "crates/expanse/benches/search_boolean.rs",
-      "host": "unresolved",
-      "commit": "unresolved"
-    },
-    "kway_610": {
-      "issue": "#610",
-      "harness": "crates/expanse/benches/search_boolean.rs",
-      "host": "unresolved",
-      "commit": "unresolved"
-    },
-    "domain_parity_611": {
-      "issue": "#611",
-      "harness": "crates/expanse/benches/domain.rs",
-      "host": "reference host - Intel i9-12900F, 24 threads, 62 GiB, Ubuntu 24.04 / kernel 6.8, rustc 1.98.0; quiet, continuous 2s contamination sampling, all reps CLEAN",
-      "commit": "c4b1817f",
-      "reps": "6 clean (parity) / 4 clean (ingestion, resolution)",
-      "statistic": "paired ratio per repetition; 95% percentile bootstrap"
-    },
-    "domain_ingestion_611": {
-      "issue": "#611",
-      "harness": "crates/expanse/benches/domain.rs",
-      "host": "reference host - Intel i9-12900F, 24 threads, 62 GiB, Ubuntu 24.04 / kernel 6.8, rustc 1.98.0; quiet, continuous 2s contamination sampling, all reps CLEAN",
-      "commit": "c4b1817f",
-      "reps": "6 clean (parity) / 4 clean (ingestion, resolution)",
-      "statistic": "paired ratio per repetition; 95% percentile bootstrap"
-    },
-    "domain_resolution_611": {
-      "issue": "#611",
-      "harness": "crates/expanse/benches/domain.rs",
-      "host": "reference host - Intel i9-12900F, 24 threads, 62 GiB, Ubuntu 24.04 / kernel 6.8, rustc 1.98.0; quiet, continuous 2s contamination sampling, all reps CLEAN",
-      "commit": "c4b1817f",
-      "reps": "6 clean (parity) / 4 clean (ingestion, resolution)",
-      "statistic": "paired ratio per repetition; 95% percentile bootstrap"
-    }
+  {
+   "distribution": "Zipfian",
+   "subtitle": "N=100k, symmetric |A|=|B|",
+   "v2_us": 48.9,
+   "v1_us": 1410.0,
+   "roaring_us": 34.2,
+   "speedup_vs_v1": 28.8
   }
+ ],
+ "kway_610": [
+  {
+   "distribution": "Dense",
+   "subtitle": "k=5, N=100k",
+   "kway_us": 0.55,
+   "pairwise_us": 565.8,
+   "roaring_us": 0.62,
+   "speedup_vs_pairwise": 1028.7,
+   "speedup_vs_roaring": 1.13
+  },
+  {
+   "distribution": "Clustered",
+   "subtitle": "k=5, N=100k",
+   "kway_us": 16.9,
+   "pairwise_us": 108.6,
+   "roaring_us": 26.4,
+   "speedup_vs_pairwise": 6.43,
+   "speedup_vs_roaring": 1.56
+  },
+  {
+   "distribution": "Zipfian",
+   "subtitle": "k=5, N=100k",
+   "kway_us": 28.4,
+   "pairwise_us": 142.1,
+   "roaring_us": 31.8,
+   "speedup_vs_pairwise": 5.0,
+   "speedup_vs_roaring": 1.12
+  },
+  {
+   "distribution": "Sparse",
+   "subtitle": "k=5, N=100k",
+   "kway_us": 617.1,
+   "pairwise_us": 3248.7,
+   "roaring_us": 1093.0,
+   "speedup_vs_pairwise": 5.26,
+   "speedup_vs_roaring": 1.77
+  }
+ ],
+ "domain_parity_611": {
+  "_note": "Paired ratio domain/raw per repetition; `ci` is a 95% percentile bootstrap over the per-repetition ratios, so it carries between-run variance. Criterion's own within-run interval is far tighter and cannot see that, which is why single-run figures appeared separated when they were not (AGENTS.md 8.4). `ci_pooled_bca` is the two-sample BCa interval over all repetitions' pooled samples, recorded, not gating. Per-repetition means are kept so the aggregate can be re-derived (harvest_domain.py).",
+  "intersection_10k": {
+   "raw_ns": 1860.2,
+   "domain_ns": 1897.1,
+   "ratio": 1.0199,
+   "ci": [
+    1.0165,
+    1.0226
+   ],
+   "ci_pooled_bca": [
+    1.0137,
+    1.0261
+   ],
+   "verdict": "overhead resolved",
+   "per_rep_ratio": [
+    1.0204,
+    1.0234,
+    1.0132,
+    1.0228,
+    1.0195
+   ],
+   "per_rep_raw_ns": [
+    1858.2,
+    1857.2,
+    1869.8,
+    1854.9,
+    1860.8
+   ],
+   "per_rep_domain_ns": [
+    1896.1,
+    1900.7,
+    1894.4,
+    1897.2,
+    1897.1
+   ]
+  },
+  "intersection_100k": {
+   "raw_ns": 10925.2,
+   "domain_ns": 10926.9,
+   "ratio": 1.0002,
+   "ci": [
+    0.997,
+    1.0034
+   ],
+   "ci_pooled_bca": [
+    0.9981,
+    1.0018
+   ],
+   "verdict": "not resolved",
+   "per_rep_ratio": [
+    1.006,
+    1.0004,
+    0.9981,
+    1.001,
+    0.9952
+   ],
+   "per_rep_raw_ns": [
+    10882.0,
+    10939.0,
+    10900.3,
+    10957.5,
+    10947.3
+   ],
+   "per_rep_domain_ns": [
+    10947.3,
+    10943.7,
+    10879.9,
+    10968.8,
+    10894.7
+   ]
+  },
+  "intersection_len_10k": {
+   "raw_ns": 288.9,
+   "domain_ns": 289.2,
+   "ratio": 1.0013,
+   "ci": [
+    1.0009,
+    1.0015
+   ],
+   "ci_pooled_bca": [
+    1.0007,
+    1.0019
+   ],
+   "verdict": "overhead resolved",
+   "per_rep_ratio": [
+    1.0015,
+    1.0014,
+    1.0015,
+    1.0004,
+    1.0014
+   ],
+   "per_rep_raw_ns": [
+    288.6,
+    289.0,
+    288.8,
+    289.2,
+    288.7
+   ],
+   "per_rep_domain_ns": [
+    289.1,
+    289.4,
+    289.2,
+    289.3,
+    289.1
+   ]
+  },
+  "intersection_len_100k": {
+   "raw_ns": 1657.3,
+   "domain_ns": 1648.3,
+   "ratio": 0.9946,
+   "ci": [
+    0.9835,
+    1.0019
+   ],
+   "ci_pooled_bca": [
+    0.9932,
+    0.9958
+   ],
+   "verdict": "not resolved",
+   "per_rep_ratio": [
+    1.0043,
+    0.9981,
+    0.9988,
+    0.9985,
+    0.9735
+   ],
+   "per_rep_raw_ns": [
+    1646.9,
+    1649.8,
+    1648.4,
+    1650.6,
+    1691.1
+   ],
+   "per_rep_domain_ns": [
+    1653.9,
+    1646.6,
+    1646.4,
+    1648.2,
+    1646.3
+   ]
+  }
+ },
+ "domain_ingestion_611": [
+  {
+   "key_type": "Text Keys (entity:...)",
+   "scalar_mops": 11.42,
+   "batch128_mops": 11.73,
+   "speedup": 1.028,
+   "ci": [
+    1.026,
+    1.029
+   ],
+   "ci_pooled_bca": [
+    1.026,
+    1.029
+   ],
+   "population": 10000,
+   "per_rep_speedup": [
+    1.027,
+    1.0276,
+    1.0287,
+    1.0253,
+    1.0297
+   ]
+  },
+  {
+   "key_type": "Binary UUID (escaped)",
+   "scalar_mops": 5.79,
+   "batch128_mops": 5.84,
+   "speedup": 1.009,
+   "ci": [
+    1.005,
+    1.013
+   ],
+   "ci_pooled_bca": [
+    1.008,
+    1.01
+   ],
+   "population": 10000,
+   "per_rep_speedup": [
+    1.0074,
+    1.0041,
+    1.0052,
+    1.0164,
+    1.0101
+   ]
+  }
+ ],
+ "domain_resolution_611": {
+  "scan_mops": 608.9,
+  "latency_ns": 1.642,
+  "allocation": "0 heap allocs (borrowed &[u8] from BlobArena chunk)",
+  "population": 10000,
+  "_note": "N=100k: 162.38 us total, 1.624 ns/key, 615.8 M keys/s. Pooled BCa 95% of the N=10k scan: [16.42, 16.44] us.",
+  "per_rep_scan_ns_10k": [
+   16392.6,
+   16423.3,
+   16438.1,
+   16405.1,
+   16455.4
+  ],
+  "per_rep_scan_ns_100k": [
+   162293.0,
+   162274.6,
+   162289.4,
+   162545.0,
+   162489.5
+  ]
+ },
+ "provenance": {
+  "materialization_348": {
+   "issue": "#348",
+   "harness": "crates/expanse/benches/search_boolean.rs",
+   "host": "unresolved",
+   "commit": "unresolved"
+  },
+  "kway_610": {
+   "issue": "#610",
+   "harness": "crates/expanse/benches/search_boolean.rs",
+   "host": "unresolved",
+   "commit": "unresolved"
+  },
+  "domain_parity_611": {
+   "issue": "#611; re-measured after #701 (allocator policy pinned in the harness)",
+   "harness": "crates/expanse/benches/domain.rs",
+   "host": "12th Gen Intel Core i9-12900F, 8 P-cores + 8 E-cores, 24 logical CPUs, 30 MiB L3, Linux 6.8",
+   "commit": "fcca1c0d",
+   "reps": "5 independent `cargo bench --bench domain` runs, whole harness per run, bench lock held, P-core pin",
+   "statistic": "paired ratio per repetition; 95% percentile bootstrap over repetitions (ci); two-sample BCa over pooled samples (ci_pooled_bca)",
+   "load_average_per_rep": [
+    "2.59 1.08 0.42",
+    "1.09 1.04 0.52",
+    "1.07 1.03 0.62",
+    "1.00 1.01 0.69",
+    "1.22 1.31 0.89"
+   ],
+   "harvester": "docs/benchmarks/set_algebra/scripts/harvest_domain.py"
+  },
+  "domain_ingestion_611": {
+   "issue": "#611; re-measured after #701 (allocator policy pinned in the harness)",
+   "harness": "crates/expanse/benches/domain.rs",
+   "host": "12th Gen Intel Core i9-12900F, 8 P-cores + 8 E-cores, 24 logical CPUs, 30 MiB L3, Linux 6.8",
+   "commit": "fcca1c0d",
+   "reps": "5 independent `cargo bench --bench domain` runs, whole harness per run, bench lock held, P-core pin",
+   "statistic": "paired ratio per repetition; 95% percentile bootstrap over repetitions (ci); two-sample BCa over pooled samples (ci_pooled_bca)",
+   "load_average_per_rep": [
+    "2.59 1.08 0.42",
+    "1.09 1.04 0.52",
+    "1.07 1.03 0.62",
+    "1.00 1.01 0.69",
+    "1.22 1.31 0.89"
+   ],
+   "harvester": "docs/benchmarks/set_algebra/scripts/harvest_domain.py"
+  },
+  "domain_resolution_611": {
+   "issue": "#611; re-measured after #701 (allocator policy pinned in the harness)",
+   "harness": "crates/expanse/benches/domain.rs",
+   "host": "12th Gen Intel Core i9-12900F, 8 P-cores + 8 E-cores, 24 logical CPUs, 30 MiB L3, Linux 6.8",
+   "commit": "fcca1c0d",
+   "reps": "5 independent `cargo bench --bench domain` runs, whole harness per run, bench lock held, P-core pin",
+   "statistic": "paired ratio per repetition; 95% percentile bootstrap over repetitions (ci); two-sample BCa over pooled samples (ci_pooled_bca)",
+   "load_average_per_rep": [
+    "2.59 1.08 0.42",
+    "1.09 1.04 0.52",
+    "1.07 1.03 0.62",
+    "1.00 1.01 0.69",
+    "1.22 1.31 0.89"
+   ],
+   "harvester": "docs/benchmarks/set_algebra/scripts/harvest_domain.py"
+  },
+  "domain_ingestion_611_50k": {
+   "issue": "#611; re-measured after #701 (allocator policy pinned in the harness)",
+   "harness": "crates/expanse/benches/domain.rs",
+   "host": "12th Gen Intel Core i9-12900F, 8 P-cores + 8 E-cores, 24 logical CPUs, 30 MiB L3, Linux 6.8",
+   "commit": "fcca1c0d",
+   "reps": "5 independent `cargo bench --bench domain` runs, whole harness per run, bench lock held, P-core pin",
+   "statistic": "paired ratio per repetition; 95% percentile bootstrap over repetitions (ci); two-sample BCa over pooled samples (ci_pooled_bca)",
+   "load_average_per_rep": [
+    "2.59 1.08 0.42",
+    "1.09 1.04 0.52",
+    "1.07 1.03 0.62",
+    "1.00 1.01 0.69",
+    "1.22 1.31 0.89"
+   ],
+   "harvester": "docs/benchmarks/set_algebra/scripts/harvest_domain.py"
+  }
+ },
+ "domain_ingestion_611_50k": [
+  {
+   "key_type": "Text Keys (entity:...)",
+   "scalar_mops": 10.91,
+   "batch128_mops": 11.14,
+   "speedup": 1.021,
+   "ci": [
+    1.017,
+    1.025
+   ],
+   "ci_pooled_bca": [
+    1.02,
+    1.022
+   ],
+   "population": 50000,
+   "per_rep_speedup": [
+    1.0196,
+    1.0169,
+    1.0169,
+    1.0261,
+    1.0257
+   ]
+  },
+  {
+   "key_type": "Binary UUID (escaped)",
+   "scalar_mops": 5.97,
+   "batch128_mops": 6.02,
+   "speedup": 1.008,
+   "ci": [
+    1.007,
+    1.009
+   ],
+   "ci_pooled_bca": [
+    1.007,
+    1.009
+   ],
+   "population": 50000,
+   "per_rep_speedup": [
+    1.0066,
+    1.0091,
+    1.009,
+    1.0084,
+    1.0068
+   ]
+  }
+ ]
 }

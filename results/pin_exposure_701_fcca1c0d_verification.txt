@@ -1,0 +1,55 @@
+# #701 verification — commit fcca1c0d, allocator policy pinned in benches/domain.rs; taskset -c 0-15; --measurement-time 5 --warm-up-time 2
+
+## V1_filtered_single_arm rep 1 [2026-09-05T12:02:21Z] loadavg=0.26 0.15 0.06
+rc=0
+    domain_set_algebra_overhead/raw_expanse_set_intersection/100000
+                            time:   [10.894 µs 10.928 µs 10.960 µs]
+    perf: 105804,page-faults
+    perf: 55001536973,cpu_core/cycles/
+    perf: 85385393373,cpu_core/instructions/
+    perf: 3799622,cpu_core/dTLB-store-misses/
+    estimates: mean=10837.2 slope=10928.1 | first-quartile 10717.3 last-quartile 10981.5
+
+## V1_filtered_single_arm rep 2 [2026-09-05T12:02:29Z] loadavg=0.32 0.17 0.06
+rc=0
+    domain_set_algebra_overhead/raw_expanse_set_intersection/100000
+                            time:   [10.905 µs 10.940 µs 10.971 µs]
+    perf: 105366,page-faults
+    perf: 55860785282,cpu_core/cycles/
+    perf: 85465737785,cpu_core/instructions/
+    perf: 3793064,cpu_core/dTLB-store-misses/
+    estimates: mean=10849.6 slope=10940.0 | first-quartile 10788.1 last-quartile 11014.4
+
+## V2_group rep 1 [2026-09-05T12:02:36Z] loadavg=1.62 0.45 0.15
+rc=0
+                            time:   [1.9349 µs 1.9525 µs 1.9668 µs]
+                            time:   [1.9739 µs 1.9921 µs 2.0075 µs]
+                            time:   [288.50 ns 288.71 ns 289.00 ns]
+                            time:   [289.03 ns 289.31 ns 289.67 ns]
+    domain_set_algebra_overhead/raw_expanse_set_intersection/100000
+                            time:   [11.083 µs 11.116 µs 11.150 µs]
+                            time:   [11.116 µs 11.175 µs 11.245 µs]
+                            time:   [1.6462 µs 1.6481 µs 1.6506 µs]
+                            time:   [1.6451 µs 1.6469 µs 1.6495 µs]
+    perf: 212519,page-faults
+    perf: 465824792133,cpu_core/cycles/
+    perf: 1329254744611,cpu_core/instructions/
+    perf: 14816598,cpu_core/dTLB-store-misses/
+    estimates: mean=11040.8 slope=11116.3 | first-quartile 10884.4 last-quartile 11157.5
+
+## V2_group rep 2 [2026-09-05T12:03:38Z] loadavg=2.16 0.79 0.29
+rc=0
+                            time:   [1.9387 µs 1.9599 µs 1.9783 µs]
+                            time:   [1.9782 µs 1.9945 µs 2.0078 µs]
+                            time:   [288.83 ns 289.58 ns 290.83 ns]
+                            time:   [289.25 ns 289.57 ns 290.01 ns]
+    domain_set_algebra_overhead/raw_expanse_set_intersection/100000
+                            time:   [11.014 µs 11.059 µs 11.100 µs]
+                            time:   [11.120 µs 11.156 µs 11.189 µs]
+                            time:   [1.6447 µs 1.6473 µs 1.6520 µs]
+                            time:   [1.6463 µs 1.6482 µs 1.6507 µs]
+    perf: 212078,page-faults
+    perf: 465707543335,cpu_core/cycles/
+    perf: 1330063341977,cpu_core/instructions/
+    perf: 15405436,cpu_core/dTLB-store-misses/
+    estimates: mean=10973.9 slope=11059.5 | first-quartile 10903.1 last-quartile 11149.7

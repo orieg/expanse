@@ -212,7 +212,15 @@ def build_sections(reps: Sequence[Dict[str, List[float]]]) -> Dict[str, Any]:
         "per_rep_scan_ns_10k": [round(v, 1) for v in res10["per_rep_mean_ns"]],
         "per_rep_scan_ns_100k": [round(v, 1) for v in res100["per_rep_mean_ns"]],
     }
-    return {"domain_parity_611": parity, "domain_ingestion_611": ingest, "domain_resolution_611": resolution}
+    # The chart renders the two N=10k ingestion rows; the N=50k rows are
+    # published in the tables under their own key so the chart's schema is
+    # unchanged and nothing is silently dropped.
+    return {
+        "domain_parity_611": parity,
+        "domain_ingestion_611": [c for c in ingest if c["population"] == 10_000],
+        "domain_ingestion_611_50k": [c for c in ingest if c["population"] == 50_000],
+        "domain_resolution_611": resolution,
+    }
 
 
 def render_markdown(sections: Dict[str, Any]) -> str:
@@ -231,7 +239,7 @@ def render_markdown(sections: Dict[str, Any]) -> str:
             f"| {names[key]} | {c['raw_ns']} ns | {c['domain_ns']} ns | {c['ratio']:.4f} [{c['ci'][0]:.4f}, {c['ci'][1]:.4f}] | {verdict} |"
         )
     out += ["", "| Keys | Scalar | Batch-128 | Speedup (95% CI) |", "|---|---|---|---|"]
-    for c in sections["domain_ingestion_611"]:
+    for c in sections["domain_ingestion_611"] + sections.get("domain_ingestion_611_50k", []):
         label = "Text" if c["key_type"].startswith("Text") else "Binary UUID"
         out.append(
             f"| {label}, N={c['population'] // 1000}k | {c['scalar_mops']} M keys/s | {c['batch128_mops']} M keys/s | "
@@ -275,6 +283,8 @@ def self_test() -> None:
     # 2. ingestion speedup is scalar/batch and throughput derives from population and ns
     ing = s["domain_ingestion_611"][0]
     assert 1.02 < ing["speedup"] < 1.04 and ing["population"] == 10_000, ing
+    assert len(s["domain_ingestion_611"]) == 2 and all(c["population"] == 10_000 for c in s["domain_ingestion_611"])
+    assert len(s["domain_ingestion_611_50k"]) == 2 and all(c["population"] == 50_000 for c in s["domain_ingestion_611_50k"])
     assert abs(ing["batch128_mops"] - 10_000 / (10_000 * 88.0) * 1e3) < 0.05, ing
     # 3. resolution: ns/key and M keys/s agree
     r = s["domain_resolution_611"]
@@ -335,7 +345,7 @@ def main() -> int:
         "load_average_per_rep": loads,
         "harvester": "docs/benchmarks/set_algebra/scripts/harvest_domain.py",
     }
-    for key in ("domain_parity_611", "domain_ingestion_611", "domain_resolution_611"):
+    for key in ("domain_parity_611", "domain_ingestion_611", "domain_ingestion_611_50k", "domain_resolution_611"):
         data.setdefault("provenance", {})[key] = dict(prov)
     args.out.write_text(json.dumps(data, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     md = render_markdown(sections)

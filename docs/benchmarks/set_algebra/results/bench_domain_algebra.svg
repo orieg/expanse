@@ -200,16 +200,16 @@
       <text x="14" y="34" class="t-unit">Raw ExpanseSet vs DomainSet (N=10k)</text>
       <line x1="14" y1="43" x2="271" y2="43" class="divider"/>
       <text x="14" y="60" class="t-bar-label">intersection() <tspan class="t-sub">(N=10k, direct emission)</tspan></text>
-      <text x="14" y="76" class="t-sub">Raw ExpanseSet:  <tspan class="t-val-green">1.82 µs</tspan></text>
-      <text x="14" y="90" class="t-sub">DomainSet brand: <tspan class="t-val-green">1.86 µs</tspan></text>
+      <text x="14" y="76" class="t-sub">Raw ExpanseSet:  <tspan class="t-val-green">1.86 µs</tspan></text>
+      <text x="14" y="90" class="t-sub">DomainSet brand: <tspan class="t-val-green">1.90 µs</tspan></text>
   <rect x="170" y="68" width="102" height="17" class="badge-win"/>
-  <text x="221.0" y="80.0" class="badge-win-text">+2.5% overhead</text>
+  <text x="221.0" y="80.0" class="badge-win-text">+2.0% overhead</text>
       <line x1="14" y1="103" x2="271" y2="103" class="grid"/>
       <text x="14" y="121" class="t-bar-label">intersection_len() <tspan class="t-sub">(N=10k, count only)</tspan></text>
-      <text x="14" y="137" class="t-sub">Raw ExpanseSet:  <tspan class="t-val-green">326 ns</tspan></text>
-      <text x="14" y="151" class="t-sub">DomainSet brand: <tspan class="t-val-green">342 ns</tspan></text>
+      <text x="14" y="137" class="t-sub">Raw ExpanseSet:  <tspan class="t-val-green">289 ns</tspan></text>
+      <text x="14" y="151" class="t-sub">DomainSet brand: <tspan class="t-val-green">289 ns</tspan></text>
   <rect x="170" y="129" width="102" height="17" class="badge-win"/>
-  <text x="221.0" y="141.0" class="badge-win-text">+4.9% overhead</text>
+  <text x="221.0" y="141.0" class="badge-win-text">+0.1% overhead</text>
     </g>
     <!-- 2B: Ingestion Card -->
     <g transform="translate(300, 36)">
@@ -219,19 +219,19 @@
       <line x1="14" y1="43" x2="301" y2="43" class="divider"/>
       <text x="14" y="60" class="t-bar-label">Text Keys (user:...)</text>
   <rect x="212" y="50" width="89" height="17" class="badge-win"/>
-  <text x="256.5" y="62.0" class="badge-win-text">1.029x faster</text>
+  <text x="256.5" y="62.0" class="badge-win-text">1.028x faster</text>
       <rect x="14" y="68" width="81.0" height="8" rx="1.5" class="b-expanse"/>
-      <text x="100.0" y="75.5" class="t-val-green">Batch 128: 11.69 M/s</text>
-      <rect x="14" y="79" width="78.7" height="8" rx="1.5" class="b-v1"/>
-      <text x="97.7" y="86.5" class="t-val-muted">Scalar: 11.36 M/s</text>
+      <text x="100.0" y="75.5" class="t-val-green">Batch 128: 11.73 M/s</text>
+      <rect x="14" y="79" width="78.8" height="8" rx="1.5" class="b-v1"/>
+      <text x="97.8" y="86.5" class="t-val-muted">Scalar: 11.42 M/s</text>
       <line x1="14" y1="103" x2="301" y2="103" class="grid"/>
       <text x="14" y="121" class="t-bar-label">Binary UUID (NUL-escaped)</text>
   <rect x="212" y="111" width="89" height="17" class="badge-win"/>
-  <text x="256.5" y="123.0" class="badge-win-text">1.010x faster</text>
-      <rect x="14" y="129" width="39.8" height="8" rx="1.5" class="b-expanse"/>
-      <text x="58.8" y="136.5" class="t-val-green">Batch 128: 5.75 M/s</text>
-      <rect x="14" y="140" width="39.4" height="8" rx="1.5" class="b-v1"/>
-      <text x="58.4" y="147.5" class="t-val-muted">Scalar: 5.69 M/s</text>
+  <text x="256.5" y="123.0" class="badge-win-text">1.009x faster</text>
+      <rect x="14" y="129" width="40.3" height="8" rx="1.5" class="b-expanse"/>
+      <text x="59.3" y="136.5" class="t-val-green">Batch 128: 5.84 M/s</text>
+      <rect x="14" y="140" width="40.0" height="8" rx="1.5" class="b-v1"/>
+      <text x="59.0" y="147.5" class="t-val-muted">Scalar: 5.79 M/s</text>
     </g>
     <!-- 2C: Resolution Card -->
     <g transform="translate(630, 36)">
@@ -239,21 +239,21 @@
       <text x="14" y="20" class="t-bar-label">Zero-Copy Slab Resolution</text>
       <text x="14" y="34" class="t-unit">resolve() direct slice iteration</text>
       <line x1="14" y1="43" x2="256" y2="43" class="divider"/>
-      <text x="14" y="78" class="t-chart-title" style="font-size: 26px; font-weight: 800; fill: #15803d;">604.4 M</text>
+      <text x="14" y="78" class="t-chart-title" style="font-size: 26px; font-weight: 800; fill: #15803d;">608.9 M</text>
       <text x="133" y="72" class="t-bar-label" style="font-size: 13px; font-weight: 700;">keys / sec</text>
       <text x="133" y="86" class="t-sub">throughput</text>
-      <text x="14" y="106" class="t-sub">Latency: <tspan class="t-val-green">1.7 ns / key</tspan> amortized scan</text>
+      <text x="14" y="106" class="t-sub">Latency: <tspan class="t-val-green">1.6 ns / key</tspan> amortized scan</text>
       <line x1="14" y1="118" x2="256" y2="118" class="grid"/>
       <text x="14" y="136" class="t-bar-label">Zero Heap Allocation</text>
       <text x="14" y="150" class="t-sub">Borrows &amp;[u8] directly from stable chunk</text>
       <text x="14" y="163" class="t-sub">slabs in BlobArena (no string clones)</text>
     </g>
-    <text x="0" y="222" class="t-note">Provenance check at N=100k: ratio 1.0003 [0.9964, 1.0045] &#8212; not resolved; the base algebra cost dominates it. The N=10k badges above are where it separates.</text>
+    <text x="0" y="222" class="t-note">Provenance check at N=100k: ratio 1.0002 [0.9970, 1.0034] &#8212; not resolved; the base algebra cost dominates it. The N=10k badges above are where it separates.</text>
   </g>
 
   <line x1="30" y1="585" x2="930" y2="585" class="divider"/>
   <text x="30" y="601" class="t-note">Panels 1-2: search_boolean.rs (#348, #610) &#183; host and commit unresolved in the source dataset — not re-measured</text>
-  <text x="30" y="615" class="t-note">Panel 3: domain.rs (#611) &#183; reference host - Intel i9-12900F, 24 threads, 62 GiB, Ubuntu 24.04 / kernel 6.8, rustc 1.98.0; quiet, continuous 2s contamination sampling, all reps CLEAN</text>
+  <text x="30" y="615" class="t-note">Panel 3: domain.rs (#611; re-measured after #701 (allocator policy pinned in the harness)) &#183; 12th Gen Intel Core i9-12900F, 8 P-cores + 8 E-cores, 24 logical CPUs, 30 MiB L3, Linux 6.8</text>
   <text x="30" y="629" class="t-note">Two harnesses, separate runs: the panels are NOT a paired comparison and no ratio across them is valid.</text>
   <text x="30" y="643" class="t-note">Source: docs/DATABASE.md §4.3; suite: docs/benchmarks/set_algebra/</text>
   <text x="30" y="657" class="t-note">Panels 1-2 use a LOG latency axis (faint decade lines): bar length understates the ratios badly &#8212; Dense pairwise is 1029x but ~20x of bar. Read the badges and the printed values, not the bars.</text>

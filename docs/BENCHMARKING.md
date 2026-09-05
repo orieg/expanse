@@ -360,19 +360,20 @@ Bench targets deliberately **not** reachable from a slash command:
    2 s and sample 73 (2,072) at 3 s, on the P-cores sample 47 (2,016) at
    either setting. A 2 s warm-up on the E-cores therefore leaves most of the
    measurement in the slow regime, a 3 s one leaves most of it in the fast
-   one, and the P-cores sit at the same switch point regardless. Why the
-   warm-up length sets that point is a **hypothesis**, not a measurement: the
-   switch is an allocator regime (it vanishes with heap trimming disabled),
-   glibc adapts its trim and mmap thresholds to the largest chunks a process
-   frees, and a longer warm-up reaches larger batches — on the E-cores, which
-   complete about two thirds as many iterations per warm-up second, 3 s
-   reaches what 2 s reaches on the P-cores. A per-sample fault timeline would
-   confirm or refute that and was not recorded. The consequence for published
-   figures stands either way: on this arm the warm-up setting selects a
-   regime mixture, so the ceiling is a property of the harness defect as much
-   as of the part, and once the defect is out of the way E ÷ P is 1.52–1.54×
-   in either regime *(measured: same-run samples in
-   [`results/pin_exposure_678_c4b1817_estimators.txt`](../results/pin_exposure_678_c4b1817_estimators.txt))*.
+   one, and the P-cores sit at the same switch point regardless. **With the
+   allocator policy pinned (#701) the warm-up dependence is gone**: the same
+   probe on the fixed harness reads 16,918 ns at 2 s and 16,969 ns at 3 s on
+   the E-cores, 10,956 and 10,924 ns on the P-cores, at the same flat clocks
+   *(measured: reference host, commit `fcca1c0d`, 3 interleaved reps per
+   cell —
+   [`results/warmup_ramp_701_fcca1c0d.json`](../results/warmup_ramp_701_fcca1c0d.json))*.
+   The effect was the harness's allocator regime, selected by how far the
+   warm-up carried the process into it, not a property of the E-cores; why
+   the warm-up length set that point is left as it was — a hypothesis about
+   glibc's adaptive thresholds — because the defect is removed rather than
+   explained further. With it removed, E ÷ P on this arm is **1.54–1.55×**
+   (16,918 / 10,956 and 16,969 / 10,924), against the 1.576×, 1.633× and
+   1.673× readings taken over mixtures of the two regimes.
 
    Two consequences. The 1.576× above is **not withdrawn**: at its own
    settings the ceiling reproduces at 1.633×/1.634×. But it is a property of
@@ -441,6 +442,16 @@ Bench targets deliberately **not** reachable from a slash command:
    in isolation, and it is why the original session — whose `invocation`
    field records no filter — cannot have come from an unfiltered run: an
    unfiltered run read through the slope gives 10.9–11.1 µs, not 16.6.
+   **Fixed under [#701](https://github.com/orieg/expanse/issues/701)**:
+   `benches/domain.rs` pins the process's allocator policy at start (glibc
+   heap trimming off, a 256 MiB top pad), symmetric across every arm and
+   with no workload change. The isolated arm then reads 10.93 µs with 105 k
+   page faults, criterion's slope and mean agree within 0.8%, and the
+   smallest and largest quartiles of samples sit at 10.7 and 11.0 µs
+   *(measured: reference host, commit `fcca1c0d` —
+   [`results/pin_exposure_701_fcca1c0d_verification.txt`](../results/pin_exposure_701_fcca1c0d_verification.txt))*.
+   The set-algebra suite's cells were re-measured on the fixed harness in the
+   same change ([`docs/benchmarks/set_algebra/README.md`](benchmarks/set_algebra/README.md) §3).
 
    What the ceiling is once neither effect is in the way: within the same
    runs, the E-core and P-core samples in the fast regime sit at 16,206 and
