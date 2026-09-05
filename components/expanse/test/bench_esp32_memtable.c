@@ -127,7 +127,7 @@ static void tsdb_fill_keys(size_t n, bool shuffled) {
 #define TSDB_AGG_HI   (1700000000u + 600u)
 
 #define DEFINE_TSDB_ARM(fn_name, arm_str, ctype, create_expr, insert_stmt,      \
-                        agg_stmt, destroy_stmt)                                 \
+                        agg_stmt, tail_stmt, destroy_stmt)                      \
 static void fn_name(size_t n, const char *ingest_bench, const char *agg_bench) { \
     size_t heap_before = GET_FREE_HEAP();                                       \
     ctype *c = (create_expr);                                                   \
@@ -166,32 +166,12 @@ static void fn_name(size_t n, const char *ingest_bench, const char *agg_bench) {
     report_json(agg_bench, arm_str, agg_ops, n,                                 \
                 (double)elapsed / (double)agg_ops, heap_used, frag);            \
                                                                                 \
+    /* Runs while the container is still alive and allocates nothing, so a      \
+     * tail measurement cannot change the heap layout later arms see. */        \
+    tail_stmt;                                                                  \
+                                                                                \
     destroy_stmt;                                                               \
 }
-
-DEFINE_TSDB_ARM(bench_tsdb_expanse, "expanse_memtable", expanse_memtable_t,
-                expanse_memtable_create(),
-                expanse_memtable_insert(c, g_tsdb_keys[idx], TSDB_VAL(idx), NULL),
-                expanse_memtable_aggregate_range(c, TSDB_AGG_LO, TSDB_AGG_HI, &agg),
-                expanse_memtable_destroy(c))
-
-DEFINE_TSDB_ARM(bench_tsdb_hash, "hash_open_addressing", twin_hash_t,
-                twin_hash_create(n),
-                twin_hash_insert(c, g_tsdb_keys[idx], TSDB_VAL(idx)),
-                twin_hash_aggregate(c, TSDB_AGG_LO, TSDB_AGG_HI, &agg),
-                twin_hash_destroy(c))
-
-DEFINE_TSDB_ARM(bench_tsdb_sorted, "sorted_array", twin_sorted_t,
-                twin_sorted_create(n),
-                twin_sorted_insert(c, g_tsdb_keys[idx], TSDB_VAL(idx)),
-                twin_sorted_aggregate(c, TSDB_AGG_LO, TSDB_AGG_HI, &agg),
-                twin_sorted_destroy(c))
-
-DEFINE_TSDB_ARM(bench_tsdb_ring, "ring_buffer", twin_ring_t,
-                twin_ring_create(n),
-                twin_ring_insert(c, g_tsdb_keys[idx], TSDB_VAL(idx)),
-                twin_ring_aggregate(c, TSDB_AGG_LO, TSDB_AGG_HI, &agg),
-                twin_ring_destroy(c))
 
 /*
  * §8.3 dispatch control — what the sorted twin costs when it pays the per-key
@@ -202,62 +182,85 @@ DEFINE_TSDB_ARM(bench_tsdb_ring, "ring_buffer", twin_ring_t,
  * harness asymmetry the ratio between them silently carries. It was disclosed
  * and never sized, which left the disclosure unfalsifiable.
  *
- * This arm sizes it. It is `bench_tsdb_sorted` with one substitution:
- * `twin_sorted_aggregate` becomes `twin_sorted_aggregate_indirect`, which is
- * the same function with `agg_add(out, val)` replaced by `visit(key, val,
- * out)`. Same container, same key set, same fold body, same lock, same
- * measured region. The gap `sorted_array_indirect` - `sorted_array` is the
- * per-key dispatch and nothing else.
+ * `twin_sorted_aggregate_indirect` is `twin_sorted_aggregate` with
+ * `agg_add(out, val)` replaced by `visit(key, val, out)`, so the gap between
+ * the two arms below is the per-key dispatch and nothing else.
  *
- * The visitor is read through a `volatile` so the target cannot be seen as a
- * constant and devirtualised under LTO. Expanse's visitor is reached from Rust
- * across the C ABI and can never be devirtualised, so a control that inlined
- * its own callback would measure ~0 and report the asymmetry as free — a
- * silent wrong answer rather than a loud failure (§8.1).
+ * It runs on the container the `sorted_array` arm has already built and
+ * **allocates nothing**. The first cut of this control built its own twin;
+ * on-device that shifted the heap enough that `twin_hash_create` later failed
+ * at n=2000 and four BLE arms silently lost their hash comparator. A control
+ * that removes someone else's arm is not a control (§8.3), and no host build
+ * can see it — the device is the only instrument that reports it.
+ *
+ * One untimed walk precedes the pair so both timed walks start warm; whichever
+ * ran first would otherwise carry the cache fill for both. The `sorted_array`
+ * arm keeps its own measured region and position, so the published comparison
+ * is unchanged by any of this.
+ *
+ * The visitor is read through a `volatile` so its target cannot be
+ * devirtualised under LTO. Expanse's visitor is reached from Rust across the C
+ * ABI and never can be, so a control that inlined its own callback would
+ * measure ~0 and report the asymmetry as free (§8.1).
  *
  * This measures dispatch in a contiguous array walk, not inside Expanse's leaf
- * walk, where register pressure differs. It is therefore a floor on what the
- * callback costs Expanse, not an estimate of it.
+ * walk where register pressure differs. It is a floor on what the callback
+ * costs Expanse, not an estimate of it.
  */
 static volatile twin_visit_fn g_dispatch_control_visit = twin_visit_agg;
 
-static void bench_tsdb_sorted_indirect(size_t n, const char *agg_bench) {
-    size_t heap_before = GET_FREE_HEAP();
-    twin_sorted_t *c = twin_sorted_create(n);
-    if (!c) { report_skipped("sorted_array_indirect", n); return; }
-
-    /* Same warmup-then-discard as DEFINE_TSDB_ARM, so no arm enters its
-     * measurement warm while another enters cold. */
-    for (size_t i = 0; i < 100; ++i) { twin_sorted_insert(c, g_tsdb_keys[i], TSDB_VAL(i)); }
-    twin_sorted_destroy(c);
-    c = twin_sorted_create(n);
-    if (!c) { report_skipped("sorted_array_indirect", n); return; }
-
-    for (size_t idx = 0; idx < n; ++idx) {
-        twin_sorted_insert(c, g_tsdb_keys[idx], TSDB_VAL(idx));
-    }
-
-    size_t heap_after = GET_FREE_HEAP();
-    size_t heap_used = (heap_before > heap_after) ? (heap_before - heap_after) : 0;
-    double frag = heap_frag_ratio();
-
-    /* The ingest half is deliberately not reported: this arm inserts with the
-     * identical twin_sorted_insert the `sorted_array` arm already publishes,
-     * and a second row for the same code under a second name would read as a
-     * fifth structure rather than a control. */
+static void tsdb_dispatch_control(twin_sorted_t *c, const char *agg_bench,
+                                  size_t pop, size_t heap_used, double frag) {
     expanse_memtable_agg_t agg;
+
+    twin_sorted_aggregate(c, TSDB_AGG_LO, TSDB_AGG_HI, &agg);
+    g_sink += agg.sum_val;
+
     uint32_t start = GET_CYCLES();
+    twin_sorted_aggregate(c, TSDB_AGG_LO, TSDB_AGG_HI, &agg);
+    uint32_t inlined = GET_CYCLES() - start;
+    g_sink += agg.sum_val + agg.count;
+    size_t ops = (agg.count > 0) ? agg.count : 1;
+    report_json(agg_bench, "sorted_array_dispatch_inlined", ops, pop,
+                (double)inlined / (double)ops, heap_used, frag);
+
+    start = GET_CYCLES();
     twin_sorted_aggregate_indirect(c, TSDB_AGG_LO, TSDB_AGG_HI,
                                    g_dispatch_control_visit, &agg);
-    uint32_t elapsed = GET_CYCLES() - start;
+    uint32_t indirect = GET_CYCLES() - start;
     g_sink += agg.sum_val + agg.count;
-
-    size_t agg_ops = (agg.count > 0) ? agg.count : 1;
-    report_json(agg_bench, "sorted_array_indirect", agg_ops, n,
-                (double)elapsed / (double)agg_ops, heap_used, frag);
-
-    twin_sorted_destroy(c);
+    ops = (agg.count > 0) ? agg.count : 1;
+    report_json(agg_bench, "sorted_array_dispatch_indirect", ops, pop,
+                (double)indirect / (double)ops, heap_used, frag);
 }
+
+DEFINE_TSDB_ARM(bench_tsdb_expanse, "expanse_memtable", expanse_memtable_t,
+                expanse_memtable_create(),
+                expanse_memtable_insert(c, g_tsdb_keys[idx], TSDB_VAL(idx), NULL),
+                expanse_memtable_aggregate_range(c, TSDB_AGG_LO, TSDB_AGG_HI, &agg),
+                (void)0,
+                expanse_memtable_destroy(c))
+
+DEFINE_TSDB_ARM(bench_tsdb_hash, "hash_open_addressing", twin_hash_t,
+                twin_hash_create(n),
+                twin_hash_insert(c, g_tsdb_keys[idx], TSDB_VAL(idx)),
+                twin_hash_aggregate(c, TSDB_AGG_LO, TSDB_AGG_HI, &agg),
+                (void)0,
+                twin_hash_destroy(c))
+
+DEFINE_TSDB_ARM(bench_tsdb_sorted, "sorted_array", twin_sorted_t,
+                twin_sorted_create(n),
+                twin_sorted_insert(c, g_tsdb_keys[idx], TSDB_VAL(idx)),
+                twin_sorted_aggregate(c, TSDB_AGG_LO, TSDB_AGG_HI, &agg),
+                tsdb_dispatch_control(c, agg_bench, n, heap_used, frag),
+                twin_sorted_destroy(c))
+
+DEFINE_TSDB_ARM(bench_tsdb_ring, "ring_buffer", twin_ring_t,
+                twin_ring_create(n),
+                twin_ring_insert(c, g_tsdb_keys[idx], TSDB_VAL(idx)),
+                twin_ring_aggregate(c, TSDB_AGG_LO, TSDB_AGG_HI, &agg),
+                (void)0,
+                twin_ring_destroy(c))
 
 /* 1. Sensor TSDB Ingestion & Range Aggregation, in both key orders. */
 void bench_tsdb_hardware(size_t n) {
@@ -267,7 +270,6 @@ void bench_tsdb_hardware(size_t n) {
     bench_tsdb_expanse(n, "esp32_tsdb_ingest", "esp32_tsdb_aggregate_500");
     bench_tsdb_hash(n, "esp32_tsdb_ingest", "esp32_tsdb_aggregate_500");
     bench_tsdb_sorted(n, "esp32_tsdb_ingest", "esp32_tsdb_aggregate_500");
-    bench_tsdb_sorted_indirect(n, "esp32_tsdb_aggregate_500");
     bench_tsdb_ring(n, "esp32_tsdb_ingest", "esp32_tsdb_aggregate_500");
 
     /* The ring buffer is deliberately absent from the shuffled arms: it has
@@ -277,7 +279,6 @@ void bench_tsdb_hardware(size_t n) {
     bench_tsdb_expanse(n, "esp32_tsdb_ingest_shuffled", "esp32_tsdb_aggregate_500_shuffled");
     bench_tsdb_hash(n, "esp32_tsdb_ingest_shuffled", "esp32_tsdb_aggregate_500_shuffled");
     bench_tsdb_sorted(n, "esp32_tsdb_ingest_shuffled", "esp32_tsdb_aggregate_500_shuffled");
-    bench_tsdb_sorted_indirect(n, "esp32_tsdb_aggregate_500_shuffled");
 }
 
 /* 2. BLE Asset Tracker Sighting & TTL Eviction */

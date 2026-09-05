@@ -60,10 +60,19 @@ Per `AGENTS.md` §8.8 commit 2 (pre-registration locked before any main data) an
      (§8.16) is satisfied — all arms take the same recursive mutex once per call — but this
      per-key dispatch is a genuine §8.3 asymmetry that the Expanse-vs-twin ratio carries.
    - It was disclosed and never measured, which made the disclosure unfalsifiable. The
-     `sorted_array_indirect` arm measures it: `twin_sorted_aggregate_indirect` is
-     `twin_sorted_aggregate` with `agg_add(out, val)` replaced by `visit(key, val, out)`.
-     Same container, key set, fold body, lock and measured region, so
-     **`sorted_array_indirect` − `sorted_array` is the per-key dispatch and nothing else**.
+     `sorted_array_dispatch_inlined` / `sorted_array_dispatch_indirect` pair measures it:
+     `twin_sorted_aggregate_indirect` is `twin_sorted_aggregate` with `agg_add(out, val)`
+     replaced by `visit(key, val, out)`. Both run back to back on the container the
+     `sorted_array` arm has already built, after one untimed walk so neither carries the
+     cache fill, so **the gap between the two is the per-key dispatch and nothing else**.
+   - **The pair allocates nothing, and that is a correctness requirement rather than tidiness.**
+     The first cut built its own twin; on-device that shifted the heap enough that
+     `twin_hash_create` later failed at n=2000 and four BLE benchmarks silently lost their
+     hash comparator. A control that removes another arm is not a control. No host build can
+     see this — only a device run reports it.
+   - Because the pair runs warm and the published arms run cold, its absolute values are not
+     comparable to `sorted_array`; only the difference within the pair is. Any ratio adjusted
+     with that difference is **derived, not measured**, and is labelled so wherever it appears.
    - The visitor is read through a `volatile` so the target cannot be devirtualised under
      LTO. Expanse's visitor is reached from Rust across the C ABI and never can be, so a
      control that inlined its own callback would measure ~0 and report the asymmetry as
