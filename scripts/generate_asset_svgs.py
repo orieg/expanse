@@ -7,6 +7,7 @@ Regenerates the three README hero charts from committed data:
   * ``docs/assets/bench_concurrency.svg``
   * ``docs/assets/bench_ycsb.svg``
   * ``docs/assets/bench_sync32_health.svg``
+  * ``docs/assets/bench_density_sawtooth.svg``
 
 All three were hand-authored, so their numbers drifted away from the measured
 tables and kept publishing figures that had since been retracted (the
@@ -519,12 +520,137 @@ def render_sync32_health(data: dict) -> None:
     write(ASSETS / "bench_sync32_health.svg", svg)
 
 
+def render_density(data: dict) -> None:
+    """bytes/key against expanse occupancy λ — the sawtooth of ARCHITECTURE §3.5.
+
+    Every point is a cell of `density_sweep`; the three keyspace widths are
+    drawn with distinct markers so the reader can see that they land on one
+    curve. The axis bounds, the `LEAF_CAP` marker and the two gate-cell labels
+    are all derived from the data (AGENTS.md 8.15a); nothing is placed by
+    hand for the values that happen to exist today.
+    """
+    import math
+
+    block = data["density_sweep"]
+    cells = sorted(block["cells"], key=lambda c: c["lambda"])
+    leaf_cap = block["meta"]["leaf_cap"]
+    width, height = 960, 420
+    px0, px1, py0, py1 = 70, 700, 70, 330  # plot box
+    lam_min = min(c["lambda"] for c in cells) / 1.25
+    lam_max = max(c["lambda"] for c in cells) * 1.25
+    y_max = math.ceil(max(c["set_bpk"] for c in cells) / 4.0) * 4.0
+
+    def X(lam: float) -> float:
+        return px0 + (math.log10(lam) - math.log10(lam_min)) / (math.log10(lam_max) - math.log10(lam_min)) * (px1 - px0)
+
+    def Y(v: float) -> float:
+        return py1 - v / y_max * (py1 - py0)
+
+    svg = head(width, height, "ExpanseSet bytes per key across expanse occupancy")
+    svg += (
+        '  <text x="30" y="30" class="t-title">MEMORY DENSITY ACROSS EXPANSE OCCUPANCY &#183; UNIFORM RANDOM KEYS</text>\n'
+        f'  <text x="30" y="46" class="t-sub">ExpanseSet bytes/key against &#955; = N / 2^(w&#8722;48), the mean population of a 2-byte-prefix expanse &#183; '
+        f'log &#955; axis &#183; lower is better</text>\n'
+        '  <line x1="30" y1="58" x2="930" y2="58" class="divider"/>\n'
+    )
+    # y grid and ticks
+    ticks = int(y_max // 4) + 1
+    for i in range(ticks):
+        v = i * 4.0
+        svg += (
+            f'  <line x1="{px0}" y1="{Y(v):.1f}" x2="{px1}" y2="{Y(v):.1f}" class="{"axis" if i == 0 else "grid"}"/>\n'
+            f'  <text x="{px0 - 8}" y="{Y(v) + 3.5:.1f}" class="t-axis-label" text-anchor="end">{v:.0f}</text>\n'
+        )
+    svg += f'  <text x="{px0 - 8}" y="{py0 - 12}" class="t-unit" text-anchor="end">B/key</text>\n'
+    # x ticks at powers of two within range
+    lam = 1.0
+    while lam <= lam_max:
+        if lam >= lam_min:
+            svg += (
+                f'  <line x1="{X(lam):.1f}" y1="{py0}" x2="{X(lam):.1f}" y2="{py1}" class="grid"/>\n'
+                f'  <text x="{X(lam):.1f}" y="{py1 + 16}" class="t-axis-label" text-anchor="middle">{lam:g}</text>\n'
+            )
+        lam *= 2
+    svg += f'  <text x="{(px0 + px1) / 2:.0f}" y="{py1 + 34}" class="t-unit" text-anchor="middle">&#955; (keys per 2-byte expanse)</text>\n'
+    # LEAF_CAP marker
+    svg += (
+        f'  <line x1="{X(leaf_cap):.1f}" y1="{py0}" x2="{X(leaf_cap):.1f}" y2="{py1}" class="axis" stroke-dasharray="4,3"/>\n'
+        f'  <text x="{X(leaf_cap) + 5:.1f}" y="{py0 + 12}" class="t-legend">LEAF_CAP = {leaf_cap}</text>\n'
+        f'  <text x="{X(leaf_cap) + 5:.1f}" y="{py0 + 25}" class="t-note">linear leaf cascades into a branch</text>\n'
+    )
+    # the curve through every cell, then per-width markers
+    path = " ".join(f'{"M" if i == 0 else "L"}{X(c["lambda"]):.1f},{Y(c["set_bpk"]):.1f}' for i, c in enumerate(cells))
+    svg += f'  <path d="{path}" fill="none" class="axis"/>\n'
+    marker_cls = {64: "b-expanse", 63: "b-expanse-alt", 62: "b-other"}
+    for c in cells:
+        x, y = X(c["lambda"]), Y(c["set_bpk"])
+        cls = marker_cls[c["bits"]]
+        if c["bits"] == 64:
+            svg += f'  <circle cx="{x:.1f}" cy="{y:.1f}" r="4.5" class="{cls}"/>\n'
+        elif c["bits"] == 63:
+            svg += f'  <rect x="{x - 4:.1f}" y="{y - 4:.1f}" width="8" height="8" class="{cls}"/>\n'
+        else:
+            svg += f'  <polygon points="{x:.1f},{y - 5.5:.1f} {x + 5.5:.1f},{y:.1f} {x:.1f},{y + 5.5:.1f} {x - 5.5:.1f},{y:.1f}" class="{cls}"/>\n'
+    # the two memory-budget gate cells (1M and 2M at 64 bits), labelled from the data
+    for n, label, dy in ((1_000_000, "memory-budget cell, N = 1M", 22), (2_000_000, "second gate cell, N = 2M", -12)):
+        c = next(c for c in cells if c["bits"] == 64 and c["n"] == n)
+        x, y = X(c["lambda"]), Y(c["set_bpk"])
+        svg += (
+            f'  <text x="{x:.1f}" y="{y + dy:.1f}" class="t-note" text-anchor="middle">{label}: {c["set_bpk"]:.2f} B/key '
+            f'(&#955; = {c["lambda"]:.2f})</text>\n'
+        )
+    # legend
+    lx, ly = 730, 80
+    svg += f'  <text x="{lx}" y="{ly}" class="t-legend">Keyspace width (same seed)</text>\n'
+    for i, (bits, cls, shape) in enumerate(((64, "b-expanse", "circle"), (63, "b-expanse-alt", "rect"), (62, "b-other", "polygon"))):
+        yy = ly + 18 + i * 18
+        if shape == "circle":
+            svg += f'  <circle cx="{lx + 6}" cy="{yy - 4}" r="4.5" class="{cls}"/>\n'
+        elif shape == "rect":
+            svg += f'  <rect x="{lx + 2}" y="{yy - 8}" width="8" height="8" class="{cls}"/>\n'
+        else:
+            svg += f'  <polygon points="{lx + 6},{yy - 9.5} {lx + 11.5},{yy - 4} {lx + 6},{yy + 1.5} {lx + 0.5},{yy - 4}" class="{cls}"/>\n'
+        n_cells = sum(1 for c in cells if c["bits"] == bits)
+        svg += f'  <text x="{lx + 18}" y="{yy}" class="t-legend">{bits}-bit keys &#183; {n_cells} populations</text>\n'
+    # the width equivalence, derived: cells sharing a λ across widths
+    by_lam: dict = {}
+    for c in cells:
+        by_lam.setdefault(round(c["lambda"], 2), []).append(c)
+    shared = [v for v in by_lam.values() if len(v) > 1]
+    spread = max((max(c["set_bpk"] for c in v) - min(c["set_bpk"] for c in v)) for v in shared) if shared else 0.0
+    lo, hi = min(c["set_bpk"] for c in cells), max(c["set_bpk"] for c in cells)
+    svg += (
+        f'  <text x="{lx}" y="{ly + 84}" class="t-note">{len(shared)} &#955; values are hit by two or three widths;</text>\n'
+        f'  <text x="{lx}" y="{ly + 97}" class="t-note">their cells agree within {spread:.2f} B/key: one curve.</text>\n'
+        f'  <text x="{lx}" y="{ly + 118}" class="t-note">Range under density alone: {lo:.2f}&#8211;{hi:.2f} B/key</text>\n'
+        f'  <text x="{lx}" y="{ly + 131}" class="t-note">({hi / lo:.2f}&#215;) with no code change.</text>\n'
+    )
+    # anchors: construction-fixed occupancy, flat across N (derived min–max)
+    anchors: dict = {}
+    for a in block["anchors"]:
+        anchors.setdefault(a["dist"], []).append(a["set_bpk"])
+    svg += f'  <text x="{lx}" y="{ly + 156}" class="t-legend">Fixed-occupancy distributions</text>\n'
+    for i, (dist, vals) in enumerate(sorted(anchors.items())):
+        rng = f"{min(vals):.2f}" if abs(max(vals) - min(vals)) < 0.005 else f"{min(vals):.2f}&#8211;{max(vals):.2f}"
+        svg += f'  <text x="{lx}" y="{ly + 172 + i * 14}" class="t-note">{esc(dist)}: {rng} B/key, flat across N</text>\n'
+    meta = block["meta"]
+    svg += (
+        f'\n  <line x1="30" y1="{height - 46}" x2="930" y2="{height - 46}" class="divider"/>\n'
+        f'  <text x="30" y="{height - 30}" class="t-note">Measured: {esc(meta["instrument"])}; commit {esc(meta["commit"])}; workload {esc(meta["workload_id"])}.</text>\n'
+        f'  <text x="30" y="{height - 16}" class="t-note">Clearing one top key bit halves the expanses and is exactly a doubling of N, so the three widths share one axis. '
+        f'Source: docs/ARCHITECTURE.md &#167;3.5.</text>\n'
+        "</svg>\n"
+    )
+    write(ASSETS / "bench_density_sawtooth.svg", svg)
+
+
 def main() -> int:
     data = json.loads(DATA.read_text(encoding="utf-8"))
     render_comparative(data)
     render_concurrency(data)
     render_ycsb(data)
     render_sync32_health(data)
+    render_density(data)
     return 0
 
 

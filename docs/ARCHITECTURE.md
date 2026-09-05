@@ -126,6 +126,10 @@ Occupancy across expanses is Poisson-distributed with mean $\lambda$ and $\sigma
 | 73.24 | 229% | 18.50 | 1.2M @62 |
 | 122.07 | 381% | 15.58 | 2M @62 |
 
+![ExpanseSet bytes/key across expanse occupancy — the three keyspace widths on one λ axis, the LEAF_CAP cascade, and the two memory-budget cells](assets/bench_density_sawtooth.svg)
+
+*(derived from `docs/assets/data/bench_assets.json` → `density_sweep` by `scripts/generate_asset_svgs.py`; the block is written by `cargo run --release -p expanse-trie --example keyspace_density -- --json`, and `tests/test_visualizer_sync.rs` recomputes the 64-bit column and three cross-width pairs from the engine so it cannot drift. The same curve, measured against HOT's flat one, is the HOT suite's [memory chart](benchmarks/hot_comparison/results/chart_memory_curve.svg).)*
+
 Cells that share a $\lambda$ agree to within 0.05 B/key although they differ in $N$ by up to 4×: one curve, sampled three times. Under density alone, with no code change, the same structure spans **7.64–21.02 B/key**. The trough is at $\lambda \approx 0.5$–$0.6 \cdot$ `LEAF_CAP`; the peak sits just past it.
 
 **Causal test.** Changing `LEAF_CAP` alone from 32 to 48, everything else identical, moves the $\lambda = 30.52$ cells from 13.60 to 6.99–7.00 B/key and leaves the $\lambda = 15.26$ cell at 7.92 (same instrument and workload; METHODOLOGY §9.4). The tooth is the cascade, and the cascade is this constant. That is **not** a recommendation to raise it: a larger linear leaf is a longer linear scan on every descent through levels 2..=7, a read-path cost that has not been measured for that value on the Callgrind arms. The constant is load-bearing for memory; what it costs the read path is an open measurement, not a settled trade.

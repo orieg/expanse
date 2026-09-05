@@ -868,6 +868,109 @@ fn test_no_stamped_narrative_claims() {
     }
 }
 
+/// The density sweep published for `docs/ARCHITECTURE.md` §3.5 is recomputed
+/// from the engine: the whole 64-bit column, and the three cross-width pairs
+/// that make the "one curve in λ" claim (63-bit at N equals 64-bit at 2N,
+/// 62-bit at N equals 64-bit at 4N). Deterministic byte accounting, so the
+/// comparison is exact to the published two decimals, and a node-ladder
+/// change that moves the curve fails here before the chart republishes it.
+#[test]
+fn test_density_sweep_matches_engine() {
+    let assets: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(
+            repo_root()
+                .join("docs")
+                .join("assets")
+                .join("data")
+                .join("bench_assets.json"),
+        )
+        .expect("read bench_assets.json"),
+    )
+    .expect("parse bench_assets.json");
+    let block = &assets["density_sweep"];
+    assert_eq!(
+        block["meta"]["leaf_cap"].as_u64(),
+        Some(LEAF_CAP as u64),
+        "density_sweep.meta.leaf_cap must be the compiled LEAF_CAP"
+    );
+    let cells = block["cells"].as_array().expect("density_sweep.cells");
+    let cell = |n: u64, bits: u64| -> &serde_json::Value {
+        cells
+            .iter()
+            .find(|c| c["n"].as_u64() == Some(n) && c["bits"].as_u64() == Some(bits))
+            .unwrap_or_else(|| panic!("density_sweep lacks the cell n={n} bits={bits}"))
+    };
+
+    fn sweep_cell(n: usize, bits: u32) -> (f64, f64) {
+        let mask = if bits == 64 {
+            u64::MAX
+        } else {
+            (1u64 << bits) - 1
+        };
+        let mut rng = 0x0DDB_1A5E_5EED_0001u64;
+        let mut set = ExpanseSet::new();
+        let mut map = ExpanseMap::new();
+        for _ in 0..n {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            let k = rng & mask;
+            set.insert(k);
+            map.insert(k, !k);
+        }
+        (
+            set.mem_used() as f64 / set.len().max(1) as f64,
+            map.mem_used() as f64 / map.len().max(1) as f64,
+        )
+    }
+
+    // The 64-bit column, every population.
+    for c in cells.iter().filter(|c| c["bits"].as_u64() == Some(64)) {
+        let n = c["n"].as_u64().unwrap() as usize;
+        let (set_bpk, map_bpk) = sweep_cell(n, 64);
+        let lambda = n as f64 / 65_536.0;
+        assert!(
+            (f(c, "lambda") - round_to(lambda, 4)).abs() < 1e-9,
+            "n={n}: published λ {} but N / 2^16 = {lambda:.4}",
+            f(c, "lambda")
+        );
+        assert!(
+            (f(c, "set_bpk") - round_to(set_bpk, 2)).abs() < 1e-9,
+            "n={n} @64: published {} B/key (set) but the engine measures {set_bpk:.2}. \
+             Re-run `cargo run --release -p expanse-trie --example keyspace_density -- --json` \
+             and merge the block into docs/assets/data/bench_assets.json.",
+            f(c, "set_bpk")
+        );
+        assert!(
+            (f(c, "map_bpk") - round_to(map_bpk, 2)).abs() < 1e-9,
+            "n={n} @64: published {} B/key (map) but the engine measures {map_bpk:.2}",
+            f(c, "map_bpk")
+        );
+    }
+    // Three cross-width pairs: the same λ reached by a narrower keyspace at a
+    // smaller population. Published cells must agree with the engine, and the
+    // two members of a pair must agree with each other within the rounding of
+    // two decimals plus the small PRNG-collision difference between a masked
+    // and an unmasked stream (the METHODOLOGY §9.4 sweep saw ≤ 0.05 B/key).
+    for (n_narrow, bits, n_wide) in [
+        (100_000usize, 63u32, 200_000usize),
+        (200_000, 63, 400_000),
+        (100_000, 62, 400_000),
+    ] {
+        let (narrow_set, _) = sweep_cell(n_narrow, bits);
+        let published = f(cell(n_narrow as u64, bits as u64), "set_bpk");
+        assert!(
+            (published - round_to(narrow_set, 2)).abs() < 1e-9,
+            "n={n_narrow} @{bits}: published {published} B/key but the engine measures {narrow_set:.2}"
+        );
+        let wide = f(cell(n_wide as u64, 64), "set_bpk");
+        assert!(
+            (published - wide).abs() <= 0.05,
+            "{bits}-bit at N={n_narrow} ({published}) must land on 64-bit at N={n_wide} ({wide}): one curve in λ"
+        );
+    }
+}
+
 /// Retracted figures must never reappear in the published artifacts (JSON, HTML, Assets).
 #[test]
 fn test_retracted_figures_absent() {
