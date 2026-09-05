@@ -275,3 +275,126 @@ size_t exp_hot_map_scan(void *t, uint64_t lo, size_t k, uint64_t *sink) {
 }
 
 }  // extern "C"
+
+// ---------------------------------------------------------------------------
+// String-key arms (#693, METHODOLOGY §10).
+//
+// HOT's shipped C-string configuration is `HOTSingleThreaded<const char*,
+// IdentityKeyExtractor>` — the value IS the key pointer, stored inline in the
+// tagged child pointer (apps/benchmarks/string/hot-single-threaded-string-
+// benchmark). That is Arm C. Arm D reaches a value distinct from the key the
+// only way HOT can: a heap `std::pair<const char*, uint64_t>` per entry through
+// `PairPointerKeyExtractor`.
+//
+// The strings themselves are the HARNESS's (one heap allocation each, as HOT's
+// own benchmark does); HOT only holds pointers into them, and every lookup
+// confirms its leaf with `strcmp` through that pointer.
+//
+// Key truncation. `toFixSizedKey<char const*>` copies the key with `strncpy`
+// into a `std::array<uint8_t, MAX_STRING_KEY_LENGTH>` (255 bytes) and the
+// discriminative-bit search compares exactly those bytes, so two keys that
+// agree on their first 255 bytes are ONE key to HOT. Nothing here guards
+// against that: the predicate belongs to the harness, which evaluates it
+// against the workload and reports it (§10.4). The shim exports the constant
+// so the harness reads it from HOT's header rather than restating it.
+// ---------------------------------------------------------------------------
+
+using StrTrie = hot::singlethreaded::HOTSingleThreaded<const char *, idx::contenthelpers::IdentityKeyExtractor>;
+using StrPair = std::pair<const char *, uint64_t>;
+using StrMapTrie = hot::singlethreaded::HOTSingleThreaded<StrPair *, idx::contenthelpers::PairPointerKeyExtractor>;
+
+extern "C" {
+
+size_t exp_hot_str_max_key_len(void) { return idx::contenthelpers::MAX_STRING_KEY_LENGTH; }
+
+// --- Arm C: identity extractor, value == key pointer ------------------------
+
+void *exp_hot_str_new(void) { return new StrTrie(); }
+void exp_hot_str_delete(void *t) { delete static_cast<StrTrie *>(t); }
+
+int exp_hot_str_insert(void *t, const char *k) {
+    return static_cast<StrTrie *>(t)->insert(k) ? 1 : 0;
+}
+
+// Returns the STORED pointer, not a presence bit: on this arm the stored word
+// is the payload both sides return and fold (§10.2), and comparing it against
+// the Expanse arm's word is the per-round symmetry check.
+int exp_hot_str_lookup(void *t, const char *k, const char **out) {
+    auto r = static_cast<StrTrie *>(t)->lookup(k);
+    if (!r.mIsValid) return 0;
+    *out = r.mValue;
+    return 1;
+}
+
+size_t exp_hot_str_len(void *t) {
+    size_t n = 0;
+    StrTrie *trie = static_cast<StrTrie *>(t);
+    for (auto it = trie->begin(); it != trie->end(); ++it) ++n;
+    return n;
+}
+
+uint64_t exp_hot_str_iterate_xor(void *t) {
+    uint64_t sink = 0;
+    StrTrie *trie = static_cast<StrTrie *>(t);
+    for (auto it = trie->begin(); it != trie->end(); ++it) sink ^= reinterpret_cast<uintptr_t>(*it);
+    return sink;
+}
+
+size_t exp_hot_str_scan(void *t, const char *lo, size_t k, uint64_t *sink) {
+    size_t n = 0;
+    uint64_t acc = 0;
+    StrTrie *trie = static_cast<StrTrie *>(t);
+    for (auto it = trie->lower_bound(lo); it != trie->end() && n < k; ++it, ++n)
+        acc ^= reinterpret_cast<uintptr_t>(*it);
+    *sink = acc;
+    return n;
+}
+
+// --- Arm D: pair pointer, value distinct from the key -----------------------
+
+void *exp_hot_strmap_new(void) { return new StrMapTrie(); }
+
+void exp_hot_strmap_delete(void *t) {
+    StrMapTrie *trie = static_cast<StrMapTrie *>(t);
+    for (auto it = trie->begin(); it != trie->end(); ++it) delete *it;
+    delete trie;
+}
+
+int exp_hot_strmap_insert(void *t, const char *k, uint64_t v) {
+    StrPair *entry = new StrPair(k, v);
+    if (static_cast<StrMapTrie *>(t)->insert(entry)) return 1;
+    delete entry;
+    return 0;
+}
+
+int exp_hot_strmap_get(void *t, const char *k, uint64_t *out) {
+    auto r = static_cast<StrMapTrie *>(t)->lookup(k);
+    if (!r.mIsValid) return 0;
+    *out = r.mValue->second;
+    return 1;
+}
+
+size_t exp_hot_strmap_len(void *t) {
+    size_t n = 0;
+    StrMapTrie *trie = static_cast<StrMapTrie *>(t);
+    for (auto it = trie->begin(); it != trie->end(); ++it) ++n;
+    return n;
+}
+
+uint64_t exp_hot_strmap_iterate_xor(void *t) {
+    uint64_t sink = 0;
+    StrMapTrie *trie = static_cast<StrMapTrie *>(t);
+    for (auto it = trie->begin(); it != trie->end(); ++it) sink ^= (*it)->second;
+    return sink;
+}
+
+size_t exp_hot_strmap_scan(void *t, const char *lo, size_t k, uint64_t *sink) {
+    size_t n = 0;
+    uint64_t acc = 0;
+    StrMapTrie *trie = static_cast<StrMapTrie *>(t);
+    for (auto it = trie->lower_bound(lo); it != trie->end() && n < k; ++it, ++n) acc ^= (*it)->second;
+    *sink = acc;
+    return n;
+}
+
+}  // extern "C"

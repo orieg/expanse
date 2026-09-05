@@ -532,6 +532,28 @@
       "reason": "needs an initialised `third_party/hot` submodule and an x86-64 host with AVX2 and BMI2 \u2014 HOT does not build otherwise \u2014 and each cell must run in its own process because HOT's node pool is a process-global `static` (a warm pool undercounts memory by up to 3.3x). It is driven by `docs/benchmarks/hot_comparison/run.sh`, which takes the host-wide benchmark lock and sweeps expanse occupancy, not by `cargo bench`.",
       "summary": "HOT vs Expanse point lookup (100% and 50% hit), cold-build insertion, and ordered range scan.",
       "suite": "hot_comparison"
+    },
+    {
+      "name": "hot_string_memory",
+      "available": false,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-hot-bench",
+      "target": "hot_string_memory",
+      "reason": "needs an initialised `third_party/hot` submodule and an x86-64 host with AVX2 and BMI2, and each cell must run in its own process because HOT's node pool is a process-global `static`. It is driven by `docs/benchmarks/hot_comparison/run.sh strings`, which runs the string validation gate first, takes the host-wide benchmark lock and sweeps population, not by `cargo bench`.",
+      "summary": "String-key live-heap census: HOT's C-string configuration vs ExpanseStrMap and ExpanseBytesMap, three columns per cell (index, external key storage, ownership).",
+      "suite": "hot_comparison"
+    },
+    {
+      "name": "hot_string_latency",
+      "available": false,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-hot-bench",
+      "target": "hot_string_latency",
+      "reason": "needs an initialised `third_party/hot` submodule and an x86-64 host with AVX2 and BMI2, and each cell must run in its own process because HOT's node pool is a process-global `static`. It is driven by `docs/benchmarks/hot_comparison/run.sh strings`, which runs the string validation gate first and takes the host-wide benchmark lock, not by `cargo bench`.",
+      "summary": "String-key point lookup (100% and 50% hit), cold-build insertion and ordered scan: HOT's C-string configuration vs ExpanseStrMap and ExpanseBytesMap; HOT's 255-byte key window reported per cell as a predicate.",
+      "suite": "hot_comparison"
     }
   ]
 }

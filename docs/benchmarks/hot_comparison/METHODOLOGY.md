@@ -966,3 +966,48 @@ Amended: string-key claims are in scope for the arms above, under these limits:
    applies.
 6. Single-threaded, x86-64 with AVX2 and BMI2, one HOT commit, no cross-suite
    ratio, no peer review — as §7.
+
+### 10.10 Amendments found while building the string harness
+
+Recorded as amendments rather than edited into §10.4 (§8.7). Both are
+measurement constraints found by running `hot_string_validate` on the build
+host; neither is a result.
+
+**The window is 255 bytes, not 254.** §10.4 locked `hot_can_key(len) := len ≤
+254`, reasoning that the terminator had to fit inside the 255-byte fixed key.
+It does not: `strncpy` copies up to 255 content bytes and appends no terminator
+when the key is that long, so a 255-byte key is fully visible. Measured with
+pairs of keys differing only in their last byte *(measured: x86_64 build host —
+Intel Xeon E5-2697 v4; HOT `96bf6fb`; `-march=haswell`; workload:
+`hot_string_validate`)*:
+
+| Key length | HOT entries after inserting both |
+|---:|---|
+| 254 | 2 — discriminated |
+| 255 | 2 — discriminated |
+| 256 | **1** |
+| 300 | **1** |
+
+The predicate is corrected to `hot_can_key(len) := len ≤ 255`
+(`HOT_STRING_KEY_WINDOW`, asserted equal to HOT's `MAX_STRING_KEY_LENGTH` at
+runtime). No workload shape changes: `beyond` is 272 bytes and still fails it
+for every key; the other four shapes were inside both bounds. The issue text's
+"256-byte fixed representation" is also off by one in the other direction — the
+array is 255 bytes.
+
+**HOT drops an over-window key; it does not return a false positive.** §10.4
+predicted that a lookup of either colliding key would return the first's value.
+Measured, it does not: `insert` of the second key returns `false` (reported as
+a duplicate) and stores nothing, and `lookup` of that key returns *not found*,
+because `contentEquals` confirms the leaf with a full `strcmp` against the
+stored string. On `beyond` at N = 1,000: `insert` reported 1 key new, the trie
+walked 1, `lookup` found 1 of 1,000 and returned a wrong pointer for 0. The
+failure mode is therefore **silent population loss under a successful-looking
+build** — the same class as the integer arms' `insert() == true` on
+unretrievable keys (§3.1) — not wrong answers. It is the reason population is
+asserted by walking on every cell.
+
+**Populations are reported, not assumed.** `skewed` at N = 100,000 holds
+99,976 distinct keys after deduplication (4-byte keys collide at that
+population); every cell carries its actual population, and both sides are
+asserted against it.

@@ -350,3 +350,207 @@ impl HotMap {
         (hit == 1).then_some(out)
     }
 }
+
+// ---------------------------------------------------------------------------
+// String-key arms (#693, METHODOLOGY §10).
+// ---------------------------------------------------------------------------
+
+pub mod strings;
+
+use std::marker::PhantomData;
+use std::os::raw::c_char;
+
+use strings::KeyStr;
+
+unsafe extern "C" {
+    fn exp_hot_str_max_key_len() -> usize;
+
+    fn exp_hot_str_new() -> *mut c_void;
+    fn exp_hot_str_delete(t: *mut c_void);
+    fn exp_hot_str_insert(t: *mut c_void, k: *const c_char) -> i32;
+    fn exp_hot_str_lookup(t: *mut c_void, k: *const c_char, out: *mut *const c_char) -> i32;
+    fn exp_hot_str_len(t: *mut c_void) -> usize;
+    fn exp_hot_str_iterate_xor(t: *mut c_void) -> u64;
+    fn exp_hot_str_scan(t: *mut c_void, lo: *const c_char, k: usize, sink: *mut u64) -> usize;
+
+    fn exp_hot_strmap_new() -> *mut c_void;
+    fn exp_hot_strmap_delete(t: *mut c_void);
+    fn exp_hot_strmap_insert(t: *mut c_void, k: *const c_char, v: u64) -> i32;
+    fn exp_hot_strmap_get(t: *mut c_void, k: *const c_char, out: *mut u64) -> i32;
+    fn exp_hot_strmap_len(t: *mut c_void) -> usize;
+    fn exp_hot_strmap_iterate_xor(t: *mut c_void) -> u64;
+    fn exp_hot_strmap_scan(t: *mut c_void, lo: *const c_char, k: usize, sink: *mut u64) -> usize;
+}
+
+/// The number of key bytes HOT discriminates on a C-string key.
+///
+/// `toFixSizedKey<char const*>` copies the key with `strncpy` into a
+/// `std::array` of `MAX_STRING_KEY_LENGTH` = 255 bytes, and the
+/// discriminative-bit search compares exactly those bytes. A key of this length
+/// is fully visible (all 255 content bytes are copied; the terminator is not
+/// needed to tell it from any other key of at most this length); a longer key
+/// is discriminated on its first 255 bytes only. [`hot_string_key_window`]
+/// reads the constant from HOT's header at runtime, and `hot_string_validate`
+/// asserts the two agree and measures the boundary directly.
+pub const HOT_STRING_KEY_WINDOW: usize = 255;
+
+/// HOT's `MAX_STRING_KEY_LENGTH`, read from the header through the shim.
+pub fn hot_string_key_window() -> usize {
+    // SAFETY: returns a compile-time constant; no preconditions.
+    unsafe { exp_hot_str_max_key_len() }
+}
+
+/// Whether a key of `len` bytes (without terminator) lies wholly inside HOT's
+/// discrimination window (§10.4).
+///
+/// A predicate on **HOT**, evaluated against a workload and reported — never
+/// used to trim a workload. A population containing keys for which this is
+/// false cannot be held by HOT with fidelity: two such keys agreeing on their
+/// first [`HOT_STRING_KEY_WINDOW`] bytes are one key to it.
+#[inline]
+pub fn hot_can_key(len: usize) -> bool {
+    len <= HOT_STRING_KEY_WINDOW
+}
+
+/// HOT with `IdentityKeyExtractor<const char*>` — HOT's shipped string
+/// configuration, paired against `ExpanseStrMap` (Arm C) and `ExpanseBytesMap`
+/// (Arm E) storing the same key pointer as their value.
+///
+/// The trie holds pointers into strings it does not own. The lifetime `'a`
+/// ties the trie to the [`strings::KeyStr`]s inserted into it, so a trie
+/// cannot outlive its keys — HOT confirms every leaf with `strcmp` through the
+/// stored pointer, and a freed key would be read.
+pub struct HotStr<'a>(*mut c_void, PhantomData<&'a KeyStr>);
+
+impl<'a> HotStr<'a> {
+    /// Builds an empty trie.
+    pub fn new() -> Self {
+        // SAFETY: the shim returns an owned trie, freed exactly once in `Drop`.
+        Self(unsafe { exp_hot_str_new() }, PhantomData)
+    }
+
+    /// Inserts `k`, which the trie will point at for the rest of its life.
+    /// Returns whether HOT reports the key as newly present — which for a key
+    /// beyond the discrimination window is *not* evidence it was stored:
+    /// measured, HOT reports such a key as a duplicate and drops it.
+    pub fn insert(&mut self, k: &'a KeyStr) -> bool {
+        // SAFETY: `self.0` is live; `k` is NUL-terminated by construction and
+        // outlives the trie by the `'a` bound.
+        unsafe { exp_hot_str_insert(self.0, k.as_ptr()) == 1 }
+    }
+
+    /// The stored pointer for `k`, as a word, if present.
+    pub fn lookup(&self, k: &KeyStr) -> Option<u64> {
+        let mut out: *const c_char = std::ptr::null();
+        // SAFETY: as `insert`; `out` is a live local for the call.
+        let hit = unsafe { exp_hot_str_lookup(self.0, k.as_ptr(), &raw mut out) };
+        (hit == 1).then_some(out as u64)
+    }
+
+    /// Number of entries, counted by walking.
+    pub fn len(&self) -> usize {
+        // SAFETY: `self.0` is live for the lifetime of `self`.
+        unsafe { exp_hot_str_len(self.0) }
+    }
+
+    /// Whether the trie holds no entries.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Full in-order traversal, folding every stored pointer into a sink.
+    pub fn iterate_xor(&self) -> u64 {
+        // SAFETY: as `len`.
+        unsafe { exp_hot_str_iterate_xor(self.0) }
+    }
+
+    /// Ordered scan of at most `k` entries from `lo`; returns how many were
+    /// visited, with the stored pointers folded into a sink inside the shim.
+    pub fn scan(&self, lo: &KeyStr, k: usize) -> (usize, u64) {
+        let mut sink = 0u64;
+        // SAFETY: as `len`; `sink` is a live local for the call.
+        let n = unsafe { exp_hot_str_scan(self.0, lo.as_ptr(), k, &raw mut sink) };
+        (n, sink)
+    }
+}
+
+impl Default for HotStr<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for HotStr<'_> {
+    fn drop(&mut self) {
+        // SAFETY: produced by `exp_hot_str_new`; released exactly once here.
+        unsafe { exp_hot_str_delete(self.0) }
+    }
+}
+
+/// HOT with `PairPointerKeyExtractor` over a heap `std::pair<const char*,
+/// uint64_t>` — the only way HOT carries a value distinct from a string key.
+/// Paired against `ExpanseStrMap` string → `u64` (Arm D). The per-entry pair is
+/// part of the arm and is counted by the census. Lifetime as [`HotStr`].
+pub struct HotStrMap<'a>(*mut c_void, PhantomData<&'a KeyStr>);
+
+impl<'a> HotStrMap<'a> {
+    /// Builds an empty trie.
+    pub fn new() -> Self {
+        // SAFETY: the shim returns an owned trie, freed exactly once in `Drop`.
+        Self(unsafe { exp_hot_strmap_new() }, PhantomData)
+    }
+
+    /// Inserts `k -> v`; the trie points at `k` for the rest of its life.
+    pub fn insert(&mut self, k: &'a KeyStr, v: u64) -> bool {
+        // SAFETY: `self.0` is live; `k` is NUL-terminated by construction and
+        // outlives the trie by the `'a` bound.
+        unsafe { exp_hot_strmap_insert(self.0, k.as_ptr(), v) == 1 }
+    }
+
+    /// Reads the value for `k`.
+    pub fn get(&self, k: &KeyStr) -> Option<u64> {
+        let mut out = 0u64;
+        // SAFETY: as `insert`; `out` is a live local for the call.
+        let hit = unsafe { exp_hot_strmap_get(self.0, k.as_ptr(), &raw mut out) };
+        (hit == 1).then_some(out)
+    }
+
+    /// Number of entries, counted by walking.
+    pub fn len(&self) -> usize {
+        // SAFETY: `self.0` is live for the lifetime of `self`.
+        unsafe { exp_hot_strmap_len(self.0) }
+    }
+
+    /// Whether the trie holds no entries.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Full in-order traversal, folding every value into a sink.
+    pub fn iterate_xor(&self) -> u64 {
+        // SAFETY: as `len`.
+        unsafe { exp_hot_strmap_iterate_xor(self.0) }
+    }
+
+    /// Ordered scan of at most `k` entries from `lo`; returns how many were
+    /// visited, with the values folded into a sink inside the shim.
+    pub fn scan(&self, lo: &KeyStr, k: usize) -> (usize, u64) {
+        let mut sink = 0u64;
+        // SAFETY: as `len`; `sink` is a live local for the call.
+        let n = unsafe { exp_hot_strmap_scan(self.0, lo.as_ptr(), k, &raw mut sink) };
+        (n, sink)
+    }
+}
+
+impl Default for HotStrMap<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for HotStrMap<'_> {
+    fn drop(&mut self) {
+        // SAFETY: produced by `exp_hot_strmap_new`; released exactly once here.
+        unsafe { exp_hot_strmap_delete(self.0) }
+    }
+}
