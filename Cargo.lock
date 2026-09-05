@@ -701,6 +701,7 @@ dependencies = [
  "hashbrown 0.15.5",
  "hdrhistogram",
  "iai-callgrind",
+ "libc",
  "loom",
  "proptest",
  "rand 0.8.7",
