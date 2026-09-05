@@ -869,17 +869,46 @@ pull requests; this entry is the design-doc record of that work, including the
 mechanism that was posted and retracted, so the next agent does not re-derive
 either.
 
-**Where the number stands.** The C ABI streaming walk (#618) took the headline
-from 30.7× to 8.9×, then 8.20× at `41080e96`; the current published artifact,
-harvested at `49b3b6c1` (#687), reads **8.36× slower than the sorted array**
-on `esp32_tsdb_aggregate_500` — 461.4 against 55.2 cycles per key walked,
-medians of 10 with BCa 95% intervals *(measured: ESP32-D0WD-V3 rev v3.1,
-160 MHz; `docs/benchmarks/embedded/results/esp32.json`; workload:
-`esp32_tsdb_aggregate_500`)*. Part of that is the harness, and it is
-measured rather than argued: Expanse is called back once per key across the
-C ABI while every twin folds inline, and the
-`sorted_array_dispatch_inlined` / `sorted_array_dispatch_indirect` control
-puts the per-key dispatch at **+26.4 cycles per key** at `pop=2000`
+**Where the number stands, and the pairing that closes the issue.** The C ABI
+streaming walk (#618) took the headline from 30.7× to 8.9×, then 8.20× at
+`41080e96`, and the re-harvest at `49b3b6c1` (#687) sat in the same band. The
+device measurement of #694 (running rank through the C ABI range walk) was
+taken as a paired capture — its merge parent `c7db954e` against `14dadda3`,
+both 21-character version strings, one sitting, with the prediction filed
+before the first flash: the `aggregate` arms move, the ingest arms stay flat,
+the pop=500 eviction arms carry no verdict (§8.1.3). Outcome *(measured:
+ESP32-D0WD-V3 rev v3.1, 160 MHz, medians of 10;
+[`results/pairing_694/control_c7db954e.json`](../benchmarks/embedded/results/pairing_694/control_c7db954e.json),
+[`treatment_14dadda3.json`](../benchmarks/embedded/results/pairing_694/treatment_14dadda3.json); workload:
+`esp32_tsdb_aggregate_500`)*:
+
+| Arm (pop 2000 unless stated) | `c7db954e` | `14dadda3` | | twin floor on the cell |
+|---|---:|---:|---:|---:|
+| `esp32_tsdb_aggregate_500` · expanse | 461.45 | 371.10 | **−19.6%** | 5.3% |
+| `esp32_tsdb_aggregate_500_shuffled` · expanse | 436.76 | 354.03 | **−18.9%** | 5.2% |
+| `esp32_tsdb_aggregate_500` pop 500 · expanse | 461.56 | 371.68 | **−19.5%** | 4.1% |
+| `esp32_tsdb_aggregate_500_shuffled` pop 500 · expanse | 433.39 | 340.26 | **−21.5%** | 4.5% |
+| `esp32_tsdb_ingest` · expanse | 3,045.2 | 3,121.6 | +2.5% | 0.07% |
+| largest movement on an arm the change cannot reach | | | +4.45% | `esp32_ble_ttl_eviction_sparse` pop 2000 |
+
+The aggregate prediction is **CONFIRMED**: four cells move together by a fifth,
+four times the layout floor. The ingest prediction is **REFUTED as stated** —
++2.5% is outside that arm's twin drift — and **unattributed**: it sits inside
+the 4.45% that arms the change cannot reach moved in the same pairing, which
+is the §8.1.3 layout effect and not the code. The pop=500 eviction arms moved
+−0.3% and −1.1% and carry no verdict either way.
+
+The published artifact is the third flash of the sitting, `main` at `bec51c48`
+(which also carries #696–#698): **7.17× slower than the sorted array** on
+`esp32_tsdb_aggregate_500` — 377.4 against 52.7 cycles per key walked, every one
+of the 61 arms at 10 of 10 samples with no watchdog line in the capture, which
+also confirms #697 *(measured: ESP32-D0WD-V3 rev v3.1, 160 MHz;
+`docs/benchmarks/embedded/results/esp32.json`; workload:
+`esp32_tsdb_aggregate_500`)*. Part of that is the harness, and it is measured
+rather than argued: Expanse is called back once per key across the C ABI while
+every twin folds inline, and the `sorted_array_dispatch_inlined` /
+`sorted_array_dispatch_indirect` control puts the per-key dispatch at **+23.9
+cycles per key** in this harvest, +26.4 at `49b3b6c1`
 (`docs/benchmarks/embedded/METHODOLOGY.md` §3.3). That floor is charged to
 Expanse alone and is not the engine.
 
@@ -922,19 +951,15 @@ with #615 (it does not: allocation strategy versus walk cost); a single-form
 `read_rem` or `set_immed_keys` without the `cfg(not(target_family = "wasm"))`
 split (wasm insert +5.07% under the ladder form).
 
-**What is left, and what closes it.** The device artifact predates #694. One
-paired ESP32 capture across it — merge parent against `main`, one sitting,
-equal-length version strings (§8.1.3), 10 of 10 samples on every arm to
-confirm the #697 watchdog change — is the measurement that closes #614; the
-prediction to file before it runs is that the `aggregate` arms move and the
-ingest arms do not. Whatever it reads, the honest disposition is *explained*,
-not *reduced to parity*: a contiguous sorted array with an $O(\log n)$ seek
-is the right structure for this shape, and the residual plus the +26.4
-cycle-per-key dispatch floor are what the record should carry. One open item
-rides along: Expanse's aggregate rose 6.8% between `41080e96` and `49b3b6c1`
-while every twin moved ≤0.1% (#687 reports it without attributing it; the
-#686 pairing was 0.00%), which is the binary-layout effect of §8.1.3 as a
-hypothesis and unmeasured as a fact.
+**Disposition.** The pairing above is the measurement #614 was waiting for,
+and the issue closes as *explained*, not as *reduced to parity*: a contiguous
+sorted array with an $O(\log n)$ seek is the right structure for this shape,
+and the record carries the residual (7.17× at `bec51c48`) together with the
++23.9 cycle-per-key dispatch floor. One observation rides along, unattributed:
+between `14dadda3` and `bec51c48` — a span the range walk does not touch —
+`esp32_ble_sighting_record` moved +8.2% and `esp32_tsdb_ingest_shuffled` at
+pop 500 +6.2% while their twins moved ≤0.3%, which is the binary-layout effect
+of §8.1.3 as a hypothesis and unmeasured as a fact.
 
 ### 8.2 Custom Allocator & `#![no_std]` Integration
 

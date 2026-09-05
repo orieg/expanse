@@ -581,9 +581,11 @@ four.*
 ![On-device ESP32: ingest in key order and shuffled, range scan, and memory per key, each against the twin baselines](./benchmarks/embedded/results/bench_esp32_ondevice.svg)
 
 *(measured: ESP32-D0WD-V3 rev v3.1, 2 cores, 160 MHz, ESP-IDF `v6.0-dev-2980-gab149384e1`,
-Xtensa Rust 1.97.0.0, `-O2`; engine `0.5.0-dev (v0.5.0-138-g49b3b6c1)`, commit `49b3b6c1`;
-10 repetitions per arm, artifact
-[`docs/benchmarks/embedded/esp32.json`](benchmarks/embedded/esp32.json))*
+Xtensa Rust 1.97.0.0, `-O2`; engine `0.5.0-dev (v0.5.0-155-gbec51c48)`, commit `bec51c48`;
+10 repetitions per arm on every one of the 61 arms, artifact
+[`docs/benchmarks/embedded/results/esp32.json`](benchmarks/embedded/results/esp32.json))*
+
+**Correction.** Re-harvested at `bec51c48` after #694 carried a running rank through the C ABI range walk. In a paired capture across that one change — its merge parent against it, equal-length version strings, one sitting — the aggregate arm moved from 461.45 to 371.10 cycles per key (−19.6%) against a twin floor of 5.3% on that cell and a layout floor of 4.45% on arms the change cannot reach; the earlier range-scan headline is superseded, and the pairing is recorded in [`docs/design/32-bit-embedded.md` §8.1.8](design/32-bit-embedded.md) with its artifacts under [`results/pairing_694/`](benchmarks/embedded/results/pairing_694/). Every other headline below is re-stated from this harvest; the ingest and BLE cells moved only within the layout floor of this part (§8.1.3).
 
 **Measured against `main` (`28dd572e`) on the same board, same harness build.**
 The engine is the only thing that differs between the two arms: the PR adds a
@@ -653,36 +655,38 @@ records where Expanse retired 300.
 
 **Where Expanse loses, at N=2000:**
 
-- **Ingest with keys already in order: 2.00× slower than the sorted array**
-  (3,025 vs 1,513 cycles/op) and 2.26× slower than the hash and ring. Monotonic
+- **Ingest with keys already in order: 2.08× slower than the sorted array**
+  (3,142 vs 1,514 cycles/op) and 2.35× slower than the hash and ring. Monotonic
   arrival is the sorted array's best case — every insert appends and it never
   memmoves — but the loss is real and it is the common telemetry shape.
-- **Range scan: 8.36× slower than the sorted array** (461 vs 55 cycles per key
-  walked). It is slower than every twin, including the hash (141) and the ring
-  (73), which have no order to exploit and must scan the whole container to
+- **Range scan: 7.17× slower than the sorted array** (377 vs 53 cycles per key
+  walked). It is slower than every twin, including the hash (145) and the ring
+  (72), which have no order to exploit and must scan the whole container to
   answer at all. An ordered structure losing to a full scan is the part that is
   still wrong. Part of that gap is the harness rather than the engine: Expanse
   is called back once per key across the C ABI while every twin folds inline,
-  and the `sorted_array_dispatch_*` control measures that dispatch at **+26.4
-  cycles per key**. Adjusting for it is arithmetic on a warm-measured delta and
+  and the `sorted_array_dispatch_*` control measures that dispatch at **+23.9
+  cycles per key** in this harvest (46.3 inlined → 70.2 indirect; it read +26.4 at `49b3b6c1`). Adjusting for it is arithmetic on a warm-measured delta and
   cold-measured arms, so the adjusted figure is derived, not measured; see
   `docs/benchmarks/embedded/METHODOLOGY.md` §3.
-- **BLE TTL eviction: 26× slower per entry at dense expiry** (2,173 vs 83
-  cycles) and 2.19× slower at sparse expiry (2,259 vs 1,032). The by-time index
+- **BLE TTL eviction: 26.5× slower per entry at dense expiry** (2,205 vs 83
+  cycles) and 2.12× slower at sparse expiry (2,247 vs 1,058). The by-time index
   behaves as designed — Expanse's pass cost tracks the *expired* count while
   the sweeps track the *tracked* count — but on this part the crossover is not
   reached at either regime measured.
-- **BLE sighting record: 2.13× slower than the hash** (7,270 vs 3,411).
+- **BLE sighting record: 2.31× slower than the hash** (7,886 vs 3,410). This arm
+  moves by several percent between links of unchanged code (§8.1.3); the ratio is
+  read against that.
 
 **Where Expanse wins:**
 
 - **Ingest with keys shuffled: 8.99× faster than the sorted array** (4,080 vs
   36,687 cycles/op). Same container in both ingest rows — only arrival order
   differs — which is why the in-order result must not be read as a general
-  verdict. Expanse's own cost moves 35% between the two orders; the sorted
-  array's moves 24.3×.
+  verdict. Expanse's own cost moves 30% between the two orders; the sorted
+  array's moves 24.2×.
 - **Memory: 1.46× denser than the sorted array and 3.3× denser than the hash**
-  (5.65 vs 8.26 vs 18.50 B/key, all three from the same fill
+  (5.65 vs 8.25 vs 18.50 B/key, all three from the same fill
   *(workload: esp32_tsdb_ingest)*). The sorted array stores two bare 4-byte
   arrays with no per-entry overhead, so beating it on density is compression
   working, not accounting.
@@ -691,33 +695,33 @@ records where Expanse retired 300.
 
 | Benchmark | Arm | N ops | Cycles/op (median of 10) | Mean [BCa 95% CI] | Heap delta (B) |
 |---|---|---|---|---|---|
-| `esp32_tsdb_ingest` | `expanse_memtable` | 2000 | **3,025.2** | 3,027.5 [3,025.0, 3,036.6] | 11,304 |
-| `esp32_tsdb_ingest` | `hash_open_addressing` | 2000 | **1,337.8** | 1,337.7 [1,337.5, 1,337.9] | 36,996 |
-| `esp32_tsdb_ingest` | `ring_buffer` | 2000 | **1,339.3** | 1,338.9 [1,338.6, 1,339.3] | 16,512 |
-| `esp32_tsdb_ingest` | `sorted_array` | 2000 | **1,512.6** | 1,512.5 [1,512.2, 1,512.6] | 16,512 |
-| `esp32_tsdb_ingest_shuffled` | `expanse_memtable` | 2000 | **4,079.6** | 4,079.7 [4,079.1, 4,080.3] | 11,356 |
-| `esp32_tsdb_ingest_shuffled` | `hash_open_addressing` | 2000 | **1,337.9** | 1,337.8 [1,337.4, 1,338.0] | 36,996 |
-| `esp32_tsdb_ingest_shuffled` | `sorted_array` | 2000 | **36,686.6** | 36,969.9 [36,686.5, 37,935.0] | 16,512 |
-| `esp32_tsdb_aggregate_500` | `expanse_memtable` | 501 | **461.4** | 462.1 [461.5, 463.2] | 11,304 |
-| `esp32_tsdb_aggregate_500` | `hash_open_addressing` | 501 | **140.8** | 141.1 [140.8, 141.8] | 36,996 |
-| `esp32_tsdb_aggregate_500` | `ring_buffer` | 501 | **73.1** | 73.1 [73.1, 73.1] | 16,512 |
-| `esp32_tsdb_aggregate_500` | `sorted_array` | 501 | **55.2** | 55.6 [55.2, 55.8] | 16,512 |
-| `esp32_tsdb_aggregate_500_shuffled` | `expanse_memtable` | 501 | **438.0** | 438.8 [438.2, 439.6] | 11,356 |
-| `esp32_tsdb_aggregate_500_shuffled` | `hash_open_addressing` | 501 | **140.8** | 140.8 [140.8, 140.8] | 36,996 |
-| `esp32_tsdb_aggregate_500_shuffled` | `sorted_array` | 501 | **57.1** | 57.1 [57.1, 57.1] | 16,512 |
-| `esp32_churn_insert_delete` | `expanse_memtable` | 8000 | **3,515.0** | 3,605.1 [3,514.9, 3,875.9] | 508 |
-| `esp32_ble_sighting_record` | `expanse_slab` | 2000 | **7,270.0** | 7,569.1 [7,269.6, 8,626.3] | 111,996 |
-| `esp32_ble_sighting_record` | `hash_open_addressing` | 2000 | **3,411.4** | 3,411.7 [3,411.4, 3,412.2] | 118,912 |
-| `esp32_ble_sighting_record` | `linear_scan` | 2000 | **112,429.5** | 113,279.8 [112,712.6, 114,130.3] | 57,468 |
-| `esp32_ble_point_lookup` | `expanse_slab` | 2000 | **2,126.6** | 2,126.8 [2,126.6, 2,127.1] | 111,996 |
-| `esp32_ble_point_lookup` | `hash_open_addressing` | 2000 | **3,547.5** | 3,547.9 [3,547.5, 3,548.4] | 118,912 |
-| `esp32_ble_point_lookup` | `linear_scan` | 2000 | **111,553.3** | 112,116.3 [111,553.4, 112,971.3] | 57,468 |
-| `esp32_ble_ttl_eviction` (55% expired) | `expanse_slab` | 1100 | **2,172.9** | 2,175.8 [2,172.4, 2,180.0] | 111,996 |
-| `esp32_ble_ttl_eviction` (55% expired) | `hash_open_addressing` | 1100 | **97.4** | 97.6 [97.4, 98.1] | 118,912 |
-| `esp32_ble_ttl_eviction` (55% expired) | `linear_scan` | 1100 | **82.8** | 82.8 [82.8, 82.8] | 57,468 |
-| `esp32_ble_ttl_eviction_sparse` (5% expired) | `expanse_slab` | 100 | **2,258.7** | 2,258.5 [2,243.6, 2,270.9] | 111,996 |
-| `esp32_ble_ttl_eviction_sparse` (5% expired) | `hash_open_addressing` | 100 | **1,032.4** | 1,033.6 [1,032.4, 1,036.0] | 118,912 |
-| `esp32_ble_ttl_eviction_sparse` (5% expired) | `linear_scan` | 100 | **1,390.6** | 1,390.6 [1,390.6, 1,390.6] | 57,468 |
+| `esp32_tsdb_ingest` | `expanse_memtable` | 2000 | **3,141.9** | 3,142.6 [3,141.5, 3,145.3] | 11,300 |
+| `esp32_tsdb_ingest` | `hash_open_addressing` | 2000 | **1,336.8** | 1,336.6 [1,336.4, 1,336.8] | 36,996 |
+| `esp32_tsdb_ingest` | `ring_buffer` | 2000 | **1,337.9** | 1,337.6 [1,337.3, 1,337.9] | 16,512 |
+| `esp32_tsdb_ingest` | `sorted_array` | 2000 | **1,513.7** | 1,513.7 [1,513.4, 1,513.9] | 16,508 |
+| `esp32_tsdb_ingest_shuffled` | `expanse_memtable` | 2000 | **4,080.4** | 4,080.0 [4,075.0, 4,085.1] | 11,358 |
+| `esp32_tsdb_ingest_shuffled` | `hash_open_addressing` | 2000 | **1,336.9** | 1,336.7 [1,336.3, 1,336.9] | 36,996 |
+| `esp32_tsdb_ingest_shuffled` | `sorted_array` | 2000 | **36,687.1** | 36,687.2 [36,686.9, 36,687.5] | 16,508 |
+| `esp32_tsdb_aggregate_500` | `expanse_memtable` | 501 | **377.4** | 377.9 [377.4, 378.8] | 11,300 |
+| `esp32_tsdb_aggregate_500` | `hash_open_addressing` | 501 | **144.6** | 144.9 [144.6, 145.3] | 36,996 |
+| `esp32_tsdb_aggregate_500` | `ring_buffer` | 501 | **71.8** | 71.8 [71.8, 71.8] | 16,512 |
+| `esp32_tsdb_aggregate_500` | `sorted_array` | 501 | **52.7** | 52.7 [52.7, 52.7] | 16,508 |
+| `esp32_tsdb_aggregate_500_shuffled` | `expanse_memtable` | 501 | **370.5** | 370.9 [370.3, 371.7] | 11,358 |
+| `esp32_tsdb_aggregate_500_shuffled` | `hash_open_addressing` | 501 | **143.3** | 143.3 [142.6, 144.1] | 36,996 |
+| `esp32_tsdb_aggregate_500_shuffled` | `sorted_array` | 501 | **54.6** | 54.6 [54.6, 54.6] | 16,508 |
+| `esp32_churn_insert_delete` | `expanse_memtable` | 8000 | **3,661.6** | 3,662.3 [3,661.5, 3,663.3] | 501 |
+| `esp32_ble_sighting_record` | `expanse_slab` | 2000 | **7,886.4** | 7,886.7 [7,886.0, 7,887.7] | 111,973 |
+| `esp32_ble_sighting_record` | `hash_open_addressing` | 2000 | **3,410.4** | 3,410.6 [3,410.4, 3,411.0] | 118,908 |
+| `esp32_ble_sighting_record` | `linear_scan` | 2000 | **112,430.0** | 112,429.9 [112,429.7, 112,430.2] | 57,460 |
+| `esp32_ble_point_lookup` | `expanse_slab` | 2000 | **2,127.1** | 2,127.2 [2,126.8, 2,127.4] | 111,973 |
+| `esp32_ble_point_lookup` | `hash_open_addressing` | 2000 | **3,548.0** | 3,548.2 [3,547.9, 3,548.6] | 118,908 |
+| `esp32_ble_point_lookup` | `linear_scan` | 2000 | **111,552.5** | 111,552.5 [111,552.2, 111,552.8] | 57,460 |
+| `esp32_ble_ttl_eviction` (55% expired) | `expanse_slab` | 1100 | **2,205.3** | 2,207.6 [2,205.1, 2,211.2] | 111,973 |
+| `esp32_ble_ttl_eviction` (55% expired) | `hash_open_addressing` | 1100 | **97.4** | 97.5 [97.4, 97.9] | 118,908 |
+| `esp32_ble_ttl_eviction` (55% expired) | `linear_scan` | 1100 | **83.4** | 83.5 [83.4, 83.7] | 57,460 |
+| `esp32_ble_ttl_eviction_sparse` (5% expired) | `expanse_slab` | 100 | **2,247.1** | 2,250.5 [2,238.4, 2,271.3] | 111,973 |
+| `esp32_ble_ttl_eviction_sparse` (5% expired) | `hash_open_addressing` | 100 | **1,057.7** | 1,058.9 [1,057.7, 1,061.3] | 118,908 |
+| `esp32_ble_ttl_eviction_sparse` (5% expired) | `linear_scan` | 100 | **1,390.6** | 1,391.8 [1,390.6, 1,394.3] | 57,460 |
 
 **How to read this chart — and what it cannot tell you.**
 

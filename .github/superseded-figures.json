@@ -226,6 +226,25 @@
       "replacement": "1.0013 [1.0009, 1.0015] (+0.1%), 288.9 ns raw / 289.2 ns domain at commit fcca1c0d (docs/benchmarks/set_algebra/results/bench_domain_algebra.json)",
       "provenance": "#701, #638",
       "rationale": "Measured at c4b1817f before #638 changed the cardinality walk (runtime popcnt dispatch) and before #701 pinned the harness allocator policy; re-measured over 5 independent runs the resolved ~5% overhead reads 0.1%. Superseded, not silently overwritten (§8.7)."
+    },
+    {
+      "id": "esp32_range_scan_8_36x_49b3b6c1",
+      "patterns": [
+        "(?<![\\w.])8\\.36\\s*[x×](?!\\w)",
+        "(?<![\\w.])461\\.4(?![\\d])",
+        "(?<![\\w.])461 vs 55\\b"
+      ],
+      "context": [
+        "aggregate",
+        "range scan",
+        "sorted array",
+        "cycles per key",
+        "esp32",
+        "walk"
+      ],
+      "replacement": "7.17× (377.4 vs 52.7 cycles per key walked) at bec51c48 after #694; the paired capture across #694 moved the arm 461.45 -> 371.10 (docs/benchmarks/embedded/results/esp32.json, results/pairing_694/)",
+      "provenance": "#614, #694, #695",
+      "rationale": "The 49b3b6c1 device artifact predated #694 (running rank through the C ABI range walk); a paired capture across that change moved the aggregate arm by a fifth, four times the layout floor, and the headline was re-harvested at bec51c48. Superseded, not silently overwritten (§8.7)."
     }
   ]
 }

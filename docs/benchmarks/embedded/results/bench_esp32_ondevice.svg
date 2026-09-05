@@ -74,20 +74,20 @@
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-    <rect x="32" y="81.6" width="46" height="113.4" class="b-expanse" rx="2"/>
-    <text x="55" y="73.1" class="t-val-muted">3,025</text>
+    <rect x="32" y="77.2" width="46" height="117.8" class="b-expanse" rx="2"/>
+    <text x="55" y="68.7" class="t-val-muted">3,142</text>
     <text x="55" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="55" y="228" class="t-chart-sub" text-anchor="middle">2.0&#215; slower</text>
-    <rect x="90" y="144.8" width="46" height="50.2" class="b-hashmap" rx="2"/>
-    <text x="113" y="136.3" class="t-val-blue">1,338</text>
+    <text x="55" y="228" class="t-chart-sub" text-anchor="middle">2.1&#215; slower</text>
+    <rect x="90" y="144.9" width="46" height="50.1" class="b-hashmap" rx="2"/>
+    <text x="113" y="136.4" class="t-val-blue">1,337</text>
     <text x="113" y="214" class="t-bar-label" text-anchor="middle">hash</text>
     <text x="113" y="228" class="t-chart-sub" text-anchor="middle">no order</text>
-    <rect x="148" y="138.3" width="46" height="56.7" class="b-stdmap" rx="2"/>
-    <text x="171" y="129.8" class="t-val-muted">1,513</text>
+    <rect x="148" y="138.2" width="46" height="56.8" class="b-stdmap" rx="2"/>
+    <text x="171" y="129.7" class="t-val-muted">1,514</text>
     <text x="171" y="214" class="t-bar-label" text-anchor="middle">sorted</text>
     <text x="171" y="228" class="t-chart-sub" text-anchor="middle">appends</text>
     <rect x="206" y="144.8" width="46" height="50.2" class="b-stdmap" rx="2"/>
-    <text x="229" y="136.3" class="t-val-muted">1,339</text>
+    <text x="229" y="136.3" class="t-val-muted">1,338</text>
     <text x="229" y="214" class="t-bar-label" text-anchor="middle">ring</text>
     <text x="229" y="228" class="t-chart-sub" text-anchor="middle">no index</text>
   </g>
@@ -110,7 +110,7 @@
     <text x="55" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
     <text x="55" y="228" class="t-chart-sub t-win" text-anchor="middle">9.0&#215; faster</text>
     <rect x="90" y="191.0" width="46" height="4.0" class="b-hashmap" rx="2"/>
-    <text x="113" y="182.5" class="t-val-blue">1,338</text>
+    <text x="113" y="182.5" class="t-val-blue">1,337</text>
     <text x="113" y="214" class="t-bar-label" text-anchor="middle">hash</text>
     <text x="113" y="228" class="t-chart-sub" text-anchor="middle">no order</text>
     <rect x="148" y="84.9" width="46" height="110.1" class="b-stdmap" rx="2"/>
@@ -126,26 +126,26 @@
     <text x="0" y="13" class="t-chart-sub">per key walked &#183; ratio vs sorted array</text>
     <text x="0" y="29" class="t-unit-header">&#9660; CPU cycles / key</text>
     <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
-    <text x="22" y="48" class="t-axis-label" text-anchor="end">600</text>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">500</text>
     <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
-    <text x="22" y="123" class="t-axis-label" text-anchor="end">300</text>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">250</text>
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-    <rect x="32" y="79.6" width="46" height="115.4" class="b-expanse" rx="2"/>
-    <text x="55" y="71.1" class="t-val-muted">461</text>
+    <rect x="32" y="81.8" width="46" height="113.2" class="b-expanse" rx="2"/>
+    <text x="55" y="73.3" class="t-val-muted">377</text>
     <text x="55" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="55" y="228" class="t-chart-sub" text-anchor="middle">8.4&#215; slower</text>
-    <rect x="90" y="159.8" width="46" height="35.2" class="b-hashmap" rx="2"/>
-    <text x="113" y="151.3" class="t-val-blue">141</text>
+    <text x="55" y="228" class="t-chart-sub" text-anchor="middle">7.2&#215; slower</text>
+    <rect x="90" y="151.6" width="46" height="43.4" class="b-hashmap" rx="2"/>
+    <text x="113" y="143.1" class="t-val-blue">145</text>
     <text x="113" y="214" class="t-bar-label" text-anchor="middle">hash</text>
     <text x="113" y="228" class="t-chart-sub" text-anchor="middle">scan all</text>
-    <rect x="148" y="181.2" width="46" height="13.8" class="b-stdmap" rx="2"/>
-    <text x="171" y="172.7" class="t-val-muted">55</text>
+    <rect x="148" y="179.2" width="46" height="15.8" class="b-stdmap" rx="2"/>
+    <text x="171" y="170.7" class="t-val-muted">53</text>
     <text x="171" y="214" class="t-bar-label" text-anchor="middle">sorted</text>
     <text x="171" y="228" class="t-chart-sub" text-anchor="middle">contig.</text>
-    <rect x="206" y="176.7" width="46" height="18.3" class="b-stdmap" rx="2"/>
-    <text x="229" y="168.2" class="t-val-muted">73</text>
+    <rect x="206" y="173.5" width="46" height="21.5" class="b-stdmap" rx="2"/>
+    <text x="229" y="165.0" class="t-val-muted">72</text>
     <text x="229" y="214" class="t-bar-label" text-anchor="middle">ring</text>
     <text x="229" y="228" class="t-chart-sub" text-anchor="middle">scan all</text>
   </g>
@@ -168,7 +168,7 @@
     <text x="55" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
     <text x="55" y="228" class="t-chart-sub t-win" text-anchor="middle">1.5&#215; denser</text>
     <rect x="90" y="145.5" width="46" height="49.5" class="b-stdmap" rx="2"/>
-    <text x="113" y="137.0" class="t-val-muted">8.26</text>
+    <text x="113" y="137.0" class="t-val-muted">8.25</text>
     <text x="113" y="214" class="t-bar-label" text-anchor="middle">sorted</text>
     <text x="113" y="228" class="t-chart-sub" text-anchor="middle">flat 8B</text>
     <rect x="148" y="84.0" width="46" height="111.0" class="b-hashmap" rx="2"/>
@@ -177,7 +177,7 @@
     <text x="171" y="228" class="t-chart-sub" text-anchor="middle">0.7 load</text>
   </g>
 
-  <text x="30" y="262" class="t-chart-sub">Measured on esp32 rev v301 &#183; 160 MHz &#183; ESP-IDF v6.0-dev-2980-gab149384e1 &#183; engine 0.5.0-dev (v0.5.0-138-g49b3b6c1) &#183; 10 reps/arm, BCa 95% CIs.</text>
+  <text x="30" y="262" class="t-chart-sub">Measured on esp32 rev v301 &#183; 160 MHz &#183; ESP-IDF v6.0-dev-2980-gab149384e1 &#183; engine 0.5.0-dev (v0.5.0-155-gbec51c48) &#183; 10 reps/arm, BCa 95% CIs.</text>
   <text x="30" y="275" class="t-chart-sub">Every arm runs under the same FreeRTOS recursive mutex, stores the same payload and retires the same set. The sorted array is the same container in both ingest panels: order of arrival is the only difference.</text>
   <text x="30" y="288" class="t-chart-sub">Not shown: BLE point lookup, where Expanse is 1.7x faster than the hash twin, and TTL eviction, where it loses at both expiry regimes measured. Full table in docs/DATABASE.md &#167;5.4.</text>
 </svg>
