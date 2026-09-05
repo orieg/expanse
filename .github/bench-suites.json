@@ -510,6 +510,28 @@
       "reason": "needs `avx512vpopcntdq`, which the bare-metal reference host does not have (Alder Lake fuses AVX-512 off); on that host the sweep would report only its scalar arm. Run it on the AVX-512 lane instead \u2014 `.github/workflows/bench_avx512.yml`, `runs-on: [avx512]`.",
       "summary": "AVX-512 `vpopcntq` vs the shipped scalar `Bitmap256::count_and`, swept across cache residency including a dependent DRAM chase.",
       "suite": "avx512"
+    },
+    {
+      "name": "hot_memory_curve",
+      "available": false,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-hot-bench",
+      "target": "hot_memory_curve",
+      "reason": "needs an initialised `third_party/hot` submodule and an x86-64 host with AVX2 and BMI2 \u2014 HOT does not build otherwise \u2014 and each cell must run in its own process because HOT's node pool is a process-global `static` (a warm pool undercounts memory by up to 3.3x). It is driven by `docs/benchmarks/hot_comparison/run.sh`, which takes the host-wide benchmark lock and sweeps expanse occupancy, not by `cargo bench`.",
+      "summary": "HOT vs Expanse live-heap census swept across expanse occupancy, both arms under one allocator instrument.",
+      "suite": "hot_comparison"
+    },
+    {
+      "name": "hot_latency",
+      "available": false,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-hot-bench",
+      "target": "hot_latency",
+      "reason": "needs an initialised `third_party/hot` submodule and an x86-64 host with AVX2 and BMI2 \u2014 HOT does not build otherwise \u2014 and each cell must run in its own process because HOT's node pool is a process-global `static` (a warm pool undercounts memory by up to 3.3x). It is driven by `docs/benchmarks/hot_comparison/run.sh`, which takes the host-wide benchmark lock and sweeps expanse occupancy, not by `cargo bench`.",
+      "summary": "HOT vs Expanse point lookup (100% and 50% hit), cold-build insertion, and ordered range scan.",
+      "suite": "hot_comparison"
     }
   ]
 }
