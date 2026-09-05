@@ -46,3 +46,7 @@ path = "src/bin/keyspace_density_probe.rs"
 [[bin]]
 name = "hot_memory_curve"
 path = "src/bin/hot_memory_curve.rs"
+
+[[bin]]
+name = "hot_probe_symmetry"
+path = "src/bin/hot_probe_symmetry.rs"

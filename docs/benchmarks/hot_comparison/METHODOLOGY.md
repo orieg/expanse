@@ -621,3 +621,44 @@ Three census defects have now been found in this integration, all of which
 would have published a plausible wrong figure: the process-global node pool
 (§9.2, 3.3×), the unwrapped `operator new` (here, 3×), and the free path that
 never subtracted (§9.1). Every one understated somebody's memory.
+
+
+### 9.8 Probe symmetry, checked before the latency pillars were written
+
+The latency pillars rest on an assumption worth testing rather than asserting:
+that both arms do the *same work* per probe and that the work is consumed. This
+repo has already retracted absolute figures from a harness whose read path never
+dereferenced the payload, billing index traversal only (`docs/DATABASE.md` §7),
+and every census defect in this integration was found by running something
+rather than by reading it.
+
+`hot_probe_symmetry` checks four properties, all deterministic (§8.4 — no
+wall-clock, so no intervals apply). Result *(measured: x86_64 build host — Intel
+Xeon E5-2697 v4; `-C target-cpu=haswell`; workload: `hot_probe_symmetry`)*:
+
+| Arm | Probes | Hit rate | Disagreements | Values | Sinks |
+|---|---:|---:|---:|---|---|
+| A — set, 63-bit | 200,000 | 50.0% | 0 | n/a | equal |
+| B — map, 64-bit | 200,000 | 50.0% | 0 | identical | fed |
+
+1. **Answer agreement** — HOT and Expanse return the same result on every probe.
+   A disagreement voids the arm and would otherwise surface as a latency
+   difference rather than as the correctness failure it is.
+2. **Value consumption** — on Arm B both sides produce the stored *value*, not a
+   presence bit, and both sinks are fed from it. HOT reaches its value through a
+   heap pointer; Expanse reads it from an inline `ValueSlot`. **That cost
+   asymmetry is the architectural difference Arm B exists to measure, and it is
+   only a fair measurement because both arms are made to fetch.** A probe that
+   stopped at `mIsValid` would hand HOT the traversal without the dereference.
+3. **Miss shape** — misses are rejection-sampled from the same generator as the
+   population, never a transform of a present key (§8.6).
+4. **Probe order** — the stream is shuffled with Fisher-Yates from the same
+   PRNG. This was a **defect found while writing the check**: the population is
+   sorted, so hits drawn by index arrived in ascending key order, handing an
+   ordered trie cache and prefetch behaviour no real point-lookup workload
+   provides. `art_comparison/` had to amend for exactly this after its first
+   reference-host run; inheriting the amendment cost nothing, rediscovering it
+   would have cost a sweep.
+
+Arm A compares membership against membership with no value on either side, so
+consumption there is the presence bit itself.
