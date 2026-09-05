@@ -488,7 +488,6 @@ Against §10.7:
 | Expanse wins `ownership` memory on `counter` and `short` (low-medium) | **CONFIRMED** on `counter`; **REFUTED** on `short` |
 | Expanse wins Arm D memory (high, categorical) | **CONFIRMED**, `PASS_categorical_by_design` |
 | `λ_chunk` cascade near N ≈ 1.23 × 10⁵ (hypothesis) | consistent, not confirmed — §6.4 |
-## 6. The concurrent arm: the write-concurrency loss, measured
 ## 7. The concurrent arm: the write-concurrency loss, measured
 
 Delivers [#692](https://github.com/orieg/expanse/issues/692): HOT's **ROWEX**

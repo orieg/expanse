@@ -1035,7 +1035,6 @@ follow from the outcome:
   its byte buffer). That is a property of the engine's string leaf and is logged
   for the engine, as §9.4 logged the `LEAF_CAP` density behaviour, rather than
   amended into this suite.
-## 10. HOT-ROWEX Concurrent Arm — Pre-Registration (#692)
 ## 11. HOT-ROWEX Concurrent Arm — Pre-Registration (#692)
 
 **Status: locked before any harness code. No §11 measurement has been taken.**

@@ -548,6 +548,8 @@ def string_charts() -> list:
         (RESULTS / "chart_string_memory_sweep.svg").write_text(string_memory_sweep() + "\n")
         written.append("chart_string_memory_sweep.svg")
     return written
+
+
 def concurrent_charts() -> None:
     """The HOT-ROWEX arm (#692, §11): writer and reader throughput per cell.
 
@@ -601,12 +603,8 @@ def main() -> int:
         (RESULTS / "chart_latency_1m.svg").write_text(latency_1m() + "\n")
         written += ["chart_memory_curve.svg", "chart_latency_1m.svg"] + standard_charts()
     written += string_charts()
-    print("wrote " + ", ".join(written))
     concurrent_charts()
-    (RESULTS / "chart_memory_curve.svg").write_text(memory_curve() + "\n")
-    (RESULTS / "chart_latency_1m.svg").write_text(latency_1m() + "\n")
-    extra = standard_charts()
-    print("wrote chart_memory_curve.svg, chart_latency_1m.svg, " + ", ".join(extra))
+    print("wrote " + ", ".join(written))
     return 0
 
 

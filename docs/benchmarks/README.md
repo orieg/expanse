@@ -37,8 +37,7 @@ not reachable as `/benchmark` tokens and so do not appear below.
 | [`avx512/`](avx512/README.md) | `avx512_bitmap` | wall-clock | AVX-512 `vpopcntq` for `Bitmap256` cardinality |
 | [`embedded/`](embedded/README.md) | `embedded`, `embedded_memtable` | wall-clock | Embedded memtable shapes (host suite) |
 | [`hashbrown_comparison/`](hashbrown_comparison/README.md) | `hashbrown_container_dists`, `hashbrown_memory_alloc`, `hashbrown_native_suite`, `hashbrown_tail_latency`, `hashbrown_ycsb` | wall-clock | Expanse vs. Hashbrown vs. BTreeMap: Empirical Comparative Benchmark Suite |
-| [`hot_comparison/`](hot_comparison/README.md) | `hot_latency`, `hot_memory_curve`, `hot_string_latency`, `hot_string_memory` | wall-clock | Expanse vs. HOT (Height Optimized Trie): Empirical Benchmark Suite |
-| [`hot_comparison/`](hot_comparison/README.md) | `hot_concurrent`, `hot_latency`, `hot_memory_curve` | wall-clock | Expanse vs. HOT (Height Optimized Trie): Empirical Benchmark Suite |
+| [`hot_comparison/`](hot_comparison/README.md) | `hot_concurrent`, `hot_latency`, `hot_memory_curve`, `hot_string_latency`, `hot_string_memory` | wall-clock | Expanse vs. HOT (Height Optimized Trie): Empirical Benchmark Suite |
 | [`llm_inference/`](llm_inference/README.md) | `bench_grammar_masks`, `bench_llm_datastore` | wall-clock | LLM Inference & Speculative Decoding Benchmark — Expanse vs Industry Baselines |
 | [`redis_zset_engine/`](redis_zset_engine/README.md) | `zset_memory`, `zset_range`, `zset_rank`, `zset_zadd` | wall-clock | Redis ZSET Engine: Expanse dual-trie sorted set vs SkipList + Dict |
 | [`rocksdb_memtable/`](rocksdb_memtable/README.md) | `rocksdb` | wall-clock | RocksDB MemTable suite: results and how to read them |

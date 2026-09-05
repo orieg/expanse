@@ -76,6 +76,8 @@ path = "src/bin/hot_string_latency.rs"
 [[bin]]
 name = "hot_string_memory"
 path = "src/bin/hot_string_memory.rs"
+
+[[bin]]
 name = "hot_concurrent"
 path = "src/bin/hot_concurrent.rs"
 required-features = ["rowex"]
