@@ -11,7 +11,7 @@
 //! |---|---|
 //! | `workload_id` | `example_bytes_per_key` |
 //! | `group` | 5 |
-//! | `population` | 10k to 1M |
+//! | `population` | 1k to 1M census; the `random` gate also samples 2M |
 //! | `probes_and_reuse` | N/A (Memory) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |
@@ -126,12 +126,26 @@ fn main() {
     // other four rows have occupancy fixed by their generators and do not
     // move with N. Keyspace width is the same knob: masking one top key bit
     // halves 2^16 and is exactly a doubling of N.
+    //
+    // The gate therefore samples `random` at TWO densities. N = 2_000_000
+    // (λ = 30.5) sits in the cascade's mixture regime, where ~39% of the
+    // 2-byte expanses have overflowed LEAF_CAP and pay one 16-byte immediate
+    // per key while the rest are still packed Leaf6 nodes. It is the
+    // steepest part of the curve, which is the point: a regression in Leaf6
+    // packing, in cap_class rounding or in the cost of the cascaded branch's
+    // single-key children moves this cell and leaves the 1M cell alone. Its
+    // ceilings follow the same policy as the others — a little above the
+    // measured 13.60 set / 19.38 map, enough to catch a compression path
+    // stopping firing (a fully cascaded expanse costs 17–21 B/key), not the
+    // last few percent. The two cells are two points on one curve, not a
+    // before/after; compare each only against its own history.
     let budget: &[(&str, usize, f64, f64)] = &[
         // dist, pop, set ceiling, map ceiling
         ("sequential", 1_000_000, 0.10, 9.00),
         ("clustered", 1_000_000, 0.50, 9.00),
         ("clustered-wide", 1_000_000, 0.30, 9.00),
         ("random", 1_000_000, 9.00, 18.00),
+        ("random", 2_000_000, 15.00, 21.00),
         ("sparse", 1_000_000, 17.00, 17.00),
     ];
     let mut over = Vec::new();

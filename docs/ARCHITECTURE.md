@@ -119,7 +119,7 @@ Occupancy across expanses is Poisson-distributed with mean $\lambda$ and $\sigma
 | 15.26 | 48% | **7.92** | 1M @64 — the committed `bytes/key` cell and the `memory-budget` calibration point |
 | 18.31 | 57% | 7.64 · 7.64 | 1.2M @64 · 600k @63 |
 | 24.41 | 76% | 8.49 · 8.47 | 800k @63 · 400k @62 |
-| 30.52 | 95% | 13.60 · 13.60 | 2M @64 · 1M @63 |
+| 30.52 | 95% | 13.60 · 13.60 | 2M @64 · 1M @63 — the `memory-budget` gate's second `random` cell, in the cascade's mixture regime |
 | 36.62 | 114% | 19.30 · 19.25 | 1.2M @63 · 600k @62 |
 | 48.83 | 153% | 21.02 | 800k @62 |
 | 61.04 | 191% | 19.67 · 19.66 | 2M @63 · 1M @62 |
