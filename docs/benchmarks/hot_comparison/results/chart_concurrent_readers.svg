@@ -1,0 +1,176 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="0 0 960 680" width="100%" height="100%">
+  <title>Reader throughput alongside writers — SyncExpanse vs HOT-ROWEX</title>
+  <defs>
+    <style>
+      .bg { fill: #ffffff; }
+      .border { stroke: #e2e8f0; stroke-width: 1px; fill: none; }
+      .grid { stroke: #f1f5f9; stroke-width: 1px; stroke-dasharray: 2,3; }
+      .axis { stroke: #cbd5e1; stroke-width: 1.5px; }
+      .divider { stroke: #e2e8f0; stroke-width: 1px; }
+
+      .t-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
+      .t-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #475569; }
+      .t-unit { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
+      .t-axis-label { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 500; fill: #64748b; }
+      .t-bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; fill: #0f172a; }
+      .t-legend { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 10.5px; font-weight: 600; fill: #0f172a; }
+
+      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 700; fill: #15803d; }
+      .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 600; fill: #2563eb; }
+      .t-note { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 9.5px; font-weight: 500; fill: #64748b; }
+
+      .b-expanse { fill: #16a34a; }
+      .b-art { fill: #2563eb; }
+      .b-hot { fill: #2563eb; }
+      .b-btree { fill: #d97706; }
+      .b-hashmap { fill: #7c3aed; }
+
+      .badge-win { fill: #dcfce7; stroke: #86efac; stroke-width: 1px; }
+      .badge-win-text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 700; fill: #15803d; text-anchor: middle; }
+      .badge-loss { fill: #fef3c7; stroke: #fcd34d; stroke-width: 1px; }
+      .badge-loss-text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 700; fill: #b45309; text-anchor: middle; }
+
+      @media (prefers-color-scheme: dark) {
+        .bg { fill: #0d1117; }
+        .border { stroke: #30363d; }
+        .grid { stroke: #21262d; }
+        .axis { stroke: #484f58; }
+        .divider { stroke: #21262d; }
+        .t-title { fill: #f0f6fc; }
+        .t-sub { fill: #94a3b8; }
+        .t-unit { fill: #94a3b8; }
+        .t-axis-label { fill: #94a3b8; }
+        .t-bar-label { fill: #f8fafc; }
+        .t-legend { fill: #f8fafc; }
+        .t-val-accent { fill: #4ade80; }
+        .t-val-blue { fill: #38bdf8; }
+        .t-note { fill: #94a3b8; }
+        .b-expanse { fill: #22c55e; }
+        .b-art { fill: #3b82f6; }
+        .b-hot { fill: #3b82f6; }
+        .b-btree { fill: #f59e0b; }
+        .b-hashmap { fill: #a855f7; }
+        .badge-win { fill: #052e16; stroke: #166534; }
+        .badge-win-text { fill: #4ade80; }
+        .badge-loss { fill: #451a03; stroke: #92400e; }
+        .badge-loss-text { fill: #fbbf24; }
+      }
+
+      :root[data-theme="dark"] .bg, [data-theme="dark"] .bg { fill: #0d1117; }
+      :root[data-theme="dark"] .border, [data-theme="dark"] .border { stroke: #30363d; }
+      :root[data-theme="dark"] .grid, [data-theme="dark"] .grid { stroke: #21262d; }
+      :root[data-theme="dark"] .axis, [data-theme="dark"] .axis { stroke: #484f58; }
+      :root[data-theme="dark"] .divider, [data-theme="dark"] .divider { stroke: #21262d; }
+      :root[data-theme="dark"] .t-title, [data-theme="dark"] .t-title { fill: #f0f6fc; }
+      :root[data-theme="dark"] .t-sub, [data-theme="dark"] .t-sub { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-unit, [data-theme="dark"] .t-unit { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-axis-label, [data-theme="dark"] .t-axis-label { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-bar-label, [data-theme="dark"] .t-bar-label { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-legend, [data-theme="dark"] .t-legend { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-val-accent, [data-theme="dark"] .t-val-accent { fill: #4ade80; }
+      :root[data-theme="dark"] .t-val-blue, [data-theme="dark"] .t-val-blue { fill: #38bdf8; }
+      :root[data-theme="dark"] .t-note, [data-theme="dark"] .t-note { fill: #94a3b8; }
+      :root[data-theme="dark"] .b-expanse, [data-theme="dark"] .b-expanse { fill: #22c55e; }
+      :root[data-theme="dark"] .b-art, [data-theme="dark"] .b-art { fill: #3b82f6; }
+      :root[data-theme="dark"] .b-hot, [data-theme="dark"] .b-hot { fill: #3b82f6; }
+      :root[data-theme="dark"] .b-btree, [data-theme="dark"] .b-btree { fill: #f59e0b; }
+      :root[data-theme="dark"] .b-hashmap, [data-theme="dark"] .b-hashmap { fill: #a855f7; }
+      :root[data-theme="dark"] .badge-win, [data-theme="dark"] .badge-win { fill: #052e16; stroke: #166534; }
+      :root[data-theme="dark"] .badge-win-text, [data-theme="dark"] .badge-win-text { fill: #4ade80; }
+      :root[data-theme="dark"] .badge-loss, [data-theme="dark"] .badge-loss { fill: #451a03; stroke: #92400e; }
+      :root[data-theme="dark"] .badge-loss-text, [data-theme="dark"] .badge-loss-text { fill: #fbbf24; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" class="bg" rx="6" />
+  <rect width="100%" height="100%" class="border" rx="6" />
+
+  <text x="30" y="34" class="t-title">Reader throughput alongside writers — SyncExpanse vs HOT-ROWEX</text>
+  <text x="30" y="50" class="t-sub">C2: 8 readers probe 50/50 while W writers insert; W=0 is the reader-only reference &#183; M lookups/s (median of rounds) &#183; higher is better</text>
+  <g transform="translate(660, 20)">
+    <rect x="0" y="0" width="10" height="10" rx="2" class="b-expanse"/>
+    <text x="14" y="9" class="t-legend">Expanse</text>
+    <rect x="90" y="0" width="10" height="10" rx="2" class="b-hot"/>
+    <text x="104" y="9" class="t-legend">HOT</text>
+  </g>
+  <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
+  <text x="30" y="108" class="t-bar-label">set · W=0 R=8</text>
+  <text x="30" y="122" class="t-sub">hot_rowex_set_63bit · 15 rounds</text>
+  <rect x="300" y="92" width="224.0" height="11" rx="2" class="b-expanse"/>
+  <text x="532.0" y="101" class="t-val-accent">150.23</text>
+  <rect x="300" y="109" width="191.2" height="11" rx="2" class="b-hot"/>
+  <text x="499.2" y="118" class="t-val-blue">128.21</text>
+  <rect x="800" y="100" width="130" height="20" rx="3" class="badge-win"/>
+  <text x="865" y="114" class="badge-win-text">Expanse 1.17x</text>
+  <text x="30" y="164" class="t-bar-label">set · W=1 R=8</text>
+  <text x="30" y="178" class="t-sub">hot_rowex_set_63bit · 15 rounds</text>
+  <rect x="300" y="148" width="22.9" height="11" rx="2" class="b-expanse"/>
+  <text x="330.9" y="157" class="t-val-accent">15.35</text>
+  <rect x="300" y="165" width="164.8" height="11" rx="2" class="b-hot"/>
+  <text x="472.8" y="174" class="t-val-blue">110.56</text>
+  <rect x="800" y="156" width="130" height="20" rx="3" class="badge-loss"/>
+  <text x="865" y="170" class="badge-loss-text">HOT 7.20x</text>
+  <text x="30" y="220" class="t-bar-label">set · W=2 R=8</text>
+  <text x="30" y="234" class="t-sub">hot_rowex_set_63bit · 15 rounds</text>
+  <rect x="300" y="204" width="41.2" height="11" rx="2" class="b-expanse"/>
+  <text x="349.2" y="213" class="t-val-accent">27.64</text>
+  <rect x="300" y="221" width="155.2" height="11" rx="2" class="b-hot"/>
+  <text x="463.2" y="230" class="t-val-blue">104.10</text>
+  <rect x="800" y="212" width="130" height="20" rx="3" class="badge-loss"/>
+  <text x="865" y="226" class="badge-loss-text">HOT 3.77x</text>
+  <text x="30" y="276" class="t-bar-label">set · W=4 R=8</text>
+  <text x="30" y="290" class="t-sub">hot_rowex_set_63bit · 15 rounds</text>
+  <rect x="300" y="260" width="37.1" height="11" rx="2" class="b-expanse"/>
+  <text x="345.1" y="269" class="t-val-accent">24.90</text>
+  <rect x="300" y="277" width="138.0" height="11" rx="2" class="b-hot"/>
+  <text x="446.0" y="286" class="t-val-blue">92.57</text>
+  <rect x="800" y="268" width="130" height="20" rx="3" class="badge-loss"/>
+  <text x="865" y="282" class="badge-loss-text">HOT 3.72x</text>
+  <text x="30" y="332" class="t-bar-label">set · W=8 R=8</text>
+  <text x="30" y="346" class="t-sub">hot_rowex_set_63bit · 15 rounds</text>
+  <rect x="300" y="316" width="33.9" height="11" rx="2" class="b-expanse"/>
+  <text x="341.9" y="325" class="t-val-accent">22.74</text>
+  <rect x="300" y="333" width="107.1" height="11" rx="2" class="b-hot"/>
+  <text x="415.1" y="342" class="t-val-blue">71.81</text>
+  <rect x="800" y="324" width="130" height="20" rx="3" class="badge-loss"/>
+  <text x="865" y="338" class="badge-loss-text">HOT 3.16x</text>
+  <text x="30" y="388" class="t-bar-label">map · W=0 R=8</text>
+  <text x="30" y="402" class="t-sub">hot_rowex_map_64bit · 15 rounds</text>
+  <rect x="300" y="372" width="188.7" height="11" rx="2" class="b-expanse"/>
+  <text x="496.7" y="381" class="t-val-accent">126.58</text>
+  <rect x="300" y="389" width="108.7" height="11" rx="2" class="b-hot"/>
+  <text x="416.7" y="398" class="t-val-blue">72.88</text>
+  <rect x="800" y="380" width="130" height="20" rx="3" class="badge-win"/>
+  <text x="865" y="394" class="badge-win-text">Expanse 1.74x</text>
+  <text x="30" y="444" class="t-bar-label">map · W=1 R=8</text>
+  <text x="30" y="458" class="t-sub">hot_rowex_map_64bit · 15 rounds</text>
+  <rect x="300" y="428" width="38.6" height="11" rx="2" class="b-expanse"/>
+  <text x="346.6" y="437" class="t-val-accent">25.86</text>
+  <rect x="300" y="445" width="85.4" height="11" rx="2" class="b-hot"/>
+  <text x="393.4" y="454" class="t-val-blue">57.31</text>
+  <rect x="800" y="436" width="130" height="20" rx="3" class="badge-loss"/>
+  <text x="865" y="450" class="badge-loss-text">HOT 2.22x</text>
+  <text x="30" y="500" class="t-bar-label">map · W=2 R=8</text>
+  <text x="30" y="514" class="t-sub">hot_rowex_map_64bit · 15 rounds</text>
+  <rect x="300" y="484" width="35.4" height="11" rx="2" class="b-expanse"/>
+  <text x="343.4" y="493" class="t-val-accent">23.77</text>
+  <rect x="300" y="501" width="79.3" height="11" rx="2" class="b-hot"/>
+  <text x="387.3" y="510" class="t-val-blue">53.21</text>
+  <rect x="800" y="492" width="130" height="20" rx="3" class="badge-loss"/>
+  <text x="865" y="506" class="badge-loss-text">HOT 2.24x</text>
+  <text x="30" y="556" class="t-bar-label">map · W=4 R=8</text>
+  <text x="30" y="570" class="t-sub">hot_rowex_map_64bit · 15 rounds</text>
+  <rect x="300" y="540" width="35.3" height="11" rx="2" class="b-expanse"/>
+  <text x="343.3" y="549" class="t-val-accent">23.64</text>
+  <rect x="300" y="557" width="67.9" height="11" rx="2" class="b-hot"/>
+  <text x="375.9" y="566" class="t-val-blue">45.56</text>
+  <rect x="800" y="548" width="130" height="20" rx="3" class="badge-loss"/>
+  <text x="865" y="562" class="badge-loss-text">HOT 1.93x</text>
+  <text x="30" y="612" class="t-bar-label">map · W=8 R=8</text>
+  <text x="30" y="626" class="t-sub">hot_rowex_map_64bit · 15 rounds</text>
+  <rect x="300" y="596" width="33.3" height="11" rx="2" class="b-expanse"/>
+  <text x="341.3" y="605" class="t-val-accent">22.34</text>
+  <rect x="300" y="613" width="46.6" height="11" rx="2" class="b-hot"/>
+  <text x="354.6" y="622" class="t-val-blue">31.24</text>
+  <rect x="800" y="604" width="130" height="20" rx="3" class="badge-loss"/>
+  <text x="865" y="618" class="badge-loss-text">HOT 1.40x</text>
+</svg>

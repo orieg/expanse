@@ -247,6 +247,12 @@ Stated before the numbers existed (§7) and unchanged by them:
    (§10.9): claims attach to HOT's C-string configuration only, never to keys
    longer than 255 bytes, and an `ExpanseBytesMap` cell is a hash-indexed
    structure against a trie, not a trie comparison.
+1. **§1–§4 are single-threaded.** No concurrency claim follows from them. The
+   concurrent arm is §6, measured against HOT's ROWEX variant, and it carries
+   its own, narrower ceiling (`METHODOLOGY.md` §10.6).
+2. **Integer keys.** Arm A is restricted to a 63-bit domain because HOT's inline
+   value payload is 63 bits wide (§9.4), and is labelled `hot_set_63bit`
+   throughout. No string-key claim.
 3. **x86-64 with AVX2 and BMI2 only.** HOT does not build on aarch64.
 4. **One HOT implementation at one commit** — `speedskater/hot` `96bf6fb` built as
    documented, not "HOT" as a design, and not the SIGMOD paper's figures, which
@@ -482,6 +488,202 @@ Against §10.7:
 | Expanse wins `ownership` memory on `counter` and `short` (low-medium) | **CONFIRMED** on `counter`; **REFUTED** on `short` |
 | Expanse wins Arm D memory (high, categorical) | **CONFIRMED**, `PASS_categorical_by_design` |
 | `λ_chunk` cascade near N ≈ 1.23 × 10⁵ (hypothesis) | consistent, not confirmed — §6.4 |
+## 6. The concurrent arm: the write-concurrency loss, measured
+
+Delivers [#692](https://github.com/orieg/expanse/issues/692): HOT's **ROWEX**
+variant (concurrent insert and lookup, no deletion) against `SyncExpanseSet`
+and `SyncExpanseMap`. Pre-registration, locked constraint decisions and the
+expected-losses matrix are `METHODOLOGY.md` §10; nothing there was edited after
+measurement.
+
+> *(measured: reference host — Intel Core i9-12900F, 8P+8E/24 threads, 30 MiB L3,
+> Ubuntu 22.04, kernel 6.8; HOT `96bf6fb` with its pinned TBB 2018 `4c73c3b`,
+> built from the nested submodule, no system TBB; commit `5232af74`;
+> `docs/benchmarks/hot_comparison/run.sh --only-concurrent`; benchmark shell
+> pinned to CPUs 0–15 and every row records `Cpus_allowed_list 0-15`;
+> writers + readers ≤ 16; both arms `-C target-cpu=haswell` / `-march=haswell`,
+> both on glibc 2.35 `malloc`; load average 0.25 at start, 7.62 after — the
+> sweep's own threads; 15 rounds per cell, arms interleaved per round, medians
+> reported, BCa 95% bootstrap ratio intervals over 2,000 resamples;
+> `results/baseline_concurrent.json`; workloads `hot_rowex_set_63bit`,
+> `hot_rowex_map_64bit`)*.
+>
+> Both arms are measured **below any external lock**, through their native
+> concurrent APIs (§8.16; `METHODOLOGY.md` §10.3 decision 4). Expanse's protocol
+> is optimistic lock coupling — one writer mutex, validated readers — and is
+> blocking by design (`AGENTS.md` §2.2). Ratios are **Expanse ÷ ROWEX
+> throughput**, so, as everywhere in this suite, **above 1.000 means Expanse is
+> faster.**
+
+### 6.1 Writer throughput as writer count scales — the pre-registered loss, confirmed and wider than registered
+
+W writers each insert their slice of 2²⁰ fresh keys into a 2²⁰ prefill; fixed
+work, so both arms grow by exactly the same population every round.
+
+![Writer throughput vs writer count](results/chart_concurrent_writers.svg)
+
+| W | set: ROWEX M/s | set: Expanse M/s | ratio [BCa 95%] | verdict | map: ROWEX M/s | map: Expanse M/s | ratio [BCa 95%] | verdict |
+|--:|---:|---:|---|---|---:|---:|---|---|
+| 1 | 5.55 | **8.64** | 1.558 [1.545, 1.575] | Expanse | 2.96 | **5.22** | 1.742 [1.687, 1.786] | Expanse |
+| 2 | **9.06** | 5.72 | 0.629 [0.610, 0.644] | **ROWEX** | **4.92** | 3.81 | 0.772 [0.752, 0.790] | **ROWEX** |
+| 4 | **15.82** | 4.23 | 0.271 [0.267, 0.277] | **ROWEX** | **8.65** | 3.05 | 0.353 [0.345, 0.360] | **ROWEX** |
+| 8 | **26.24** | 3.71 | 0.144 [0.142, 0.148] | **ROWEX** | **13.90** | 2.59 | 0.185 [0.177, 0.191] | **ROWEX** |
+| 16 | **34.26** | 2.97 | 0.088 [0.086, 0.092] | **ROWEX** · *not pre-registered (SMT)* | **20.21** | 2.64 | 0.128 [0.124, 0.132] | **ROWEX** · *not pre-registered (SMT)* |
+
+- **Expanse wins with one writer** — 1.56× (set) and 1.74× (map) —
+  **`CONFIRMED`** (§10.5.2, medium-high). The concurrent wrappers keep the
+  single-threaded insertion win of §2, at a smaller margin than the 2.52× /
+  3.55× measured without a wrapper *(different workload: `hot_latency` builds a
+  cold structure, this arm inserts into a 2²⁰ prefill — not comparable)*.
+- **The crossover is at W = 2**, inside the registered W\* ∈ [2, 4] —
+  **`CONFIRMED`** (§10.5.1, medium). ROWEX already wins at two writers on both
+  arms, with intervals clear of parity.
+- **At W ≥ 4 ROWEX wins by 3.7×–11.6×** — **`CONFIRMED`** (§10.5.1, high) and
+  wider than the registration argued for. Expanse's *aggregate* writer
+  throughput does not merely plateau at its single-writer rate: it **falls** as
+  writers are added — set 8.64 → 5.72 → 4.23 → 3.71 → 2.97 M inserts/s
+  (0.34× of one writer at sixteen), map 5.22 → 3.81 → 3.05 → 2.59 → 2.64
+  (0.51×). ROWEX scales 4.7× on both arms at W = 8 and 6.2× / 6.8× at W = 16,
+  where the sixteen threads occupy both SMT siblings of every P-core.
+
+Every insert on the Expanse side takes the same writer mutex, so the aggregate
+is bounded by the single-writer rate by construction; that it falls *below*
+that rate is the measured part. Which share of the fall is lock hand-off and
+which is the writers' cache-line traffic is **unmeasured** here — this arm
+carries no hardware counters (§8.9) — and no mechanism beyond the serialization
+itself is claimed.
+
+### 6.2 Readers alongside writers
+
+Eight readers probe a 50/50 stream against the prefill while W writers insert;
+W = 0 is the reader-only reference.
+
+![Reader throughput alongside writers](results/chart_concurrent_readers.svg)
+
+| W | set: ROWEX M/s | set: Expanse M/s | ratio [BCa 95%] | verdict | map: ROWEX M/s | map: Expanse M/s | ratio [BCa 95%] | verdict |
+|--:|---:|---:|---|---|---:|---:|---|---|
+| 0 | 128.21 | **150.23** | 1.175 [1.151, 1.239] | Expanse | 72.88 | **126.58** | 1.716 [1.670, 1.739] | Expanse |
+| 1 | **110.56** | 15.35 | 0.136 [0.122, 0.140] | **ROWEX** | **57.31** | 25.86 | 0.387 [0.331, 0.435] | **ROWEX** |
+| 2 | **104.10** | 27.64 | 0.263 [0.257, 0.268] | **ROWEX** | **53.21** | 23.77 | 0.444 [0.429, 0.458] | **ROWEX** |
+| 4 | **92.57** | 24.90 | 0.266 [0.257, 0.273] | **ROWEX** | **45.56** | 23.65 | 0.519 [0.507, 0.534] | **ROWEX** |
+| 8 | **71.81** | 22.74 | 0.317 [0.313, 0.324] | **ROWEX** | **31.24** | 22.34 | 0.713 [0.688, 0.727] | **ROWEX** |
+
+- **Reader-only (W = 0):** Expanse wins on both arms. The map row is
+  **`CONFIRMED`** (§10.5.2, medium). The set row was registered as
+  `BOUNDARY_RESULT` and landed as an Expanse win with the interval clear of
+  parity — recorded as a registered no-winner that resolved in Expanse's
+  favour, not as a confirmed prediction.
+- **Readers under any writer load: ROWEX wins every cell** — **`CONFIRMED`**
+  (§10.5.1, medium-high), and the size at W = 1 is the finding. **One writer
+  takes Expanse's eight readers from 150.2 to 15.4 M lookups/s on the set arm
+  (0.10× of their reader-only rate) while ROWEX's readers keep 110.6 (0.86×)**;
+  on the map arm 126.6 → 25.9 (0.20×) against 72.9 → 57.3 (0.79×). Expanse's
+  reader throughput then stays roughly flat as writers are added (15 → 28 → 25
+  → 23 set; 26 → 24 → 24 → 22 map) while ROWEX's declines as its writers take
+  more of the machine, which is why the ratio narrows toward W = 8 without
+  Expanse recovering.
+- **Writers with readers present** *(not registered as a separate row;
+  reported)*: the Expanse single writer drops from 8.64 to 2.29 M inserts/s
+  (set) and 5.22 to 1.82 (map) when eight readers are probing; ROWEX's from
+  5.55 to 3.42 and 2.96 to 2.12. Writer ratios in these cells run 0.659
+  [0.618, 0.681] at W = 1 down to 0.092 [0.090, 0.095] at W = 8 (set) and
+  0.835 [0.775, 0.920] down to 0.128 [0.123, 0.132] (map) — ROWEX wins every
+  one, including W = 1, where it lost without readers.
+
+### 6.3 Protocol health — event ratios from the diagnostic build
+
+The 64-bit protocol has no `Busy` outcome; its counterpart to the 32-bit Busy
+rate is the **restart share** (walk attempts that observed a moved version and
+restarted) and the **fallback share** (reads that exhausted 64 restarts and took
+the writer mutex), read from the engine's `occ_stats` counters on a **separate
+`occ-stats` build** of the same cells, Expanse side only (§10.3, decision 5).
+Nothing in this table is a timing. 5 rounds per cell; median with range.
+
+| Arm | W | R | restart share, median [min, max] | fallback share | `sample_spins` ÷ `read_ops` (ratio of medians) |
+|---|--:|--:|---|---|---:|
+| set | 1 | 8 | 5.77% [5.67%, 5.82%] | 0 | 1.80 |
+| set | 2 | 8 | 5.45% [3.86%, 5.51%] | 0 | 1.67 |
+| set | 4 | 8 | 5.73% [5.20%, 6.24%] | 0 | 1.85 |
+| set | 8 | 8 | 7.21% [7.04%, 7.27%] | 0 | 1.82 |
+| map | 1 | 8 | 6.41% [6.31%, 6.53%] | 0 | 2.16 |
+| map | 2 | 8 | 6.53% [5.46%, 9.65%] | 0 | 1.95 |
+| map | 4 | 8 | 5.52% [4.92%, 5.92%] | 0 | 1.89 |
+| map | 8 | 8 | 5.33% [5.23%, 5.50%] | 0 | 1.92 |
+
+- **No reader ever took the writer mutex**: `read_fallbacks` is zero in every
+  round of every cell, so the §10.5.3 starvation falsifier (fallback share
+  ≥ 1%) did not fire — **`CONFIRMED`**.
+- **The restart share does not rise monotonically with W** — set 5.77 → 5.45
+  → 5.73 → 7.21%, map 6.41 → 6.53 → 5.52 → 5.33% — so that half of the
+  §10.5.3 hypothesis is **`REFUTED`**. It sits between 5% and 7% at every
+  writer count measured.
+- The counters account for restarts and for spin iterations in
+  `SeqVersion::sample` (1.7–2.2 per read op); they do not time a spin. The size
+  of the §6.2 reader collapse is therefore **not attributed** by this table —
+  the cause beyond the bracket wait itself is unmeasured.
+
+### 6.4 Memory — build-only, single writer, curve across λ
+
+Bytes held from the C allocator after a single-writer build (§10.3, decision 1),
+ROWEX against the `Sync*` wrapper, swept across the §9.6 occupancy targets.
+Deterministic byte counts, no interval. The census was re-validated with TBB
+linked (control allocation returns to zero; every ROWEX cell counted at least
+2N allocations on the map arm and N on the set arm — see `rowex_allocs` in the
+artifact). **Disclosed blind spot:** `libtbb.so`'s own per-thread state is
+allocated through the dynamic linker and is invisible to the link-time
+interposition; it is paid once per registering thread and is independent of N.
+
+| λ | set: ROWEX B/key | set: `SyncExpanseSet` B/key | winner | map: ROWEX B/key | map: `SyncExpanseMap` B/key | winner |
+|--:|---:|---:|---|---:|---:|---|
+| 1 | **12.91** | 14.14 | ROWEX 1.09× | 36.71 | **24.28** | Expanse 1.51× |
+| 2 | **12.40** | 13.26 | ROWEX 1.07× | 36.31 | **24.70** | Expanse 1.47× |
+| 4 | **12.00** | 12.12 | ROWEX 1.01× | 36.21 | **22.96** | Expanse 1.58× |
+| 8 | 11.88 | **9.85** | Expanse 1.21× | 36.16 | **19.36** | Expanse 1.87× |
+| 15 | 11.76 | **8.10** | Expanse 1.45× | 36.07 | **16.80** | Expanse 2.15× |
+| 23 | 11.73 | **8.12** | Expanse 1.44× | 36.09 | **16.36** | Expanse 2.21× |
+| 30 | **11.73** | 14.04 | ROWEX 1.20× | 36.05 | **20.35** | Expanse 1.77× |
+| 38 | **11.80** | 21.96 | ROWEX 1.86× | 36.15 | **25.92** | Expanse 1.40× |
+| 46 | **11.71** | 23.09 | ROWEX 1.97× | 36.09 | **26.78** | Expanse 1.35× |
+| 61 | **11.72** | 21.06 | ROWEX 1.80× | 36.05 | **25.62** | Expanse 1.41× |
+
+- **Set arm:** the §1 story repeats with the concurrent types — ROWEX is flat
+  (11.71–12.91 B/key), Expanse wins only in the band λ ∈ [8, 23] and loses on
+  both sides of it. Both §10.5 memory rows for the set arm are **`CONFIRMED`**.
+- **Map arm:** Expanse wins at every occupancy, 1.35×–2.21× —
+  **`CONFIRMED`** and labelled **`PASS_categorical_by_design`**: ROWEX carries
+  the same heap `std::pair` per entry as the single-threaded map arm.
+- The `SyncExpanseSet` cells differ from §1's `ExpanseSet` cells at the same
+  λ in both directions (14.14 against 16.18 at λ = 1; 21.06 against 20.29 at
+  λ = 61). The two are different types under the same instrument and the cause
+  of the gap is unmeasured; they are not set side by side as one quantity.
+
+### 6.5 Scorecard against the pre-registration
+
+20 throughput cells (10 writer, 10 reader, plus 8 writer-under-reader
+sub-cells), 8 health cells, 20 memory cells.
+
+| Registered (`METHODOLOGY.md` §10.5) | Outcome |
+|---|---|
+| ROWEX wins writer throughput at W ≥ 4 (high) | **CONFIRMED**, 3.7×–11.6× |
+| Crossover writer count W\* ∈ [2, 4] (medium) | **CONFIRMED**, W\* = 2 on both arms |
+| ROWEX wins reader throughput under W ≥ 1 (medium-high) | **CONFIRMED**, every cell; 7.3× at W = 1 on the set arm |
+| Expanse wins writer throughput at W = 1 (medium-high) | **CONFIRMED**, 1.56× / 1.74× |
+| Expanse wins reader-only, map arm (medium) | **CONFIRMED**, 1.72× |
+| Reader-only, set arm: `BOUNDARY_RESULT` (low-medium) | registered no-winner; **measured Expanse win** 1.175 [1.151, 1.239] |
+| Memory, map arm, all λ (high) | **CONFIRMED**, `PASS_categorical_by_design` |
+| Memory, set arm: Expanse wins λ ∈ [8, 23], ROWEX outside (medium) | **CONFIRMED** on both sides |
+| Health: fallback share < 1% at all W (falsifier) | **CONFIRMED** — zero fallbacks |
+| Health: restart share rises monotonically with W | **REFUTED** — 5–7% at every W, not monotonic |
+| W = 16 cells | `not pre-registered`; reported: 0.088 (set), 0.128 (map) |
+| Writers with readers present | `not pre-registered`; reported: ROWEX wins every cell |
+
+No `UNPREDICTED LOSS`: every cell Expanse lost was registered as a loss.
+
+What this arm does not claim is fixed in `METHODOLOGY.md` §10.6: x86-64 at these
+two commits under glibc `malloc` only (no tcmalloc claim); insert and point
+lookup on uniform random integer keys only — no deletion, contended-key, scan or
+string claim; at most 16 threads on 8 physical performance cores with SMT; and no
+peer review.
 
 ---
 

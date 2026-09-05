@@ -1,9 +1,10 @@
 # HOT (Height Optimized Trie) vs. Expanse: Pre-Registration & Comparative Methodology
 
-**Status: §1–§9 (single-threaded arms) measured and published in
-[`README.md`](README.md). §10 (HOT-ROWEX concurrent arm,
-[#692](https://github.com/orieg/expanse/issues/692)) is pre-registration locked;
-no §10 measurement has been taken.**
+**Status: §1–§9 (single-threaded arms) and §10 (HOT-ROWEX concurrent arm,
+[#692](https://github.com/orieg/expanse/issues/692)) measured on the reference
+host and published in [`README.md`](README.md) (§1–§5 and §6 respectively).
+§10's text is the locked pre-registration; outcomes are recorded in the README
+and are never reconciled into it (§8.7).**
 
 This document is commit 2 of the three-commit cadence (AGENTS.md §8.8): hypothesis,
 claims ceiling, expected-losses matrix and gate taxonomy, committed *before* the

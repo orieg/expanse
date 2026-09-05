@@ -1,0 +1,1085 @@
+{
+  "provenance": {
+    "suite": "hot_comparison",
+    "issue": 692,
+    "commit": "5232af74",
+    "hot_commit": "96bf6fb",
+    "cpu": "x86_64",
+    "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35",
+    "rustflags": "-C target-cpu=haswell",
+    "cxx_flags": "-march=haswell -O3 -std=c++17 -DNDEBUG",
+    "loads": [
+      {
+        "label": "start",
+        "load1": 0.25,
+        "load5": 0.48,
+        "load15": 0.58,
+        "at": "2026-09-05T12:45:31Z"
+      },
+      {
+        "label": "after-concurrent",
+        "load1": 7.62,
+        "load5": 4.3,
+        "load15": 2.15,
+        "at": "2026-09-05T12:50:21Z"
+      }
+    ],
+    "quick": false,
+    "tbb_commit": "4c73c3b",
+    "pin_applied": "0-15"
+  },
+  "throughput": [
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 1,
+      "readers": 0,
+      "keyspace_bits": 63,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_writer_mops_median": 5.5465,
+      "expanse_writer_mops_median": 8.6374,
+      "writer_expanse_over_rowex": 1.5579,
+      "writer_ci_lower": 1.5454,
+      "writer_ci_upper": 1.5749,
+      "writer_verdict": "expanse",
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 2,
+      "readers": 0,
+      "keyspace_bits": 63,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_writer_mops_median": 9.0603,
+      "expanse_writer_mops_median": 5.722,
+      "writer_expanse_over_rowex": 0.6288,
+      "writer_ci_lower": 0.6097,
+      "writer_ci_upper": 0.6442,
+      "writer_verdict": "rowex",
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 4,
+      "readers": 0,
+      "keyspace_bits": 63,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_writer_mops_median": 15.8154,
+      "expanse_writer_mops_median": 4.2256,
+      "writer_expanse_over_rowex": 0.2714,
+      "writer_ci_lower": 0.2667,
+      "writer_ci_upper": 0.277,
+      "writer_verdict": "rowex",
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 8,
+      "readers": 0,
+      "keyspace_bits": 63,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_writer_mops_median": 26.2416,
+      "expanse_writer_mops_median": 3.7099,
+      "writer_expanse_over_rowex": 0.1441,
+      "writer_ci_lower": 0.1419,
+      "writer_ci_upper": 0.1479,
+      "writer_verdict": "rowex",
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 16,
+      "readers": 0,
+      "keyspace_bits": 63,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_writer_mops_median": 34.2561,
+      "expanse_writer_mops_median": 2.9652,
+      "writer_expanse_over_rowex": 0.0877,
+      "writer_ci_lower": 0.0861,
+      "writer_ci_upper": 0.0919,
+      "writer_verdict": "rowex",
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 0,
+      "readers": 8,
+      "keyspace_bits": 63,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_reader_mops_median": 128.2124,
+      "expanse_reader_mops_median": 150.2348,
+      "reader_expanse_over_rowex": 1.1754,
+      "reader_ci_lower": 1.1511,
+      "reader_ci_upper": 1.2393,
+      "reader_verdict": "expanse",
+      "pillar": "C2"
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 1,
+      "readers": 8,
+      "keyspace_bits": 63,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_writer_mops_median": 3.4204,
+      "expanse_writer_mops_median": 2.2894,
+      "writer_expanse_over_rowex": 0.6588,
+      "writer_ci_lower": 0.6177,
+      "writer_ci_upper": 0.6814,
+      "writer_verdict": "rowex",
+      "rowex_reader_mops_median": 110.5551,
+      "expanse_reader_mops_median": 15.3517,
+      "reader_expanse_over_rowex": 0.1363,
+      "reader_ci_lower": 0.1216,
+      "reader_ci_upper": 0.1397,
+      "reader_verdict": "rowex",
+      "pillar": "C2"
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 2,
+      "readers": 8,
+      "keyspace_bits": 63,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_writer_mops_median": 6.3495,
+      "expanse_writer_mops_median": 1.9634,
+      "writer_expanse_over_rowex": 0.3091,
+      "writer_ci_lower": 0.3059,
+      "writer_ci_upper": 0.3134,
+      "writer_verdict": "rowex",
+      "rowex_reader_mops_median": 104.101,
+      "expanse_reader_mops_median": 27.6357,
+      "reader_expanse_over_rowex": 0.2631,
+      "reader_ci_lower": 0.2571,
+      "reader_ci_upper": 0.2681,
+      "reader_verdict": "rowex",
+      "pillar": "C2"
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 4,
+      "readers": 8,
+      "keyspace_bits": 63,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_writer_mops_median": 11.9605,
+      "expanse_writer_mops_median": 1.8458,
+      "writer_expanse_over_rowex": 0.1558,
+      "writer_ci_lower": 0.154,
+      "writer_ci_upper": 0.1586,
+      "writer_verdict": "rowex",
+      "rowex_reader_mops_median": 92.5702,
+      "expanse_reader_mops_median": 24.9025,
+      "reader_expanse_over_rowex": 0.2661,
+      "reader_ci_lower": 0.2574,
+      "reader_ci_upper": 0.2731,
+      "reader_verdict": "rowex",
+      "pillar": "C2"
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 8,
+      "readers": 8,
+      "keyspace_bits": 63,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_writer_mops_median": 20.6026,
+      "expanse_writer_mops_median": 1.8796,
+      "writer_expanse_over_rowex": 0.0916,
+      "writer_ci_lower": 0.0901,
+      "writer_ci_upper": 0.0947,
+      "writer_verdict": "rowex",
+      "rowex_reader_mops_median": 71.807,
+      "expanse_reader_mops_median": 22.7449,
+      "reader_expanse_over_rowex": 0.3173,
+      "reader_ci_lower": 0.313,
+      "reader_ci_upper": 0.324,
+      "reader_verdict": "rowex",
+      "pillar": "C2"
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 1,
+      "readers": 0,
+      "keyspace_bits": 64,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_writer_mops_median": 2.9626,
+      "expanse_writer_mops_median": 5.2229,
+      "writer_expanse_over_rowex": 1.7424,
+      "writer_ci_lower": 1.6873,
+      "writer_ci_upper": 1.7863,
+      "writer_verdict": "expanse",
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 2,
+      "readers": 0,
+      "keyspace_bits": 64,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_writer_mops_median": 4.9223,
+      "expanse_writer_mops_median": 3.811,
+      "writer_expanse_over_rowex": 0.7723,
+      "writer_ci_lower": 0.7522,
+      "writer_ci_upper": 0.7903,
+      "writer_verdict": "rowex",
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 4,
+      "readers": 0,
+      "keyspace_bits": 64,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_writer_mops_median": 8.6486,
+      "expanse_writer_mops_median": 3.0504,
+      "writer_expanse_over_rowex": 0.3527,
+      "writer_ci_lower": 0.3454,
+      "writer_ci_upper": 0.3599,
+      "writer_verdict": "rowex",
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 8,
+      "readers": 0,
+      "keyspace_bits": 64,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_writer_mops_median": 13.897,
+      "expanse_writer_mops_median": 2.5905,
+      "writer_expanse_over_rowex": 0.185,
+      "writer_ci_lower": 0.1772,
+      "writer_ci_upper": 0.1913,
+      "writer_verdict": "rowex",
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 16,
+      "readers": 0,
+      "keyspace_bits": 64,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_writer_mops_median": 20.2102,
+      "expanse_writer_mops_median": 2.6415,
+      "writer_expanse_over_rowex": 0.1284,
+      "writer_ci_lower": 0.124,
+      "writer_ci_upper": 0.1316,
+      "writer_verdict": "rowex",
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 0,
+      "readers": 8,
+      "keyspace_bits": 64,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_reader_mops_median": 72.8776,
+      "expanse_reader_mops_median": 126.5803,
+      "reader_expanse_over_rowex": 1.7164,
+      "reader_ci_lower": 1.6701,
+      "reader_ci_upper": 1.7391,
+      "reader_verdict": "expanse",
+      "pillar": "C2"
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 1,
+      "readers": 8,
+      "keyspace_bits": 64,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_writer_mops_median": 2.119,
+      "expanse_writer_mops_median": 1.8226,
+      "writer_expanse_over_rowex": 0.8349,
+      "writer_ci_lower": 0.7745,
+      "writer_ci_upper": 0.9197,
+      "writer_verdict": "rowex",
+      "rowex_reader_mops_median": 57.309,
+      "expanse_reader_mops_median": 25.862,
+      "reader_expanse_over_rowex": 0.3872,
+      "reader_ci_lower": 0.3307,
+      "reader_ci_upper": 0.435,
+      "reader_verdict": "rowex",
+      "pillar": "C2"
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 2,
+      "readers": 8,
+      "keyspace_bits": 64,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_writer_mops_median": 3.7181,
+      "expanse_writer_mops_median": 1.6327,
+      "writer_expanse_over_rowex": 0.4376,
+      "writer_ci_lower": 0.4191,
+      "writer_ci_upper": 0.4516,
+      "writer_verdict": "rowex",
+      "rowex_reader_mops_median": 53.2145,
+      "expanse_reader_mops_median": 23.7731,
+      "reader_expanse_over_rowex": 0.4445,
+      "reader_ci_lower": 0.4285,
+      "reader_ci_upper": 0.4581,
+      "reader_verdict": "rowex",
+      "pillar": "C2"
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 4,
+      "readers": 8,
+      "keyspace_bits": 64,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_writer_mops_median": 6.6425,
+      "expanse_writer_mops_median": 1.5282,
+      "writer_expanse_over_rowex": 0.2303,
+      "writer_ci_lower": 0.2216,
+      "writer_ci_upper": 0.2385,
+      "writer_verdict": "rowex",
+      "rowex_reader_mops_median": 45.559,
+      "expanse_reader_mops_median": 23.6448,
+      "reader_expanse_over_rowex": 0.5193,
+      "reader_ci_lower": 0.5075,
+      "reader_ci_upper": 0.5343,
+      "reader_verdict": "rowex",
+      "pillar": "C2"
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 8,
+      "readers": 8,
+      "keyspace_bits": 64,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rowex_writer_mops_median": 11.3818,
+      "expanse_writer_mops_median": 1.463,
+      "writer_expanse_over_rowex": 0.1282,
+      "writer_ci_lower": 0.1226,
+      "writer_ci_upper": 0.1323,
+      "writer_verdict": "rowex",
+      "rowex_reader_mops_median": 31.2387,
+      "expanse_reader_mops_median": 22.3408,
+      "reader_expanse_over_rowex": 0.7134,
+      "reader_ci_lower": 0.6884,
+      "reader_ci_upper": 0.7273,
+      "reader_verdict": "rowex",
+      "pillar": "C2"
+    }
+  ],
+  "health": [
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 1,
+      "readers": 8,
+      "rounds": 5,
+      "restart_share": {
+        "median": 0.057727,
+        "min": 0.056692,
+        "max": 0.058212
+      },
+      "fallback_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "read_ops": {
+        "median": 10972276,
+        "min": 10640909,
+        "max": 11077890
+      },
+      "read_attempts": {
+        "median": 11644481,
+        "min": 11297782,
+        "max": 11745978
+      },
+      "read_fallbacks": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "sample_spins": {
+        "median": 19788327,
+        "min": 19753630,
+        "max": 19892420
+      },
+      "write_ops": {
+        "median": 1048576,
+        "min": 1048576,
+        "max": 1048576
+      },
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "starvation_flag": false
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 2,
+      "readers": 8,
+      "rounds": 5,
+      "restart_share": {
+        "median": 0.054515,
+        "min": 0.03859,
+        "max": 0.055129
+      },
+      "fallback_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "read_ops": {
+        "median": 13041078,
+        "min": 12637553,
+        "max": 15928816
+      },
+      "read_attempts": {
+        "median": 13793009,
+        "min": 13374892,
+        "max": 16568183
+      },
+      "read_fallbacks": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "sample_spins": {
+        "median": 21765782,
+        "min": 20819965,
+        "max": 22333800
+      },
+      "write_ops": {
+        "median": 1048576,
+        "min": 1048576,
+        "max": 1048576
+      },
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "starvation_flag": false
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 4,
+      "readers": 8,
+      "rounds": 5,
+      "restart_share": {
+        "median": 0.057338,
+        "min": 0.051974,
+        "max": 0.062367
+      },
+      "fallback_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "read_ops": {
+        "median": 12161365,
+        "min": 11642220,
+        "max": 13027607
+      },
+      "read_attempts": {
+        "median": 12901081,
+        "min": 12416601,
+        "max": 13741818
+      },
+      "read_fallbacks": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "sample_spins": {
+        "median": 22551062,
+        "min": 22275855,
+        "max": 23382609
+      },
+      "write_ops": {
+        "median": 1048576,
+        "min": 1048576,
+        "max": 1048576
+      },
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "starvation_flag": false
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 8,
+      "readers": 8,
+      "rounds": 5,
+      "restart_share": {
+        "median": 0.072099,
+        "min": 0.070431,
+        "max": 0.07274
+      },
+      "fallback_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "read_ops": {
+        "median": 11046242,
+        "min": 10692453,
+        "max": 11143221
+      },
+      "read_attempts": {
+        "median": 11904917,
+        "min": 11531238,
+        "max": 11987509
+      },
+      "read_fallbacks": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "sample_spins": {
+        "median": 20120140,
+        "min": 19648941,
+        "max": 20707300
+      },
+      "write_ops": {
+        "median": 1048576,
+        "min": 1048576,
+        "max": 1048576
+      },
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "starvation_flag": false
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 1,
+      "readers": 8,
+      "rounds": 5,
+      "restart_share": {
+        "median": 0.064063,
+        "min": 0.063076,
+        "max": 0.065264
+      },
+      "fallback_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "read_ops": {
+        "median": 11357173,
+        "min": 11264844,
+        "max": 11402284
+      },
+      "read_attempts": {
+        "median": 12134552,
+        "min": 12051367,
+        "max": 12169908
+      },
+      "read_fallbacks": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "sample_spins": {
+        "median": 24538837,
+        "min": 24270877,
+        "max": 24609604
+      },
+      "write_ops": {
+        "median": 1048576,
+        "min": 1048576,
+        "max": 1048576
+      },
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "starvation_flag": false
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 2,
+      "readers": 8,
+      "rounds": 5,
+      "restart_share": {
+        "median": 0.065294,
+        "min": 0.054645,
+        "max": 0.09649
+      },
+      "fallback_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "read_ops": {
+        "median": 12795552,
+        "min": 9018387,
+        "max": 13762717
+      },
+      "read_attempts": {
+        "median": 13689393,
+        "min": 9981505,
+        "max": 14564989
+      },
+      "read_fallbacks": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "sample_spins": {
+        "median": 24948947,
+        "min": 20021675,
+        "max": 25058465
+      },
+      "write_ops": {
+        "median": 1048576,
+        "min": 1048576,
+        "max": 1048576
+      },
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "starvation_flag": false
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 4,
+      "readers": 8,
+      "rounds": 5,
+      "restart_share": {
+        "median": 0.055227,
+        "min": 0.049238,
+        "max": 0.059216
+      },
+      "fallback_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "read_ops": {
+        "median": 13035586,
+        "min": 12221760,
+        "max": 13193564
+      },
+      "read_attempts": {
+        "median": 13710673,
+        "min": 12991036,
+        "max": 13954934
+      },
+      "read_fallbacks": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "sample_spins": {
+        "median": 24633876,
+        "min": 24495074,
+        "max": 27541462
+      },
+      "write_ops": {
+        "median": 1048576,
+        "min": 1048576,
+        "max": 1048576
+      },
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "starvation_flag": false
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 8,
+      "readers": 8,
+      "rounds": 5,
+      "restart_share": {
+        "median": 0.053331,
+        "min": 0.052327,
+        "max": 0.054956
+      },
+      "fallback_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "read_ops": {
+        "median": 13467708,
+        "min": 13136915,
+        "max": 13628143
+      },
+      "read_attempts": {
+        "median": 14221437,
+        "min": 13900846,
+        "max": 14380644
+      },
+      "read_fallbacks": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "sample_spins": {
+        "median": 25914780,
+        "min": 25735120,
+        "max": 26257210
+      },
+      "write_ops": {
+        "median": 1048576,
+        "min": 1048576,
+        "max": 1048576
+      },
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "starvation_flag": false
+    }
+  ],
+  "memory": [
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "rowex_set",
+      "keyspace_bits": 63,
+      "population": 32768,
+      "lambda": 1.0,
+      "hot_alloc_bytes_per_key": 12.9124,
+      "expanse_alloc_bytes_per_key": 14.1362,
+      "expanse_mem_used_bytes_per_key": 14.0576,
+      "hot_allocs": 34297,
+      "expanse_allocs": 8127,
+      "lambda_target": 1.0
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "rowex_set",
+      "keyspace_bits": 63,
+      "population": 65536,
+      "lambda": 2.0,
+      "hot_alloc_bytes_per_key": 12.4043,
+      "expanse_alloc_bytes_per_key": 13.2578,
+      "expanse_mem_used_bytes_per_key": 13.7551,
+      "hot_allocs": 68495,
+      "expanse_allocs": 18726,
+      "lambda_target": 2.0
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "rowex_set",
+      "keyspace_bits": 63,
+      "population": 131072,
+      "lambda": 4.0,
+      "hot_alloc_bytes_per_key": 11.9988,
+      "expanse_alloc_bytes_per_key": 12.1224,
+      "expanse_mem_used_bytes_per_key": 11.8339,
+      "hot_allocs": 136979,
+      "expanse_allocs": 36674,
+      "lambda_target": 4.0
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "rowex_set",
+      "keyspace_bits": 63,
+      "population": 262144,
+      "lambda": 8.0,
+      "hot_alloc_bytes_per_key": 11.8843,
+      "expanse_alloc_bytes_per_key": 9.8514,
+      "expanse_mem_used_bytes_per_key": 9.5609,
+      "hot_allocs": 274073,
+      "expanse_allocs": 53515,
+      "lambda_target": 8.0
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "rowex_set",
+      "keyspace_bits": 63,
+      "population": 491520,
+      "lambda": 15.0,
+      "hot_alloc_bytes_per_key": 11.7608,
+      "expanse_alloc_bytes_per_key": 8.1036,
+      "expanse_mem_used_bytes_per_key": 7.9508,
+      "hot_allocs": 513029,
+      "expanse_allocs": 69030,
+      "lambda_target": 15.0
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "rowex_set",
+      "keyspace_bits": 63,
+      "population": 753664,
+      "lambda": 23.0,
+      "hot_alloc_bytes_per_key": 11.7339,
+      "expanse_alloc_bytes_per_key": 8.1246,
+      "expanse_mem_used_bytes_per_key": 7.9715,
+      "hot_allocs": 787741,
+      "expanse_allocs": 100620,
+      "lambda_target": 23.0
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "rowex_set",
+      "keyspace_bits": 63,
+      "population": 983040,
+      "lambda": 30.0,
+      "hot_alloc_bytes_per_key": 11.7294,
+      "expanse_alloc_bytes_per_key": 14.0361,
+      "expanse_mem_used_bytes_per_key": 13.0461,
+      "hot_allocs": 1025991,
+      "expanse_allocs": 233240,
+      "lambda_target": 30.0
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "rowex_set",
+      "keyspace_bits": 63,
+      "population": 1245184,
+      "lambda": 38.0,
+      "hot_alloc_bytes_per_key": 11.796,
+      "expanse_alloc_bytes_per_key": 21.9604,
+      "expanse_mem_used_bytes_per_key": 20.0494,
+      "hot_allocs": 1305191,
+      "expanse_allocs": 441868,
+      "lambda_target": 38.0
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "rowex_set",
+      "keyspace_bits": 63,
+      "population": 1507328,
+      "lambda": 46.0,
+      "hot_alloc_bytes_per_key": 11.7072,
+      "expanse_alloc_bytes_per_key": 23.0924,
+      "expanse_mem_used_bytes_per_key": 21.2384,
+      "hot_allocs": 1575353,
+      "expanse_allocs": 526563,
+      "lambda_target": 46.0
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "rowex_set",
+      "keyspace_bits": 63,
+      "population": 1998848,
+      "lambda": 61.0,
+      "hot_alloc_bytes_per_key": 11.7239,
+      "expanse_alloc_bytes_per_key": 21.0562,
+      "expanse_mem_used_bytes_per_key": 19.6692,
+      "hot_allocs": 2086935,
+      "expanse_allocs": 576942,
+      "lambda_target": 61.0
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "rowex_map",
+      "keyspace_bits": 64,
+      "population": 65536,
+      "lambda": 1.0,
+      "hot_alloc_bytes_per_key": 36.7126,
+      "expanse_alloc_bytes_per_key": 24.2756,
+      "expanse_mem_used_bytes_per_key": 22.6609,
+      "hot_allocs": 134021,
+      "expanse_allocs": 29730,
+      "lambda_target": 1.0
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "rowex_map",
+      "keyspace_bits": 64,
+      "population": 131072,
+      "lambda": 2.0,
+      "hot_alloc_bytes_per_key": 36.3074,
+      "expanse_alloc_bytes_per_key": 24.7036,
+      "expanse_mem_used_bytes_per_key": 24.0927,
+      "hot_allocs": 268053,
+      "expanse_allocs": 59891,
+      "lambda_target": 2.0
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "rowex_map",
+      "keyspace_bits": 64,
+      "population": 262144,
+      "lambda": 4.0,
+      "hot_alloc_bytes_per_key": 36.2117,
+      "expanse_alloc_bytes_per_key": 22.9558,
+      "expanse_mem_used_bytes_per_key": 22.2841,
+      "hot_allocs": 536147,
+      "expanse_allocs": 93513,
+      "lambda_target": 4.0
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "rowex_map",
+      "keyspace_bits": 64,
+      "population": 524288,
+      "lambda": 8.0,
+      "hot_alloc_bytes_per_key": 36.1561,
+      "expanse_alloc_bytes_per_key": 19.3626,
+      "expanse_mem_used_bytes_per_key": 19.0479,
+      "hot_allocs": 1072230,
+      "expanse_allocs": 127803,
+      "lambda_target": 8.0
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "rowex_map",
+      "keyspace_bits": 64,
+      "population": 983040,
+      "lambda": 15.0,
+      "hot_alloc_bytes_per_key": 36.0742,
+      "expanse_alloc_bytes_per_key": 16.8002,
+      "expanse_mem_used_bytes_per_key": 16.752,
+      "hot_allocs": 2009029,
+      "expanse_allocs": 216015,
+      "lambda_target": 15.0
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "rowex_map",
+      "keyspace_bits": 64,
+      "population": 1507328,
+      "lambda": 23.0,
+      "hot_alloc_bytes_per_key": 36.0915,
+      "expanse_alloc_bytes_per_key": 16.3582,
+      "expanse_mem_used_bytes_per_key": 16.2004,
+      "hot_allocs": 3082805,
+      "expanse_allocs": 366406,
+      "lambda_target": 23.0
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "rowex_map",
+      "keyspace_bits": 64,
+      "population": 1966080,
+      "lambda": 30.0,
+      "hot_alloc_bytes_per_key": 36.053,
+      "expanse_alloc_bytes_per_key": 20.3525,
+      "expanse_mem_used_bytes_per_key": 19.0458,
+      "hot_allocs": 4018036,
+      "expanse_allocs": 737142,
+      "lambda_target": 30.0
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "rowex_map",
+      "keyspace_bits": 64,
+      "population": 2490368,
+      "lambda": 38.0,
+      "hot_alloc_bytes_per_key": 36.1544,
+      "expanse_alloc_bytes_per_key": 25.916,
+      "expanse_mem_used_bytes_per_key": 23.2409,
+      "hot_allocs": 5100679,
+      "expanse_allocs": 1287641,
+      "lambda_target": 38.0
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "rowex_map",
+      "keyspace_bits": 64,
+      "population": 3014656,
+      "lambda": 46.0,
+      "hot_alloc_bytes_per_key": 36.0902,
+      "expanse_alloc_bytes_per_key": 26.782,
+      "expanse_mem_used_bytes_per_key": 24.0044,
+      "hot_allocs": 6165299,
+      "expanse_allocs": 1557546,
+      "lambda_target": 46.0
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "rowex_map",
+      "keyspace_bits": 64,
+      "population": 3997696,
+      "lambda": 61.0,
+      "hot_alloc_bytes_per_key": 36.0504,
+      "expanse_alloc_bytes_per_key": 25.62,
+      "expanse_mem_used_bytes_per_key": 23.1663,
+      "hot_allocs": 8171237,
+      "expanse_allocs": 1831608,
+      "lambda_target": 61.0
+    }
+  ]
+}

@@ -1,6 +1,10 @@
 # Build output
 /target
 /fuzz/target
+# expanse-hot-bench is detached from the workspace and builds into its own
+# target dirs; the second one holds the diagnostic `occ-stats` build.
+crates/expanse-hot-bench/target/
+crates/expanse-hot-bench/target-occ-stats/
 bindings/java/target/
 bindings/java/build/
 bindings/java/.gradle/
