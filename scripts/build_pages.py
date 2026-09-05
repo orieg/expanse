@@ -788,6 +788,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
     comp_svg_path = os.path.join(repo_assets, "bench_comparative.svg")
     conc_svg_path = os.path.join(repo_assets, "bench_concurrency.svg")
     ycsb_svg_path = os.path.join(repo_assets, "bench_ycsb.svg")
+    density_svg_path = os.path.join(repo_assets, "bench_density_sawtooth.svg")
     # bench_rocksdb.svg is suite-owned and lives with the suite that produces
     # it, not in the shared docs/assets/. The landing page still inlines it, so
     # this path must track the move -- reading it from repo_assets resolved to a
@@ -821,6 +822,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
     comp_svg = _read_chart(comp_svg_path)
     conc_svg = _read_chart(conc_svg_path)
     ycsb_svg = _read_chart(ycsb_svg_path)
+    density_svg = _read_chart(density_svg_path)
     rocksdb_svg = _read_chart(rocksdb_svg_path)
 
     # 2. Main Portal index.html
@@ -1116,6 +1118,19 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
             </div>
             <div class="chart-surface">
               BENCH_YCSB_SVG_PLACEHOLDER
+            </div>
+          </div>
+
+          <div class="bench-card">
+            <div class="bench-card-header">
+              <div class="bench-card-left">
+                <div class="bench-card-title">MEMORY DENSITY ACROSS EXPANSE OCCUPANCY</div>
+                <div class="bench-card-caption">Bytes per key on uniform random keys is a sawtooth in &lambda; = N / 2<sup>16</sup>, not a curve in population: keyspace width and population are one knob, and the <code>LEAF_CAP</code> overflow cascade sets the tooth. <strong style="color: var(--heading);">The same structure spans 7.6&ndash;21 B/key under density alone</strong>; the memory-budget gate samples both sides of the cascade.</div>
+              </div>
+              <div class="bench-card-prov">example keyspace_density.rs<br>deterministic byte accounting</div>
+            </div>
+            <div class="chart-surface">
+              BENCH_DENSITY_SVG_PLACEHOLDER
             </div>
           </div>
         </div>
@@ -1586,6 +1601,7 @@ void app_main(void) {
         .replace("BENCH_COMP_SVG_PLACEHOLDER", comp_svg)
         .replace("BENCH_CONC_SVG_PLACEHOLDER", conc_svg)
         .replace("BENCH_YCSB_SVG_PLACEHOLDER", ycsb_svg)
+        .replace("BENCH_DENSITY_SVG_PLACEHOLDER", density_svg)
     )
 
     with open(os.path.join(output_dir, "index.html"), "w", encoding="utf-8") as f:

@@ -47,6 +47,10 @@ the provenance check under test.
 
 ## 3. Results
 
+![Set algebra and interned set domain: materialization, k-way walk, and the provenance-check, ingestion and resolution panels](results/bench_domain_algebra.svg)
+
+*(rendered from [`results/bench_domain_algebra.json`](results/bench_domain_algebra.json) by `scripts/generate_charts.py`; panel 3 is this suite's own measurement, panels 1–2 are the `search_boolean` cells routed here in §1)*
+
 `(measured: reference host — Intel i9-12900F, 8 P-cores + 8 E-cores, 24 logical CPUs, 30 MiB L3,
 Linux 6.8, rustc 1.98.1, commit fcca1c0d; 5 independent whole-harness runs through run.sh --reps 5,
 bench lock held, P-core pin, load 1.0–2.6 at each start; paired ratio per repetition, 95% percentile

@@ -399,5 +399,323 @@
         ]
       }
     ]
+  },
+  "density_sweep": {
+    "meta": {
+      "source": "crates/expanse/examples/keyspace_density.rs --json; the mechanism is docs/ARCHITECTURE.md §3.5 and the original sweep docs/benchmarks/hot_comparison/METHODOLOGY.md §9.4",
+      "instrument": "mem_used() deterministic byte accounting — host-independent; no wall clock",
+      "generator": "XorShift64(0x0DDB_1A5E_5EED_0001), each draw masked to the keyspace width; same seed at every width",
+      "lambda": "N / 2^(bits - 48): mean population of a 2-byte-prefix expanse once the top two key bytes saturate",
+      "leaf_cap": 32,
+      "commit": "16003bc0",
+      "workload_id": "example_keyspace_density"
+    },
+    "cells": [
+      {
+        "n": 100000,
+        "bits": 64,
+        "lambda": 1.5259,
+        "lambda_over_leaf_cap": 0.0477,
+        "set_bpk": 14.78,
+        "map_bpk": 24.62,
+        "distinct_keys": 100000
+      },
+      {
+        "n": 100000,
+        "bits": 63,
+        "lambda": 3.0518,
+        "lambda_over_leaf_cap": 0.0954,
+        "set_bpk": 12.6,
+        "map_bpk": 23.12,
+        "distinct_keys": 100000
+      },
+      {
+        "n": 100000,
+        "bits": 62,
+        "lambda": 6.1035,
+        "lambda_over_leaf_cap": 0.1907,
+        "set_bpk": 10.42,
+        "map_bpk": 20.33,
+        "distinct_keys": 100000
+      },
+      {
+        "n": 200000,
+        "bits": 64,
+        "lambda": 3.0518,
+        "lambda_over_leaf_cap": 0.0954,
+        "set_bpk": 12.59,
+        "map_bpk": 23.16,
+        "distinct_keys": 200000
+      },
+      {
+        "n": 200000,
+        "bits": 63,
+        "lambda": 6.1035,
+        "lambda_over_leaf_cap": 0.1907,
+        "set_bpk": 10.41,
+        "map_bpk": 20.3,
+        "distinct_keys": 200000
+      },
+      {
+        "n": 200000,
+        "bits": 62,
+        "lambda": 12.207,
+        "lambda_over_leaf_cap": 0.3815,
+        "set_bpk": 8.42,
+        "map_bpk": 17.41,
+        "distinct_keys": 200000
+      },
+      {
+        "n": 400000,
+        "bits": 64,
+        "lambda": 6.1035,
+        "lambda_over_leaf_cap": 0.1907,
+        "set_bpk": 10.41,
+        "map_bpk": 20.29,
+        "distinct_keys": 400000
+      },
+      {
+        "n": 400000,
+        "bits": 63,
+        "lambda": 12.207,
+        "lambda_over_leaf_cap": 0.3815,
+        "set_bpk": 8.42,
+        "map_bpk": 17.4,
+        "distinct_keys": 400000
+      },
+      {
+        "n": 400000,
+        "bits": 62,
+        "lambda": 24.4141,
+        "lambda_over_leaf_cap": 0.7629,
+        "set_bpk": 8.47,
+        "map_bpk": 16.46,
+        "distinct_keys": 400000
+      },
+      {
+        "n": 600000,
+        "bits": 64,
+        "lambda": 9.1553,
+        "lambda_over_leaf_cap": 0.2861,
+        "set_bpk": 9.17,
+        "map_bpk": 18.47,
+        "distinct_keys": 600000
+      },
+      {
+        "n": 600000,
+        "bits": 63,
+        "lambda": 18.3105,
+        "lambda_over_leaf_cap": 0.5722,
+        "set_bpk": 7.64,
+        "map_bpk": 16.28,
+        "distinct_keys": 600000
+      },
+      {
+        "n": 600000,
+        "bits": 62,
+        "lambda": 36.6211,
+        "lambda_over_leaf_cap": 1.1444,
+        "set_bpk": 19.25,
+        "map_bpk": 22.77,
+        "distinct_keys": 600000
+      },
+      {
+        "n": 800000,
+        "bits": 64,
+        "lambda": 12.207,
+        "lambda_over_leaf_cap": 0.3815,
+        "set_bpk": 8.41,
+        "map_bpk": 17.39,
+        "distinct_keys": 800000
+      },
+      {
+        "n": 800000,
+        "bits": 63,
+        "lambda": 24.4141,
+        "lambda_over_leaf_cap": 0.7629,
+        "set_bpk": 8.49,
+        "map_bpk": 16.46,
+        "distinct_keys": 800000
+      },
+      {
+        "n": 800000,
+        "bits": 62,
+        "lambda": 48.8281,
+        "lambda_over_leaf_cap": 1.5259,
+        "set_bpk": 21.02,
+        "map_bpk": 23.9,
+        "distinct_keys": 800000
+      },
+      {
+        "n": 900000,
+        "bits": 64,
+        "lambda": 13.7329,
+        "lambda_over_leaf_cap": 0.4292,
+        "set_bpk": 8.13,
+        "map_bpk": 17,
+        "distinct_keys": 900000
+      },
+      {
+        "n": 900000,
+        "bits": 63,
+        "lambda": 27.4658,
+        "lambda_over_leaf_cap": 0.8583,
+        "set_bpk": 10.53,
+        "map_bpk": 17.6,
+        "distinct_keys": 900000
+      },
+      {
+        "n": 900000,
+        "bits": 62,
+        "lambda": 54.9316,
+        "lambda_over_leaf_cap": 1.7166,
+        "set_bpk": 20.35,
+        "map_bpk": 23.53,
+        "distinct_keys": 900000
+      },
+      {
+        "n": 1000000,
+        "bits": 64,
+        "lambda": 15.2588,
+        "lambda_over_leaf_cap": 0.4768,
+        "set_bpk": 7.92,
+        "map_bpk": 16.7,
+        "distinct_keys": 1000000
+      },
+      {
+        "n": 1000000,
+        "bits": 63,
+        "lambda": 30.5176,
+        "lambda_over_leaf_cap": 0.9537,
+        "set_bpk": 13.6,
+        "map_bpk": 19.38,
+        "distinct_keys": 1000000
+      },
+      {
+        "n": 1000000,
+        "bits": 62,
+        "lambda": 61.0352,
+        "lambda_over_leaf_cap": 1.9073,
+        "set_bpk": 19.66,
+        "map_bpk": 23.16,
+        "distinct_keys": 1000000
+      },
+      {
+        "n": 1200000,
+        "bits": 64,
+        "lambda": 18.3105,
+        "lambda_over_leaf_cap": 0.5722,
+        "set_bpk": 7.64,
+        "map_bpk": 16.28,
+        "distinct_keys": 1200000
+      },
+      {
+        "n": 1200000,
+        "bits": 63,
+        "lambda": 36.6211,
+        "lambda_over_leaf_cap": 1.1444,
+        "set_bpk": 19.3,
+        "map_bpk": 22.8,
+        "distinct_keys": 1200000
+      },
+      {
+        "n": 1200000,
+        "bits": 62,
+        "lambda": 73.2422,
+        "lambda_over_leaf_cap": 2.2888,
+        "set_bpk": 18.5,
+        "map_bpk": 22.62,
+        "distinct_keys": 1200000
+      },
+      {
+        "n": 2000000,
+        "bits": 64,
+        "lambda": 30.5176,
+        "lambda_over_leaf_cap": 0.9537,
+        "set_bpk": 13.6,
+        "map_bpk": 19.38,
+        "distinct_keys": 2000000
+      },
+      {
+        "n": 2000000,
+        "bits": 63,
+        "lambda": 61.0352,
+        "lambda_over_leaf_cap": 1.9073,
+        "set_bpk": 19.67,
+        "map_bpk": 23.17,
+        "distinct_keys": 2000000
+      },
+      {
+        "n": 2000000,
+        "bits": 62,
+        "lambda": 122.0703,
+        "lambda_over_leaf_cap": 3.8147,
+        "set_bpk": 15.58,
+        "map_bpk": 21.93,
+        "distinct_keys": 2000000
+      }
+    ],
+    "anchors": [
+      {
+        "dist": "sequential",
+        "n": 100000,
+        "set_bpk": 0.07
+      },
+      {
+        "dist": "clustered",
+        "n": 100000,
+        "set_bpk": 0.37
+      },
+      {
+        "dist": "sparse",
+        "n": 100000,
+        "set_bpk": 16.32
+      },
+      {
+        "dist": "sequential",
+        "n": 400000,
+        "set_bpk": 0.07
+      },
+      {
+        "dist": "clustered",
+        "n": 400000,
+        "set_bpk": 0.37
+      },
+      {
+        "dist": "sparse",
+        "n": 400000,
+        "set_bpk": 16.31
+      },
+      {
+        "dist": "sequential",
+        "n": 1000000,
+        "set_bpk": 0.07
+      },
+      {
+        "dist": "clustered",
+        "n": 1000000,
+        "set_bpk": 0.36
+      },
+      {
+        "dist": "sparse",
+        "n": 1000000,
+        "set_bpk": 16.31
+      },
+      {
+        "dist": "sequential",
+        "n": 2000000,
+        "set_bpk": 0.06
+      },
+      {
+        "dist": "clustered",
+        "n": 2000000,
+        "set_bpk": 0.36
+      },
+      {
+        "dist": "sparse",
+        "n": 2000000,
+        "set_bpk": 16.31
+      }
+    ]
   }
 }
