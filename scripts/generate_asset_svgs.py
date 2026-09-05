@@ -572,46 +572,64 @@ def render_density(data: dict) -> None:
             )
         lam *= 2
     svg += f'  <text x="{(px0 + px1) / 2:.0f}" y="{py1 + 34}" class="t-unit" text-anchor="middle">&#955; (keys per 2-byte expanse)</text>\n'
-    # LEAF_CAP marker
+    # LEAF_CAP marker, and the same cap one byte level down (256 × LEAF_CAP):
+    # the second tooth, drawn only when the data reaches it.
     svg += (
         f'  <line x1="{X(leaf_cap):.1f}" y1="{py0}" x2="{X(leaf_cap):.1f}" y2="{py1}" class="axis" stroke-dasharray="4,3"/>\n'
         f'  <text x="{X(leaf_cap) + 5:.1f}" y="{py0 + 12}" class="t-legend">LEAF_CAP = {leaf_cap}</text>\n'
         f'  <text x="{X(leaf_cap) + 5:.1f}" y="{py0 + 25}" class="t-note">linear leaf cascades into a branch</text>\n'
     )
+    second = 256 * leaf_cap
+    if lam_min < second < lam_max:
+        svg += (
+            f'  <line x1="{X(second):.1f}" y1="{py0}" x2="{X(second):.1f}" y2="{py1}" class="axis" stroke-dasharray="4,3"/>\n'
+            f'  <text x="{X(second) - 5:.1f}" y="{py0 + 12}" class="t-legend" text-anchor="end">256 &#215; LEAF_CAP = {second}</text>\n'
+            f'  <text x="{X(second) - 5:.1f}" y="{py0 + 25}" class="t-note" text-anchor="end">the next byte level cascades</text>\n'
+        )
     # the curve through every cell, then per-width markers
     path = " ".join(f'{"M" if i == 0 else "L"}{X(c["lambda"]):.1f},{Y(c["set_bpk"]):.1f}' for i, c in enumerate(cells))
     svg += f'  <path d="{path}" fill="none" class="axis"/>\n'
-    marker_cls = {64: "b-expanse", 63: "b-expanse-alt", 62: "b-other"}
+    # Three marker shapes for the three widths of the original sweep; every
+    # narrower width (the second-cliff cells at 58..55 bits) shares a fourth,
+    # so a new width never raises a KeyError here.
+    def marker(c: dict, x: float, y: float) -> str:
+        bits = c["bits"]
+        if bits == 64:
+            return f'  <circle cx="{x:.1f}" cy="{y:.1f}" r="4.5" class="b-expanse"/>\n'
+        if bits == 63:
+            return f'  <rect x="{x - 4:.1f}" y="{y - 4:.1f}" width="8" height="8" class="b-expanse-alt"/>\n'
+        if bits == 62:
+            return f'  <polygon points="{x:.1f},{y - 5.5:.1f} {x + 5.5:.1f},{y:.1f} {x:.1f},{y + 5.5:.1f} {x - 5.5:.1f},{y:.1f}" class="b-other"/>\n'
+        return f'  <polygon points="{x:.1f},{y - 5.5:.1f} {x + 5:.1f},{y + 3.5:.1f} {x - 5:.1f},{y + 3.5:.1f}" class="b-hash"/>\n'
+
     for c in cells:
-        x, y = X(c["lambda"]), Y(c["set_bpk"])
-        cls = marker_cls[c["bits"]]
-        if c["bits"] == 64:
-            svg += f'  <circle cx="{x:.1f}" cy="{y:.1f}" r="4.5" class="{cls}"/>\n'
-        elif c["bits"] == 63:
-            svg += f'  <rect x="{x - 4:.1f}" y="{y - 4:.1f}" width="8" height="8" class="{cls}"/>\n'
-        else:
-            svg += f'  <polygon points="{x:.1f},{y - 5.5:.1f} {x + 5.5:.1f},{y:.1f} {x:.1f},{y + 5.5:.1f} {x - 5.5:.1f},{y:.1f}" class="{cls}"/>\n'
+        svg += marker(c, X(c["lambda"]), Y(c["set_bpk"]))
     # the two memory-budget gate cells (1M and 2M at 64 bits), labelled from the data
-    for n, label, dy in ((1_000_000, "memory-budget cell, N = 1M", 22), (2_000_000, "second gate cell, N = 2M", -12)):
+    # The 1M label sits below its point; the 2M label is anchored to the left of
+    # its point, because the curve rises steeply through it and a centred label
+    # above the point crosses the line.
+    for n, label, dx, dy, anchor in (
+        (1_000_000, "memory-budget cell, N = 1M", 0, 22, "middle"),
+        (2_000_000, "second gate cell, N = 2M", -10, 4, "end"),
+    ):
         c = next(c for c in cells if c["bits"] == 64 and c["n"] == n)
         x, y = X(c["lambda"]), Y(c["set_bpk"])
         svg += (
-            f'  <text x="{x:.1f}" y="{y + dy:.1f}" class="t-note" text-anchor="middle">{label}: {c["set_bpk"]:.2f} B/key '
+            f'  <text x="{x + dx:.1f}" y="{y + dy:.1f}" class="t-note" text-anchor="{anchor}">{label}: {c["set_bpk"]:.2f} B/key '
             f'(&#955; = {c["lambda"]:.2f})</text>\n'
         )
     # legend
     lx, ly = 730, 80
     svg += f'  <text x="{lx}" y="{ly}" class="t-legend">Keyspace width (same seed)</text>\n'
-    for i, (bits, cls, shape) in enumerate(((64, "b-expanse", "circle"), (63, "b-expanse-alt", "rect"), (62, "b-other", "polygon"))):
+    narrow = sorted({c["bits"] for c in cells if c["bits"] < 62}, reverse=True)
+    rows = [(64, "64-bit keys"), (63, "63-bit keys"), (62, "62-bit keys")]
+    if narrow:
+        rows.append((narrow[0], f"{narrow[0]}&#8211;{narrow[-1]}-bit keys" if len(narrow) > 1 else f"{narrow[0]}-bit keys"))
+    for i, (bits, label) in enumerate(rows):
         yy = ly + 18 + i * 18
-        if shape == "circle":
-            svg += f'  <circle cx="{lx + 6}" cy="{yy - 4}" r="4.5" class="{cls}"/>\n'
-        elif shape == "rect":
-            svg += f'  <rect x="{lx + 2}" y="{yy - 8}" width="8" height="8" class="{cls}"/>\n'
-        else:
-            svg += f'  <polygon points="{lx + 6},{yy - 9.5} {lx + 11.5},{yy - 4} {lx + 6},{yy + 1.5} {lx + 0.5},{yy - 4}" class="{cls}"/>\n'
-        n_cells = sum(1 for c in cells if c["bits"] == bits)
-        svg += f'  <text x="{lx + 18}" y="{yy}" class="t-legend">{bits}-bit keys &#183; {n_cells} populations</text>\n'
+        svg += marker({"bits": bits}, lx + 6, yy - 4)
+        n_cells = sum(1 for c in cells if (c["bits"] == bits if bits >= 62 else c["bits"] < 62))
+        svg += f'  <text x="{lx + 18}" y="{yy}" class="t-legend">{label} &#183; {n_cells} cells</text>\n'
     # the width equivalence, derived: cells sharing a λ across widths
     by_lam: dict = {}
     for c in cells:
@@ -619,20 +637,21 @@ def render_density(data: dict) -> None:
     shared = [v for v in by_lam.values() if len(v) > 1]
     spread = max((max(c["set_bpk"] for c in v) - min(c["set_bpk"] for c in v)) for v in shared) if shared else 0.0
     lo, hi = min(c["set_bpk"] for c in cells), max(c["set_bpk"] for c in cells)
+    ly2 = ly + (18 if narrow else 0)
     svg += (
-        f'  <text x="{lx}" y="{ly + 84}" class="t-note">{len(shared)} &#955; values are hit by two or three widths;</text>\n'
-        f'  <text x="{lx}" y="{ly + 97}" class="t-note">their cells agree within {spread:.2f} B/key: one curve.</text>\n'
-        f'  <text x="{lx}" y="{ly + 118}" class="t-note">Range under density alone: {lo:.2f}&#8211;{hi:.2f} B/key</text>\n'
-        f'  <text x="{lx}" y="{ly + 131}" class="t-note">({hi / lo:.2f}&#215;) with no code change.</text>\n'
+        f'  <text x="{lx}" y="{ly2 + 84}" class="t-note">{len(shared)} &#955; values are hit by two or three widths;</text>\n'
+        f'  <text x="{lx}" y="{ly2 + 97}" class="t-note">their cells agree within {spread:.2f} B/key: one curve.</text>\n'
+        f'  <text x="{lx}" y="{ly2 + 118}" class="t-note">Range under density alone: {lo:.2f}&#8211;{hi:.2f} B/key</text>\n'
+        f'  <text x="{lx}" y="{ly2 + 131}" class="t-note">({hi / lo:.2f}&#215;) with no code change.</text>\n'
     )
     # anchors: construction-fixed occupancy, flat across N (derived min–max)
     anchors: dict = {}
     for a in block["anchors"]:
         anchors.setdefault(a["dist"], []).append(a["set_bpk"])
-    svg += f'  <text x="{lx}" y="{ly + 156}" class="t-legend">Fixed-occupancy distributions</text>\n'
+    svg += f'  <text x="{lx}" y="{ly2 + 156}" class="t-legend">Fixed-occupancy distributions</text>\n'
     for i, (dist, vals) in enumerate(sorted(anchors.items())):
         rng = f"{min(vals):.2f}" if abs(max(vals) - min(vals)) < 0.005 else f"{min(vals):.2f}&#8211;{max(vals):.2f}"
-        svg += f'  <text x="{lx}" y="{ly + 172 + i * 14}" class="t-note">{esc(dist)}: {rng} B/key, flat across N</text>\n'
+        svg += f'  <text x="{lx}" y="{ly2 + 172 + i * 14}" class="t-note">{esc(dist)}: {rng} B/key, flat across N</text>\n'
     meta = block["meta"]
     svg += (
         f'\n  <line x1="30" y1="{height - 46}" x2="930" y2="{height - 46}" class="divider"/>\n'

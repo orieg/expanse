@@ -325,7 +325,11 @@ engine does not count as used, and it is **not a constant factor**:
 The ratio collapses toward 1.0 as either the population or the per-key footprint
 grows, because fixed arena capacity amortizes. It is largest exactly where
 Expanse is most compact, so **the allocator instrument understates Expanse's
-dense-distribution advantage** relative to the repo's own table. Any cell
+dense-distribution advantage** relative to the repo's own table. *(Amended by
+§9.10.6: the `random` row's 1.59× is a generator-order figure; the same
+structure built from sorted keys — which is how every allocator-instrument cell
+of this suite is built — measures 1.03×. The instrument gap has an
+insertion-order term this table did not name.)* Any cell
 published here states which instrument produced it, and no cell from this suite
 is set beside a `mem_used` cell as though the two were the same quantity
 (§8.12).
@@ -713,6 +717,325 @@ design — a curve across λ, Arm A labelled for its restricted domain — is
 unchanged.
 
 ---
+
+### 9.10 The sweep extended: second tooth, node census, seed sensitivity, the cap-48 control's read path, and the two instruments reconciled
+
+Extension of §9.4 and §9.5, measured after those sections were written and
+not reconciled into them. Every deterministic cell below is the engine's own
+`mem_used()` accounting, host-independent, from
+`crates/expanse/examples/keyspace_density.rs --json` *(measured: deterministic
+byte accounting; workload: `example_keyspace_density`; committed as
+`docs/assets/data/bench_assets.json` → `density_sweep`, commit 86daaddf;
+`crates/expanse/tests/test_visualizer_sync.rs` recomputes every 64-bit and
+every second-tooth cell from the engine)*. The wall-clock cells are in their
+own table (§9.10.5) with their instrument, host and intervals; no
+deterministic figure shares a table with them.
+
+#### 9.10.1 The first tooth at finer resolution (64-bit, item 2 and item 9)
+
+The 1.2M → 2M gap of §9.4 is filled so the trough and the knee are located
+between measured neighbours. Set and map flavors are both given (item 8).
+
+| N @64 | λ | λ / `LEAF_CAP` | `ExpanseSet` B/key | `ExpanseMap<u64,u64>` B/key |
+|---:|---:|---:|---:|---:|
+| 1,000,000 | 15.26 | 48% | 7.92 | 16.70 |
+| 1,100,000 | 16.78 | 52% | 7.76 | 16.46 |
+| 1,200,000 | 18.31 | 57% | 7.64 | 16.28 |
+| 1,300,000 | 19.84 | 62% | 7.59 — trough | 16.15 |
+| 1,400,000 | 21.36 | 67% | 7.66 | 16.11 |
+| 1,600,000 | 24.41 | 76% | 8.46 | 16.44 |
+| 1,800,000 | 27.47 | 86% | 10.51 — knee | 17.58 |
+| 2,000,000 | 30.52 | 95% | 13.60 | 19.38 |
+| 2,200,000 | 33.57 | 105% | 16.83 | 21.31 |
+| 2,400,000 | 36.62 | 114% | 19.26 | 22.77 |
+| 2,600,000 | 39.67 | 124% | 20.67 | 23.64 |
+
+The trough is at N = 1.3M (λ = 19.84, 7.59 B/key), bracketed by
+7.64 at 1.2M and 7.66 at 1.4M, not at the 1.2M cell §9.4 happened to
+end on. The curve is flat within 0.4 B/key from λ = 15 to 21 and then climbs
+13 B/key by λ = 49; the knee — where the Poisson model says the cascade is 10%
+on, λ = 25.9 — is the 1.8M cell at 10.51. The exact-λ cells at 27, 40
+and 58 (63- and 62-bit equivalents of 1.77M, 2.62M and 3.8M @64, item 10) sit
+on the same curve: 10.12, 20.79 and 20.00 B/key at λ = 27.00, 40.00 and 58.00.
+
+#### 9.10.2 The second tooth (items 1 and 11)
+
+Below a cascaded 2-byte expanse the level-5 sub-expanses hold λ / 256 keys
+each, in `Leaf5` leaves under the same `LEAF_CAP`, so the prediction was a
+second trough before λ ≈ 256 × 32 = 8,192 and a second rise across it.
+`BranchU` is the branch form a cascaded expanse takes once more than
+`BITMAP_TO_UNCOMPRESSED_THRESHOLD` = 192 of its 256 sub-expanses are populated.
+
+| N @bits | λ | λ / 256 | `ExpanseSet` B/key | `ExpanseMap` B/key | `BranchU` nodes / level-6 expanses | level-5 sub-expanses cascaded |
+|---:|---:|---:|---:|---:|---:|---:|
+| 2,000,000 @58 | 1,953.1 | 7.63 | 8.80 | 18.51 | 1,028 / 1,024 | 0 of 262,144 (0.0%) |
+| 2,000,000 @57 | 3,906.2 | 15.26 | 6.89 | 15.68 | 514 / 512 | 4 of 131,072 (0.0%) |
+| 1,200,000 @56 | 4,687.5 | 18.31 | 6.71 | 15.35 | 257 / 256 | 81 of 65,536 (0.1%) |
+| 1,700,000 @56 | 6,640.6 | 25.94 | 8.44 | 16.03 | 257 / 256 | 6,572 of 65,536 (10.0%) |
+| 2,000,000 @56 | 7,812.5 | 30.52 | 12.98 | 18.74 | 257 / 256 | 22,894 of 65,536 (34.9%) |
+| 2,700,000 @56 | 10,546.9 | 41.20 | 20.98 | 23.76 | 257 / 256 | 60,081 of 65,536 (91.7%) |
+| 2,000,000 @55 | 15,625.0 | 61.04 | 19.66 | 23.04 | 128 / 128 | 32,768 of 32,768 (100.0%) |
+
+`BranchU` nodes exceed the level-6 expanse count by the level-7 nodes where
+those are uncompressed too (4, 2 and 1 at 58, 57 and 56 bits; the level-8
+node is a linear branch); at 55 bits level 7 is a 128-child bitmap branch and
+the 128 `BranchU` are all level 6. So every level-6 expanse is a `BranchU` in
+all seven cells (workload: `example_keyspace_density`). The predictions of
+items 1 and 11 both hold, and the shape is the first tooth's. The second trough is at λ = 4,688 (6.71 B/key, 1.2M @56) against
+"near λ ≈ 4,700", bracketed by 6.89 at 3,906 and 8.44 at 6,641; the ramp
+runs 8.44 → 12.98 → 20.98 across λ = 6,641 → 7,812 → 10,547 against
+"between λ ≈ 6,600 and 10,400". The four 2M cells at
+58–55 bits sit at sub-expanse occupancies 7.6, 15.3, 30.5 and 61.0 — the λ of
+the 400k, 1M and 2M @64 cells and of the 1M @62 cell one level up — and
+measure 8.80, 6.89, 12.98 and 19.66 B/key against 10.41, 7.92, 13.60 and
+19.66 there. The 56-bit ladder reads 6.71 at
+λ = 4,688, 8.44 at 6,641, 12.98 at 7,812 and 20.98 at 10,547, with the
+cascaded sub-expanse fraction at 10.0%, 34.9% and 91.7% at
+the last three — the Poisson model's 10%→90% ramp for this tooth runs from
+λ = 6,627 to 10,379 (`scripts/density_poisson.py`), and at
+λ / 256 = 30.52 the model's 35.0% is the first tooth's 2M @64 fraction
+reproduced one level down. **The second trough is lower than the first** (6.71
+against 7.59) because the 4,160-byte `BranchU` at level 6 is amortised over
+thousands of keys and `Leaf5` packs 5 bytes per key where `Leaf6` packs 6;
+**the second peak is the first peak's number** (19.66 at λ = 15,625, 19.66 at
+λ = 61.04) because every sub-expanse has cascaded into a bitmap branch of
+single-key immediates, which is exactly the level-6 structure at λ = 61.
+`BranchU` nodes appear at level 6 in all seven cells — from λ ≳ 192 a cascaded
+expanse has more populated sub-expanses than the bitmap threshold — whereas at
+the first-tooth cells the only uncompressed branches are the 257 (64-bit) or
+65 (62-bit) of levels 8 and 7.
+
+#### 9.10.3 Node census at three cells (item 3), against the Poisson model (item 4)
+
+`ExpanseSet::stats()` / `ExpanseMap::stats()` on the built structure. `NodeBytes`
+is the per-form attribution added for this measurement; it is a decomposition
+of `mem_used()`, not an estimate beside it — the walk charges every allocation
+to the form that owns it and the total is asserted equal to `mem_used()` in
+`validate::tests::node_bytes_sum_to_mem_used` and again by the sync test on
+these committed cells. "Cascaded" is `branch_depth_histogram[6]`, the number of
+2-byte expanses whose slot holds a branch rather than a leaf or immediate.
+
+| cell | flavor | B/key | immed | `Leaf` (linear) | `BranchB` | `BranchU` | bytes in leaves | bytes in `BranchB` (+ edge subarrays) | bytes in `BranchU` | cascaded expanses |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1,000,000 @64 (λ 15.26) | set | 7.92 | 226 | 65,526 | 7 | 257 | 6,845,840 | 5,456 | 1,069,120 | 7 of 65,536 |
+| 1,000,000 @64 (λ 15.26) | map | 16.70 | 211 | 65,541 | 7 | 257 | 15,628,944 | 5,456 | 1,069,120 | 7 of 65,536 |
+| 2,000,000 @64 (λ 30.52) | set | 13.60 | 780,905 | 42,639 | 22,970 | 257 | 7,465,376 | 18,669,616 | 1,069,120 | 22,970 of 65,536 |
+| 2,000,000 @64 (λ 30.52) | map | 19.38 | 727,745 | 95,799 | 22,970 | 257 | 19,012,704 | 18,669,616 | 1,069,120 | 22,970 of 65,536 |
+| 800,000 @62 (λ 48.83) | set | 21.02 | 724,745 | 315 | 16,269 | 64 | 28,560 | 16,518,640 | 266,240 | 16,268 of 16,384 |
+| 800,000 @62 (λ 48.83) | map | 23.90 | 657,851 | 67,209 | 16,269 | 64 | 2,332,976 | 16,518,640 | 266,240 | 16,268 of 16,384 |
+
+No `BranchL3`/`BranchL7`, bitmap leaves or map immediate value arrays occur at
+these cells (all zero, omitted). Against the model, with the expanse count of
+each cell:
+
+| cell | λ | P(X > 32) | predicted cascaded | census cascaded | residual | key share in cascaded expanses (model) |
+|---|---:|---:|---:|---:|---:|---:|
+| 1,000,000 @64 | 15.26 | 0.0001 | 3.6 | 7 | +3.4 (+93.45%) | 0.0001 |
+| 2,000,000 @64 | 30.52 | 0.3501 | 22,944.6 | 22,970 | +25.4 (+0.11%) | 0.4180 |
+| 800,000 @62 | 48.83 | 0.9931 | 16,271.4 | 16,268 | -3.4 (-0.02%) | 0.9957 |
+
+The pinned figure in the request, 0.3503 × 65,536 ≈ 22,955, uses the share at
+λ = 30.52 rounded to four places; the model at the cell's exact λ = 30.5176 gives
+22,944.7, and the census counts 22,970: a residual of +25 expanses,
++0.11%, within what one XorShift64 stream at a fixed seed deviates from
+the Poisson mean (the seed cells below move the 2M figure by 0.03 B/key). At the
+2M @64 cell the census also says where the 13.60 B/key comes from: 18.67 MB of
+the 27.20 MB (68.6%) is the 22,970 cascaded bitmap branches with their
+780,905 single-key immediate edges, holding the model's 41.8% of the keys at
+about 22.3 B/key (model-derived split); 7.47 MB (27.4%) is the 42,639 packed
+linear leaves holding the rest at about 6.4 B/key; the 257 uncompressed
+branches of levels 8 and 7 are a fixed 1.07 MB. The map flavor pays the same
+branch bytes and about twice the leaf bytes (8-byte values), which is why its
+tooth is shallower in ratio and identical in position.
+
+#### 9.10.4 Seed sensitivity (item 5)
+
+The three census cells re-drawn with a second XorShift64 seed, same generator,
+same masks:
+
+| cell | λ | seed A set / map | seed B set / map | Δ set | Δ map |
+|---|---:|---:|---:|---:|---:|
+| 1,000,000 @64 | 15.26 | 7.92 / 16.70 | 7.92 / 16.70 | +0.00 | +0.00 |
+| 2,000,000 @64 | 30.52 | 13.60 / 19.38 | 13.58 / 19.37 | -0.02 | -0.01 |
+| 800,000 @62 | 48.83 | 21.02 / 23.90 | 21.00 / 23.89 | -0.02 | -0.01 |
+
+Seed A is `0xddb1a5e5eed0001` (every committed random cell in the repository),
+seed B `0x5eedb0b5c0ffee02`. The largest move is 0.03 B/key, on the cell in the
+cascade's mixture regime; the two below and above it move by 0.02 or less.
+Cells that differ by more than that differ in λ, not in the draw.
+
+#### 9.10.5 The `LEAF_CAP = 48` control (items 6 and 10)
+
+A build-time patch of `crates/expanse/src/types.rs` (`pub const LEAF_CAP: usize
+= 48;`), nothing else changed, the same sweep re-run, and the patch reverted —
+a control, not a shipped configuration. The existing cap-48 figures (7.92 at
+λ = 15.26, 6.99–7.00 at λ = 30.52) reproduce; the rest is new *(measured:
+deterministic byte accounting; `density_sweep.leaf_cap_48_control`)*:
+
+| cell | λ | cap 32 set / map | cap 48 set / map |
+|---|---:|---:|---:|
+| 1,000,000 @64 | 15.26 | 7.92 / 16.70 | 7.92 / 16.70 |
+| 884,736 @63 | 27.00 | 10.12 / 17.36 | 7.09 / 15.53 |
+| 2,000,000 @64 | 30.52 | 13.60 / 19.38 | 7.00 / 15.38 |
+| 2,200,000 @64 | 33.57 | 16.83 / 21.31 | 7.04 / 15.33 |
+| 2,600,000 @64 | 39.67 | 20.67 / 23.64 | 8.27 / 16.00 |
+| 1,310,720 @63 | 40.00 | 20.79 / 23.71 | 8.38 / 16.06 |
+| 800,000 @62 | 48.83 | 21.02 / 23.90 | 14.45 / 19.81 |
+| 950,272 @62 | 58.00 | 20.00 / 23.33 | 18.78 / 22.57 |
+| 1,000,000 @62 | 61.04 | 19.66 / 23.16 | 19.12 / 22.82 |
+| 1,200,000 @62 | 73.24 | 18.50 / 22.62 | 18.49 / 22.62 |
+
+Under cap 48 the tooth moves and does not flatten. Its trough is 6.99 B/key at
+λ = 30.52 (1,000,000 @63; 0.64 × 48, as the cap-32 trough sits at
+0.62 × 32), against the item-10 prediction of "near λ ≈ 27": the λ = 27 cell
+measures 7.09, 0.10 B/key above the trough and on its descending side, so
+the prediction lands one cell early on a floor that is flat to 0.1 B/key
+between λ = 27 and 34. The ramp is where predicted: the Poisson model puts the cap-48
+cascade at 10% on at λ = 40.3 and 90% at 58.2, and the cells read
+8.38 at λ = 40.00, 14.45 at 48.83, 18.78 at 58.00 and 19.12 at 61.04. The
+second tooth moves with it: 5.99 at λ = 7,812 (12.98 under cap 32) and
+19.06 at 15,625.
+
+**The read path, Callgrind.** `crates/expanse/benches/instructions.rs`
+(workload `core_instructions`, 50k keys) at both caps, deterministic exact
+integers *(measured: x86_64 build host — Intel Xeon E5-2697 v4, `rust:1.98`
+container with valgrind 3.24.0 and `iai-callgrind-runner` 0.16.1;
+`results/leaf_cap48_callgrind.json`)*:
+
+| arm | Ir, cap 32 | Ir, cap 48 | Δ |
+|---|---:|---:|---:|
+| `map_get/sequential` | 6,950,212 | 6,950,212 | +0.000% |
+| `map_get/random` | 6,262,259 | 6,262,259 | +0.000% |
+| `map_get/clustered` | 5,619,908 | 5,619,908 | +0.000% |
+| `map_get/dense_leaf` | 10,811,452 | 10,811,452 | +0.000% |
+| `map_get/linear_leaf` | 9,750,101 | 9,748,994 | -0.011% |
+| `set_contains/random` | 6,139,088 | 6,139,088 | +0.000% |
+| `map_get_batch/random` | 8,705,024 | 8,705,024 | +0.000% |
+| `set_contains_batch/random` | 8,500,035 | 8,500,035 | +0.000% |
+| `map_insert/sequential` | 10,096,741 | 10,098,044 | +0.013% |
+| `map_insert/random` | 26,644,387 | 28,714,426 | +7.769% |
+| `map_insert/clustered` | 18,993,138 | 19,322,024 | +1.732% |
+| `map_insert/small` | 25,520,589 | 25,602,712 | +0.322% |
+| `map_insert/dense_leaf` | 23,894,188 | 25,665,586 | +7.414% |
+| `map_insert/linear_leaf` | 24,770,247 | 26,543,306 | +7.158% |
+| `set_insert/sequential` | 3,509,806 | 3,512,436 | +0.075% |
+| `set_insert/random` | 21,440,033 | 23,069,689 | +7.601% |
+| `set_insert/clustered` | 11,519,588 | 11,957,789 | +3.804% |
+| `set_insert/dense_leaf` | 18,858,587 | 20,225,344 | +7.247% |
+| `set_insert/linear_leaf` | 19,289,260 | 20,691,362 | +7.269% |
+| `map_ins_slot/random` | 25,716,424 | 27,808,124 | +8.134% |
+
+Every lookup arm is identical to the instruction except `map_get/linear_leaf`,
+which moves by 1,107 instructions in 9.75 million (−0.011%). That is the
+expected result and a weak one: at 50k keys per distribution (λ = 0.76 on `random`) no linear
+leaf reaches either cap, so the pair shows only that the constant alone does
+not change the descent. The cascaded regime, where a 48-key linear scan
+replaces a bitmap-branch descent, has no committed Callgrind harness, and this
+control does not measure it. The write path moved: 18 of 53 arms
+changed, and the insert arms retire 7.2–8.1% more instructions under cap 48 at
+a population where no leaf ever holds 33 keys — the constant sizes something on
+the mutation path whose cost is paid below the cap. Cause unmeasured here; a
+per-function ranking on the insert arm is the next instrument.
+
+**The read path, wall clock.** `crates/expanse/benches/compare.rs`
+`set_lookup/random/1000000/expanse` (workload `core_compare`: 1M random 64-bit
+keys, 4,096 probes each of present keys and of rejection-sampled absent keys),
+two builds interleaved A/B/A/B with a rebuild between arms, on the bare-metal
+reference host *(measured: 12th Gen Intel Core i9-12900F, benchmark shell
+pinned to the P-cores by `scripts/bench_pin.sh`, host-wide bench lock held;
+criterion, n = 100 samples per arm, BCa 95% intervals from
+`scripts/bench_baseline.py`; `results/leaf_cap_contains_cap{32,48}_{a,b}.json`;
+load average sampled before every arm: 0.59, 1.26, 2.34 and 2.76 on 24
+threads, the rebuild between arms being the load)*:
+
+| round | arm | cap 32 ns/probe [BCa 95%] | cap 48 ns/probe [BCa 95%] | cap 48 / cap 32 speedup [BCa 95%] |
+|---|---|---:|---:|---:|
+| a | hit | 34.39 [34.10, 34.71] | 36.24 [36.21, 36.28] | 0.9490× [0.9406, 0.9572] |
+| a | miss | 36.62 [36.58, 36.68] | 36.58 [36.56, 36.61] | 1.0010× [0.9997, 1.0027] |
+| b | hit | 36.43 [36.41, 36.47] | 36.45 [36.42, 36.50] | 0.9994× [0.9981, 1.0006] |
+| b | miss | 36.36 [36.33, 36.42] | 36.58 [36.45, 36.64] | 0.9941× [0.9922, 0.9976] |
+
+Verdict: **no read-path cost of the constant is detectable at this cell.** In
+round b the two builds agree on the hit arm within 0.1% (interval spanning
+1.0) and differ by 0.6% on the miss arm; in round a the cap-32 hit arm is 5.4%
+faster than everything else. That round-a figure is the same binary that
+measured 36.43 ns in round b — cap 32 against itself across rounds is 0.944×
+[0.936, 0.952] on the hit arm — so the between-round drift of one build is
+larger than any difference between the two builds, and it is the ceiling on
+this claim. Cause of the drift unknown; the arm ran first in the driver,
+seconds after a full bench build. This is also structurally the weak cell for
+the question: at λ = 15.26 the two builds hold the same nodes but for 7 of
+65,536 expanses (the census above), so what the pair measures is code layout,
+not a longer leaf scan. The cell where cap 48 changes the structure is λ ≥ 25,
+and the committed `compare` harness has no such population; a 1.8M–2.6M-key
+arm at 64 bits, or its 63-bit equivalent, is the measurement that would decide
+it, and this control does not stand in for it.
+
+#### 9.10.6 The two memory instruments at the same cells (item 7)
+
+`crates/expanse-hot-bench/src/bin/instrument_bridge.rs`, both instruments on
+the same build of the same key stream, both flavors, at the three census
+cells — and under **two insertion orders** *(measured: x86_64 build host —
+Intel Xeon E5-2697 v4; `-C target-cpu=haswell`; workload:
+`hot_instrument_bridge`; `results/baseline_instrument_bridge.json`)*:
+
+| cell | order | flavor | `mem_used()` B/key | allocator-held B/key | ratio | C allocs / frees |
+|---|---|---|---:|---:|---:|---:|
+| 1,000,000 @64 (λ 15.26) | random | set | 7.92 | 12.62 | 1.593× | 12,150 / 8,318 |
+| 1,000,000 @64 (λ 15.26) | random | map | 16.70 | 23.66 | 1.416× | 105,972 / 64,705 |
+| 1,000,000 @64 (λ 15.26) | sorted | set | 7.92 | 8.14 | 1.028× | 11,821 / 9,077 |
+| 1,000,000 @64 (λ 15.26) | sorted | map | 16.70 | 16.67 | 0.998× | 104,934 / 65,464 |
+| 2,000,000 @64 (λ 30.52) | random | set | 13.60 | 20.27 | 1.490× | 96,999 / 72,664 |
+| 2,000,000 @64 (λ 30.52) | random | map | 19.38 | 26.09 | 1.347× | 332,298 / 281,347 |
+| 2,000,000 @64 (λ 30.52) | sorted | set | 13.60 | 13.99 | 1.029× | 94,472 / 73,241 |
+| 2,000,000 @64 (λ 30.52) | sorted | map | 19.38 | 19.76 | 1.020× | 329,355 / 281,560 |
+| 800,000 @62 (λ 48.83) | random | set | 21.02 | 27.01 | 1.285× | 40,163 / 34,709 |
+| 800,000 @62 (λ 48.83) | random | map | 23.90 | 29.38 | 1.229× | 106,196 / 100,131 |
+| 800,000 @62 (λ 48.83) | sorted | set | 21.02 | 21.72 | 1.033× | 39,219 / 34,766 |
+| 800,000 @62 (λ 48.83) | sorted | map | 23.90 | 24.63 | 1.031× | 105,052 / 99,932 |
+
+**Reconciliation of §9.3 and README §1.** §9.3 gives `random` 1M allocator
+bytes as 12.62 B/key; README §1 lists `ExpanseSet` at 8.27 B/key at λ = 15
+(N = 491,520). Both are the census instrument — bytes held from the C
+allocator through the same `--wrap` shim, HOT commit `96bf6fb`, same build
+host — and both are the set flavor at essentially the same λ (15.26 and 15.00),
+so neither the instrument nor the density explains a 1.5× gap. What does is
+**insertion order** (workloads differ: `hot_instrument_bridge` vs
+`hot_memory_curve`): the 12.62 B/key cell is `instrument_bridge` inserting in
+XorShift64 generator order at 64 bits; the 8.27 B/key cell is
+`hot_memory_curve` on the `hot_set_63bit` arm, which sorts and deduplicates its
+key vector before inserting, at 63 bits. Measured on the same cell here, the
+same 1M @64 keys give 12.62 B/key in generator order and 8.14 in sorted
+order, at 7.92 `mem_used()` either way — the engine's accounting is
+order-independent, the allocator-held figure is not, and the sorted-order ratio
+of 1.028× is what `hot_memory_curve` reports at its λ = 15 cell
+(8.27 / 7.95 = 1.040×). The engine's node allocator keeps freed class-sized
+blocks on per-class free lists and carves small classes from 4 KiB slab pages,
+so what it holds from the C allocator depends on how many leaves were
+mid-growth at once, which is a property of the order keys arrive in, not of the
+final structure; that is the mechanism the code makes visible, consistent
+with the counts (fewer C-level frees per allocation in generator order), and
+the free lists themselves were not instrumented. So: **the two figures are not
+comparable as published**, and the discrepancy is not a measurement error on
+either side. §9.3's "1.59×" ratio is a generator-order figure; every
+allocator-instrument cell this suite publishes is a sorted-order figure; the
+repo's `bytes/key` table is `mem_used()` and unaffected. The consequence for
+the suite is that its Expanse memory cells carry the *smaller* of the two
+allocator overheads, and a reader who rebuilds the same structure from an
+unsorted stream will hold up to 1.6× more from the allocator at the same
+`mem_used()`. HOT's cells were always sorted-order too (same key vector), so
+the comparison inside the suite is symmetric; what was asymmetric was the
+cross-document comparison, and §9.3 is amended below to say so.
+
+#### 9.10.7 Map flavor (item 8)
+
+Every table above carries `ExpanseMap<u64,u64>` beside `ExpanseSet`; the
+committed `density_sweep.cells` block has `map_bpk` for all 45 cells and the
+census has both flavors at every cell. The map's tooth is in the same place
+and shallower in ratio: 16.15 at the trough, 23.90 at the peak, and
+15.35 / 23.76 at the second trough and peak.
+
+
 
 ## 10. String-Key Arms (#693): Pre-Registration
 

@@ -1075,6 +1075,9 @@ impl MapCore {
                 stats.depth_histogram[0] = 1;
                 stats.leaf_pop_histogram[*pop] = 1;
                 stats.node_counts.leaf_linear = 1;
+                stats.leaf_depth_histogram[0] = 1;
+                stats.node_bytes.leaf_linear =
+                    crate::alloc::accounted_size(leaf_size(*pop), crate::types::RAW_ALIGN);
             }
             Root::Tree { top, .. } => {
                 let _ = crate::validate::expanse_validate_and_stats::<true>(top, 8, &mut stats, 0);

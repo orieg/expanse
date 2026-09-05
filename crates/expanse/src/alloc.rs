@@ -178,6 +178,15 @@ pub(crate) fn class_for(bytes: usize, align: usize) -> Option<usize> {
     }
 }
 
+/// Bytes an allocation of `bytes` at `align` adds to `bytes_in_use`: the
+/// request rounded up to its alignment. This is the one rule behind
+/// `mem_used()`, and `validate::NodeBytes` charges every form through it so
+/// the per-form breakdown sums to the published number exactly.
+#[inline(always)]
+pub(crate) const fn accounted_size(bytes: usize, align: usize) -> usize {
+    (bytes + (align - 1)) & !(align - 1)
+}
+
 /// Allocation handle owned by a tree: hands out zeroed memory — at
 /// `align_of::<T>()` via [`Self::alloc_node`], at [`RAW_ALIGN`] via
 /// [`Self::alloc_bytes`] — and keeps byte-exact accounting.
@@ -297,7 +306,7 @@ impl NodeAlloc {
     /// [`RAW_ALIGN`], `alloc_node`/`free_node` are always `align_of::<T>()`.
     #[inline(always)]
     fn alloc_raw(&self, bytes: usize, align: usize) -> NonNull<u8> {
-        let accounted_size = (bytes + (align - 1)) & !(align - 1);
+        let accounted_size = accounted_size(bytes, align);
         self.bytes_in_use
             .fetch_add(accounted_size, Ordering::Relaxed);
         self.live_allocs.fetch_add(1, Ordering::Relaxed);
@@ -389,7 +398,7 @@ impl NodeAlloc {
     /// **the same `align`**, not yet freed, and nothing may use it after.
     #[inline(always)]
     unsafe fn free_raw(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
-        let accounted_size = (bytes + (align - 1)) & !(align - 1);
+        let accounted_size = accounted_size(bytes, align);
         self.bytes_in_use
             .fetch_sub(accounted_size, Ordering::Relaxed);
         self.live_allocs.fetch_sub(1, Ordering::Relaxed);

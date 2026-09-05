@@ -407,8 +407,11 @@
       "generator": "XorShift64(0x0DDB_1A5E_5EED_0001), each draw masked to the keyspace width; same seed at every width",
       "lambda": "N / 2^(bits - 48): mean population of a 2-byte-prefix expanse once the top two key bytes saturate",
       "leaf_cap": 32,
-      "commit": "16003bc0",
-      "workload_id": "example_keyspace_density"
+      "bitmap_to_uncompressed_threshold": 192,
+      "commit": "86daaddf",
+      "workload_id": "example_keyspace_density",
+      "census": "ExpanseStats per flavor at three cells; node_bytes is the per-form byte attribution and its total equals mem_used; branch_depth_histogram[6] counts cascaded 2-byte expanses, [5] cascaded sub-expanses below them",
+      "seed_sensitivity": "the census cells re-drawn under a second XorShift64 seed; the delta is generator variance at fixed λ"
     },
     "cells": [
       {
@@ -653,6 +656,168 @@
         "set_bpk": 15.58,
         "map_bpk": 21.93,
         "distinct_keys": 2000000
+      },
+      {
+        "n": 1100000,
+        "bits": 64,
+        "lambda": 16.7847,
+        "lambda_over_leaf_cap": 0.5245,
+        "set_bpk": 7.76,
+        "map_bpk": 16.46,
+        "distinct_keys": 1100000
+      },
+      {
+        "n": 1300000,
+        "bits": 64,
+        "lambda": 19.8364,
+        "lambda_over_leaf_cap": 0.6199,
+        "set_bpk": 7.59,
+        "map_bpk": 16.15,
+        "distinct_keys": 1300000
+      },
+      {
+        "n": 1400000,
+        "bits": 64,
+        "lambda": 21.3623,
+        "lambda_over_leaf_cap": 0.6676,
+        "set_bpk": 7.66,
+        "map_bpk": 16.11,
+        "distinct_keys": 1400000
+      },
+      {
+        "n": 1600000,
+        "bits": 64,
+        "lambda": 24.4141,
+        "lambda_over_leaf_cap": 0.7629,
+        "set_bpk": 8.46,
+        "map_bpk": 16.44,
+        "distinct_keys": 1600000
+      },
+      {
+        "n": 1800000,
+        "bits": 64,
+        "lambda": 27.4658,
+        "lambda_over_leaf_cap": 0.8583,
+        "set_bpk": 10.51,
+        "map_bpk": 17.58,
+        "distinct_keys": 1800000
+      },
+      {
+        "n": 2200000,
+        "bits": 64,
+        "lambda": 33.5693,
+        "lambda_over_leaf_cap": 1.049,
+        "set_bpk": 16.83,
+        "map_bpk": 21.31,
+        "distinct_keys": 2200000
+      },
+      {
+        "n": 2400000,
+        "bits": 64,
+        "lambda": 36.6211,
+        "lambda_over_leaf_cap": 1.1444,
+        "set_bpk": 19.26,
+        "map_bpk": 22.77,
+        "distinct_keys": 2400000
+      },
+      {
+        "n": 2600000,
+        "bits": 64,
+        "lambda": 39.6729,
+        "lambda_over_leaf_cap": 1.2398,
+        "set_bpk": 20.67,
+        "map_bpk": 23.64,
+        "distinct_keys": 2600000
+      },
+      {
+        "n": 884736,
+        "bits": 63,
+        "lambda": 27,
+        "lambda_over_leaf_cap": 0.8438,
+        "set_bpk": 10.12,
+        "map_bpk": 17.36,
+        "distinct_keys": 884736
+      },
+      {
+        "n": 1310720,
+        "bits": 63,
+        "lambda": 40,
+        "lambda_over_leaf_cap": 1.25,
+        "set_bpk": 20.79,
+        "map_bpk": 23.71,
+        "distinct_keys": 1310720
+      },
+      {
+        "n": 950272,
+        "bits": 62,
+        "lambda": 58,
+        "lambda_over_leaf_cap": 1.8125,
+        "set_bpk": 20,
+        "map_bpk": 23.33,
+        "distinct_keys": 950272
+      },
+      {
+        "n": 2000000,
+        "bits": 58,
+        "lambda": 1953.125,
+        "lambda_over_leaf_cap": 61.0352,
+        "set_bpk": 8.8,
+        "map_bpk": 18.51,
+        "distinct_keys": 2000000
+      },
+      {
+        "n": 2000000,
+        "bits": 57,
+        "lambda": 3906.25,
+        "lambda_over_leaf_cap": 122.0703,
+        "set_bpk": 6.89,
+        "map_bpk": 15.68,
+        "distinct_keys": 2000000
+      },
+      {
+        "n": 1200000,
+        "bits": 56,
+        "lambda": 4687.5,
+        "lambda_over_leaf_cap": 146.4844,
+        "set_bpk": 6.71,
+        "map_bpk": 15.35,
+        "distinct_keys": 1200000
+      },
+      {
+        "n": 1700000,
+        "bits": 56,
+        "lambda": 6640.625,
+        "lambda_over_leaf_cap": 207.5195,
+        "set_bpk": 8.44,
+        "map_bpk": 16.03,
+        "distinct_keys": 1700000
+      },
+      {
+        "n": 2000000,
+        "bits": 56,
+        "lambda": 7812.5,
+        "lambda_over_leaf_cap": 244.1406,
+        "set_bpk": 12.98,
+        "map_bpk": 18.74,
+        "distinct_keys": 2000000
+      },
+      {
+        "n": 2700000,
+        "bits": 56,
+        "lambda": 10546.875,
+        "lambda_over_leaf_cap": 329.5898,
+        "set_bpk": 20.98,
+        "map_bpk": 23.76,
+        "distinct_keys": 2700000
+      },
+      {
+        "n": 2000000,
+        "bits": 55,
+        "lambda": 15625,
+        "lambda_over_leaf_cap": 488.2813,
+        "set_bpk": 19.66,
+        "map_bpk": 23.04,
+        "distinct_keys": 2000000
       }
     ],
     "anchors": [
@@ -716,6 +881,7732 @@
         "n": 2000000,
         "set_bpk": 16.31
       }
-    ]
+    ],
+    "census": [
+      {
+        "flavor": "set",
+        "n": 1000000,
+        "bits": 64,
+        "lambda": 15.2588,
+        "distinct_keys": 1000000,
+        "mem_used": 7920416,
+        "bytes_per_key": 7.9204,
+        "node_counts": {
+          "immed": 226,
+          "leaf_linear": 65526,
+          "leaf_bitmap": 0,
+          "branch_l3": 0,
+          "branch_l7": 0,
+          "branch_b": 7,
+          "branch_u": 257,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 6845840,
+          "leaf_bitmap": 0,
+          "branch_l3": 0,
+          "branch_l7": 0,
+          "branch_b": 5456,
+          "branch_u": 1069120,
+          "total": 7920416
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          223,
+          65536,
+          256,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          7,
+          256,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          65526,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            211
+          ],
+          [
+            2,
+            14
+          ],
+          [
+            3,
+            9
+          ],
+          [
+            4,
+            30
+          ],
+          [
+            5,
+            101
+          ],
+          [
+            6,
+            297
+          ],
+          [
+            7,
+            594
+          ],
+          [
+            8,
+            1120
+          ],
+          [
+            9,
+            1889
+          ],
+          [
+            10,
+            2954
+          ],
+          [
+            11,
+            4072
+          ],
+          [
+            12,
+            5158
+          ],
+          [
+            13,
+            5957
+          ],
+          [
+            14,
+            6435
+          ],
+          [
+            15,
+            6791
+          ],
+          [
+            16,
+            6481
+          ],
+          [
+            17,
+            5825
+          ],
+          [
+            18,
+            4819
+          ],
+          [
+            19,
+            3751
+          ],
+          [
+            20,
+            3060
+          ],
+          [
+            21,
+            2240
+          ],
+          [
+            22,
+            1506
+          ],
+          [
+            23,
+            946
+          ],
+          [
+            24,
+            624
+          ],
+          [
+            25,
+            351
+          ],
+          [
+            26,
+            255
+          ],
+          [
+            27,
+            113
+          ],
+          [
+            28,
+            77
+          ],
+          [
+            29,
+            43
+          ],
+          [
+            30,
+            16
+          ],
+          [
+            31,
+            9
+          ],
+          [
+            32,
+            4
+          ]
+        ]
+      },
+      {
+        "flavor": "map",
+        "n": 1000000,
+        "bits": 64,
+        "lambda": 15.2588,
+        "distinct_keys": 1000000,
+        "mem_used": 16703520,
+        "bytes_per_key": 16.7035,
+        "node_counts": {
+          "immed": 211,
+          "leaf_linear": 65541,
+          "leaf_bitmap": 0,
+          "branch_l3": 0,
+          "branch_l7": 0,
+          "branch_b": 7,
+          "branch_u": 257,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 15628944,
+          "leaf_bitmap": 0,
+          "branch_l3": 0,
+          "branch_l7": 0,
+          "branch_b": 5456,
+          "branch_u": 1069120,
+          "total": 16703520
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          223,
+          65536,
+          256,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          7,
+          256,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          13,
+          65528,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            211
+          ],
+          [
+            2,
+            14
+          ],
+          [
+            3,
+            9
+          ],
+          [
+            4,
+            30
+          ],
+          [
+            5,
+            101
+          ],
+          [
+            6,
+            297
+          ],
+          [
+            7,
+            594
+          ],
+          [
+            8,
+            1120
+          ],
+          [
+            9,
+            1889
+          ],
+          [
+            10,
+            2954
+          ],
+          [
+            11,
+            4072
+          ],
+          [
+            12,
+            5158
+          ],
+          [
+            13,
+            5957
+          ],
+          [
+            14,
+            6435
+          ],
+          [
+            15,
+            6791
+          ],
+          [
+            16,
+            6481
+          ],
+          [
+            17,
+            5825
+          ],
+          [
+            18,
+            4819
+          ],
+          [
+            19,
+            3751
+          ],
+          [
+            20,
+            3060
+          ],
+          [
+            21,
+            2240
+          ],
+          [
+            22,
+            1506
+          ],
+          [
+            23,
+            946
+          ],
+          [
+            24,
+            624
+          ],
+          [
+            25,
+            351
+          ],
+          [
+            26,
+            255
+          ],
+          [
+            27,
+            113
+          ],
+          [
+            28,
+            77
+          ],
+          [
+            29,
+            43
+          ],
+          [
+            30,
+            16
+          ],
+          [
+            31,
+            9
+          ],
+          [
+            32,
+            4
+          ]
+        ]
+      },
+      {
+        "flavor": "set",
+        "n": 2000000,
+        "bits": 64,
+        "lambda": 30.5176,
+        "distinct_keys": 2000000,
+        "mem_used": 27204112,
+        "bytes_per_key": 13.6021,
+        "node_counts": {
+          "immed": 780905,
+          "leaf_linear": 42639,
+          "leaf_bitmap": 0,
+          "branch_l3": 0,
+          "branch_l7": 0,
+          "branch_b": 22970,
+          "branch_u": 257,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 7465376,
+          "leaf_bitmap": 0,
+          "branch_l3": 0,
+          "branch_l7": 0,
+          "branch_b": 18669616,
+          "branch_u": 1069120,
+          "total": 27204112
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          780978,
+          65536,
+          256,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          22970,
+          256,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          73,
+          42566,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            727745
+          ],
+          [
+            2,
+            50904
+          ],
+          [
+            3,
+            2256
+          ],
+          [
+            4,
+            71
+          ],
+          [
+            5,
+            2
+          ],
+          [
+            10,
+            1
+          ],
+          [
+            11,
+            2
+          ],
+          [
+            12,
+            9
+          ],
+          [
+            13,
+            15
+          ],
+          [
+            14,
+            26
+          ],
+          [
+            15,
+            44
+          ],
+          [
+            16,
+            95
+          ],
+          [
+            17,
+            178
+          ],
+          [
+            18,
+            309
+          ],
+          [
+            19,
+            493
+          ],
+          [
+            20,
+            718
+          ],
+          [
+            21,
+            1060
+          ],
+          [
+            22,
+            1467
+          ],
+          [
+            23,
+            2029
+          ],
+          [
+            24,
+            2551
+          ],
+          [
+            25,
+            3038
+          ],
+          [
+            26,
+            3552
+          ],
+          [
+            27,
+            4095
+          ],
+          [
+            28,
+            4392
+          ],
+          [
+            29,
+            4597
+          ],
+          [
+            30,
+            4653
+          ],
+          [
+            31,
+            4724
+          ],
+          [
+            32,
+            4518
+          ]
+        ]
+      },
+      {
+        "flavor": "map",
+        "n": 2000000,
+        "bits": 64,
+        "lambda": 30.5176,
+        "distinct_keys": 2000000,
+        "mem_used": 38751440,
+        "bytes_per_key": 19.3757,
+        "node_counts": {
+          "immed": 727745,
+          "leaf_linear": 95799,
+          "leaf_bitmap": 0,
+          "branch_l3": 0,
+          "branch_l7": 0,
+          "branch_b": 22970,
+          "branch_u": 257,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 19012704,
+          "leaf_bitmap": 0,
+          "branch_l3": 0,
+          "branch_l7": 0,
+          "branch_b": 18669616,
+          "branch_u": 1069120,
+          "total": 38751440
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          780978,
+          65536,
+          256,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          22970,
+          256,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          53233,
+          42566,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            727745
+          ],
+          [
+            2,
+            50904
+          ],
+          [
+            3,
+            2256
+          ],
+          [
+            4,
+            71
+          ],
+          [
+            5,
+            2
+          ],
+          [
+            10,
+            1
+          ],
+          [
+            11,
+            2
+          ],
+          [
+            12,
+            9
+          ],
+          [
+            13,
+            15
+          ],
+          [
+            14,
+            26
+          ],
+          [
+            15,
+            44
+          ],
+          [
+            16,
+            95
+          ],
+          [
+            17,
+            178
+          ],
+          [
+            18,
+            309
+          ],
+          [
+            19,
+            493
+          ],
+          [
+            20,
+            718
+          ],
+          [
+            21,
+            1060
+          ],
+          [
+            22,
+            1467
+          ],
+          [
+            23,
+            2029
+          ],
+          [
+            24,
+            2551
+          ],
+          [
+            25,
+            3038
+          ],
+          [
+            26,
+            3552
+          ],
+          [
+            27,
+            4095
+          ],
+          [
+            28,
+            4392
+          ],
+          [
+            29,
+            4597
+          ],
+          [
+            30,
+            4653
+          ],
+          [
+            31,
+            4724
+          ],
+          [
+            32,
+            4518
+          ]
+        ]
+      },
+      {
+        "flavor": "set",
+        "n": 800000,
+        "bits": 62,
+        "lambda": 48.8281,
+        "distinct_keys": 800000,
+        "mem_used": 16813440,
+        "bytes_per_key": 21.0168,
+        "node_counts": {
+          "immed": 724745,
+          "leaf_linear": 315,
+          "leaf_bitmap": 0,
+          "branch_l3": 0,
+          "branch_l7": 0,
+          "branch_b": 16269,
+          "branch_u": 64,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 28560,
+          "leaf_bitmap": 0,
+          "branch_l3": 0,
+          "branch_l7": 0,
+          "branch_b": 16518640,
+          "branch_u": 266240,
+          "total": 16813440
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          724944,
+          16384,
+          64,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          16268,
+          64,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          199,
+          116,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            657851
+          ],
+          [
+            2,
+            62899
+          ],
+          [
+            3,
+            3995
+          ],
+          [
+            4,
+            192
+          ],
+          [
+            5,
+            6
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            24,
+            2
+          ],
+          [
+            26,
+            2
+          ],
+          [
+            27,
+            2
+          ],
+          [
+            28,
+            2
+          ],
+          [
+            29,
+            12
+          ],
+          [
+            30,
+            19
+          ],
+          [
+            31,
+            30
+          ],
+          [
+            32,
+            47
+          ]
+        ]
+      },
+      {
+        "flavor": "map",
+        "n": 800000,
+        "bits": 62,
+        "lambda": 48.8281,
+        "distinct_keys": 800000,
+        "mem_used": 19117856,
+        "bytes_per_key": 23.8973,
+        "node_counts": {
+          "immed": 657851,
+          "leaf_linear": 67209,
+          "leaf_bitmap": 0,
+          "branch_l3": 0,
+          "branch_l7": 0,
+          "branch_b": 16269,
+          "branch_u": 64,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 2332976,
+          "leaf_bitmap": 0,
+          "branch_l3": 0,
+          "branch_l7": 0,
+          "branch_b": 16518640,
+          "branch_u": 266240,
+          "total": 19117856
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          724944,
+          16384,
+          64,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          16268,
+          64,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          67093,
+          116,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            657851
+          ],
+          [
+            2,
+            62899
+          ],
+          [
+            3,
+            3995
+          ],
+          [
+            4,
+            192
+          ],
+          [
+            5,
+            6
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            24,
+            2
+          ],
+          [
+            26,
+            2
+          ],
+          [
+            27,
+            2
+          ],
+          [
+            28,
+            2
+          ],
+          [
+            29,
+            12
+          ],
+          [
+            30,
+            19
+          ],
+          [
+            31,
+            30
+          ],
+          [
+            32,
+            47
+          ]
+        ]
+      },
+      {
+        "flavor": "set",
+        "n": 2000000,
+        "bits": 58,
+        "lambda": 1953.125,
+        "distinct_keys": 2000000,
+        "mem_used": 17604544,
+        "bytes_per_key": 8.8023,
+        "node_counts": {
+          "immed": 13993,
+          "leaf_linear": 248034,
+          "leaf_bitmap": 0,
+          "branch_l3": 0,
+          "branch_l7": 1,
+          "branch_b": 0,
+          "branch_u": 1028,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 13327936,
+          "leaf_bitmap": 0,
+          "branch_l3": 0,
+          "branch_l7": 128,
+          "branch_b": 0,
+          "branch_u": 4276480,
+          "total": 17604544
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          262027,
+          1024,
+          4,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1024,
+          4,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          248034,
+          0,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            980
+          ],
+          [
+            2,
+            3668
+          ],
+          [
+            3,
+            9345
+          ],
+          [
+            4,
+            17997
+          ],
+          [
+            5,
+            27674
+          ],
+          [
+            6,
+            34702
+          ],
+          [
+            7,
+            37897
+          ],
+          [
+            8,
+            36350
+          ],
+          [
+            9,
+            30846
+          ],
+          [
+            10,
+            23430
+          ],
+          [
+            11,
+            16457
+          ],
+          [
+            12,
+            10418
+          ],
+          [
+            13,
+            6064
+          ],
+          [
+            14,
+            3179
+          ],
+          [
+            15,
+            1651
+          ],
+          [
+            16,
+            770
+          ],
+          [
+            17,
+            334
+          ],
+          [
+            18,
+            159
+          ],
+          [
+            19,
+            66
+          ],
+          [
+            20,
+            25
+          ],
+          [
+            21,
+            9
+          ],
+          [
+            22,
+            4
+          ],
+          [
+            24,
+            1
+          ],
+          [
+            25,
+            1
+          ]
+        ]
+      },
+      {
+        "flavor": "map",
+        "n": 2000000,
+        "bits": 58,
+        "lambda": 1953.125,
+        "distinct_keys": 2000000,
+        "mem_used": 37019616,
+        "bytes_per_key": 18.5098,
+        "node_counts": {
+          "immed": 980,
+          "leaf_linear": 261047,
+          "leaf_bitmap": 0,
+          "branch_l3": 0,
+          "branch_l7": 1,
+          "branch_b": 0,
+          "branch_u": 1028,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 32743008,
+          "leaf_bitmap": 0,
+          "branch_l3": 0,
+          "branch_l7": 128,
+          "branch_b": 0,
+          "branch_u": 4276480,
+          "total": 37019616
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          262027,
+          1024,
+          4,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1024,
+          4,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          261047,
+          0,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            980
+          ],
+          [
+            2,
+            3668
+          ],
+          [
+            3,
+            9345
+          ],
+          [
+            4,
+            17997
+          ],
+          [
+            5,
+            27674
+          ],
+          [
+            6,
+            34702
+          ],
+          [
+            7,
+            37897
+          ],
+          [
+            8,
+            36350
+          ],
+          [
+            9,
+            30846
+          ],
+          [
+            10,
+            23430
+          ],
+          [
+            11,
+            16457
+          ],
+          [
+            12,
+            10418
+          ],
+          [
+            13,
+            6064
+          ],
+          [
+            14,
+            3179
+          ],
+          [
+            15,
+            1651
+          ],
+          [
+            16,
+            770
+          ],
+          [
+            17,
+            334
+          ],
+          [
+            18,
+            159
+          ],
+          [
+            19,
+            66
+          ],
+          [
+            20,
+            25
+          ],
+          [
+            21,
+            9
+          ],
+          [
+            22,
+            4
+          ],
+          [
+            24,
+            1
+          ],
+          [
+            25,
+            1
+          ]
+        ]
+      },
+      {
+        "flavor": "set",
+        "n": 2000000,
+        "bits": 57,
+        "lambda": 3906.25,
+        "distinct_keys": 2000000,
+        "mem_used": 13783856,
+        "bytes_per_key": 6.8919,
+        "node_counts": {
+          "immed": 147,
+          "leaf_linear": 131048,
+          "leaf_bitmap": 0,
+          "branch_l3": 1,
+          "branch_l7": 0,
+          "branch_b": 4,
+          "branch_u": 514,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 11642336,
+          "leaf_bitmap": 0,
+          "branch_l3": 64,
+          "branch_l7": 0,
+          "branch_b": 3216,
+          "branch_u": 2138240,
+          "total": 13783856
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          127,
+          131072,
+          512,
+          2,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          4,
+          512,
+          2,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          131048,
+          0,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            118
+          ],
+          [
+            2,
+            11
+          ],
+          [
+            3,
+            18
+          ],
+          [
+            4,
+            73
+          ],
+          [
+            5,
+            243
+          ],
+          [
+            6,
+            521
+          ],
+          [
+            7,
+            1179
+          ],
+          [
+            8,
+            2228
+          ],
+          [
+            9,
+            3782
+          ],
+          [
+            10,
+            5811
+          ],
+          [
+            11,
+            8143
+          ],
+          [
+            12,
+            10192
+          ],
+          [
+            13,
+            12038
+          ],
+          [
+            14,
+            13386
+          ],
+          [
+            15,
+            13346
+          ],
+          [
+            16,
+            12764
+          ],
+          [
+            17,
+            11607
+          ],
+          [
+            18,
+            9686
+          ],
+          [
+            19,
+            7885
+          ],
+          [
+            20,
+            5860
+          ],
+          [
+            21,
+            4363
+          ],
+          [
+            22,
+            3011
+          ],
+          [
+            23,
+            1941
+          ],
+          [
+            24,
+            1241
+          ],
+          [
+            25,
+            770
+          ],
+          [
+            26,
+            445
+          ],
+          [
+            27,
+            237
+          ],
+          [
+            28,
+            137
+          ],
+          [
+            29,
+            79
+          ],
+          [
+            30,
+            48
+          ],
+          [
+            31,
+            25
+          ],
+          [
+            32,
+            7
+          ]
+        ]
+      },
+      {
+        "flavor": "map",
+        "n": 2000000,
+        "bits": 57,
+        "lambda": 3906.25,
+        "distinct_keys": 2000000,
+        "mem_used": 31361536,
+        "bytes_per_key": 15.6808,
+        "node_counts": {
+          "immed": 118,
+          "leaf_linear": 131077,
+          "leaf_bitmap": 0,
+          "branch_l3": 1,
+          "branch_l7": 0,
+          "branch_b": 4,
+          "branch_u": 514,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 29220016,
+          "leaf_bitmap": 0,
+          "branch_l3": 64,
+          "branch_l7": 0,
+          "branch_b": 3216,
+          "branch_u": 2138240,
+          "total": 31361536
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          127,
+          131072,
+          512,
+          2,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          4,
+          512,
+          2,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          9,
+          131068,
+          0,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            118
+          ],
+          [
+            2,
+            11
+          ],
+          [
+            3,
+            18
+          ],
+          [
+            4,
+            73
+          ],
+          [
+            5,
+            243
+          ],
+          [
+            6,
+            521
+          ],
+          [
+            7,
+            1179
+          ],
+          [
+            8,
+            2228
+          ],
+          [
+            9,
+            3782
+          ],
+          [
+            10,
+            5811
+          ],
+          [
+            11,
+            8143
+          ],
+          [
+            12,
+            10192
+          ],
+          [
+            13,
+            12038
+          ],
+          [
+            14,
+            13386
+          ],
+          [
+            15,
+            13346
+          ],
+          [
+            16,
+            12764
+          ],
+          [
+            17,
+            11607
+          ],
+          [
+            18,
+            9686
+          ],
+          [
+            19,
+            7885
+          ],
+          [
+            20,
+            5860
+          ],
+          [
+            21,
+            4363
+          ],
+          [
+            22,
+            3011
+          ],
+          [
+            23,
+            1941
+          ],
+          [
+            24,
+            1241
+          ],
+          [
+            25,
+            770
+          ],
+          [
+            26,
+            445
+          ],
+          [
+            27,
+            237
+          ],
+          [
+            28,
+            137
+          ],
+          [
+            29,
+            79
+          ],
+          [
+            30,
+            48
+          ],
+          [
+            31,
+            25
+          ],
+          [
+            32,
+            7
+          ]
+        ]
+      },
+      {
+        "flavor": "set",
+        "n": 1200000,
+        "bits": 56,
+        "lambda": 4687.5,
+        "distinct_keys": 1200000,
+        "mem_used": 8046912,
+        "bytes_per_key": 6.7058,
+        "node_counts": {
+          "immed": 2614,
+          "leaf_linear": 65454,
+          "leaf_bitmap": 0,
+          "branch_l3": 1,
+          "branch_l7": 0,
+          "branch_b": 81,
+          "branch_u": 257,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 6914352,
+          "leaf_bitmap": 0,
+          "branch_l3": 64,
+          "branch_l7": 0,
+          "branch_b": 63376,
+          "branch_u": 1069120,
+          "total": 8046912
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          2613,
+          65536,
+          256,
+          1,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          81,
+          256,
+          1,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          65454,
+          0,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            2451
+          ],
+          [
+            2,
+            156
+          ],
+          [
+            3,
+            7
+          ],
+          [
+            4,
+            2
+          ],
+          [
+            5,
+            11
+          ],
+          [
+            6,
+            40
+          ],
+          [
+            7,
+            107
+          ],
+          [
+            8,
+            223
+          ],
+          [
+            9,
+            444
+          ],
+          [
+            10,
+            821
+          ],
+          [
+            11,
+            1428
+          ],
+          [
+            12,
+            2200
+          ],
+          [
+            13,
+            3041
+          ],
+          [
+            14,
+            4068
+          ],
+          [
+            15,
+            4783
+          ],
+          [
+            16,
+            5542
+          ],
+          [
+            17,
+            6111
+          ],
+          [
+            18,
+            6197
+          ],
+          [
+            19,
+            5869
+          ],
+          [
+            20,
+            5428
+          ],
+          [
+            21,
+            4706
+          ],
+          [
+            22,
+            3932
+          ],
+          [
+            23,
+            3044
+          ],
+          [
+            24,
+            2295
+          ],
+          [
+            25,
+            1790
+          ],
+          [
+            26,
+            1245
+          ],
+          [
+            27,
+            851
+          ],
+          [
+            28,
+            527
+          ],
+          [
+            29,
+            339
+          ],
+          [
+            30,
+            221
+          ],
+          [
+            31,
+            124
+          ],
+          [
+            32,
+            65
+          ]
+        ]
+      },
+      {
+        "flavor": "map",
+        "n": 1200000,
+        "bits": 56,
+        "lambda": 4687.5,
+        "distinct_keys": 1200000,
+        "mem_used": 18418624,
+        "bytes_per_key": 15.3489,
+        "node_counts": {
+          "immed": 2451,
+          "leaf_linear": 65617,
+          "leaf_bitmap": 0,
+          "branch_l3": 1,
+          "branch_l7": 0,
+          "branch_b": 81,
+          "branch_u": 257,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 17286064,
+          "leaf_bitmap": 0,
+          "branch_l3": 64,
+          "branch_l7": 0,
+          "branch_b": 63376,
+          "branch_u": 1069120,
+          "total": 18418624
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          2613,
+          65536,
+          256,
+          1,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          81,
+          256,
+          1,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          162,
+          65455,
+          0,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            2451
+          ],
+          [
+            2,
+            156
+          ],
+          [
+            3,
+            7
+          ],
+          [
+            4,
+            2
+          ],
+          [
+            5,
+            11
+          ],
+          [
+            6,
+            40
+          ],
+          [
+            7,
+            107
+          ],
+          [
+            8,
+            223
+          ],
+          [
+            9,
+            444
+          ],
+          [
+            10,
+            821
+          ],
+          [
+            11,
+            1428
+          ],
+          [
+            12,
+            2200
+          ],
+          [
+            13,
+            3041
+          ],
+          [
+            14,
+            4068
+          ],
+          [
+            15,
+            4783
+          ],
+          [
+            16,
+            5542
+          ],
+          [
+            17,
+            6111
+          ],
+          [
+            18,
+            6197
+          ],
+          [
+            19,
+            5869
+          ],
+          [
+            20,
+            5428
+          ],
+          [
+            21,
+            4706
+          ],
+          [
+            22,
+            3932
+          ],
+          [
+            23,
+            3044
+          ],
+          [
+            24,
+            2295
+          ],
+          [
+            25,
+            1790
+          ],
+          [
+            26,
+            1245
+          ],
+          [
+            27,
+            851
+          ],
+          [
+            28,
+            527
+          ],
+          [
+            29,
+            339
+          ],
+          [
+            30,
+            221
+          ],
+          [
+            31,
+            124
+          ],
+          [
+            32,
+            65
+          ]
+        ]
+      },
+      {
+        "flavor": "set",
+        "n": 1700000,
+        "bits": 56,
+        "lambda": 6640.625,
+        "distinct_keys": 1700000,
+        "mem_used": 14352912,
+        "bytes_per_key": 8.4429,
+        "node_counts": {
+          "immed": 216563,
+          "leaf_linear": 58981,
+          "leaf_bitmap": 0,
+          "branch_l3": 1,
+          "branch_l7": 0,
+          "branch_b": 6572,
+          "branch_u": 257,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 8074880,
+          "leaf_bitmap": 0,
+          "branch_l3": 64,
+          "branch_l7": 0,
+          "branch_b": 5208848,
+          "branch_u": 1069120,
+          "total": 14352912
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          216580,
+          65536,
+          256,
+          1,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          6572,
+          256,
+          1,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          17,
+          58964,
+          0,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            202232
+          ],
+          [
+            2,
+            13757
+          ],
+          [
+            3,
+            574
+          ],
+          [
+            4,
+            17
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            9,
+            3
+          ],
+          [
+            10,
+            18
+          ],
+          [
+            11,
+            28
+          ],
+          [
+            12,
+            70
+          ],
+          [
+            13,
+            139
+          ],
+          [
+            14,
+            242
+          ],
+          [
+            15,
+            450
+          ],
+          [
+            16,
+            753
+          ],
+          [
+            17,
+            1036
+          ],
+          [
+            18,
+            1569
+          ],
+          [
+            19,
+            2151
+          ],
+          [
+            20,
+            2849
+          ],
+          [
+            21,
+            3312
+          ],
+          [
+            22,
+            4046
+          ],
+          [
+            23,
+            4549
+          ],
+          [
+            24,
+            4914
+          ],
+          [
+            25,
+            5014
+          ],
+          [
+            26,
+            5304
+          ],
+          [
+            27,
+            5006
+          ],
+          [
+            28,
+            4555
+          ],
+          [
+            29,
+            4067
+          ],
+          [
+            30,
+            3549
+          ],
+          [
+            31,
+            2939
+          ],
+          [
+            32,
+            2400
+          ]
+        ]
+      },
+      {
+        "flavor": "map",
+        "n": 1700000,
+        "bits": 56,
+        "lambda": 6640.625,
+        "distinct_keys": 1700000,
+        "mem_used": 27251280,
+        "bytes_per_key": 16.0302,
+        "node_counts": {
+          "immed": 202232,
+          "leaf_linear": 73312,
+          "leaf_bitmap": 0,
+          "branch_l3": 1,
+          "branch_l7": 0,
+          "branch_b": 6572,
+          "branch_u": 257,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 20973248,
+          "leaf_bitmap": 0,
+          "branch_l3": 64,
+          "branch_l7": 0,
+          "branch_b": 5208848,
+          "branch_u": 1069120,
+          "total": 27251280
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          216580,
+          65536,
+          256,
+          1,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          6572,
+          256,
+          1,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          14348,
+          58964,
+          0,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            202232
+          ],
+          [
+            2,
+            13757
+          ],
+          [
+            3,
+            574
+          ],
+          [
+            4,
+            17
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            9,
+            3
+          ],
+          [
+            10,
+            18
+          ],
+          [
+            11,
+            28
+          ],
+          [
+            12,
+            70
+          ],
+          [
+            13,
+            139
+          ],
+          [
+            14,
+            242
+          ],
+          [
+            15,
+            450
+          ],
+          [
+            16,
+            753
+          ],
+          [
+            17,
+            1036
+          ],
+          [
+            18,
+            1569
+          ],
+          [
+            19,
+            2151
+          ],
+          [
+            20,
+            2849
+          ],
+          [
+            21,
+            3312
+          ],
+          [
+            22,
+            4046
+          ],
+          [
+            23,
+            4549
+          ],
+          [
+            24,
+            4914
+          ],
+          [
+            25,
+            5014
+          ],
+          [
+            26,
+            5304
+          ],
+          [
+            27,
+            5006
+          ],
+          [
+            28,
+            4555
+          ],
+          [
+            29,
+            4067
+          ],
+          [
+            30,
+            3549
+          ],
+          [
+            31,
+            2939
+          ],
+          [
+            32,
+            2400
+          ]
+        ]
+      },
+      {
+        "flavor": "set",
+        "n": 2000000,
+        "bits": 56,
+        "lambda": 7812.5,
+        "distinct_keys": 2000000,
+        "mem_used": 25953632,
+        "bytes_per_key": 12.9768,
+        "node_counts": {
+          "immed": 777909,
+          "leaf_linear": 42718,
+          "leaf_bitmap": 0,
+          "branch_l3": 1,
+          "branch_l7": 0,
+          "branch_b": 22894,
+          "branch_u": 257,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 6262128,
+          "leaf_bitmap": 0,
+          "branch_l3": 64,
+          "branch_l7": 0,
+          "branch_b": 18622320,
+          "branch_u": 1069120,
+          "total": 25953632
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          777985,
+          65536,
+          256,
+          1,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          22894,
+          256,
+          1,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          76,
+          42642,
+          0,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            724851
+          ],
+          [
+            2,
+            50786
+          ],
+          [
+            3,
+            2272
+          ],
+          [
+            4,
+            76
+          ],
+          [
+            12,
+            9
+          ],
+          [
+            13,
+            15
+          ],
+          [
+            14,
+            23
+          ],
+          [
+            15,
+            44
+          ],
+          [
+            16,
+            101
+          ],
+          [
+            17,
+            166
+          ],
+          [
+            18,
+            291
+          ],
+          [
+            19,
+            483
+          ],
+          [
+            20,
+            733
+          ],
+          [
+            21,
+            1104
+          ],
+          [
+            22,
+            1515
+          ],
+          [
+            23,
+            1911
+          ],
+          [
+            24,
+            2446
+          ],
+          [
+            25,
+            2998
+          ],
+          [
+            26,
+            3604
+          ],
+          [
+            27,
+            4065
+          ],
+          [
+            28,
+            4506
+          ],
+          [
+            29,
+            4612
+          ],
+          [
+            30,
+            4779
+          ],
+          [
+            31,
+            4791
+          ],
+          [
+            32,
+            4446
+          ]
+        ]
+      },
+      {
+        "flavor": "map",
+        "n": 2000000,
+        "bits": 56,
+        "lambda": 7812.5,
+        "distinct_keys": 2000000,
+        "mem_used": 37489152,
+        "bytes_per_key": 18.7446,
+        "node_counts": {
+          "immed": 724851,
+          "leaf_linear": 95776,
+          "leaf_bitmap": 0,
+          "branch_l3": 1,
+          "branch_l7": 0,
+          "branch_b": 22894,
+          "branch_u": 257,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 17797648,
+          "leaf_bitmap": 0,
+          "branch_l3": 64,
+          "branch_l7": 0,
+          "branch_b": 18622320,
+          "branch_u": 1069120,
+          "total": 37489152
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          777985,
+          65536,
+          256,
+          1,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          22894,
+          256,
+          1,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          53134,
+          42642,
+          0,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            724851
+          ],
+          [
+            2,
+            50786
+          ],
+          [
+            3,
+            2272
+          ],
+          [
+            4,
+            76
+          ],
+          [
+            12,
+            9
+          ],
+          [
+            13,
+            15
+          ],
+          [
+            14,
+            23
+          ],
+          [
+            15,
+            44
+          ],
+          [
+            16,
+            101
+          ],
+          [
+            17,
+            166
+          ],
+          [
+            18,
+            291
+          ],
+          [
+            19,
+            483
+          ],
+          [
+            20,
+            733
+          ],
+          [
+            21,
+            1104
+          ],
+          [
+            22,
+            1515
+          ],
+          [
+            23,
+            1911
+          ],
+          [
+            24,
+            2446
+          ],
+          [
+            25,
+            2998
+          ],
+          [
+            26,
+            3604
+          ],
+          [
+            27,
+            4065
+          ],
+          [
+            28,
+            4506
+          ],
+          [
+            29,
+            4612
+          ],
+          [
+            30,
+            4779
+          ],
+          [
+            31,
+            4791
+          ],
+          [
+            32,
+            4446
+          ]
+        ]
+      },
+      {
+        "flavor": "set",
+        "n": 2700000,
+        "bits": 56,
+        "lambda": 10546.875,
+        "distinct_keys": 2700000,
+        "mem_used": 56657984,
+        "bytes_per_key": 20.9844,
+        "node_counts": {
+          "immed": 2339446,
+          "leaf_linear": 5841,
+          "leaf_bitmap": 0,
+          "branch_l3": 1,
+          "branch_l7": 0,
+          "branch_b": 60081,
+          "branch_u": 257,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 856592,
+          "leaf_bitmap": 0,
+          "branch_l3": 64,
+          "branch_l7": 0,
+          "branch_b": 54732208,
+          "branch_u": 1069120,
+          "total": 56657984
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          2339832,
+          65536,
+          256,
+          1,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          60081,
+          256,
+          1,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          386,
+          5455,
+          0,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            2152890
+          ],
+          [
+            2,
+            176950
+          ],
+          [
+            3,
+            9606
+          ],
+          [
+            4,
+            375
+          ],
+          [
+            5,
+            11
+          ],
+          [
+            17,
+            1
+          ],
+          [
+            18,
+            1
+          ],
+          [
+            19,
+            2
+          ],
+          [
+            20,
+            7
+          ],
+          [
+            21,
+            12
+          ],
+          [
+            22,
+            28
+          ],
+          [
+            23,
+            33
+          ],
+          [
+            24,
+            81
+          ],
+          [
+            25,
+            132
+          ],
+          [
+            26,
+            189
+          ],
+          [
+            27,
+            278
+          ],
+          [
+            28,
+            470
+          ],
+          [
+            29,
+            655
+          ],
+          [
+            30,
+            889
+          ],
+          [
+            31,
+            1156
+          ],
+          [
+            32,
+            1521
+          ]
+        ]
+      },
+      {
+        "flavor": "map",
+        "n": 2700000,
+        "bits": 56,
+        "lambda": 10546.875,
+        "distinct_keys": 2700000,
+        "mem_used": 64145536,
+        "bytes_per_key": 23.7576,
+        "node_counts": {
+          "immed": 2152890,
+          "leaf_linear": 192397,
+          "leaf_bitmap": 0,
+          "branch_l3": 1,
+          "branch_l7": 0,
+          "branch_b": 60081,
+          "branch_u": 257,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 8344144,
+          "leaf_bitmap": 0,
+          "branch_l3": 64,
+          "branch_l7": 0,
+          "branch_b": 54732208,
+          "branch_u": 1069120,
+          "total": 64145536
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          2339832,
+          65536,
+          256,
+          1,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          60081,
+          256,
+          1,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          186942,
+          5455,
+          0,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            2152890
+          ],
+          [
+            2,
+            176950
+          ],
+          [
+            3,
+            9606
+          ],
+          [
+            4,
+            375
+          ],
+          [
+            5,
+            11
+          ],
+          [
+            17,
+            1
+          ],
+          [
+            18,
+            1
+          ],
+          [
+            19,
+            2
+          ],
+          [
+            20,
+            7
+          ],
+          [
+            21,
+            12
+          ],
+          [
+            22,
+            28
+          ],
+          [
+            23,
+            33
+          ],
+          [
+            24,
+            81
+          ],
+          [
+            25,
+            132
+          ],
+          [
+            26,
+            189
+          ],
+          [
+            27,
+            278
+          ],
+          [
+            28,
+            470
+          ],
+          [
+            29,
+            655
+          ],
+          [
+            30,
+            889
+          ],
+          [
+            31,
+            1156
+          ],
+          [
+            32,
+            1521
+          ]
+        ]
+      },
+      {
+        "flavor": "set",
+        "n": 2000000,
+        "bits": 55,
+        "lambda": 15625,
+        "distinct_keys": 2000000,
+        "mem_used": 39313904,
+        "bytes_per_key": 19.657,
+        "node_counts": {
+          "immed": 1778541,
+          "leaf_linear": 924,
+          "leaf_bitmap": 0,
+          "branch_l3": 1,
+          "branch_l7": 0,
+          "branch_b": 32769,
+          "branch_u": 128,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 15488,
+          "leaf_bitmap": 0,
+          "branch_l3": 64,
+          "branch_l7": 0,
+          "branch_b": 38765872,
+          "branch_u": 532480,
+          "total": 39313904
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          1779465,
+          32768,
+          128,
+          1,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          32768,
+          128,
+          1,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          924,
+          0,
+          0,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            1575681
+          ],
+          [
+            2,
+            188002
+          ],
+          [
+            3,
+            14858
+          ],
+          [
+            4,
+            880
+          ],
+          [
+            5,
+            43
+          ],
+          [
+            6,
+            1
+          ]
+        ]
+      },
+      {
+        "flavor": "map",
+        "n": 2000000,
+        "bits": 55,
+        "lambda": 15625,
+        "distinct_keys": 2000000,
+        "mem_used": 46074128,
+        "bytes_per_key": 23.0371,
+        "node_counts": {
+          "immed": 1575681,
+          "leaf_linear": 203784,
+          "leaf_bitmap": 0,
+          "branch_l3": 1,
+          "branch_l7": 0,
+          "branch_b": 32769,
+          "branch_u": 128,
+          "full_expanse": 0
+        },
+        "node_bytes": {
+          "immed_values": 0,
+          "leaf_linear": 6775712,
+          "leaf_bitmap": 0,
+          "branch_l3": 64,
+          "branch_l7": 0,
+          "branch_b": 38765872,
+          "branch_u": 532480,
+          "total": 46074128
+        },
+        "depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          1779465,
+          32768,
+          128,
+          1,
+          1
+        ],
+        "branch_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          32768,
+          128,
+          1,
+          1
+        ],
+        "leaf_depth_histogram": [
+          0,
+          0,
+          0,
+          0,
+          203784,
+          0,
+          0,
+          0,
+          0
+        ],
+        "leaf_pop_histogram": [
+          [
+            1,
+            1575681
+          ],
+          [
+            2,
+            188002
+          ],
+          [
+            3,
+            14858
+          ],
+          [
+            4,
+            880
+          ],
+          [
+            5,
+            43
+          ],
+          [
+            6,
+            1
+          ]
+        ]
+      }
+    ],
+    "seed_sensitivity": [
+      {
+        "n": 1000000,
+        "bits": 64,
+        "lambda": 15.2588,
+        "seed_a": "0xddb1a5e5eed0001",
+        "seed_b": "0x5eedb0b5c0ffee02",
+        "set_bpk_a": 7.92,
+        "map_bpk_a": 16.7,
+        "distinct_keys_a": 1000000,
+        "set_bpk_b": 7.92,
+        "map_bpk_b": 16.7,
+        "distinct_keys_b": 1000000
+      },
+      {
+        "n": 2000000,
+        "bits": 64,
+        "lambda": 30.5176,
+        "seed_a": "0xddb1a5e5eed0001",
+        "seed_b": "0x5eedb0b5c0ffee02",
+        "set_bpk_a": 13.6,
+        "map_bpk_a": 19.38,
+        "distinct_keys_a": 2000000,
+        "set_bpk_b": 13.58,
+        "map_bpk_b": 19.37,
+        "distinct_keys_b": 2000000
+      },
+      {
+        "n": 800000,
+        "bits": 62,
+        "lambda": 48.8281,
+        "seed_a": "0xddb1a5e5eed0001",
+        "seed_b": "0x5eedb0b5c0ffee02",
+        "set_bpk_a": 21.02,
+        "map_bpk_a": 23.9,
+        "distinct_keys_a": 800000,
+        "set_bpk_b": 21,
+        "map_bpk_b": 23.89,
+        "distinct_keys_b": 800000
+      }
+    ],
+    "leaf_cap_48_control": {
+      "meta": {
+        "what": "the same sweep with LEAF_CAP changed from 32 to 48 by a build-time patch of crates/expanse/src/types.rs (`pub const LEAF_CAP: usize = 48;`), nothing else changed; a control, not a shipped configuration",
+        "leaf_cap": 48,
+        "commit": "86daaddf+LEAF_CAP=48",
+        "instrument": "mem_used() deterministic byte accounting — host-independent; no wall clock",
+        "generator": "XorShift64(0x0DDB_1A5E_5EED_0001), each draw masked to the keyspace width; same seed at every width",
+        "workload_id": "example_keyspace_density"
+      },
+      "cells": [
+        {
+          "n": 100000,
+          "bits": 64,
+          "lambda": 1.5259,
+          "lambda_over_leaf_cap": 0.0318,
+          "set_bpk": 14.78,
+          "map_bpk": 24.62,
+          "distinct_keys": 100000
+        },
+        {
+          "n": 100000,
+          "bits": 63,
+          "lambda": 3.0518,
+          "lambda_over_leaf_cap": 0.0636,
+          "set_bpk": 12.6,
+          "map_bpk": 23.12,
+          "distinct_keys": 100000
+        },
+        {
+          "n": 100000,
+          "bits": 62,
+          "lambda": 6.1035,
+          "lambda_over_leaf_cap": 0.1272,
+          "set_bpk": 10.42,
+          "map_bpk": 20.33,
+          "distinct_keys": 100000
+        },
+        {
+          "n": 200000,
+          "bits": 64,
+          "lambda": 3.0518,
+          "lambda_over_leaf_cap": 0.0636,
+          "set_bpk": 12.59,
+          "map_bpk": 23.16,
+          "distinct_keys": 200000
+        },
+        {
+          "n": 200000,
+          "bits": 63,
+          "lambda": 6.1035,
+          "lambda_over_leaf_cap": 0.1272,
+          "set_bpk": 10.41,
+          "map_bpk": 20.3,
+          "distinct_keys": 200000
+        },
+        {
+          "n": 200000,
+          "bits": 62,
+          "lambda": 12.207,
+          "lambda_over_leaf_cap": 0.2543,
+          "set_bpk": 8.42,
+          "map_bpk": 17.41,
+          "distinct_keys": 200000
+        },
+        {
+          "n": 400000,
+          "bits": 64,
+          "lambda": 6.1035,
+          "lambda_over_leaf_cap": 0.1272,
+          "set_bpk": 10.41,
+          "map_bpk": 20.29,
+          "distinct_keys": 400000
+        },
+        {
+          "n": 400000,
+          "bits": 63,
+          "lambda": 12.207,
+          "lambda_over_leaf_cap": 0.2543,
+          "set_bpk": 8.42,
+          "map_bpk": 17.4,
+          "distinct_keys": 400000
+        },
+        {
+          "n": 400000,
+          "bits": 62,
+          "lambda": 24.4141,
+          "lambda_over_leaf_cap": 0.5086,
+          "set_bpk": 7.2,
+          "map_bpk": 15.7,
+          "distinct_keys": 400000
+        },
+        {
+          "n": 600000,
+          "bits": 64,
+          "lambda": 9.1553,
+          "lambda_over_leaf_cap": 0.1907,
+          "set_bpk": 9.17,
+          "map_bpk": 18.47,
+          "distinct_keys": 600000
+        },
+        {
+          "n": 600000,
+          "bits": 63,
+          "lambda": 18.3105,
+          "lambda_over_leaf_cap": 0.3815,
+          "set_bpk": 7.6,
+          "map_bpk": 16.26,
+          "distinct_keys": 600000
+        },
+        {
+          "n": 600000,
+          "bits": 62,
+          "lambda": 36.6211,
+          "lambda_over_leaf_cap": 0.7629,
+          "set_bpk": 7.36,
+          "map_bpk": 15.47,
+          "distinct_keys": 600000
+        },
+        {
+          "n": 800000,
+          "bits": 64,
+          "lambda": 12.207,
+          "lambda_over_leaf_cap": 0.2543,
+          "set_bpk": 8.41,
+          "map_bpk": 17.39,
+          "distinct_keys": 800000
+        },
+        {
+          "n": 800000,
+          "bits": 63,
+          "lambda": 24.4141,
+          "lambda_over_leaf_cap": 0.5086,
+          "set_bpk": 7.2,
+          "map_bpk": 15.69,
+          "distinct_keys": 800000
+        },
+        {
+          "n": 800000,
+          "bits": 62,
+          "lambda": 48.8281,
+          "lambda_over_leaf_cap": 1.0173,
+          "set_bpk": 14.45,
+          "map_bpk": 19.81,
+          "distinct_keys": 800000
+        },
+        {
+          "n": 900000,
+          "bits": 64,
+          "lambda": 13.7329,
+          "lambda_over_leaf_cap": 0.2861,
+          "set_bpk": 8.13,
+          "map_bpk": 17,
+          "distinct_keys": 900000
+        },
+        {
+          "n": 900000,
+          "bits": 63,
+          "lambda": 27.4658,
+          "lambda_over_leaf_cap": 0.5722,
+          "set_bpk": 7.07,
+          "map_bpk": 15.51,
+          "distinct_keys": 900000
+        },
+        {
+          "n": 900000,
+          "bits": 62,
+          "lambda": 54.9316,
+          "lambda_over_leaf_cap": 1.1444,
+          "set_bpk": 17.99,
+          "map_bpk": 22.05,
+          "distinct_keys": 900000
+        },
+        {
+          "n": 1000000,
+          "bits": 64,
+          "lambda": 15.2588,
+          "lambda_over_leaf_cap": 0.3179,
+          "set_bpk": 7.92,
+          "map_bpk": 16.7,
+          "distinct_keys": 1000000
+        },
+        {
+          "n": 1000000,
+          "bits": 63,
+          "lambda": 30.5176,
+          "lambda_over_leaf_cap": 0.6358,
+          "set_bpk": 6.99,
+          "map_bpk": 15.37,
+          "distinct_keys": 1000000
+        },
+        {
+          "n": 1000000,
+          "bits": 62,
+          "lambda": 61.0352,
+          "lambda_over_leaf_cap": 1.2716,
+          "set_bpk": 19.12,
+          "map_bpk": 22.82,
+          "distinct_keys": 1000000
+        },
+        {
+          "n": 1200000,
+          "bits": 64,
+          "lambda": 18.3105,
+          "lambda_over_leaf_cap": 0.3815,
+          "set_bpk": 7.6,
+          "map_bpk": 16.25,
+          "distinct_keys": 1200000
+        },
+        {
+          "n": 1200000,
+          "bits": 63,
+          "lambda": 36.6211,
+          "lambda_over_leaf_cap": 0.7629,
+          "set_bpk": 7.35,
+          "map_bpk": 15.47,
+          "distinct_keys": 1200000
+        },
+        {
+          "n": 1200000,
+          "bits": 62,
+          "lambda": 73.2422,
+          "lambda_over_leaf_cap": 1.5259,
+          "set_bpk": 18.49,
+          "map_bpk": 22.62,
+          "distinct_keys": 1200000
+        },
+        {
+          "n": 2000000,
+          "bits": 64,
+          "lambda": 30.5176,
+          "lambda_over_leaf_cap": 0.6358,
+          "set_bpk": 7,
+          "map_bpk": 15.38,
+          "distinct_keys": 2000000
+        },
+        {
+          "n": 2000000,
+          "bits": 63,
+          "lambda": 61.0352,
+          "lambda_over_leaf_cap": 1.2716,
+          "set_bpk": 19.1,
+          "map_bpk": 22.81,
+          "distinct_keys": 2000000
+        },
+        {
+          "n": 2000000,
+          "bits": 62,
+          "lambda": 122.0703,
+          "lambda_over_leaf_cap": 2.5431,
+          "set_bpk": 15.58,
+          "map_bpk": 21.93,
+          "distinct_keys": 2000000
+        },
+        {
+          "n": 1100000,
+          "bits": 64,
+          "lambda": 16.7847,
+          "lambda_over_leaf_cap": 0.3497,
+          "set_bpk": 7.74,
+          "map_bpk": 16.46,
+          "distinct_keys": 1100000
+        },
+        {
+          "n": 1300000,
+          "bits": 64,
+          "lambda": 19.8364,
+          "lambda_over_leaf_cap": 0.4133,
+          "set_bpk": 7.48,
+          "map_bpk": 16.08,
+          "distinct_keys": 1300000
+        },
+        {
+          "n": 1400000,
+          "bits": 64,
+          "lambda": 21.3623,
+          "lambda_over_leaf_cap": 0.445,
+          "set_bpk": 7.37,
+          "map_bpk": 15.94,
+          "distinct_keys": 1400000
+        },
+        {
+          "n": 1600000,
+          "bits": 64,
+          "lambda": 24.4141,
+          "lambda_over_leaf_cap": 0.5086,
+          "set_bpk": 7.2,
+          "map_bpk": 15.69,
+          "distinct_keys": 1600000
+        },
+        {
+          "n": 1800000,
+          "bits": 64,
+          "lambda": 27.4658,
+          "lambda_over_leaf_cap": 0.5722,
+          "set_bpk": 7.07,
+          "map_bpk": 15.51,
+          "distinct_keys": 1800000
+        },
+        {
+          "n": 2200000,
+          "bits": 64,
+          "lambda": 33.5693,
+          "lambda_over_leaf_cap": 0.6994,
+          "set_bpk": 7.04,
+          "map_bpk": 15.33,
+          "distinct_keys": 2200000
+        },
+        {
+          "n": 2400000,
+          "bits": 64,
+          "lambda": 36.6211,
+          "lambda_over_leaf_cap": 0.7629,
+          "set_bpk": 7.37,
+          "map_bpk": 15.48,
+          "distinct_keys": 2400000
+        },
+        {
+          "n": 2600000,
+          "bits": 64,
+          "lambda": 39.6729,
+          "lambda_over_leaf_cap": 0.8265,
+          "set_bpk": 8.27,
+          "map_bpk": 16,
+          "distinct_keys": 2600000
+        },
+        {
+          "n": 884736,
+          "bits": 63,
+          "lambda": 27,
+          "lambda_over_leaf_cap": 0.5625,
+          "set_bpk": 7.09,
+          "map_bpk": 15.53,
+          "distinct_keys": 884736
+        },
+        {
+          "n": 1310720,
+          "bits": 63,
+          "lambda": 40,
+          "lambda_over_leaf_cap": 0.8333,
+          "set_bpk": 8.38,
+          "map_bpk": 16.06,
+          "distinct_keys": 1310720
+        },
+        {
+          "n": 950272,
+          "bits": 62,
+          "lambda": 58,
+          "lambda_over_leaf_cap": 1.2083,
+          "set_bpk": 18.78,
+          "map_bpk": 22.57,
+          "distinct_keys": 950272
+        },
+        {
+          "n": 2000000,
+          "bits": 58,
+          "lambda": 1953.125,
+          "lambda_over_leaf_cap": 40.6901,
+          "set_bpk": 8.8,
+          "map_bpk": 18.51,
+          "distinct_keys": 2000000
+        },
+        {
+          "n": 2000000,
+          "bits": 57,
+          "lambda": 3906.25,
+          "lambda_over_leaf_cap": 81.3802,
+          "set_bpk": 6.89,
+          "map_bpk": 15.68,
+          "distinct_keys": 2000000
+        },
+        {
+          "n": 1200000,
+          "bits": 56,
+          "lambda": 4687.5,
+          "lambda_over_leaf_cap": 97.6563,
+          "set_bpk": 6.67,
+          "map_bpk": 15.32,
+          "distinct_keys": 1200000
+        },
+        {
+          "n": 1700000,
+          "bits": 56,
+          "lambda": 6640.625,
+          "lambda_over_leaf_cap": 138.3464,
+          "set_bpk": 6.14,
+          "map_bpk": 14.6,
+          "distinct_keys": 1700000
+        },
+        {
+          "n": 2000000,
+          "bits": 56,
+          "lambda": 7812.5,
+          "lambda_over_leaf_cap": 162.7604,
+          "set_bpk": 5.99,
+          "map_bpk": 14.37,
+          "distinct_keys": 2000000
+        },
+        {
+          "n": 2700000,
+          "bits": 56,
+          "lambda": 10546.875,
+          "lambda_over_leaf_cap": 219.7266,
+          "set_bpk": 8.14,
+          "map_bpk": 15.57,
+          "distinct_keys": 2700000
+        },
+        {
+          "n": 2000000,
+          "bits": 55,
+          "lambda": 15625,
+          "lambda_over_leaf_cap": 325.5208,
+          "set_bpk": 19.06,
+          "map_bpk": 22.65,
+          "distinct_keys": 2000000
+        }
+      ],
+      "census": [
+        {
+          "flavor": "set",
+          "n": 1000000,
+          "bits": 64,
+          "lambda": 15.2588,
+          "distinct_keys": 1000000,
+          "mem_used": 7916544,
+          "bytes_per_key": 7.9165,
+          "node_counts": {
+            "immed": 3,
+            "leaf_linear": 65533,
+            "leaf_bitmap": 0,
+            "branch_l3": 0,
+            "branch_l7": 0,
+            "branch_b": 0,
+            "branch_u": 257,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 6847424,
+            "leaf_bitmap": 0,
+            "branch_l3": 0,
+            "branch_l7": 0,
+            "branch_b": 0,
+            "branch_u": 1069120,
+            "total": 7916544
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            65536,
+            256,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            256,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            65533,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              1,
+              1
+            ],
+            [
+              2,
+              2
+            ],
+            [
+              3,
+              8
+            ],
+            [
+              4,
+              30
+            ],
+            [
+              5,
+              101
+            ],
+            [
+              6,
+              297
+            ],
+            [
+              7,
+              594
+            ],
+            [
+              8,
+              1120
+            ],
+            [
+              9,
+              1889
+            ],
+            [
+              10,
+              2954
+            ],
+            [
+              11,
+              4072
+            ],
+            [
+              12,
+              5158
+            ],
+            [
+              13,
+              5957
+            ],
+            [
+              14,
+              6435
+            ],
+            [
+              15,
+              6791
+            ],
+            [
+              16,
+              6481
+            ],
+            [
+              17,
+              5825
+            ],
+            [
+              18,
+              4819
+            ],
+            [
+              19,
+              3751
+            ],
+            [
+              20,
+              3060
+            ],
+            [
+              21,
+              2240
+            ],
+            [
+              22,
+              1506
+            ],
+            [
+              23,
+              946
+            ],
+            [
+              24,
+              624
+            ],
+            [
+              25,
+              351
+            ],
+            [
+              26,
+              255
+            ],
+            [
+              27,
+              113
+            ],
+            [
+              28,
+              77
+            ],
+            [
+              29,
+              43
+            ],
+            [
+              30,
+              16
+            ],
+            [
+              31,
+              9
+            ],
+            [
+              32,
+              4
+            ],
+            [
+              33,
+              4
+            ],
+            [
+              34,
+              2
+            ],
+            [
+              37,
+              1
+            ]
+          ]
+        },
+        {
+          "flavor": "map",
+          "n": 1000000,
+          "bits": 64,
+          "lambda": 15.2588,
+          "distinct_keys": 1000000,
+          "mem_used": 16701248,
+          "bytes_per_key": 16.7012,
+          "node_counts": {
+            "immed": 1,
+            "leaf_linear": 65535,
+            "leaf_bitmap": 0,
+            "branch_l3": 0,
+            "branch_l7": 0,
+            "branch_b": 0,
+            "branch_u": 257,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 15632128,
+            "leaf_bitmap": 0,
+            "branch_l3": 0,
+            "branch_l7": 0,
+            "branch_b": 0,
+            "branch_u": 1069120,
+            "total": 16701248
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            65536,
+            256,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            256,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            65535,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              1,
+              1
+            ],
+            [
+              2,
+              2
+            ],
+            [
+              3,
+              8
+            ],
+            [
+              4,
+              30
+            ],
+            [
+              5,
+              101
+            ],
+            [
+              6,
+              297
+            ],
+            [
+              7,
+              594
+            ],
+            [
+              8,
+              1120
+            ],
+            [
+              9,
+              1889
+            ],
+            [
+              10,
+              2954
+            ],
+            [
+              11,
+              4072
+            ],
+            [
+              12,
+              5158
+            ],
+            [
+              13,
+              5957
+            ],
+            [
+              14,
+              6435
+            ],
+            [
+              15,
+              6791
+            ],
+            [
+              16,
+              6481
+            ],
+            [
+              17,
+              5825
+            ],
+            [
+              18,
+              4819
+            ],
+            [
+              19,
+              3751
+            ],
+            [
+              20,
+              3060
+            ],
+            [
+              21,
+              2240
+            ],
+            [
+              22,
+              1506
+            ],
+            [
+              23,
+              946
+            ],
+            [
+              24,
+              624
+            ],
+            [
+              25,
+              351
+            ],
+            [
+              26,
+              255
+            ],
+            [
+              27,
+              113
+            ],
+            [
+              28,
+              77
+            ],
+            [
+              29,
+              43
+            ],
+            [
+              30,
+              16
+            ],
+            [
+              31,
+              9
+            ],
+            [
+              32,
+              4
+            ],
+            [
+              33,
+              4
+            ],
+            [
+              34,
+              2
+            ],
+            [
+              37,
+              1
+            ]
+          ]
+        },
+        {
+          "flavor": "set",
+          "n": 2000000,
+          "bits": 64,
+          "lambda": 30.5176,
+          "distinct_keys": 2000000,
+          "mem_used": 13994928,
+          "bytes_per_key": 6.9975,
+          "node_counts": {
+            "immed": 4782,
+            "leaf_linear": 65431,
+            "leaf_bitmap": 0,
+            "branch_l3": 0,
+            "branch_l7": 0,
+            "branch_b": 105,
+            "branch_u": 257,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 12817600,
+            "leaf_bitmap": 0,
+            "branch_l3": 0,
+            "branch_l7": 0,
+            "branch_b": 108208,
+            "branch_u": 1069120,
+            "total": 13994928
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            4782,
+            65536,
+            256,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            105,
+            256,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            65431,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              1,
+              4324
+            ],
+            [
+              2,
+              420
+            ],
+            [
+              3,
+              38
+            ],
+            [
+              10,
+              1
+            ],
+            [
+              11,
+              2
+            ],
+            [
+              12,
+              9
+            ],
+            [
+              13,
+              15
+            ],
+            [
+              14,
+              26
+            ],
+            [
+              15,
+              44
+            ],
+            [
+              16,
+              95
+            ],
+            [
+              17,
+              178
+            ],
+            [
+              18,
+              309
+            ],
+            [
+              19,
+              493
+            ],
+            [
+              20,
+              718
+            ],
+            [
+              21,
+              1060
+            ],
+            [
+              22,
+              1467
+            ],
+            [
+              23,
+              2029
+            ],
+            [
+              24,
+              2551
+            ],
+            [
+              25,
+              3038
+            ],
+            [
+              26,
+              3552
+            ],
+            [
+              27,
+              4095
+            ],
+            [
+              28,
+              4392
+            ],
+            [
+              29,
+              4597
+            ],
+            [
+              30,
+              4653
+            ],
+            [
+              31,
+              4724
+            ],
+            [
+              32,
+              4518
+            ],
+            [
+              33,
+              4237
+            ],
+            [
+              34,
+              3731
+            ],
+            [
+              35,
+              3101
+            ],
+            [
+              36,
+              2684
+            ],
+            [
+              37,
+              2268
+            ],
+            [
+              38,
+              1840
+            ],
+            [
+              39,
+              1449
+            ],
+            [
+              40,
+              1049
+            ],
+            [
+              41,
+              787
+            ],
+            [
+              42,
+              571
+            ],
+            [
+              43,
+              419
+            ],
+            [
+              44,
+              301
+            ],
+            [
+              45,
+              185
+            ],
+            [
+              46,
+              116
+            ],
+            [
+              47,
+              71
+            ],
+            [
+              48,
+              56
+            ]
+          ]
+        },
+        {
+          "flavor": "map",
+          "n": 2000000,
+          "bits": 64,
+          "lambda": 30.5176,
+          "distinct_keys": 2000000,
+          "mem_used": 30753008,
+          "bytes_per_key": 15.3765,
+          "node_counts": {
+            "immed": 4324,
+            "leaf_linear": 65889,
+            "leaf_bitmap": 0,
+            "branch_l3": 0,
+            "branch_l7": 0,
+            "branch_b": 105,
+            "branch_u": 257,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 29575680,
+            "leaf_bitmap": 0,
+            "branch_l3": 0,
+            "branch_l7": 0,
+            "branch_b": 108208,
+            "branch_u": 1069120,
+            "total": 30753008
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            4782,
+            65536,
+            256,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            105,
+            256,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            458,
+            65431,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              1,
+              4324
+            ],
+            [
+              2,
+              420
+            ],
+            [
+              3,
+              38
+            ],
+            [
+              10,
+              1
+            ],
+            [
+              11,
+              2
+            ],
+            [
+              12,
+              9
+            ],
+            [
+              13,
+              15
+            ],
+            [
+              14,
+              26
+            ],
+            [
+              15,
+              44
+            ],
+            [
+              16,
+              95
+            ],
+            [
+              17,
+              178
+            ],
+            [
+              18,
+              309
+            ],
+            [
+              19,
+              493
+            ],
+            [
+              20,
+              718
+            ],
+            [
+              21,
+              1060
+            ],
+            [
+              22,
+              1467
+            ],
+            [
+              23,
+              2029
+            ],
+            [
+              24,
+              2551
+            ],
+            [
+              25,
+              3038
+            ],
+            [
+              26,
+              3552
+            ],
+            [
+              27,
+              4095
+            ],
+            [
+              28,
+              4392
+            ],
+            [
+              29,
+              4597
+            ],
+            [
+              30,
+              4653
+            ],
+            [
+              31,
+              4724
+            ],
+            [
+              32,
+              4518
+            ],
+            [
+              33,
+              4237
+            ],
+            [
+              34,
+              3731
+            ],
+            [
+              35,
+              3101
+            ],
+            [
+              36,
+              2684
+            ],
+            [
+              37,
+              2268
+            ],
+            [
+              38,
+              1840
+            ],
+            [
+              39,
+              1449
+            ],
+            [
+              40,
+              1049
+            ],
+            [
+              41,
+              787
+            ],
+            [
+              42,
+              571
+            ],
+            [
+              43,
+              419
+            ],
+            [
+              44,
+              301
+            ],
+            [
+              45,
+              185
+            ],
+            [
+              46,
+              116
+            ],
+            [
+              47,
+              71
+            ],
+            [
+              48,
+              56
+            ]
+          ]
+        },
+        {
+          "flavor": "set",
+          "n": 800000,
+          "bits": 62,
+          "lambda": 48.8281,
+          "distinct_keys": 800000,
+          "mem_used": 11558832,
+          "bytes_per_key": 14.4485,
+          "node_counts": {
+            "immed": 407043,
+            "leaf_linear": 8214,
+            "leaf_bitmap": 0,
+            "branch_l3": 0,
+            "branch_l7": 0,
+            "branch_b": 8312,
+            "branch_u": 64,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 2185888,
+            "leaf_bitmap": 0,
+            "branch_l3": 0,
+            "branch_l7": 0,
+            "branch_b": 9106704,
+            "branch_u": 266240,
+            "total": 11558832
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            407184,
+            16384,
+            64,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            8311,
+            64,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            141,
+            8073,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              1,
+              365836
+            ],
+            [
+              2,
+              38514
+            ],
+            [
+              3,
+              2693
+            ],
+            [
+              4,
+              135
+            ],
+            [
+              5,
+              5
+            ],
+            [
+              6,
+              1
+            ],
+            [
+              24,
+              2
+            ],
+            [
+              26,
+              2
+            ],
+            [
+              27,
+              2
+            ],
+            [
+              28,
+              2
+            ],
+            [
+              29,
+              12
+            ],
+            [
+              30,
+              19
+            ],
+            [
+              31,
+              30
+            ],
+            [
+              32,
+              47
+            ],
+            [
+              33,
+              71
+            ],
+            [
+              34,
+              74
+            ],
+            [
+              35,
+              121
+            ],
+            [
+              36,
+              184
+            ],
+            [
+              37,
+              239
+            ],
+            [
+              38,
+              282
+            ],
+            [
+              39,
+              344
+            ],
+            [
+              40,
+              433
+            ],
+            [
+              41,
+              537
+            ],
+            [
+              42,
+              580
+            ],
+            [
+              43,
+              729
+            ],
+            [
+              44,
+              736
+            ],
+            [
+              45,
+              839
+            ],
+            [
+              46,
+              934
+            ],
+            [
+              47,
+              908
+            ],
+            [
+              48,
+              946
+            ]
+          ]
+        },
+        {
+          "flavor": "map",
+          "n": 800000,
+          "bits": 62,
+          "lambda": 48.8281,
+          "distinct_keys": 800000,
+          "mem_used": 15844304,
+          "bytes_per_key": 19.8054,
+          "node_counts": {
+            "immed": 365836,
+            "leaf_linear": 49421,
+            "leaf_bitmap": 0,
+            "branch_l3": 0,
+            "branch_l7": 0,
+            "branch_b": 8312,
+            "branch_u": 64,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 6471360,
+            "leaf_bitmap": 0,
+            "branch_l3": 0,
+            "branch_l7": 0,
+            "branch_b": 9106704,
+            "branch_u": 266240,
+            "total": 15844304
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            407184,
+            16384,
+            64,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            8311,
+            64,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            41348,
+            8073,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              1,
+              365836
+            ],
+            [
+              2,
+              38514
+            ],
+            [
+              3,
+              2693
+            ],
+            [
+              4,
+              135
+            ],
+            [
+              5,
+              5
+            ],
+            [
+              6,
+              1
+            ],
+            [
+              24,
+              2
+            ],
+            [
+              26,
+              2
+            ],
+            [
+              27,
+              2
+            ],
+            [
+              28,
+              2
+            ],
+            [
+              29,
+              12
+            ],
+            [
+              30,
+              19
+            ],
+            [
+              31,
+              30
+            ],
+            [
+              32,
+              47
+            ],
+            [
+              33,
+              71
+            ],
+            [
+              34,
+              74
+            ],
+            [
+              35,
+              121
+            ],
+            [
+              36,
+              184
+            ],
+            [
+              37,
+              239
+            ],
+            [
+              38,
+              282
+            ],
+            [
+              39,
+              344
+            ],
+            [
+              40,
+              433
+            ],
+            [
+              41,
+              537
+            ],
+            [
+              42,
+              580
+            ],
+            [
+              43,
+              729
+            ],
+            [
+              44,
+              736
+            ],
+            [
+              45,
+              839
+            ],
+            [
+              46,
+              934
+            ],
+            [
+              47,
+              908
+            ],
+            [
+              48,
+              946
+            ]
+          ]
+        },
+        {
+          "flavor": "set",
+          "n": 2000000,
+          "bits": 58,
+          "lambda": 1953.125,
+          "distinct_keys": 2000000,
+          "mem_used": 17604544,
+          "bytes_per_key": 8.8023,
+          "node_counts": {
+            "immed": 13993,
+            "leaf_linear": 248034,
+            "leaf_bitmap": 0,
+            "branch_l3": 0,
+            "branch_l7": 1,
+            "branch_b": 0,
+            "branch_u": 1028,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 13327936,
+            "leaf_bitmap": 0,
+            "branch_l3": 0,
+            "branch_l7": 128,
+            "branch_b": 0,
+            "branch_u": 4276480,
+            "total": 17604544
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            262027,
+            1024,
+            4,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1024,
+            4,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            248034,
+            0,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              1,
+              980
+            ],
+            [
+              2,
+              3668
+            ],
+            [
+              3,
+              9345
+            ],
+            [
+              4,
+              17997
+            ],
+            [
+              5,
+              27674
+            ],
+            [
+              6,
+              34702
+            ],
+            [
+              7,
+              37897
+            ],
+            [
+              8,
+              36350
+            ],
+            [
+              9,
+              30846
+            ],
+            [
+              10,
+              23430
+            ],
+            [
+              11,
+              16457
+            ],
+            [
+              12,
+              10418
+            ],
+            [
+              13,
+              6064
+            ],
+            [
+              14,
+              3179
+            ],
+            [
+              15,
+              1651
+            ],
+            [
+              16,
+              770
+            ],
+            [
+              17,
+              334
+            ],
+            [
+              18,
+              159
+            ],
+            [
+              19,
+              66
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              21,
+              9
+            ],
+            [
+              22,
+              4
+            ],
+            [
+              24,
+              1
+            ],
+            [
+              25,
+              1
+            ]
+          ]
+        },
+        {
+          "flavor": "map",
+          "n": 2000000,
+          "bits": 58,
+          "lambda": 1953.125,
+          "distinct_keys": 2000000,
+          "mem_used": 37019616,
+          "bytes_per_key": 18.5098,
+          "node_counts": {
+            "immed": 980,
+            "leaf_linear": 261047,
+            "leaf_bitmap": 0,
+            "branch_l3": 0,
+            "branch_l7": 1,
+            "branch_b": 0,
+            "branch_u": 1028,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 32743008,
+            "leaf_bitmap": 0,
+            "branch_l3": 0,
+            "branch_l7": 128,
+            "branch_b": 0,
+            "branch_u": 4276480,
+            "total": 37019616
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            262027,
+            1024,
+            4,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1024,
+            4,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            261047,
+            0,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              1,
+              980
+            ],
+            [
+              2,
+              3668
+            ],
+            [
+              3,
+              9345
+            ],
+            [
+              4,
+              17997
+            ],
+            [
+              5,
+              27674
+            ],
+            [
+              6,
+              34702
+            ],
+            [
+              7,
+              37897
+            ],
+            [
+              8,
+              36350
+            ],
+            [
+              9,
+              30846
+            ],
+            [
+              10,
+              23430
+            ],
+            [
+              11,
+              16457
+            ],
+            [
+              12,
+              10418
+            ],
+            [
+              13,
+              6064
+            ],
+            [
+              14,
+              3179
+            ],
+            [
+              15,
+              1651
+            ],
+            [
+              16,
+              770
+            ],
+            [
+              17,
+              334
+            ],
+            [
+              18,
+              159
+            ],
+            [
+              19,
+              66
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              21,
+              9
+            ],
+            [
+              22,
+              4
+            ],
+            [
+              24,
+              1
+            ],
+            [
+              25,
+              1
+            ]
+          ]
+        },
+        {
+          "flavor": "set",
+          "n": 2000000,
+          "bits": 57,
+          "lambda": 3906.25,
+          "distinct_keys": 2000000,
+          "mem_used": 13781408,
+          "bytes_per_key": 6.8907,
+          "node_counts": {
+            "immed": 20,
+            "leaf_linear": 131052,
+            "leaf_bitmap": 0,
+            "branch_l3": 1,
+            "branch_l7": 0,
+            "branch_b": 0,
+            "branch_u": 514,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 11643104,
+            "leaf_bitmap": 0,
+            "branch_l3": 64,
+            "branch_l7": 0,
+            "branch_b": 0,
+            "branch_u": 2138240,
+            "total": 13781408
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            131072,
+            512,
+            2,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            512,
+            2,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            131052,
+            0,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              2,
+              3
+            ],
+            [
+              3,
+              17
+            ],
+            [
+              4,
+              73
+            ],
+            [
+              5,
+              243
+            ],
+            [
+              6,
+              521
+            ],
+            [
+              7,
+              1179
+            ],
+            [
+              8,
+              2228
+            ],
+            [
+              9,
+              3782
+            ],
+            [
+              10,
+              5811
+            ],
+            [
+              11,
+              8143
+            ],
+            [
+              12,
+              10192
+            ],
+            [
+              13,
+              12038
+            ],
+            [
+              14,
+              13386
+            ],
+            [
+              15,
+              13346
+            ],
+            [
+              16,
+              12764
+            ],
+            [
+              17,
+              11607
+            ],
+            [
+              18,
+              9686
+            ],
+            [
+              19,
+              7885
+            ],
+            [
+              20,
+              5860
+            ],
+            [
+              21,
+              4363
+            ],
+            [
+              22,
+              3011
+            ],
+            [
+              23,
+              1941
+            ],
+            [
+              24,
+              1241
+            ],
+            [
+              25,
+              770
+            ],
+            [
+              26,
+              445
+            ],
+            [
+              27,
+              237
+            ],
+            [
+              28,
+              137
+            ],
+            [
+              29,
+              79
+            ],
+            [
+              30,
+              48
+            ],
+            [
+              31,
+              25
+            ],
+            [
+              32,
+              7
+            ],
+            [
+              33,
+              1
+            ],
+            [
+              34,
+              2
+            ],
+            [
+              36,
+              1
+            ]
+          ]
+        },
+        {
+          "flavor": "map",
+          "n": 2000000,
+          "bits": 57,
+          "lambda": 3906.25,
+          "distinct_keys": 2000000,
+          "mem_used": 31359936,
+          "bytes_per_key": 15.68,
+          "node_counts": {
+            "immed": 0,
+            "leaf_linear": 131072,
+            "leaf_bitmap": 0,
+            "branch_l3": 1,
+            "branch_l7": 0,
+            "branch_b": 0,
+            "branch_u": 514,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 29221632,
+            "leaf_bitmap": 0,
+            "branch_l3": 64,
+            "branch_l7": 0,
+            "branch_b": 0,
+            "branch_u": 2138240,
+            "total": 31359936
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            131072,
+            512,
+            2,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            512,
+            2,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            131072,
+            0,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              2,
+              3
+            ],
+            [
+              3,
+              17
+            ],
+            [
+              4,
+              73
+            ],
+            [
+              5,
+              243
+            ],
+            [
+              6,
+              521
+            ],
+            [
+              7,
+              1179
+            ],
+            [
+              8,
+              2228
+            ],
+            [
+              9,
+              3782
+            ],
+            [
+              10,
+              5811
+            ],
+            [
+              11,
+              8143
+            ],
+            [
+              12,
+              10192
+            ],
+            [
+              13,
+              12038
+            ],
+            [
+              14,
+              13386
+            ],
+            [
+              15,
+              13346
+            ],
+            [
+              16,
+              12764
+            ],
+            [
+              17,
+              11607
+            ],
+            [
+              18,
+              9686
+            ],
+            [
+              19,
+              7885
+            ],
+            [
+              20,
+              5860
+            ],
+            [
+              21,
+              4363
+            ],
+            [
+              22,
+              3011
+            ],
+            [
+              23,
+              1941
+            ],
+            [
+              24,
+              1241
+            ],
+            [
+              25,
+              770
+            ],
+            [
+              26,
+              445
+            ],
+            [
+              27,
+              237
+            ],
+            [
+              28,
+              137
+            ],
+            [
+              29,
+              79
+            ],
+            [
+              30,
+              48
+            ],
+            [
+              31,
+              25
+            ],
+            [
+              32,
+              7
+            ],
+            [
+              33,
+              1
+            ],
+            [
+              34,
+              2
+            ],
+            [
+              36,
+              1
+            ]
+          ]
+        },
+        {
+          "flavor": "set",
+          "n": 1200000,
+          "bits": 56,
+          "lambda": 4687.5,
+          "distinct_keys": 1200000,
+          "mem_used": 7999232,
+          "bytes_per_key": 6.666,
+          "node_counts": {
+            "immed": 1,
+            "leaf_linear": 65535,
+            "leaf_bitmap": 0,
+            "branch_l3": 1,
+            "branch_l7": 0,
+            "branch_b": 0,
+            "branch_u": 257,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 6930048,
+            "leaf_bitmap": 0,
+            "branch_l3": 64,
+            "branch_l7": 0,
+            "branch_b": 0,
+            "branch_u": 1069120,
+            "total": 7999232
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            65536,
+            256,
+            1,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            256,
+            1,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            65535,
+            0,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              3,
+              1
+            ],
+            [
+              4,
+              2
+            ],
+            [
+              5,
+              11
+            ],
+            [
+              6,
+              40
+            ],
+            [
+              7,
+              107
+            ],
+            [
+              8,
+              223
+            ],
+            [
+              9,
+              444
+            ],
+            [
+              10,
+              821
+            ],
+            [
+              11,
+              1428
+            ],
+            [
+              12,
+              2200
+            ],
+            [
+              13,
+              3041
+            ],
+            [
+              14,
+              4068
+            ],
+            [
+              15,
+              4783
+            ],
+            [
+              16,
+              5542
+            ],
+            [
+              17,
+              6111
+            ],
+            [
+              18,
+              6197
+            ],
+            [
+              19,
+              5869
+            ],
+            [
+              20,
+              5428
+            ],
+            [
+              21,
+              4706
+            ],
+            [
+              22,
+              3932
+            ],
+            [
+              23,
+              3044
+            ],
+            [
+              24,
+              2295
+            ],
+            [
+              25,
+              1790
+            ],
+            [
+              26,
+              1245
+            ],
+            [
+              27,
+              851
+            ],
+            [
+              28,
+              527
+            ],
+            [
+              29,
+              339
+            ],
+            [
+              30,
+              221
+            ],
+            [
+              31,
+              124
+            ],
+            [
+              32,
+              65
+            ],
+            [
+              33,
+              38
+            ],
+            [
+              34,
+              16
+            ],
+            [
+              35,
+              10
+            ],
+            [
+              36,
+              9
+            ],
+            [
+              37,
+              4
+            ],
+            [
+              40,
+              3
+            ],
+            [
+              41,
+              1
+            ]
+          ]
+        },
+        {
+          "flavor": "map",
+          "n": 1200000,
+          "bits": 56,
+          "lambda": 4687.5,
+          "distinct_keys": 1200000,
+          "mem_used": 18389280,
+          "bytes_per_key": 15.3244,
+          "node_counts": {
+            "immed": 0,
+            "leaf_linear": 65536,
+            "leaf_bitmap": 0,
+            "branch_l3": 1,
+            "branch_l7": 0,
+            "branch_b": 0,
+            "branch_u": 257,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 17320096,
+            "leaf_bitmap": 0,
+            "branch_l3": 64,
+            "branch_l7": 0,
+            "branch_b": 0,
+            "branch_u": 1069120,
+            "total": 18389280
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            65536,
+            256,
+            1,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            256,
+            1,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            65536,
+            0,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              3,
+              1
+            ],
+            [
+              4,
+              2
+            ],
+            [
+              5,
+              11
+            ],
+            [
+              6,
+              40
+            ],
+            [
+              7,
+              107
+            ],
+            [
+              8,
+              223
+            ],
+            [
+              9,
+              444
+            ],
+            [
+              10,
+              821
+            ],
+            [
+              11,
+              1428
+            ],
+            [
+              12,
+              2200
+            ],
+            [
+              13,
+              3041
+            ],
+            [
+              14,
+              4068
+            ],
+            [
+              15,
+              4783
+            ],
+            [
+              16,
+              5542
+            ],
+            [
+              17,
+              6111
+            ],
+            [
+              18,
+              6197
+            ],
+            [
+              19,
+              5869
+            ],
+            [
+              20,
+              5428
+            ],
+            [
+              21,
+              4706
+            ],
+            [
+              22,
+              3932
+            ],
+            [
+              23,
+              3044
+            ],
+            [
+              24,
+              2295
+            ],
+            [
+              25,
+              1790
+            ],
+            [
+              26,
+              1245
+            ],
+            [
+              27,
+              851
+            ],
+            [
+              28,
+              527
+            ],
+            [
+              29,
+              339
+            ],
+            [
+              30,
+              221
+            ],
+            [
+              31,
+              124
+            ],
+            [
+              32,
+              65
+            ],
+            [
+              33,
+              38
+            ],
+            [
+              34,
+              16
+            ],
+            [
+              35,
+              10
+            ],
+            [
+              36,
+              9
+            ],
+            [
+              37,
+              4
+            ],
+            [
+              40,
+              3
+            ],
+            [
+              41,
+              1
+            ]
+          ]
+        },
+        {
+          "flavor": "set",
+          "n": 1700000,
+          "bits": 56,
+          "lambda": 6640.625,
+          "distinct_keys": 1700000,
+          "mem_used": 10435792,
+          "bytes_per_key": 6.1387,
+          "node_counts": {
+            "immed": 43,
+            "leaf_linear": 65535,
+            "leaf_bitmap": 0,
+            "branch_l3": 1,
+            "branch_l7": 0,
+            "branch_b": 1,
+            "branch_u": 257,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 9365648,
+            "leaf_bitmap": 0,
+            "branch_l3": 64,
+            "branch_l7": 0,
+            "branch_b": 960,
+            "branch_u": 1069120,
+            "total": 10435792
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            43,
+            65536,
+            256,
+            1,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            256,
+            1,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            65535,
+            0,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              1,
+              37
+            ],
+            [
+              2,
+              6
+            ],
+            [
+              8,
+              1
+            ],
+            [
+              9,
+              3
+            ],
+            [
+              10,
+              18
+            ],
+            [
+              11,
+              28
+            ],
+            [
+              12,
+              70
+            ],
+            [
+              13,
+              139
+            ],
+            [
+              14,
+              242
+            ],
+            [
+              15,
+              450
+            ],
+            [
+              16,
+              753
+            ],
+            [
+              17,
+              1036
+            ],
+            [
+              18,
+              1569
+            ],
+            [
+              19,
+              2151
+            ],
+            [
+              20,
+              2849
+            ],
+            [
+              21,
+              3312
+            ],
+            [
+              22,
+              4046
+            ],
+            [
+              23,
+              4549
+            ],
+            [
+              24,
+              4914
+            ],
+            [
+              25,
+              5014
+            ],
+            [
+              26,
+              5304
+            ],
+            [
+              27,
+              5006
+            ],
+            [
+              28,
+              4555
+            ],
+            [
+              29,
+              4067
+            ],
+            [
+              30,
+              3549
+            ],
+            [
+              31,
+              2939
+            ],
+            [
+              32,
+              2400
+            ],
+            [
+              33,
+              1866
+            ],
+            [
+              34,
+              1345
+            ],
+            [
+              35,
+              1065
+            ],
+            [
+              36,
+              746
+            ],
+            [
+              37,
+              523
+            ],
+            [
+              38,
+              359
+            ],
+            [
+              39,
+              245
+            ],
+            [
+              40,
+              161
+            ],
+            [
+              41,
+              106
+            ],
+            [
+              42,
+              58
+            ],
+            [
+              43,
+              43
+            ],
+            [
+              44,
+              26
+            ],
+            [
+              45,
+              10
+            ],
+            [
+              46,
+              12
+            ],
+            [
+              47,
+              5
+            ],
+            [
+              48,
+              1
+            ]
+          ]
+        },
+        {
+          "flavor": "map",
+          "n": 1700000,
+          "bits": 56,
+          "lambda": 6640.625,
+          "distinct_keys": 1700000,
+          "mem_used": 24817296,
+          "bytes_per_key": 14.5984,
+          "node_counts": {
+            "immed": 37,
+            "leaf_linear": 65541,
+            "leaf_bitmap": 0,
+            "branch_l3": 1,
+            "branch_l7": 0,
+            "branch_b": 1,
+            "branch_u": 257,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 23747152,
+            "leaf_bitmap": 0,
+            "branch_l3": 64,
+            "branch_l7": 0,
+            "branch_b": 960,
+            "branch_u": 1069120,
+            "total": 24817296
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            43,
+            65536,
+            256,
+            1,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            256,
+            1,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            6,
+            65535,
+            0,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              1,
+              37
+            ],
+            [
+              2,
+              6
+            ],
+            [
+              8,
+              1
+            ],
+            [
+              9,
+              3
+            ],
+            [
+              10,
+              18
+            ],
+            [
+              11,
+              28
+            ],
+            [
+              12,
+              70
+            ],
+            [
+              13,
+              139
+            ],
+            [
+              14,
+              242
+            ],
+            [
+              15,
+              450
+            ],
+            [
+              16,
+              753
+            ],
+            [
+              17,
+              1036
+            ],
+            [
+              18,
+              1569
+            ],
+            [
+              19,
+              2151
+            ],
+            [
+              20,
+              2849
+            ],
+            [
+              21,
+              3312
+            ],
+            [
+              22,
+              4046
+            ],
+            [
+              23,
+              4549
+            ],
+            [
+              24,
+              4914
+            ],
+            [
+              25,
+              5014
+            ],
+            [
+              26,
+              5304
+            ],
+            [
+              27,
+              5006
+            ],
+            [
+              28,
+              4555
+            ],
+            [
+              29,
+              4067
+            ],
+            [
+              30,
+              3549
+            ],
+            [
+              31,
+              2939
+            ],
+            [
+              32,
+              2400
+            ],
+            [
+              33,
+              1866
+            ],
+            [
+              34,
+              1345
+            ],
+            [
+              35,
+              1065
+            ],
+            [
+              36,
+              746
+            ],
+            [
+              37,
+              523
+            ],
+            [
+              38,
+              359
+            ],
+            [
+              39,
+              245
+            ],
+            [
+              40,
+              161
+            ],
+            [
+              41,
+              106
+            ],
+            [
+              42,
+              58
+            ],
+            [
+              43,
+              43
+            ],
+            [
+              44,
+              26
+            ],
+            [
+              45,
+              10
+            ],
+            [
+              46,
+              12
+            ],
+            [
+              47,
+              5
+            ],
+            [
+              48,
+              1
+            ]
+          ]
+        },
+        {
+          "flavor": "set",
+          "n": 2000000,
+          "bits": 56,
+          "lambda": 7812.5,
+          "distinct_keys": 2000000,
+          "mem_used": 11976352,
+          "bytes_per_key": 5.9882,
+          "node_counts": {
+            "immed": 3158,
+            "leaf_linear": 65468,
+            "leaf_bitmap": 0,
+            "branch_l3": 1,
+            "branch_l7": 0,
+            "branch_b": 69,
+            "branch_u": 257,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 10835392,
+            "leaf_bitmap": 0,
+            "branch_l3": 64,
+            "branch_l7": 0,
+            "branch_b": 71776,
+            "branch_u": 1069120,
+            "total": 11976352
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            3159,
+            65536,
+            256,
+            1,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            69,
+            256,
+            1,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            1,
+            65467,
+            0,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              1,
+              2865
+            ],
+            [
+              2,
+              280
+            ],
+            [
+              3,
+              13
+            ],
+            [
+              4,
+              1
+            ],
+            [
+              12,
+              9
+            ],
+            [
+              13,
+              15
+            ],
+            [
+              14,
+              23
+            ],
+            [
+              15,
+              44
+            ],
+            [
+              16,
+              101
+            ],
+            [
+              17,
+              166
+            ],
+            [
+              18,
+              291
+            ],
+            [
+              19,
+              483
+            ],
+            [
+              20,
+              733
+            ],
+            [
+              21,
+              1104
+            ],
+            [
+              22,
+              1515
+            ],
+            [
+              23,
+              1911
+            ],
+            [
+              24,
+              2446
+            ],
+            [
+              25,
+              2998
+            ],
+            [
+              26,
+              3604
+            ],
+            [
+              27,
+              4065
+            ],
+            [
+              28,
+              4506
+            ],
+            [
+              29,
+              4612
+            ],
+            [
+              30,
+              4779
+            ],
+            [
+              31,
+              4791
+            ],
+            [
+              32,
+              4446
+            ],
+            [
+              33,
+              4183
+            ],
+            [
+              34,
+              3734
+            ],
+            [
+              35,
+              3265
+            ],
+            [
+              36,
+              2670
+            ],
+            [
+              37,
+              2215
+            ],
+            [
+              38,
+              1726
+            ],
+            [
+              39,
+              1415
+            ],
+            [
+              40,
+              1068
+            ],
+            [
+              41,
+              780
+            ],
+            [
+              42,
+              566
+            ],
+            [
+              43,
+              428
+            ],
+            [
+              44,
+              293
+            ],
+            [
+              45,
+              206
+            ],
+            [
+              46,
+              121
+            ],
+            [
+              47,
+              87
+            ],
+            [
+              48,
+              68
+            ]
+          ]
+        },
+        {
+          "flavor": "map",
+          "n": 2000000,
+          "bits": 56,
+          "lambda": 7812.5,
+          "distinct_keys": 2000000,
+          "mem_used": 28742576,
+          "bytes_per_key": 14.3713,
+          "node_counts": {
+            "immed": 2865,
+            "leaf_linear": 65761,
+            "leaf_bitmap": 0,
+            "branch_l3": 1,
+            "branch_l7": 0,
+            "branch_b": 69,
+            "branch_u": 257,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 27601616,
+            "leaf_bitmap": 0,
+            "branch_l3": 64,
+            "branch_l7": 0,
+            "branch_b": 71776,
+            "branch_u": 1069120,
+            "total": 28742576
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            3159,
+            65536,
+            256,
+            1,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            69,
+            256,
+            1,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            294,
+            65467,
+            0,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              1,
+              2865
+            ],
+            [
+              2,
+              280
+            ],
+            [
+              3,
+              13
+            ],
+            [
+              4,
+              1
+            ],
+            [
+              12,
+              9
+            ],
+            [
+              13,
+              15
+            ],
+            [
+              14,
+              23
+            ],
+            [
+              15,
+              44
+            ],
+            [
+              16,
+              101
+            ],
+            [
+              17,
+              166
+            ],
+            [
+              18,
+              291
+            ],
+            [
+              19,
+              483
+            ],
+            [
+              20,
+              733
+            ],
+            [
+              21,
+              1104
+            ],
+            [
+              22,
+              1515
+            ],
+            [
+              23,
+              1911
+            ],
+            [
+              24,
+              2446
+            ],
+            [
+              25,
+              2998
+            ],
+            [
+              26,
+              3604
+            ],
+            [
+              27,
+              4065
+            ],
+            [
+              28,
+              4506
+            ],
+            [
+              29,
+              4612
+            ],
+            [
+              30,
+              4779
+            ],
+            [
+              31,
+              4791
+            ],
+            [
+              32,
+              4446
+            ],
+            [
+              33,
+              4183
+            ],
+            [
+              34,
+              3734
+            ],
+            [
+              35,
+              3265
+            ],
+            [
+              36,
+              2670
+            ],
+            [
+              37,
+              2215
+            ],
+            [
+              38,
+              1726
+            ],
+            [
+              39,
+              1415
+            ],
+            [
+              40,
+              1068
+            ],
+            [
+              41,
+              780
+            ],
+            [
+              42,
+              566
+            ],
+            [
+              43,
+              428
+            ],
+            [
+              44,
+              293
+            ],
+            [
+              45,
+              206
+            ],
+            [
+              46,
+              121
+            ],
+            [
+              47,
+              87
+            ],
+            [
+              48,
+              68
+            ]
+          ]
+        },
+        {
+          "flavor": "set",
+          "n": 2700000,
+          "bits": 56,
+          "lambda": 10546.875,
+          "distinct_keys": 2700000,
+          "mem_used": 21978624,
+          "bytes_per_key": 8.1402,
+          "node_counts": {
+            "immed": 391968,
+            "leaf_linear": 57333,
+            "leaf_bitmap": 0,
+            "branch_l3": 1,
+            "branch_l7": 0,
+            "branch_b": 8317,
+            "branch_u": 257,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 12063856,
+            "leaf_bitmap": 0,
+            "branch_l3": 64,
+            "branch_l7": 0,
+            "branch_b": 8845584,
+            "branch_u": 1069120,
+            "total": 21978624
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            392082,
+            65536,
+            256,
+            1,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            8317,
+            256,
+            1,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            114,
+            57219,
+            0,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              1,
+              354161
+            ],
+            [
+              2,
+              35493
+            ],
+            [
+              3,
+              2314
+            ],
+            [
+              4,
+              109
+            ],
+            [
+              5,
+              5
+            ],
+            [
+              17,
+              1
+            ],
+            [
+              18,
+              1
+            ],
+            [
+              19,
+              2
+            ],
+            [
+              20,
+              7
+            ],
+            [
+              21,
+              12
+            ],
+            [
+              22,
+              28
+            ],
+            [
+              23,
+              33
+            ],
+            [
+              24,
+              81
+            ],
+            [
+              25,
+              132
+            ],
+            [
+              26,
+              189
+            ],
+            [
+              27,
+              278
+            ],
+            [
+              28,
+              470
+            ],
+            [
+              29,
+              655
+            ],
+            [
+              30,
+              889
+            ],
+            [
+              31,
+              1156
+            ],
+            [
+              32,
+              1521
+            ],
+            [
+              33,
+              1963
+            ],
+            [
+              34,
+              2257
+            ],
+            [
+              35,
+              2626
+            ],
+            [
+              36,
+              3075
+            ],
+            [
+              37,
+              3397
+            ],
+            [
+              38,
+              3793
+            ],
+            [
+              39,
+              3964
+            ],
+            [
+              40,
+              4041
+            ],
+            [
+              41,
+              4043
+            ],
+            [
+              42,
+              4065
+            ],
+            [
+              43,
+              3878
+            ],
+            [
+              44,
+              3589
+            ],
+            [
+              45,
+              3254
+            ],
+            [
+              46,
+              2921
+            ],
+            [
+              47,
+              2636
+            ],
+            [
+              48,
+              2262
+            ]
+          ]
+        },
+        {
+          "flavor": "map",
+          "n": 2700000,
+          "bits": 56,
+          "lambda": 10546.875,
+          "distinct_keys": 2700000,
+          "mem_used": 42034720,
+          "bytes_per_key": 15.5684,
+          "node_counts": {
+            "immed": 354161,
+            "leaf_linear": 95140,
+            "leaf_bitmap": 0,
+            "branch_l3": 1,
+            "branch_l7": 0,
+            "branch_b": 8317,
+            "branch_u": 257,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 32119952,
+            "leaf_bitmap": 0,
+            "branch_l3": 64,
+            "branch_l7": 0,
+            "branch_b": 8845584,
+            "branch_u": 1069120,
+            "total": 42034720
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            392082,
+            65536,
+            256,
+            1,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            8317,
+            256,
+            1,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            37921,
+            57219,
+            0,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              1,
+              354161
+            ],
+            [
+              2,
+              35493
+            ],
+            [
+              3,
+              2314
+            ],
+            [
+              4,
+              109
+            ],
+            [
+              5,
+              5
+            ],
+            [
+              17,
+              1
+            ],
+            [
+              18,
+              1
+            ],
+            [
+              19,
+              2
+            ],
+            [
+              20,
+              7
+            ],
+            [
+              21,
+              12
+            ],
+            [
+              22,
+              28
+            ],
+            [
+              23,
+              33
+            ],
+            [
+              24,
+              81
+            ],
+            [
+              25,
+              132
+            ],
+            [
+              26,
+              189
+            ],
+            [
+              27,
+              278
+            ],
+            [
+              28,
+              470
+            ],
+            [
+              29,
+              655
+            ],
+            [
+              30,
+              889
+            ],
+            [
+              31,
+              1156
+            ],
+            [
+              32,
+              1521
+            ],
+            [
+              33,
+              1963
+            ],
+            [
+              34,
+              2257
+            ],
+            [
+              35,
+              2626
+            ],
+            [
+              36,
+              3075
+            ],
+            [
+              37,
+              3397
+            ],
+            [
+              38,
+              3793
+            ],
+            [
+              39,
+              3964
+            ],
+            [
+              40,
+              4041
+            ],
+            [
+              41,
+              4043
+            ],
+            [
+              42,
+              4065
+            ],
+            [
+              43,
+              3878
+            ],
+            [
+              44,
+              3589
+            ],
+            [
+              45,
+              3254
+            ],
+            [
+              46,
+              2921
+            ],
+            [
+              47,
+              2636
+            ],
+            [
+              48,
+              2262
+            ]
+          ]
+        },
+        {
+          "flavor": "set",
+          "n": 2000000,
+          "bits": 55,
+          "lambda": 15625,
+          "distinct_keys": 2000000,
+          "mem_used": 38126064,
+          "bytes_per_key": 19.063,
+          "node_counts": {
+            "immed": 1710830,
+            "leaf_linear": 2536,
+            "leaf_bitmap": 0,
+            "branch_l3": 1,
+            "branch_l7": 0,
+            "branch_b": 31147,
+            "branch_u": 128,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 395952,
+            "leaf_bitmap": 0,
+            "branch_l3": 64,
+            "branch_l7": 0,
+            "branch_b": 37197568,
+            "branch_u": 532480,
+            "total": 38126064
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            1711744,
+            32768,
+            128,
+            1,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            31146,
+            128,
+            1,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            914,
+            1622,
+            0,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              1,
+              1513724
+            ],
+            [
+              2,
+              182566
+            ],
+            [
+              3,
+              14540
+            ],
+            [
+              4,
+              870
+            ],
+            [
+              5,
+              43
+            ],
+            [
+              6,
+              1
+            ],
+            [
+              33,
+              1
+            ],
+            [
+              34,
+              5
+            ],
+            [
+              35,
+              1
+            ],
+            [
+              36,
+              1
+            ],
+            [
+              37,
+              5
+            ],
+            [
+              38,
+              13
+            ],
+            [
+              39,
+              21
+            ],
+            [
+              40,
+              33
+            ],
+            [
+              41,
+              56
+            ],
+            [
+              42,
+              84
+            ],
+            [
+              43,
+              93
+            ],
+            [
+              44,
+              140
+            ],
+            [
+              45,
+              191
+            ],
+            [
+              46,
+              233
+            ],
+            [
+              47,
+              325
+            ],
+            [
+              48,
+              420
+            ]
+          ]
+        },
+        {
+          "flavor": "map",
+          "n": 2000000,
+          "bits": 55,
+          "lambda": 15625,
+          "distinct_keys": 2000000,
+          "mem_used": 45302288,
+          "bytes_per_key": 22.6511,
+          "node_counts": {
+            "immed": 1513724,
+            "leaf_linear": 199642,
+            "leaf_bitmap": 0,
+            "branch_l3": 1,
+            "branch_l7": 0,
+            "branch_b": 31147,
+            "branch_u": 128,
+            "full_expanse": 0
+          },
+          "node_bytes": {
+            "immed_values": 0,
+            "leaf_linear": 7572176,
+            "leaf_bitmap": 0,
+            "branch_l3": 64,
+            "branch_l7": 0,
+            "branch_b": 37197568,
+            "branch_u": 532480,
+            "total": 45302288
+          },
+          "depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            1711744,
+            32768,
+            128,
+            1,
+            1
+          ],
+          "branch_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            31146,
+            128,
+            1,
+            1
+          ],
+          "leaf_depth_histogram": [
+            0,
+            0,
+            0,
+            0,
+            198020,
+            1622,
+            0,
+            0,
+            0
+          ],
+          "leaf_pop_histogram": [
+            [
+              1,
+              1513724
+            ],
+            [
+              2,
+              182566
+            ],
+            [
+              3,
+              14540
+            ],
+            [
+              4,
+              870
+            ],
+            [
+              5,
+              43
+            ],
+            [
+              6,
+              1
+            ],
+            [
+              33,
+              1
+            ],
+            [
+              34,
+              5
+            ],
+            [
+              35,
+              1
+            ],
+            [
+              36,
+              1
+            ],
+            [
+              37,
+              5
+            ],
+            [
+              38,
+              13
+            ],
+            [
+              39,
+              21
+            ],
+            [
+              40,
+              33
+            ],
+            [
+              41,
+              56
+            ],
+            [
+              42,
+              84
+            ],
+            [
+              43,
+              93
+            ],
+            [
+              44,
+              140
+            ],
+            [
+              45,
+              191
+            ],
+            [
+              46,
+              233
+            ],
+            [
+              47,
+              325
+            ],
+            [
+              48,
+              420
+            ]
+          ]
+        }
+      ]
+    }
   }
 }
