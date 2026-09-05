@@ -767,11 +767,11 @@ measured, and the gap they were opened against has roughly halved:
 
 | | when #615 was filed | current published artifact |
 |---|---:|---:|
-| Cortex-M4 `ingest`, Expanse vs `open_hash` | 12.5x (5,074 vs 406) | **7.3x** (2,967 vs 406) |
-| Cortex-M4 `ingest`, Expanse vs `sorted_array` | 5.2x (5,074 vs 971) | **3.1x** (2,967 vs 971) |
+| Cortex-M4 `ingest`, Expanse vs `open_hash` | 12.5x (5,074 vs 406) | **7.4x** (2,964 vs 403) |
+| Cortex-M4 `ingest`, Expanse vs `sorted_array` | 5.2x (5,074 vs 971) | **3.0x** (2,964 vs 988) |
 | Xtensa `esp32_tsdb_ingest` N=2000 vs hash | 3.8x (5,116 vs 1,337) | **2.26x** (3,025 vs 1,338) |
 
-*(measured: `docs/benchmarks/stm32h747/results/results.json` at `fce563c2` and
+*(measured: `docs/benchmarks/stm32h747/results/results.json` at `a98d8d3c` and
 `docs/benchmarks/embedded/results/esp32.json` at `bec51c48`; the ESP32 twins take a FreeRTOS mutex
 inside the timed window, so that ratio remains a lower bound on the engine
 gap and the Cortex-M4 one the closer estimate.)*
@@ -863,14 +863,32 @@ the M4 `ingest` cell moved 3,050 → 2,967 (−2.7%) inside a 7.3% twin floor an
 the M7 cells +0.8% to +6.2% against floors of 0.0–5.8%, so the host
 `map32_insert` −3.34% has **no device verdict either way**; the eviction
 fixtures the same PRs shortened fell 6–24% on both cores, attributed. The
-headline gap is now 7.3× (2,967 vs 406) on the M4 and 2.26× on Xtensa at
-`bec51c48`. The one read-side movement of that pairing is recorded in the
-suite README with the host arm beside it: M7 `can_dispatch` +9.3% cache off
-and +8.0% cache on, M4 −2.4%, while Callgrind `map32_get can_dispatch` held
-106,341 instructions at every PR in the range and `trie32::map_get` shrank
-130 bytes in the image; cause unmeasured, a DWT `CPICNT`/`LSUCNT` arm being
-the candidate instrument. Still outstanding: the cycles inside the
-`HostAlloc` bridge on the M4 ingest fixture, which is on no committed arm.
+headline gap is now 7.4× (2,964 vs 403) on the M4 and 2.26× on Xtensa at
+`bec51c48`. The one read-side movement of that pairing — M7 `can_dispatch` +8–9% while
+the M4 cell fell 2.4% and Callgrind `map32_get can_dispatch` held 106,341
+instructions at every PR in the range — is now decomposed on the device. The
+harness gained a DWT-profile arm that reads the five ARMv7-M event counters
+around each operation (`cycles = instructions + CPI + EXC + SLEEP + LSU −
+FOLD`), and a second pairing of the same two engines under it *(measured:
+STM32H747I-DISCO, control `22908c15` against treatment `a98d8d3c`, both flash
+orders, per-op maxima below the 8-bit wrap on every `can_dispatch` cell;
+[`results/pairing_dwt_a98d8d3c/`](../benchmarks/stm32h747/results/pairing_dwt_a98d8d3c/pairing.txt))*
+reads, per get at 400 MHz: derived instructions **255.6 → 250.7 (−5)**, LSU
+stalls **21.0 → 21.0** cache on and 169.9 → 172.3 cache off, `CPICNT`
+**67.1 → 102.7 (+36)**, folded 90.6 → 92.0; on the M4, instructions +1, CPI
+−8.6, LSU +4. So the M7 movement is fewer instructions and unchanged data
+stalls under 35 more cycles of `CPICNT`, the counter that bundles
+instruction-fetch stalls with multi-cycle instructions; the same delta is
++17.7 at 64 MHz where the bus runs at core speed and +35 to +39 at 160 and
+400 MHz where it runs at half, which is the signature of instruction-side
+memory traffic rather than a longer instruction, and the treatment's
+`map_get` is 37 Thumb instructions shorter with two fewer `memcpy` calls and
+no new table branch or literal load. Which fetch-side event costs those cycles
+(I-cache conflict on the new code placement is the hypothesis) the DWT cannot
+say; a layout-controlled build (§8.1.3) is the instrument for that, and the
+cell stays recorded as a loss on the M7 until one is run. Still outstanding:
+the cycles inside the `HostAlloc` bridge on the M4 ingest fixture, which is
+on no committed arm.
 
 ### 8.1.8 The 32-bit ordered range walk: what the ranking found, what it did not, and what is left (#614)
 

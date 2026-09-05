@@ -111,47 +111,47 @@
     <text x="0" y="0" class="t-chart-title">Expanse on the M4 (200 MHz, no cache) vs the M7</text>
     <text x="0" y="13" class="t-sub">core cycles per operation, min of 5 (lower is better); ns from host-verified clocks</text>
     <text x="207" y="52" class="t-legend" text-anchor="end">ingest 2,000 keys / insert</text>
-    <rect x="215" y="30" width="11.8" height="11" rx="1" style="fill:#1d4ed8"/>
-    <text x="230.8" y="39" class="t-axis-label">789 (1,969 ns)</text>
-    <rect x="215" y="43" width="21.8" height="11" rx="1" style="fill:#93c5fd"/>
-    <text x="240.8" y="52" class="t-axis-label">1,456 (3,636 ns)</text>
+    <rect x="215" y="30" width="12.3" height="11" rx="1" style="fill:#1d4ed8"/>
+    <text x="231.3" y="39" class="t-axis-label">820 (2,047 ns)</text>
+    <rect x="215" y="43" width="22.8" height="11" rx="1" style="fill:#93c5fd"/>
+    <text x="241.8" y="52" class="t-axis-label">1,518 (3,790 ns)</text>
     <rect x="215" y="56" width="44.5" height="11" rx="1" style="fill:#f59e0b"/>
-    <text x="263.5" y="65" class="t-axis-label">2,967 (14,817 ns)</text>
+    <text x="263.5" y="65" class="t-axis-label">2,964 (14,804 ns)</text>
     <text x="207" y="104" class="t-legend" text-anchor="end">CAN dispatch / get</text>
-    <rect x="215" y="82" width="4.1" height="11" rx="1" style="fill:#1d4ed8"/>
-    <text x="223.1" y="91" class="t-axis-label">272 (680 ns)</text>
-    <rect x="215" y="95" width="7.2" height="11" rx="1" style="fill:#93c5fd"/>
-    <text x="226.2" y="104" class="t-axis-label">477 (1,191 ns)</text>
-    <rect x="215" y="108" width="18.2" height="11" rx="1" style="fill:#f59e0b"/>
-    <text x="237.2" y="117" class="t-axis-label">1,211 (6,045 ns)</text>
+    <rect x="215" y="82" width="4.2" height="11" rx="1" style="fill:#1d4ed8"/>
+    <text x="223.2" y="91" class="t-axis-label">282 (703 ns)</text>
+    <rect x="215" y="95" width="7.5" height="11" rx="1" style="fill:#93c5fd"/>
+    <text x="226.5" y="104" class="t-axis-label">500 (1,248 ns)</text>
+    <rect x="215" y="108" width="18.6" height="11" rx="1" style="fill:#f59e0b"/>
+    <text x="237.6" y="117" class="t-axis-label">1,237 (6,177 ns)</text>
     <text x="207" y="156" class="t-legend" text-anchor="end">evict 600 of 2,000 / per-key loop</text>
-    <rect x="215" y="134" width="38.7" height="11" rx="1" style="fill:#1d4ed8"/>
-    <text x="257.7" y="143" class="t-axis-label">2,580 (6,443 ns)</text>
-    <rect x="215" y="147" width="67.7" height="11" rx="1" style="fill:#93c5fd"/>
-    <text x="286.7" y="156" class="t-axis-label">4,513 (11,270 ns)</text>
-    <rect x="215" y="160" width="145.3" height="11" rx="1" style="fill:#f59e0b"/>
-    <text x="364.3" y="169" class="t-axis-label">9,686 (48,369 ns)</text>
+    <rect x="215" y="134" width="39.5" height="11" rx="1" style="fill:#1d4ed8"/>
+    <text x="258.5" y="143" class="t-axis-label">2,634 (6,577 ns)</text>
+    <rect x="215" y="147" width="68.9" height="11" rx="1" style="fill:#93c5fd"/>
+    <text x="287.9" y="156" class="t-axis-label">4,596 (11,476 ns)</text>
+    <rect x="215" y="160" width="145.7" height="11" rx="1" style="fill:#f59e0b"/>
+    <text x="364.7" y="169" class="t-axis-label">9,712 (48,502 ns)</text>
     <text x="207" y="208" class="t-legend" text-anchor="end">evict 600 of 2,000 / remove_range</text>
-    <rect x="215" y="186" width="12.8" height="11" rx="1" style="fill:#1d4ed8"/>
-    <text x="231.8" y="195" class="t-axis-label">856 (2,136 ns)</text>
+    <rect x="215" y="186" width="12.7" height="11" rx="1" style="fill:#1d4ed8"/>
+    <text x="231.7" y="195" class="t-axis-label">847 (2,115 ns)</text>
     <rect x="215" y="199" width="22.4" height="11" rx="1" style="fill:#93c5fd"/>
-    <text x="241.4" y="208" class="t-axis-label">1,495 (3,734 ns)</text>
-    <rect x="215" y="212" width="48.5" height="11" rx="1" style="fill:#f59e0b"/>
-    <text x="267.5" y="221" class="t-axis-label">3,234 (16,151 ns)</text>
+    <text x="241.4" y="208" class="t-axis-label">1,493 (3,728 ns)</text>
+    <rect x="215" y="212" width="48.2" height="11" rx="1" style="fill:#f59e0b"/>
+    <text x="267.2" y="221" class="t-axis-label">3,213 (16,047 ns)</text>
     <text x="207" y="260" class="t-legend" text-anchor="end">evict 25 of 2,000 / per-key loop</text>
-    <rect x="215" y="238" width="40.0" height="11" rx="1" style="fill:#1d4ed8"/>
-    <text x="259.0" y="247" class="t-axis-label">2,668 (6,661 ns)</text>
-    <rect x="215" y="251" width="68.8" height="11" rx="1" style="fill:#93c5fd"/>
-    <text x="287.8" y="260" class="t-axis-label">4,584 (11,446 ns)</text>
-    <rect x="215" y="264" width="137.7" height="11" rx="1" style="fill:#f59e0b"/>
-    <text x="356.7" y="273" class="t-axis-label">9,177 (45,830 ns)</text>
+    <rect x="215" y="238" width="41.5" height="11" rx="1" style="fill:#1d4ed8"/>
+    <text x="260.5" y="247" class="t-axis-label">2,764 (6,901 ns)</text>
+    <rect x="215" y="251" width="70.3" height="11" rx="1" style="fill:#93c5fd"/>
+    <text x="289.3" y="260" class="t-axis-label">4,684 (11,695 ns)</text>
+    <rect x="215" y="264" width="137.5" height="11" rx="1" style="fill:#f59e0b"/>
+    <text x="356.5" y="273" class="t-axis-label">9,168 (45,784 ns)</text>
     <text x="207" y="312" class="t-legend" text-anchor="end">evict 25 of 2,000 / remove_range</text>
-    <rect x="215" y="290" width="14.7" height="11" rx="1" style="fill:#1d4ed8"/>
-    <text x="233.7" y="299" class="t-axis-label">977 (2,439 ns)</text>
-    <rect x="215" y="303" width="24.6" height="11" rx="1" style="fill:#93c5fd"/>
-    <text x="243.6" y="312" class="t-axis-label">1,641 (4,098 ns)</text>
-    <rect x="215" y="316" width="48.9" height="11" rx="1" style="fill:#f59e0b"/>
-    <text x="267.9" y="325" class="t-axis-label">3,260 (16,281 ns)</text>
+    <rect x="215" y="290" width="14.5" height="11" rx="1" style="fill:#1d4ed8"/>
+    <text x="233.5" y="299" class="t-axis-label">970 (2,421 ns)</text>
+    <rect x="215" y="303" width="24.7" height="11" rx="1" style="fill:#93c5fd"/>
+    <text x="243.7" y="312" class="t-axis-label">1,645 (4,106 ns)</text>
+    <rect x="215" y="316" width="48.7" height="11" rx="1" style="fill:#f59e0b"/>
+    <text x="267.7" y="325" class="t-axis-label">3,248 (16,222 ns)</text>
     <rect x="0" y="350" width="10" height="10" rx="1" style="fill:#1d4ed8"/>
     <text x="14" y="359" class="t-note">M7 400 MHz, D-cache on</text>
     <rect x="0" y="365" width="10" height="10" rx="1" style="fill:#93c5fd"/>
@@ -168,26 +168,26 @@
     <text x="0" y="71" class="t-axis-label">full duty</text>
     <rect x="80" y="62" width="60.0" height="10" rx="1" style="fill:#2563eb"/>
     <text x="144.0" y="71" class="t-axis-label">100.0%</text>
-    <text x="200" y="71" class="t-axis-label">16 / 16</text>
-    <text x="315" y="71" class="t-axis-label">398 / 2,250</text>
+    <text x="200" y="71" class="t-axis-label">2 / 1</text>
+    <text x="315" y="71" class="t-axis-label">402 / 2,211</text>
     <text x="450" y="71" class="t-axis-label">0</text>
     <text x="0" y="87" class="t-axis-label">40k/s</text>
-    <rect x="80" y="78" width="36.4" height="10" rx="1" style="fill:#2563eb"/>
-    <text x="120.4" y="87" class="t-axis-label">60.7%</text>
-    <text x="200" y="87" class="t-axis-label">13,823 / 17,767</text>
-    <text x="315" y="87" class="t-axis-label">1,093 / 2,275</text>
+    <rect x="80" y="78" width="36.0" height="10" rx="1" style="fill:#2563eb"/>
+    <text x="120.0" y="87" class="t-axis-label">60.0%</text>
+    <text x="200" y="87" class="t-axis-label">14,362 / 18,376</text>
+    <text x="315" y="87" class="t-axis-label">1,081 / 2,233</text>
     <text x="450" y="87" class="t-axis-label">0</text>
     <text x="0" y="103" class="t-axis-label">10k/s</text>
-    <rect x="80" y="94" width="13.0" height="10" rx="1" style="fill:#2563eb"/>
-    <text x="97.0" y="103" class="t-axis-label">21.7%</text>
-    <text x="200" y="103" class="t-axis-label">21,816 / 22,731</text>
-    <text x="315" y="103" class="t-axis-label">1,598 / 2,274</text>
+    <rect x="80" y="94" width="12.8" height="10" rx="1" style="fill:#2563eb"/>
+    <text x="96.8" y="103" class="t-axis-label">21.3%</text>
+    <text x="200" y="103" class="t-axis-label">22,357 / 23,332</text>
+    <text x="315" y="103" class="t-axis-label">1,572 / 2,229</text>
     <text x="450" y="103" class="t-axis-label">0</text>
     <text x="0" y="119" class="t-axis-label">1k/s</text>
     <rect x="80" y="110" width="1.5" height="10" rx="1" style="fill:#2563eb"/>
-    <text x="85.5" y="119" class="t-axis-label">2.6%</text>
-    <text x="200" y="119" class="t-axis-label">24,319 / 24,132</text>
-    <text x="315" y="119" class="t-axis-label">1,850 / 2,268</text>
+    <text x="85.5" y="119" class="t-axis-label">2.5%</text>
+    <text x="200" y="119" class="t-axis-label">24,905 / 24,700</text>
+    <text x="315" y="119" class="t-axis-label">1,813 / 2,227</text>
     <text x="450" y="119" class="t-axis-label">0</text>
     <rect x="0" y="144" width="10" height="10" rx="1" style="fill:#94a3b8"/>
     <text x="14" y="153" class="t-legend">hardware-semaphore twin: both sides lock HSEM 0 per access</text>
@@ -195,26 +195,26 @@
     <text x="0" y="188" class="t-axis-label">full duty</text>
     <rect x="80" y="179" width="1.0" height="10" rx="1" style="fill:#94a3b8"/>
     <text x="85.0" y="188" class="t-axis-label">0.0%</text>
-    <text x="200" y="188" class="t-axis-label">4,557 / 4,531</text>
-    <text x="315" y="188" class="t-axis-label">10,846 / 57,666</text>
+    <text x="200" y="188" class="t-axis-label">4,467 / 4,429</text>
+    <text x="315" y="188" class="t-axis-label">11,087 / 60,886</text>
     <text x="450" y="188" class="t-axis-label">0</text>
     <text x="0" y="204" class="t-axis-label">40k/s</text>
     <rect x="80" y="195" width="1.0" height="10" rx="1" style="fill:#94a3b8"/>
     <text x="85.0" y="204" class="t-axis-label">0.0%</text>
-    <text x="200" y="204" class="t-axis-label">18,085 / 18,011</text>
-    <text x="315" y="204" class="t-axis-label">2,605 / 4,800</text>
+    <text x="200" y="204" class="t-axis-label">18,420 / 18,316</text>
+    <text x="315" y="204" class="t-axis-label">2,564 / 4,798</text>
     <text x="450" y="204" class="t-axis-label">0</text>
     <text x="0" y="220" class="t-axis-label">10k/s</text>
     <rect x="80" y="211" width="1.0" height="10" rx="1" style="fill:#94a3b8"/>
     <text x="85.0" y="220" class="t-axis-label">0.0%</text>
-    <text x="200" y="220" class="t-axis-label">21,935 / 21,649</text>
-    <text x="315" y="220" class="t-axis-label">2,129 / 3,774</text>
+    <text x="200" y="220" class="t-axis-label">22,149 / 22,075</text>
+    <text x="315" y="220" class="t-axis-label">2,102 / 3,718</text>
     <text x="450" y="220" class="t-axis-label">0</text>
     <text x="0" y="236" class="t-axis-label">1k/s</text>
     <rect x="80" y="227" width="1.0" height="10" rx="1" style="fill:#94a3b8"/>
     <text x="85.0" y="236" class="t-axis-label">0.0%</text>
-    <text x="200" y="236" class="t-axis-label">22,951 / 23,001</text>
-    <text x="315" y="236" class="t-axis-label">2,013 / 3,720</text>
+    <text x="200" y="236" class="t-axis-label">23,333 / 23,195</text>
+    <text x="315" y="236" class="t-axis-label">1,994 / 3,718</text>
     <text x="450" y="236" class="t-axis-label">0</text>
     <rect x="0" y="261" width="10" height="10" rx="1" style="fill:#f59e0b"/>
     <text x="14" y="270" class="t-legend">sync32 reads with the M7 heap cacheable — unsupported by the header</text>
@@ -223,29 +223,29 @@
     <rect x="80" y="296" width="60.0" height="10" rx="1" style="fill:#f59e0b"/>
     <text x="144.0" y="305" class="t-axis-label">100.0%</text>
     <text x="200" y="305" class="t-axis-label">0 / 0</text>
-    <text x="315" y="305" class="t-axis-label">906 / 908</text>
+    <text x="315" y="305" class="t-axis-label">809 / 813</text>
     <text x="450" y="305" class="t-axis-label">0</text>
     <text x="0" y="321" class="t-axis-label">40k/s</text>
     <rect x="80" y="312" width="60.0" height="10" rx="1" style="fill:#f59e0b"/>
     <text x="144.0" y="321" class="t-axis-label">100.0%</text>
     <text x="200" y="321" class="t-axis-label">0 / 0</text>
-    <text x="315" y="321" class="t-axis-label">1,180 / 1,180</text>
+    <text x="315" y="321" class="t-axis-label">809 / 809</text>
     <text x="450" y="321" class="t-axis-label">0</text>
     <text x="0" y="337" class="t-axis-label">10k/s</text>
-    <rect x="80" y="328" width="60.0" height="10" rx="1" style="fill:#f59e0b"/>
-    <text x="144.0" y="337" class="t-axis-label">100.0%</text>
-    <text x="200" y="337" class="t-axis-label">0 / 0</text>
-    <text x="315" y="337" class="t-axis-label">1,180 / 1,217</text>
-    <text x="450" y="337" class="t-axis-label">0</text>
+    <rect x="80" y="328" width="6.8" height="10" rx="1" style="fill:#f59e0b"/>
+    <text x="90.8" y="337" class="t-axis-label">11.3%</text>
+    <text x="200" y="337" class="t-axis-label">420 / 39,786</text>
+    <text x="315" y="337" class="t-axis-label">1,640 / 2,242</text>
+    <text x="450" y="337" class="t-axis-label t-loss">9515</text>
     <text x="0" y="353" class="t-axis-label">1k/s</text>
-    <rect x="80" y="344" width="60.0" height="10" rx="1" style="fill:#f59e0b"/>
-    <text x="144.0" y="353" class="t-axis-label">100.0%</text>
-    <text x="200" y="353" class="t-axis-label">0 / 0</text>
-    <text x="315" y="353" class="t-axis-label">1,180 / 1,183</text>
-    <text x="450" y="353" class="t-axis-label">0</text>
+    <rect x="80" y="344" width="3.7" height="10" rx="1" style="fill:#f59e0b"/>
+    <text x="87.7" y="353" class="t-axis-label">6.1%</text>
+    <text x="200" y="353" class="t-axis-label">0 / 40,612</text>
+    <text x="315" y="353" class="t-axis-label">1,704 / 2,211</text>
+    <text x="450" y="353" class="t-axis-label t-loss">10156</text>
     <text x="0" y="387" class="t-note">M4 reads AXI SRAM across the D2/D1 bridge; every cell acknowledged stop; refusals 0, arena-full 0</text>
   </g>
   <text x="20" y="512" class="t-note">measured: STM32H747I-DISCO, Cortex-M7 CPUID 0x411fc271 (IDCODE 0x20036450), D-cache 4-way x 128 sets x 32 B lines; direct SMPS supply, VOS3 to 160 MHz, VOS1 at 400 MHz</text>
-  <text x="20" y="526" class="t-note">clock check from the host side over 320M cycles: 64 nominal / 64.1 measured MHz, 160 nominal / 160.2 measured MHz, 200 nominal / 200.3 measured MHz, 400 nominal / 400.5 measured MHz</text>
-  <text x="20" y="540" class="t-note">DWT CYCCNT, single board; libexpanse staticlib commit fce563c2; harness integrations/stm32h747; source docs/benchmarks/stm32h747/results.json</text>
+  <text x="20" y="526" class="t-note">clock check from the host side over 320M cycles: 64 nominal / 64.1 measured MHz, 160 nominal / 160.1 measured MHz, 200 nominal / 200.3 measured MHz, 400 nominal / 400.5 measured MHz</text>
+  <text x="20" y="540" class="t-note">DWT CYCCNT, single board; libexpanse staticlib commit a98d8d3c; harness integrations/stm32h747; source docs/benchmarks/stm32h747/results.json</text>
 </svg>

@@ -1,0 +1,9 @@
+control engine 22908c15: libexpanse.a sha256 a4b164c442e4a2322b3e34c22ccecc5366d4e45da02c64a0e16b4ae43e8965d1
+treatment engine a98d8d3c (engine source identical to fce563c2; git diff fce563c2 a98d8d3c -- crates/ is empty): libexpanse.a sha256 1e16c8c4980afb7228666a1345a2ce1490fdbeed004c669d3b2e32d9795501d0
+harness firmware: integrations/stm32h747 with the DWT-profile rows (this PR), identical for both arms; arm-none-eabi-gcc 14.3.1 (Arm GNU Toolchain 14.3.Rel1); rustc 1.98.1
+elf_ctrl_dwt/m4.elf sha256 1f939e798722a62adbed968d90f9ac19311ba156ae9cdf5e4c958897004d9e7d
+elf_ctrl_dwt/m7.elf sha256 987035e6d2e768322660820b203af341a086744b6508f4f2bec04e21e0c87d6a
+elf_treat_dwt/m4.elf sha256 62362f2d4c3c2fc93f522b9e96da5d8bf54a21357cfbb5f6210c4da622a09a31
+elf_treat_dwt/m7.elf sha256 7830d77236711656684a261311a5b980dd5a09d334c6123a604e1f52c0f768d5
+flash order: control_a, treatment_a, treatment_b, control_b; one board, one sitting; each capture = harness min of 5 passes per cell, DWT rows = the pass with the fewest cycles
+static, trie32::map_get in m7.elf (arm-none-eabi-objdump): control 535 instructions, 3 bl memcpy, 1 tbb/tbh, 0 pc-relative ldr; treatment 498 instructions, 1 bl memcpy, 1 tbb/tbh, 0 pc-relative ldr

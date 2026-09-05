@@ -68,6 +68,11 @@
 #define DEMCR         REG(0xE000EDFCu)
 #define DWT_CTRL      REG(0xE0001000u)
 #define DWT_CYCCNT    REG(0xE0001004u)
+#define DWT_CPICNT    REG(0xE0001008u)
+#define DWT_EXCCNT    REG(0xE000100Cu)
+#define DWT_SLEEPCNT  REG(0xE0001010u)
+#define DWT_LSUCNT    REG(0xE0001014u)
+#define DWT_FOLDCNT   REG(0xE0001018u)
 #define DWT_LAR       REG(0xE0001FB0u)
 #define SCB_CPUID     REG(0xE000ED00u)
 #define SCB_CCR       REG(0xE000ED14u)
@@ -152,6 +157,48 @@ void *expanse_host_malloc(size_t n) { return acct_malloc(n); }
 void expanse_host_free(void *p) { acct_free(p); }
 static size_t heap_in_use(void) { return (size_t)mallinfo().uordblks; }
 
+/* ---- DWT profiling counters: where the cycles of one operation go ------- */
+/* ARMv7-M DWT carries five 8-bit event counters next to CYCCNT (present when
+ * DWT_CTRL.NOPRFCNT is clear): CPICNT (instruction-fetch stalls and the extra
+ * cycles of multi-cycle instructions), EXCCNT (exception entry/exit), SLEEPCNT,
+ * LSUCNT (extra cycles of loads and stores, i.e. data-side stalls) and FOLDCNT
+ * (folded branches, executed in zero cycles). Per ARM DDI 0403E C1.8:
+ *   cycles = instructions + CPI + EXC + SLEEP + LSU - FOLD,
+ * so the instruction count of a window follows from the six reads, and a
+ * cycle movement between two engine builds can be split into instructions,
+ * fetch stalls and data stalls without an ITM trace. The counters wrap at 256,
+ * which is why they are sampled around ONE operation at a time (a few hundred
+ * cycles) and accumulated in 32 bits; the per-op maximum of each counter is
+ * reported so a value near 255 flags a possible wrap, and `suspect` counts the
+ * operations whose deltas violate the identity (instructions <= 0). The
+ * bracketing reads cost cycles of their own: the `nop` row measures an empty
+ * window with the same bracket, and the harvest subtracts it. */
+typedef struct { uint32_t cycles, cpi, exc, sleep, lsu, fold, cpi_max, lsu_max, suspect; } dwt_prof;
+static bool dwt_prf;
+static void dwt_prof_init(void) {
+    dwt_prf = !(DWT_CTRL & (1u << 24));                 /* NOPRFCNT clear: counters implemented */
+    if (dwt_prf) DWT_CTRL |= (0x1Fu << 17);            /* CPI/EXC/SLEEP/LSU/FOLD EVTENA: counters run */
+}
+static inline void dwt_snap(uint32_t s[6]) {
+    s[0] = DWT_CYCCNT; s[1] = DWT_CPICNT; s[2] = DWT_EXCCNT; s[3] = DWT_SLEEPCNT; s[4] = DWT_LSUCNT; s[5] = DWT_FOLDCNT;
+}
+static inline void dwt_acc(dwt_prof *p, const uint32_t a[6], const uint32_t b[6]) {
+    uint32_t cy = b[0] - a[0];
+    uint32_t cpi = (b[1] - a[1]) & 0xFFu, exc = (b[2] - a[2]) & 0xFFu, sl = (b[3] - a[3]) & 0xFFu;
+    uint32_t lsu = (b[4] - a[4]) & 0xFFu, fold = (b[5] - a[5]) & 0xFFu;
+    p->cycles += cy; p->cpi += cpi; p->exc += exc; p->sleep += sl; p->lsu += lsu; p->fold += fold;
+    if (cpi > p->cpi_max) p->cpi_max = cpi;
+    if (lsu > p->lsu_max) p->lsu_max = lsu;
+    if (cpi + exc + sl + lsu >= cy + fold) p->suspect++;
+}
+static void result_dwt(const char *fixture, const char *impl, uint32_t dcache, uint32_t pass, const dwt_prof *p, uint32_t ops) {
+    uart_puts("RESULT name=dwt"); ks("fixture", fixture); ks("impl", impl); ks("core", CORE_NAME);
+    kv("sysclk", sysclk_hz); kv("dcache", dcache); kv("pass", pass); kv("ops", ops);
+    kv("cycles", p->cycles); kv("cpi", p->cpi); kv("exc", p->exc); kv("sleep", p->sleep); kv("lsu", p->lsu); kv("fold", p->fold);
+    kv("cpi_max", p->cpi_max); kv("lsu_max", p->lsu_max); kv("suspect", p->suspect);
+    uart_puts("\r\n");
+}
+
 /* ---- caches, MPU, cycle counter, clocks (M7) ------------------------------ */
 #ifdef CORE_M7
 static void icache_enable(void) { dsb_isb(); SCB_ICIALLU = 0; dsb_isb(); SCB_CCR |= (1u << 17); dsb_isb(); }
@@ -183,7 +230,7 @@ static void mpu_init(void) {
     MPU_CTRL = 1u | (1u << 2); /* enable + PRIVDEFENA */
     dsb_isb();
 }
-static void dwt_init(void) { DEMCR |= (1u << 24); DWT_LAR = 0xC5ACCE55u; DWT_CYCCNT = 0; DWT_CTRL |= 1u; }
+static void dwt_init(void) { DEMCR |= (1u << 24); DWT_LAR = 0xC5ACCE55u; DWT_CYCCNT = 0; DWT_CTRL |= 1u; dwt_prof_init(); }
 static void calibrate(void) { /* host times TICK..TOCK */
     uart_puts("TICK\r\n");
     uint32_t t0 = cyc(); while (cyc() - t0 < 320000000u) {}
@@ -216,7 +263,7 @@ static void power_vos1(void) {
     while (!(PWR_D3CR & (1u << 13))) {}
 }
 #else
-static void dwt_init(void) { DEMCR |= (1u << 24); DWT_CYCCNT = 0; DWT_CTRL |= 1u; }
+static void dwt_init(void) { DEMCR |= (1u << 24); DWT_CYCCNT = 0; DWT_CTRL |= 1u; dwt_prof_init(); }
 static void calibrate(void) { /* the M7 relays these states as TICK/TOCK */
     SHM->m4_state = M4_CALIB_START; dsb_isb();
     uint32_t t0 = cyc(); while (cyc() - t0 < 320000000u) {}
@@ -265,6 +312,42 @@ static uint32_t fx_can(const alt_ops *ops, void *m) {
     sink = sum;
     if (sum != (N_CAN * (N_CAN - 1)) / 2) uart_puts("CHECK can sum\r\n");
     return t;
+}
+
+/* The same two loops as fx_can / fx_ingest, with the six-counter bracket
+ * around each operation instead of one CYCCNT pair around the loop. Not the
+ * published fixture (the bracket adds cycles; see the `nop` row) — the
+ * decomposition of the per-op cost, for the engine and for each twin. */
+static void fx_can_dwt(const alt_ops *ops, void *m, dwt_prof *p) {
+    uint32_t a[6], b[6], sum = 0, v;
+    memset(p, 0, sizeof *p);
+    for (uint32_t i = 0; i < N_CAN; i++) {
+        dwt_snap(a);
+        bool hit = ops->get(m, can_keys[i], &v);
+        dwt_snap(b);
+        if (hit) sum += v;
+        dwt_acc(p, a, b);
+    }
+    sink = sum;
+    if (sum != (N_CAN * (N_CAN - 1)) / 2) uart_puts("CHECK can sum (dwt)\r\n");
+}
+static void fx_ingest_dwt(const alt_ops *ops, dwt_prof *p) {
+    uint32_t a[6], b[6], v = 0;
+    memset(p, 0, sizeof *p);
+    void *m = ops->create(N_INGEST);
+    for (uint32_t i = 0; i < N_INGEST; i++) {
+        dwt_snap(a);
+        ops->insert(m, 1700000000u + i, 42);
+        dwt_snap(b);
+        dwt_acc(p, a, b);
+    }
+    if (!ops->get(m, 1700000000u + N_INGEST - 1, &v) || v != 42) uart_puts("CHECK ingest (dwt)\r\n");
+    ops->destroy(m);
+}
+static void fx_nop_dwt(dwt_prof *p) { /* the bracket alone: what the harvest subtracts */
+    uint32_t a[6], b[6];
+    memset(p, 0, sizeof *p);
+    for (uint32_t i = 0; i < N_CAN; i++) { dwt_snap(a); dwt_snap(b); dwt_acc(p, a, b); }
 }
 
 static uint32_t fnv1a(const uint8_t *d, size_t n) {
@@ -324,10 +407,13 @@ static uint32_t fx_evict(const alt_ops *ops, seen_fn seen, int mode, uint32_t *e
 }
 
 static void run_fixtures(uint32_t dcache, bool report_bytes) {
+    dwt_prof prof;
+    if (dwt_prf) for (uint32_t p = 0; p < PASSES; p++) { fx_nop_dwt(&prof); result_dwt("nop", "none", dcache, p, &prof, N_CAN); }
     for (size_t k = 0; k < N_IMPLS; k++) {
         const alt_ops *ops = impls[k];
         size_t hd = 0, rd = 0;
         for (uint32_t p = 0; p < PASSES; p++) result("ingest", ops->name, dcache, p, fx_ingest(ops, p ? 0 : &hd, p ? 0 : &rd), N_INGEST);
+        if (dwt_prf) for (uint32_t p = 0; p < PASSES; p++) { fx_ingest_dwt(ops, &prof); result_dwt("ingest", ops->name, dcache, p, &prof, N_INGEST); }
         if (report_bytes) {
             uart_puts("RESULT name=bytes"); ks("impl", ops->name); ks("core", CORE_NAME); ks("shape", "ingest"); kv("keys", N_INGEST);
             kv("heap_bytes", hd); kv("req_bytes", rd); uart_puts("\r\n");
@@ -335,6 +421,7 @@ static void run_fixtures(uint32_t dcache, bool report_bytes) {
         void *can = ops->create(N_CAN);
         for (uint32_t i = 0; i < N_CAN; i++) ops->insert(can, can_keys[i], i);
         for (uint32_t p = 0; p < PASSES; p++) result("can_dispatch", ops->name, dcache, p, fx_can(ops, can), N_CAN);
+        if (dwt_prf) for (uint32_t p = 0; p < PASSES; p++) { fx_can_dwt(ops, can, &prof); result_dwt("can_dispatch", ops->name, dcache, p, &prof, N_CAN); }
         ops->destroy(can);
         if (report_bytes) {
             size_t h0 = heap_in_use(), r0 = acct_live(); void *a, *b; ble_build(ops, &a, &b, seen_bulk);
@@ -505,6 +592,7 @@ static void banner(void) {
     kv("dcache_ways", ((ccsidr >> 3) & 0x3FF) + 1u); kv("dcache_sets", ((ccsidr >> 13) & 0x7FFF) + 1u);
 #endif
     kv("sync32_headroom", (uint32_t)expanse_sync32_mutation_headroom());
+    kv("dwt_prfcnt", dwt_prf);
     uart_puts("\r\n");
 }
 

@@ -2,7 +2,8 @@
  * Cortex-M4 (fixture runner, then sync32 reader) in D3 SRAM4 (64 KB).
  *
  *   0x38000000  header (this struct), always non-cacheable on the M7
- *   0x38004000  16 KB text buffer: the M4's RESULT lines, dumped by the M7
+ *   0x38004000  48 KB text buffer: the M4's RESULT lines, dumped by the M7
+ *               (the fixture, DWT-profile and ISR rows of one M4 turn are ~21 KB)
  *
  * The shared sync32 map itself lives in the M7's AXI SRAM heap; the M7's
  * MPU decides per cell whether that heap is cacheable.
@@ -17,7 +18,7 @@
 
 #define SHM_BASE       0x38000000u
 #define SHM_TEXT_BASE  (SHM_BASE + 0x4000u)
-#define SHM_TEXT_SIZE  0x4000u
+#define SHM_TEXT_SIZE  0xC000u
 
 enum { PHASE_IDLE = 0, PHASE_M4_FIXTURES = 1, PHASE_READER = 2, PHASE_STOP = 3, PHASE_EXIT = 4 };
 enum { READ_OPTIMISTIC = 0, READ_HSEM = 1 };

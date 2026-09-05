@@ -50,10 +50,10 @@ def ns(cycles: float, clk: int) -> float | None:
 
 fix = defaultdict(list)
 for r in rows:
-    if "pass" in r:
+    if "pass" in r and r["name"] != "dwt":
         fix[(r.get("core", "m7"), r.get("impl", "expanse"), r["name"], r["sysclk"], r["dcache"])].append(r["cycles"] / r["ops"])
 
-summary = {"info": info, "fixtures": [], "bytes": [], "isr": [], "dual": []}
+summary = {"info": info, "fixtures": [], "bytes": [], "isr": [], "dual": [], "dwt": []}
 print(f"{'core':<5}{'impl':<13}{'fixture':<20}{'sysclk':>10}{'dc':>3}{'n':>3}{'min cyc/op':>11}{'median':>9}{'max':>9}{'min ns':>9}")
 for (core, impl, name, clk, dc), xs in sorted(fix.items()):
     n = ns(min(xs), clk)
@@ -106,4 +106,39 @@ for r in rows:
               f"wait max {r.get('m4_wait_max', 0)} mean {d['m4_wait_mean']:.0f}; "
               f"writer {d['writer_cycles_per_mutation']:.0f} cyc/mut, refused {r['refused']}, arena_full {r['arena_full']}, "
               f"writer_bad {r['writer_bad']}, m4_stopped {r['m4_stopped']}")
+# DWT profiling rows: per (core, fixture, impl, clock, cache) the pass with the
+# fewest cycles, per operation, with the bracket's own cost (the `nop` row of the
+# same core/clock/cache) subtracted; instructions follow from the ARMv7-M identity
+# cycles = instr + CPI + EXC + SLEEP + LSU - FOLD.
+DWT_KEYS = ("cycles", "cpi", "exc", "sleep", "lsu", "fold")
+dwt = defaultdict(list)
+for r in rows:
+    if r.get("name") == "dwt":
+        dwt[(r.get("core", "m7"), r["fixture"], r["impl"], r["sysclk"], r["dcache"])].append(r)
+nop = {}
+for (core, fixture, impl, clk, dc), rs in dwt.items():
+    if fixture == "nop":
+        best = min(rs, key=lambda r: r["cycles"])
+        nop[(core, clk, dc)] = {k: best[k] / best["ops"] for k in DWT_KEYS}
+if dwt:
+    print(f"\n{'core':<5}{'impl':<13}{'fixture':<13}{'sysclk':>10}{'dc':>3}{'cyc/op':>8}{'instr':>7}{'cpi':>7}{'lsu':>7}{'exc':>5}{'slp':>5}{'fold':>6}{'cpi_max':>8}{'lsu_max':>8}{'suspect':>8}")
+for (core, fixture, impl, clk, dc), rs in sorted(dwt.items()):
+    best = min(rs, key=lambda r: r["cycles"])
+    raw = {k: best[k] / best["ops"] for k in DWT_KEYS}
+    base = nop.get((core, clk, dc), {k: 0.0 for k in DWT_KEYS})
+    net = {k: raw[k] - (base[k] if fixture != "nop" else 0.0) for k in DWT_KEYS}
+    net["instr"] = net["cycles"] - net["cpi"] - net["exc"] - net["sleep"] - net["lsu"] + net["fold"]
+    d = {"core": core, "fixture": fixture, "impl": impl, "sysclk": clk, "dcache": dc, "ops": best["ops"], "passes": len(rs),
+         "raw_per_op": raw, "bracket_per_op": base if fixture != "nop" else None, "net_per_op": net,
+         "cpi_max": best["cpi_max"], "lsu_max": best["lsu_max"], "suspect": best["suspect"],
+         # an 8-bit counter that reached 255 within one operation may have wrapped: the
+         # decomposition of such a row understates CPI/LSU and overstates instructions.
+         # The nop row is exempt: its six reads straddle the CYCCNT window (each counter's
+         # window is shifted by the reads before it), so the identity only holds after the
+         # bracket is subtracted from a real operation, which is the row's whole purpose.
+         "wrap_risk": fixture != "nop" and (best["cpi_max"] >= 255 or best["lsu_max"] >= 255 or best["suspect"] > 0),
+         "all_passes_cycles_per_op": [r["cycles"] / r["ops"] for r in rs]}
+    summary["dwt"].append(d)
+    print(f"{core:<5}{impl:<13}{fixture:<13}{clk:>10}{dc:>3}{net['cycles']:>8.1f}{net['instr']:>7.1f}{net['cpi']:>7.1f}{net['lsu']:>7.1f}"
+          f"{net['exc']:>5.1f}{net['sleep']:>5.1f}{net['fold']:>6.1f}{best['cpi_max']:>8}{best['lsu_max']:>8}{best['suspect']:>8}{'  WRAP?' if d['wrap_risk'] else ''}")
 json.dump(summary, open(path.rsplit(".", 1)[0] + ".json", "w"), indent=1)

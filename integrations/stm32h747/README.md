@@ -8,12 +8,12 @@ firmware for both cores of an STM32H747I-DISCO that links `libexpanse.a`
 cross-core reader cells, reporting DWT cycle counts over the ST-LINK V3
 virtual COM port. Tracking issue: #598. Results, charts and their reading live in
 `docs/benchmarks/stm32h747/` (the suite directory, same shape as the other
-`docs/benchmarks/` suites); the full tables are in `docs/BENCHMARKING.md`
-("Cortex-M7 on-target").
+`docs/benchmarks/` suites), whose README carries the full tables, rendered
+from `results.json` by `scripts/render_tables.py`.
 
 ## Results
 
-The measured results, the three charts and how to read each live in the suite directory, [`docs/benchmarks/stm32h747/`](../../docs/benchmarks/stm32h747/README.md) (results README, `METHODOLOGY.md` pre-registration record, `results.json`, `transcript.txt`, `run.sh`); the full tables are in [`docs/BENCHMARKING.md`](../../docs/BENCHMARKING.md) "Cortex-M7 on-target".
+The measured results, the three charts and how to read each live in the suite directory, [`docs/benchmarks/stm32h747/`](../../docs/benchmarks/stm32h747/README.md) (results README with the full tables, `METHODOLOGY.md` pre-registration record, `results.json`, `transcript.txt`, `run.sh`).
 
 **In one paragraph.** Expanse runs correctly on both cores; the cache-line node layout measurably pays off on the M7; and its interrupt-safe reads bound interrupt latency in a way that masking interrupts cannot. Against the structures firmware usually reaches for it loses raw point lookups and unordered inserts, and wins steady-state ordered expiry, memory density on dense keys, and the interrupt contract. Across two cores it is correct only with an uncached shared heap, and even then the second core's slow reads limit it to modest write rates.
 
@@ -24,6 +24,7 @@ The measured results, the three charts and how to read each live in the suite di
 | calibration | 320M cycles of spin between `TICK`/`TOCK` at each clock; `capture.py` times it on the host, which pins the core clock independently of the firmware's belief and lets `harvest.py` derive nanoseconds | `CALIB` |
 | fixtures | ingest (2,000 sequential inserts), CAN dispatch (500 gets), BLE TTL eviction in the bulk (600/2,000) and steady (25/2,000) shapes, each via the per-key `first`/`remove` loop and via `remove_range` (or a full scan for the hash table); 5 passes; at 64 MHz HSI, 160 MHz PLL1 (VOS3) and 400 MHz PLL1 (VOS1), D-cache off and on; for **four implementations** behind one vtable (`alts.c`): Expanse's C ABI, a sorted array with `bsearch`+`memmove`, an open-addressing hash table (same FNV-1a, ≤ 50% load), and newlib's `tsearch` | `RESULT name=… impl=… sysclk=… dcache=… pass=… cycles=… ops=…` |
 | bytes/key | newlib heap in use (`mallinfo`) and requested bytes around building each structure with 2,000 keys, sequential-key map and the BLE dual index | `RESULT name=bytes impl=… shape=…` |
+| DWT profile | the `ingest` and `can_dispatch` loops again, with the six DWT counters (`CYCCNT`, `CPICNT`, `EXCCNT`, `SLEEPCNT`, `LSUCNT`, `FOLDCNT`) read around **each** operation and accumulated in 32 bits, for all four implementations, plus an empty-bracket `nop` row the harvest subtracts; `cycles = instructions + CPI + EXC + SLEEP + LSU − FOLD` (ARMv7-M ARM C1.8) gives the instruction count, so a cycle movement splits into instructions, fetch/multi-cycle stalls (`CPICNT`) and data stalls (`LSUCNT`). The five event counters are 8-bit: `cpi_max`/`lsu_max` report the largest per-op delta and `suspect` the ops that violate the identity, and the harvest flags a row `wrap_risk` when either reached 255. Skipped when `DWT_CTRL.NOPRFCNT` says the core has no profiling counters (`INFO … dwt_prfcnt=0`) | `RESULT name=dwt fixture=… impl=… cycles=… cpi=… exc=… sleep=… lsu=… fold=… cpi_max=… lsu_max=… suspect=…` |
 | ISR arm | SysTick every 20,000 cycles calls `expanse_sync32_map_reader_try_get` while the main loop mutates a `sync32` map at full duty and at three paced rates (jittered gaps, so the writer cannot alias with the timer); counts OK / NOT_FOUND / BUSY, value-corruption checks, reclaim refusals, ISR entry latency (from the SysTick counter at entry) and ISR body cycles | `RESULT name=isr_sync32 …` |
 | twin | the same, with `cpsid i`/`cpsie i` around a plain `expanse_map_t` and a plain `expanse_map_get` in the ISR | `RESULT name=isr_critical_section …` |
 
@@ -49,7 +50,7 @@ finishes its own cells at 400 MHz it hands the M4 a turn through the SRAM4
 mailbox (`dual.h`): the M4 — 200 MHz HCLK, no cache — runs the same
 calibration (relayed by the M7 as `TICK`/`TOCK` so the host times it too),
 the same fixtures for all four implementations and the same ISR arms, into a
-16 KB text buffer the M7 dumps to the VCP with `core=m4` on every line.
+48 KB text buffer the M7 dumps to the VCP with `core=m4` on every line.
 
 Then the dual-core cells. The M7 allocates a `sync32` map in its own heap
 (AXI SRAM — every node body is a heap `Box`, the arena only holds handles,
