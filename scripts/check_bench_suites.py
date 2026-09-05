@@ -284,7 +284,18 @@ def splice(path: Path, body: list[str], write: bool) -> list[str]:
 # cargo bench targets
 # --------------------------------------------------------------------------
 def bench_targets(root: Path) -> dict[str, set[str]]:
-    """package name -> set of [[bench]] target names, from the crate manifests."""
+    """package name -> set of runnable target names, from the crate manifests.
+
+    Both `[[bench]]` and `[[bin]]` count. The check was `[[bench]]`-only while
+    every suite was a criterion or iai harness driven by `cargo bench`. The HOT
+    suite (#660) is not: its cells are `[[bin]]` targets, because each has to run
+    in its own process — HOT's node pool is a process-global `static`, so a warm
+    pool undercounts memory by up to 3.3x — and they are driven by the suite's
+    own `run.sh` rather than by cargo. Refusing to resolve a `[[bin]]` target
+    would have forced that suite to either misdeclare its runner as `builtin`,
+    claiming the workflow knows how to run it, or stay out of the manifest and so
+    out of the generated index.
+    """
     out: dict[str, set[str]] = {}
     for toml in sorted(root.glob("crates/*/Cargo.toml")):
         text = toml.read_text(encoding="utf-8")
@@ -292,10 +303,11 @@ def bench_targets(root: Path) -> dict[str, set[str]]:
         if not pkg:
             continue
         names = set()
-        for block in re.findall(r"(?ms)^\[\[bench\]\]\s*$(.*?)(?=^\[|\Z)", text):
-            m = re.search(r'(?m)^name\s*=\s*"([^"]+)"', block)
-            if m:
-                names.add(m.group(1))
+        for kind in ("bench", "bin"):
+            for block in re.findall(rf"(?ms)^\[\[{kind}\]\]\s*$(.*?)(?=^\[|\Z)", text):
+                m = re.search(r'(?m)^name\s*=\s*"([^"]+)"', block)
+                if m:
+                    names.add(m.group(1))
         out[pkg.group(1)] = names
     return out
 
