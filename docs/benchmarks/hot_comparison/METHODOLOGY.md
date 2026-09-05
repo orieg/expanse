@@ -1,6 +1,9 @@
 # HOT (Height Optimized Trie) vs. Expanse: Pre-Registration & Comparative Methodology
 
-**Status: pre-registration locked. No suite measurement has been taken.**
+**Status: §1–§9 (single-threaded arms) measured and published in
+[`README.md`](README.md). §10 (HOT-ROWEX concurrent arm,
+[#692](https://github.com/orieg/expanse/issues/692)) is pre-registration locked;
+no §10 measurement has been taken.**
 
 This document is commit 2 of the three-commit cadence (AGENTS.md §8.8): hypothesis,
 claims ceiling, expected-losses matrix and gate taxonomy, committed *before* the
@@ -1031,3 +1034,282 @@ follow from the outcome:
   its byte buffer). That is a property of the engine's string leaf and is logged
   for the engine, as §9.4 logged the `LEAF_CAP` density behaviour, rather than
   amended into this suite.
+## 10. HOT-ROWEX Concurrent Arm — Pre-Registration (#692)
+
+**Status: locked before any harness code. No §10 measurement has been taken.**
+
+This section is commit 1 of the three-commit cadence (AGENTS.md §8.8) for
+[#692](https://github.com/orieg/expanse/issues/692): the concurrent arm that
+#660 scoped and did not start. It extends this suite rather than opening a new
+one — same FFI foundation, same workload generator, same census, same runner —
+and it is written the way §2 was: everything already observed is disclosed,
+and every prediction informed by an observation is marked **(informed)**.
+
+### 10.1 The question, and the answer this arm is expected to give
+
+HOT ships a **ROWEX** variant (`hot/rowex/HOTRowex.hpp`, Read-Optimized Write
+EXclusion) that admits concurrent inserts, lookups and scans. `SyncExpanseMap`
+and `SyncExpanseSet` serialize every writer on one mutex and validate readers
+optimistically; the protocol is optimistic lock coupling and is **blocking by
+design** (AGENTS.md §2.2). It is never described here as lock-free.
+
+**Hypothesis, stated as the loss it is: Expanse LOSES on write concurrency.**
+Aggregate writer throughput of the Expanse arm cannot exceed its single-writer
+rate — every insert takes the same mutex — and is expected to fall below it as
+writers are added, while ROWEX's per-node write exclusion is expected to scale
+writer throughput with writer count. The arm exists to measure that loss and
+to find the writer count at which it begins.
+
+Two other quantities are measured alongside, because a write-path loss has a
+read-path shadow: reader throughput while writers are active, and the
+Expanse protocol's health under that write load (§10.3, decision 5).
+
+### 10.2 Prior observations at lock time (mandatory disclosure)
+
+A Step 0 feasibility gate ran before this section was written. It is a
+standalone C++ program, not a registered harness, and nothing in it is a
+published figure. Observed *(measured: x86_64 build host — Intel Xeon
+E5-2697 v4, 72 threads, Linux; HOT `96bf6fb`; TBB `4c73c3b` (the `tbb_2018`
+branch HOT pins as `third-party/tbb`); `g++ 11.4 -O3 -std=c++17
+-march=haswell -DNDEBUG`; workload: `step0_rowex_gate`)*:
+
+| Check | Result |
+|---|---|
+| ROWEX compiles against HOT's pinned TBB 2018 | yes — `libtbb.so.2` only; `tbbmalloc` fails to build under C++17 (dynamic exception specifications in `proxy.cpp`) and is not needed |
+| Correctness, map arm, 1 / 8 / 16 concurrent writers, N = 200,000 | 200,000/200,000 found with correct values and 200,000 walked, verified from a thread that never inserted |
+| Correctness, set arm (63-bit), 1 / 8 writers | 200,000/200,000 found and walked |
+| Inline payload width, identity extractor | key `2^63` inserted and not found — the same 63-bit predicate as Arm A (§9.4) |
+| Census control with TBB linked, before any ROWEX use | `+1,052,656 B` on a `1,048,576 B` request, residual `0 B` |
+| Census control after threaded ROWEX use | `+1,048,584 B`, residual `0 B` |
+| Counted allocations, single-writer map build of N = 200,000 | 418,289 ≥ 2N (one heap pair plus at least one node per insert); 208,967 frees observed during the build |
+| Bytes held after build-only census, map arm | 37.24 B/key single writer; 36.74 B/key with 8 writers |
+| Census counters **armed** during a 16-writer build | 4.61× the disarmed build time — diagnostic, local box, not a figure |
+| Build time 1 / 8 / 16 writers, map arm, N = 200,000 | 117.5 / 42.0 / 30.5 ms — diagnostic on a shared 72-thread host, **not a figure**, disclosed because it informs §10.5 |
+
+No reader-throughput, no Expanse-side and no reference-host observation of any
+kind was made.
+
+### 10.3 Locked constraint decisions
+
+The four constraints #692 lists as blocking are settled here, with the
+evidence each decision rests on. None of them is revisited by the harness.
+
+**Decision 1 — TBB, the allocator, and what the census may publish.**
+
+- *TBB.* ROWEX uses TBB for exactly one thing: `tbb::enumerable_thread_specific`
+  holding each thread's epoch-based-reclamation state. No system package is
+  installed for it on any host. The harness builds `libtbb` from HOT's own
+  pinned nested submodule (`third_party/hot/third-party/tbb`, TBB 2018,
+  `4c73c3b`) into the cargo build directory and links it with an rpath, so the
+  competitor runs the TBB its authors built against and the reference host is
+  not modified. `tbbmalloc` is not built: it does not compile under C++17 and
+  ROWEX does not reference it.
+- *Allocator.* HOT's CMake links tcmalloc **if found**. Neither the build host
+  nor the reference host has a linkable tcmalloc and no package is installed for
+  a benchmark, so **both arms allocate from glibc 2.35 `malloc`**, exactly as
+  the single-threaded suite does. This is disclosed as a risk against ROWEX,
+  not against Expanse: ROWEX copies a node per insert and frees it through
+  EBR, with no pool, so it is more allocator-sensitive than Expanse's
+  `NodeAlloc`, which recycles through size-class free lists before touching
+  `malloc`. A tcmalloc sensitivity cell is **not run** and no claim about
+  ROWEX under tcmalloc is made (§10.6).
+- *Census validity under TBB.* Re-validated as #692 requires: the control
+  allocation moves the counter by its size and returns to zero after free,
+  with TBB linked, before and after threaded ROWEX use (§10.2); and the
+  per-arm allocation-count assertion holds — a map build of N keys must count
+  at least 2N allocations, a set build at least N. ROWEX nodes come from
+  `posix_memalign` in header code instantiated in the shim's own translation
+  unit, so the `--wrap` reaches them; its free lists are `std::vector`s
+  through the replaced `operator new`. **Residual blind spot, disclosed:**
+  `libtbb.so` allocates its own per-thread state through the dynamic linker,
+  which `--wrap` cannot see (§9.7's mechanism). That cost is paid once per
+  registering thread, is independent of N, and is therefore bounded to O(threads)
+  bytes that a build-only single-writer census omits.
+- *The census never runs inside a throughput cell.* The counters are
+  process-global atomics; armed under 16 writers they slowed the build 4.61×
+  (§10.2). A throughput cell runs with the census disarmed; a census cell runs
+  its own process with no timing claim.
+- *What memory is published.* A **secondary, deterministic** pillar only:
+  bytes held from the allocator after a **build-only, single-writer**
+  population, ROWEX against the `Sync*` wrapper, on the §9.6 λ targets — a
+  curve across occupancy, never a single cell (§9.6). The concurrent cells
+  carry no memory figure. A ROWEX memory cell whose census control fails, or
+  whose allocation count falls below the floor above, is void.
+
+**Decision 2 — No deletion.** ROWEX supports insert, lookup and scan; it has
+no remove. Per the standing rule of §9.4, that is a predicate on the twin,
+evaluated against the workload, never an edit to the workload. **The arm's
+workload is therefore defined as insert and point lookup only.** The
+`benches/concurrency.rs` 50/50 insert/remove churn mix that produced the
+published `0.19×` read-scaling figure is a *different workload* and is
+declared **out of scope for this arm**, not quietly dropped — a ROWEX cell
+on it cannot exist. Ordered scan under concurrency is also not measured here:
+single-threaded scan is published in README §3, and the concurrent question
+this arm is filed for is the write path. Nothing is removed from the Expanse
+arm for symmetry; the workload simply contains no removals.
+
+**Decision 3 — Thread placement.** The runner sources `scripts/bench_pin.sh`,
+which confines the benchmark shell and everything it spawns to the reference
+host's performance cores (`cpu_core`, CPUs 0–15: 8 physical cores, 2 SMT
+siblings each; `docs/BENCHMARKING.md` rule 2). Every cell keeps
+**writers + readers ≤ 16** so no thread can be scheduled off the pin, and the
+harness asserts it. Each cell records the process's `Cpus_allowed_list` and
+`EXPANSE_BENCH_PIN_APPLIED` in every emitted row, so placement is part of the
+artifact rather than of the run log. Two disclosures follow from the topology:
+16 threads occupy both SMT siblings of every P-core, so the W = 16 cell
+measures SMT sharing as well as the protocol (the sibling exposure was
+measured under #680); and no cell can say anything about scaling past 8
+physical cores.
+
+**Decision 4 — Lock symmetry (AGENTS.md §8.16).** Both arms are measured
+**below any external lock layer**, each through its native concurrent API:
+ROWEX through `insert`/`lookup` with its internal per-node spin locks, CAS
+root replacement and epoch-based reclamation; Expanse through
+`SyncExpanseMap::insert` / `SyncExpanseSet::insert` and per-thread
+`owned_reader()` handles, with its internal writer mutex, version brackets
+and epoch collector. Neither is wrapped in a `Mutex` or `RwLock`. This is the
+only symmetric choice that answers the question: each system's own
+concurrency protocol *is* the object under measurement, and wrapping both in
+an external lock would measure the wrapper.
+
+**Decision 5 — The protocol-health number.** `benches/concurrency.rs` reports
+a **Busy rate** for the 32-bit protocol, where `try_get` returns `Busy`
+instead of waiting. The 64-bit protocol has no `Busy`: a reader that observes
+a moved version **restarts**, up to `MAX_RETRIES = 64`, then **falls back to
+the writer mutex**. The honest counterpart is therefore two event ratios from
+the engine's `occ_stats` counters — the **restart share**
+`(read_attempts − read_ops) / read_attempts` and the **fallback share**
+`read_fallbacks / read_ops` — plus `sample_spins`, the iterations burnt
+waiting for a tree-level bracket to close. These counters exist only under the
+`occ-stats` cargo feature, which the engine documents as diagnostic-only and
+never enabled for a published benchmark. So: the health cells are a
+**separate build** of the same harness with `occ-stats` on; they publish
+event ratios and nothing measured in time; and every throughput figure comes
+from the default build with the counters compiled out.
+
+**Decision 6 — One cell, one process.** ROWEX's reclamation strategy is a
+function-local `static` singleton and its free lists live in thread-local
+storage, both process-global and both outliving every trie instance — the
+same class of hazard as §9.2. Every cell, throughput or census, is its own
+process invocation, driven by the runner.
+
+### 10.4 Workload
+
+Shared with the rest of the suite through `workload.rs`, extended rather than
+duplicated (§8.3 symmetry by construction):
+
+- **Pairings.** Set arm: `HOTRowex<uint64_t, IdentityKeyExtractor>` against
+  `SyncExpanseSet`, 63-bit domain on both sides, named for the reason (§9.6:
+  `hot_rowex_set_63bit`). Map arm: `HOTRowex<std::pair*, PairPointerKeyExtractor>`
+  against `SyncExpanseMap`, full 64-bit domain (`hot_rowex_map_64bit`). The map
+  arm is the headline #692 names; the set arm is the harder test for Expanse,
+  because it removes ROWEX's per-entry heap pair from the write path.
+- **Distribution.** Uniform random only. Random keys spread concurrent writers
+  across the trie, which is ROWEX's *favourable* case (few conflicting node
+  locks) and Expanse's indifferent one (one mutex regardless). A contended
+  distribution is not measured and no claim is made about one (§10.6).
+- **Population.** Prefill N₀ = 2²⁰ keys (λ = 16 at 64 bits), inserted
+  single-threaded outside the timed window, identical on both arms. Then
+  M = 2²⁰ **fresh** keys, rejection-sampled from the same generator against
+  the prefill (§8.6), split into W contiguous slices, one per writer.
+- **Fixed work, not a fixed window.** Each writer inserts its whole slice;
+  the timed region runs from a barrier release to the last writer's
+  completion. Both arms therefore do *identical* work per round and the
+  structure grows by exactly M on both, which a fixed-duration window cannot
+  guarantee — the faster arm would grow more and face a larger trie.
+  Writer throughput = M / elapsed.
+- **Readers.** R readers probe a 50% hit / 50% same-generator miss stream
+  drawn against the prefill, shuffled (§9.8), from the same barrier until the
+  writers finish; reader throughput = reads completed / elapsed. Both sides
+  fetch the stored value on the map arm and sink it; a hit's value is checked
+  against its key-derived expectation on both arms, and a wrong value voids
+  the cell. Some misses become hits as writers land — identically on both
+  arms, since the streams are identical.
+- **Cells.**
+  - **C1 — write scaling:** W ∈ {1, 2, 4, 8, 16}, R = 0.
+  - **C2 — readers alongside writers:** R = 8, W ∈ {0, 1, 2, 4, 8}. W = 0 is
+    the reader-only reference; at W = 0 each reader makes one fixed pass over
+    the stream.
+  - **H — protocol health:** the C2 cells re-run on the `occ-stats` build,
+    Expanse side only (ROWEX has no counterpart counter), 5 rounds, median
+    with range. Event ratios, no time.
+  - **M — memory:** build-only single-writer census at the §9.6 λ targets,
+    both arms, one process per cell.
+- **Rounds and statistics.** 15 rounds per throughput cell, arms interleaved
+  per round (ROWEX, Expanse, ROWEX, …; `docs/BENCHMARKING.md` rule 1), fresh
+  structures per round built and dropped outside the timed window. Verdicts
+  are gated on the BCa 95% bootstrap interval of the throughput ratio over
+  ≥ 2,000 resamples (§8.4). **The ratio is Expanse ÷ ROWEX throughput, so —
+  as everywhere in this suite — above 1.000 means Expanse is faster.**
+- **Build flags.** As §3.3: `-C target-cpu=haswell` and `-march=haswell` for
+  every published cell.
+
+### 10.5 Expected-losses matrix
+
+Registered before measurement; confidence is the pre-registration's own.
+Losses first, because the loss is the reason the arm exists.
+
+#### 10.5.1 Where Expanse is expected to LOSE
+
+| Cell | Prediction | Confidence | Reasoning |
+|---|---|---|---|
+| C1, W ≥ 4, both arms | **ROWEX wins** | High | One writer mutex bounds Expanse's aggregate insert rate at its single-writer rate and lock hand-off is expected to pull it below that; ROWEX admits concurrent writers. **(informed)** — the Step 0 build ran 2.8× faster at 8 writers and 3.9× at 16 than at 1 on the shared build host (§10.2), which says ROWEX scales, not by how much on the reference host. |
+| C1, W = 2, both arms | **ROWEX wins or `BOUNDARY_RESULT`** | Medium | Expanse's single-writer insert is 2.520× (set) and 3.553× (map) faster than HOT's on random 1M *(measured: reference host, README §2, `hot_latency`)*, so ROWEX must roughly triple its single-writer rate to overtake. The crossover writer count W\* is registered as **W\* ∈ [2, 4]**; a crossover at W = 1 or none by W = 16 both count as refutations of *this row*. |
+| C2, W ≥ 1, R = 8, both arms — reader throughput | **ROWEX wins** | Medium-high | Expanse readers restart whenever a bracket moves the version under them and fall back to the writer mutex after 64 restarts; ROWEX readers never wait on writers. The published `0.19×` read scaling under churn *(measured: reference host, `docs/BENCHMARKING.md`, `core_concurrency`; different workload — 50/50 insert/remove, not comparable to C2)* is the same mechanism observed on another workload. |
+| M, set arm, λ outside [8, 23] | **ROWEX wins** | Medium | README §1 measured HOT's single-threaded set arm winning below λ = 8 and above λ = 23; ROWEX's node layout is the same family. No ROWEX set-arm memory was observed at Step 0, so the confidence stays medium. |
+
+#### 10.5.2 Where Expanse is expected to WIN
+
+| Cell | Prediction | Confidence | Reasoning |
+|---|---|---|---|
+| C1, W = 1, both arms | **Expanse wins** | Medium-high | The single-threaded insert win (2.520× / 3.553×, README §2) carried into the concurrent wrappers: Expanse adds a mutex acquire, a version bracket and one epoch advance per 32 writes; ROWEX adds a `MemoryGuard` and CAS/spin-lock traffic on every insert. Medium-high rather than high because both wrappers are unmeasured. |
+| C2, W = 0, R = 8, map arm | **Expanse wins** | Medium | Single-threaded map lookup on random 1M: 1.399× hit, 1.393× 50/50 *(measured: README §2)*. Reader handles add a pin per lookup on the Expanse side, a `MemoryGuard` on ROWEX's. |
+| C2, W = 0, R = 8, set arm | **`BOUNDARY_RESULT`** | Low-medium | The single-threaded set lookup on random 1M was itself `BOUNDARY_RESULT` at 0.998 hit and a HOT win at 0.940 on 50/50 (README §2). Registered as no-winner rather than assigned one. |
+| M, map arm, all λ | **Expanse wins, `PASS_categorical_by_design`** | High | ROWEX carries the same heap `std::pair` per entry as Arm B; Step 0 held 37.24 B/key **(informed)** against `ExpanseMap`'s 16.26–24.71 B/key across λ (README §1). A value-model consequence, not an architectural claim — labelled as §6 requires. |
+| M, set arm, λ ∈ [8, 23] | **Expanse wins** | Medium | The README §1 band, carried forward for the reason given in the loss row above. |
+
+#### 10.5.3 Protocol health (H) — hypothesis with a falsifier
+
+The **restart share** is expected to rise monotonically with W and the
+**fallback share** to stay **below 1%** at every W ≤ 8. This is a hypothesis
+about the protocol, not a comparison, and it carries its own falsifier: a
+fallback share of 1% or more at any W is reader starvation and is reported
+as a protocol-health finding in the README scorecard, whatever the throughput
+cells say. `sample_spins` is reported without a prediction.
+
+#### 10.5.4 Explicitly not predicted
+
+The W = 16 cells (SMT sharing confounds the protocol effect; reported with
+their numbers and `not pre-registered`), and every quantity of ROWEX at
+writer counts beyond the pin.
+
+### 10.6 Gate taxonomy and claims ceiling
+
+The §6 labels apply unchanged, including `UNPREDICTED LOSS` for any §10.5.2
+row that lands the other way. In addition, this arm may claim at most:
+
+1. **x86-64 with AVX2 and BMI2**, at `speedskater/hot` `96bf6fb` with TBB
+   `4c73c3b`, built as documented, under glibc `malloc`. **No claim about
+   ROWEX under tcmalloc or any other allocator.**
+2. **Insert and point-lookup concurrency on uniform random 64-bit / 63-bit
+   integer keys only.** No deletion claim of any kind, no contended-key
+   claim, no scan-under-concurrency claim, no string-key claim.
+3. **Up to 16 threads on 8 physical performance cores with SMT.** Nothing
+   about larger machines.
+4. **The health ratios describe Expanse's protocol under this workload.**
+   They are not a comparison; ROWEX has no counterpart counter.
+5. **No cross-suite ratio** (§7 item 5) and **no peer review** (§7 item 6).
+
+### 10.7 What would void a cell
+
+- Either arm's population after the concurrent build differs from N₀ + M
+  (ROWEX counted by walking, never from `insert()` return values — §8).
+- A reader on either arm observed a hit whose value did not match its
+  key-derived expectation.
+- W + R > 16, or a recorded `Cpus_allowed_list` that is not the pin.
+- A memory cell whose census control does not return to zero, or whose
+  counted allocations fall below 2N (map) / N (set), or that ran in a process
+  where any earlier ROWEX or HOT trie existed.
+- Any throughput figure from a binary built with `occ-stats`, or any health
+  ratio quoted as a timing.
+- Any cell whose two arms were built for different ISA targets (§3.3).
