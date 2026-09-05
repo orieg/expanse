@@ -50,3 +50,7 @@ path = "src/bin/hot_memory_curve.rs"
 [[bin]]
 name = "hot_probe_symmetry"
 path = "src/bin/hot_probe_symmetry.rs"
+
+[[bin]]
+name = "hot_latency"
+path = "src/bin/hot_latency.rs"
