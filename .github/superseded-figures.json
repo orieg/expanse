@@ -267,6 +267,29 @@
       "replacement": "M4 ingest 7.3x (2,967 vs 406) and 3.1x (2,967 vs 971), M4 CAN dispatch 1,211 (6,045 ns), M7 400 MHz cache-on bulk remove_range 856 / 2,136 ns at fce563c2; paired capture 22908c15 -> fce563c2 in docs/benchmarks/stm32h747/results/pairing_fce563c2/",
       "provenance": "#615, #667, #698",
       "rationale": "The 22908c15 STM32 artifact predated #667/#698 (constant-length read_rem and set_immed_keys), which the paired capture moved the eviction fixtures 6-24% on both cores; the whole artifact was re-harvested at fce563c2 and these were its most-quoted cells. Superseded, not silently overwritten (§8.7)."
+    },
+    {
+      "id": "stm32_fce563c2_harness_v1_headline",
+      "patterns": [
+        "7\\.3\\s*[x×]\\**\\s*\\(2,967 vs 406\\)",
+        "3\\.1\\s*[x×]\\**\\s*\\(2,967 vs 971\\)",
+        "(?<![\\w.])2,967 \\(14,817 ns\\)",
+        "(?<![\\w.])1,211 \\(6,045 ns\\)",
+        "fails safe rather than silently wrong"
+      ],
+      "context": [
+        "m4",
+        "cortex-m4",
+        "ingest",
+        "stm32",
+        "dispatch",
+        "fce563c2",
+        "cacheable",
+        "unsupported"
+      ],
+      "replacement": "M4 ingest 7.4x (2,964 vs 403) and 3.0x (2,964 vs 988), M4 CAN dispatch 1,237 (6,177 ns) at a98d8d3c under the DWT-profile harness; the cacheable-heap cross-core cell returned wrong values in two of eight captures and does not fail safe (docs/benchmarks/stm32h747/README.md, results/pairing_dwt_a98d8d3c/)",
+      "provenance": "#709, #615",
+      "rationale": "The fce563c2 artifact was taken with the harness before the DWT-profile rows; the same engine re-harvested under the new harness moved the M7 cells up to 4.8% by code placement alone, so its cells are superseded by the a98d8d3c artifact. The 'fails safe' reading of the unsupported cacheable configuration rested on captures that landed in the all-BUSY mode; two later captures returned corrupted values. Superseded, not silently overwritten (§8.7)."
     }
   ]
 }

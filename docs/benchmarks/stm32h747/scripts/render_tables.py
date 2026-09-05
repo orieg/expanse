@@ -220,6 +220,21 @@ def render(d: dict) -> str:
     P(f"  tsearch: ingest {n0(g('ingest','tsearch'))} cyc ({g('ingest','tsearch')/g('ingest'):.1f}× slower), lookup {n0(g('can_dispatch','tsearch'))} ({g('can_dispatch','tsearch')/g('can_dispatch'):.1f}× slower), inserts vs its lookups {g('ingest','tsearch')/g('can_dispatch','tsearch'):.0f}×")
     P("")
 
+    # --- T6: DWT decomposition ------------------------------------------------------
+    if d.get("dwt"):
+        P("### T6 — where the cycles of one operation go (DWT profiling counters, per op, bracket subtracted)\n")
+        rows = []
+        for e in sorted(d["dwt"], key=lambda e: (e["fixture"], e["core"], -e["sysclk"], -e["dcache"], e["impl"])):
+            if e["fixture"] == "nop" or (e["core"] == "m7" and e["sysclk"] != M7):
+                continue
+            n = e["net_per_op"]
+            rows.append([f"`{e['fixture']}`", f"`{e['core']}`", "off" if e["dcache"] == 0 else "on", e["impl"], n1(n["cycles"]), n1(n["instr"]), n1(n["cpi"]), n1(n["lsu"]), n1(n["fold"]), f"{e['cpi_max']} / {e['lsu_max']}", "**wrap-suspect**" if e["wrap_risk"] else "clean"])
+        P(table(rows, ["fixture", "core", "D-cache", "impl", "cycles", "instructions (derived)", "CPI stalls", "LSU stalls", "folded", "per-op max CPI / LSU", "counter integrity"], "|---|---|---|---|---:|---:|---:|---:|---:|---:|---|"))
+        nop = [e for e in d["dwt"] if e["fixture"] == "nop"]
+        P("")
+        P("derived: bracket cost per op (subtracted above): " + ", ".join(f"{e['core']} {e['sysclk']//10**6} MHz dc{e['dcache']} {e['raw_per_op']['cycles']:.1f} cyc" for e in sorted(nop, key=lambda e: (e['core'], e['sysclk'], e['dcache']))))
+        P("")
+
     # --- T7: dual core -----------------------------------------------------------
     P("### T7 — two cores on one map\n")
     rows = []
@@ -260,6 +275,20 @@ def render_pair(cp: Path, tp: Path) -> str:
         rows.append([f"`{core}`", str(clk // 10**6), "off" if dc == 0 else "on", f"`{name}`", n0(a), f"**{n0(b)}**" if abs(delta) > floor else n0(b), f"**{100*delta:+.1f}%**" if abs(delta) > floor else f"{100*delta:+.1f}%", f"{100*floor:.1f}%", verdict])
     out.append(table(rows, ["core", "MHz", "D-cache", "fixture", f"`{c['info']['commit']}`", f"`{t['info']['commit']}`", "Δ", "noise floor", "verdict"], "|---|---:|---|---|---:|---:|---:|---:|---|"))
     out.append("")
+    if c.get("dwt") and t.get("dwt"):
+        out.append("")
+        out.append("DWT decomposition of the Expanse cells, per op, bracket subtracted (control → treatment):")
+        rows = []
+        key = lambda e: (e["core"], e["fixture"], e["impl"], e["sysclk"], e["dcache"])
+        ti_d = {key(e): e for e in t["dwt"]}
+        for e in sorted(c["dwt"], key=lambda e: (e["fixture"], e["core"], -e["sysclk"], -e["dcache"])):
+            if e["impl"] != "expanse" or key(e) not in ti_d:
+                continue
+            f = ti_d[key(e)]
+            cn, tn = e["net_per_op"], f["net_per_op"]
+            cell = lambda k: f"{cn[k]:.1f} → {tn[k]:.1f} ({tn[k]-cn[k]:+.1f})"
+            rows.append([f"`{e['fixture']}`", f"`{e['core']}`", str(e["sysclk"] // 10**6), "off" if e["dcache"] == 0 else "on", cell("cycles"), cell("instr"), cell("cpi"), cell("lsu"), cell("fold"), "**wrap-suspect**" if (e["wrap_risk"] or f["wrap_risk"]) else "clean"])
+        out.append(table(rows, ["fixture", "core", "MHz", "D-cache", "cycles", "instructions (derived)", "CPI stalls", "LSU stalls", "folded", "counter integrity"], "|---|---|---:|---|---:|---:|---:|---:|---:|---|"))
     for core in ("m7", "m4"):
         cs = {e["period"]: e for e in c["isr"] if e["core"] == core and e["name"] == "isr_sync32"}
         ts = {e["period"]: e for e in t["isr"] if e["core"] == core and e["name"] == "isr_sync32"}

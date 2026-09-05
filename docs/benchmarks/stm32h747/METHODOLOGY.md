@@ -21,21 +21,24 @@ reading live in [`README.md`](README.md); the harness in
 
 ## 2. Pre-registered hypotheses and their outcomes
 
-*(measured: STM32H747I-DISCO, commit `fce563c2`; the outcomes were first recorded at `22908c15` and re-read from the `fce563c2` artifact after the paired re-harvest in the suite README — the verdicts did not change, the figures did)*
+*(measured: STM32H747I-DISCO, engine commit `a98d8d3c` with the DWT-profile harness; the outcomes were first recorded at `22908c15`, re-read at `fce563c2`, and re-read again from the `a98d8d3c` artifact — H1–H4 kept their verdicts with the figures moving; H5's "fails safe" half is refuted, see the row)*
 
 | # | pre-registered (source, before the run) | outcome | verdict |
 |---|---|---|---|
-| H1 | The Cortex-M7 D-cache line is 32 bytes and `BranchL2_32` fits one line; the cache-on/off ratio measures the geometry claim (#598 "Finding"; design doc §2.1.4) | CCSIDR reads 4-way × 128 sets × 32 B; cache-on cycle counts flat from 160 to 400 MHz while cache-off grows; ratio 1.7–1.9× at 2:1 core:bus | confirmed |
-| H2 | "The critical section may win on total throughput; what the optimistic surface is expected to buy is bounded worst-case interrupt latency" (#598 step 2) | critical section 12% cheaper per mutation at full duty and never BUSY; `sync32` ISR entry-latency ceiling 15–56 cycles vs 1,639–1,743 (M7, 400 MHz); 89–98 vs 5,200–5,238 on the M4 | confirmed as written, both halves |
-| H3 | BUSY rate falls with writer duty (stated in the #599 discussion after the first full-duty cell) | 54 / 13 / 3 / 0.4% at full / 40k / 10k / 1k mutations/s on the M7 | confirmed |
-| H4 | Alternatives (stated in the #600 discussion before the run): the hash table wins point lookups and unordered ingest; the sorted array wins sequential-append ingest and bytes/key on random keys; Expanse wins steady-state ordered eviction and bytes/key on dense keys | all four as stated; **two losses not pre-registered**: the sorted array also wins point lookup (2.7×), and the ingest gap to the hash table is 11× on target (the previous text's 17× was carried from the `05575498` artifact and did not match the `22908c15` table's 10.5×) | confirmed, with two unregistered losses reported |
-| H5 | Dual core: "expect failures without cache maintenance; document what the header's restriction would need to lift" (#598 step 3) | with the M7 heap cacheable: 100% BUSY, 0 corrupted at every duty (fails safe, no hits); with the heap non-cacheable: correct, BUSY 100 / 61 / 22 / 2.6% by duty because an M4 read of the M7 heap costs ~9 µs | confirmed; requirement documented (uncached map heap or cache maintenance around the version bracket) |
+| H1 | The Cortex-M7 D-cache line is 32 bytes and `BranchL2_32` fits one line; the cache-on/off ratio measures the geometry claim (#598 "Finding"; design doc §2.1.4) | CCSIDR reads 4-way × 128 sets × 32 B; cache-on cycle counts flat from 160 to 400 MHz while cache-off grows; ratio 1.7–1.9× at 2:1 core:bus; the DWT decomposition puts the whole difference in `LSUCNT` (data stalls 21 → 172 per get on `can_dispatch`) at an identical derived instruction count | confirmed |
+| H2 | "The critical section may win on total throughput; what the optimistic surface is expected to buy is bounded worst-case interrupt latency" (#598 step 2) | critical section 16% cheaper per mutation at full duty and never BUSY; `sync32` ISR entry-latency ceiling 16–55 cycles vs 1,427–1,659 (M7, 400 MHz); 96–98 vs 5,218 on the M4 | confirmed as written, both halves |
+| H3 | BUSY rate falls with writer duty (stated in the #599 discussion after the first full-duty cell) | 71 / 13 / 3 / 0.4% at full / 40k / 10k / 1k mutations/s on the M7 | confirmed |
+| H4 | Alternatives (stated in the #600 discussion before the run): the hash table wins point lookups and unordered ingest; the sorted array wins sequential-append ingest and bytes/key on random keys; Expanse wins steady-state ordered eviction and bytes/key on dense keys | all four as stated; **two losses not pre-registered**: the sorted array also wins point lookup (2.8×), and the ingest gap to the hash table is 12× on target (the text's earlier 17× was carried from the `05575498` artifact and did not match the `22908c15` table's 10.5×) | confirmed, with two unregistered losses reported |
+| H5 | Dual core: "expect failures without cache maintenance; document what the header's restriction would need to lift" (#598 step 3) | with the M7 heap non-cacheable: correct, BUSY 100 / 60 / 21 / 2.5% by duty because an M4 read of the M7 heap costs ~9 µs. With the heap cacheable the outcome is **not reproducible between captures**: of eight captures in one sitting, five returned BUSY on every read, one returned 25% BUSY and the rest not-found, and two returned **wrong values** (55 and 19,671 corrupted reads; the published artifact is one of the two). The earlier "fails safe" reading rested on captures that happened to land in the all-BUSY mode | failure expected: confirmed; "fails safe": **refuted** — the unsupported configuration can return wrong values, which is what the header's restriction guards against; requirement documented (uncached map heap or cache maintenance around the version bracket) |
 
 Verdict labels are deterministic-instrument labels: DWT cycle counts vary
-≤ 0.5% pass to pass on most cells (the M7 cache-on `can_dispatch` cells spread
-4.9% in the `fce563c2` capture, the widest), so a hypothesis is confirmed or
-refuted by the min-of-5 cell, not by an interval (AGENTS.md §8.4, deterministic
-branch). No
+≤ 0.5% pass to pass on most cells (the M7 `can_dispatch` cells spread up to
+5% between passes in the `fce563c2` and `a98d8d3c` captures, the widest), so a
+hypothesis is confirmed or refuted by the min-of-5 cell, not by an interval
+(AGENTS.md §8.4, deterministic branch). The dual-core cacheable cell is the
+exception that proves the rule: its outcome differs between captures of one
+image, so it carries no single-capture verdict — the record above lists every
+capture. No
 hypothesis was refuted. H4's two unregistered losses are recorded here and in
 the README's scorecard rather than folded into the hypothesis.
 
