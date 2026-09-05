@@ -34,8 +34,10 @@ static inline uint32_t get_dummy_cycles(void) {
     return (uint32_t)(ts.tv_nsec);
 }
 #define GET_CYCLES() get_dummy_cycles()
-#define GET_FREE_HEAP() (1024 * 1024)
-#define GET_LARGEST_BLOCK() (1024 * 1024)
+/* size_t, not int: both feed `%zu` in report_json / report_skipped, and the
+ * ESP_PLATFORM branch above yields size_t. */
+#define GET_FREE_HEAP() ((size_t)(1024 * 1024))
+#define GET_LARGEST_BLOCK() ((size_t)(1024 * 1024))
 #endif
 
 #define WARMUP_RUNS 3
@@ -153,8 +155,16 @@ static void fn_name(size_t n, const char *ingest_bench, const char *agg_bench) {
     agg_stmt;                                                                   \
     elapsed = GET_CYCLES() - start;                                             \
     g_sink += agg.sum_val + agg.count;                                          \
-    report_json(agg_bench, arm_str, 500, n,                                     \
-                (double)elapsed / 500.0, heap_used, frag);                      \
+    /* Divide by the keys actually aggregated, never a literal. The range       \
+     * [+100,+600] holds 400 keys at pop=500 and 501 at pop=2000, so a          \
+     * hardcoded 500 understated pop=500 by 25% and overstated pop=2000 by      \
+     * 0.2%. All four arms fold the same key set, so `agg.count` is identical   \
+     * across them and the comparison stays symmetric (§8.2 derived outputs).   \
+     * Ratios within one population were unaffected -- the divisor cancelled -- \
+     * but absolute cycles/key and every cross-population reading were not. */  \
+    size_t agg_ops = (agg.count > 0) ? agg.count : 1;                         \
+    report_json(agg_bench, arm_str, agg_ops, n,                                 \
+                (double)elapsed / (double)agg_ops, heap_used, frag);            \
                                                                                 \
     destroy_stmt;                                                               \
 }

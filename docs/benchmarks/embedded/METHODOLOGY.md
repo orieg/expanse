@@ -36,6 +36,24 @@ Per `AGENTS.md` §8.8 commit 2 (pre-registration locked before any main data) an
    - On-device microcontroller benchmarks measure CPU clock cycles via hardware cycle counters (`DWT_CYCCNT` / `CCOUNT`).
    - The two metric domains must never be juxtaposed or averaged together on a single canvas or table.
 
-2. **Run-to-Run Drift & Flash Cache Sensitivity**:
+2. **Per-Key Divisors Are Derived, Never Literal**:
+   - The range-aggregation arms report cycles per key aggregated, and that divisor comes from
+     `agg.count` — the keys the fold actually visited — not from the range's nominal width
+     (AGENTS.md §8.2).
+   - The distinction is not cosmetic here. The aggregation range `[base+100, base+600]` holds
+     **400** keys at `pop=500` and **501** at `pop=2000`, because at the smaller population the
+     range runs past the end of the populated keyspace. A literal `500` divisor therefore
+     understated `pop=500` cycles/key by **25%** and overstated `pop=2000` by 0.2%.
+   - All four arms fold the same key set, so the divisor was identical across them: **ratios
+     within one population were unaffected** and remain valid, per the §8.10 ratio-vs-absolute
+     split. What the literal divisor invalidated was absolute cycles/key at `pop=500` and every
+     **cross-population** reading — a fixed-width range walk appeared to cost 20.6% more per key
+     at `pop=2000` than at `pop=500` when, corrected, it is flat to slightly cheaper.
+   - The committed `pop=500` aggregation cells in `results/esp32.json` predate the derived
+     divisor and are understated by ~25%. They are **pending re-measurement** (#676) on the next
+     device harvest. No published table or chart consumes them — `docs/DATABASE.md` and
+     `scripts/generate_charts.py` both read `pop=2000` only, where the correction is 0.2%.
+
+3. **Run-to-Run Drift & Flash Cache Sensitivity**:
    - Microcontroller execution is sensitive to binary link layout and instruction-cache / flash-cache alignment.
    - Results are reported using median cycles across clean repetitions alongside BCa 95% intervals, with contamination sampling to identify ISR or flash-miss outliers.
