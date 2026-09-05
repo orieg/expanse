@@ -38,17 +38,17 @@ twins in `components/expanse/test/twin_containers.h`.
 
 - **Provenance**: ESP32-D0WD-V3 rev v3.1, 2 cores, 160 MHz; ESP-IDF
   `v6.0-dev-2980-gab149384e1`; Xtensa Rust 1.97.0.0; `-O2`; engine
-  `0.5.0-dev (v0.5.0-91-ge310a9e7)`, commit `e310a9e7`; 10 repetitions per arm
+  `0.5.0-dev (v0.5.0-155-gbec51c48)`, commit `bec51c48`; 10 repetitions per arm
   in a single boot. The `provenance` and `stack` objects in the file carry the
   same facts as the board reported them, and every published number derives
   from them (§8.2).
-- **Serial capture can drop a line.** The harvester reports each arm's
-  `sample_count`; check it reads 10 before quoting an arm. In the #622 control
-  capture one line was lost, leaving
-  `esp32_tsdb_aggregate_500/hash_open_addressing` at n=500, pop=500 with 9
-  repetitions (median 62.15, unaffected at the 0.03% level, and on an arm
-  published as unattributed). Nothing in the committed treatment artifact is
-  short.
+- **The dropped sample was the task watchdog, and it is gone.** Earlier harvests lost
+  one repetition on one or two arms at a deterministic point in the sweep; the
+  harvester reports each arm's `sample_count` so a short arm is visible. The cause
+  was ESP-IDF's task watchdog firing on the starved idle task and printing a
+  backtrace over the UART mid-arm (#697 turns it off for the harvest); the
+  `bec51c48` artifact reads 10 of 10 on all 61 arms with zero watchdog lines in
+  the capture. Check `sample_count` regardless before quoting an arm.
 - **The figure to quote is the `median`.** Each arm records `min`, `median`,
   `mean`, `max`, a `spread_ratio` and a `contaminated` flag alongside the BCa
   95% interval on the mean. A single repetition whose timed window catches a
