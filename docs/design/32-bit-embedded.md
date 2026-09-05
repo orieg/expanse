@@ -726,8 +726,9 @@ published artifact. Medians of 10, one sitting, one board:
 | `esp32_ble_ttl_eviction_sparse` N=100, pop 500 | 5,107.7 | 3,267.1 | −36.04% | 6.56% | layout mode flip, not a win — below |
 
 *(measured: ESP32-D0WD-V3 rev v3.1, 160 MHz, ESP-IDF `v6.0-dev-2980-gab149384e1`,
-control and treatment flashed back to back; artifact
-`docs/benchmarks/embedded/esp32.json` is the reverted configuration.)*
+control and treatment flashed back to back; both harvests and the pairing are
+committed under `docs/benchmarks/embedded/rejected_batching_5898e3cc/`, and the
+suite's own `results/esp32.json` is the reverted configuration.)*
 
 **The two pop=500 arms are not the win they look like.** They land within 1% of
 the two discrete values §8.1.3 recorded for *byte-identical engine source*

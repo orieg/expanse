@@ -196,6 +196,39 @@ fn main() {
         );
     }
 
+    // 3b. The census must see C++ `operator new`, not just malloc.
+    //
+    //     `-Wl,--wrap=malloc` rewrites symbol resolution only for the objects
+    //     being linked; libstdc++'s `operator new` reaches malloc through the
+    //     dynamic linker and is not wrapped by it. Arm B allocates one heap
+    //     pair per entry through `operator new`, so before the shim replaced
+    //     the global allocation functions those allocations were invisible:
+    //     100,000 entries produced 3 extra counted allocations instead of
+    //     100,000, understating the arm by ~3x in HOT's favour.
+    {
+        let probe = keys(50_000, 0x5151_5151_5151, false);
+        let want = probe.len();
+        let (_, census) = Census::measure(|| {
+            let mut t = HotMap::new();
+            for (i, k) in probe.iter().enumerate() {
+                t.insert(*k, i as u64);
+            }
+            std::mem::forget(t);
+        });
+        if census.allocs < want as i64 {
+            fail(&format!(
+                "census missed `operator new`: {want} heap pairs produced only {} counted allocations — \
+                 the shim's replaceable allocation functions are not in effect",
+                census.allocs
+            ));
+        }
+        checks += 1;
+        println!(
+            "ok  census sees C++ operator new: {} allocations for {want} heap pairs",
+            census.allocs
+        );
+    }
+
     // 4. The Expanse arms must agree on the same stream, so a later divergence
     //    is attributable to the engine rather than to the generator.
     let ks = keys(200_000, 0x1234_5678_9ABC, false);
