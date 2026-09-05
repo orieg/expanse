@@ -28,6 +28,13 @@ memory as a **curve across λ** and refuses to publish a single cell (§9.6).
 
 The reason is visible in the result. **Arm A's winner changes three times.**
 
+![Memory across expanse occupancy](results/chart_memory_curve.svg)
+
+HOT's two lines are flat; Expanse's dip into the shaded band and climb out of it
+past the cascade is the whole finding. The shaded region is derived by comparing
+the two arms cell by cell, not drawn by eye.
+
+
 | λ | N | HOT B/key | `ExpanseSet` B/key | winner |
 |---:|---:|---:|---:|---|
 | 1 | 32,768 | 12.06 | 16.18 | HOT 1.34× |
@@ -81,6 +88,13 @@ Ratios are HOT ÷ Expanse, so **above 1.000 means Expanse is faster**. Every cel
 is gated on the BCa 95% interval, never the point estimate (§8.4); a cell whose
 interval spans parity is `BOUNDARY_RESULT` and claims no winner.
 
+![Latency at N=1M](results/chart_latency_1m.svg)
+
+Both exceptions sit against the parity line: `lookup_hit · set · random` is the
+`BOUNDARY_RESULT` at 0.998, and `lookup_miss · set · random` is the one non-scan
+HOT win at 0.940.
+
+
 ### Point lookup, 100% hit
 
 | Distribution | Arm | HOT ns | Expanse ns | Ratio | Verdict |
@@ -133,6 +147,34 @@ prediction; it landed stronger than registered.
 
 ---
 
+### Per-pillar charts
+
+Badges are driven by the cell's **verdict**, not by which bar is shorter: a cell
+whose BCa interval spans parity carries a neutral `BOUNDARY` badge and claims no
+winner (§8.4).
+
+**Point lookup, 100% hit**
+
+![Point lookup 100% hit](results/chart_lookup_hit.svg)
+
+**Point lookup, 50% hit / 50% miss**
+
+![Point lookup 50/50](results/chart_lookup_miss.svg)
+
+**Insertion into a cold structure**
+
+![Insertion](results/chart_insert.svg)
+
+**Live heap memory, selected occupancies**
+
+![Memory](results/chart_memory.svg)
+
+Read that one against the curve above, not on its own — it samples five
+occupancies either side of the cascade, and which side a cell lands on decides
+its winner.
+
+---
+
 ## 3. Ordered scan is a systematic loss, wider than predicted
 
 **27 of this suite's 30 HOT wins are scan cells.** §5.1 registered HOT winning
@@ -157,6 +199,8 @@ The `map`/`random`/1M row is the exception and it reverses cleanly: Expanse wins
 every scan width there. Scan outcome therefore depends on population as well as
 on `k`, which is a second reason this suite does not publish single-population
 cells.
+
+![Ordered range scan](results/chart_scan.svg)
 
 Scan on `sequential` and `clustered` is an Expanse win throughout and does not
 appear in the loss list.
