@@ -284,3 +284,54 @@ fn test_mmap_and_binary_serialization() {
 
     let _ = std::fs::remove_file(temp_file);
 }
+
+/// Images are not a cross-version format (docs/COMPAT.md "Binary image
+/// compatibility"): an image whose header carries another
+/// `EXPANSE_FORMAT_VERSION` is refused with `UnsupportedFormatVersion`, naming
+/// both versions, and never mistaken for corruption; a bad magic is corruption.
+#[test]
+fn test_image_format_version_is_checked_before_corruption() {
+    use expanse_trie::blobmap::{ArenaError, EXPANSE_FORMAT_VERSION};
+    let mut map = ExpanseBlobMap::new();
+    map.insert(1, b"alpha", 0).unwrap();
+    map.insert(2, &[0x5Au8; 300], 0).unwrap();
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!("expanse_fmt_{}.img", std::process::id()));
+    map.save_to_file(&path).unwrap();
+    let image = std::fs::read(&path).unwrap();
+    std::fs::remove_file(&path).ok();
+    assert_eq!(
+        &image[8..12],
+        &EXPANSE_FORMAT_VERSION.to_le_bytes(),
+        "header word 2 is the format version"
+    );
+
+    // the version this build no longer reads (what a v0.5.0 image carries)
+    let mut old = image.clone();
+    old[8..12].copy_from_slice(&(EXPANSE_FORMAT_VERSION - 1).to_le_bytes());
+    match ExpanseBlobMap::from_bytes_slice(&old) {
+        Err(ArenaError::UnsupportedFormatVersion { found, supported }) => {
+            assert_eq!(found, EXPANSE_FORMAT_VERSION - 1);
+            assert_eq!(supported, EXPANSE_FORMAT_VERSION);
+        }
+        Err(other) => panic!("expected UnsupportedFormatVersion, got {other:?}"),
+        Ok(_) => panic!("a version-1 image must not load"),
+    }
+    // a version from the future is refused the same way, not as corruption
+    let mut future = image.clone();
+    future[8..12].copy_from_slice(&(EXPANSE_FORMAT_VERSION + 1).to_le_bytes());
+    assert!(matches!(
+        ExpanseBlobMap::from_bytes_slice(&future),
+        Err(ArenaError::UnsupportedFormatVersion { .. })
+    ));
+    // a damaged magic is corruption
+    let mut bad = image.clone();
+    bad[0] ^= 0xFF;
+    assert!(matches!(
+        ExpanseBlobMap::from_bytes_slice(&bad),
+        Err(ArenaError::CorruptedHeader)
+    ));
+    // the untouched image loads
+    let loaded = ExpanseBlobMap::from_bytes_slice(&image).unwrap();
+    assert_eq!(loaded.get(1).unwrap().0.as_bytes(), b"alpha");
+}

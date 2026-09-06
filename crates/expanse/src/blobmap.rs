@@ -239,6 +239,17 @@ pub enum ArenaError {
     GenerationMismatch,
     /// Corrupted record header encountered.
     CorruptedHeader,
+    /// The image was written by a different [`EXPANSE_FORMAT_VERSION`]. Images
+    /// are not a cross-version format: a map saved by one release loads only
+    /// in releases that share its format version, and no migration is
+    /// attempted. `found` is the version in the image, `supported` the one
+    /// this build reads and writes.
+    UnsupportedFormatVersion {
+        /// Format version recorded in the image header.
+        found: u32,
+        /// Format version this build reads and writes.
+        supported: u32,
+    },
 }
 
 impl core::fmt::Display for ArenaError {
@@ -252,6 +263,10 @@ impl core::fmt::Display for ArenaError {
             Self::InvalidOffset => write!(f, "Invalid arena offset"),
             Self::GenerationMismatch => write!(f, "Blob generation mismatch (ABA detected)"),
             Self::CorruptedHeader => write!(f, "Corrupted blob record header"),
+            Self::UnsupportedFormatVersion { found, supported } => write!(
+                f,
+                "Unsupported image format version {found} (this build reads and writes version {supported})"
+            ),
         }
     }
 }
@@ -1397,8 +1412,14 @@ impl ExpanseBlobMap {
             chunk_count: u64::from_le_bytes(bytes[56..64].try_into().unwrap()),
         };
 
-        if header.magic != EXPANSE_MAGIC || header.version != EXPANSE_FORMAT_VERSION {
+        if header.magic != EXPANSE_MAGIC {
             return Err(ArenaError::CorruptedHeader);
+        }
+        if header.version != EXPANSE_FORMAT_VERSION {
+            return Err(ArenaError::UnsupportedFormatVersion {
+                found: header.version,
+                supported: EXPANSE_FORMAT_VERSION,
+            });
         }
 
         if header.total_size as usize > bytes.len() || (header.total_size as usize) < 64 {
