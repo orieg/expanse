@@ -1,0 +1,238 @@
+{
+  "provenance": {
+    "instrument": "perf stat, one invocation per repeat, whole process",
+    "commit": "f173f0e6",
+    "perf_event_paranoid": "1",
+    "pmu": "cpu_core",
+    "pmu_reason": "`cpu_core` is the performance-core PMU among the 2 this host exposes (cpu_atom, cpu_core)",
+    "pmu_cpus": "0-15",
+    "pin": [
+      "taskset",
+      "-c",
+      "0-15"
+    ],
+    "events_available": [
+      "page-faults",
+      "dTLB-load-misses",
+      "LLC-load-misses",
+      "cycles",
+      "instructions"
+    ],
+    "events_unavailable": [],
+    "repeats": 7,
+    "estimators": {
+      "per_op": "the raw event row from perf's CSV divided by the harness's own operation count for that process (AGENTS.md section 8.9 principle 5); both are published",
+      "interval": "BCa 95% bootstrap over the repeats (scripts/bca_bootstrap.py), 2000 resamples"
+    },
+    "scope": "counts are per PROCESS and include the population build; this driver does not bracket the timed loop, so a per-op figure is not a probe-loop figure and two arms are comparable only over the same work",
+    "attribution": "a counter is evidence for a mechanism, not the mechanism; a cell whose intervals overlap decides nothing"
+  },
+  "cell": "masstree_insert_sparse_1m_sorted",
+  "issue": 725,
+  "suite": "masstree_comparison",
+  "binary": "masstree_latency",
+  "args": [
+    "insert",
+    "sparse",
+    "1000000",
+    "sorted"
+  ],
+  "note": "sorted `sparse` insert, the widest of the three unpredicted losses",
+  "concurrent": false,
+  "repeats": 7,
+  "ops_per_repeat": 15000000,
+  "rounds_per_repeat": 15,
+  "events": {
+    "page-faults": {
+      "per_op_mean": 0.004364123809523809,
+      "ci_lower": 0.004364057142857143,
+      "ci_upper": 0.004364180952380952,
+      "samples": [
+        0.004364133333333333,
+        0.004364,
+        0.0043642,
+        0.004364133333333333,
+        0.004364266666666667,
+        0.004364066666666667,
+        0.004364066666666667
+      ]
+    },
+    "dTLB-load-misses": {
+      "per_op_mean": 0.020357514285714286,
+      "ci_lower": 0.020212438095238098,
+      "ci_upper": 0.0204678,
+      "samples": [
+        0.020601933333333333,
+        0.020487733333333334,
+        0.020435266666666667,
+        0.020047,
+        0.020191733333333333,
+        0.0204088,
+        0.020330133333333333
+      ]
+    },
+    "LLC-load-misses": {
+      "per_op_mean": 0.010830438095238095,
+      "ci_lower": 0.009631638095238097,
+      "ci_upper": 0.012030733333333333,
+      "samples": [
+        0.013240466666666667,
+        0.00902,
+        0.012485266666666666,
+        0.011312933333333334,
+        0.01167,
+        0.009025533333333334,
+        0.009058866666666667
+      ]
+    },
+    "cycles": {
+      "per_op_mean": 287.79580724761905,
+      "ci_lower": 287.0752504571429,
+      "ci_upper": 288.8784071904762,
+      "samples": [
+        288.3429248,
+        286.92499,
+        288.04332,
+        286.7057132,
+        286.42465293333333,
+        287.79737386666665,
+        290.3316759333333
+      ]
+    },
+    "instructions": {
+      "per_op_mean": 1082.6270717428572,
+      "ci_lower": 1082.4355196571428,
+      "ci_upper": 1082.8819113238094,
+      "samples": [
+        1083.1837140666667,
+        1082.8136614666666,
+        1082.636489,
+        1082.7710696,
+        1082.3159519333333,
+        1082.3280571333332,
+        1082.340559
+      ]
+    }
+  },
+  "repeats_raw": [
+    {
+      "ops": 15000000,
+      "raw": {
+        "page-faults": 65462.0,
+        "dTLB-load-misses": 309029.0,
+        "LLC-load-misses": 198607.0,
+        "cycles": 4325143872.0,
+        "instructions": 16247755711.0
+      },
+      "per_op": {
+        "page-faults": 0.004364133333333333,
+        "dTLB-load-misses": 0.020601933333333333,
+        "LLC-load-misses": 0.013240466666666667,
+        "cycles": 288.3429248,
+        "instructions": 1083.1837140666667
+      }
+    },
+    {
+      "ops": 15000000,
+      "raw": {
+        "page-faults": 65460.0,
+        "dTLB-load-misses": 307316.0,
+        "LLC-load-misses": 135300.0,
+        "cycles": 4303874850.0,
+        "instructions": 16242204922.0
+      },
+      "per_op": {
+        "page-faults": 0.004364,
+        "dTLB-load-misses": 0.020487733333333334,
+        "LLC-load-misses": 0.00902,
+        "cycles": 286.92499,
+        "instructions": 1082.8136614666666
+      }
+    },
+    {
+      "ops": 15000000,
+      "raw": {
+        "page-faults": 65463.0,
+        "dTLB-load-misses": 306529.0,
+        "LLC-load-misses": 187279.0,
+        "cycles": 4320649800.0,
+        "instructions": 16239547335.0
+      },
+      "per_op": {
+        "page-faults": 0.0043642,
+        "dTLB-load-misses": 0.020435266666666667,
+        "LLC-load-misses": 0.012485266666666666,
+        "cycles": 288.04332,
+        "instructions": 1082.636489
+      }
+    },
+    {
+      "ops": 15000000,
+      "raw": {
+        "page-faults": 65462.0,
+        "dTLB-load-misses": 300705.0,
+        "LLC-load-misses": 169694.0,
+        "cycles": 4300585698.0,
+        "instructions": 16241566044.0
+      },
+      "per_op": {
+        "page-faults": 0.004364133333333333,
+        "dTLB-load-misses": 0.020047,
+        "LLC-load-misses": 0.011312933333333334,
+        "cycles": 286.7057132,
+        "instructions": 1082.7710696
+      }
+    },
+    {
+      "ops": 15000000,
+      "raw": {
+        "page-faults": 65464.0,
+        "dTLB-load-misses": 302876.0,
+        "LLC-load-misses": 175050.0,
+        "cycles": 4296369794.0,
+        "instructions": 16234739279.0
+      },
+      "per_op": {
+        "page-faults": 0.004364266666666667,
+        "dTLB-load-misses": 0.020191733333333333,
+        "LLC-load-misses": 0.01167,
+        "cycles": 286.42465293333333,
+        "instructions": 1082.3159519333333
+      }
+    },
+    {
+      "ops": 15000000,
+      "raw": {
+        "page-faults": 65461.0,
+        "dTLB-load-misses": 306132.0,
+        "LLC-load-misses": 135383.0,
+        "cycles": 4316960608.0,
+        "instructions": 16234920857.0
+      },
+      "per_op": {
+        "page-faults": 0.004364066666666667,
+        "dTLB-load-misses": 0.0204088,
+        "LLC-load-misses": 0.009025533333333334,
+        "cycles": 287.79737386666665,
+        "instructions": 1082.3280571333332
+      }
+    },
+    {
+      "ops": 15000000,
+      "raw": {
+        "page-faults": 65461.0,
+        "dTLB-load-misses": 304952.0,
+        "LLC-load-misses": 135883.0,
+        "cycles": 4354975139.0,
+        "instructions": 16235108385.0
+      },
+      "per_op": {
+        "page-faults": 0.004364066666666667,
+        "dTLB-load-misses": 0.020330133333333333,
+        "LLC-load-misses": 0.009058866666666667,
+        "cycles": 290.3316759333333,
+        "instructions": 1082.340559
+      }
+    }
+  ]
+}
