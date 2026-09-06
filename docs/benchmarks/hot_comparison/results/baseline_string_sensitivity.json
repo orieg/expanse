@@ -2,34 +2,59 @@
   "provenance": {
     "suite": "hot_comparison",
     "issue": 693,
-    "commit": "134a0471",
+    "commit": "0f4fd40c",
     "hot_commit": "96bf6fb",
     "cpu": "x86_64",
     "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "powersave",
+      "transparent_hugepage": "always [madvise] never",
+      "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35"
+    },
+    "estimators": {
+      "ratio": "mean(HOT rounds) / mean(Expanse rounds) with a two-sample BCa 95% interval (scripts/bca_bootstrap.py)",
+      "columns": "per-arm columns are medians of the same rounds; the ratio column is not the quotient of the two median columns beside it",
+      "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+    },
     "rustflags": "-C target-cpu=haswell",
     "cxx_flags": "-march=haswell -O3 -std=c++17 -DNDEBUG",
     "core_pin": "0-15",
     "loads": [
       {
         "label": "start",
-        "load1": 1.0,
-        "load5": 1.08,
-        "load15": 1.26,
-        "at": "2026-09-06T12:41:26Z"
+        "load1": 0.57,
+        "load5": 0.3,
+        "load15": 0.11,
+        "at": "2026-09-06T15:58:15Z",
+        "stat_busy_jiffies": 44994020,
+        "stat_total_jiffies": 5965092322,
+        "busy_cpus_since_prev": null
       },
       {
         "label": "after-validate",
-        "load1": 1.0,
-        "load5": 1.08,
-        "load15": 1.26,
-        "at": "2026-09-06T12:41:27Z"
+        "load1": 0.57,
+        "load5": 0.3,
+        "load15": 0.11,
+        "at": "2026-09-06T15:58:16Z",
+        "stat_busy_jiffies": 44994105,
+        "stat_total_jiffies": 5965094353,
+        "busy_cpus_since_prev": 1.0
       },
       {
         "label": "after-sensitivity",
-        "load1": 1.0,
-        "load5": 1.07,
-        "load15": 1.24,
-        "at": "2026-09-06T12:42:19Z"
+        "load1": 0.98,
+        "load5": 0.45,
+        "load15": 0.18,
+        "at": "2026-09-06T15:59:07Z",
+        "stat_busy_jiffies": 44999299,
+        "stat_total_jiffies": 5965218471,
+        "busy_cpus_since_prev": 1.0
       }
     ],
     "quick": false
@@ -123,118 +148,118 @@
       "mean_key_len": 12.0,
       "hot_not_representable": 0,
       "rounds": 15,
-      "expanse_ns_per_op_median": 136.6263,
+      "expanse_ns_per_op_median": 137.1839,
       "rounds_raw": [
         {
           "round": 0,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 159.2848,
-          "expanse_ns_per_op": 136.6838
+          "hot_ns_per_op": 158.5513,
+          "expanse_ns_per_op": 137.4306
         },
         {
           "round": 1,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 160.5591,
-          "expanse_ns_per_op": 135.3769
+          "hot_ns_per_op": 161.1069,
+          "expanse_ns_per_op": 136.0283
         },
         {
           "round": 2,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 158.8925,
-          "expanse_ns_per_op": 136.6263
+          "hot_ns_per_op": 159.5101,
+          "expanse_ns_per_op": 137.249
         },
         {
           "round": 3,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 161.0976,
-          "expanse_ns_per_op": 135.5041
+          "hot_ns_per_op": 160.4852,
+          "expanse_ns_per_op": 135.9512
         },
         {
           "round": 4,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 159.4312,
-          "expanse_ns_per_op": 137.2487
+          "hot_ns_per_op": 159.3116,
+          "expanse_ns_per_op": 136.9341
         },
         {
           "round": 5,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 160.1324,
-          "expanse_ns_per_op": 135.7649
+          "hot_ns_per_op": 160.5567,
+          "expanse_ns_per_op": 137.0262
         },
         {
           "round": 6,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 158.9949,
-          "expanse_ns_per_op": 136.9385
+          "hot_ns_per_op": 159.0819,
+          "expanse_ns_per_op": 137.1839
         },
         {
           "round": 7,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 160.3799,
-          "expanse_ns_per_op": 135.9001
+          "hot_ns_per_op": 160.5733,
+          "expanse_ns_per_op": 135.936
         },
         {
           "round": 8,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 158.8752,
-          "expanse_ns_per_op": 136.768
+          "hot_ns_per_op": 160.4088,
+          "expanse_ns_per_op": 137.8291
         },
         {
           "round": 9,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 160.3605,
-          "expanse_ns_per_op": 135.462
+          "hot_ns_per_op": 160.2998,
+          "expanse_ns_per_op": 136.1646
         },
         {
           "round": 10,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 159.9393,
-          "expanse_ns_per_op": 136.7442
+          "hot_ns_per_op": 160.9923,
+          "expanse_ns_per_op": 137.4283
         },
         {
           "round": 11,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 160.2104,
-          "expanse_ns_per_op": 135.5415
+          "hot_ns_per_op": 162.2472,
+          "expanse_ns_per_op": 137.9186
         },
         {
           "round": 12,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 159.0295,
-          "expanse_ns_per_op": 136.9516
+          "hot_ns_per_op": 159.6964,
+          "expanse_ns_per_op": 138.1464
         },
         {
           "round": 13,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 161.0963,
-          "expanse_ns_per_op": 135.3687
+          "hot_ns_per_op": 160.4427,
+          "expanse_ns_per_op": 135.9859
         },
         {
           "round": 14,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 159.4786,
-          "expanse_ns_per_op": 136.8543
+          "hot_ns_per_op": 159.7139,
+          "expanse_ns_per_op": 137.338
         }
       ],
-      "hot_ns_per_op_median": 159.9393,
-      "hot_over_expanse": 1.1732,
-      "ci_lower": 1.1694,
-      "ci_upper": 1.1772,
+      "hot_ns_per_op_median": 160.4088,
+      "hot_over_expanse": 1.1696,
+      "ci_lower": 1.165,
+      "ci_upper": 1.1746,
       "verdict": "expanse"
     },
     {
@@ -247,118 +272,118 @@
       "mean_key_len": 12.0,
       "hot_not_representable": 0,
       "rounds": 15,
-      "expanse_ns_per_op_median": 119.1746,
+      "expanse_ns_per_op_median": 120.9273,
       "rounds_raw": [
         {
           "round": 0,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 143.9253,
-          "expanse_ns_per_op": 117.8636
+          "hot_ns_per_op": 144.6946,
+          "expanse_ns_per_op": 118.6698
         },
         {
           "round": 1,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 138.3721,
-          "expanse_ns_per_op": 123.5259
+          "hot_ns_per_op": 138.2207,
+          "expanse_ns_per_op": 121.7767
         },
         {
           "round": 2,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 141.4076,
-          "expanse_ns_per_op": 118.2332
+          "hot_ns_per_op": 142.0778,
+          "expanse_ns_per_op": 118.1667
         },
         {
           "round": 3,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 137.7723,
-          "expanse_ns_per_op": 122.3936
+          "hot_ns_per_op": 137.5948,
+          "expanse_ns_per_op": 121.7776
         },
         {
           "round": 4,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 141.4202,
-          "expanse_ns_per_op": 118.2612
+          "hot_ns_per_op": 141.6329,
+          "expanse_ns_per_op": 117.4093
         },
         {
           "round": 5,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 138.9052,
-          "expanse_ns_per_op": 122.4244
+          "hot_ns_per_op": 138.5406,
+          "expanse_ns_per_op": 121.6643
         },
         {
           "round": 6,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 141.8259,
-          "expanse_ns_per_op": 118.2453
+          "hot_ns_per_op": 141.6844,
+          "expanse_ns_per_op": 123.8554
         },
         {
           "round": 7,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 137.2113,
-          "expanse_ns_per_op": 121.9079
+          "hot_ns_per_op": 137.8572,
+          "expanse_ns_per_op": 132.3958
         },
         {
           "round": 8,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 141.6499,
-          "expanse_ns_per_op": 119.1746
+          "hot_ns_per_op": 142.2754,
+          "expanse_ns_per_op": 117.2063
         },
         {
           "round": 9,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 137.3325,
-          "expanse_ns_per_op": 121.7355
+          "hot_ns_per_op": 137.8244,
+          "expanse_ns_per_op": 121.6983
         },
         {
           "round": 10,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 141.3595,
-          "expanse_ns_per_op": 117.1934
+          "hot_ns_per_op": 141.4902,
+          "expanse_ns_per_op": 117.3663
         },
         {
           "round": 11,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 137.2478,
-          "expanse_ns_per_op": 121.776
+          "hot_ns_per_op": 138.328,
+          "expanse_ns_per_op": 121.3716
         },
         {
           "round": 12,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 142.1375,
-          "expanse_ns_per_op": 117.1478
+          "hot_ns_per_op": 142.0573,
+          "expanse_ns_per_op": 117.3364
         },
         {
           "round": 13,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 137.6861,
-          "expanse_ns_per_op": 121.0158
+          "hot_ns_per_op": 137.8431,
+          "expanse_ns_per_op": 120.9273
         },
         {
           "round": 14,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 141.6003,
-          "expanse_ns_per_op": 117.3115
+          "hot_ns_per_op": 142.4225,
+          "expanse_ns_per_op": 117.5097
         }
       ],
-      "hot_ns_per_op_median": 141.3595,
-      "hot_over_expanse": 1.1677,
-      "ci_lower": 1.1536,
-      "ci_upper": 1.1819,
+      "hot_ns_per_op_median": 141.4902,
+      "hot_over_expanse": 1.1633,
+      "ci_lower": 1.1384,
+      "ci_upper": 1.1804,
       "verdict": "expanse"
     },
     {
@@ -371,118 +396,118 @@
       "mean_key_len": 12.0,
       "hot_not_representable": 0,
       "rounds": 15,
-      "expanse_ns_per_op_median": 138.7171,
+      "expanse_ns_per_op_median": 138.8723,
       "rounds_raw": [
         {
           "round": 0,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 162.2295,
-          "expanse_ns_per_op": 139.278
+          "hot_ns_per_op": 163.3203,
+          "expanse_ns_per_op": 139.2895
         },
         {
           "round": 1,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 162.5362,
-          "expanse_ns_per_op": 137.885
+          "hot_ns_per_op": 162.6648,
+          "expanse_ns_per_op": 137.6872
         },
         {
           "round": 2,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 161.5861,
-          "expanse_ns_per_op": 138.8197
+          "hot_ns_per_op": 161.3592,
+          "expanse_ns_per_op": 140.7699
         },
         {
           "round": 3,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 162.5669,
-          "expanse_ns_per_op": 137.9241
+          "hot_ns_per_op": 162.5109,
+          "expanse_ns_per_op": 137.8496
         },
         {
           "round": 4,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 162.0685,
-          "expanse_ns_per_op": 139.3931
+          "hot_ns_per_op": 161.0743,
+          "expanse_ns_per_op": 139.039
         },
         {
           "round": 5,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 162.9147,
-          "expanse_ns_per_op": 137.9036
+          "hot_ns_per_op": 162.8068,
+          "expanse_ns_per_op": 138.1544
         },
         {
           "round": 6,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 161.1209,
-          "expanse_ns_per_op": 138.7171
+          "hot_ns_per_op": 162.059,
+          "expanse_ns_per_op": 138.8524
         },
         {
           "round": 7,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 162.3819,
-          "expanse_ns_per_op": 137.8414
+          "hot_ns_per_op": 162.1159,
+          "expanse_ns_per_op": 138.8667
         },
         {
           "round": 8,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 161.2676,
-          "expanse_ns_per_op": 139.8962
+          "hot_ns_per_op": 160.9406,
+          "expanse_ns_per_op": 139.0305
         },
         {
           "round": 9,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 162.6552,
-          "expanse_ns_per_op": 138.0403
+          "hot_ns_per_op": 162.4272,
+          "expanse_ns_per_op": 138.9503
         },
         {
           "round": 10,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 160.9368,
-          "expanse_ns_per_op": 139.3782
+          "hot_ns_per_op": 161.7625,
+          "expanse_ns_per_op": 138.8723
         },
         {
           "round": 11,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 162.5564,
-          "expanse_ns_per_op": 137.7896
+          "hot_ns_per_op": 162.2024,
+          "expanse_ns_per_op": 137.6339
         },
         {
           "round": 12,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 161.4837,
-          "expanse_ns_per_op": 138.8461
+          "hot_ns_per_op": 161.6372,
+          "expanse_ns_per_op": 139.5219
         },
         {
           "round": 13,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 162.5907,
-          "expanse_ns_per_op": 137.8141
+          "hot_ns_per_op": 163.2571,
+          "expanse_ns_per_op": 137.9716
         },
         {
           "round": 14,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 161.003,
-          "expanse_ns_per_op": 139.4621
+          "hot_ns_per_op": 161.0236,
+          "expanse_ns_per_op": 138.905
         }
       ],
-      "hot_ns_per_op_median": 162.2295,
-      "hot_over_expanse": 1.1688,
-      "ci_lower": 1.1647,
-      "ci_upper": 1.1727,
+      "hot_ns_per_op_median": 162.1159,
+      "hot_over_expanse": 1.168,
+      "ci_lower": 1.1632,
+      "ci_upper": 1.172,
       "verdict": "expanse"
     },
     {
@@ -495,118 +520,118 @@
       "mean_key_len": 12.0,
       "hot_not_representable": 0,
       "rounds": 15,
-      "expanse_ns_per_op_median": 221.8747,
+      "expanse_ns_per_op_median": 222.0296,
       "rounds_raw": [
         {
           "round": 0,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 241.9359,
-          "expanse_ns_per_op": 219.7232
+          "hot_ns_per_op": 242.0592,
+          "expanse_ns_per_op": 237.5935
         },
         {
           "round": 1,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 244.5227,
-          "expanse_ns_per_op": 222.5567
+          "hot_ns_per_op": 244.8535,
+          "expanse_ns_per_op": 223.177
         },
         {
           "round": 2,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 246.3695,
-          "expanse_ns_per_op": 221.5926
+          "hot_ns_per_op": 247.2537,
+          "expanse_ns_per_op": 221.0276
         },
         {
           "round": 3,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 244.1475,
-          "expanse_ns_per_op": 222.6346
+          "hot_ns_per_op": 245.6732,
+          "expanse_ns_per_op": 222.4617
         },
         {
           "round": 4,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 246.0257,
-          "expanse_ns_per_op": 220.4924
+          "hot_ns_per_op": 248.5029,
+          "expanse_ns_per_op": 221.7747
         },
         {
           "round": 5,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 244.9548,
-          "expanse_ns_per_op": 222.7862
+          "hot_ns_per_op": 247.0312,
+          "expanse_ns_per_op": 223.1886
         },
         {
           "round": 6,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 246.225,
-          "expanse_ns_per_op": 221.1334
+          "hot_ns_per_op": 246.7076,
+          "expanse_ns_per_op": 220.4492
         },
         {
           "round": 7,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 245.672,
-          "expanse_ns_per_op": 222.4111
+          "hot_ns_per_op": 244.7789,
+          "expanse_ns_per_op": 222.0296
         },
         {
           "round": 8,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 245.9095,
-          "expanse_ns_per_op": 221.6793
+          "hot_ns_per_op": 246.692,
+          "expanse_ns_per_op": 220.6463
         },
         {
           "round": 9,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 244.7875,
-          "expanse_ns_per_op": 223.0767
+          "hot_ns_per_op": 244.0279,
+          "expanse_ns_per_op": 222.2663
         },
         {
           "round": 10,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 246.0824,
-          "expanse_ns_per_op": 221.8747
+          "hot_ns_per_op": 246.7327,
+          "expanse_ns_per_op": 221.8023
         },
         {
           "round": 11,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 243.9919,
-          "expanse_ns_per_op": 222.2041
+          "hot_ns_per_op": 244.4675,
+          "expanse_ns_per_op": 222.5081
         },
         {
           "round": 12,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 246.6068,
-          "expanse_ns_per_op": 220.688
+          "hot_ns_per_op": 248.163,
+          "expanse_ns_per_op": 220.8016
         },
         {
           "round": 13,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 243.9425,
-          "expanse_ns_per_op": 222.4014
+          "hot_ns_per_op": 243.8903,
+          "expanse_ns_per_op": 222.4864
         },
         {
           "round": 14,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 247.3205,
-          "expanse_ns_per_op": 220.6312
+          "hot_ns_per_op": 246.6999,
+          "expanse_ns_per_op": 220.9746
         }
       ],
-      "hot_ns_per_op_median": 245.672,
-      "hot_over_expanse": 1.106,
-      "ci_lower": 1.1021,
-      "ci_upper": 1.11,
+      "hot_ns_per_op_median": 246.692,
+      "hot_over_expanse": 1.103,
+      "ci_lower": 1.0856,
+      "ci_upper": 1.1103,
       "verdict": "expanse"
     },
     {
@@ -619,118 +644,118 @@
       "mean_key_len": 12.0,
       "hot_not_representable": 0,
       "rounds": 15,
-      "expanse_ns_per_op_median": 136.5541,
+      "expanse_ns_per_op_median": 136.5393,
       "rounds_raw": [
         {
           "round": 0,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 240.5039,
-          "expanse_ns_per_op": 136.6926
+          "hot_ns_per_op": 240.5487,
+          "expanse_ns_per_op": 136.8372
         },
         {
           "round": 1,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 241.572,
-          "expanse_ns_per_op": 135.6648
+          "hot_ns_per_op": 243.9073,
+          "expanse_ns_per_op": 135.9407
         },
         {
           "round": 2,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 240.5335,
-          "expanse_ns_per_op": 136.5541
+          "hot_ns_per_op": 241.7387,
+          "expanse_ns_per_op": 136.5393
         },
         {
           "round": 3,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 242.5048,
-          "expanse_ns_per_op": 135.4952
+          "hot_ns_per_op": 242.8578,
+          "expanse_ns_per_op": 135.6315
         },
         {
           "round": 4,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 240.3327,
-          "expanse_ns_per_op": 137.0969
+          "hot_ns_per_op": 241.5255,
+          "expanse_ns_per_op": 136.851
         },
         {
           "round": 5,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 242.3314,
-          "expanse_ns_per_op": 135.5719
+          "hot_ns_per_op": 243.2052,
+          "expanse_ns_per_op": 135.8311
         },
         {
           "round": 6,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 240.4797,
-          "expanse_ns_per_op": 136.7681
+          "hot_ns_per_op": 241.6027,
+          "expanse_ns_per_op": 137.2803
         },
         {
           "round": 7,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 241.9301,
-          "expanse_ns_per_op": 135.5651
+          "hot_ns_per_op": 243.1104,
+          "expanse_ns_per_op": 135.8273
         },
         {
           "round": 8,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 240.5752,
-          "expanse_ns_per_op": 136.8043
+          "hot_ns_per_op": 241.5651,
+          "expanse_ns_per_op": 137.8132
         },
         {
           "round": 9,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 241.6537,
-          "expanse_ns_per_op": 135.8177
+          "hot_ns_per_op": 244.3381,
+          "expanse_ns_per_op": 136.0557
         },
         {
           "round": 10,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 241.1851,
-          "expanse_ns_per_op": 136.6675
+          "hot_ns_per_op": 242.7378,
+          "expanse_ns_per_op": 137.1009
         },
         {
           "round": 11,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 242.6397,
-          "expanse_ns_per_op": 135.5128
+          "hot_ns_per_op": 242.9298,
+          "expanse_ns_per_op": 135.9176
         },
         {
           "round": 12,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 240.4702,
-          "expanse_ns_per_op": 137.0405
+          "hot_ns_per_op": 241.3482,
+          "expanse_ns_per_op": 137.0997
         },
         {
           "round": 13,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 241.5287,
-          "expanse_ns_per_op": 135.3594
+          "hot_ns_per_op": 242.6849,
+          "expanse_ns_per_op": 135.5727
         },
         {
           "round": 14,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 240.6823,
-          "expanse_ns_per_op": 136.6388
+          "hot_ns_per_op": 241.621,
+          "expanse_ns_per_op": 137.7513
         }
       ],
-      "hot_ns_per_op_median": 241.1851,
-      "hot_over_expanse": 1.7712,
-      "ci_lower": 1.7663,
-      "ci_upper": 1.7763,
+      "hot_ns_per_op_median": 242.6849,
+      "hot_over_expanse": 1.7752,
+      "ci_lower": 1.769,
+      "ci_upper": 1.781,
       "verdict": "expanse"
     },
     {
@@ -743,118 +768,118 @@
       "mean_key_len": 12.0,
       "hot_not_representable": 0,
       "rounds": 15,
-      "expanse_ns_per_op_median": 119.5629,
+      "expanse_ns_per_op_median": 119.5117,
       "rounds_raw": [
         {
           "round": 0,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 161.3457,
-          "expanse_ns_per_op": 119.5629
+          "hot_ns_per_op": 162.4112,
+          "expanse_ns_per_op": 119.3295
         },
         {
           "round": 1,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 156.9131,
-          "expanse_ns_per_op": 126.5747
+          "hot_ns_per_op": 157.832,
+          "expanse_ns_per_op": 123.3683
         },
         {
           "round": 2,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 160.1057,
-          "expanse_ns_per_op": 118.4829
+          "hot_ns_per_op": 160.3681,
+          "expanse_ns_per_op": 119.2481
         },
         {
           "round": 3,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 156.2079,
-          "expanse_ns_per_op": 121.9603
+          "hot_ns_per_op": 157.031,
+          "expanse_ns_per_op": 122.2638
         },
         {
           "round": 4,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 160.7626,
-          "expanse_ns_per_op": 119.4302
+          "hot_ns_per_op": 160.0473,
+          "expanse_ns_per_op": 119.5117
         },
         {
           "round": 5,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 156.2565,
-          "expanse_ns_per_op": 121.9731
+          "hot_ns_per_op": 157.5129,
+          "expanse_ns_per_op": 122.1508
         },
         {
           "round": 6,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 159.6753,
-          "expanse_ns_per_op": 118.7008
+          "hot_ns_per_op": 160.7477,
+          "expanse_ns_per_op": 118.3136
         },
         {
           "round": 7,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 156.7386,
-          "expanse_ns_per_op": 122.7983
+          "hot_ns_per_op": 156.6043,
+          "expanse_ns_per_op": 121.4685
         },
         {
           "round": 8,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 160.433,
-          "expanse_ns_per_op": 118.1556
+          "hot_ns_per_op": 159.9977,
+          "expanse_ns_per_op": 118.8641
         },
         {
           "round": 9,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 156.0389,
-          "expanse_ns_per_op": 120.9844
+          "hot_ns_per_op": 157.1065,
+          "expanse_ns_per_op": 122.01
         },
         {
           "round": 10,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 159.9626,
-          "expanse_ns_per_op": 117.9052
+          "hot_ns_per_op": 159.9719,
+          "expanse_ns_per_op": 118.0896
         },
         {
           "round": 11,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 156.2684,
-          "expanse_ns_per_op": 120.7998
+          "hot_ns_per_op": 157.0267,
+          "expanse_ns_per_op": 120.904
         },
         {
           "round": 12,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 160.3173,
-          "expanse_ns_per_op": 117.622
+          "hot_ns_per_op": 160.69,
+          "expanse_ns_per_op": 117.9502
         },
         {
           "round": 13,
           "first_arm": "expanse",
           "order": "sorted",
-          "hot_ns_per_op": 155.7043,
-          "expanse_ns_per_op": 121.107
+          "hot_ns_per_op": 155.9019,
+          "expanse_ns_per_op": 121.6357
         },
         {
           "round": 14,
           "first_arm": "hot",
           "order": "sorted",
-          "hot_ns_per_op": 159.3139,
-          "expanse_ns_per_op": 117.1594
+          "hot_ns_per_op": 159.9526,
+          "expanse_ns_per_op": 117.7715
         }
       ],
-      "hot_ns_per_op_median": 159.3139,
-      "hot_over_expanse": 1.3177,
-      "ci_lower": 1.3003,
-      "ci_upper": 1.3316,
+      "hot_ns_per_op_median": 159.9526,
+      "hot_over_expanse": 1.3219,
+      "ci_lower": 1.3091,
+      "ci_upper": 1.3344,
       "verdict": "expanse"
     },
     {
@@ -867,118 +892,118 @@
       "mean_key_len": 12.0,
       "hot_not_representable": 0,
       "rounds": 15,
-      "expanse_ns_per_op_median": 138.4104,
+      "expanse_ns_per_op_median": 138.0545,
       "rounds_raw": [
         {
           "round": 0,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 244.6871,
-          "expanse_ns_per_op": 138.9581
+          "hot_ns_per_op": 245.4436,
+          "expanse_ns_per_op": 138.6137
         },
         {
           "round": 1,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 246.1096,
-          "expanse_ns_per_op": 137.397
+          "hot_ns_per_op": 245.874,
+          "expanse_ns_per_op": 137.3496
         },
         {
           "round": 2,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 243.9317,
-          "expanse_ns_per_op": 138.6583
+          "hot_ns_per_op": 244.0728,
+          "expanse_ns_per_op": 138.3168
         },
         {
           "round": 3,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 245.3572,
-          "expanse_ns_per_op": 137.8596
+          "hot_ns_per_op": 245.4086,
+          "expanse_ns_per_op": 137.2971
         },
         {
           "round": 4,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 243.9764,
-          "expanse_ns_per_op": 138.5468
+          "hot_ns_per_op": 244.1545,
+          "expanse_ns_per_op": 138.3851
         },
         {
           "round": 5,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 245.5106,
-          "expanse_ns_per_op": 137.6302
+          "hot_ns_per_op": 245.8488,
+          "expanse_ns_per_op": 136.9946
         },
         {
           "round": 6,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 244.5773,
-          "expanse_ns_per_op": 138.752
+          "hot_ns_per_op": 244.3791,
+          "expanse_ns_per_op": 138.7732
         },
         {
           "round": 7,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 245.8805,
-          "expanse_ns_per_op": 137.7889
+          "hot_ns_per_op": 245.2182,
+          "expanse_ns_per_op": 137.6417
         },
         {
           "round": 8,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 244.3446,
-          "expanse_ns_per_op": 138.4104
+          "hot_ns_per_op": 245.0123,
+          "expanse_ns_per_op": 138.5345
         },
         {
           "round": 9,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 245.8901,
-          "expanse_ns_per_op": 137.6644
+          "hot_ns_per_op": 245.4289,
+          "expanse_ns_per_op": 137.3918
         },
         {
           "round": 10,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 244.6494,
-          "expanse_ns_per_op": 138.686
+          "hot_ns_per_op": 244.0514,
+          "expanse_ns_per_op": 138.2753
         },
         {
           "round": 11,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 245.2837,
-          "expanse_ns_per_op": 138.035
+          "hot_ns_per_op": 245.7614,
+          "expanse_ns_per_op": 137.1093
         },
         {
           "round": 12,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 244.2982,
-          "expanse_ns_per_op": 138.5587
+          "hot_ns_per_op": 244.0207,
+          "expanse_ns_per_op": 138.0545
         },
         {
           "round": 13,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 246.0677,
-          "expanse_ns_per_op": 137.7147
+          "hot_ns_per_op": 245.6504,
+          "expanse_ns_per_op": 137.1136
         },
         {
           "round": 14,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 243.8393,
-          "expanse_ns_per_op": 138.456
+          "hot_ns_per_op": 244.0216,
+          "expanse_ns_per_op": 138.5308
         }
       ],
-      "hot_ns_per_op_median": 244.6871,
-      "hot_over_expanse": 1.7724,
-      "ci_lower": 1.7682,
-      "ci_upper": 1.7766,
+      "hot_ns_per_op_median": 245.2182,
+      "hot_over_expanse": 1.7764,
+      "ci_lower": 1.772,
+      "ci_upper": 1.7814,
       "verdict": "expanse"
     },
     {
@@ -991,118 +1016,118 @@
       "mean_key_len": 12.0,
       "hot_not_representable": 0,
       "rounds": 15,
-      "expanse_ns_per_op_median": 223.1091,
+      "expanse_ns_per_op_median": 222.9172,
       "rounds_raw": [
         {
           "round": 0,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 337.9764,
-          "expanse_ns_per_op": 224.7401
+          "hot_ns_per_op": 339.8313,
+          "expanse_ns_per_op": 223.1627
         },
         {
           "round": 1,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 342.5111,
-          "expanse_ns_per_op": 223.0588
+          "hot_ns_per_op": 341.0716,
+          "expanse_ns_per_op": 223.0457
         },
         {
           "round": 2,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 342.8883,
-          "expanse_ns_per_op": 223.7162
+          "hot_ns_per_op": 342.7381,
+          "expanse_ns_per_op": 223.0281
         },
         {
           "round": 3,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 343.3648,
-          "expanse_ns_per_op": 223.1091
+          "hot_ns_per_op": 341.7788,
+          "expanse_ns_per_op": 222.3828
         },
         {
           "round": 4,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 342.6191,
-          "expanse_ns_per_op": 224.0152
+          "hot_ns_per_op": 342.3587,
+          "expanse_ns_per_op": 222.6505
         },
         {
           "round": 5,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 342.493,
-          "expanse_ns_per_op": 222.2592
+          "hot_ns_per_op": 344.1763,
+          "expanse_ns_per_op": 221.4448
         },
         {
           "round": 6,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 343.2028,
-          "expanse_ns_per_op": 222.938
+          "hot_ns_per_op": 343.2267,
+          "expanse_ns_per_op": 237.1783
         },
         {
           "round": 7,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 342.34,
-          "expanse_ns_per_op": 223.3558
+          "hot_ns_per_op": 341.3736,
+          "expanse_ns_per_op": 222.835
         },
         {
           "round": 8,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 343.6713,
-          "expanse_ns_per_op": 223.2209
+          "hot_ns_per_op": 342.0077,
+          "expanse_ns_per_op": 222.965
         },
         {
           "round": 9,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 341.7162,
-          "expanse_ns_per_op": 222.8409
+          "hot_ns_per_op": 340.6896,
+          "expanse_ns_per_op": 222.5675
         },
         {
           "round": 10,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 342.8757,
-          "expanse_ns_per_op": 223.2807
+          "hot_ns_per_op": 343.8935,
+          "expanse_ns_per_op": 222.5505
         },
         {
           "round": 11,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 341.3034,
-          "expanse_ns_per_op": 221.9804
+          "hot_ns_per_op": 342.2534,
+          "expanse_ns_per_op": 222.2692
         },
         {
           "round": 12,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 343.4235,
-          "expanse_ns_per_op": 221.9546
+          "hot_ns_per_op": 342.0648,
+          "expanse_ns_per_op": 222.9172
         },
         {
           "round": 13,
           "first_arm": "expanse",
           "order": "shuffled",
-          "hot_ns_per_op": 341.5258,
-          "expanse_ns_per_op": 223.165
+          "hot_ns_per_op": 340.9411,
+          "expanse_ns_per_op": 224.1929
         },
         {
           "round": 14,
           "first_arm": "hot",
           "order": "shuffled",
-          "hot_ns_per_op": 347.1777,
-          "expanse_ns_per_op": 223.0009
+          "hot_ns_per_op": 343.1279,
+          "expanse_ns_per_op": 225.9291
         }
       ],
-      "hot_ns_per_op_median": 342.6191,
-      "hot_over_expanse": 1.5356,
-      "ci_lower": 1.5305,
-      "ci_upper": 1.5402,
+      "hot_ns_per_op_median": 342.0648,
+      "hot_over_expanse": 1.5276,
+      "ci_lower": 1.5039,
+      "ci_upper": 1.5357,
       "verdict": "expanse"
     }
   ]

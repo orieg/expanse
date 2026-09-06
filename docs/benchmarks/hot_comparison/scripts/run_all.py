@@ -72,6 +72,13 @@ CONCURRENT_ARMS = ["set", "map"]
 # The per-round samples every latency cell keeps verbatim (#732), so a published
 # median and ratio can be recomputed from the artifact.
 LATENCY_RAW = ("first_arm", "order", "hot_ns_per_op", "expanse_ns_per_op")
+# The concurrent cells summarise their rounds into medians and a BCa interval
+# exactly as the latency cells do, so they owe the same raw rows (#732): a
+# published median cannot be recomputed from the artifact without them.
+CONCURRENT_RAW = ("rowex_writer_mops", "expanse_writer_mops",
+                  "rowex_reader_mops", "expanse_reader_mops")
+HEALTH_RAW = ("restart_share", "fallback_share", "read_ops", "read_attempts",
+              "read_fallbacks", "sample_spins", "write_ops")
 CONCURRENT_MEMORY_ARMS = {"set": "rowex_set", "map": "rowex_map"}
 # A second target dir for the diagnostic build, so the two feature sets can
 # never overwrite each other's binary (decision 5).
@@ -298,6 +305,7 @@ def concurrent_cell(arm: str, writers: int, readers: int, env: dict) -> dict:
         "keyspace_bits": head["keyspace_bits"], "prefill": head["prefill"],
         "fresh_keys": head["fresh_keys"], "rounds": len(rows),
         "cpus_allowed": head["cpus_allowed"], "pin_applied": head["pin_applied"],
+        "rounds_raw": raw_rounds(rows, CONCURRENT_RAW),
     }
     for role in ("writer", "reader"):
         hot = [r[f"rowex_{role}_mops"] for r in rows if r[f"rowex_{role}_mops"] is not None]
@@ -342,6 +350,7 @@ def health_cell(arm: str, writers: int, readers: int, env: dict) -> dict:
         "sample_spins": med_range("sample_spins"),
         "write_ops": med_range("write_ops"),
         "cpus_allowed": rows[0]["cpus_allowed"], "pin_applied": rows[0]["pin_applied"],
+        "rounds_raw": raw_rounds(rows, HEALTH_RAW),
     }
     # The §11.5.3 falsifier, evaluated on the median: 1% or more is reader
     # starvation and is reported as a protocol-health finding.

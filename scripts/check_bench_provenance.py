@@ -52,26 +52,12 @@ BENCH = REPO_ROOT / "docs" / "benchmarks"
 # commit at all. Re-measuring at any *other* commit makes the gate require the
 # fields.
 #
-# The HOT entries list two commits on purpose. #731, #733 and #735 re-run that
-# suite and its artifacts then carry the re-measurement's commit, but that run
-# is on a branch that does not have this module, so it cannot emit `host` or
-# `estimators`. Listing both keeps this gate and that re-measurement true
-# whichever order they merge in; the HOT entries are dropped when the suite next
-# runs with the shared module in the tree.
+# The `hot_comparison` single-threaded and concurrent artifacts left this table
+# when the suite was re-run at `0f4fd40c` with the shared module in the tree:
+# they now carry `host`, `estimators`, busy-CPU deltas and per-cell
+# `rounds_raw`, so the gate enforces them like any other. Only the instrument
+# bridge remains, and it is not re-measured by that runner.
 GRANDFATHERED = {
-    # hot_comparison — measured before the shared module existed. #731, #733
-    # and #735 re-run these and bring them up to standard. Two carry `unknown`
-    # because they were taken on a host without `.git` and before
-    # `EXPANSE_BENCH_COMMIT` was set; that is itself the section 8.7 defect the
-    # re-run fixes, and it is pinned here rather than tidied away.
-    "hot_comparison/results/baseline_latency.json": ("unknown", "134a0471"),
-    "hot_comparison/results/baseline_memory_curve.json": ("unknown", "134a0471"),
-    "hot_comparison/results/baseline_string_latency.json": ("d0149469", "134a0471"),
-    "hot_comparison/results/baseline_string_memory.json": ("d0149469", "134a0471"),
-    "hot_comparison/results/baseline_sensitivity.json": ("134a0471",),
-    "hot_comparison/results/baseline_string_sensitivity.json": ("134a0471",),
-    "hot_comparison/results/baseline_concurrent.json": ("5232af74",),
-    "hot_comparison/results/baseline_concurrent_run2.json": ("134a0471",),
     "hot_comparison/results/baseline_instrument_bridge.json": ("86daaddf",),
     # art_comparison — a `metadata` block, no `provenance` (#387).
     "art_comparison/results/baseline_lookup_hit.json": None,
