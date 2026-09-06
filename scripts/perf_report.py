@@ -55,6 +55,10 @@ BENCH_N_MAP: Dict[str, int] = {
     # per-key columns are directly comparable.
     "map_get_batch": 50_000,
     "set_contains_batch": 50_000,
+    # Cascaded-regime read path (#715, `benches/leaf_cap_cascaded.rs`): 1M
+    # probes per arm over a 1M-key structure at λ = 30.52.
+    "cascaded_set_contains": 1_000_000,
+    "cascaded_map_get": 1_000_000,
     "map32_get": 500,
     # Range Scans & Ordered Traversal (100 windows * 100 span = 10,000 keys)
     "map_range": 10_000,
@@ -98,6 +102,8 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "set_contains",
             "map_get_batch",
             "set_contains_batch",
+            "cascaded_set_contains",
+            "cascaded_map_get",
             "map32_get",
             "judyl_get",
             "judy1_test",
