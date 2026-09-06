@@ -52,20 +52,15 @@ BENCH = REPO_ROOT / "docs" / "benchmarks"
 # commit at all. Re-measuring at any *other* commit makes the gate require the
 # fields.
 #
-# The `hot_comparison` single-threaded and concurrent artifacts left this table
-# when the suite was re-run at `0f4fd40c` with the shared module in the tree:
+# The `art_comparison` artifacts left this table when the suite was re-run at
+# the scan-start fix (#745) with the shared module in the tree, and the
+# `hot_comparison` single-threaded and concurrent artifacts when it was re-run
+# at `0f4fd40c`:
 # they now carry `host`, `estimators`, busy-CPU deltas and per-cell
 # `rounds_raw`, so the gate enforces them like any other. Only the instrument
 # bridge remains, and it is not re-measured by that runner.
 GRANDFATHERED = {
     "hot_comparison/results/baseline_instrument_bridge.json": ("86daaddf",),
-    # art_comparison — a `metadata` block, no `provenance` (#387).
-    "art_comparison/results/baseline_lookup_hit.json": None,
-    "art_comparison/results/baseline_lookup_miss.json": None,
-    "art_comparison/results/baseline_insert.json": None,
-    "art_comparison/results/baseline_scan.json": None,
-    "art_comparison/results/baseline_memory.json": None,
-    "art_comparison/results/baseline_small_payload.json": None,
     # hashbrown_comparison, redis_zset_engine, search_inverted_index — these
     # runners took no load snapshot at all before this change, and several of
     # their artifacts are bare JSON arrays.
@@ -91,6 +86,7 @@ CENSUS_KEYS = {"memory"}
 
 # Whole artifacts that are censuses, for the same reason.
 NO_ROUNDS = {
+    "art_comparison/results/baseline_memory.json",
     "hot_comparison/results/baseline_memory_curve.json",
     "hot_comparison/results/baseline_string_memory.json",
     "masstree_comparison/results/baseline_memory.json",
@@ -107,7 +103,7 @@ SUITES = (
 )
 
 # Keys under which an artifact holds its cells.
-CELL_KEYS = ("cells", "throughput", "health", "latency", "memory")
+CELL_KEYS = ("cells", "results", "throughput", "health", "latency", "memory")
 
 
 def cell_lists(obj: dict) -> list[tuple[str, list]]:
@@ -117,6 +113,21 @@ def cell_lists(obj: dict) -> list[tuple[str, list]]:
         if isinstance(v, list) and v and isinstance(v[0], dict):
             out.append((k, v))
     return out
+
+
+def has_rounds(cell: dict) -> bool:
+    """Whether a cell carries its rounds.
+
+    Directly, or in the phase objects it groups: `art_comparison`'s
+    small-payload cell is one population holding a memory census and three
+    timed phases, and the rounds belong to the phases. A cell that groups
+    phases and carries nothing anywhere still fails.
+    """
+    if not isinstance(cell, dict):
+        return False
+    if cell.get("rounds_raw"):
+        return True
+    return any(isinstance(v, dict) and v.get("rounds_raw") for v in cell.values())
 
 
 def check_artifact(rel: str, obj) -> list[str]:
@@ -149,7 +160,7 @@ def check_artifact(rel: str, obj) -> list[str]:
     for key, cells in lists:
         if key in CENSUS_KEYS:
             continue
-        without = [i for i, c in enumerate(cells) if not c.get("rounds_raw")]
+        without = [i for i, c in enumerate(cells) if not has_rounds(c)]
         if without:
             problems.append(
                 f"{rel}: {len(without)} of {len(cells)} cells under `{key}` carry no "
@@ -265,6 +276,33 @@ def _self_test() -> int:
     partial = copy.deepcopy(_GOOD)
     partial["cells"].append({"pillar": "insert"})
     expect("one cell of two without raw rows", partial, "1 of 2 cells")
+
+    # A cell may hold its rounds in the phase objects it groups, and a cell
+    # that groups phases and carries rounds nowhere is still a finding
+    # (art_comparison's small-payload cell, #745).
+    phased = copy.deepcopy(_GOOD)
+    phased["cells"] = [{
+        "population": 7,
+        "memory": {"expanse_bpk": 24.0},
+        "lookup_hit": {"rounds_raw": [{"round": 0, "expanse_ns": 1.0}]},
+    }]
+    expect("a cell whose rounds live in its phases", phased, None)
+
+    phased_empty = copy.deepcopy(_GOOD)
+    phased_empty["cells"] = [{"population": 7, "lookup_hit": {"expanse_ns_op": 1.0}}]
+    expect("a cell that groups phases and carries no rounds", phased_empty, "rounds_raw")
+
+    # `results` is a cell key: art_comparison's harnesses publish under it, and
+    # dropping it from CELL_KEYS would report the suite as having no cells at
+    # all rather than checking the cells it has.
+    under_results = copy.deepcopy(_GOOD)
+    under_results["results"] = under_results.pop("cells")
+    expect("cells published under `results`", under_results, None)
+
+    under_results_bad = copy.deepcopy(_GOOD)
+    under_results_bad["results"] = under_results_bad.pop("cells")
+    del under_results_bad["results"][0]["rounds_raw"]
+    expect("`results` cells without raw rows", under_results_bad, "rounds_raw")
 
     # Every grandfathered path must actually exist, or the list is silently
     # exempting nothing and rotting.

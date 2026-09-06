@@ -26,7 +26,7 @@ mod art_common;
 use art_common::{
     ArtMap, BTreeMap, ExpanseMap, HashMap, Mapped, ToUBE, XorShift64, art_key, bca_ci,
     gen_clustered, gen_distribution_misses, gen_sequential, gen_sparse_stride, gen_uniform_random,
-    gen_zipfian, median, shuffle,
+    gen_zipfian, median, rounds_raw, shuffle,
 };
 use serde_json::json;
 use std::hint::black_box;
@@ -134,13 +134,13 @@ fn bench_dist(dist_name: &str, keys: &[u64], rounds: usize) -> serde_json::Value
         "hashmap_ns_op": hash_med,
         "ratio_vs_art": ratio_mean,
         "ratio_bca_ci_95": [ci_lo, ci_hi],
-        "samples": {
-            "expanse": expanse_times,
-            "blart_art": blart_times,
-            "btree": btree_times,
-            "hashmap": hash_times,
-            "ratios": paired_ratios,
-        }
+        "rounds_raw": rounds_raw(&[
+            ("expanse_ns", &expanse_times),
+            ("blart_art_ns", &blart_times),
+            ("btree_ns", &btree_times),
+            ("hashmap_ns", &hash_times),
+            ("ratio_vs_art", &paired_ratios),
+        ])
     })
 }
 

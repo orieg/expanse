@@ -290,6 +290,26 @@
       "replacement": "M4 ingest 7.4x (2,964 vs 403) and 3.0x (2,964 vs 988), M4 CAN dispatch 1,237 (6,177 ns) at a98d8d3c under the DWT-profile harness; the cacheable-heap cross-core cell returned wrong values in two of eight captures and does not fail safe (docs/benchmarks/stm32h747/README.md, results/pairing_dwt_a98d8d3c/)",
       "provenance": "#709, #615",
       "rationale": "The fce563c2 artifact was taken with the harness before the DWT-profile rows; the same engine re-harvested under the new harness moved the M7 cells up to 4.8% by code placement alone, so its cells are superseded by the a98d8d3c artifact. The 'fails safe' reading of the unsupported cacheable configuration rested on captures that landed in the all-BUSY mode; two later captures returned corrupted values. Superseded, not silently overwritten (§8.7)."
+    },
+    {
+      "id": "art_short_scan_single_start_loss",
+      "patterns": [
+        "(?<![\\w.])1\\.96[x\\u00d7]\\s*\\u2013\\s*2\\.09[x\\u00d7]",
+        "(?<![\\w.])1\\.96[x\\u00d7]\\u20132\\.09[x\\u00d7]",
+        "(?<![\\w.])ART\\s*2\\.09[x\\u00d7]",
+        "(?<![\\w.])ART\\s*1\\.96[x\\u00d7]"
+      ],
+      "context": [
+        "art",
+        "blart",
+        "scan",
+        "k=10",
+        "k = 10",
+        "range scan"
+      ],
+      "replacement": "Expanse 1.50×–1.53× on structured keys and 2.67× on random at k = 10 (docs/benchmarks/art_comparison/results/baseline_scan.json)",
+      "provenance": "#745",
+      "rationale": "Measured from one start key per round, so a k = 10 window held ten element visits between two clock reads; re-measured with scan starts that scale as max(1000, 10^6/k), the cell reverses"
     }
   ]
 }

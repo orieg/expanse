@@ -129,6 +129,10 @@ def main() -> None:
     add_load(prov, "start")
 
     for bench_name, out_file in BENCHES:
+        # One snapshot per pillar, not one per sweep: a load average lags a
+        # heavy process by about thirty seconds, so a single pair at the ends
+        # cannot say which pillar ran beside one (AGENTS.md section 8.4).
+        add_load(prov, f"before {bench_name}")
         run_bench(bench_name, out_file, out_dir, quick, meta, prov)
 
     add_load(prov, "end")

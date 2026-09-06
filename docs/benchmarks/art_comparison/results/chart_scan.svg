@@ -94,62 +94,62 @@
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
   <text x="30" y="106" class="t-bar-label">Sequential (Full Iter)</text>
   <text x="30" y="120" class="t-sub">Scan all N = 1,000,000 keys in order</text>
-  <rect x="260" y="88" width="11.2" height="10" rx="2" class="b-expanse"/>
-  <text x="279.2" y="96" class="t-val-accent">3.07</text>
-  <rect x="260" y="102" width="21.2" height="10" rx="2" class="b-art"/>
-  <text x="289.2" y="110" class="t-val-blue">5.79</text>
-  <rect x="260" y="116" width="20.0" height="10" rx="2" class="b-btree"/>
-  <text x="288.0" y="124" class="t-axis-label">5.45</text>
+  <rect x="260" y="88" width="11.5" height="10" rx="2" class="b-expanse"/>
+  <text x="279.5" y="96" class="t-val-accent">3.14</text>
+  <rect x="260" y="102" width="21.7" height="10" rx="2" class="b-art"/>
+  <text x="289.7" y="110" class="t-val-blue">5.90</text>
+  <rect x="260" y="116" width="20.3" height="10" rx="2" class="b-btree"/>
+  <text x="288.3" y="124" class="t-axis-label">5.53</text>
   <rect x="800" y="102" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="116" class="badge-win-text">Expanse 1.89x</text>
+  <text x="865" y="116" class="badge-win-text">Expanse 1.88x</text>
   <text x="30" y="166" class="t-bar-label">Clustered (Full Iter)</text>
   <text x="30" y="180" class="t-sub">Scan all N = 1,000,000 keys in order</text>
-  <rect x="260" y="148" width="11.8" height="10" rx="2" class="b-expanse"/>
-  <text x="279.8" y="156" class="t-val-accent">3.22</text>
-  <rect x="260" y="162" width="22.1" height="10" rx="2" class="b-art"/>
-  <text x="290.1" y="170" class="t-val-blue">6.04</text>
-  <rect x="260" y="176" width="20.4" height="10" rx="2" class="b-btree"/>
-  <text x="288.4" y="184" class="t-axis-label">5.57</text>
+  <rect x="260" y="148" width="11.9" height="10" rx="2" class="b-expanse"/>
+  <text x="279.9" y="156" class="t-val-accent">3.24</text>
+  <rect x="260" y="162" width="22.5" height="10" rx="2" class="b-art"/>
+  <text x="290.5" y="170" class="t-val-blue">6.14</text>
+  <rect x="260" y="176" width="20.9" height="10" rx="2" class="b-btree"/>
+  <text x="288.9" y="184" class="t-axis-label">5.69</text>
   <rect x="800" y="162" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="176" class="badge-win-text">Expanse 1.88x</text>
+  <text x="865" y="176" class="badge-win-text">Expanse 1.90x</text>
   <text x="30" y="226" class="t-bar-label">Uniform Random (Full Iter)</text>
   <text x="30" y="240" class="t-sub">Scan all N = 1,000,000 keys in order</text>
-  <rect x="260" y="208" width="20.3" height="10" rx="2" class="b-expanse"/>
-  <text x="288.3" y="216" class="t-val-accent">5.54</text>
+  <rect x="260" y="208" width="20.5" height="10" rx="2" class="b-expanse"/>
+  <text x="288.5" y="216" class="t-val-accent">5.59</text>
   <rect x="260" y="222" width="224.0" height="10" rx="2" class="b-art"/>
-  <text x="492.0" y="230" class="t-val-blue">61.08</text>
-  <rect x="260" y="236" width="42.7" height="10" rx="2" class="b-btree"/>
-  <text x="310.7" y="244" class="t-axis-label">11.64</text>
+  <text x="492.0" y="230" class="t-val-blue">61.05</text>
+  <rect x="260" y="236" width="42.6" height="10" rx="2" class="b-btree"/>
+  <text x="310.6" y="244" class="t-axis-label">11.60</text>
   <rect x="800" y="222" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="236" class="badge-win-text">Expanse 11.02x</text>
+  <text x="865" y="236" class="badge-win-text">Expanse 10.92x</text>
   <text x="30" y="286" class="t-bar-label">Sequential (Range k=100)</text>
   <text x="30" y="300" class="t-sub">Bounded range query (100 items)</text>
-  <rect x="260" y="268" width="7.7" height="10" rx="2" class="b-expanse"/>
-  <text x="275.7" y="276" class="t-val-accent">2.09</text>
-  <rect x="260" y="282" width="4.5" height="10" rx="2" class="b-art"/>
-  <text x="272.5" y="290" class="t-val-blue">1.23</text>
-  <rect x="260" y="296" width="3.9" height="10" rx="2" class="b-btree"/>
-  <text x="271.9" y="304" class="t-axis-label">1.05</text>
-  <rect x="800" y="282" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="296" class="badge-loss-text">ART 1.70x</text>
+  <rect x="260" y="268" width="14.6" height="10" rx="2" class="b-expanse"/>
+  <text x="282.6" y="276" class="t-val-accent">3.98</text>
+  <rect x="260" y="282" width="25.5" height="10" rx="2" class="b-art"/>
+  <text x="293.5" y="290" class="t-val-blue">6.94</text>
+  <rect x="260" y="296" width="25.8" height="10" rx="2" class="b-btree"/>
+  <text x="293.8" y="304" class="t-axis-label">7.04</text>
+  <rect x="800" y="282" width="130" height="20" rx="3" class="badge-win"/>
+  <text x="865" y="296" class="badge-win-text">Expanse 1.74x</text>
   <text x="30" y="346" class="t-bar-label">Clustered (Range k=100)</text>
   <text x="30" y="360" class="t-sub">Bounded range query (100 items)</text>
-  <rect x="260" y="328" width="7.3" height="10" rx="2" class="b-expanse"/>
-  <text x="275.3" y="336" class="t-val-accent">2.00</text>
-  <rect x="260" y="342" width="4.5" height="10" rx="2" class="b-art"/>
-  <text x="272.5" y="350" class="t-val-blue">1.23</text>
-  <rect x="260" y="356" width="4.5" height="10" rx="2" class="b-btree"/>
-  <text x="272.5" y="364" class="t-axis-label">1.23</text>
-  <rect x="800" y="342" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="356" class="badge-loss-text">ART 1.63x</text>
+  <rect x="260" y="328" width="15.3" height="10" rx="2" class="b-expanse"/>
+  <text x="283.3" y="336" class="t-val-accent">4.16</text>
+  <rect x="260" y="342" width="27.0" height="10" rx="2" class="b-art"/>
+  <text x="295.0" y="350" class="t-val-blue">7.37</text>
+  <rect x="260" y="356" width="26.6" height="10" rx="2" class="b-btree"/>
+  <text x="294.6" y="364" class="t-axis-label">7.26</text>
+  <rect x="800" y="342" width="130" height="20" rx="3" class="badge-win"/>
+  <text x="865" y="356" class="badge-win-text">Expanse 1.77x</text>
   <text x="30" y="406" class="t-bar-label">Uniform Random (Range k=100)</text>
   <text x="30" y="420" class="t-sub">Bounded range query (100 items)</text>
-  <rect x="260" y="388" width="10.9" height="10" rx="2" class="b-expanse"/>
-  <text x="278.9" y="396" class="t-val-accent">2.96</text>
-  <rect x="260" y="402" width="10.5" height="10" rx="2" class="b-art"/>
-  <text x="278.5" y="410" class="t-val-blue">2.85</text>
-  <rect x="260" y="416" width="4.8" height="10" rx="2" class="b-btree"/>
-  <text x="272.8" y="424" class="t-axis-label">1.32</text>
-  <rect x="800" y="402" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="416" class="badge-loss-text">ART 1.04x</text>
+  <rect x="260" y="388" width="23.7" height="10" rx="2" class="b-expanse"/>
+  <text x="291.7" y="396" class="t-val-accent">6.47</text>
+  <rect x="260" y="402" width="180.8" height="10" rx="2" class="b-art"/>
+  <text x="448.8" y="410" class="t-val-blue">49.28</text>
+  <rect x="260" y="416" width="41.5" height="10" rx="2" class="b-btree"/>
+  <text x="309.5" y="424" class="t-axis-label">11.32</text>
+  <rect x="800" y="402" width="130" height="20" rx="3" class="badge-win"/>
+  <text x="865" y="416" class="badge-win-text">Expanse 7.62x</text>
 </svg>
