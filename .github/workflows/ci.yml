@@ -243,6 +243,13 @@ jobs:
       - name: Verify CI Gate Completeness
         run: python3 scripts/check_ci_gate.py
 
+      # The nightly Miri lane is a shard matrix; this asserts every lib test
+      # is in exactly one shard and every integration target is either listed
+      # in the matrix or `#![cfg(not(miri))]`, so a new module or test file
+      # cannot fall out of the nightly audit unnoticed.
+      - name: Verify Nightly Miri Shard Census
+        run: python3 scripts/check_miri_shards.py
+
       # The `/bench` suite vocabulary is declared once in
       # `.github/bench-suites.json`; this fails when the workflow's
       # workflow_dispatch choices, the docs/BENCHMARKING.md table, or the
@@ -280,7 +287,7 @@ jobs:
 
       # The report scripts carry the §8.1 (fail-loud) and §8.2 (no hardcoded
       # findings prose) assertions as self-tests; run them so they cannot rot.
-      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / pin exposure / warmup ramp / bench pin / docs hygiene / ecosystem theme / bench suites / bench shapes / man pages / abi parity / deletions / test floors)
+      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / pin exposure / warmup ramp / bench pin / docs hygiene / ecosystem theme / bench suites / bench shapes / man pages / abi parity / deletions / test floors / miri shards)
         run: |
           python3 scripts/perf_report.py --self-test
           python3 scripts/bench_report.py --self-test
@@ -298,6 +305,7 @@ jobs:
           python3 scripts/warmup_ramp.py --self-test
           python3 scripts/check_docs_hygiene.py --self-test
           python3 scripts/check_ecosystem_theme.py --self-test
+          python3 scripts/check_miri_shards.py --self-test
           python3 scripts/check_bench_suites.py --self-test
           python3 scripts/check_chart_themes.py --self-test
           python3 scripts/check_chart_layout.py --self-test

@@ -283,6 +283,7 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | C ABI symbol parity · version lockstep · gate completeness · report-script self-tests | **CI** | `lint` job scripts |
 | File deletions require `removes:` / `deletes:` rationale in PR body | **CI** | `lint` job → `scripts/check_deletion_rationale.py` |
 | Exported C symbol floor (≥100) · workspace test count floor (≥300) | **CI** | `lint` job → `scripts/check_abi_parity.py`, `scripts/check_test_floors.py` |
+| Nightly Miri shard census: every `expanse-trie` lib test in exactly one shard, every integration target in the matrix or `#![cfg(not(miri))]` | **CI** | `lint` job → `scripts/check_miri_shards.py` (module→shard map lives in the script; shards select by `--exact` name, never substring) |
 | Black-box parity vs stock `libjudy` | **CI** | `differential-oracle`, `php-judy-*` |
 | Doc↔code constant sync (visualizer) | **CI** | `tests/test_visualizer_sync.rs` |
 | No time estimates · no PII/home paths/LAN IPs in docs and PR body | **CI** | `docs-lint` job → `scripts/check_docs_hygiene.py` |

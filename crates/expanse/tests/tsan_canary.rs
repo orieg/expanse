@@ -11,6 +11,12 @@
 //! continuously verify that ThreadSanitizer is armed and active, and that
 //! `.github/tsan-suppressions.txt` has not rotted into an overbroad suppression
 //! that masks real data races outside storage engine nodes.
+//!
+//! Not a Miri target: Miri's own data-race detector reports the intended race
+//! as undefined behaviour and fails the binary, and the nightly Miri lane has
+//! no inverted assertion to make that failure the expected outcome. The TSan
+//! lane is the one with the inverted check.
+#![cfg(not(miri))]
 
 use std::cell::UnsafeCell;
 use std::hint::black_box;

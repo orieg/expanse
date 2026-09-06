@@ -42,9 +42,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # lib shards are module groups (the cursor model tests alone run for
-        # minutes each under Miri); `lib-rest` is everything the other four skip
-        shard: [lib-cursor, lib-set-map, lib-sync, lib-blobmap-bits, lib-rest, linearizability, no_heap_churn, test_blobmap, test_boundary_invariants, test_domain, test_value_compression, tsan_canary]
+        # lib shards are module groups sized from a measured run (docs/CI.md §5,
+        # Tier 3); `lib-rest` is every module the other five do not name. The map lives in scripts/check_miri_shards.py.
+        shard: [lib-cursor, lib-set, lib-map, lib-sync, lib-blobmap-bits, lib-rest, linearizability, no_heap_churn, test_blobmap, test_boundary_invariants, test_domain, test_value_compression]
     steps:
       - uses: actions/checkout@v7
 
@@ -55,15 +55,27 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # Lib shards select tests by exact name from the module map in
+      # scripts/check_miri_shards.py (libtest filters are substring matches:
+      # `map::` also selects blobmap/bytesmap/strmap/mutate_map, which ran
+      # blobmap twice under the earlier filter scheme); the lint job's census
+      # asserts every lib test is in exactly one shard and every integration
+      # target is either listed here or `#![cfg(not(miri))]`.
       - name: Miri (full, one shard)
         run: |
           case "${{ matrix.shard }}" in
-            lib-cursor)       cargo miri test -p expanse-trie --lib -- cursor:: cursor32:: ;;
-            lib-set-map)      cargo miri test -p expanse-trie --lib -- set:: map:: set32:: map32:: ;;
-            lib-sync)         cargo miri test -p expanse-trie --lib -- sync:: sync32:: ;;
-            lib-blobmap-bits) cargo miri test -p expanse-trie --lib -- blobmap:: bits:: ;;
-            lib-rest)         cargo miri test -p expanse-trie --lib -- --skip cursor:: --skip cursor32:: --skip set:: --skip map:: --skip set32:: --skip map32:: --skip sync:: --skip sync32:: --skip blobmap:: --skip bits:: ;;
-            *)                cargo miri test -p expanse-trie --test "${{ matrix.shard }}" ;;
+            lib-*)
+              names=$(cargo miri test -q -p expanse-trie --lib -- --list \
+                | python3 scripts/check_miri_shards.py --select "${{ matrix.shard }}")
+              if [ -z "$names" ]; then
+                echo "::warning::shard ${{ matrix.shard }} selects no Miri-visible tests (its modules are cfg(not(miri))); nothing to run"
+                exit 0
+              fi
+              echo "$names" | sed 's/^/  /'
+              # shellcheck disable=SC2086
+              cargo miri test -p expanse-trie --lib -- --exact $names ;;
+            *)
+              cargo miri test -p expanse-trie --test "${{ matrix.shard }}" ;;
           esac
 
       - name: Report or Update Nightly Failure Issue

@@ -551,7 +551,16 @@ mod tests {
     #[test]
     fn node_bytes_sum_to_mem_used() {
         for dist in ["sequential", "random", "random62", "clustered", "sparse"] {
-            for n in [0usize, 1, 2, 5, 31, 32, 33, 300, 5_000, 60_000, 200_000] {
+            // The two largest populations exist for the branch forms that only
+            // appear past ~50k keys; under Miri they are the whole cost of the
+            // test (400k interpreted inserts per distribution), so the
+            // interpreter stops at 5,000 and the native job runs all eleven.
+            let sizes: &[usize] = if cfg!(miri) {
+                &[0, 1, 2, 5, 31, 32, 33, 300, 5_000]
+            } else {
+                &[0, 1, 2, 5, 31, 32, 33, 300, 5_000, 60_000, 200_000]
+            };
+            for &n in sizes {
                 let mut set = ExpanseSet::new();
                 let mut map = ExpanseMap::new();
                 for k in keys(dist, n) {

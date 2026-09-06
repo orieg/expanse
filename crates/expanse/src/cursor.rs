@@ -415,8 +415,15 @@ mod tests {
 
     #[test]
     fn random_and_zipfian() {
+        // Every round drives the same cursor paths over a fresh random
+        // population; the repetition buys distribution variety, not new
+        // paths. Under Miri all twelve rounds were the largest single item of
+        // the cursor shard in the lane's first measured run (docs/CI.md §5,
+        // Tier 3), so the interpreter runs two and the native test job keeps
+        // all twelve on every PR.
+        const ROUNDS: usize = if cfg!(miri) { 2 } else { 12 };
         let mut rng = XorShift(0xC0FF_EE12_3456_789A);
-        for _ in 0..12 {
+        for _ in 0..ROUNDS {
             // Full-width random.
             let n = 300 + (rng.next() % 400) as usize;
             let keys: Vec<Key> = (0..n).map(|_| rng.next()).collect();
