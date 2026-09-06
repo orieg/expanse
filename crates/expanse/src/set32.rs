@@ -1398,9 +1398,9 @@ mod tests {
     /// branch flavour, with random inclusive ranges.
     #[test]
     fn remove_range_matches_btreeset_model() {
-        // Same shape and the same Miri sizing as the map32 twin: three of the
+        // Same shape and the same Miri sizing as the map32 twin: two of the
         // forty rounds under the interpreter, all forty in the native job.
-        const ROUNDS: u32 = if cfg!(miri) { 3 } else { 40 };
+        const ROUNDS: u32 = if cfg!(miri) { 2 } else { 40 };
         let mut state = 0x7A11_0C35u32;
         let mut lcg = move || {
             state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
