@@ -508,8 +508,14 @@ def check_no_dangling_capi_include_references(root: Path) -> List[str]:
         )
 
     try:
+        # Match both path separators. A PowerShell step spells the same path
+        # with backslashes, and a forward-slash-only pattern reports clean over
+        # it — which is how a Windows release step and the NuGet package
+        # definition both kept referencing the deleted directory (#749).
+        # AGENTS.md section 8.11: a gate's pattern is part of the gate.
         res = subprocess.run(
-            ["git", "grep", "-n", "expanse-capi/include", "--", ".", ":!scripts/check_*.py"],
+            ["git", "grep", "-n", "-E", r"expanse-capi[/\\]include",
+             "--", ".", ":!scripts/check_*.py"],
             cwd=str(root),
             capture_output=True,
             text=True,
