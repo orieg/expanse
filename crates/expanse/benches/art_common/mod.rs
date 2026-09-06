@@ -62,6 +62,34 @@ pub fn shuffle(v: &mut [u64], rng: &mut XorShift64) {
     }
 }
 
+/// Every round's samples verbatim, keyed by round, so a published median or
+/// ratio can be recomputed from the committed artifact rather than trusted
+/// (AGENTS.md section 8.12; `scripts/bench_provenance.py::raw_rounds` is the
+/// Python side of the same contract, and `scripts/check_bench_provenance.py`
+/// is what stops the field dropping back out).
+///
+/// A column shorter than the longest one carries `null` in the rounds it does
+/// not reach, so the rows stay aligned by round instead of silently shifting.
+pub fn rounds_raw(columns: &[(&str, &[f64])]) -> Vec<serde_json::Value> {
+    let rounds = columns.iter().map(|(_, v)| v.len()).max().unwrap_or(0);
+    (0..rounds)
+        .map(|i| {
+            let mut row = serde_json::Map::new();
+            row.insert("round".into(), serde_json::json!(i));
+            for (name, values) in columns {
+                row.insert(
+                    (*name).into(),
+                    match values.get(i) {
+                        Some(v) => serde_json::json!(v),
+                        None => serde_json::Value::Null,
+                    },
+                );
+            }
+            serde_json::Value::Object(row)
+        })
+        .collect()
+}
+
 /// Median of a series of samples (for interleaved round timing per §8.4).
 pub fn median(mut v: Vec<f64>) -> f64 {
     v.sort_by(|a, b| a.partial_cmp(b).unwrap());

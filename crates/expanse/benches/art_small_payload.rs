@@ -25,7 +25,7 @@ mod art_common;
 
 use art_common::{
     ArtMap, BTreeMap, ExpanseMap, HashMap, XorShift64, art_key, bca_ci, gen_sequential, median,
-    shuffle,
+    rounds_raw, shuffle,
 };
 
 type BenchArtMap = ArtMap<blart::Mapped<blart::ToUBE, u64>, u64>;
@@ -302,10 +302,10 @@ fn bench_small_pop(n: usize, rounds: usize) -> serde_json::Value {
         }
     }
 
-    let hit_exp_med = median(hit_exp_times);
-    let hit_blart_med = median(hit_blart_times);
-    let hit_btree_med = median(hit_btree_times);
-    let hit_hash_med = median(hit_hash_times);
+    let hit_exp_med = median(hit_exp_times.clone());
+    let hit_blart_med = median(hit_blart_times.clone());
+    let hit_btree_med = median(hit_btree_times.clone());
+    let hit_hash_med = median(hit_hash_times.clone());
     let (hit_ratio_mean, hit_ci_lo, hit_ci_hi) = bca_ci(&hit_paired_ratios);
 
     // 3. Point Lookup Latency (50% Hit / 50% Rejection Miss)
@@ -365,10 +365,10 @@ fn bench_small_pop(n: usize, rounds: usize) -> serde_json::Value {
         }
     }
 
-    let miss_exp_med = median(miss_exp_times);
-    let miss_blart_med = median(miss_blart_times);
-    let miss_btree_med = median(miss_btree_times);
-    let miss_hash_med = median(miss_hash_times);
+    let miss_exp_med = median(miss_exp_times.clone());
+    let miss_blart_med = median(miss_blart_times.clone());
+    let miss_btree_med = median(miss_btree_times.clone());
+    let miss_hash_med = median(miss_hash_times.clone());
     let (miss_ratio_mean, miss_ci_lo, miss_ci_hi) = bca_ci(&miss_paired_ratios);
 
     // 4. Dynamic Growth Insertion Latency
@@ -417,10 +417,10 @@ fn bench_small_pop(n: usize, rounds: usize) -> serde_json::Value {
         }
     }
 
-    let ins_exp_med = median(ins_exp_times);
-    let ins_blart_med = median(ins_blart_times);
-    let ins_btree_med = median(ins_btree_times);
-    let ins_hash_med = median(ins_hash_times);
+    let ins_exp_med = median(ins_exp_times.clone());
+    let ins_blart_med = median(ins_blart_times.clone());
+    let ins_btree_med = median(ins_btree_times.clone());
+    let ins_hash_med = median(ins_hash_times.clone());
     let (ins_ratio_mean, ins_ci_lo, ins_ci_hi) = bca_ci(&ins_paired_ratios);
 
     json!({
@@ -450,6 +450,13 @@ fn bench_small_pop(n: usize, rounds: usize) -> serde_json::Value {
             "ratio_vs_art": hit_ratio_mean,
             "ratio_median": if hit_blart_med > 0.0 { hit_exp_med / hit_blart_med } else { 1.0 },
             "ratio_bca_ci_95": [hit_ci_lo, hit_ci_hi],
+            "rounds_raw": rounds_raw(&[
+                ("expanse_ns", &hit_exp_times),
+                ("blart_art_ns", &hit_blart_times),
+                ("btree_ns", &hit_btree_times),
+                ("hashmap_ns", &hit_hash_times),
+                ("ratio_vs_art", &hit_paired_ratios),
+            ]),
             "ratio_mean": hit_ratio_mean,
         },
         "lookup_miss": {
@@ -460,6 +467,13 @@ fn bench_small_pop(n: usize, rounds: usize) -> serde_json::Value {
             "ratio_vs_art": miss_ratio_mean,
             "ratio_median": if miss_blart_med > 0.0 { miss_exp_med / miss_blart_med } else { 1.0 },
             "ratio_bca_ci_95": [miss_ci_lo, miss_ci_hi],
+            "rounds_raw": rounds_raw(&[
+                ("expanse_ns", &miss_exp_times),
+                ("blart_art_ns", &miss_blart_times),
+                ("btree_ns", &miss_btree_times),
+                ("hashmap_ns", &miss_hash_times),
+                ("ratio_vs_art", &miss_paired_ratios),
+            ]),
             "ratio_mean": miss_ratio_mean,
         },
         "insert": {
@@ -470,6 +484,13 @@ fn bench_small_pop(n: usize, rounds: usize) -> serde_json::Value {
             "ratio_vs_art": ins_ratio_mean,
             "ratio_median": if ins_blart_med > 0.0 { ins_exp_med / ins_blart_med } else { 1.0 },
             "ratio_bca_ci_95": [ins_ci_lo, ins_ci_hi],
+            "rounds_raw": rounds_raw(&[
+                ("expanse_ns", &ins_exp_times),
+                ("blart_art_ns", &ins_blart_times),
+                ("btree_ns", &ins_btree_times),
+                ("hashmap_ns", &ins_hash_times),
+                ("ratio_vs_art", &ins_paired_ratios),
+            ]),
             "ratio_mean": ins_ratio_mean,
         }
     })

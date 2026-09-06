@@ -36,10 +36,16 @@ def process_timing_file(filename: str) -> None:
         del meta["data_sha"]
 
     for r in data["results"]:
-        samples = r.get("samples")
-        if not samples or "ratios" not in samples:
+        # Per-round rows, not per-arm arrays: the artifact publishes
+        # `rounds_raw` so a median or a ratio can be recomputed from it
+        # (AGENTS.md section 8.12, #732). A round whose ratio is absent
+        # carries null and is skipped, as the harness skipped it.
+        rows = r.get("rounds_raw")
+        if not rows:
             continue
-        ratios = samples["ratios"]
+        ratios = [row["ratio_vs_art"] for row in rows if row.get("ratio_vs_art") is not None]
+        if not ratios:
+            continue
         theta_hat, lo, hi = bca_bootstrap_ci(ratios, confidence=0.95, num_resamples=2000, seed=42)
         r["ratio_vs_art"] = theta_hat
         r["ratio_bca_ci_95"] = [lo, hi]

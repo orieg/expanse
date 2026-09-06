@@ -24,12 +24,25 @@
 mod art_common;
 
 use art_common::{
-    ArtMap, BTreeMap, ExpanseMap, Mapped, ToUBE, XorShift64, art_key, bca_ci, gen_clustered,
-    gen_sequential, gen_uniform_random, median,
+    ArtMap, BTreeMap, ExpanseMap, Mapped, PROBE_SHUFFLE_SEED, ToUBE, XorShift64, art_key, bca_ci,
+    gen_clustered, gen_sequential, gen_uniform_random, median, rounds_raw, shuffle,
 };
 use serde_json::json;
 use std::hint::black_box;
 use std::time::Instant;
+
+/// Starts visited in one timed bounded-scan window, so that every `k` visits
+/// about a million elements rather than leaving `k = 10` a ten-element window.
+///
+/// Until #745 this harness scanned from **one** start key, `keys[len / 4]`, on
+/// every round and for every `k`. At `k = 10` the timed region was ten element
+/// visits bracketed by two clock reads, and the published `ns/element` divided
+/// that whole window — clock reads included — by ten; the same start also meant
+/// fifteen rounds re-walked one warm path. Mirrors the fix HOT took for the
+/// same defect (`expanse_hot_bench::workload::scan_starts`, #731).
+fn scan_starts(k: usize) -> usize {
+    (1_000_000 / k.max(1)).max(1_000)
+}
 
 fn bench_scan_case(
     dist_name: &str,
@@ -49,39 +62,80 @@ fn bench_scan_case(
         btree.insert(k, k.wrapping_mul(3));
     }
 
+    // `try_insert` returns an error on a duplicate key and the loop above
+    // discards it, so a distribution that draws the same key twice leaves the
+    // three containers holding different populations and divides a full
+    // iteration by a count none of them visited. Fail loudly instead
+    // (AGENTS.md section 8.1).
+    let held = btree.len();
+    assert_eq!(
+        expanse.len() as usize,
+        held,
+        "{dist_name} n={n}: ExpanseMap holds {} keys, BTreeMap {held}",
+        expanse.len()
+    );
+    assert_eq!(
+        blart.len(),
+        held,
+        "{dist_name} n={n}: blart holds {} keys, BTreeMap {held}",
+        blart.len()
+    );
+
+    // Bounded scans start at shuffled population keys, cycled to the count
+    // `scan_starts` asks for; the full-iteration case (`range_k == 0`) walks
+    // the whole container and takes no starts.
+    let starts: Vec<u64> = if range_k == 0 {
+        Vec::new()
+    } else {
+        let mut pool = keys.to_vec();
+        shuffle(&mut pool, &mut XorShift64::new(PROBE_SHUFFLE_SEED));
+        pool.iter()
+            .copied()
+            .cycle()
+            .take(scan_starts(range_k))
+            .collect()
+    };
+
     let mut expanse_times = Vec::with_capacity(rounds);
     let mut blart_times = Vec::with_capacity(rounds);
     let mut btree_times = Vec::with_capacity(rounds);
     let mut paired_ratios = Vec::with_capacity(rounds);
 
-    let divisor = if range_k == 0 {
-        n as f64
-    } else {
-        range_k as f64
-    };
+    let mut visited_per_round: Vec<usize> = Vec::with_capacity(rounds);
 
     for round in 0..rounds {
-        let (e_ns, b_ns, bt_ns) = match round % 3 {
+        let ((e_t, e_v), (b_t, b_v), (bt_t, bt_v)) = match round % 3 {
             0 => {
-                let e = time_expanse_scan(&expanse, keys, range_k, divisor);
-                let b = time_blart_scan(&blart, keys, range_k, divisor);
-                let bt = time_btree_scan(&btree, keys, range_k, divisor);
+                let e = time_expanse_scan(&expanse, &starts, range_k, held);
+                let b = time_blart_scan(&blart, &starts, range_k, held);
+                let bt = time_btree_scan(&btree, &starts, range_k, held);
                 (e, b, bt)
             }
             1 => {
-                let b = time_blart_scan(&blart, keys, range_k, divisor);
-                let bt = time_btree_scan(&btree, keys, range_k, divisor);
-                let e = time_expanse_scan(&expanse, keys, range_k, divisor);
+                let b = time_blart_scan(&blart, &starts, range_k, held);
+                let bt = time_btree_scan(&btree, &starts, range_k, held);
+                let e = time_expanse_scan(&expanse, &starts, range_k, held);
                 (e, b, bt)
             }
             _ => {
-                let bt = time_btree_scan(&btree, keys, range_k, divisor);
-                let e = time_expanse_scan(&expanse, keys, range_k, divisor);
-                let b = time_blart_scan(&blart, keys, range_k, divisor);
+                let bt = time_btree_scan(&btree, &starts, range_k, held);
+                let e = time_expanse_scan(&expanse, &starts, range_k, held);
+                let b = time_blart_scan(&blart, &starts, range_k, held);
                 (e, b, bt)
             }
         };
 
+        // Both columns of a ratio must count the same elements, or a
+        // divergence is divided into both as if it were one quantity.
+        assert!(
+            e_v == b_v && e_v == bt_v,
+            "{dist_name} n={n} k={range_k} round {round}: visited counts differ \
+             (Expanse {e_v}, blart {b_v}, BTreeMap {bt_v})"
+        );
+        let divisor = e_v.max(1) as f64;
+        visited_per_round.push(e_v);
+
+        let (e_ns, b_ns, bt_ns) = (e_t / divisor, b_t / divisor, bt_t / divisor);
         expanse_times.push(e_ns);
         blart_times.push(b_ns);
         btree_times.push(bt_ns);
@@ -98,99 +152,132 @@ fn bench_scan_case(
     json!({
         "distribution": dist_name,
         "population": n,
+        "keys_held": held,
         "range_k": range_k,
+        // The methodology of this cell, checkable from the artifact: how many
+        // scans one timed window held, and how many elements it visited.
+        "scan_starts": starts.len(),
+        "visited_per_round": visited_per_round,
         "expanse_ns_elem": exp_med,
         "blart_art_ns_elem": blart_med,
         "btree_ns_elem": btree_med,
         "ratio_vs_art": ratio_mean,
         "ratio_bca_ci_95": [ci_lo, ci_hi],
-        "samples": {
-            "expanse": expanse_times,
-            "blart_art": blart_times,
-            "btree": btree_times,
-            "ratios": paired_ratios,
-        }
+        "rounds_raw": rounds_raw(&[
+            ("expanse_ns", &expanse_times),
+            ("blart_art_ns", &blart_times),
+            ("btree_ns", &btree_times),
+            ("ratio_vs_art", &paired_ratios),
+        ])
     })
 }
 
 #[inline(never)]
-fn time_expanse_scan(map: &ExpanseMap, keys: &[u64], range_k: usize, divisor: f64) -> f64 {
-    let start = Instant::now();
+fn time_expanse_scan(
+    map: &ExpanseMap,
+    starts: &[u64],
+    range_k: usize,
+    held: usize,
+) -> (f64, usize) {
+    let t0 = Instant::now();
     let mut acc = 0u64;
+    let mut visited = 0usize;
     if range_k == 0 {
         for (k, v) in map.iter() {
             black_box(k);
             acc ^= v;
         }
+        visited = held;
     } else {
-        let start_key = keys[keys.len() / 4];
-        let mut count = 0;
-        for (k, v) in map.range(start_key..=u64::MAX) {
-            black_box(k);
-            acc ^= v;
-            count += 1;
-            if count >= range_k {
-                break;
+        for &s in starts {
+            let mut c = 0usize;
+            for (k, v) in map.range(s..=u64::MAX) {
+                black_box(k);
+                acc ^= v;
+                c += 1;
+                if c >= range_k {
+                    break;
+                }
             }
+            visited += c;
         }
     }
+    let t = t0.elapsed().as_nanos() as f64;
     black_box(acc);
-    start.elapsed().as_nanos() as f64 / divisor
+    black_box(visited);
+    (t, visited)
 }
 
 #[inline(never)]
 fn time_blart_scan(
     map: &ArtMap<Mapped<ToUBE, u64>, u64>,
-    keys: &[u64],
+    starts: &[u64],
     range_k: usize,
-    divisor: f64,
-) -> f64 {
-    let start = Instant::now();
+    held: usize,
+) -> (f64, usize) {
+    let t0 = Instant::now();
     let mut acc = 0u64;
+    let mut visited = 0usize;
     if range_k == 0 {
         for (k, v) in map.iter() {
             black_box(k);
             acc ^= *v;
         }
+        visited = held;
     } else {
-        let start_key = art_key(keys[keys.len() / 4]);
-        let mut count = 0;
-        for (k, v) in map.range(start_key..) {
-            black_box(k);
-            acc ^= *v;
-            count += 1;
-            if count >= range_k {
-                break;
+        for &s in starts {
+            let mut c = 0usize;
+            for (k, v) in map.range(art_key(s)..) {
+                black_box(k);
+                acc ^= *v;
+                c += 1;
+                if c >= range_k {
+                    break;
+                }
             }
+            visited += c;
         }
     }
+    let t = t0.elapsed().as_nanos() as f64;
     black_box(acc);
-    start.elapsed().as_nanos() as f64 / divisor
+    black_box(visited);
+    (t, visited)
 }
 
 #[inline(never)]
-fn time_btree_scan(map: &BTreeMap<u64, u64>, keys: &[u64], range_k: usize, divisor: f64) -> f64 {
-    let start = Instant::now();
+fn time_btree_scan(
+    map: &BTreeMap<u64, u64>,
+    starts: &[u64],
+    range_k: usize,
+    held: usize,
+) -> (f64, usize) {
+    let t0 = Instant::now();
     let mut acc = 0u64;
+    let mut visited = 0usize;
     if range_k == 0 {
         for (k, v) in map.iter() {
             black_box(k);
             acc ^= *v;
         }
+        visited = held;
     } else {
-        let start_key = keys[keys.len() / 4];
-        let mut count = 0;
-        for (k, v) in map.range(start_key..) {
-            black_box(k);
-            acc ^= *v;
-            count += 1;
-            if count >= range_k {
-                break;
+        for &s in starts {
+            let mut c = 0usize;
+            for (k, v) in map.range(s..) {
+                black_box(k);
+                acc ^= *v;
+                c += 1;
+                if c >= range_k {
+                    break;
+                }
             }
+            visited += c;
         }
     }
+    let t = t0.elapsed().as_nanos() as f64;
     black_box(acc);
-    start.elapsed().as_nanos() as f64 / divisor
+    black_box(visited);
+    (t, visited)
 }
 
 fn main() {
