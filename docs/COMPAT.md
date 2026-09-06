@@ -91,14 +91,14 @@ Shipped header `include/Judy.h` additionally provides, source-compatibly:
 
 ## Binary image compatibility
 
-`ExpanseBlobMap::save_to_file` / `load_from_file` (and the C ABI
-`expanse_blob_map_save_to_file` / `_load_from_file` pair) write and read a
-memory image whose 64-byte header carries `EXPANSE_FORMAT_VERSION`
+`ExpanseBlobMap::save_to_file` / `load_from_file` (Rust surface only; the C
+ABI exposes no image save or load) write and read a memory image whose
+64-byte header carries `EXPANSE_FORMAT_VERSION`
 (`crates/expanse/src/blobmap.rs`). **The image is not a cross-version
 format.** A build reads only images written with its own format version; an
 image carrying another version is refused with
-`ArenaError::UnsupportedFormatVersion { found, supported }` (the C ABI load
-returns null), never loaded partially and never migrated. The version is
+`ArenaError::UnsupportedFormatVersion { found, supported }`, never loaded
+partially and never migrated. The version is
 `2` since #518 (inline compressed value slots), which means images written by
 v0.5.0 (`1`) do not load in later releases; nothing in the library rewrites a
 v1 image, so a consumer that needs continuity across that boundary re-inserts
