@@ -273,6 +273,12 @@ jobs:
       - name: Verify Wall-Clock Runners Take the Core Pin
         run: python3 scripts/check_bench_pin.py
 
+      # Committed artifacts live under `docs/**`, so `docs-lint` runs this too
+      # — `lint` is gated on `tooling`/`rust-src` and would not fire on a PR
+      # that only re-measures a suite.
+      - name: Verify Benchmark Artifact Provenance
+        run: python3 scripts/check_bench_provenance.py
+
       # check_man_pages.py skips its troff lint when mandoc is absent, and the
       # runner image does not ship it — without this install the advertised
       # lint silently never runs.
@@ -314,6 +320,7 @@ jobs:
           # a mask including an E-core) run against a synthetic topology, so
           # they are checkable on a runner that is not hybrid at all.
           python3 scripts/check_bench_pin.py --self-test
+          python3 scripts/check_bench_provenance.py --self-test
           python3 scripts/check_man_pages.py --self-test
           python3 scripts/check_abi_parity.py --self-test
           python3 scripts/check_deletion_rationale.py --self-test
@@ -414,6 +421,14 @@ jobs:
         run: |
           python3 scripts/check_readme_tables.py --self-test
           python3 scripts/check_readme_tables.py
+      - name: Verify Benchmark Artifact Provenance
+        run: |
+          python3 scripts/check_bench_provenance.py --self-test
+          python3 scripts/check_bench_provenance.py
+
+      - name: Shared Runner Provenance Unit Tests
+        working-directory: scripts
+        run: python3 -m unittest test_bench_provenance -v
 
       - name: Validate the citation record (CITATION.cff / .zenodo.json)
         shell: bash

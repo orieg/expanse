@@ -14,10 +14,17 @@ hidden).
 """
 
 import json
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from theme import svg_header
+
+# Artifacts written before #732 are a bare JSON array; ones written after are
+# `{"provenance": ..., "cells": [...]}`. `body()` accepts both, so a generator
+# keeps working against either.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent.parent / "scripts"))
+from bench_provenance import body  # noqa: E402
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 RESULTS_DIR = BASE_DIR / "results"
@@ -110,7 +117,7 @@ def gen_from_mops(json_name, out_name, title, sub, unit, labels, exp_key, sl_key
     path = RESULTS_DIR / json_name
     if not path.exists():
         return
-    data = json.loads(path.read_text())
+    data = body(json.loads(path.read_text()))
     pop = data.get("population", 0)
     scenarios = data["scenarios"]
     rows = []
@@ -127,7 +134,7 @@ def generate_memory_chart():
     path = RESULTS_DIR / "baseline_memory.json"
     if not path.exists():
         return
-    data = json.loads(path.read_text())
+    data = body(json.loads(path.read_text()))
     entry = data[-1]  # largest population
     pop = entry["population"]
 

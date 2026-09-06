@@ -19,9 +19,18 @@ import subprocess
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-REPO_ROOT = BASE_DIR.parent.parent
+# `docs/benchmarks/<suite>` -> the repo root is three levels up, as in every
+# other runner. This read `.parent.parent` and resolved to `docs/`; cargo walks
+# up to find a manifest, so the sweep still ran and it went unnoticed.
+REPO_ROOT = BASE_DIR.parent.parent.parent
 RESULTS_DIR = BASE_DIR / "results"
 SCRIPTS_DIR = BASE_DIR / "scripts"
+
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+from bench_provenance import (  # noqa: E402
+    add_load, attach, estimators, git_sha, host_facts, rewrite,
+)
+
 
 BENCHES = [
     ("hashbrown_native_suite", "baseline_native.json"),
@@ -31,7 +40,7 @@ BENCHES = [
     ("hashbrown_memory_alloc", "baseline_memory.json"),
 ]
 
-def run_bench(bench_name: str, out_file: str, out_dir: Path, quick: bool = False):
+def run_bench(bench_name: str, out_file: str, out_dir: Path, prov: dict, quick: bool = False):
     print(f"==> Running benchmark: {bench_name} (quick={quick})...")
     cmd = [
         "cargo", "bench", "-p", "expanse-trie",
@@ -64,7 +73,7 @@ def run_bench(bench_name: str, out_file: str, out_dir: Path, quick: bool = False
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / out_file
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(parsed, f, indent=2)
+        json.dump(attach(parsed, prov), f, indent=2)
     print(f"    Saved results to {out_path}")
 
 def main():
@@ -77,8 +86,26 @@ def main():
     # llm_inference suite in #352.
     out_dir = RESULTS_DIR / "quick" if quick else RESULTS_DIR
 
+    prov = {
+        "suite": "hashbrown_comparison",
+        "commit": git_sha(REPO_ROOT),
+        "host": host_facts(),
+        "estimators": estimators(
+            "per-arm ns/op and B/key as the Criterion harness reports them; where a ratio is quoted it is Expanse over the named competitor at the same population and hit rate"
+        ),
+        "core_pin": os.environ.get("EXPANSE_BENCH_PIN_APPLIED", "unset"),
+        "quick": quick,
+        "loads": [],
+    }
+    add_load(prov, "start")
+
     for bench_name, out_file in BENCHES:
-        run_bench(bench_name, out_file, out_dir, quick=quick)
+        run_bench(bench_name, out_file, out_dir, prov, quick=quick)
+
+    add_load(prov, "end")
+    # The artifacts were written inside the loop above, before this
+    # snapshot existed; re-stamp so each carries the whole load series.
+    rewrite((out_dir / f for _, f in BENCHES), prov)
 
     if quick:
         print("\n==> Skipping chart regeneration (--quick).")

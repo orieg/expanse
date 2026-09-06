@@ -41,6 +41,9 @@ CRATE = REPO_ROOT / "crates" / "expanse-hot-bench" / "Cargo.toml"
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from bca_bootstrap import bca_bootstrap_ratio_ci  # noqa: E402
+from bench_provenance import (  # noqa: E402
+    add_load, estimators, git_sha, host_facts, load_snapshot, raw_rounds,
+)
 from masstree_envelope import census_quantum_dominated  # noqa: E402
 
 # The HOT suite's λ targets, so the ExpanseMap column is the same cells (§5).
@@ -73,92 +76,7 @@ def population_for_lambda(lam: float) -> int:
     return max(1000, int(round(lam * 2 ** 16)))
 
 
-def cpu_jiffies():
-    """(busy, total) jiffies from the aggregate `cpu` line of /proc/stat; None off Linux."""
-    try:
-        vals = [int(x) for x in open("/proc/stat").readline().split()[1:]]
-        idle = vals[3] + (vals[4] if len(vals) > 4 else 0)
-        return sum(vals) - idle, sum(vals)
-    except (OSError, ValueError, IndexError):
-        return None, None
-
-
-def load_snapshot(label: str, prev: dict = None) -> dict:
-    """Load averages, plus the host's busy CPU since `prev` in core-equivalents.
-
-    The 1-minute load average lags a heavy process by about thirty seconds;
-    the jiffy delta between two snapshots is the exact CPU the whole host
-    burned in between, the harness's own threads included. A single-threaded
-    phase on a quiet host reads about 1.0; the concurrent sweep reads its own
-    thread count.
-    """
-    try:
-        one, five, fifteen = os.getloadavg()
-    except OSError:
-        one = five = fifteen = float("nan")
-    busy, total = cpu_jiffies()
-    snap = {"label": label, "load1": round(one, 2), "load5": round(five, 2),
-            "load15": round(fifteen, 2), "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "stat_busy_jiffies": busy, "stat_total_jiffies": total, "busy_cpus_since_prev": None}
-    if prev and total is not None and prev.get("stat_total_jiffies") is not None:
-        dt = total - prev["stat_total_jiffies"]
-        if dt > 0:
-            snap["busy_cpus_since_prev"] = round((busy - prev["stat_busy_jiffies"]) / dt * (os.cpu_count() or 1), 2)
-    return snap
-
-
-def add_load(prov: dict, label: str) -> None:
-    prov["loads"].append(load_snapshot(label, prov["loads"][-1] if prov["loads"] else None))
-
-
-def read_sysfs(path: str):
-    try:
-        return open(path).read().strip()
-    except OSError:
-        return None
-
-
-def host_facts() -> dict:
-    """What a wall-clock number depends on that `platform.platform()` does not say."""
-    model = None
-    try:
-        for line in open("/proc/cpuinfo"):
-            if line.startswith("model name"):
-                model = line.split(":", 1)[1].strip()
-                break
-    except OSError:
-        pass
-    return {
-        "cpu_model": model or platform.processor() or platform.machine(),
-        "cpus_online": os.cpu_count(),
-        # Hybrid parts: the P-core mask includes SMT siblings; W + R = 16 on an
-        # eight-P-core host therefore runs two threads per physical core.
-        "cpu_core_cpus": read_sysfs("/sys/devices/cpu_core/cpus"),
-        "cpu_atom_cpus": read_sysfs("/sys/devices/cpu_atom/cpus"),
-        "cpu0_thread_siblings": read_sysfs("/sys/devices/system/cpu/cpu0/topology/thread_siblings_list"),
-        "scaling_driver": read_sysfs("/sys/devices/system/cpu/cpu0/cpufreq/scaling_driver"),
-        "scaling_governor": read_sysfs("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"),
-        "transparent_hugepage": read_sysfs("/sys/kernel/mm/transparent_hugepage/enabled"),
-    }
-
-
-def raw_rounds(rows: list, keys: tuple) -> list:
-    """Every round's samples verbatim, so medians and the ratio can be recomputed from the artifact."""
-    return [{k: r.get(k) for k in ("round", *keys)} for r in rows]
-
-
 LATENCY_RAW = ("first_arm", "masstree_ns_per_op", "expanse_ns_per_op")
-
-
-def git_sha() -> str:
-    explicit = os.environ.get("EXPANSE_BENCH_COMMIT")
-    if explicit:
-        return explicit
-    try:
-        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=REPO_ROOT,
-                                       stderr=subprocess.DEVNULL).decode().strip()
-    except Exception:
-        return "unknown"
 
 
 BINS = ["masstree_validate", "masstree_latency", "masstree_string_latency", "masstree_memory"]
@@ -487,17 +405,14 @@ def main() -> int:
         build_concurrent(env)
 
     provenance = {
-        "suite": "masstree_comparison", "issue": 661, "commit": git_sha(),
+        "suite": "masstree_comparison", "issue": 661, "commit": git_sha(REPO_ROOT),
         "masstree_commit": MASSTREE_COMMIT,
         "cpu": platform.processor() or platform.machine(), "platform": platform.platform(),
         "host": host_facts(),
-        "estimators": {
-            "ratio": "mean(Masstree rounds) / mean(Expanse rounds) — or Expanse / Masstree for throughput — "
-                     "with a two-sample BCa 95% interval (scripts/bca_bootstrap.py)",
-            "columns": "per-arm medians of the same rounds; the ratio column is not the quotient of the two "
-                       "median columns beside it",
-            "raw": "every cell carries rounds_raw, the per-round samples verbatim",
-        },
+        "estimators": estimators(
+            "mean(Masstree rounds) / mean(Expanse rounds) — or Expanse / Masstree for throughput — "
+            "with a two-sample BCa 95% interval (scripts/bca_bootstrap.py)"
+        ),
         "rustflags": env["RUSTFLAGS"].strip(),
         "cxx_flags": "-march=haswell -O3 -std=c++17 -DNDEBUG (assertions, preconditions and invariants off)",
         "allocator": "glibc malloc, superpages on (METHODOLOGY §3.3)",
