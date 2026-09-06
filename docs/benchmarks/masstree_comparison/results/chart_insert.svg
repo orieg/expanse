@@ -95,34 +95,34 @@
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
   <text x="30" y="108" class="t-bar-label">clustered · integer map</text>
   <text x="30" y="122" class="t-sub">N = 1,000,000 · 64-bit keys</text>
-  <rect x="300" y="92" width="153.3" height="11" rx="2" class="b-expanse"/>
-  <text x="461.3" y="101" class="t-val-accent">21.43</text>
-  <rect x="300" y="109" width="149.0" height="11" rx="2" class="b-masstree"/>
-  <text x="457.0" y="118" class="t-val-blue">20.84</text>
+  <rect x="300" y="92" width="153.7" height="11" rx="2" class="b-expanse"/>
+  <text x="461.7" y="101" class="t-val-accent">21.22</text>
+  <rect x="300" y="109" width="149.7" height="11" rx="2" class="b-masstree"/>
+  <text x="457.7" y="118" class="t-val-blue">20.66</text>
   <rect x="800" y="100" width="130" height="20" rx="3" class="badge-loss"/>
   <text x="865" y="114" class="badge-loss-text">Masstree 1.03x</text>
   <text x="30" y="164" class="t-bar-label">random · integer map</text>
   <text x="30" y="178" class="t-sub">N = 1,000,000 · 64-bit keys</text>
-  <rect x="300" y="148" width="194.3" height="11" rx="2" class="b-expanse"/>
-  <text x="502.3" y="157" class="t-val-accent">27.16</text>
-  <rect x="300" y="165" width="149.0" height="11" rx="2" class="b-masstree"/>
-  <text x="457.0" y="174" class="t-val-blue">20.83</text>
+  <rect x="300" y="148" width="196.4" height="11" rx="2" class="b-expanse"/>
+  <text x="504.4" y="157" class="t-val-accent">27.10</text>
+  <rect x="300" y="165" width="150.5" height="11" rx="2" class="b-masstree"/>
+  <text x="458.5" y="174" class="t-val-blue">20.77</text>
   <rect x="800" y="156" width="130" height="20" rx="3" class="badge-loss"/>
   <text x="865" y="170" class="badge-loss-text">Masstree 1.30x</text>
   <text x="30" y="220" class="t-bar-label">sequential · integer map</text>
   <text x="30" y="234" class="t-sub">N = 1,000,000 · 64-bit keys</text>
-  <rect x="300" y="204" width="96.4" height="11" rx="2" class="b-expanse"/>
-  <text x="404.4" y="213" class="t-val-accent">13.47</text>
-  <rect x="300" y="221" width="147.5" height="11" rx="2" class="b-masstree"/>
-  <text x="455.5" y="230" class="t-val-blue">20.62</text>
+  <rect x="300" y="204" width="97.1" height="11" rx="2" class="b-expanse"/>
+  <text x="405.1" y="213" class="t-val-accent">13.40</text>
+  <rect x="300" y="221" width="150.1" height="11" rx="2" class="b-masstree"/>
+  <text x="458.1" y="230" class="t-val-blue">20.72</text>
   <rect x="800" y="212" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="226" class="badge-win-text">Expanse 1.53x</text>
+  <text x="865" y="226" class="badge-win-text">Expanse 1.55x</text>
   <text x="30" y="276" class="t-bar-label">sparse · integer map</text>
   <text x="30" y="290" class="t-sub">N = 1,000,000 · 64-bit keys</text>
   <rect x="300" y="260" width="224.0" height="11" rx="2" class="b-expanse"/>
-  <text x="532.0" y="269" class="t-val-accent">31.32</text>
-  <rect x="300" y="277" width="149.1" height="11" rx="2" class="b-masstree"/>
-  <text x="457.1" y="286" class="t-val-blue">20.85</text>
+  <text x="532.0" y="269" class="t-val-accent">30.92</text>
+  <rect x="300" y="277" width="150.7" height="11" rx="2" class="b-masstree"/>
+  <text x="458.7" y="286" class="t-val-blue">20.81</text>
   <rect x="800" y="268" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="282" class="badge-loss-text">Masstree 1.50x</text>
+  <text x="865" y="282" class="badge-loss-text">Masstree 1.49x</text>
 </svg>

@@ -2,8 +2,9 @@
 
 **Status: committed before the harness commit (`54dea5ad`, then `82966aae`
 forty minutes later — a commit ordering, not a claim that no harness code was
-being written); measured on the reference host at harness commit `82966aae`
-and published in [`README.md`](README.md).
+being written); measured on the reference host at harness commit `82966aae`,
+re-measured at `2ce92b7f` after the §10.6 harness amendments, and published in
+[`README.md`](README.md).
 The text of §1–§9 is the locked pre-registration; outcomes are recorded in the
 README and are never reconciled into it (§8.7); measurement constraints found
 while building and running are §10.** This document is commit 2 of the
