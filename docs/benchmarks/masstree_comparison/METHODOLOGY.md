@@ -609,6 +609,18 @@ and nothing else; the restart share and the fallback share are marked
 is evaluated on MC1 alone. Instrumenting the string reader is an engine change
 outside this suite, tracked in [#721](https://github.com/orieg/expanse/issues/721).
 
+**Resolved by #744, re-measured at `13cb3eb5`.** The amendment above stands as
+the record of the runs it was written for and is not rewritten (§8.7). The
+string, bytes and blob readers now bump `ReadOps` and `ReadAttempts` on their
+optimistic paths where the map path does, restarts included, so the concurrent
+arm was re-run and MC2's H rows carry a restart share for the first time.
+§6.3's hypothesis is now evaluated on both arms: its rise-with-writers half is
+`REFUTED` on MC2 as it was on MC1, and the zero fallback share stays
+`PASS_categorical_by_design`, since a fallback needs 64 consecutive failed
+walks. The string reader's restart share is five to seven times the map
+reader's; README §7 reports that as a measured event ratio and attributes no
+timing to it.
+
 ### 10.6 Harness amendments before the pre-merge re-run
 
 Review of the first measurement (harness commit `82966aae`) found five things

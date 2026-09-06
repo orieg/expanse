@@ -13,7 +13,7 @@ ok  string fidelity counter: 100000/100000 on both sides, probes and 200 scans a
 ok  string fidelity prefixed: 100000/100000 on both sides, probes and 200 scans agree; Masstree 12 layers, 6679 leaves, 65.47 B/key structural
 ok  string fidelity skewed: 99976/99976 on both sides, probes and 200 scans agree; Masstree 0 layers, 6666 leaves, 43.36 B/key structural
 ok  beyond (272 B keys): predicate rejects 1000/1000; the shim refuses every one and stores nothing (§3.4)
-ok  threading: 8 writers on own slots, 200000/200000 verified from a non-inserting slot; 8 readers alongside 8 writers made 506454 reads with 0 errors; 400000 walked
+ok  threading: 8 writers on own slots, 200000/200000 verified from a non-inserting slot; 8 readers alongside 8 writers made 506104 reads with 0 errors; 400000 walked
 ok  reused-slot hazard recorded: cold build 4194328 B, rebuild on the same slot after destroy 2097176 B — one process per cell, fresh slot (§3.6)
 
 39 deterministic checks passed. The Masstree arm is valid.
