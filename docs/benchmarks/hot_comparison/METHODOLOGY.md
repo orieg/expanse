@@ -1738,3 +1738,129 @@ row that lands the other way. In addition, this arm may claim at most:
 - Any throughput figure from a binary built with `occ-stats`, or any health
   ratio quoted as a timing.
 - Any cell whose two arms were built for different ISA targets (§3.3).
+
+---
+
+## 12. Harness Amendments Before the Re-Run (#731, #733, #735)
+
+Review of the published measurement (harness commit `5232af74`) found three
+things in the harness and one in the reporting, none in the predictions of §5,
+§10.7 or §11.5. Each changes how a cell is taken, so the suite is re-run at the
+amended commit and every refreshed number carries the new commit; nothing is
+patched in place (§8.10). The registered rows are not edited, and §12.4 says
+where the verdicts moved.
+
+### 12.1 Arm order alternates, and scan starts scale with 1/k (#731)
+
+**Arm order.** Every round of `hot_latency` and `hot_string_latency` timed the
+HOT arm first and Expanse second, so whatever the first timed loop left behind
+— a warmed cache, a raised clock — was inherited by Expanse alone, in one
+direction, in every latency cell the suite publishes. The arm timed first now
+alternates per round through `workload::ordered`, and every raw row records
+`first_arm`, so a reader can check from the artifact that the alternation
+happened rather than take it on trust. The same defect and the same fix are
+recorded for the Masstree arm in that suite's METHODOLOGY §10.6.
+
+**Scan starts.** Both binaries fixed the ordered-scan start count at 1,000 for
+every k (`take(1_000)`). A k = 10 round therefore visited 10⁴ elements and
+repeated the same thousand starts fifteen times, which made the smallest scan
+cells the shortest timed windows in the suite and their numbers warm-start
+numbers; a k = 1000 round visited 10⁶. Starts are now
+`workload::scan_starts(k)` = `max(1000, 10⁶ / k)`, cycled from the probe stream
+when it is shorter, so every k visits about 10⁶ elements per round. The helper
+is pinned by a unit test in `crates/expanse-hot-bench/src/workload.rs`.
+
+The Masstree arm made both changes and re-measured: with a hundred times more
+distinct starts the per-element cost at k = 10 rose on both arms — Masstree
+14.5 → 17.4 ns and Expanse 9.4 → 11.1 on `random` at 10⁶ *(measured: reference
+host, harness commits `82966aae` → `2ce92b7f`,
+`docs/benchmarks/masstree_comparison/results/baseline_latency.json`)*. The HOT
+k = 10 scan cells published at `5232af74` are therefore the warm-start figures,
+and README §3 compares the two runs in one sentence per arm. The cause of the
+movement is **unmeasured**: no hardware counter was taken on either run, and an
+aggregate wall-clock difference is not an observation of a cache or prefetch
+mechanism (§8.9 principle 1).
+
+**Also fixed, and not a measurement change:** the two arms' visited-element
+counts were computed and never compared, so a divergence would have been
+divided into both columns as if it were one quantity. Both binaries now void the
+cell when the counts differ, as the Masstree binary already did.
+
+### 12.2 Insertion order is a published dimension, and every registered cell is a sorted-order cell (#733)
+
+The shared generators sort the population after drawing it, and every arm in
+this suite builds in that order. That is not a neutral choice: it is a B+-tree's
+best case, and it moves Expanse too. The Masstree arm's sensitivity set measured
+`ExpanseMap`'s own insert cost at 27.4 → 65.2 ns and its allocator footprint at
+16.67 → 23.63 B/key between the two orders on the same `random` 10⁶ keys, while
+only its node census (`mem_used`, 16.70) was order-invariant *(measured:
+reference host, `2ce92b7f`,
+`docs/benchmarks/masstree_comparison/results/baseline_sensitivity.json`)*.
+
+**Every insert verdict in §5, §10.7 and their scorecards is therefore a
+sorted-order verdict**, and neither this file nor the README said so. The
+registered rows stay locked on sorted order — that is the order they were
+predicted and measured in, and reconciling them against a different workload in
+place is what §8.7 forbids.
+
+**Amended:** `hot_latency`, `hot_string_latency`, `hot_memory_curve` and
+`hot_string_memory` take a trailing `sorted|shuffled` token, defaulting to
+`sorted`, and every result row carries an `order` field. A **sensitivity pair**
+re-runs both arms on a Fisher–Yates permutation of the same population from the
+suite PRNG (`workload::shuffle_in_place`) at N = 10⁶ — `random` for the integer
+arms, `short` for the string arms; memory on both instruments, 100%-hit lookup
+and insert — and is published as its own table
+(`results/baseline_sensitivity.json`, `results/baseline_string_sensitivity.json`),
+never merged with the registered cells and never given a verdict against §5 or
+§10.7.
+
+**The invariant that makes the pair readable** is that the engine's own node
+census does not move with build order while the allocator census does, so the
+difference between the two columns is attributable to the allocator rather than
+to the trie. It is pinned as a deterministic test —
+`crates/expanse/tests/test_mem_used_order_invariant.rs` — over `ExpanseMap`,
+`ExpanseSet`, `ExpanseStrMap` and `ExpanseBytesMap`, in the core crate because
+`expanse-hot-bench` is detached from the workspace and no CI lane compiles it
+(§8.12). `ExpanseBytesMap` needs its `BuildHasher` held fixed for the test to be
+about order at all: it indexes an `ExpanseMap` by the key's hash and its default
+`RandomState` is seeded per instance, so two maps built with `new()` hold two
+different hash key sets. Asserted over `new()` the test failed at 4,311,568 B
+against 4,310,768 B, which was two seeds and not two orders.
+
+`docs/benchmarks/masstree_comparison/METHODOLOGY.md` §10.2 carries the same rule
+for that suite; #726 scopes the generator-side change and the pre-registration
+rule that a suite states its build order before locking predictions.
+
+### 12.3 Concurrent cells are replicated, and C2 is cited as a direction and a range (#735)
+
+The Masstree arm was run twice on the reference host and two C2 reader cells
+moved past their own BCa 95% intervals between the runs — string W = 1 R = 8
+from 0.114 [0.095, 0.129] to 0.228 [0.212, 0.241], integer W = 4 R = 8 from
+0.697 [0.683, 0.710] to 0.472 [0.455, 0.494] — while every direction held
+*(measured: reference host, `82966aae` and `2ce92b7f`,
+`docs/benchmarks/masstree_comparison/README.md` §7)*. For those cells the
+between-run spread exceeds the within-run interval, so a single run's level is
+not a settled figure.
+
+This suite's C2 cells (§11.4) were run once and are cited as levels in the root
+README. **Amended:** the HOT-ROWEX concurrent sweep is run a second time under
+the standing conditions, both runs' C2 cells are published side by side, and
+every citation of a C2 cell outside this suite states a direction and a range
+rather than a level. The replication rule itself — two runs for a concurrent
+cell, the claim ceiling is the union of the two intervals, and a cell whose runs
+do not overlap is reported as direction-only — is registered in
+`docs/BENCHMARKING.md` so the next arm inherits it rather than rediscovering it.
+
+Whether the spread is the host or the engine is **not measured here**: it is
+#568's counter plan (`perf c2c`, `xsnp_hitm`, futex counts), and the shared
+`perf stat` wrapper #737 adds is what would take it.
+
+### 12.4 What the re-run moved
+
+Recorded after measurement, never reconciled into §5, §10.7 or §11.5.
+
+*(pending re-measurement, tracked by [#731](https://github.com/orieg/expanse/issues/731),
+[#733](https://github.com/orieg/expanse/issues/733) and
+[#735](https://github.com/orieg/expanse/issues/735) — this section is filled from
+the re-run's artifacts, and the README scorecards are recomputed by the
+generators from the same JSON.)*

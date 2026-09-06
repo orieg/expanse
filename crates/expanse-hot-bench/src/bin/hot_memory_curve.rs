@@ -12,7 +12,7 @@
 //! | `miss_gen_method` | N/A |
 //! | `value_dereference` | N/A — live bytes held from the C allocator |
 //! | `measured_region` | build only; census armed around the build, teardown excluded |
-//! | `arm_symmetry` | one allocator interposition measures both arms (§9.1); identical key streams within a pairing |
+//! | `arm_symmetry` | one allocator interposition measures both arms (§9.1); identical key streams within a pairing; both arms see the same insertion order, `sorted` unless the cell says `shuffled` (§12.2) |
 //! | `statistics` | exact byte counts, deterministic — no interval (§8.4) |
 //! | `verdict` | pending measurement |
 //!
@@ -34,6 +34,7 @@ use std::env;
 
 #[cfg(feature = "rowex")]
 use expanse_hot_bench::rowex::{RowexMap, RowexSet};
+use expanse_hot_bench::workload::Order;
 use expanse_hot_bench::{
     Census, HotMap, HotSet, hot_can_inline, require_cold_pool, validate_census,
 };
@@ -136,9 +137,21 @@ fn lambda(n: usize, width: u32) -> f64 {
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    let mut args: Vec<String> = env::args().collect();
+    // Trailing token: insertion order (§12.2). The allocator census moves with
+    // build order on both arms; the engine's own node census must not, which is
+    // the invariant `crates/expanse/tests/test_mem_used_order_invariant.rs` pins.
+    let mut order = Order::Sorted;
+    while let Some(last) = args.last().map(String::as_str) {
+        match Order::parse(last) {
+            Some(o) => order = o,
+            None => break,
+        }
+        args.pop();
+    }
     if args.len() != 3 {
-        eprintln!("usage: hot_memory_curve <set|map> <population>");
+        eprintln!("usage: hot_memory_curve <set|map> <population> [sorted|shuffled]");
+        eprintln!("  insertion order defaults to `sorted` (§12.2)");
         eprintln!("  one cell per invocation — HOT's node pool is process-global (§9.2)");
         std::process::exit(2);
     }
@@ -172,7 +185,10 @@ fn main() {
     }
     require_cold_pool("hot_memory_curve");
 
-    let ks = keys(n, arm.width());
+    let mut ks = keys(n, arm.width());
+    if order == Order::Shuffled {
+        expanse_hot_bench::workload::shuffle_in_place(&mut ks);
+    }
     let pop = ks.len();
 
     // Arm A cannot represent a key wider than HOT's inline payload. Its
@@ -333,11 +349,12 @@ fn main() {
 
     let pf = pop as f64;
     println!(
-        "{{\"workload_id\":\"{}\",\"arm\":\"{}\",\"keyspace_bits\":{},\"population\":{},\
+        "{{\"workload_id\":\"{}\",\"arm\":\"{}\",\"order\":\"{}\",\"keyspace_bits\":{},\"population\":{},\
          \"lambda\":{:.4},\"hot_alloc_bytes_per_key\":{:.4},\"expanse_alloc_bytes_per_key\":{:.4},\
          \"expanse_mem_used_bytes_per_key\":{:.4},\"hot_allocs\":{},\"expanse_allocs\":{}}}",
         arm.workload_id(),
         arm.label(),
+        order.name(),
         arm.width(),
         pop,
         lambda(pop, arm.width()),
