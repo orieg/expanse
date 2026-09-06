@@ -37,7 +37,7 @@
 //! | `measured_region` | Clean (build and probe generation before the group; `b.iter` holds one lookup) |
 //! | `arm_symmetry` | Set and map arms probe bit-identical key vectors; across a cap-32 / cap-48 pair the only variable is `LEAF_CAP` (build-time patch), the same binary layout otherwise |
 //! | `statistics` | criterion, n = 100 samples per arm; BCa 95% via `scripts/bench_baseline.py` |
-//! | `verdict` | **PENDING** `[verified: CODE READ]`: harness and driver committed; the reference-host pair has not been run (#715 scope item 3). |
+//! | `verdict` | **PASS** `[verified: RUN (fa1704d4, hybrid reference host, P-core pinned)]`: five-run pair published in `docs/benchmarks/hot_comparison/results/leaf_cap_cascaded_contains_cap{32,48}_{a,repeat,b}.json`; cap 48 at 0.82–0.86× of cap 32 on every arm, same-build repeat within 0.5% (METHODOLOGY §9.10.5). |
 
 #![allow(missing_docs)]
 

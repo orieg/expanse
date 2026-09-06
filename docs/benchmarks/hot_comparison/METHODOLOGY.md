@@ -969,8 +969,8 @@ the question: at λ = 15.26 the two builds hold the same nodes but for 7 of
 not a longer leaf scan. The cell where cap 48 changes the structure is λ ≥ 25,
 and the committed `compare` harness has no such population; a 1.8M–2.6M-key
 arm at 64 bits, or its 63-bit equivalent, is the measurement that would decide
-it, and this control does not stand in for it. The Callgrind half of that
-measurement follows; its wall-clock half is pending (#715).
+it, and this control does not stand in for it. Both halves of that
+measurement follow (#715).
 
 **The read path in the cascaded regime, Callgrind (#715).**
 `crates/expanse/benches/leaf_cap_cascaded.rs` (workload
@@ -1022,13 +1022,55 @@ the set hit arm's `RAM Hits` at 701,697 under cap 32 and 274,055 under cap 48
 353,949 → 398,323), so on the set's hit path the smaller structure trades
 instructions for simulated memory traffic. Which of the two the reference
 host pays for is unmeasured here; that is what the wall-clock pair decides.
-The wall-clock half, `crates/expanse/benches/leaf_cap_cascaded_wallclock.rs`
-driven by `scripts/leaf_cap_cascaded_wallclock.sh` in this suite (both builds
-compiled first, a same-build A/A repeat to bound the drift #712 saw before
-any between-build ratio is read, then A/B/A/B under the bench lock and the
-P-core pin, BCa 95% via `scripts/bench_baseline.py`), is committed and has
-not been run: pending on the reference host (#715, scope item 3). No
-wall-clock figure for this cell exists, and none is implied by the table.
+**The read path in the cascaded regime, wall clock (#715, item 3).**
+`crates/expanse/benches/leaf_cap_cascaded_wallclock.rs` (workload
+`core_leaf_cap_cascaded_wallclock`; the same 1,000,000 keys at 63 bits, hit and miss
+arms, criterion n = 100 per arm) driven by
+`scripts/leaf_cap_cascaded_wallclock.sh`: both binaries built before any run,
+then five runs under the bench lock and the P-core pin — cap 32, cap 32 again
+back to back (the same-build A/A repeat), then cap 48 / cap 32 / cap 48 —
+each harvested by `scripts/bench_baseline.py` into BCa 95% intervals, with
+`/proc/loadavg` recorded before every run (1.4 → 1.1 → 1.1 → 1.1 → 2.0, one
+minute) *(measured: hybrid desktop, Intel Core i9-12900F, 8 P + 8 E cores,
+30 MiB L3, Linux 6.8, benchmark shell pinned to the P-cores; commit
+fa1704d4; `results/leaf_cap_cascaded_contains_cap{32,48}_{a,repeat,b}.json`)*.
+
+The drift floor first — the same cap-32 binary against itself, ratio of
+run 2 over run 1 (higher is faster), then run 4 over run 1 across an
+intervening cap-48 run:
+
+| arm | run 1 mean (ns) | run 2 / run 1 | run 4 / run 1 |
+|---|---:|---:|---:|
+| `set_lookup_cascaded … hit` | 39.02 | 1.0050× [1.0007, 1.0099] | 1.0053× [1.0019, 1.0106] |
+| `set_lookup_cascaded … miss` | 38.61 | 1.0034× [1.0017, 1.0054] | 0.9996× [0.9973, 1.0014] |
+| `map_lookup_cascaded … hit` | 41.63 | 1.0030× [1.0013, 1.0045] | 0.9953× [0.9928, 0.9974] |
+| `map_lookup_cascaded … miss` | 39.33 | 0.9992× [0.9951, 1.0017] | 0.9990× [0.9965, 1.0002] |
+
+One build reproduces itself to within 0.5% here, against the 5.6% drift
+#712 saw between rounds that had a rebuild between them. The between-build
+rows, cap 48 over cap 32 within each round (workload: `core_leaf_cap_cascaded_wallclock`):
+
+| arm | cap 32 (ns) | cap 48 (ns) | cap 48 / cap 32, round a | round b |
+|---|---:|---:|---:|---:|
+| `set_lookup_cascaded … hit` | 39.02 · 38.81 | 45.93 · 46.07 | 0.8496× [0.8467, 0.8538] | 0.8426× [0.8396, 0.8447] |
+| `set_lookup_cascaded … miss` | 38.61 · 38.62 | 46.36 · 46.24 | 0.8328× [0.8311, 0.8347] | 0.8352× [0.8335, 0.8375] |
+| `map_lookup_cascaded … hit` | 41.63 · 41.83 | 48.29 · 48.48 | 0.8621× [0.8607, 0.8635] | 0.8629× [0.8597, 0.8656] |
+| `map_lookup_cascaded … miss` | 39.33 · 39.37 | 47.71 · 47.81 | 0.8243× [0.8232, 0.8253] | 0.8234× [0.8223, 0.8254] |
+
+Verdict: **cap 48 is slower on the wall clock at this λ, by 14–18% on every
+arm, in both rounds, with every interval clear of both the 1.0 floor and the
+same-build drift band.** The wall clock follows the instruction count
+(+17–19% Ir above): the simulated `RAM Hits` advantage Callgrind gave the
+cap-48 set on its hit path did not appear as time on this host. The whole
+structure fits its last-level cache at this population (13.60 B/key × 1M =
+13.6 MB against 30 MiB of L3 under cap 32, 7.0 MB under cap 48), so the
+memory-traffic mechanism had no room to pay here; whether it does at a
+population that overflows the cache is unmeasured, and hardware counters
+(`LLC-load-misses`, `branch-misses` per probe) were not collected in this
+pair. The decision the constant sets, at λ = 30.52 on this host: cap 48 buys
+48.6% of the set's bytes per key (20.7% of the map's) for 14–18% of lookup
+time. `LEAF_CAP` stays 32 by this measurement; nothing here rules on other λ
+or on the insert path.
 
 #### 9.10.6 The two memory instruments at the same cells (item 7)
 
