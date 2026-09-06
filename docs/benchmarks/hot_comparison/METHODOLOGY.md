@@ -1859,8 +1859,58 @@ Whether the spread is the host or the engine is **not measured here**: it is
 
 Recorded after measurement, never reconciled into §5, §10.7 or §11.5.
 
-*(pending re-measurement, tracked by [#731](https://github.com/orieg/expanse/issues/731),
-[#733](https://github.com/orieg/expanse/issues/733) and
-[#735](https://github.com/orieg/expanse/issues/735) — this section is filled from
-the re-run's artifacts, and the README scorecards are recomputed by the
-generators from the same JSON.)*
+The suite was re-run on the reference host at harness commit `134a0471`, one
+suite at a time under the host lock and the P-core pin, load average 0.15 at the
+start and 1.00 or below through every single-threaded phase. Every count below
+is recomputed by `scripts/integer_tables.py` and `scripts/string_tables.py` from
+the artifacts, not typed.
+
+**Integer arms (144 cells).** Expanse wins 109 — unchanged. HOT wins 30 → **29**,
+`BOUNDARY_RESULT` 5 → **6**. Nine cells changed verdict, and eight of the nine sit
+within 6% of parity. The exception is the finding:
+
+* **`lookup_hit · map · random` at N = 10⁶ moved from an Expanse win at 1.399 to
+  `BOUNDARY_RESULT` at 0.993 [0.977, 1.009]**, and at N = 10⁵ from 1.195 to
+  0.959. These are the two cells where §12.1's fixed arm order helped Expanse
+  most: HOT ran first in every round and Expanse inherited its warmed cache.
+  Alternating the arm timed first removes that, and with it the suite's
+  headline uniform-random map-lookup win. The §5.1 row is re-evaluated, not
+  edited: it registered a HOT win on uniform-random point lookup, which is now
+  **CONFIRMED on Arm A's miss path (0.961), REFUTED on Arm A's hit path (1.010)
+  and on Arm B in both directions**.
+* `set · lookup_hit · random` at 10⁶ moved the other way, 0.998 → 1.010, a narrow
+  Expanse win; `set · lookup_miss · random` at 10⁶ stayed HOT's, 0.940 → 0.961.
+* Two `map · scan · sparse` cells moved from `BOUNDARY_RESULT` to Expanse wins,
+  and `set · scan · random` k = 10 from `BOUNDARY_RESULT` to a HOT win.
+
+**Scan starts (§12.1).** With `max(1000, 10⁶ / k)` starts the k = 10 per-element
+cost rose on both arms in every integer cell, as it did on the Masstree arm:
+`map`/`random` HOT 13.82 → 22.16 ns and Expanse 9.91 → 12.95; `set`/`random` HOT
+11.21 → 11.53 and Expanse 12.44 → 13.70. The `map`/`random`/10⁶ row's Expanse win
+widened from 1.414 / 1.402 / 1.517 to 1.803 / 1.725 / 1.619. On the string arms
+`short` k = 10 went HOT 27.44 → 37.52 and Expanse 117.27 → 129.76 (Arm C). **The
+cause is unmeasured**: no hardware counter was taken on either run.
+
+**String arms (225 cells, 180 with a HOT column).** HOT wins 97 — unchanged, and
+still 72 of 72 scan cells. Expanse wins 78 → **75**, `BOUNDARY_RESULT` 5 → **8**.
+Five cells changed verdict, all within 8% of parity, and four of the five moved
+from a narrow Expanse win to `BOUNDARY_RESULT`. No registered direction changed.
+
+**Insertion order (§12.2).** Published as README §4.1 with no verdict against §5
+or §10.7. `mem_used` is identical in both orders on every arm; the allocator
+census is not, and `ExpanseMap`'s moves 16.67 → 23.62 B/key on `random` at 10⁶ —
+which reproduces the Masstree arm's independently measured 16.67 → 23.63 for the
+same structure, shape and population.
+
+**Concurrent replication (§12.3).** README §7.6. Four of the ten C2 reader cells
+and five of the ten C1 writer cells do not overlap their own intervals between
+the two runs; every direction and every verdict held.
+
+**What did not move.** Every memory cell is within 0.02 B/key of its previous
+value except where noted; the engine's own `mem_used` census is unchanged. The
+concurrent §7.2–§7.5 levels are run 1's and are not restated.
+
+*(measured: reference host, `134a0471`, `results/baseline_latency.json`,
+`baseline_string_latency.json`, `baseline_memory_curve.json`,
+`baseline_string_memory.json`, `baseline_sensitivity.json`,
+`baseline_string_sensitivity.json`, `baseline_concurrent_run2.json`)*

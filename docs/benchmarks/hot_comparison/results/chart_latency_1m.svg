@@ -120,101 +120,101 @@
 <line class="grid" x1="750.0" y1="60" x2="750.0" y2="474"/>
 <text class="t-axis-label" x="750.0" y="490.0" text-anchor="middle">15×</text>
 <line class="axis" x1="225.5" y1="60" x2="225.5" y2="474"/>
-<line x1="323.2" y1="74.5" x2="328.9" y2="74.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="325.8" cy="74.5" r="3.2" fill="#16a34a"/>
+<line x1="323.6" y1="74.5" x2="325.0" y2="74.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="324.5" cy="74.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="77.5" text-anchor="end">insert · map · clustered</text>
-<text class="t-legend" x="764" y="78.5" fill="#16a34a">3.679×</text>
-<line x1="318.9" y1="91.5" x2="323.3" y2="91.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="321.1" cy="91.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="78.5" fill="#16a34a">3.642×</text>
+<line x1="319.3" y1="91.5" x2="320.6" y2="91.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="320.0" cy="91.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="94.5" text-anchor="end">insert · map · random</text>
-<text class="t-legend" x="764" y="95.5" fill="#16a34a">3.553×</text>
-<line x1="400.0" y1="108.5" x2="409.2" y2="108.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="404.3" cy="108.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="95.5" fill="#16a34a">3.522×</text>
+<line x1="400.4" y1="108.5" x2="402.0" y2="108.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="401.1" cy="108.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="111.5" text-anchor="end">insert · map · sequential</text>
-<text class="t-legend" x="764" y="112.5" fill="#16a34a">5.773×</text>
-<line x1="276.2" y1="125.5" x2="279.4" y2="125.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="277.7" cy="125.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="112.5" fill="#16a34a">5.688×</text>
+<line x1="276.1" y1="125.5" x2="276.8" y2="125.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="276.4" cy="125.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="128.5" text-anchor="end">insert · map · sparse</text>
-<text class="t-legend" x="764" y="129.5" fill="#16a34a">2.393×</text>
-<line x1="384.6" y1="142.5" x2="392.2" y2="142.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="388.3" cy="142.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="129.5" fill="#16a34a">2.361×</text>
+<line x1="365.1" y1="142.5" x2="366.3" y2="142.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="365.8" cy="142.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="145.5" text-anchor="end">insert · set · clustered</text>
-<text class="t-legend" x="764" y="146.5" fill="#16a34a">5.346×</text>
-<line x1="280.1" y1="159.5" x2="283.5" y2="159.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="282.4" cy="159.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="146.5" fill="#16a34a">4.745×</text>
+<line x1="283.0" y1="159.5" x2="283.4" y2="159.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="283.2" cy="159.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="162.5" text-anchor="end">insert · set · random</text>
-<text class="t-legend" x="764" y="163.5" fill="#16a34a">2.520×</text>
-<line x1="645.0" y1="176.5" x2="649.0" y2="176.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="647.5" cy="176.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="163.5" fill="#16a34a">2.541×</text>
+<line x1="641.7" y1="176.5" x2="643.7" y2="176.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="642.6" cy="176.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="179.5" text-anchor="end">insert · set · sequential</text>
-<text class="t-legend" x="764" y="180.5" fill="#16a34a">12.263×</text>
-<line x1="262.3" y1="193.5" x2="265.6" y2="193.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="263.9" cy="193.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="180.5" fill="#16a34a">12.133×</text>
+<line x1="260.0" y1="193.5" x2="262.3" y2="193.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="261.4" cy="193.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="196.5" text-anchor="end">insert · set · sparse</text>
-<text class="t-legend" x="764" y="197.5" fill="#16a34a">2.027×</text>
-<line x1="267.5" y1="210.5" x2="271.0" y2="210.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="268.9" cy="210.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="197.5" fill="#16a34a">1.959×</text>
+<line x1="269.0" y1="210.5" x2="271.8" y2="210.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="270.4" cy="210.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="213.5" text-anchor="end">lookup_hit · map · clustered</text>
-<text class="t-legend" x="764" y="214.5" fill="#16a34a">2.159×</text>
-<line x1="240.1" y1="227.5" x2="240.8" y2="227.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="240.4" cy="227.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="214.5" fill="#16a34a">2.200×</text>
+<line x1="224.6" y1="227.5" x2="225.8" y2="227.5" stroke="#d97706" stroke-width="2" opacity="0.55"/>
+<circle cx="225.2" cy="227.5" r="3.2" fill="#d97706"/>
 <text class="t-axis-label" x="180" y="230.5" text-anchor="end">lookup_hit · map · random</text>
-<text class="t-legend" x="764" y="231.5" fill="#16a34a">1.399×</text>
-<line x1="292.9" y1="244.5" x2="294.0" y2="244.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="293.5" cy="244.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="231.5" fill="#d97706">0.993×</text>
+<line x1="309.3" y1="244.5" x2="327.9" y2="244.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="317.4" cy="244.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="247.5" text-anchor="end">lookup_hit · map · sequential</text>
-<text class="t-legend" x="764" y="248.5" fill="#16a34a">2.815×</text>
-<line x1="324.3" y1="261.5" x2="343.2" y2="261.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="334.0" cy="261.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="248.5" fill="#16a34a">3.453×</text>
+<line x1="357.3" y1="261.5" x2="387.4" y2="261.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="370.5" cy="261.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="264.5" text-anchor="end">lookup_hit · map · sparse</text>
-<text class="t-legend" x="764" y="265.5" fill="#16a34a">3.897×</text>
-<line x1="299.9" y1="278.5" x2="302.0" y2="278.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="300.8" cy="278.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="265.5" fill="#16a34a">4.872×</text>
+<line x1="309.1" y1="278.5" x2="310.6" y2="278.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="309.8" cy="278.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="281.5" text-anchor="end">lookup_hit · set · clustered</text>
-<text class="t-legend" x="764" y="282.5" fill="#16a34a">3.011×</text>
-<line x1="225.2" y1="295.5" x2="225.6" y2="295.5" stroke="#d97706" stroke-width="2" opacity="0.55"/>
-<circle cx="225.4" cy="295.5" r="3.2" fill="#d97706"/>
+<text class="t-legend" x="764" y="282.5" fill="#16a34a">3.251×</text>
+<line x1="225.5" y1="295.5" x2="226.2" y2="295.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="225.8" cy="295.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="298.5" text-anchor="end">lookup_hit · set · random</text>
-<text class="t-legend" x="764" y="299.5" fill="#d97706">0.998×</text>
-<line x1="343.7" y1="312.5" x2="347.0" y2="312.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="345.1" cy="312.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="299.5" fill="#16a34a">1.010×</text>
+<line x1="360.8" y1="312.5" x2="366.5" y2="312.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="362.3" cy="312.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="315.5" text-anchor="end">lookup_hit · set · sequential</text>
-<text class="t-legend" x="764" y="316.5" fill="#16a34a">4.194×</text>
-<line x1="253.3" y1="329.5" x2="265.8" y2="329.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="259.8" cy="329.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="316.5" fill="#16a34a">4.651×</text>
+<line x1="272.9" y1="329.5" x2="286.7" y2="329.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="279.1" cy="329.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="332.5" text-anchor="end">lookup_hit · set · sparse</text>
-<text class="t-legend" x="764" y="333.5" fill="#16a34a">1.917×</text>
-<line x1="315.6" y1="346.5" x2="327.7" y2="346.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="321.2" cy="346.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="333.5" fill="#16a34a">2.431×</text>
+<line x1="323.8" y1="346.5" x2="328.1" y2="346.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="325.9" cy="346.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="349.5" text-anchor="end">lookup_miss · map · clustered</text>
-<text class="t-legend" x="764" y="350.5" fill="#16a34a">3.556×</text>
-<line x1="237.5" y1="363.5" x2="241.9" y2="363.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="240.2" cy="363.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="350.5" fill="#16a34a">3.680×</text>
+<line x1="233.6" y1="363.5" x2="234.9" y2="363.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="234.3" cy="363.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="366.5" text-anchor="end">lookup_miss · map · random</text>
-<text class="t-legend" x="764" y="367.5" fill="#16a34a">1.393×</text>
-<line x1="352.4" y1="380.5" x2="369.1" y2="380.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="359.9" cy="380.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="367.5" fill="#16a34a">1.235×</text>
+<line x1="375.5" y1="380.5" x2="398.3" y2="380.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="385.7" cy="380.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="383.5" text-anchor="end">lookup_miss · map · sequential</text>
-<text class="t-legend" x="764" y="384.5" fill="#16a34a">4.587×</text>
-<line x1="408.3" y1="397.5" x2="411.1" y2="397.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="409.6" cy="397.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="384.5" fill="#16a34a">5.277×</text>
+<line x1="434.8" y1="397.5" x2="459.6" y2="397.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="446.1" cy="397.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="400.5" text-anchor="end">lookup_miss · map · sparse</text>
-<text class="t-legend" x="764" y="401.5" fill="#16a34a">5.915×</text>
-<line x1="267.2" y1="414.5" x2="270.1" y2="414.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="268.0" cy="414.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="401.5" fill="#16a34a">6.888×</text>
+<line x1="269.5" y1="414.5" x2="271.5" y2="414.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="270.0" cy="414.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="417.5" text-anchor="end">lookup_miss · set · clustered</text>
-<text class="t-legend" x="764" y="418.5" fill="#16a34a">2.134×</text>
-<line x1="221.7" y1="431.5" x2="224.6" y2="431.5" stroke="#2563eb" stroke-width="2" opacity="0.55"/>
-<circle cx="223.2" cy="431.5" r="3.2" fill="#2563eb"/>
+<text class="t-legend" x="764" y="418.5" fill="#16a34a">2.189×</text>
+<line x1="223.7" y1="431.5" x2="224.3" y2="431.5" stroke="#2563eb" stroke-width="2" opacity="0.55"/>
+<circle cx="224.0" cy="431.5" r="3.2" fill="#2563eb"/>
 <text class="t-axis-label" x="180" y="434.5" text-anchor="end">lookup_miss · set · random</text>
-<text class="t-legend" x="764" y="435.5" fill="#2563eb">0.940×</text>
-<line x1="273.8" y1="448.5" x2="281.8" y2="448.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="277.7" cy="448.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="435.5" fill="#2563eb">0.961×</text>
+<line x1="275.8" y1="448.5" x2="282.4" y2="448.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="277.3" cy="448.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="451.5" text-anchor="end">lookup_miss · set · sequential</text>
-<text class="t-legend" x="764" y="452.5" fill="#16a34a">2.394×</text>
-<line x1="280.8" y1="465.5" x2="283.4" y2="465.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="282.2" cy="465.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="764" y="452.5" fill="#16a34a">2.382×</text>
+<line x1="289.7" y1="465.5" x2="296.7" y2="465.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="293.2" cy="465.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="180" y="468.5" text-anchor="end">lookup_miss · set · sparse</text>
-<text class="t-legend" x="764" y="469.5" fill="#16a34a">2.515×</text>
+<text class="t-legend" x="764" y="469.5" fill="#16a34a">2.807×</text>
 <text class="t-note" x="188" y="520">Amber = interval spans parity (BOUNDARY_RESULT); blue = HOT faster; green = Expanse faster.</text>
 </svg>
