@@ -406,6 +406,15 @@ jobs:
           printf '%s' "$PR_BODY" > pr-body.txt
           python3 scripts/check_docs_hygiene.py --pr-body-file pr-body.txt
 
+      # Registered here rather than in `lint`: a README edit under
+      # `docs/benchmarks/**` matches the `docs` filter, not `tooling` or
+      # `rust-src`, so `lint` does not run on it and the check would fail open
+      # on exactly the pull requests it exists for. `docs-lint` runs on every PR.
+      - name: Generated benchmark tables match the suite READMEs
+        run: |
+          python3 scripts/check_readme_tables.py --self-test
+          python3 scripts/check_readme_tables.py
+
       - name: Validate the citation record (CITATION.cff / .zenodo.json)
         shell: bash
         run: |
