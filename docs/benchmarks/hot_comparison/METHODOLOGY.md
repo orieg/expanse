@@ -1738,3 +1738,50 @@ row that lands the other way. In addition, this arm may claim at most:
 - Any throughput figure from a binary built with `occ-stats`, or any health
   ratio quoted as a timing.
 - Any cell whose two arms were built for different ISA targets (§3.3).
+
+### 11.8 Amendment: a health falsifier that can fire (#734)
+
+Recorded after measurement. §11.5.3 is not edited — the hypothesis it locked is
+the one that was measured, and reconciling a pre-registration in place is what
+§8.7 forbids. This says what should be registered next and why the one above
+could not decide anything.
+
+**The fallback half of §11.5.3 cannot fire at these writer counts.** A reader
+falls back to the writer mutex only after **64 consecutive failed optimistic
+walks**. At the bracket lengths a single writer holds, the probability of 64 in
+a row is negligible by construction, so the measured zero is a property of the
+construction and not of the protocol: the falsifier would have read zero
+whatever the engine did. Its honest label is `PASS_categorical_by_design`
+(AGENTS.md §8, C-b), and README §7.3 and the §7.5 scorecard carry it. The
+Masstree arm's §6.3 row was relabelled for the same reason.
+
+**What the next concurrent arm should register instead.** A falsifier that can
+fire has to be a quantity the protocol could plausibly move past a threshold
+under this workload. The candidate is the one the reader collapse actually
+concerns:
+
+> **Reader nanoseconds per probe under one writer, against the same readers
+> alone.** Register a ceiling before the run — the reader-only figure times a
+> stated factor — and report the cell `REFUTED` when the measured ratio exceeds
+> it. On this arm the fall was eight-fold on the set arm and five-fold on the
+> map arm (README §7.2); on the Masstree arm it was seven-fold. A ceiling
+> anywhere below those is a falsifier the measurement can and does cross, which
+> is the property §11.5.3's fallback row lacks.
+
+Two constraints on that registration, both learned here:
+
+1. **The reader window is the writers' fixed work**, so the two arms' windows
+   differ in length by the writer ratio and the population grows at different
+   rates inside them (README §7.2). A ratio of reader nanoseconds is therefore
+   between two windows of different length unless the registration fixes the
+   window instead of the writer work.
+2. **The health build perturbs what it counts.** Every restart and spin is a
+   `fetch_add` on one shared counter line across nine threads; per-thread
+   counters are [#721](https://github.com/orieg/expanse/issues/721).
+
+**The mechanism stays unmeasured either way.** A nanosecond ratio is a
+measurement of the effect, not of its cause; attributing the collapse to a
+cache-line transfer, a futex or a bracket wait needs hardware counters
+(§8.9 principle 1), which is
+[#737](https://github.com/orieg/expanse/issues/737)'s shared `perf stat`
+wrapper and [#568](https://github.com/orieg/expanse/issues/568)'s counter plan.
