@@ -41,6 +41,16 @@ impl XorShift {
 
 const SEED: u64 = 0x0DDB_1A5E_5EED_0001;
 
+/// Integer population per arm. The invariant — one census, whatever the order
+/// the same keys arrived in — holds at any population; the large one is here to
+/// reach the branch forms a few thousand keys do not. Under Miri that is a
+/// million interpreted inserts across the four tests, so the interpreter takes
+/// the small one and the native test job keeps the large (docs/CI.md §5,
+/// Tier 3).
+const INT_N: usize = if cfg!(miri) { 2_000 } else { 200_000 };
+/// String population per arm, for the same reason; each key also allocates.
+const STR_N: usize = if cfg!(miri) { 1_000 } else { 50_000 };
+
 /// A sorted, deduplicated population, exactly as the shared generator produces.
 fn population(n: usize) -> Vec<u64> {
     let mut rng = XorShift(SEED);
@@ -64,7 +74,7 @@ fn shuffled(v: &[u64]) -> Vec<u64> {
 
 #[test]
 fn map_mem_used_is_identical_in_both_insertion_orders() {
-    let sorted = population(200_000);
+    let sorted = population(INT_N);
     let shuf = shuffled(&sorted);
     assert_ne!(sorted, shuf, "the permutation must actually reorder");
 
@@ -91,7 +101,7 @@ fn map_mem_used_is_identical_in_both_insertion_orders() {
 
 #[test]
 fn set_mem_used_is_identical_in_both_insertion_orders() {
-    let sorted = population(200_000);
+    let sorted = population(INT_N);
     let shuf = shuffled(&sorted);
 
     let mut a = ExpanseSet::new();
@@ -136,7 +146,7 @@ fn shuffled_strings(v: &[Vec<u8>]) -> Vec<Vec<u8>> {
 
 #[test]
 fn strmap_mem_used_is_identical_in_both_insertion_orders() {
-    let sorted = string_population(50_000);
+    let sorted = string_population(STR_N);
     let shuf = shuffled_strings(&sorted);
     assert_ne!(sorted, shuf, "the permutation must actually reorder");
 
@@ -171,7 +181,7 @@ fn strmap_mem_used_is_identical_in_both_insertion_orders() {
 /// variable left is the order.
 #[test]
 fn bytesmap_mem_used_is_identical_in_both_insertion_orders() {
-    let sorted = string_population(50_000);
+    let sorted = string_population(STR_N);
     let shuf = shuffled_strings(&sorted);
 
     // Same `BuildHasher` value on both sides: the inner trie then holds the
