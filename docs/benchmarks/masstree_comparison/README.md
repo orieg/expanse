@@ -380,6 +380,42 @@ concurrent one, and the lookup ratio from 3.242 [3.208, 3.277] to 3.333
 [3.306, 3.366] — which is why the single-threaded pairings use the
 single-threaded configuration (§10.3).
 
+#### What the counters say about the order effect (#737)
+
+The 7 B/key the allocator holds beyond `mem_used` on the shuffled build, and the
+insertion cost that moves with it, now have counters. `perf stat` over the
+`insert · random · 10⁶` cell in both orders — the same binary, the same
+population, one token different *(measured: reference host, `f173f0e6`,
+`results/counters_masstree_insert_random_1m_sorted.json` and
+`..._shuffled.json`; PMU `cpu_core`, workload pinned to `0-15`,
+`perf_event_paranoid` = 1, 7 repeats, BCa 95% intervals in the artifacts)*:
+
+| event | `masstree_insert_random_1m_sorted` | `masstree_insert_random_1m_shuffled` | ratio |
+|---|---:|---:|---:|
+| `page-faults` | 0.004621 | 0.006296 | **1.36×** |
+| `dTLB-load-misses` | 0.007217 | 0.5137 | **71.18×** |
+| `LLC-load-misses` | 0.01151 | 0.1722 | **14.96×** |
+| `cycles` | 270 | 1,007 | **3.72×** |
+| `instructions` | 973 | 1,162 | **1.19×** |
+
+**The shuffled build costs 3.72× the cycles for 1.19× the instructions.** It is
+not doing much more work; it is waiting. Translation misses rise **71×** and
+last-level load misses **15×**, while page faults move only 1.36× — so the cost
+is address-translation and cache locality, not the page-fault bill that §10.2
+and [#725](https://github.com/orieg/expanse/issues/725) name as the first
+candidate. That is the question #725 asks first, answered.
+
+**What these counters do not say, and the sentences that therefore stand.**
+`perf stat` counts the whole process, and this cell runs **both arms** and the
+population build inside it. So the figures above are a property of the *cell*,
+not of either engine's insert path: they cannot say whether Masstree's append
+path or Expanse's is the one whose translation misses rose, and nothing here is
+attributed to either. The per-arm mechanism remains **unmeasured**, and every
+sentence above that says so still says so. Separating the arms needs one process
+per arm, which needs a per-arm selector in the bins — recorded on #725 and #737,
+not done here, because adding one would change the binaries every wall-clock
+cell in this suite was measured on.
+
 ## 7. The concurrent arm
 
 #### MC1 — `u64` keys, Masstree vs `SyncExpanseMap`

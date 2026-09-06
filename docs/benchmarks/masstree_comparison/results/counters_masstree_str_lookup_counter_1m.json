@@ -1,0 +1,237 @@
+{
+  "provenance": {
+    "instrument": "perf stat, one invocation per repeat, whole process",
+    "commit": "f173f0e6",
+    "perf_event_paranoid": "1",
+    "pmu": "cpu_core",
+    "pmu_reason": "`cpu_core` is the performance-core PMU among the 2 this host exposes (cpu_atom, cpu_core)",
+    "pmu_cpus": "0-15",
+    "pin": [
+      "taskset",
+      "-c",
+      "0-15"
+    ],
+    "events_available": [
+      "page-faults",
+      "dTLB-load-misses",
+      "LLC-load-misses",
+      "cycles",
+      "instructions"
+    ],
+    "events_unavailable": [],
+    "repeats": 7,
+    "estimators": {
+      "per_op": "the raw event row from perf's CSV divided by the harness's own operation count for that process (AGENTS.md section 8.9 principle 5); both are published",
+      "interval": "BCa 95% bootstrap over the repeats (scripts/bca_bootstrap.py), 2000 resamples"
+    },
+    "scope": "counts are per PROCESS and include the population build; this driver does not bracket the timed loop, so a per-op figure is not a probe-loop figure and two arms are comparable only over the same work",
+    "attribution": "a counter is evidence for a mechanism, not the mechanism; a cell whose intervals overlap decides nothing"
+  },
+  "cell": "masstree_str_lookup_counter_1m",
+  "issue": 724,
+  "suite": "masstree_comparison",
+  "binary": "masstree_string_latency",
+  "args": [
+    "lookup_hit",
+    "counter",
+    "1000000"
+  ],
+  "note": "the `counter` 100%-hit string lookup, both arms in one process",
+  "concurrent": false,
+  "repeats": 7,
+  "ops_per_repeat": 15000000,
+  "rounds_per_repeat": 15,
+  "events": {
+    "page-faults": {
+      "per_op_mean": 0.0019403238095238098,
+      "ci_lower": 0.0019402666666666663,
+      "ci_upper": 0.0019404190476190475,
+      "samples": [
+        0.0019405333333333333,
+        0.0019402666666666667,
+        0.0019402666666666667,
+        0.0019402666666666667,
+        0.0019402666666666667,
+        0.0019404,
+        0.0019402666666666667
+      ]
+    },
+    "dTLB-load-misses": {
+      "per_op_mean": 3.6275034380952382,
+      "ci_lower": 3.589494371428571,
+      "ci_upper": 3.6513218666666662,
+      "samples": [
+        3.645569,
+        3.5481309333333333,
+        3.6641036666666666,
+        3.6503821333333333,
+        3.6470232,
+        3.5854704666666666,
+        3.651844666666667
+      ]
+    },
+    "LLC-load-misses": {
+      "per_op_mean": 2.3659348380952383,
+      "ci_lower": 2.3419119428571427,
+      "ci_upper": 2.390081980952381,
+      "samples": [
+        2.3136266,
+        2.331427533333333,
+        2.3774616666666666,
+        2.4199221333333334,
+        2.3921916666666667,
+        2.3571876666666665,
+        2.3697266
+      ]
+    },
+    "cycles": {
+      "per_op_mean": 1590.5596572,
+      "ci_lower": 1586.3909020380954,
+      "ci_upper": 1594.2475984095238,
+      "samples": [
+        1584.3544180666668,
+        1583.9533860666666,
+        1596.1808808666667,
+        1594.0967518666666,
+        1585.4314144,
+        1592.1000386666667,
+        1597.8007104666667
+      ]
+    },
+    "instructions": {
+      "per_op_mean": 1210.2835419904764,
+      "ci_lower": 1210.2486668666666,
+      "ci_upper": 1210.3520492285716,
+      "samples": [
+        1210.2467461333333,
+        1210.3396856666666,
+        1210.2650815333334,
+        1210.2327828666666,
+        1210.4080537333334,
+        1210.2454654666667,
+        1210.2469785333333
+      ]
+    }
+  },
+  "repeats_raw": [
+    {
+      "ops": 15000000,
+      "raw": {
+        "page-faults": 29108.0,
+        "dTLB-load-misses": 54683535.0,
+        "LLC-load-misses": 34704399.0,
+        "cycles": 23765316271.0,
+        "instructions": 18153701192.0
+      },
+      "per_op": {
+        "page-faults": 0.0019405333333333333,
+        "dTLB-load-misses": 3.645569,
+        "LLC-load-misses": 2.3136266,
+        "cycles": 1584.3544180666668,
+        "instructions": 1210.2467461333333
+      }
+    },
+    {
+      "ops": 15000000,
+      "raw": {
+        "page-faults": 29104.0,
+        "dTLB-load-misses": 53221964.0,
+        "LLC-load-misses": 34971413.0,
+        "cycles": 23759300791.0,
+        "instructions": 18155095285.0
+      },
+      "per_op": {
+        "page-faults": 0.0019402666666666667,
+        "dTLB-load-misses": 3.5481309333333333,
+        "LLC-load-misses": 2.331427533333333,
+        "cycles": 1583.9533860666666,
+        "instructions": 1210.3396856666666
+      }
+    },
+    {
+      "ops": 15000000,
+      "raw": {
+        "page-faults": 29104.0,
+        "dTLB-load-misses": 54961555.0,
+        "LLC-load-misses": 35661925.0,
+        "cycles": 23942713213.0,
+        "instructions": 18153976223.0
+      },
+      "per_op": {
+        "page-faults": 0.0019402666666666667,
+        "dTLB-load-misses": 3.6641036666666666,
+        "LLC-load-misses": 2.3774616666666666,
+        "cycles": 1596.1808808666667,
+        "instructions": 1210.2650815333334
+      }
+    },
+    {
+      "ops": 15000000,
+      "raw": {
+        "page-faults": 29104.0,
+        "dTLB-load-misses": 54755732.0,
+        "LLC-load-misses": 36298832.0,
+        "cycles": 23911451278.0,
+        "instructions": 18153491743.0
+      },
+      "per_op": {
+        "page-faults": 0.0019402666666666667,
+        "dTLB-load-misses": 3.6503821333333333,
+        "LLC-load-misses": 2.4199221333333334,
+        "cycles": 1594.0967518666666,
+        "instructions": 1210.2327828666666
+      }
+    },
+    {
+      "ops": 15000000,
+      "raw": {
+        "page-faults": 29104.0,
+        "dTLB-load-misses": 54705348.0,
+        "LLC-load-misses": 35882875.0,
+        "cycles": 23781471216.0,
+        "instructions": 18156120806.0
+      },
+      "per_op": {
+        "page-faults": 0.0019402666666666667,
+        "dTLB-load-misses": 3.6470232,
+        "LLC-load-misses": 2.3921916666666667,
+        "cycles": 1585.4314144,
+        "instructions": 1210.4080537333334
+      }
+    },
+    {
+      "ops": 15000000,
+      "raw": {
+        "page-faults": 29106.0,
+        "dTLB-load-misses": 53782057.0,
+        "LLC-load-misses": 35357815.0,
+        "cycles": 23881500580.0,
+        "instructions": 18153681982.0
+      },
+      "per_op": {
+        "page-faults": 0.0019404,
+        "dTLB-load-misses": 3.5854704666666666,
+        "LLC-load-misses": 2.3571876666666665,
+        "cycles": 1592.1000386666667,
+        "instructions": 1210.2454654666667
+      }
+    },
+    {
+      "ops": 15000000,
+      "raw": {
+        "page-faults": 29104.0,
+        "dTLB-load-misses": 54777670.0,
+        "LLC-load-misses": 35545899.0,
+        "cycles": 23967010657.0,
+        "instructions": 18153704678.0
+      },
+      "per_op": {
+        "page-faults": 0.0019402666666666667,
+        "dTLB-load-misses": 3.651844666666667,
+        "LLC-load-misses": 2.3697266,
+        "cycles": 1597.8007104666667,
+        "instructions": 1210.2469785333333
+      }
+    }
+  ]
+}

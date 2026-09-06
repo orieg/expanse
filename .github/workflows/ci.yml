@@ -302,6 +302,10 @@ jobs:
           # parser, its "unsupported counter is None, never 0" rule and its
           # derived rendering are all checkable without one.
           python3 scripts/perf_counters.py --self-test
+          # bench_counters.py needs a PMU to collect anything, but its hybrid
+          # PMU row selection, its "unsupported is None, never 0" rule and its
+          # cell declarations are checkable without one.
+          python3 scripts/bench_counters.py --self-test
           # pin_exposure.py cannot run its measurement off the reference host —
           # it refuses a non-hybrid one rather than compare a pin against
           # itself — but its reading of the intervals is checkable anywhere.
