@@ -71,21 +71,6 @@ SENSITIVITY_PILLARS = ["lookup_hit", "insert"]
 SENSITIVITY_ARMS = ["ptr", "map"]
 
 
-def raw_rounds(rows: list, keys: tuple) -> list:
-    """Every round's samples verbatim, so a median or a ratio can be recomputed.
-
-    `first_arm` is one of them: with the arm timed first alternating per round
-    (§12.1), a reader can check that the alternation actually happened.
-
-    Local to this runner for now; #732 lifts it and the host/estimator blocks
-    into one shared module beside `scripts/bca_bootstrap.py`.
-    """
-    return [{k: r.get(k) for k in ("round", *keys)} for r in rows]
-
-
-LATENCY_RAW = ("first_arm", "order", "hot_ns_per_op", "expanse_ns_per_op")
-
-
 def build(env: dict) -> None:
     """Builds the three string binaries once, at the ISA target §3.3 binds both arms to."""
     print("building hot_string_validate, hot_string_memory, hot_string_latency at -C target-cpu=haswell ...")
@@ -298,7 +283,7 @@ def main() -> int:
     if sensitivity:
         print("\n[sensitivity] §12.2 — the same population sorted and shuffled")
         sens = sweep_sensitivity(env, quick)
-        provenance["loads"].append(load_snapshot("after-sensitivity"))
+        add_load(provenance, "after-sensitivity")
         (out_dir / "baseline_string_sensitivity.json").write_text(
             json.dumps({"provenance": provenance, **sens}, indent=2) + "\n")
         print(f"wrote {out_dir}/baseline_string_sensitivity.json")
