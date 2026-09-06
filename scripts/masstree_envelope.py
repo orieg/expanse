@@ -150,7 +150,7 @@ def slab_slack_bound(size_classes_touched: int, threads: int = 1) -> int:
 def census_quantum_dominated(alloc_bytes: int, structural_bytes: int) -> bool:
     """Whether the allocator column says more about the 2 MiB quantum than
     about the index: true when the measured slack — bytes the allocator holds
-    beyond Masstree's own structural bytes — exceeds a quarter of the
+    beyond Masstree's own structural bytes — exceeds 25% of the
     structural bytes.
 
     A cell flagged here is still published — the allocator figure is what the

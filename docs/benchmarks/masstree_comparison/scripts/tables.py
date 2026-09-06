@@ -141,7 +141,7 @@ def int_memory_tables(mem: dict) -> str:
     out = ["### Memory, integer map: two instruments per cell, bytes per key\n",
            "`allocator` is what the process holds from the C allocator after a build-only "
            "population, one instrument for both arms; on Masstree it is quantized to the 2 MiB "
-           "pool slab and a cell whose measured slack exceeds a quarter of its structural bytes "
+           "pool slab and a cell whose measured slack exceeds 25% of its structural bytes "
            "is flagged `QUANTUM_DOMINATED` (§3.3). `structural` is Masstree's own `json_stats` "
            "node census; `mem_used` is Expanse's own accounting. The engine columns are never "
            "mixed with the allocator columns in one ratio.\n",
@@ -274,6 +274,11 @@ def concurrent_tables(conc: dict) -> str:
         out.append("|---|--:|--:|---|---|---:|---|")
         for c in sorted(health, key=lambda x: (x["arm"], x["writers"])):
             rs, fs = c["restart_share"], c["fallback_share"]
+            if c["read_ops"]["median"] == 0:
+                # §10.5: the string reader counts fallbacks only; no share exists.
+                out.append(f"| {c['arm']} | {c['writers']} | {c['readers']} | `NOT_INSTRUMENTED` (§10.5) | "
+                           f"`NOT_INSTRUMENTED`; `read_fallbacks` = {c['read_fallbacks']['median']:,} absolute | — | not evaluable |")
+                continue
             spins = c["sample_spins"]["median"] / max(c["read_ops"]["median"], 1)
             out.append(f"| {c['arm']} | {c['writers']} | {c['readers']} | {rs['median']:.2%} [{rs['min']:.2%}, {rs['max']:.2%}] | "
                        f"{fs['median']:.4%} | {spins:.2f} | {'**STARVATION** (§6.3)' if c['starvation_flag'] else 'below 1% — §6.3 holds'} |")

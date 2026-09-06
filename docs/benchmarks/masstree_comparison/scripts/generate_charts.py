@@ -152,7 +152,7 @@ def memory_curve() -> str:
         out.append(f'<text class="t-legend" x="{lx+24}" y="{legend_y+4}">{esc(name)}</text>')
         legend_y += 18
     flagged = [c for c in cells if c.get("masstree_quantum_dominated")]
-    note = (f"Hollow markers: {len(flagged)} Masstree allocator cell(s) flagged QUANTUM_DOMINATED (slab slack over a quarter of structural)."
+    note = (f"Hollow markers: {len(flagged)} Masstree allocator cell(s) flagged QUANTUM_DOMINATED (slab slack over 25% of structural)."
             if flagged else "No Masstree allocator cell is quantum-dominated on this sweep.")
     out.append(f'<text class="t-note" x="{PAD_L}" y="{H-4}">{esc(note)} Winner per cell derived by comparison in the README table.</text>')
     out.append("</svg>")

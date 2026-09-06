@@ -426,49 +426,54 @@ def main() -> int:
     provenance["loads"].append(load_snapshot("after-validate"))
     (out_dir / "validate.log").write_text(validate_log)
 
+    # The single-threaded phases run first, on the host as the start snapshot
+    # found it. The concurrent sweep runs LAST: its own 16 threads push the
+    # 1-minute load average to ~5 and it takes minutes to decay, so anything
+    # timed after it would carry a load series that looks like contamination
+    # and is only the sweep's own decay (docs/BENCHMARKING.md rule 2 gates
+    # the concurrent phase on the snapshot taken as it starts).
+    if not only_concurrent:
+        print("\n[1/5] memory — integer map (λ sweep and structured distributions)")
+        memory = sweep_memory(env, quick)
+        provenance["loads"].append(load_snapshot("after-memory"))
+        print("\n[2/5] memory — string map (population sweep)")
+        smem = sweep_string_memory(env, quick)
+        provenance["loads"].append(load_snapshot("after-string-memory"))
+        print("\n[3/5] latency — integer map")
+        latency = sweep_latency(env, quick)
+        provenance["loads"].append(load_snapshot("after-latency"))
+        print("\n[4/5] latency — string map")
+        slat = sweep_string_latency(env, quick)
+        provenance["loads"].append(load_snapshot("after-string-latency"))
+        print("\n[5/5] sensitivity — insertion order (§10.2) and the concurrent table (§10.3)")
+        order = sweep_sensitivity(env, quick)
+        provenance["loads"].append(load_snapshot("end"))
+
+        (out_dir / "baseline_memory.json").write_text(json.dumps({"provenance": provenance, **memory}, indent=2) + "\n")
+        (out_dir / "baseline_string_memory.json").write_text(json.dumps({"provenance": provenance, **smem}, indent=2) + "\n")
+        (out_dir / "baseline_latency.json").write_text(json.dumps({"provenance": provenance, **latency}, indent=2) + "\n")
+        (out_dir / "baseline_string_latency.json").write_text(json.dumps({"provenance": provenance, **slat}, indent=2) + "\n")
+        (out_dir / "baseline_sensitivity.json").write_text(json.dumps({"provenance": provenance, **order}, indent=2) + "\n")
+        loads = [s["load1"] for s in provenance["loads"]]
+        print(f"\nload average across the single-threaded phases: {loads}")
+        if max(loads) - min(loads) > 2.0:
+            print("WARNING: load shifted by more than 2 during the run — the comparison is contaminated (docs/BENCHMARKING.md rule 2)")
+        print(f"wrote {out_dir}/baseline_memory.json, baseline_string_memory.json, baseline_latency.json, "
+              f"baseline_string_latency.json, baseline_sensitivity.json, validate.log")
+
     if concurrent:
         print("\n[concurrent] MC1 / MC2 — one process per cell, threads inside the P-core pin")
         conc_prov = dict(provenance)
-        conc_prov["loads"] = list(provenance["loads"])
+        conc_prov["loads"] = [load_snapshot("start")]
         conc = sweep_concurrent(env, quick)
         conc_prov["loads"].append(load_snapshot("after-concurrent"))
         (out_dir / "baseline_concurrent.json").write_text(json.dumps({"provenance": conc_prov, **conc}, indent=2) + "\n")
         print(f"wrote {out_dir}/baseline_concurrent.json")
         start_load = conc_prov["loads"][0]["load1"]
-        print(f"\nload average at start: {start_load} (after: {conc_prov['loads'][-1]['load1']} — includes the sweep's own threads)")
+        print(f"\nconcurrent sweep: load average at start {start_load} (after: {conc_prov['loads'][-1]['load1']} — "
+              f"includes the sweep's own threads, which is why it runs last)")
         if start_load > 2.0:
-            print("WARNING: load average above 2 at start — another process was running (docs/BENCHMARKING.md rule 2)")
-        if only_concurrent:
-            return 0
-        provenance["loads"].append(load_snapshot("after-concurrent"))
-
-    print("\n[1/5] memory — integer map (λ sweep and structured distributions)")
-    memory = sweep_memory(env, quick)
-    provenance["loads"].append(load_snapshot("after-memory"))
-    print("\n[2/5] memory — string map (population sweep)")
-    smem = sweep_string_memory(env, quick)
-    provenance["loads"].append(load_snapshot("after-string-memory"))
-    print("\n[3/5] latency — integer map")
-    latency = sweep_latency(env, quick)
-    provenance["loads"].append(load_snapshot("after-latency"))
-    print("\n[4/5] latency — string map")
-    slat = sweep_string_latency(env, quick)
-    provenance["loads"].append(load_snapshot("after-string-latency"))
-    print("\n[5/5] sensitivity — insertion order (§10.2) and the concurrent table (§10.3)")
-    order = sweep_sensitivity(env, quick)
-    provenance["loads"].append(load_snapshot("end"))
-
-    (out_dir / "baseline_memory.json").write_text(json.dumps({"provenance": provenance, **memory}, indent=2) + "\n")
-    (out_dir / "baseline_string_memory.json").write_text(json.dumps({"provenance": provenance, **smem}, indent=2) + "\n")
-    (out_dir / "baseline_latency.json").write_text(json.dumps({"provenance": provenance, **latency}, indent=2) + "\n")
-    (out_dir / "baseline_string_latency.json").write_text(json.dumps({"provenance": provenance, **slat}, indent=2) + "\n")
-    (out_dir / "baseline_sensitivity.json").write_text(json.dumps({"provenance": provenance, **order}, indent=2) + "\n")
-
-    loads = [s["load1"] for s in provenance["loads"]]
-    print(f"\nload average across the run: {loads}")
-    if max(loads) - min(loads) > 2.0:
-        print("WARNING: load shifted by more than 2 during the run — the comparison is contaminated (docs/BENCHMARKING.md rule 2)")
-    print(f"wrote {out_dir}/baseline_memory.json, baseline_string_memory.json, baseline_latency.json, baseline_string_latency.json, baseline_sensitivity.json, validate.log")
+            print("WARNING: load average above 2 at the concurrent start — another process was running (docs/BENCHMARKING.md rule 2)")
     return 0
 
 

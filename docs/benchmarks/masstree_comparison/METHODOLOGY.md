@@ -1,7 +1,10 @@
 # Masstree vs. Expanse: Pre-Registration & Comparative Methodology
 
-**Status: locked before any harness code exists. No Masstree measurement has
-been taken on any registered harness.** This document is commit 2 of the
+**Status: locked before any harness code existed; measured on the reference
+host at harness commit `82966aae` and published in [`README.md`](README.md).
+The text of §1–§9 is the locked pre-registration; outcomes are recorded in the
+README and are never reconciled into it (§8.7); measurement constraints found
+while building and running are §10.** This document is commit 2 of the
 three-commit cadence (AGENTS.md §8.8) for
 [#661](https://github.com/orieg/expanse/issues/661): hypothesis, locked
 constraint decisions, expected-losses matrix, gate taxonomy and claims ceiling,
@@ -168,8 +171,8 @@ tcmalloc or mimalloc installed and no package is installed for a benchmark.
      **inside the armed window**. On Masstree this figure is **quantized to
      the 2 MiB slab**: every cell also reports its measured **slack** — the
      allocator figure minus Masstree's structural figure below — and
-     `census_quantum_dominated` flags every cell whose slack exceeds a
-     quarter of the structural bytes. A flagged cell is published with its
+     `census_quantum_dominated` flags every cell whose slack exceeds 25%
+     of the structural bytes. A flagged cell is published with its
      flag and is never read as a per-key cost of the index.
      `slab_slack_bound(classes)` is the a-priori ceiling the slack must
      respect. The gate measured the quantum's two faces: 0 B counted at
@@ -582,4 +585,20 @@ HOT's retained free-list nodes stayed inside its (§3.2 there). The Expanse side
 is untouched: `ExpanseMap` and `ExpanseStrMap` free immediately, and the
 `Sync*` wrapper on the M pillar runs its own epoch collector as it always
 does.
+
+### 10.5 The string wrapper's reader does not count attempts, so MC2 has no restart share
+
+The H cells read the engine's `occ_stats` counters (§5). `MapReader::get`
+bumps `ReadOps` on every lookup and `ReadAttempts` on every walk, which is
+what the restart share is computed from. `StrReader::get` (and the bytes and
+blob readers) bump `ReadFallbacks` only — the string path was never
+instrumented for attempts (`crates/expanse/src/sync.rs`). On the MC2 health
+cells `read_ops` and `read_attempts` are therefore zero by construction, and a
+restart share of 0% would be a number about the counters, not the protocol.
+
+**Amended:** MC2's H cells publish `read_fallbacks` as an **absolute count**
+and nothing else; the restart share and the fallback share are marked
+`NOT_INSTRUMENTED` in every table and never rendered as 0%. §6.3's hypothesis
+is evaluated on MC1 alone. Instrumenting the string reader is an engine change
+outside this suite and is recorded as a follow-up in the README.
 
