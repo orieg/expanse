@@ -89,6 +89,23 @@ Shipped header `include/Judy.h` additionally provides, source-compatibly:
 2. **Semantic match** per documented contract: pointer-to-value-slot return conventions (`JudyLIns` returns a writable `PPvoid_t`; inserted slots initialized to 0), sorted-order iteration (`First`/`Next`/`Last`/`Prev` and the `Empty` variants, inclusive-search semantics), `Count`/`ByCount` rank semantics over inclusive index ranges, null/empty-array edge behavior, `JError_t` error reporting incl. `PJERR`/`JERR` returns and `JU_ERRNO_*` codes.
 3. **Ordering guarantee**: iteration is strictly sorted unsigned-key order (JudySL: byte-lexicographic) — identical to libjudy, verified differentially.
 
+## Binary image compatibility
+
+`ExpanseBlobMap::save_to_file` / `load_from_file` (Rust surface only; the C
+ABI exposes no image save or load) write and read a memory image whose
+64-byte header carries `EXPANSE_FORMAT_VERSION`
+(`crates/expanse/src/blobmap.rs`). **The image is not a cross-version
+format.** A build reads only images written with its own format version; an
+image carrying another version is refused with
+`ArenaError::UnsupportedFormatVersion { found, supported }`, never loaded
+partially and never migrated. The version is
+`2` since #518 (inline compressed value slots), which means images written by
+v0.5.0 (`1`) do not load in later releases; nothing in the library rewrites a
+v1 image, so a consumer that needs continuity across that boundary re-inserts
+from its source of truth. A change to the format bumps the constant and is
+called out in the release notes; a damaged header (bad magic, size or
+chunk-geometry fields) is `CorruptedHeader`, a different error.
+
 ## Non-goals
 
 - **`Judy1MemUsed`/`JudyLMemUsed` byte equality.** Internal geometry differs (64-byte-line nodes, different allocator). Guarantee: same order of magnitude and monotonic behavior — not the same number. Documented in the shipped header.

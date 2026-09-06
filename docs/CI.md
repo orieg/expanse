@@ -215,7 +215,7 @@ A green test suite only proves that what is present passes, not that what should
 
 - **Tier 1 (per-PR, `ci.yml`)**: `miri` runs `cargo miri test -p expanse-trie --lib` over an explicit filter list — `leaf`, `node`, `slot`, `alloc`, `bits`, `types`, plus the `blobmap`/`strmap`/`bytesmap` deferred-dispose round trips. Heavy op-sequence tests are left to proptest and fuzzing. The job skips on non-Rust diffs (§3). Catches Stacked/Tree Borrows and provenance violations before merge.
 - **Tier 2 (merge gate)**: `ci-gate` requires Tier 1 Miri to pass before a PR is mergeable.
-- **Tier 3 (nightly, `nightly.yml`)**: the full un-skipped Miri suite across all crate targets, including long-running randomized model sweeps (`proptest_model.rs`). Failures open/update a deduplicated GitHub issue; recovery auto-closes it (see §8).
+- **Tier 3 (nightly, `nightly.yml`)**: the full un-skipped Miri suite of `expanse-trie`, as a 12-shard matrix — five lib module groups (`cursor`/`cursor32`, `set`/`map`/`set32`/`map32`, `sync`/`sync32`, `blobmap`/`bits`, and the rest via `--skip`) plus the seven integration targets that are not `#![cfg(not(miri))]` — each shard with its own 180-minute budget. Miri interprets a test binary on one OS thread, single lib tests run for minutes (`cursor32::tests::cursor32_matches_model` 310 s on a 5 GHz core), and the single-job form was cancelled at its 60-minute cap on every scheduled run before the split. `proptest_model.rs`, `sync32_stress.rs`, `test_ycsb.rs`, `test_encoding_reference_sync.rs` and `test_visualizer_sync.rs` are `#![cfg(not(miri))]` and are not part of this tier. Failures open/update a deduplicated GitHub issue per shard; recovery auto-closes it (see §8).
 
 ---
 

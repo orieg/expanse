@@ -692,11 +692,11 @@ Values are decimal unless prefixed `0x`. The gate asserts each against the compi
 | `ValueSlot::TAG_MASK` | 0xFF | `crates/expanse/src/slot.rs:183` |
 | `ValueSlot::ARENA_META_MASK` | 0xFFFFFF | `crates/expanse/src/slot.rs:185` |
 | `ValueSlot::ARENA_META_MAX` | 16777215 | `crates/expanse/src/slot.rs:187` |
-| `ARENA_ALIGN` | 16 | `crates/expanse/src/blobmap.rs:468` |
-| `ARENA_META_CEILING` | 68719476736 | `crates/expanse/src/blobmap.rs:473` |
-| `MAX_ARENA_CHUNKS` | 65536 | `crates/expanse/src/blobmap.rs:480` |
-| `MAX_ARENA_CAPACITY` | 1073741824 | `crates/expanse/src/blobmap.rs:491` |
-| `DEFAULT_CHUNK_SIZE` | 2097152 | `crates/expanse/src/blobmap.rs:463` |
+| `ARENA_ALIGN` | 16 | `crates/expanse/src/blobmap.rs:483` |
+| `ARENA_META_CEILING` | 68719476736 | `crates/expanse/src/blobmap.rs:488` |
+| `MAX_ARENA_CHUNKS` | 65536 | `crates/expanse/src/blobmap.rs:495` |
+| `MAX_ARENA_CAPACITY` | 1073741824 | `crates/expanse/src/blobmap.rs:506` |
+| `DEFAULT_CHUNK_SIZE` | 2097152 | `crates/expanse/src/blobmap.rs:478` |
 | `size_of::<Edge32>()` | 8 | `crates/expanse/src/types32.rs:176` |
 | `align_of::<Edge32>()` | 4 | `crates/expanse/src/types32.rs:177` |
 | `MAX_LEVEL_32` | 4 | `crates/expanse/src/types32.rs:18` |

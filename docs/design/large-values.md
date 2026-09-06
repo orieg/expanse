@@ -1118,6 +1118,7 @@ Shared-Memory / File Image Binary Format
 +--------------------------------------------------------------------------------------+
 | File Header (64 Bytes)                                                               |
 | - Magic: "EXPANSE\0" (8B)       - Format Version: u32 (4B)   - Flags: u32 (4B)       |
+|   (format version is 2 since #518; a mismatch is UnsupportedFormatVersion, see COMPAT.md)  |
 | - Root Edge Offset: u64 (8B)    - Total File Size: u64 (8B)  - Entry Count: u64 (8B) |
 | - Chunk Table Offset: u64 (8B)  - Checksum / Blake3: [u8; 16] (16B)                  |
 +--------------------------------------------------------------------------------------+

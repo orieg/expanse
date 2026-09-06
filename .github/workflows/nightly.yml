@@ -28,10 +28,23 @@ env:
 jobs:
   miri-full:
     # The per-push Miri job skips the heavy model-based suites to stay
-    # fast; this run executes the whole suite under Miri daily.
+    # fast; this run executes the whole suite under Miri daily. Miri
+    # interprets one test binary on one OS thread, so the crate's targets are
+    # sharded into parallel jobs: the single-job form was cancelled at the
+    # 60-minute cap on every scheduled run from 2026-09-01 to 2026-09-05 and
+    # never completed once (the lib tests alone take longer than that on a
+    # hosted runner). Integration targets that are `#![cfg(not(miri))]` are not
+    # listed. A measured full run on a 5 GHz core is the sizing reference for
+    # the per-shard budget below.
     if: inputs.only != 'bench'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        # lib shards are module groups (the cursor model tests alone run for
+        # minutes each under Miri); `lib-rest` is everything the other four skip
+        shard: [lib-cursor, lib-set-map, lib-sync, lib-blobmap-bits, lib-rest, linearizability, no_heap_churn, test_blobmap, test_boundary_invariants, test_domain, test_value_compression, tsan_canary]
     steps:
       - uses: actions/checkout@v7
 
@@ -42,15 +55,23 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Miri (full)
-        run: cargo miri test -p expanse-trie
+      - name: Miri (full, one shard)
+        run: |
+          case "${{ matrix.shard }}" in
+            lib-cursor)       cargo miri test -p expanse-trie --lib -- cursor:: cursor32:: ;;
+            lib-set-map)      cargo miri test -p expanse-trie --lib -- set:: map:: set32:: map32:: ;;
+            lib-sync)         cargo miri test -p expanse-trie --lib -- sync:: sync32:: ;;
+            lib-blobmap-bits) cargo miri test -p expanse-trie --lib -- blobmap:: bits:: ;;
+            lib-rest)         cargo miri test -p expanse-trie --lib -- --skip cursor:: --skip cursor32:: --skip set:: --skip map:: --skip set32:: --skip map32:: --skip sync:: --skip sync32:: --skip blobmap:: --skip bits:: ;;
+            *)                cargo miri test -p expanse-trie --test "${{ matrix.shard }}" ;;
+          esac
 
       - name: Report or Update Nightly Failure Issue
         if: failure() && github.event_name == 'schedule'
         uses: actions/github-script@v8
         with:
           script: |
-            const title = '🚨 [Nightly CI Failure] Full Miri Model Verification Failed on main';
+            const title = '🚨 [Nightly CI Failure] Full Miri Model Verification Failed on main (shard ${{ matrix.shard }})';
             const { data: issues } = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -58,17 +79,17 @@ jobs:
               labels: 'nightly-failure'
             });
 
-            const existing = issues.find(i => i.title.includes('Full Miri'));
+            const existing = issues.find(i => i.title.includes('Full Miri') && i.title.includes('shard ${{ matrix.shard }}'));
             const body = [
               '### Nightly Verification Failure Alert',
               '',
               `- **Commit**: [${context.sha}](${context.payload.repository?.html_url}/commit/${context.sha})`,
               `- **Workflow Run**: [View Failed Run Logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
-              '- **Failing Target**: `cargo miri test -p expanse-trie`',
+              '- **Failing Target**: `cargo miri test -p expanse-trie` shard `${{ matrix.shard }}`',
               '',
               '#### Local Reproduction Command:',
               '```bash',
-              'cargo miri test -p expanse-trie',
+              'see the "Miri (full, one shard)" step of the failed run for the exact command of shard ${{ matrix.shard }}',
               '```'
             ].join('\n');
 
@@ -100,7 +121,7 @@ jobs:
               state: 'open',
               labels: 'nightly-failure'
             });
-            const existing = issues.find(i => i.title.includes('Full Miri'));
+            const existing = issues.find(i => i.title.includes('Full Miri') && i.title.includes('shard ${{ matrix.shard }}'));
             if (existing) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,

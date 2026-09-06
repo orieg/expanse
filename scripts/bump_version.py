@@ -621,7 +621,7 @@ def main() -> int:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Verify that all manifests are in 100% version lockstep",
+        help="Verify that all manifests are in 100%% version lockstep",
     )
     parser.add_argument(
         "--dry-run",
