@@ -1075,7 +1075,9 @@ impl BlobReader<'_> {
     /// back under the writer lock).
     fn lookup_slot(&mut self, key: Key) -> Result<Option<u64>, Retry> {
         let shared = &self.map.shared;
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
         for _ in 0..MAX_RETRIES {
+            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = self.reader.pin();
             let snap = shared.version.sample();
             // SAFETY: pinned + freshly sampled version; the walk validates
@@ -1148,7 +1150,9 @@ impl BlobReadGuard<'_> {
     #[must_use]
     pub fn get(&self, key: Key) -> Option<(SyncBlobView<'_>, u32)> {
         let shared = &self.map.shared;
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
         for _ in 0..MAX_RETRIES {
+            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let snap = shared.version.sample();
             // SAFETY: the guard's pin predates this sample; the walk
             // validates every load (see `walk_validated`).
@@ -1429,6 +1433,11 @@ impl SyncExpanseStrMap {
                 return pop;
             }
         }
+        // Mirrors `Shared::validated_len`: retry exhaustion here is a
+        // fallback, not one of the unconditionally-locked routes, so it must
+        // be counted as one or `locked_reads - read_fallbacks` misreports the
+        // unconditional share.
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
         self.shared.read_locked(ExpanseStrMap::len)
     }
 
@@ -1475,7 +1484,9 @@ impl StrReader<'_> {
     #[must_use]
     pub fn get(&self, key: &[u8]) -> Option<u64> {
         let shared = &self.map.shared;
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
         for _ in 0..MAX_RETRIES {
+            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = self.reader.pin();
             let snap = shared.version.sample();
             // SAFETY: pinned + freshly sampled version; every hop of the
@@ -1596,6 +1607,9 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                 return pop;
             }
         }
+        // As in `SyncExpanseStrMap::len`: a retry-exhaustion fallback, and
+        // counted as one.
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
         self.shared.read_locked(ExpanseBytesMap::len)
     }
 
@@ -1662,7 +1676,9 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
     #[must_use]
     pub fn get(&self, key: &[u8]) -> Option<u64> {
         let shared = &self.map.shared;
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
         for _ in 0..MAX_RETRIES {
+            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = self.reader.pin();
             let snap = shared.version.sample();
             // SAFETY: pinned + freshly sampled version; every load is

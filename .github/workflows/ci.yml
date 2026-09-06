@@ -467,6 +467,12 @@ jobs:
       - name: Test
         run: cargo test --workspace --exclude expanse-php
 
+      # The `occ_stats` counters are compiled out without the feature
+      # (AGENTS.md §2.1 invariant 5), so the test pinning every Sync* reader
+      # family to them is empty in the run above and needs its own invocation.
+      - name: Test the occ-stats reader wiring (#721)
+        run: cargo test -p expanse-trie --features occ-stats --test test_occ_stats_readers
+
       - name: Assert capi drop-in artifacts exist (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
