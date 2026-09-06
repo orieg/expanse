@@ -91,9 +91,21 @@ def load_snapshot(label: str) -> dict:
 
 
 def git_sha() -> str:
+    """The commit under test, for provenance (§8.7).
+
+    A checkout rsynced to a benchmark host without its `.git` cannot answer
+    `rev-parse`, and this runner had no override, so every string artifact it
+    wrote on the reference host recorded `"unknown"` — a published number whose
+    commit does not resolve. `EXPANSE_BENCH_COMMIT` names it explicitly, as the
+    integer runner already did.
+    """
+    explicit = os.environ.get("EXPANSE_BENCH_COMMIT")
+    if explicit:
+        return explicit
     try:
         return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=REPO_ROOT
+            ["git", "rev-parse", "--short", "HEAD"], cwd=REPO_ROOT,
+            stderr=subprocess.DEVNULL,
         ).decode().strip()
     except Exception:
         return "unknown"

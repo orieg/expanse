@@ -466,6 +466,10 @@ def main() -> int:
         "platform": platform.platform(),
         "rustflags": env["RUSTFLAGS"].strip(),
         "cxx_flags": "-march=haswell -O3 -std=c++17 -DNDEBUG",
+        # The pin is applied by run.sh for every phase, not only the concurrent
+        # one; recording it only there left the single-threaded artifacts unable
+        # to say which cores they were measured on.
+        "core_pin": os.environ.get("EXPANSE_BENCH_PIN_APPLIED", "unset"),
         "loads": [load_snapshot("start")],
         "quick": quick,
     }
