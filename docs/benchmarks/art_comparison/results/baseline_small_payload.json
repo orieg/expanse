@@ -4,43 +4,409 @@
   "results": [
     {
       "insert": {
-        "blart_art_ns_op": 16.792,
-        "btree_ns_op": 48.75,
-        "expanse_ns_op": 504.416,
-        "hashmap_ns_op": 30.375,
+        "blart_art_ns_op": 17.93,
+        "btree_ns_op": 23.477,
+        "expanse_ns_op": 878.718,
+        "hashmap_ns_op": 25.051,
         "ratio_bca_ci_95": [
-          17.809347106401216,
-          149.74350162411554
+          49.723081817501836,
+          53.18807262467749
         ],
-        "ratio_mean": 40.65549783647101,
-        "ratio_median": 30.03906622201048,
-        "ratio_vs_art": 40.65549783647101
+        "ratio_mean": 51.191762601859644,
+        "ratio_median": 49.00825432236475,
+        "ratio_vs_art": 51.191762601859644,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 18.127,
+            "btree_ns": 23.817,
+            "expanse_ns": 1054.541,
+            "hashmap_ns": 24.951,
+            "ratio_vs_art": 58.175153086555966,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 16.522,
+            "btree_ns": 16.928,
+            "expanse_ns": 951.861,
+            "hashmap_ns": 24.775,
+            "ratio_vs_art": 57.611729814792405,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 17.93,
+            "btree_ns": 25.398,
+            "expanse_ns": 921.038,
+            "hashmap_ns": 25.047,
+            "ratio_vs_art": 51.36854433909649,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 18.182,
+            "btree_ns": 22.629,
+            "expanse_ns": 885.059,
+            "hashmap_ns": 25.258,
+            "ratio_vs_art": 48.67775822241778,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 18.017,
+            "btree_ns": 23.485,
+            "expanse_ns": 878.274,
+            "hashmap_ns": 25.105,
+            "ratio_vs_art": 48.74696120330799,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 16.423,
+            "btree_ns": 19.485,
+            "expanse_ns": 876.001,
+            "hashmap_ns": 25.102,
+            "ratio_vs_art": 53.33988917980881,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 17.695,
+            "btree_ns": 23.947,
+            "expanse_ns": 901.942,
+            "hashmap_ns": 25.088,
+            "ratio_vs_art": 50.97157389092964,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 18.179,
+            "btree_ns": 22.111,
+            "expanse_ns": 874.646,
+            "hashmap_ns": 24.981,
+            "ratio_vs_art": 48.112987513064525,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 17.821,
+            "btree_ns": 22.532,
+            "expanse_ns": 876.749,
+            "hashmap_ns": 25.051,
+            "ratio_vs_art": 49.19751978003479,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 16.414,
+            "btree_ns": 19.554,
+            "expanse_ns": 904.531,
+            "hashmap_ns": 25.093,
+            "ratio_vs_art": 55.10728646277567,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 18.116,
+            "btree_ns": 25.442,
+            "expanse_ns": 878.082,
+            "hashmap_ns": 24.994,
+            "ratio_vs_art": 48.469971296091856,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 18.668,
+            "btree_ns": 23.477,
+            "expanse_ns": 875.538,
+            "hashmap_ns": 25.33,
+            "ratio_vs_art": 46.900471394900364,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 17.74,
+            "btree_ns": 23.62,
+            "expanse_ns": 878.718,
+            "hashmap_ns": 27.502,
+            "ratio_vs_art": 49.533145434047356,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 16.489,
+            "btree_ns": 19.575,
+            "expanse_ns": 880.788,
+            "hashmap_ns": 24.817,
+            "ratio_vs_art": 53.41670204378676,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 18.128,
+            "btree_ns": 23.616,
+            "expanse_ns": 874.617,
+            "hashmap_ns": 24.917,
+            "ratio_vs_art": 48.2467453662842,
+            "round": 14
+          }
+        ]
       },
       "lookup_hit": {
-        "blart_art_ns_op": 3.0541,
-        "btree_ns_op": 1.025,
-        "expanse_ns_op": 1.1459,
-        "hashmap_ns_op": 1.5125,
+        "blart_art_ns_op": 5.7618,
+        "btree_ns_op": 0.8558,
+        "expanse_ns_op": 0.856,
+        "hashmap_ns_op": 1.2508,
         "ratio_bca_ci_95": [
-          0.3738983998799161,
-          0.37978550648138676
+          0.14608073522023568,
+          0.1487487709579816
         ],
-        "ratio_mean": 0.3765221578138658,
-        "ratio_median": 0.37520055008022,
-        "ratio_vs_art": 0.3765221578138658
+        "ratio_mean": 0.14815080377894502,
+        "ratio_median": 0.14856468464715886,
+        "ratio_vs_art": 0.14815080377894502,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 5.7704,
+            "btree_ns": 0.8598,
+            "expanse_ns": 0.8653,
+            "hashmap_ns": 1.2988,
+            "ratio_vs_art": 0.14995494246499375,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 5.7591,
+            "btree_ns": 0.8568,
+            "expanse_ns": 0.8581,
+            "hashmap_ns": 1.2488,
+            "ratio_vs_art": 0.1489989755343717,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 5.7609,
+            "btree_ns": 0.857,
+            "expanse_ns": 0.8557,
+            "hashmap_ns": 1.2477,
+            "ratio_vs_art": 0.14853581905605026,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 5.7618,
+            "btree_ns": 0.8549,
+            "expanse_ns": 0.8556,
+            "hashmap_ns": 1.2542,
+            "ratio_vs_art": 0.14849526189732376,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 5.761,
+            "btree_ns": 0.8554,
+            "expanse_ns": 0.8542,
+            "hashmap_ns": 1.2517,
+            "ratio_vs_art": 0.14827286929352543,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 5.7603,
+            "btree_ns": 0.8555,
+            "expanse_ns": 0.8588,
+            "hashmap_ns": 1.2452,
+            "ratio_vs_art": 0.14908945714632918,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 6.0759,
+            "btree_ns": 0.8558,
+            "expanse_ns": 0.8565,
+            "hashmap_ns": 1.2492,
+            "ratio_vs_art": 0.14096677035500915,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 5.762,
+            "btree_ns": 0.8563,
+            "expanse_ns": 0.856,
+            "hashmap_ns": 1.2496,
+            "ratio_vs_art": 0.14855952794168692,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 5.7596,
+            "btree_ns": 0.8577,
+            "expanse_ns": 0.8569,
+            "hashmap_ns": 1.2525,
+            "ratio_vs_art": 0.14877769289533996,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 5.7616,
+            "btree_ns": 0.8544,
+            "expanse_ns": 0.8556,
+            "hashmap_ns": 1.2508,
+            "ratio_vs_art": 0.14850041655095808,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 5.7617,
+            "btree_ns": 0.8542,
+            "expanse_ns": 0.8565,
+            "hashmap_ns": 1.2489,
+            "ratio_vs_art": 0.1486540430775639,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 5.7651,
+            "btree_ns": 0.8561,
+            "expanse_ns": 0.855,
+            "hashmap_ns": 1.2525,
+            "ratio_vs_art": 0.1483061872300567,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 5.7624,
+            "btree_ns": 0.8559,
+            "expanse_ns": 0.8567,
+            "hashmap_ns": 1.2482,
+            "ratio_vs_art": 0.14867069276690267,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 5.7643,
+            "btree_ns": 0.8553,
+            "expanse_ns": 0.8543,
+            "hashmap_ns": 1.2611,
+            "ratio_vs_art": 0.14820533282445394,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 5.765,
+            "btree_ns": 0.8551,
+            "expanse_ns": 0.8548,
+            "hashmap_ns": 1.2511,
+            "ratio_vs_art": 0.14827406764960974,
+            "round": 14
+          }
+        ]
       },
       "lookup_miss": {
-        "blart_art_ns_op": 6.4083,
-        "btree_ns_op": 4.9125,
-        "expanse_ns_op": 4.35,
-        "hashmap_ns_op": 7.05,
+        "blart_art_ns_op": 9.3462,
+        "btree_ns_op": 4.243,
+        "expanse_ns_op": 3.8159,
+        "hashmap_ns_op": 5.2254,
         "ratio_bca_ci_95": [
-          0.5667393604859061,
-          0.6794971501914785
+          0.40552346799954475,
+          0.42431493910198825
         ],
-        "ratio_mean": 0.6406739861412748,
-        "ratio_median": 0.6788071719488787,
-        "ratio_vs_art": 0.6406739861412748
+        "ratio_mean": 0.4147938818572584,
+        "ratio_median": 0.40828358049260666,
+        "ratio_vs_art": 0.4147938818572584,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 10.3613,
+            "btree_ns": 4.6001,
+            "expanse_ns": 4.2704,
+            "hashmap_ns": 5.6261,
+            "ratio_vs_art": 0.41214905465530394,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 9.3058,
+            "btree_ns": 4.1649,
+            "expanse_ns": 4.1063,
+            "hashmap_ns": 5.4664,
+            "ratio_vs_art": 0.441262438479228,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 9.3438,
+            "btree_ns": 4.0733,
+            "expanse_ns": 4.0855,
+            "hashmap_ns": 5.2254,
+            "ratio_vs_art": 0.4372418074016995,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 9.3074,
+            "btree_ns": 4.5144,
+            "expanse_ns": 3.8036,
+            "hashmap_ns": 5.397,
+            "ratio_vs_art": 0.4086640737477706,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 9.2617,
+            "btree_ns": 4.243,
+            "expanse_ns": 3.7942,
+            "hashmap_ns": 5.4071,
+            "ratio_vs_art": 0.4096656121446387,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 9.4779,
+            "btree_ns": 4.3893,
+            "expanse_ns": 4.0805,
+            "hashmap_ns": 5.2216,
+            "ratio_vs_art": 0.43052785954694606,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 9.5432,
+            "btree_ns": 4.1582,
+            "expanse_ns": 4.131,
+            "hashmap_ns": 5.3719,
+            "ratio_vs_art": 0.4328736692094895,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 9.4557,
+            "btree_ns": 4.3308,
+            "expanse_ns": 3.7743,
+            "hashmap_ns": 5.0345,
+            "ratio_vs_art": 0.399156064595958,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 9.3638,
+            "btree_ns": 4.4154,
+            "expanse_ns": 3.8159,
+            "hashmap_ns": 4.6977,
+            "ratio_vs_art": 0.40751617932890494,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 9.544,
+            "btree_ns": 4.3226,
+            "expanse_ns": 3.778,
+            "hashmap_ns": 4.7175,
+            "ratio_vs_art": 0.3958507963118189,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 9.3097,
+            "btree_ns": 4.1845,
+            "expanse_ns": 3.7595,
+            "hashmap_ns": 4.6633,
+            "ratio_vs_art": 0.40382611684587044,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 9.248,
+            "btree_ns": 4.1913,
+            "expanse_ns": 3.5892,
+            "hashmap_ns": 4.6361,
+            "ratio_vs_art": 0.38810553633218,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 9.274,
+            "btree_ns": 4.1857,
+            "expanse_ns": 3.5916,
+            "hashmap_ns": 5.3935,
+            "ratio_vs_art": 0.38727625620012945,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 9.4297,
+            "btree_ns": 4.351,
+            "expanse_ns": 4.205,
+            "hashmap_ns": 5.3763,
+            "ratio_vs_art": 0.44593147183897686,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 9.3462,
+            "btree_ns": 4.1448,
+            "expanse_ns": 3.9428,
+            "hashmap_ns": 5.1122,
+            "ratio_vs_art": 0.4218612912199611,
+            "round": 14
+          }
+        ]
       },
       "memory": {
         "blart_alloc_count": 1,
@@ -55,51 +421,417 @@
         "expanse_tracking_bpk": 4096.0,
         "expanse_tracking_bytes": 4096,
         "hashmap_alloc_count": 1,
-        "hashmap_bpk": 76.0,
-        "hashmap_bytes": 76,
+        "hashmap_bpk": 84.0,
+        "hashmap_bytes": 84,
         "logical_ratio_vs_art": 0.5
       },
       "population": 1
     },
     {
       "insert": {
-        "blart_art_ns_op": 24.229,
-        "btree_ns_op": 9.354,
-        "expanse_ns_op": 270.8335,
-        "hashmap_ns_op": 12.0835,
+        "blart_art_ns_op": 30.3075,
+        "btree_ns_op": 8.8015,
+        "expanse_ns_op": 775.902,
+        "hashmap_ns_op": 15.139,
         "ratio_bca_ci_95": [
-          10.668553784219291,
-          15.719852436920089
+          25.50235839440826,
+          26.392702736887273
         ],
-        "ratio_mean": 13.08319388240491,
-        "ratio_median": 11.178071732221719,
-        "ratio_vs_art": 13.08319388240491
+        "ratio_mean": 25.83895322054012,
+        "ratio_median": 25.600989853996538,
+        "ratio_vs_art": 25.83895322054012,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 33.632,
+            "btree_ns": 9.286,
+            "expanse_ns": 886.513,
+            "hashmap_ns": 15.9935,
+            "ratio_vs_art": 26.359211465271173,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 31.2305,
+            "btree_ns": 8.953,
+            "expanse_ns": 879.8035,
+            "hashmap_ns": 15.865,
+            "ratio_vs_art": 28.17129088551256,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 32.22,
+            "btree_ns": 9.84,
+            "expanse_ns": 816.277,
+            "hashmap_ns": 15.6625,
+            "ratio_vs_art": 25.334481688392305,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 31.4785,
+            "btree_ns": 8.8015,
+            "expanse_ns": 821.4405,
+            "hashmap_ns": 15.657,
+            "ratio_vs_art": 26.095287259558113,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 31.3535,
+            "btree_ns": 8.817,
+            "expanse_ns": 791.5835,
+            "hashmap_ns": 15.3265,
+            "ratio_vs_art": 25.247053757953655,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 30.4265,
+            "btree_ns": 8.737,
+            "expanse_ns": 806.4705,
+            "hashmap_ns": 15.3765,
+            "ratio_vs_art": 26.505529719159284,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 30.9285,
+            "btree_ns": 9.4295,
+            "expanse_ns": 775.902,
+            "hashmap_ns": 15.1835,
+            "ratio_vs_art": 25.08695863038945,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 30.149,
+            "btree_ns": 8.5245,
+            "expanse_ns": 783.301,
+            "hashmap_ns": 15.139,
+            "ratio_vs_art": 25.98099439450728,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 30.2095,
+            "btree_ns": 8.4465,
+            "expanse_ns": 761.0555,
+            "hashmap_ns": 14.839,
+            "ratio_vs_art": 25.19258842417121,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 29.2705,
+            "btree_ns": 8.4,
+            "expanse_ns": 771.7895,
+            "hashmap_ns": 14.768,
+            "ratio_vs_art": 26.36748603542816,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 30.3075,
+            "btree_ns": 9.4265,
+            "expanse_ns": 760.3405,
+            "hashmap_ns": 14.953,
+            "ratio_vs_art": 25.08753608842696,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 30.143,
+            "btree_ns": 8.429,
+            "expanse_ns": 758.117,
+            "hashmap_ns": 14.902,
+            "ratio_vs_art": 25.150681750323457,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 30.046,
+            "btree_ns": 8.4685,
+            "expanse_ns": 765.535,
+            "hashmap_ns": 14.822,
+            "ratio_vs_art": 25.478765892298476,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 29.1945,
+            "btree_ns": 8.345,
+            "expanse_ns": 771.862,
+            "hashmap_ns": 14.724,
+            "ratio_vs_art": 26.43861001215982,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 30.2315,
+            "btree_ns": 9.232,
+            "expanse_ns": 758.4425,
+            "hashmap_ns": 14.7925,
+            "ratio_vs_art": 25.08782230454989,
+            "round": 14
+          }
+        ]
       },
       "lookup_hit": {
-        "blart_art_ns_op": 11.1708,
-        "btree_ns_op": 4.6375,
-        "expanse_ns_op": 4.8167,
-        "hashmap_ns_op": 1.475,
+        "blart_art_ns_op": 9.7303,
+        "btree_ns_op": 3.4193,
+        "expanse_ns_op": 3.8586,
+        "hashmap_ns_op": 1.2496,
         "ratio_bca_ci_95": [
-          0.42478470200024177,
-          0.4614505135306687
+          0.39046581005799497,
+          0.41442429813683357
         ],
-        "ratio_mean": 0.4359874240384904,
-        "ratio_median": 0.431186665234361,
-        "ratio_vs_art": 0.4359874240384904
+        "ratio_mean": 0.40068597415948176,
+        "ratio_median": 0.3965550907988449,
+        "ratio_vs_art": 0.40068597415948176,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 9.7303,
+            "btree_ns": 4.2997,
+            "expanse_ns": 4.4678,
+            "hashmap_ns": 1.2745,
+            "ratio_vs_art": 0.45916364346423033,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 9.9187,
+            "btree_ns": 4.0732,
+            "expanse_ns": 4.3829,
+            "hashmap_ns": 1.2521,
+            "ratio_vs_art": 0.44188250476372914,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 10.2829,
+            "btree_ns": 3.922,
+            "expanse_ns": 4.2021,
+            "hashmap_ns": 1.2487,
+            "ratio_vs_art": 0.40864931099203533,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 10.1222,
+            "btree_ns": 3.6677,
+            "expanse_ns": 4.028,
+            "hashmap_ns": 1.2508,
+            "ratio_vs_art": 0.39793720732647053,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 9.6628,
+            "btree_ns": 3.6585,
+            "expanse_ns": 3.9764,
+            "hashmap_ns": 1.2496,
+            "ratio_vs_art": 0.4115163306701991,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 9.6269,
+            "btree_ns": 3.631,
+            "expanse_ns": 3.9691,
+            "hashmap_ns": 1.2526,
+            "ratio_vs_art": 0.41229263833632845,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 9.6209,
+            "btree_ns": 3.5111,
+            "expanse_ns": 3.8586,
+            "hashmap_ns": 1.2486,
+            "ratio_vs_art": 0.401064349489133,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 9.6082,
+            "btree_ns": 3.4193,
+            "expanse_ns": 3.8291,
+            "hashmap_ns": 1.2471,
+            "ratio_vs_art": 0.3985241772652526,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 9.6287,
+            "btree_ns": 3.3349,
+            "expanse_ns": 3.9596,
+            "hashmap_ns": 1.2523,
+            "ratio_vs_art": 0.4112289301774902,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 9.6863,
+            "btree_ns": 3.4186,
+            "expanse_ns": 3.7311,
+            "hashmap_ns": 1.246,
+            "ratio_vs_art": 0.38519352074579566,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 9.5984,
+            "btree_ns": 3.382,
+            "expanse_ns": 3.7097,
+            "hashmap_ns": 1.2514,
+            "ratio_vs_art": 0.3864914985830972,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 9.76,
+            "btree_ns": 3.3561,
+            "expanse_ns": 3.7349,
+            "hashmap_ns": 1.2482,
+            "ratio_vs_art": 0.3826741803278689,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 9.8628,
+            "btree_ns": 3.3602,
+            "expanse_ns": 3.6857,
+            "hashmap_ns": 1.2517,
+            "ratio_vs_art": 0.3736971245488097,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 10.1138,
+            "btree_ns": 3.349,
+            "expanse_ns": 3.7598,
+            "hashmap_ns": 1.2479,
+            "ratio_vs_art": 0.37174949079475567,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 10.1324,
+            "btree_ns": 3.2881,
+            "expanse_ns": 3.731,
+            "hashmap_ns": 1.2488,
+            "ratio_vs_art": 0.36822470490703085,
+            "round": 14
+          }
+        ]
       },
       "lookup_miss": {
-        "blart_art_ns_op": 9.7042,
-        "btree_ns_op": 5.7042,
-        "expanse_ns_op": 4.3125,
-        "hashmap_ns_op": 6.6917,
+        "blart_art_ns_op": 8.7671,
+        "btree_ns_op": 5.0107,
+        "expanse_ns_op": 3.5879,
+        "hashmap_ns_op": 5.0269,
         "ratio_bca_ci_95": [
-          0.4322666526128021,
-          0.4744272680648432
+          0.4122263290802017,
+          0.45604644400522104
         ],
-        "ratio_mean": 0.4510938953727208,
-        "ratio_median": 0.4443952103213042,
-        "ratio_vs_art": 0.4510938953727208
+        "ratio_mean": 0.43016711188426554,
+        "ratio_median": 0.4092459308095037,
+        "ratio_vs_art": 0.43016711188426554,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 8.9375,
+            "btree_ns": 5.3441,
+            "expanse_ns": 4.7196,
+            "hashmap_ns": 5.7666,
+            "ratio_vs_art": 0.5280671328671328,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 8.9667,
+            "btree_ns": 5.1949,
+            "expanse_ns": 4.5728,
+            "hashmap_ns": 5.4428,
+            "ratio_vs_art": 0.5099757993464709,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 9.0715,
+            "btree_ns": 5.0766,
+            "expanse_ns": 4.5373,
+            "hashmap_ns": 5.2907,
+            "ratio_vs_art": 0.5001708647963402,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 9.2677,
+            "btree_ns": 5.0612,
+            "expanse_ns": 3.8932,
+            "hashmap_ns": 5.2213,
+            "ratio_vs_art": 0.4200826526538408,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 8.449,
+            "btree_ns": 5.0077,
+            "expanse_ns": 3.7238,
+            "hashmap_ns": 5.1579,
+            "ratio_vs_art": 0.4407385489407031,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 8.2975,
+            "btree_ns": 4.9909,
+            "expanse_ns": 3.6223,
+            "hashmap_ns": 5.0961,
+            "ratio_vs_art": 0.4365531786682736,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 8.5297,
+            "btree_ns": 4.9058,
+            "expanse_ns": 3.5879,
+            "hashmap_ns": 5.0624,
+            "ratio_vs_art": 0.4206361302273233,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 8.7671,
+            "btree_ns": 5.0246,
+            "expanse_ns": 3.514,
+            "hashmap_ns": 5.0132,
+            "ratio_vs_art": 0.4008166896693319,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 8.5193,
+            "btree_ns": 5.0413,
+            "expanse_ns": 3.4758,
+            "hashmap_ns": 5.0068,
+            "ratio_vs_art": 0.40799126688812465,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 8.2903,
+            "btree_ns": 5.0128,
+            "expanse_ns": 3.46,
+            "hashmap_ns": 4.9994,
+            "ratio_vs_art": 0.41735522236830996,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 8.3417,
+            "btree_ns": 4.9916,
+            "expanse_ns": 3.4764,
+            "hashmap_ns": 4.886,
+            "ratio_vs_art": 0.4167495834182481,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 8.9561,
+            "btree_ns": 4.994,
+            "expanse_ns": 3.4487,
+            "hashmap_ns": 4.9369,
+            "ratio_vs_art": 0.38506716092942245,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 8.9007,
+            "btree_ns": 5.0107,
+            "expanse_ns": 3.3237,
+            "hashmap_ns": 4.9711,
+            "ratio_vs_art": 0.37342006808453265,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 8.8342,
+            "btree_ns": 4.9555,
+            "expanse_ns": 3.3722,
+            "hashmap_ns": 4.8654,
+            "ratio_vs_art": 0.3817210386905436,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 8.7058,
+            "btree_ns": 4.9795,
+            "expanse_ns": 3.5969,
+            "hashmap_ns": 5.0269,
+            "ratio_vs_art": 0.4131613407153852,
+            "round": 14
+          }
+        ]
       },
       "memory": {
         "blart_alloc_count": 3,
@@ -114,51 +846,417 @@
         "expanse_tracking_bpk": 4096.0,
         "expanse_tracking_bytes": 8192,
         "hashmap_alloc_count": 1,
-        "hashmap_bpk": 38.0,
-        "hashmap_bytes": 76,
+        "hashmap_bpk": 42.0,
+        "hashmap_bytes": 84,
         "logical_ratio_vs_art": 0.25
       },
       "population": 2
     },
     {
       "insert": {
-        "blart_art_ns_op": 28.166666666666668,
-        "btree_ns_op": 7.041666666666667,
-        "expanse_ns_op": 216.514,
-        "hashmap_ns_op": 9.583333333333334,
+        "blart_art_ns_op": 32.068666666666665,
+        "btree_ns_op": 6.551333333333333,
+        "expanse_ns_op": 777.924,
+        "hashmap_ns_op": 11.842666666666666,
         "ratio_bca_ci_95": [
-          7.7282491317225395,
-          8.974178438880214
+          24.158103982924175,
+          24.678406273310006
         ],
-        "ratio_mean": 8.17143190083102,
-        "ratio_median": 7.686887573964497,
-        "ratio_vs_art": 8.17143190083102
+        "ratio_mean": 24.40705002924568,
+        "ratio_median": 24.258071222169097,
+        "ratio_vs_art": 24.40705002924568,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 32.989666666666665,
+            "btree_ns": 6.6626666666666665,
+            "expanse_ns": 811.3596666666666,
+            "hashmap_ns": 11.893,
+            "ratio_vs_art": 24.594357829219252,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 31.932333333333332,
+            "btree_ns": 6.661,
+            "expanse_ns": 795.919,
+            "hashmap_ns": 11.862,
+            "ratio_vs_art": 24.92517510986774,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 32.36066666666667,
+            "btree_ns": 7.275333333333333,
+            "expanse_ns": 791.4706666666667,
+            "hashmap_ns": 11.835333333333333,
+            "ratio_vs_art": 24.457798562040338,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 32.479,
+            "btree_ns": 6.533,
+            "expanse_ns": 780.763,
+            "hashmap_ns": 11.802,
+            "ratio_vs_art": 24.039009821730968,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 32.068666666666665,
+            "btree_ns": 6.551,
+            "expanse_ns": 779.348,
+            "hashmap_ns": 11.842666666666666,
+            "ratio_vs_art": 24.302475937051742,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 30.817333333333334,
+            "btree_ns": 6.517666666666667,
+            "expanse_ns": 777.924,
+            "hashmap_ns": 11.794666666666666,
+            "ratio_vs_art": 25.243066672435425,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 32.76866666666667,
+            "btree_ns": 7.292333333333334,
+            "expanse_ns": 778.0993333333333,
+            "hashmap_ns": 11.841666666666667,
+            "ratio_vs_art": 23.74522409618945,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 31.904333333333334,
+            "btree_ns": 6.551333333333333,
+            "expanse_ns": 767.6603333333334,
+            "hashmap_ns": 11.802333333333333,
+            "ratio_vs_art": 24.06131873413225,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 32.175,
+            "btree_ns": 6.539,
+            "expanse_ns": 785.5796666666666,
+            "hashmap_ns": 11.812666666666667,
+            "ratio_vs_art": 24.415840455840456,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 30.723666666666666,
+            "btree_ns": 6.496,
+            "expanse_ns": 767.4513333333333,
+            "hashmap_ns": 11.845,
+            "ratio_vs_art": 24.979158303587894,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 32.64233333333333,
+            "btree_ns": 7.266666666666667,
+            "expanse_ns": 767.0443333333334,
+            "hashmap_ns": 11.867333333333333,
+            "ratio_vs_art": 23.49845292922279,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 31.917333333333332,
+            "btree_ns": 6.532666666666667,
+            "expanse_ns": 776.0893333333333,
+            "hashmap_ns": 11.889666666666667,
+            "ratio_vs_art": 24.315606984710502,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 32.669,
+            "btree_ns": 6.527333333333333,
+            "expanse_ns": 775.3743333333333,
+            "hashmap_ns": 11.829,
+            "ratio_vs_art": 23.734253675757856,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 30.817666666666668,
+            "btree_ns": 7.357,
+            "expanse_ns": 773.736,
+            "hashmap_ns": 11.852666666666666,
+            "ratio_vs_art": 25.106897558759584,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 31.447,
+            "btree_ns": 7.274,
+            "expanse_ns": 776.3356666666666,
+            "hashmap_ns": 11.854333333333333,
+            "ratio_vs_art": 24.687113768138985,
+            "round": 14
+          }
+        ]
       },
       "lookup_hit": {
-        "blart_art_ns_op": 12.3792,
-        "btree_ns_op": 6.1291,
-        "expanse_ns_op": 5.95,
-        "hashmap_ns_op": 1.4625,
+        "blart_art_ns_op": 10.1809,
+        "btree_ns_op": 4.9457,
+        "expanse_ns_op": 4.0825,
+        "hashmap_ns_op": 1.1519,
         "ratio_bca_ci_95": [
-          0.4791259033668141,
-          0.5861060619793125
+          0.406772795589635,
+          0.4421400956004329
         ],
-        "ratio_mean": 0.502406782160148,
-        "ratio_median": 0.48064495282409203,
-        "ratio_vs_art": 0.502406782160148
+        "ratio_mean": 0.420385100813971,
+        "ratio_median": 0.4009959826734375,
+        "ratio_vs_art": 0.420385100813971,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 10.3394,
+            "btree_ns": 5.4955,
+            "expanse_ns": 5.1791,
+            "hashmap_ns": 1.1762,
+            "ratio_vs_art": 0.5009091436640424,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 10.293,
+            "btree_ns": 5.1957,
+            "expanse_ns": 4.9804,
+            "hashmap_ns": 1.1521,
+            "ratio_vs_art": 0.48386281939181974,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 10.216,
+            "btree_ns": 5.0689,
+            "expanse_ns": 4.7031,
+            "hashmap_ns": 1.1508,
+            "ratio_vs_art": 0.46036609240407206,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 10.1031,
+            "btree_ns": 5.0074,
+            "expanse_ns": 4.3685,
+            "hashmap_ns": 1.1524,
+            "ratio_vs_art": 0.43239203808731974,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 10.0189,
+            "btree_ns": 4.9457,
+            "expanse_ns": 4.2244,
+            "hashmap_ns": 1.1506,
+            "ratio_vs_art": 0.42164309455129806,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 9.8439,
+            "btree_ns": 4.9717,
+            "expanse_ns": 4.2514,
+            "hashmap_ns": 1.1512,
+            "ratio_vs_art": 0.43188167291419055,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 10.2304,
+            "btree_ns": 4.9079,
+            "expanse_ns": 4.1956,
+            "hashmap_ns": 1.1557,
+            "ratio_vs_art": 0.4101110416015014,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 10.2504,
+            "btree_ns": 4.9826,
+            "expanse_ns": 4.0825,
+            "hashmap_ns": 1.1541,
+            "ratio_vs_art": 0.3982771404042768,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 9.7096,
+            "btree_ns": 4.8499,
+            "expanse_ns": 3.9966,
+            "hashmap_ns": 1.1501,
+            "ratio_vs_art": 0.4116132487435116,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 10.1809,
+            "btree_ns": 4.893,
+            "expanse_ns": 3.9971,
+            "hashmap_ns": 1.1499,
+            "ratio_vs_art": 0.39260772623245493,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 10.216,
+            "btree_ns": 4.8469,
+            "expanse_ns": 3.9863,
+            "hashmap_ns": 1.1519,
+            "ratio_vs_art": 0.39020164447924827,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 10.1725,
+            "btree_ns": 4.8393,
+            "expanse_ns": 3.974,
+            "hashmap_ns": 1.1527,
+            "ratio_vs_art": 0.390661096092406,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 10.1946,
+            "btree_ns": 5.0653,
+            "expanse_ns": 3.9488,
+            "hashmap_ns": 1.1517,
+            "ratio_vs_art": 0.3873423184823338,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 10.0059,
+            "btree_ns": 4.8564,
+            "expanse_ns": 3.9469,
+            "hashmap_ns": 1.1488,
+            "ratio_vs_art": 0.39445727021057575,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 10.003,
+            "btree_ns": 4.8355,
+            "expanse_ns": 3.9957,
+            "hashmap_ns": 1.1545,
+            "ratio_vs_art": 0.39945016495051483,
+            "round": 14
+          }
+        ]
       },
       "lookup_miss": {
-        "blart_art_ns_op": 9.575,
-        "btree_ns_op": 5.8375,
-        "expanse_ns_op": 2.9292,
-        "hashmap_ns_op": 6.2833,
+        "blart_art_ns_op": 7.7823,
+        "btree_ns_op": 4.9457,
+        "expanse_ns_op": 3.7232,
+        "hashmap_ns_op": 4.9953,
         "ratio_bca_ci_95": [
-          0.3178395132594992,
-          0.4016440325294438
+          0.47427283734774955,
+          0.5123799390465184
         ],
-        "ratio_mean": 0.3508487574883364,
-        "ratio_median": 0.3059216710182768,
-        "ratio_vs_art": 0.3508487574883364
+        "ratio_mean": 0.4890540130031774,
+        "ratio_median": 0.4784189763951531,
+        "ratio_vs_art": 0.4890540130031774,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 8.3532,
+            "btree_ns": 5.4005,
+            "expanse_ns": 4.7132,
+            "hashmap_ns": 5.6255,
+            "ratio_vs_art": 0.5642388545707034,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 8.2435,
+            "btree_ns": 5.1416,
+            "expanse_ns": 4.6923,
+            "hashmap_ns": 5.2593,
+            "ratio_vs_art": 0.569212106508158,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 7.9583,
+            "btree_ns": 5.0852,
+            "expanse_ns": 4.3591,
+            "hashmap_ns": 5.1443,
+            "ratio_vs_art": 0.5477426083460035,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 8.0329,
+            "btree_ns": 4.9125,
+            "expanse_ns": 3.7696,
+            "hashmap_ns": 5.0944,
+            "ratio_vs_art": 0.4692701266043397,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 8.0835,
+            "btree_ns": 4.9658,
+            "expanse_ns": 3.7232,
+            "hashmap_ns": 4.987,
+            "ratio_vs_art": 0.4605925651017504,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 7.5565,
+            "btree_ns": 4.9237,
+            "expanse_ns": 3.8506,
+            "hashmap_ns": 5.002,
+            "ratio_vs_art": 0.5095745384768081,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 7.9804,
+            "btree_ns": 4.8777,
+            "expanse_ns": 3.78,
+            "hashmap_ns": 5.0798,
+            "ratio_vs_art": 0.47366046814696,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 8.0547,
+            "btree_ns": 4.9241,
+            "expanse_ns": 3.7237,
+            "hashmap_ns": 4.9953,
+            "ratio_vs_art": 0.462301513402113,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 7.6781,
+            "btree_ns": 4.8981,
+            "expanse_ns": 3.5785,
+            "hashmap_ns": 4.9271,
+            "ratio_vs_art": 0.4660658235761452,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 7.6455,
+            "btree_ns": 4.9567,
+            "expanse_ns": 3.6972,
+            "hashmap_ns": 4.8519,
+            "ratio_vs_art": 0.4835785756327251,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 7.6908,
+            "btree_ns": 4.9457,
+            "expanse_ns": 3.6044,
+            "hashmap_ns": 4.9311,
+            "ratio_vs_art": 0.46866385811619077,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 7.6777,
+            "btree_ns": 4.9757,
+            "expanse_ns": 3.639,
+            "hashmap_ns": 5.0697,
+            "ratio_vs_art": 0.4739700691613374,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 7.6823,
+            "btree_ns": 4.9684,
+            "expanse_ns": 3.5425,
+            "hashmap_ns": 4.8257,
+            "ratio_vs_art": 0.4611249235255067,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 7.7823,
+            "btree_ns": 4.8175,
+            "expanse_ns": 3.5428,
+            "hashmap_ns": 4.8027,
+            "ratio_vs_art": 0.4552381686647906,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 7.6893,
+            "btree_ns": 4.899,
+            "expanse_ns": 3.6184,
+            "hashmap_ns": 4.9029,
+            "ratio_vs_art": 0.4705759952141287,
+            "round": 14
+          }
+        ]
       },
       "memory": {
         "blart_alloc_count": 4,
@@ -173,51 +1271,417 @@
         "expanse_tracking_bpk": 4096.0,
         "expanse_tracking_bytes": 12288,
         "hashmap_alloc_count": 1,
-        "hashmap_bpk": 25.333333333333332,
-        "hashmap_bytes": 76,
+        "hashmap_bpk": 28.0,
+        "hashmap_bytes": 84,
         "logical_ratio_vs_art": 0.4
       },
       "population": 3
     },
     {
       "insert": {
-        "blart_art_ns_op": 28.802,
-        "btree_ns_op": 6.1355,
-        "expanse_ns_op": 164.78125,
-        "hashmap_ns_op": 22.96875,
+        "blart_art_ns_op": 33.80775,
+        "btree_ns_op": 5.32275,
+        "expanse_ns_op": 584.5835,
+        "hashmap_ns_op": 18.9215,
         "ratio_bca_ci_95": [
-          5.62907209164811,
-          6.9379983392127205
+          17.301099860687415,
+          17.756791359838317
         ],
-        "ratio_mean": 6.111758503059755,
-        "ratio_median": 5.7211738768141105,
-        "ratio_vs_art": 6.111758503059755
+        "ratio_mean": 17.502601049432357,
+        "ratio_median": 17.291405077238206,
+        "ratio_vs_art": 17.502601049432357,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 33.80775,
+            "btree_ns": 5.36825,
+            "expanse_ns": 584.5835,
+            "hashmap_ns": 19.01625,
+            "ratio_vs_art": 17.291405077238206,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 32.0615,
+            "btree_ns": 5.27975,
+            "expanse_ns": 579.35525,
+            "hashmap_ns": 19.63525,
+            "ratio_vs_art": 18.070123044773325,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 33.7585,
+            "btree_ns": 6.39075,
+            "expanse_ns": 591.3635,
+            "hashmap_ns": 19.007,
+            "ratio_vs_art": 17.51746967430425,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 33.7845,
+            "btree_ns": 5.26325,
+            "expanse_ns": 577.2865,
+            "hashmap_ns": 18.8565,
+            "ratio_vs_art": 17.087318148855246,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 33.94325,
+            "btree_ns": 5.2555,
+            "expanse_ns": 603.56325,
+            "hashmap_ns": 19.0165,
+            "ratio_vs_art": 17.781539775949565,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 32.01175,
+            "btree_ns": 5.35925,
+            "expanse_ns": 585.349,
+            "hashmap_ns": 19.60325,
+            "ratio_vs_art": 18.285442064242037,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 33.9505,
+            "btree_ns": 6.63825,
+            "expanse_ns": 584.61925,
+            "hashmap_ns": 18.91575,
+            "ratio_vs_art": 17.21975375914935,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 34.035,
+            "btree_ns": 5.2045,
+            "expanse_ns": 577.8645,
+            "hashmap_ns": 18.893,
+            "ratio_vs_art": 16.97853680035258,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 33.995,
+            "btree_ns": 5.22825,
+            "expanse_ns": 584.81725,
+            "hashmap_ns": 18.90425,
+            "ratio_vs_art": 17.203037211354612,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 32.275,
+            "btree_ns": 5.18375,
+            "expanse_ns": 584.616,
+            "hashmap_ns": 18.92175,
+            "ratio_vs_art": 18.113586367157243,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 33.897,
+            "btree_ns": 6.358,
+            "expanse_ns": 584.275,
+            "hashmap_ns": 18.93975,
+            "ratio_vs_art": 17.23677611588046,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 33.91025,
+            "btree_ns": 5.4285,
+            "expanse_ns": 577.67025,
+            "hashmap_ns": 18.83075,
+            "ratio_vs_art": 17.03526957188461,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 33.77625,
+            "btree_ns": 5.19125,
+            "expanse_ns": 583.91975,
+            "hashmap_ns": 18.9215,
+            "ratio_vs_art": 17.287879797194776,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 32.18425,
+            "btree_ns": 5.32275,
+            "expanse_ns": 588.83025,
+            "hashmap_ns": 18.9115,
+            "ratio_vs_art": 18.295602662793137,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 34.03975,
+            "btree_ns": 6.45975,
+            "expanse_ns": 583.2805,
+            "hashmap_ns": 18.90725,
+            "ratio_vs_art": 17.13527567035598,
+            "round": 14
+          }
+        ]
       },
       "lookup_hit": {
-        "blart_art_ns_op": 12.7083,
-        "btree_ns_op": 7.3542,
-        "expanse_ns_op": 5.1333,
-        "hashmap_ns_op": 1.4625,
+        "blart_art_ns_op": 10.7722,
+        "btree_ns_op": 5.9653,
+        "expanse_ns_op": 5.0261,
+        "hashmap_ns_op": 1.1524,
         "ratio_bca_ci_95": [
-          0.4060107724487508,
-          0.4590421269975356
+          0.4737138792128565,
+          0.4940163082214619
         ],
-        "ratio_mean": 0.4246472797292506,
-        "ratio_median": 0.40393286277472207,
-        "ratio_vs_art": 0.4246472797292506
+        "ratio_mean": 0.48172147385478975,
+        "ratio_median": 0.46658064276563743,
+        "ratio_vs_art": 0.48172147385478975,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 10.6457,
+            "btree_ns": 6.3968,
+            "expanse_ns": 5.6705,
+            "hashmap_ns": 1.1761,
+            "ratio_vs_art": 0.5326563776924016,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 10.7722,
+            "btree_ns": 6.2912,
+            "expanse_ns": 5.6107,
+            "hashmap_ns": 1.1562,
+            "ratio_vs_art": 0.5208499656523272,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 11.0127,
+            "btree_ns": 6.0614,
+            "expanse_ns": 5.4275,
+            "hashmap_ns": 1.1504,
+            "ratio_vs_art": 0.492840084629564,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 10.9604,
+            "btree_ns": 5.9814,
+            "expanse_ns": 5.3128,
+            "hashmap_ns": 1.1492,
+            "ratio_vs_art": 0.4847268347870516,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 10.8685,
+            "btree_ns": 6.0618,
+            "expanse_ns": 5.1529,
+            "hashmap_ns": 1.1578,
+            "ratio_vs_art": 0.4741132630997838,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 10.9896,
+            "btree_ns": 5.7357,
+            "expanse_ns": 5.1364,
+            "hashmap_ns": 1.1571,
+            "ratio_vs_art": 0.4673873480381452,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 10.5619,
+            "btree_ns": 5.6861,
+            "expanse_ns": 5.0016,
+            "hashmap_ns": 1.1492,
+            "ratio_vs_art": 0.4735511603025971,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 10.5619,
+            "btree_ns": 5.8686,
+            "expanse_ns": 5.1107,
+            "hashmap_ns": 1.1517,
+            "ratio_vs_art": 0.4838807411545271,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 10.6145,
+            "btree_ns": 5.9709,
+            "expanse_ns": 4.9942,
+            "hashmap_ns": 1.1538,
+            "ratio_vs_art": 0.4705073248857695,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 10.5869,
+            "btree_ns": 6.1327,
+            "expanse_ns": 5.0256,
+            "hashmap_ns": 1.1502,
+            "ratio_vs_art": 0.4746998649274103,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 10.2639,
+            "btree_ns": 5.7256,
+            "expanse_ns": 5.0112,
+            "hashmap_ns": 1.1535,
+            "ratio_vs_art": 0.4882354660509163,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 10.8505,
+            "btree_ns": 5.9653,
+            "expanse_ns": 5.0148,
+            "hashmap_ns": 1.1524,
+            "ratio_vs_art": 0.46217225012672225,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 10.8572,
+            "btree_ns": 5.6579,
+            "expanse_ns": 4.9558,
+            "hashmap_ns": 1.163,
+            "ratio_vs_art": 0.45645286077441694,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 10.7875,
+            "btree_ns": 5.9504,
+            "expanse_ns": 5.0261,
+            "hashmap_ns": 1.1521,
+            "ratio_vs_art": 0.4659188876013905,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 10.2547,
+            "btree_ns": 5.7387,
+            "expanse_ns": 4.9,
+            "hashmap_ns": 1.1475,
+            "ratio_vs_art": 0.47782967809882304,
+            "round": 14
+          }
+        ]
       },
       "lookup_miss": {
-        "blart_art_ns_op": 9.7166,
-        "btree_ns_op": 6.3083,
-        "expanse_ns_op": 2.9916,
-        "hashmap_ns_op": 6.4708,
+        "blart_art_ns_op": 8.2529,
+        "btree_ns_op": 5.3069,
+        "expanse_ns_op": 3.469,
+        "hashmap_ns_op": 4.7035,
         "ratio_bca_ci_95": [
-          0.3118911327953327,
-          0.4112391330317847
+          0.4170131456303327,
+          0.46961735559094325
         ],
-        "ratio_mean": 0.35111804283782405,
-        "ratio_median": 0.30788547434287716,
-        "ratio_vs_art": 0.35111804283782405
+        "ratio_mean": 0.43735939831458237,
+        "ratio_median": 0.42033709362769445,
+        "ratio_vs_art": 0.43735939831458237,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 8.6104,
+            "btree_ns": 5.5609,
+            "expanse_ns": 4.5342,
+            "hashmap_ns": 5.2399,
+            "ratio_vs_art": 0.526595744680851,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 8.1772,
+            "btree_ns": 5.3902,
+            "expanse_ns": 4.5576,
+            "hashmap_ns": 4.9579,
+            "ratio_vs_art": 0.5573545957051314,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 8.4247,
+            "btree_ns": 5.3233,
+            "expanse_ns": 3.9349,
+            "hashmap_ns": 4.7522,
+            "ratio_vs_art": 0.46706707657245955,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 8.2562,
+            "btree_ns": 5.3069,
+            "expanse_ns": 3.7075,
+            "hashmap_ns": 4.7035,
+            "ratio_vs_art": 0.44905646665536203,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 8.1506,
+            "btree_ns": 5.2791,
+            "expanse_ns": 3.469,
+            "hashmap_ns": 4.6124,
+            "ratio_vs_art": 0.4256128383186513,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 8.3908,
+            "btree_ns": 5.2581,
+            "expanse_ns": 3.3779,
+            "hashmap_ns": 4.6527,
+            "ratio_vs_art": 0.40257186442293935,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 8.1594,
+            "btree_ns": 5.2419,
+            "expanse_ns": 3.3234,
+            "hashmap_ns": 4.6584,
+            "ratio_vs_art": 0.4073093609824252,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 8.3281,
+            "btree_ns": 5.2568,
+            "expanse_ns": 3.1679,
+            "hashmap_ns": 4.6461,
+            "ratio_vs_art": 0.3803868829625005,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 8.034,
+            "btree_ns": 5.3622,
+            "expanse_ns": 3.2296,
+            "hashmap_ns": 5.1675,
+            "ratio_vs_art": 0.40199153597211845,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 8.2535,
+            "btree_ns": 5.3907,
+            "expanse_ns": 3.8417,
+            "hashmap_ns": 4.924,
+            "ratio_vs_art": 0.46546313685103285,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 8.2529,
+            "btree_ns": 5.3104,
+            "expanse_ns": 3.8041,
+            "hashmap_ns": 4.7795,
+            "ratio_vs_art": 0.460941002556677,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 8.199,
+            "btree_ns": 5.4636,
+            "expanse_ns": 3.5004,
+            "hashmap_ns": 4.7287,
+            "ratio_vs_art": 0.4269301134284669,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 8.0288,
+            "btree_ns": 5.249,
+            "expanse_ns": 3.2644,
+            "hashmap_ns": 4.7013,
+            "ratio_vs_art": 0.4065862893583101,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 8.3207,
+            "btree_ns": 5.2452,
+            "expanse_ns": 3.224,
+            "hashmap_ns": 4.657,
+            "ratio_vs_art": 0.3874674005792782,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 8.0472,
+            "btree_ns": 5.2884,
+            "expanse_ns": 3.1791,
+            "hashmap_ns": 4.6637,
+            "ratio_vs_art": 0.39505666567253206,
+            "round": 14
+          }
+        ]
       },
       "memory": {
         "blart_alloc_count": 5,
@@ -232,51 +1696,417 @@
         "expanse_tracking_bpk": 3072.0,
         "expanse_tracking_bytes": 12288,
         "hashmap_alloc_count": 2,
-        "hashmap_bpk": 36.0,
-        "hashmap_bytes": 144,
+        "hashmap_bpk": 38.0,
+        "hashmap_bytes": 152,
         "logical_ratio_vs_art": 0.3333333333333333
       },
       "population": 4
     },
     {
       "insert": {
-        "blart_art_ns_op": 37.5416,
-        "btree_ns_op": 6.5584,
-        "expanse_ns_op": 206.7668,
-        "hashmap_ns_op": 19.9334,
+        "blart_art_ns_op": 39.9068,
+        "btree_ns_op": 5.0266,
+        "expanse_ns_op": 629.8736,
+        "hashmap_ns_op": 16.54,
         "ratio_bca_ci_95": [
-          5.480948776689188,
-          6.147255580038825
+          15.91183744719195,
+          16.551205130075036
         ],
-        "ratio_mean": 5.725811037799011,
-        "ratio_median": 5.507671489760692,
-        "ratio_vs_art": 5.725811037799011
+        "ratio_mean": 16.187828239934436,
+        "ratio_median": 15.783615824871953,
+        "ratio_vs_art": 16.187828239934436,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 40.4916,
+            "btree_ns": 5.0122,
+            "expanse_ns": 644.433,
+            "hashmap_ns": 16.6502,
+            "ratio_vs_art": 15.915226861867648,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 37.9102,
+            "btree_ns": 4.7406,
+            "expanse_ns": 646.6118,
+            "hashmap_ns": 16.9296,
+            "ratio_vs_art": 17.05640698281729,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 40.1228,
+            "btree_ns": 6.4838,
+            "expanse_ns": 635.8162,
+            "hashmap_ns": 16.54,
+            "ratio_vs_art": 15.846755460735542,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 39.9512,
+            "btree_ns": 4.857,
+            "expanse_ns": 634.294,
+            "hashmap_ns": 16.6142,
+            "ratio_vs_art": 15.87671959790945,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 39.4766,
+            "btree_ns": 5.0266,
+            "expanse_ns": 625.357,
+            "hashmap_ns": 16.4778,
+            "ratio_vs_art": 15.841207196161777,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 36.0822,
+            "btree_ns": 5.0582,
+            "expanse_ns": 629.873,
+            "hashmap_ns": 16.5114,
+            "ratio_vs_art": 17.45661295597275,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 38.0896,
+            "btree_ns": 6.5708,
+            "expanse_ns": 629.5344,
+            "hashmap_ns": 16.5334,
+            "ratio_vs_art": 16.52772410316727,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 40.156,
+            "btree_ns": 4.9244,
+            "expanse_ns": 623.958,
+            "hashmap_ns": 16.5674,
+            "ratio_vs_art": 15.538350433310091,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 40.0668,
+            "btree_ns": 4.9678,
+            "expanse_ns": 623.5796,
+            "hashmap_ns": 16.5642,
+            "ratio_vs_art": 15.56349895674224,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 36.7938,
+            "btree_ns": 4.8674,
+            "expanse_ns": 630.2112,
+            "hashmap_ns": 16.4888,
+            "ratio_vs_art": 17.128190075501852,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 40.4178,
+            "btree_ns": 6.58,
+            "expanse_ns": 635.575,
+            "hashmap_ns": 16.5682,
+            "ratio_vs_art": 15.72512605832084,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 39.9422,
+            "btree_ns": 5.0708,
+            "expanse_ns": 635.0748,
+            "hashmap_ns": 16.5612,
+            "ratio_vs_art": 15.899845276424433,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 39.9068,
+            "btree_ns": 4.8394,
+            "expanse_ns": 624.344,
+            "hashmap_ns": 16.4936,
+            "ratio_vs_art": 15.64505297342809,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 37.108,
+            "btree_ns": 5.0394,
+            "expanse_ns": 629.8736,
+            "hashmap_ns": 16.484,
+            "ratio_vs_art": 16.974064891667567,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 39.7884,
+            "btree_ns": 6.7704,
+            "expanse_ns": 629.5576,
+            "hashmap_ns": 16.5368,
+            "ratio_vs_art": 15.822641774989695,
+            "round": 14
+          }
+        ]
       },
       "lookup_hit": {
-        "blart_art_ns_op": 14.25,
-        "btree_ns_op": 7.8208,
-        "expanse_ns_op": 6.5541,
-        "hashmap_ns_op": 1.4583,
+        "blart_art_ns_op": 12.0416,
+        "btree_ns_op": 6.6387,
+        "expanse_ns_op": 5.1021,
+        "hashmap_ns_op": 1.1524,
         "ratio_bca_ci_95": [
-          0.45542784453451435,
-          0.4754820600143063
+          0.4163032558034123,
+          0.44557033995144846
         ],
-        "ratio_mean": 0.4613420453838027,
-        "ratio_median": 0.45993684210526314,
-        "ratio_vs_art": 0.4613420453838027
+        "ratio_mean": 0.4293158195471573,
+        "ratio_median": 0.42370615200637785,
+        "ratio_vs_art": 0.4293158195471573,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 12.7158,
+            "btree_ns": 7.0101,
+            "expanse_ns": 5.8815,
+            "hashmap_ns": 1.1611,
+            "ratio_vs_art": 0.4625347992261596,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 12.398,
+            "btree_ns": 6.8251,
+            "expanse_ns": 5.9008,
+            "hashmap_ns": 1.1545,
+            "ratio_vs_art": 0.47594773350540415,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 12.1899,
+            "btree_ns": 7.0238,
+            "expanse_ns": 5.9069,
+            "hashmap_ns": 1.1515,
+            "ratio_vs_art": 0.4845732942846127,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 12.0326,
+            "btree_ns": 6.9142,
+            "expanse_ns": 5.3613,
+            "hashmap_ns": 1.1496,
+            "ratio_vs_art": 0.44556454964014425,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 11.77,
+            "btree_ns": 6.7931,
+            "expanse_ns": 5.4076,
+            "hashmap_ns": 1.1517,
+            "ratio_vs_art": 0.45943925233644867,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 12.0071,
+            "btree_ns": 6.7559,
+            "expanse_ns": 5.1597,
+            "hashmap_ns": 1.1511,
+            "ratio_vs_art": 0.42972074855710374,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 11.9965,
+            "btree_ns": 6.6387,
+            "expanse_ns": 5.133,
+            "hashmap_ns": 1.154,
+            "ratio_vs_art": 0.4278747968157379,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 12.0416,
+            "btree_ns": 6.6524,
+            "expanse_ns": 5.056,
+            "hashmap_ns": 1.1524,
+            "ratio_vs_art": 0.41987775710868985,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 12.4276,
+            "btree_ns": 6.6129,
+            "expanse_ns": 5.1021,
+            "hashmap_ns": 1.1475,
+            "ratio_vs_art": 0.41054588174707907,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 12.5128,
+            "btree_ns": 6.5814,
+            "expanse_ns": 4.9674,
+            "hashmap_ns": 1.1531,
+            "ratio_vs_art": 0.39698548686145385,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 12.4692,
+            "btree_ns": 6.581,
+            "expanse_ns": 4.958,
+            "hashmap_ns": 1.1537,
+            "ratio_vs_art": 0.3976197350271068,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 12.4534,
+            "btree_ns": 6.5969,
+            "expanse_ns": 4.9297,
+            "hashmap_ns": 1.1607,
+            "ratio_vs_art": 0.3958517352690832,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 11.9788,
+            "btree_ns": 6.6196,
+            "expanse_ns": 5.0085,
+            "hashmap_ns": 1.1482,
+            "ratio_vs_art": 0.41811366747921325,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 11.9844,
+            "btree_ns": 6.6021,
+            "expanse_ns": 4.8823,
+            "hashmap_ns": 1.1517,
+            "ratio_vs_art": 0.40738793765228126,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 12.0287,
+            "btree_ns": 6.608,
+            "expanse_ns": 4.9041,
+            "hashmap_ns": 1.1755,
+            "ratio_vs_art": 0.40769991769684166,
+            "round": 14
+          }
+        ]
       },
       "lookup_miss": {
-        "blart_art_ns_op": 10.8042,
-        "btree_ns_op": 6.3792,
-        "expanse_ns_op": 4.4917,
-        "hashmap_ns_op": 6.3625,
+        "blart_art_ns_op": 9.0644,
+        "btree_ns_op": 5.5406,
+        "expanse_ns_op": 4.0609,
+        "hashmap_ns_op": 4.8989,
         "ratio_bca_ci_95": [
-          0.4158308289488851,
-          0.4439558185576885
+          0.44910837522736125,
+          0.4666231025972624
         ],
-        "ratio_mean": 0.4279220638188797,
-        "ratio_median": 0.4157364728531497,
-        "ratio_vs_art": 0.4279220638188797
+        "ratio_mean": 0.45741361196381375,
+        "ratio_median": 0.44800538369886594,
+        "ratio_vs_art": 0.45741361196381375,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 9.4092,
+            "btree_ns": 6.0774,
+            "expanse_ns": 4.626,
+            "hashmap_ns": 5.7928,
+            "ratio_vs_art": 0.4916464736640735,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 9.237,
+            "btree_ns": 5.783,
+            "expanse_ns": 4.4629,
+            "hashmap_ns": 5.5338,
+            "ratio_vs_art": 0.4831547039081953,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 9.109,
+            "btree_ns": 5.6712,
+            "expanse_ns": 4.3389,
+            "hashmap_ns": 5.1004,
+            "ratio_vs_art": 0.47633110110879345,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 9.0476,
+            "btree_ns": 5.6358,
+            "expanse_ns": 4.199,
+            "hashmap_ns": 5.1077,
+            "ratio_vs_art": 0.46410097705468856,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 9.0619,
+            "btree_ns": 5.7379,
+            "expanse_ns": 4.1133,
+            "hashmap_ns": 4.9969,
+            "ratio_vs_art": 0.45391143137752565,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 8.963,
+            "btree_ns": 5.5733,
+            "expanse_ns": 4.0609,
+            "hashmap_ns": 4.9849,
+            "ratio_vs_art": 0.4530737476291421,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 9.1384,
+            "btree_ns": 5.5693,
+            "expanse_ns": 4.2017,
+            "hashmap_ns": 4.9101,
+            "ratio_vs_art": 0.45978508272782975,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 9.1744,
+            "btree_ns": 5.5378,
+            "expanse_ns": 4.029,
+            "hashmap_ns": 4.8646,
+            "ratio_vs_art": 0.4391567840948727,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 9.2883,
+            "btree_ns": 5.5406,
+            "expanse_ns": 3.9674,
+            "hashmap_ns": 4.8989,
+            "ratio_vs_art": 0.427139519610693,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 8.4611,
+            "btree_ns": 5.52,
+            "expanse_ns": 3.9669,
+            "hashmap_ns": 4.7412,
+            "ratio_vs_art": 0.4688397489688102,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 8.4412,
+            "btree_ns": 5.5143,
+            "expanse_ns": 3.9654,
+            "hashmap_ns": 4.7667,
+            "ratio_vs_art": 0.4697673316590058,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 8.9985,
+            "btree_ns": 5.5108,
+            "expanse_ns": 3.9408,
+            "hashmap_ns": 4.7446,
+            "ratio_vs_art": 0.4379396566094349,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 9.0644,
+            "btree_ns": 5.4881,
+            "expanse_ns": 3.9897,
+            "hashmap_ns": 4.7125,
+            "ratio_vs_art": 0.4401504787961697,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 8.8848,
+            "btree_ns": 5.4975,
+            "expanse_ns": 3.9677,
+            "hashmap_ns": 4.7267,
+            "ratio_vs_art": 0.44657167296956596,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 9.1076,
+            "btree_ns": 5.497,
+            "expanse_ns": 4.0951,
+            "hashmap_ns": 4.6985,
+            "ratio_vs_art": 0.4496354692784049,
+            "round": 14
+          }
+        ]
       },
       "memory": {
         "blart_alloc_count": 7,
@@ -291,51 +2121,417 @@
         "expanse_tracking_bpk": 3276.8,
         "expanse_tracking_bytes": 16384,
         "hashmap_alloc_count": 2,
-        "hashmap_bpk": 28.8,
-        "hashmap_bytes": 144,
+        "hashmap_bpk": 30.4,
+        "hashmap_bytes": 152,
         "logical_ratio_vs_art": 0.3902439024390244
       },
       "population": 5
     },
     {
       "insert": {
-        "blart_art_ns_op": 36.979166666666664,
-        "btree_ns_op": 6.972333333333333,
-        "expanse_ns_op": 170.41666666666666,
-        "hashmap_ns_op": 17.618,
+        "blart_art_ns_op": 39.577,
+        "btree_ns_op": 4.680166666666667,
+        "expanse_ns_op": 526.7086666666667,
+        "hashmap_ns_op": 14.972833333333334,
         "ratio_bca_ci_95": [
-          4.486381435558314,
-          6.056426077185049
+          13.378448306295041,
+          13.82158184587834
         ],
-        "ratio_mean": 4.943119080843982,
-        "ratio_median": 4.608450704225352,
-        "ratio_vs_art": 4.943119080843982
+        "ratio_mean": 13.558398586877434,
+        "ratio_median": 13.308453563096412,
+        "ratio_vs_art": 13.558398586877434,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 38.13916666666667,
+            "btree_ns": 4.680166666666667,
+            "expanse_ns": 522.3665,
+            "hashmap_ns": 15.0525,
+            "ratio_vs_art": 13.69632704787292,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 37.5815,
+            "btree_ns": 4.315666666666667,
+            "expanse_ns": 522.7373333333334,
+            "hashmap_ns": 15.000333333333334,
+            "ratio_vs_art": 13.90943238916311,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 39.97516666666667,
+            "btree_ns": 5.14,
+            "expanse_ns": 527.0085,
+            "hashmap_ns": 14.961833333333333,
+            "ratio_vs_art": 13.18339719242363,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 39.77016666666667,
+            "btree_ns": 4.579833333333333,
+            "expanse_ns": 532.092,
+            "hashmap_ns": 15.167333333333334,
+            "ratio_vs_art": 13.379174506853964,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 39.577,
+            "btree_ns": 4.485666666666667,
+            "expanse_ns": 526.8223333333333,
+            "hashmap_ns": 14.972833333333334,
+            "ratio_vs_art": 13.311325601569935,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 36.941833333333335,
+            "btree_ns": 4.440833333333333,
+            "expanse_ns": 527.1413333333334,
+            "hashmap_ns": 14.850166666666667,
+            "ratio_vs_art": 14.269495738796577,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 39.913333333333334,
+            "btree_ns": 5.6835,
+            "expanse_ns": 531.9101666666667,
+            "hashmap_ns": 15.081666666666667,
+            "ratio_vs_art": 13.32662852847837,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 39.360166666666665,
+            "btree_ns": 4.607666666666667,
+            "expanse_ns": 526.1218333333334,
+            "hashmap_ns": 15.064166666666667,
+            "ratio_vs_art": 13.366859896426591,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 39.9805,
+            "btree_ns": 4.800833333333333,
+            "expanse_ns": 526.4601666666666,
+            "hashmap_ns": 14.898833333333334,
+            "ratio_vs_art": 13.167923529387242,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 36.90416666666667,
+            "btree_ns": 4.599166666666667,
+            "expanse_ns": 528.3975,
+            "hashmap_ns": 14.904,
+            "ratio_vs_art": 14.318098679010951,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 39.66616666666667,
+            "btree_ns": 5.803,
+            "expanse_ns": 528.0615,
+            "hashmap_ns": 15.317,
+            "ratio_vs_art": 13.312642596335248,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 39.6735,
+            "btree_ns": 4.6883333333333335,
+            "expanse_ns": 526.7086666666667,
+            "hashmap_ns": 15.079333333333333,
+            "ratio_vs_art": 13.276082691637155,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 39.48733333333333,
+            "btree_ns": 4.731833333333333,
+            "expanse_ns": 526.6641666666667,
+            "hashmap_ns": 14.9155,
+            "ratio_vs_art": 13.337547061504957,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 36.432833333333335,
+            "btree_ns": 4.325833333333334,
+            "expanse_ns": 526.5195,
+            "hashmap_ns": 14.8635,
+            "ratio_vs_art": 14.451785706116734,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 40.272333333333336,
+            "btree_ns": 5.962666666666666,
+            "expanse_ns": 526.3295,
+            "hashmap_ns": 14.8375,
+            "ratio_vs_art": 13.069257637584116,
+            "round": 14
+          }
+        ]
       },
       "lookup_hit": {
-        "blart_art_ns_op": 13.9791,
-        "btree_ns_op": 7.8625,
-        "expanse_ns_op": 6.5292,
-        "hashmap_ns_op": 1.3875,
+        "blart_art_ns_op": 12.7905,
+        "btree_ns_op": 7.1872,
+        "expanse_ns_op": 5.4771,
+        "hashmap_ns_op": 1.1522,
         "ratio_bca_ci_95": [
-          0.4673048428499955,
-          0.48215956545981925
+          0.42324044676002903,
+          0.45616781193472633
         ],
-        "ratio_mean": 0.4739743186610143,
-        "ratio_median": 0.46706869540957574,
-        "ratio_vs_art": 0.4739743186610143
+        "ratio_mean": 0.4395957076128511,
+        "ratio_median": 0.4282162542512021,
+        "ratio_vs_art": 0.4395957076128511,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 12.7905,
+            "btree_ns": 7.5018,
+            "expanse_ns": 6.0624,
+            "hashmap_ns": 1.1621,
+            "ratio_vs_art": 0.47397677964113993,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 12.5033,
+            "btree_ns": 7.3077,
+            "expanse_ns": 6.1728,
+            "hashmap_ns": 1.1502,
+            "ratio_vs_art": 0.4936936648724737,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 12.5382,
+            "btree_ns": 7.0984,
+            "expanse_ns": 6.0821,
+            "hashmap_ns": 1.151,
+            "ratio_vs_art": 0.48508557847218897,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 12.4041,
+            "btree_ns": 7.0615,
+            "expanse_ns": 5.8869,
+            "hashmap_ns": 1.1556,
+            "ratio_vs_art": 0.47459307809514595,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 12.9181,
+            "btree_ns": 6.981,
+            "expanse_ns": 5.6903,
+            "hashmap_ns": 1.1539,
+            "ratio_vs_art": 0.4404904746053986,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 12.9298,
+            "btree_ns": 7.0428,
+            "expanse_ns": 5.9857,
+            "hashmap_ns": 1.1526,
+            "ratio_vs_art": 0.4629383285124286,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 13.1428,
+            "btree_ns": 7.5449,
+            "expanse_ns": 6.0149,
+            "hashmap_ns": 1.1511,
+            "ratio_vs_art": 0.45765742459749825,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 12.6945,
+            "btree_ns": 7.4163,
+            "expanse_ns": 5.4771,
+            "hashmap_ns": 1.1601,
+            "ratio_vs_art": 0.4314545669384379,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 12.556,
+            "btree_ns": 7.3375,
+            "expanse_ns": 5.398,
+            "hashmap_ns": 1.1512,
+            "ratio_vs_art": 0.4299139853456515,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 12.4984,
+            "btree_ns": 7.2499,
+            "expanse_ns": 5.3405,
+            "hashmap_ns": 1.1509,
+            "ratio_vs_art": 0.4272946937207962,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 12.5453,
+            "btree_ns": 7.1947,
+            "expanse_ns": 5.3157,
+            "hashmap_ns": 1.1522,
+            "ratio_vs_art": 0.4237204371358198,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 12.8505,
+            "btree_ns": 6.8971,
+            "expanse_ns": 5.2685,
+            "hashmap_ns": 1.1546,
+            "ratio_vs_art": 0.40998404731333415,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 13.0461,
+            "btree_ns": 7.1158,
+            "expanse_ns": 5.1359,
+            "hashmap_ns": 1.1507,
+            "ratio_vs_art": 0.39367320501912456,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 12.9856,
+            "btree_ns": 7.1872,
+            "expanse_ns": 5.1147,
+            "hashmap_ns": 1.155,
+            "ratio_vs_art": 0.3938747535731888,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 12.932,
+            "btree_ns": 7.1496,
+            "expanse_ns": 5.1157,
+            "hashmap_ns": 1.149,
+            "ratio_vs_art": 0.3955845963501392,
+            "round": 14
+          }
+        ]
       },
       "lookup_miss": {
-        "blart_art_ns_op": 11.0875,
-        "btree_ns_op": 6.7666,
-        "expanse_ns_op": 5.25,
-        "hashmap_ns_op": 6.3209,
+        "blart_art_ns_op": 9.266,
+        "btree_ns_op": 6.0982,
+        "expanse_ns_op": 4.2843,
+        "hashmap_ns_op": 4.7586,
         "ratio_bca_ci_95": [
-          0.45228321737407257,
-          0.4836920368295367
+          0.4586020592745133,
+          0.4874284787221036
         ],
-        "ratio_mean": 0.46409640821161646,
-        "ratio_median": 0.4735062006764374,
-        "ratio_vs_art": 0.46409640821161646
+        "ratio_mean": 0.4711711819556576,
+        "ratio_median": 0.4623677962443341,
+        "ratio_vs_art": 0.4711711819556576,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 8.7386,
+            "btree_ns": 6.3618,
+            "expanse_ns": 4.6583,
+            "hashmap_ns": 5.2615,
+            "ratio_vs_art": 0.5330716590758244,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 8.9708,
+            "btree_ns": 6.2608,
+            "expanse_ns": 4.7017,
+            "hashmap_ns": 5.2391,
+            "ratio_vs_art": 0.5241115619565702,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 9.271,
+            "btree_ns": 6.1728,
+            "expanse_ns": 4.5622,
+            "hashmap_ns": 4.9164,
+            "ratio_vs_art": 0.49209362528314093,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 9.6565,
+            "btree_ns": 6.0947,
+            "expanse_ns": 4.205,
+            "hashmap_ns": 4.7105,
+            "ratio_vs_art": 0.4354579816703775,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 9.4381,
+            "btree_ns": 6.1144,
+            "expanse_ns": 4.0337,
+            "hashmap_ns": 4.6427,
+            "ratio_vs_art": 0.42738474904906704,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 9.547,
+            "btree_ns": 6.1747,
+            "expanse_ns": 4.4945,
+            "hashmap_ns": 5.025,
+            "ratio_vs_art": 0.47077616005027756,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 9.5246,
+            "btree_ns": 6.0982,
+            "expanse_ns": 4.4592,
+            "hashmap_ns": 4.808,
+            "ratio_vs_art": 0.46817714129727234,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 9.3452,
+            "btree_ns": 6.0715,
+            "expanse_ns": 4.2701,
+            "hashmap_ns": 4.6169,
+            "ratio_vs_art": 0.45692976073278263,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 9.0765,
+            "btree_ns": 6.0568,
+            "expanse_ns": 4.0684,
+            "hashmap_ns": 4.6052,
+            "ratio_vs_art": 0.44823445160579517,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 9.2906,
+            "btree_ns": 6.1659,
+            "expanse_ns": 4.4975,
+            "hashmap_ns": 4.9529,
+            "ratio_vs_art": 0.48409144726928294,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 9.0481,
+            "btree_ns": 6.0031,
+            "expanse_ns": 4.4387,
+            "hashmap_ns": 4.7586,
+            "ratio_vs_art": 0.4905670803815166,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 9.0946,
+            "btree_ns": 5.9763,
+            "expanse_ns": 4.2021,
+            "hashmap_ns": 4.6462,
+            "ratio_vs_art": 0.4620434103753876,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 9.1854,
+            "btree_ns": 6.0369,
+            "expanse_ns": 4.0801,
+            "hashmap_ns": 4.5709,
+            "ratio_vs_art": 0.4441940470747055,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 9.094,
+            "btree_ns": 5.959,
+            "expanse_ns": 4.2566,
+            "hashmap_ns": 4.7416,
+            "ratio_vs_art": 0.4680668572685287,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 9.266,
+            "btree_ns": 6.3652,
+            "expanse_ns": 4.2843,
+            "hashmap_ns": 4.8481,
+            "ratio_vs_art": 0.4623677962443341,
+            "round": 14
+          }
+        ]
       },
       "memory": {
         "blart_alloc_count": 8,
@@ -350,51 +2546,417 @@
         "expanse_tracking_bpk": 2730.6666666666665,
         "expanse_tracking_bytes": 16384,
         "hashmap_alloc_count": 2,
-        "hashmap_bpk": 24.0,
-        "hashmap_bytes": 144,
+        "hashmap_bpk": 25.333333333333332,
+        "hashmap_bytes": 152,
         "logical_ratio_vs_art": 0.35555555555555557
       },
       "population": 6
     },
     {
       "insert": {
-        "blart_art_ns_op": 35.910714285714285,
-        "btree_ns_op": 7.506,
-        "expanse_ns_op": 129.55357142857142,
-        "hashmap_ns_op": 16.446428571428573,
+        "blart_art_ns_op": 39.56242857142857,
+        "btree_ns_op": 4.252714285714286,
+        "expanse_ns_op": 451.516,
+        "hashmap_ns_op": 13.993714285714285,
         "ratio_bca_ci_95": [
-          3.4401318056630577,
-          3.6339875276527716
+          11.373498547619281,
+          11.86792193383831
         ],
-        "ratio_mean": 3.535473565641573,
-        "ratio_median": 3.6076578816509195,
-        "ratio_vs_art": 3.535473565641573
+        "ratio_mean": 11.579956998083846,
+        "ratio_median": 11.412747303538351,
+        "ratio_vs_art": 11.579956998083846,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 40.26242857142857,
+            "btree_ns": 4.252714285714286,
+            "expanse_ns": 449.47685714285717,
+            "hashmap_ns": 14.027571428571429,
+            "ratio_vs_art": 11.163679715580283,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 36.79242857142857,
+            "btree_ns": 4.187285714285714,
+            "expanse_ns": 458.87842857142857,
+            "hashmap_ns": 13.897285714285715,
+            "ratio_vs_art": 12.47208858965548,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 41.17514285714286,
+            "btree_ns": 5.581285714285714,
+            "expanse_ns": 455.12942857142855,
+            "hashmap_ns": 14.008857142857142,
+            "ratio_vs_art": 11.053499684275533,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 40.17342857142857,
+            "btree_ns": 4.207857142857143,
+            "expanse_ns": 453.52585714285715,
+            "hashmap_ns": 14.002714285714285,
+            "ratio_vs_art": 11.289199684226247,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 39.28242857142857,
+            "btree_ns": 4.123142857142857,
+            "expanse_ns": 451.46385714285714,
+            "hashmap_ns": 13.895428571428571,
+            "ratio_vs_art": 11.492768486091565,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 36.305285714285716,
+            "btree_ns": 4.281571428571429,
+            "expanse_ns": 450.6772857142857,
+            "hashmap_ns": 14.120285714285714,
+            "ratio_vs_art": 12.413544662918031,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 40.79685714285714,
+            "btree_ns": 5.514428571428572,
+            "expanse_ns": 451.08185714285713,
+            "hashmap_ns": 14.029857142857143,
+            "ratio_vs_art": 11.056779583861502,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 40.348571428571425,
+            "btree_ns": 4.401714285714286,
+            "expanse_ns": 451.533,
+            "hashmap_ns": 13.919428571428572,
+            "ratio_vs_art": 11.190805126752586,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 38.90257142857143,
+            "btree_ns": 4.3795714285714284,
+            "expanse_ns": 451.5342857142857,
+            "hashmap_ns": 14.258857142857142,
+            "ratio_vs_art": 11.60679793476744,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 37.40842857142857,
+            "btree_ns": 3.9788571428571426,
+            "expanse_ns": 450.10242857142856,
+            "hashmap_ns": 13.909571428571429,
+            "ratio_vs_art": 12.032112701873908,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 40.241285714285716,
+            "btree_ns": 5.332142857142857,
+            "expanse_ns": 451.03985714285716,
+            "hashmap_ns": 14.005571428571429,
+            "ratio_vs_art": 11.208385843962668,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 39.564,
+            "btree_ns": 4.244142857142857,
+            "expanse_ns": 450.2502857142857,
+            "hashmap_ns": 13.993714285714285,
+            "ratio_vs_art": 11.380302439447117,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 39.54942857142857,
+            "btree_ns": 4.174285714285714,
+            "expanse_ns": 451.8142857142857,
+            "hashmap_ns": 13.909142857142857,
+            "ratio_vs_art": 11.424040802467797,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 36.35542857142857,
+            "btree_ns": 4.031714285714286,
+            "expanse_ns": 451.516,
+            "hashmap_ns": 13.863714285714286,
+            "ratio_vs_art": 12.41949325704945,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 39.56242857142857,
+            "btree_ns": 5.889142857142857,
+            "expanse_ns": 454.804,
+            "hashmap_ns": 13.91,
+            "ratio_vs_art": 11.495856458328067,
+            "round": 14
+          }
+        ]
       },
       "lookup_hit": {
-        "blart_art_ns_op": 14.225,
-        "btree_ns_op": 8.7792,
-        "expanse_ns_op": 6.9375,
-        "hashmap_ns_op": 1.3917,
+        "blart_art_ns_op": 13.101,
+        "btree_ns_op": 7.6079,
+        "expanse_ns_op": 5.4408,
+        "hashmap_ns_op": 1.2458,
         "ratio_bca_ci_95": [
-          0.47129786449954003,
-          0.49028160484636346
+          0.41736534512890233,
+          0.44269627009818074
         ],
-        "ratio_mean": 0.4802696056508184,
-        "ratio_median": 0.48769771528998246,
-        "ratio_vs_art": 0.4802696056508184
+        "ratio_mean": 0.42814486422696985,
+        "ratio_median": 0.4152965422486833,
+        "ratio_vs_art": 0.42814486422696985,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 13.2758,
+            "btree_ns": 7.894,
+            "expanse_ns": 6.3123,
+            "hashmap_ns": 1.2589,
+            "ratio_vs_art": 0.4754741710480724,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 13.4497,
+            "btree_ns": 7.7179,
+            "expanse_ns": 6.4322,
+            "hashmap_ns": 1.3939,
+            "ratio_vs_art": 0.47824115036023107,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 13.183,
+            "btree_ns": 8.0616,
+            "expanse_ns": 6.0705,
+            "hashmap_ns": 1.2425,
+            "ratio_vs_art": 0.4604794052946977,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 13.1095,
+            "btree_ns": 7.8915,
+            "expanse_ns": 5.7828,
+            "hashmap_ns": 1.2626,
+            "ratio_vs_art": 0.4411152217857279,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 12.993,
+            "btree_ns": 7.7542,
+            "expanse_ns": 5.627,
+            "hashmap_ns": 1.2458,
+            "ratio_vs_art": 0.4330793504194566,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 13.1756,
+            "btree_ns": 7.6771,
+            "expanse_ns": 5.5458,
+            "hashmap_ns": 1.253,
+            "ratio_vs_art": 0.42091441755973164,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 13.0419,
+            "btree_ns": 7.5879,
+            "expanse_ns": 5.519,
+            "hashmap_ns": 1.2448,
+            "ratio_vs_art": 0.42317453745236505,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 12.9767,
+            "btree_ns": 7.5816,
+            "expanse_ns": 5.4408,
+            "hashmap_ns": 1.2466,
+            "ratio_vs_art": 0.41927454591691266,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 13.0244,
+            "btree_ns": 7.552,
+            "expanse_ns": 5.3542,
+            "hashmap_ns": 1.4144,
+            "ratio_vs_art": 0.4110899542397346,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 13.101,
+            "btree_ns": 7.5826,
+            "expanse_ns": 5.3318,
+            "hashmap_ns": 1.2418,
+            "ratio_vs_art": 0.40697656667429966,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 13.1294,
+            "btree_ns": 7.5289,
+            "expanse_ns": 5.3436,
+            "hashmap_ns": 1.2509,
+            "ratio_vs_art": 0.4069949883467638,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 13.0283,
+            "btree_ns": 7.5168,
+            "expanse_ns": 5.3192,
+            "hashmap_ns": 1.244,
+            "ratio_vs_art": 0.40828043566697114,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 13.0411,
+            "btree_ns": 7.5705,
+            "expanse_ns": 5.2576,
+            "hashmap_ns": 1.2452,
+            "ratio_vs_art": 0.40315617547599514,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 13.2972,
+            "btree_ns": 7.6079,
+            "expanse_ns": 5.2526,
+            "hashmap_ns": 1.2398,
+            "ratio_vs_art": 0.3950154919832747,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 11.9841,
+            "btree_ns": 7.6327,
+            "expanse_ns": 5.2599,
+            "hashmap_ns": 1.2425,
+            "ratio_vs_art": 0.4389065511803139,
+            "round": 14
+          }
+        ]
       },
       "lookup_miss": {
-        "blart_art_ns_op": 11.0792,
-        "btree_ns_op": 7.0333,
-        "expanse_ns_op": 4.9583,
-        "hashmap_ns_op": 6.1125,
+        "blart_art_ns_op": 9.483,
+        "btree_ns_op": 6.6001,
+        "expanse_ns_op": 4.3727,
+        "hashmap_ns_op": 5.2437,
         "ratio_bca_ci_95": [
-          0.44326532711489824,
-          0.46845965644709914
+          0.4418645335232465,
+          0.4703370074351381
         ],
-        "ratio_mean": 0.4539165834729822,
-        "ratio_median": 0.44753231280236844,
-        "ratio_vs_art": 0.4539165834729822
+        "ratio_mean": 0.4560414788168695,
+        "ratio_median": 0.46110935358009064,
+        "ratio_vs_art": 0.4560414788168695,
+        "rounds_raw": [
+          {
+            "blart_art_ns": 9.614,
+            "btree_ns": 6.7311,
+            "expanse_ns": 4.8143,
+            "hashmap_ns": 5.8888,
+            "ratio_vs_art": 0.500759309340545,
+            "round": 0
+          },
+          {
+            "blart_art_ns": 9.7817,
+            "btree_ns": 6.4825,
+            "expanse_ns": 4.8935,
+            "hashmap_ns": 5.4164,
+            "ratio_vs_art": 0.5002709140537943,
+            "round": 1
+          },
+          {
+            "blart_art_ns": 9.6834,
+            "btree_ns": 6.5123,
+            "expanse_ns": 4.7174,
+            "hashmap_ns": 5.2437,
+            "ratio_vs_art": 0.4871635995621372,
+            "round": 2
+          },
+          {
+            "blart_art_ns": 9.483,
+            "btree_ns": 6.6176,
+            "expanse_ns": 4.4221,
+            "hashmap_ns": 5.4547,
+            "ratio_vs_art": 0.466318675524623,
+            "round": 3
+          },
+          {
+            "blart_art_ns": 9.4308,
+            "btree_ns": 6.6602,
+            "expanse_ns": 4.2149,
+            "hashmap_ns": 5.1396,
+            "ratio_vs_art": 0.4469292106714171,
+            "round": 4
+          },
+          {
+            "blart_art_ns": 9.4293,
+            "btree_ns": 6.4475,
+            "expanse_ns": 4.3727,
+            "hashmap_ns": 5.3321,
+            "ratio_vs_art": 0.4637353780238194,
+            "round": 5
+          },
+          {
+            "blart_art_ns": 9.3376,
+            "btree_ns": 6.6154,
+            "expanse_ns": 4.4264,
+            "hashmap_ns": 5.1939,
+            "ratio_vs_art": 0.4740404386566141,
+            "round": 6
+          },
+          {
+            "blart_art_ns": 9.1892,
+            "btree_ns": 6.5154,
+            "expanse_ns": 4.0993,
+            "hashmap_ns": 4.9708,
+            "ratio_vs_art": 0.4460997692943891,
+            "round": 7
+          },
+          {
+            "blart_art_ns": 9.3316,
+            "btree_ns": 6.6802,
+            "expanse_ns": 3.8641,
+            "hashmap_ns": 4.9356,
+            "ratio_vs_art": 0.4140876162715933,
+            "round": 8
+          },
+          {
+            "blart_art_ns": 9.6471,
+            "btree_ns": 6.4048,
+            "expanse_ns": 4.2025,
+            "hashmap_ns": 5.037,
+            "ratio_vs_art": 0.4356231406329363,
+            "round": 9
+          },
+          {
+            "blart_art_ns": 9.7932,
+            "btree_ns": 6.6329,
+            "expanse_ns": 4.1997,
+            "hashmap_ns": 5.3495,
+            "ratio_vs_art": 0.4288383776497978,
+            "round": 10
+          },
+          {
+            "blart_art_ns": 9.5157,
+            "btree_ns": 6.5098,
+            "expanse_ns": 4.0326,
+            "hashmap_ns": 4.9953,
+            "ratio_vs_art": 0.4237838519499354,
+            "round": 11
+          },
+          {
+            "blart_art_ns": 9.4788,
+            "btree_ns": 6.6224,
+            "expanse_ns": 3.9114,
+            "hashmap_ns": 4.9326,
+            "ratio_vs_art": 0.41264717052791494,
+            "round": 12
+          },
+          {
+            "blart_art_ns": 9.6568,
+            "btree_ns": 6.6001,
+            "expanse_ns": 4.4991,
+            "hashmap_ns": 5.7096,
+            "ratio_vs_art": 0.46589967691160633,
+            "round": 13
+          },
+          {
+            "blart_art_ns": 9.4487,
+            "btree_ns": 6.5302,
+            "expanse_ns": 4.4827,
+            "hashmap_ns": 5.4383,
+            "ratio_vs_art": 0.47442505318191924,
+            "round": 14
+          }
+        ]
       },
       "memory": {
         "blart_alloc_count": 9,
@@ -409,13 +2971,116 @@
         "expanse_tracking_bpk": 2340.5714285714284,
         "expanse_tracking_bytes": 16384,
         "hashmap_alloc_count": 2,
-        "hashmap_bpk": 20.571428571428573,
-        "hashmap_bytes": 144,
+        "hashmap_bpk": 21.714285714285715,
+        "hashmap_bytes": 152,
         "logical_ratio_vs_art": 0.32653061224489793
       },
       "population": 7
     }
   ],
   "rounds": 15,
-  "workload_id": "art_small_payload"
+  "workload_id": "art_small_payload",
+  "metadata": {
+    "host": "reference host \u2014 Intel Core i9-12900F, 8P+8E/24 threads, 30 MiB L3, Ubuntu 22.04",
+    "kernel": "Linux 6.8.0-136-generic",
+    "load_start": "0.90",
+    "load_end": "1.25",
+    "harness_sha": "b447dbc",
+    "data_sha": "b447dbc"
+  },
+  "provenance": {
+    "suite": "art_comparison",
+    "issue": 387,
+    "commit": "b447dbc",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "powersave",
+      "transparent_hugepage": "always [madvise] never",
+      "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35"
+    },
+    "estimators": {
+      "ratio": "mean(ART rounds) / mean(Expanse rounds) with a two-sample BCa 95% interval (scripts/bca_bootstrap.py); the per-arm columns beside it are medians of the same rounds",
+      "columns": "per-arm columns are medians of the same rounds; the ratio column is not the quotient of the two median columns beside it",
+      "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+    },
+    "core_pin": "0-15",
+    "quick": false,
+    "loads": [
+      {
+        "label": "start",
+        "load1": 0.9,
+        "load5": 0.73,
+        "load15": 0.3,
+        "at": "2026-09-06T18:09:28Z",
+        "stat_busy_jiffies": 45628575,
+        "stat_total_jiffies": 5983969894,
+        "busy_cpus_since_prev": null
+      },
+      {
+        "label": "before art_lookup_hit",
+        "load1": 0.9,
+        "load5": 0.73,
+        "load15": 0.3,
+        "at": "2026-09-06T18:09:28Z",
+        "stat_busy_jiffies": 45628575,
+        "stat_total_jiffies": 5983969894,
+        "busy_cpus_since_prev": null
+      },
+      {
+        "label": "before art_lookup_miss",
+        "load1": 1.49,
+        "load5": 0.91,
+        "load15": 0.38,
+        "at": "2026-09-06T18:10:02Z",
+        "stat_busy_jiffies": 45638578,
+        "stat_total_jiffies": 5984050291,
+        "busy_cpus_since_prev": 2.99
+      },
+      {
+        "label": "before art_insert",
+        "load1": 1.35,
+        "load5": 0.92,
+        "load15": 0.39,
+        "at": "2026-09-06T18:10:18Z",
+        "stat_busy_jiffies": 45640484,
+        "stat_total_jiffies": 5984089793,
+        "busy_cpus_since_prev": 1.16
+      },
+      {
+        "label": "before art_scan",
+        "load1": 1.27,
+        "load5": 0.92,
+        "load15": 0.4,
+        "at": "2026-09-06T18:10:36Z",
+        "stat_busy_jiffies": 45642469,
+        "stat_total_jiffies": 5984131347,
+        "busy_cpus_since_prev": 1.15
+      },
+      {
+        "label": "before art_memory",
+        "load1": 1.21,
+        "load5": 0.92,
+        "load15": 0.41,
+        "at": "2026-09-06T18:10:52Z",
+        "stat_busy_jiffies": 45644427,
+        "stat_total_jiffies": 5984171436,
+        "busy_cpus_since_prev": 1.17
+      },
+      {
+        "label": "before art_small_payload",
+        "load1": 1.27,
+        "load5": 0.94,
+        "load15": 0.42,
+        "at": "2026-09-06T18:10:56Z",
+        "stat_busy_jiffies": 45644993,
+        "stat_total_jiffies": 5984179507,
+        "busy_cpus_since_prev": 1.68
+      }
+    ]
+  }
 }

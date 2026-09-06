@@ -11,14 +11,14 @@
 //! | `workload_id` | `art_scan` |
 //! | `group` | 4 |
 //! | `population` | 10k to 1M |
-//! | `probes_and_reuse` | Full iteration and range scans |
+//! | `probes_and_reuse` | Full iteration, and bounded scans from `max(1000, 10^6/k)` shuffled starts per timed window |
 //! | `hit_rate` | 100% (Existing keys in populated range) |
 //! | `miss_gen_method` | None |
 //! | `value_dereference` | `black_box(k ^ v)` during traversal |
-//! | `measured_region` | Iteration loop |
-//! | `arm_symmetry` | Identical keys, direct iterator traversal |
-//! | `statistics` | Median + BCa 95% Bootstrap CI over paired rounds |
-//! | `verdict` | **PASS** `[verified: CODE READ]`: ART comparison ordered scan benchmark. |
+//! | `measured_region` | Clean scan loop; starts and population built outside it |
+//! | `arm_symmetry` | Symmetric keys, PRNG and starts; visited-element counts compared per round and the cell voided when they differ |
+//! | `statistics` | Median + BCa 95% Bootstrap CI over paired rounds, arms rotated round-robin; every cell carries `rounds_raw` |
+//! | `verdict` | **PASS** `[verified: RUN (b447dbc0, reference host)]`: every `k > 0` cell at 1M reverses to Expanse under scan starts that scale with `k`; the `k = 0` control reproduces the superseded run within 2%. |
 
 #[path = "art_common/mod.rs"]
 mod art_common;

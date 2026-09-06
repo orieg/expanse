@@ -363,9 +363,21 @@ def generate_readme() -> str:
         f"   - On 1M random key iteration, `ExpanseMap`'s stack-based zero-allocation iterator scans at **{rand_iter['expanse_ns_elem']:.2f} ns/element** "
         f"vs `blart`'s **{rand_iter['blart_art_ns_elem']:.2f} ns/element** ({1/rand_iter['ratio_vs_art']:.2f}× faster)."
     )
+    # Derived, never stamped (AGENTS.md section 8.2): which arm the short-scan
+    # cell goes to is read from the artifact, not written into this sentence.
+    # It was stamped as an ART win, and stayed that sentence when the cell
+    # reversed under scan starts that scale with k (#745).
+    k10_ratio = seq_k10["ratio_vs_art"]
+    k10_starts = seq_k10.get("scan_starts")
+    k10_lead = (
+        f"Expanse leads by {1 / k10_ratio:.2f}×" if k10_ratio < 1.0
+        else f"ART leads by {k10_ratio:.2f}×"
+    )
     md.append(
-        f"   - For short range scans ($k=10$), ART outperforms Expanse ({seq_k10['blart_art_ns_elem']:.2f} ns vs {seq_k10['expanse_ns_elem']:.2f} ns, "
-        f"{seq_k10['ratio_vs_art']:.2f}× faster) — classified as **UNPREDICTED LOSS (mechanism unmeasured)** *(workload: art_scan)*."
+        f"   - For short range scans ($k=10$, {k10_starts:,} starts per timed window so the "
+        f"descent is measured and not one warm path), {k10_lead}: "
+        f"**{seq_k10['expanse_ns_elem']:.2f} ns/element** against `blart`'s "
+        f"**{seq_k10['blart_art_ns_elem']:.2f} ns** *(workload: art_scan)*."
     )
     md.append("")
     md.append("5. **Unmeasured Regimes**:")

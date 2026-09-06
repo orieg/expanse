@@ -60,6 +60,23 @@ pre-registration and fair-twin obligations without a novelty-tier declaration.
 
 ### Pillar 4: Ordered Range Scan & Iteration (`art_scan`)
 - Full container in-order iteration (`iter()`) and bounded range scans ($k \in [10, 100, 1000]$ items).
+- A bounded-scan window holds $\max(1000, 10^6/k)$ scans, started at shuffled
+  population keys and cycled, so every $k$ visits about a million elements and
+  the descent to the start is part of what is measured. Until #745 the pillar
+  scanned from one start key, `keys[len / 4]`, on every round and for every $k$:
+  a $k = 10$ window was ten element visits between two clock reads, divided by
+  ten and published as nanoseconds per element, and fifteen rounds re-walked
+  the same warm path. **The short-scan cells measured that way are formally
+  retracted** (`.github/superseded-figures.json`), not deferred; the corrected
+  cells are in the README and every $k > 0$ cell at $N = 10^6$ reverses to
+  Expanse. The full-iteration cells ($k = 0$) do not use starts, were not
+  touched by the change, and reproduce the superseded run within 2%, which is
+  what says the two runs are comparable at all.
+- Both arms' visited-element counts are compared per round and the cell fails
+  loudly when they differ, rather than dividing a divergence into both columns.
+  The build asserts the three containers hold the same population: `try_insert`
+  returns an error on a duplicate key and the loop that fills the arms discards
+  it (AGENTS.md section 8.1).
 
 ### Pillar 5: Memory Allocation & Footprint Census (`art_memory`)
 - Exact live heap accounting using a custom `GlobalAlloc` hook (`TrackingAlloc`) across populations $10^3, 10^4, 10^5, 10^6$.
@@ -119,14 +136,14 @@ pre-registration and fair-twin obligations without a novelty-tier declaration.
 | `workload_id` | `art_scan` |
 | `group` | 4 |
 | `population` | 10k to 1M |
-| `probes_and_reuse` | Range scan stream |
+| `probes_and_reuse` | Full iteration, and bounded scans from `max(1000, 10^6/k)` shuffled starts per timed window |
 | `hit_rate` | Ordered Scan |
 | `miss_gen_method` | None |
 | `value_dereference` | `black_box(*val)` |
-| `measured_region` | Clean scan loop |
-| `arm_symmetry` | Symmetric keys and PRNG |
-| `statistics` | Median of interleaved rounds |
-| `verdict` | **PASS** `[verified: CODE READ]`: ART comparison range scan benchmark. |
+| `measured_region` | Clean scan loop; starts and population built outside it |
+| `arm_symmetry` | Symmetric keys, PRNG and starts; visited-element counts compared per round and the cell voided when they differ |
+| `statistics` | Median of interleaved rounds, arms rotated round-robin; every cell carries `rounds_raw` |
+| `verdict` | **PASS** `[verified: RUN (b447dbc0, reference host)]`: every `k > 0` cell at 1M reverses to Expanse under scan starts that scale with `k`; the `k = 0` control reproduces the superseded run within 2%. |
 
 ### `art_memory`
 | Property | Value |

@@ -96,50 +96,50 @@
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
   <text x="30" y="108" class="t-bar-label">Sequential</text>
   <text x="30" y="122" class="t-sub">Dynamic Growth 0 -&gt; 1,000,000</text>
-  <rect x="260" y="88" width="25.2" height="10" rx="2" class="b-expanse"/>
-  <text x="293.2" y="96" class="t-val-accent">12.1</text>
-  <rect x="260" y="102" width="121.4" height="10" rx="2" class="b-art"/>
-  <text x="389.4" y="110" class="t-val-blue">58.5</text>
-  <rect x="260" y="116" width="94.9" height="10" rx="2" class="b-btree"/>
-  <text x="362.9" y="124" class="t-axis-label">45.7</text>
-  <rect x="260" y="130" width="43.8" height="10" rx="2" class="b-hashmap"/>
-  <text x="311.8" y="138" class="t-note">21.1</text>
+  <rect x="260" y="88" width="25.1" height="10" rx="2" class="b-expanse"/>
+  <text x="293.1" y="96" class="t-val-accent">12.2</text>
+  <rect x="260" y="102" width="120.1" height="10" rx="2" class="b-art"/>
+  <text x="388.1" y="110" class="t-val-blue">58.4</text>
+  <rect x="260" y="116" width="94.3" height="10" rx="2" class="b-btree"/>
+  <text x="362.3" y="124" class="t-axis-label">45.9</text>
+  <rect x="260" y="130" width="44.5" height="10" rx="2" class="b-hashmap"/>
+  <text x="312.5" y="138" class="t-note">21.7</text>
   <rect x="800" y="104" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="118" class="badge-win-text">Expanse 4.82x</text>
+  <text x="865" y="118" class="badge-win-text">Expanse 4.78x</text>
   <text x="30" y="180" class="t-bar-label">Clustered</text>
   <text x="30" y="194" class="t-sub">Dynamic Growth 0 -&gt; 1,000,000</text>
-  <rect x="260" y="160" width="30.7" height="10" rx="2" class="b-expanse"/>
-  <text x="298.7" y="168" class="t-val-accent">14.8</text>
-  <rect x="260" y="174" width="122.8" height="10" rx="2" class="b-art"/>
-  <text x="390.8" y="182" class="t-val-blue">59.1</text>
-  <rect x="260" y="188" width="91.4" height="10" rx="2" class="b-btree"/>
-  <text x="359.4" y="196" class="t-axis-label">44.0</text>
-  <rect x="260" y="202" width="45.4" height="10" rx="2" class="b-hashmap"/>
-  <text x="313.4" y="210" class="t-note">21.9</text>
+  <rect x="260" y="160" width="30.5" height="10" rx="2" class="b-expanse"/>
+  <text x="298.5" y="168" class="t-val-accent">14.8</text>
+  <rect x="260" y="174" width="120.8" height="10" rx="2" class="b-art"/>
+  <text x="388.8" y="182" class="t-val-blue">58.8</text>
+  <rect x="260" y="188" width="92.4" height="10" rx="2" class="b-btree"/>
+  <text x="360.4" y="196" class="t-axis-label">45.0</text>
+  <rect x="260" y="202" width="45.3" height="10" rx="2" class="b-hashmap"/>
+  <text x="313.3" y="210" class="t-note">22.0</text>
   <rect x="800" y="176" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="190" class="badge-win-text">Expanse 4.00x</text>
+  <text x="865" y="190" class="badge-win-text">Expanse 3.96x</text>
   <text x="30" y="252" class="t-bar-label">Uniform Random</text>
   <text x="30" y="266" class="t-sub">Dynamic Growth 0 -&gt; 1,000,000</text>
   <rect x="260" y="232" width="118.9" height="10" rx="2" class="b-expanse"/>
-  <text x="386.9" y="240" class="t-val-accent">57.3</text>
-  <rect x="260" y="246" width="200.9" height="10" rx="2" class="b-art"/>
-  <text x="468.9" y="254" class="t-val-blue">96.8</text>
+  <text x="386.9" y="240" class="t-val-accent">57.8</text>
+  <rect x="260" y="246" width="200.0" height="10" rx="2" class="b-art"/>
+  <text x="468.0" y="254" class="t-val-blue">97.3</text>
   <rect x="260" y="260" width="224.0" height="10" rx="2" class="b-btree"/>
-  <text x="492.0" y="268" class="t-axis-label">107.9</text>
-  <rect x="260" y="274" width="45.8" height="10" rx="2" class="b-hashmap"/>
-  <text x="313.8" y="282" class="t-note">22.1</text>
+  <text x="492.0" y="268" class="t-axis-label">109.0</text>
+  <rect x="260" y="274" width="45.6" height="10" rx="2" class="b-hashmap"/>
+  <text x="313.6" y="282" class="t-note">22.2</text>
   <rect x="800" y="248" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="262" class="badge-win-text">Expanse 1.69x</text>
+  <text x="865" y="262" class="badge-win-text">Expanse 1.68x</text>
   <text x="30" y="324" class="t-bar-label">Sparse Stride</text>
   <text x="30" y="338" class="t-sub">Dynamic Growth 0 -&gt; 1,000,000</text>
-  <rect x="260" y="304" width="65.8" height="10" rx="2" class="b-expanse"/>
-  <text x="333.8" y="312" class="t-val-accent">31.7</text>
-  <rect x="260" y="318" width="115.6" height="10" rx="2" class="b-art"/>
-  <text x="383.6" y="326" class="t-val-blue">55.7</text>
-  <rect x="260" y="332" width="94.9" height="10" rx="2" class="b-btree"/>
-  <text x="362.9" y="340" class="t-axis-label">45.7</text>
-  <rect x="260" y="346" width="42.0" height="10" rx="2" class="b-hashmap"/>
-  <text x="310.0" y="354" class="t-note">20.2</text>
+  <rect x="260" y="304" width="65.0" height="10" rx="2" class="b-expanse"/>
+  <text x="333.0" y="312" class="t-val-accent">31.6</text>
+  <rect x="260" y="318" width="118.5" height="10" rx="2" class="b-art"/>
+  <text x="386.5" y="326" class="t-val-blue">57.6</text>
+  <rect x="260" y="332" width="94.3" height="10" rx="2" class="b-btree"/>
+  <text x="362.3" y="340" class="t-axis-label">45.9</text>
+  <rect x="260" y="346" width="45.2" height="10" rx="2" class="b-hashmap"/>
+  <text x="313.2" y="354" class="t-note">22.0</text>
   <rect x="800" y="320" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="334" class="badge-win-text">Expanse 1.76x</text>
+  <text x="865" y="334" class="badge-win-text">Expanse 1.82x</text>
 </svg>

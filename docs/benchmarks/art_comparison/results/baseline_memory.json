@@ -287,8 +287,93 @@
   "metadata": {
     "host": "reference host \u2014 Intel Core i9-12900F, 8P+8E/24 threads, 30 MiB L3, Ubuntu 22.04",
     "kernel": "Linux 6.8.0-136-generic",
-    "load_start": "0.00",
-    "load_end": "0.96",
-    "harness_sha": "07b8413e"
+    "load_start": "0.90",
+    "load_end": "1.25",
+    "harness_sha": "b447dbc"
+  },
+  "provenance": {
+    "suite": "art_comparison",
+    "issue": 387,
+    "commit": "b447dbc",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "powersave",
+      "transparent_hugepage": "always [madvise] never",
+      "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35"
+    },
+    "estimators": {
+      "ratio": "mean(ART rounds) / mean(Expanse rounds) with a two-sample BCa 95% interval (scripts/bca_bootstrap.py); the per-arm columns beside it are medians of the same rounds",
+      "columns": "per-arm columns are medians of the same rounds; the ratio column is not the quotient of the two median columns beside it",
+      "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+    },
+    "core_pin": "0-15",
+    "quick": false,
+    "loads": [
+      {
+        "label": "start",
+        "load1": 0.9,
+        "load5": 0.73,
+        "load15": 0.3,
+        "at": "2026-09-06T18:09:28Z",
+        "stat_busy_jiffies": 45628575,
+        "stat_total_jiffies": 5983969894,
+        "busy_cpus_since_prev": null
+      },
+      {
+        "label": "before art_lookup_hit",
+        "load1": 0.9,
+        "load5": 0.73,
+        "load15": 0.3,
+        "at": "2026-09-06T18:09:28Z",
+        "stat_busy_jiffies": 45628575,
+        "stat_total_jiffies": 5983969894,
+        "busy_cpus_since_prev": null
+      },
+      {
+        "label": "before art_lookup_miss",
+        "load1": 1.49,
+        "load5": 0.91,
+        "load15": 0.38,
+        "at": "2026-09-06T18:10:02Z",
+        "stat_busy_jiffies": 45638578,
+        "stat_total_jiffies": 5984050291,
+        "busy_cpus_since_prev": 2.99
+      },
+      {
+        "label": "before art_insert",
+        "load1": 1.35,
+        "load5": 0.92,
+        "load15": 0.39,
+        "at": "2026-09-06T18:10:18Z",
+        "stat_busy_jiffies": 45640484,
+        "stat_total_jiffies": 5984089793,
+        "busy_cpus_since_prev": 1.16
+      },
+      {
+        "label": "before art_scan",
+        "load1": 1.27,
+        "load5": 0.92,
+        "load15": 0.4,
+        "at": "2026-09-06T18:10:36Z",
+        "stat_busy_jiffies": 45642469,
+        "stat_total_jiffies": 5984131347,
+        "busy_cpus_since_prev": 1.15
+      },
+      {
+        "label": "before art_memory",
+        "load1": 1.21,
+        "load5": 0.92,
+        "load15": 0.41,
+        "at": "2026-09-06T18:10:52Z",
+        "stat_busy_jiffies": 45644427,
+        "stat_total_jiffies": 5984171436,
+        "busy_cpus_since_prev": 1.17
+      }
+    ]
   }
 }
