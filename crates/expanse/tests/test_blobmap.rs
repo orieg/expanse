@@ -289,7 +289,12 @@ fn test_mmap_and_binary_serialization() {
 /// compatibility"): an image whose header carries another
 /// `EXPANSE_FORMAT_VERSION` is refused with `UnsupportedFormatVersion`, naming
 /// both versions, and never mistaken for corruption; a bad magic is corruption.
+///
+/// Writes and reads a file, which Miri's isolation refuses (`open`), so it is
+/// native-only like the round-trip test above; the header check itself is
+/// pure and covered under Miri by the unit tests in `blobmap.rs`.
 #[test]
+#[cfg(not(miri))]
 fn test_image_format_version_is_checked_before_corruption() {
     use expanse_trie::blobmap::{ArenaError, EXPANSE_FORMAT_VERSION};
     let mut map = ExpanseBlobMap::new();
