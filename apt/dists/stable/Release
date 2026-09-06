@@ -5,11 +5,11 @@ Codename: stable
 Architectures: amd64 arm64 riscv64
 Components: main
 Description: Official Expanse APT Repository
-Date: Sun, 06 Sep 2026 17:12:19 UTC
+Date: Sun, 06 Sep 2026 18:26:18 UTC
 SHA256:
  d4916c7b4981ef19a0d3da3093117e3731b3cd315732f7f2a89a3f87d45d04e4 911 main/binary-amd64/Packages
- 81e6719897a9ac2b071a9850ef3e8786021322d4abfff952344afd0fd893a0a6 386 main/binary-amd64/Packages.gz
+ c260bb92e4ba20af2f32e915c0baacc75082c3f0d827b3c232ef9ed739c2cc84 386 main/binary-amd64/Packages.gz
  8601d9e76bac7090ddf926567b8bd0cc4ce135be0465573a2030c686ef3db005 911 main/binary-arm64/Packages
- ff52803131b80f6809fbcbe045dda6ad3bc78aaaf74dc968b983f410eff81fd6 391 main/binary-arm64/Packages.gz
+ 2ccabc5dda54c3645547fafa5de013504cbf5e6a36685cd59047d33ca66e5941 391 main/binary-arm64/Packages.gz
  133208a9c0c74f22818c80adc8aa69e1be0c94cbe381137d5e19e764cbc2172e 923 main/binary-riscv64/Packages
- ec91844f67ededf015a6db7f57b9886b7140a4f008b7fb689ab28dddcd953bb4 392 main/binary-riscv64/Packages.gz
+ 08f775242591029f07bfcc1ce4deac5055304a1a994af58f47db3e410d0d0bd5 392 main/binary-riscv64/Packages.gz
