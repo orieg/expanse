@@ -9,11 +9,11 @@
 //! | `workload_id` | `masstree_string_latency` |
 //! | `group` | 5 |
 //! | `population` | selected per invocation; mean key length reported per cell |
-//! | `probes_and_reuse` | shuffled stream, one pass, `population`-many probes, every probe its own allocation |
+//! | `probes_and_reuse` | shuffled stream, one pass, `population`-many probes, every probe its own allocation; scan: `max(1000, 10⁶ / k)` starts cycled from the probe stream |
 //! | `hit_rate` | 100% for `lookup_hit`, 50% for `lookup_miss`, n/a otherwise |
 //! | `miss_gen_method` | same-generator rejection sampling (§8.6) |
 //! | `value_dereference` | both sides fetch the stored value and fold it; the two sinks must agree |
-//! | `measured_region` | probe loop only; string generation, build and teardown outside; Masstree's per-64-op `quiesce` inside its loop (§3.2) |
+//! | `measured_region` | probe loop only; string generation, build and teardown outside; Masstree's per-64-op `quiesce` inside its loop (§3.2); the arm timed first alternates per round |
 //! | `arm_symmetry` | identical strings and probe stream; both sides copy key bytes into their own nodes (§4); same ISA target; Masstree column withheld where the §3.4 predicate fails |
 //! | `statistics` | per-round medians emitted raw; BCa 95% CIs computed by the harvester (§8.4) |
 //! | `verdict` | pending measurement |
@@ -41,7 +41,7 @@ use expanse_hot_bench::masstree::{
     Masstree, MtThread, QUIESCE_EVERY, StrInsert, Table, masstree_can_key,
 };
 use expanse_hot_bench::strings::{self, KeyStr, StrDist};
-use expanse_hot_bench::workload::{self, Order};
+use expanse_hot_bench::workload::{self, Order, ordered, scan_starts};
 use expanse_trie::strmap::ExpanseStrMap;
 
 const ROUNDS: usize = 15;
@@ -184,42 +184,53 @@ fn main() {
     };
 
     for round in 0..ROUNDS {
+        // The arm timed first in a round runs on the cache and clock state the
+        // second inherits from it; alternating per round charges that to both
+        // arms equally instead of to Masstree alone.
+        let masstree_first = round % 2 == 0;
         let (mt_ns, exp_ns, ops): (Option<u128>, u128, usize) = match pillar {
             Pillar::LookupHit | Pillar::LookupMiss => {
                 let e = exp.as_ref().unwrap();
-                let mut mt_ns = None;
-                let mut mt_sink = 0u64;
-                if let Some(m) = mt.as_ref() {
+                let run_mt = || {
+                    mt.as_ref().map(|m| {
+                        let t0 = Instant::now();
+                        let mut sink = 0u64;
+                        let mut done = 0u64;
+                        for p in &w.probes {
+                            sink ^= m.str_get(ti, p.bytes()).unwrap_or(0);
+                            done += 1;
+                            if done.is_multiple_of(QUIESCE_EVERY) {
+                                ti.quiesce();
+                            }
+                        }
+                        let t = t0.elapsed().as_nanos();
+                        black_box(sink);
+                        (t, sink)
+                    })
+                };
+                let run_exp = || {
                     let t0 = Instant::now();
                     let mut sink = 0u64;
-                    let mut done = 0u64;
                     for p in &w.probes {
-                        sink ^= m.str_get(ti, p.bytes()).unwrap_or(0);
-                        done += 1;
-                        if done.is_multiple_of(QUIESCE_EVERY) {
-                            ti.quiesce();
-                        }
+                        sink ^= e.get(p.bytes()).unwrap_or(0);
                     }
-                    mt_ns = Some(t0.elapsed().as_nanos());
+                    let t = t0.elapsed().as_nanos();
                     black_box(sink);
-                    mt_sink = sink;
-                }
-
-                let t1 = Instant::now();
-                let mut sink = 0u64;
-                for p in &w.probes {
-                    sink ^= e.get(p.bytes()).unwrap_or(0);
-                }
-                let exp_t = t1.elapsed().as_nanos();
-                black_box(sink);
-                if mt.is_some() && mt_sink != sink {
+                    (t, sink)
+                };
+                let (mt_run, (exp_t, exp_sink)) = ordered(masstree_first, run_mt, run_exp);
+                if let Some((_, mt_sink)) = mt_run
+                    && mt_sink != exp_sink
+                {
                     void(&format!("round {round}: Masstree and Expanse sinks differ"));
                 }
-                (mt_ns, exp_t, w.probes.len())
+                (mt_run.map(|(t, _)| t), exp_t, w.probes.len())
             }
             Pillar::Insert => {
-                let mut mt_ns = None;
-                if mt_side {
+                let run_mt = || {
+                    if !mt_side {
+                        return None;
+                    }
                     let t0 = Instant::now();
                     let m = Masstree::new(ti, table);
                     for (i, k) in w.population.iter().enumerate() {
@@ -228,78 +239,96 @@ fn main() {
                             ti.quiesce();
                         }
                     }
-                    mt_ns = Some(t0.elapsed().as_nanos());
+                    let t = t0.elapsed().as_nanos();
                     let built = m.len(ti);
                     std::mem::forget(m);
-                    if built != pop {
-                        void(&format!(
-                            "insert round {round}: Masstree walks {built} of {pop}"
-                        ));
+                    Some((t, built))
+                };
+                let run_exp = || {
+                    let t0 = Instant::now();
+                    let mut e = ExpanseStrMap::new();
+                    for (i, k) in w.population.iter().enumerate() {
+                        e.insert(k.bytes(), value_of(i));
                     }
+                    let t = t0.elapsed().as_nanos();
+                    let built = e.len() as usize;
+                    std::mem::forget(e);
+                    (t, built)
+                };
+                let (mt_run, (exp_t, built_e)) = ordered(masstree_first, run_mt, run_exp);
+                if let Some((_, built)) = mt_run
+                    && built != pop
+                {
+                    void(&format!(
+                        "insert round {round}: Masstree walks {built} of {pop}"
+                    ));
                 }
-
-                let t1 = Instant::now();
-                let mut e = ExpanseStrMap::new();
-                for (i, k) in w.population.iter().enumerate() {
-                    e.insert(k.bytes(), value_of(i));
-                }
-                let exp_t = t1.elapsed().as_nanos();
-                let built_e = e.len() as usize;
-                std::mem::forget(e);
                 if built_e != pop {
                     void(&format!(
                         "insert round {round}: Expanse holds {built_e} of {pop}"
                     ));
                 }
-                (mt_ns, exp_t, pop)
+                (mt_run.map(|(t, _)| t), exp_t, pop)
             }
             Pillar::Scan => {
-                let starts: Vec<&KeyStr> = w.probes.iter().take(1_000).collect();
-                let mut mt_ns = None;
-                let mut mt_visited = 0usize;
-                let mut mt_sink = 0u64;
-                if let Some(m) = mt.as_ref() {
-                    let t0 = Instant::now();
-                    for (i, s) in starts.iter().enumerate() {
-                        let (c, sink) = m.str_scan(ti, s.bytes(), scan_k);
-                        mt_visited += c;
-                        mt_sink ^= sink;
-                        if (i as u64 + 1).is_multiple_of(QUIESCE_EVERY) {
-                            ti.quiesce();
-                        }
-                    }
-                    mt_ns = Some(t0.elapsed().as_nanos());
-                    black_box(mt_sink);
-                }
-
+                // Starts are drawn from the probe stream; the count scales
+                // with 1/k (see `scan_starts`), cycling the stream when it is
+                // shorter than that.
+                let starts: Vec<&KeyStr> =
+                    w.probes.iter().cycle().take(scan_starts(scan_k)).collect();
                 let e = exp.as_mut().unwrap();
-                let t1 = Instant::now();
-                let mut visited_e = 0usize;
-                let mut exp_sink = 0u64;
-                for s in &starts {
-                    let mut c = 0usize;
-                    let mut cur = e.next_at_or_after(s.bytes());
-                    while let Some((key, slot)) = cur {
-                        // SAFETY: the slot pointer is valid until the next
-                        // structural mutation, and none occurs during the scan.
-                        exp_sink ^= unsafe { *slot.as_ptr() };
-                        c += 1;
-                        if c == scan_k {
-                            break;
+                let run_mt = || {
+                    mt.as_ref().map(|m| {
+                        let t0 = Instant::now();
+                        let mut visited = 0usize;
+                        let mut sink = 0u64;
+                        for (i, s) in starts.iter().enumerate() {
+                            let (c, x) = m.str_scan(ti, s.bytes(), scan_k);
+                            visited += c;
+                            sink ^= x;
+                            if (i as u64 + 1).is_multiple_of(QUIESCE_EVERY) {
+                                ti.quiesce();
+                            }
                         }
-                        cur = e.next_after(&key);
+                        let t = t0.elapsed().as_nanos();
+                        black_box(sink);
+                        (t, visited, sink)
+                    })
+                };
+                let run_exp = || {
+                    let t0 = Instant::now();
+                    let mut visited = 0usize;
+                    let mut sink = 0u64;
+                    for s in &starts {
+                        let mut c = 0usize;
+                        let mut cur = e.next_at_or_after(s.bytes());
+                        while let Some((key, slot)) = cur {
+                            // SAFETY: the slot pointer is valid until the next
+                            // structural mutation, and none occurs during the scan.
+                            sink ^= unsafe { *slot.as_ptr() };
+                            c += 1;
+                            if c == scan_k {
+                                break;
+                            }
+                            cur = e.next_after(&key);
+                        }
+                        visited += c;
                     }
-                    visited_e += c;
-                }
-                let exp_t = t1.elapsed().as_nanos();
-                black_box(exp_sink);
-                if mt.is_some() && (mt_visited != visited_e || mt_sink != exp_sink) {
+                    let t = t0.elapsed().as_nanos();
+                    black_box(sink);
+                    (t, visited, sink)
+                };
+                let (mt_run, (exp_t, visited_e, exp_sink)) =
+                    ordered(masstree_first, run_mt, run_exp);
+                if let Some((_, mt_visited, mt_sink)) = mt_run
+                    && (mt_visited != visited_e || mt_sink != exp_sink)
+                {
                     void(&format!(
                         "scan round {round}: Masstree visited {mt_visited}, Expanse {visited_e}; sinks equal: {}",
                         mt_sink == exp_sink
                     ));
                 }
-                (mt_ns, exp_t, visited_e.max(1))
+                (mt_run.map(|(t, _, _)| t), exp_t, visited_e.max(1))
             }
         };
 
@@ -310,7 +339,7 @@ fn main() {
         println!(
             "{{\"workload_id\":\"masstree_str_map\",\"pillar\":\"{}\",\"arm\":\"str\",\"dist\":\"{}\",\
              \"order\":\"{}\",\"table\":\"{}\",\"population\":{},\"mean_key_len\":{:.2},\"masstree_not_representable\":{},\
-             \"masstree_representable_fraction\":{:.4},\"scan_k\":{},\"round\":{},\"ops\":{},\
+             \"masstree_representable_fraction\":{:.4},\"scan_k\":{},\"round\":{},\"first_arm\":\"{}\",\"ops\":{},\
              \"masstree_ns_per_op\":{},\"expanse_ns_per_op\":{:.4}}}",
             pillar.name(),
             dist.name(),
@@ -322,6 +351,11 @@ fn main() {
             w.representable_fraction(masstree_can_key),
             if pillar == Pillar::Scan { scan_k } else { 0 },
             round,
+            if masstree_first {
+                "masstree"
+            } else {
+                "expanse"
+            },
             ops,
             mt_field,
             ns_per_op(exp_ns, ops),

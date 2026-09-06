@@ -275,3 +275,41 @@ pub fn shuffle_in_place<T>(v: &mut [T]) {
         v.swap(j, k);
     }
 }
+
+/// Runs `a` and `b`, `a` first when `a_first`, and returns the results in
+/// `(a, b)` order regardless. The arm timed first in a round runs on the cache
+/// and clock state the second then inherits (§8.6); callers alternate
+/// `a_first` per round so that cost lands on both arms equally instead of on
+/// whichever arm the source happens to list first.
+pub fn ordered<A, B>(a_first: bool, a: impl FnOnce() -> A, b: impl FnOnce() -> B) -> (A, B) {
+    if a_first {
+        let ra = a();
+        let rb = b();
+        (ra, rb)
+    } else {
+        let rb = b();
+        let ra = a();
+        (ra, rb)
+    }
+}
+
+/// Scan starts per round: `max(1000, 10⁶ / k)`, so every `k` visits about
+/// 10⁶ elements per round. A fixed start count makes the small-`k` cells the
+/// shortest timed windows in the suite, and the noisiest.
+pub fn scan_starts(k: usize) -> usize {
+    (1_000_000 / k.max(1)).max(1_000)
+}
+
+#[cfg(test)]
+mod scan_starts_tests {
+    use super::scan_starts;
+
+    #[test]
+    fn scales_with_inverse_k_and_floors_at_a_thousand() {
+        assert_eq!(scan_starts(10), 100_000);
+        assert_eq!(scan_starts(100), 10_000);
+        assert_eq!(scan_starts(1_000), 1_000);
+        assert_eq!(scan_starts(1_000_000), 1_000);
+        assert_eq!(scan_starts(0), 1_000_000);
+    }
+}

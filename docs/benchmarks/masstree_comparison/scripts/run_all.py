@@ -73,13 +73,81 @@ def population_for_lambda(lam: float) -> int:
     return max(1000, int(round(lam * 2 ** 16)))
 
 
-def load_snapshot(label: str) -> dict:
+def cpu_jiffies():
+    """(busy, total) jiffies from the aggregate `cpu` line of /proc/stat; None off Linux."""
+    try:
+        vals = [int(x) for x in open("/proc/stat").readline().split()[1:]]
+        idle = vals[3] + (vals[4] if len(vals) > 4 else 0)
+        return sum(vals) - idle, sum(vals)
+    except (OSError, ValueError, IndexError):
+        return None, None
+
+
+def load_snapshot(label: str, prev: dict = None) -> dict:
+    """Load averages, plus the host's busy CPU since `prev` in core-equivalents.
+
+    The 1-minute load average lags a heavy process by about thirty seconds;
+    the jiffy delta between two snapshots is the exact CPU the whole host
+    burned in between, the harness's own threads included. A single-threaded
+    phase on a quiet host reads about 1.0; the concurrent sweep reads its own
+    thread count.
+    """
     try:
         one, five, fifteen = os.getloadavg()
     except OSError:
         one = five = fifteen = float("nan")
-    return {"label": label, "load1": round(one, 2), "load5": round(five, 2),
-            "load15": round(fifteen, 2), "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    busy, total = cpu_jiffies()
+    snap = {"label": label, "load1": round(one, 2), "load5": round(five, 2),
+            "load15": round(fifteen, 2), "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "stat_busy_jiffies": busy, "stat_total_jiffies": total, "busy_cpus_since_prev": None}
+    if prev and total is not None and prev.get("stat_total_jiffies") is not None:
+        dt = total - prev["stat_total_jiffies"]
+        if dt > 0:
+            snap["busy_cpus_since_prev"] = round((busy - prev["stat_busy_jiffies"]) / dt * (os.cpu_count() or 1), 2)
+    return snap
+
+
+def add_load(prov: dict, label: str) -> None:
+    prov["loads"].append(load_snapshot(label, prov["loads"][-1] if prov["loads"] else None))
+
+
+def read_sysfs(path: str):
+    try:
+        return open(path).read().strip()
+    except OSError:
+        return None
+
+
+def host_facts() -> dict:
+    """What a wall-clock number depends on that `platform.platform()` does not say."""
+    model = None
+    try:
+        for line in open("/proc/cpuinfo"):
+            if line.startswith("model name"):
+                model = line.split(":", 1)[1].strip()
+                break
+    except OSError:
+        pass
+    return {
+        "cpu_model": model or platform.processor() or platform.machine(),
+        "cpus_online": os.cpu_count(),
+        # Hybrid parts: the P-core mask includes SMT siblings; W + R = 16 on an
+        # eight-P-core host therefore runs two threads per physical core.
+        "cpu_core_cpus": read_sysfs("/sys/devices/cpu_core/cpus"),
+        "cpu_atom_cpus": read_sysfs("/sys/devices/cpu_atom/cpus"),
+        "cpu0_thread_siblings": read_sysfs("/sys/devices/system/cpu/cpu0/topology/thread_siblings_list"),
+        "scaling_driver": read_sysfs("/sys/devices/system/cpu/cpu0/cpufreq/scaling_driver"),
+        "scaling_governor": read_sysfs("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"),
+        "transparent_hugepage": read_sysfs("/sys/kernel/mm/transparent_hugepage/enabled"),
+    }
+
+
+def raw_rounds(rows: list, keys: tuple) -> list:
+    """Every round's samples verbatim, so medians and the ratio can be recomputed from the artifact."""
+    return [{k: r.get(k) for k in ("round", *keys)} for r in rows]
+
+
+LATENCY_RAW = ("first_arm", "masstree_ns_per_op", "expanse_ns_per_op")
 
 
 def git_sha() -> str:
@@ -228,6 +296,7 @@ def sweep_latency(env: dict, quick: bool) -> dict:
                         "masstree_over_expanse": round(ratio, 4),
                         "ci_lower": round(lo, 4), "ci_upper": round(hi, 4),
                         "verdict": verdict(lo, hi),
+                        "rounds_raw": raw_rounds(rows, LATENCY_RAW),
                     })
                     print(f"  {pillar:<12} map {dist:<10} N={n:<8} k={k:<5} ratio {ratio:.3f} [{lo:.3f}, {hi:.3f}]")
     return {"cells": cells}
@@ -253,6 +322,7 @@ def sweep_string_latency(env: dict, quick: bool) -> dict:
                         "population": head["population"], "mean_key_len": head["mean_key_len"],
                         "masstree_not_representable": head["masstree_not_representable"],
                         "scan_k": k, "rounds": len(rows), "expanse_ns_per_op_median": exp_med,
+                        "rounds_raw": raw_rounds(rows, LATENCY_RAW),
                     }
                     if head["masstree_not_representable"] == 0 and head["masstree_ns_per_op"] is not None:
                         mt = [r["masstree_ns_per_op"] for r in rows]
@@ -306,6 +376,7 @@ def sweep_sensitivity(env: dict, quick: bool) -> dict:
                         "expanse_ns_per_op_median": round(sorted(exp)[len(exp) // 2], 4),
                         "masstree_over_expanse": round(ratio, 4), "ci_lower": round(lo, 4), "ci_upper": round(hi, 4),
                         "verdict": verdict(lo, hi),
+                        "rounds_raw": raw_rounds(rows, LATENCY_RAW),
                     })
                     print(f"  {pillar:<12} {arm:>3} {dist:<9} {order:<8} {table:<10} N={n:<8} ratio {ratio:.3f} [{lo:.3f}, {hi:.3f}]")
     return {"memory": memory, "latency": latency}
@@ -319,7 +390,9 @@ def concurrent_cell(arm: str, writers: int, readers: int, env: dict) -> dict:
     cell = {"workload_id": head["workload_id"], "arm": arm, "dist": head["dist"],
             "writers": writers, "readers": readers, "prefill": head["prefill"],
             "fresh_keys": head["fresh_keys"], "rounds": len(rows),
-            "cpus_allowed": head["cpus_allowed"], "pin_applied": head["pin_applied"]}
+            "cpus_allowed": head["cpus_allowed"], "pin_applied": head["pin_applied"],
+            "rounds_raw": raw_rounds(rows, ("masstree_writer_mops", "expanse_writer_mops",
+                                            "masstree_reader_mops", "expanse_reader_mops"))}
     for role in ("writer", "reader"):
         mt = [r[f"masstree_{role}_mops"] for r in rows if r[f"masstree_{role}_mops"] is not None]
         exp = [r[f"expanse_{role}_mops"] for r in rows if r[f"expanse_{role}_mops"] is not None]
@@ -354,7 +427,9 @@ def health_cell(arm: str, writers: int, readers: int, env: dict) -> dict:
             "read_ops": med_range("read_ops"), "read_attempts": med_range("read_attempts"),
             "read_fallbacks": med_range("read_fallbacks"), "sample_spins": med_range("sample_spins"),
             "write_ops": med_range("write_ops"),
-            "cpus_allowed": rows[0]["cpus_allowed"], "pin_applied": rows[0]["pin_applied"]}
+            "cpus_allowed": rows[0]["cpus_allowed"], "pin_applied": rows[0]["pin_applied"],
+            "rounds_raw": raw_rounds(rows, ("restart_share", "fallback_share", "read_ops", "read_attempts",
+                                            "read_fallbacks", "sample_spins", "write_ops"))}
     cell["starvation_flag"] = cell["fallback_share"]["median"] >= 0.01
     print(f"  health {arm:>3} W={writers:<2} R={readers:<2} restart {cell['restart_share']['median']:.4%}  "
           f"fallback {cell['fallback_share']['median']:.4%}{'  STARVATION' if cell['starvation_flag'] else ''}")
@@ -415,6 +490,14 @@ def main() -> int:
         "suite": "masstree_comparison", "issue": 661, "commit": git_sha(),
         "masstree_commit": MASSTREE_COMMIT,
         "cpu": platform.processor() or platform.machine(), "platform": platform.platform(),
+        "host": host_facts(),
+        "estimators": {
+            "ratio": "mean(Masstree rounds) / mean(Expanse rounds) — or Expanse / Masstree for throughput — "
+                     "with a two-sample BCa 95% interval (scripts/bca_bootstrap.py)",
+            "columns": "per-arm medians of the same rounds; the ratio column is not the quotient of the two "
+                       "median columns beside it",
+            "raw": "every cell carries rounds_raw, the per-round samples verbatim",
+        },
         "rustflags": env["RUSTFLAGS"].strip(),
         "cxx_flags": "-march=haswell -O3 -std=c++17 -DNDEBUG (assertions, preconditions and invariants off)",
         "allocator": "glibc malloc, superpages on (METHODOLOGY §3.3)",
@@ -423,7 +506,7 @@ def main() -> int:
     }
 
     validate_log = validate(env)
-    provenance["loads"].append(load_snapshot("after-validate"))
+    add_load(provenance, "after-validate")
     (out_dir / "validate.log").write_text(validate_log)
 
     # The single-threaded phases run first, on the host as the start snapshot
@@ -435,19 +518,19 @@ def main() -> int:
     if not only_concurrent:
         print("\n[1/5] memory — integer map (λ sweep and structured distributions)")
         memory = sweep_memory(env, quick)
-        provenance["loads"].append(load_snapshot("after-memory"))
+        add_load(provenance, "after-memory")
         print("\n[2/5] memory — string map (population sweep)")
         smem = sweep_string_memory(env, quick)
-        provenance["loads"].append(load_snapshot("after-string-memory"))
+        add_load(provenance, "after-string-memory")
         print("\n[3/5] latency — integer map")
         latency = sweep_latency(env, quick)
-        provenance["loads"].append(load_snapshot("after-latency"))
+        add_load(provenance, "after-latency")
         print("\n[4/5] latency — string map")
         slat = sweep_string_latency(env, quick)
-        provenance["loads"].append(load_snapshot("after-string-latency"))
+        add_load(provenance, "after-string-latency")
         print("\n[5/5] sensitivity — insertion order (§10.2) and the concurrent table (§10.3)")
         order = sweep_sensitivity(env, quick)
-        provenance["loads"].append(load_snapshot("end"))
+        add_load(provenance, "end")
 
         (out_dir / "baseline_memory.json").write_text(json.dumps({"provenance": provenance, **memory}, indent=2) + "\n")
         (out_dir / "baseline_string_memory.json").write_text(json.dumps({"provenance": provenance, **smem}, indent=2) + "\n")
@@ -466,7 +549,7 @@ def main() -> int:
         conc_prov = dict(provenance)
         conc_prov["loads"] = [load_snapshot("start")]
         conc = sweep_concurrent(env, quick)
-        conc_prov["loads"].append(load_snapshot("after-concurrent"))
+        add_load(conc_prov, "after-concurrent")
         (out_dir / "baseline_concurrent.json").write_text(json.dumps({"provenance": conc_prov, **conc}, indent=2) + "\n")
         print(f"wrote {out_dir}/baseline_concurrent.json")
         start_load = conc_prov["loads"][0]["load1"]

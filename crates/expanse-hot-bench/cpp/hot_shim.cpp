@@ -74,6 +74,12 @@ struct AlignedEntry {
     size_t size;
 };
 AlignedEntry g_aligned[kAlignedSideTableSlots];
+// Live entries. When zero the free path never takes the side table's lock,
+// which is every free on a build that never page-aligns (HOT, Expanse alone).
+std::atomic<size_t> g_aligned_live{0};
+// A taken slot keeps a non-null sentinel so probe chains stay intact; the
+// record path may reuse it.
+inline void *aligned_tombstone() { return reinterpret_cast<void *>(uintptr_t(1)); }
 std::atomic<int> g_aligned_lock{0};
 
 inline void aligned_lock() {
@@ -92,7 +98,8 @@ inline void aligned_record(void *p, size_t size) {
     aligned_lock();
     size_t i = aligned_slot(p);
     for (size_t n = 0; n < kAlignedSideTableSlots; ++n, i = (i + 1) % kAlignedSideTableSlots) {
-        if (g_aligned[i].ptr == nullptr || g_aligned[i].ptr == p) {
+        if (g_aligned[i].ptr == nullptr || g_aligned[i].ptr == p || g_aligned[i].ptr == aligned_tombstone()) {
+            if (g_aligned[i].ptr != p) g_aligned_live.fetch_add(1, std::memory_order_relaxed);
             g_aligned[i].ptr = p;
             g_aligned[i].size = size;
             aligned_unlock();
@@ -115,8 +122,9 @@ inline size_t aligned_take(void *p) {
             // Tombstone-free removal: keep the probe chain intact by leaving a
             // sentinel size of 0 at a non-null pointer that can never be freed
             // twice; the slot is reusable by `aligned_record` on a match.
-            g_aligned[i].ptr = reinterpret_cast<void *>(uintptr_t(1));
+            g_aligned[i].ptr = aligned_tombstone();
             g_aligned[i].size = 0;
+            g_aligned_live.fetch_sub(1, std::memory_order_relaxed);
             aligned_unlock();
             return sz;
         }
@@ -147,11 +155,13 @@ inline void note_free(void *p) {
     // A page-aligned block is subtracted at the size it was recorded with,
     // whether or not the census is armed now (its recording may predate a
     // reset); an unrecorded block is measured as it always was.
-    if (size_t recorded = aligned_take(p)) {
-        if (g_armed.load(std::memory_order_relaxed) == 0) return;
-        g_live.fetch_sub((long long) recorded, std::memory_order_relaxed);
-        g_frees.fetch_add(1, std::memory_order_relaxed);
-        return;
+    if (g_aligned_live.load(std::memory_order_relaxed) != 0) {
+        if (size_t recorded = aligned_take(p)) {
+            if (g_armed.load(std::memory_order_relaxed) == 0) return;
+            g_live.fetch_sub((long long) recorded, std::memory_order_relaxed);
+            g_frees.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
     }
     if (g_armed.load(std::memory_order_relaxed) == 0) return;
     long long n = static_cast<long long>(malloc_usable_size(p));

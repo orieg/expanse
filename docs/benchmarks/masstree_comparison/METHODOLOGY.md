@@ -608,3 +608,36 @@ and nothing else; the restart share and the fallback share are marked
 is evaluated on MC1 alone. Instrumenting the string reader is an engine change
 outside this suite, tracked in [#721](https://github.com/orieg/expanse/issues/721).
 
+### 10.6 Harness amendments before the pre-merge re-run
+
+Review of the first measurement (harness commit `82966aae`) found five things
+in the harness, none in the predictions. Each is an amendment to how the cells
+are taken, so the suite is re-run at the amended commit and every published
+number carries the new commit; nothing is patched in place (§8.10).
+
+- **Arm order.** Every round timed Masstree first and Expanse second, so
+  whatever a timed loop leaves behind — a warmed cache, a raised clock — was
+  inherited by Expanse alone. The arm timed first now alternates per round,
+  and each raw row records `first_arm`.
+- **Scan starts.** One thousand starts at every k meant a k = 10 round
+  visited 10⁴ elements and a k = 1000 round 10⁶; the smallest cells were the
+  shortest timed windows in the suite. Starts are now `max(1000, 10⁶ / k)`,
+  cycled from the probe stream when it is shorter, so every k visits about
+  10⁶ elements per round (`workload::scan_starts`, pinned by a unit test).
+- **Raw rounds.** Every cell carries `rounds_raw`, the per-round samples
+  verbatim. The ratio column is `mean(Masstree rounds) / mean(Expanse
+  rounds)` with a two-sample BCa interval; the per-arm columns beside it are
+  medians of the same rounds, so the ratio is not the quotient of the two
+  columns, and the artifact now states so in `provenance.estimators`.
+- **Provenance.** The load series adds the host's busy CPU between snapshots
+  from `/proc/stat` jiffies, in core-equivalents — exact where the load
+  average lags — and the header records the CPU model, the frequency driver
+  and governor, the transparent-huge-page mode and the P-core / E-core / SMT
+  topology.
+- **Census.** The allocator shim's free path skips the page-aligned side
+  table when the table holds nothing, which is every free on a build that
+  never page-aligns. The figures it publishes are unchanged, checked against
+  the HOT arm's reference cells before the re-run.
+
+The predictions of §6 are untouched; the verdicts are re-evaluated against
+the re-run, and README §8 says where they moved.
