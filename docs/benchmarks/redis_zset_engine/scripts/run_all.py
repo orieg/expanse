@@ -11,6 +11,7 @@ stdout under `--json`) and regenerates the dual-theme SVG charts:
   4. zset_memory  -> baseline_memory.json   (Pillar 4: bytes/member)
 """
 
+import os
 import json
 import subprocess
 import sys
@@ -21,6 +22,12 @@ REPO_ROOT = BASE_DIR.parent.parent.parent
 RESULTS_DIR = BASE_DIR / "results"
 SCRIPTS_DIR = BASE_DIR / "scripts"
 
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+from bench_provenance import (  # noqa: E402
+    add_load, attach, estimators, git_sha, host_facts, rewrite,
+)
+
+
 BENCHES = [
     ("zset_zadd", "baseline_zadd.json"),
     ("zset_range", "baseline_range.json"),
@@ -29,7 +36,7 @@ BENCHES = [
 ]
 
 
-def run_bench(bench_name: str, out_file: str, out_dir: Path, quick: bool) -> None:
+def run_bench(bench_name: str, out_file: str, out_dir: Path, quick: bool, prov: dict) -> None:
     print(f"==> Running {bench_name} (quick={quick})...")
     cmd = ["cargo", "bench", "-p", "expanse-trie", "--bench", bench_name, "--"]
     if quick:
@@ -51,7 +58,7 @@ def run_bench(bench_name: str, out_file: str, out_dir: Path, quick: bool) -> Non
 
     out_dir.mkdir(parents=True, exist_ok=True)
     with open(out_dir / out_file, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+        json.dump(attach(payload, prov), f, indent=2)
     print(f"    Saved {out_dir / out_file}")
 
 
@@ -63,8 +70,26 @@ def main() -> None:
     # committed results/baseline_*.json — the corruption class fixed for the
     # llm_inference suite in #352.
     out_dir = RESULTS_DIR / "quick" if quick else RESULTS_DIR
+    prov = {
+        "suite": "redis_zset_engine",
+        "commit": git_sha(REPO_ROOT),
+        "host": host_facts(),
+        "estimators": estimators(
+            "per-arm ns/op and B/member as the harness reports them; a quoted ratio is Expanse over the named competitor on the same scenario"
+        ),
+        "core_pin": os.environ.get("EXPANSE_BENCH_PIN_APPLIED", "unset"),
+        "quick": quick,
+        "loads": [],
+    }
+    add_load(prov, "start")
+
     for bench_name, out_file in BENCHES:
-        run_bench(bench_name, out_file, out_dir, quick)
+        run_bench(bench_name, out_file, out_dir, quick, prov)
+    add_load(prov, "end")
+    # The artifacts were written inside the loop above, before this
+    # snapshot existed; re-stamp so each carries the whole load series.
+    rewrite((out_dir / f for _, f in BENCHES), prov)
+
     if quick:
         print("\n==> Skipping chart regeneration (--quick).")
         print(f"    Quick smoke results were written to {out_dir} (gitignored);")

@@ -35,6 +35,9 @@ CRATE = REPO_ROOT / "crates" / "expanse-hot-bench" / "Cargo.toml"
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from bca_bootstrap import bca_bootstrap_ratio_ci  # noqa: E402
+from bench_provenance import (  # noqa: E402
+    add_load, estimators, git_sha, host_facts, raw_rounds,
+)
 
 # λ targets spanning the LEAF_CAP cascade (§9.4: LEAF_CAP = 32, so the cascade
 # sits around λ ≈ 30). Both arms are driven to the same occupancies, which is
@@ -65,6 +68,10 @@ CONCURRENT_MIXED_WRITERS = [0, 1, 2, 4, 8]             # C2: W, R = 8
 CONCURRENT_MIXED_READERS = 8
 CONCURRENT_HEALTH_WRITERS = [1, 2, 4, 8]               # H: the C2 cells with writers
 CONCURRENT_ARMS = ["set", "map"]
+
+# The per-round samples every latency cell keeps verbatim (#732), so a published
+# median and ratio can be recomputed from the artifact.
+LATENCY_RAW = ("first_arm", "order", "hot_ns_per_op", "expanse_ns_per_op")
 CONCURRENT_MEMORY_ARMS = {"set": "rowex_set", "map": "rowex_map"}
 # A second target dir for the diagnostic build, so the two feature sets can
 # never overwrite each other's binary (decision 5).
@@ -80,56 +87,6 @@ def population_for_lambda(arm: str, lam: float) -> int:
     """Population that puts `arm` at occupancy `lam`."""
     expanses = 2 ** (16 - (64 - keyspace_bits(arm)))
     return max(1000, int(round(lam * expanses)))
-
-
-def load_snapshot(label: str) -> dict:
-    """Load average, recorded before and between comparison runs.
-
-    A benchmark host under contention invalidates the run regardless of what the
-    numbers say (``docs/BENCHMARKING.md`` rule 2).
-    """
-    try:
-        one, five, fifteen = os.getloadavg()
-    except OSError:
-        one = five = fifteen = float("nan")
-    return {"label": label, "load1": round(one, 2), "load5": round(five, 2),
-            "load15": round(fifteen, 2), "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-
-
-def git_sha() -> str:
-    """The commit under test, for provenance (§8.7).
-
-    A checkout rsynced to a benchmark host without its `.git` cannot answer
-    `rev-parse`; `EXPANSE_BENCH_COMMIT` then names the commit explicitly rather
-    than letting the artifact say `unknown`.
-    """
-    explicit = os.environ.get("EXPANSE_BENCH_COMMIT")
-    if explicit:
-        return explicit
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=REPO_ROOT,
-            stderr=subprocess.DEVNULL,
-        ).decode().strip()
-    except Exception:
-        return "unknown"
-
-
-def raw_rounds(rows: list, keys: tuple) -> list:
-    """Every round's samples verbatim, so a median or a ratio can be recomputed.
-
-    `first_arm` is one of them: with the arm timed first alternating per round
-    (§12.1), a reader can check that the alternation actually happened and that
-    neither arm's column is the average of two different positions.
-
-    Local to this runner for now; #732 lifts it, `host_facts`, the jiffy-based
-    load snapshot and the `estimators` block into one shared module beside
-    `scripts/bca_bootstrap.py` and calls it from every comparative runner.
-    """
-    return [{k: r.get(k) for k in ("round", *keys)} for r in rows]
-
-
-LATENCY_RAW = ("first_arm", "order", "hot_ns_per_op", "expanse_ns_per_op")
 
 
 def build(env: dict) -> None:
@@ -460,19 +417,23 @@ def main() -> int:
     provenance = {
         "suite": "hot_comparison",
         "issue": 660,
-        "commit": git_sha(),
+        "commit": git_sha(REPO_ROOT),
         "hot_commit": "96bf6fb",
         "cpu": platform.processor() or platform.machine(),
         "platform": platform.platform(),
+        "host": host_facts(),
+        "estimators": estimators(
+            "mean(HOT rounds) / mean(Expanse rounds) — or Expanse / ROWEX for throughput — "
+            "with a two-sample BCa 95% interval (scripts/bca_bootstrap.py)"
+        ),
         "rustflags": env["RUSTFLAGS"].strip(),
         "cxx_flags": "-march=haswell -O3 -std=c++17 -DNDEBUG",
-        # The pin is applied by run.sh for every phase, not only the concurrent
-        # one; recording it only there left the single-threaded artifacts unable
-        # to say which cores they were measured on.
         "core_pin": os.environ.get("EXPANSE_BENCH_PIN_APPLIED", "unset"),
-        "loads": [load_snapshot("start")],
+        "loads": [],
         "quick": quick,
     }
+
+    add_load(provenance, "start")
 
     if concurrent:
         print("\n[concurrent] HOT-ROWEX arm (#692, §11) — one process per cell, "
@@ -481,8 +442,13 @@ def main() -> int:
         conc_prov["issue"] = 692
         conc_prov["tbb_commit"] = "4c73c3b"
         conc_prov["pin_applied"] = os.environ.get("EXPANSE_BENCH_PIN_APPLIED", "unset")
+        # `dict()` is a shallow copy, so this phase needs its own list or its
+        # snapshots and the single-threaded phases' are the same object and each
+        # artifact publishes the other's load series.
+        conc_prov["loads"] = []
+        add_load(conc_prov, "start")
         conc = sweep_concurrent(env, quick)
-        conc_prov["loads"].append(load_snapshot("after-concurrent"))
+        add_load(conc_prov, "after-concurrent")
         (out_dir / "baseline_concurrent.json").write_text(
             json.dumps({"provenance": conc_prov, **conc}, indent=2) + "\n")
         print(f"wrote {out_dir}/baseline_concurrent.json")
@@ -498,12 +464,12 @@ def main() -> int:
                   "running; the comparison is contaminated (docs/BENCHMARKING.md rule 2)")
         if only_concurrent:
             return 0
-        provenance["loads"].append(load_snapshot("after-concurrent"))
+        add_load(provenance, "after-concurrent")
 
     if sensitivity:
         print("\n[sensitivity] §12.2 — the same population sorted and shuffled")
         sens = sweep_sensitivity(env, quick)
-        provenance["loads"].append(load_snapshot("after-sensitivity"))
+        add_load(provenance, "after-sensitivity")
         (out_dir / "baseline_sensitivity.json").write_text(
             json.dumps({"provenance": provenance, **sens}, indent=2) + "\n")
         print(f"wrote {out_dir}/baseline_sensitivity.json")
@@ -512,13 +478,13 @@ def main() -> int:
 
     print("\n[1/2] memory pillar — sweeping λ across the LEAF_CAP cascade")
     memory = sweep_memory(env, quick)
-    provenance["loads"].append(load_snapshot("after-memory"))
+    add_load(provenance, "after-memory")
 
     memory["payload_delta"] = payload_delta_check(memory["cells"])
 
     print("\n[2/2] latency pillars")
     latency = sweep_latency(env, quick)
-    provenance["loads"].append(load_snapshot("end"))
+    add_load(provenance, "end")
 
     (out_dir / "baseline_memory_curve.json").write_text(
         json.dumps({"provenance": provenance, **memory}, indent=2) + "\n")

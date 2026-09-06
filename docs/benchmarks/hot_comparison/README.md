@@ -657,7 +657,11 @@ itself is claimed.
 ### 7.2 Readers alongside writers
 
 Eight readers probe a 50/50 stream against the prefill while W writers insert;
-W = 0 is the reader-only reference.
+W = 0 is the reader-only reference. **The reader window is the writers' fixed
+work**, so the two arms' windows differ in length by the writer ratio and the
+population grows at different rates inside them — a reader column is not a
+fixed-duration measurement on both arms, and W = 0 is the only row where the
+two windows are the same length.
 
 ![Reader throughput alongside writers](results/chart_concurrent_readers.svg)
 
@@ -682,7 +686,13 @@ W = 0 is the reader-only reference.
   reader throughput then stays roughly flat as writers are added (15 → 28 → 25
   → 23 set; 26 → 24 → 24 → 22 map) while ROWEX's declines as its writers take
   more of the machine, which is why the ratio narrows toward W = 8 without
-  Expanse recovering.
+  Expanse recovering. **The mechanism of the collapse is unmeasured.** The
+  restart share cannot account for an eight-fold drop — it is 5–7% at every
+  writer count (§7.3) — and `sample_spins` ÷ `read_ops`, one to two waits per
+  lookup there, is the only counter this suite takes that speaks to it. No
+  hardware counter was taken on either arm, so nothing here attributes the fall
+  to a cache-line transfer, a futex or a bracket wait (§8.9 principle 1);
+  #737's shared `perf stat` wrapper is what would take one.
 - **Writers with readers present** *(not registered as a separate row;
   reported)*: the Expanse single writer drops from 8.64 to 2.29 M inserts/s
   (set) and 5.22 to 1.82 (map) when eight readers are probing; ROWEX's from
@@ -700,20 +710,26 @@ the writer mutex), read from the engine's `occ_stats` counters on a **separate
 `occ-stats` build** of the same cells, Expanse side only (§11.3, decision 5).
 Nothing in this table is a timing. 5 rounds per cell; median with range.
 
-| Arm | W | R | restart share, median [min, max] | fallback share | `sample_spins` ÷ `read_ops` (ratio of medians) |
-|---|--:|--:|---|---|---:|
-| set | 1 | 8 | 5.77% [5.67%, 5.82%] | 0 | 1.80 |
-| set | 2 | 8 | 5.45% [3.86%, 5.51%] | 0 | 1.67 |
-| set | 4 | 8 | 5.73% [5.20%, 6.24%] | 0 | 1.85 |
-| set | 8 | 8 | 7.21% [7.04%, 7.27%] | 0 | 1.82 |
-| map | 1 | 8 | 6.41% [6.31%, 6.53%] | 0 | 2.16 |
-| map | 2 | 8 | 6.53% [5.46%, 9.65%] | 0 | 1.95 |
-| map | 4 | 8 | 5.52% [4.92%, 5.92%] | 0 | 1.89 |
-| map | 8 | 8 | 5.33% [5.23%, 5.50%] | 0 | 1.92 |
+| Arm | W | R | restart share, median [min, max] | fallback share | `sample_spins` ÷ `read_ops` (ratio of medians) | §11.5.3 |
+|---|--:|--:|---|---|---:|---|
+| set | 1 | 8 | 5.77% [5.67%, 5.82%] | 0 | 1.80 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 2 | 8 | 5.45% [3.86%, 5.51%] | 0 | 1.67 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 4 | 8 | 5.73% [5.20%, 6.24%] | 0 | 1.85 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 8 | 8 | 7.21% [7.04%, 7.27%] | 0 | 1.82 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 1 | 8 | 6.41% [6.31%, 6.53%] | 0 | 2.16 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 2 | 8 | 6.53% [5.46%, 9.65%] | 0 | 1.95 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 4 | 8 | 5.52% [4.92%, 5.92%] | 0 | 1.89 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 8 | 8 | 5.33% [5.23%, 5.50%] | 0 | 1.92 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
 
 - **No reader ever took the writer mutex**: `read_fallbacks` is zero in every
   round of every cell, so the §11.5.3 starvation falsifier (fallback share
-  ≥ 1%) did not fire — **`CONFIRMED`**.
+  ≥ 1%) did not fire — **`PASS_categorical_by_design`**, not `CONFIRMED`. A
+  fallback needs **64 consecutive failed optimistic walks**, and at the bracket
+  lengths a single writer holds, the probability of 64 in a row is negligible by
+  construction. The zero is a property of the construction, not a measured
+  property of the protocol: the falsifier could not have fired at these writer
+  counts whatever the engine did, and a falsifier that cannot fire is not a
+  measurement (AGENTS.md §8, C-b). METHODOLOGY §11.8 registers one that can.
 - **The restart share does not rise monotonically with W** — set 5.77 → 5.45
   → 5.73 → 7.21%, map 6.41 → 6.53 → 5.52 → 5.33% — so that half of the
   §11.5.3 hypothesis is **`REFUTED`**. It sits between 5% and 7% at every
@@ -773,7 +789,7 @@ sub-cells), 8 health cells, 20 memory cells.
 | Reader-only, set arm: `BOUNDARY_RESULT` (low-medium) | registered no-winner; **measured Expanse win** 1.175 [1.151, 1.239] |
 | Memory, map arm, all λ (high) | **CONFIRMED**, `PASS_categorical_by_design` |
 | Memory, set arm: Expanse wins λ ∈ [8, 23], ROWEX outside (medium) | **CONFIRMED** on both sides |
-| Health: fallback share < 1% at all W (falsifier) | **CONFIRMED** — zero fallbacks |
+| Health: fallback share < 1% at all W (falsifier) | **`PASS_categorical_by_design`** — zero fallbacks; a fallback needs 64 consecutive failed walks, which cannot occur at these bracket lengths (§7.3) |
 | Health: restart share rises monotonically with W | **REFUTED** — 5–7% at every W, not monotonic |
 | W = 16 cells | `not pre-registered`; reported: 0.088 (set), 0.128 (map) |
 | Writers with readers present | `not pre-registered`; reported: ROWEX wins every cell |
