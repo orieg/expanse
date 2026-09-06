@@ -566,8 +566,16 @@ git submodule update --init --depth 1 third_party/hot third_party/masstree
 docs/benchmarks/masstree_comparison/run.sh --concurrent        # everything, concurrent sweep last
 docs/benchmarks/masstree_comparison/run.sh --quick             # smoke, results/quick/
 python3 docs/benchmarks/masstree_comparison/scripts/tables.py  # README tables from results/
+python3 scripts/check_readme_tables.py --write                 # splice them into this README
 python3 docs/benchmarks/masstree_comparison/scripts/generate_charts.py
 ```
+
+**Tables reach this README only through `scripts/check_readme_tables.py`.** It
+re-runs the generator and fails when a row here is not the row `results/` now
+produces, so a re-measurement cannot leave a stale cell behind; `--write`
+performs the splice, and it rewrites table rows only, never the prose around
+them — a splice that reached prose is what reverted a corrected paragraph
+during this suite's own re-measurement (#736).
 
 The runner takes the host-wide benchmark lock and the P-core pin, runs the
 validation gate (`masstree_validate`, 39 deterministic checks) first and
