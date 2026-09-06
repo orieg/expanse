@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="0 0 960 340" width="100%" height="100%">
+  <title>Integer keys · latency at N = 1,000,000</title>
+  <defs>
+    <style>
+      .bg { fill: #ffffff; }
+      .border { stroke: #e2e8f0; stroke-width: 1px; fill: none; }
+      .grid { stroke: #f1f5f9; stroke-width: 1px; stroke-dasharray: 2,3; }
+      .axis { stroke: #cbd5e1; stroke-width: 1.5px; }
+      .divider { stroke: #e2e8f0; stroke-width: 1px; }
+
+      .t-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
+      .t-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #475569; }
+      .t-unit { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
+      .t-axis-label { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 500; fill: #64748b; }
+      .t-bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; fill: #0f172a; }
+      .t-legend { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 10.5px; font-weight: 600; fill: #0f172a; }
+
+      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 700; fill: #15803d; }
+      .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 600; fill: #2563eb; }
+      .t-note { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 9.5px; font-weight: 500; fill: #64748b; }
+
+      .b-expanse { fill: #16a34a; }
+      .b-art { fill: #2563eb; }
+      .b-masstree { fill: #2563eb; }
+      .b-btree { fill: #d97706; }
+      .b-hashmap { fill: #7c3aed; }
+
+      .badge-win { fill: #dcfce7; stroke: #86efac; stroke-width: 1px; }
+      .badge-win-text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 700; fill: #15803d; text-anchor: middle; }
+      .badge-loss { fill: #fef3c7; stroke: #fcd34d; stroke-width: 1px; }
+      .badge-loss-text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 700; fill: #b45309; text-anchor: middle; }
+
+      @media (prefers-color-scheme: dark) {
+        .bg { fill: #0d1117; }
+        .border { stroke: #30363d; }
+        .grid { stroke: #21262d; }
+        .axis { stroke: #484f58; }
+        .divider { stroke: #21262d; }
+        .t-title { fill: #f0f6fc; }
+        .t-sub { fill: #94a3b8; }
+        .t-unit { fill: #94a3b8; }
+        .t-axis-label { fill: #94a3b8; }
+        .t-bar-label { fill: #f8fafc; }
+        .t-legend { fill: #f8fafc; }
+        .t-val-accent { fill: #4ade80; }
+        .t-val-blue { fill: #38bdf8; }
+        .t-note { fill: #94a3b8; }
+        .b-expanse { fill: #22c55e; }
+        .b-art { fill: #3b82f6; }
+        .b-masstree { fill: #3b82f6; }
+        .b-btree { fill: #f59e0b; }
+        .b-hashmap { fill: #a855f7; }
+        .badge-win { fill: #052e16; stroke: #166534; }
+        .badge-win-text { fill: #4ade80; }
+        .badge-loss { fill: #451a03; stroke: #92400e; }
+        .badge-loss-text { fill: #fbbf24; }
+      }
+
+      :root[data-theme="dark"] .bg, [data-theme="dark"] .bg { fill: #0d1117; }
+      :root[data-theme="dark"] .border, [data-theme="dark"] .border { stroke: #30363d; }
+      :root[data-theme="dark"] .grid, [data-theme="dark"] .grid { stroke: #21262d; }
+      :root[data-theme="dark"] .axis, [data-theme="dark"] .axis { stroke: #484f58; }
+      :root[data-theme="dark"] .divider, [data-theme="dark"] .divider { stroke: #21262d; }
+      :root[data-theme="dark"] .t-title, [data-theme="dark"] .t-title { fill: #f0f6fc; }
+      :root[data-theme="dark"] .t-sub, [data-theme="dark"] .t-sub { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-unit, [data-theme="dark"] .t-unit { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-axis-label, [data-theme="dark"] .t-axis-label { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-bar-label, [data-theme="dark"] .t-bar-label { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-legend, [data-theme="dark"] .t-legend { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-val-accent, [data-theme="dark"] .t-val-accent { fill: #4ade80; }
+      :root[data-theme="dark"] .t-val-blue, [data-theme="dark"] .t-val-blue { fill: #38bdf8; }
+      :root[data-theme="dark"] .t-note, [data-theme="dark"] .t-note { fill: #94a3b8; }
+      :root[data-theme="dark"] .b-expanse, [data-theme="dark"] .b-expanse { fill: #22c55e; }
+      :root[data-theme="dark"] .b-art, [data-theme="dark"] .b-art { fill: #3b82f6; }
+      :root[data-theme="dark"] .b-masstree, [data-theme="dark"] .b-masstree { fill: #3b82f6; }
+      :root[data-theme="dark"] .b-btree, [data-theme="dark"] .b-btree { fill: #f59e0b; }
+      :root[data-theme="dark"] .b-hashmap, [data-theme="dark"] .b-hashmap { fill: #a855f7; }
+      :root[data-theme="dark"] .badge-win, [data-theme="dark"] .badge-win { fill: #052e16; stroke: #166534; }
+      :root[data-theme="dark"] .badge-win-text, [data-theme="dark"] .badge-win-text { fill: #4ade80; }
+      :root[data-theme="dark"] .badge-loss, [data-theme="dark"] .badge-loss { fill: #451a03; stroke: #92400e; }
+      :root[data-theme="dark"] .badge-loss-text, [data-theme="dark"] .badge-loss-text { fill: #fbbf24; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" class="bg" rx="6" />
+  <rect width="100%" height="100%" class="border" rx="6" />
+
+<rect class="bg" x="0" y="0" width="960" height="340"/>
+<text class="t-title" x="154" y="26">INTEGER KEYS · LATENCY AT N = 1,000,000</text>
+<text class="t-sub" x="154" y="43">Masstree ÷ Expanse, BCa 95% interval — right of the parity line means Expanse is faster</text>
+<line class="grid" x1="154.0" y1="60" x2="154.0" y2="270"/>
+<text class="t-axis-label" x="154.0" y="286.0" text-anchor="middle">0×</text>
+<line class="grid" x1="298.0" y1="60" x2="298.0" y2="270"/>
+<text class="t-axis-label" x="298.0" y="286.0" text-anchor="middle">5×</text>
+<line class="grid" x1="442.0" y1="60" x2="442.0" y2="270"/>
+<text class="t-axis-label" x="442.0" y="286.0" text-anchor="middle">10×</text>
+<line class="grid" x1="586.0" y1="60" x2="586.0" y2="270"/>
+<text class="t-axis-label" x="586.0" y="286.0" text-anchor="middle">15×</text>
+<line class="grid" x1="730.0" y1="60" x2="730.0" y2="270"/>
+<text class="t-axis-label" x="730.0" y="286.0" text-anchor="middle">20×</text>
+<line class="axis" x1="182.8" y1="60" x2="182.8" y2="270"/>
+<line x1="181.9" y1="74.5" x2="182.1" y2="74.5" stroke="#2563eb" stroke-width="2" opacity="0.55"/>
+<circle cx="182.0" cy="74.5" r="3.2" fill="#2563eb"/>
+<text class="t-axis-label" x="146" y="77.5" text-anchor="end">insert · clustered</text>
+<text class="t-legend" x="744" y="78.5" fill="#2563eb">0.972×</text>
+<line x1="175.9" y1="91.5" x2="176.3" y2="91.5" stroke="#2563eb" stroke-width="2" opacity="0.55"/>
+<circle cx="176.1" cy="91.5" r="3.2" fill="#2563eb"/>
+<text class="t-axis-label" x="146" y="94.5" text-anchor="end">insert · random</text>
+<text class="t-legend" x="744" y="95.5" fill="#2563eb">0.767×</text>
+<line x1="197.7" y1="108.5" x2="198.9" y2="108.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="198.3" cy="108.5" r="3.2" fill="#16a34a"/>
+<text class="t-axis-label" x="146" y="111.5" text-anchor="end">insert · sequential</text>
+<text class="t-legend" x="744" y="112.5" fill="#16a34a">1.538×</text>
+<line x1="173.0" y1="125.5" x2="173.5" y2="125.5" stroke="#2563eb" stroke-width="2" opacity="0.55"/>
+<circle cx="173.2" cy="125.5" r="3.2" fill="#2563eb"/>
+<text class="t-axis-label" x="146" y="128.5" text-anchor="end">insert · sparse</text>
+<text class="t-legend" x="744" y="129.5" fill="#2563eb">0.668×</text>
+<line x1="307.4" y1="142.5" x2="311.0" y2="142.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="309.2" cy="142.5" r="3.2" fill="#16a34a"/>
+<text class="t-axis-label" x="146" y="145.5" text-anchor="end">lookup_hit · clustered</text>
+<text class="t-legend" x="744" y="146.5" fill="#16a34a">5.388×</text>
+<line x1="243.6" y1="159.5" x2="245.7" y2="159.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="244.8" cy="159.5" r="3.2" fill="#16a34a"/>
+<text class="t-axis-label" x="146" y="162.5" text-anchor="end">lookup_hit · random</text>
+<text class="t-legend" x="744" y="163.5" fill="#16a34a">3.153×</text>
+<line x1="435.5" y1="176.5" x2="477.5" y2="176.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="454.7" cy="176.5" r="3.2" fill="#16a34a"/>
+<text class="t-axis-label" x="146" y="179.5" text-anchor="end">lookup_hit · sequential</text>
+<text class="t-legend" x="744" y="180.5" fill="#16a34a">10.441×</text>
+<line x1="516.9" y1="193.5" x2="583.3" y2="193.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="547.1" cy="193.5" r="3.2" fill="#16a34a"/>
+<text class="t-axis-label" x="146" y="196.5" text-anchor="end">lookup_hit · sparse</text>
+<text class="t-legend" x="744" y="197.5" fill="#16a34a">13.648×</text>
+<line x1="334.1" y1="210.5" x2="337.0" y2="210.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="335.5" cy="210.5" r="3.2" fill="#16a34a"/>
+<text class="t-axis-label" x="146" y="213.5" text-anchor="end">lookup_miss · clustered</text>
+<text class="t-legend" x="744" y="214.5" fill="#16a34a">6.303×</text>
+<line x1="244.6" y1="227.5" x2="246.5" y2="227.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="245.5" cy="227.5" r="3.2" fill="#16a34a"/>
+<text class="t-axis-label" x="146" y="230.5" text-anchor="end">lookup_miss · random</text>
+<text class="t-legend" x="744" y="231.5" fill="#16a34a">3.178×</text>
+<line x1="357.6" y1="244.5" x2="370.6" y2="244.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="364.7" cy="244.5" r="3.2" fill="#16a34a"/>
+<text class="t-axis-label" x="146" y="247.5" text-anchor="end">lookup_miss · sequential</text>
+<text class="t-legend" x="744" y="248.5" fill="#16a34a">7.315×</text>
+<line x1="404.1" y1="261.5" x2="417.2" y2="261.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="410.9" cy="261.5" r="3.2" fill="#16a34a"/>
+<text class="t-axis-label" x="146" y="264.5" text-anchor="end">lookup_miss · sparse</text>
+<text class="t-legend" x="744" y="265.5" fill="#16a34a">8.919×</text>
+<text class="t-note" x="154" y="316">Amber = interval spans parity (BOUNDARY_RESULT); blue = Masstree faster; green = Expanse faster.</text>
+</svg>

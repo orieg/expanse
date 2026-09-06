@@ -1,3 +1,6 @@
 [submodule "third_party/hot"]
 	path = third_party/hot
 	url = https://github.com/speedskater/hot.git
+[submodule "third_party/masstree"]
+	path = third_party/masstree
+	url = https://github.com/kohler/masstree-beta.git

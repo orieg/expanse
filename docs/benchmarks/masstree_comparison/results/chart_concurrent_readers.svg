@@ -1,0 +1,176 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="0 0 960 680" width="100%" height="100%">
+  <title>Reader throughput alongside writers — SyncExpanse vs Masstree</title>
+  <defs>
+    <style>
+      .bg { fill: #ffffff; }
+      .border { stroke: #e2e8f0; stroke-width: 1px; fill: none; }
+      .grid { stroke: #f1f5f9; stroke-width: 1px; stroke-dasharray: 2,3; }
+      .axis { stroke: #cbd5e1; stroke-width: 1.5px; }
+      .divider { stroke: #e2e8f0; stroke-width: 1px; }
+
+      .t-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
+      .t-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #475569; }
+      .t-unit { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
+      .t-axis-label { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 500; fill: #64748b; }
+      .t-bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; fill: #0f172a; }
+      .t-legend { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 10.5px; font-weight: 600; fill: #0f172a; }
+
+      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 700; fill: #15803d; }
+      .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 600; fill: #2563eb; }
+      .t-note { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 9.5px; font-weight: 500; fill: #64748b; }
+
+      .b-expanse { fill: #16a34a; }
+      .b-art { fill: #2563eb; }
+      .b-masstree { fill: #2563eb; }
+      .b-btree { fill: #d97706; }
+      .b-hashmap { fill: #7c3aed; }
+
+      .badge-win { fill: #dcfce7; stroke: #86efac; stroke-width: 1px; }
+      .badge-win-text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 700; fill: #15803d; text-anchor: middle; }
+      .badge-loss { fill: #fef3c7; stroke: #fcd34d; stroke-width: 1px; }
+      .badge-loss-text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 700; fill: #b45309; text-anchor: middle; }
+
+      @media (prefers-color-scheme: dark) {
+        .bg { fill: #0d1117; }
+        .border { stroke: #30363d; }
+        .grid { stroke: #21262d; }
+        .axis { stroke: #484f58; }
+        .divider { stroke: #21262d; }
+        .t-title { fill: #f0f6fc; }
+        .t-sub { fill: #94a3b8; }
+        .t-unit { fill: #94a3b8; }
+        .t-axis-label { fill: #94a3b8; }
+        .t-bar-label { fill: #f8fafc; }
+        .t-legend { fill: #f8fafc; }
+        .t-val-accent { fill: #4ade80; }
+        .t-val-blue { fill: #38bdf8; }
+        .t-note { fill: #94a3b8; }
+        .b-expanse { fill: #22c55e; }
+        .b-art { fill: #3b82f6; }
+        .b-masstree { fill: #3b82f6; }
+        .b-btree { fill: #f59e0b; }
+        .b-hashmap { fill: #a855f7; }
+        .badge-win { fill: #052e16; stroke: #166534; }
+        .badge-win-text { fill: #4ade80; }
+        .badge-loss { fill: #451a03; stroke: #92400e; }
+        .badge-loss-text { fill: #fbbf24; }
+      }
+
+      :root[data-theme="dark"] .bg, [data-theme="dark"] .bg { fill: #0d1117; }
+      :root[data-theme="dark"] .border, [data-theme="dark"] .border { stroke: #30363d; }
+      :root[data-theme="dark"] .grid, [data-theme="dark"] .grid { stroke: #21262d; }
+      :root[data-theme="dark"] .axis, [data-theme="dark"] .axis { stroke: #484f58; }
+      :root[data-theme="dark"] .divider, [data-theme="dark"] .divider { stroke: #21262d; }
+      :root[data-theme="dark"] .t-title, [data-theme="dark"] .t-title { fill: #f0f6fc; }
+      :root[data-theme="dark"] .t-sub, [data-theme="dark"] .t-sub { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-unit, [data-theme="dark"] .t-unit { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-axis-label, [data-theme="dark"] .t-axis-label { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-bar-label, [data-theme="dark"] .t-bar-label { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-legend, [data-theme="dark"] .t-legend { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-val-accent, [data-theme="dark"] .t-val-accent { fill: #4ade80; }
+      :root[data-theme="dark"] .t-val-blue, [data-theme="dark"] .t-val-blue { fill: #38bdf8; }
+      :root[data-theme="dark"] .t-note, [data-theme="dark"] .t-note { fill: #94a3b8; }
+      :root[data-theme="dark"] .b-expanse, [data-theme="dark"] .b-expanse { fill: #22c55e; }
+      :root[data-theme="dark"] .b-art, [data-theme="dark"] .b-art { fill: #3b82f6; }
+      :root[data-theme="dark"] .b-masstree, [data-theme="dark"] .b-masstree { fill: #3b82f6; }
+      :root[data-theme="dark"] .b-btree, [data-theme="dark"] .b-btree { fill: #f59e0b; }
+      :root[data-theme="dark"] .b-hashmap, [data-theme="dark"] .b-hashmap { fill: #a855f7; }
+      :root[data-theme="dark"] .badge-win, [data-theme="dark"] .badge-win { fill: #052e16; stroke: #166534; }
+      :root[data-theme="dark"] .badge-win-text, [data-theme="dark"] .badge-win-text { fill: #4ade80; }
+      :root[data-theme="dark"] .badge-loss, [data-theme="dark"] .badge-loss { fill: #451a03; stroke: #92400e; }
+      :root[data-theme="dark"] .badge-loss-text, [data-theme="dark"] .badge-loss-text { fill: #fbbf24; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" class="bg" rx="6" />
+  <rect width="100%" height="100%" class="border" rx="6" />
+
+  <text x="30" y="34" class="t-title">Reader throughput alongside writers — SyncExpanse vs Masstree</text>
+  <text x="30" y="50" class="t-sub">C2: 8 readers probe 50/50 while W writers insert; W=0 is the reader-only reference &#183; M lookups/s (median of rounds) &#183; higher is better</text>
+  <g transform="translate(640, 20)">
+    <rect x="0" y="0" width="10" height="10" rx="2" class="b-expanse"/>
+    <text x="14" y="9" class="t-legend">Expanse</text>
+    <rect x="90" y="0" width="10" height="10" rx="2" class="b-masstree"/>
+    <text x="104" y="9" class="t-legend">Masstree</text>
+  </g>
+  <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
+  <text x="30" y="108" class="t-bar-label">map · W=0 R=8</text>
+  <text x="30" y="122" class="t-sub">masstree_conc_map_64bit · 15 rounds</text>
+  <rect x="300" y="92" width="224.0" height="11" rx="2" class="b-expanse"/>
+  <text x="532.0" y="101" class="t-val-accent">142.84</text>
+  <rect x="300" y="109" width="91.6" height="11" rx="2" class="b-masstree"/>
+  <text x="399.6" y="118" class="t-val-blue">58.42</text>
+  <rect x="800" y="100" width="130" height="20" rx="3" class="badge-win"/>
+  <text x="865" y="114" class="badge-win-text">Expanse 2.44x</text>
+  <text x="30" y="164" class="t-bar-label">map · W=1 R=8</text>
+  <text x="30" y="178" class="t-sub">masstree_conc_map_64bit · 15 rounds</text>
+  <rect x="300" y="148" width="29.3" height="11" rx="2" class="b-expanse"/>
+  <text x="337.3" y="157" class="t-val-accent">18.68</text>
+  <rect x="300" y="165" width="67.7" height="11" rx="2" class="b-masstree"/>
+  <text x="375.7" y="174" class="t-val-blue">43.16</text>
+  <rect x="800" y="156" width="130" height="20" rx="3" class="badge-loss"/>
+  <text x="865" y="170" class="badge-loss-text">Masstree 2.31x</text>
+  <text x="30" y="220" class="t-bar-label">map · W=2 R=8</text>
+  <text x="30" y="234" class="t-sub">masstree_conc_map_64bit · 15 rounds</text>
+  <rect x="300" y="204" width="48.6" height="11" rx="2" class="b-expanse"/>
+  <text x="356.6" y="213" class="t-val-accent">31.00</text>
+  <rect x="300" y="221" width="63.3" height="11" rx="2" class="b-masstree"/>
+  <text x="371.3" y="230" class="t-val-blue">40.35</text>
+  <rect x="800" y="212" width="130" height="20" rx="3" class="badge-loss"/>
+  <text x="865" y="226" class="badge-loss-text">Masstree 1.30x</text>
+  <text x="30" y="276" class="t-bar-label">map · W=4 R=8</text>
+  <text x="30" y="290" class="t-sub">masstree_conc_map_64bit · 15 rounds</text>
+  <rect x="300" y="260" width="27.4" height="11" rx="2" class="b-expanse"/>
+  <text x="335.4" y="269" class="t-val-accent">17.45</text>
+  <rect x="300" y="277" width="58.9" height="11" rx="2" class="b-masstree"/>
+  <text x="366.9" y="286" class="t-val-blue">37.56</text>
+  <rect x="800" y="268" width="130" height="20" rx="3" class="badge-loss"/>
+  <text x="865" y="282" class="badge-loss-text">Masstree 2.15x</text>
+  <text x="30" y="332" class="t-bar-label">map · W=8 R=8</text>
+  <text x="30" y="346" class="t-sub">masstree_conc_map_64bit · 15 rounds</text>
+  <rect x="300" y="316" width="37.6" height="11" rx="2" class="b-expanse"/>
+  <text x="345.6" y="325" class="t-val-accent">23.97</text>
+  <rect x="300" y="333" width="48.4" height="11" rx="2" class="b-masstree"/>
+  <text x="356.4" y="342" class="t-val-blue">30.84</text>
+  <rect x="800" y="324" width="130" height="20" rx="3" class="badge-loss"/>
+  <text x="865" y="338" class="badge-loss-text">Masstree 1.29x</text>
+  <text x="30" y="388" class="t-bar-label">str · W=0 R=8</text>
+  <text x="30" y="402" class="t-sub">masstree_conc_str · 15 rounds</text>
+  <rect x="300" y="372" width="49.2" height="11" rx="2" class="b-expanse"/>
+  <text x="357.2" y="381" class="t-val-accent">31.37</text>
+  <rect x="300" y="389" width="57.9" height="11" rx="2" class="b-masstree"/>
+  <text x="365.9" y="398" class="t-val-blue">36.89</text>
+  <rect x="800" y="380" width="130" height="20" rx="3" class="badge-loss"/>
+  <text x="865" y="394" class="badge-loss-text">Masstree 1.18x</text>
+  <text x="30" y="444" class="t-bar-label">str · W=1 R=8</text>
+  <text x="30" y="458" class="t-sub">masstree_conc_str · 15 rounds</text>
+  <rect x="300" y="428" width="10.0" height="11" rx="2" class="b-expanse"/>
+  <text x="318.0" y="437" class="t-val-accent">6.40</text>
+  <rect x="300" y="445" width="42.1" height="11" rx="2" class="b-masstree"/>
+  <text x="350.1" y="454" class="t-val-blue">26.87</text>
+  <rect x="800" y="436" width="130" height="20" rx="3" class="badge-loss"/>
+  <text x="865" y="450" class="badge-loss-text">Masstree 4.20x</text>
+  <text x="30" y="500" class="t-bar-label">str · W=2 R=8</text>
+  <text x="30" y="514" class="t-sub">masstree_conc_str · 15 rounds</text>
+  <rect x="300" y="484" width="10.3" height="11" rx="2" class="b-expanse"/>
+  <text x="318.3" y="493" class="t-val-accent">6.54</text>
+  <rect x="300" y="501" width="39.1" height="11" rx="2" class="b-masstree"/>
+  <text x="347.1" y="510" class="t-val-blue">24.91</text>
+  <rect x="800" y="492" width="130" height="20" rx="3" class="badge-loss"/>
+  <text x="865" y="506" class="badge-loss-text">Masstree 3.81x</text>
+  <text x="30" y="556" class="t-bar-label">str · W=4 R=8</text>
+  <text x="30" y="570" class="t-sub">masstree_conc_str · 15 rounds</text>
+  <rect x="300" y="540" width="12.0" height="11" rx="2" class="b-expanse"/>
+  <text x="320.0" y="549" class="t-val-accent">7.67</text>
+  <rect x="300" y="557" width="35.7" height="11" rx="2" class="b-masstree"/>
+  <text x="343.7" y="566" class="t-val-blue">22.75</text>
+  <rect x="800" y="548" width="130" height="20" rx="3" class="badge-loss"/>
+  <text x="865" y="562" class="badge-loss-text">Masstree 2.97x</text>
+  <text x="30" y="612" class="t-bar-label">str · W=8 R=8</text>
+  <text x="30" y="626" class="t-sub">masstree_conc_str · 15 rounds</text>
+  <rect x="300" y="596" width="9.2" height="11" rx="2" class="b-expanse"/>
+  <text x="317.2" y="605" class="t-val-accent">5.84</text>
+  <rect x="300" y="613" width="29.5" height="11" rx="2" class="b-masstree"/>
+  <text x="337.5" y="622" class="t-val-blue">18.84</text>
+  <rect x="800" y="604" width="130" height="20" rx="3" class="badge-loss"/>
+  <text x="865" y="618" class="badge-loss-text">Masstree 3.23x</text>
+</svg>

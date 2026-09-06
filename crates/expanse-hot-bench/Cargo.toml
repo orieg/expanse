@@ -25,6 +25,11 @@ description = "HOT (Height Optimized Trie) FFI comparison arms for Expanse — b
 # it compiles a second shim and builds libtbb from HOT's nested submodule,
 # which the single-threaded arms never need.
 rowex = []
+# The Masstree comparison arm (#661, docs/benchmarks/masstree_comparison/).
+# Off by default: it compiles the pinned `third_party/masstree` submodule (six
+# translation units plus the shim) with a hand-derived config.h, which the
+# HOT arms never need.
+masstree = []
 # Diagnostic-only, forwarded to the engine: arms the OCC event counters that
 # the protocol-health cells read. A binary built with it publishes event
 # ratios and never a timing (§11.3, decision 5).
@@ -81,3 +86,28 @@ path = "src/bin/hot_string_memory.rs"
 name = "hot_concurrent"
 path = "src/bin/hot_concurrent.rs"
 required-features = ["rowex"]
+
+[[bin]]
+name = "masstree_validate"
+path = "src/bin/masstree_validate.rs"
+required-features = ["masstree"]
+
+[[bin]]
+name = "masstree_latency"
+path = "src/bin/masstree_latency.rs"
+required-features = ["masstree"]
+
+[[bin]]
+name = "masstree_string_latency"
+path = "src/bin/masstree_string_latency.rs"
+required-features = ["masstree"]
+
+[[bin]]
+name = "masstree_memory"
+path = "src/bin/masstree_memory.rs"
+required-features = ["masstree"]
+
+[[bin]]
+name = "masstree_concurrent"
+path = "src/bin/masstree_concurrent.rs"
+required-features = ["masstree"]

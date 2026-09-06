@@ -1,0 +1,20 @@
+ok  constants: MASSTREE_MAXKEYLEN 255, leaf/internode 320/320 B pooled, slab 2 MiB
+ok  census control: +1052656 B on a 1048576 B request, residual 0 B after free
+ok  glibc memalign probe: a 2 MiB request at 2 MiB alignment reports 4194304 B usable (+2097152 B of padding, counted at the requested size by the side table); a 64-aligned 320 B request reports 360 B
+ok  census (single) at N=100000 random u64: Masstree 42.07 B/key allocator (2 slabs, 5 allocs, 0 frees after 3 settle steps; 42.07 B/key before settling) vs 22.76 B/key structural (6667 leaves, 447 internodes, slack 19.30 B/key, quantum-dominated: true)
+ok  census (concurrent) at N=100000 random u64: Masstree 42.07 B/key allocator (2 slabs, 5 allocs, 0 frees after 3 settle steps; 42.07 B/key before settling) vs 22.76 B/key structural (6667 leaves, 447 internodes, slack 19.30 B/key, quantum-dominated: true)
+ok  census ExpanseMap at N=100000: 25.44 B/key (8829 allocs)
+ok  RCU settle on `prefixed` N=100000: 116.36 B/key before, 98.76 B/key after (6670 frees reclaimed); structural 65.47 B/key, 12 layers
+ok  integer fidelity sequential: 200000/200000 on both sides, every probe agrees, 200 scans and the full walk agree
+ok  integer fidelity random: 200000/200000 on both sides, every probe agrees, 200 scans and the full walk agree
+ok  edge keys: key 0 with value 0, bit 63, u64::MAX all round-trip — no payload predicate on integers
+ok  string fidelity short: 100000/100000 on both sides, probes and 200 scans agree; Masstree 0 layers, 6667 leaves, 32.02 B/key structural
+ok  string fidelity counter: 100000/100000 on both sides, probes and 200 scans agree; Masstree 10 layers, 6671 leaves, 22.82 B/key structural
+ok  string fidelity prefixed: 100000/100000 on both sides, probes and 200 scans agree; Masstree 12 layers, 6679 leaves, 65.47 B/key structural
+ok  string fidelity skewed: 99976/99976 on both sides, probes and 200 scans agree; Masstree 0 layers, 6666 leaves, 43.36 B/key structural
+ok  beyond (272 B keys): predicate rejects 1000/1000; the shim refuses every one and stores nothing (§3.4)
+ok  threading: 8 writers on own slots, 200000/200000 verified from a non-inserting slot; 8 readers alongside 8 writers made 506454 reads with 0 errors; 400000 walked
+ok  reused-slot hazard recorded: cold build 4194328 B, rebuild on the same slot after destroy 2097176 B — one process per cell, fresh slot (§3.6)
+
+39 deterministic checks passed. The Masstree arm is valid.
+NOTE: the B/key figures above are a validation sample, not a suite artifact.
