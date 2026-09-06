@@ -14,7 +14,7 @@
 //! | `miss_gen_method` | N/A |
 //! | `value_dereference` | N/A — live bytes held from the C allocator |
 //! | `measured_region` | build only; census armed around each index build and, separately, around the string table; teardown excluded |
-//! | `arm_symmetry` | one allocator interposition measures both indexes (§9.1); the harness-owned strings are counted on neither side and published as their own column (§10.3) |
+//! | `arm_symmetry` | one allocator interposition measures both indexes (§9.1); the harness-owned strings are counted on neither side and published as their own column (§10.3); both arms see the same insertion order, `sorted` unless the cell says `shuffled` (§12.2) |
 //! | `statistics` | exact byte counts, deterministic — no interval (§8.4) |
 //! | `verdict` | pending measurement |
 //!
@@ -34,6 +34,7 @@
 use std::env;
 
 use expanse_hot_bench::strings::{self, KeyStr, StrDist};
+use expanse_hot_bench::workload::{self, Order};
 use expanse_hot_bench::{Census, HotStr, HotStrMap, require_cold_pool, validate_census};
 use expanse_trie::bytesmap::ExpanseBytesMap;
 use expanse_trie::strmap::ExpanseStrMap;
@@ -85,11 +86,23 @@ fn json_i64(v: Option<i64>) -> String {
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    let mut args: Vec<String> = env::args().collect();
+    // Trailing token: insertion order (§12.2). The allocator census moves with
+    // build order; the engine's own node census must not.
+    let mut order = Order::Sorted;
+    while let Some(last) = args.last().map(String::as_str) {
+        match Order::parse(last) {
+            Some(o) => order = o,
+            None => break,
+        }
+        args.pop();
+    }
     if args.len() != 4 {
         eprintln!(
-            "usage: hot_string_memory <ptr|map|bytes> <short|counter|prefixed|skewed|beyond> <population>"
+            "usage: hot_string_memory <ptr|map|bytes> <short|counter|prefixed|skewed|beyond> \
+             <population> [sorted|shuffled]"
         );
+        eprintln!("  insertion order defaults to `sorted` (§12.2)");
         eprintln!("  one cell per invocation — HOT's node pool is process-global (§9.2)");
         std::process::exit(2);
     }
@@ -125,7 +138,10 @@ fn main() {
     // "external key storage as allocated" column is exactly the allocations
     // HOT's leaves point at (§10.3) — the copy's backing vector is reserved
     // before arming, so only the strings themselves are counted.
-    let generated = strings::build_population(dist, n);
+    let mut generated = strings::build_population(dist, n);
+    if order == Order::Shuffled {
+        workload::shuffle_in_place(&mut generated.population);
+    }
     let pop = generated.population.len();
     let not_rep = generated.hot_not_representable();
     let hot_side = not_rep == 0;
@@ -245,7 +261,7 @@ fn main() {
     let hot_index = hot.map(|c| c.live as f64 / pf);
     let exp_index = exp.live as f64 / pf;
     println!(
-        "{{\"workload_id\":\"{}\",\"arm\":\"{}\",\"dist\":\"{}\",\"population\":{},\
+        "{{\"workload_id\":\"{}\",\"arm\":\"{}\",\"dist\":\"{}\",\"order\":\"{}\",\"population\":{},\
          \"mean_key_len\":{:.2},\"hot_not_representable\":{},\
          \"key_bytes_per_key\":{:.4},\"external_alloc_bytes_per_key\":{:.4},\
          \"hot_index_bytes_per_key\":{},\"expanse_index_bytes_per_key\":{:.4},\
@@ -255,6 +271,7 @@ fn main() {
         arm.workload_id(),
         arm.label(),
         dist.name(),
+        order.name(),
         pop,
         mean_len,
         not_rep,

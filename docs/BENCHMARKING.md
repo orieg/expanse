@@ -633,6 +633,34 @@ Bench targets deliberately **not** reachable from a slash command:
     order versus sorted order (workload: `hot_instrument_bridge`;
     [`METHODOLOGY.md` §9.10](benchmarks/hot_comparison/METHODOLOGY.md)).
 
+18. **A concurrent cell is replicated before its level is quoted.** Within-run
+    BCa intervals understate the spread of concurrent throughput cells, and
+    two suites have now measured it. The `masstree_comparison` arm was run
+    twice and two C2 reader cells moved past their own intervals — string
+    W = 1 R = 8 from 0.114 [0.095, 0.129] to 0.228 [0.212, 0.241], integer
+    W = 4 R = 8 from 0.697 [0.683, 0.710] to 0.472 [0.455, 0.494] *(measured:
+    reference host, `82966aae` and `2ce92b7f`)*. The `hot_comparison`
+    HOT-ROWEX arm was then run twice for the same reason and four of its ten
+    C2 reader cells, and five of its ten C1 writer cells, did the same
+    *(measured: reference host, `5232af74` and `134a0471`,
+    [`hot_comparison/README.md` §7.6](benchmarks/hot_comparison/README.md))*.
+    In both arms **every direction and every verdict held**; it is the level
+    that does not replicate. So, binding on any arm publishing concurrent
+    throughput:
+    - **Two runs**, on the reference host, under the standing conditions
+      (host lock, P-core pin, load snapshot before each).
+    - **The claim ceiling is the union of the two intervals**, never one
+      run's.
+    - **A cell whose two runs do not overlap is reported as direction-only** —
+      "readers collapse under one writer" is admissible, "readers fall to
+      0.136× under one writer" is not; quote a range and name both commits.
+    - Both runs' artifacts are committed, side by side, and the README carries
+      a between-run spread paragraph naming the cells that moved.
+    - Whether the spread is the host or the engine is a **separate, unmeasured
+      question**; attributing it needs counters
+      ([#568](https://github.com/orieg/expanse/issues/568),
+      [#737](https://github.com/orieg/expanse/issues/737)), not a third run.
+
 ## Bench matrix
 
 | Bench | Status | Notes |

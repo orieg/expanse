@@ -51,6 +51,16 @@ DISTRIBUTIONS = ["sequential", "clustered", "sparse", "random"]
 SCAN_K = [10, 100, 1000]
 ARMS = ["set", "map"]
 
+# The §12.2 sensitivity pair (#733). The shared generator sorts the population
+# and every registered cell in this suite was built in that order, so each
+# insert verdict is a sorted-order verdict. This pair measures the same
+# population in both build orders and is published as its own table, never
+# merged with the registered cells and never given a verdict against §6.
+SENSITIVITY_N = 1_000_000
+SENSITIVITY_DIST = "random"
+SENSITIVITY_ORDERS = ["sorted", "shuffled"]
+SENSITIVITY_PILLARS = ["lookup_hit", "insert"]
+
 # The concurrent arm (#692, METHODOLOGY.md §11.4). Every cell keeps
 # writers + readers <= 16 so no thread can leave the P-core pin (decision 3).
 CONCURRENT_WRITE_SCALING = [1, 2, 4, 8, 16]            # C1: W, R = 0
@@ -203,6 +213,51 @@ def sweep_latency(env: dict, quick: bool) -> dict:
     return {"cells": cells}
 
 
+def sweep_sensitivity(env: dict, quick: bool) -> dict:
+    """§12.2: the same population built sorted and shuffled, both instruments.
+
+    Published as its own table. These cells carry no verdict against the §6
+    pre-registration — the registered rows were locked on sorted order and
+    reconciling them against a different workload in place is exactly what
+    AGENTS.md §8.7 forbids.
+    """
+    n = 10_000 if quick else SENSITIVITY_N
+    memory, latency = [], []
+    for arm in ARMS:
+        for order in SENSITIVITY_ORDERS:
+            rows = run_cell([str(binary("hot_memory_curve")), arm, str(n), order], env)
+            if len(rows) != 1:
+                raise RuntimeError(f"sensitivity memory cell emitted {len(rows)} rows, expected 1")
+            memory.append(rows[0])
+            print(f"  memory {arm:>3} {order:<8} N={n:<9} "
+                  f"HOT {rows[0]['hot_alloc_bytes_per_key']:.2f}  "
+                  f"Expanse {rows[0]['expanse_alloc_bytes_per_key']:.2f} B/key  "
+                  f"mem_used {rows[0]['expanse_mem_used_bytes_per_key']:.2f}")
+            for pillar in SENSITIVITY_PILLARS:
+                rows = run_cell([str(binary("hot_latency")), arm, pillar,
+                                 SENSITIVITY_DIST, str(n), order], env)
+                hot = [r["hot_ns_per_op"] for r in rows]
+                exp = [r["expanse_ns_per_op"] for r in rows]
+                ratio, lo, hi = bca_bootstrap_ratio_ci(hot, exp, num_resamples=2000, seed=42)
+                head = rows[0]
+                latency.append({
+                    "workload_id": head["workload_id"], "pillar": pillar, "arm": arm,
+                    "dist": SENSITIVITY_DIST, "order": order,
+                    "keyspace_bits": head["keyspace_bits"], "population": head["population"],
+                    "lambda": head["lambda"], "rounds": len(rows),
+                    "hot_ns_per_op_median": round(sorted(hot)[len(hot) // 2], 4),
+                    "expanse_ns_per_op_median": round(sorted(exp)[len(exp) // 2], 4),
+                    "hot_over_expanse": round(ratio, 4),
+                    "ci_lower": round(lo, 4), "ci_upper": round(hi, 4),
+                    "verdict": ("BOUNDARY_RESULT" if lo <= 1.0 <= hi
+                                else ("expanse" if lo > 1.0 else "hot")),
+                    "rounds_raw": raw_rounds(rows, LATENCY_RAW),
+                })
+                print(f"  {pillar:<12} {arm:>3} {order:<8} N={n:<8} "
+                      f"ratio {ratio:.3f} [{lo:.3f}, {hi:.3f}]")
+    return {"memory": memory, "latency": latency}
+
+
 def build_concurrent_binaries(env: dict) -> None:
     """Two builds, never one (§11.3 decision 5).
 
@@ -341,6 +396,8 @@ def main() -> int:
     quick = "--quick" in sys.argv
     concurrent = "--concurrent" in sys.argv or "--only-concurrent" in sys.argv
     only_concurrent = "--only-concurrent" in sys.argv
+    sensitivity = "--sensitivity" in sys.argv or "--only-sensitivity" in sys.argv
+    only_sensitivity = "--only-sensitivity" in sys.argv
     env = dict(os.environ)
     env["RUSTFLAGS"] = env.get("RUSTFLAGS", "") + " -C target-cpu=haswell"
 
@@ -408,6 +465,16 @@ def main() -> int:
         if only_concurrent:
             return 0
         add_load(provenance, "after-concurrent")
+
+    if sensitivity:
+        print("\n[sensitivity] §12.2 — the same population sorted and shuffled")
+        sens = sweep_sensitivity(env, quick)
+        add_load(provenance, "after-sensitivity")
+        (out_dir / "baseline_sensitivity.json").write_text(
+            json.dumps({"provenance": provenance, **sens}, indent=2) + "\n")
+        print(f"wrote {out_dir}/baseline_sensitivity.json")
+        if only_sensitivity:
+            return 0
 
     print("\n[1/2] memory pillar — sweeping λ across the LEAF_CAP cascade")
     memory = sweep_memory(env, quick)

@@ -61,6 +61,15 @@ PILLARS = {
     "bytes": ["lookup_hit", "lookup_miss", "insert"],
 }
 
+# The §12.2 sensitivity pair (#733), on one shape. `short` is the shape whose
+# registered cells the suite quotes most, and the one the Masstree arm's own
+# sensitivity set used, so the two suites' shuffled rows are relatable.
+SENSITIVITY_N = 1_000_000
+SENSITIVITY_SHAPE = "short"
+SENSITIVITY_ORDERS = ["sorted", "shuffled"]
+SENSITIVITY_PILLARS = ["lookup_hit", "insert"]
+SENSITIVITY_ARMS = ["ptr", "map"]
+
 
 def build(env: dict) -> None:
     """Builds the three string binaries once, at the ISA target §3.3 binds both arms to."""
@@ -177,8 +186,65 @@ def sweep_latency(env: dict, quick: bool) -> dict:
     return {"cells": cells}
 
 
+def sweep_sensitivity(env: dict, quick: bool) -> dict:
+    """§12.2 on the string arms: the same population built sorted and shuffled.
+
+    Published as its own table, with no verdict against the §10.7
+    pre-registration — those rows were locked on sorted order.
+    """
+    n = 10_000 if quick else SENSITIVITY_N
+    memory, latency = [], []
+    for arm in SENSITIVITY_ARMS:
+        for order in SENSITIVITY_ORDERS:
+            rows = run_cell([str(binary("hot_string_memory")), arm,
+                             SENSITIVITY_SHAPE, str(n), order], env)
+            if len(rows) != 1:
+                raise RuntimeError(f"sensitivity memory cell emitted {len(rows)} rows, expected 1")
+            row = rows[0]
+            memory.append(row)
+            hot_ix = row["hot_index_bytes_per_key"]
+            hot_s = f"{hot_ix:.2f}" if hot_ix is not None else "withheld"
+            print(f"  memory {arm:>5} {order:<8} N={n:<9} index: HOT {hot_s:>10}  "
+                  f"Expanse {row['expanse_index_bytes_per_key']:.2f}  "
+                  f"mem_used {row['expanse_mem_used_bytes_per_key']:.2f} B/key")
+            for pillar in SENSITIVITY_PILLARS:
+                rows = run_cell([str(binary("hot_string_latency")), arm, pillar,
+                                 SENSITIVITY_SHAPE, str(n), order], env)
+                head = rows[0]
+                exp = [r["expanse_ns_per_op"] for r in rows]
+                cell = {
+                    "workload_id": head["workload_id"], "pillar": pillar, "arm": arm,
+                    "dist": SENSITIVITY_SHAPE, "order": order,
+                    "population": head["population"], "mean_key_len": head["mean_key_len"],
+                    "hot_not_representable": head["hot_not_representable"],
+                    "rounds": len(rows),
+                    "expanse_ns_per_op_median": round(sorted(exp)[len(exp) // 2], 4),
+                    "rounds_raw": raw_rounds(rows, LATENCY_RAW),
+                }
+                if head["hot_not_representable"] == 0:
+                    hot = [r["hot_ns_per_op"] for r in rows]
+                    ratio, lo, hi = bca_bootstrap_ratio_ci(hot, exp, num_resamples=2000, seed=42)
+                    cell.update({
+                        "hot_ns_per_op_median": round(sorted(hot)[len(hot) // 2], 4),
+                        "hot_over_expanse": round(ratio, 4),
+                        "ci_lower": round(lo, 4), "ci_upper": round(hi, 4),
+                        "verdict": ("BOUNDARY_RESULT" if lo <= 1.0 <= hi
+                                    else ("expanse" if lo > 1.0 else "hot")),
+                    })
+                    print(f"  {pillar:<12} {arm:>5} {order:<8} N={n:<8} "
+                          f"ratio {ratio:.3f} [{lo:.3f}, {hi:.3f}]")
+                else:
+                    cell.update({"hot_ns_per_op_median": None, "hot_over_expanse": None,
+                                 "ci_lower": None, "ci_upper": None,
+                                 "verdict": "NOT_REPRESENTABLE_HOT"})
+                latency.append(cell)
+    return {"memory": memory, "latency": latency}
+
+
 def main() -> int:
     quick = "--quick" in sys.argv
+    sensitivity = "--sensitivity" in sys.argv or "--only-sensitivity" in sys.argv
+    only_sensitivity = "--only-sensitivity" in sys.argv
     env = dict(os.environ)
     env["RUSTFLAGS"] = env.get("RUSTFLAGS", "") + " -C target-cpu=haswell"
 
@@ -213,6 +279,16 @@ def main() -> int:
 
     validate_log = validate(env)
     add_load(provenance, "after-validate")
+
+    if sensitivity:
+        print("\n[sensitivity] §12.2 — the same population sorted and shuffled")
+        sens = sweep_sensitivity(env, quick)
+        add_load(provenance, "after-sensitivity")
+        (out_dir / "baseline_string_sensitivity.json").write_text(
+            json.dumps({"provenance": provenance, **sens}, indent=2) + "\n")
+        print(f"wrote {out_dir}/baseline_string_sensitivity.json")
+        if only_sensitivity:
+            return 0
 
     print("\n[1/3] memory pillar — population sweep, three columns per cell (§10.3)")
     memory = sweep_memory(env, quick)

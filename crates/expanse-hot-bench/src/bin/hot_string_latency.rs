@@ -8,12 +8,12 @@
 //! | `workload_id` | `hot_string_latency` |
 //! | `group` | 5 |
 //! | `population` | selected per invocation; mean key length reported per cell |
-//! | `probes_and_reuse` | shuffled stream, one pass, `population`-many probes, every probe its own allocation |
+//! | `probes_and_reuse` | shuffled stream, one pass, `population`-many probes, every probe its own allocation; `scan` takes `max(1000, 10⁶ / k)` starts from that stream, cycling it when shorter (§12.1) |
 //! | `hit_rate` | 100% for `lookup_hit`, 50% for `lookup_miss`, n/a otherwise |
 //! | `miss_gen_method` | same-generator rejection sampling (§8.6) |
 //! | `value_dereference` | both sides return the stored word and fold it; Arm C/E sinks must be equal (§10.2) |
-//! | `measured_region` | probe loop only; string generation, build and teardown outside the timed window |
-//! | `arm_symmetry` | identical strings and probe stream within a pairing; same ISA target (§3.3); HOT column withheld where the §10.4 predicate fails |
+//! | `measured_region` | probe loop only; string generation, build and teardown outside the timed window; the arm timed first alternates per round and is recorded as `first_arm` (§12.1) |
+//! | `arm_symmetry` | identical strings and probe stream within a pairing; same ISA target (§3.3); HOT column withheld where the §10.4 predicate fails; both arms see the same insertion order, `sorted` unless the cell says `shuffled` (§12.2) |
 //! | `statistics` | per-round medians emitted raw; BCa 95% CIs computed by the harvester (§8.4) |
 //! | `verdict` | pending measurement |
 //!
@@ -43,6 +43,7 @@ use std::hint::black_box;
 use std::time::Instant;
 
 use expanse_hot_bench::strings::{self, KeyStr, StrDist};
+use expanse_hot_bench::workload::{self, Order, ordered, scan_starts};
 use expanse_hot_bench::{HotStr, HotStrMap};
 use expanse_trie::bytesmap::ExpanseBytesMap;
 use expanse_trie::strmap::ExpanseStrMap;
@@ -106,8 +107,9 @@ impl Pillar {
 fn usage() -> ! {
     eprintln!(
         "usage: hot_string_latency <ptr|map|bytes> <lookup_hit|lookup_miss|insert|scan> \
-         <short|counter|prefixed|skewed|beyond> <population> [scan_k]"
+         <short|counter|prefixed|skewed|beyond> <population> [scan_k] [sorted|shuffled]"
     );
+    eprintln!("  insertion order defaults to `sorted` (§12.2), the order the generator produces");
     eprintln!("  one cell per invocation — HOT's node pool is process-global (§9.2)");
     eprintln!("  `bytes` has no scan pillar: ExpanseBytesMap is unordered");
     std::process::exit(2);
@@ -234,7 +236,18 @@ fn ns_per_op(elapsed_ns: u128, ops: usize) -> f64 {
 }
 
 fn main() {
-    let a: Vec<String> = env::args().collect();
+    let mut a: Vec<String> = env::args().collect();
+    // Trailing token: insertion order (§12.2). It defaults to `sorted`, which is
+    // the order the shared generator hands both arms and the order every
+    // registered cell in this suite was measured in.
+    let mut order = Order::Sorted;
+    while let Some(last) = a.last().map(String::as_str) {
+        match Order::parse(last) {
+            Some(o) => order = o,
+            None => break,
+        }
+        a.pop();
+    }
     if a.len() < 5 || a.len() > 6 {
         usage();
     }
@@ -262,7 +275,13 @@ fn main() {
         usage();
     }
 
-    let w = strings::build(dist, n, pillar.hit_rate());
+    let mut w = strings::build(dist, n, pillar.hit_rate());
+    // §12.2: the generator sorts the population, so every insert verdict in
+    // this suite is a sorted-order verdict. Only the build order changes here,
+    // never the key set, and the permutation is reproducible from the suite seed.
+    if order == Order::Shuffled {
+        workload::shuffle_in_place(&mut w.population);
+    }
     let pop = w.population.len();
     let not_rep = w.hot_not_representable();
     // §10.4: evaluated against the workload, reported, never used to trim it.
@@ -293,29 +312,40 @@ fn main() {
     };
 
     for round in 0..ROUNDS {
+        // §12.1: the arm timed first runs on the cache and clock state the
+        // second then inherits. Alternating per round lands that inheritance on
+        // both arms equally. A cell with no HOT column (§10.4) has nothing to
+        // alternate with and runs the Expanse arm alone.
+        let hot_first = round % 2 == 0;
         let (hot_ns, exp_ns, ops): (Option<u128>, u128, usize) = match pillar {
             Pillar::LookupHit | Pillar::LookupMiss => {
                 let e = exp.as_ref().unwrap();
-                let mut hot_ns = None;
-                let mut hot_sink = 0u64;
-                if let Some(h) = hot.as_ref() {
+                let run_exp = || {
                     let t0 = Instant::now();
                     let mut sink = 0u64;
                     for p in &w.probes {
-                        sink ^= h.get(p).unwrap_or(0);
+                        sink ^= e.get(p.bytes()).unwrap_or(0);
                     }
-                    hot_ns = Some(t0.elapsed().as_nanos());
+                    let t = t0.elapsed().as_nanos();
                     black_box(sink);
-                    hot_sink = sink;
-                }
-
-                let t1 = Instant::now();
-                let mut sink = 0u64;
-                for p in &w.probes {
-                    sink ^= e.get(p.bytes()).unwrap_or(0);
-                }
-                let exp_t = t1.elapsed().as_nanos();
-                black_box(sink);
+                    (t, sink)
+                };
+                let ((hot_ns, hot_sink), (exp_t, sink)) = match hot.as_ref() {
+                    Some(h) => {
+                        let run_hot = || {
+                            let t0 = Instant::now();
+                            let mut sink = 0u64;
+                            for p in &w.probes {
+                                sink ^= h.get(p).unwrap_or(0);
+                            }
+                            let t = t0.elapsed().as_nanos();
+                            black_box(sink);
+                            (Some(t), sink)
+                        };
+                        ordered(hot_first, run_hot, run_exp)
+                    }
+                    None => ((None, 0u64), run_exp()),
+                };
 
                 // Both sides stored the same words, so the folded results must
                 // agree (§10.2). A divergence is a correctness failure that
@@ -326,29 +356,38 @@ fn main() {
                 (hot_ns, exp_t, w.probes.len())
             }
             Pillar::Insert => {
-                let mut hot_ns = None;
-                if hot_side {
+                let run_exp = || {
                     let t0 = Instant::now();
-                    let mut h = Hot::new(arm);
+                    let mut e = Exp::new(arm);
                     for (i, k) in w.population.iter().enumerate() {
-                        black_box(h.insert(k, value_for(arm, k, i)));
+                        e.insert(k.bytes(), value_for(arm, k, i));
                     }
-                    hot_ns = Some(t0.elapsed().as_nanos());
-                    let built = h.len();
-                    std::mem::forget(h);
-                    if built != pop {
-                        void(&format!("insert round {round}: HOT walks {built} of {pop}"));
-                    }
+                    let t = t0.elapsed().as_nanos();
+                    let built = e.len();
+                    std::mem::forget(e);
+                    (t, built)
+                };
+                let ((hot_ns, hot_built), (exp_t, built_e)) = if hot_side {
+                    let run_hot = || {
+                        let t0 = Instant::now();
+                        let mut h = Hot::new(arm);
+                        for (i, k) in w.population.iter().enumerate() {
+                            black_box(h.insert(k, value_for(arm, k, i)));
+                        }
+                        let t = t0.elapsed().as_nanos();
+                        let built = h.len();
+                        std::mem::forget(h);
+                        (Some(t), built)
+                    };
+                    ordered(hot_first, run_hot, run_exp)
+                } else {
+                    ((None, pop), run_exp())
+                };
+                if hot_side && hot_built != pop {
+                    void(&format!(
+                        "insert round {round}: HOT walks {hot_built} of {pop}"
+                    ));
                 }
-
-                let t1 = Instant::now();
-                let mut e = Exp::new(arm);
-                for (i, k) in w.population.iter().enumerate() {
-                    e.insert(k.bytes(), value_for(arm, k, i));
-                }
-                let exp_t = t1.elapsed().as_nanos();
-                let built_e = e.len();
-                std::mem::forget(e);
                 if built_e != pop {
                     void(&format!(
                         "insert round {round}: Expanse holds {built_e} of {pop}"
@@ -358,47 +397,64 @@ fn main() {
             }
             Pillar::Scan => {
                 // Starts are drawn from the probe stream, so both sides walk
-                // from identical positions.
-                let starts: Vec<&KeyStr> = w.probes.iter().take(1_000).collect();
-                let mut hot_ns = None;
-                let mut hot_visited = 0usize;
-                let mut hot_sink = 0u64;
-                if let Some(h) = hot.as_ref() {
-                    let t0 = Instant::now();
-                    for s in &starts {
-                        let (c, sink) = h.scan(s, scan_k);
-                        hot_visited += c;
-                        hot_sink ^= sink;
-                    }
-                    hot_ns = Some(t0.elapsed().as_nanos());
-                    black_box(hot_sink);
-                }
-
+                // from identical positions. §12.1: the count scales with 1/k so
+                // every k visits about 10⁶ elements per round instead of
+                // leaving k = 10 the shortest, warmest timed window in the
+                // suite; the stream is cycled when it is shorter than that.
+                let starts: Vec<&KeyStr> =
+                    w.probes.iter().cycle().take(scan_starts(scan_k)).collect();
+                let hot_ref = hot.as_ref();
                 let Some(Exp::Str(e)) = exp.as_mut() else {
                     unreachable!("scan runs on ExpanseStrMap only")
                 };
-                let t1 = Instant::now();
-                let mut visited_e = 0usize;
-                let mut exp_sink = 0u64;
-                for s in &starts {
-                    let mut c = 0usize;
-                    let mut cur = e.next_at_or_after(s.bytes());
-                    while let Some((key, slot)) = cur {
-                        // SAFETY: the slot pointer is valid until the next
-                        // structural mutation, and none occurs during the scan.
-                        exp_sink ^= unsafe { *slot.as_ptr() };
-                        c += 1;
-                        if c == scan_k {
-                            break;
+                // `mut`: the Expanse scan surface takes `&mut self`, so this
+                // closure borrows `e` mutably and the binding must be mutable
+                // to be called directly on the no-HOT-column path.
+                let mut run_exp = || {
+                    let t0 = Instant::now();
+                    let mut visited = 0usize;
+                    let mut sink = 0u64;
+                    for s in &starts {
+                        let mut c = 0usize;
+                        let mut cur = e.next_at_or_after(s.bytes());
+                        while let Some((key, slot)) = cur {
+                            // SAFETY: the slot pointer is valid until the next
+                            // structural mutation, and none occurs during the scan.
+                            sink ^= unsafe { *slot.as_ptr() };
+                            c += 1;
+                            if c == scan_k {
+                                break;
+                            }
+                            cur = e.next_after(&key);
                         }
-                        cur = e.next_after(&key);
+                        visited += c;
                     }
-                    visited_e += c;
-                }
-                let exp_t = t1.elapsed().as_nanos();
-                black_box(exp_sink);
+                    let t = t0.elapsed().as_nanos();
+                    black_box(sink);
+                    (t, visited, sink)
+                };
+                let ((hot_ns, hot_visited, hot_sink), (exp_t, visited_e, exp_sink)) = match hot_ref
+                {
+                    Some(h) => {
+                        let run_hot = || {
+                            let t0 = Instant::now();
+                            let mut visited = 0usize;
+                            let mut sink = 0u64;
+                            for s in &starts {
+                                let (c, x) = h.scan(s, scan_k);
+                                visited += c;
+                                sink ^= x;
+                            }
+                            let t = t0.elapsed().as_nanos();
+                            black_box(sink);
+                            (Some(t), visited, sink)
+                        };
+                        ordered(hot_first, run_hot, run_exp)
+                    }
+                    None => ((None, 0usize, 0u64), run_exp()),
+                };
 
-                if hot.is_some() && (hot_visited != visited_e || hot_sink != exp_sink) {
+                if hot_ref.is_some() && (hot_visited != visited_e || hot_sink != exp_sink) {
                     void(&format!(
                         "scan round {round}: HOT visited {hot_visited}, Expanse {visited_e}; sinks equal: {}",
                         hot_sink == exp_sink
@@ -414,19 +470,27 @@ fn main() {
         };
         println!(
             "{{\"workload_id\":\"{}\",\"pillar\":\"{}\",\"arm\":\"{}\",\"dist\":\"{}\",\
-             \"population\":{},\"mean_key_len\":{:.2},\"hot_not_representable\":{},\
-             \"hot_representable_fraction\":{:.4},\"scan_k\":{},\"round\":{},\"ops\":{},\
-             \"hot_ns_per_op\":{},\"expanse_ns_per_op\":{:.4}}}",
+             \"order\":\"{}\",\"population\":{},\"mean_key_len\":{:.2},\"hot_not_representable\":{},\
+             \"hot_representable_fraction\":{:.4},\"scan_k\":{},\"round\":{},\"first_arm\":\"{}\",\
+             \"ops\":{},\"hot_ns_per_op\":{},\"expanse_ns_per_op\":{:.4}}}",
             arm.workload_id(),
             pillar.name(),
             arm.label(),
             dist.name(),
+            order.name(),
             pop,
             w.mean_len(),
             not_rep,
             w.hot_representable_fraction(),
             if pillar == Pillar::Scan { scan_k } else { 0 },
             round,
+            // A cell with no HOT column runs the Expanse arm alone (§10.4);
+            // `first_arm` then names the only arm that ran.
+            if hot_side && hot_first {
+                "hot"
+            } else {
+                "expanse"
+            },
             ops,
             hot_field,
             ns_per_op(exp_ns, ops),

@@ -95,194 +95,194 @@
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
   <text x="30" y="108" class="t-bar-label">clustered · k=10 · Arm B · map</text>
   <text x="30" y="122" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="92" width="130.7" height="11" rx="2" class="b-expanse"/>
-  <text x="438.7" y="101" class="t-val-accent">8.06</text>
-  <rect x="300" y="109" width="199.8" height="11" rx="2" class="b-hot"/>
-  <text x="507.8" y="118" class="t-val-blue">12.32</text>
+  <rect x="300" y="92" width="85.0" height="11" rx="2" class="b-expanse"/>
+  <text x="393.0" y="101" class="t-val-accent">8.41</text>
+  <rect x="300" y="109" width="196.2" height="11" rx="2" class="b-hot"/>
+  <text x="504.2" y="118" class="t-val-blue">19.41</text>
   <rect x="800" y="100" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="114" class="badge-win-text">Expanse 1.53x</text>
+  <text x="865" y="114" class="badge-win-text">Expanse 2.31x</text>
   <text x="30" y="164" class="t-bar-label">clustered · k=100 · Arm B · map</text>
   <text x="30" y="178" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="148" width="38.2" height="11" rx="2" class="b-expanse"/>
-  <text x="346.2" y="157" class="t-val-accent">2.36</text>
-  <rect x="300" y="165" width="59.3" height="11" rx="2" class="b-hot"/>
-  <text x="367.3" y="174" class="t-val-blue">3.66</text>
+  <rect x="300" y="148" width="31.3" height="11" rx="2" class="b-expanse"/>
+  <text x="339.3" y="157" class="t-val-accent">3.10</text>
+  <rect x="300" y="165" width="47.7" height="11" rx="2" class="b-hot"/>
+  <text x="355.7" y="174" class="t-val-blue">4.72</text>
   <rect x="800" y="156" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="170" class="badge-win-text">Expanse 1.55x</text>
+  <text x="865" y="170" class="badge-win-text">Expanse 1.53x</text>
   <text x="30" y="220" class="t-bar-label">clustered · k=1000 · Arm B · map</text>
   <text x="30" y="234" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="204" width="30.1" height="11" rx="2" class="b-expanse"/>
-  <text x="338.1" y="213" class="t-val-accent">1.86</text>
-  <rect x="300" y="221" width="49.0" height="11" rx="2" class="b-hot"/>
-  <text x="357.0" y="230" class="t-val-blue">3.02</text>
+  <rect x="300" y="204" width="19.1" height="11" rx="2" class="b-expanse"/>
+  <text x="327.1" y="213" class="t-val-accent">1.89</text>
+  <rect x="300" y="221" width="30.8" height="11" rx="2" class="b-hot"/>
+  <text x="338.8" y="230" class="t-val-blue">3.05</text>
   <rect x="800" y="212" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="226" class="badge-win-text">Expanse 1.63x</text>
+  <text x="865" y="226" class="badge-win-text">Expanse 1.61x</text>
   <text x="30" y="276" class="t-bar-label">random · k=10 · Arm B · map</text>
   <text x="30" y="290" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="260" width="160.7" height="11" rx="2" class="b-expanse"/>
-  <text x="468.7" y="269" class="t-val-accent">9.91</text>
+  <rect x="300" y="260" width="130.9" height="11" rx="2" class="b-expanse"/>
+  <text x="438.9" y="269" class="t-val-accent">12.95</text>
   <rect x="300" y="277" width="224.0" height="11" rx="2" class="b-hot"/>
-  <text x="532.0" y="286" class="t-val-blue">13.82</text>
+  <text x="532.0" y="286" class="t-val-blue">22.16</text>
   <rect x="800" y="268" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="282" class="badge-win-text">Expanse 1.39x</text>
+  <text x="865" y="282" class="badge-win-text">Expanse 1.71x</text>
   <text x="30" y="332" class="t-bar-label">random · k=100 · Arm B · map</text>
   <text x="30" y="346" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="316" width="52.3" height="11" rx="2" class="b-expanse"/>
-  <text x="360.3" y="325" class="t-val-accent">3.23</text>
-  <rect x="300" y="333" width="69.8" height="11" rx="2" class="b-hot"/>
-  <text x="377.8" y="342" class="t-val-blue">4.30</text>
+  <rect x="300" y="316" width="46.6" height="11" rx="2" class="b-expanse"/>
+  <text x="354.6" y="325" class="t-val-accent">4.61</text>
+  <rect x="300" y="333" width="76.6" height="11" rx="2" class="b-hot"/>
+  <text x="384.6" y="342" class="t-val-blue">7.58</text>
   <rect x="800" y="324" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="338" class="badge-win-text">Expanse 1.33x</text>
+  <text x="865" y="338" class="badge-win-text">Expanse 1.64x</text>
   <text x="30" y="388" class="t-bar-label">random · k=1000 · Arm B · map</text>
   <text x="30" y="402" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="372" width="48.8" height="11" rx="2" class="b-expanse"/>
-  <text x="356.8" y="381" class="t-val-accent">3.01</text>
-  <rect x="300" y="389" width="74.1" height="11" rx="2" class="b-hot"/>
-  <text x="382.1" y="398" class="t-val-blue">4.57</text>
+  <rect x="300" y="372" width="30.6" height="11" rx="2" class="b-expanse"/>
+  <text x="338.6" y="381" class="t-val-accent">3.02</text>
+  <rect x="300" y="389" width="48.2" height="11" rx="2" class="b-hot"/>
+  <text x="356.2" y="398" class="t-val-blue">4.76</text>
   <rect x="800" y="380" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="394" class="badge-win-text">Expanse 1.52x</text>
+  <text x="865" y="394" class="badge-win-text">Expanse 1.58x</text>
   <text x="30" y="444" class="t-bar-label">sequential · k=10 · Arm B · map</text>
   <text x="30" y="458" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="428" width="126.2" height="11" rx="2" class="b-expanse"/>
-  <text x="434.2" y="437" class="t-val-accent">7.78</text>
-  <rect x="300" y="445" width="178.5" height="11" rx="2" class="b-hot"/>
-  <text x="486.5" y="454" class="t-val-blue">11.01</text>
+  <rect x="300" y="428" width="88.4" height="11" rx="2" class="b-expanse"/>
+  <text x="396.4" y="437" class="t-val-accent">8.74</text>
+  <rect x="300" y="445" width="187.1" height="11" rx="2" class="b-hot"/>
+  <text x="495.1" y="454" class="t-val-blue">18.51</text>
   <rect x="800" y="436" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="450" class="badge-win-text">Expanse 1.41x</text>
+  <text x="865" y="450" class="badge-win-text">Expanse 2.12x</text>
   <text x="30" y="500" class="t-bar-label">sequential · k=100 · Arm B · map</text>
   <text x="30" y="514" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="484" width="36.7" height="11" rx="2" class="b-expanse"/>
-  <text x="344.7" y="493" class="t-val-accent">2.26</text>
-  <rect x="300" y="501" width="57.5" height="11" rx="2" class="b-hot"/>
-  <text x="365.5" y="510" class="t-val-blue">3.55</text>
+  <rect x="300" y="484" width="30.3" height="11" rx="2" class="b-expanse"/>
+  <text x="338.3" y="493" class="t-val-accent">2.99</text>
+  <rect x="300" y="501" width="45.2" height="11" rx="2" class="b-hot"/>
+  <text x="353.2" y="510" class="t-val-blue">4.47</text>
   <rect x="800" y="492" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="506" class="badge-win-text">Expanse 1.57x</text>
+  <text x="865" y="506" class="badge-win-text">Expanse 1.49x</text>
   <text x="30" y="556" class="t-bar-label">sequential · k=1000 · Arm B · map</text>
   <text x="30" y="570" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="540" width="29.6" height="11" rx="2" class="b-expanse"/>
-  <text x="337.6" y="549" class="t-val-accent">1.82</text>
-  <rect x="300" y="557" width="48.4" height="11" rx="2" class="b-hot"/>
-  <text x="356.4" y="566" class="t-val-blue">2.99</text>
+  <rect x="300" y="540" width="18.2" height="11" rx="2" class="b-expanse"/>
+  <text x="326.2" y="549" class="t-val-accent">1.80</text>
+  <rect x="300" y="557" width="29.8" height="11" rx="2" class="b-hot"/>
+  <text x="337.8" y="566" class="t-val-blue">2.95</text>
   <rect x="800" y="548" width="130" height="20" rx="3" class="badge-win"/>
   <text x="865" y="562" class="badge-win-text">Expanse 1.64x</text>
   <text x="30" y="612" class="t-bar-label">sparse · k=10 · Arm B · map</text>
   <text x="30" y="626" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="596" width="166.3" height="11" rx="2" class="b-expanse"/>
-  <text x="474.3" y="605" class="t-val-accent">10.26</text>
-  <rect x="300" y="613" width="217.5" height="11" rx="2" class="b-hot"/>
-  <text x="525.5" y="622" class="t-val-blue">13.41</text>
+  <rect x="300" y="596" width="123.7" height="11" rx="2" class="b-expanse"/>
+  <text x="431.7" y="605" class="t-val-accent">12.24</text>
+  <rect x="300" y="613" width="194.3" height="11" rx="2" class="b-hot"/>
+  <text x="502.3" y="622" class="t-val-blue">19.22</text>
   <rect x="800" y="604" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="618" class="badge-win-text">Expanse 1.31x</text>
+  <text x="865" y="618" class="badge-win-text">Expanse 1.57x</text>
   <text x="30" y="668" class="t-bar-label">sparse · k=100 · Arm B · map</text>
   <text x="30" y="682" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="652" width="68.6" height="11" rx="2" class="b-expanse"/>
-  <text x="376.6" y="661" class="t-val-accent">4.23</text>
-  <rect x="300" y="669" width="64.1" height="11" rx="2" class="b-hot"/>
-  <text x="372.1" y="678" class="t-val-blue">3.95</text>
-  <rect x="800" y="660" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="674" class="badge-loss-text">BOUNDARY</text>
+  <rect x="300" y="652" width="47.0" height="11" rx="2" class="b-expanse"/>
+  <text x="355.0" y="661" class="t-val-accent">4.65</text>
+  <rect x="300" y="669" width="59.6" height="11" rx="2" class="b-hot"/>
+  <text x="367.6" y="678" class="t-val-blue">5.89</text>
+  <rect x="800" y="660" width="130" height="20" rx="3" class="badge-win"/>
+  <text x="865" y="674" class="badge-win-text">Expanse 1.27x</text>
   <text x="30" y="724" class="t-bar-label">sparse · k=1000 · Arm B · map</text>
   <text x="30" y="738" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="708" width="56.4" height="11" rx="2" class="b-expanse"/>
-  <text x="364.4" y="717" class="t-val-accent">3.48</text>
-  <rect x="300" y="725" width="56.1" height="11" rx="2" class="b-hot"/>
-  <text x="364.1" y="734" class="t-val-blue">3.46</text>
-  <rect x="800" y="716" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="730" class="badge-loss-text">BOUNDARY</text>
+  <rect x="300" y="708" width="35.4" height="11" rx="2" class="b-expanse"/>
+  <text x="343.4" y="717" class="t-val-accent">3.50</text>
+  <rect x="300" y="725" width="37.2" height="11" rx="2" class="b-hot"/>
+  <text x="345.2" y="734" class="t-val-blue">3.68</text>
+  <rect x="800" y="716" width="130" height="20" rx="3" class="badge-win"/>
+  <text x="865" y="730" class="badge-win-text">Expanse 1.05x</text>
   <text x="30" y="780" class="t-bar-label">clustered · k=10 · Arm A · set</text>
   <text x="30" y="794" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="764" width="106.3" height="11" rx="2" class="b-expanse"/>
-  <text x="414.3" y="773" class="t-val-accent">6.56</text>
-  <rect x="300" y="781" width="155.0" height="11" rx="2" class="b-hot"/>
-  <text x="463.0" y="790" class="t-val-blue">9.56</text>
+  <rect x="300" y="764" width="66.1" height="11" rx="2" class="b-expanse"/>
+  <text x="374.1" y="773" class="t-val-accent">6.54</text>
+  <rect x="300" y="781" width="99.1" height="11" rx="2" class="b-hot"/>
+  <text x="407.1" y="790" class="t-val-blue">9.80</text>
   <rect x="800" y="772" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="786" class="badge-win-text">Expanse 1.46x</text>
+  <text x="865" y="786" class="badge-win-text">Expanse 1.50x</text>
   <text x="30" y="836" class="t-bar-label">clustered · k=100 · Arm A · set</text>
   <text x="30" y="850" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="820" width="34.8" height="11" rx="2" class="b-expanse"/>
-  <text x="342.8" y="829" class="t-val-accent">2.14</text>
-  <rect x="300" y="837" width="57.7" height="11" rx="2" class="b-hot"/>
-  <text x="365.7" y="846" class="t-val-blue">3.56</text>
+  <rect x="300" y="820" width="20.5" height="11" rx="2" class="b-expanse"/>
+  <text x="328.5" y="829" class="t-val-accent">2.03</text>
+  <rect x="300" y="837" width="34.2" height="11" rx="2" class="b-hot"/>
+  <text x="342.2" y="846" class="t-val-blue">3.38</text>
   <rect x="800" y="828" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="842" class="badge-win-text">Expanse 1.66x</text>
+  <text x="865" y="842" class="badge-win-text">Expanse 1.67x</text>
   <text x="30" y="892" class="t-bar-label">clustered · k=1000 · Arm A · set</text>
   <text x="30" y="906" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="876" width="24.6" height="11" rx="2" class="b-expanse"/>
-  <text x="332.6" y="885" class="t-val-accent">1.52</text>
-  <rect x="300" y="893" width="43.9" height="11" rx="2" class="b-hot"/>
-  <text x="351.9" y="902" class="t-val-blue">2.71</text>
+  <rect x="300" y="876" width="15.0" height="11" rx="2" class="b-expanse"/>
+  <text x="323.0" y="885" class="t-val-accent">1.48</text>
+  <rect x="300" y="893" width="27.7" height="11" rx="2" class="b-hot"/>
+  <text x="335.7" y="902" class="t-val-blue">2.74</text>
   <rect x="800" y="884" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="898" class="badge-win-text">Expanse 1.78x</text>
+  <text x="865" y="898" class="badge-win-text">Expanse 1.85x</text>
   <text x="30" y="948" class="t-bar-label">random · k=10 · Arm A · set</text>
   <text x="30" y="962" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="932" width="201.7" height="11" rx="2" class="b-expanse"/>
-  <text x="509.7" y="941" class="t-val-accent">12.44</text>
-  <rect x="300" y="949" width="181.7" height="11" rx="2" class="b-hot"/>
-  <text x="489.7" y="958" class="t-val-blue">11.21</text>
+  <rect x="300" y="932" width="138.5" height="11" rx="2" class="b-expanse"/>
+  <text x="446.5" y="941" class="t-val-accent">13.70</text>
+  <rect x="300" y="949" width="116.5" height="11" rx="2" class="b-hot"/>
+  <text x="424.5" y="958" class="t-val-blue">11.53</text>
   <rect x="800" y="940" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="954" class="badge-loss-text">BOUNDARY</text>
+  <text x="865" y="954" class="badge-loss-text">HOT 1.19x</text>
   <text x="30" y="1004" class="t-bar-label">random · k=100 · Arm A · set</text>
   <text x="30" y="1018" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="988" width="83.2" height="11" rx="2" class="b-expanse"/>
-  <text x="391.2" y="997" class="t-val-accent">5.13</text>
-  <rect x="300" y="1005" width="63.0" height="11" rx="2" class="b-hot"/>
-  <text x="371.0" y="1014" class="t-val-blue">3.89</text>
+  <rect x="300" y="988" width="55.4" height="11" rx="2" class="b-expanse"/>
+  <text x="363.4" y="997" class="t-val-accent">5.48</text>
+  <rect x="300" y="1005" width="41.4" height="11" rx="2" class="b-hot"/>
+  <text x="349.4" y="1014" class="t-val-blue">4.10</text>
   <rect x="800" y="996" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="1010" class="badge-loss-text">HOT 1.32x</text>
+  <text x="865" y="1010" class="badge-loss-text">HOT 1.34x</text>
   <text x="30" y="1060" class="t-bar-label">random · k=1000 · Arm A · set</text>
   <text x="30" y="1074" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="1044" width="69.1" height="11" rx="2" class="b-expanse"/>
-  <text x="377.1" y="1053" class="t-val-accent">4.26</text>
-  <rect x="300" y="1061" width="49.0" height="11" rx="2" class="b-hot"/>
-  <text x="357.0" y="1070" class="t-val-blue">3.02</text>
+  <rect x="300" y="1044" width="42.7" height="11" rx="2" class="b-expanse"/>
+  <text x="350.7" y="1053" class="t-val-accent">4.23</text>
+  <rect x="300" y="1061" width="31.2" height="11" rx="2" class="b-hot"/>
+  <text x="339.2" y="1070" class="t-val-blue">3.08</text>
   <rect x="800" y="1052" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="1066" class="badge-loss-text">HOT 1.41x</text>
+  <text x="865" y="1066" class="badge-loss-text">HOT 1.37x</text>
   <text x="30" y="1116" class="t-bar-label">sequential · k=10 · Arm A · set</text>
   <text x="30" y="1130" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="1100" width="69.7" height="11" rx="2" class="b-expanse"/>
-  <text x="377.7" y="1109" class="t-val-accent">4.30</text>
-  <rect x="300" y="1117" width="130.9" height="11" rx="2" class="b-hot"/>
-  <text x="438.9" y="1126" class="t-val-blue">8.07</text>
+  <rect x="300" y="1100" width="42.9" height="11" rx="2" class="b-expanse"/>
+  <text x="350.9" y="1109" class="t-val-accent">4.25</text>
+  <rect x="300" y="1117" width="89.7" height="11" rx="2" class="b-hot"/>
+  <text x="397.7" y="1126" class="t-val-blue">8.88</text>
   <rect x="800" y="1108" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="1122" class="badge-win-text">Expanse 1.88x</text>
+  <text x="865" y="1122" class="badge-win-text">Expanse 2.09x</text>
   <text x="30" y="1172" class="t-bar-label">sequential · k=100 · Arm A · set</text>
   <text x="30" y="1186" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="1156" width="17.6" height="11" rx="2" class="b-expanse"/>
-  <text x="325.6" y="1165" class="t-val-accent">1.09</text>
-  <rect x="300" y="1173" width="53.4" height="11" rx="2" class="b-hot"/>
-  <text x="361.4" y="1182" class="t-val-blue">3.29</text>
+  <rect x="300" y="1156" width="11.5" height="11" rx="2" class="b-expanse"/>
+  <text x="319.5" y="1165" class="t-val-accent">1.14</text>
+  <rect x="300" y="1173" width="33.3" height="11" rx="2" class="b-hot"/>
+  <text x="341.3" y="1182" class="t-val-blue">3.29</text>
   <rect x="800" y="1164" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="1178" class="badge-win-text">Expanse 3.03x</text>
+  <text x="865" y="1178" class="badge-win-text">Expanse 2.88x</text>
   <text x="30" y="1228" class="t-bar-label">sequential · k=1000 · Arm A · set</text>
   <text x="30" y="1242" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="1212" width="9.3" height="11" rx="2" class="b-expanse"/>
-  <text x="317.3" y="1221" class="t-val-accent">0.58</text>
-  <rect x="300" y="1229" width="43.5" height="11" rx="2" class="b-hot"/>
-  <text x="351.5" y="1238" class="t-val-blue">2.68</text>
+  <rect x="300" y="1212" width="6.9" height="11" rx="2" class="b-expanse"/>
+  <text x="314.9" y="1221" class="t-val-accent">0.68</text>
+  <rect x="300" y="1229" width="27.5" height="11" rx="2" class="b-hot"/>
+  <text x="335.5" y="1238" class="t-val-blue">2.72</text>
   <rect x="800" y="1220" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="1234" class="badge-win-text">Expanse 4.65x</text>
+  <text x="865" y="1234" class="badge-win-text">Expanse 3.98x</text>
   <text x="30" y="1284" class="t-bar-label">sparse · k=10 · Arm A · set</text>
   <text x="30" y="1298" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="1268" width="142.0" height="11" rx="2" class="b-expanse"/>
-  <text x="450.0" y="1277" class="t-val-accent">8.76</text>
-  <rect x="300" y="1285" width="155.3" height="11" rx="2" class="b-hot"/>
-  <text x="463.3" y="1294" class="t-val-blue">9.58</text>
+  <rect x="300" y="1268" width="102.4" height="11" rx="2" class="b-expanse"/>
+  <text x="410.4" y="1277" class="t-val-accent">10.13</text>
+  <rect x="300" y="1285" width="104.2" height="11" rx="2" class="b-hot"/>
+  <text x="412.2" y="1294" class="t-val-blue">10.31</text>
   <rect x="800" y="1276" width="130" height="20" rx="3" class="badge-loss"/>
   <text x="865" y="1290" class="badge-loss-text">BOUNDARY</text>
   <text x="30" y="1340" class="t-bar-label">sparse · k=100 · Arm A · set</text>
   <text x="30" y="1354" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="1324" width="64.8" height="11" rx="2" class="b-expanse"/>
-  <text x="372.8" y="1333" class="t-val-accent">4.00</text>
-  <rect x="300" y="1341" width="56.7" height="11" rx="2" class="b-hot"/>
-  <text x="364.7" y="1350" class="t-val-blue">3.49</text>
+  <rect x="300" y="1324" width="41.4" height="11" rx="2" class="b-expanse"/>
+  <text x="349.4" y="1333" class="t-val-accent">4.09</text>
+  <rect x="300" y="1341" width="37.7" height="11" rx="2" class="b-hot"/>
+  <text x="345.7" y="1350" class="t-val-blue">3.73</text>
   <rect x="800" y="1332" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="1346" class="badge-loss-text">HOT 1.14x</text>
+  <text x="865" y="1346" class="badge-loss-text">HOT 1.10x</text>
   <text x="30" y="1396" class="t-bar-label">sparse · k=1000 · Arm A · set</text>
   <text x="30" y="1410" class="t-sub">N = 1,000,000</text>
-  <rect x="300" y="1380" width="54.7" height="11" rx="2" class="b-expanse"/>
-  <text x="362.7" y="1389" class="t-val-accent">3.37</text>
-  <rect x="300" y="1397" width="44.5" height="11" rx="2" class="b-hot"/>
-  <text x="352.5" y="1406" class="t-val-blue">2.75</text>
+  <rect x="300" y="1380" width="32.6" height="11" rx="2" class="b-expanse"/>
+  <text x="340.6" y="1389" class="t-val-accent">3.22</text>
+  <rect x="300" y="1397" width="28.2" height="11" rx="2" class="b-hot"/>
+  <text x="336.2" y="1406" class="t-val-blue">2.79</text>
   <rect x="800" y="1388" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="1402" class="badge-loss-text">HOT 1.23x</text>
+  <text x="865" y="1402" class="badge-loss-text">HOT 1.15x</text>
 </svg>
