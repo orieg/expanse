@@ -61,6 +61,13 @@ BENCH = REPO_ROOT / "docs" / "benchmarks"
 # bridge remains, and it is not re-measured by that runner.
 GRANDFATHERED = {
     "hot_comparison/results/baseline_instrument_bridge.json": ("86daaddf",),
+    # rocksdb_memtable — a `expanse.baseline.v1` artifact from
+    # `scripts/bench_baseline.py`, whose provenance block names the host and
+    # the run but carries no load snapshot and no per-cell rounds. It publishes
+    # wall-clock throughput ratios against RocksDB's SkipMap
+    # (`docs/BENCHMARKING.md` §12), so it is named here rather than left out of
+    # the gate's scope: the entry is what makes its next re-run land the fields.
+    "rocksdb_memtable/results/baseline_rocksdb.json": ("6cb64b459e753c73b305cddd56fedef1fe31a0e1",),
     # hashbrown_comparison, redis_zset_engine, search_inverted_index — these
     # runners took no load snapshot at all before this change, and several of
     # their artifacts are bare JSON arrays.
@@ -100,6 +107,7 @@ NO_ROUNDS = {
 SUITES = (
     "art_comparison", "hot_comparison", "hashbrown_comparison",
     "redis_zset_engine", "search_inverted_index", "masstree_comparison",
+    "rocksdb_memtable",
 )
 
 # Keys under which an artifact holds its cells.

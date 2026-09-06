@@ -294,6 +294,8 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | §2.1 / §2.2 architectural invariants beyond sizes (no B-tree/hash mutation, no coarse locks, ordered semantics) | **review** | — |
 | §3 clean-room (no LGPL exposure) | **review** (`references/` is gitignored) | — |
 | §8.3 symmetric baselines · §8.6 DCE sinks, realistic hit rates, miss shape & measured-region hygiene · §8.7 no in-place backfilling · §8.8 3-commit cadence · §8.10 retract don't re-estimate · PR checklist truthfulness | **review** | — |
+| §8.17 committed comparative artifacts carry host facts, estimators, load snapshots with a busy-CPU delta, and per-cell `rounds_raw` | **CI** | `lint` job → `scripts/check_bench_provenance.py` (grandfathering is by explicit entry, so a re-run cannot land without the fields) |
+| §8.17 a contaminated run is discarded and the discard disclosed · §8.18 which record owns a fact · §8.19 the work unit, and no post-hoc threshold change without an `INTERMEDIATE` relabel | **review** | — |
 | §8.9 mechanism claims carry a counter (`memory-latency-bound`, `branch misprediction`, `MLP`, `TLB`, …) | **CI (fatal)** | `check_docs_hygiene.py` — paragraph-scoped; satisfied by a counter name, a `results/baseline_*` reference, or an explicit `unmeasured` / `hypothesis` / `cause unknown` qualifier |
 | §8.4 a published wall-clock ratio carries its interval | **CI (fatal)** | `check_docs_hygiene.py` — paragraph-scoped; satisfied by `[lo, hi]`, a `results/baseline_*` artifact, or an explicit `superseded` / `unsourced` / `provisional`. Deterministic metrics (Callgrind counts, byte accounting, memory) are exempt — an interval on an exact integer is wrong, not missing |
 | Retracted/superseded figures absent across all published surfaces (Markdown, HTML, JSON, assets) | **CI** | `lint` & `docs-lint` jobs → `scripts/check_docs_hygiene.py`, `crates/expanse/tests/test_visualizer_sync.rs` (driven by `.github/superseded-figures.json`) |
@@ -383,7 +385,7 @@ Expanse is an empirical performance project. Autonomous agents interacting with 
 > This section governs how a claim is gated once the instrument is chosen.
 - **Continuous / Sampling Metrics**: Claims over wall-clock execution or continuous sampling distributions pass iff the **BCa 95% bootstrap CI lower bound $\ge$ floor** (≥1,000 resamples), NOT iff point estimate $\ge$ floor. Point estimates and CIs must use identical definitions (e.g. macro-mean with macro-CI) so the point estimate is always enclosed within the interval. Overlapping intervals must be labeled `BOUNDARY_RESULT` or `INTERMEDIATE_floor_within_ci`.
 - **Deterministic Instruction Counters**: Exact Callgrind instruction counts (the primary regression instrument) are exact integers with zero variance, evaluated strictly against the deterministic threshold contract.
-- **No Hard Panics on Local Continuous Point Estimates in Examples/Harnesses**:
+- **Hard assertions belong on deterministic invariants only** (no hard panics on continuous point estimates, in examples, harnesses or tests):
   - Never wire an example binary, diagnostic script, or local integration harness to `assert!` or `panic!` on continuous wall-clock point estimates (e.g. throughput ratios, latency deltas).
   - Un-isolated dev machines suffer CPU frequency scaling, thermal throttling, and OS scheduling jitter. Point estimates on such hosts exhibit spurious sign flips (e.g. negative overhead on extra work) or wide spreads that cannot discriminate tight thresholds.
   - Hard assertions (`assert!`, `panic!`, `assert_eq!`) belong strictly on **deterministic invariants**: layout `size_of`/`align_of`, round-trip error counts ($= 0$), exact byte accounting, and deterministic integer counters.
@@ -485,7 +487,7 @@ When modifying or correcting any existing benchmark or example harness:
 When proposing in-register compression or inlining of multi-byte values into machine-word payload bits (e.g. 56 bits):
 1. **Derive the Theoretical Uniform Ceiling First**: Compute $T \times 2^{\text{payload\_bits}} / 2^{\text{source\_bits}}$ before writing engine code. Uniform random data cannot compress; any viable codec operates strictly on low-entropy subspaces (e.g. ASCII digits, alphanumeric slugs, small integers).
 2. **Phase 0 Empirical Crossover Gate (§8.8 Commit 1)**: Pre-register an offline evaluation harness over named, committed datasets with a strict promotion rate floor (e.g. $\ge 70\%$) and hardware counter ceiling (`branch-misses` / `perf stat -e branch-misses`, [#480](https://github.com/orieg/expanse/issues/480)). If real datasets do not clear the crossover, terminate honestly with a negative finding at near-zero cost.
-3. **Decouple Deterministic Census from Continuous Throughput Gating**: Phase 0 evaluation harnesses gate deterministically on mathematical correctness (0 round-trip errors) and promotion ratios against theoretical ceilings. Throughput and dispatch cost validation is gated on the reference host via Criterion/BCa CIs, never via hard panics on local wall-clock point estimates.
+3. **Decouple Deterministic Census from Continuous Throughput Gating**: Phase 0 evaluation harnesses gate deterministically on mathematical correctness (0 round-trip errors) and promotion ratios against theoretical ceilings. Throughput and dispatch cost validation is gated on the reference host via Criterion/BCa CIs, never via hard panics on local wall-clock point estimates — this is the codec-specific case of §8.4's third bullet, which is the general rule and applies to every harness.
 4. **Workload-Shape Qualification (#487 / §8.12)**: Empirical promotion figures MUST be qualified by their exact workload ID (e.g. `(workload: value_compression_alnum_slug)`); never assert broad general promotion from domain-specific datasets.
 
 ### 8.14 Embedded Sizing Envelopes & Math-First Derivation
@@ -505,3 +507,32 @@ When proposing in-register compression or inlining of multi-byte values into mac
 ### 8.16 Lock and Payload Symmetry across Competitor Arms
 - **Lock Symmetry**: When benchmarking synchronization wrappers (e.g. FreeRTOS mutexes), wrap ALL competitive arms in the identical synchronization construct, or benchmark all containers below the lock layer with explicit disclosure.
 - **Payload Symmetry**: All competitive arms must operate on the exact identical payload struct definition and byte size.
+
+### 8.17 Host Contention Is Part of the Measurement
+The reference host is quiet but not dedicated, and §8.4 gates on intervals taken there. Quietness is therefore a property of the artifact, not of the operator's memory of the day.
+- **Snapshot load before the first run, between every pair of compared runs, and mid-sweep** for a sweep spanning more than a few minutes. The snapshot is recorded in the artifact beside the host and committed with it.
+- **A load average alone does not establish quietness.** `loadavg` is a one-minute mean and lags a newly started heavy process by roughly 30 seconds, so a green pre-check can sit in front of an already contended run. Record a **busy-CPU delta between consecutive snapshots** (`/proc/stat` jiffies, in core-equivalents), which does not lag. `scripts/bench_provenance.py::load_snapshot` computes both and `scripts/check_bench_provenance.py` requires them of every committed comparative artifact.
+- **A published wall-clock result without its load snapshot is inadmissible.** Not "weaker": inadmissible, the same way an untagged number is (§8.7).
+- **A contaminated run is discarded, not reinterpreted.** A non-target process above ~100% CPU, or a load average above cores/2, or a load shift > 2 between arms, means the comparison is void; do not attribute the difference to the change under test. Discarding is disclosed in the artifact's suite doc, never silent (§8.1).
+- **Scope.** Criterion-style harnesses with outlier rejection tolerate moderate contention. Wall-clock end-to-end runs and concurrent sweeps do not, and a concurrent sweep leaves its own decay behind it — order it last, and give any run that follows it a fresh start snapshot.
+
+### 8.18 Where a Fact Lives
+§1 fixes which document owns a subject. This fixes which *kind* of record owns a fact, so that a living doc states what is true rather than accumulating the history of how it got that way.
+
+| Content | Home |
+|---|---|
+| What is true now | the doc, the code |
+| Why it changed | the commit message |
+| What was tried and rejected | the issue, and the PR that recorded the negative (§6) |
+| A figure that must never silently return | `.github/superseded-figures.json` and its gate |
+| A defect that must never recur | a fail-then-pass test (§8.12.3) |
+| A published number | a committed artifact its provenance tag resolves to (§8.7) |
+
+- **State the invariant, not the incident.** A probe count is prime *because every thread's stride must be coprime with it* — that is a constraint, and it belongs in the code beside the constant. That it was once a different value, and what broke, is an incident: it belongs in the test that pins it and the commit that fixed it. The test is the better record, because it fails when someone undoes the fix; a comment does not.
+- **History earns space in a living doc only when a reader who does not know it would do the wrong thing today.** Then it is one sentence and a link, never a paragraph, and never a dated ledger of edits.
+- This does not license deleting a correction. A retraction is what is true now (§8.10), and a pre-registration is a frozen record that is never rewritten in place (§8.7).
+
+### 8.19 The Work Unit, and What Tuning Costs
+- **The unit of work is one gate moving from unmet to met**, never "a phase" and never "an epic". State the gate verbatim, its falsifier, and its blast radius before starting.
+- **Threshold, method and sample size are fixed before execution.** Changing any of them after seeing results forces an `INTERMEDIATE` relabel and fresh seeds, however well justified the new value is. This is the price of the change, not an argument against it: pay it and re-run, or keep the original threshold and report the result it gives.
+- A gate that is met by redefining it was never a gate. Where a threshold turns out to be wrong, say so in the issue, set the new one, and re-run from seeds — the sequence §8.8 already fixes for a spike applies to a single gate too.
