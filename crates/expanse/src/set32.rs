@@ -968,7 +968,14 @@ mod tests {
             state ^= state << 5;
             state
         };
-        for &n in &[0usize, 1, 5, 40, 300, 5000] {
+        // 5,000 keys is most of this test's interpreted cost and reaches no
+        // node form that 300 does not; Miri stops at 300.
+        let sizes: &[usize] = if cfg!(miri) {
+            &[0, 1, 5, 40, 300]
+        } else {
+            &[0, 1, 5, 40, 300, 5000]
+        };
+        for &n in sizes {
             let mut model = BTreeSet::new();
             while model.len() < n {
                 model.insert(next() & 0x0003_FFFF);
@@ -1391,12 +1398,15 @@ mod tests {
     /// branch flavour, with random inclusive ranges.
     #[test]
     fn remove_range_matches_btreeset_model() {
+        // Same shape and the same Miri sizing as the map32 twin: two of the
+        // forty rounds under the interpreter, all forty in the native job.
+        const ROUNDS: u32 = if cfg!(miri) { 2 } else { 40 };
         let mut state = 0x7A11_0C35u32;
         let mut lcg = move || {
             state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
             state
         };
-        for round in 0..40u32 {
+        for round in 0..ROUNDS {
             let mut set = ExpanseSet32::new();
             let mut model: BTreeSet<u32> = BTreeSet::new();
             let n = 200 + (lcg() % 3_000) as usize;

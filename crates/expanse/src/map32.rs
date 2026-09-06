@@ -927,12 +927,18 @@ mod tests {
     /// inclusive ranges; also pins `first()` to the model after every step.
     #[test]
     fn remove_range_matches_btreemap_model() {
+        // Forty rounds of up to 3,200 keys and 64 model-checked removals each
+        // was the single largest item in the nightly Miri lane's first
+        // measured run (docs/CI.md §5, Tier 3); every round exercises the same
+        // removal paths on a fresh population, so the interpreter runs two
+        // and the native test job keeps all forty on every PR.
+        const ROUNDS: u32 = if cfg!(miri) { 2 } else { 40 };
         let mut state = 0x2F6E_2B1Fu32;
         let mut lcg = move || {
             state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
             state
         };
-        for round in 0..40u32 {
+        for round in 0..ROUNDS {
             let mut map = ExpanseMap32::new();
             let mut model: BTreeMap<u32, u32> = BTreeMap::new();
             let n = 200 + (lcg() % 3_000) as usize;
@@ -1062,11 +1068,15 @@ mod tests {
     /// fused path returns early.
     #[test]
     fn fused_entry_walk_matches_key_then_get() {
+        // Three masks × (4,000 inserts + two full walks + 2,000 probes) is the
+        // largest item in the map shard under Miri; the walks and probes
+        // scale with the population, so the interpreter runs a quarter.
+        const N: usize = if cfg!(miri) { 1_000 } else { 4_000 };
         for &key_mask in &[0x0000_03FFu32, 0x000F_FFFF, 0xFFFF_FFFF] {
             let mut rng = XorShift::new(0xC0FFEE ^ u64::from(key_mask));
             let mut map = ExpanseMap32::new();
             let mut model: BTreeMap<u32, u32> = BTreeMap::new();
-            for _ in 0..4_000 {
+            for _ in 0..N {
                 let k = rng.next() & key_mask;
                 let v = rng.next();
                 map.insert(k, v);
@@ -1092,7 +1102,7 @@ mod tests {
             }
             // Probe keys that are mostly absent: the fused path must agree
             // with the model's own successor and predecessor.
-            for _ in 0..2_000 {
+            for _ in 0..N / 2 {
                 let probe = rng.next() & key_mask;
                 assert_eq!(
                     map.next(probe),
@@ -1116,11 +1126,13 @@ mod tests {
     /// again nor for entries past the stop.
     #[test]
     fn range_walk_matches_model_and_stops_on_request() {
+        // Same population scaling under Miri as the fused entry walk above.
+        const N: usize = if cfg!(miri) { 1_000 } else { 4_000 };
         for &key_mask in &[0x0000_03FFu32, 0x000F_FFFF, 0xFFFF_FFFF] {
             let mut rng = XorShift::new(0xBEEF ^ u64::from(key_mask));
             let mut map = ExpanseMap32::new();
             let mut model: BTreeMap<u32, u32> = BTreeMap::new();
-            for _ in 0..4_000 {
+            for _ in 0..N {
                 let k = rng.next() & key_mask;
                 let v = rng.next();
                 map.insert(k, v);
