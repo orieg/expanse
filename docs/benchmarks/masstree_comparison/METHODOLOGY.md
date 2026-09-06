@@ -600,5 +600,5 @@ restart share of 0% would be a number about the counters, not the protocol.
 and nothing else; the restart share and the fallback share are marked
 `NOT_INSTRUMENTED` in every table and never rendered as 0%. §6.3's hypothesis
 is evaluated on MC1 alone. Instrumenting the string reader is an engine change
-outside this suite and is recorded as a follow-up in the README.
+outside this suite, tracked in [#721](https://github.com/orieg/expanse/issues/721).
 

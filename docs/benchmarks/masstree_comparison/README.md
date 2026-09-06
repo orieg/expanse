@@ -63,7 +63,7 @@ k=1000) *(workload: `masstree_str_map`)* — **`CONFIRMED`** at the high
 confidence registered. As in the HOT suite this measures the shipped
 `ExpanseStrMap` navigation surface, which re-descends from the root and
 allocates a key per visited element, against one descent and a leaf walk; a
-cursor iterator for `ExpanseStrMap` remains the open engine item.
+cursor iterator for `ExpanseStrMap` is [#722](https://github.com/orieg/expanse/issues/722).
 
 **String insertion is Masstree's on every representable shape**, 0.421
 [0.418, 0.423] on `short`, 0.441 [0.439, 0.443] on `counter`, 0.595
@@ -411,7 +411,7 @@ restart share 5–7% without rising with writer count, and **zero reads took the
 writer mutex at any writer count**, so §6.3's falsifier does not fire. MC2's
 rows are `NOT_INSTRUMENTED`: `StrReader::get` counts fallbacks only (§10.5) —
 the zero fallbacks are real, the restart share does not exist. Instrumenting
-the string reader is an engine change outside this suite.
+the string reader is [#721](https://github.com/orieg/expanse/issues/721).
 
 #### M — build-only single-writer census, Masstree vs `SyncExpanseMap` (B/key)
 
