@@ -38,6 +38,9 @@ CRATE = REPO_ROOT / "crates" / "expanse-hot-bench" / "Cargo.toml"
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from bca_bootstrap import bca_bootstrap_ratio_ci  # noqa: E402
+from bench_provenance import (  # noqa: E402
+    add_load, estimators, git_sha, host_facts, raw_rounds,
+)
 
 # §10.5. The sweep is dense around N ≈ 1.23e5, where the registered chunk-map
 # occupancy hypothesis places the LEAF_CAP cascade for the random shapes.
@@ -46,6 +49,9 @@ MEMORY_POPULATIONS = [1_000, 2_000, 5_000, 10_000, 20_000, 50_000, 100_000,
 LATENCY_POPULATIONS = [10_000, 100_000, 1_000_000]
 SHAPES = ["short", "counter", "prefixed", "skewed", "beyond"]
 SCAN_K = [10, 100, 1000]
+
+# The per-round samples every latency cell keeps verbatim (#732).
+LATENCY_RAW = ("first_arm", "order", "hot_ns_per_op", "expanse_ns_per_op")
 # Arm C, Arm D, Arm E of §10.2. `bytes` (ExpanseBytesMap) is unordered and has
 # no scan pillar.
 ARMS = ["ptr", "map", "bytes"]
@@ -54,25 +60,6 @@ PILLARS = {
     "map": ["lookup_hit", "lookup_miss", "insert", "scan"],
     "bytes": ["lookup_hit", "lookup_miss", "insert"],
 }
-
-
-def load_snapshot(label: str) -> dict:
-    """Load average, before and between comparison runs (docs/BENCHMARKING.md rule 2)."""
-    try:
-        one, five, fifteen = os.getloadavg()
-    except OSError:
-        one = five = fifteen = float("nan")
-    return {"label": label, "load1": round(one, 2), "load5": round(five, 2),
-            "load15": round(fifteen, 2), "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-
-
-def git_sha() -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=REPO_ROOT
-        ).decode().strip()
-    except Exception:
-        return "unknown"
 
 
 def build(env: dict) -> None:
@@ -171,6 +158,7 @@ def sweep_latency(env: dict, quick: bool) -> dict:
                                 "verdict": ("BOUNDARY_RESULT" if lo <= 1.0 <= hi
                                             else ("expanse" if lo > 1.0 else "hot")),
                             })
+                            cell["rounds_raw"] = raw_rounds(rows, LATENCY_RAW)
                             print(f"  {pillar:<12} {arm:>5} {dist:<9} N={n:<8} k={k:<5} "
                                   f"ratio {ratio:.3f} [{lo:.3f}, {hi:.3f}]")
                         else:
@@ -180,6 +168,7 @@ def sweep_latency(env: dict, quick: bool) -> dict:
                                 "hot_ns_per_op_median": None,
                                 "hot_over_expanse": None, "ci_lower": None, "ci_upper": None,
                                 "verdict": "NOT_REPRESENTABLE_HOT",
+                                "rounds_raw": raw_rounds(rows, LATENCY_RAW),
                             })
                             print(f"  {pillar:<12} {arm:>5} {dist:<9} N={n:<8} k={k:<5} "
                                   f"Expanse {exp_med:.2f} ns/op; HOT: {head['hot_not_representable']} keys "
@@ -204,27 +193,34 @@ def main() -> int:
     provenance = {
         "suite": "hot_comparison",
         "issue": 693,
-        "commit": git_sha(),
+        "commit": git_sha(REPO_ROOT),
         "hot_commit": "96bf6fb",
         "cpu": platform.processor() or platform.machine(),
         "platform": platform.platform(),
+        "host": host_facts(),
+        "estimators": estimators(
+            "mean(HOT rounds) / mean(Expanse rounds) with a two-sample BCa 95% "
+            "interval (scripts/bca_bootstrap.py)"
+        ),
         "rustflags": env["RUSTFLAGS"].strip(),
         "cxx_flags": "-march=haswell -O3 -std=c++17 -DNDEBUG",
         "core_pin": os.environ.get("EXPANSE_BENCH_PIN_APPLIED", "unset"),
-        "loads": [load_snapshot("start")],
+        "loads": [],
         "quick": quick,
     }
 
+    add_load(provenance, "start")
+
     validate_log = validate(env)
-    provenance["loads"].append(load_snapshot("after-validate"))
+    add_load(provenance, "after-validate")
 
     print("\n[1/3] memory pillar — population sweep, three columns per cell (§10.3)")
     memory = sweep_memory(env, quick)
-    provenance["loads"].append(load_snapshot("after-memory"))
+    add_load(provenance, "after-memory")
 
     print("\n[2/3] latency pillars")
     latency = sweep_latency(env, quick)
-    provenance["loads"].append(load_snapshot("end"))
+    add_load(provenance, "end")
 
     (out_dir / "baseline_string_memory.json").write_text(
         json.dumps({"provenance": provenance, **memory}, indent=2) + "\n")

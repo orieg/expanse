@@ -11,10 +11,17 @@ Publication-ready, dual-theme SVG chart generator with dynamic scaling and zero 
 """
 
 import json
+import sys
 import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from theme import svg_header
+
+# Artifacts written before #732 are a bare JSON array; ones written after are
+# `{"provenance": ..., "cells": [...]}`. `body()` accepts both, so a generator
+# keeps working against either.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent.parent / "scripts"))
+from bench_provenance import body  # noqa: E402
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 RESULTS_DIR = BASE_DIR / "results"
@@ -36,7 +43,7 @@ def generate_native_chart():
     if not json_path.exists():
         return
     with open(json_path) as f:
-        data = json.load(f)
+        data = body(json.load(f))
 
     # Use the last (largest) population entry
     item = data[-1]
@@ -142,7 +149,7 @@ def generate_ycsb_chart():
     if not json_path.exists():
         return
     with open(json_path) as f:
-        data = json.load(f)
+        data = body(json.load(f))
 
     all_vals = []
     for wl_data in data.values():
@@ -234,7 +241,7 @@ def generate_memory_chart():
     if not json_path.exists():
         return
     with open(json_path) as f:
-        data = json.load(f)
+        data = body(json.load(f))
 
     last_item = data[-1]
     pop = last_item.get("population", 0)
@@ -321,7 +328,7 @@ def generate_key_distributions_chart():
     if not json_path.exists():
         return
     with open(json_path) as f:
-        data = json.load(f)
+        data = body(json.load(f))
 
     all_vals = []
     for d_data in data.values():
@@ -402,7 +409,7 @@ def generate_tail_latency_chart():
     if not json_path.exists():
         return
     with open(json_path) as f:
-        data = json.load(f)
+        data = body(json.load(f))
 
     total_inserts = data.get("total_inserts", 0)
     svg = svg_header(width=960, height=300, title="Ingestion Tail Latency Percentiles")

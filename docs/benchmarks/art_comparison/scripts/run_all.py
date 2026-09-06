@@ -24,6 +24,12 @@ REPO_ROOT = BASE_DIR.parent.parent.parent
 RESULTS_DIR = BASE_DIR / "results"
 SCRIPTS_DIR = BASE_DIR / "scripts"
 
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+from bench_provenance import (  # noqa: E402
+    add_load, attach, estimators, git_sha, host_facts,
+)
+
+
 BENCHES = [
     ("art_lookup_hit", "baseline_lookup_hit.json"),
     ("art_lookup_miss", "baseline_lookup_miss.json"),
@@ -56,7 +62,8 @@ def get_kernel_str() -> str:
         return "Linux"
 
 
-def run_bench(bench_name: str, out_file: str, out_dir: Path, quick: bool, meta: dict | None) -> None:
+def run_bench(bench_name: str, out_file: str, out_dir: Path, quick: bool, meta: dict | None,
+              prov: dict | None) -> None:
     print(f"==> Running {bench_name} (quick={quick})...")
     cmd = ["cargo", "bench", "-p", "expanse-trie", "--bench", bench_name, "--"]
     if quick:
@@ -77,6 +84,8 @@ def run_bench(bench_name: str, out_file: str, out_dir: Path, quick: bool, meta: 
 
     if meta:
         payload["metadata"] = dict(meta)
+    if prov is not None:
+        payload = attach(payload, prov)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     with open(out_dir / out_file, "w", encoding="utf-8") as f:
@@ -103,8 +112,26 @@ def main() -> None:
             "data_sha": sha,
         }
 
+    prov = {
+        "suite": "art_comparison",
+        "issue": 387,
+        "commit": git_sha(REPO_ROOT),
+        "host": host_facts(),
+        "estimators": estimators(
+            "mean(ART rounds) / mean(Expanse rounds) with a two-sample BCa 95% "
+            "interval (scripts/bca_bootstrap.py); the per-arm columns beside it "
+            "are medians of the same rounds"
+        ),
+        "core_pin": os.environ.get("EXPANSE_BENCH_PIN_APPLIED", "unset"),
+        "quick": quick,
+        "loads": [],
+    }
+    add_load(prov, "start")
+
     for bench_name, out_file in BENCHES:
-        run_bench(bench_name, out_file, out_dir, quick, meta)
+        run_bench(bench_name, out_file, out_dir, quick, meta, prov)
+
+    add_load(prov, "end")
 
     load_end = get_load_str()
 

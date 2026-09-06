@@ -14,10 +14,17 @@ Charts:
 """
 
 import json
+import sys
 import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from theme import svg_header
+
+# Artifacts written before #732 are a bare JSON array; ones written after are
+# `{"provenance": ..., "cells": [...]}`. `body()` accepts both, so a generator
+# keeps working against either.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent.parent / "scripts"))
+from bench_provenance import body  # noqa: E402
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 RESULTS_DIR = BASE_DIR / "results"
@@ -39,7 +46,7 @@ def load(name):
     if not p.exists():
         return None
     with open(p) as f:
-        return json.load(f)
+        return body(json.load(f))
 
 
 def fmt_ns(ns):
