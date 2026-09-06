@@ -31,8 +31,9 @@ for.** `SyncExpanseMap` serializes every writer on one mutex (optimistic lock
 coupling, blocking by design — `AGENTS.md` §2.2); Masstree's per-node locks
 admit them. With eight writers inserting 2²⁰ fresh keys into a 2²⁰ prefill
 Masstree sustains 31.76 M inserts/s against Expanse's 2.82, ratio
-0.088 [0.086, 0.091]; at sixteen, 0.075 [0.070, 0.078] *(workload:
-`masstree_conc_map_64bit`)*. On `short` string keys the loss starts at one
+0.088 [0.086, 0.091]; at sixteen, 0.075 [0.070, 0.078] — sixteen threads on eight physical P-cores
+with SMT, where Masstree's own plateau (31.8 → 34.2 M/s) is the sibling
+ceiling *(workload: `masstree_conc_map_64bit`)*. On `short` string keys the loss starts at one
 writer — 0.890 [0.800, 0.986] — and reaches 0.020 [0.017, 0.024] at sixteen,
 where the Expanse string writers fall to 0.49 M inserts/s *(workload:
 `masstree_conc_str`)*. Expanse's aggregate insert rate does not plateau at its
@@ -51,9 +52,16 @@ one did.
 takes Expanse's eight integer readers from 142.1 to 18.2 M lookups/s while
 Masstree's keep 43.3 of their 60.3 — 0.419 [0.408, 0.430]; on strings from
 31.5 to 3.4 against Masstree's 26.9 — 0.114 [0.095, 0.129] *(workloads:
-`masstree_conc_map_64bit`, `masstree_conc_str`)*. Expanse readers restart when
-the tree version moves under them; Masstree readers validate one node and
-retry there. **`CONFIRMED`** (§6.1 row 3), the same mechanism #692 measured.
+`masstree_conc_map_64bit`, `masstree_conc_str`)*. **`CONFIRMED`** in direction
+(§6.1 row 3). The mechanism is **unmeasured**, and the health cells rule out
+the obvious one: the restart share stays at 5–7% at every writer count (§7),
+which cannot account for an eight-fold drop, while `sample_spins ÷ read_ops`
+of 1.4–2.1 says a reader waits on the writer's open tree-level bracket one to
+two times per lookup. Whether the remainder is that wait or coherence traffic
+on the shared version line is a counter question this arm did not take (§8.9).
+The writer pays too: with eight readers probing, the Expanse single writer
+falls from 5.72 to 1.86 M inserts/s where Masstree's falls from 5.05 to 3.83
+*(workload: `masstree_conc_map_64bit`)*.
 
 ![Reader throughput alongside writers](results/chart_concurrent_readers.svg)
 
@@ -99,17 +107,23 @@ larger integer margins.
 
 **Memory at the ends of the density sweep and on `prefixed` strings goes to
 Masstree by a few bytes per key.** Masstree holds 22.76 B/key structurally at
-every λ (its leaves fill to 15 keys in the sorted order and its per-key cost
-does not depend on key density), 23.0–24.1 B/key on the allocator instrument
-outside the quantum-dominated cells. `ExpanseMap` is below that from λ = 8
+every λ **in the sorted order the suite builds in** — every leaf fills to 15
+keys, the B+-tree's bulk-load figure; the same keys shuffled fill 70.7% and
+cost 33.10 (§6) — and 23.0–24.1 B/key on the allocator instrument outside the
+quantum-dominated cells. Its per-key cost does not depend on key density. `ExpanseMap` is below that from λ = 8
 (18.99) through λ = 30 (19.39), with its best at λ = 23 (16.26), and above it
 at λ = 38, 46 and 61 (23.91, 24.71, 23.82) — the `LEAF_CAP` cascade
 `hot_comparison` §9.4 documents. §6.2 row 1 (λ ∈ [8, 23]) is **`CONFIRMED`**;
-row 2 (outside the band) is **`REFUTED`** above the cascade and parity-by-magnitude
-at λ = 4 (24.05 vs 22.80). On `prefixed` strings Masstree's 69.06 B/key against
-`ExpanseStrMap`'s 72.53 is a **`REFUTED`** medium-confidence row; §10.2 records
-that the registration leaned on a shuffled-order figure (84.2 B/key structural,
-which the sensitivity table reproduces at 88.52 allocator).
+row 2 (outside the band) is an **`UNPREDICTED LOSS`** above the cascade and
+parity-by-magnitude at λ = 4 (24.05 vs 22.80). On `prefixed` strings
+Masstree's 69.06 B/key against `ExpanseStrMap`'s 72.53 is an **`UNPREDICTED
+LOSS`** against a medium-confidence row; §10.2 records that the registration
+leaned on a shuffled-order figure (84.2 B/key structural, which the
+sensitivity table reproduces at 88.52 allocator). Memory cells carry no
+interval, so these labels are by magnitude, and the taxonomy is the
+wall-clock one: a registered Expanse win that landed the other way is an
+`UNPREDICTED LOSS`, never a `REFUTED`, which the derived tables reserve for a
+registered Masstree win that Expanse took.
 
 ## 2. Where Expanse wins
 
@@ -128,15 +142,21 @@ this suite does not draw (§8 item 6).
 
 ![Latency at N = 1M](results/chart_latency_1m.svg)
 
-**Ordered scan on integer keys, in every cell — the registered loss
-`REFUTED` in Expanse's favour.** Masstree visits an element in 3.7–16 ns
-against Expanse's 1.5–9.5 through `ExpanseMap::range()`: 1.476 [1.137, 1.670]
-at k = 10 on `random`, 2.486 [2.430, 2.530] at k = 1000 on `sequential`. §6.1
-row 4 registered Masstree for k = 10 and k = 100 on the strength of the ART and
-HOT results; Masstree's scan is driven through its visitor interface with a
-key reassembled per element, and on this instrument that costs more than
-Expanse's iterator. Every k = 10 and k = 100 cell at every population is **`REFUTED`**; the
-k = 1000 cells were `not pre-registered`.
+**Ordered scan on integer keys goes to Expanse on every structured
+distribution and on `random` at 1M, and to Masstree on `random` below 1M.**
+Through `ExpanseMap::range()` Expanse visits an element in 1.5–9.5 ns against
+Masstree's 3.7–16 at N = 10⁶: 1.476 [1.137, 1.670] at k = 10 on `random`,
+2.486 [2.430, 2.530] at k = 1000 on `sequential`. On `random` at N = 10⁴ and
+10⁵ the direction reverses — 0.840 [0.814, 0.875] at k = 10 and 0.586
+[0.583, 0.589] at k = 1000 (10⁴), 0.585 [0.511, 0.651] at k = 100 (10⁵), with
+the 10⁵ k = 10 cell a `BOUNDARY_RESULT` at 0.975 [0.894, 1.023]. §6.1 row 4
+registered Masstree for k = 10 and k = 100 on the strength of the ART and HOT
+results: it is **`REFUTED`** on 20 of the 24 registered cells and
+**`CONFIRMED`** on `random` at 10⁴ (k = 10, 100) and 10⁵ (k = 100), with one
+boundary; the k = 1000 cells were `not pre-registered`. Masstree's scan is
+driven through its visitor interface with a key reassembled per element; why
+that is cheaper than Expanse's iterator on a small random population and dearer
+everywhere else is unmeasured.
 
 **Reader-only integer throughput**, 2.394 [2.359, 2.433] with eight readers —
 **`CONFIRMED`**.
@@ -170,8 +190,8 @@ the process holds; on Masstree it is quantized to the 2 MiB pool slab, so at
 λ = 1 and λ = 2 and on every string cell below N ≈ 150k the figure is mostly
 slab and is flagged `QUANTUM_DOMINATED`. Where it is not flagged, the measured
 slack above Masstree's own node census is 0.2–3.6 B/key. Masstree's structural
-figure is 22.76 B/key on every integer cell: 66,667 leaves at 100% fill plus
-4,448 internodes for 10⁶ keys, exactly what `masstree_envelope.structural_bytes`
+figure is 22.76 B/key on every integer cell in the sorted build order: 66,667
+leaves at 100% fill plus 4,448 internodes for 10⁶ keys, exactly what `masstree_envelope.structural_bytes`
 gives for those counts — and 33.10 B/key at 70.7% fill on the shuffled
 permutation (§10.2). The RCU settle step (§10.4) reclaimed 12.2 B/key of
 superseded suffix bags on `prefixed` (81.20 → 69.00) and nothing on integer
@@ -183,7 +203,7 @@ keys, which allocate no bags.
 
 `allocator` is what the process holds from the C allocator after a build-only population, one instrument for both arms; on Masstree it is quantized to the 2 MiB pool slab and a cell whose measured slack exceeds 25% of its structural bytes is flagged `QUANTUM_DOMINATED` (§3.3). `structural` is Masstree's own `json_stats` node census; `mem_used` is Expanse's own accounting. The engine columns are never mixed with the allocator columns in one ratio.
 
-| Distribution | λ | N | Masstree allocator (unsettled) | Expanse allocator | Masstree structural | Expanse `mem_used` | Masstree slack | slabs | leaf fill | flag |
+| Distribution | λ | N | Masstree allocator, settled (unsettled) | Expanse allocator | Masstree structural | Expanse `mem_used` | Masstree slack | slabs | leaf fill | flag |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
 | `random` | 1 | 65,536 | 32.19 (32.19) | 23.88 | 22.78 | 22.66 | 9.41 | 1 | 1.000 | `QUANTUM_DOMINATED` |
 | `random` | 2 | 131,072 | 32.09 (32.09) | 24.81 | 22.77 | 24.09 | 9.33 | 2 | 1.000 | `QUANTUM_DOMINATED` |
@@ -203,7 +223,7 @@ keys, which allocate no bags.
 
 Both sides copy key bytes into their own nodes, so the index column is the ownership column on both (§4). Columns as the integer table.
 
-| Shape | N | mean len | Masstree allocator (unsettled) | Expanse allocator | Masstree structural | Expanse `mem_used` | Masstree slack | layers | flag |
+| Shape | N | mean len | Masstree allocator, settled (unsettled) | Expanse allocator | Masstree structural | Expanse `mem_used` | Masstree slack | layers | flag |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
 | `beyond` | 1,000,000 | 272.0 | withheld (1,000,000 keys > 255 B) | 71.84 | withheld (1,000,000 keys > 255 B) | 54.78 | withheld (1,000,000 keys > 255 B) | — | `NOT_REPRESENTABLE_MASSTREE` |
 | `counter` | 1,000,000 | 12.0 | 25.18 (25.18) | 20.53 | 22.82 | 19.56 | 2.36 | 100 | `ok` |
@@ -323,24 +343,32 @@ figures on that shape are published alone.
 
 #### Sensitivity (§10.2 insertion order, §10.3 table configuration) — both arms, same population
 
-Sorted / single is the registered configuration every cell above was built in. Shuffled is a Fisher–Yates permutation of the same keys (Masstree's leaf fill and footprint depend on the order; Expanse's footprint does not). Concurrent is Masstree's fenced, spin-locked node version, the configuration the MC cells use, driven single-threaded here to show the protocol's own cost. Ratios are Masstree ÷ Expanse; no verdict is given against §6.
+Sorted / single is the order the shared generator produces and the table configuration §10.3 assigns, which every cell above was built in. Shuffled is a Fisher–Yates permutation of the same keys: Masstree's leaf fill, footprint and insertion cost depend on the order, and so do Expanse's insertion cost and allocator footprint; Expanse's own node census (`mem_used`) is the one order-invariant figure. Concurrent is Masstree's fenced, spin-locked node version, the configuration the MC cells use, driven single-threaded here to show the protocol's own cost. Ratios are Masstree ÷ Expanse; no verdict is given against §6.
 
-| Arm | Shape | Order | Table | N | Masstree allocator (unsettled) | Masstree structural | leaf fill | Expanse allocator | lookup_hit ratio [BCa 95%] | insert ratio [BCa 95%] |
-|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|
-| map | `random` | sorted | single | 1,000,000 | 23.08 (23.08) | 22.76 | 1.000 | 16.67 | 3.186 [3.173, 3.199] | 0.755 [0.749, 0.761] |
-| map | `random` | sorted | concurrent | 1,000,000 | 23.08 (23.08) | 22.76 | 1.000 | 16.67 | 3.581 [3.563, 3.595] | 1.126 [1.121, 1.131] |
-| map | `random` | shuffled | single | 1,000,000 | 33.57 (33.57) | 33.10 | 0.707 | 23.62 | 3.546 [3.528, 3.562] | 1.877 [1.856, 1.907] |
-| str | `prefixed` | sorted | single | 1,000,000 | 69.00 (81.20) | 65.43 | 1.000 | 72.48 | 1.054 [1.052, 1.056] | 0.882 [0.876, 0.885] |
-| str | `prefixed` | shuffled | single | 1,000,000 | 88.52 (93.01) | 84.20 | 0.706 | 74.80 | 1.065 [1.065, 1.066] | 1.207 [1.204, 1.211] |
-| str | `short` | sorted | single | 1,000,000 | 33.91 (33.95) | 32.02 | 1.000 | 69.17 | 1.277 [1.274, 1.279] | 0.418 [0.416, 0.420] |
-| str | `short` | sorted | concurrent | 1,000,000 | 33.91 (34.02) | 32.02 | 1.000 | 69.17 | 1.395 [1.392, 1.397] | 0.529 [0.526, 0.533] |
-| str | `short` | shuffled | single | 1,000,000 | 50.63 (50.87) | 47.99 | 0.707 | 71.99 | 1.426 [1.422, 1.430] | 0.963 [0.961, 0.965] |
+| Arm | Shape | Order | Table | N | Masstree allocator, settled (unsettled) | Masstree structural | leaf fill | Expanse allocator | Expanse `mem_used` | lookup_hit ratio [BCa 95%] | insert ratio [BCa 95%] |
+|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| map | `random` | sorted | single | 1,000,000 | 23.08 (23.08) | 22.76 | 1.000 | 16.67 | 16.70 | 3.186 [3.173, 3.199] | 0.755 [0.749, 0.761] |
+| map | `random` | sorted | concurrent | 1,000,000 | 23.08 (23.08) | 22.76 | 1.000 | 16.67 | 16.70 | 3.581 [3.563, 3.595] | 1.126 [1.121, 1.131] |
+| map | `random` | shuffled | single | 1,000,000 | 33.57 (33.57) | 33.10 | 0.707 | 23.62 | 16.70 | 3.546 [3.528, 3.562] | 1.877 [1.856, 1.907] |
+| str | `prefixed` | sorted | single | 1,000,000 | 69.00 (81.20) | 65.43 | 1.000 | 72.48 | 62.77 | 1.054 [1.052, 1.056] | 0.882 [0.876, 0.885] |
+| str | `prefixed` | shuffled | single | 1,000,000 | 88.52 (93.01) | 84.20 | 0.706 | 74.80 | 62.77 | 1.065 [1.065, 1.066] | 1.207 [1.204, 1.211] |
+| str | `short` | sorted | single | 1,000,000 | 33.91 (33.95) | 32.02 | 1.000 | 69.17 | 50.77 | 1.277 [1.274, 1.279] | 0.418 [0.416, 0.420] |
+| str | `short` | sorted | concurrent | 1,000,000 | 33.91 (34.02) | 32.02 | 1.000 | 69.17 | 50.77 | 1.395 [1.392, 1.397] | 0.529 [0.526, 0.533] |
+| str | `short` | shuffled | single | 1,000,000 | 50.63 (50.87) | 47.99 | 0.707 | 71.99 | 50.77 | 1.426 [1.422, 1.430] | 0.963 [0.961, 0.965] |
 
 The shuffled rows are the regime the Step 0 gate measured and the §6
-predictions leaned on; the sorted rows are the suite's registered cells, and
-the difference between them is the finding: **Masstree's insertion cost,
-leaf fill and footprint depend on insertion order; Expanse's footprint does
-not.** The concurrent-table rows show the protocol's own single-threaded
+predictions leaned on; the sorted rows are the suite's cells in the shared
+generator's order, with the table configuration §10.3 assigns. The
+difference between them is the finding, and it cuts both ways: **Masstree's
+insertion cost (20.6 → 124.4 ns on `random`), leaf fill (1.000 → 0.707) and
+footprint (23.08 → 33.57 B/key) depend on insertion order — and so do
+Expanse's insertion cost (27.4 → 67.2 ns) and its allocator footprint (16.67
+→ 23.62 B/key), while Expanse's own node census (`mem_used`, 16.70 in both
+orders) is the one figure that is order-invariant.** The 7 B/key the allocator
+holds beyond `mem_used` on the shuffled build is capacity the engine
+instrument does not see; its cause is unmeasured. Lookup ratios move a little
+with order too (3.186 sorted, 3.546 shuffled on `random`), so every latency
+verdict above is a sorted-order verdict. The concurrent-table rows show the protocol's own single-threaded
 cost: on `random` integer keys the insertion ratio moves from 0.755
 [0.749, 0.761] with the single-threaded table to 1.126 [1.121, 1.131] with the
 concurrent one, and the lookup ratio from 3.186 [3.173, 3.199] to 3.581
@@ -361,7 +389,7 @@ single-threaded configuration (§10.3).
 | 8 | 31.76 | 2.82 | 0.088 [0.086, 0.091] | Masstree — `CONFIRMED` |
 | 16 | 34.22 | 2.67 | 0.075 [0.070, 0.078] | Masstree — `not pre-registered` |
 
-**C2 — reader throughput alongside writers** (8 readers probe 50/50 while W writers insert; W = 0 is the reader-only reference)
+**C2 — reader throughput alongside writers** (8 readers probe 50/50 while W writers insert; W = 0 is the reader-only reference; the reader window is the writers' fixed work, so the two arms' windows differ in length by the writer ratio and the population grows at different rates inside them)
 
 | W | Masstree readers M/s | Expanse readers M/s | ratio [BCa 95%] | verdict | Masstree writers M/s | Expanse writers M/s | writer ratio |
 |--:|---:|---:|---|---|---:|---:|---|
@@ -383,7 +411,7 @@ single-threaded configuration (§10.3).
 | 8 | 23.81 | 2.05 | 0.103 [0.092, 0.116] | Masstree — `CONFIRMED` |
 | 16 | 23.54 | 0.49 | 0.020 [0.017, 0.024] | Masstree — `not pre-registered` |
 
-**C2 — reader throughput alongside writers** (8 readers probe 50/50 while W writers insert; W = 0 is the reader-only reference)
+**C2 — reader throughput alongside writers** (8 readers probe 50/50 while W writers insert; W = 0 is the reader-only reference; the reader window is the writers' fixed work, so the two arms' windows differ in length by the writer ratio and the population grows at different rates inside them)
 
 | W | Masstree readers M/s | Expanse readers M/s | ratio [BCa 95%] | verdict | Masstree writers M/s | Expanse writers M/s | writer ratio |
 |--:|---:|---:|---|---|---:|---:|---|
@@ -395,20 +423,28 @@ single-threaded configuration (§10.3).
 
 #### H — protocol health, Expanse side only (occ-stats build; event ratios, never a timing)
 
-| Arm | W | R | restart share, median [min, max] | fallback share, median | `sample_spins` ÷ `read_ops` (medians) | flag |
+| Arm | W | R | restart share, median [min, max] | fallback share, median | `sample_spins` ÷ `read_ops` (medians) | §6.3 |
 |---|--:|--:|---|---|---:|---|
-| map | 1 | 8 | 7.15% [5.63%, 10.70%] | 0.0000% | 1.37 | below 1% — §6.3 holds |
-| map | 2 | 8 | 5.04% [4.50%, 5.45%] | 0.0000% | 1.95 | below 1% — §6.3 holds |
-| map | 4 | 8 | 5.62% [4.76%, 6.44%] | 0.0000% | 2.07 | below 1% — §6.3 holds |
-| map | 8 | 8 | 5.89% [5.73%, 5.97%] | 0.0000% | 2.12 | below 1% — §6.3 holds |
+| map | 1 | 8 | 7.15% [5.63%, 10.70%] | 0.0000% | 1.37 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 2 | 8 | 5.04% [4.50%, 5.45%] | 0.0000% | 1.95 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 4 | 8 | 5.62% [4.76%, 6.44%] | 0.0000% | 2.07 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 8 | 8 | 5.89% [5.73%, 5.97%] | 0.0000% | 2.12 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
 | str | 1 | 8 | `NOT_INSTRUMENTED` (§10.5) | `NOT_INSTRUMENTED`; `read_fallbacks` = 0 absolute | — | not evaluable |
 | str | 2 | 8 | `NOT_INSTRUMENTED` (§10.5) | `NOT_INSTRUMENTED`; `read_fallbacks` = 0 absolute | — | not evaluable |
 | str | 4 | 8 | `NOT_INSTRUMENTED` (§10.5) | `NOT_INSTRUMENTED`; `read_fallbacks` = 0 absolute | — | not evaluable |
 | str | 8 | 8 | `NOT_INSTRUMENTED` (§10.5) | `NOT_INSTRUMENTED`; `read_fallbacks` = 0 absolute | — | not evaluable |
 
-The MC1 health rows replicate `hot_comparison` §7.3 on the same construction:
-restart share 5–7% without rising with writer count, and **zero reads took the
-writer mutex at any writer count**, so §6.3's falsifier does not fire. MC2's
+The MC1 health rows land where `hot_comparison` §7.3's did on the same
+construction: restart share 5–7% **without rising with writer count** — the
+first half of §6.3 registered a rise and is `REFUTED` — and zero reads took
+the writer mutex at any writer count. That zero is not a finding about the
+protocol: a fallback needs 64 consecutive failed walks, and at these bracket
+lengths the probability of one is negligible by construction, so the second
+half of §6.3 is `PASS_categorical_by_design` and a health falsifier that can
+fire — reader nanoseconds per probe under a writer against alone, which moved
+eight-fold here — is what a future arm should register. The health build
+itself perturbs what it counts: every restart and spin is a `fetch_add` on
+one shared counter line across nine threads (#721 scopes per-thread counters). MC2's
 rows are `NOT_INSTRUMENTED`: `StrReader::get` counts fallbacks only (§10.5) —
 the zero fallbacks are real, the restart share does not exist. Instrumenting
 the string reader is [#721](https://github.com/orieg/expanse/issues/721).
@@ -428,16 +464,18 @@ the string reader is [#721](https://github.com/orieg/expanse/issues/721).
 | 46 | 3,014,656 | 22.96 | 26.77 | 22.76 | 24.00 | `ok` |
 | 61 | 3,997,696 | 23.09 | 25.60 | 22.76 | 23.17 | `ok` |
 
-**Replication of the Expanse column.** MC1's cells are the construction of
+**The Expanse column beside #692's.** MC1's cells are the construction of
 `hot_comparison` §11.4 — same generator, seeds, prefill, fresh-key stream and
 thread placement — so the `SyncExpanseMap` column here is a second measurement
-of #692's, on another day in another process: single writer 5.72 M/s here
-against 5.22 there, eight writers 2.82 against 2.59, sixteen 2.67 against
-2.64, eight readers alone 142.1 against 126.6 *(workloads differ:
+of #692's, on another day, in another process, and at a different engine
+commit (`82966aae` against `5232af74`): single writer 5.72 M/s here against
+5.22 there, eight writers 2.82 against 2.59, sixteen 2.67 against 2.64, eight
+readers alone 142.1 against 126.6 *(workloads differ:
 `masstree_conc_map_64bit` vs `hot_rowex_map_64bit`; identical construction,
-not a §8.4 paired claim)*. The direction and the shape of the fall agree; the
-levels differ by 3–12%, which is the day-to-day spread of a wall-clock
-instrument and is reported as such.
+not a §8.4 paired claim)*. No tolerance was registered for this comparison, so
+it carries **no replication verdict**: the direction and the shape of the fall
+agree, the levels differ by 3–12%, and whether that spread is the instrument
+or the engine commits between the two runs is not measured here.
 
 ## 8. Scorecard against the pre-registration
 
@@ -466,20 +504,20 @@ instrument and is reported as such.
 | Masstree wins C1 at W ≥ 2, both arms (high) | **CONFIRMED** on every cell |
 | Masstree wins or `BOUNDARY_RESULT` at W = 1 (medium-low) | **CONFIRMED** on strings (0.890); **REFUTED in Expanse's favour** on integers (1.130) |
 | Masstree wins readers under writers (medium-high) | **CONFIRMED** on every cell |
-| Masstree wins integer scan at k = 10, 100 (medium-high) | **REFUTED** in Expanse's favour on every cell |
+| Masstree wins integer scan at k = 10, 100 (medium-high) | **REFUTED** on 20 of 24 cells; **CONFIRMED** on `random` at 10⁴ (k = 10, 100) and 10⁵ (k = 100); one `BOUNDARY_RESULT` |
 | Masstree wins string scan, every k (high) | **CONFIRMED** on every cell |
 | Masstree wins `prefixed` lookup and insert (low) | insert **CONFIRMED**; lookup **REFUTED**, narrowly (1.053) |
 | Masstree wins `short` / `skewed` index memory (medium) | **CONFIRMED**; `skewed` by 1.1 B/key |
 | Expanse wins `random` memory, λ ∈ [8, 23] (high) | **CONFIRMED** |
-| Expanse wins `random` memory outside the band (medium) | **REFUTED** at λ ≥ 38; parity-by-magnitude at λ = 4; wins at λ = 30 |
+| Expanse wins `random` memory outside the band (medium) | **UNPREDICTED LOSS** at λ ≥ 38 (by magnitude, no interval); parity-by-magnitude at λ = 4; wins at λ = 30 |
 | Expanse wins `sequential` / `clustered` / `sparse` memory (high / medium) | **CONFIRMED** |
 | Expanse wins integer lookup on `sequential`, `sparse`, `random` (medium-high / medium) | **CONFIRMED**, 3.2×–12.4× |
 | Expanse wins integer insert (medium) | **CONFIRMED** on `sequential`; **UNPREDICTED LOSS** on `random`, `sparse`, `clustered` in sorted order |
 | Expanse wins `counter` lookup and insert at 10⁶ (high) | **UNPREDICTED LOSS** on both |
 | Expanse wins `short` 100%-hit lookup (low-medium) | **CONFIRMED** |
-| Expanse wins `counter` / `prefixed` index memory (medium) | `counter` **CONFIRMED**; `prefixed` **REFUTED** |
+| Expanse wins `counter` / `prefixed` index memory (medium) | `counter` **CONFIRMED**; `prefixed` **UNPREDICTED LOSS** (by magnitude) |
 | Expanse wins reader-only C2 (medium) | **CONFIRMED** on integers; **UNPREDICTED LOSS** on strings |
-| H: fallback share < 1% at W ≤ 8 (hypothesis) | holds on MC1 (0%); not evaluable on MC2 (§10.5) |
+| H: restart share rises with W; fallback share < 1% at W ≤ 8 (§6.3) | restart share **did not rise** (7.15% at W = 1, 5.0–5.9% after) — that half **REFUTED** on MC1; fallback 0% — `PASS_categorical_by_design`, since a fallback needs 64 consecutive failed walks and cannot occur at these bracket lengths; not evaluable on MC2 (§10.5) |
 
 Ten `UNPREDICTED LOSS` cells and 27 `REFUTED` cells (one of them in
 Expanse's favour) against 86 `CONFIRMED`.

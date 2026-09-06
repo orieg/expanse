@@ -235,8 +235,10 @@ pub fn build_concurrent(
 ///
 /// The shared generators hand both arms the population **sorted**, and every
 /// suite in this repository builds in that order. For a B+-tree that is the
-/// best case — sorted inserts fill every leaf — so the Masstree arm also runs a
-/// sensitivity set on a Fisher–Yates permutation of the same population.
+/// best case — sorted inserts fill every leaf — and it moves Expanse's
+/// insertion cost and allocator footprint as well (only its own node census is
+/// order-invariant), so the Masstree arm also runs a sensitivity set on a
+/// Fisher–Yates permutation of the same population.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Order {
     /// The generator's order: ascending.

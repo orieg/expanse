@@ -1,7 +1,9 @@
 # Masstree vs. Expanse: Pre-Registration & Comparative Methodology
 
-**Status: locked before any harness code existed; measured on the reference
-host at harness commit `82966aae` and published in [`README.md`](README.md).
+**Status: committed before the harness commit (`54dea5ad`, then `82966aae`
+forty minutes later — a commit ordering, not a claim that no harness code was
+being written); measured on the reference host at harness commit `82966aae`
+and published in [`README.md`](README.md).
 The text of §1–§9 is the locked pre-registration; outcomes are recorded in the
 README and are never reconciled into it (§8.7); measurement constraints found
 while building and running are §10.** This document is commit 2 of the
@@ -511,9 +513,13 @@ on every run and prints the padding it would have counted.
 
 ### 10.2 Insertion order moves Masstree's footprint 1.45×, and is a registered dimension
 
+**This is a defect in the pre-registration, not a measurement constraint:**
+the Step 0 gate measured one regime and §5 locked the generators of another.
 The shared generators sort the population after drawing it, and every suite in
 this repository builds in that order. Expanse partitions by key expanse and its
-footprint does not depend on the order keys arrive. A B+-tree's does: sorted
+own node census (`mem_used`) does not depend on the order keys arrive — the
+allocator figure and its insertion cost do, as the sensitivity set later
+measured (README §6). A B+-tree's leaf fill does too: sorted
 insertion fills every leaf, random insertion leaves them at the random-fill
 occupancy. The Step 0 gate inserted **shuffled** and measured 94,381 leaves at
 70.6% fill for 1M uniform random keys; the harness, inserting **sorted**,

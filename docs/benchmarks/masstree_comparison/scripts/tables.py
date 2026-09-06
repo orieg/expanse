@@ -129,8 +129,11 @@ def int_latency_tables(lat: dict) -> str:
             row = []
             for k in (10, 100, 1000):
                 m = [c for c in cells if (c["pillar"], c["dist"], c["population"], c["scan_k"]) == ("scan", d, n, k)]
-                row.append(fmt_ratio(m[0]) + (" · " + label(m[0]["verdict"], registered_int(m[0])).split(" — ")[-1]
-                                             if m and m[0]["verdict"] != "BOUNDARY_RESULT" else "") if m else "—")
+                if not m:
+                    row.append("—")
+                    continue
+                lab = label(m[0]["verdict"], registered_int(m[0]))
+                row.append(fmt_ratio(m[0]) + " · " + (lab.split(" — ")[-1] if " — " in lab else lab))
             out.append(f"| `{d}` | " + " | ".join(row) + " |")
         out.append("")
     return "\n".join(out)
@@ -145,7 +148,7 @@ def int_memory_tables(mem: dict) -> str:
            "is flagged `QUANTUM_DOMINATED` (§3.3). `structural` is Masstree's own `json_stats` "
            "node census; `mem_used` is Expanse's own accounting. The engine columns are never "
            "mixed with the allocator columns in one ratio.\n",
-           "| Distribution | λ | N | Masstree allocator (unsettled) | Expanse allocator | Masstree structural | Expanse `mem_used` | Masstree slack | slabs | leaf fill | flag |",
+           "| Distribution | λ | N | Masstree allocator, settled (unsettled) | Expanse allocator | Masstree structural | Expanse `mem_used` | Masstree slack | slabs | leaf fill | flag |",
            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
     for c in sorted(cells, key=lambda x: (x["dist"] != "random", x["lambda"] or 0, x["dist"])):
         lam = f"{c['lambda']:.0f}" if c["lambda"] is not None else "—"
@@ -207,7 +210,7 @@ def str_memory_tables(mem: dict) -> str:
     out = ["### Memory, string map: two instruments per cell, bytes per key\n",
            "Both sides copy key bytes into their own nodes, so the index column is the ownership "
            "column on both (§4). Columns as the integer table.\n",
-           "| Shape | N | mean len | Masstree allocator (unsettled) | Expanse allocator | Masstree structural | Expanse `mem_used` | Masstree slack | layers | flag |",
+           "| Shape | N | mean len | Masstree allocator, settled (unsettled) | Expanse allocator | Masstree structural | Expanse `mem_used` | Masstree slack | layers | flag |",
            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
     for c in sorted((x for x in cells if bucket(x["population"]) in show), key=lambda x: (x["dist"], x["population"])):
         nr = c["masstree_not_representable"]
@@ -255,7 +258,8 @@ def concurrent_tables(conc: dict) -> str:
             out.append(f"| {c['writers']} | {c['masstree_writer_mops_median']:.2f} | {c['expanse_writer_mops_median']:.2f} | "
                        f"{wr} | {label(c['writer_verdict'], registered_conc(c, 'writer'))} |")
         out.append("")
-        out.append("**C2 — reader throughput alongside writers** (8 readers probe 50/50 while W writers insert; W = 0 is the reader-only reference)\n")
+        out.append("**C2 — reader throughput alongside writers** (8 readers probe 50/50 while W writers insert; W = 0 is the reader-only reference; "
+                   "the reader window is the writers' fixed work, so the two arms' windows differ in length by the writer ratio and the population grows at different rates inside them)\n")
         out.append("| W | Masstree readers M/s | Expanse readers M/s | ratio [BCa 95%] | verdict | Masstree writers M/s | Expanse writers M/s | writer ratio |")
         out.append("|--:|---:|---:|---|---|---:|---:|---|")
         for c in sorted((x for x in cells if x["pillar"] == "C2"), key=lambda x: x["writers"]):
@@ -270,8 +274,15 @@ def concurrent_tables(conc: dict) -> str:
     health = conc.get("health", [])
     if health:
         out.append("### H — protocol health, Expanse side only (occ-stats build; event ratios, never a timing)\n")
-        out.append("| Arm | W | R | restart share, median [min, max] | fallback share, median | `sample_spins` ÷ `read_ops` (medians) | flag |")
+        out.append("| Arm | W | R | restart share, median [min, max] | fallback share, median | `sample_spins` ÷ `read_ops` (medians) | §6.3 |")
         out.append("|---|--:|--:|---|---|---:|---|")
+        # §6.3 half one: the restart share was registered to rise with W. Evaluated
+        # per arm on the medians, once, and printed on every row of that arm.
+        rising = {}
+        for arm in {c["arm"] for c in health}:
+            rows = sorted((c for c in health if c["arm"] == arm and c["read_ops"]["median"] > 0), key=lambda x: x["writers"])
+            shares = [c["restart_share"]["median"] for c in rows]
+            rising[arm] = None if len(shares) < 2 else all(b > a for a, b in zip(shares, shares[1:]))
         for c in sorted(health, key=lambda x: (x["arm"], x["writers"])):
             rs, fs = c["restart_share"], c["fallback_share"]
             if c["read_ops"]["median"] == 0:
@@ -280,8 +291,12 @@ def concurrent_tables(conc: dict) -> str:
                            f"`NOT_INSTRUMENTED`; `read_fallbacks` = {c['read_fallbacks']['median']:,} absolute | — | not evaluable |")
                 continue
             spins = c["sample_spins"]["median"] / max(c["read_ops"]["median"], 1)
+            rise = rising.get(c["arm"])
+            half1 = ("rise with W: `CONFIRMED`" if rise else "rise with W: **`REFUTED`**") if rise is not None else "rise with W: n/a"
+            half2 = ("**STARVATION**" if c["starvation_flag"]
+                     else "fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks)")
             out.append(f"| {c['arm']} | {c['writers']} | {c['readers']} | {rs['median']:.2%} [{rs['min']:.2%}, {rs['max']:.2%}] | "
-                       f"{fs['median']:.4%} | {spins:.2f} | {'**STARVATION** (§6.3)' if c['starvation_flag'] else 'below 1% — §6.3 holds'} |")
+                       f"{fs['median']:.4%} | {spins:.2f} | {half1}; {half2} |")
         out.append("")
     mem = conc.get("memory", [])
     if mem:
@@ -300,13 +315,15 @@ def order_tables(sens: dict) -> str:
     """§10.2: the same population in the generator's sorted order and shuffled.
     No verdict label — this table is a sensitivity disclosure, not a cell."""
     out = ["### Sensitivity (§10.2 insertion order, §10.3 table configuration) — both arms, same population\n",
-           "Sorted / single is the registered configuration every cell above was built in. Shuffled is a "
-           "Fisher–Yates permutation of the same keys (Masstree's leaf fill and footprint depend on the order; "
-           "Expanse's footprint does not). Concurrent is Masstree's fenced, spin-locked node version, the "
-           "configuration the MC cells use, driven single-threaded here to show the protocol's own cost. "
-           "Ratios are Masstree ÷ Expanse; no verdict is given against §6.\n",
-           "| Arm | Shape | Order | Table | N | Masstree allocator (unsettled) | Masstree structural | leaf fill | Expanse allocator | lookup_hit ratio [BCa 95%] | insert ratio [BCa 95%] |",
-           "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|"]
+           "Sorted / single is the order the shared generator produces and the table configuration §10.3 assigns, "
+           "which every cell above was built in. Shuffled is a Fisher–Yates permutation of the same keys: "
+           "Masstree's leaf fill, footprint and insertion cost depend on the order, and so do Expanse's insertion "
+           "cost and allocator footprint; Expanse's own node census (`mem_used`) is the one order-invariant figure. "
+           "Concurrent is Masstree's fenced, spin-locked node version, the configuration the MC cells use, driven "
+           "single-threaded here to show the protocol's own cost. Ratios are Masstree ÷ Expanse; no verdict is given "
+           "against §6.\n",
+           "| Arm | Shape | Order | Table | N | Masstree allocator, settled (unsettled) | Masstree structural | leaf fill | Expanse allocator | Expanse `mem_used` | lookup_hit ratio [BCa 95%] | insert ratio [BCa 95%] |",
+           "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
     lat = sens.get("latency", [])
     for m in sorted(sens.get("memory", []), key=lambda x: (x["arm"], x["dist"], x["order"] != "sorted", x.get("table") != "single")):
         def r(pillar):
@@ -316,7 +333,7 @@ def order_tables(sens: dict) -> str:
         out.append(f"| {m['arm']} | `{m['dist']}` | {m['order']} | {m.get('table', 'single')} | {m['population']:,} | "
                    f"{m['masstree_alloc_bytes_per_key']:.2f} ({m['masstree_unsettled_bytes_per_key']:.2f}) | "
                    f"{m['masstree_structural_bytes_per_key']:.2f} | {m['masstree_leaf_fill']:.3f} | {m['expanse_alloc_bytes_per_key']:.2f} | "
-                   f"{r('lookup_hit')} | {r('insert')} |")
+                   f"{m['expanse_mem_used_bytes_per_key']:.2f} | {r('lookup_hit')} | {r('insert')} |")
     out.append("")
     return "\n".join(out)
 
