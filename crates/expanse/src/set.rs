@@ -1743,9 +1743,16 @@ mod tests {
             }),
         ];
         for &(name, genf) in distributions {
-            for &n in &[
-                0usize, 1, 5, 15, 16, 25, 26, 31, 32, 33, 200, 300, 2000, 20_000,
-            ] {
+            // The 20,000-key cell is the bulk of this test under Miri (four
+            // distributions, builder plus insert plus two validator walks);
+            // every node form it reaches also appears by 2,000, so the
+            // interpreter stops there and the native job runs the full list.
+            let sizes: &[usize] = if cfg!(miri) {
+                &[0, 1, 5, 15, 16, 25, 26, 31, 32, 33, 200, 300, 2000]
+            } else {
+                &[0, 1, 5, 15, 16, 25, 26, 31, 32, 33, 200, 300, 2000, 20_000]
+            };
+            for &n in sizes {
                 let mut rng = XorShift(0x51ED_0000 ^ n as u64);
                 let mut keys = genf(&mut rng, n);
                 keys.sort_unstable();
@@ -1798,6 +1805,12 @@ mod tests {
     /// self-ops — with every result passing the invariants validator.
     #[test]
     fn materialize_differential() {
+        // Populations shrink tenfold under Miri (the dense pair alone is
+        // 140,000 interpreted inserts plus four materializations); the
+        // full-expanse case keeps whole 256-key expanses at either size, and
+        // the native job runs the full populations.
+        const SCALE: u64 = if cfg!(miri) { 10 } else { 1 };
+        const FULL: u64 = if cfg!(miri) { 4_096 } else { 65_536 };
         fn set_of(v: &[u64]) -> ExpanseSet {
             let mut s = ExpanseSet::new();
             for &k in v {
@@ -1841,13 +1854,13 @@ mod tests {
 
         let mut rng = XorShift(0xA1B2_C3D4);
         // dense contiguous ranges → full level-1 and level-2 expanses.
-        let dense_a: Vec<u64> = (0..70_000u64).collect();
-        let dense_b: Vec<u64> = (30_000..100_000u64).collect();
+        let dense_a: Vec<u64> = (0..70_000u64 / SCALE).collect();
+        let dense_b: Vec<u64> = (30_000 / SCALE..100_000u64 / SCALE).collect();
         check(&dense_a, &dense_b, "dense-overlap");
         check(&dense_a, &dense_a, "dense-self");
         check(
-            &(0..65_536u64).collect::<Vec<_>>(),
-            &[0, 65_535, 65_536, 200_000],
+            &(0..FULL).collect::<Vec<_>>(),
+            &[0, FULL - 1, FULL, 200_000],
             "full-l2-vs-sparse",
         );
         check(
@@ -1871,8 +1884,8 @@ mod tests {
             v.dedup();
             v
         };
-        let ca = clustered(&mut rng, 40_000);
-        let cb = clustered(&mut rng, 40_000);
+        let ca = clustered(&mut rng, 40_000 / SCALE as usize);
+        let cb = clustered(&mut rng, 40_000 / SCALE as usize);
         check(&ca, &cb, "clustered");
 
         // sparse random (Tree × Tree, little overlap → small AND result).
@@ -1883,8 +1896,8 @@ mod tests {
             }
             s.into_iter().collect()
         };
-        let ra = sparse(&mut rng, 5_000);
-        let rb = sparse(&mut rng, 5_000);
+        let ra = sparse(&mut rng, 5_000 / SCALE as usize);
+        let rb = sparse(&mut rng, 5_000 / SCALE as usize);
         check(&ra, &rb, "sparse");
 
         // zipfian / skewed: many small keys, few large.
@@ -1897,8 +1910,8 @@ mod tests {
             }
             s.into_iter().collect()
         };
-        let za = zipf(&mut rng, 3_000);
-        let zb = zipf(&mut rng, 3_000);
+        let za = zipf(&mut rng, 3_000 / SCALE as usize);
+        let zb = zipf(&mut rng, 3_000 / SCALE as usize);
         check(&za, &zb, "zipfian");
 
         // Root-combination coverage: empty, single, small leaf, and big tree.

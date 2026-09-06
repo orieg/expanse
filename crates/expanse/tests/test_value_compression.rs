@@ -241,44 +241,52 @@ fn test_concurrent_reader_compressed_inlines() {
     }
 }
 
-proptest! {
-    #[test]
-    fn proptest_value_compression_model_differential(
-        entries in prop::collection::vec((any::<u64>(), prop::collection::vec(any::<u8>(), 0..64), 0..0x00FF_FFFFu32), 1..100)
-    ) {
-        let mut map = ExpanseBlobMap::new();
-        let mut model: BTreeMap<u64, (Vec<u8>, u32)> = BTreeMap::new();
+// proptest's file failure persistence calls `getcwd`, which Miri's isolation
+// refuses, so this one test is native-only; the five hand-written tests above
+// run under Miri and cover the same promotion, spill and image paths.
+#[cfg(not(miri))]
+mod native_only {
+    use super::*;
 
-        for (k, data, meta) in &entries {
-            map.insert(*k, data, *meta).unwrap();
-            let expected_meta = if data.len() <= 7
-                || (*meta == 0 && expanse_trie::codec::try_compress_inline(data).is_some())
-            {
-                0
-            } else {
-                *meta
-            };
-            model.insert(*k, (data.clone(), expected_meta));
+    proptest! {
+        #[test]
+        fn proptest_value_compression_model_differential(
+            entries in prop::collection::vec((any::<u64>(), prop::collection::vec(any::<u8>(), 0..64), 0..0x00FF_FFFFu32), 1..100)
+        ) {
+            let mut map = ExpanseBlobMap::new();
+            let mut model: BTreeMap<u64, (Vec<u8>, u32)> = BTreeMap::new();
+
+            for (k, data, meta) in &entries {
+                map.insert(*k, data, *meta).unwrap();
+                let expected_meta = if data.len() <= 7
+                    || (*meta == 0 && expanse_trie::codec::try_compress_inline(data).is_some())
+                {
+                    0
+                } else {
+                    *meta
+                };
+                model.insert(*k, (data.clone(), expected_meta));
+            }
+
+            prop_assert_eq!(map.len(), model.len() as u64);
+
+            for (k, (expected_data, expected_meta)) in &model {
+                let (view, meta) = map.get(*k).unwrap();
+                prop_assert_eq!(view.as_bytes(), expected_data.as_slice());
+                prop_assert_eq!(meta, *expected_meta);
+            }
+
+            // Test scan_filtered
+            let mut scanned = BTreeMap::new();
+            map.scan_filtered(
+                0..=u64::MAX,
+                |_k, _meta| true,
+                |k, view, meta| {
+                    scanned.insert(k, (view.as_bytes().to_vec(), meta));
+                    true
+                },
+            );
+            prop_assert_eq!(scanned, model);
         }
-
-        prop_assert_eq!(map.len(), model.len() as u64);
-
-        for (k, (expected_data, expected_meta)) in &model {
-            let (view, meta) = map.get(*k).unwrap();
-            prop_assert_eq!(view.as_bytes(), expected_data.as_slice());
-            prop_assert_eq!(meta, *expected_meta);
-        }
-
-        // Test scan_filtered
-        let mut scanned = BTreeMap::new();
-        map.scan_filtered(
-            0..=u64::MAX,
-            |_k, _meta| true,
-            |k, view, meta| {
-                scanned.insert(k, (view.as_bytes().to_vec(), meta));
-                true
-            },
-        );
-        prop_assert_eq!(scanned, model);
     }
 }

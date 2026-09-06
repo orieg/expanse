@@ -62,6 +62,7 @@ python3 scripts/check_bench_pin.py
 python3 scripts/check_man_pages.py
 python3 scripts/check_deletion_rationale.py
 python3 scripts/check_test_floors.py
+python3 scripts/check_miri_shards.py
 python3 scripts/perf_report.py --self-test
 python3 scripts/pin_exposure.py --self-test
 python3 scripts/warmup_ramp.py --self-test
@@ -72,6 +73,7 @@ python3 scripts/check_bench_suites.py --self-test
 python3 scripts/check_bench_shapes.py --self-test
 python3 scripts/check_bench_pin.py --self-test
 python3 scripts/check_man_pages.py --self-test
+python3 scripts/check_miri_shards.py --self-test
 python3 scripts/check_man_examples.py --self-test
 python3 scripts/check_abi_parity.py --self-test
 python3 scripts/check_deletion_rationale.py --self-test
