@@ -1,0 +1,121 @@
+{
+  "provenance": {
+    "what": "Callgrind instruction counts of crates/expanse/benches/leaf_cap_cascaded.rs (workload core_leaf_cap_cascaded_instructions: 1,000,000 uniform random keys masked to 63 bits, lambda = N / 2^(63-48) = 30.52; 1,000,000 hit probes and 1,000,000 rejection-sampled miss probes per arm) at the shipped LEAF_CAP = 32 and at LEAF_CAP = 48 by build-time patch of crates/expanse/src/types.rs; deterministic exact integers, no interval (AGENTS.md section 8.4). The cap-48 cell is a control, not a shipped configuration.",
+    "commit": "c81eaf5d",
+    "patch": "pub const LEAF_CAP: usize = 48;",
+    "host": "x86_64 dev host — Intel(R) Xeon(R) CPU E5-2697 v4 @ 2.30GHz, 72 threads, Linux 5.15.0-185-generic; inside a rust:1.98 container (rustc 1.98.0 (88d9e12ae 2026-08-18), valgrind-3.24.0, iai-callgrind-runner 0.16.1, --cache-sim=yes, --security-opt seccomp=unconfined)",
+    "instrument_note": "Ir is published as cost, not verdict: docs/BENCHMARKING.md rule 16 decides random point lookups by wall clock and hardware counters with intervals; the wall-clock pair for this cell is docs/benchmarks/hot_comparison/scripts/leaf_cap_cascaded_wallclock.sh and has not been run (#715 scope item 3). Cache-simulation columns are Callgrind's simulated hierarchy, not the host's.",
+    "structure_note": "At lambda = 30.52 under LEAF_CAP = 32 roughly 35% of the 32,768 two-byte expanses have cascaded into a bitmap branch of single-key immediates (the 2M @64 census at the same lambda counts 22,970 of 65,536 = 35.05%); under LEAF_CAP = 48 essentially all of them are still a packed linear leaf of up to 48 keys. The memory cells beside the Ir cells are the same generator, seed, N and width from density_sweep (mem_used() byte accounting).",
+    "generator": "XorShift64(0x0DDB_1A5E_5EED_0001) masked to 63 bits (population); XorShift64(0x51ED_0FF5_C0FF_EE01) masked to 63 bits, rejected on membership (misses); Fisher-Yates under XorShift64(0x9E37_79B9) (hit probe order)"
+  },
+  "cell": {
+    "n": 1000000,
+    "bits": 63,
+    "lambda": 30.5176,
+    "probes_per_arm": 1000000,
+    "bytes_per_key_cap32": {
+      "set": 13.6,
+      "map": 19.38,
+      "source": "density_sweep.cells (docs/assets/data/bench_assets.json), commit 86daaddf"
+    },
+    "bytes_per_key_cap48": {
+      "set": 6.99,
+      "map": 15.37,
+      "source": "density_sweep.leaf_cap_48_control.cells (docs/assets/data/bench_assets.json), commit 86daaddf+LEAF_CAP=48"
+    }
+  },
+  "arms": [
+    {
+      "arm": "cascaded_map_get/hit",
+      "probes": 1000000,
+      "ir_cap32": 176844750,
+      "ir_cap48": 207936634,
+      "ir_per_probe_cap32": 176.845,
+      "ir_per_probe_cap48": 207.937,
+      "delta_pct": 17.581,
+      "cache_sim_cap32": {
+        "L1 Hits": 216620470,
+        "LL Hits": 2722543,
+        "RAM Hits": 1426810,
+        "Total read+write": 220769823,
+        "Estimated Cycles": 280171535
+      },
+      "cache_sim_cap48": {
+        "L1 Hits": 250864915,
+        "LL Hits": 2705139,
+        "RAM Hits": 1480965,
+        "Total read+write": 255051019,
+        "Estimated Cycles": 316224385
+      }
+    },
+    {
+      "arm": "cascaded_map_get/miss",
+      "probes": 1000000,
+      "ir_cap32": 172016225,
+      "ir_cap48": 205080859,
+      "ir_per_probe_cap32": 172.016,
+      "ir_per_probe_cap48": 205.081,
+      "delta_pct": 19.222,
+      "cache_sim_cap32": {
+        "L1 Hits": 210386141,
+        "LL Hits": 2748552,
+        "RAM Hits": 353949,
+        "Total read+write": 213488642,
+        "Estimated Cycles": 236517116
+      },
+      "cache_sim_cap48": {
+        "L1 Hits": 247877381,
+        "LL Hits": 2730972,
+        "RAM Hits": 398323,
+        "Total read+write": 251006676,
+        "Estimated Cycles": 275473546
+      }
+    },
+    {
+      "arm": "cascaded_set_contains/hit",
+      "probes": 1000000,
+      "ir_cap32": 171709610,
+      "ir_cap48": 200945920,
+      "ir_per_probe_cap32": 171.71,
+      "ir_per_probe_cap48": 200.946,
+      "delta_pct": 17.027,
+      "cache_sim_cap32": {
+        "L1 Hits": 209247377,
+        "LL Hits": 2794294,
+        "RAM Hits": 701697,
+        "Total read+write": 212743368,
+        "Estimated Cycles": 247778242
+      },
+      "cache_sim_cap48": {
+        "L1 Hits": 241904431,
+        "LL Hits": 2882514,
+        "RAM Hits": 274055,
+        "Total read+write": 245061000,
+        "Estimated Cycles": 265908926
+      }
+    },
+    {
+      "arm": "cascaded_set_contains/miss",
+      "probes": 1000000,
+      "ir_cap32": 168692815,
+      "ir_cap48": 200086695,
+      "ir_per_probe_cap32": 168.693,
+      "ir_per_probe_cap48": 200.087,
+      "delta_pct": 18.61,
+      "cache_sim_cap32": {
+        "L1 Hits": 205066693,
+        "LL Hits": 2801162,
+        "RAM Hits": 303736,
+        "Total read+write": 208171591,
+        "Estimated Cycles": 229703263
+      },
+      "cache_sim_cap48": {
+        "L1 Hits": 240884044,
+        "LL Hits": 2834764,
+        "RAM Hits": 293743,
+        "Total read+write": 244012551,
+        "Estimated Cycles": 265338869
+      }
+    }
+  ]
+}

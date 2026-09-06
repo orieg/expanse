@@ -71,6 +71,18 @@ name = "smoke_instructions"
 harness = false
 test = false
 
+# LEAF_CAP read-path cost in the cascaded regime (#715): the Callgrind arm and
+# its wall-clock twin, one shape table each (AGENTS.md §8.15).
+[[bench]]
+name = "leaf_cap_cascaded"
+harness = false
+test = false
+
+[[bench]]
+name = "leaf_cap_cascaded_wallclock"
+harness = false
+test = false
+
 [[bench]]
 name = "comparative"
 harness = false

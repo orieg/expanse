@@ -211,6 +211,35 @@
       "summary": "Scaled-down Callgrind smoke counters, dual-pass against the base ref. The same instrument as the `callgrind-smoke` CI job, on the reference host."
     },
     {
+      "name": "leaf_cap_cascaded",
+      "available": true,
+      "kind": "callgrind",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "leaf_cap_cascaded",
+      "arms": {
+        "subject_label": "Expanse",
+        "twins": [],
+        "unpaired": [
+          "cascaded_set_contains",
+          "cascaded_map_get"
+        ]
+      },
+      "summary": "Callgrind `contains` / `get`, hit and miss, over 1M keys at 63 bits (\u03bb = 30.52): the read path where `LEAF_CAP` changes the structure. Single-build; the cap-32 / cap-48 pair is two runs of it (`docs/benchmarks/hot_comparison/METHODOLOGY.md` \u00a79.10.5).",
+      "suite": "hot_comparison"
+    },
+    {
+      "name": "leaf_cap_cascaded_wallclock",
+      "available": false,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "leaf_cap_cascaded_wallclock",
+      "reason": "the measurement is a pair \u2014 the shipped `LEAF_CAP` against a `LEAF_CAP = 48` build-time patch \u2014 interleaved A/B/A/B under one lock and pin with a same-build A/A repeat; a single `cargo bench` measures one build and cannot produce it. Driven by `docs/benchmarks/hot_comparison/scripts/leaf_cap_cascaded_wallclock.sh` on the reference host.",
+      "summary": "Wall-clock twin of `leaf_cap_cascaded`: `contains` / `get`, hit and miss, over 1M keys at 63 bits (\u03bb = 30.52), `compare.rs`-shaped, BCa 95% via `scripts/bench_baseline.py`.",
+      "suite": "hot_comparison"
+    },
+    {
       "name": "domain",
       "available": true,
       "kind": "wallclock",
