@@ -95,58 +95,58 @@
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
   <text x="30" y="108" class="t-bar-label">clustered · Arm B · map</text>
   <text x="30" y="122" class="t-sub">N = 1,000,000 · 64-bit keys</text>
-  <rect x="300" y="92" width="50.0" height="11" rx="2" class="b-expanse"/>
-  <text x="358.0" y="101" class="t-val-accent">16.40</text>
-  <rect x="300" y="109" width="182.4" height="11" rx="2" class="b-hot"/>
-  <text x="490.4" y="118" class="t-val-blue">59.90</text>
+  <rect x="300" y="92" width="49.8" height="11" rx="2" class="b-expanse"/>
+  <text x="357.8" y="101" class="t-val-accent">16.39</text>
+  <rect x="300" y="109" width="181.7" height="11" rx="2" class="b-hot"/>
+  <text x="489.7" y="118" class="t-val-blue">59.81</text>
   <rect x="800" y="100" width="130" height="20" rx="3" class="badge-win"/>
   <text x="865" y="114" class="badge-win-text">Expanse 3.65x</text>
   <text x="30" y="164" class="t-bar-label">random · Arm B · map</text>
   <text x="30" y="178" class="t-sub">N = 1,000,000 · 64-bit keys</text>
-  <rect x="300" y="148" width="183.4" height="11" rx="2" class="b-expanse"/>
-  <text x="491.4" y="157" class="t-val-accent">60.21</text>
+  <rect x="300" y="148" width="182.3" height="11" rx="2" class="b-expanse"/>
+  <text x="490.3" y="157" class="t-val-accent">60.00</text>
   <rect x="300" y="165" width="224.0" height="11" rx="2" class="b-hot"/>
-  <text x="532.0" y="174" class="t-val-blue">73.55</text>
+  <text x="532.0" y="174" class="t-val-blue">73.72</text>
   <rect x="800" y="156" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="170" class="badge-win-text">Expanse 1.22x</text>
+  <text x="865" y="170" class="badge-win-text">Expanse 1.23x</text>
   <text x="30" y="220" class="t-bar-label">sequential · Arm B · map</text>
   <text x="30" y="234" class="t-sub">N = 1,000,000 · 64-bit keys</text>
-  <rect x="300" y="204" width="33.3" height="11" rx="2" class="b-expanse"/>
-  <text x="341.3" y="213" class="t-val-accent">10.92</text>
-  <rect x="300" y="221" width="161.8" height="11" rx="2" class="b-hot"/>
-  <text x="469.8" y="230" class="t-val-blue">53.14</text>
+  <rect x="300" y="204" width="33.1" height="11" rx="2" class="b-expanse"/>
+  <text x="341.1" y="213" class="t-val-accent">10.89</text>
+  <rect x="300" y="221" width="161.3" height="11" rx="2" class="b-hot"/>
+  <text x="469.3" y="230" class="t-val-blue">53.08</text>
   <rect x="800" y="212" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="226" class="badge-win-text">Expanse 4.86x</text>
+  <text x="865" y="226" class="badge-win-text">Expanse 4.87x</text>
   <text x="30" y="276" class="t-bar-label">sparse · Arm B · map</text>
   <text x="30" y="290" class="t-sub">N = 1,000,000 · 64-bit keys</text>
-  <rect x="300" y="260" width="25.2" height="11" rx="2" class="b-expanse"/>
-  <text x="333.2" y="269" class="t-val-accent">8.27</text>
-  <rect x="300" y="277" width="163.4" height="11" rx="2" class="b-hot"/>
-  <text x="471.4" y="286" class="t-val-blue">53.66</text>
+  <rect x="300" y="260" width="25.1" height="11" rx="2" class="b-expanse"/>
+  <text x="333.1" y="269" class="t-val-accent">8.26</text>
+  <rect x="300" y="277" width="163.9" height="11" rx="2" class="b-hot"/>
+  <text x="471.9" y="286" class="t-val-blue">53.94</text>
   <rect x="800" y="268" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="282" class="badge-win-text">Expanse 6.49x</text>
+  <text x="865" y="282" class="badge-win-text">Expanse 6.53x</text>
   <text x="30" y="332" class="t-bar-label">clustered · Arm A · set</text>
   <text x="30" y="346" class="t-sub">N = 1,000,000 · 63-bit keys</text>
-  <rect x="300" y="316" width="33.7" height="11" rx="2" class="b-expanse"/>
-  <text x="341.7" y="325" class="t-val-accent">11.06</text>
-  <rect x="300" y="333" width="73.3" height="11" rx="2" class="b-hot"/>
-  <text x="381.3" y="342" class="t-val-blue">24.07</text>
+  <rect x="300" y="316" width="33.5" height="11" rx="2" class="b-expanse"/>
+  <text x="341.5" y="325" class="t-val-accent">11.04</text>
+  <rect x="300" y="333" width="73.8" height="11" rx="2" class="b-hot"/>
+  <text x="381.8" y="342" class="t-val-blue">24.30</text>
   <rect x="800" y="324" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="338" class="badge-win-text">Expanse 2.18x</text>
+  <text x="865" y="338" class="badge-win-text">Expanse 2.20x</text>
   <text x="30" y="388" class="t-bar-label">random · Arm A · set</text>
   <text x="30" y="402" class="t-sub">N = 1,000,000 · 63-bit keys</text>
-  <rect x="300" y="372" width="113.5" height="11" rx="2" class="b-expanse"/>
-  <text x="421.5" y="381" class="t-val-accent">37.27</text>
-  <rect x="300" y="389" width="109.1" height="11" rx="2" class="b-hot"/>
-  <text x="417.1" y="398" class="t-val-blue">35.83</text>
+  <rect x="300" y="372" width="113.1" height="11" rx="2" class="b-expanse"/>
+  <text x="421.1" y="381" class="t-val-accent">37.22</text>
+  <rect x="300" y="389" width="108.8" height="11" rx="2" class="b-hot"/>
+  <text x="416.8" y="398" class="t-val-blue">35.80</text>
   <rect x="800" y="380" width="130" height="20" rx="3" class="badge-loss"/>
   <text x="865" y="394" class="badge-loss-text">HOT 1.04x</text>
   <text x="30" y="444" class="t-bar-label">sequential · Arm A · set</text>
   <text x="30" y="458" class="t-sub">N = 1,000,000 · 63-bit keys</text>
   <rect x="300" y="428" width="24.5" height="11" rx="2" class="b-expanse"/>
-  <text x="332.5" y="437" class="t-val-accent">8.05</text>
-  <rect x="300" y="445" width="57.7" height="11" rx="2" class="b-hot"/>
-  <text x="365.7" y="454" class="t-val-blue">18.95</text>
+  <text x="332.5" y="437" class="t-val-accent">8.07</text>
+  <rect x="300" y="445" width="57.6" height="11" rx="2" class="b-hot"/>
+  <text x="365.6" y="454" class="t-val-blue">18.95</text>
   <rect x="800" y="436" width="130" height="20" rx="3" class="badge-win"/>
   <text x="865" y="450" class="badge-win-text">Expanse 2.35x</text>
   <text x="30" y="500" class="t-bar-label">sparse · Arm A · set</text>
@@ -154,7 +154,7 @@
   <rect x="300" y="484" width="23.5" height="11" rx="2" class="b-expanse"/>
   <text x="331.5" y="493" class="t-val-accent">7.72</text>
   <rect x="300" y="501" width="64.0" height="11" rx="2" class="b-hot"/>
-  <text x="372.0" y="510" class="t-val-blue">21.03</text>
+  <text x="372.0" y="510" class="t-val-blue">21.05</text>
   <rect x="800" y="492" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="506" class="badge-win-text">Expanse 2.72x</text>
+  <text x="865" y="506" class="badge-win-text">Expanse 2.73x</text>
 </svg>

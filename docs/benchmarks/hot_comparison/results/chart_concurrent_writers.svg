@@ -95,82 +95,82 @@
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
   <text x="30" y="108" class="t-bar-label">set · W=1 R=0</text>
   <text x="30" y="122" class="t-sub">hot_rowex_set_63bit · 15 rounds</text>
-  <rect x="300" y="92" width="56.5" height="11" rx="2" class="b-expanse"/>
-  <text x="364.5" y="101" class="t-val-accent">8.64</text>
-  <rect x="300" y="109" width="36.3" height="11" rx="2" class="b-hot"/>
-  <text x="344.3" y="118" class="t-val-blue">5.55</text>
+  <rect x="300" y="92" width="54.9" height="11" rx="2" class="b-expanse"/>
+  <text x="362.9" y="101" class="t-val-accent">8.63</text>
+  <rect x="300" y="109" width="35.1" height="11" rx="2" class="b-hot"/>
+  <text x="343.1" y="118" class="t-val-blue">5.53</text>
   <rect x="800" y="100" width="130" height="20" rx="3" class="badge-win"/>
   <text x="865" y="114" class="badge-win-text">Expanse 1.56x</text>
   <text x="30" y="164" class="t-bar-label">set · W=2 R=0</text>
   <text x="30" y="178" class="t-sub">hot_rowex_set_63bit · 15 rounds</text>
-  <rect x="300" y="148" width="37.4" height="11" rx="2" class="b-expanse"/>
-  <text x="345.4" y="157" class="t-val-accent">5.72</text>
-  <rect x="300" y="165" width="59.2" height="11" rx="2" class="b-hot"/>
-  <text x="367.2" y="174" class="t-val-blue">9.06</text>
+  <rect x="300" y="148" width="32.8" height="11" rx="2" class="b-expanse"/>
+  <text x="340.8" y="157" class="t-val-accent">5.16</text>
+  <rect x="300" y="165" width="57.3" height="11" rx="2" class="b-hot"/>
+  <text x="365.3" y="174" class="t-val-blue">9.01</text>
   <rect x="800" y="156" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="170" class="badge-loss-text">HOT 1.58x</text>
+  <text x="865" y="170" class="badge-loss-text">HOT 1.75x</text>
   <text x="30" y="220" class="t-bar-label">set · W=4 R=0</text>
   <text x="30" y="234" class="t-sub">hot_rowex_set_63bit · 15 rounds</text>
-  <rect x="300" y="204" width="27.6" height="11" rx="2" class="b-expanse"/>
-  <text x="335.6" y="213" class="t-val-accent">4.23</text>
-  <rect x="300" y="221" width="103.4" height="11" rx="2" class="b-hot"/>
-  <text x="411.4" y="230" class="t-val-blue">15.82</text>
+  <rect x="300" y="204" width="26.0" height="11" rx="2" class="b-expanse"/>
+  <text x="334.0" y="213" class="t-val-accent">4.10</text>
+  <rect x="300" y="221" width="100.2" height="11" rx="2" class="b-hot"/>
+  <text x="408.2" y="230" class="t-val-blue">15.77</text>
   <rect x="800" y="212" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="226" class="badge-loss-text">HOT 3.74x</text>
+  <text x="865" y="226" class="badge-loss-text">HOT 3.85x</text>
   <text x="30" y="276" class="t-bar-label">set · W=8 R=0</text>
   <text x="30" y="290" class="t-sub">hot_rowex_set_63bit · 15 rounds</text>
-  <rect x="300" y="260" width="24.3" height="11" rx="2" class="b-expanse"/>
-  <text x="332.3" y="269" class="t-val-accent">3.71</text>
-  <rect x="300" y="277" width="171.6" height="11" rx="2" class="b-hot"/>
-  <text x="479.6" y="286" class="t-val-blue">26.24</text>
+  <rect x="300" y="260" width="24.2" height="11" rx="2" class="b-expanse"/>
+  <text x="332.2" y="269" class="t-val-accent">3.80</text>
+  <rect x="300" y="277" width="167.0" height="11" rx="2" class="b-hot"/>
+  <text x="475.0" y="286" class="t-val-blue">26.27</text>
   <rect x="800" y="268" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="282" class="badge-loss-text">HOT 7.07x</text>
+  <text x="865" y="282" class="badge-loss-text">HOT 6.91x</text>
   <text x="30" y="332" class="t-bar-label">set · W=16 R=0</text>
   <text x="30" y="346" class="t-sub">hot_rowex_set_63bit · 15 rounds</text>
-  <rect x="300" y="316" width="19.4" height="11" rx="2" class="b-expanse"/>
-  <text x="327.4" y="325" class="t-val-accent">2.97</text>
+  <rect x="300" y="316" width="18.7" height="11" rx="2" class="b-expanse"/>
+  <text x="326.7" y="325" class="t-val-accent">2.94</text>
   <rect x="300" y="333" width="224.0" height="11" rx="2" class="b-hot"/>
-  <text x="532.0" y="342" class="t-val-blue">34.26</text>
+  <text x="532.0" y="342" class="t-val-blue">35.23</text>
   <rect x="800" y="324" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="338" class="badge-loss-text">HOT 11.55x</text>
+  <text x="865" y="338" class="badge-loss-text">HOT 11.99x</text>
   <text x="30" y="388" class="t-bar-label">map · W=1 R=0</text>
   <text x="30" y="402" class="t-sub">hot_rowex_map_64bit · 15 rounds</text>
-  <rect x="300" y="372" width="34.2" height="11" rx="2" class="b-expanse"/>
-  <text x="342.2" y="381" class="t-val-accent">5.22</text>
-  <rect x="300" y="389" width="19.4" height="11" rx="2" class="b-hot"/>
-  <text x="327.4" y="398" class="t-val-blue">2.96</text>
+  <rect x="300" y="372" width="33.3" height="11" rx="2" class="b-expanse"/>
+  <text x="341.3" y="381" class="t-val-accent">5.23</text>
+  <rect x="300" y="389" width="18.9" height="11" rx="2" class="b-hot"/>
+  <text x="326.9" y="398" class="t-val-blue">2.97</text>
   <rect x="800" y="380" width="130" height="20" rx="3" class="badge-win"/>
   <text x="865" y="394" class="badge-win-text">Expanse 1.76x</text>
   <text x="30" y="444" class="t-bar-label">map · W=2 R=0</text>
   <text x="30" y="458" class="t-sub">hot_rowex_map_64bit · 15 rounds</text>
-  <rect x="300" y="428" width="24.9" height="11" rx="2" class="b-expanse"/>
-  <text x="332.9" y="437" class="t-val-accent">3.81</text>
-  <rect x="300" y="445" width="32.2" height="11" rx="2" class="b-hot"/>
-  <text x="340.2" y="454" class="t-val-blue">4.92</text>
+  <rect x="300" y="428" width="23.6" height="11" rx="2" class="b-expanse"/>
+  <text x="331.6" y="437" class="t-val-accent">3.70</text>
+  <rect x="300" y="445" width="31.1" height="11" rx="2" class="b-hot"/>
+  <text x="339.1" y="454" class="t-val-blue">4.89</text>
   <rect x="800" y="436" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="450" class="badge-loss-text">HOT 1.29x</text>
+  <text x="865" y="450" class="badge-loss-text">HOT 1.32x</text>
   <text x="30" y="500" class="t-bar-label">map · W=4 R=0</text>
   <text x="30" y="514" class="t-sub">hot_rowex_map_64bit · 15 rounds</text>
-  <rect x="300" y="484" width="19.9" height="11" rx="2" class="b-expanse"/>
-  <text x="327.9" y="493" class="t-val-accent">3.05</text>
-  <rect x="300" y="501" width="56.6" height="11" rx="2" class="b-hot"/>
-  <text x="364.6" y="510" class="t-val-blue">8.65</text>
+  <rect x="300" y="484" width="19.4" height="11" rx="2" class="b-expanse"/>
+  <text x="327.4" y="493" class="t-val-accent">3.06</text>
+  <rect x="300" y="501" width="54.9" height="11" rx="2" class="b-hot"/>
+  <text x="362.9" y="510" class="t-val-blue">8.64</text>
   <rect x="800" y="492" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="506" class="badge-loss-text">HOT 2.84x</text>
+  <text x="865" y="506" class="badge-loss-text">HOT 2.83x</text>
   <text x="30" y="556" class="t-bar-label">map · W=8 R=0</text>
   <text x="30" y="570" class="t-sub">hot_rowex_map_64bit · 15 rounds</text>
-  <rect x="300" y="540" width="16.9" height="11" rx="2" class="b-expanse"/>
-  <text x="324.9" y="549" class="t-val-accent">2.59</text>
-  <rect x="300" y="557" width="90.9" height="11" rx="2" class="b-hot"/>
-  <text x="398.9" y="566" class="t-val-blue">13.90</text>
+  <rect x="300" y="540" width="16.3" height="11" rx="2" class="b-expanse"/>
+  <text x="324.3" y="549" class="t-val-accent">2.56</text>
+  <rect x="300" y="557" width="88.0" height="11" rx="2" class="b-hot"/>
+  <text x="396.0" y="566" class="t-val-blue">13.85</text>
   <rect x="800" y="548" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="562" class="badge-loss-text">HOT 5.36x</text>
+  <text x="865" y="562" class="badge-loss-text">HOT 5.40x</text>
   <text x="30" y="612" class="t-bar-label">map · W=16 R=0</text>
   <text x="30" y="626" class="t-sub">hot_rowex_map_64bit · 15 rounds</text>
-  <rect x="300" y="596" width="17.3" height="11" rx="2" class="b-expanse"/>
-  <text x="325.3" y="605" class="t-val-accent">2.64</text>
-  <rect x="300" y="613" width="132.2" height="11" rx="2" class="b-hot"/>
-  <text x="440.2" y="622" class="t-val-blue">20.21</text>
+  <rect x="300" y="596" width="16.0" height="11" rx="2" class="b-expanse"/>
+  <text x="324.0" y="605" class="t-val-accent">2.52</text>
+  <rect x="300" y="613" width="123.7" height="11" rx="2" class="b-hot"/>
+  <text x="431.7" y="622" class="t-val-blue">19.45</text>
   <rect x="800" y="604" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="618" class="badge-loss-text">HOT 7.65x</text>
+  <text x="865" y="618" class="badge-loss-text">HOT 7.73x</text>
 </svg>

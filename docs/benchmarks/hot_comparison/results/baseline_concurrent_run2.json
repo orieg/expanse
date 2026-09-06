@@ -2,27 +2,49 @@
   "provenance": {
     "suite": "hot_comparison",
     "issue": 692,
-    "commit": "134a0471",
+    "commit": "d3bc49c0",
     "hot_commit": "96bf6fb",
     "cpu": "x86_64",
     "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "powersave",
+      "transparent_hugepage": "always [madvise] never",
+      "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35"
+    },
+    "estimators": {
+      "ratio": "mean(HOT rounds) / mean(Expanse rounds) \u2014 or Expanse / ROWEX for throughput \u2014 with a two-sample BCa 95% interval (scripts/bca_bootstrap.py)",
+      "columns": "per-arm columns are medians of the same rounds; the ratio column is not the quotient of the two median columns beside it",
+      "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+    },
     "rustflags": "-C target-cpu=haswell",
     "cxx_flags": "-march=haswell -O3 -std=c++17 -DNDEBUG",
     "core_pin": "0-15",
     "loads": [
       {
         "label": "start",
-        "load1": 1.0,
-        "load5": 1.07,
-        "load15": 1.24,
-        "at": "2026-09-06T12:42:19Z"
+        "load1": 0.39,
+        "load5": 2.35,
+        "load15": 2.18,
+        "at": "2026-09-06T16:29:30Z",
+        "stat_busy_jiffies": 45439610,
+        "stat_total_jiffies": 5969580662,
+        "busy_cpus_since_prev": null
       },
       {
         "label": "after-concurrent",
-        "load1": 6.97,
-        "load5": 4.08,
-        "load15": 2.42,
-        "at": "2026-09-06T12:47:02Z"
+        "load1": 7.43,
+        "load5": 4.99,
+        "load15": 3.28,
+        "at": "2026-09-06T16:34:17Z",
+        "stat_busy_jiffies": 45605303,
+        "stat_total_jiffies": 5970265862,
+        "busy_cpus_since_prev": 5.8
       }
     ],
     "quick": false,
@@ -41,11 +63,118 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_writer_mops_median": 5.5329,
-      "expanse_writer_mops_median": 8.5951,
-      "writer_expanse_over_rowex": 1.5515,
-      "writer_ci_lower": 1.5385,
-      "writer_ci_upper": 1.5683,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": 5.231,
+          "expanse_writer_mops": 8.3346,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": 5.5149,
+          "expanse_writer_mops": 8.4693,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": 5.5021,
+          "expanse_writer_mops": 8.3833,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": 5.5325,
+          "expanse_writer_mops": 8.6143,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": 5.4935,
+          "expanse_writer_mops": 8.6081,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": 5.5451,
+          "expanse_writer_mops": 8.6693,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": 5.5375,
+          "expanse_writer_mops": 8.5619,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": 5.5165,
+          "expanse_writer_mops": 8.625,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": 5.534,
+          "expanse_writer_mops": 8.6467,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": 5.5098,
+          "expanse_writer_mops": 8.621,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": 5.4864,
+          "expanse_writer_mops": 8.6013,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": 5.5323,
+          "expanse_writer_mops": 8.633,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": 5.53,
+          "expanse_writer_mops": 8.5719,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": 5.5207,
+          "expanse_writer_mops": 8.637,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": 5.5322,
+          "expanse_writer_mops": 8.6049,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "rowex_writer_mops_median": 5.5207,
+      "expanse_writer_mops_median": 8.6081,
+      "writer_expanse_over_rowex": 1.5582,
+      "writer_ci_lower": 1.5466,
+      "writer_ci_upper": 1.5759,
       "writer_verdict": "expanse",
       "pillar": "C1"
     },
@@ -60,11 +189,118 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_writer_mops_median": 9.0131,
-      "expanse_writer_mops_median": 5.2549,
-      "writer_expanse_over_rowex": 0.5931,
-      "writer_ci_lower": 0.5827,
-      "writer_ci_upper": 0.6065,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": 8.6882,
+          "expanse_writer_mops": 5.0238,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": 8.9788,
+          "expanse_writer_mops": 5.0609,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": 8.9426,
+          "expanse_writer_mops": 5.1837,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": 9.0486,
+          "expanse_writer_mops": 5.1791,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": 8.9617,
+          "expanse_writer_mops": 5.1569,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": 9.0532,
+          "expanse_writer_mops": 5.1604,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": 8.9517,
+          "expanse_writer_mops": 5.1528,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": 8.9039,
+          "expanse_writer_mops": 5.1776,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": 9.0276,
+          "expanse_writer_mops": 5.1248,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": 9.0285,
+          "expanse_writer_mops": 5.1519,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": 9.0548,
+          "expanse_writer_mops": 5.1408,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": 9.0835,
+          "expanse_writer_mops": 5.1918,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": 8.988,
+          "expanse_writer_mops": 5.1585,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": 9.1215,
+          "expanse_writer_mops": 5.1104,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": 9.0865,
+          "expanse_writer_mops": 5.1465,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "rowex_writer_mops_median": 9.0276,
+      "expanse_writer_mops_median": 5.1528,
+      "writer_expanse_over_rowex": 0.5716,
+      "writer_ci_lower": 0.5679,
+      "writer_ci_upper": 0.5761,
       "writer_verdict": "rowex",
       "pillar": "C1"
     },
@@ -79,11 +315,118 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_writer_mops_median": 15.7999,
-      "expanse_writer_mops_median": 4.0066,
-      "writer_expanse_over_rowex": 0.2616,
-      "writer_ci_lower": 0.2556,
-      "writer_ci_upper": 0.2695,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": 14.92,
+          "expanse_writer_mops": 4.3726,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": 15.2337,
+          "expanse_writer_mops": 4.1098,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": 14.8756,
+          "expanse_writer_mops": 4.4212,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": 15.7716,
+          "expanse_writer_mops": 4.2392,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": 15.8185,
+          "expanse_writer_mops": 4.5196,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": 15.1466,
+          "expanse_writer_mops": 4.4601,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": 15.5034,
+          "expanse_writer_mops": 4.4848,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": 15.6175,
+          "expanse_writer_mops": 4.2665,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": 15.7766,
+          "expanse_writer_mops": 4.237,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": 15.3496,
+          "expanse_writer_mops": 4.6676,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": 15.7814,
+          "expanse_writer_mops": 4.3495,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": 15.7555,
+          "expanse_writer_mops": 4.7456,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": 15.8104,
+          "expanse_writer_mops": 4.5161,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": 15.8998,
+          "expanse_writer_mops": 4.385,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": 15.9085,
+          "expanse_writer_mops": 4.1846,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "rowex_writer_mops_median": 15.7555,
+      "expanse_writer_mops_median": 4.385,
+      "writer_expanse_over_rowex": 0.2829,
+      "writer_ci_lower": 0.2765,
+      "writer_ci_upper": 0.2894,
       "writer_verdict": "rowex",
       "pillar": "C1"
     },
@@ -98,11 +441,118 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_writer_mops_median": 26.2484,
-      "expanse_writer_mops_median": 3.2163,
-      "writer_expanse_over_rowex": 0.1251,
-      "writer_ci_lower": 0.1228,
-      "writer_ci_upper": 0.1297,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": 22.2462,
+          "expanse_writer_mops": 3.8788,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": 25.3742,
+          "expanse_writer_mops": 3.8213,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": 26.539,
+          "expanse_writer_mops": 3.9569,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": 24.5603,
+          "expanse_writer_mops": 3.9516,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": 26.2612,
+          "expanse_writer_mops": 4.0119,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": 26.1881,
+          "expanse_writer_mops": 3.8676,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": 20.443,
+          "expanse_writer_mops": 3.8044,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": 26.2669,
+          "expanse_writer_mops": 3.9919,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": 26.2709,
+          "expanse_writer_mops": 3.8511,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": 25.9849,
+          "expanse_writer_mops": 4.0075,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": 26.1473,
+          "expanse_writer_mops": 3.923,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": 25.9699,
+          "expanse_writer_mops": 3.9824,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": 25.9868,
+          "expanse_writer_mops": 3.9268,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": 26.374,
+          "expanse_writer_mops": 3.9841,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": 23.6134,
+          "expanse_writer_mops": 3.9777,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "rowex_writer_mops_median": 25.9868,
+      "expanse_writer_mops_median": 3.9516,
+      "writer_expanse_over_rowex": 0.1558,
+      "writer_ci_lower": 0.1515,
+      "writer_ci_upper": 0.1638,
       "writer_verdict": "rowex",
       "pillar": "C1"
     },
@@ -117,11 +567,118 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_writer_mops_median": 35.1342,
-      "expanse_writer_mops_median": 3.0918,
-      "writer_expanse_over_rowex": 0.0899,
-      "writer_ci_lower": 0.088,
-      "writer_ci_upper": 0.0963,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": 33.0621,
+          "expanse_writer_mops": 3.1907,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": 34.374,
+          "expanse_writer_mops": 3.2223,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": 35.3609,
+          "expanse_writer_mops": 3.1584,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": 34.409,
+          "expanse_writer_mops": 3.1956,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": 34.4891,
+          "expanse_writer_mops": 3.1304,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": 34.5271,
+          "expanse_writer_mops": 3.2684,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": 34.4771,
+          "expanse_writer_mops": 3.1901,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": 35.0514,
+          "expanse_writer_mops": 3.2291,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": 34.801,
+          "expanse_writer_mops": 3.1253,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": 34.9438,
+          "expanse_writer_mops": 3.1807,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": 35.4033,
+          "expanse_writer_mops": 3.2395,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": 33.8871,
+          "expanse_writer_mops": 3.0816,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": 34.6305,
+          "expanse_writer_mops": 2.996,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": 34.5248,
+          "expanse_writer_mops": 3.0695,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": 35.1828,
+          "expanse_writer_mops": 3.108,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "rowex_writer_mops_median": 34.5271,
+      "expanse_writer_mops_median": 3.1807,
+      "writer_expanse_over_rowex": 0.0913,
+      "writer_ci_lower": 0.0899,
+      "writer_ci_upper": 0.0925,
       "writer_verdict": "rowex",
       "pillar": "C1"
     },
@@ -136,11 +693,118 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_reader_mops_median": 127.3254,
-      "expanse_reader_mops_median": 150.5305,
-      "reader_expanse_over_rowex": 1.184,
-      "reader_ci_lower": 1.1787,
-      "reader_ci_upper": 1.1908,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 127.3185,
+          "expanse_reader_mops": 151.4159
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.1009,
+          "expanse_reader_mops": 151.2997
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 124.6565,
+          "expanse_reader_mops": 151.3995
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 111.3439,
+          "expanse_reader_mops": 151.0262
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.6071,
+          "expanse_reader_mops": 150.8286
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.2551,
+          "expanse_reader_mops": 151.0804
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.8135,
+          "expanse_reader_mops": 150.2566
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 125.949,
+          "expanse_reader_mops": 151.4625
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.6678,
+          "expanse_reader_mops": 150.9808
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.9859,
+          "expanse_reader_mops": 151.2416
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.6685,
+          "expanse_reader_mops": 151.1417
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.3281,
+          "expanse_reader_mops": 151.2658
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 108.9547,
+          "expanse_reader_mops": 151.398
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 125.9203,
+          "expanse_reader_mops": 150.2499
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.2987,
+          "expanse_reader_mops": 151.2516
+        }
+      ],
+      "rowex_reader_mops_median": 126.2987,
+      "expanse_reader_mops_median": 151.2416,
+      "reader_expanse_over_rowex": 1.2166,
+      "reader_ci_lower": 1.1962,
+      "reader_ci_upper": 1.2631,
       "reader_verdict": "expanse",
       "pillar": "C2"
     },
@@ -155,17 +819,124 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_writer_mops_median": 3.4191,
-      "expanse_writer_mops_median": 2.2504,
-      "writer_expanse_over_rowex": 0.6439,
-      "writer_ci_lower": 0.5965,
-      "writer_ci_upper": 0.6613,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": 3.4297,
+          "expanse_writer_mops": 2.1857,
+          "rowex_reader_mops": 107.1266,
+          "expanse_reader_mops": 16.6077
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": 3.4132,
+          "expanse_writer_mops": 2.168,
+          "rowex_reader_mops": 110.1476,
+          "expanse_reader_mops": 15.9476
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": 3.3819,
+          "expanse_writer_mops": 2.1415,
+          "rowex_reader_mops": 110.1179,
+          "expanse_reader_mops": 15.1005
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": 3.4356,
+          "expanse_writer_mops": 2.1414,
+          "rowex_reader_mops": 110.5916,
+          "expanse_reader_mops": 15.234
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": 3.434,
+          "expanse_writer_mops": 2.0643,
+          "rowex_reader_mops": 110.1185,
+          "expanse_reader_mops": 15.1193
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": 3.39,
+          "expanse_writer_mops": 2.1733,
+          "rowex_reader_mops": 110.0887,
+          "expanse_reader_mops": 15.8052
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": 3.3098,
+          "expanse_writer_mops": 2.1615,
+          "rowex_reader_mops": 109.3835,
+          "expanse_reader_mops": 15.4539
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": 3.3965,
+          "expanse_writer_mops": 2.1466,
+          "rowex_reader_mops": 110.0545,
+          "expanse_reader_mops": 14.9254
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": 3.4351,
+          "expanse_writer_mops": 2.2246,
+          "rowex_reader_mops": 109.5948,
+          "expanse_reader_mops": 16.014
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": 3.3691,
+          "expanse_writer_mops": 2.1808,
+          "rowex_reader_mops": 109.6492,
+          "expanse_reader_mops": 15.1417
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": 3.5993,
+          "expanse_writer_mops": 2.1783,
+          "rowex_reader_mops": 109.9463,
+          "expanse_reader_mops": 16.4611
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": 3.4018,
+          "expanse_writer_mops": 2.1478,
+          "rowex_reader_mops": 110.5663,
+          "expanse_reader_mops": 15.3321
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": 3.4121,
+          "expanse_writer_mops": 2.2152,
+          "rowex_reader_mops": 109.8391,
+          "expanse_reader_mops": 15.4854
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": 3.4427,
+          "expanse_writer_mops": 2.2225,
+          "rowex_reader_mops": 110.1365,
+          "expanse_reader_mops": 15.7253
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": 3.4489,
+          "expanse_writer_mops": 2.1535,
+          "rowex_reader_mops": 110.3233,
+          "expanse_reader_mops": 15.3552
+        }
+      ],
+      "rowex_writer_mops_median": 3.4132,
+      "expanse_writer_mops_median": 2.168,
+      "writer_expanse_over_rowex": 0.6336,
+      "writer_ci_lower": 0.6249,
+      "writer_ci_upper": 0.6404,
       "writer_verdict": "rowex",
-      "rowex_reader_mops_median": 110.3844,
-      "expanse_reader_mops_median": 14.9687,
-      "reader_expanse_over_rowex": 0.1372,
-      "reader_ci_lower": 0.1355,
-      "reader_ci_upper": 0.1395,
+      "rowex_reader_mops_median": 110.0887,
+      "expanse_reader_mops_median": 15.4539,
+      "reader_expanse_over_rowex": 0.1418,
+      "reader_ci_lower": 0.1399,
+      "reader_ci_upper": 0.1446,
       "reader_verdict": "rowex",
       "pillar": "C2"
     },
@@ -180,17 +951,124 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_writer_mops_median": 6.3645,
-      "expanse_writer_mops_median": 1.9355,
-      "writer_expanse_over_rowex": 0.308,
-      "writer_ci_lower": 0.2989,
-      "writer_ci_upper": 0.3194,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": 6.1386,
+          "expanse_writer_mops": 2.1003,
+          "rowex_reader_mops": 104.1801,
+          "expanse_reader_mops": 24.4242
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": 6.8098,
+          "expanse_writer_mops": 1.8974,
+          "rowex_reader_mops": 99.4759,
+          "expanse_reader_mops": 26.4385
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": 6.2103,
+          "expanse_writer_mops": 1.9563,
+          "rowex_reader_mops": 104.2919,
+          "expanse_reader_mops": 25.7374
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": 6.3272,
+          "expanse_writer_mops": 1.9086,
+          "rowex_reader_mops": 103.6383,
+          "expanse_reader_mops": 26.6039
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": 6.4729,
+          "expanse_writer_mops": 1.9908,
+          "rowex_reader_mops": 103.7025,
+          "expanse_reader_mops": 25.6938
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": 6.4101,
+          "expanse_writer_mops": 1.9532,
+          "rowex_reader_mops": 104.5236,
+          "expanse_reader_mops": 27.4019
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": 6.36,
+          "expanse_writer_mops": 1.9679,
+          "rowex_reader_mops": 102.8341,
+          "expanse_reader_mops": 27.3388
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": 6.4348,
+          "expanse_writer_mops": 1.9767,
+          "rowex_reader_mops": 103.6748,
+          "expanse_reader_mops": 26.5534
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": 6.4216,
+          "expanse_writer_mops": 1.9853,
+          "rowex_reader_mops": 104.2121,
+          "expanse_reader_mops": 26.2937
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": 6.4502,
+          "expanse_writer_mops": 1.935,
+          "rowex_reader_mops": 103.8531,
+          "expanse_reader_mops": 26.8704
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": 7.0707,
+          "expanse_writer_mops": 1.942,
+          "rowex_reader_mops": 95.7923,
+          "expanse_reader_mops": 30.1798
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": 6.4694,
+          "expanse_writer_mops": 2.2168,
+          "rowex_reader_mops": 104.0316,
+          "expanse_reader_mops": 19.9906
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": 6.375,
+          "expanse_writer_mops": 1.9679,
+          "rowex_reader_mops": 103.8392,
+          "expanse_reader_mops": 27.7263
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": 6.5313,
+          "expanse_writer_mops": 1.9786,
+          "rowex_reader_mops": 100.4398,
+          "expanse_reader_mops": 26.9899
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": 6.5876,
+          "expanse_writer_mops": 1.9961,
+          "rowex_reader_mops": 96.9778,
+          "expanse_reader_mops": 27.8251
+        }
+      ],
+      "rowex_writer_mops_median": 6.4348,
+      "expanse_writer_mops_median": 1.9679,
+      "writer_expanse_over_rowex": 0.3067,
+      "writer_ci_lower": 0.2995,
+      "writer_ci_upper": 0.3148,
       "writer_verdict": "rowex",
-      "rowex_reader_mops_median": 104.2698,
-      "expanse_reader_mops_median": 24.0827,
-      "reader_expanse_over_rowex": 0.2382,
-      "reader_ci_lower": 0.23,
-      "reader_ci_upper": 0.2548,
+      "rowex_reader_mops_median": 103.7025,
+      "expanse_reader_mops_median": 26.6039,
+      "reader_expanse_over_rowex": 0.2579,
+      "reader_ci_lower": 0.2442,
+      "reader_ci_upper": 0.2668,
       "reader_verdict": "rowex",
       "pillar": "C2"
     },
@@ -205,17 +1083,124 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_writer_mops_median": 11.9404,
-      "expanse_writer_mops_median": 1.8626,
-      "writer_expanse_over_rowex": 0.1594,
-      "writer_ci_lower": 0.1557,
-      "writer_ci_upper": 0.1635,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": 11.5324,
+          "expanse_writer_mops": 1.7837,
+          "rowex_reader_mops": 87.7109,
+          "expanse_reader_mops": 24.7428
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": 11.6285,
+          "expanse_writer_mops": 1.9128,
+          "rowex_reader_mops": 93.3768,
+          "expanse_reader_mops": 22.4968
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": 12.1852,
+          "expanse_writer_mops": 1.9384,
+          "rowex_reader_mops": 90.3852,
+          "expanse_reader_mops": 23.87
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": 11.7718,
+          "expanse_writer_mops": 1.907,
+          "rowex_reader_mops": 93.3878,
+          "expanse_reader_mops": 24.3082
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": 12.0489,
+          "expanse_writer_mops": 1.8956,
+          "rowex_reader_mops": 93.7846,
+          "expanse_reader_mops": 24.8694
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": 12.0525,
+          "expanse_writer_mops": 1.7572,
+          "rowex_reader_mops": 93.0858,
+          "expanse_reader_mops": 30.3254
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": 12.1522,
+          "expanse_writer_mops": 1.9053,
+          "rowex_reader_mops": 89.3186,
+          "expanse_reader_mops": 23.5817
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": 11.9856,
+          "expanse_writer_mops": 1.9844,
+          "rowex_reader_mops": 93.374,
+          "expanse_reader_mops": 21.9134
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": 12.209,
+          "expanse_writer_mops": 2.0105,
+          "rowex_reader_mops": 90.0311,
+          "expanse_reader_mops": 22.9573
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": 11.7521,
+          "expanse_writer_mops": 1.8478,
+          "rowex_reader_mops": 92.8541,
+          "expanse_reader_mops": 25.5204
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": 11.7648,
+          "expanse_writer_mops": 1.8312,
+          "rowex_reader_mops": 88.5038,
+          "expanse_reader_mops": 26.0104
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": 11.9653,
+          "expanse_writer_mops": 1.8329,
+          "rowex_reader_mops": 93.2468,
+          "expanse_reader_mops": 25.5074
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": 11.7303,
+          "expanse_writer_mops": 1.9523,
+          "rowex_reader_mops": 92.8003,
+          "expanse_reader_mops": 22.5993
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": 12.094,
+          "expanse_writer_mops": 1.8365,
+          "rowex_reader_mops": 91.0829,
+          "expanse_reader_mops": 25.0241
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": 11.8221,
+          "expanse_writer_mops": 1.8397,
+          "rowex_reader_mops": 93.0977,
+          "expanse_reader_mops": 26.3074
+        }
+      ],
+      "rowex_writer_mops_median": 11.9653,
+      "expanse_writer_mops_median": 1.8956,
+      "writer_expanse_over_rowex": 0.158,
+      "writer_ci_lower": 0.155,
+      "writer_ci_upper": 0.1613,
       "writer_verdict": "rowex",
-      "rowex_reader_mops_median": 92.8866,
-      "expanse_reader_mops_median": 24.7236,
-      "reader_expanse_over_rowex": 0.2597,
-      "reader_ci_lower": 0.2474,
-      "reader_ci_upper": 0.2715,
+      "rowex_reader_mops_median": 92.8541,
+      "expanse_reader_mops_median": 24.7428,
+      "reader_expanse_over_rowex": 0.2689,
+      "reader_ci_lower": 0.2596,
+      "reader_ci_upper": 0.2834,
       "reader_verdict": "rowex",
       "pillar": "C2"
     },
@@ -230,17 +1215,124 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_writer_mops_median": 20.7822,
-      "expanse_writer_mops_median": 1.7789,
-      "writer_expanse_over_rowex": 0.086,
-      "writer_ci_lower": 0.0851,
-      "writer_ci_upper": 0.0875,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": 20.3995,
+          "expanse_writer_mops": 2.0098,
+          "rowex_reader_mops": 73.149,
+          "expanse_reader_mops": 17.6326
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": 15.0896,
+          "expanse_writer_mops": 2.183,
+          "rowex_reader_mops": 72.3729,
+          "expanse_reader_mops": 19.4457
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": 20.658,
+          "expanse_writer_mops": 2.0344,
+          "rowex_reader_mops": 72.3126,
+          "expanse_reader_mops": 20.4563
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": 20.9192,
+          "expanse_writer_mops": 2.2378,
+          "rowex_reader_mops": 72.2281,
+          "expanse_reader_mops": 19.0254
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": 20.6856,
+          "expanse_writer_mops": 2.0959,
+          "rowex_reader_mops": 71.7942,
+          "expanse_reader_mops": 20.3387
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": 20.6038,
+          "expanse_writer_mops": 2.0136,
+          "rowex_reader_mops": 72.1468,
+          "expanse_reader_mops": 21.3406
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": 20.6489,
+          "expanse_writer_mops": 2.4595,
+          "rowex_reader_mops": 71.4305,
+          "expanse_reader_mops": 17.2823
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": 20.7849,
+          "expanse_writer_mops": 2.3093,
+          "rowex_reader_mops": 72.133,
+          "expanse_reader_mops": 17.279
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": 20.5921,
+          "expanse_writer_mops": 2.2358,
+          "rowex_reader_mops": 71.5849,
+          "expanse_reader_mops": 19.6427
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": 21.0966,
+          "expanse_writer_mops": 2.1203,
+          "rowex_reader_mops": 71.9299,
+          "expanse_reader_mops": 19.3117
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": 20.6867,
+          "expanse_writer_mops": 2.1071,
+          "rowex_reader_mops": 72.5499,
+          "expanse_reader_mops": 20.4466
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": 20.3086,
+          "expanse_writer_mops": 2.0795,
+          "rowex_reader_mops": 71.5041,
+          "expanse_reader_mops": 19.1823
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": 20.5343,
+          "expanse_writer_mops": 2.0859,
+          "rowex_reader_mops": 72.3831,
+          "expanse_reader_mops": 20.6755
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": 20.6721,
+          "expanse_writer_mops": 2.1228,
+          "rowex_reader_mops": 71.5962,
+          "expanse_reader_mops": 20.3949
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": 20.4525,
+          "expanse_writer_mops": 2.0683,
+          "rowex_reader_mops": 71.9655,
+          "expanse_reader_mops": 20.6753
+        }
+      ],
+      "rowex_writer_mops_median": 20.6489,
+      "expanse_writer_mops_median": 2.1071,
+      "writer_expanse_over_rowex": 0.1058,
+      "writer_ci_lower": 0.1025,
+      "writer_ci_upper": 0.1137,
       "writer_verdict": "rowex",
-      "rowex_reader_mops_median": 71.9418,
-      "expanse_reader_mops_median": 23.4291,
-      "reader_expanse_over_rowex": 0.319,
-      "reader_ci_lower": 0.3118,
-      "reader_ci_upper": 0.3237,
+      "rowex_reader_mops_median": 72.133,
+      "expanse_reader_mops_median": 19.6427,
+      "reader_expanse_over_rowex": 0.2711,
+      "reader_ci_lower": 0.2608,
+      "reader_ci_upper": 0.2787,
       "reader_verdict": "rowex",
       "pillar": "C2"
     },
@@ -255,11 +1347,118 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_writer_mops_median": 2.9425,
-      "expanse_writer_mops_median": 5.1198,
-      "writer_expanse_over_rowex": 1.7336,
-      "writer_ci_lower": 1.6831,
-      "writer_ci_upper": 1.7746,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": 3.2444,
+          "expanse_writer_mops": 5.2712,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": 2.8589,
+          "expanse_writer_mops": 5.1441,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": 2.9464,
+          "expanse_writer_mops": 5.4086,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": 2.8406,
+          "expanse_writer_mops": 5.0996,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": 2.9559,
+          "expanse_writer_mops": 5.2154,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": 2.8389,
+          "expanse_writer_mops": 4.8758,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": 2.9791,
+          "expanse_writer_mops": 5.2678,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": 2.8223,
+          "expanse_writer_mops": 5.0455,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": 2.9593,
+          "expanse_writer_mops": 5.4417,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": 2.8377,
+          "expanse_writer_mops": 4.8673,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": 2.9712,
+          "expanse_writer_mops": 5.2201,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": 2.8316,
+          "expanse_writer_mops": 4.8782,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": 2.9716,
+          "expanse_writer_mops": 5.4406,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": 2.8358,
+          "expanse_writer_mops": 4.8614,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": 2.9546,
+          "expanse_writer_mops": 5.2461,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "rowex_writer_mops_median": 2.9464,
+      "expanse_writer_mops_median": 5.2154,
+      "writer_expanse_over_rowex": 1.7625,
+      "writer_ci_lower": 1.7106,
+      "writer_ci_upper": 1.8043,
       "writer_verdict": "expanse",
       "pillar": "C1"
     },
@@ -274,11 +1473,118 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_writer_mops_median": 4.9625,
-      "expanse_writer_mops_median": 3.5526,
-      "writer_expanse_over_rowex": 0.7094,
-      "writer_ci_lower": 0.6901,
-      "writer_ci_upper": 0.7256,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": 5.504,
+          "expanse_writer_mops": 3.9785,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": 5.2933,
+          "expanse_writer_mops": 3.8473,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": 5.0783,
+          "expanse_writer_mops": 3.9274,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": 4.7792,
+          "expanse_writer_mops": 3.8274,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": 4.986,
+          "expanse_writer_mops": 3.9197,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": 4.763,
+          "expanse_writer_mops": 3.892,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": 4.9767,
+          "expanse_writer_mops": 3.9459,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": 4.7875,
+          "expanse_writer_mops": 3.8027,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": 4.9621,
+          "expanse_writer_mops": 3.9557,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": 4.8137,
+          "expanse_writer_mops": 3.6771,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": 4.9617,
+          "expanse_writer_mops": 4.0035,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": 5.3279,
+          "expanse_writer_mops": 3.6251,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": 5.1265,
+          "expanse_writer_mops": 3.8631,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": 4.8261,
+          "expanse_writer_mops": 3.9817,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": 5.0095,
+          "expanse_writer_mops": 3.9469,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "rowex_writer_mops_median": 4.9767,
+      "expanse_writer_mops_median": 3.9197,
+      "writer_expanse_over_rowex": 0.7739,
+      "writer_ci_lower": 0.7532,
+      "writer_ci_upper": 0.7914,
       "writer_verdict": "rowex",
       "pillar": "C1"
     },
@@ -293,11 +1599,118 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_writer_mops_median": 8.2439,
-      "expanse_writer_mops_median": 3.1559,
-      "writer_expanse_over_rowex": 0.3787,
-      "writer_ci_lower": 0.3689,
-      "writer_ci_upper": 0.3876,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": 9.3294,
+          "expanse_writer_mops": 3.0049,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": 7.9704,
+          "expanse_writer_mops": 2.94,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": 8.3997,
+          "expanse_writer_mops": 3.057,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": 8.4824,
+          "expanse_writer_mops": 2.9566,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": 8.6442,
+          "expanse_writer_mops": 3.0207,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": 7.7097,
+          "expanse_writer_mops": 2.9318,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": 8.6621,
+          "expanse_writer_mops": 3.0716,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": 7.9347,
+          "expanse_writer_mops": 2.9119,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": 8.4423,
+          "expanse_writer_mops": 3.0719,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": 7.7139,
+          "expanse_writer_mops": 3.0773,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": 8.9545,
+          "expanse_writer_mops": 3.0551,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": 7.927,
+          "expanse_writer_mops": 2.8688,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": 8.7161,
+          "expanse_writer_mops": 3.0629,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": 7.8369,
+          "expanse_writer_mops": 2.9635,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": 8.9149,
+          "expanse_writer_mops": 3.0221,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "rowex_writer_mops_median": 8.4423,
+      "expanse_writer_mops_median": 3.0207,
+      "writer_expanse_over_rowex": 0.3583,
+      "writer_ci_lower": 0.3475,
+      "writer_ci_upper": 0.3699,
       "writer_verdict": "rowex",
       "pillar": "C1"
     },
@@ -312,11 +1725,118 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_writer_mops_median": 14.2688,
-      "expanse_writer_mops_median": 2.5823,
-      "writer_expanse_over_rowex": 0.182,
-      "writer_ci_lower": 0.1776,
-      "writer_ci_upper": 0.1875,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": 15.8933,
+          "expanse_writer_mops": 2.5863,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": 14.3358,
+          "expanse_writer_mops": 2.5198,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": 15.0981,
+          "expanse_writer_mops": 2.5453,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": 13.2655,
+          "expanse_writer_mops": 2.5389,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": 14.978,
+          "expanse_writer_mops": 2.5621,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": 12.9984,
+          "expanse_writer_mops": 2.521,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": 13.9391,
+          "expanse_writer_mops": 2.5976,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": 13.1489,
+          "expanse_writer_mops": 2.5294,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": 13.7072,
+          "expanse_writer_mops": 2.5879,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": 12.3825,
+          "expanse_writer_mops": 2.5242,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": 14.8314,
+          "expanse_writer_mops": 2.5782,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": 12.5498,
+          "expanse_writer_mops": 2.5313,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": 13.2284,
+          "expanse_writer_mops": 2.5589,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": 12.2963,
+          "expanse_writer_mops": 2.5228,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": 13.8743,
+          "expanse_writer_mops": 2.5333,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "rowex_writer_mops_median": 13.7072,
+      "expanse_writer_mops_median": 2.5389,
+      "writer_expanse_over_rowex": 0.1851,
+      "writer_ci_lower": 0.1778,
+      "writer_ci_upper": 0.192,
       "writer_verdict": "rowex",
       "pillar": "C1"
     },
@@ -331,11 +1851,118 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_writer_mops_median": 20.6978,
-      "expanse_writer_mops_median": 1.6982,
-      "writer_expanse_over_rowex": 0.0856,
-      "writer_ci_lower": 0.0815,
-      "writer_ci_upper": 0.0899,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": 24.819,
+          "expanse_writer_mops": 2.6708,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": 20.9508,
+          "expanse_writer_mops": 2.6355,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": 22.1725,
+          "expanse_writer_mops": 2.6456,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": 19.9388,
+          "expanse_writer_mops": 2.5665,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": 21.6041,
+          "expanse_writer_mops": 2.6591,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": 19.5357,
+          "expanse_writer_mops": 2.6168,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": 20.9218,
+          "expanse_writer_mops": 2.6393,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": 19.5193,
+          "expanse_writer_mops": 2.6008,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": 20.7001,
+          "expanse_writer_mops": 2.6615,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": 19.526,
+          "expanse_writer_mops": 2.6301,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": 21.0503,
+          "expanse_writer_mops": 2.6541,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": 18.894,
+          "expanse_writer_mops": 2.6318,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": 19.9454,
+          "expanse_writer_mops": 2.6573,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": 18.8421,
+          "expanse_writer_mops": 2.6215,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": 19.4846,
+          "expanse_writer_mops": 2.6356,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "rowex_writer_mops_median": 19.9454,
+      "expanse_writer_mops_median": 2.6356,
+      "writer_expanse_over_rowex": 0.1284,
+      "writer_ci_lower": 0.1226,
+      "writer_ci_upper": 0.1323,
       "writer_verdict": "rowex",
       "pillar": "C1"
     },
@@ -350,11 +1977,118 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_reader_mops_median": 73.0119,
-      "expanse_reader_mops_median": 125.6256,
-      "reader_expanse_over_rowex": 1.7051,
-      "reader_ci_lower": 1.6582,
-      "reader_ci_upper": 1.7268,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 80.0828,
+          "expanse_reader_mops": 130.347
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 66.0829,
+          "expanse_reader_mops": 131.0022
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 73.0678,
+          "expanse_reader_mops": 126.6488
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 73.1829,
+          "expanse_reader_mops": 127.3492
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 73.2052,
+          "expanse_reader_mops": 126.8899
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 73.1932,
+          "expanse_reader_mops": 126.7809
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 73.2845,
+          "expanse_reader_mops": 125.564
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 72.5523,
+          "expanse_reader_mops": 127.0311
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 73.0754,
+          "expanse_reader_mops": 127.4311
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 72.6391,
+          "expanse_reader_mops": 127.8856
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 72.3827,
+          "expanse_reader_mops": 126.4223
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 72.8544,
+          "expanse_reader_mops": 126.6038
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 73.014,
+          "expanse_reader_mops": 126.1673
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 72.5469,
+          "expanse_reader_mops": 109.1065
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 72.0626,
+          "expanse_reader_mops": 126.9199
+        }
+      ],
+      "rowex_reader_mops_median": 73.014,
+      "expanse_reader_mops_median": 126.8899,
+      "reader_expanse_over_rowex": 1.7308,
+      "reader_ci_lower": 1.6765,
+      "reader_ci_upper": 1.7686,
       "reader_verdict": "expanse",
       "pillar": "C2"
     },
@@ -369,17 +2103,124 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_writer_mops_median": 2.1562,
-      "expanse_writer_mops_median": 1.9533,
-      "writer_expanse_over_rowex": 0.9447,
-      "writer_ci_lower": 0.8819,
-      "writer_ci_upper": 1.0123,
-      "writer_verdict": "BOUNDARY_RESULT",
-      "rowex_reader_mops_median": 57.6558,
-      "expanse_reader_mops_median": 16.6263,
-      "reader_expanse_over_rowex": 0.2766,
-      "reader_ci_lower": 0.2575,
-      "reader_ci_upper": 0.2906,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": 2.2641,
+          "expanse_writer_mops": 1.8323,
+          "rowex_reader_mops": 61.9925,
+          "expanse_reader_mops": 18.4231
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": 2.2376,
+          "expanse_writer_mops": 1.8542,
+          "rowex_reader_mops": 60.0748,
+          "expanse_reader_mops": 19.3456
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": 2.0329,
+          "expanse_writer_mops": 1.7985,
+          "rowex_reader_mops": 57.6921,
+          "expanse_reader_mops": 17.3234
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": 2.151,
+          "expanse_writer_mops": 1.8418,
+          "rowex_reader_mops": 57.5267,
+          "expanse_reader_mops": 19.3559
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": 2.2467,
+          "expanse_writer_mops": 1.8105,
+          "rowex_reader_mops": 59.7183,
+          "expanse_reader_mops": 18.152
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": 2.1312,
+          "expanse_writer_mops": 2.1589,
+          "rowex_reader_mops": 59.4295,
+          "expanse_reader_mops": 16.7211
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": 2.7016,
+          "expanse_writer_mops": 1.7782,
+          "rowex_reader_mops": 59.1984,
+          "expanse_reader_mops": 17.0945
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": 2.0376,
+          "expanse_writer_mops": 1.7875,
+          "rowex_reader_mops": 57.2981,
+          "expanse_reader_mops": 17.5652
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": 2.256,
+          "expanse_writer_mops": 2.0977,
+          "rowex_reader_mops": 59.8681,
+          "expanse_reader_mops": 16.1229
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": 2.1551,
+          "expanse_writer_mops": 1.791,
+          "rowex_reader_mops": 57.4087,
+          "expanse_reader_mops": 17.068
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": 2.1253,
+          "expanse_writer_mops": 2.1499,
+          "rowex_reader_mops": 57.0632,
+          "expanse_reader_mops": 16.4794
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": 2.0156,
+          "expanse_writer_mops": 1.7931,
+          "rowex_reader_mops": 57.2589,
+          "expanse_reader_mops": 17.2608
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": 2.1593,
+          "expanse_writer_mops": 1.7833,
+          "rowex_reader_mops": 57.5245,
+          "expanse_reader_mops": 17.627
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": 2.6158,
+          "expanse_writer_mops": 2.1135,
+          "rowex_reader_mops": 54.9152,
+          "expanse_reader_mops": 16.2344
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": 2.3985,
+          "expanse_writer_mops": 1.7652,
+          "rowex_reader_mops": 54.0674,
+          "expanse_reader_mops": 16.6077
+        }
+      ],
+      "rowex_writer_mops_median": 2.1593,
+      "expanse_writer_mops_median": 1.8105,
+      "writer_expanse_over_rowex": 0.8457,
+      "writer_ci_lower": 0.7987,
+      "writer_ci_upper": 0.8972,
+      "writer_verdict": "rowex",
+      "rowex_reader_mops_median": 57.5267,
+      "expanse_reader_mops_median": 17.2608,
+      "reader_expanse_over_rowex": 0.3001,
+      "reader_ci_lower": 0.2909,
+      "reader_ci_upper": 0.3113,
       "reader_verdict": "rowex",
       "pillar": "C2"
     },
@@ -394,17 +2235,124 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_writer_mops_median": 3.6699,
-      "expanse_writer_mops_median": 1.6471,
-      "writer_expanse_over_rowex": 0.4332,
-      "writer_ci_lower": 0.4152,
-      "writer_ci_upper": 0.4498,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": 4.0508,
+          "expanse_writer_mops": 1.5539,
+          "rowex_reader_mops": 58.3787,
+          "expanse_reader_mops": 25.374
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": 3.9594,
+          "expanse_writer_mops": 1.591,
+          "rowex_reader_mops": 56.4486,
+          "expanse_reader_mops": 25.7554
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": 4.0028,
+          "expanse_writer_mops": 1.5484,
+          "rowex_reader_mops": 58.0301,
+          "expanse_reader_mops": 25.4242
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": 3.6047,
+          "expanse_writer_mops": 1.5527,
+          "rowex_reader_mops": 53.2923,
+          "expanse_reader_mops": 25.4055
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": 3.9408,
+          "expanse_writer_mops": 1.5533,
+          "rowex_reader_mops": 54.7435,
+          "expanse_reader_mops": 25.0369
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": 3.8065,
+          "expanse_writer_mops": 1.5464,
+          "rowex_reader_mops": 54.6484,
+          "expanse_reader_mops": 24.9097
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": 3.8671,
+          "expanse_writer_mops": 1.5398,
+          "rowex_reader_mops": 53.393,
+          "expanse_reader_mops": 24.7279
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": 3.9686,
+          "expanse_writer_mops": 1.5385,
+          "rowex_reader_mops": 54.4908,
+          "expanse_reader_mops": 24.5316
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": 3.7208,
+          "expanse_writer_mops": 1.5127,
+          "rowex_reader_mops": 51.1438,
+          "expanse_reader_mops": 22.3966
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": 3.3656,
+          "expanse_writer_mops": 1.5326,
+          "rowex_reader_mops": 53.4654,
+          "expanse_reader_mops": 24.335
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": 3.4077,
+          "expanse_writer_mops": 1.5378,
+          "rowex_reader_mops": 50.58,
+          "expanse_reader_mops": 23.3032
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": 3.579,
+          "expanse_writer_mops": 1.5845,
+          "rowex_reader_mops": 53.3733,
+          "expanse_reader_mops": 25.0814
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": 3.6126,
+          "expanse_writer_mops": 1.5433,
+          "rowex_reader_mops": 54.0608,
+          "expanse_reader_mops": 23.9902
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": 3.6964,
+          "expanse_writer_mops": 1.5521,
+          "rowex_reader_mops": 53.5266,
+          "expanse_reader_mops": 24.962
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": 3.5507,
+          "expanse_writer_mops": 1.5321,
+          "rowex_reader_mops": 52.9674,
+          "expanse_reader_mops": 25.4909
+        }
+      ],
+      "rowex_writer_mops_median": 3.7208,
+      "expanse_writer_mops_median": 1.5464,
+      "writer_expanse_over_rowex": 0.4136,
+      "writer_ci_lower": 0.402,
+      "writer_ci_upper": 0.4262,
       "writer_verdict": "rowex",
-      "rowex_reader_mops_median": 53.2184,
-      "expanse_reader_mops_median": 24.3101,
-      "reader_expanse_over_rowex": 0.4788,
-      "reader_ci_lower": 0.4537,
-      "reader_ci_upper": 0.5113,
+      "rowex_reader_mops_median": 53.5266,
+      "expanse_reader_mops_median": 24.962,
+      "reader_expanse_over_rowex": 0.4563,
+      "reader_ci_lower": 0.4426,
+      "reader_ci_upper": 0.4675,
       "reader_verdict": "rowex",
       "pillar": "C2"
     },
@@ -419,17 +2367,124 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_writer_mops_median": 6.7677,
-      "expanse_writer_mops_median": 1.6208,
-      "writer_expanse_over_rowex": 0.2385,
-      "writer_ci_lower": 0.2303,
-      "writer_ci_upper": 0.247,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": 7.0997,
+          "expanse_writer_mops": 1.5151,
+          "rowex_reader_mops": 49.5938,
+          "expanse_reader_mops": 23.6408
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": 6.9624,
+          "expanse_writer_mops": 1.537,
+          "rowex_reader_mops": 49.1466,
+          "expanse_reader_mops": 22.9782
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": 6.4965,
+          "expanse_writer_mops": 1.5152,
+          "rowex_reader_mops": 44.9732,
+          "expanse_reader_mops": 22.73
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": 6.751,
+          "expanse_writer_mops": 1.5566,
+          "rowex_reader_mops": 45.8163,
+          "expanse_reader_mops": 22.4813
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": 6.5868,
+          "expanse_writer_mops": 1.5214,
+          "rowex_reader_mops": 44.8992,
+          "expanse_reader_mops": 22.3367
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": 6.7943,
+          "expanse_writer_mops": 1.5314,
+          "rowex_reader_mops": 46.4759,
+          "expanse_reader_mops": 23.2058
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": 6.6822,
+          "expanse_writer_mops": 1.5171,
+          "rowex_reader_mops": 43.1675,
+          "expanse_reader_mops": 23.0369
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": 6.4948,
+          "expanse_writer_mops": 1.5707,
+          "rowex_reader_mops": 43.1489,
+          "expanse_reader_mops": 22.6038
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": 6.4199,
+          "expanse_writer_mops": 1.533,
+          "rowex_reader_mops": 42.5573,
+          "expanse_reader_mops": 22.1695
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": 6.5472,
+          "expanse_writer_mops": 1.4804,
+          "rowex_reader_mops": 45.0958,
+          "expanse_reader_mops": 21.1575
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": 6.5116,
+          "expanse_writer_mops": 1.5297,
+          "rowex_reader_mops": 43.513,
+          "expanse_reader_mops": 22.0456
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": 6.3202,
+          "expanse_writer_mops": 1.4862,
+          "rowex_reader_mops": 45.0475,
+          "expanse_reader_mops": 22.0187
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": 6.3982,
+          "expanse_writer_mops": 1.5172,
+          "rowex_reader_mops": 46.5754,
+          "expanse_reader_mops": 22.0434
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": 6.9665,
+          "expanse_writer_mops": 1.5095,
+          "rowex_reader_mops": 43.458,
+          "expanse_reader_mops": 22.8251
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": 6.4788,
+          "expanse_writer_mops": 1.5217,
+          "rowex_reader_mops": 43.3177,
+          "expanse_reader_mops": 22.9654
+        }
+      ],
+      "rowex_writer_mops_median": 6.5472,
+      "expanse_writer_mops_median": 1.5214,
+      "writer_expanse_over_rowex": 0.2295,
+      "writer_ci_lower": 0.2246,
+      "writer_ci_upper": 0.2335,
       "writer_verdict": "rowex",
-      "rowex_reader_mops_median": 45.6644,
-      "expanse_reader_mops_median": 21.3169,
-      "reader_expanse_over_rowex": 0.4736,
-      "reader_ci_lower": 0.4568,
-      "reader_ci_upper": 0.4914,
+      "rowex_reader_mops_median": 44.9732,
+      "expanse_reader_mops_median": 22.6038,
+      "reader_expanse_over_rowex": 0.4998,
+      "reader_ci_lower": 0.4851,
+      "reader_ci_upper": 0.5119,
       "reader_verdict": "rowex",
       "pillar": "C2"
     },
@@ -444,17 +2499,124 @@
       "rounds": 15,
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
-      "rowex_writer_mops_median": 11.4179,
-      "expanse_writer_mops_median": 1.555,
-      "writer_expanse_over_rowex": 0.1366,
-      "writer_ci_lower": 0.1305,
-      "writer_ci_upper": 0.1432,
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rowex_writer_mops": 13.7777,
+          "expanse_writer_mops": 1.747,
+          "rowex_reader_mops": 36.0126,
+          "expanse_reader_mops": 20.0008
+        },
+        {
+          "round": 1,
+          "rowex_writer_mops": 12.9842,
+          "expanse_writer_mops": 1.8675,
+          "rowex_reader_mops": 31.1925,
+          "expanse_reader_mops": 17.7306
+        },
+        {
+          "round": 2,
+          "rowex_writer_mops": 12.1453,
+          "expanse_writer_mops": 1.6793,
+          "rowex_reader_mops": 31.607,
+          "expanse_reader_mops": 19.5364
+        },
+        {
+          "round": 3,
+          "rowex_writer_mops": 12.0846,
+          "expanse_writer_mops": 1.762,
+          "rowex_reader_mops": 30.1051,
+          "expanse_reader_mops": 17.627
+        },
+        {
+          "round": 4,
+          "rowex_writer_mops": 12.166,
+          "expanse_writer_mops": 1.6976,
+          "rowex_reader_mops": 29.8679,
+          "expanse_reader_mops": 19.6234
+        },
+        {
+          "round": 5,
+          "rowex_writer_mops": 11.4301,
+          "expanse_writer_mops": 1.6657,
+          "rowex_reader_mops": 29.2557,
+          "expanse_reader_mops": 17.9746
+        },
+        {
+          "round": 6,
+          "rowex_writer_mops": 12.3654,
+          "expanse_writer_mops": 1.7499,
+          "rowex_reader_mops": 30.0152,
+          "expanse_reader_mops": 18.994
+        },
+        {
+          "round": 7,
+          "rowex_writer_mops": 11.807,
+          "expanse_writer_mops": 1.7583,
+          "rowex_reader_mops": 28.4387,
+          "expanse_reader_mops": 18.8264
+        },
+        {
+          "round": 8,
+          "rowex_writer_mops": 12.0369,
+          "expanse_writer_mops": 1.7512,
+          "rowex_reader_mops": 29.8322,
+          "expanse_reader_mops": 19.0024
+        },
+        {
+          "round": 9,
+          "rowex_writer_mops": 11.8808,
+          "expanse_writer_mops": 1.7582,
+          "rowex_reader_mops": 30.2726,
+          "expanse_reader_mops": 18.4186
+        },
+        {
+          "round": 10,
+          "rowex_writer_mops": 11.8257,
+          "expanse_writer_mops": 1.7351,
+          "rowex_reader_mops": 30.6311,
+          "expanse_reader_mops": 18.5629
+        },
+        {
+          "round": 11,
+          "rowex_writer_mops": 11.9186,
+          "expanse_writer_mops": 1.7521,
+          "rowex_reader_mops": 30.0907,
+          "expanse_reader_mops": 18.0393
+        },
+        {
+          "round": 12,
+          "rowex_writer_mops": 11.4206,
+          "expanse_writer_mops": 1.6862,
+          "rowex_reader_mops": 30.91,
+          "expanse_reader_mops": 18.8703
+        },
+        {
+          "round": 13,
+          "rowex_writer_mops": 11.8769,
+          "expanse_writer_mops": 1.7685,
+          "rowex_reader_mops": 29.0544,
+          "expanse_reader_mops": 17.423
+        },
+        {
+          "round": 14,
+          "rowex_writer_mops": 11.4084,
+          "expanse_writer_mops": 1.7093,
+          "rowex_reader_mops": 30.7376,
+          "expanse_reader_mops": 18.6915
+        }
+      ],
+      "rowex_writer_mops_median": 11.9186,
+      "expanse_writer_mops_median": 1.7499,
+      "writer_expanse_over_rowex": 0.144,
+      "writer_ci_lower": 0.1395,
+      "writer_ci_upper": 0.1476,
       "writer_verdict": "rowex",
-      "rowex_reader_mops_median": 30.574,
-      "expanse_reader_mops_median": 20.4533,
-      "reader_expanse_over_rowex": 0.6592,
-      "reader_ci_lower": 0.6332,
-      "reader_ci_upper": 0.6739,
+      "rowex_reader_mops_median": 30.1051,
+      "expanse_reader_mops_median": 18.6915,
+      "reader_expanse_over_rowex": 0.6098,
+      "reader_ci_lower": 0.5847,
+      "reader_ci_upper": 0.6273,
       "reader_verdict": "rowex",
       "pillar": "C2"
     }
@@ -467,9 +2629,9 @@
       "readers": 8,
       "rounds": 5,
       "restart_share": {
-        "median": 0.040354,
-        "min": 0.039707,
-        "max": 0.041379
+        "median": 0.056749,
+        "min": 0.056175,
+        "max": 0.058422
       },
       "fallback_share": {
         "median": 0.0,
@@ -477,14 +2639,14 @@
         "max": 0.0
       },
       "read_ops": {
-        "median": 11072264,
-        "min": 11007465,
-        "max": 11099841
+        "median": 11142440,
+        "min": 11127919,
+        "max": 11173749
       },
       "read_attempts": {
-        "median": 11534405,
-        "min": 11482606,
-        "max": 11566601
+        "median": 11809348,
+        "min": 11805616,
+        "max": 11865660
       },
       "read_fallbacks": {
         "median": 0,
@@ -492,9 +2654,9 @@
         "max": 0
       },
       "sample_spins": {
-        "median": 10052238,
-        "min": 9992949,
-        "max": 10128425
+        "median": 19860898,
+        "min": 19805799,
+        "max": 19913254
       },
       "write_ops": {
         "median": 1048576,
@@ -503,6 +2665,58 @@
       },
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
+      "rounds_raw": [
+        {
+          "round": 0,
+          "restart_share": 0.056175,
+          "fallback_share": 0.0,
+          "read_ops": 11142440,
+          "read_attempts": 11805616,
+          "read_fallbacks": 0,
+          "sample_spins": 19852083,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "restart_share": 0.056749,
+          "fallback_share": 0.0,
+          "read_ops": 11138541,
+          "read_attempts": 11808666,
+          "read_fallbacks": 0,
+          "sample_spins": 19909334,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "restart_share": 0.058422,
+          "fallback_share": 0.0,
+          "read_ops": 11172446,
+          "read_attempts": 11865660,
+          "read_fallbacks": 0,
+          "sample_spins": 19913254,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "restart_share": 0.057703,
+          "fallback_share": 0.0,
+          "read_ops": 11127919,
+          "read_attempts": 11809348,
+          "read_fallbacks": 0,
+          "sample_spins": 19860898,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "restart_share": 0.05668,
+          "fallback_share": 0.0,
+          "read_ops": 11173749,
+          "read_attempts": 11845136,
+          "read_fallbacks": 0,
+          "sample_spins": 19805799,
+          "write_ops": 1048576
+        }
+      ],
       "starvation_flag": false
     },
     {
@@ -512,9 +2726,9 @@
       "readers": 8,
       "rounds": 5,
       "restart_share": {
-        "median": 0.08883,
-        "min": 0.085403,
-        "max": 0.092073
+        "median": 0.047597,
+        "min": 0.040401,
+        "max": 0.05041
       },
       "fallback_share": {
         "median": 0.0,
@@ -522,14 +2736,14 @@
         "max": 0.0
       },
       "read_ops": {
-        "median": 8490003,
-        "min": 8282486,
-        "max": 8754858
+        "median": 13658822,
+        "min": 10864917,
+        "max": 14481422
       },
       "read_attempts": {
-        "median": 9314323,
-        "min": 9122412,
-        "max": 9572362
+        "median": 14363020,
+        "min": 11394516,
+        "max": 15091122
       },
       "read_fallbacks": {
         "median": 0,
@@ -537,9 +2751,9 @@
         "max": 0
       },
       "sample_spins": {
-        "median": 10478673,
-        "min": 10236613,
-        "max": 10640389
+        "median": 20877482,
+        "min": 16688714,
+        "max": 21420275
       },
       "write_ops": {
         "median": 1048576,
@@ -548,6 +2762,58 @@
       },
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
+      "rounds_raw": [
+        {
+          "round": 0,
+          "restart_share": 0.046478,
+          "fallback_share": 0.0,
+          "read_ops": 10864917,
+          "read_attempts": 11394516,
+          "read_fallbacks": 0,
+          "sample_spins": 16688714,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "restart_share": 0.047597,
+          "fallback_share": 0.0,
+          "read_ops": 13794372,
+          "read_attempts": 14483749,
+          "read_fallbacks": 0,
+          "sample_spins": 21250759,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "restart_share": 0.040401,
+          "fallback_share": 0.0,
+          "read_ops": 14481422,
+          "read_attempts": 15091122,
+          "read_fallbacks": 0,
+          "sample_spins": 21420275,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "restart_share": 0.05041,
+          "fallback_share": 0.0,
+          "read_ops": 13118475,
+          "read_attempts": 13814884,
+          "read_fallbacks": 0,
+          "sample_spins": 19396542,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "restart_share": 0.049029,
+          "fallback_share": 0.0,
+          "read_ops": 13658822,
+          "read_attempts": 14363020,
+          "read_fallbacks": 0,
+          "sample_spins": 20877482,
+          "write_ops": 1048576
+        }
+      ],
       "starvation_flag": false
     },
     {
@@ -557,9 +2823,9 @@
       "readers": 8,
       "rounds": 5,
       "restart_share": {
-        "median": 0.045642,
-        "min": 0.037876,
-        "max": 0.05376
+        "median": 0.058818,
+        "min": 0.05606,
+        "max": 0.071293
       },
       "fallback_share": {
         "median": 0.0,
@@ -567,14 +2833,14 @@
         "max": 0.0
       },
       "read_ops": {
-        "median": 11433995,
-        "min": 10312438,
-        "max": 12902412
+        "median": 12168300,
+        "min": 10838380,
+        "max": 12275502
       },
       "read_attempts": {
-        "median": 11980819,
-        "min": 10898327,
-        "max": 13410339
+        "median": 12925991,
+        "min": 11670397,
+        "max": 13042648
       },
       "read_fallbacks": {
         "median": 0,
@@ -582,9 +2848,9 @@
         "max": 0
       },
       "sample_spins": {
-        "median": 10974476,
-        "min": 10789110,
-        "max": 11089419
+        "median": 19175165,
+        "min": 18708016,
+        "max": 20359395
       },
       "write_ops": {
         "median": 1048576,
@@ -593,6 +2859,58 @@
       },
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
+      "rounds_raw": [
+        {
+          "round": 0,
+          "restart_share": 0.071293,
+          "fallback_share": 0.0,
+          "read_ops": 10838380,
+          "read_attempts": 11670397,
+          "read_fallbacks": 0,
+          "sample_spins": 19175165,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "restart_share": 0.058618,
+          "fallback_share": 0.0,
+          "read_ops": 12168300,
+          "read_attempts": 12925991,
+          "read_fallbacks": 0,
+          "sample_spins": 20359395,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "restart_share": 0.062919,
+          "fallback_share": 0.0,
+          "read_ops": 11528923,
+          "read_attempts": 12303017,
+          "read_fallbacks": 0,
+          "sample_spins": 18786574,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "restart_share": 0.05606,
+          "fallback_share": 0.0,
+          "read_ops": 12236983,
+          "read_attempts": 12963730,
+          "read_fallbacks": 0,
+          "sample_spins": 19203061,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "restart_share": 0.058818,
+          "fallback_share": 0.0,
+          "read_ops": 12275502,
+          "read_attempts": 13042648,
+          "read_fallbacks": 0,
+          "sample_spins": 18708016,
+          "write_ops": 1048576
+        }
+      ],
       "starvation_flag": false
     },
     {
@@ -602,9 +2920,9 @@
       "readers": 8,
       "rounds": 5,
       "restart_share": {
-        "median": 0.056488,
-        "min": 0.055998,
-        "max": 0.060621
+        "median": 0.061576,
+        "min": 0.060213,
+        "max": 0.06384
       },
       "fallback_share": {
         "median": 0.0,
@@ -612,14 +2930,14 @@
         "max": 0.0
       },
       "read_ops": {
-        "median": 9716691,
-        "min": 9181340,
-        "max": 9952679
+        "median": 11769989,
+        "min": 11643160,
+        "max": 11947358
       },
       "read_attempts": {
-        "median": 10343742,
-        "min": 9763435,
-        "max": 10543074
+        "median": 12542294,
+        "min": 12437143,
+        "max": 12712834
       },
       "read_fallbacks": {
         "median": 0,
@@ -627,9 +2945,9 @@
         "max": 0
       },
       "sample_spins": {
-        "median": 10432858,
-        "min": 10146532,
-        "max": 10817730
+        "median": 20411793,
+        "min": 19926509,
+        "max": 21053315
       },
       "write_ops": {
         "median": 1048576,
@@ -638,6 +2956,58 @@
       },
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
+      "rounds_raw": [
+        {
+          "round": 0,
+          "restart_share": 0.061498,
+          "fallback_share": 0.0,
+          "read_ops": 11776860,
+          "read_attempts": 12548574,
+          "read_fallbacks": 0,
+          "sample_spins": 21053315,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "restart_share": 0.060213,
+          "fallback_share": 0.0,
+          "read_ops": 11947358,
+          "read_attempts": 12712834,
+          "read_fallbacks": 0,
+          "sample_spins": 20900680,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "restart_share": 0.061576,
+          "fallback_share": 0.0,
+          "read_ops": 11769989,
+          "read_attempts": 12542294,
+          "read_fallbacks": 0,
+          "sample_spins": 20411793,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "restart_share": 0.062026,
+          "fallback_share": 0.0,
+          "read_ops": 11743956,
+          "read_attempts": 12520553,
+          "read_fallbacks": 0,
+          "sample_spins": 20284850,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "restart_share": 0.06384,
+          "fallback_share": 0.0,
+          "read_ops": 11643160,
+          "read_attempts": 12437143,
+          "read_fallbacks": 0,
+          "sample_spins": 19926509,
+          "write_ops": 1048576
+        }
+      ],
       "starvation_flag": false
     },
     {
@@ -647,9 +3017,9 @@
       "readers": 8,
       "rounds": 5,
       "restart_share": {
-        "median": 0.046713,
-        "min": 0.043899,
-        "max": 0.047353
+        "median": 0.060404,
+        "min": 0.059658,
+        "max": 0.062351
       },
       "fallback_share": {
         "median": 0.0,
@@ -657,14 +3027,14 @@
         "max": 0.0
       },
       "read_ops": {
-        "median": 11477397,
-        "min": 11447096,
-        "max": 11571907
+        "median": 11364124,
+        "min": 11267341,
+        "max": 11383696
       },
       "read_attempts": {
-        "median": 12023823,
-        "min": 12016099,
-        "max": 12103223
+        "median": 12099461,
+        "min": 12016586,
+        "max": 12111275
       },
       "read_fallbacks": {
         "median": 0,
@@ -672,9 +3042,9 @@
         "max": 0
       },
       "sample_spins": {
-        "median": 12069315,
-        "min": 11944836,
-        "max": 12089174
+        "median": 24686202,
+        "min": 24526803,
+        "max": 24746720
       },
       "write_ops": {
         "median": 1048576,
@@ -683,6 +3053,58 @@
       },
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
+      "rounds_raw": [
+        {
+          "round": 0,
+          "restart_share": 0.060774,
+          "fallback_share": 0.0,
+          "read_ops": 11364124,
+          "read_attempts": 12099461,
+          "read_fallbacks": 0,
+          "sample_spins": 24746720,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "restart_share": 0.059658,
+          "fallback_share": 0.0,
+          "read_ops": 11380525,
+          "read_attempts": 12102532,
+          "read_fallbacks": 0,
+          "sample_spins": 24692447,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "restart_share": 0.062351,
+          "fallback_share": 0.0,
+          "read_ops": 11267341,
+          "read_attempts": 12016586,
+          "read_fallbacks": 0,
+          "sample_spins": 24686202,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "restart_share": 0.060404,
+          "fallback_share": 0.0,
+          "read_ops": 11353794,
+          "read_attempts": 12083695,
+          "read_fallbacks": 0,
+          "sample_spins": 24526803,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "restart_share": 0.060075,
+          "fallback_share": 0.0,
+          "read_ops": 11383696,
+          "read_attempts": 12111275,
+          "read_fallbacks": 0,
+          "sample_spins": 24634336,
+          "write_ops": 1048576
+        }
+      ],
       "starvation_flag": false
     },
     {
@@ -692,9 +3114,9 @@
       "readers": 8,
       "rounds": 5,
       "restart_share": {
-        "median": 0.072134,
-        "min": 0.07055,
-        "max": 0.073062
+        "median": 0.049266,
+        "min": 0.046185,
+        "max": 0.055387
       },
       "fallback_share": {
         "median": 0.0,
@@ -702,14 +3124,14 @@
         "max": 0.0
       },
       "read_ops": {
-        "median": 10360690,
-        "min": 10137020,
-        "max": 10451968
+        "median": 14333633,
+        "min": 12510278,
+        "max": 14677023
       },
       "read_attempts": {
-        "median": 11166152,
-        "min": 10936032,
-        "max": 11245323
+        "median": 15076037,
+        "min": 13243814,
+        "max": 15387700
       },
       "read_fallbacks": {
         "median": 0,
@@ -717,9 +3139,9 @@
         "max": 0
       },
       "sample_spins": {
-        "median": 12508526,
-        "min": 12397337,
-        "max": 12924394
+        "median": 25585563,
+        "min": 25563545,
+        "max": 25703144
       },
       "write_ops": {
         "median": 1048576,
@@ -728,6 +3150,58 @@
       },
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
+      "rounds_raw": [
+        {
+          "round": 0,
+          "restart_share": 0.048746,
+          "fallback_share": 0.0,
+          "read_ops": 14341139,
+          "read_attempts": 15076037,
+          "read_fallbacks": 0,
+          "sample_spins": 25563545,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "restart_share": 0.049266,
+          "fallback_share": 0.0,
+          "read_ops": 13901747,
+          "read_attempts": 14622118,
+          "read_fallbacks": 0,
+          "sample_spins": 25631530,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "restart_share": 0.055387,
+          "fallback_share": 0.0,
+          "read_ops": 12510278,
+          "read_attempts": 13243814,
+          "read_fallbacks": 0,
+          "sample_spins": 25567304,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "restart_share": 0.04939,
+          "fallback_share": 0.0,
+          "read_ops": 14333633,
+          "read_attempts": 15078357,
+          "read_fallbacks": 0,
+          "sample_spins": 25703144,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "restart_share": 0.046185,
+          "fallback_share": 0.0,
+          "read_ops": 14677023,
+          "read_attempts": 15387700,
+          "read_fallbacks": 0,
+          "sample_spins": 25585563,
+          "write_ops": 1048576
+        }
+      ],
       "starvation_flag": false
     },
     {
@@ -737,9 +3211,9 @@
       "readers": 8,
       "rounds": 5,
       "restart_share": {
-        "median": 0.058009,
-        "min": 0.046592,
-        "max": 0.063647
+        "median": 0.053074,
+        "min": 0.050261,
+        "max": 0.055825
       },
       "fallback_share": {
         "median": 0.0,
@@ -747,14 +3221,14 @@
         "max": 0.0
       },
       "read_ops": {
-        "median": 10737189,
-        "min": 10500558,
-        "max": 12802609
+        "median": 12821055,
+        "min": 12614854,
+        "max": 13605766
       },
       "read_attempts": {
-        "median": 11398402,
-        "min": 11214316,
-        "max": 13428261
+        "median": 13579114,
+        "min": 13310385,
+        "max": 14325788
       },
       "read_fallbacks": {
         "median": 0,
@@ -762,9 +3236,9 @@
         "max": 0
       },
       "sample_spins": {
-        "median": 13061494,
-        "min": 13007587,
-        "max": 13780253
+        "median": 28673273,
+        "min": 25730939,
+        "max": 30523586
       },
       "write_ops": {
         "median": 1048576,
@@ -773,6 +3247,58 @@
       },
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
+      "rounds_raw": [
+        {
+          "round": 0,
+          "restart_share": 0.052255,
+          "fallback_share": 0.0,
+          "read_ops": 12614854,
+          "read_attempts": 13310385,
+          "read_fallbacks": 0,
+          "sample_spins": 29741579,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "restart_share": 0.050261,
+          "fallback_share": 0.0,
+          "read_ops": 13605766,
+          "read_attempts": 14325788,
+          "read_fallbacks": 0,
+          "sample_spins": 27710129,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "restart_share": 0.053074,
+          "fallback_share": 0.0,
+          "read_ops": 13179104,
+          "read_attempts": 13917770,
+          "read_fallbacks": 0,
+          "sample_spins": 25730939,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "restart_share": 0.055825,
+          "fallback_share": 0.0,
+          "read_ops": 12821055,
+          "read_attempts": 13579114,
+          "read_fallbacks": 0,
+          "sample_spins": 28673273,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "restart_share": 0.053699,
+          "fallback_share": 0.0,
+          "read_ops": 12639818,
+          "read_attempts": 13357085,
+          "read_fallbacks": 0,
+          "sample_spins": 30523586,
+          "write_ops": 1048576
+        }
+      ],
       "starvation_flag": false
     },
     {
@@ -782,9 +3308,9 @@
       "readers": 8,
       "rounds": 5,
       "restart_share": {
-        "median": 0.039549,
-        "min": 0.039173,
-        "max": 0.041169
+        "median": 0.057183,
+        "min": 0.05227,
+        "max": 0.057307
       },
       "fallback_share": {
         "median": 0.0,
@@ -792,14 +3318,14 @@
         "max": 0.0
       },
       "read_ops": {
-        "median": 13623112,
-        "min": 13417723,
-        "max": 14135886
+        "median": 12451998,
+        "min": 12172439,
+        "max": 13479258
       },
       "read_attempts": {
-        "median": 14199162,
-        "min": 13987914,
-        "max": 14713357
+        "median": 13193610,
+        "min": 12910712,
+        "max": 14222678
       },
       "read_fallbacks": {
         "median": 0,
@@ -807,9 +3333,9 @@
         "max": 0
       },
       "sample_spins": {
-        "median": 15616916,
-        "min": 15544786,
-        "max": 15916291
+        "median": 25705661,
+        "min": 25401750,
+        "max": 26324600
       },
       "write_ops": {
         "median": 1048576,
@@ -818,6 +3344,58 @@
       },
       "cpus_allowed": "0-15",
       "pin_applied": "0-15",
+      "rounds_raw": [
+        {
+          "round": 0,
+          "restart_share": 0.057183,
+          "fallback_share": 0.0,
+          "read_ops": 12172439,
+          "read_attempts": 12910712,
+          "read_fallbacks": 0,
+          "sample_spins": 25401750,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "restart_share": 0.05227,
+          "fallback_share": 0.0,
+          "read_ops": 13479258,
+          "read_attempts": 14222678,
+          "read_fallbacks": 0,
+          "sample_spins": 26324600,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "restart_share": 0.057281,
+          "fallback_share": 0.0,
+          "read_ops": 12562081,
+          "read_attempts": 13325377,
+          "read_fallbacks": 0,
+          "sample_spins": 25815453,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "restart_share": 0.05621,
+          "fallback_share": 0.0,
+          "read_ops": 12451998,
+          "read_attempts": 13193610,
+          "read_fallbacks": 0,
+          "sample_spins": 25705661,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "restart_share": 0.057307,
+          "fallback_share": 0.0,
+          "read_ops": 12374622,
+          "read_attempts": 13126885,
+          "read_fallbacks": 0,
+          "sample_spins": 25528319,
+          "write_ops": 1048576
+        }
+      ],
       "starvation_flag": false
     }
   ],
@@ -830,7 +3408,7 @@
       "population": 32768,
       "lambda": 1.0,
       "hot_alloc_bytes_per_key": 12.9124,
-      "expanse_alloc_bytes_per_key": 14.1313,
+      "expanse_alloc_bytes_per_key": 14.1396,
       "expanse_mem_used_bytes_per_key": 14.0576,
       "hot_allocs": 34297,
       "expanse_allocs": 8127,
@@ -844,7 +3422,7 @@
       "population": 65536,
       "lambda": 2.0,
       "hot_alloc_bytes_per_key": 12.4036,
-      "expanse_alloc_bytes_per_key": 13.2473,
+      "expanse_alloc_bytes_per_key": 13.2522,
       "expanse_mem_used_bytes_per_key": 13.7551,
       "hot_allocs": 68495,
       "expanse_allocs": 18726,
@@ -858,7 +3436,7 @@
       "population": 131072,
       "lambda": 4.0,
       "hot_alloc_bytes_per_key": 12.0001,
-      "expanse_alloc_bytes_per_key": 12.1237,
+      "expanse_alloc_bytes_per_key": 12.1243,
       "expanse_mem_used_bytes_per_key": 11.8339,
       "hot_allocs": 136979,
       "expanse_allocs": 36674,
@@ -872,7 +3450,7 @@
       "population": 262144,
       "lambda": 8.0,
       "hot_alloc_bytes_per_key": 11.8849,
-      "expanse_alloc_bytes_per_key": 9.8524,
+      "expanse_alloc_bytes_per_key": 9.8504,
       "expanse_mem_used_bytes_per_key": 9.5609,
       "hot_allocs": 274073,
       "expanse_allocs": 53515,
@@ -886,7 +3464,7 @@
       "population": 491520,
       "lambda": 15.0,
       "hot_alloc_bytes_per_key": 11.7612,
-      "expanse_alloc_bytes_per_key": 8.1047,
+      "expanse_alloc_bytes_per_key": 8.1039,
       "expanse_mem_used_bytes_per_key": 7.9508,
       "hot_allocs": 513029,
       "expanse_allocs": 69030,
@@ -899,8 +3477,8 @@
       "keyspace_bits": 63,
       "population": 753664,
       "lambda": 23.0,
-      "hot_alloc_bytes_per_key": 11.7341,
-      "expanse_alloc_bytes_per_key": 8.1242,
+      "hot_alloc_bytes_per_key": 11.734,
+      "expanse_alloc_bytes_per_key": 8.1235,
       "expanse_mem_used_bytes_per_key": 7.9715,
       "hot_allocs": 787741,
       "expanse_allocs": 100620,
@@ -914,7 +3492,7 @@
       "population": 983040,
       "lambda": 30.0,
       "hot_alloc_bytes_per_key": 11.729,
-      "expanse_alloc_bytes_per_key": 14.0351,
+      "expanse_alloc_bytes_per_key": 14.035,
       "expanse_mem_used_bytes_per_key": 13.0461,
       "hot_allocs": 1025991,
       "expanse_allocs": 233240,
@@ -928,7 +3506,7 @@
       "population": 1245184,
       "lambda": 38.0,
       "hot_alloc_bytes_per_key": 11.7959,
-      "expanse_alloc_bytes_per_key": 21.9624,
+      "expanse_alloc_bytes_per_key": 21.9604,
       "expanse_mem_used_bytes_per_key": 20.0494,
       "hot_allocs": 1305191,
       "expanse_allocs": 441868,
@@ -942,7 +3520,7 @@
       "population": 1507328,
       "lambda": 46.0,
       "hot_alloc_bytes_per_key": 11.7071,
-      "expanse_alloc_bytes_per_key": 23.0933,
+      "expanse_alloc_bytes_per_key": 23.095,
       "expanse_mem_used_bytes_per_key": 21.2384,
       "hot_allocs": 1575353,
       "expanse_allocs": 526563,
@@ -956,7 +3534,7 @@
       "population": 1998848,
       "lambda": 61.0,
       "hot_alloc_bytes_per_key": 11.7239,
-      "expanse_alloc_bytes_per_key": 21.0589,
+      "expanse_alloc_bytes_per_key": 21.0601,
       "expanse_mem_used_bytes_per_key": 19.6692,
       "hot_allocs": 2086935,
       "expanse_allocs": 576942,
@@ -970,7 +3548,7 @@
       "population": 65536,
       "lambda": 1.0,
       "hot_alloc_bytes_per_key": 36.7129,
-      "expanse_alloc_bytes_per_key": 24.2756,
+      "expanse_alloc_bytes_per_key": 24.2622,
       "expanse_mem_used_bytes_per_key": 22.6609,
       "hot_allocs": 134021,
       "expanse_allocs": 29730,
@@ -983,8 +3561,8 @@
       "keyspace_bits": 64,
       "population": 131072,
       "lambda": 2.0,
-      "hot_alloc_bytes_per_key": 36.3074,
-      "expanse_alloc_bytes_per_key": 24.7023,
+      "hot_alloc_bytes_per_key": 36.3073,
+      "expanse_alloc_bytes_per_key": 24.7053,
       "expanse_mem_used_bytes_per_key": 24.0927,
       "hot_allocs": 268053,
       "expanse_allocs": 59891,
@@ -997,7 +3575,7 @@
       "keyspace_bits": 64,
       "population": 262144,
       "lambda": 4.0,
-      "hot_alloc_bytes_per_key": 36.2117,
+      "hot_alloc_bytes_per_key": 36.2118,
       "expanse_alloc_bytes_per_key": 22.9558,
       "expanse_mem_used_bytes_per_key": 22.2841,
       "hot_allocs": 536147,
@@ -1011,8 +3589,8 @@
       "keyspace_bits": 64,
       "population": 524288,
       "lambda": 8.0,
-      "hot_alloc_bytes_per_key": 36.1562,
-      "expanse_alloc_bytes_per_key": 19.3626,
+      "hot_alloc_bytes_per_key": 36.1561,
+      "expanse_alloc_bytes_per_key": 19.3629,
       "expanse_mem_used_bytes_per_key": 19.0479,
       "hot_allocs": 1072230,
       "expanse_allocs": 127803,
@@ -1053,8 +3631,8 @@
       "keyspace_bits": 64,
       "population": 1966080,
       "lambda": 30.0,
-      "hot_alloc_bytes_per_key": 36.053,
-      "expanse_alloc_bytes_per_key": 20.3525,
+      "hot_alloc_bytes_per_key": 36.0529,
+      "expanse_alloc_bytes_per_key": 20.3509,
       "expanse_mem_used_bytes_per_key": 19.0458,
       "hot_allocs": 4018036,
       "expanse_allocs": 737142,
@@ -1067,7 +3645,7 @@
       "keyspace_bits": 64,
       "population": 2490368,
       "lambda": 38.0,
-      "hot_alloc_bytes_per_key": 36.1544,
+      "hot_alloc_bytes_per_key": 36.1545,
       "expanse_alloc_bytes_per_key": 25.916,
       "expanse_mem_used_bytes_per_key": 23.2409,
       "hot_allocs": 5100679,

@@ -144,7 +144,7 @@
   <text x="30" y="444" class="t-bar-label">λ ≈ 15 · Arm A · set</text>
   <text x="30" y="458" class="t-sub">N = 491,520 · 63-bit keys</text>
   <rect x="300" y="428" width="51.8" height="11" rx="2" class="b-expanse"/>
-  <text x="359.8" y="437" class="t-val-accent">8.26</text>
+  <text x="359.8" y="437" class="t-val-accent">8.27</text>
   <rect x="300" y="445" width="73.4" height="11" rx="2" class="b-hot"/>
   <text x="381.4" y="454" class="t-val-blue">11.71</text>
   <rect x="800" y="436" width="130" height="20" rx="3" class="badge-win"/>

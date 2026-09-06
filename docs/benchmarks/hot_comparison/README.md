@@ -11,10 +11,11 @@ reached through a C++ FFI shim over the reference implementation.
 > their own provenance block.
 > *(measured: reference host — Intel Core i9-12900F, 8P+8E/24 threads, 30 MiB L3,
 > Ubuntu 22.04; HOT [`speedskater/hot`](https://github.com/speedskater/hot) `96bf6fb`,
-> ISC; harness commit `134a0471`; `docs/benchmarks/hot_comparison/run.sh`; benchmark
+> ISC; harness commit `0f4fd40c`; `docs/benchmarks/hot_comparison/run.sh`; benchmark
 > shell pinned to CPUs 0-15; both arms built for one ISA target —
 > `-C target-cpu=haswell` and `-march=haswell -O3 -std=c++17 -DNDEBUG`; load average
-> 0.15 / 0.21 / 0.63 across the run; 15 rounds per cell, the arm timed first
+> 0.55 / 0.65 / 0.68 / 0.94 across the run with the host's busy CPU at 1.0
+> core-equivalents between every pair of snapshots; 15 rounds per cell, the arm timed first
 > alternating per round (§12.1), median reported, BCa 95% bootstrap ratio intervals
 > over 2,000 resamples in `results/`)*.
 >
@@ -124,69 +125,73 @@ interval spans parity is `BOUNDARY_RESULT` and claims no winner.
 
 ![Latency at N=1M](results/chart_latency_1m.svg)
 
-Both exceptions sit against the parity line: `lookup_hit · map · random` is the
-`BOUNDARY_RESULT` at 0.993 [0.977, 1.009], and `lookup_miss · set · random` is
-the one non-scan HOT win at 0.961 [0.954, 0.968].
+Both exceptions sit against the parity line: `lookup_hit · map · random` is a
+`BOUNDARY_RESULT` at 0.992 [0.977, 1.007], and `lookup_miss · set · random` is a
+non-scan HOT win at 0.959 [0.953, 0.965]. At 10⁵ the map hit cell is the second
+non-scan HOT win, 0.938 [0.893, 0.959].
 
 
 ### Point lookup, 100% hit
 
 | Distribution | Arm | HOT ns | Expanse ns | Ratio | Verdict |
 |---|---|---:|---:|---:|---|
-| sequential | set | 19.25 | **4.17** | 4.651 | Expanse |
-| clustered | set | 24.86 | **7.64** | 3.251 | Expanse |
-| sparse | set | 21.86 | **9.83** | 2.431 | Expanse |
-| random | set | 36.44 | **35.98** | 1.010 | Expanse |
-| sequential | map | 43.56 | **13.84** | 3.453 | Expanse |
-| clustered | map | 49.81 | **22.94** | 2.200 | Expanse |
-| sparse | map | 44.14 | **10.20** | 4.872 | Expanse |
-| **random** | **map** | 59.80 | 61.20 | **0.993** | **`BOUNDARY_RESULT`** |
+| sequential | set | 19.29 | **4.16** | 4.656 | Expanse |
+| clustered | set | 24.89 | **7.67** | 3.261 | Expanse |
+| sparse | set | 21.85 | **9.83** | 2.430 | Expanse |
+| random | set | 36.37 | **35.91** | 1.015 | Expanse |
+| sequential | map | 43.47 | **13.89** | 3.452 | Expanse |
+| clustered | map | 50.06 | **23.04** | 2.186 | Expanse |
+| sparse | map | 44.10 | **10.25** | 4.856 | Expanse |
+| **random** | **map** | 60.07 | 61.27 | **0.992** | **`BOUNDARY_RESULT`** |
 
 ### Point lookup, 50% hit / 50% rejection-sampled miss
 
 | Distribution | Arm | HOT ns | Expanse ns | Ratio | Verdict |
 |---|---|---:|---:|---:|---|
-| sequential | set | 18.95 | **8.05** | 2.382 | Expanse |
-| clustered | set | 24.07 | **11.06** | 2.189 | Expanse |
-| sparse | set | 21.03 | **7.72** | 2.807 | Expanse |
-| **random** | **set** | **35.83** | 37.27 | **0.961** | **HOT** |
-| sequential | map | 53.14 | **10.92** | 5.277 | Expanse |
-| clustered | map | 59.90 | **16.40** | 3.680 | Expanse |
-| sparse | map | 53.66 | **8.27** | 6.888 | Expanse |
-| random | map | 73.55 | **60.21** | 1.235 | Expanse |
+| sequential | set | 18.95 | **8.07** | 2.378 | Expanse |
+| clustered | set | 24.30 | **11.04** | 2.212 | Expanse |
+| sparse | set | 21.05 | **7.72** | 2.803 | Expanse |
+| **random** | **set** | **35.80** | 37.22 | **0.959** | **HOT** |
+| sequential | map | 53.08 | **10.89** | 5.256 | Expanse |
+| clustered | map | 59.81 | **16.39** | 3.675 | Expanse |
+| sparse | map | 53.94 | **8.26** | 6.937 | Expanse |
+| random | map | 73.72 | **60.00** | 1.237 | Expanse |
 
 **The pre-registered uniform-random loss is confirmed on Arm A only on the miss
 path, and refuted on Arm B.** §5.1 registered HOT winning uniform-random point
 lookup at medium-high confidence, reasoning that random keys discriminate late
 and force a deep descent at a fixed 8-bit span while HOT's variable bit selection
-bounds height. On the set arm the miss path is a HOT win (0.961 [0.954, 0.968])
-and the hit path is a narrow Expanse win (1.010 [1.001, 1.018]) — the registered
+bounds height. On the set arm the miss path is a HOT win (0.959 [0.953, 0.965])
+and the hit path is a narrow Expanse win (1.015 [1.007, 1.023]) — the registered
 direction holds on one of the two. On the map arm it did not hold at all: the hit
-cell claims no winner (0.993 [0.977, 1.009]) and the miss cell goes to Expanse
-(1.235 [1.218, 1.253]), because HOT's pointer chase to its heap pair costs more
+cell claims no winner (0.992 [0.977, 1.007]) and the miss cell goes to Expanse
+(1.237 [1.214, 1.257]), because HOT's pointer chase to its heap pair costs more
 than the descent it saves.
 
 These four cells are the ones §12.1's arm alternation moved most. At `5232af74`,
 with HOT timed first in every round and Expanse inheriting its warmed cache, the
 map hit cell read 1.399 and the set hit cell 0.998; alternating the arm timed
-first puts them at 0.993 and 1.010. The direction of the map hit cell reversed
+first puts them at 0.992 and 1.015. The direction of the map hit cell reversed
 and it now claims no winner, which is the largest single consequence of the
-harness change *(measured: reference host, `5232af74` → `134a0471`)*.
+harness change. **The boundary result is not one run's accident:** two
+independent runs of the alternating harness put the map hit cell at 0.993
+[0.977, 1.009] and 0.992 [0.977, 1.007], intervals that agree to the third
+decimal *(measured: reference host, `5232af74` → `134a0471` → `0f4fd40c`)*.
 
 ### Insertion into a cold structure
 
 | Distribution | Arm | HOT ns | Expanse ns | Ratio |
 |---|---|---:|---:|---:|
-| sequential | set | 58.63 | **4.83** | 12.133 |
-| clustered | set | 62.54 | **13.16** | 4.745 |
-| sparse | set | 57.79 | **29.41** | 1.959 |
-| random | set | 78.23 | **30.78** | 2.541 |
-| sequential | map | 73.27 | **12.89** | 5.688 |
-| clustered | map | 77.34 | **21.22** | 3.642 |
-| sparse | map | 72.29 | **30.62** | 2.361 |
-| random | map | 95.16 | **27.01** | 3.522 |
+| sequential | set | 62.24 | **4.83** | 12.933 |
+| clustered | set | 62.48 | **13.18** | 4.736 |
+| sparse | set | 57.65 | **29.11** | 1.981 |
+| random | set | 78.04 | **30.67** | 2.540 |
+| sequential | map | 73.40 | **12.95** | 5.662 |
+| clustered | map | 77.52 | **21.33** | 3.623 |
+| sparse | map | 72.16 | **30.79** | 2.344 |
+| random | map | 95.25 | **27.28** | 3.501 |
 
-Expanse wins every insertion cell, 1.96×–12.13×. §5.2 registered this as a *weak*
+Expanse wins every insertion cell, 1.63×–12.93×. §5.2 registered this as a *weak*
 prediction; it landed stronger than registered. Every one of these is a
 **sorted-order** cell — the shared generator hands both arms a sorted population
 — and §4.1 publishes what the same cells do on a shuffled permutation.
@@ -223,27 +228,27 @@ its winner.
 
 ## 3. Ordered scan is a systematic loss, wider than predicted
 
-**28 of this suite's 29 HOT wins are scan cells.** §5.1 registered HOT winning
+**28 of this suite's 30 HOT wins are scan cells.** §5.1 registered HOT winning
 short range scans at k=10 and k=100, carried forward from the loss
 `art_comparison/` found unpredicted. The measurement is broader than that on two
 axes, and both are recorded as **`UNPREDICTED LOSS`**:
 
 - **k=1000 loses too**, which was not registered — `set`/`random`/100k is
-  0.530 [0.528, 0.532], and `map`/`random`/100k is 0.407 [0.404, 0.410].
+  0.521 [0.519, 0.523], and `map`/`random`/100k is 0.407 [0.406, 0.409].
 - **`sparse` loses as well as `random`**, also not registered.
 
 | Arm | Dist | N | k=10 | k=100 | k=1000 |
 |---|---|---:|---:|---:|---:|
-| set | random | 10,000 | 0.526 | 0.428 | 0.423 |
-| set | random | 100,000 | 0.752 | 0.551 | 0.530 |
-| set | random | 1,000,000 | 0.839 | 0.744 | 0.731 |
-| map | random | 10,000 | 0.659 | 0.500 | 0.462 |
-| map | random | 100,000 | 0.760 | 0.467 | 0.407 |
-| map | random | 1,000,000 | **1.803** | **1.725** | **1.619** |
+| set | random | 10,000 | 0.536 | 0.437 | 0.428 |
+| set | random | 100,000 | 0.754 | 0.551 | 0.521 |
+| set | random | 1,000,000 | 0.836 | 0.744 | 0.732 |
+| map | random | 10,000 | 0.617 | 0.484 | 0.464 |
+| map | random | 100,000 | 0.776 | 0.472 | 0.407 |
+| map | random | 1,000,000 | **1.835** | **1.719** | **1.615** |
 
 The `map`/`random`/1M row is the exception and it reverses cleanly: Expanse wins
-every scan width there, and by more than it did at `5232af74` (1.803 / 1.725 /
-1.619 against 1.414 / 1.402 / 1.517). Scan outcome therefore depends on population as well as
+every scan width there, and by more than it did at `5232af74` (1.835 / 1.719 /
+1.615 against 1.414 / 1.402 / 1.517). Scan outcome therefore depends on population as well as
 on `k`, which is a second reason this suite does not publish single-population
 cells.
 
@@ -260,15 +265,15 @@ appear in the loss list.
 
 | | Count |
 |---|---:|
-| Expanse wins (CI excludes parity) | 109 |
-| HOT wins (CI excludes parity) | 29 |
-| `BOUNDARY_RESULT` (interval spans parity) | 6 |
+| Expanse wins (CI excludes parity) | 111 |
+| HOT wins (CI excludes parity) | 30 |
+| `BOUNDARY_RESULT` (interval spans parity) | 3 |
 
 Against the pre-registration:
 
 | Registered | Outcome |
 |---|---|
-| HOT wins uniform-random point lookup (§5.1, medium-high) | **CONFIRMED** on Arm A's miss path only (0.961); **REFUTED** on Arm A's hit path (1.010) and on Arm B (hit `BOUNDARY_RESULT` 0.993, miss 1.235) |
+| HOT wins uniform-random point lookup (§5.1, medium-high) | **CONFIRMED** on Arm A's miss path only (0.959), and on Arm B's hit path at 10⁵ (0.938); **REFUTED** on Arm A's hit path (1.015) and on Arm B at 10⁶ (hit `BOUNDARY_RESULT` 0.992, miss 1.237) |
 | HOT wins short range scans k=10, k=100 (§5.1, medium-high) | **CONFIRMED**, and wider — see §3 |
 | HOT wins sparse-stride memory (§5.1, downgraded to low in §9.5) | **CONFIRMED** as part of the λ story: HOT wins above the cascade |
 | Expanse wins Arm B memory (§5.2, high) | **CONFIRMED**, labelled `PASS_categorical_by_design` |
@@ -290,19 +295,19 @@ and reconciling them against a different workload in place is what §8.7 forbids
 
 | Arm | Order | HOT alloc B/key | Expanse alloc B/key | Expanse `mem_used` B/key | `lookup_hit` HOT ÷ Expanse | `insert` HOT ÷ Expanse |
 |---|---|---:|---:|---:|---:|---:|
-| set | `sorted` | 11.70 | 13.95 | **13.60** | 1.010 [0.999, 1.021] | 2.532 [2.521, 2.542] |
-| set | `shuffled` | 12.06 | 20.33 | **13.60** | 1.008 [0.998, 1.019] | 1.933 [1.913, 1.943] |
-| map | `sorted` | 35.71 | 16.67 | **16.70** | 0.991 [0.978, 1.004] | 3.527 [3.510, 3.550] |
-| map | `shuffled` | 36.22 | 23.62 | **16.70** | 1.071 [1.052, 1.105] | 2.854 [2.830, 2.879] |
+| set | `sorted` | 11.70 | 13.95 | **13.60** | 1.021 [1.012, 1.030] | 2.532 [2.527, 2.539] |
+| set | `shuffled` | 12.06 | 20.33 | **13.60** | 1.009 [1.000, 1.020] | 1.943 [1.933, 1.952] |
+| map | `sorted` | 35.71 | 16.67 | **16.70** | 0.990 [0.977, 1.005] | 3.514 [3.505, 3.523] |
+| map | `shuffled` | 36.22 | 23.62 | **16.70** | 1.072 [1.056, 1.091] | 2.828 [2.806, 2.851] |
 
 **String arms, `short`, N = 1,000,000**
 
 | Arm | Order | HOT index B/key | Expanse index B/key | Expanse `mem_used` B/key | `lookup_hit` HOT ÷ Expanse | `insert` HOT ÷ Expanse |
 |---|---|---:|---:|---:|---:|---:|
-| ptr | `sorted` | 12.23 | 69.16 | **50.77** | 1.173 [1.169, 1.177] | 1.168 [1.154, 1.182] |
-| ptr | `shuffled` | 12.72 | 71.99 | **50.77** | 1.169 [1.165, 1.173] | 1.106 [1.102, 1.110] |
-| map | `sorted` | 36.29 | 69.16 | **50.77** | 1.771 [1.766, 1.776] | 1.318 [1.300, 1.332] |
-| map | `shuffled` | 36.83 | 71.97 | **50.77** | 1.772 [1.768, 1.777] | 1.536 [1.530, 1.540] |
+| ptr | `sorted` | 12.23 | 69.16 | **50.77** | 1.170 [1.165, 1.175] | 1.163 [1.138, 1.180] |
+| ptr | `shuffled` | 12.72 | 71.99 | **50.77** | 1.168 [1.163, 1.172] | 1.103 [1.086, 1.110] |
+| map | `sorted` | 36.29 | 69.16 | **50.77** | 1.775 [1.769, 1.781] | 1.322 [1.309, 1.334] |
+| map | `shuffled` | 36.83 | 71.97 | **50.77** | 1.776 [1.772, 1.781] | 1.528 [1.504, 1.536] |
 
 - **`mem_used` is identical in both orders on every arm** — 16.70 B/key
   for the integer map, 50.77 for the string arms — while the allocator census moves on
@@ -312,13 +317,13 @@ and reconciling them against a different workload in place is what §8.7 forbids
   makes the two columns readable side by side: the difference between them is
   attributable to the allocator, not to the trie.
 - **Expanse's own insert cost roughly doubles on a shuffled population** —
-  27.01 → 64.46 ns on the integer map — and its allocator footprint
+  27.10 → 64.75 ns on the integer map — and its allocator footprint
   moves 16.67 → 23.62 B/key. The `masstree_comparison` sensitivity set
   measured `ExpanseMap` at 16.67 → 23.63 B/key on the same shape and population
   *(measured: reference host, `2ce92b7f`)*; this suite's own instrument reads
   16.67 → 23.62, an independent replication of that figure in another suite.
 - **HOT moves too**, so the insert ratio narrows rather than reverses:
-  3.527 → 2.854 on the integer map. Expanse still wins every insert cell in
+  3.514 → 2.828 on the integer map. Expanse still wins every insert cell in
   both orders here, unlike the Masstree arm, whose insert ratio flips from 0.760
   to 1.883 across the same pair.
 - **`lookup_hit` barely moves**, as expected: the order affects the build, not
@@ -369,10 +374,10 @@ Stated before the numbers existed (§7) and unchanged by them:
 ## 6. String keys (#693): `ExpanseStrMap` and `ExpanseBytesMap` against HOT's C-string configuration
 
 > *(measured: reference host — Intel Core i9-12900F, 8P+8E/24 threads, 30 MiB L3,
-> Ubuntu 22.04 / kernel 6.8; HOT `96bf6fb`; harness commit `134a0471`;
+> Ubuntu 22.04 / kernel 6.8; HOT `96bf6fb`; harness commit `0f4fd40c`;
 > `docs/benchmarks/hot_comparison/run.sh strings`; benchmark shell pinned to CPUs
 > 0-15; both arms `-C target-cpu=haswell` / `-march=haswell -O3 -std=c++17
-> -DNDEBUG`; load average 0.63 / 0.66 / 0.78 / 1.00 at start, after the gate,
+> -DNDEBUG`; load average 0.57 / 0.57 / 0.98 / 0.99 / 1.00 at start, after the gate,
 > after the memory sweep and at the end; 15 rounds per cell, the arm timed first
 > alternating per round (§12.1), median reported,
 > BCa 95% bootstrap ratio intervals over 2,000 resamples;
@@ -398,7 +403,7 @@ each; the census counts them on neither side (§10.3).
 
 **Ordered scan is a loss in every cell, and it is the largest loss in this
 suite.** All 72 scan cells with a HOT column go to HOT; HOT ÷ Expanse runs from
-0.375 [0.373, 0.377] (`short`, Arm D, k=10, N=1M) down to 0.017 [0.017, 0.017]
+0.375 [0.372, 0.377] (`short`, Arm D, k=10, N=1M) down to 0.017 [0.017, 0.018]
 (`prefixed`, Arm C, k=1000, N=100k). That is the pre-registered high-confidence
 loss (§10.7) and it is a statement about the **shipped navigation surface**, not
 the trie: `ExpanseStrMap` exposes `next_at_or_after` / `next_after`, each a
@@ -416,10 +421,10 @@ engine change outside this suite and is the obvious follow-up.
 | D · map | `prefixed` | 1,000,000 | 0.218 [0.216, 0.223] | 0.051 [0.050, 0.052] | 0.025 [0.024, 0.025] |
 | D · map | `short` | 1,000,000 | 0.375 [0.373, 0.377] | 0.100 [0.098, 0.101] | 0.050 [0.049, 0.051] |
 | D · map | `skewed` | 1,000,000 | 0.337 [0.335, 0.340] | 0.086 [0.085, 0.087] | 0.043 [0.042, 0.044] |
-| C, D | `beyond` | any | Expanse 273–326 ns/element; HOT column withheld (§10.4) | | |
+| C, D | `beyond` | any | Expanse 253–308 ns/element; HOT column withheld (§10.4) | | |
 
 The 10k and 100k rows are in `results/baseline_string_latency.json`; none is
-above 0.21.
+above 0.22.
 
 **Memory ownership on short and skewed keys goes to HOT, and the
 pre-registration had it the other way.** §10.7 registered, at low-medium
@@ -452,29 +457,29 @@ and labelled so: the contest is the `ownership` column above, where HOT's
 external string table is added back.
 
 **`prefixed` point lookup on Arm C is HOT's, as registered.** 100% hit
-0.765 [0.763, 0.767]; 50/50 0.896 [0.893, 0.899] (N = 1M). This is the regime
+0.765 [0.763, 0.767]; 50/50 0.895 [0.885, 0.899] (N = 1M). This is the regime
 HOT is designed for — 96 shared bytes that its discriminative-bit selection
 skips and `ExpanseStrMap` descends one chunk at a time — and it is the one
 place in the string suite where the pre-registered loss on HOT's home ground
-landed as predicted. At N = 100,000 the 50/50 cell is 1.000 [0.963, 1.041].
+landed as predicted. At N = 100,000 the 50/50 cell is 0.993 [0.957, 1.033].
 
 **`ExpanseBytesMap` (Arm E) loses insertion everywhere and most 100%-hit
 lookups, and its index is the heaviest thing measured here.** Insert:
-0.519 [0.517, 0.520] on `counter`, 0.640 [0.636, 0.645] on `short`,
-0.655 [0.651, 0.658] on `skewed`, 0.740 [0.733, 0.742] on `prefixed` (N = 1M).
-100% hit: HOT on `prefixed` 0.937 [0.934, 0.941], `short` 0.925 [0.923, 0.928],
-`skewed` 0.991 [0.989, 0.994]; Expanse only on `counter` 1.027 [1.023, 1.030].
+0.522 [0.520, 0.523] on `counter`, 0.638 [0.634, 0.642] on `short`,
+0.658 [0.655, 0.661] on `skewed`, 0.744 [0.740, 0.747] on `prefixed` (N = 1M).
+100% hit: HOT on `prefixed` 0.936 [0.932, 0.939], `short` 0.928 [0.925, 0.930],
+`skewed` 0.990 [0.981, 0.995]; Expanse only on `counter` 1.034 [1.030, 1.037].
 Its index costs 96.6–102.1 B/key on 12–15-byte keys and 192.7 B/key on
 `prefixed` — a hash-trie entry, a boxed collision bucket, the bucket's vector,
 and a boxed copy of the key. None of this was pre-registered (§10.7 declined to
 predict Arm E); it is reported as `not pre-registered` and it is the largest
 per-entry footprint in either HOT suite. Arm E does win every 50/50 cell at
-N = 1M (1.105–1.174).
+N = 1M (1.104–1.170).
 
 **`UNPREDICTED LOSS`: `counter` 100%-hit lookup on Arm C at small N.** §10.7
 registered `counter` lookup as a high-confidence Expanse win. It is one at
-N = 1M (1.068 [1.064, 1.072]) and a HOT win at N = 10,000
-(0.832 [0.826, 0.842]) and N = 100,000 (0.870 [0.853, 0.882]). The
+N = 1M (1.055 [1.051, 1.059]) and a HOT win at N = 10,000
+(0.856 [0.845, 0.868]) and N = 100,000 (0.875 [0.861, 0.887]). The
 prediction was stated without a population and was wrong below a million keys.
 
 ### 6.2 Where the pre-registration was refuted in Expanse's favour
@@ -503,15 +508,15 @@ per-entry heap pair costs more than the descent it saves.
 ### 6.3 Confirmed wins, and the rest
 
 `counter` at N = 1M is Expanse's on both `ExpanseStrMap` arms: 100% hit
-1.068 [1.064, 1.072] (C) and 1.559 [1.552, 1.565] (D); insert
-1.430 [1.427, 1.434] (C) and 1.689 [1.683, 1.696] (D) — **`CONFIRMED`**, with
-the small-N caveat of §6.1. `short` 100% hit on Arm C is 1.170 [1.167, 1.175],
+1.055 [1.051, 1.059] (C) and 1.560 [1.554, 1.568] (D); insert
+1.467 [1.463, 1.471] (C) and 1.723 [1.718, 1.727] (D) — **`CONFIRMED`**, with
+the small-N caveat of §6.1. `short` 100% hit on Arm C is 1.166 [1.162, 1.170],
 **`CONFIRMED`**. Arm D's memory is `PASS_categorical_by_design` for Expanse on
 every representable shape (HOT ownership 59.4–172.2 B/key against Expanse
 20.5–71.8), as §10.7 registered. The cells §10.7 declined to predict — 50/50
 lookups on `short` and `skewed`, insertion on `short` and `skewed`, and all of
 Arm E — are `not pre-registered`; at N = 1M the `ExpanseStrMap` ones are
-Expanse's (1.21–2.81), the Arm E ones split as described above.
+Expanse's (1.14–2.08), the Arm E ones split as described above.
 
 ![String keys, latency at N = 1M](results/chart_string_latency.svg)
 
@@ -560,9 +565,9 @@ build that reports success**, the same class as the integer arms' §3.1. Every
 `beyond` cell therefore publishes the Expanse figure alone with the HOT column
 withheld (45 latency cells, 36 memory cells), never a HOT number over a smaller
 population. The Expanse side is unrestricted: `ExpanseStrMap` holds all 10⁶
-272-byte keys at 71.84 B/key and `ExpanseBytesMap` at 352.24 B/key *(workload:
-`hot_string_memory`)*; their 100%-hit lookups at N = 1M take 363.90 ns and
-327.71 ns respectively *(workload: `hot_string_latency`)*.
+272-byte keys at 71.84 B/key and `ExpanseBytesMap` at 352.31 B/key *(workload:
+`hot_string_memory`)*; their 100%-hit lookups at N = 1M take 368.67 ns and
+327.64 ns respectively *(workload: `hot_string_latency`)*.
 
 ### 6.6 Scorecard
 
@@ -570,9 +575,9 @@ population. The Expanse side is unrestricted: `ExpanseStrMap` holds all 10⁶
 
 | | Count |
 |---|---:|
-| HOT wins (CI excludes parity) | 97 — of which 72 are scan cells |
-| Expanse wins (CI excludes parity) | 75 — none is a scan cell |
-| `BOUNDARY_RESULT` | 8 |
+| HOT wins (CI excludes parity) | 96 — of which 72 are scan cells |
+| Expanse wins (CI excludes parity) | 77 — none is a scan cell |
+| `BOUNDARY_RESULT` | 7 |
 | HOT column withheld (`beyond`, §10.4) | 45 |
 
 Against §10.7:
@@ -599,14 +604,16 @@ measurement.
 
 > *(measured: reference host — Intel Core i9-12900F, 8P+8E/24 threads, 30 MiB L3,
 > Ubuntu 22.04, kernel 6.8; HOT `96bf6fb` with its pinned TBB 2018 `4c73c3b`,
-> built from the nested submodule, no system TBB; commit `5232af74`;
+> built from the nested submodule, no system TBB; harness commit `d3bc49c0`;
 > `docs/benchmarks/hot_comparison/run.sh --only-concurrent`; benchmark shell
 > pinned to CPUs 0–15 and every row records `Cpus_allowed_list 0-15`;
 > writers + readers ≤ 16; both arms `-C target-cpu=haswell` / `-march=haswell`,
-> both on glibc 2.35 `malloc`; load average 0.25 at start, 7.62 after — the
-> sweep's own threads; 15 rounds per cell, arms interleaved per round, medians
-> reported, BCa 95% bootstrap ratio intervals over 2,000 resamples;
-> `results/baseline_concurrent.json`; workloads `hot_rowex_set_63bit`,
+> both on glibc 2.35 `malloc`; load average 0.40 at start, 6.64 after with 5.83
+> cores busy across the sweep — its own threads, which is why it runs last and
+> is gated on the start snapshot; 15 rounds per cell, arms interleaved per round,
+> medians reported, BCa 95% bootstrap ratio intervals over 2,000 resamples and
+> every round in `rounds_raw`; the levels below are **run A** of the replication
+> pair §7.6 publishes; `results/baseline_concurrent.json`; workloads `hot_rowex_set_63bit`,
 > `hot_rowex_map_64bit`)*.
 >
 > Both arms are measured **below any external lock**, through their native
@@ -625,13 +632,13 @@ work, so both arms grow by exactly the same population every round.
 
 | W | set: ROWEX M/s | set: Expanse M/s | ratio [BCa 95%] | verdict | map: ROWEX M/s | map: Expanse M/s | ratio [BCa 95%] | verdict |
 |--:|---:|---:|---|---|---:|---:|---|---|
-| 1 | 5.55 | **8.64** | 1.558 [1.545, 1.575] | Expanse | 2.96 | **5.22** | 1.742 [1.687, 1.786] | Expanse |
-| 2 | **9.06** | 5.72 | 0.629 [0.610, 0.644] | **ROWEX** | **4.92** | 3.81 | 0.772 [0.752, 0.790] | **ROWEX** |
-| 4 | **15.82** | 4.23 | 0.271 [0.267, 0.277] | **ROWEX** | **8.65** | 3.05 | 0.353 [0.345, 0.360] | **ROWEX** |
-| 8 | **26.24** | 3.71 | 0.144 [0.142, 0.148] | **ROWEX** | **13.90** | 2.59 | 0.185 [0.177, 0.191] | **ROWEX** |
-| 16 | **34.26** | 2.97 | 0.088 [0.086, 0.092] | **ROWEX** · *not pre-registered (SMT)* | **20.21** | 2.64 | 0.128 [0.124, 0.132] | **ROWEX** · *not pre-registered (SMT)* |
+| 1 | 5.53 | **8.63** | 1.558 [1.546, 1.575] | Expanse | 2.97 | **5.23** | 1.756 [1.703, 1.798] | Expanse |
+| 2 | **9.01** | 5.16 | 0.573 [0.567, 0.577] | **ROWEX** | **4.89** | 3.70 | 0.752 [0.732, 0.767] | **ROWEX** |
+| 4 | **15.77** | 4.10 | 0.269 [0.264, 0.277] | **ROWEX** | **8.64** | 3.06 | 0.354 [0.348, 0.360] | **ROWEX** |
+| 8 | **26.27** | 3.80 | 0.146 [0.144, 0.151] | **ROWEX** | **13.85** | 2.56 | 0.180 [0.172, 0.186] | **ROWEX** |
+| 16 | **35.23** | 2.94 | 0.084 [0.083, 0.085] | **ROWEX** · *not pre-registered (SMT)* | **19.45** | 2.52 | 0.130 [0.126, 0.136] | **ROWEX** · *not pre-registered (SMT)* |
 
-- **Expanse wins with one writer** — 1.56× (set) and 1.74× (map) —
+- **Expanse wins with one writer** — 1.56× (set) and 1.76× (map) —
   **`CONFIRMED`** (§11.5.2, medium-high). The concurrent wrappers keep the
   single-threaded insertion win of §2, at a smaller margin than the 2.52× /
   3.55× measured without a wrapper *(different workload: `hot_latency` builds a
@@ -639,12 +646,12 @@ work, so both arms grow by exactly the same population every round.
 - **The crossover is at W = 2**, inside the registered W\* ∈ [2, 4] —
   **`CONFIRMED`** (§11.5.1, medium). ROWEX already wins at two writers on both
   arms, with intervals clear of parity.
-- **At W ≥ 4 ROWEX wins by 3.7×–11.6×** — **`CONFIRMED`** (§11.5.1, high) and
+- **At W ≥ 4 ROWEX wins by 2.8×–11.9×** — **`CONFIRMED`** (§11.5.1, high) and
   wider than the registration argued for. Expanse's *aggregate* writer
   throughput does not merely plateau at its single-writer rate: it **falls** as
-  writers are added — set 8.64 → 5.72 → 4.23 → 3.71 → 2.97 M inserts/s
-  (0.34× of one writer at sixteen), map 5.22 → 3.81 → 3.05 → 2.59 → 2.64
-  (0.51×). ROWEX scales 4.7× on both arms at W = 8 and 6.2× / 6.8× at W = 16,
+  writers are added — set 8.63 → 5.16 → 4.10 → 3.80 → 2.94 M inserts/s
+  (0.34× of one writer at sixteen), map 5.23 → 3.70 → 3.06 → 2.56 → 2.52
+  (0.48×). ROWEX scales 4.8× on the set arm and 4.7× on the map arm at W = 8, and 6.4× / 6.6× at W = 16,
   where the sixteen threads occupy both SMT siblings of every P-core.
 
 Every insert on the Expanse side takes the same writer mutex, so the aggregate
@@ -667,11 +674,11 @@ two windows are the same length.
 
 | W | set: ROWEX M/s | set: Expanse M/s | ratio [BCa 95%] | verdict | map: ROWEX M/s | map: Expanse M/s | ratio [BCa 95%] | verdict |
 |--:|---:|---:|---|---|---:|---:|---|---|
-| 0 | 128.21 | **150.23** | 1.175 [1.151, 1.239] | Expanse | 72.88 | **126.58** | 1.716 [1.670, 1.739] | Expanse |
-| 1 | **110.56** | 15.35 | 0.136 [0.122, 0.140] | **ROWEX** | **57.31** | 25.86 | 0.387 [0.331, 0.435] | **ROWEX** |
-| 2 | **104.10** | 27.64 | 0.263 [0.257, 0.268] | **ROWEX** | **53.21** | 23.77 | 0.444 [0.429, 0.458] | **ROWEX** |
-| 4 | **92.57** | 24.90 | 0.266 [0.257, 0.273] | **ROWEX** | **45.56** | 23.65 | 0.519 [0.507, 0.534] | **ROWEX** |
-| 8 | **71.81** | 22.74 | 0.317 [0.313, 0.324] | **ROWEX** | **31.24** | 22.34 | 0.713 [0.688, 0.727] | **ROWEX** |
+| 0 | 125.73 | **150.31** | 1.220 [1.198, 1.264] | Expanse | 72.96 | **126.95** | 1.707 [1.648, 1.744] | Expanse |
+| 1 | **109.74** | 15.42 | 0.140 [0.136, 0.142] | **ROWEX** | **57.49** | 15.94 | 0.271 [0.260, 0.281] | **ROWEX** |
+| 2 | **104.16** | 25.64 | 0.247 [0.238, 0.253] | **ROWEX** | **52.98** | 24.93 | 0.467 [0.448, 0.488] | **ROWEX** |
+| 4 | **93.00** | 19.63 | 0.216 [0.203, 0.228] | **ROWEX** | **45.81** | 22.85 | 0.493 [0.478, 0.507] | **ROWEX** |
+| 8 | **72.21** | 22.57 | 0.311 [0.306, 0.316] | **ROWEX** | **30.56** | 20.63 | 0.663 [0.638, 0.679] | **ROWEX** |
 
 - **Reader-only (W = 0):** Expanse wins on both arms. The map row is
   **`CONFIRMED`** (§11.5.2, medium). The set row was registered as
@@ -680,26 +687,27 @@ two windows are the same length.
   favour, not as a confirmed prediction.
 - **Readers under any writer load: ROWEX wins every cell** — **`CONFIRMED`**
   (§11.5.1, medium-high), and the size at W = 1 is the finding. **One writer
-  takes Expanse's eight readers from 150.2 to 15.4 M lookups/s on the set arm
-  (0.10× of their reader-only rate) while ROWEX's readers keep 110.6 (0.86×)**;
-  on the map arm 126.6 → 25.9 (0.20×) against 72.9 → 57.3 (0.79×). Expanse's
-  reader throughput then stays roughly flat as writers are added (15 → 28 → 25
-  → 23 set; 26 → 24 → 24 → 22 map) while ROWEX's declines as its writers take
+  takes Expanse's eight readers from 150.3 to 15.4 M lookups/s on the set arm
+  (0.10× of their reader-only rate) while ROWEX's readers keep 109.7 (0.87×)**;
+  on the map arm 127.0 → 15.9 (0.13×) against 73.0 → 57.5 (0.79×). Expanse's
+  reader throughput then stays roughly flat as writers are added (15 → 26 → 20
+  → 23 set; 16 → 25 → 23 → 21 map) while ROWEX's declines as its writers take
   more of the machine, which is why the ratio narrows toward W = 8 without
   Expanse recovering. **The mechanism of the collapse is unmeasured.** The
-  restart share cannot account for an eight-fold drop — it is 5–7% at every
+  restart share cannot account for a ten-fold drop — it is 3–7% at every
   writer count (§7.3) — and `sample_spins` ÷ `read_ops`, one to two waits per
   lookup there, is the only counter this suite takes that speaks to it. No
   hardware counter was taken on either arm, so nothing here attributes the fall
   to a cache-line transfer, a futex or a bracket wait (§8.9 principle 1);
   #737's shared `perf stat` wrapper is what would take one.
 - **Writers with readers present** *(not registered as a separate row;
-  reported)*: the Expanse single writer drops from 8.64 to 2.29 M inserts/s
-  (set) and 5.22 to 1.82 (map) when eight readers are probing; ROWEX's from
-  5.55 to 3.42 and 2.96 to 2.12. Writer ratios in these cells run 0.659
-  [0.618, 0.681] at W = 1 down to 0.092 [0.090, 0.095] at W = 8 (set) and
-  0.835 [0.775, 0.920] down to 0.128 [0.123, 0.132] (map) — ROWEX wins every
-  one, including W = 1, where it lost without readers.
+  reported)*: the Expanse single writer drops from 8.63 to 2.24 M inserts/s
+  (set) and 5.23 to 1.95 (map) when eight readers are probing; ROWEX's from
+  5.53 to 3.44 and 2.97 to 2.15. Writer ratios in these cells run 0.645
+  [0.636, 0.652] at W = 1 down to 0.091 [0.090, 0.092] at W = 8 (set) and
+  0.958 [0.877, 1.033] down to 0.140 [0.133, 0.146] (map) — ROWEX wins every
+  one except the map arm at W = 1, which claims no winner; without readers
+  Expanse won that cell outright.
 
 ### 7.3 Protocol health — event ratios from the diagnostic build
 
@@ -712,14 +720,14 @@ Nothing in this table is a timing. 5 rounds per cell; median with range.
 
 | Arm | W | R | restart share, median [min, max] | fallback share | `sample_spins` ÷ `read_ops` (ratio of medians) | §11.5.3 |
 |---|--:|--:|---|---|---:|---|
-| set | 1 | 8 | 5.77% [5.67%, 5.82%] | 0 | 1.80 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 2 | 8 | 5.45% [3.86%, 5.51%] | 0 | 1.67 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 4 | 8 | 5.73% [5.20%, 6.24%] | 0 | 1.85 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 8 | 8 | 7.21% [7.04%, 7.27%] | 0 | 1.82 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 1 | 8 | 6.41% [6.31%, 6.53%] | 0 | 2.16 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 2 | 8 | 6.53% [5.46%, 9.65%] | 0 | 1.95 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 4 | 8 | 5.52% [4.92%, 5.92%] | 0 | 1.89 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 8 | 8 | 5.33% [5.23%, 5.50%] | 0 | 1.92 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 1 | 8 | 4.44% [4.38%, 5.61%] | 0 | 1.64 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 2 | 8 | 6.99% [6.82%, 7.25%] | 0 | 1.88 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 4 | 8 | 5.25% [5.13%, 5.67%] | 0 | 1.72 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 8 | 8 | 6.84% [6.82%, 6.98%] | 0 | 1.85 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 1 | 8 | 4.96% [4.76%, 8.54%] | 0 | 1.94 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 2 | 8 | 3.36% [3.07%, 3.89%] | 0 | 1.98 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 4 | 8 | 5.67% [5.36%, 5.96%] | 0 | 2.05 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 8 | 8 | 4.29% [4.07%, 4.47%] | 0 | 1.93 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
 
 - **No reader ever took the writer mutex**: `read_fallbacks` is zero in every
   round of every cell, so the §11.5.3 starvation falsifier (fallback share
@@ -730,12 +738,14 @@ Nothing in this table is a timing. 5 rounds per cell; median with range.
   property of the protocol: the falsifier could not have fired at these writer
   counts whatever the engine did, and a falsifier that cannot fire is not a
   measurement (AGENTS.md §8, C-b). METHODOLOGY §11.8 registers one that can.
-- **The restart share does not rise monotonically with W** — set 5.77 → 5.45
-  → 5.73 → 7.21%, map 6.41 → 6.53 → 5.52 → 5.33% — so that half of the
-  §11.5.3 hypothesis is **`REFUTED`**. It sits between 5% and 7% at every
-  writer count measured.
+- **The restart share does not rise monotonically with W** — set 4.44 → 6.99
+  → 5.25 → 6.84%, map 4.96 → 3.36 → 5.67 → 4.29% — so that half of the
+  §11.5.3 hypothesis is **`REFUTED`**. It sits between 3% and 7% at every
+  writer count measured, and the two runs of §7.6 disagree on the ordering of
+  the four values within that band, which is another reason to read it as a
+  band rather than a trend.
 - The counters account for restarts and for spin iterations in
-  `SeqVersion::sample` (1.7–2.2 per read op); they do not time a spin. The size
+  `SeqVersion::sample` (1.6–2.1 per read op); they do not time a spin. The size
   of the §7.2 reader collapse is therefore **not attributed** by this table —
   the cause beyond the bracket wait itself is unmeasured.
 
@@ -752,8 +762,8 @@ interposition; it is paid once per registering thread and is independent of N.
 
 | λ | set: ROWEX B/key | set: `SyncExpanseSet` B/key | winner | map: ROWEX B/key | map: `SyncExpanseMap` B/key | winner |
 |--:|---:|---:|---|---:|---:|---|
-| 1 | **12.91** | 14.14 | ROWEX 1.09× | 36.71 | **24.28** | Expanse 1.51× |
-| 2 | **12.40** | 13.26 | ROWEX 1.07× | 36.31 | **24.70** | Expanse 1.47× |
+| 1 | **12.91** | 14.14 | ROWEX 1.10× | 36.71 | **24.26** | Expanse 1.51× |
+| 2 | **12.40** | 13.25 | ROWEX 1.07× | 36.31 | **24.71** | Expanse 1.47× |
 | 4 | **12.00** | 12.12 | ROWEX 1.01× | 36.21 | **22.96** | Expanse 1.58× |
 | 8 | 11.88 | **9.85** | Expanse 1.21× | 36.16 | **19.36** | Expanse 1.87× |
 | 15 | 11.76 | **8.10** | Expanse 1.45× | 36.07 | **16.80** | Expanse 2.15× |
@@ -770,7 +780,7 @@ interposition; it is paid once per registering thread and is independent of N.
   **`CONFIRMED`** and labelled **`PASS_categorical_by_design`**: ROWEX carries
   the same heap `std::pair` per entry as the single-threaded map arm.
 - The `SyncExpanseSet` cells differ from §1's `ExpanseSet` cells at the same
-  λ in both directions (14.14 against 16.18 at λ = 1; 21.06 against 20.29 at
+  λ in both directions (14.14 against 16.17 at λ = 1; 21.06 against 20.29 at
   λ = 61). The two are different types under the same instrument and the cause
   of the gap is unmeasured; they are not set side by side as one quantity.
 
@@ -781,18 +791,18 @@ sub-cells), 8 health cells, 20 memory cells.
 
 | Registered (`METHODOLOGY.md` §11.5) | Outcome |
 |---|---|
-| ROWEX wins writer throughput at W ≥ 4 (high) | **CONFIRMED**, 3.7×–11.6× |
+| ROWEX wins writer throughput at W ≥ 4 (high) | **CONFIRMED**, 2.8×–11.9× across W = 4, 8 and 16 |
 | Crossover writer count W\* ∈ [2, 4] (medium) | **CONFIRMED**, W\* = 2 on both arms |
-| ROWEX wins reader throughput under W ≥ 1 (medium-high) | **CONFIRMED**, every cell; 7.3× at W = 1 on the set arm |
-| Expanse wins writer throughput at W = 1 (medium-high) | **CONFIRMED**, 1.56× / 1.74× |
-| Expanse wins reader-only, map arm (medium) | **CONFIRMED**, 1.72× |
-| Reader-only, set arm: `BOUNDARY_RESULT` (low-medium) | registered no-winner; **measured Expanse win** 1.175 [1.151, 1.239] |
+| ROWEX wins reader throughput under W ≥ 1 (medium-high) | **CONFIRMED**, every cell; 7.1× at W = 1 on the set arm |
+| Expanse wins writer throughput at W = 1 (medium-high) | **CONFIRMED**, 1.56× / 1.76× |
+| Expanse wins reader-only, map arm (medium) | **CONFIRMED**, 1.71× |
+| Reader-only, set arm: `BOUNDARY_RESULT` (low-medium) | registered no-winner; **measured Expanse win** 1.220 [1.198, 1.264] |
 | Memory, map arm, all λ (high) | **CONFIRMED**, `PASS_categorical_by_design` |
 | Memory, set arm: Expanse wins λ ∈ [8, 23], ROWEX outside (medium) | **CONFIRMED** on both sides |
 | Health: fallback share < 1% at all W (falsifier) | **`PASS_categorical_by_design`** — zero fallbacks; a fallback needs 64 consecutive failed walks, which cannot occur at these bracket lengths (§7.3) |
-| Health: restart share rises monotonically with W | **REFUTED** — 5–7% at every W, not monotonic |
-| W = 16 cells | `not pre-registered`; reported: 0.088 (set), 0.128 (map) |
-| Writers with readers present | `not pre-registered`; reported: ROWEX wins every cell |
+| Health: restart share rises monotonically with W | **REFUTED** — 3–7% at every W, not monotonic |
+| W = 16 cells | `not pre-registered`; reported: 0.084 (set), 0.130 (map) |
+| Writers with readers present | `not pre-registered`; reported: ROWEX wins every cell but the map arm at W = 1, which claims no winner |
 
 No `UNPREDICTED LOSS`: every cell Expanse lost was registered as a loss.
 
@@ -804,46 +814,58 @@ peer review.
 
 ### 7.6 Between-run spread: the C2 cells are a direction and a range, not a level (#735)
 
-This arm has now been run twice on the reference host, at engine commits
-`5232af74` and `134a0471`, both under the P-core pin with a load average of 1.06
-or below at the concurrent start. The C2 reader cells are published side by side
-because four of the ten do not overlap their own BCa 95% intervals between the
-runs, while **every direction and every verdict held**.
+This arm has now been run twice on the reference host **at one commit**,
+`d3bc49c0`, both under the P-core pin and both gated on a load average of 0.40
+at the concurrent start. Publishing the pair at a single commit is what the
+earlier pair could not do: the runs at `5232af74` and `134a0471` differed by the
+engine as well as by the run, and nothing separated the two. Here the binaries
+are identical, so the table below is run-to-run spread on this host and nothing
+else.
 
-| Arm | W | R | run 1 `5232af74` | run 2 `134a0471` | intervals overlap |
+| Arm | W | R | run A | run B | intervals overlap |
 |---|--:|--:|---|---|---|
-| set | 0 | 8 | 1.175 [1.151, 1.239] | 1.184 [1.179, 1.191] | yes |
-| set | 1 | 8 | 0.136 [0.122, 0.140] | 0.137 [0.136, 0.140] | yes |
-| set | 2 | 8 | 0.263 [0.257, 0.268] | 0.238 [0.230, 0.255] | **no** |
-| set | 4 | 8 | 0.266 [0.257, 0.273] | 0.260 [0.247, 0.272] | yes |
-| set | 8 | 8 | 0.317 [0.313, 0.324] | 0.319 [0.312, 0.324] | yes |
-| map | 0 | 8 | 1.716 [1.670, 1.739] | 1.705 [1.658, 1.727] | yes |
-| map | 1 | 8 | 0.387 [0.331, 0.435] | 0.277 [0.258, 0.291] | **no** |
-| map | 2 | 8 | 0.445 [0.428, 0.458] | 0.479 [0.454, 0.511] | yes |
-| map | 4 | 8 | 0.519 [0.507, 0.534] | 0.474 [0.457, 0.491] | **no** |
-| map | 8 | 8 | 0.713 [0.688, 0.727] | 0.659 [0.633, 0.674] | **no** |
+| set | 0 | 8 | 1.220 [1.198, 1.264] | 1.217 [1.196, 1.263] | yes |
+| set | 1 | 8 | 0.140 [0.136, 0.142] | 0.142 [0.140, 0.145] | yes |
+| set | 2 | 8 | 0.247 [0.238, 0.253] | 0.258 [0.244, 0.267] | yes |
+| set | 4 | 8 | 0.216 [0.203, 0.228] | 0.269 [0.260, 0.283] | **no** |
+| set | 8 | 8 | 0.311 [0.306, 0.316] | 0.271 [0.261, 0.279] | **no** |
+| map | 0 | 8 | 1.707 [1.648, 1.744] | 1.731 [1.677, 1.769] | yes |
+| map | 1 | 8 | 0.271 [0.260, 0.281] | 0.300 [0.291, 0.311] | **no** |
+| map | 2 | 8 | 0.467 [0.448, 0.488] | 0.456 [0.443, 0.468] | yes |
+| map | 4 | 8 | 0.493 [0.478, 0.507] | 0.500 [0.485, 0.512] | yes |
+| map | 8 | 8 | 0.663 [0.638, 0.679] | 0.610 [0.585, 0.627] | **no** |
 
-**4 of the 10 C2 reader cells moved past their own intervals** — set W = 2 from 0.263 [0.257, 0.268] to 0.238 [0.230, 0.255]; map W = 1 from 0.387 [0.331, 0.435] to 0.277 [0.258, 0.291]; map W = 4 from 0.519 [0.507, 0.534] to 0.474 [0.457, 0.491]; map W = 8 from 0.713 [0.688, 0.727] to 0.659 [0.633, 0.674]
-— and so did 5 of the 10 C1 writer cells. For these cells the between-run
-spread exceeds the within-run interval, so **a single run's level is not a
-settled figure**: every citation of a C2 cell outside this suite states a
-direction and a range. The `masstree_comparison` arm found the same thing on its
-own two runs (README §7, "Between-run spread"), which is why
-`docs/BENCHMARKING.md` now carries the replication rule rather than leaving each
-arm to rediscover it: two runs for a concurrent cell, the claim ceiling is the
-union of the two intervals, and a cell whose runs do not overlap is reported as
-direction-only.
+**4 of the 10 C2 reader cells moved past their own intervals** — set W = 4 from
+0.216 [0.203, 0.228] to 0.269 [0.260, 0.283], set W = 8 from 0.311 to 0.271,
+map W = 1 from 0.271 to 0.300, map W = 8 from 0.663 to 0.610 — and so did 2 of
+the 10 C1 writer cells (set W = 8 and W = 16). **Every direction and every
+verdict held in all 20 cells**, and the 20 concurrent memory cells are
+byte-identical between the runs, which is the control: a deterministic census
+taken by the same code on the same host reproduces exactly, so the wall-clock
+spread is not the instrument reading differently.
 
-Two things this comparison is **not**. It is not a §8.4 paired claim: the two
-runs are at different engine commits, so host variation and whatever changed in
-the engine between `5232af74` and `134a0471` are confounded, and nothing here
-separates them. And the cause is **unmeasured** — whether the spread is the host
-or the engine is #568's counter plan (`perf c2c`, `xsnp_hitm`, futex counts) and
-#737's wrapper, not this table.
+For the cells that moved, the between-run spread exceeds the within-run
+interval, so **a single run's level is not a settled figure**: every citation of
+a C2 cell outside this suite states a direction and a range. The
+`masstree_comparison` arm found the same thing on its own two runs (README §7,
+"Between-run spread"), which is why `docs/BENCHMARKING.md` carries the
+replication rule rather than leaving each arm to rediscover it: two runs for a
+concurrent cell, the claim ceiling is the union of the two intervals, and a cell
+whose runs do not overlap is reported as direction-only.
 
-The levels quoted in §7.2 are run 1's, unchanged; run 2's are in
+The health counters move the same way. The restart share is a band, not a
+trend: set 4.4 → 7.0 → 5.3 → 6.8% in run A against 5.7 → 4.8 → 5.9 → 6.2% in
+run B, map 5.0 → 3.4 → 5.7 → 4.3% against 6.0 → 4.9 → 5.3 → 5.7%. The two runs
+do not agree on the ordering of the four values, which is why §7.3 reads the
+share as a band between 3% and 7% and grades the registered rise **`REFUTED`**.
+
+What the pair does **not** do is explain the spread. Whether it is scheduling,
+frequency, memory placement or something else on this host is unmeasured here —
+that is #568's counter plan (`perf c2c`, `xsnp_hitm`, futex counts) and #737's
+wrapper, not this table.
+
+The levels quoted in §7.1–§7.5 are run A's; run B is in
 `results/baseline_concurrent_run2.json` with its own provenance.
-
 ---
 
 ## 8. Reproducing

@@ -1961,3 +1961,102 @@ concurrent §7.2–§7.5 levels are run 1's and are not restated.
 `baseline_string_latency.json`, `baseline_memory_curve.json`,
 `baseline_string_memory.json`, `baseline_sensitivity.json`,
 `baseline_string_sensitivity.json`, `baseline_concurrent_run2.json`)*
+
+---
+
+## 13. The Re-Measurement at `0f4fd40c` and `d3bc49c0` (#732 follow-through)
+
+Recorded after measurement. §5, §10.7, §11.5 and §12 are not edited: the
+predictions they lock are the ones that were measured, and reconciling a
+pre-registration in place is what §8.7 forbids.
+
+### 13.1 Why the suite was re-run rather than re-tagged
+
+The artifacts published at `134a0471` were taken before the shared provenance
+module (#732) was in the tree. They carry no `provenance.host` — CPU model,
+frequency driver and governor, transparent-huge-page mode, P-core/E-core and SMT
+topology — no `provenance.estimators` statement of what each published column
+is, and no busy-CPU delta between load snapshots, which is the figure that
+catches a co-resident process while the one-minute load average is still lagging
+it. The concurrent artifacts carried no `rounds_raw` at all, so a published
+median and its BCa interval could not be recomputed from the artifact by anyone.
+
+None of that is a defect in the numbers. It is a defect in what the artifact
+lets a reader check, and §8.10 forbids re-tagging a figure with provenance it
+was not measured under, so the suite was re-run.
+
+### 13.2 What was run, and in what order
+
+Four phases, each in its own invocation under the host lock and the P-core pin,
+each gated on a load average below 0.6 at its start: the integer arms with the
+sensitivity pair, the string arms with theirs, then two concurrent sweeps. The
+runner still starts its concurrent sweep *before* the single-threaded phases
+when both are asked for in one invocation, which is why they are driven
+separately here: a single-threaded phase timed inside the sweep's load decay
+reads as contamination under `docs/BENCHMARKING.md` rule 2 and is only the
+sweep's own tail.
+
+The single-threaded phases were measured at `0f4fd40c` at load 0.55–1.00 with
+the host's busy CPU at 1.0 core-equivalents between every pair of snapshots —
+the benchmark and nothing else. The concurrent pair was measured at `d3bc49c0`,
+which adds `rounds_raw` to the concurrent and health cells and changes nothing
+either arm executes; both sweeps started at load 0.40.
+
+### 13.3 What the re-run moved
+
+Every count below is recomputed by `scripts/integer_tables.py` and
+`scripts/string_tables.py` from the artifacts, not typed.
+
+**Integer arms (144 cells).** Expanse wins 109 → **111**, HOT 29 → **30**,
+`BOUNDARY_RESULT` 6 → **3**. Five cells changed verdict, all of them narrow and
+four at N = 10⁵: three moved off the parity line to Expanse, `lookup_hit · map ·
+random` at 10⁵ moved from `BOUNDARY_RESULT` to a HOT win (0.938), and
+`scan · map · sparse` at 10⁶ k = 1000 moved onto it.
+
+**String arms (225 cells, 180 with a HOT column).** Expanse wins 75 → **77**,
+HOT 97 → **96**, `BOUNDARY_RESULT` 8 → **7**. Seven cells changed verdict, all
+within 8% of parity. HOT still takes 72 of 72 scan cells. No registered
+direction changed on either arm.
+
+**Concurrent.** Every direction and every verdict held across the pair; §7.6
+carries the between-run table.
+
+### 13.4 What this re-run settles that the last one could not
+
+**The uniform-random map-lookup boundary is not one run's accident.** §12.4
+reported `lookup_hit · map · random` at 10⁶ moving from an Expanse win of 1.399
+to `BOUNDARY_RESULT` at 0.993 [0.977, 1.009] when the arm timed first began to
+alternate. An independent run of the same harness puts it at 0.992
+[0.977, 1.007] — intervals that agree to the third decimal. The suite's
+headline uniform-random map-lookup win is gone, and it is gone reproducibly.
+
+**The concurrent spread is run-to-run, not engine-to-engine.** The pair §12.3
+published spanned two engine commits, so host variation and whatever changed in
+the engine were confounded and §7.6 could only say so. This pair is two runs of
+*identical binaries*: 4 of the 10 C2 reader cells and 2 of the 10 C1 writer
+cells still fall outside each other's intervals, while all 20 concurrent memory
+cells are byte-identical. A deterministic census taken by the same code on the
+same host reproduces exactly; the wall-clock cells do not. The spread is the
+host and the run, and the cause of it remains unmeasured.
+
+### 13.5 The `ExpanseBytesMap` census is seeded per instance, and moves between processes
+
+The string memory census reproduced exactly on Arms C and D and moved on
+**168 figures of Arm E**, by up to 2.5 B/key at N = 2,000 and by less than
+0.05 B/key at N = 10⁶. The cause is the one §12.2 records for the
+order-invariance test: `ExpanseBytesMap` indexes an `ExpanseMap` by the key's
+hash and its default `BuildHasher` is seeded per instance, so two processes
+build two different key sets and land different bucket occupancies. The
+published Arm E figures are quoted to one decimal at N = 10⁶, where the
+movement is in the second, so no published number changes — but §9's statement
+that memory "is deterministic and carries no interval" holds for Arms C and D
+and for every integer arm, and holds for Arm E only within a process. A future
+arm that wants Arm E's census to be reproducible across processes has to pin
+the hasher, as `crates/expanse/tests/test_mem_used_order_invariant.rs` does.
+
+*(measured: reference host, `0f4fd40c` and `d3bc49c0`,
+`results/baseline_latency.json`, `baseline_string_latency.json`,
+`baseline_memory_curve.json`, `baseline_string_memory.json`,
+`baseline_sensitivity.json`, `baseline_string_sensitivity.json`,
+`baseline_concurrent.json`, `baseline_concurrent_run2.json`)*
+
