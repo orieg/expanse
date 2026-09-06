@@ -10,12 +10,14 @@
 //! the same nodes under both caps but for 7 of 65,536 expanses. This harness
 //! draws 1,000,000 uniform keys masked to 63 bits, which is arithmetically the
 //! 2M @64 cell (λ = N / 2^(63−48) = 1,000,000 / 32,768 = 30.52) at half the
-//! build cost. Under `LEAF_CAP = 32` roughly 39% of the 32,768 two-byte
-//! expanses have cascaded into a bitmap branch of single-key immediates; under
-//! a `LEAF_CAP = 48` build every one of them is still a packed linear leaf of
-//! 33–48 keys, and the memory sweep puts the two builds at 13.60 and 6.99
-//! B/key on the set (`density_sweep`, same generator and seed). What a lookup
-//! costs in each of those structures is the number this harness produces.
+//! build cost. Under `LEAF_CAP = 32` about 35% of the 32,768 two-byte
+//! expanses — holding 42% of the keys — have cascaded into a bitmap branch of
+//! single-key immediates (`scripts/density_poisson.py`; the 2M @64 census at
+//! the same λ counts 35.05%); under a `LEAF_CAP = 48` build all but ~0.1% of
+//! them are still a packed linear leaf of up to 48 keys, and the memory sweep
+//! puts the two builds at 13.60 and 6.99 B/key on the set (`density_sweep`,
+//! same generator and seed). What a lookup costs in each of those structures
+//! is the number this harness produces.
 //!
 //! The same generator and seed as `examples/keyspace_density.rs`, so the
 //! structure under measurement is byte-for-byte the one the memory cells
@@ -50,7 +52,7 @@
 //! | `measured_region` | Clean (build, shuffle and miss sampling in `setup`; structure leaked, not dropped) |
 //! | `arm_symmetry` | Set and map arms probe bit-identical key vectors; across a cap-32 / cap-48 pair the only variable is `LEAF_CAP` (build-time patch) |
 //! | `statistics` | iai Callgrind exact counts |
-//! | `verdict` | **PASS** `[verified: RUN (x86_64 dev host, Callgrind in a container)]`: Cascaded-regime read path; the pair is published in `docs/benchmarks/hot_comparison/results/leaf_cap_cascaded_callgrind.json`. |
+//! | `verdict` | **PASS** `[verified: RUN (c81eaf5d, x86_64 dev host, Callgrind in a container)]`: Cascaded-regime read path; the cap-32 / cap-48 pair is published in `docs/benchmarks/hot_comparison/results/leaf_cap_cascaded_callgrind.json`. |
 
 // The `library_benchmark` macro expands to modules that carry no docs of
 // their own; the workspace `missing_docs` lint does not apply to a bench

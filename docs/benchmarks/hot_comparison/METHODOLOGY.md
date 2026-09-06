@@ -930,8 +930,8 @@ which moves by 1,107 instructions in 9.75 million (−0.011%). That is the
 expected result and a weak one: at 50k keys per distribution (λ = 0.76 on `random`) no linear
 leaf reaches either cap, so the pair shows only that the constant alone does
 not change the descent. The cascaded regime, where a 48-key linear scan
-replaces a bitmap-branch descent, has no committed Callgrind harness, and this
-control does not measure it. The write path moved: 18 of 53 arms
+replaces a bitmap-branch descent, is not reached by this harness; it is
+measured by the dedicated `leaf_cap_cascaded` arm below. The write path moved: 18 of 53 arms
 changed, and the insert arms retire 7.2–8.1% more instructions under cap 48 at
 a population where no leaf ever holds 33 keys — the constant sizes something on
 the mutation path whose cost is paid below the cap. Cause unmeasured here; a
@@ -969,7 +969,66 @@ the question: at λ = 15.26 the two builds hold the same nodes but for 7 of
 not a longer leaf scan. The cell where cap 48 changes the structure is λ ≥ 25,
 and the committed `compare` harness has no such population; a 1.8M–2.6M-key
 arm at 64 bits, or its 63-bit equivalent, is the measurement that would decide
-it, and this control does not stand in for it.
+it, and this control does not stand in for it. The Callgrind half of that
+measurement follows; its wall-clock half is pending (#715).
+
+**The read path in the cascaded regime, Callgrind (#715).**
+`crates/expanse/benches/leaf_cap_cascaded.rs` (workload
+`core_leaf_cap_cascaded_instructions`): 1,000,000 uniform keys masked to 63
+bits — λ = N / 2^(63−48) = 30.52, the 2M @64 cell of the sweep at half the
+build cost, same generator and seed as the density cells — probed once per
+key by a shuffled hit vector and once by 1,000,000 absent keys
+rejection-sampled from the same generator at the same width (§8.6). The
+population was chosen so that the two builds hold *different* structures:
+the Poisson model (`scripts/density_poisson.py`) puts 35.0% of the 32,768
+expanses past a cap of 32 at this λ (the 2M @64 census counts 35.05%) and
+0.1% past a cap of 48, so under the shipped constant a third of the
+expanses are a bitmap branch of single-key immediates and under the patch
+all of them are a linear leaf of up to 48 keys. Both builds of the same
+commit, deterministic exact integers, no interval *(measured: x86_64 dev
+host — Intel Xeon E5-2697 v4, `rust:1.98` container with valgrind 3.24.0 and
+`iai-callgrind-runner` 0.16.1, `--cache-sim=yes`; commit c81eaf5d;
+`results/leaf_cap_cascaded_callgrind.json`)*:
+
+| arm | Ir, cap 32 | Ir / probe | Ir, cap 48 | Ir / probe | Δ Ir |
+|---|---:|---:|---:|---:|---:|
+| `cascaded_set_contains/hit` | 171,709,610 | 171.71 | 200,945,920 | 200.95 | +17.03% |
+| `cascaded_set_contains/miss` | 168,692,815 | 168.69 | 200,086,695 | 200.09 | +18.61% |
+| `cascaded_map_get/hit` | 176,844,750 | 176.84 | 207,936,634 | 207.94 | +17.58% |
+| `cascaded_map_get/miss` | 172,016,225 | 172.02 | 205,080,859 | 205.08 | +19.22% |
+
+The trade at this λ, both columns from the same N, width, generator and seed
+(workloads differ: `example_keyspace_density` vs
+`core_leaf_cap_cascaded_instructions` — the memory cells are the
+`density_sweep` byte accounting, the cost cells are the Callgrind arm above):
+
+| flavor | B/key, cap 32 | B/key, cap 48 | Δ memory | Ir / probe, cap 32 (hit / miss) | Ir / probe, cap 48 (hit / miss) | Δ Ir |
+|---|---:|---:|---:|---:|---:|---:|
+| `ExpanseSet` | 13.60 | 6.99 | −48.6% | 171.71 / 168.69 | 200.95 / 200.09 | +17.0% / +18.6% |
+| `ExpanseMap<u64,u64>` | 19.38 | 15.37 | −20.7% | 176.84 / 172.02 | 207.94 / 205.08 | +17.6% / +19.2% |
+
+Verdict: **the read path is not free of the constant where the constant
+changes the structure.** Every one of the four arms retires 17.0–19.2% more
+instructions under cap 48, misses more than hits, the map slightly more than
+the set; the λ = 15.26 null above was a property of that cell (same nodes
+under both caps), not of the read path. This is the losing cell the memory
+win has to be read against: at λ = 30.52 cap 48 halves the set's bytes per
+key and costs it a sixth more instructions per lookup. Ir is the cost column,
+not the verdict — `docs/BENCHMARKING.md` rule 16 decides random point
+lookups by wall clock and hardware counters with intervals — and the two
+builds do not walk the same memory: Callgrind's simulated hierarchy reports
+the set hit arm's `RAM Hits` at 701,697 under cap 32 and 274,055 under cap 48
+(the miss arm 303,736 and 293,743; the map arms 1,426,810 → 1,480,965 and
+353,949 → 398,323), so on the set's hit path the smaller structure trades
+instructions for simulated memory traffic. Which of the two the reference
+host pays for is unmeasured here; that is what the wall-clock pair decides.
+The wall-clock half, `crates/expanse/benches/leaf_cap_cascaded_wallclock.rs`
+driven by `scripts/leaf_cap_cascaded_wallclock.sh` in this suite (both builds
+compiled first, a same-build A/A repeat to bound the drift #712 saw before
+any between-build ratio is read, then A/B/A/B under the bench lock and the
+P-core pin, BCa 95% via `scripts/bench_baseline.py`), is committed and has
+not been run: pending on the reference host (#715, scope item 3). No
+wall-clock figure for this cell exists, and none is implied by the table.
 
 #### 9.10.6 The two memory instruments at the same cells (item 7)
 
