@@ -477,4 +477,109 @@ Recorded so the harness cannot quietly fail into a flattering result:
 ## 10. Amendments after Pre-Registration
 
 Recorded as amendments rather than edited into §3–§9, so the locked text stays
-readable as what was locked (§8.7). Empty at lock time.
+readable as what was locked (§8.7). Both entries below are measurement
+constraints found while building the harness and running its validation gate;
+neither is a result, and no suite cell had been run when they were written.
+
+### 10.1 Page-aligned allocations are counted at their requested size
+
+The census of §3.3 counts `malloc_usable_size` on every allocation, as the
+HOT suite's does. The validation gate's first census pass counted **two** 2 MiB
+Masstree slabs as 8.4 MB. A probe on the reference host explains it: for a
+2 MiB request at 2 MiB alignment glibc's `_int_memalign` over-allocates by the
+alignment, takes an mmapped chunk, and reports everything beyond the aligned
+pointer as usable — eight consecutive requests read back 4,194,304 down to
+4,165,632 bytes, and the Step 0 gate had read 2,097,160 for the identical
+request because the kernel happened to place that mapping on a 2 MiB
+boundary. The reported figure depends on where the mapping landed, and the
+padding is address space the program never touches *(measured: reference
+host, glibc 2.35, `masstree_validate` "glibc memalign probe" line and
+`crates/expanse-hot-bench/cpp/hot_shim.cpp`)*.
+
+**Amended:** requests at **page alignment or above** are recorded in a side
+table at their **requested size** and subtracted at that size when freed.
+Requests below page alignment — every HOT node (8- or 64-byte aligned), every
+Expanse node, every `malloc` — keep the `malloc_usable_size` path unchanged,
+so no figure the HOT suite published moves: `hot_memory_curve map 65536`
+reproduces its committed `baseline_memory_curve.json` cell to the byte before
+and after the change (35.8815 B/key HOT, 23.8768 B/key Expanse, 68,695 and
+6,550 allocations; `hot_map_64bit`). The validation gate measures the probe
+on every run and prints the padding it would have counted.
+
+### 10.2 Insertion order moves Masstree's footprint 1.45×, and is a registered dimension
+
+The shared generators sort the population after drawing it, and every suite in
+this repository builds in that order. Expanse partitions by key expanse and its
+footprint does not depend on the order keys arrive. A B+-tree's does: sorted
+insertion fills every leaf, random insertion leaves them at the random-fill
+occupancy. The Step 0 gate inserted **shuffled** and measured 94,381 leaves at
+70.6% fill for 1M uniform random keys; the harness, inserting **sorted**,
+measured 66,667 leaves at 100% fill on the same keys — 33.13 against 22.76
+B/key structural *(measured: reference host, `step0_masstree_gate` and a
+development run of `masstree_memory map random 1000000`; neither a suite cell;
+`structural_bytes`, `leaf_fill`)*. The §6 memory predictions were **informed by
+the shuffled figure**, and the sorted-order floor —
+`projected_random_bpk_at_fill(1.0, ·)` ≈ 22.8 B/key — sits at the low edge of
+the published `ExpanseMap` band, so the "Expanse wins memory at λ < 8" row of
+§6.2 may land `REFUTED`. That is recorded here, before any suite cell exists,
+and the row is not edited.
+
+**Amended:** every M1 and M2 cell runs in the shared **sorted** order, exactly
+as every other suite, and that is the order the §6 predictions are evaluated
+on. In addition, an **insertion-order sensitivity set** re-runs both arms on a
+Fisher–Yates permutation of the same population from the suite PRNG
+(`workload::shuffle_in_place`) at N = 10⁶ — `random` for M1; `short` and
+`prefixed` for M2; memory, 100%-hit lookup and insert — and is published as
+its own table (`results/baseline_order_sensitivity.json`), never merged with
+the sorted cells or given a verdict against §6. Every result row now carries an
+`order` field. The concurrent cells are unaffected: their prefill is sorted and
+their fresh keys arrive in generator order on both arms, as in #692.
+
+### 10.3 The single-threaded pairings use Masstree's single-threaded configuration
+
+`ExpanseMap` and `ExpanseStrMap` carry no concurrency protocol; the
+`Sync*` wrappers do. Masstree's template carries the same split:
+`nodeparams::concurrent` selects between the fenced, spin-locked
+`nodeversion` and a `singlethreaded_nodeversion` whose lock, stable-read and
+version-check operations compile to nothing (`nodeversion.hh`,
+`masstree_struct.hh`). A development run of the harness with the concurrent
+configuration on both pairings would have measured Masstree paying for a
+protocol its twin does not carry — the asymmetry §8.16 forbids, and the one the
+HOT suite avoided by construction because HOT ships `HOTSingleThreaded` and
+`HOTRowex` as separate types.
+
+**Amended:** pairings **M1 and M2 use `concurrent = false`**; **MC1 and MC2
+use `concurrent = true`**. The shim exports both configurations of one
+template (`exp_mts_*` and `exp_mt_*`), every result row carries a `table`
+field, and the validation gate runs its fidelity and census checks in both.
+The protocol's own single-threaded cost is published as a disclosed
+sensitivity row — M1 `random` and M2 `short` at N = 10⁶, 100%-hit lookup and
+insert, with the concurrent table — in the same table as §10.2's
+insertion-order rows, and is never given a verdict against §6.
+
+### 10.4 The census settles RCU-deferred frees before it reads
+
+Masstree frees superseded structures — a suffix bag that was reallocated
+larger, a node replaced by a split — through its epoch-based reclamation:
+`deallocate_rcu` records the pointer in the thread's limbo list, and the memory
+returns to the allocator only once the global epoch has advanced past the
+recording epoch and the thread quiesces. The global epoch is the wall clock at
+65 ms granularity (§3.2), so a build that finishes inside one tick has freed
+nothing, and a `prefixed` build of 100,000 keys held every superseded bag —
+113.7 B/key above its structural figure, in a development run of
+`masstree_memory` — not because the index needs them but because reclamation
+had not yet run.
+
+**Amended:** after the build and before reading the figure, the memory pillar
+advances the global epoch by one and quiesces the building slot, repeating
+until the census sees no further frees (`hard_rcu_quiesce` frees at most 128
+entries per call). The published allocator figure is the **settled** one;
+the figure **before** settling is published beside it as
+`masstree_unsettled_bytes_per_key`, with the number of frees reclaimed, so
+nothing is hidden. Nodes returned by settling go to the slot's pool free list,
+not to the allocator, and so stay inside the slab-quantized figure exactly as
+HOT's retained free-list nodes stayed inside its (§3.2 there). The Expanse side
+is untouched: `ExpanseMap` and `ExpanseStrMap` free immediately, and the
+`Sync*` wrapper on the M pillar runs its own epoch collector as it always
+does.
+

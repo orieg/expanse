@@ -19,6 +19,7 @@ fn main() {
     }
 
     let rowex = std::env::var_os("CARGO_FEATURE_ROWEX").is_some();
+    let masstree = std::env::var_os("CARGO_FEATURE_MASSTREE").is_some();
 
     let mut build = cc::Build::new();
     build
@@ -61,6 +62,10 @@ fn main() {
         println!("cargo:rerun-if-changed=cpp/hot_rowex_shim.cpp");
     }
     build.compile("hot_shim");
+
+    if masstree {
+        build_masstree(&manifest);
+    }
 
     // Interpose the C allocator family for the whole binary. Rust's allocator
     // bottoms out in these same symbols, so one instrument measures the HOT arm
@@ -120,4 +125,47 @@ fn build_tbb(hot: &Path) -> PathBuf {
         );
     }
     lib_dir
+}
+
+/// Compiles the Masstree comparison arm (#661): the pinned
+/// `third_party/masstree` submodule's six needed translation units plus the
+/// shim, against the hand-derived `cpp/masstree_config/config.h` (the library
+/// generates its config with autoconf, which a `cc` build cannot run).
+///
+/// Its own `cc::Build`, not the HOT one: `config.h` is force-included into
+/// every Masstree unit and defines `invariant` / `precondition` macros that
+/// must not reach HOT's headers. Flags match the HOT shim's ISA target and
+/// the flags Masstree's authors specify for measurement (`-O3`, assertions
+/// off) — METHODOLOGY §3.5.
+fn build_masstree(manifest: &Path) {
+    let mt = manifest.join("../../third_party/masstree");
+    if !mt.join("masstree.hh").exists() {
+        panic!(
+            "Masstree sources are missing at {}\n\
+             The submodule is not initialised. Run:\n\
+             \n    git submodule update --init --depth 1 third_party/masstree\n\n\
+             This arm has no fallback path and must not build without Masstree.",
+            mt.display()
+        );
+    }
+    let cfg_dir = manifest.join("cpp/masstree_config");
+    let cfg = cfg_dir.join("config.h");
+    let mut b = cc::Build::new();
+    b.cpp(true)
+        .std("c++17")
+        .opt_level(3)
+        .define("NDEBUG", None)
+        .flag("-march=haswell")
+        .flag("-include")
+        .flag(cfg.to_str().expect("config.h path is UTF-8"))
+        .include(&mt)
+        .include(&cfg_dir)
+        .file(manifest.join("cpp/masstree_shim.cpp"))
+        .warnings(false);
+    for unit in ["compiler", "kvthread", "str", "string", "straccum", "json"] {
+        b.file(mt.join(format!("{unit}.cc")));
+    }
+    b.compile("masstree_shim");
+    println!("cargo:rerun-if-changed=cpp/masstree_shim.cpp");
+    println!("cargo:rerun-if-changed=cpp/masstree_config/config.h");
 }

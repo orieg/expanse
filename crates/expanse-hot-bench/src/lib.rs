@@ -24,6 +24,9 @@ pub mod workload;
 #[cfg(feature = "rowex")]
 pub mod rowex;
 
+#[cfg(feature = "masstree")]
+pub mod masstree;
+
 use std::os::raw::c_void;
 
 unsafe extern "C" {
@@ -33,6 +36,8 @@ unsafe extern "C" {
     fn exp_census_peak() -> i64;
     fn exp_census_allocs() -> i64;
     fn exp_census_frees() -> i64;
+    fn exp_census_memalign() -> i64;
+    fn exp_census_probe_aligned_usable(align: usize, size: usize) -> usize;
 
     fn exp_hot_pool_allocations() -> usize;
 
@@ -104,6 +109,9 @@ pub struct Census {
     pub allocs: i64,
     /// Free calls observed while armed.
     pub frees: i64,
+    /// `posix_memalign` calls observed while armed — on the Masstree arm, the
+    /// number of 2 MiB pool slabs the build took (§3.3 of its methodology).
+    pub memalign: i64,
 }
 
 impl Census {
@@ -122,13 +130,14 @@ impl Census {
 
     /// Samples the counters.
     pub fn read() -> Self {
-        // SAFETY: as `reset` — four relaxed loads from process-global atomics.
+        // SAFETY: as `reset` — five relaxed loads from process-global atomics.
         unsafe {
             Self {
                 live: exp_census_live(),
                 peak: exp_census_peak(),
                 allocs: exp_census_allocs(),
                 frees: exp_census_frees(),
+                memalign: exp_census_memalign(),
             }
         }
     }
@@ -142,6 +151,17 @@ impl Census {
         Self::arm(false);
         (out, Self::read())
     }
+}
+
+/// What glibc reports as usable for one `size`-byte request at `align`, taken
+/// and freed outside the census. Exposes the mechanism the aligned side table
+/// exists for: at page alignment or above, `malloc_usable_size` includes the
+/// alignment padding of an mmapped chunk and is not the size the program holds
+/// (`masstree_comparison/METHODOLOGY.md` §10.1).
+pub fn probe_aligned_usable(align: usize, size: usize) -> usize {
+    // SAFETY: allocates and frees one block through the real allocator; no
+    // preconditions on caller memory.
+    unsafe { exp_census_probe_aligned_usable(align, size) }
 }
 
 /// Cumulative allocations HOT's process-global node pool has made.

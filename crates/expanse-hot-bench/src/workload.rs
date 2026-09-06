@@ -230,3 +230,46 @@ pub fn build_concurrent(
         new_keys,
     }
 }
+
+/// Insertion order of a population (`masstree_comparison` §10.2).
+///
+/// The shared generators hand both arms the population **sorted**, and every
+/// suite in this repository builds in that order. For a B+-tree that is the
+/// best case — sorted inserts fill every leaf — so the Masstree arm also runs a
+/// sensitivity set on a Fisher–Yates permutation of the same population.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Order {
+    /// The generator's order: ascending.
+    Sorted,
+    /// A Fisher–Yates permutation from the suite PRNG, reproducible.
+    Shuffled,
+}
+
+impl Order {
+    /// The name used in result rows.
+    pub fn name(self) -> &'static str {
+        match self {
+            Order::Sorted => "sorted",
+            Order::Shuffled => "shuffled",
+        }
+    }
+
+    /// Parses a result-row name.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "sorted" => Some(Order::Sorted),
+            "shuffled" => Some(Order::Shuffled),
+            _ => None,
+        }
+    }
+}
+
+/// Fisher–Yates permutation of `v` from a PRNG seeded off the suite seed, so a
+/// shuffled cell is as reproducible as a sorted one.
+pub fn shuffle_in_place<T>(v: &mut [T]) {
+    let mut rng = XorShift::new(XorShift::SEED ^ 0x0BDE_B000_0000_0661u64);
+    for j in (1..v.len()).rev() {
+        let k = (rng.next() % (j as u64 + 1)) as usize;
+        v.swap(j, k);
+    }
+}

@@ -1,8 +1,7 @@
 //! String-key workload generator — the reusable scaffolding #693 exists to add.
 //!
-//! Every string arm in this crate, and any future competitor's string arm
-//! (#661 Masstree), asks this module for its population and probe stream rather
-//! than rolling its own. The disciplines are the integer generator's
+//! Every string arm in this crate — HOT's (#693) and Masstree's (#661) — asks
+//! this module for its population and probe stream rather than rolling its own. The disciplines are the integer generator's
 //! ([`crate::workload`]): one PRNG and seed for every pillar and both sides
 //! (§8.3), misses rejection-sampled from the **same** generator and rejected
 //! on membership (§8.6), and a shuffled probe stream (§9.8).
@@ -234,6 +233,22 @@ impl StringWorkload {
         self.population.iter().map(KeyStr::c_len).sum()
     }
 
+    /// Fraction of the population a competitor can represent, for a predicate
+    /// on key length — evaluated against this workload rather than assumed
+    /// from the shape. HOT's window (`hot_comparison` §10.4) and Masstree's
+    /// `MASSTREE_MAXKEYLEN` (`masstree_comparison` §3.4) are both such
+    /// predicates.
+    pub fn representable_fraction(&self, can_key: impl Fn(usize) -> bool) -> f64 {
+        let ok = self.population.iter().filter(|k| can_key(k.len())).count();
+        ok as f64 / self.population.len().max(1) as f64
+    }
+
+    /// Number of population keys a competitor cannot represent, for a
+    /// predicate on key length.
+    pub fn not_representable(&self, can_key: impl Fn(usize) -> bool) -> usize {
+        self.population.iter().filter(|k| !can_key(k.len())).count()
+    }
+
     /// Fraction of the population HOT can discriminate (§10.4), evaluated
     /// against this workload rather than assumed from the shape.
     pub fn hot_representable_fraction(&self) -> f64 {
@@ -337,5 +352,83 @@ pub fn build_with(
         probes,
         hits,
         dist,
+    }
+}
+
+/// A concurrent string arm's workload (`masstree_comparison` §5, MC2): a
+/// prefill with its probe stream, and a stream of fresh keys for the writers —
+/// the string twin of [`crate::workload::build_concurrent`].
+pub struct ConcurrentStringWorkload {
+    /// Prefill and probes, exactly as [`build`] produces them.
+    pub base: StringWorkload,
+    /// For each probe, whether it was drawn from the prefill. Readers verify
+    /// that a prefill key is always found; a miss may become a hit as writers
+    /// land, identically on both arms.
+    pub probe_is_prefill: Vec<bool>,
+    /// Fresh keys absent from the prefill, drawn from the same shape generator
+    /// and rejected on membership (§8.6), in insertion order. Writers take
+    /// contiguous slices.
+    pub new_keys: Vec<KeyStr>,
+}
+
+/// Builds the concurrent string workload.
+///
+/// The prefill and probes come from [`build`] with `hit_rate`. The fresh keys
+/// come from the **same shape generator** — the prefix shapes re-derive the
+/// population's prefix from the suite seed, `counter` continues its index past
+/// the prefill — driven by a distinct seed derived from the suite seed so the
+/// fresh stream does not replay the prefill draws; every candidate is still
+/// rejected on membership rather than trusted to be absent.
+pub fn build_concurrent(
+    dist: StrDist,
+    n_prefill: usize,
+    m_new: usize,
+    hit_rate: f64,
+) -> ConcurrentStringWorkload {
+    let base = build(dist, n_prefill, hit_rate);
+    let probe_is_prefill = base
+        .probes
+        .iter()
+        .map(|p| {
+            base.population
+                .binary_search_by(|k| k.bytes().cmp(p.bytes()))
+                .is_ok()
+        })
+        .collect();
+
+    // The population's generator state is reproduced so the prefix shapes
+    // share their prefix with the prefill; only the content draws differ.
+    let mut seed_rng = XorShift::new(XorShift::SEED);
+    let g = Gen::new(dist, &mut seed_rng, SKEWED_MAX_LEN);
+    let mut rng = XorShift::new(XorShift::SEED ^ 0x5EED_C0DE_0000_0661);
+    let want = base.population.len() as u64;
+    let mut buf = Vec::with_capacity(300);
+    let mut new_keys: Vec<KeyStr> = Vec::with_capacity(m_new);
+    // Fresh keys must also be distinct among themselves, or two writers would
+    // race on one key and the arms would grow by different amounts; `counter`
+    // draws its index at random and repeats it often enough for this to matter.
+    let mut seen: std::collections::BTreeSet<Vec<u8>> = std::collections::BTreeSet::new();
+    let mut guard = 0u32;
+    while new_keys.len() < m_new {
+        let idx = want + (rng.next() % (want.max(1) * 3));
+        g.key(&mut rng, idx, &mut buf);
+        let in_prefill = base
+            .population
+            .binary_search_by(|k| k.bytes().cmp(&buf))
+            .is_ok();
+        if in_prefill || !seen.insert(buf.clone()) {
+            guard += 1;
+            assert!(
+                guard < 10_000_000,
+                "fresh-key sampling exhausted for {dist:?} at n={n_prefill}"
+            );
+            continue;
+        }
+        new_keys.push(KeyStr::new(&buf));
+    }
+    ConcurrentStringWorkload {
+        base,
+        probe_is_prefill,
+        new_keys,
     }
 }

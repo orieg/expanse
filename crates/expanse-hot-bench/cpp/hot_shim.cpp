@@ -49,7 +49,89 @@ std::atomic<long long> g_live{0};
 std::atomic<long long> g_peak{0};
 std::atomic<long long> g_allocs{0};
 std::atomic<long long> g_frees{0};
+// posix_memalign calls seen while armed. HOT's pool and Masstree's pool both
+// take their slabs this way; on Masstree each call is one 2 MiB slab, which
+// is the census quantum its methodology (§3.3) publishes per cell.
+std::atomic<long long> g_memalign{0};
 std::atomic<int> g_armed{0};
+
+// Page-aligned-or-larger aligned requests are recorded at their REQUESTED size
+// in a small side table, not at `malloc_usable_size`. glibc's `_int_memalign`
+// over-allocates by the alignment and, on an mmapped chunk, reports whatever
+// padding lies beyond the aligned pointer as usable — so a 2 MiB request at
+// 2 MiB alignment reads back as anywhere between 2 MiB and 4 MiB depending on
+// where the kernel placed the mapping. Measured on the reference host: the
+// Masstree Step 0 gate saw 2,097,160 B per slab; the validation gate saw
+// 4,194,3xx B for identical requests. The padding is address space the program
+// never touches. Requests below page alignment (HOT's and Expanse's node
+// allocations, at most 64-byte aligned) keep the `malloc_usable_size` path,
+// so every figure the HOT suite published stays on its published instrument
+// (masstree_comparison/METHODOLOGY.md §10.1).
+constexpr size_t kAlignedSideTableThreshold = 4096;
+constexpr size_t kAlignedSideTableSlots = 4096;
+struct AlignedEntry {
+    void *ptr;
+    size_t size;
+};
+AlignedEntry g_aligned[kAlignedSideTableSlots];
+std::atomic<int> g_aligned_lock{0};
+
+inline void aligned_lock() {
+    while (g_aligned_lock.exchange(1, std::memory_order_acquire) != 0) {}
+}
+inline void aligned_unlock() { g_aligned_lock.store(0, std::memory_order_release); }
+
+inline size_t aligned_slot(void *p) {
+    return (reinterpret_cast<uintptr_t>(p) >> 12) % kAlignedSideTableSlots;
+}
+
+// Records `p` -> `size`. Fails loud when full: a silently dropped entry would
+// let the free path fall through to `malloc_usable_size` and subtract a
+// different number than was added.
+inline void aligned_record(void *p, size_t size) {
+    aligned_lock();
+    size_t i = aligned_slot(p);
+    for (size_t n = 0; n < kAlignedSideTableSlots; ++n, i = (i + 1) % kAlignedSideTableSlots) {
+        if (g_aligned[i].ptr == nullptr || g_aligned[i].ptr == p) {
+            g_aligned[i].ptr = p;
+            g_aligned[i].size = size;
+            aligned_unlock();
+            return;
+        }
+    }
+    aligned_unlock();
+    fprintf(stderr, "census: aligned side table full (%zu entries); refusing to publish\n", kAlignedSideTableSlots);
+    abort();
+}
+
+// Removes `p` and returns its recorded size, or 0 when `p` was not recorded.
+inline size_t aligned_take(void *p) {
+    aligned_lock();
+    size_t i = aligned_slot(p);
+    for (size_t n = 0; n < kAlignedSideTableSlots; ++n, i = (i + 1) % kAlignedSideTableSlots) {
+        if (g_aligned[i].ptr == nullptr) break;
+        if (g_aligned[i].ptr == p) {
+            size_t sz = g_aligned[i].size;
+            // Tombstone-free removal: keep the probe chain intact by leaving a
+            // sentinel size of 0 at a non-null pointer that can never be freed
+            // twice; the slot is reusable by `aligned_record` on a match.
+            g_aligned[i].ptr = reinterpret_cast<void *>(uintptr_t(1));
+            g_aligned[i].size = 0;
+            aligned_unlock();
+            return sz;
+        }
+    }
+    aligned_unlock();
+    return 0;
+}
+
+inline void note_alloc_sized(void *p, size_t n) {
+    if (p == nullptr || g_armed.load(std::memory_order_relaxed) == 0) return;
+    long long now = g_live.fetch_add((long long) n, std::memory_order_relaxed) + (long long) n;
+    g_allocs.fetch_add(1, std::memory_order_relaxed);
+    long long peak = g_peak.load(std::memory_order_relaxed);
+    while (now > peak && !g_peak.compare_exchange_weak(peak, now, std::memory_order_relaxed)) {}
+}
 
 inline void note_alloc(void *p) {
     if (p == nullptr || g_armed.load(std::memory_order_relaxed) == 0) return;
@@ -61,7 +143,17 @@ inline void note_alloc(void *p) {
 }
 
 inline void note_free(void *p) {
-    if (p == nullptr || g_armed.load(std::memory_order_relaxed) == 0) return;
+    if (p == nullptr) return;
+    // A page-aligned block is subtracted at the size it was recorded with,
+    // whether or not the census is armed now (its recording may predate a
+    // reset); an unrecorded block is measured as it always was.
+    if (size_t recorded = aligned_take(p)) {
+        if (g_armed.load(std::memory_order_relaxed) == 0) return;
+        g_live.fetch_sub((long long) recorded, std::memory_order_relaxed);
+        g_frees.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+    if (g_armed.load(std::memory_order_relaxed) == 0) return;
     long long n = static_cast<long long>(malloc_usable_size(p));
     g_live.fetch_sub(n, std::memory_order_relaxed);
     g_frees.fetch_add(1, std::memory_order_relaxed);
@@ -92,12 +184,25 @@ void __wrap_free(void *p) {
 }
 int __wrap_posix_memalign(void **p, size_t a, size_t s) {
     int r = __real_posix_memalign(p, a, s);
-    if (r == 0) note_alloc(*p);
+    if (r == 0) {
+        if (a >= kAlignedSideTableThreshold) {
+            aligned_record(*p, s);
+            note_alloc_sized(*p, s);
+        } else {
+            note_alloc(*p);
+        }
+        if (g_armed.load(std::memory_order_relaxed)) g_memalign.fetch_add(1, std::memory_order_relaxed);
+    }
     return r;
 }
 void *__wrap_aligned_alloc(size_t a, size_t s) {
     void *p = __real_aligned_alloc(a, s);
-    note_alloc(p);
+    if (a >= kAlignedSideTableThreshold) {
+        aligned_record(p, s);
+        note_alloc_sized(p, s);
+    } else {
+        note_alloc(p);
+    }
     return p;
 }
 
@@ -137,12 +242,25 @@ void exp_census_reset(void) {
     g_peak.store(0, std::memory_order_relaxed);
     g_allocs.store(0, std::memory_order_relaxed);
     g_frees.store(0, std::memory_order_relaxed);
+    g_memalign.store(0, std::memory_order_relaxed);
 }
 void exp_census_arm(int on) { g_armed.store(on, std::memory_order_relaxed); }
 long long exp_census_live(void) { return g_live.load(std::memory_order_relaxed); }
 long long exp_census_peak(void) { return g_peak.load(std::memory_order_relaxed); }
 long long exp_census_allocs(void) { return g_allocs.load(std::memory_order_relaxed); }
 long long exp_census_frees(void) { return g_frees.load(std::memory_order_relaxed); }
+long long exp_census_memalign(void) { return g_memalign.load(std::memory_order_relaxed); }
+
+// What glibc reports as usable for a page-aligned request of `size` at
+// alignment `align`, without arming the census: the validation gate records
+// it so the §10.1 mechanism is measured on every run rather than asserted.
+size_t exp_census_probe_aligned_usable(size_t align, size_t size) {
+    void *p = nullptr;
+    if (__real_posix_memalign(&p, align, size) != 0 || p == nullptr) return 0;
+    size_t u = malloc_usable_size(p);
+    __real_free(p);
+    return u;
+}
 
 }  // extern "C"
 
