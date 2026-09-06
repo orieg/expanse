@@ -15,8 +15,8 @@
   <files>
     <file src="..\..\target\x86_64-pc-windows-msvc\release\expanse.dll" target="runtimes\win-x64\native\" />
     <file src="..\..\target\x86_64-pc-windows-msvc\release\expanse.lib" target="build\native\lib\x64\" />
-    <file src="..\..\crates\expanse-capi\include\expanse.h" target="build\native\include\" />
-    <file src="..\..\crates\expanse-capi\include\Judy.h" target="build\native\include\" />
+    <file src="..\..\include\expanse.h" target="build\native\include\" />
+    <file src="..\..\include\Judy.h" target="build\native\include\" />
     <file src="expanse.targets" target="build\native\" />
   </files>
 </package>

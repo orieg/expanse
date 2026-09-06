@@ -249,7 +249,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path package
           Copy-Item target\${{ matrix.target }}\release\expanse.dll package\
           Copy-Item target\${{ matrix.target }}\release\expanse.lib package\
-          Copy-Item crates\expanse-capi\include\*.h package\
+          # Canonical public headers live in include/ (#563).
+          Copy-Item include\*.h package\
           Set-Content -Path package\README_MSVC.txt -Value "MSVC Build Instructions: Add expanse.lib to your linker input, and include Judy.h/expanse.h"
           # Same derivation as the Unix step: tag ref on releases, manifest
           # version on a canary dispatch (GITHUB_REF_NAME would be "main").
