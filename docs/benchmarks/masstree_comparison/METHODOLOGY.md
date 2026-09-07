@@ -297,11 +297,11 @@ misses and whole-population strided hits (§8.6), the same shuffled probe stream
 (§9.8 there), extended rather than duplicated (§8.3 symmetry by construction;
 #693's scaffolding reused as #661 requires).
 
-Sharing the builder means sharing its history: the 50/50 cells published here
-were measured before the hit half was strided across the population
-([#760](https://github.com/orieg/expanse/issues/760)), and carry the same
-disclosure as the HOT suite's. The defect was symmetric across both arms, so the
-ratios stand and the absolute ns/op are pending re-measurement under [#760](https://github.com/orieg/expanse/issues/760).
+Sharing the builder means sharing its fixes: the hit half is strided across the
+whole population rather than taken from its sorted prefix
+([#760](https://github.com/orieg/expanse/issues/760)), and the cells published
+here were measured at `7fe02c0b`, after that landed. The HOT suite's own cells
+predate it and were re-measured separately.
 
 **Integer cells (M1).** Distributions `sequential`, `clustered`, `sparse`,
 `random` over the full 64-bit domain — no keyspace restriction, since §2 found
