@@ -312,8 +312,13 @@ pub fn build_with(
         for i in 0..want {
             if i < hits_wanted {
                 // A hit is a fresh copy of a present key, never the stored
-                // allocation itself (module docs).
-                probes.push(KeyStr::new(population[i].bytes()));
+                // allocation itself (module docs). Strided across the whole
+                // population, not `population[..hits_wanted]`: the population is
+                // sorted above, so a prefix confines every hit to one end of the
+                // string space while the misses below span all of it (§8.6, the
+                // 64-bit twin of this is `workload::build`).
+                let idx = (i * want / hits_wanted.max(1)) % want;
+                probes.push(KeyStr::new(population[idx].bytes()));
                 hits += 1;
             } else {
                 // Same generator, same shape, rejected on membership (§8.6).
@@ -430,5 +435,58 @@ pub fn build_concurrent(
         base,
         probe_is_prefill,
         new_keys,
+    }
+}
+
+#[cfg(test)]
+mod probe_shape_tests {
+    use super::{StrDist, build};
+    use std::collections::HashSet;
+
+    /// The string twin of `workload::probe_shape_tests`: the hit half of a
+    /// 50/50 stream must cover the whole population, not its sorted prefix
+    /// (§8.6, #760).
+    ///
+    /// Fail-then-pass: with `probes.push(KeyStr::new(population[i].bytes()))`
+    /// restored, the hits are `population[..want / 2]` and `reach` is `0.5`.
+    #[test]
+    fn hits_span_the_whole_population_not_its_sorted_prefix() {
+        for dist in [StrDist::Short, StrDist::Skewed, StrDist::Prefixed] {
+            let w = build(dist, 20_000, 0.5);
+            let present: HashSet<&[u8]> = w.population.iter().map(|k| k.bytes()).collect();
+            let want = w.population.len();
+
+            let mut hits = 0usize;
+            let mut max_idx = 0usize;
+            let mut top_half = 0usize;
+            for p in &w.probes {
+                if !present.contains(p.bytes()) {
+                    continue;
+                }
+                hits += 1;
+                let idx = w
+                    .population
+                    .binary_search_by(|k| k.bytes().cmp(p.bytes()))
+                    .expect("present key");
+                max_idx = max_idx.max(idx);
+                if idx * 2 >= want {
+                    top_half += 1;
+                }
+            }
+
+            assert!(hits > 0, "{dist:?}: no hits in the stream");
+            let reach = (max_idx + 1) as f64 / want as f64;
+            assert!(
+                reach > 0.99,
+                "{dist:?}: hits reach only {reach:.3} of the sorted population; \
+                 a prefix, not a sample"
+            );
+            let top_share = top_half as f64 / hits as f64;
+            assert!(
+                (0.4..=0.6).contains(&top_share),
+                "{dist:?}: {top_share:.3} of hits land in the upper half; \
+                 expected about half"
+            );
+        }
     }
 }

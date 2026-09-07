@@ -10,7 +10,7 @@
 //! | `group` | 7 |
 //! | `population` | 100k per shape for fidelity; 50k for the allocation-count checks; 1k for the truncation finding |
 //! | `insertion_order` | sorted byte-lexicographic — `strings.rs` sorts the population; a fidelity gate, not a timing |
-//! | `probes_and_reuse` | 50/50 shuffled stream, one pass, every probe its own allocation |
+//! | `probes_and_reuse` | 50/50 shuffled stream, one pass, every probe its own allocation; hits strided across the whole sorted population, not its prefix (§8.6) |
 //! | `hit_rate` | 50% |
 //! | `miss_gen_method` | same-generator rejection sampling (§8.6) |
 //! | `value_dereference` | both sides return the stored word and the two sinks are compared |

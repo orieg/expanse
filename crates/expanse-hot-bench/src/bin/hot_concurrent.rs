@@ -10,7 +10,7 @@
 //! | `group` | 7 |
 //! | `population` | prefill 2^20 uniform random keys (λ = 16 at 64 bits; 63-bit domain on the set arm), plus 2^20 fresh keys inserted concurrently by W writers |
 //! | `insertion_order` | sorted ascending — the shared generator sorts and dedups the population (`workload.rs`); this harness takes no `order` token |
-//! | `probes_and_reuse` | R readers cycle a shuffled 2^20-probe stream against the prefill until the writers finish; at W = 0 each reader makes exactly one pass |
+//! | `probes_and_reuse` | R readers cycle a shuffled 2^20-probe stream against the prefill until the writers finish; at W = 0 each reader makes exactly one pass; hits strided across the whole sorted population, not its prefix (§8.6) |
 //! | `hit_rate` | 50% against the prefill; some misses become hits as writers land, identically on both arms |
 //! | `miss_gen_method` | same-generator rejection sampling (§8.6); fresh writer keys rejected on prefill membership |
 //! | `value_dereference` | map arm fetches the stored value on both sides and checks it against its key-derived expectation; set arm checks presence of every prefill probe |
