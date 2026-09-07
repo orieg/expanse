@@ -389,8 +389,8 @@ void TestMultiThreadedConcurrentOperations() {
     std::cout << "  -> PASSED (verified " << count << " concurrent entries)" << std::endl;
 }
 
-void TestHighConcurrencyLockFreeReaders() {
-    std::cout << "[RUN] TestHighConcurrencyLockFreeReaders" << std::endl;
+void TestHighConcurrencyOptimisticReaders() {
+    std::cout << "[RUN] TestHighConcurrencyOptimisticReaders" << std::endl;
     TestBytewiseComparator cmp;
     Arena arena;
     ExpanseMemTableRep memtable(cmp, &arena, nullptr, nullptr, 32);
@@ -709,7 +709,7 @@ int main() {
     TestPrefixSeeksAndSeekForPrev();
     TestSuggestCompactRange();
     TestMultiThreadedConcurrentOperations();
-    TestHighConcurrencyLockFreeReaders();
+    TestHighConcurrencyOptimisticReaders();
     TestLargeVolumeRandomOperations();
     TestBatchScanApi();
     TestIntrusiveLeafChainingAndPrefetch();
