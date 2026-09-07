@@ -436,11 +436,6 @@ def get_handlers(root: Path) -> List[ManifestHandler]:
             has_internal_dep=True,
         ),
         CrateCargoHandler(
-            "crates/expanse-rb/Cargo.toml",
-            "crates/expanse-rb/Cargo.toml",
-            has_internal_dep=False,
-        ),
-        CrateCargoHandler(
             "crates/expanse-wasm/Cargo.toml",
             "crates/expanse-wasm/Cargo.toml",
             has_internal_dep=True,
