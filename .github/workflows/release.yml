@@ -493,11 +493,23 @@ jobs:
             exit 0
           fi
           if [ -n "${GPG_PRIVATE_KEY:-}" ]; then
+            # maven-gpg-plugin shells out to gpg, which asks its agent for the
+            # passphrase and fails with "Inappropriate ioctl for device" on a
+            # runner with no TTY. Loopback pinentry has to be allowed by the
+            # agent *and* asked for on the command line, and the passphrase has
+            # to reach the plugin: importing with --batch alone is not enough,
+            # which is how the v0.6.0 Java publish failed after every other
+            # channel had already published (release run 34072934462).
+            mkdir -p ~/.gnupg && chmod 700 ~/.gnupg
+            echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+            gpgconf --reload gpg-agent || true
             echo "$GPG_PRIVATE_KEY" | gpg --batch --import
           fi
           mkdir -p ~/.m2
           echo "<settings><servers><server><id>central</id><username>${MAVEN_CENTRAL_USERNAME}</username><password>${MAVEN_CENTRAL_TOKEN}</password></server></servers></settings>" > ~/.m2/settings.xml
-          mvn deploy -f bindings/java/pom.xml -P release -DskipTests
+          mvn deploy -f bindings/java/pom.xml -P release -DskipTests \
+            -Dgpg.pinentry-mode=loopback \
+            -Dgpg.passphrase="${GPG_PASSPHRASE:-}"
 
       - name: Attach JAR to the GitHub Release
         if: github.event_name == 'push' # the release exists only on tag pushes
