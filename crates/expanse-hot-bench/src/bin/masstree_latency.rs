@@ -11,7 +11,7 @@
 //! | `emits` | `masstree_map_64bit` — the id(s) this harness writes into its JSON artifact, which is what the suite README's `(workload: …)` tags cite |
 //! | `population` | selected per invocation; `random` cells also carry λ |
 //! | `insertion_order` | both — the shared generator sorts and dedups (`workload.rs`), and the trailing `order` token selects that or a Fisher-Yates permutation from the suite PRNG; the runner sweeps both and every result row carries the order (§12.2) |
-//! | `probes_and_reuse` | shuffled stream, one pass, `population`-many probes; scan: `max(1000, 10⁶ / k)` starts cycled from the probe stream |
+//! | `probes_and_reuse` | shuffled stream, one pass, `population`-many probes; scan: `max(1000, 10⁶ / k)` starts cycled from the probe stream; hits strided across the whole sorted population, not its prefix (§8.6) |
 //! | `hit_rate` | 100% for `lookup_hit`, 50% for `lookup_miss`, n/a otherwise |
 //! | `miss_gen_method` | same-generator rejection sampling (§8.6) |
 //! | `value_dereference` | both sides fetch the stored value and fold it; the two sinks must agree |

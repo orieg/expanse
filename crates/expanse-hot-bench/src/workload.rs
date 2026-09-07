@@ -82,23 +82,24 @@ impl Workload {
     }
 }
 
-/// Builds a population and a probe stream.
+/// The population alone, sorted and deduplicated.
 ///
-/// `hit_rate` is the fraction of probes drawn from the population; the rest are
-/// **rejection-sampled from the same generator** and rejected on membership
-/// (§8.6). A miss is never a transform of a present key — a transformed miss
-/// lands in a different expanse, shares no prefix with its parent, and so
-/// terminates at a systematically different depth than a hit, which averages two
-/// different descents into one number.
+/// This is the one generator every pillar draws its keys from. A pillar that
+/// needs only a population — the memory curve, which allocates nothing it does
+/// not measure — calls this directly rather than defining its own; two
+/// equivalent copies of a generator publish figures for different key sets
+/// under one `workload_id` the moment either one changes.
+pub fn population(dist: Dist, n: usize, keyspace_bits: u32) -> Vec<u64> {
+    population_and_rng(dist, n, keyspace_bits).0
+}
+
+/// The population and the generator left where the population stopped.
 ///
-/// The probe stream is shuffled. The population is sorted, so hits drawn by index
-/// would arrive in ascending key order and hand an ordered trie cache and
-/// prefetch behaviour no real point-lookup workload provides (§9.8).
-pub fn build(dist: Dist, n: usize, keyspace_bits: u32, hit_rate: f64) -> Workload {
-    assert!(
-        (0.0..=1.0).contains(&hit_rate),
-        "hit_rate must be a fraction"
-    );
+/// [`build`] continues this exact stream to reject-sample its misses, so the
+/// split into a public [`population`] must hand the generator state back rather
+/// than let the caller reconstruct it — the number of draws per key depends on
+/// the distribution (`Clustered` draws once per 256 keys, `Sequential` never).
+fn population_and_rng(dist: Dist, n: usize, keyspace_bits: u32) -> (Vec<u64>, XorShift) {
     assert!(
         (1..=64).contains(&keyspace_bits),
         "keyspace_bits out of range"
@@ -128,13 +129,49 @@ pub fn build(dist: Dist, n: usize, keyspace_bits: u32, hit_rate: f64) -> Workloa
     }
     population.sort_unstable();
     population.dedup();
+    (population, rng)
+}
+
+/// Builds a population and a probe stream.
+///
+/// `hit_rate` is the fraction of probes drawn from the population; the rest are
+/// **rejection-sampled from the same generator** and rejected on membership
+/// (§8.6). A miss is never a transform of a present key — a transformed miss
+/// lands in a different expanse, shares no prefix with its parent, and so
+/// terminates at a systematically different depth than a hit, which averages two
+/// different descents into one number.
+///
+/// The probe stream is shuffled. The population is sorted, so hits drawn by index
+/// would arrive in ascending key order and hand an ordered trie cache and
+/// prefetch behaviour no real point-lookup workload provides (§9.8). The shuffle
+/// fixes the *order* of the hit stream and not *which keys are in it*, so the
+/// hits are also strided across the population rather than taken from its
+/// sorted prefix.
+pub fn build(dist: Dist, n: usize, keyspace_bits: u32, hit_rate: f64) -> Workload {
+    assert!(
+        (0.0..=1.0).contains(&hit_rate),
+        "hit_rate must be a fraction"
+    );
+    let mask = if keyspace_bits >= 64 {
+        u64::MAX
+    } else {
+        (1u64 << keyspace_bits) - 1
+    };
+    let (population, mut rng) = population_and_rng(dist, n, keyspace_bits);
 
     let want = population.len();
     let hits_wanted = (want as f64 * hit_rate).round() as usize;
     let mut probes = Vec::with_capacity(want);
     for i in 0..want {
         if i < hits_wanted {
-            probes.push(population[i % want]);
+            // Strided across the whole population, not `population[..hits_wanted]`.
+            // The population is sorted above, so taking a prefix confined every
+            // hit to the low end of the keyspace -- root byte 0x00..0x7F for
+            // uniform 64-bit keys -- while the misses below span all of it. The
+            // 50/50 cells then averaged two probe populations with different
+            // root-byte distributions into one number, which is the same defect
+            // §8.6's miss-shape rule names, arriving through the hit side.
+            probes.push(population[(i * want / hits_wanted.max(1)) % want]);
         } else {
             // Same generator, same distribution, rejected on membership. The
             // offset for the structured shapes starts beyond the population so
@@ -311,5 +348,89 @@ mod scan_starts_tests {
         assert_eq!(scan_starts(1_000), 1_000);
         assert_eq!(scan_starts(1_000_000), 1_000);
         assert_eq!(scan_starts(0), 1_000_000);
+    }
+}
+
+#[cfg(test)]
+mod probe_shape_tests {
+    use super::{Dist, build, population};
+    use std::collections::HashSet;
+
+    /// The hit half of a 50/50 stream must cover the whole population, not its
+    /// sorted prefix (§8.6, #760).
+    ///
+    /// Fail-then-pass: with `probes.push(population[i % want])` restored, the
+    /// hits are `population[..want / 2]`, so `top_half` is 0 and `reach` is
+    /// `0.5` — both assertions below fail.
+    #[test]
+    fn hits_span_the_whole_population_not_its_sorted_prefix() {
+        let w = build(Dist::Random, 200_000, 64, 0.5);
+        let present: HashSet<u64> = w.population.iter().copied().collect();
+        let want = w.population.len();
+
+        let mut top_half = 0usize;
+        let mut hits = 0usize;
+        let mut max_idx = 0usize;
+        for p in &w.probes {
+            if !present.contains(p) {
+                continue;
+            }
+            hits += 1;
+            let idx = w.population.binary_search(p).expect("present key");
+            max_idx = max_idx.max(idx);
+            if idx * 2 >= want {
+                top_half += 1;
+            }
+        }
+
+        assert!(hits > 0, "no hits in the stream");
+        let reach = (max_idx + 1) as f64 / want as f64;
+        assert!(
+            reach > 0.99,
+            "hits reach only {reach:.3} of the sorted population; a prefix, not a sample"
+        );
+        let top_share = top_half as f64 / hits as f64;
+        assert!(
+            (0.4..=0.6).contains(&top_share),
+            "{top_share:.3} of hits land in the upper half of the population; \
+             expected about half"
+        );
+    }
+
+    /// A hit is still a key that is present, and the miss half is still drawn
+    /// from the same generator rather than transformed from a hit (§8.6).
+    #[test]
+    fn the_stream_holds_its_requested_hit_rate() {
+        let w = build(Dist::Random, 50_000, 64, 0.5);
+        let present: HashSet<u64> = w.population.iter().copied().collect();
+        let hits = w.probes.iter().filter(|p| present.contains(p)).count();
+        let rate = hits as f64 / w.probes.len() as f64;
+        assert!(
+            (0.49..=0.51).contains(&rate),
+            "hit rate {rate:.4} is not the requested 0.5"
+        );
+    }
+
+    /// One generator, not two. `hot_memory_curve` asks this module for its
+    /// population instead of carrying an equivalent private copy; this pins that
+    /// the population it gets is the one the latency pillars measure against, so
+    /// the two cannot silently publish different key sets under one
+    /// `workload_id` (§8.12.2, #760).
+    #[test]
+    fn the_memory_pillar_and_the_latency_pillars_share_one_population() {
+        for (dist, bits) in [
+            (Dist::Random, 63),
+            (Dist::Random, 64),
+            (Dist::Clustered, 64),
+            (Dist::Sequential, 64),
+            (Dist::Sparse, 64),
+        ] {
+            let standalone = population(dist, 20_000, bits);
+            let via_build = build(dist, 20_000, bits, 0.5).population;
+            assert_eq!(
+                standalone, via_build,
+                "{dist:?}/{bits}: the population depends on which entry point asked for it"
+            );
+        }
     }
 }

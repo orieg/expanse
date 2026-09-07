@@ -1289,9 +1289,16 @@ fraction per §10.4 rather than trim the tail.
 
 **Misses** (§8.6): rejection-sampled from the same generator as the population
 and rejected on membership, never a transform of a present key. `counter`
-misses draw their index from `[N, 4N)` (the §8.6 offset rule). **Probe order**:
-Fisher–Yates from the same PRNG (§9.8). **Hit rates**: 100% for `lookup_hit`,
-50% for `lookup_miss`.
+misses draw their index from `[N, 4N)` (the §8.6 offset rule). **Hits** (§8.6):
+strided across the whole sorted population. The builder originally took
+`population[..hits_wanted]`, which confined every hit to one end of the key
+space while the misses spanned all of it — the same complaint the miss-shape
+rule makes, arriving through the hit side
+([#760](https://github.com/orieg/expanse/issues/760)); the 50/50 figures
+measured before the fix carry a disclosure in the suite README. **Probe order**:
+Fisher–Yates from the same PRNG (§9.8) — which fixes the *order* of the hit
+stream, not *which keys are in it*, and is why the two rules are stated
+separately. **Hit rates**: 100% for `lookup_hit`, 50% for `lookup_miss`.
 
 **Populations.** Latency cells at N ∈ {10⁴, 10⁵, 10⁶}, as the integer arms.
 The memory pillar is a **population sweep**, N ∈ {1k, 2k, 5k, 10k, 20k, 50k,
