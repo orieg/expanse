@@ -669,6 +669,25 @@ impl ExpanseStrMap {
         self.alloc.bytes_in_use() + self.root.as_deref().map_or(0, |r| r.shell_bytes() as usize)
     }
 
+    /// Debug-only check of the NUL-free key domain documented at the top of
+    /// this module.
+    ///
+    /// It is `debug_assert!` rather than `assert!` deliberately: every caller
+    /// below is on a Callgrind-gated descent path, and a byte scan per key
+    /// would be paid by every correct caller to catch an incorrect one. The
+    /// cost belongs at the boundary where an untrusted string actually enters
+    /// -- the language bindings, which reject an embedded NUL before the key
+    /// reaches here.
+    ///
+    /// What a release build does with an out-of-domain key, since this
+    /// assertion is compiled out of it and the behaviour is not obvious: the
+    /// key is stored, counted by [`len`](Self::len), and returned by
+    /// [`get`](Self::get). What it is *not* is addressable by the ordered
+    /// surface. A trailing NUL is how the encoding terminates a string, so
+    /// `next_at_or_after(b"abc\0X")` answers with `"abc"` -- a different and
+    /// smaller key than the one asked for. `len` and an ordered walk therefore
+    /// disagree about which keys exist, silently. That is the reason the domain
+    /// is a contract and not a preference.
     fn assert_key(key: &[u8]) {
         debug_assert!(!key.contains(&0), "keys are NUL-free byte strings");
     }
