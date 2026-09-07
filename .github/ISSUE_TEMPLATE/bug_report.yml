@@ -1,0 +1,84 @@
+name: Bug report
+description: A wrong answer, a crash, a memory-safety failure, or a C ABI incompatibility.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A reproducer is worth more than a description. If you can express the
+        failure as a test case or a fuzz artifact, attach it and the rest of
+        this form can be brief.
+
+        **Do not paste original `libjudy` source.** This project is clean-room
+        (`AGENTS.md` §3); compatibility questions are settled from published
+        documentation or by black-box comparison against a compiled stock
+        binary, never from the LGPL source.
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      description: Where the failure is observed.
+      options:
+        - Rust API (expanse-trie)
+        - C ABI — modern expanse_* symbols
+        - C ABI — legacy Judy1/JudyL/JudySL/JudyHS compatibility
+        - C++ header (include/expanse.hpp)
+        - Language binding (Python / Node / Java / .NET / Go / Ruby / PHP / WASM)
+        - Build, packaging, or CI
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version and commit
+      description: Released version, or the commit SHA if built from source.
+      placeholder: "expanse-trie 0.4.1, or commit 82f400b0"
+    validations:
+      required: true
+
+  - type: input
+    id: target
+    attributes:
+      label: Target and toolchain
+      description: Rust target triple, architecture width, and `rustc --version`. Say if the build is `no_std` or 32-bit — those paths run a different engine.
+      placeholder: "x86_64-unknown-linux-gnu, rustc 1.90.0, std"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: The smallest sequence of calls that shows the failure — Rust or C, compiling and running as pasted. Include the key set or the generator that produces it; a digital trie's behaviour is a function of the key distribution.
+      render: rust
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-observed
+    attributes:
+      label: Expected vs observed
+      description: What the API contract led you to expect, and what actually happened. For a compatibility bug, say what stock `libjudy` does with the same input and how you observed it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Optional. Backtrace, Miri / ASan / TSan output, `RUST_BACKTRACE=1` panic message, or a fuzz artifact.
+      render: shell
+
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Before submitting
+      options:
+        - label: This report contains no material derived from the LGPL `libjudy` source (`AGENTS.md` §3).
+          required: true
+        - label: This is not a suspected vulnerability — those go through the private advisory channel in `SECURITY.md`.
+          required: true
+        - label: I checked `SECURITY.md`'s caller-contract list; this is not a documented contract violation (a stale slot pointer held across a mutation, an invalid `(ptr, len)` pair, a non-NUL-terminated string).
+          required: false
