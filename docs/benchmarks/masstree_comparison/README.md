@@ -444,6 +444,52 @@ concurrent one, and the lookup ratio from 3.242 [3.208, 3.277] to 3.333
 [3.306, 3.366] — which is why the single-threaded pairings use the
 single-threaded configuration (§10.3).
 
+#### Why a string lookup costs about four times a `u64` lookup (#724)
+
+A 12-byte string key costs `ExpanseStrMap` 152.18 ns at N = 10⁶ where a
+uniform-random `u64` key costs `ExpanseMap` 37.86 ns — 4.02× *(workloads
+differ: `masstree_str_map` vs `masstree_map_64bit`)*. That gap had no measured
+mechanism: the counter cells above run **both engines in one process**, and
+`perf stat` counts the process, so they cannot attribute anything to one side.
+
+The question is Expanse-internal, so it does not need the competitor.
+`crates/expanse/examples/perf_point_lookup.rs` gained `strmap_get` (the
+suites' `short` shape) and `strmap_get_counter` beside its existing `map_get`,
+and `perf stat` wraps one engine at a time *(measured: reference host, commit
+`a35ab8c2`, `results/counters_strmap_vs_map_lookup_1m.json`; 7 paired runs,
+phase-differenced, BCa 95% intervals, every event at 100% `running` — nothing
+multiplexed)*:
+
+| per probe, N = 10⁶, 100% hit | `map_get` (u64) | `strmap_get` (`short`) | ratio |
+|---|---:|---:|---:|
+| cycles | 191.50 [189.49, 193.15] | 662.61 [657.00, 671.19] | **3.46×** |
+| instructions | 179.97 [179.73, 180.10] | 298.97 [298.11, 299.51] | 1.66× |
+| L1-dcache-load-misses | 4.23 [4.20, 4.26] | 12.28 [12.25, 12.31] | 2.91× |
+| **LLC-load-misses** | 0.055 [0.052, 0.058] | 2.547 [2.526, 2.572] | **46.4×** |
+| dTLB-load-misses | 0.708 [0.692, 0.736] | 3.848 [3.810, 3.892] | 5.44× |
+| branch-misses | 2.180 [2.178, 2.181] | 2.018 [2.009, 2.023] | 0.93× |
+
+**The gap is memory-latency-bound, not instruction-bound.** Cycles rise 3.46×
+while `instructions` rise 1.66×; what rises with the cycles is
+`LLC-load-misses`, 0.055 → 2.547 per probe, and `dTLB-load-misses`, 0.708 →
+3.848. `branch-misses` do not move at all (0.93×). Any candidate that removes
+instructions from this path is optimising the term that is not the cost.
+
+**`strmap_get_counter` separates the leaf from the rest.** Its keys resolve
+inside a terminal chunk and allocate no suffix leaf, and it costs 795.59
+cycles, 510.02 instructions and **1.145** LLC misses per probe. So of the
+2.547 misses a `short` lookup takes, roughly 1.4 are the suffix leaf — the
+dependent load past the node — and the remaining ~1.1 are already there
+without one, against 0.055 for a `u64` key. The leaf is under half of it; most
+of the miss cost is the string tree's own shape. (`counter` retires more
+instructions than `short` and is the slower arm in cycles despite fewer
+misses, which is its own question and not this one.)
+
+**Not yet measured**: whether the 5.44× translation miss ratio moves under
+huge pages — the sensitivity pair [#724](https://github.com/orieg/expanse/issues/724)
+registers next — and no per-function ranking has been taken, which §6 requires
+before any change to this path.
+
 #### What the counters say about the order effect (#737)
 
 The 7 B/key the allocator holds beyond `mem_used` on the shuffled build, and the
