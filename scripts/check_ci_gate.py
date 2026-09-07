@@ -61,6 +61,9 @@ def main():
     if not check_documented_job_count(jobs):
         sys.exit(1)
 
+    if not check_filter_quantifier(''.join(lines)):
+        sys.exit(1)
+
     print("ci-gate needs are up-to-date.")
     sys.exit(0)
 
@@ -113,5 +116,139 @@ def check_documented_job_count(jobs):
     return True
 
 
+# `dorny/paths-filter` treats a `!`-prefixed pattern as a picomatch NEGATION
+# OR'd with the filter's other patterns, not as an exclusion, unless the step
+# passes `predicate-quantifier: 'some-with-excludes'`. So a lone
+# `- '!crates/expanse-hot-bench/**'` under the default quantifier does not
+# exclude that crate -- it matches every path OUTSIDE it, i.e. almost the whole
+# repo. #671 added exactly that to `rust-src`, which gates the safety lane and
+# the cross-compile matrix, and every PR from then until the quantifier was
+# added ran the full matrix: a docs-only PR skipped 37 of 40 jobs the hour
+# before #671 merged and 0 of 69 after. Nothing failed, so nothing surfaced it.
+#
+# The failure is silent and costs only runner time, which is why it needs a
+# gate rather than a comment (AGENTS.md section 8.18): the next `!` pattern
+# added without the quantifier would be just as invisible.
+QUANTIFIER = "predicate-quantifier: 'some-with-excludes'"
+_FILTER_STEP_RE = re.compile(r'uses:\s*dorny/paths-filter@')
+
+
+def check_filter_quantifier(text, label='.github/workflows/ci.yml'):
+    """Fail if a paths-filter step has a `!` pattern but not the quantifier.
+
+    Scoped to the step: the input and the patterns must belong to the same
+    `dorny/paths-filter` step, so a quantifier on one step cannot vouch for a
+    negation in another.
+    """
+    steps = []
+    for m in _FILTER_STEP_RE.finditer(text):
+        start = m.start()
+        nxt = _FILTER_STEP_RE.search(text, m.end())
+        steps.append(text[start:nxt.start() if nxt else len(text)])
+
+    ok = True
+    for i, step in enumerate(steps, 1):
+        # A negated pattern in a `filters:` list, quoted or bare, ignoring the
+        # comment lines that explain it.
+        negated = [
+            ln.strip() for ln in step.splitlines()
+            if re.match(r"^\s*-\s*['\"]?!", ln)
+        ]
+        if not negated:
+            continue
+        if QUANTIFIER not in step:
+            print(
+                f"Error: paths-filter step {i} in {label} has "
+                f"negated pattern(s) {negated} but no `{QUANTIFIER}`. Under the "
+                "action's default `some`, a `!` pattern is a negation OR'd with "
+                "the rest -- it matches everything OUTSIDE the excluded path, so "
+                "the filter is true for nearly every diff and gates nothing. Add "
+                "the input to the step, or drop the negation."
+            )
+            ok = False
+    return ok
+
+
+SELF_TEST_CASES = [
+    # (name, workflow fragment, expected pass)
+    #
+    # The verbatim #671 defect. If this case does not fail, the gate is not
+    # measuring the thing it was written for (AGENTS.md section 8.12.3).
+    ("historical #671 defect: negation, default quantifier", """
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            rust-src:
+              - 'crates/**'
+              - '!crates/expanse-hot-bench/**'
+              - 'include/**'
+""", False),
+    ("negation with the quantifier", """
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          predicate-quantifier: 'some-with-excludes'
+          filters: |
+            rust-src:
+              - 'crates/**'
+              - '!crates/expanse-hot-bench/**'
+""", True),
+    ("no negation, no quantifier -- unchanged behaviour, must pass", """
+      - uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            docs:
+              - '**/*.md'
+""", True),
+    ("bare (unquoted) negation is caught too", """
+      - uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            rust-src:
+              - crates/**
+              - !crates/expanse-hot-bench/**
+""", False),
+    ("a comment mentioning a `!` pattern is not a pattern", """
+      - uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            # note: '!crates/foo/**' would need the quantifier
+            rust-src:
+              - 'crates/**'
+""", True),
+    ("quantifier on a later step does not vouch for an earlier negation", """
+      - uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            a:
+              - '!x/**'
+      - uses: dorny/paths-filter@v4
+        with:
+          predicate-quantifier: 'some-with-excludes'
+          filters: |
+            b:
+              - '!y/**'
+""", False),
+]
+
+
+def self_test():
+    failures = 0
+    for name, fragment, expected in SELF_TEST_CASES:
+        got = check_filter_quantifier(fragment, label=f'<self-test: {name}>')
+        status = "ok" if got == expected else "FAILED"
+        if got != expected:
+            failures += 1
+        print(f"  [{status}] {name} (expected {expected}, got {got})")
+    if failures:
+        print(f"check_ci_gate.py --self-test: {failures} case(s) failed")
+        sys.exit(1)
+    print(f"check_ci_gate.py --self-test: {len(SELF_TEST_CASES)} cases passed")
+    sys.exit(0)
+
+
 if __name__ == '__main__':
+    if '--self-test' in sys.argv:
+        self_test()
     main()
