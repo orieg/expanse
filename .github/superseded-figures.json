@@ -359,6 +359,28 @@
       "replacement": "47.84 B/key allocator and 42.77 B/key mem_used on `short` at 10^6, 41.33 / 37.71 on `skewed`, 63.45 / 54.77 on `prefixed`, 47.83 / 46.78 on `beyond`, and 115,916 allocations per 100,000 `short` keys (63.97 -> 42.48 B/key on the HOT gate), all at 41dc7bfd after #723 (docs/benchmarks/masstree_comparison/results/baseline_string_memory.json, docs/benchmarks/hot_comparison/results/baseline_string_memory.json, docs/benchmarks/hot_comparison/results/string_validate.log)",
       "provenance": "#661, #693, #723",
       "rationale": "The 2ce92b7f string artifacts were measured against an `ExpanseStrMap` leaf that spent two allocations on every key not resolved inside a terminal chunk — a `StrSuffix` shell plus a separate byte buffer. #723 made the leaf a single allocation and the whole string sweep was re-measured on the reference host at 41dc7bfd; `counter` is unchanged in both instruments because it allocates no suffix leaf. Superseded, not silently overwritten (§8.7)."
+    },
+    {
+      "id": "strmap_positional_scan_surface_82f400b0",
+      "patterns": [
+        "(?<![\\w.])0\\.036(?![\\d])",
+        "(?<![\\w.])0\\.035(?![\\d])",
+        "(?<![\\w.])0\\.548(?![\\d])",
+        "(?<![\\w.])0\\.555(?![\\d])"
+      ],
+      "context": [
+        "scan",
+        "k = 1000",
+        "k=1000",
+        "k = 10",
+        "ordered scan",
+        "strmap",
+        "expansestrmap",
+        "cursor"
+      ],
+      "replacement": "scan cells re-measured at 7fe02c0b through `ExpanseStrMap::cursor_at_or_after` (#722): masstree 0.089 [0.089, 0.091] at worst and 2.149 [2.140, 2.175] at best, Expanse winning 3 of 36; HOT still winning 72 of 72 but every cell moved 1.38x-11.21x. Paired against the positional surface at 82f400b0 (docs/benchmarks/masstree_comparison/results/baseline_string_latency.json, docs/benchmarks/hot_comparison/results/baseline_string_latency.json)",
+      "provenance": "#661, #693, #722",
+      "rationale": "The string scan pillars measured `next_at_or_after` / `next_after` — a fresh root descent per element that allocated a key the arm discarded — against competitor visitors that never materialize a key (Masstree's `str_scan`) or that are already incremental (HOT's `lower_bound` plus iterator). That is a section 8.3 asymmetry, and #722 gave ExpanseStrMap a cursor and re-paired both arms. Superseded, not silently overwritten (section 8.7). `0.019` is deliberately not a pattern here: it is also the sixteen-writer concurrent ratio, and a figure that means two things cannot be gated on its digits alone."
     }
   ]
 }

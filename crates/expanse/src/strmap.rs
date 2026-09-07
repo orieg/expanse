@@ -669,6 +669,249 @@ impl StrNode {
     }
 }
 
+/// One level of a [`StrCursor`]'s path: the node, the chunk the cursor sits
+/// at inside it, and the length `key` had before that chunk contributed to it.
+///
+/// `key_len` is what makes the walk incremental. Advancing within a level
+/// truncates the key buffer back to it and appends the next chunk, so the
+/// prefix every ancestor contributed is never recomputed and never
+/// reallocated.
+struct StrFrame {
+    node: *mut StrNode,
+    chunk: u64,
+    key_len: usize,
+}
+
+/// An ordered cursor over [`ExpanseStrMap`], and the reason it exists: the
+/// `next_at_or_after` / `next_after` pair it sits beside is a *positional*
+/// surface, so a k-element scan pays k fresh root descents and allocates a
+/// key `Vec` for each one (#722). This descends once and keeps the path, so
+/// the scan is one descent and **zero allocations per element** — the key is
+/// handed out as a slice of a buffer the cursor owns and reuses.
+///
+/// Ordering is byte-lexicographic, as everywhere else in this module: chunks
+/// are packed big-endian, so the word maps' numeric order *is* byte order,
+/// and a terminal chunk carries a NUL, which sorts below every continuation
+/// byte. Nothing here re-derives that; it falls out of taking each level's
+/// entries in `first` / `next_after` order.
+///
+/// The cursor borrows the map mutably for its lifetime, which is also how the
+/// "valid until the next structural mutation" contract of the surrounding
+/// surface is enforced here — by the borrow checker rather than by a comment.
+///
+/// ```text
+/// let mut c = map.cursor_at_or_after(b"ap");
+/// while let Some((key, slot)) = c.next() {
+///     // `key` borrows the cursor's buffer and is valid until the next call.
+/// }
+/// ```
+///
+/// Deliberately not a doctest: this crate has none, and the ASan job runs
+/// `cargo test -p expanse-trie`, whose doctest binaries do not link the
+/// sanitizer runtime — the crate's first doctest would fail that job rather
+/// than the code failing it. The executable form of this snippet is
+/// `tests::cursor_walks_the_documented_example`, which the ASan and Miri
+/// lanes both run, so the example is enforced rather than merely written.
+pub struct StrCursor<'a> {
+    /// The path from the root to the entry last emitted. Empty before the
+    /// first `next` and after the walk is exhausted.
+    stack: Vec<StrFrame>,
+    /// The key last emitted, reused across elements.
+    key: Vec<u8>,
+    /// Set once the walk has run out, so a caller looping to `None` does not
+    /// restart it.
+    done: bool,
+    /// Set until the first `next`, which seeds the walk rather than advancing.
+    started: bool,
+    /// An entry a `seek` already positioned on. The first `next` emits it
+    /// instead of advancing, so `cursor_at_or_after(k)` yields `k` itself when
+    /// `k` is present — the same inclusive sense as `next_at_or_after`.
+    pending: Option<NonNull<u64>>,
+    /// Held for the borrow, and to keep the root reachable.
+    map: &'a mut ExpanseStrMap,
+}
+
+impl<'a> StrCursor<'a> {
+    fn new(map: &'a mut ExpanseStrMap) -> Self {
+        Self {
+            stack: Vec::new(),
+            key: Vec::new(),
+            done: false,
+            started: false,
+            pending: None,
+            map,
+        }
+    }
+
+    /// Descends from `node` taking the smallest entry at every level until an
+    /// entry that *is* a value is reached, pushing a frame per level.
+    ///
+    /// `entry` is the entry to take at `node`; every level below takes its
+    /// `first`. Returns the value slot, or `None` for an empty node, which a
+    /// well-formed trie does not contain below the root.
+    fn descend(&mut self, mut node: *mut StrNode, mut entry: (u64, u64)) -> Option<NonNull<u64>> {
+        loop {
+            let (chunk, v) = entry;
+            let key_len = self.key.len();
+            self.stack.push(StrFrame {
+                node,
+                chunk,
+                key_len,
+            });
+            if is_terminal(chunk) {
+                self.key.extend(terminal_bytes(chunk));
+                // SAFETY: `node` is a live node on the path just walked, and
+                // the chunk came from its own map, so the slot is present.
+                return unsafe { &mut *node }.map.value_slot_pathless(chunk);
+            }
+            self.key.extend_from_slice(&chunk.to_be_bytes());
+            if is_suffix_ptr(v) {
+                let sfx = unpack_suffix(v);
+                // SAFETY: tagged pointer encodes a live suffix leaf; the raw
+                // pointer carries provenance over the inline bytes.
+                self.key.extend_from_slice(unsafe { suffix_bytes(sfx) });
+                // SAFETY: field-precise pointer to the value word at offset 0.
+                return Some(
+                    NonNull::new(unsafe { &raw mut (*sfx).value }).expect("non-null value slot"),
+                );
+            }
+            node = unpack_child(v);
+            // SAFETY: untagged continuation value, a live child node.
+            entry = unsafe { &*node }.map.first()?;
+        }
+    }
+
+    /// Advances to the next entry in byte-lexicographic order.
+    ///
+    /// The returned key borrows the cursor's own buffer and is valid until the
+    /// next call; copy it if it must outlive that. The slot follows the
+    /// surrounding surface's contract and stays valid until the map is
+    /// structurally mutated, which the cursor's borrow prevents.
+    #[allow(clippy::should_implement_trait)] // lending: the key borrows `self`
+    pub fn next(&mut self) -> Option<(&[u8], NonNull<u64>)> {
+        if self.done {
+            return None;
+        }
+        if let Some(slot) = self.pending.take() {
+            return Some((&self.key, slot));
+        }
+        if !self.started {
+            self.started = true;
+            let root: *mut StrNode = match self.map.root.as_deref_mut() {
+                Some(r) => core::ptr::from_mut(r),
+                None => {
+                    self.done = true;
+                    return None;
+                }
+            };
+            // SAFETY: the root is live for the cursor's borrow of the map.
+            let first = match unsafe { &*root }.map.first() {
+                Some(e) => e,
+                None => {
+                    self.done = true;
+                    return None;
+                }
+            };
+            let slot = self.descend(root, first);
+            return self.emit(slot);
+        }
+        // Unwind to the nearest level with an unexplored sibling, dropping the
+        // key bytes each abandoned level contributed.
+        while let Some(frame) = self.stack.pop() {
+            self.key.truncate(frame.key_len);
+            // SAFETY: recorded during the descent and still live; the borrow
+            // taken from it in `descend` has ended.
+            let sibling = unsafe { &*frame.node }.map.next_after(frame.chunk);
+            if let Some(entry) = sibling {
+                let slot = self.descend(frame.node, entry);
+                return self.emit(slot);
+            }
+        }
+        self.done = true;
+        None
+    }
+
+    /// The key and slot for a completed descent, or the end of the walk.
+    fn emit(&mut self, slot: Option<NonNull<u64>>) -> Option<(&[u8], NonNull<u64>)> {
+        match slot {
+            Some(s) => Some((&self.key, s)),
+            None => {
+                self.done = true;
+                None
+            }
+        }
+    }
+
+    /// Positions the cursor so the next [`next`](Self::next) returns the first
+    /// entry with key `>= key`.
+    ///
+    /// One descent, like the walk it seeds: the frames it pushes are the ones
+    /// `next` then advances through, which is what keeps a bounded range scan
+    /// to a single root descent overall.
+    fn seek(&mut self, key: &[u8]) -> Option<NonNull<u64>> {
+        self.started = true;
+        let root: *mut StrNode = match self.map.root.as_deref_mut() {
+            Some(r) => core::ptr::from_mut(r),
+            None => {
+                self.done = true;
+                return None;
+            }
+        };
+        let mut node = root;
+        let mut off = 0usize;
+        loop {
+            // SAFETY: the root, then continuation values — all live nodes on a
+            // descent that never revisits one.
+            let n = unsafe { &*node };
+            let (target, _) = chunk_at(key, off);
+            let cursor = n.map.next_at_or_after(target);
+            if let Some((chunk, v)) = cursor
+                && chunk == target
+                && !is_terminal(chunk)
+            {
+                if is_suffix_ptr(v) {
+                    let sfx = unpack_suffix(v);
+                    // SAFETY: live suffix leaf, raw provenance over the bytes.
+                    let bytes = unsafe { suffix_bytes(sfx) };
+                    let rem = &key[off.min(key.len()) + CHUNK.min(key.len().saturating_sub(off))..];
+                    if rem <= bytes {
+                        return self.descend(node, (chunk, v));
+                    }
+                    // The suffix sorts below the target: resume at the sibling.
+                    if let Some(entry) = n.map.next_after(target) {
+                        return self.descend(node, entry);
+                    }
+                } else {
+                    // Exact continuation — the answer is deeper if it exists.
+                    // Record the level so the unwind below can resume at it.
+                    self.stack.push(StrFrame {
+                        node,
+                        chunk,
+                        key_len: self.key.len(),
+                    });
+                    self.key.extend_from_slice(&chunk.to_be_bytes());
+                    node = unpack_child(v);
+                    off += CHUNK;
+                    continue;
+                }
+            } else if let Some(entry) = cursor {
+                return self.descend(node, entry);
+            }
+            // Nothing at or after here: unwind, exactly as `next` does.
+            while let Some(frame) = self.stack.pop() {
+                self.key.truncate(frame.key_len);
+                // SAFETY: recorded during this descent; still live.
+                let p = unsafe { &*frame.node };
+                if let Some(entry) = p.map.next_after(frame.chunk) {
+                    return self.descend(frame.node, entry);
+                }
+            }
+            self.done = true;
+            return None;
+        }
+    }
+}
+
 /// A sorted map from NUL-free byte strings to `u64` values (compat:
 /// JudySL). Iteration order is byte-lexicographic.
 pub struct ExpanseStrMap {
@@ -1118,6 +1361,30 @@ impl ExpanseStrMap {
         Some(removed)
     }
 
+    /// An ordered cursor over the whole map, from the smallest key.
+    ///
+    /// One descent for the walk, and **no allocation per element** — unlike
+    /// the `next_at_or_after` / `next_after` pair below, where each step is a
+    /// fresh root descent returning a freshly allocated key (#722). Prefer
+    /// this for scans; the positional surface stays for the JudySL contract
+    /// and for callers that genuinely jump around.
+    #[must_use]
+    pub fn cursor(&mut self) -> StrCursor<'_> {
+        StrCursor::new(self)
+    }
+
+    /// An ordered cursor positioned at the first key `>= key`, inclusive.
+    ///
+    /// The seek is the one descent a bounded range scan needs; every
+    /// subsequent element is a step along the path it recorded.
+    #[must_use]
+    pub fn cursor_at_or_after(&mut self, key: &[u8]) -> StrCursor<'_> {
+        Self::assert_key(key);
+        let mut c = StrCursor::new(self);
+        c.pending = c.seek(key);
+        c
+    }
+
     /// Smallest entry with key `>= key`: `(key bytes, value slot)`
     /// (compat: `JudySLFirst`).
     pub fn next_at_or_after(&mut self, key: &[u8]) -> Option<(Vec<u8>, NonNull<u64>)> {
@@ -1208,6 +1475,205 @@ impl Drop for ExpanseStrMap {
 
 #[cfg(test)]
 mod tests {
+    /// Keys that exercise every entry form the cursor has to walk: resolved
+    /// inside a terminal chunk, held in a suffix leaf, and reached through a
+    /// chain of child nodes; plus shared prefixes at each of those depths and
+    /// the empty-remainder case a key of exactly 8 bytes produces.
+    fn walk_corpus() -> Vec<Vec<u8>> {
+        let mut keys: Vec<Vec<u8>> = Vec::new();
+        for n in 1..=40usize {
+            keys.push(vec![b'a'; n]);
+        }
+        for tail in [
+            b"".as_slice(),
+            b"x",
+            b"yy",
+            b"zzzzzzz",
+            b"zzzzzzzz",
+            b"zzzzzzzzz",
+        ] {
+            let mut k = b"prefix00".to_vec();
+            k.extend_from_slice(tail);
+            if !k.is_empty() {
+                keys.push(k);
+            }
+        }
+        let mut rng = 0x0DDB_1A5E_5EED_0001u64;
+        let mut next = move || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng
+        };
+        for _ in 0..2000 {
+            let n = 1 + (next() % 40) as usize;
+            keys.push((0..n).map(|_| 0x21 + (next() % 94) as u8).collect());
+        }
+        keys.sort();
+        keys.dedup();
+        keys
+    }
+
+    /// The cursor visits exactly what the positional surface visits, in the
+    /// same order, with the same slots.
+    ///
+    /// The positional pair is the ground truth here precisely because it is
+    /// the surface the cursor exists to avoid using: an independent walk, not
+    /// a re-derivation of the cursor's own logic.
+    #[test]
+    fn cursor_matches_the_positional_walk() {
+        let keys = walk_corpus();
+        let mut m = ExpanseStrMap::new();
+        for (i, k) in keys.iter().enumerate() {
+            m.insert(k, i as u64);
+        }
+
+        let mut positional: Vec<(Vec<u8>, u64)> = Vec::new();
+        let mut cur = m.first();
+        while let Some((k, slot)) = cur {
+            // SAFETY: slot is live until the next structural mutation, and
+            // this walk performs none.
+            positional.push((k.clone(), unsafe { *slot.as_ptr() }));
+            cur = m.next_after(&k);
+        }
+
+        let mut walked: Vec<(Vec<u8>, u64)> = Vec::new();
+        let mut c = m.cursor();
+        while let Some((k, slot)) = c.next() {
+            // SAFETY: as above.
+            walked.push((k.to_vec(), unsafe { *slot.as_ptr() }));
+        }
+
+        assert_eq!(walked.len(), keys.len(), "cursor visited the wrong count");
+        assert_eq!(walked, positional, "cursor and positional walks diverge");
+        assert!(
+            walked.windows(2).all(|w| w[0].0 < w[1].0),
+            "cursor order is not byte-lexicographic"
+        );
+    }
+
+    /// Seeking lands where `next_at_or_after` lands, for keys that are
+    /// present, absent, shorter and longer than what is stored, and past the
+    /// end.
+    #[test]
+    fn cursor_seek_matches_next_at_or_after() {
+        let keys = walk_corpus();
+        let mut m = ExpanseStrMap::new();
+        for (i, k) in keys.iter().enumerate() {
+            m.insert(k, i as u64);
+        }
+
+        let mut probes: Vec<Vec<u8>> = Vec::new();
+        for k in keys.iter().step_by(37) {
+            probes.push(k.clone());
+            let mut shorter = k.clone();
+            shorter.pop();
+            if !shorter.is_empty() {
+                probes.push(shorter);
+            }
+            let mut longer = k.clone();
+            longer.push(b'~');
+            probes.push(longer);
+        }
+        probes.push(b"\x7f\x7f\x7f\x7f".to_vec());
+        probes.push(b"!".to_vec());
+
+        for probe in probes {
+            let expected = m.next_at_or_after(&probe).map(|(k, slot)| {
+                // SAFETY: no structural mutation between here and the read.
+                (k, unsafe { *slot.as_ptr() })
+            });
+            let mut c = m.cursor_at_or_after(&probe);
+            let got = c.next().map(|(k, slot)| {
+                // SAFETY: as above.
+                (k.to_vec(), unsafe { *slot.as_ptr() })
+            });
+            assert_eq!(got, expected, "seek diverged on probe {probe:?}");
+        }
+    }
+
+    /// A seeked cursor continues in order, and running it to exhaustion
+    /// yields exactly the tail of the full walk.
+    #[test]
+    fn cursor_continues_correctly_after_a_seek() {
+        let keys = walk_corpus();
+        let mut m = ExpanseStrMap::new();
+        for (i, k) in keys.iter().enumerate() {
+            m.insert(k, i as u64);
+        }
+        let start = &keys[keys.len() / 3];
+        let expected: Vec<Vec<u8>> = keys.iter().skip(keys.len() / 3).cloned().collect();
+
+        let mut got: Vec<Vec<u8>> = Vec::new();
+        let mut c = m.cursor_at_or_after(start);
+        while let Some((k, _)) = c.next() {
+            got.push(k.to_vec());
+        }
+        assert_eq!(
+            got, expected,
+            "seeked walk is not the tail of the full walk"
+        );
+    }
+
+    /// The example in [`StrCursor`]'s documentation, executable.
+    ///
+    /// The snippet there is a `text` block for the reason given beside it, so
+    /// this is what keeps it honest; change one and change the other.
+    #[test]
+    fn cursor_walks_the_documented_example() {
+        let mut map = ExpanseStrMap::new();
+        for k in [b"apple".as_slice(), b"apricot", b"banana"] {
+            map.insert(k, k.len() as u64);
+        }
+        let mut c = map.cursor_at_or_after(b"ap");
+        let mut seen = Vec::new();
+        while let Some((key, slot)) = c.next() {
+            // SAFETY: the cursor borrows the map for its lifetime, so the slot
+            // is a live value word and nothing can mutate the map meanwhile.
+            seen.push((key.to_vec(), unsafe { *slot.as_ptr() }));
+        }
+        assert_eq!(seen.len(), 3, "the seek should admit all three keys");
+        assert_eq!(seen[0], (b"apple".to_vec(), 5));
+        assert_eq!(seen[1], (b"apricot".to_vec(), 7));
+        assert_eq!(seen[2], (b"banana".to_vec(), 6));
+    }
+
+    /// Degenerate shapes: empty map, one key, and a cursor driven past the
+    /// end, which must keep returning `None` rather than restarting.
+    #[test]
+    fn cursor_edges() {
+        let mut empty = ExpanseStrMap::new();
+        assert!(empty.cursor().next().is_none());
+        assert!(empty.cursor_at_or_after(b"anything").next().is_none());
+
+        let mut one = ExpanseStrMap::new();
+        one.insert(b"solo", 7);
+        let mut c = one.cursor();
+        assert_eq!(c.next().map(|(k, _)| k.to_vec()), Some(b"solo".to_vec()));
+        assert!(c.next().is_none());
+        assert!(c.next().is_none(), "an exhausted cursor restarted");
+
+        let mut past = one.cursor_at_or_after(b"zzz");
+        assert!(past.next().is_none());
+    }
+
+    /// The value slot the cursor hands out is the map's own, not a copy.
+    #[test]
+    fn cursor_slots_are_writable_in_place() {
+        let mut m = ExpanseStrMap::new();
+        for k in [b"alpha".as_slice(), b"beta", b"gamma"] {
+            m.insert(k, 0);
+        }
+        let mut c = m.cursor();
+        while let Some((_, slot)) = c.next() {
+            // SAFETY: the slot is the map's value word, live for the borrow.
+            unsafe { *slot.as_ptr() = 42 };
+        }
+        for k in [b"alpha".as_slice(), b"beta", b"gamma"] {
+            assert_eq!(m.get(k), Some(42), "in-place write through the cursor lost");
+        }
+    }
+
     /// Keys long enough that one node per 8 bytes would overflow the
     /// stack on teardown. Before the destructor was made iterative this
     /// aborted the process **while freeing** — the failure mode with no

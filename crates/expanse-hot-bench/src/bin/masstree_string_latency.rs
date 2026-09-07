@@ -30,10 +30,20 @@
 //!
 //! ## Scan surface
 //!
-//! The Expanse scan drives the shipped `ExpanseStrMap` navigation surface —
-//! `next_at_or_after` then `next_after` per element, each a root descent
-//! returning a fresh key allocation — against Masstree's `scan` from a start
-//! key with a visitor that stops after k (`hot_comparison` §10.6 applies).
+//! The Expanse scan drives `ExpanseStrMap::cursor_at_or_after` (#722): one
+//! descent, then a step along the recorded path per element, handing out the
+//! key as a slice of a buffer the cursor reuses. It is measured against
+//! Masstree's `scan` from a start key with a visitor that stops after k
+//! (`hot_comparison` §10.6 applies).
+//!
+//! **This is the symmetric comparison, and the surface it replaces was not.**
+//! Masstree's `str_scan` visitor XORs values and never materializes a key.
+//! The arm this replaces drove `next_at_or_after` / `next_after`, which is a
+//! *positional* surface: each element was a fresh root descent returning a
+//! freshly allocated key that the arm then discarded — k descents and an
+//! allocation per element that the Masstree side never paid (§8.3). Both
+//! arms now visit k elements and consume the values, and neither allocates
+//! per element.
 
 use std::env;
 use std::hint::black_box;
@@ -303,16 +313,16 @@ fn main() {
                     let mut sink = 0u64;
                     for s in &starts {
                         let mut c = 0usize;
-                        let mut cur = e.next_at_or_after(s.bytes());
-                        while let Some((key, slot)) = cur {
-                            // SAFETY: the slot pointer is valid until the next
-                            // structural mutation, and none occurs during the scan.
+                        let mut cur = e.cursor_at_or_after(s.bytes());
+                        while let Some((_key, slot)) = cur.next() {
+                            // SAFETY: the cursor borrows the map for its
+                            // lifetime, so the slot is a live value word and no
+                            // structural mutation can run during the scan.
                             sink ^= unsafe { *slot.as_ptr() };
                             c += 1;
                             if c == scan_k {
                                 break;
                             }
-                            cur = e.next_after(&key);
                         }
                         visited += c;
                     }
