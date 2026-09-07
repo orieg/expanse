@@ -39,6 +39,18 @@ REQUIRED_FIELDS = [
     "verdict",
 ]
 
+# Optional. A harness whose declared `workload_id` is not the id it writes into
+# its artifact lists the others here, one per line or comma-separated.
+#
+# The gate below joins the two. `check_docs_hygiene.py` verifies that a
+# published figure carries a `(workload: <id>)` tag and this file verifies that
+# a shape is declared; nothing checked that a tag names a shape that exists, and
+# `masstree_latency.rs` declared `masstree_latency` while writing
+# `masstree_map_64bit` into all 72 cells of its committed baseline -- which is
+# the id `docs/benchmarks/masstree_comparison/README.md` publishes twice. The
+# tag was syntactically satisfied and resolved to nothing.
+OPTIONAL_FIELDS = ["emits"]
+
 GROUP_TITLES = {
     1: "Group 1: C-API Benches & Examples (`crates/expanse-capi/`)",
     2: "Group 2: Core Point/Batch Lookup & Micro-Benches (`crates/expanse/benches/`)",
@@ -229,6 +241,39 @@ def parse_workload_shape(source: str, filename: str) -> Tuple[Optional[Dict[str,
     return props, errors
 
 
+EMITTED_ID_RE = re.compile(
+    r"""workload_id\\?["']\s*:\s*\\?["']([A-Za-z0-9_]+)"""
+    r"""|workload_id\s*:\s*["']([A-Za-z0-9_]+)["']"""
+)
+
+
+def emitted_workload_ids(source: str) -> set:
+    """Ids the harness writes into its own JSON artifact.
+
+    Textual, because the alternative is running the harness, and the two forms
+    that occur are an escaped literal inside a Rust format string and a struct
+    field initialiser.
+    """
+    return {m.group(1) or m.group(2) for m in EMITTED_ID_RE.finditer(source)}
+
+
+def check_emitted_ids(relpath: str, source: str, shape: Dict[str, str]) -> List[str]:
+    """Every id a harness emits must be one it declares."""
+    declared = {shape.get("workload_id", "")}
+    for chunk in shape.get("emits", "").replace(",", " ").split():
+        declared.add(chunk.strip("`"))
+    declared.discard("")
+    errors = []
+    for wid in sorted(emitted_workload_ids(source) - declared):
+        errors.append(
+            f"{relpath}: writes workload_id '{wid}' into its output but declares "
+            f"'{shape.get('workload_id')}'; a published (workload: `{wid}`) tag "
+            "would resolve to no shape table. Set `workload_id` to it, or list it "
+            "in an `emits` row."
+        )
+    return errors
+
+
 def generate_audit_tables(harness_data: List[Tuple[str, Dict[str, str]]]) -> str:
     """Generates the markdown audit tables, one per group in GROUP_TITLES."""
     # Organize by group
@@ -360,6 +405,7 @@ def check_and_generate(repo_root: Path, write: bool = False) -> int:
                     all_errors.append(f"Duplicate workload_id '{wid}' in {relpath} (previously seen in {seen_workload_ids[wid]})")
                 else:
                     seen_workload_ids[wid] = relpath
+            all_errors.extend(check_emitted_ids(relpath, source, shape))
             harness_data.append((relpath, shape))
 
     if all_errors:
@@ -523,6 +569,36 @@ fn main() {}
 
     print("ALL 7 SELF-TESTS PASSED.")
     return 0
+
+
+def _self_test_emitted_id_join() -> List[str]:
+    """Pin the defect the join exists for, verbatim.
+
+    `masstree_latency.rs` declared `masstree_latency` and wrote
+    `masstree_map_64bit` into every cell of its committed baseline, and
+    `docs/benchmarks/masstree_comparison/README.md` publishes figures tagged
+    with the emitted id. A gate that passes while ignoring that case is
+    measuring the wrong invariant (AGENTS.md §8.12.3).
+    """
+    failures = []
+    src = (
+        'let _ = "{{\\"workload_id\\":\\"masstree_map_64bit\\",\\"arm\\":\\"map\\"}}";'
+    )
+    if emitted_workload_ids(src) != {"masstree_map_64bit"}:
+        failures.append("emitted_workload_ids missed the escaped-JSON form")
+
+    undeclared = {"workload_id": "masstree_latency"}
+    if not check_emitted_ids("x.rs", src, undeclared):
+        failures.append("the join accepted an emitted id that no shape declares")
+
+    declared_via_emits = {"workload_id": "masstree_latency", "emits": "`masstree_map_64bit`"}
+    if check_emitted_ids("x.rs", src, declared_via_emits):
+        failures.append("an `emits` row did not satisfy the join")
+
+    renamed = {"workload_id": "masstree_map_64bit"}
+    if check_emitted_ids("x.rs", src, renamed):
+        failures.append("renaming the primary did not satisfy the join")
+    return failures
 
 
 def main() -> int:
