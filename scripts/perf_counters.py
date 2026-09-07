@@ -840,11 +840,30 @@ def main() -> int:
         )
         return 1
 
-    root = Path(
-        subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True
-        ).stdout.strip()
+    # The repository root, which only locates the workload binary. A checkout
+    # rsynced to a benchmark host arrives without its `.git` (the AGENTS.md §6
+    # recipe excludes it), where `rev-parse` fails; this script already takes
+    # `--commit` for exactly that case, so refusing to run there would be a
+    # gap rather than a safeguard. `scripts/bench_provenance.py::git_sha`
+    # takes the same view.
+    root = None
+    probe = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False
     )
+    if probe.returncode == 0 and probe.stdout.strip():
+        root = Path(probe.stdout.strip())
+    else:
+        # Walk up from this script: it lives at <root>/scripts/.
+        here = Path(__file__).resolve().parent.parent
+        if (here / WORKLOAD_REL).exists() or (here / "Cargo.toml").exists():
+            root = here
+    if root is None:
+        print(
+            "::error::cannot locate the repository root: `git rev-parse` failed and "
+            f"{Path(__file__).resolve().parent.parent} has no Cargo.toml",
+            file=sys.stderr,
+        )
+        return 1
 
     try:
         pmu, why, pin, available, unavailable = preflight(root, args.events, args.pmu)
