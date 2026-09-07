@@ -590,6 +590,7 @@ Two DOIs are minted. Cite the **concept DOI** for the project as a whole — it 
 | Scope | DOI |
 |---|---|
 | Concept (all versions) | [`10.5281/zenodo.22152112`](https://doi.org/10.5281/zenodo.22152112) |
+| v0.6.0 | [`10.5281/zenodo.22569440`](https://doi.org/10.5281/zenodo.22569440) |
 | v0.5.0 | [`10.5281/zenodo.22152113`](https://doi.org/10.5281/zenodo.22152113) |
 
 ```bibtex
