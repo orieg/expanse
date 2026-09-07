@@ -1,0 +1,127 @@
+name: Java Publish (Maven Central)
+
+# Per-channel recovery for the Java binding, in the shape `python.yml` already
+# uses for PyPI. `release.yml` publishes every channel from the tag push; a
+# Phase-3 channel that fails is re-run on its own (docs/PACKAGING.md §1,
+# "independent recovery"). A tag-triggered run reads its workflow from the tag,
+# so a fix landed on main cannot be picked up by re-running that job — this
+# workflow is the route that can. It never re-publishes any other channel.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to publish (e.g. v0.6.0)'
+        type: string
+        required: true
+      source_run_id:
+        description: 'release.yml run id whose native-java-* artifacts to reuse'
+        type: string
+        required: true
+      publish:
+        description: 'Publish to Maven Central (false = build and verify only)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: java-publish-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish-java:
+    name: Package & Publish Java (${{ inputs.release_tag }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # attach the jar to the GitHub Release
+      actions: read # read the source run's artifacts
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release_tag }}
+
+      - name: Verify the tag's manifests match the tag
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.release_tag }}"
+          VERSION="${VERSION#v}"
+          python3 scripts/bump_version.py --check "${VERSION}"
+          grep -q "<version>${VERSION}</version>" bindings/java/pom.xml \
+            || { echo "::error::bindings/java/pom.xml is not at ${VERSION}"; exit 1; }
+
+      - name: Set up JDK 22
+        uses: actions/setup-java@v6
+        with:
+          java-version: '22'
+          distribution: 'temurin'
+          server-id: central
+          server-username: MAVEN_CENTRAL_USERNAME
+          server-password: MAVEN_CENTRAL_TOKEN
+
+      # The natives are the ones the release run already built and shipped; a
+      # rebuild here would publish binaries the GitHub Release does not carry.
+      - name: Download native libraries from the release run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: native-java-*
+          path: native-java-staging
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Stage native libraries into resources/native/{classifier}
+        run: |
+          set -euo pipefail
+          base="bindings/java/src/main/resources/native"
+          found=0
+          for d in native-java-staging/native-java-*; do
+            [ -d "$d" ] || continue
+            classifier="${d#native-java-staging/native-java-}"
+            mkdir -p "${base}/${classifier}"
+            cp "$d"/* "${base}/${classifier}/"
+            found=$((found + 1))
+            echo "Staged ${classifier}: $(ls "${base}/${classifier}")"
+          done
+          if [ "${found}" -lt 5 ]; then
+            echo "::error::Expected 5 native classifiers for Java, found ${found}"; exit 1
+          fi
+
+      - name: Package JAR with all native binaries
+        run: mvn clean package -f bindings/java/pom.xml -DskipTests
+
+      - name: Publish to Maven Central
+        if: ${{ inputs.publish }}
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_TOKEN: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
+          GPG_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MAVEN_CENTRAL_TOKEN:-}" ]; then
+            echo "::error::MAVEN_CENTRAL_TOKEN is unset; refusing to report success."
+            exit 1
+          fi
+          if [ -n "${GPG_PRIVATE_KEY:-}" ]; then
+            # See release.yml: the plugin's gpg needs loopback pinentry allowed
+            # by the agent and asked for on the command line, or it fails with
+            # "Inappropriate ioctl for device" on a runner with no TTY.
+            mkdir -p ~/.gnupg && chmod 700 ~/.gnupg
+            echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+            gpgconf --reload gpg-agent || true
+            echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          fi
+          mkdir -p ~/.m2
+          echo "<settings><servers><server><id>central</id><username>${MAVEN_CENTRAL_USERNAME}</username><password>${MAVEN_CENTRAL_TOKEN}</password></server></servers></settings>" > ~/.m2/settings.xml
+          mvn deploy -f bindings/java/pom.xml -P release -DskipTests \
+            -Dgpg.pinentry-mode=loopback \
+            -Dgpg.passphrase="${GPG_PASSPHRASE:-}"
+
+      - name: Attach the jar to the GitHub Release
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release upload "${{ inputs.release_tag }}" \
+            bindings/java/target/*.jar --clobber --repo "${{ github.repository }}"
