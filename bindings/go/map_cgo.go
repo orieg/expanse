@@ -20,10 +20,12 @@ func NewMap() *Map {
 }
 
 func (m *Map) Set(key, value uint64) {
+	defer runtime.KeepAlive(m)
 	C.expanse_map_insert(m.ptr, C.uint64_t(key), C.uint64_t(value), nil)
 }
 
 func (m *Map) Get(key uint64) (uint64, bool) {
+	defer runtime.KeepAlive(m)
 	var val C.uint64_t
 	if bool(C.expanse_map_get(m.ptr, C.uint64_t(key), &val)) {
 		return uint64(val), true
@@ -32,27 +34,33 @@ func (m *Map) Get(key uint64) (uint64, bool) {
 }
 
 func (m *Map) Delete(key uint64) bool {
+	defer runtime.KeepAlive(m)
 	return bool(C.expanse_map_remove(m.ptr, C.uint64_t(key), nil))
 }
 
 func (m *Map) Contains(key uint64) bool {
+	defer runtime.KeepAlive(m)
 	var val C.uint64_t
 	return bool(C.expanse_map_get(m.ptr, C.uint64_t(key), &val))
 }
 
 func (m *Map) Size() uint64 {
+	defer runtime.KeepAlive(m)
 	return uint64(C.expanse_map_len(m.ptr))
 }
 
 func (m *Map) MemoryUsed() uint64 {
+	defer runtime.KeepAlive(m)
 	return uint64(C.expanse_map_mem_used(m.ptr))
 }
 
 func (m *Map) Clear() {
+	defer runtime.KeepAlive(m)
 	C.expanse_map_clear(m.ptr)
 }
 
 func (m *Map) First() (uint64, uint64, bool) {
+	defer runtime.KeepAlive(m)
 	var key, val C.uint64_t
 	if bool(C.expanse_map_first(m.ptr, &key, &val)) {
 		return uint64(key), uint64(val), true
@@ -61,6 +69,7 @@ func (m *Map) First() (uint64, uint64, bool) {
 }
 
 func (m *Map) Last() (uint64, uint64, bool) {
+	defer runtime.KeepAlive(m)
 	var key, val C.uint64_t
 	if bool(C.expanse_map_last(m.ptr, &key, &val)) {
 		return uint64(key), uint64(val), true
@@ -69,6 +78,7 @@ func (m *Map) Last() (uint64, uint64, bool) {
 }
 
 func (m *Map) Next(key uint64) (uint64, uint64, bool) {
+	defer runtime.KeepAlive(m)
 	var nextKey, val C.uint64_t
 	if bool(C.expanse_map_next_after(m.ptr, C.uint64_t(key), &nextKey, &val)) {
 		return uint64(nextKey), uint64(val), true
@@ -77,6 +87,7 @@ func (m *Map) Next(key uint64) (uint64, uint64, bool) {
 }
 
 func (m *Map) NextAtOrAfter(key uint64) (uint64, uint64, bool) {
+	defer runtime.KeepAlive(m)
 	var nextKey, val C.uint64_t
 	if bool(C.expanse_map_next_at_or_after(m.ptr, C.uint64_t(key), &nextKey, &val)) {
 		return uint64(nextKey), uint64(val), true
@@ -85,6 +96,7 @@ func (m *Map) NextAtOrAfter(key uint64) (uint64, uint64, bool) {
 }
 
 func (m *Map) Prev(key uint64) (uint64, uint64, bool) {
+	defer runtime.KeepAlive(m)
 	var prevKey, val C.uint64_t
 	if bool(C.expanse_map_prev_before(m.ptr, C.uint64_t(key), &prevKey, &val)) {
 		return uint64(prevKey), uint64(val), true
@@ -93,6 +105,7 @@ func (m *Map) Prev(key uint64) (uint64, uint64, bool) {
 }
 
 func (m *Map) PrevAtOrBefore(key uint64) (uint64, uint64, bool) {
+	defer runtime.KeepAlive(m)
 	var prevKey, val C.uint64_t
 	if bool(C.expanse_map_prev_at_or_before(m.ptr, C.uint64_t(key), &prevKey, &val)) {
 		return uint64(prevKey), uint64(val), true
@@ -101,10 +114,12 @@ func (m *Map) PrevAtOrBefore(key uint64) (uint64, uint64, bool) {
 }
 
 func (m *Map) Rank(key uint64) uint64 {
+	defer runtime.KeepAlive(m)
 	return uint64(C.expanse_map_count_below(m.ptr, C.uint64_t(key)))
 }
 
 func (m *Map) Select(k uint64) (uint64, uint64, bool) {
+	defer runtime.KeepAlive(m)
 	var key, val C.uint64_t
 	if bool(C.expanse_map_by_count(m.ptr, C.uint64_t(k), &key, &val)) {
 		return uint64(key), uint64(val), true
@@ -113,10 +128,15 @@ func (m *Map) Select(k uint64) (uint64, uint64, bool) {
 }
 
 func (m *Map) CountRange(start, end uint64) uint64 {
+	defer runtime.KeepAlive(m)
 	return uint64(C.expanse_map_count_range(m.ptr, C.uint64_t(start), C.uint64_t(end)))
 }
 
 func (m *Map) GetBatch(keys []uint64, outValues []uint64, outFound []bool) uint64 {
+	defer runtime.KeepAlive(m)
+	defer runtime.KeepAlive(keys)
+	defer runtime.KeepAlive(outValues)
+	defer runtime.KeepAlive(outFound)
 	count := len(keys)
 	if count == 0 {
 		return 0
@@ -139,7 +159,11 @@ func (m *Map) GetBatch(keys []uint64, outValues []uint64, outFound []bool) uint6
 	return uint64(C.expanse_map_get_batch(m.ptr, keysPtr, valuesPtr, foundPtr, C.size_t(count)))
 }
 
+// Free releases the native handle. It is idempotent and optional -- the
+// finalizer performs the same release -- but calling it concurrently from
+// two goroutines is caller error: the check and the store are unguarded.
 func (m *Map) Free() {
+	runtime.SetFinalizer(m, nil)
 	if m.ptr != nil {
 		C.expanse_map_free(m.ptr)
 		m.ptr = nil
