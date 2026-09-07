@@ -456,38 +456,50 @@ The question is Expanse-internal, so it does not need the competitor.
 `crates/expanse/examples/perf_point_lookup.rs` gained `strmap_get` (the
 suites' `short` shape) and `strmap_get_counter` beside its existing `map_get`,
 and `perf stat` wraps one engine at a time *(measured: reference host, commit
-`a35ab8c2`, `results/counters_strmap_vs_map_lookup_1m.json`; 7 paired runs,
+`43c68caa`, `results/counters_strmap_vs_map_lookup_1m.json`; 7 paired runs,
 phase-differenced, BCa 95% intervals, every event at 100% `running` — nothing
 multiplexed)*:
 
-| per probe, N = 10⁶, 100% hit | `map_get` (u64) | `strmap_get` (`short`) | ratio |
-|---|---:|---:|---:|
-| cycles | 191.50 [189.49, 193.15] | 662.61 [657.00, 671.19] | **3.46×** |
-| instructions | 179.97 [179.73, 180.10] | 298.97 [298.11, 299.51] | 1.66× |
-| L1-dcache-load-misses | 4.23 [4.20, 4.26] | 12.28 [12.25, 12.31] | 2.91× |
-| **LLC-load-misses** | 0.055 [0.052, 0.058] | 2.547 [2.526, 2.572] | **46.4×** |
-| dTLB-load-misses | 0.708 [0.692, 0.736] | 3.848 [3.810, 3.892] | 5.44× |
-| branch-misses | 2.180 [2.178, 2.181] | 2.018 [2.009, 2.023] | 0.93× |
+| per probe, N = 10⁶, 100% hit | `map_get` (u64) | `strmap_get` (`short`) |
+|---|---:|---:|
+| `cycles` | 186.32 [177.46, 190.85] | 670.49 [658.56, 689.20] |
+| `instructions` | 179.98 [179.85, 180.14] | 298.54 [297.96, 299.15] |
+| `L1-dcache-load-misses` | 4.235 [4.195, 4.267] | 12.299 [12.254, 12.333] |
+| **`LLC-load-misses`** | 0.031 [-0.028, 0.054] | 2.558 [2.539, 2.589] |
+| `dTLB-load-misses` | 0.704 [0.692, 0.719] | 3.878 [3.857, 3.923] |
+| `branch-misses` | 2.181 [2.175, 2.184] | 2.021 [2.015, 2.025] |
 
-**The gap is memory-latency-bound, not instruction-bound.** Cycles rise 3.46×
-while `instructions` rise 1.66×; what rises with the cycles is
-`LLC-load-misses`, 0.055 → 2.547 per probe, and `dTLB-load-misses`, 0.708 →
-3.848. `branch-misses` do not move at all (0.93×). Any candidate that removes
-instructions from this path is optimising the term that is not the cost.
+**The gap is memory-latency-bound, not instruction-bound.** `cycles` rise
+3.6× while `instructions` rise 1.66×. What rises with the cycles is
+`LLC-load-misses` — from a figure indistinguishable from zero to 2.558 per
+probe — and `dTLB-load-misses`, 0.704 → 3.878. `branch-misses` do not move at
+all. Anything that removes instructions from this path is optimising the term
+that is not the cost.
+
+**No ratio is quoted for `LLC-load-misses`, and that is the honest reading.**
+The `u64` arm's interval spans zero: at this population its tree is
+effectively cache-resident and the phase difference cannot separate it from
+nothing. Two runs put the point estimate at 0.055 and 0.031, so a ratio would
+read 46× or 82× on run-to-run noise in a near-zero denominator. The absolute
+figures are what reproduce — every other cell in this table matched within
+2.1% across those two runs — and the absolutes are the finding: a string
+lookup misses last-level cache about two and a half times per probe where a
+`u64` lookup essentially never does.
 
 **`strmap_get_counter` separates the leaf from the rest.** Its keys resolve
-inside a terminal chunk and allocate no suffix leaf, and it costs 795.59
-cycles, 510.02 instructions and **1.145** LLC misses per probe. So of the
-2.547 misses a `short` lookup takes, roughly 1.4 are the suffix leaf — the
-dependent load past the node — and the remaining ~1.1 are already there
-without one, against 0.055 for a `u64` key. The leaf is under half of it; most
-of the miss cost is the string tree's own shape. (`counter` retires more
+inside a terminal chunk and allocate no suffix leaf, and it costs 796.48
+cycles, 509.91 instructions and **1.156** `LLC-load-misses` per probe. So of
+the 2.558 misses a `short` lookup takes, roughly 1.4 are the suffix leaf — the
+dependent load past the node — and about 1.16 are already there without one.
+**The leaf is under half of it**, which is not what the issue assumed: most of
+the miss cost is the string tree's own shape. (`counter` retires more
 instructions than `short` and is the slower arm in cycles despite fewer
-misses, which is its own question and not this one.)
+misses. That is its own question and not this one.)
 
-**Not yet measured**: whether the 5.44× translation miss ratio moves under
-huge pages — the sensitivity pair [#724](https://github.com/orieg/expanse/issues/724)
-registers next — and no per-function ranking has been taken, which §6 requires
+**Not yet measured**: whether the translation misses move under huge pages —
+the sensitivity pair [#724](https://github.com/orieg/expanse/issues/724)
+registers next, which the 0.704 → 3.878 `dTLB-load-misses` figure now
+motivates — and no per-function ranking has been taken, which §6 requires
 before any change to this path.
 
 #### What the counters say about the order effect (#737)
