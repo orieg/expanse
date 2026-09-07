@@ -30,6 +30,7 @@
 //! | `workload_id` | `example_avx512_probe` |
 //! | `group` | 5 |
 //! | `population` | 1 probe |
+//! | `insertion_order` | n/a — a CPUID query and one instruction; no population |
 //! | `probes_and_reuse` | Single CPUID query, optional single instruction |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |

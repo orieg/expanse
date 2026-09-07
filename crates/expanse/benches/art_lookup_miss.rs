@@ -11,6 +11,7 @@
 //! | `workload_id` | `art_lookup_miss` |
 //! | `group` | 4 |
 //! | `population` | 10k to 1M |
+//! | `insertion_order` | generator draw order — ascending on `sequential` and `sparse`, draw order on `random`, `clustered` and `zipfian`; `art_common` neither sorts nor shuffles, and `dedupe_preserve_order` keeps first-seen order |
 //! | `probes_and_reuse` | 50% hit / 50% miss interleaved stream |
 //! | `hit_rate` | 50% Hit / 50% Miss |
 //! | `miss_gen_method` | Same-distribution rejection sampling (`gen_distribution_misses`) |

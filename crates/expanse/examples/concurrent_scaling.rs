@@ -16,6 +16,7 @@
 //! | `workload_id` | `example_concurrent_scaling` |
 //! | `group` | 5 |
 //! | `population` | 1M |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled |
 //! | `probes_and_reuse` | Continuous stream in 500ms window |
 //! | `hit_rate` | ~50% |
 //! | `miss_gen_method` | Bounded keyspace |

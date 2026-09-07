@@ -16,6 +16,7 @@
 //! | `workload_id` | `hashbrown_ycsb` |
 //! | `group` | 3 |
 //! | `population` | 100k |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled |
 //! | `probes_and_reuse` | 100k ops |
 //! | `hit_rate` | Zipfian |
 //! | `miss_gen_method` | Zipfian draw from dataset |

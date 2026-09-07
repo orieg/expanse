@@ -26,6 +26,7 @@
 //! | `workload_id` | `workload_ycsb` |
 //! | `group` | 4 |
 //! | `population` | 100k |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the sorts in this file are over latency samples, not over keys |
 //! | `probes_and_reuse` | 100k ops |
 //! | `hit_rate` | Zipfian |
 //! | `miss_gen_method` | Zipfian draw from dataset |

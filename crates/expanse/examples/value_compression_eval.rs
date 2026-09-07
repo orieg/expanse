@@ -13,6 +13,7 @@
 //! | `workload_id` | `example_value_compression_eval` |
 //! | `group` | 5 |
 //! | `population` | 100k per dataset |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; datasets are consumed in file order |
 //! | `probes_and_reuse` | 100k samples per shape |
 //! | `hit_rate` | 100% |
 //! | `miss_gen_method` | N/A (Evaluation census) |

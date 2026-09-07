@@ -28,6 +28,7 @@
 //! | `workload_id` | `domain_zset_memory` |
 //! | `group` | 4 |
 //! | `population` | 10k, 100k |
+//! | `insertion_order` | shuffled — `zset_common::shuffled_members` builds through a Fisher-Yates permutation so neither engine sees a favourable monotonic build |
 //! | `probes_and_reuse` | N/A (Memory) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |

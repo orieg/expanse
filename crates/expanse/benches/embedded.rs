@@ -20,6 +20,7 @@
 //! | `workload_id` | `core_embedded` |
 //! | `group` | 2 |
 //! | `population` | 500, 2k, 10k |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled |
 //! | `probes_and_reuse` | 500, 2k, 10k, looped |
 //! | `hit_rate` | 100% |
 //! | `miss_gen_method` | None |

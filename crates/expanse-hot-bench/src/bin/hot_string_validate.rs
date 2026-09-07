@@ -7,8 +7,9 @@
 //! | Property | Value |
 //! |---|---|
 //! | `workload_id` | `hot_string_validate` |
-//! | `group` | 5 |
+//! | `group` | 7 |
 //! | `population` | 100k per shape for fidelity; 50k for the allocation-count checks; 1k for the truncation finding |
+//! | `insertion_order` | sorted byte-lexicographic — `strings.rs` sorts the population; a fidelity gate, not a timing |
 //! | `probes_and_reuse` | 50/50 shuffled stream, one pass, every probe its own allocation |
 //! | `hit_rate` | 50% |
 //! | `miss_gen_method` | same-generator rejection sampling (§8.6) |

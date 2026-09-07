@@ -27,6 +27,7 @@
 //! | `workload_id` | `domain_zset_range` |
 //! | `group` | 4 |
 //! | `population` | 10k, 100k |
+//! | `insertion_order` | shuffled — `zset_common::shuffled_members` builds through a Fisher-Yates permutation so neither engine sees a favourable monotonic build |
 //! | `probes_and_reuse` | Range windows |
 //! | `hit_rate` | Range scan |
 //! | `miss_gen_method` | Bounded score window |

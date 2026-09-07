@@ -37,6 +37,7 @@
 //! | `workload_id` | `wasm_fuel` |
 //! | `group` | `6` |
 //! | population | 10,000 keys per arm (the driver's default); `sequential` is 0..N, `clustered` is runs of 8 keys 4,096 apart, `random` is XorShift64 seed `0x0DDB_1A5E_5EED_0001` truncated to the key width, duplicates dropped |
+//! | insertion_order | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the sorted copy in this file computes the range windows and is not the build |
 //! | probes_and_reuse | 10,000 probes per arm in a seeded Fisher-Yates order, each once; reuse 1.0; `iterate` walks every key once; `range` is 100 windows that together cover the key space once |
 //! | hit_rate | `insert` and `remove`: 100%, every key exactly once; `get` and `contains`: 50% hit / 50% miss |
 //! | miss_gen_method | misses are drawn from the same XorShift64 stream after the population and rejected on membership; never a transform of a present key |

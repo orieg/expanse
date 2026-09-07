@@ -15,6 +15,7 @@
 //! | `workload_id` | `example_popcnt_probe` |
 //! | `group` | 5 |
 //! | `population` | 1 probe |
+//! | `insertion_order` | n/a — a single instruction; no population |
 //! | `probes_and_reuse` | Single instruction |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |

@@ -25,6 +25,7 @@
 //! | `workload_id` | `capi_bench_vs_libjudy` |
 //! | `group` | 1 |
 //! | `population` | 100k, 1M |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
 //! | `probes_and_reuse` | $2 \times N$ distinct, reuse 1.0 |
 //! | `hit_rate` | 50% |
 //! | `miss_gen_method` | Independent PRNG + membership rejection |

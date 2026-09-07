@@ -17,6 +17,7 @@
 //! | `workload_id` | `domain_llm_datastore` |
 //! | `group` | 4 |
 //! | `population` | 100k tokens |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the token stream is ingested in stream order, and the sort in this file is the sorted-window competitor building its own index |
 //! | `probes_and_reuse` | Prefix search |
 //! | `hit_rate` | 100% |
 //! | `miss_gen_method` | None |

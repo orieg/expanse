@@ -10,6 +10,7 @@
 //! | `workload_id` | `workload_large_values` |
 //! | `group` | 4 |
 //! | `population` | 10k, 14k, 50k, 262k |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled, except the cold-DRAM predicate-scan sweep, which inserts shuffled on purpose so an ordered key scan touches arena offsets out of order and the prefetcher cannot hide the DRAM latency |
 //! | `probes_and_reuse` | Full scan |
 //! | `hit_rate` | Selective $\sigma$ |
 //! | `miss_gen_method` | Uniform meta filter |

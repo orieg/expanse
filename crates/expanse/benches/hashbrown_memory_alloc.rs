@@ -11,6 +11,7 @@
 //! | `workload_id` | `hashbrown_memory_alloc` |
 //! | `group` | 3 |
 //! | `population` | 1k to 500k |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled |
 //! | `probes_and_reuse` | N/A (Memory) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |

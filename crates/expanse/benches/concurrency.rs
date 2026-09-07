@@ -31,6 +31,7 @@
 //! | `workload_id` | `core_concurrency` |
 //! | `group` | 2 |
 //! | `population` | 1M (keyspace 2M); `SyncExpanseMap32` arm: 4,096 stable + 4,096 churn keys (keyspace 8k, 32-bit) |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; prefill and the concurrent stream both draw from the bounded-keyspace PRNG |
 //! | `probes_and_reuse` | Continuous stream in 500ms window |
 //! | `hit_rate` | ~50% |
 //! | `miss_gen_method` | Bounded keyspace random stream |

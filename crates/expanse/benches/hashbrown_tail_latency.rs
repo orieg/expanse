@@ -11,6 +11,7 @@
 //! | `workload_id` | `hashbrown_tail_latency` |
 //! | `group` | 3 |
 //! | `population` | 100k |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled |
 //! | `probes_and_reuse` | 100k inserts |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |

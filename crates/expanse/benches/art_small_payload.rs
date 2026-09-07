@@ -11,6 +11,7 @@
 //! | `workload_id` | `art_small_payload` |
 //! | `group` | 4 |
 //! | `population` | 1 to 7 keys |
+//! | `insertion_order` | generator draw order — ascending; `gen_sequential` is the only generator at this population |
 //! | `probes_and_reuse` | Looped probe stream (10k lookups) & batched builds (1k constructions) |
 //! | `hit_rate` | 100% Hit & 50/50 Rejection Miss & Dynamic Insertion |
 //! | `miss_gen_method` | Rejection sampling |

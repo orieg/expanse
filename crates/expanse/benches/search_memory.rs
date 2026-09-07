@@ -26,6 +26,7 @@
 //! | `workload_id` | `domain_search_memory` |
 //! | `group` | 4 |
 //! | `population` | Synthetic postings |
+//! | `insertion_order` | sorted ascending — a posting list is an ordered docID set by definition (`search_common` sorts and dedups), so no second order exists to measure |
 //! | `probes_and_reuse` | N/A (Memory) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |

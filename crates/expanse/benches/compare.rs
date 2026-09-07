@@ -15,6 +15,7 @@
 //! | `workload_id` | `core_compare` |
 //! | `group` | 2 |
 //! | `population` | 10k, 1M, 4M |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
 //! | `probes_and_reuse` | 4096 (10k/1M) / 2M (4M), looped |
 //! | `hit_rate` | 50% (set) / 100% (map) |
 //! | `miss_gen_method` | **DEGENERATE XOR**: `k ^ (1<<63) ^ 0x5A` (L58) / `0xA5` (L186) |

@@ -33,6 +33,7 @@
 //! | `workload_id` | `domain_search_boolean` |
 //! | `group` | 4 |
 //! | `population` | Synthetic postings |
+//! | `insertion_order` | sorted ascending — a posting list is an ordered docID set by definition (`search_common` sorts and dedups), so no second order exists to measure |
 //! | `probes_and_reuse` | Postings sets |
 //! | `hit_rate` | Intersection |
 //! | `miss_gen_method` | N/A |
