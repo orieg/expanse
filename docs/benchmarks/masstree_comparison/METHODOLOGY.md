@@ -392,6 +392,20 @@ published HOT-suite figure it names the workload.
 | M2 | Memory (index), `counter` and `prefixed` | **Expanse wins** | Medium | **(informed)** the gate's `prefixed` table held 84.0 B/key structurally (twelve twig layers of one-key leaves are paid once, but every key's 24 discriminating bytes sit in a suffix bag) against `ExpanseStrMap`'s 71.83 B/key on the same shape (`hot_comparison` §6.1, workload `hot_str_ptr`); `counter` keys resolve in a dense digit expanse on the Expanse side (20.53 B/key there) against a leaf slot plus a 4-byte suffix on Masstree's. |
 | MC1, MC2 | C2, W = 0, R = 8 — reader-only | **Expanse wins** | Medium | The single-threaded lookup predictions above carried into the concurrent wrappers, plus a `MemoryGuard`-free pin per lookup on the Expanse side against an `unlocked_tcursor` per lookup on Masstree's. |
 
+> **The M2 memory rows above cite figures that #723 has since superseded.**
+> This table is the locked pre-registration and is **not** reconciled in place
+> (§8.7): it records what was believed before any measurement, including the
+> `ExpanseStrMap` leaf figures it reasoned from (about 69 B/key on `short`,
+> 71.83 on `prefixed`) and the two-allocation leaf behind them. That leaf is
+> now a single allocation and the whole string sweep was re-measured; the
+> superseded figures and their replacements are registered in
+> `.github/superseded-figures.json`, and the outcomes are in
+> [`README.md`](README.md) §2. Nothing above is edited — a prediction is only
+> a prediction if it stays as written. It also carries a factual slip worth
+> naming rather than silently fixing: it calls `short` a 13-byte shape, and
+> the generator (`8 + rng % 9`) has a mean length of exactly 12.0, which both
+> suites' artifacts report.
+
 ### 6.3 Protocol health (H) — a replication, with the same falsifier
 
 The H cells measure the Expanse side alone (Masstree has no counterpart

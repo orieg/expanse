@@ -110,19 +110,19 @@
 <text class="t-axis-label" x="410.0" y="404" text-anchor="middle">population N (log scale)</text>
 <text class="t-axis-label" x="16" y="216.0" text-anchor="middle" transform="rotate(-90 16 216.0)">B / key</text>
 <line class="axis" x1="70" y1="366" x2="750" y2="366"/>
-<path d="M70.0,205.7 L138.2,231.4 L228.4,244.8 L296.7,252.6 L364.9,260.3 L455.1,269.1 L523.3,270.0 L545.3,264.0 L563.2,259.2 L591.6,258.3 L681.8,259.0 L750.0,262.3" fill="none" stroke="#16a34a" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
-<circle cx="70.0" cy="205.7" r="2.2" fill="#16a34a"/>
-<circle cx="138.2" cy="231.4" r="2.2" fill="#16a34a"/>
-<circle cx="228.4" cy="244.8" r="2.2" fill="#16a34a"/>
-<circle cx="296.7" cy="252.6" r="2.2" fill="#16a34a"/>
-<circle cx="364.9" cy="260.3" r="2.2" fill="#16a34a"/>
-<circle cx="455.1" cy="269.1" r="2.2" fill="#16a34a"/>
-<circle cx="523.3" cy="270.0" r="2.2" fill="#16a34a"/>
-<circle cx="545.3" cy="264.0" r="2.2" fill="#16a34a"/>
-<circle cx="563.2" cy="259.2" r="2.2" fill="#16a34a"/>
-<circle cx="591.6" cy="258.3" r="2.2" fill="#16a34a"/>
-<circle cx="681.8" cy="259.0" r="2.2" fill="#16a34a"/>
-<circle cx="750.0" cy="262.3" r="2.2" fill="#16a34a"/>
+<path d="M70.0,238.5 L138.2,263.9 L228.4,276.8 L296.7,284.6 L364.9,292.3 L455.1,301.1 L523.3,302.2 L545.3,296.2 L563.2,291.2 L591.6,290.3 L681.8,291.1 L750.0,294.3" fill="none" stroke="#16a34a" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
+<circle cx="70.0" cy="238.5" r="2.2" fill="#16a34a"/>
+<circle cx="138.2" cy="263.9" r="2.2" fill="#16a34a"/>
+<circle cx="228.4" cy="276.8" r="2.2" fill="#16a34a"/>
+<circle cx="296.7" cy="284.6" r="2.2" fill="#16a34a"/>
+<circle cx="364.9" cy="292.3" r="2.2" fill="#16a34a"/>
+<circle cx="455.1" cy="301.1" r="2.2" fill="#16a34a"/>
+<circle cx="523.3" cy="302.2" r="2.2" fill="#16a34a"/>
+<circle cx="545.3" cy="296.2" r="2.2" fill="#16a34a"/>
+<circle cx="563.2" cy="291.2" r="2.2" fill="#16a34a"/>
+<circle cx="591.6" cy="290.3" r="2.2" fill="#16a34a"/>
+<circle cx="681.8" cy="291.1" r="2.2" fill="#16a34a"/>
+<circle cx="750.0" cy="294.3" r="2.2" fill="#16a34a"/>
 <line x1="768" y1="70" x2="786" y2="70" stroke="#16a34a" stroke-width="2" stroke-dasharray="4 0"/>
 <text class="t-legend" x="792" y="74">short · Expanse</text>
 <path d="M70.0,298.8 L138.2,303.5 L228.4,308.5 L296.7,310.4 L364.9,311.1 L455.1,311.6 L523.3,311.8 L545.3,311.4 L563.2,311.0 L591.6,311.2 L681.8,311.9 L750.0,311.7" fill="none" stroke="#16a34a" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round"/>
@@ -140,8 +140,8 @@
 <circle cx="750.0" cy="311.7" r="2.2" fill="#16a34a"/>
 <line x1="768" y1="87" x2="786" y2="87" stroke="#16a34a" stroke-width="2" stroke-dasharray="5 4"/>
 <text class="t-legend" x="792" y="91">short · HOT</text>
-<path d="M70.0,229.4 L138.2,282.0 L228.4,314.8 L296.7,324.7 L364.9,330.0 L455.1,333.3 L523.3,334.3 L545.3,334.5 L563.2,334.6 L591.6,334.8 L681.8,335.1 L750.0,335.2" fill="none" stroke="#0891b2" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
-<circle cx="70.0" cy="229.4" r="2.2" fill="#0891b2"/>
+<path d="M70.0,229.3 L138.2,282.0 L228.4,314.8 L296.7,324.7 L364.9,330.0 L455.1,333.3 L523.3,334.3 L545.3,334.5 L563.2,334.6 L591.6,334.8 L681.8,335.1 L750.0,335.2" fill="none" stroke="#0891b2" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
+<circle cx="70.0" cy="229.3" r="2.2" fill="#0891b2"/>
 <circle cx="138.2" cy="282.0" r="2.2" fill="#0891b2"/>
 <circle cx="228.4" cy="314.8" r="2.2" fill="#0891b2"/>
 <circle cx="296.7" cy="324.7" r="2.2" fill="#0891b2"/>
@@ -170,19 +170,19 @@
 <circle cx="750.0" cy="312.9" r="2.2" fill="#0891b2"/>
 <line x1="768" y1="121" x2="786" y2="121" stroke="#0891b2" stroke-width="2" stroke-dasharray="5 4"/>
 <text class="t-legend" x="792" y="125">counter · HOT</text>
-<path d="M70.0,201.8 L138.2,230.5 L228.4,239.5 L296.7,247.9 L364.9,256.1 L455.1,265.1 L523.3,266.1 L545.3,259.8 L563.2,255.1 L591.6,254.3 L681.8,255.1 L750.0,258.3" fill="none" stroke="#d97706" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
-<circle cx="70.0" cy="201.8" r="2.2" fill="#d97706"/>
-<circle cx="138.2" cy="230.5" r="2.2" fill="#d97706"/>
-<circle cx="228.4" cy="239.5" r="2.2" fill="#d97706"/>
-<circle cx="296.7" cy="247.9" r="2.2" fill="#d97706"/>
-<circle cx="364.9" cy="256.1" r="2.2" fill="#d97706"/>
-<circle cx="455.1" cy="265.1" r="2.2" fill="#d97706"/>
-<circle cx="523.3" cy="266.1" r="2.2" fill="#d97706"/>
-<circle cx="545.3" cy="259.8" r="2.2" fill="#d97706"/>
-<circle cx="563.2" cy="255.1" r="2.2" fill="#d97706"/>
-<circle cx="591.6" cy="254.3" r="2.2" fill="#d97706"/>
-<circle cx="681.8" cy="255.1" r="2.2" fill="#d97706"/>
-<circle cx="750.0" cy="258.3" r="2.2" fill="#d97706"/>
+<path d="M70.0,214.0 L138.2,243.3 L228.4,252.4 L296.7,260.7 L364.9,268.5 L455.1,278.2 L523.3,279.0 L545.3,272.7 L563.2,267.9 L591.6,267.0 L681.8,268.0 L750.0,270.8" fill="none" stroke="#d97706" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
+<circle cx="70.0" cy="214.0" r="2.2" fill="#d97706"/>
+<circle cx="138.2" cy="243.3" r="2.2" fill="#d97706"/>
+<circle cx="228.4" cy="252.4" r="2.2" fill="#d97706"/>
+<circle cx="296.7" cy="260.7" r="2.2" fill="#d97706"/>
+<circle cx="364.9" cy="268.5" r="2.2" fill="#d97706"/>
+<circle cx="455.1" cy="278.2" r="2.2" fill="#d97706"/>
+<circle cx="523.3" cy="279.0" r="2.2" fill="#d97706"/>
+<circle cx="545.3" cy="272.7" r="2.2" fill="#d97706"/>
+<circle cx="563.2" cy="267.9" r="2.2" fill="#d97706"/>
+<circle cx="591.6" cy="267.0" r="2.2" fill="#d97706"/>
+<circle cx="681.8" cy="268.0" r="2.2" fill="#d97706"/>
+<circle cx="750.0" cy="270.8" r="2.2" fill="#d97706"/>
 <line x1="768" y1="138" x2="786" y2="138" stroke="#d97706" stroke-width="2" stroke-dasharray="4 0"/>
 <text class="t-legend" x="792" y="142">prefixed · Expanse</text>
 <path d="M70.0,129.7 L138.2,136.1 L228.4,141.0 L296.7,142.3 L364.9,142.9 L455.1,143.7 L523.3,143.8 L545.3,143.4 L563.2,143.0 L591.6,143.2 L681.8,143.9 L750.0,143.7" fill="none" stroke="#d97706" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round"/>
@@ -200,19 +200,19 @@
 <circle cx="750.0" cy="143.7" r="2.2" fill="#d97706"/>
 <line x1="768" y1="155" x2="786" y2="155" stroke="#d97706" stroke-width="2" stroke-dasharray="5 4"/>
 <text class="t-legend" x="792" y="159">prefixed · HOT</text>
-<path d="M70.0,238.8 L138.2,264.9 L228.4,277.4 L296.7,285.2 L364.9,292.8 L455.1,301.9 L523.3,302.3 L545.3,296.1 L563.2,291.4 L591.5,290.5 L681.7,291.5 L749.8,294.5" fill="none" stroke="#7c3aed" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
-<circle cx="70.0" cy="238.8" r="2.2" fill="#7c3aed"/>
-<circle cx="138.2" cy="264.9" r="2.2" fill="#7c3aed"/>
-<circle cx="228.4" cy="277.4" r="2.2" fill="#7c3aed"/>
-<circle cx="296.7" cy="285.2" r="2.2" fill="#7c3aed"/>
-<circle cx="364.9" cy="292.8" r="2.2" fill="#7c3aed"/>
-<circle cx="455.1" cy="301.9" r="2.2" fill="#7c3aed"/>
-<circle cx="523.3" cy="302.3" r="2.2" fill="#7c3aed"/>
-<circle cx="545.3" cy="296.1" r="2.2" fill="#7c3aed"/>
-<circle cx="563.2" cy="291.4" r="2.2" fill="#7c3aed"/>
-<circle cx="591.5" cy="290.5" r="2.2" fill="#7c3aed"/>
-<circle cx="681.7" cy="291.5" r="2.2" fill="#7c3aed"/>
-<circle cx="749.8" cy="294.5" r="2.2" fill="#7c3aed"/>
+<path d="M70.0,247.8 L138.2,274.2 L228.4,286.8 L296.7,294.5 L364.9,302.3 L455.1,311.6 L523.3,311.9 L545.3,305.6 L563.2,300.9 L591.5,300.1 L681.7,301.1 L749.8,304.1" fill="none" stroke="#7c3aed" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
+<circle cx="70.0" cy="247.8" r="2.2" fill="#7c3aed"/>
+<circle cx="138.2" cy="274.2" r="2.2" fill="#7c3aed"/>
+<circle cx="228.4" cy="286.8" r="2.2" fill="#7c3aed"/>
+<circle cx="296.7" cy="294.5" r="2.2" fill="#7c3aed"/>
+<circle cx="364.9" cy="302.3" r="2.2" fill="#7c3aed"/>
+<circle cx="455.1" cy="311.6" r="2.2" fill="#7c3aed"/>
+<circle cx="523.3" cy="311.9" r="2.2" fill="#7c3aed"/>
+<circle cx="545.3" cy="305.6" r="2.2" fill="#7c3aed"/>
+<circle cx="563.2" cy="300.9" r="2.2" fill="#7c3aed"/>
+<circle cx="591.5" cy="300.1" r="2.2" fill="#7c3aed"/>
+<circle cx="681.7" cy="301.1" r="2.2" fill="#7c3aed"/>
+<circle cx="749.8" cy="304.1" r="2.2" fill="#7c3aed"/>
 <line x1="768" y1="172" x2="786" y2="172" stroke="#7c3aed" stroke-width="2" stroke-dasharray="4 0"/>
 <text class="t-legend" x="792" y="176">skewed · Expanse</text>
 <path d="M70.0,289.2 L138.2,295.2 L228.4,299.8 L296.7,301.9 L364.9,302.5 L455.1,303.1 L523.3,303.1 L545.3,302.7 L563.2,302.2 L591.5,302.6 L681.7,303.2 L749.8,303.0" fill="none" stroke="#7c3aed" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round"/>
@@ -230,19 +230,19 @@
 <circle cx="749.8" cy="303.0" r="2.2" fill="#7c3aed"/>
 <line x1="768" y1="189" x2="786" y2="189" stroke="#7c3aed" stroke-width="2" stroke-dasharray="5 4"/>
 <text class="t-legend" x="792" y="193">skewed · HOT</text>
-<path d="M70.0,201.4 L138.2,228.7 L228.4,239.2 L296.7,248.5 L364.9,256.0 L455.1,265.1 L523.3,266.0 L545.3,259.9 L563.2,255.3 L591.6,254.3 L681.8,255.0 L750.0,258.2" fill="none" stroke="#dc2626" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
-<circle cx="70.0" cy="201.4" r="2.2" fill="#dc2626"/>
-<circle cx="138.2" cy="228.7" r="2.2" fill="#dc2626"/>
-<circle cx="228.4" cy="239.2" r="2.2" fill="#dc2626"/>
-<circle cx="296.7" cy="248.5" r="2.2" fill="#dc2626"/>
-<circle cx="364.9" cy="256.0" r="2.2" fill="#dc2626"/>
-<circle cx="455.1" cy="265.1" r="2.2" fill="#dc2626"/>
-<circle cx="523.3" cy="266.0" r="2.2" fill="#dc2626"/>
-<circle cx="545.3" cy="259.9" r="2.2" fill="#dc2626"/>
-<circle cx="563.2" cy="255.3" r="2.2" fill="#dc2626"/>
-<circle cx="591.6" cy="254.3" r="2.2" fill="#dc2626"/>
-<circle cx="681.8" cy="255.0" r="2.2" fill="#dc2626"/>
-<circle cx="750.0" cy="258.2" r="2.2" fill="#dc2626"/>
+<path d="M70.0,236.7 L138.2,264.7 L228.4,275.1 L296.7,284.4 L364.9,292.0 L455.1,301.2 L523.3,302.1 L545.3,296.1 L563.2,291.4 L591.6,290.3 L681.8,291.1 L750.0,294.3" fill="none" stroke="#dc2626" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
+<circle cx="70.0" cy="236.7" r="2.2" fill="#dc2626"/>
+<circle cx="138.2" cy="264.7" r="2.2" fill="#dc2626"/>
+<circle cx="228.4" cy="275.1" r="2.2" fill="#dc2626"/>
+<circle cx="296.7" cy="284.4" r="2.2" fill="#dc2626"/>
+<circle cx="364.9" cy="292.0" r="2.2" fill="#dc2626"/>
+<circle cx="455.1" cy="301.2" r="2.2" fill="#dc2626"/>
+<circle cx="523.3" cy="302.1" r="2.2" fill="#dc2626"/>
+<circle cx="545.3" cy="296.1" r="2.2" fill="#dc2626"/>
+<circle cx="563.2" cy="291.4" r="2.2" fill="#dc2626"/>
+<circle cx="591.6" cy="290.3" r="2.2" fill="#dc2626"/>
+<circle cx="681.8" cy="291.1" r="2.2" fill="#dc2626"/>
+<circle cx="750.0" cy="294.3" r="2.2" fill="#dc2626"/>
 <line x1="768" y1="206" x2="786" y2="206" stroke="#dc2626" stroke-width="2" stroke-dasharray="4 0"/>
 <text class="t-legend" x="792" y="210">beyond · Expanse</text>
 <text class="t-note" x="70" y="416">HOT has no line for a shape whose keys exceed its 255-byte window; the Expanse line stands alone there (§10.4).</text>

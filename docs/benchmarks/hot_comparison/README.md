@@ -11,7 +11,7 @@ reached through a C++ FFI shim over the reference implementation.
 > their own provenance block.
 > *(measured: reference host — Intel Core i9-12900F, 8P+8E/24 threads, 30 MiB L3,
 > Ubuntu 22.04; HOT [`speedskater/hot`](https://github.com/speedskater/hot) `96bf6fb`,
-> ISC; harness commit `0f4fd40c`; `docs/benchmarks/hot_comparison/run.sh`; benchmark
+> ISC; harness commit `0f4fd40c` for the integer arms; **the string arms (§6) were re-measured at `41dc7bfd` for [#723](https://github.com/orieg/expanse/issues/723)** with `run.sh strings`, at load 0.50 / 0.50 / 0.67 / 1.02 and a busy-CPU delta of 1.0-1.02 core-equivalents — the benchmark and nothing else — except §6.3's string insertion-order rows, withheld pending [#772](https://github.com/orieg/expanse/issues/772); `docs/benchmarks/hot_comparison/run.sh`; benchmark
 > shell pinned to CPUs 0-15; both arms built for one ISA target —
 > `-C target-cpu=haswell` and `-march=haswell -O3 -std=c++17 -DNDEBUG`; load average
 > 0.55 / 0.65 / 0.68 / 0.94 across the run with the host's busy CPU at 1.0
@@ -313,18 +313,33 @@ and reconciling them against a different workload in place is what §8.7 forbids
 | map | `sorted` | 35.71 | 16.67 | **16.70** | 0.990 [0.977, 1.005] | 3.514 [3.505, 3.523] |
 | map | `shuffled` | 36.22 | 23.62 | **16.70** | 1.072 [1.056, 1.091] | 2.828 [2.806, 2.851] |
 
-**String arms, `short`, N = 1,000,000**
+**String arms, `short`, N = 1,000,000** — *withheld pending re-measurement ([#772](https://github.com/orieg/expanse/issues/772)).*
 
-| Arm | Order | HOT index B/key | Expanse index B/key | Expanse `mem_used` B/key | `lookup_hit` HOT ÷ Expanse | `insert` HOT ÷ Expanse |
-|---|---|---:|---:|---:|---:|---:|
-| ptr | `sorted` | 12.23 | 69.16 | **50.77** | 1.170 [1.165, 1.175] | 1.163 [1.138, 1.180] |
-| ptr | `shuffled` | 12.72 | 71.99 | **50.77** | 1.168 [1.163, 1.172] | 1.103 [1.086, 1.110] |
-| map | `sorted` | 36.29 | 69.16 | **50.77** | 1.775 [1.769, 1.781] | 1.322 [1.309, 1.334] |
-| map | `shuffled` | 36.83 | 71.97 | **50.77** | 1.776 [1.772, 1.781] | 1.528 [1.504, 1.536] |
+> **These four rows are superseded and not yet replaced (§8.10).** They were
+> measured at `0f4fd40c`, against the two-allocation `ExpanseStrMap` leaf that
+> [#723](https://github.com/orieg/expanse/issues/723) replaced; the Expanse
+> columns they carried (69.16 / 71.99 index, 50.77 `mem_used`) are the
+> superseded figures registered in `.github/superseded-figures.json`. Every
+> *other* string cell in this suite was re-measured at `41dc7bfd`; this phase
+> is a separate `--only-sensitivity` invocation and was not part of that run.
+>
+> **A re-run was attempted and discarded, which is disclosed rather than
+> repeated silently (§8.17).** It started at a 1-minute load average of 5.88
+> with 2.01 busy core-equivalents across its first phase — a co-resident
+> process, not the benchmark — so the comparison is void and the artifact was
+> not kept. The host has not since been quiet enough to retake it.
+>
+> What the rows established does not depend on the missing numbers and is not
+> withdrawn: `mem_used` was identical across both insertion orders on every
+> arm, and the allocator census was not. That invariant is pinned as an exact
+> equality in
+> [`crates/expanse/tests/test_mem_used_order_invariant.rs`](../../../crates/expanse/tests/test_mem_used_order_invariant.rs),
+> which is where it belongs (§8.18) — the table illustrated it, the test
+> enforces it. The **levels** are what is withheld.
 
 - **`mem_used` is identical in both orders on every arm** — 16.70 B/key
-  for the integer map, 50.77 for the string arms — while the allocator census moves on
-  both arms. A digital trie's shape is fixed by the key set, not by the sequence
+  for the integer map, and likewise on the string arms, whose level is withheld
+  above — while the allocator census moves on both arms. A digital trie's shape is fixed by the key set, not by the sequence
   the keys arrived in; the allocator's is not. That is the invariant
   `crates/expanse/tests/test_mem_used_order_invariant.rs` pins, and it is what
   makes the two columns readable side by side: the difference between them is
@@ -448,28 +463,43 @@ engine change outside this suite and is the obvious follow-up.
 The 10k and 100k rows are in `results/baseline_string_latency.json`; none is
 above 0.22.
 
-**Memory ownership on short and skewed keys goes to HOT, and the
-pre-registration had it the other way.** §10.7 registered, at low-medium
-confidence, that Expanse would win the `ownership` column on `short` and
-`counter`. On `counter` it does; on `short` it does not, by a wide margin, and
-`skewed` goes to HOT as well *(workload: `hot_str_ptr`)*:
+**Memory ownership on `short` still goes to HOT; `skewed` no longer does.**
+§10.7 registered, at low-medium confidence, that Expanse would win the
+`ownership` column on `short` and `counter`. On `counter` it does; on `short`
+it does not — 36.23 against 47.83, a narrower margin than the one first
+published — and `skewed` has since crossed to Expanse, 41.28 against HOT's
+41.98 *(workload: `hot_str_ptr`)*:
 
 | Shape (Arm C, N = 1M) | external (exact) | HOT index | Expanse index | **HOT ownership** | **Expanse ownership** | Expanse `mem_used` |
 |---|---:|---:|---:|---:|---:|---:|
-| `short` | 24.00 (13.00) | 12.23 | 69.16 | **36.23** | 69.16 | 50.77 |
-| `skewed` | 29.76 (15.27) | 12.22 | 47.65 | **41.98** | 47.65 | 41.19 |
+| `short` | 24.00 (13.00) | 12.23 | 47.83 | **36.23** | 47.83 | 42.77 |
+| `skewed` | 29.76 (15.27) | 12.22 | 41.28 | 41.98 | **41.28** | 37.71 |
 | `counter` | 24.00 (13.00) | 11.42 | 20.53 | 35.42 | **20.53** | 19.56 |
-| `prefixed` | 136.00 (121.00) | 12.23 | 71.83 | 148.23 | **71.83** | 62.77 |
-| `beyond` | 280.00 (273.00) | withheld | 71.84 | withheld | 71.84 | 54.78 |
+| `prefixed` | 136.00 (121.00) | 12.23 | 63.49 | 148.23 | **63.49** | 54.77 |
+| `beyond` | 280.00 (273.00) | withheld | 47.83 | withheld | 47.83 | 46.78 |
 
-`ExpanseStrMap` holds a 13-byte key in about 69 bytes: the gate's allocation
-counts say why — 204,791 allocations for 100,000 `short` keys against HOT's
-4,566 (`results/string_validate.log`). Every key that is not resolved inside a
-terminal 8-byte chunk costs a `StrSuffix` shell plus a separate byte buffer, two
-allocations, and the allocator's rounding on each; the engine's own `mem_used`
-(50.77 B/key) undercounts that rounding by a further 18 B/key (§9.3 reason 1,
-now on the string path). This is **`REFUTED`** against §10.7 and it is a finding
-about `ExpanseStrMap`'s leaf representation, not about HOT.
+`ExpanseStrMap` holds a 12-byte key in about 48 bytes, and the gate's
+allocation counts are still what explains the gap: **115,916** allocations for
+100,000 `short` keys against HOT's 4,566 (`results/string_validate.log`), or
+roughly one per key against HOT's one per twenty-two. The engine's own
+`mem_used` (42.77 B/key) sits 5.1 B/key under the allocator column, which is
+the allocator's rounding on those allocations (§9.3 reason 1, now on the string
+path). The §10.7 prediction is still **`REFUTED`** on `short`, and it remains a
+finding about `ExpanseStrMap`'s leaf representation rather than about HOT.
+
+> **This paragraph is the corrected form; the original figures are superseded,
+> not overwritten (§8.7).** When first published it read *a 13-byte key in
+> about 69 bytes* and *204,791 allocations*, measured against a leaf that spent
+> **two** allocations on every key not resolved inside a terminal 8-byte chunk
+> — a `StrSuffix` shell plus a separate byte buffer, each rounded by the
+> allocator. [#723](https://github.com/orieg/expanse/issues/723) made the leaf
+> a single allocation carrying its bytes inline, and this suite's string arms
+> were re-measured on the reference host at the commit that did it. Two
+> corrections travel with the number: the shape's mean key length is **12.0**,
+> not 13 — the generator is `8 + rng % 9`, and both suites' artifacts report
+> 12.0 — and `mem_used`'s shortfall against the allocator column is 5.1 B/key
+> here, where the two-allocation leaf made it 18. The superseded figures are
+> registered in `.github/superseded-figures.json`.
 
 **The `index` column goes to HOT on every shape, categorically.** HOT holds
 11.4–12.2 B/key of index on every representable shape at N = 1M because it
@@ -548,13 +578,13 @@ Expanse's (1.14–2.08), the Arm E ones split as described above.
 
 | N | `counter` HOT / Expanse | `short` HOT / Expanse | `skewed` HOT / Expanse | `prefixed` HOT / Expanse | `beyond` — / Expanse |
 |---:|---:|---:|---:|---:|---:|
-| 1,000 | 44.7 / 91.1 | 44.8 / 106.9 | 51.2 / 84.8 | 157.5 / 109.5 | — / 109.8 |
-| 10,000 | 36.6 / 27.5 | 37.0 / 75.6 | 42.7 / 53.9 | 149.1 / 78.7 | — / 78.4 |
-| 100,000 | 35.5 / 21.1 | 36.1 / 64.0 | 41.9 / 42.5 | 148.1 / 66.6 | — / 66.6 |
-| 125,000 | 35.5 / 21.0 | 36.4 / 68.0 | 42.2 / 46.6 | 148.4 / 70.8 | — / 70.7 |
-| 150,000 | 35.5 / 20.9 | 36.7 / 71.2 | 42.5 / 49.7 | 148.7 / 73.9 | — / 73.8 |
-| 200,000 | 35.5 / 20.8 | 36.5 / 71.8 | 42.3 / 50.3 | 148.5 / 74.5 | — / 74.5 |
-| 1,000,000 | 35.4 / 20.5 | 36.2 / 69.2 | 42.0 / 47.7 | 148.2 / 71.8 | — / 71.8 |
+| 1,000 | 44.7 / 91.2 | 44.8 / 85.0 | 51.2 / 78.8 | 157.5 / 101.3 | — / 86.2 |
+| 10,000 | 36.6 / 27.5 | 37.0 / 54.3 | 42.7 / 47.6 | 149.1 / 70.2 | — / 54.4 |
+| 100,000 | 35.5 / 21.1 | 36.1 / 42.5 | 42.0 / 41.3 | 148.1 / 58.0 | — / 42.6 |
+| 125,000 | 35.5 / 21.0 | 36.4 / 46.5 | 42.0 / 41.3 | 148.4 / 62.2 | — / 46.6 |
+| 150,000 | 35.5 / 20.9 | 36.7 / 49.8 | 42.0 / 41.3 | 148.7 / 65.4 | — / 49.7 |
+| 200,000 | 35.5 / 20.8 | 36.5 / 50.5 | 42.0 / 41.3 | 148.5 / 66.0 | — / 50.5 |
+| 1,000,000 | 35.4 / 20.5 | 36.2 / 47.8 | 42.0 / 41.3 | 148.2 / 63.5 | — / 47.8 |
 
 Arm C ownership, B/key; the 2k, 5k, 20k and 500k rows are in
 `results/baseline_string_memory.json`. **HOT is flat again** — 35.4–36.7 B/key
@@ -587,9 +617,9 @@ build that reports success**, the same class as the integer arms' §3.1. Every
 `beyond` cell therefore publishes the Expanse figure alone with the HOT column
 withheld (45 latency cells, 36 memory cells), never a HOT number over a smaller
 population. The Expanse side is unrestricted: `ExpanseStrMap` holds all 10⁶
-272-byte keys at 71.84 B/key and `ExpanseBytesMap` at 352.31 B/key *(workload:
-`hot_string_memory`)*; their 100%-hit lookups at N = 1M take 368.67 ns and
-327.64 ns respectively *(workload: `hot_string_latency`)*.
+272-byte keys at 47.83 B/key and `ExpanseBytesMap` at 352.26 B/key *(workload:
+`hot_string_memory`)*; their 100%-hit lookups at N = 1M take 346.16 ns and
+326.92 ns respectively *(workload: `hot_string_latency`)*.
 
 ### 6.6 Scorecard
 

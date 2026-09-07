@@ -29,6 +29,7 @@ use crate::alloc::NodeAlloc;
 use crate::map::MapCore;
 #[cfg(feature = "std")]
 use crate::occ::Collector;
+use core::alloc::Layout;
 use core::ptr::NonNull;
 use core_alloc::boxed::Box;
 #[cfg(feature = "std")]
@@ -46,10 +47,109 @@ type DeferHandle<'a> = Option<&'a ()>;
 const CHUNK: usize = 8;
 const TAG_SUFFIX: u64 = 1;
 
-/// Leaf suffix: stores the unbranched remainder of a string key and its value.
+/// Leaf suffix header: the value, then the length of the suffix bytes that
+/// follow it **inside the same allocation**.
+///
+/// One allocation, not two. The previous shape was
+/// `{ suffix: Box<[u8]>, value: u64 }`, which cost a 24-byte shell plus a
+/// separate byte buffer for every key that does not resolve inside a terminal
+/// 8-byte chunk — 204,791 allocations for 100,000 `short` keys against HOT's
+/// 4,566 (#723) — and made every string lookup chase a second dependent
+/// pointer to reach the bytes it had to compare.
+///
+/// Invariants that the rest of this module depends on:
+///
+/// - **`value` is at offset 0, and `#[repr(C)]` keeps it there.** `ins_slot`
+///   and `get_value_slot` hand out `&raw mut (*sfx).value` as the JudySL
+///   `*mut Word`, valid until the next structural mutation
+///   (`docs/COMPAT.md`).
+/// - **`align_of` is 8**, so bit 0 of a suffix pointer stays free for
+///   [`TAG_SUFFIX`].
+/// - **The bytes live outside this header**, at offset [`SUFFIX_BYTES`]. They
+///   are therefore *not* covered by the provenance of a `&StrSuffix` or
+///   `&mut StrSuffix`, so a pointer to them must always be derived from the
+///   raw allocation pointer — never from a reference to the header. That is
+///   why nothing in this module forms a reference to a `StrSuffix`; every
+///   access is a raw field projection or [`suffix_bytes`].
+/// - **Header and bytes are write-once after publication**; only `value`
+///   mutates in place, which is what lets a concurrent reader load them
+///   under a version bracket ([`ExpanseStrMap::get_validated`]).
+#[repr(C)]
 struct StrSuffix {
-    suffix: Box<[u8]>,
     value: u64,
+    len: usize,
+}
+
+/// Byte offset of the inline suffix bytes within a `StrSuffix` allocation.
+const SUFFIX_BYTES: usize = size_of::<StrSuffix>();
+
+// The two layout invariants the rest of this module reads off the type,
+// checked at compile time rather than trusted (AGENTS.md §6.5). Neither
+// would break the build if it silently stopped holding: reordering the
+// fields still compiles, and so does widening `TAG_SUFFIX`.
+const _: () = {
+    assert!(
+        core::mem::offset_of!(StrSuffix, value) == 0,
+        "`value` must stay at offset 0: `ins_slot`/`get_value_slot` hand out \
+         `&raw mut (*sfx).value` as the JudySL `*mut Word` (docs/COMPAT.md)"
+    );
+    assert!(
+        align_of::<StrSuffix>() >= 2,
+        "a suffix leaf must be at least 2-byte aligned so bit 0 of its \
+         pointer stays free for TAG_SUFFIX"
+    );
+};
+
+/// The layout a suffix leaf holding `len` bytes was allocated with. Every
+/// `alloc`, `dealloc` and `Collector::retire` for a suffix goes through this
+/// one function: a `dealloc` layout mismatch is UB, not a leak.
+#[inline]
+fn suffix_layout(len: usize) -> Layout {
+    Layout::from_size_align(SUFFIX_BYTES + len, align_of::<StrSuffix>())
+        .expect("suffix layout: size is header + key remainder, align is 8")
+}
+
+/// Allocates a suffix leaf holding `bytes` and `value` in one allocation.
+fn new_suffix(bytes: &[u8], value: u64) -> *mut StrSuffix {
+    let layout = suffix_layout(bytes.len());
+    // SAFETY: `layout` has non-zero size — the header alone is 16 bytes.
+    let raw = unsafe { core_alloc::alloc::alloc(layout) };
+    if raw.is_null() {
+        core_alloc::alloc::handle_alloc_error(layout);
+    }
+    let ptr = raw.cast::<StrSuffix>();
+    // SAFETY: `raw` is a fresh allocation of `SUFFIX_BYTES + bytes.len()` at
+    // `align_of::<StrSuffix>()`, so the header write is in bounds and aligned
+    // and the byte copy lands in the tail this layout reserved for it. The
+    // destination is freshly allocated, so it cannot overlap `bytes`.
+    unsafe {
+        ptr.write(StrSuffix {
+            value,
+            len: bytes.len(),
+        });
+        core::ptr::copy_nonoverlapping(bytes.as_ptr(), raw.add(SUFFIX_BYTES), bytes.len());
+    }
+    ptr
+}
+
+/// The inline suffix bytes of a live leaf.
+///
+/// # Safety
+///
+/// `ptr` must be a live allocation from [`new_suffix`] — reached through
+/// [`unpack_suffix`] or held directly — and **must not** have been derived
+/// from a `&StrSuffix` or `&mut StrSuffix`: the bytes lie past the header, so
+/// a reference's provenance does not reach them. The returned slice borrows
+/// for as long as the caller chooses; it must not outlive the leaf, and in
+/// particular must not be live across [`dispose_suffix`].
+#[inline(always)]
+unsafe fn suffix_bytes<'a>(ptr: *const StrSuffix) -> &'a [u8] {
+    // SAFETY: the caller guarantees a live `new_suffix` allocation with raw
+    // provenance over the whole block. `len` is write-once and was set to the
+    // number of bytes written at `SUFFIX_BYTES`, so the slice is in bounds,
+    // initialized, and — the bytes being write-once — not concurrently
+    // mutated.
+    unsafe { core::slice::from_raw_parts(ptr.cast::<u8>().add(SUFFIX_BYTES), (*ptr).len) }
 }
 
 #[inline(always)]
@@ -92,51 +192,39 @@ struct StrNode {
     map: MapCore,
 }
 
-/// Disposes an unlinked suffix: dropped immediately when not shared,
-/// retired through the epoch collector when it is — a reader that
-/// validated the tagged pointer at an earlier snapshot may still be
-/// reading the (write-once) shell and byte buffer under its pin.
+/// Disposes an unlinked suffix: freed immediately when not shared, retired
+/// through the epoch collector when it is — a reader that validated the
+/// tagged pointer at an earlier snapshot may still be reading the
+/// (write-once) header and bytes under its pin.
+///
+/// One block, so one `retire` and no `Drop`: the header owns nothing, and
+/// the bytes it describes are inside the same allocation. The two-allocation
+/// shape this replaces had to move the byte buffer's owning `Box` out **by
+/// value** so its provenance travelled to the collector, and to special-case
+/// an empty suffix that owned no buffer at all; neither applies now.
 fn dispose_suffix(ptr: *mut StrSuffix, defer: DeferHandle<'_>) {
+    // SAFETY: the caller unlinked `ptr` and this is the last owner, so the
+    // header is still live and `len` — write-once since publication — still
+    // describes the allocation `new_suffix` made.
+    let layout = suffix_layout(unsafe { (*ptr).len });
     #[cfg(feature = "std")]
     match defer {
-        None => {
-            // SAFETY: caller unlinked `ptr`; this is the last reference.
-            drop(unsafe { Box::from_raw(ptr) });
-        }
-        Some(c) => {
-            // Retire the byte buffer and the shell raw (no `Drop` runs; the
-            // collector frees plain memory after the grace period). The
-            // buffer's owning `Box` is moved out **by value** so its
-            // original provenance travels to the collector — a pointer
-            // merely borrowed out of the shell would not carry deallocation
-            // rights (Miri rejects the `dealloc`). An empty suffix's
-            // `Box<[u8]>` owns no allocation — nothing to retire for it.
-            // SAFETY: unlinked; this is the last owner. The shell's
-            // `suffix` field is never read again — the shell itself is
-            // retired below without running `Drop` (concurrent readers
-            // still see the write-once bytes until the grace period ends).
-            let boxed: Box<[u8]> = unsafe { core::ptr::read(&raw const (*ptr).suffix) };
-            let len = boxed.len();
-            if len > 0 {
-                let buf = Box::into_raw(boxed).cast::<u8>();
-                c.retire(NonNull::new(buf).expect("non-null suffix buffer"), len, 1);
-            } else {
-                core::mem::forget(boxed);
-            }
-            c.retire(
-                NonNull::new(ptr.cast::<u8>()).expect("non-null suffix"),
-                size_of::<StrSuffix>(),
-                align_of::<StrSuffix>(),
-            );
-        }
+        // SAFETY: unlinked, last owner, and `layout` is by construction the
+        // one this block was allocated with.
+        None => unsafe { core_alloc::alloc::dealloc(ptr.cast::<u8>(), layout) },
+        Some(c) => c.retire(
+            NonNull::new(ptr.cast::<u8>()).expect("non-null suffix"),
+            layout.size(),
+            layout.align(),
+        ),
     }
     #[cfg(not(feature = "std"))]
     {
         // Without `std` there is no epoch collector to defer to, so the
         // deferred arm degenerates to the immediate one.
         let _ = defer;
-        // SAFETY: caller unlinked `ptr`; this is the last reference.
-        drop(unsafe { Box::from_raw(ptr) });
+        // SAFETY: as above.
+        unsafe { core_alloc::alloc::dealloc(ptr.cast::<u8>(), layout) };
     }
 }
 
@@ -278,10 +366,14 @@ impl StrNode {
             }
             out.extend_from_slice(&chunk.to_be_bytes());
             if is_suffix_ptr(v) {
-                // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
-                let suffix = unsafe { &mut *unpack_suffix(v) };
-                out.extend_from_slice(&suffix.suffix);
-                return NonNull::new(&raw mut suffix.value).expect("non-null value slot");
+                let sfx = unpack_suffix(v);
+                // SAFETY: tagged pointer encodes a live suffix leaf; the raw
+                // pointer carries provenance over the inline bytes, which a
+                // `&StrSuffix` would not (see `StrSuffix`).
+                out.extend_from_slice(unsafe { suffix_bytes(sfx) });
+                // SAFETY: field-precise pointer to the value word at offset 0.
+                return NonNull::new(unsafe { &raw mut (*sfx).value })
+                    .expect("non-null value slot");
             }
             node = unpack_child(v);
         }
@@ -302,11 +394,12 @@ impl StrNode {
             out.extend(terminal_bytes(chunk));
             Some(self.map.value_slot_pathless(chunk).expect("present chunk"))
         } else if is_suffix_ptr(v) {
-            // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
-            let suffix = unsafe { &mut *unpack_suffix(v) };
+            let sfx = unpack_suffix(v);
             out.extend_from_slice(&chunk.to_be_bytes());
-            out.extend_from_slice(&suffix.suffix);
-            Some(NonNull::new(&raw mut suffix.value).expect("non-null value slot"))
+            // SAFETY: live suffix leaf, raw provenance over the inline bytes.
+            out.extend_from_slice(unsafe { suffix_bytes(sfx) });
+            // SAFETY: field-precise pointer to the value word at offset 0.
+            Some(NonNull::new(unsafe { &raw mut (*sfx).value }).expect("non-null value slot"))
         } else {
             out.extend_from_slice(&chunk.to_be_bytes());
             // SAFETY: continuation values are child pointers.
@@ -343,14 +436,17 @@ impl StrNode {
                 && !is_terminal(chunk)
             {
                 if is_suffix_ptr(v) {
-                    // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
-                    let suffix = unsafe { &mut *unpack_suffix(v) };
+                    let sfx = unpack_suffix(v);
+                    // SAFETY: live suffix leaf, raw provenance over the bytes.
+                    let bytes = unsafe { suffix_bytes(sfx) };
                     let rem = &key[off.min(key.len()) + CHUNK.min(key.len().saturating_sub(off))..];
-                    if rem <= &suffix.suffix[..] {
+                    if rem <= bytes {
                         out.extend_from_slice(&chunk.to_be_bytes());
-                        out.extend_from_slice(&suffix.suffix);
+                        out.extend_from_slice(bytes);
+                        // SAFETY: field-precise pointer to the value word.
                         return Some(
-                            NonNull::new(&raw mut suffix.value).expect("non-null value slot"),
+                            NonNull::new(unsafe { &raw mut (*sfx).value })
+                                .expect("non-null value slot"),
                         );
                     }
                     // Suffix is strictly less than target key remainder; resume at next sibling.
@@ -411,10 +507,11 @@ impl StrNode {
             // and all sort above anything below it in this node.
             if !target_terminal && let Some(v) = n.map.get(target) {
                 if is_suffix_ptr(v) {
-                    // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
-                    let suffix = unsafe { &mut *unpack_suffix(v) };
+                    let sfx = unpack_suffix(v);
+                    // SAFETY: live suffix leaf, raw provenance over the bytes.
+                    let bytes = unsafe { suffix_bytes(sfx) };
                     let rem = &key[off.min(key.len()) + CHUNK.min(key.len().saturating_sub(off))..];
-                    let cmp = rem.cmp(&suffix.suffix[..]);
+                    let cmp = rem.cmp(bytes);
                     let match_ok = if exclusive {
                         cmp == core::cmp::Ordering::Greater
                     } else {
@@ -422,9 +519,11 @@ impl StrNode {
                     };
                     if match_ok {
                         out.extend_from_slice(&target.to_be_bytes());
-                        out.extend_from_slice(&suffix.suffix);
+                        out.extend_from_slice(bytes);
+                        // SAFETY: field-precise pointer to the value word.
                         return Some(
-                            NonNull::new(&raw mut suffix.value).expect("non-null value slot"),
+                            NonNull::new(unsafe { &raw mut (*sfx).value })
+                                .expect("non-null value slot"),
                         );
                     }
                     let sibling = n.map.prev_before(target);
@@ -494,14 +593,18 @@ impl StrNode {
             }
             let v = n.map.get(chunk)?;
             if is_suffix_ptr(v) {
-                // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
-                let suffix = unsafe { &*unpack_suffix(v) };
+                let sfx = unpack_suffix(v);
                 let rem = &key[off + CHUNK..];
-                if rem == &suffix.suffix[..] {
+                // SAFETY: live suffix leaf, raw provenance over the bytes.
+                if rem == unsafe { suffix_bytes(sfx) } {
                     n.map.remove_pathless(alloc, chunk);
-                    let removed_val = suffix.value;
+                    // Read out before disposal: the borrow of the bytes above
+                    // has ended, and nothing may reference the block once
+                    // `dispose_suffix` has it.
+                    // SAFETY: unlinked but still live; last owner.
+                    let removed_val = unsafe { (*sfx).value };
                     // Unlinked above; retired when shared.
-                    dispose_suffix(unpack_suffix(v), defer);
+                    dispose_suffix(sfx, defer);
                     break removed_val;
                 }
                 return None;
@@ -551,9 +654,11 @@ impl StrNode {
             for (k, v) in node.map.iter() {
                 if !is_terminal(k) {
                     if is_suffix_ptr(v) {
-                        // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
-                        let suffix = unsafe { &*unpack_suffix(v) };
-                        bytes += size_of::<StrSuffix>() as u64 + suffix.suffix.len() as u64;
+                        // SAFETY: tagged pointer encodes a live suffix leaf.
+                        let len = unsafe { (*unpack_suffix(v)).len };
+                        // One block: header plus the inline bytes, which is
+                        // exactly what `dispose_suffix` will hand back.
+                        bytes += suffix_layout(len).size() as u64;
                     } else {
                         stack.push(unpack_child(v));
                     }
@@ -698,10 +803,10 @@ impl ExpanseStrMap {
     /// suffix (retired when shared — a concurrent reader may still hold
     /// it). Returns the raw child for the caller to descend into.
     ///
-    /// Reads `old` only through short-lived internal borrows: a borrow
-    /// passed in as a parameter would be *protected* for the whole call
-    /// and conflict with the disposal's move-out of the byte buffer
-    /// (Miri rejects it).
+    /// Reads `old` only through short-lived internal borrows that all end
+    /// before the disposal: a borrow passed in as a parameter would be
+    /// *protected* for the whole call and still be live when the block is
+    /// handed to `dispose_suffix`.
     fn split_suffix(
         node: &mut StrNode,
         chunk: u64,
@@ -710,23 +815,17 @@ impl ExpanseStrMap {
         defer: DeferHandle<'_>,
     ) -> *mut StrNode {
         let mut child = Box::new(StrNode::new());
-        // SAFETY: `old` is the live suffix being split; every borrow here
-        // ends before the disposal below.
-        let (c1, t1, value) = unsafe {
-            let s = &*old;
-            let (c1, t1) = chunk_at(&s.suffix, 0);
-            (c1, t1, s.value)
-        };
+        // SAFETY: `old` is the live suffix being split, reached as a raw
+        // pointer so the projection covers the inline bytes; both borrows
+        // end before the disposal below.
+        let ((c1, t1), value) = unsafe { (chunk_at(suffix_bytes(old), 0), (*old).value) };
         if t1 {
             child.map.insert_pathless(alloc, c1, value);
         } else {
-            // SAFETY: as above — the continuation bytes are copied out
-            // before the old suffix is disposed of.
-            let rem1: Box<[u8]> = unsafe { (&(*old).suffix)[CHUNK..].into() };
-            let s1 = Box::into_raw(Box::new(StrSuffix {
-                suffix: rem1,
-                value,
-            }));
+            // The continuation bytes are copied into the new leaf here, so
+            // the borrow of `old` is over before it is disposed of.
+            // SAFETY: as above.
+            let s1 = unsafe { new_suffix(&suffix_bytes(old)[CHUNK..], value) };
             child.map.insert_pathless(alloc, c1, pack_suffix(s1));
         }
         let child_raw = Box::into_raw(child);
@@ -760,11 +859,7 @@ impl ExpanseStrMap {
             }
             match node.map.get(chunk) {
                 None => {
-                    let rem = &key[off + CHUNK..];
-                    let suffix = Box::into_raw(Box::new(StrSuffix {
-                        suffix: rem.into(),
-                        value: val,
-                    }));
+                    let suffix = new_suffix(&key[off + CHUNK..], val);
                     node.map.insert_pathless(alloc, chunk, pack_suffix(suffix));
                     self.pop += 1;
                     return None;
@@ -772,11 +867,13 @@ impl ExpanseStrMap {
                 Some(v) if is_suffix_ptr(v) => {
                     let sfx = unpack_suffix(v);
                     let rem = &key[off + CHUNK..];
-                    // SAFETY: tagged pointer encodes a live Box<StrSuffix>;
-                    // short-lived shared borrow of the write-once bytes.
-                    if unsafe { rem == &(&(*sfx).suffix)[..] } {
+                    // SAFETY: tagged pointer encodes a live suffix leaf;
+                    // short-lived shared borrow of the write-once bytes,
+                    // taken from the raw pointer so it reaches past the
+                    // header.
+                    if rem == unsafe { suffix_bytes(sfx) } {
                         // In-place value update, field-precise (no `&mut`
-                        // over the shell whose write-once fields concurrent
+                        // over the header whose write-once fields concurrent
                         // readers load): only the value word mutates, under
                         // the version bracket when shared.
                         // SAFETY: exclusive writer; a racing reader's load
@@ -822,22 +919,19 @@ impl ExpanseStrMap {
             }
             match node.map.get(chunk) {
                 None => {
-                    let rem = &key[off + CHUNK..];
-                    let suffix = Box::into_raw(Box::new(StrSuffix {
-                        suffix: rem.into(),
-                        value: 0,
-                    }));
+                    let suffix = new_suffix(&key[off + CHUNK..], 0);
                     node.map.insert_pathless(alloc, chunk, pack_suffix(suffix));
                     self.pop += 1;
-                    // SAFETY: suffix is a live, uniquely owned pointer allocated above.
+                    // SAFETY: suffix is a live, uniquely owned pointer
+                    // allocated above; `value` sits at offset 0.
                     return unsafe { NonNull::new_unchecked(&raw mut (*suffix).value) };
                 }
                 Some(v) if is_suffix_ptr(v) => {
                     let sfx = unpack_suffix(v);
                     let rem = &key[off + CHUNK..];
-                    // SAFETY: tagged pointer encodes a live Box<StrSuffix>;
+                    // SAFETY: tagged pointer encodes a live suffix leaf;
                     // short-lived shared borrow of the write-once bytes.
-                    if unsafe { rem == &(&(*sfx).suffix)[..] } {
+                    if rem == unsafe { suffix_bytes(sfx) } {
                         // SAFETY: field-precise pointer to the value word.
                         return NonNull::new(unsafe { &raw mut (*sfx).value })
                             .expect("non-null value slot");
@@ -871,11 +965,16 @@ impl ExpanseStrMap {
             }
             let v = node.map.get(chunk)?;
             if is_suffix_ptr(v) {
-                // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
-                let suffix = unsafe { &*unpack_suffix(v) };
+                let sfx = unpack_suffix(v);
                 let rem = &key[off + CHUNK..];
-                if rem == &suffix.suffix[..] {
-                    return Some(suffix.value);
+                // SAFETY: tagged pointer encodes a live suffix leaf. Taken
+                // from the raw pointer: the inline bytes sit past the header
+                // and are outside a `&StrSuffix`'s provenance. This is the
+                // dependent load the old two-allocation shape spent a second
+                // pointer chase on (#723).
+                if rem == unsafe { suffix_bytes(sfx) } {
+                    // SAFETY: as above; `value` is at offset 0.
+                    return Some(unsafe { (*sfx).value });
                 }
                 return None;
             }
@@ -949,14 +1048,13 @@ impl ExpanseStrMap {
             if is_suffix_ptr(v) {
                 let sfx: *const StrSuffix = unpack_suffix(v);
                 // SAFETY: `v` was validated at `snap`, so `sfx` was the
-                // published suffix then; EBR keeps it (and its buffer)
-                // mapped under the pin. Fat pointer and bytes are
-                // write-once; the value word may race and is validated
-                // below before use.
-                let (bytes, value) = unsafe {
-                    let s = &*sfx;
-                    (&s.suffix[..], s.value)
-                };
+                // published suffix then, and EBR keeps the whole block —
+                // header and inline bytes, now one allocation — mapped under
+                // the pin. `len` and the bytes are write-once; the value word
+                // may race and is validated below before use. Both reads
+                // project from the raw pointer: a `&StrSuffix` would not
+                // carry provenance over the bytes past the header.
+                let (bytes, value) = unsafe { (suffix_bytes(sfx), (*sfx).value) };
                 let matched = bytes == &key[off + CHUNK..];
                 if !ver.validate(snap) {
                     return Err(Retry);
@@ -985,11 +1083,16 @@ impl ExpanseStrMap {
             }
             let v = node.map.get(chunk)?;
             if is_suffix_ptr(v) {
-                // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
-                let suffix = unsafe { &mut *unpack_suffix(v) };
+                let sfx = unpack_suffix(v);
                 let rem = &key[off + CHUNK..];
-                if rem == &suffix.suffix[..] {
-                    return Some(NonNull::new(&raw mut suffix.value).expect("non-null value slot"));
+                // SAFETY: tagged pointer encodes a live suffix leaf.
+                if rem == unsafe { suffix_bytes(sfx) } {
+                    // SAFETY: field-precise pointer to the value word at
+                    // offset 0 — the JudySL `*mut Word` the C ABI hands out.
+                    return Some(
+                        NonNull::new(unsafe { &raw mut (*sfx).value })
+                            .expect("non-null value slot"),
+                    );
                 }
                 return None;
             }

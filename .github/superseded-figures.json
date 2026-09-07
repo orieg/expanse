@@ -330,6 +330,35 @@
       "replacement": "withheld pending re-measurement on the reference host with the corrected miss shape (#755)",
       "provenance": "#755",
       "rationale": "bindings/python/bench_concurrency.py built its miss half as `k ^ (1 << 63)` of each hit (AGENTS.md §8.6 degenerate miss shape) and alternated hits and misses strictly. The defect is present in every arm but not equal in magnitude across them: a hash `dict` has no descent depth for the miss shape to distort and the trie does, so every cross-arm figure from that run is not a like-for-like comparison. Within-arm scaling across thread widths is unaffected and was retained."
+    },
+    {
+      "id": "strmap_two_allocation_leaf_2ce92b7f",
+      "patterns": [
+        "(?<![\\w.])69\\.1[67](?![\\d])",
+        "(?<![\\w.])69\\.2(?![\\d])",
+        "(?<![\\w.])50\\.77(?![\\d])",
+        "(?<![\\w.])47\\.74(?![\\d])",
+        "(?<![\\w.])204,791(?![\\d])",
+        "(?<![\\w.])63\\.97(?![\\d])",
+        "(?<![\\w.])71\\.8[34](?![\\d])"
+      ],
+      "context": [
+        "strmap",
+        "expansestrmap",
+        "short",
+        "skewed",
+        "b/key",
+        "bytes per key",
+        "allocations",
+        "strsuffix",
+        "suffix",
+        "string",
+        "masstree",
+        "hot"
+      ],
+      "replacement": "47.84 B/key allocator and 42.77 B/key mem_used on `short` at 10^6, 41.33 / 37.71 on `skewed`, 63.45 / 54.77 on `prefixed`, 47.83 / 46.78 on `beyond`, and 115,916 allocations per 100,000 `short` keys (63.97 -> 42.48 B/key on the HOT gate), all at 41dc7bfd after #723 (docs/benchmarks/masstree_comparison/results/baseline_string_memory.json, docs/benchmarks/hot_comparison/results/baseline_string_memory.json, docs/benchmarks/hot_comparison/results/string_validate.log)",
+      "provenance": "#661, #693, #723",
+      "rationale": "The 2ce92b7f string artifacts were measured against an `ExpanseStrMap` leaf that spent two allocations on every key not resolved inside a terminal chunk — a `StrSuffix` shell plus a separate byte buffer. #723 made the leaf a single allocation and the whole string sweep was re-measured on the reference host at 41dc7bfd; `counter` is unchanged in both instruments because it allocates no suffix leaf. Superseded, not silently overwritten (§8.7)."
     }
   ]
 }

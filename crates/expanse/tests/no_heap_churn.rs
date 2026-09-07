@@ -403,3 +403,108 @@ fn monotonic_fill_allocates_less_than_scattered() {
          {monotonic} vs {random} over {N} keys"
     );
 }
+
+/// A string key that does not resolve inside its terminal chunk costs
+/// **one** allocation for its leaf, not two (#723).
+///
+/// `ExpanseStrMap`'s leaf used to be `{ suffix: Box<[u8]>, value: u64 }`: a
+/// shell allocation plus a separate byte buffer, for every key whose
+/// remainder does not fit in a terminal chunk. That is the whole of the
+/// memory finding — 69.17 B/key for a 12-byte key against Masstree's 33.91
+/// on the allocator instrument — and it is also a second dependent load on
+/// the lookup path, since reaching the bytes to compare meant chasing the
+/// shell's fat pointer into another allocation.
+///
+/// **The count is the gate, not the timing.** A leaf that goes back to two
+/// allocations fails here on any machine, under any load, at no cost —
+/// where a wall-clock regression needs the reference host and an interval
+/// (AGENTS.md §8.4).
+///
+/// Measured as a difference between two arms that share their first eight
+/// key bytes and differ only in whether a leaf is produced at all, so node
+/// storage — the structure doing its job — cancels instead of being
+/// estimated. The difference is exactly one allocation per leaf, at every
+/// population; before #723 it was exactly two.
+#[test]
+fn strmap_suffix_leaf_costs_one_allocation() {
+    use expanse_trie::strmap::ExpanseStrMap;
+
+    // Four base-32 digits offset into printable ASCII: injective over this
+    // range and NUL-free. (`i.to_be_bytes().map(|b| b | 0x40)` is neither —
+    // it collapses 0 and 64 onto the same key, which is how the first draft
+    // of this test silently measured 543 keys instead of 544.)
+    let digits = |i: u32| {
+        let mut k = Vec::with_capacity(12);
+        for d in 0..4 {
+            k.push(0x40u8 + ((i >> (5 * d)) & 31) as u8);
+        }
+        k
+    };
+    // 12 bytes: the first chunk is 8 non-NUL bytes, so the key does not
+    // terminate there and its 4-byte remainder becomes a suffix leaf. This
+    // is the `short` shape the comparison suites measure.
+    let with_leaf = |i: u32| {
+        let mut k = digits(i);
+        k.extend_from_slice(b"abcd");
+        k.extend_from_slice(b"tail");
+        k
+    };
+    // 7 bytes: the same leading digits, but the chunk now contains the
+    // terminating NUL, so the value lands in the node itself and no leaf is
+    // allocated. Same key count, same node population, no leaves.
+    let no_leaf = |i: u32| {
+        let mut k = digits(i);
+        k.extend_from_slice(b"abc");
+        k
+    };
+
+    // More than one population: one allocation per leaf is a slope, and a
+    // slope needs more than one point. Node storage cancels in the difference
+    // at each of them. `no_heap_churn` is a nightly Miri shard
+    // (`.github/workflows/nightly.yml`), and the interpreter pays for every
+    // one of these inserts, so it takes the small pair — the invariant holds
+    // at any population (docs/CI.md §5, as `test_mem_used_order_invariant`
+    // does for the same reason).
+    let populations: &[u32] = if cfg!(miri) {
+        &[64, 256]
+    } else {
+        &[256, 1024, 4096]
+    };
+    for &n in populations {
+        let leafy: Vec<Vec<u8>> = (0..n).map(with_leaf).collect();
+        let flat: Vec<Vec<u8>> = (0..n).map(no_leaf).collect();
+
+        let mut a = ExpanseStrMap::new();
+        let with = allocations_during(|| {
+            for (i, k) in leafy.iter().enumerate() {
+                a.insert(k, i as u64);
+            }
+        });
+        // Read back inside the same map so a shape that quietly stopped
+        // producing leaves cannot pass by allocating nothing.
+        for (i, k) in leafy.iter().enumerate() {
+            assert_eq!(a.get(k), Some(i as u64), "leaf key {i} lost at n={n}");
+        }
+        // Dropped rather than leaked: a retained map fails LeakSanitizer in
+        // the ASan job (AGENTS.md §5).
+        drop(a);
+
+        let mut b = ExpanseStrMap::new();
+        let without = allocations_during(|| {
+            for (i, k) in flat.iter().enumerate() {
+                b.insert(k, i as u64);
+            }
+        });
+        assert_eq!(b.len(), u64::from(n), "terminal arm lost keys at n={n}");
+        drop(b);
+
+        let per_leaf = with - without;
+        assert_eq!(
+            per_leaf, n as usize,
+            "at n={n}, {n} suffix leaves cost {per_leaf} allocations \
+             ({with} with leaves, {without} without) — one each is the \
+             post-#723 shape, two each was the `Box<StrSuffix>` shell plus \
+             its `Box<[u8]>` byte buffer"
+        );
+    }
+}
