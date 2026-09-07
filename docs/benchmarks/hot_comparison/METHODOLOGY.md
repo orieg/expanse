@@ -1989,12 +1989,14 @@ was not measured under, so the suite was re-run.
 
 Four phases, each in its own invocation under the host lock and the P-core pin,
 each gated on a load average below 0.6 at its start: the integer arms with the
-sensitivity pair, the string arms with theirs, then two concurrent sweeps. The
-runner still starts its concurrent sweep *before* the single-threaded phases
-when both are asked for in one invocation, which is why they are driven
-separately here: a single-threaded phase timed inside the sweep's load decay
-reads as contamination under `docs/BENCHMARKING.md` rule 2 and is only the
-sweep's own tail.
+sensitivity pair, the string arms with theirs, then two concurrent sweeps. At
+the time of that run the runner started its concurrent sweep *before* the
+single-threaded phases when both were asked for in one invocation, which is why
+they were driven separately here: a single-threaded phase timed inside the
+sweep's load decay reads as contamination under `docs/BENCHMARKING.md` rule 2
+and is only the sweep's own tail. `scripts/run_all.py` now orders the sweep last
+(#727), so one invocation gives the ordering these separate invocations gave; no
+figure in this document moves, because the phases above were already separate.
 
 The single-threaded phases were measured at `0f4fd40c` at load 0.55–1.00 with
 the host's busy CPU at 1.0 core-equivalents between every pair of snapshots —
