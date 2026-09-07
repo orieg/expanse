@@ -508,3 +508,105 @@ fn strmap_suffix_leaf_costs_one_allocation() {
         );
     }
 }
+
+/// A `k`-element ordered scan of `ExpanseStrMap` allocates nothing per
+/// element (#722).
+///
+/// The shipped `next_at_or_after` / `next_after` pair is a *positional*
+/// surface: each step is a fresh root descent that returns a freshly
+/// allocated key, so a scan costs `k` descents and allocates with `k`. Two
+/// comparison suites measured the consequence — HOT won 72 of 72 string scan
+/// cells and Masstree won every one, down to 0.036× — and both attributed it
+/// to the surface rather than to the trie. `cursor` descends once and reuses
+/// one key buffer.
+///
+/// **The invariant is a slope, so it is measured as one.** The cursor's key
+/// buffer and path stack do grow — a handful of reallocations while they
+/// reach the corpus's longest key and deepest path — so "zero allocations" is
+/// false as a total and true as a rate. Scanning ten times as many elements
+/// must therefore cost *exactly the same* number of allocations. That is the
+/// property, it holds on any machine under any load, and it is what a timing
+/// on the reference host cannot establish (AGENTS.md §8.4).
+#[test]
+fn strmap_cursor_scan_does_not_allocate_per_element() {
+    use expanse_trie::strmap::ExpanseStrMap;
+
+    // Distinct first chunks, so most keys land as suffix leaves, plus enough
+    // length variation to make the key buffer grow before it settles.
+    let key = |i: u32| {
+        let mut k = Vec::with_capacity(20);
+        for d in 0..4 {
+            k.push(0x40u8 + ((i >> (5 * d)) & 31) as u8);
+        }
+        k.extend_from_slice(b"abcd");
+        k.extend_from_slice(&b"tail-padding-of-varying-length"[..(i as usize % 17) + 1]);
+        k
+    };
+
+    let n: u32 = if cfg!(miri) { 400 } else { 20_000 };
+    let mut m = ExpanseStrMap::new();
+    for i in 0..n {
+        m.insert(&key(i), u64::from(i));
+    }
+
+    // Scan `k` elements from the start and report the allocations it cost.
+    let scan = |k: usize, m: &mut ExpanseStrMap| {
+        let mut seen = 0usize;
+        let mut sink = 0u64;
+        let n = allocations_during(|| {
+            let mut c = m.cursor();
+            while let Some((key, slot)) = c.next() {
+                // Consume both halves so neither can be optimized away, and
+                // touch the key bytes so a cursor that handed out a stale
+                // buffer would fail the length check below.
+                // SAFETY: the cursor holds the map borrowed for its lifetime,
+                // so the slot it just returned is a live value word and no
+                // structural mutation can run between here and the read.
+                let value = unsafe { *slot.as_ptr() };
+                sink ^= u64::from(key[0]) ^ value;
+                seen += 1;
+                if seen == k {
+                    break;
+                }
+            }
+        });
+        assert_eq!(seen, k, "scan stopped early");
+        std::hint::black_box(sink);
+        n
+    };
+
+    let small = (n / 10) as usize;
+    let large = n as usize;
+    let a = scan(small, &mut m);
+    let b = scan(large, &mut m);
+
+    assert_eq!(
+        a, b,
+        "a {large}-element scan cost {b} allocations against {a} for {small}: \
+         the cursor is allocating per element, which is the #722 defect"
+    );
+
+    // And the positional surface, for contrast: it must scale with k, which
+    // is why this test exists. Kept as a live comparison rather than a
+    // remembered number so it cannot quietly stop being true.
+    let positional = |k: usize, m: &mut ExpanseStrMap| {
+        let first = m.first().expect("non-empty").0;
+        allocations_during(|| {
+            let mut cur = Some(first.clone());
+            for _ in 0..k {
+                match cur.take() {
+                    Some(key) => cur = m.next_after(&key).map(|(k, _)| k),
+                    None => break,
+                }
+            }
+        })
+    };
+    let p_small = positional(small, &mut m);
+    let p_large = positional(large, &mut m);
+    assert!(
+        p_large > p_small * 5,
+        "the positional surface was expected to allocate with k ({p_small} for \
+         {small}, {p_large} for {large}); if it no longer does, this test is \
+         measuring the wrong thing"
+    );
+}
