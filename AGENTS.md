@@ -20,6 +20,7 @@ Named for Judy's defining structural invariant: **partitioning digital trees by 
 - **`crates/expanse-py`**: PyO3 native Python extension.
 - **`crates/expanse-node`**: napi native Node.js addon.
 - **`crates/expanse-wasm`**: WebAssembly (wasm-bindgen) surface.
+- **`crates/expanse-wasm-fuel`**: the deterministic wasmtime-fuel instrument for the wasm targets — the Callgrind analogue, gated by the `wasm-fuel` CI job.
 - **`crates/expanse-php`**: PHP native extension.
 - **`bindings/`**: language SDK packages that wrap the native surfaces — `bindings/java` (Panama FFM), `bindings/dotnet` (P/Invoke .NET), plus `bindings/go`, `bindings/python`, `bindings/ruby` (FFI over `libexpanse`, not a native extension), `bindings/php` packaging.
 - **`include/expanse.hpp`**: header-only C++20 wrapper over the C ABI.

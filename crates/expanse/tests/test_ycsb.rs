@@ -253,6 +253,15 @@ fn test_ycsb_full_workload_suite_report() {
             expanse_map.insert(k, k ^ 0x5CA1_AB1E);
         }
         let (stats_map, mem_map) = run_workload_expanse_map(&mut expanse_map, &ops, true);
+        // This test printed a table and asserted nothing: it would have passed
+        // with every measurement replaced by a constant, while counting toward
+        // the test floor. The sibling `test_ycsb_execution_across_all_targets`
+        // already pins these, so pin them here too.
+        assert!(
+            stats_map.ops_per_sec > 0.0,
+            "ExpanseMap did no work on {wl:?}"
+        );
+        assert!(mem_map > 0, "ExpanseMap reported no memory on {wl:?}");
         println!(
             "{:<24} | {:>9.2} M/s | {:>8} | {:>8} | {:>8} | {:>8} | {:>9.2} MB | {:>8.1}",
             "ExpanseMap (u64)",
@@ -272,6 +281,15 @@ fn test_ycsb_full_workload_suite_report() {
         }
         let (stats_blob, mem_blob) =
             run_workload_expanse_blobmap(&mut blobmap, &ops, &payload, true);
+        // This test printed a table and asserted nothing: it would have passed
+        // with every measurement replaced by a constant, while counting toward
+        // the test floor. The sibling `test_ycsb_execution_across_all_targets`
+        // already pins these, so pin them here too.
+        assert!(
+            stats_blob.ops_per_sec > 0.0,
+            "ExpanseBlobMap did no work on {wl:?}"
+        );
+        assert!(mem_blob > 0, "ExpanseBlobMap reported no memory on {wl:?}");
         println!(
             "{:<24} | {:>9.2} M/s | {:>8} | {:>8} | {:>8} | {:>8} | {:>9.2} MB | {:>8.1}",
             "ExpanseBlobMap (128B)",
@@ -290,6 +308,15 @@ fn test_ycsb_full_workload_suite_report() {
             btree.insert(k, payload.to_vec().into_boxed_slice());
         }
         let (stats_btree, mem_btree) = run_workload_btreemap(&mut btree, &ops, &payload, true);
+        // This test printed a table and asserted nothing: it would have passed
+        // with every measurement replaced by a constant, while counting toward
+        // the test floor. The sibling `test_ycsb_execution_across_all_targets`
+        // already pins these, so pin them here too.
+        assert!(
+            stats_btree.ops_per_sec > 0.0,
+            "BTreeMap did no work on {wl:?}"
+        );
+        assert!(mem_btree > 0, "BTreeMap reported no memory on {wl:?}");
         println!(
             "{:<24} | {:>9.2} M/s | {:>8} | {:>8} | {:>8} | {:>8} | {:>9.2} MB | {:>8.1}",
             "BTreeMap (128B)",
@@ -308,6 +335,15 @@ fn test_ycsb_full_workload_suite_report() {
             skipmap.insert(k, payload.to_vec().into_boxed_slice());
         }
         let (stats_skip, mem_skip) = run_workload_skipmap(&skipmap, &ops, &payload, true);
+        // This test printed a table and asserted nothing: it would have passed
+        // with every measurement replaced by a constant, while counting toward
+        // the test floor. The sibling `test_ycsb_execution_across_all_targets`
+        // already pins these, so pin them here too.
+        assert!(
+            stats_skip.ops_per_sec > 0.0,
+            "SkipMap did no work on {wl:?}"
+        );
+        assert!(mem_skip > 0, "SkipMap reported no memory on {wl:?}");
         println!(
             "{:<24} | {:>9.2} M/s | {:>8} | {:>8} | {:>8} | {:>8} | {:>9.2} MB | {:>8.1}",
             "SkipMap (128B)",

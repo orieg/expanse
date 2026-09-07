@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""scripts/generate_embedded_svg.py
+"""docs/benchmarks/embedded/scripts/generate_charts.py
 
 Regenerates ``docs/benchmarks/embedded/results/bench_embedded.svg`` (the three-panel embedded
 storage-engine chart embedded by ``docs/DATABASE.md`` §5.4) from
@@ -16,8 +16,8 @@ that run's provenance.
 
 Refresh the committed record from a bench-host artifact, then the SVG:
 
-    python3 scripts/generate_embedded_svg.py --from-baseline baseline-embedded_memtable.json
-    python3 scripts/generate_embedded_svg.py           # re-render from committed results.json
+    python3 docs/benchmarks/embedded/scripts/generate_charts.py --from-baseline baseline-embedded_memtable.json
+    python3 docs/benchmarks/embedded/scripts/generate_charts.py           # re-render from committed results.json
 
 XML is validated before writing (same discipline as
 ``integrations/rocksdb/scripts/generate_bench_svg.py``, whose geometry and

@@ -84,7 +84,7 @@ python3 scripts/bench_baseline.py --harvest \
   --run-id "${EXPANSE_RUN_ID:-local}" \
   --out results/baseline_avx512_bitmap.json
 
-python3 scripts/generate_avx512_svg.py
+python3 docs/benchmarks/avx512/scripts/generate_charts.py
 
 echo ""
 echo " Results written to:"

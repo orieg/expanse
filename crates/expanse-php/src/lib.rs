@@ -334,6 +334,17 @@ impl PhpExpanseBlobMap {
     }
 
     /// Gets the payload blob associated with key, or null if absent.
+    /// Gets the payload for `key`, or null if absent.
+    ///
+    /// The payload is valid UTF-8 by construction and the lossy decode below
+    /// cannot lose anything: `set` is the only way bytes enter this map -- there
+    /// is no load-from-file or import surface here -- and it takes a `String`,
+    /// which ext-php-rs produces only from a PHP string that already validated
+    /// as UTF-8. A binary payload is rejected at that boundary with a type
+    /// error rather than stored and mangled here.
+    ///
+    /// The limitation is real and worth stating: unlike the core
+    /// `ExpanseBlobMap`, which stores arbitrary bytes, this class is UTF-8 only.
     pub fn get(&self, key: u64) -> Option<String> {
         self.inner
             .get(key)

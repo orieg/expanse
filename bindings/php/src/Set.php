@@ -34,7 +34,17 @@ if (!class_exists(Set::class)) {
                 try {
                     $ffi = FFIDriver::getFFI();
                     $ffi->expanse_set_free($this->handle);
-                } catch (\Throwable) {}
+                } catch (\Throwable $e) {
+                    // A destructor cannot propagate, but it can say something.
+                    // Swallowing here leaks the native allocation *and* clears
+                    // the handle below, so nothing can retry or report it --
+                    // an invisible leak is the one outcome worth avoiding
+                    // (AGENTS.md section 8.1).
+                    \error_log(
+                        'Expanse: freeing the native Set handle failed: '
+                        . $e->getMessage()
+                    );
+                }
                 $this->handle = null;
             }
         }

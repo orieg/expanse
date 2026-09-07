@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""scripts/generate_stm32_svg.py
+"""docs/benchmarks/stm32h747/scripts/generate_charts.py
 
 Renders the three STM32H747I-DISCO charts from the committed on-target
 transcript summary ``docs/benchmarks/stm32h747/results.json`` (produced by
@@ -18,7 +18,7 @@ Every bar, label, ratio and footer value is derived from that file at render
 time; no summary constant is stamped into the markup (AGENTS.md §8.2) and each
 footer carries the provenance (§8.7).
 
-    python3 scripts/generate_stm32_svg.py
+    python3 docs/benchmarks/stm32h747/scripts/generate_charts.py
 """
 from __future__ import annotations
 

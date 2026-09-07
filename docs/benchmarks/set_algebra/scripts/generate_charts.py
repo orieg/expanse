@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""scripts/generate_domain_algebra_svg.py
+"""docs/benchmarks/set_algebra/scripts/generate_charts.py
 
 Renders docs/benchmarks/set_algebra/results/bench_domain_algebra.svg from committed benchmark data:
   docs/benchmarks/set_algebra/results/bench_domain_algebra.json

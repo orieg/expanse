@@ -182,26 +182,26 @@ def build_apt_repo(
         control = extract_control_info(dest_path)
 
         pkg_name = control.get(
-            "Package", filename.split("_")[0] if "_" in filename else "libexpanse"
+            "package", filename.split("_")[0] if "_" in filename else "libexpanse"
         )
         version = control.get(
-            "Version", filename.split("_")[1] if "_" in filename else "0.4.0"
+            "version", filename.split("_")[1] if "_" in filename else "0.4.0"
         )
         arch = control.get(
-            "Architecture",
+            "architecture",
             filename.split("_")[2].replace(".deb", "")
             if "_" in filename
             else "amd64",
         )
         maintainer = control.get(
-            "Maintainer", "Nicolas Brousse <nicolas@brousse.info>"
+            "maintainer", "Nicolas Brousse <nicolas@brousse.info>"
         )
         description = control.get(
-            "Description", "Expanse trie engine: modern Judy replacement"
+            "description", "Expanse trie engine: modern Judy replacement"
         )
-        depends = control.get("Depends", "")
-        provides = control.get("Provides", "")
-        conflicts = control.get("Conflicts", "")
+        depends = control.get("depends", "")
+        provides = control.get("provides", "")
+        conflicts = control.get("conflicts", "")
 
         entry = {
             "Package": pkg_name,

@@ -39,7 +39,7 @@ graph TD
 
 ### Release Steps:
 1. **Multi-Ecosystem Version Bump**:
-   - Run `python3 scripts/bump_version.py <NEW_VERSION>` to synchronize version numbers across all 10 manifests (`Cargo.toml`, `pyproject.toml`, `package.json`, `.csproj`, `pom.xml`, `build.gradle`, etc.) and regenerate `Cargo.lock`.
+   - Run `python3 scripts/bump_version.py <NEW_VERSION>` to synchronize every version pin (`Cargo.toml`, `pyproject.toml`, `package.json`, `.csproj`, `pom.xml`, `build.gradle`, and the version strings embedded in READMEs and `CITATION.cff`) and regenerate `Cargo.lock`. The tool prints the count it checked; a number repeated here would be a second place to drift, and it already had — this line said 10 and §12 said 16 while the tool checked 26.
    - Verify lockstep sync: `python3 scripts/bump_version.py --check`.
 2. **Release Notes** (automatic — no CHANGELOG file is maintained):
    - The GitHub Release generates its notes from merged PR titles, grouped by the label categories in [`.github/release.yml`](../.github/release.yml). Conventional-commit PR titles keep them readable; label PRs (`enhancement`, `bug`, `performance`, `documentation`, `ci`, …) for correct grouping.
@@ -80,12 +80,12 @@ sudo apt-get install -y libexpanse1 libexpanse-dev libjudy-compat
 ```
 
 - **Architectures Supported in APT Repo**:
-  - `amd64` (`x86-64-v1`, `v2`, `v3`, `v4` with `glibc-hwcaps`)
+  - `amd64` (baseline `x86-64-v1`; the `glibc-hwcaps` `v2`/`v3`/`v4` variants are a build recipe the release pipeline does not run — #762)
   - `arm64` (AArch64 Apple Silicon Linux, Graviton, Raspberry Pi 4/5)
   - `riscv64` (RV64GC embedded and server systems)
 
 - **Packages Available**:
-  - `libexpanse1`: Runtime shared libraries (`libexpanse.so.1.0.0` with `glibc-hwcaps/` variants).
+  - `libexpanse1`: Runtime shared libraries (`libexpanse.so.1.0.0`; the packagers stage `glibc-hwcaps/` variants when `dist/lib/glibc-hwcaps/` is populated, which the release pipeline does not do — #762).
   - `libexpanse-dev`: Development headers (`expanse.h`, `Judy.h`), static library (`libexpanse.a`), pkg-config, and Section 3 man pages (`expanse(3)`, `expanse_set(3)`, etc.).
   - `libjudy-compat`: Drop-in replacement creating system-wide `/usr/lib/.../libJudy.so.1` symlinks to Expanse, pkg-config, and Judy compatibility man pages (`Judy(3)`, `Judy1(3)`, `JudyL(3)`, etc.).
 
@@ -387,7 +387,7 @@ See `bindings/go/README.md` for details.
 ---
 
 ### 2.14 Multi-Ecosystem Version Synchronization (`scripts/bump_version.py`)
-Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C++ headers/CMake, Python/PyPI, Node.js/npm, .NET/NuGet, Java/Maven/Gradle, PHP/Composer/PIE, and Ruby/Gems) spanning 16 canonical manifests. Publication status differs per registry (see the per-ecosystem sections: crates.io / npm (+wasm) / PyPI / NuGet / RubyGems / Maven Central wired into the anchor-first release DAG; PHP/Packagist published out-of-band by the `subsplit.yml` mirror workflow, whose success confirms the mirrors were pushed but not that Packagist ingested the version ([#498](https://github.com/orieg/expanse/issues/498)); Go pinned via nested-module tags). To guarantee version lockstep without manual error, the repository includes `scripts/bump_version.py`.
+Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C++ headers/CMake, Python/PyPI, Node.js/npm, .NET/NuGet, Java/Maven/Gradle, PHP/Composer/PIE, and Ruby/Gems) spanning the manifest set `scripts/bump_version.py` enumerates — it is the single source of truth for which files carry a version, and `--check` reports how many it verified. Publication status differs per registry (see the per-ecosystem sections: crates.io / npm (+wasm) / PyPI / NuGet / RubyGems / Maven Central wired into the anchor-first release DAG; PHP/Packagist published out-of-band by the `subsplit.yml` mirror workflow, whose success confirms the mirrors were pushed but not that Packagist ingested the version ([#498](https://github.com/orieg/expanse/issues/498)); Go pinned via nested-module tags). To guarantee version lockstep without manual error, the repository includes `scripts/bump_version.py`.
 
 #### Synchronized Manifests:
 | Manifest File | Section / Key | Description |
