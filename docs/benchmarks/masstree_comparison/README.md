@@ -65,13 +65,32 @@ falls from 5.66 to 1.86 M inserts/s where Masstree's falls from 5.09 to 3.82
 
 ![Reader throughput alongside writers](results/chart_concurrent_readers.svg)
 
-**Ordered scan on string keys is a loss in every cell**, 0.548 [0.547, 0.550]
-at best (`prefixed`, k=10) and 0.035 [0.035, 0.036] at worst (`counter`,
-k=1000) *(workload: `masstree_str_map`)* — **`CONFIRMED`** at the high
-confidence registered. As in the HOT suite this measures the shipped
-`ExpanseStrMap` navigation surface, which re-descends from the root and
-allocates a key per visited element, against one descent and a leaf walk; a
-cursor iterator for `ExpanseStrMap` is [#722](https://github.com/orieg/expanse/issues/722).
+**Ordered scan on string keys is a loss in 33 of 36 cells**, 0.089
+[0.088, 0.091] at worst (`counter`, k = 1000) and 2.149 [2.140, 2.175] at best
+(`prefixed`, k = 10, where Expanse now wins) *(workload: `masstree_str_map`)* —
+**`CONFIRMED`** on the 33, **`REFUTED`** on the three `prefixed` k = 10 cells.
+
+> **Re-measured after [#722](https://github.com/orieg/expanse/issues/722).**
+> This pillar used to measure the shipped `ExpanseStrMap` navigation surface —
+> `next_at_or_after` / `next_after`, a fresh root descent per element that
+> allocated a key the arm then discarded — against Masstree's `scan` visitor,
+> which XORs values and never materializes a key. That is an asymmetry (§8.3),
+> not a property of the trie, and it is why the loss was read as a finding
+> about the surface. `ExpanseStrMap` now has a cursor: one descent, then a
+> step along the recorded path, no allocation per element.
+>
+> **Every one of the 45 scan cells improved, by 1.40× to 10.88× (median
+> 2.28×)**, measured as a paired pair of runs differing only in the surface —
+> `origin/main`'s positional walk at `82f400b0` against the cursor at
+> `7fe02c0b`, same builder, same start distribution, same quiet host. The 15
+> pillars the cursor does not touch drifted at most 3.3% between those runs,
+> most under 1%, which is the floor the comparison resolves; every scan cell
+> cleared it. The superseded cells (0.548 at best, 0.035 at worst) are
+> registered in `.github/superseded-figures.json`.
+>
+> **It narrows the gap; it does not close it.** Masstree still wins 33 of the
+> 36 comparable cells, and `counter` at k = 1000 is still 0.089. The surface
+> was *a* cause of the loss, not the whole of it.
 
 **String insertion is Masstree's on every representable shape**, 0.420
 [0.414, 0.425] on `short`, 0.441 [0.439, 0.443] on `counter`, 0.593
@@ -259,7 +278,7 @@ Both sides copy key bytes into their own nodes, so the index column is the owner
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
 | `beyond` | 1,000,000 | 272.0 | withheld (1,000,000 keys > 255 B) | 47.83 | withheld (1,000,000 keys > 255 B) | 46.78 | withheld (1,000,000 keys > 255 B) | — | `NOT_REPRESENTABLE_MASSTREE` |
 | `counter` | 1,000,000 | 12.0 | 25.18 (25.18) | 20.53 | 22.82 | 19.56 | 2.36 | 100 | `ok` |
-| `prefixed` | 1,000,000 | 120.0 | 69.08 (79.26) | 63.45 | 65.43 | 54.77 | 3.66 | 12 | `ok` |
+| `prefixed` | 1,000,000 | 120.0 | 69.00 (81.51) | 63.46 | 65.43 | 54.77 | 3.58 | 12 | `ok` |
 | `short` | 1,000,000 | 12.0 | 33.91 (34.02) | 47.84 | 32.02 | 42.77 | 1.89 | 0 | `ok` |
 | `skewed` | 998,150 | 14.3 | 46.63 (49.26) | 41.33 | 43.24 | 37.71 | 3.38 | 0 | `ok` |
 
@@ -278,7 +297,7 @@ Both sides copy key bytes into their own nodes, so the index column is the owner
 | 150,000 | — / 49.7 | 28.0 / 20.9 | 91.7† / 65.4 | 70.3† / 49.9 | 69.1† / 43.4 |
 | 200,000 | — / 50.5 | 42.0† / 20.8 | 77.8 / 66.0 | 52.8† / 50.5 | 65.5† / 44.0 |
 | 500,000 | — / 50.0 | 29.4† / 20.6 | 73.5 / 65.3 | 38.1 / 50.0 | 50.8 / 43.3 |
-| 1,000,000 | — / 47.8 | 25.2 / 20.5 | 69.1 / 63.5 | 33.9 / 47.8 | 46.6 / 41.3 |
+| 1,000,000 | — / 47.8 | 25.2 / 20.5 | 69.0 / 63.5 | 33.9 / 47.8 | 46.6 / 41.3 |
 
 † `QUANTUM_DOMINATED`: the allocator figure is mostly the 2 MiB slab, not the index (§3.3).
 
@@ -290,10 +309,10 @@ Both sides copy key bytes into their own nodes, so the index column is the owner
 
 | Distribution | λ | Masstree ns | Expanse ns | Masstree ÷ Expanse [BCa 95%] | Verdict |
 |---|---:|---:|---:|---:|---|
-| `clustered` | — | 116.89 | 22.11 | 5.364 [5.293, 5.437] | Expanse — `not pre-registered` |
-| `random` | 15.3 | 116.12 | 37.94 | 3.105 [3.074, 3.140] | Expanse — `CONFIRMED` |
-| `sequential` | — | 116.61 | 12.49 | 10.296 [9.639, 11.099] | Expanse — `CONFIRMED` |
-| `sparse` | — | 116.11 | 9.99 | 13.232 [12.242, 14.427] | Expanse — `CONFIRMED` |
+| `clustered` | — | 117.69 | 22.14 | 5.394 [5.330, 5.461] | Expanse — `not pre-registered` |
+| `random` | 15.3 | 118.34 | 37.86 | 3.151 [3.116, 3.187] | Expanse — `CONFIRMED` |
+| `sequential` | — | 118.10 | 12.57 | 10.455 [9.761, 11.289] | Expanse — `CONFIRMED` |
+| `sparse` | — | 117.75 | 9.83 | 13.710 [12.661, 15.002] | Expanse — `CONFIRMED` |
 
 #### Point lookup, 50% hit / 50% rejection-sampled miss, integer keys (N = 1,000,000)
 
@@ -312,28 +331,28 @@ Both sides copy key bytes into their own nodes, so the index column is the owner
 
 | Distribution | λ | Masstree ns | Expanse ns | Masstree ÷ Expanse [BCa 95%] | Verdict |
 |---|---:|---:|---:|---:|---|
-| `clustered` | — | 97.99 | 15.77 | 6.276 [6.220, 6.328] | Expanse — `not pre-registered` |
-| `random` | 15.3 | 118.49 | 38.35 | 3.142 [3.111, 3.176] | Expanse — `not pre-registered` |
-| `sequential` | — | 64.61 | 8.72 | 7.447 [7.155, 7.599] | Expanse — `CONFIRMED` |
-| `sparse` | — | 64.75 | 7.47 | 8.868 [8.614, 9.113] | Expanse — `CONFIRMED` |
+| `clustered` | — | 101.24 | 17.84 | 5.776 [5.697, 5.863] | Expanse — `not pre-registered` |
+| `random` | 15.3 | 122.16 | 39.12 | 3.139 [3.114, 3.167] | Expanse — `not pre-registered` |
+| `sequential` | — | 68.18 | 11.88 | 6.491 [6.053, 7.037] | Expanse — `CONFIRMED` |
+| `sparse` | — | 68.29 | 9.76 | 7.891 [7.380, 8.524] | Expanse — `CONFIRMED` |
 
 #### Insertion into a cold structure, integer keys (N = 1,000,000)
 
 | Distribution | λ | Masstree ns | Expanse ns | Masstree ÷ Expanse [BCa 95%] | Verdict |
 |---|---:|---:|---:|---:|---|
-| `clustered` | — | 20.84 | 21.26 | 0.979 [0.970, 0.989] | Masstree — **`UNPREDICTED LOSS`** |
-| `random` | 15.3 | 20.68 | 26.94 | 0.758 [0.718, 0.772] | Masstree — **`UNPREDICTED LOSS`** |
-| `sequential` | — | 20.65 | 13.42 | 1.550 [1.536, 1.567] | Expanse — `CONFIRMED` |
-| `sparse` | — | 20.56 | 31.08 | 0.661 [0.655, 0.666] | Masstree — **`UNPREDICTED LOSS`** |
+| `clustered` | — | 20.83 | 21.24 | 0.978 [0.972, 0.984] | Masstree — **`UNPREDICTED LOSS`** |
+| `random` | 15.3 | 20.65 | 27.08 | 0.762 [0.755, 0.768] | Masstree — **`UNPREDICTED LOSS`** |
+| `sequential` | — | 20.68 | 13.41 | 1.543 [1.526, 1.560] | Expanse — `CONFIRMED` |
+| `sparse` | — | 20.61 | 31.10 | 0.663 [0.654, 0.670] | Masstree — **`UNPREDICTED LOSS`** |
 
 #### Ordered range scan, integer keys (N = 1,000,000; Masstree ÷ Expanse per visited element)
 
 | Distribution | k=10 | k=100 | k=1000 |
 |---|---:|---:|---:|
-| `sequential` | 2.348 [2.244, 2.458] · **`REFUTED`** | 2.324 [2.230, 2.402] · **`REFUTED`** | 2.593 [2.552, 2.617] · `not pre-registered` |
-| `clustered` | 2.421 [2.308, 2.549] · **`REFUTED`** | 2.269 [2.182, 2.351] · **`REFUTED`** | 2.530 [2.455, 2.561] · `not pre-registered` |
-| `sparse` | 1.625 [1.526, 1.741] · **`REFUTED`** | 1.257 [1.227, 1.288] · **`REFUTED`** | 1.119 [1.110, 1.126] · `not pre-registered` |
-| `random` | 1.654 [1.563, 1.757] · **`REFUTED`** | 1.546 [1.462, 1.640] · **`REFUTED`** | 1.615 [1.542, 1.647] · `not pre-registered` |
+| `sequential` | 2.394 [2.292, 2.511] · **`REFUTED`** | 2.327 [2.236, 2.409] · **`REFUTED`** | 2.590 [2.526, 2.615] · `not pre-registered` |
+| `clustered` | 2.463 [2.352, 2.587] · **`REFUTED`** | 2.275 [2.186, 2.365] · **`REFUTED`** | 2.535 [2.485, 2.563] · `not pre-registered` |
+| `sparse` | 1.635 [1.536, 1.750] · **`REFUTED`** | 1.257 [1.226, 1.288] · **`REFUTED`** | 1.124 [1.113, 1.144] · `not pre-registered` |
+| `random` | 1.675 [1.579, 1.785] · **`REFUTED`** | 1.545 [1.462, 1.634] · **`REFUTED`** | 1.622 [1.578, 1.648] · `not pre-registered` |
 
 ## 5. Latency tables, string keys
 
@@ -343,11 +362,11 @@ Both sides copy key bytes into their own nodes, so the index column is the owner
 
 | Shape | N held | mean len | Masstree ns | Expanse ns | Masstree ÷ Expanse [BCa 95%] | Verdict |
 |---|---:|---:|---:|---:|---:|---|
-| `beyond` | 1,000,000 | 272.0 | withheld (1,000,000 keys > 255 B) | 346.50 | — | no Masstree cell (§3.4) |
-| `counter` | 1,000,000 | 12.0 | 143.17 | 151.67 | 0.946 [0.943, 0.951] | Masstree — **`UNPREDICTED LOSS`** |
-| `prefixed` | 1,000,000 | 120.0 | 306.28 | 280.30 | 1.091 [1.085, 1.095] | Expanse — **`REFUTED`** |
-| `short` | 1,000,000 | 12.0 | 170.59 | 130.80 | 1.313 [1.306, 1.319] | Expanse — `CONFIRMED` |
-| `skewed` | 998,150 | 14.3 | 202.24 | 138.95 | 1.459 [1.455, 1.462] | Expanse — `not pre-registered` |
+| `beyond` | 1,000,000 | 272.0 | withheld (1,000,000 keys > 255 B) | 347.25 | — | no Masstree cell (§3.4) |
+| `counter` | 1,000,000 | 12.0 | 147.66 | 152.18 | 0.978 [0.971, 1.000] | `BOUNDARY_RESULT` |
+| `prefixed` | 1,000,000 | 120.0 | 306.80 | 278.67 | 1.100 [1.092, 1.103] | Expanse — **`REFUTED`** |
+| `short` | 1,000,000 | 12.0 | 172.69 | 130.85 | 1.322 [1.318, 1.326] | Expanse — `CONFIRMED` |
+| `skewed` | 998,150 | 14.3 | 202.55 | 139.10 | 1.460 [1.455, 1.464] | Expanse — `not pre-registered` |
 
 #### Point lookup, 50% hit / 50% rejection-sampled miss, string keys (N = 1,000,000)
 
@@ -358,31 +377,31 @@ Both sides copy key bytes into their own nodes, so the index column is the owner
 
 | Shape | N held | mean len | Masstree ns | Expanse ns | Masstree ÷ Expanse [BCa 95%] | Verdict |
 |---|---:|---:|---:|---:|---:|---|
-| `beyond` | 1,000,000 | 272.0 | withheld (1,000,000 keys > 255 B) | 306.26 | — | no Masstree cell (§3.4) |
-| `counter` | 1,000,000 | 12.0 | 79.38 | 80.69 | 0.982 [0.979, 0.985] | Masstree — `not pre-registered` |
-| `prefixed` | 1,000,000 | 120.0 | 272.10 | 236.09 | 1.156 [1.153, 1.159] | Expanse — **`REFUTED`** |
-| `short` | 1,000,000 | 12.0 | 162.51 | 109.25 | 1.489 [1.485, 1.492] | Expanse — `not pre-registered` |
-| `skewed` | 998,150 | 14.3 | 184.51 | 120.87 | 1.528 [1.522, 1.532] | Expanse — `not pre-registered` |
+| `beyond` | 1,000,000 | 272.0 | withheld (1,000,000 keys > 255 B) | 316.09 | — | no Masstree cell (§3.4) |
+| `counter` | 1,000,000 | 12.0 | 83.79 | 97.34 | 0.863 [0.860, 0.867] | Masstree — `not pre-registered` |
+| `prefixed` | 1,000,000 | 120.0 | 289.62 | 243.05 | 1.193 [1.190, 1.195] | Expanse — **`REFUTED`** |
+| `short` | 1,000,000 | 12.0 | 173.13 | 114.63 | 1.512 [1.509, 1.516] | Expanse — `not pre-registered` |
+| `skewed` | 998,150 | 14.3 | 197.00 | 126.72 | 1.552 [1.526, 1.561] | Expanse — `not pre-registered` |
 
 #### Insertion into a cold structure, string keys (N = 1,000,000)
 
 | Shape | N held | mean len | Masstree ns | Expanse ns | Masstree ÷ Expanse [BCa 95%] | Verdict |
 |---|---:|---:|---:|---:|---:|---|
-| `beyond` | 1,000,000 | 272.0 | withheld (1,000,000 keys > 255 B) | 271.74 | — | no Masstree cell (§3.4) |
-| `counter` | 1,000,000 | 12.0 | 24.68 | 56.15 | 0.439 [0.438, 0.441] | Masstree — **`UNPREDICTED LOSS`** |
-| `prefixed` | 1,000,000 | 120.0 | 167.10 | 176.51 | 0.944 [0.940, 0.947] | Masstree — `CONFIRMED` |
-| `short` | 1,000,000 | 12.0 | 52.01 | 109.55 | 0.468 [0.461, 0.474] | Masstree — `not pre-registered` |
-| `skewed` | 998,150 | 14.3 | 66.46 | 106.62 | 0.623 [0.617, 0.627] | Masstree — `not pre-registered` |
+| `beyond` | 1,000,000 | 272.0 | withheld (1,000,000 keys > 255 B) | 270.64 | — | no Masstree cell (§3.4) |
+| `counter` | 1,000,000 | 12.0 | 24.73 | 55.98 | 0.443 [0.441, 0.446] | Masstree — **`UNPREDICTED LOSS`** |
+| `prefixed` | 1,000,000 | 120.0 | 165.41 | 175.54 | 0.940 [0.934, 0.945] | Masstree — `CONFIRMED` |
+| `short` | 1,000,000 | 12.0 | 52.41 | 107.94 | 0.480 [0.472, 0.491] | Masstree — `not pre-registered` |
+| `skewed` | 998,150 | 14.3 | 66.10 | 105.72 | 0.628 [0.623, 0.632] | Masstree — `not pre-registered` |
 
 #### Ordered range scan, string keys (N = 1,000,000; Masstree ÷ Expanse per visited element)
 
 | Shape | k=10 | k=100 | k=1000 |
 |---|---:|---:|---:|
-| `short` | 0.261 [0.260, 0.263] | 0.121 [0.120, 0.121] | 0.099 [0.099, 0.099] |
-| `counter` | 0.188 [0.187, 0.188] | 0.053 [0.052, 0.054] | 0.036 [0.035, 0.036] |
-| `prefixed` | 0.537 [0.535, 0.539] | 0.117 [0.116, 0.118] | 0.067 [0.067, 0.067] |
-| `skewed` | 0.261 [0.259, 0.262] | 0.107 [0.106, 0.108] | 0.085 [0.084, 0.085] |
-| `beyond` | Expanse 295 ns; Masstree withheld | Expanse 287 ns; Masstree withheld | Expanse 264 ns; Masstree withheld |
+| `short` | 0.412 [0.410, 0.415] | 0.251 [0.249, 0.253] | 0.222 [0.221, 0.223] |
+| `counter` | 0.346 [0.344, 0.348] | 0.129 [0.128, 0.130] | 0.089 [0.088, 0.091] |
+| `prefixed` | 1.474 [1.467, 1.481] | 0.607 [0.603, 0.611] | 0.385 [0.383, 0.388] |
+| `skewed` | 0.362 [0.360, 0.365] | 0.192 [0.190, 0.193] | 0.159 [0.158, 0.160] |
+| `beyond` | Expanse 114 ns; Masstree withheld | Expanse 46 ns; Masstree withheld | Expanse 38 ns; Masstree withheld |
 
 `beyond` (272-byte keys) fails the §3.4 predicate for its whole population:
 Masstree's declared contract is `MASSTREE_MAXKEYLEN = 255`, and the validation
@@ -397,14 +416,14 @@ Sorted / single is the order the shared generator produces and the table configu
 
 | Arm | Shape | Order | Table | N | Masstree allocator, settled (unsettled) | Masstree structural | leaf fill | Expanse allocator | Expanse `mem_used` | lookup_hit ratio [BCa 95%] | insert ratio [BCa 95%] |
 |---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| map | `random` | sorted | single | 1,000,000 | 23.08 (23.08) | 22.76 | 1.000 | 16.67 | 16.70 | 3.141 [3.113, 3.171] | 0.760 [0.754, 0.766] |
-| map | `random` | sorted | concurrent | 1,000,000 | 23.08 (23.08) | 22.76 | 1.000 | 16.67 | 16.70 | 3.371 [3.339, 3.404] | 1.148 [1.142, 1.154] |
-| map | `random` | shuffled | single | 1,000,000 | 33.57 (33.57) | 33.10 | 0.707 | 23.62 | 16.70 | 3.440 [3.401, 3.479] | 1.882 [1.874, 1.891] |
-| str | `prefixed` | sorted | single | 1,000,000 | 69.09 (77.04) | 65.43 | 1.000 | 63.45 | 54.77 | 1.097 [1.086, 1.100] | 0.940 [0.931, 0.946] |
-| str | `prefixed` | shuffled | single | 1,000,000 | 88.50 (92.36) | 84.20 | 0.706 | 66.32 | 54.77 | 1.108 [1.097, 1.113] | 1.264 [1.261, 1.267] |
-| str | `short` | sorted | single | 1,000,000 | 33.91 (34.02) | 32.02 | 1.000 | 47.84 | 42.77 | 1.307 [1.302, 1.311] | 0.468 [0.462, 0.473] |
-| str | `short` | sorted | concurrent | 1,000,000 | 33.91 (34.02) | 32.02 | 1.000 | 47.84 | 42.77 | 1.489 [1.484, 1.494] | 0.586 [0.575, 0.595] |
-| str | `short` | shuffled | single | 1,000,000 | 50.62 (50.73) | 47.99 | 0.707 | 50.60 | 42.77 | 1.490 [1.486, 1.494] | 1.085 [1.081, 1.088] |
+| map | `random` | sorted | single | 1,000,000 | 23.08 (23.08) | 22.76 | 1.000 | 16.67 | 16.70 | 3.149 [3.116, 3.183] | 0.763 [0.751, 0.775] |
+| map | `random` | sorted | concurrent | 1,000,000 | 23.08 (23.08) | 22.76 | 1.000 | 16.67 | 16.70 | 3.311 [3.282, 3.345] | 1.148 [1.141, 1.154] |
+| map | `random` | shuffled | single | 1,000,000 | 33.57 (33.57) | 33.10 | 0.707 | 23.62 | 16.70 | 3.341 [3.304, 3.380] | 1.886 [1.874, 1.900] |
+| str | `prefixed` | sorted | single | 1,000,000 | 69.10 (77.60) | 65.43 | 1.000 | 63.45 | 54.77 | 1.099 [1.091, 1.103] | 0.940 [0.930, 0.945] |
+| str | `prefixed` | shuffled | single | 1,000,000 | 88.52 (93.87) | 84.20 | 0.706 | 66.32 | 54.77 | 1.108 [1.105, 1.111] | 1.268 [1.264, 1.276] |
+| str | `short` | sorted | single | 1,000,000 | 33.91 (34.02) | 32.02 | 1.000 | 47.84 | 42.77 | 1.325 [1.322, 1.329] | 0.476 [0.469, 0.481] |
+| str | `short` | sorted | concurrent | 1,000,000 | 33.91 (34.02) | 32.02 | 1.000 | 47.84 | 42.77 | 1.462 [1.459, 1.466] | 0.598 [0.586, 0.608] |
+| str | `short` | shuffled | single | 1,000,000 | 50.62 (51.02) | 47.99 | 0.707 | 50.61 | 42.77 | 1.498 [1.492, 1.503] | 1.091 [1.088, 1.095] |
 
 The shuffled rows are the regime the Step 0 gate measured and the §6
 predictions leaned on; the sorted rows are the suite's cells in the shared
@@ -463,9 +482,9 @@ cell in this suite was measured on.
 
 ## 7. The concurrent arm
 
-> **Pending re-measurement after [#723](https://github.com/orieg/expanse/issues/723).**
+> **Pending re-measurement, tracked by [#730](https://github.com/orieg/expanse/issues/730).**
 > Every cell in this section was measured at harness commit `2ce92b7f` and was
-> **not** re-run for #723. MC1, C1/C2 on `u64` keys, and the `M` census are
+> **not** re-run for [#723](https://github.com/orieg/expanse/issues/723). MC1, C1/C2 on `u64` keys, and the `M` census are
 > unaffected by that change — it touches `ExpanseStrMap` only. **MC2 is not**:
 > its readers walk the string suffix leaf whose representation changed, so its
 > levels are stale. They are left in place rather than deleted because the
@@ -625,20 +644,20 @@ runs settle is direction; what they do not settle is magnitude.
 
 | | Count |
 |---|---:|
-| Expanse wins (CI excludes parity) | 82 |
-| Masstree wins (CI excludes parity) | 85 |
-| `BOUNDARY_RESULT` | 5 |
+| Expanse wins (CI excludes parity) | 85 |
+| Masstree wins (CI excludes parity) | 81 |
+| `BOUNDARY_RESULT` | 6 |
 | Masstree column withheld (§3.4, `beyond`) | 18 |
 
 | Label | Cells |
 |---|---:|
-| Masstree — `CONFIRMED` | 61 |
+| Masstree — `CONFIRMED` | 58 |
 | Expanse — `not pre-registered` | 32 |
-| Expanse — **`REFUTED`** | 28 |
+| Expanse — **`REFUTED`** | 31 |
 | Expanse — `CONFIRMED` | 21 |
 | Masstree — `not pre-registered` | 13 |
-| Masstree — **`UNPREDICTED LOSS`** | 11 |
-| `BOUNDARY_RESULT` | 4 |
+| Masstree — **`UNPREDICTED LOSS`** | 10 |
+| `BOUNDARY_RESULT` | 5 |
 | Expanse — **`REFUTED`** (in Expanse's favour) | 1 |
 | `BOUNDARY_RESULT` — `CONFIRMED` | 1 |
 
@@ -648,7 +667,7 @@ runs settle is direction; what they do not settle is magnitude.
 | Masstree wins or `BOUNDARY_RESULT` at W = 1 (medium-low) | **CONFIRMED** on strings (0.883); **REFUTED in Expanse's favour** on integers (1.134) |
 | Masstree wins readers under writers (medium-high) | **CONFIRMED** on every cell |
 | Masstree wins integer scan at k = 10, 100 (medium-high) | **REFUTED** on 21 of 24 cells; **CONFIRMED** on `random` at 10⁴ (k = 10, 100) and 10⁵ (k = 100) |
-| Masstree wins string scan, every k (high) | **CONFIRMED** on every cell |
+| Masstree wins string scan, every k (high) | **CONFIRMED** on 33 of 36; **REFUTED** on `prefixed` at k = 10, all three populations, after [#722](https://github.com/orieg/expanse/issues/722) gave `ExpanseStrMap` a cursor. Every scan cell moved 1.4×–10.9× in Expanse's favour; the prediction survives on the rest |
 | Masstree wins `prefixed` lookup and insert (low) | insert **CONFIRMED** at 10⁶, `BOUNDARY_RESULT` at 10⁴; lookup **REFUTED** (1.091 [1.085, 1.095]) |
 | Masstree wins `short` / `skewed` index memory (medium) | `short` **CONFIRMED** (33.91 against 47.84); `skewed` **REFUTED** after [#723](https://github.com/orieg/expanse/issues/723) — 46.63 against 41.33, Expanse ahead. At the pre-registration's leaf it was 46.63 against 47.74, a Masstree win by 1.1 B/key; that figure is superseded, not overwritten |
 | Expanse wins `random` memory, λ ∈ [8, 23] (high) | **CONFIRMED** |

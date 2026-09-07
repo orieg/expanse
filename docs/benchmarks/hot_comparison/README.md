@@ -438,27 +438,49 @@ each; the census counts them on neither side (§10.3).
 
 ### 6.1 The losses first
 
-**Ordered scan is a loss in every cell, and it is the largest loss in this
-suite.** All 72 scan cells with a HOT column go to HOT; HOT ÷ Expanse runs from
-0.375 [0.372, 0.377] (`short`, Arm D, k=10, N=1M) down to 0.017 [0.017, 0.018]
-(`prefixed`, Arm C, k=1000, N=100k). That is the pre-registered high-confidence
-loss (§10.7) and it is a statement about the **shipped navigation surface**, not
-the trie: `ExpanseStrMap` exposes `next_at_or_after` / `next_after`, each a
-fresh root descent returning a heap-allocated key, against HOT's `lower_bound`
-plus an incremental iterator (§10.6). A cursor iterator for `ExpanseStrMap` is an
-engine change outside this suite and is the obvious follow-up.
+**Ordered scan is still a loss in every cell, and it is still the largest loss
+in this suite — but it is roughly half the loss it was.** All 72 scan cells
+with a HOT column go to HOT; HOT ÷ Expanse runs from 0.637 [0.633, 0.641]
+(`counter`, Arm D, k = 10, N = 1M) down to 0.048 [0.048, 0.049] (`skewed`,
+Arm C, k = 1000, N = 100k). That is the pre-registered high-confidence loss
+(§10.7), **`CONFIRMED`** on all 72.
+
+> **Re-measured after [#722](https://github.com/orieg/expanse/issues/722), and
+> the comparison it replaces was not symmetric.** This pillar drove
+> `ExpanseStrMap`'s `next_at_or_after` / `next_after` — a fresh root descent
+> per element returning a heap-allocated key the arm then discarded — against
+> HOT's `lower_bound` plus an **incremental iterator**. A cursor was being
+> measured against repeated seeks (§8.3), which is why the loss was read as a
+> statement about the surface rather than about the trie. `ExpanseStrMap` now
+> has a cursor and both arms are incremental.
+>
+> **Every one of the 90 scan cells improved, by 1.38× to 11.21× (median
+> 2.22×)** — Arm C `beyond` at k = 1000, N = 100k went 314.32 → 28.03 ns.
+> Measured as a paired pair of runs differing only in the surface:
+> `origin/main` at `82f400b0` against the cursor at `7fe02c0b`, same builder,
+> same start distribution, same quiet host. The 135 non-scan cells drifted a
+> median 0.7% between those runs (p90 3.2%; a few small-N cells reach 19%),
+> which is the floor the comparison resolves; the smallest scan improvement is
+> 38%.
+>
+> **The surface was a cause, not the cause.** HOT still wins 72 of 72. Halving
+> Expanse's time did not flip a single cell, which bounds how much of this
+> pillar the navigation surface ever explained and leaves the remainder a
+> question about the descent rather than the API. The superseded extremes
+> (0.375 best, 0.017 worst) are registered in
+> `.github/superseded-figures.json`.
 
 | Arm | Shape | N | k=10 | k=100 | k=1000 |
 |---|---|---:|---:|---:|---:|
-| C · ptr | `counter` | 1,000,000 | 0.297 [0.295, 0.300] | 0.059 [0.057, 0.061] | 0.033 [0.033, 0.034] |
-| C · ptr | `prefixed` | 1,000,000 | 0.203 [0.201, 0.205] | 0.041 [0.039, 0.042] | 0.021 [0.020, 0.021] |
-| C · ptr | `short` | 1,000,000 | 0.293 [0.290, 0.296] | 0.069 [0.067, 0.072] | 0.037 [0.036, 0.038] |
-| C · ptr | `skewed` | 1,000,000 | 0.272 [0.269, 0.275] | 0.060 [0.058, 0.062] | 0.032 [0.031, 0.033] |
-| D · map | `counter` | 1,000,000 | 0.358 [0.356, 0.360] | 0.074 [0.073, 0.075] | 0.038 [0.037, 0.038] |
-| D · map | `prefixed` | 1,000,000 | 0.218 [0.216, 0.223] | 0.051 [0.050, 0.052] | 0.025 [0.024, 0.025] |
-| D · map | `short` | 1,000,000 | 0.375 [0.373, 0.377] | 0.100 [0.098, 0.101] | 0.050 [0.049, 0.051] |
-| D · map | `skewed` | 1,000,000 | 0.337 [0.335, 0.340] | 0.086 [0.085, 0.087] | 0.043 [0.042, 0.044] |
-| C, D | `beyond` | any | Expanse 253–308 ns/element; HOT column withheld (§10.4) | | |
+| C · ptr | `counter` | 1,000,000 | 0.507 [0.503, 0.511] | 0.135 [0.132, 0.139] | 0.077 [0.076, 0.078] |
+| C · ptr | `prefixed` | 1,000,000 | 0.455 [0.450, 0.459] | 0.173 [0.167, 0.178] | 0.100 [0.097, 0.103] |
+| C · ptr | `short` | 1,000,000 | 0.462 [0.458, 0.468] | 0.144 [0.139, 0.149] | 0.083 [0.081, 0.085] |
+| C · ptr | `skewed` | 998,150 | 0.369 [0.365, 0.373] | 0.104 [0.101, 0.108] | 0.059 [0.058, 0.061] |
+| D · map | `counter` | 1,000,000 | 0.637 [0.633, 0.641] | 0.173 [0.171, 0.176] | 0.093 [0.091, 0.094] |
+| D · map | `prefixed` | 1,000,000 | 0.566 [0.561, 0.570] | 0.242 [0.239, 0.246] | 0.131 [0.128, 0.134] |
+| D · map | `short` | 1,000,000 | 0.601 [0.597, 0.606] | 0.204 [0.201, 0.206] | 0.112 [0.111, 0.114] |
+| D · map | `skewed` | 998,150 | 0.476 [0.473, 0.480] | 0.150 [0.148, 0.152] | 0.080 [0.079, 0.082] |
+| C, D | `beyond` | any | Expanse 28–113 ns/element; HOT column withheld (§10.4) | | |
 
 The 10k and 100k rows are in `results/baseline_string_latency.json`; none is
 above 0.22.
@@ -627,7 +649,7 @@ population. The Expanse side is unrestricted: `ExpanseStrMap` holds all 10⁶
 
 | | Count |
 |---|---:|
-| HOT wins (CI excludes parity) | 96 — of which 72 are scan cells |
+| HOT wins (CI excludes parity) | 98 — of which 72 are scan cells |
 | Expanse wins (CI excludes parity) | 77 — none is a scan cell |
 | `BOUNDARY_RESULT` | 7 |
 | HOT column withheld (`beyond`, §10.4) | 45 |
@@ -636,7 +658,7 @@ Against §10.7:
 
 | Registered | Outcome |
 |---|---|
-| HOT wins ordered scan, every k, every shape (high) | **CONFIRMED**, 72 of 72 |
+| HOT wins ordered scan, every k, every shape (high) | **CONFIRMED**, 72 of 72 — still, after [#722](https://github.com/orieg/expanse/issues/722) moved every cell 1.38×–11.21× in Expanse's favour |
 | HOT wins `prefixed` point lookup (medium-high) | **CONFIRMED** on Arm C; **REFUTED** on Arm D |
 | HOT wins `prefixed` insert (medium) | **REFUTED** on both arms |
 | HOT wins the `index` memory column on long and skewed keys (high, categorical) | **CONFIRMED**, `PASS_categorical_by_design` in HOT's favour, on every shape |
