@@ -48,7 +48,7 @@
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
 //! | `probes_and_reuse` | 4M (CHUNK 1024 rolling) |
 //! | `hit_rate` | 50% |
-//! | `miss_gen_method` | **DEGENERATE XOR**: `k ^ (1<<63) ^ 0xA5` alternating `i % 2` (L72) |
+//! | `miss_gen_method` | Same uniform-random generator as the population under a different seed, rejected on membership, bounded budget that panics on exhaustion (`generate_miss_keys`) |
 //! | `value_dereference` | `black_box(&out[..CHUNK])` |
 //! | `measured_region` | Clean rolling offset |
 //! | `arm_symmetry` | Symmetric (scalar vs batch lanes) |
