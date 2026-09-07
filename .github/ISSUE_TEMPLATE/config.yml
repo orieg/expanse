@@ -1,0 +1,10 @@
+# Blank issues stay enabled: the maintainer files most issues here, and the
+# forms below are for reports that need evidence attached, not a toll gate.
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability (do not open a public issue)
+    url: https://github.com/orieg/expanse/security/advisories/new
+    about: Report privately through a GitHub security advisory. SECURITY.md carries the threat model that says what counts as a vulnerability and what is a documented caller contract.
+  - name: Engineering guide (AGENTS.md)
+    url: https://github.com/orieg/expanse/blob/main/AGENTS.md
+    about: Architectural invariants, the clean-room rule, quality gates, and the benchmark-integrity standard this repository holds itself to.

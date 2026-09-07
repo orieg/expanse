@@ -1,0 +1,71 @@
+name: Feature request
+description: A new capability, API, binding, or platform.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Expanse is a Judy digital tree, and that is a constraint rather than a
+        starting point. `AGENTS.md` §2 lists the invariants a proposal has to
+        live within and the anti-patterns that are refused regardless of merit:
+        widening `Edge` or `ValueSlot` past a machine word, complecting
+        metadata into index words, mutating branches into B-trees or hash
+        buckets, coarse locks on the read path, and anything that distorts the
+        legacy `Judy*` C ABI. A capability that needs one of those is a
+        different data structure, not a feature of this one.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you are trying to do, and where the current API leaves you. Describe the workload, not the solution you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: The API or behaviour you want, sketched concretely enough to argue about.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - Rust API (expanse-trie)
+        - C ABI (expanse_* modern surface)
+        - C++ header
+        - Language binding
+        - Embedded / 32-bit / no_std
+        - Concurrency (Sync* wrappers)
+        - Tooling, benchmarks, or CI
+    validations:
+      required: true
+
+  - type: textarea
+    id: invariants
+    attributes:
+      label: Invariants
+      description: |
+        How the proposal sits with `AGENTS.md` §2 — say which invariants it
+        touches and how it preserves them. If it changes a tagged machine-word
+        descriptor (`Edge`, `ValueSlot`, `SlotTag` and their 32-bit twins), walk
+        the five dependent subsystems in §2.3: OCC readers, columnar metadata,
+        binary image format version, C ABI pointer-lifetime contracts, and the
+        binding surfaces.
+      value: |
+        - `Edge` / `ValueSlot` width unchanged:
+        - ordered digital-trie semantics and O(k) descent preserved:
+        - legacy `Judy*` ABI behaviour unchanged:
+        - single-threaded fast paths pay nothing for it:
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional. What you can do today instead, in this library or another, and why it falls short.
