@@ -1,5 +1,7 @@
 # shellcheck shell=sh
-# scripts/bench_pin.sh — confine a wall-clock benchmark to the performance cores (#639).
+# scripts/bench_pin.sh — the preconditions every wall-clock benchmark run must
+# clear before it builds anything: a toolchain that can parse this workspace
+# (#728) and a shell confined to the performance cores (#639).
 #
 # SOURCED, never executed:
 #
@@ -39,6 +41,99 @@
 #
 # Publishes `EXPANSE_BENCH_PIN_APPLIED` for provenance: the CPU list, or
 # `none` (uniform host), or `off`.
+
+# ---------------------------------------------------------------------------
+# Toolchain gate (#728). A non-interactive shell on the reference host resolves
+# `cargo` to the distribution's copy unless $HOME/.cargo/bin is on PATH, and
+# every crate in this workspace is edition 2024. A suite launched over
+# `ssh host 'nohup docs/benchmarks/<suite>/run.sh ...'` then dies at its build
+# step with
+#
+#     error: failed to parse manifest at .../Cargo.toml
+#     Caused by: feature `edition2024` is required
+#
+# which names neither the cause nor the fix. This checks the resolved cargo
+# against the workspace's own `rust-version` before anything is built, and
+# refuses by name (AGENTS.md section 8.1). The floor is read from Cargo.toml,
+# never restated here, so raising the MSRV cannot leave this behind.
+#
+# Environment:
+#   CARGO           the cargo to check (and the one cargo itself will honour)
+#   REPO_ROOT       set by every runner before sourcing; `git rev-parse` is the
+#                   fallback for a caller that did not.
+
+_expanse_ver_lt() {
+    # `_expanse_ver_lt A B` — true when dotted version A is strictly below B.
+    # Missing components read as 0, so `1.88` and `1.88.0` compare equal.
+    awk -v a="$1" -v b="$2" '
+        function norm(v,   p, n, i, o) {
+            n = split(v, p, ".")
+            o = 0
+            for (i = 1; i <= 3; i++) o = o * 100000 + (i <= n ? p[i] + 0 : 0)
+            return o
+        }
+        BEGIN { exit !(norm(a) < norm(b)) }'
+}
+
+_expanse_bench_toolchain() {
+    _root=${REPO_ROOT:-}
+    if [ -z "$_root" ] || [ ! -f "$_root/Cargo.toml" ]; then
+        _root=$(git rev-parse --show-toplevel 2>/dev/null) || _root=""
+    fi
+    if [ -z "$_root" ] || [ ! -f "$_root/Cargo.toml" ]; then
+        echo "refusing to start: the workspace Cargo.toml could not be located." >&2
+        echo "Set REPO_ROOT to the repository root before sourcing this file. No" >&2
+        echo "benchmark was run and no numbers were produced." >&2
+        exit 1
+    fi
+
+    _msrv=$(sed -n 's/^[[:space:]]*rust-version[[:space:]]*=[[:space:]]*"\([0-9][0-9.]*\)".*/\1/p' \
+        "$_root/Cargo.toml" | head -n 1)
+    if [ -z "$_msrv" ]; then
+        echo "refusing to start: no \`rust-version\` in $_root/Cargo.toml, so the" >&2
+        echo "toolchain floor this run needs is unknown. The manifest is the only" >&2
+        echo "source for it; this file does not carry a copy." >&2
+        exit 1
+    fi
+
+    _cargo=${CARGO:-cargo}
+    if ! command -v "$_cargo" >/dev/null 2>&1; then
+        echo "refusing to start: no \`$_cargo\` on PATH. This workspace needs Rust" >&2
+        echo "$_msrv or newer. A non-interactive shell does not read an interactive" >&2
+        echo "profile, so a run launched over ssh has to put the toolchain on PATH" >&2
+        echo "itself:" >&2
+        echo "    export PATH=\"\$HOME/.cargo/bin:\$PATH\"" >&2
+        exit 1
+    fi
+
+    _cargo_ver=$("$_cargo" --version 2>/dev/null | awk '{ print $2 }')
+    if [ -z "$_cargo_ver" ]; then
+        echo "refusing to start: \`$_cargo --version\` produced no version string, so" >&2
+        echo "the toolchain cannot be checked against the workspace floor $_msrv." >&2
+        exit 1
+    fi
+
+    if _expanse_ver_lt "$_cargo_ver" "$_msrv"; then
+        echo "refusing to start: cargo $_cargo_ver resolved from" >&2
+        echo "  $(command -v "$_cargo")" >&2
+        echo "but every crate in this workspace is edition 2024 and its manifests" >&2
+        echo "declare rust-version = $_msrv. The build would fail with a manifest" >&2
+        echo "parse error that names neither the cause nor the fix (#728)." >&2
+        echo "" >&2
+        echo "A non-interactive shell — an \`ssh host '...'\` or \`nohup\` launch — does" >&2
+        echo "not read an interactive profile, so it picks up the distribution's" >&2
+        echo "cargo. Put the rustup toolchain first:" >&2
+        echo "    export PATH=\"\$HOME/.cargo/bin:\$PATH\"" >&2
+        echo "" >&2
+        echo "No benchmark was run and no numbers were produced." >&2
+        exit 1
+    fi
+
+    # The resolved path is deliberately absent here and present only on the
+    # refusal paths above: a run.sh preamble's stdout can end up beside a
+    # committed artifact, and section 7 keeps home paths out of those.
+    echo "toolchain: cargo $_cargo_ver clears the workspace floor $_msrv"
+}
 
 _expanse_pin_expand() {
     # "0-3,8" -> one CPU id per line, sorted.
@@ -151,4 +246,5 @@ _expanse_bench_pin() {
     esac
 }
 
+_expanse_bench_toolchain
 _expanse_bench_pin
