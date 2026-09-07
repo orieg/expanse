@@ -347,6 +347,21 @@ def self_test() -> int:
     return 0
 
 
+def _pin() -> str:
+    """Take the core pin, and return what was applied for the artifact (§8.7).
+
+    `scripts/bench_pin.py` is the same rule `scripts/bench_pin.sh` applies to
+    suite runners: same sysfs source, same `EXPANSE_BENCH_PIN` vocabulary, same
+    refusals. Recording the result in the artifact is the half that matters
+    here -- an unpinned run is then visible in the committed JSON rather than
+    only to whoever remembers how it was launched.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import bench_pin  # noqa: PLC0415
+
+    return bench_pin.apply("bench_concurrency.py")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--pop", type=int, default=DEFAULT_POP)
@@ -361,8 +376,14 @@ def main() -> int:
     if args.self_test:
         return self_test()
 
+    # Before any measurement. This harness is invoked directly, so no runner
+    # sourced scripts/bench_pin.sh for it -- which is exactly how the figures
+    # this file produced shipped unpinned (#774, #779).
+    pin = _pin()
+
     thread_counts = [int(t) for t in args.threads.split(",")]
     art = measure(args.pop, args.probes, thread_counts, args.rounds)
+    art["provenance"]["core_pin"] = pin
 
     if args.out:
         with open(args.out, "w", encoding="utf-8") as fh:

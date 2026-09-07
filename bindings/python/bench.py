@@ -255,8 +255,22 @@ def render_table(results: list[dict]):
     print("\n================================================================================\n")
 
 
+def _pin() -> str:
+    """Take the core pin before timing anything (#779).
+
+    `scripts/bench_bindings.py` drives this file, so the cross-language binding
+    comparison carried the same core-placement exposure the Python concurrency
+    artifact did (#774) until this call existed.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import bench_pin  # noqa: PLC0415
+
+    return bench_pin.apply("bench.py")
+
+
 def main():
     args = parse_args()
+    _pin()
     pop = 20_000 if args.quick else args.pop
     dists = ["random", "sequential", "clustered"]
     results = [run_suite(pop, d) for d in dists]
