@@ -2,25 +2,29 @@ Package: libjudy-compat
 Version: 0.6.0
 Architecture: arm64
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
-Description: Expanse trie engine: modern Judy replacement
+Description: Drop-in compatibility for libjudy applications (symlinks, man pages).
 Filename: pool/main/libjudy-compat_0.6.0_arm64.deb
 Size: 7800
 SHA256: 2e91058ba0916c47dc473193265722e7aca90317bf3c1d6d8831388671c88eb9
+Depends: libexpanse1 (= 0.6.0)
+Provides: libjudy
+Conflicts: libjudy
 
 Package: libexpanse-dev
 Version: 0.6.0
 Architecture: arm64
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
-Description: Expanse trie engine: modern Judy replacement
+Description: Expanse trie engine development files (headers, static library, man pages).
 Filename: pool/main/libexpanse-dev_0.6.0_arm64.deb
 Size: 6232132
 SHA256: 96b638754b80ae2ab9347c86b4db5cc519605a318ccd500125d9c558fcc910d5
+Depends: libexpanse1 (= 0.6.0)
 
 Package: libexpanse1
 Version: 0.6.0
 Architecture: arm64
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
-Description: Expanse trie engine: modern Judy replacement
+Description: Expanse trie engine shared library with glibc-hwcaps support.
 Filename: pool/main/libexpanse1_0.6.0_arm64.deb
 Size: 362494
 SHA256: 8f89842666c9e8aed37ecc66e1092a609475b37ba8e6a05306d51622f12dc718
