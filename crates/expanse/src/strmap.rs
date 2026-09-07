@@ -699,21 +699,19 @@ struct StrFrame {
 /// "valid until the next structural mutation" contract of the surrounding
 /// surface is enforced here — by the borrow checker rather than by a comment.
 ///
-/// ```
-/// # use expanse_trie::strmap::ExpanseStrMap;
-/// let mut m = ExpanseStrMap::new();
-/// for k in [b"apple".as_slice(), b"apricot", b"banana"] {
-///     m.insert(k, k.len() as u64);
-/// }
-/// let mut c = m.cursor_at_or_after(b"ap");
-/// let mut seen = Vec::new();
+/// ```text
+/// let mut c = map.cursor_at_or_after(b"ap");
 /// while let Some((key, slot)) = c.next() {
-///     // SAFETY: the slot is live for as long as the cursor's borrow.
-///     seen.push((key.to_vec(), unsafe { *slot.as_ptr() }));
+///     // `key` borrows the cursor's buffer and is valid until the next call.
 /// }
-/// assert_eq!(seen.len(), 3);
-/// assert_eq!(seen[0].0, b"apple");
 /// ```
+///
+/// Deliberately not a doctest: this crate has none, and the ASan job runs
+/// `cargo test -p expanse-trie`, whose doctest binaries do not link the
+/// sanitizer runtime — the crate's first doctest would fail that job rather
+/// than the code failing it. The executable form of this snippet is
+/// `tests::cursor_walks_the_documented_example`, which the ASan and Miri
+/// lanes both run, so the example is enforced rather than merely written.
 pub struct StrCursor<'a> {
     /// The path from the root to the entry last emitted. Empty before the
     /// first `next` and after the walk is exhausted.
@@ -1615,6 +1613,29 @@ mod tests {
             got, expected,
             "seeked walk is not the tail of the full walk"
         );
+    }
+
+    /// The example in [`StrCursor`]'s documentation, executable.
+    ///
+    /// The snippet there is a `text` block for the reason given beside it, so
+    /// this is what keeps it honest; change one and change the other.
+    #[test]
+    fn cursor_walks_the_documented_example() {
+        let mut map = ExpanseStrMap::new();
+        for k in [b"apple".as_slice(), b"apricot", b"banana"] {
+            map.insert(k, k.len() as u64);
+        }
+        let mut c = map.cursor_at_or_after(b"ap");
+        let mut seen = Vec::new();
+        while let Some((key, slot)) = c.next() {
+            // SAFETY: the cursor borrows the map for its lifetime, so the slot
+            // is a live value word and nothing can mutate the map meanwhile.
+            seen.push((key.to_vec(), unsafe { *slot.as_ptr() }));
+        }
+        assert_eq!(seen.len(), 3, "the seek should admit all three keys");
+        assert_eq!(seen[0], (b"apple".to_vec(), 5));
+        assert_eq!(seen[1], (b"apricot".to_vec(), 7));
+        assert_eq!(seen[2], (b"banana".to_vec(), 6));
     }
 
     /// Degenerate shapes: empty map, one key, and a cursor driven past the
