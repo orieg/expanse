@@ -13,6 +13,7 @@ Competitors:
 - ExpanseMap Ordered Table ((monotonic_ts << 32) | block_id + block_to_ts side map)
 """
 
+import os
 import sys
 import time
 import json
@@ -26,6 +27,22 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "bindings" / "python"))
 
 from expanse_trie import ExpanseMap
+
+def results_dir(quick: bool) -> Path:
+    """Resolve the suite's output directory.
+
+    A --quick run is a reduced-sweep smoke run: its output is scratch and goes
+    to the gitignored results/quick/ so it can never overwrite the committed
+    baselines (AGENTS.md §8.5). LLM_RESULTS_DIR lets the suite runner own the
+    decision for every harness at once; direct invocation applies the same rule
+    here.
+    """
+    env_dir = os.environ.get("LLM_RESULTS_DIR")
+    if env_dir:
+        return Path(env_dir)
+    base = Path(__file__).resolve().parent.parent / "results"
+    return base / "quick" if quick else base
+
 
 def run_prefix_lru(block_counts: List[int]) -> Dict[str, dict]:
     results = {}
@@ -153,8 +170,9 @@ def main():
     print(f"Running Pillar 4 Prefix LRU Benchmark (blocks={blocks})...")
     results = run_prefix_lru(blocks)
 
-    out_file = Path(__file__).resolve().parent.parent / "results" / "bench_prefix_lru.json"
-    out_file.parent.mkdir(parents=True, exist_ok=True)
+    out_dir = results_dir(args.quick)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / "bench_prefix_lru.json"
     with open(out_file, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
     print(f"Pillar 4 results written to {out_file}")

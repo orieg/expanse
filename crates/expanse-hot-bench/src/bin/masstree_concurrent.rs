@@ -11,6 +11,7 @@
 //! |---|---|
 //! | `workload_id` | `masstree_concurrent` |
 //! | `group` | 7 |
+//! | `emits` | `masstree_conc_map_64bit`, `masstree_conc_str` — the id(s) this harness writes into its JSON artifact, which is what the suite README's `(workload: …)` tags cite |
 //! | `population` | prefill 2^20 keys (uniform random u64 at 64 bits, or `short` strings), plus 2^20 fresh keys inserted concurrently by W writers |
 //! | `insertion_order` | sorted ascending — the shared generator sorts and dedups the population (`workload.rs`); this harness takes no `order` token |
 //! | `probes_and_reuse` | R readers cycle a shuffled 2^20-probe stream against the prefill until the writers finish; at W = 0 each reader makes exactly one pass |

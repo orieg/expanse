@@ -18,9 +18,9 @@
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
 //! | `probes_and_reuse` | 4096 (10k/1M) / 2M (4M), looped |
 //! | `hit_rate` | 50% (set) / 100% (map) |
-//! | `miss_gen_method` | **DEGENERATE XOR**: `k ^ (1<<63) ^ 0x5A` (L58) / `0xA5` (L186) |
+//! | `miss_gen_method` | Same generator as the population, resumed at offset >= N, rejected on membership, bounded budget that panics on exhaustion (`generate_miss_keys`) |
 //! | `value_dereference` | `black_box(get())` |
-//! | `measured_region` | **LEAKY DROP**: `bench_insert` drops set/map inside `b.iter` (L150, L160, L170) |
+//! | `measured_region` | Clean: `bench_insert` uses `iter_batched(PerIteration)` and returns the built container, so Drop lands post-batch |
 //! | `arm_symmetry` | Asymmetric: SipHash `HashSet` vs `BTree` vs `Expanse` |
 //! | `statistics` | Criterion estimate |
 //! | `verdict` | ✅ **RESOLVED in #470 — was DEFECT (Class 1, 2, 3, 4, 5)** `[verified: CODE READ]`: 4k probes fit in L1/L2; XOR misses; Drop inside timed insert. |

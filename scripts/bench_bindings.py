@@ -5,6 +5,16 @@ scripts/bench_bindings.py — Unified Cross-Language Comparative Benchmark Suite
 Discovers and executes available binding benchmark harnesses (Node.js, WASM, Go,
 Python, PHP, Ruby, Java, .NET) and outputs unified comparative performance matrices,
 with baseline regression detection for nightly gating.
+
+Exit codes are the contract callers gate on; they distinguish a finding from a
+failure to measure (AGENTS.md section 8.1):
+
+  0  every requested runtime reported, and no regression crossed a threshold
+  1  measured, and a regression crossed a threshold — a finding
+  2  one or more requested runtimes produced no result: nothing was measured
+     for them, so no report or baseline describes them. No baseline is written.
+     `--allow-missing-runtimes` accepts the reduced coverage deliberately, and
+     the report then names every runtime that did not report.
 """
 
 from __future__ import annotations
@@ -21,6 +31,27 @@ from typing import Any, Dict, List, Optional, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RELEASE_DIR = REPO_ROOT / "target" / "release"
+
+# Exit status meanings; see the module docstring for the contract.
+EXIT_REGRESSION_FOUND = 1
+EXIT_DID_NOT_MEASURE = 2
+
+# Every runtime this orchestrator knows how to drive. `--runtimes` is validated
+# against this list, so an unrecognised name is refused by argparse instead of
+# resolving to no runner and shrinking the run silently. RUNNERS binds each name
+# to its harness once the harnesses are defined; run_self_test pins the two
+# together so a new runtime cannot be added to one and forgotten in the other.
+RUNTIME_NAMES = (
+    "node",
+    "wasm",
+    "go",
+    "go-purego",
+    "python",
+    "php",
+    "ruby",
+    "java",
+    "dotnet",
+)
 
 # Marker line prefix bindings/dotnet/tests/Expanse.NET.Tests/ExpanseBenchmark.cs uses to
 # emit its JSON result through `dotnet test`'s VSTest console logger, which otherwise
@@ -49,7 +80,13 @@ def _native_lib_path() -> Optional[Path]:
 def parse_args():
     p = argparse.ArgumentParser(description="Unified Expanse Cross-Language Benchmark Suite")
     p.add_argument("--quick", action="store_true", help="Run in quick mode (smaller N)")
-    p.add_argument("--runtimes", nargs="+", help="Specific runtimes to benchmark (node, wasm, go, go-purego, python, php, ruby, java, dotnet)")
+    p.add_argument(
+        "--runtimes",
+        nargs="+",
+        choices=list(RUNTIME_NAMES),
+        metavar="RUNTIME",
+        help="Specific runtimes to benchmark (choices: " + ", ".join(RUNTIME_NAMES) + ")",
+    )
     p.add_argument("--json", action="store_true", help="Emit raw JSON results to stdout")
     p.add_argument("--output", type=str, help="Save markdown report to file")
     p.add_argument("--save-baseline", type=str, help="Save results to baseline JSON file")
@@ -63,6 +100,14 @@ def parse_args():
         "but produced no results tonight. Without this flag their old baseline entries are "
         "carried forward (marked carried_forward_from_baseline) so coverage loss cannot "
         "silently erase them (#373).",
+    )
+    p.add_argument(
+        "--allow-missing-runtimes",
+        action="store_true",
+        help="Accept a run in which some requested runtimes produced no result (a "
+        "partially-provisioned host). Exits 0 instead of "
+        f"{EXIT_DID_NOT_MEASURE}, and the report names every runtime that did not "
+        "report so the reduced coverage is on the record.",
     )
     p.add_argument("--self-test", action="store_true", help="Run internal self-checks and exit")
     return p.parse_args()
@@ -445,13 +490,36 @@ def run_dotnet_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
     return data
 
 
-def format_markdown_report(all_results: List[Dict[str, Any]]) -> str:
+def format_markdown_report(
+    all_results: List[Dict[str, Any]],
+    missing_runtimes: Optional[List[str]] = None,
+) -> str:
     lines = [
         "# Cross-Language Bindings Comparative Performance Report",
         "",
         "Comparing Expanse bindings against standard runtime collections (`Map`, `dict`, `array`, `Hash`) across key operations and memory density.",
         "",
     ]
+
+    # A requested runtime that produced no result is absent from every table
+    # below, and an absent row reads as "not compared" rather than "not
+    # measured". Name it, so the report states its own coverage.
+    if missing_runtimes:
+        lines.append("### ⚠️ Runtimes That Did Not Report")
+        lines.append("")
+        lines.append(
+            f"{len(missing_runtimes)} requested runtime(s) produced no result; nothing "
+            "below describes them. Accepted via `--allow-missing-runtimes`."
+        )
+        lines.append("")
+        lines.append("| Runtime | Status |")
+        lines.append("|:---|:---|")
+        for rt in missing_runtimes:
+            lines.append(
+                f"| `{rt.upper()}` | ⚠️ requested, produced NO results "
+                "(toolchain/artifact missing or harness failed — see [WARN] lines) |"
+            )
+        lines.append("")
 
     for item in all_results:
         runtime = item.get("runtime", "unknown").upper()
@@ -503,6 +571,20 @@ def missing_baseline_runtimes(
         if rt and rt not in current and rt not in missing:
             missing.append(rt)
     return missing
+
+
+def missing_requested_runtimes(
+    selected: List[str],
+    current_results: List[Dict[str, Any]],
+) -> List[str]:
+    """Requested runtimes that produced no result this run.
+
+    Distinct from `missing_baseline_runtimes`, which asks what the previous
+    baseline covered. This one asks what was asked for, so a runtime that never
+    reached a baseline still counts as unmeasured.
+    """
+    measured = {item.get("runtime", "").lower() for item in current_results}
+    return [name for name in selected if name.lower() not in measured]
 
 
 def compare_against_baseline(
@@ -681,6 +763,68 @@ def run_self_test() -> int:
     finally:
         os.unlink(baseline_path)
 
+    # 5. Dispatch table and the --runtimes choices list stay in lockstep, so an
+    #    unrecognised name is refused by argparse rather than resolving to no
+    #    runner and shrinking the run.
+    check("runtimes: choices match dispatch table", tuple(RUNNERS) == RUNTIME_NAMES)
+
+    # 6. A run in which requested runtimes produced no result exits
+    #    EXIT_DID_NOT_MEASURE and writes no baseline. Asserted on main()'s own
+    #    exit status: a check against the helper alone stays green the moment
+    #    the call site stops calling it.
+    def main_exit_code(argv: List[str]) -> Any:
+        saved_argv = list(sys.argv)
+        sys.argv = ["bench_bindings.py", *argv]
+        try:
+            main()
+        except SystemExit as exc:
+            return exc.code
+        finally:
+            sys.argv = saved_argv
+        return 0
+
+    saved_runners = dict(RUNNERS)
+    try:
+        RUNNERS.update({name: (lambda _quick: None) for name in saved_runners})
+        with tempfile.TemporaryDirectory() as td:
+            report = str(Path(td) / "report.md")
+            baseline = str(Path(td) / "baseline.json")
+
+            code = main_exit_code(["--quick", "--save-baseline", baseline, "--output", report])
+            check("zero results: main() exits EXIT_DID_NOT_MEASURE", code == EXIT_DID_NOT_MEASURE)
+            check("zero results: no baseline written", not Path(baseline).exists())
+            check("zero results: no report written", not Path(report).exists())
+
+            # --json is a separate return path out of main() and must not be an
+            # escape hatch from the floor.
+            code = main_exit_code(["--quick", "--json"])
+            check("zero results: --json exits EXIT_DID_NOT_MEASURE", code == EXIT_DID_NOT_MEASURE)
+
+            # One runtime reporting out of nine is coverage loss, not a measurement.
+            RUNNERS["node"] = lambda _quick: {
+                "runtime": "node",
+                "results": [{"dist": "random", "pop": 100, "expanse_map": {"lookup_mops": 1.0}}],
+            }
+            code = main_exit_code(["--quick"])
+            check("partial coverage: main() exits EXIT_DID_NOT_MEASURE", code == EXIT_DID_NOT_MEASURE)
+
+            # The documented opt-out accepts the reduced coverage and puts it on
+            # the record instead of hiding it.
+            code = main_exit_code(
+                ["--quick", "--allow-missing-runtimes", "--save-baseline", baseline, "--output", report]
+            )
+            check("allow-missing: main() exits 0", code == 0)
+            check("allow-missing: baseline written", Path(baseline).exists())
+            report_text = Path(report).read_text(encoding="utf-8")
+            check(
+                "allow-missing: report names every runtime that did not report",
+                "Runtimes That Did Not Report" in report_text
+                and all(f"`{rt.upper()}`" in report_text for rt in RUNTIME_NAMES if rt != "node"),
+            )
+    finally:
+        RUNNERS.clear()
+        RUNNERS.update(saved_runners)
+
     if failures:
         print(f"\nSelf-test FAILED ({len(failures)}): {failures}", file=sys.stderr)
         return 1
@@ -688,37 +832,57 @@ def run_self_test() -> int:
     return 0
 
 
+# Name -> harness, in the order runs execute. Keyed by RUNTIME_NAMES so the
+# argparse choices and the dispatch table cannot drift apart.
+RUNNERS = {
+    "node": run_node_benchmark,
+    "wasm": run_wasm_benchmark,
+    "go": run_go_benchmark,
+    "go-purego": run_go_purego_benchmark,
+    "python": run_python_benchmark,
+    "php": run_php_benchmark,
+    "ruby": run_ruby_benchmark,
+    "java": run_java_benchmark,
+    "dotnet": run_dotnet_benchmark,
+}
+
+
 def main():
     args = parse_args()
     if args.self_test:
         sys.exit(run_self_test())
-    runners = {
-        "node": run_node_benchmark,
-        "wasm": run_wasm_benchmark,
-        "go": run_go_benchmark,
-        "go-purego": run_go_purego_benchmark,
-        "python": run_python_benchmark,
-        "php": run_php_benchmark,
-        "ruby": run_ruby_benchmark,
-        "java": run_java_benchmark,
-        "dotnet": run_dotnet_benchmark,
-    }
 
-    selected = args.runtimes or list(runners.keys())
+    selected = args.runtimes or list(RUNNERS.keys())
     all_results = []
 
     for name in selected:
-        runner = runners.get(name)
-        if runner:
-            res = runner(args.quick)
-            if res:
-                all_results.append(res)
+        res = RUNNERS[name](args.quick)
+        if res:
+            all_results.append(res)
+
+    # A runtime that produced no result was not measured, and no downstream
+    # artifact can say otherwise: it is absent from the report and, without this
+    # guard, absent-or-carried-forward in the re-saved baseline. Refuse the run
+    # rather than emit a full-looking report and a baseline that describes a
+    # night nothing ran (AGENTS.md section 8.1). The exit code is distinct from
+    # the regression code so a caller can tell a finding from a failure.
+    missing = missing_requested_runtimes(selected, all_results)
+    if missing and not args.allow_missing_runtimes:
+        print(
+            f"::error::bench_bindings.py measured {len(all_results)} of "
+            f"{len(selected)} requested runtimes; no result from: "
+            f"{', '.join(missing)}. No report or baseline was written. Provision "
+            "the missing toolchains, or pass --allow-missing-runtimes to accept "
+            "the reduced coverage on the record.",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_DID_NOT_MEASURE)
 
     if args.json:
         print(json.dumps(all_results, indent=2))
         return
 
-    md_report = format_markdown_report(all_results)
+    md_report = format_markdown_report(all_results, missing_runtimes=missing)
     print(md_report)
 
     comp_report = ""
@@ -763,7 +927,7 @@ def main():
         print(f"\nSaved baseline to {args.save_baseline}")
 
     if has_reg:
-        sys.exit(1)
+        sys.exit(EXIT_REGRESSION_FOUND)
 
 
 if __name__ == "__main__":

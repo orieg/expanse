@@ -434,21 +434,33 @@ jobs:
           if [ -f bindings-baseline/bindings-baseline.json ]; then
             CHECK_FLAG="--check-baseline bindings-baseline/bindings-baseline.json"
           fi
+          # The runtimes this job provisions above, named explicitly: a missing
+          # result is then a failure of something the job set up, not the
+          # ambient absence of a toolchain nobody installed. PHP and Ruby are
+          # absent from this list because their native extensions are not built
+          # here; adding either means adding its setup and build steps first.
+          RUNTIMES="node wasm go go-purego python java dotnet"
           rc=0
-          python3 scripts/bench_bindings.py --quick $CHECK_FLAG --save-baseline bindings-baseline.json --output bindings-report.md || rc=$?
+          # shellcheck disable=SC2086
+          python3 scripts/bench_bindings.py --quick --runtimes $RUNTIMES $CHECK_FLAG --save-baseline bindings-baseline.json --output bindings-report.md || rc=$?
           # Warn-only applies to a *finding*, never to a harness that failed to
-          # run. `bench_bindings.py` exits 1 for detected regressions and does so
-          # only after writing the baseline, so the baseline's existence is what
-          # separates "measured, and reports a regression" from "did not
-          # measure". A crash leaves no baseline and stays fatal (section 8.1).
-          if [ "$rc" -ne 0 ]; then
-            if [ -f bindings-baseline.json ]; then
-              echo "::warning::Cross-language bindings baseline check reported regressions (exit $rc); see bindings-report.md in this run's artifacts. The measurement completed and its baseline is uploaded below."
-            else
-              echo "::error::bench_bindings.py exited $rc without producing a baseline — the harness did not complete, so this is a failed run, not a reported regression."
+          # run, and the exit code is what tells the two apart:
+          #   0  every requested runtime reported, nothing crossed a threshold
+          #   1  measured, and a regression crossed a threshold — the finding
+          #      this step is deliberately warn-only about
+          #   2  one or more requested runtimes produced no result, so nothing
+          #      measured them and no baseline was written — fatal (section 8.1)
+          # anything else is a crash, and is fatal for the same reason.
+          case "$rc" in
+            0) ;;
+            1)
+              echo "::warning::Cross-language bindings baseline check reported regressions (exit 1); see bindings-report.md in this run's artifacts. The measurement completed and its baseline is uploaded below."
+              ;;
+            *)
+              echo "::error::bench_bindings.py exited $rc — one or more requested runtimes were not measured, or the harness crashed. This is a failed run, not a reported regression; the previous baseline artifact is left in place."
               exit "$rc"
-            fi
-          fi
+              ;;
+          esac
           if [ -f bindings-report.md ]; then
             cat bindings-report.md >> bench-report.txt
           fi

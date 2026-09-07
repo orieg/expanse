@@ -19,8 +19,10 @@ Design notes, because the trap here is measuring the GIL instead of the engine:
   * **Every lookup is consumed.** Results accumulate into a per-thread sink that
     is summed and returned, so neither the interpreter nor the extension can
     elide the probe (section 8.6).
-  * **Realistic hit rate.** Half the probes miss, drawn from a disjoint key
-    range, rather than probing only keys known to be present.
+  * **Realistic hit rate and miss shape.** Half the probes miss. The misses are
+    drawn from the continuation of the same generator as the population and
+    rejected on membership, never as a transform of a present key, so both
+    halves of the stream descend the same keyspace (section 8.6).
   * **Per-round samples are emitted**, not just means, so a published scaling
     factor can carry a BCa interval (section 8.4) rather than a point estimate.
 
@@ -34,6 +36,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -57,13 +60,56 @@ def make_keys(pop: int) -> list[int]:
 
 
 def make_probes(keys: list[int], n: int) -> list[int]:
-    """Half hits, half misses. A 100%-hit probe stream flatters any index."""
-    hits = [keys[i * 7919 % len(keys)] for i in range(n // 2)]
-    misses = [k ^ 0x8000_0000_0000_0000 for k in hits]
-    out = []
-    for h, m in zip(hits, misses):
-        out.append(h)
-        out.append(m)
+    """Half hits, half misses, drawn from one generator and shuffled together.
+
+    A 100%-hit probe stream flatters any index. So does a miss built as a fixed
+    transform of a present key: `k ^ (1 << 63)` lands in a different top-level
+    expanse and shares no prefix with the key it came from, so it terminates at
+    a systematically different depth than a hit. A stream built that way meets a
+    stated 50% hit rate while averaging two different descents into one number,
+    which is why AGENTS.md section 8.6 governs miss *shape* and not only miss
+    rate. Misses here are drawn from the continuation of the population's own
+    generator and rejected on membership -- a miss is a key that could have been
+    in the population and simply is not.
+
+    The two halves are shuffled together rather than alternated. Strict
+    hit, miss, hit, miss makes membership perfectly branch-predictable and
+    leaves every miss maximally cache-warm on the preceding hit's descent, so it
+    measures a pattern the workload does not have. The shuffle is seeded, so
+    every arm, thread width and round sees the identical stream and a scaling
+    factor compares like with like.
+    """
+    present = set(keys)
+    want_hits = n // 2
+    want_misses = n - want_hits
+
+    hits = [keys[i * 7919 % len(keys)] for i in range(want_hits)]
+
+    misses: list[int] = []
+    x = keys[-1]
+    budget = want_misses * 64 + 1024
+    while len(misses) < want_misses:
+        budget -= 1
+        if budget <= 0:
+            # Fail loudly rather than returning a short or padded stream: a
+            # silently under-filled miss half would raise the hit rate without
+            # changing the number the artifact reports (section 8.1).
+            raise SystemExit(
+                f"miss sampling exhausted its budget with {len(misses)} of "
+                f"{want_misses} keys found; the population covers too much of "
+                "the keyspace for rejection sampling at this size"
+            )
+        x ^= (x << 13) & 0xFFFF_FFFF_FFFF_FFFF
+        x ^= x >> 7
+        x ^= (x << 17) & 0xFFFF_FFFF_FFFF_FFFF
+        if x not in present:
+            misses.append(x)
+
+    out = hits + misses
+    rng = random.Random(0x0DDB_1A5E_5EED_0001)
+    for i in range(len(out) - 1, 0, -1):
+        j = rng.randrange(i + 1)
+        out[i], out[j] = out[j], out[i]
     return out[:n]
 
 
@@ -201,8 +247,32 @@ def self_test() -> int:
     assert len(keys) == len(set(keys)) == 64, "xorshift keys must be distinct"
     probes = make_probes(keys, 40)
     assert len(probes) == 40
-    hits = sum(1 for p in probes if p in set(keys))
+    key_set = set(keys)
+    hits = sum(1 for p in probes if p in key_set)
     assert 18 <= hits <= 22, f"probe stream must be ~50% hit, got {hits}/40"
+
+    # Pin the shape, not only the rate. This harness previously built its miss
+    # half as `k ^ (1 << 63)` for each hit `k`, which satisfies the assertion
+    # above while sending the two halves to systematically different depths
+    # (section 8.6). Assert the exact defect cannot come back, and that the
+    # halves are not alternated -- strict hit/miss/hit/miss makes membership
+    # perfectly branch-predictable.
+    misses = [p for p in probes if p not in key_set]
+    assert misses, "probe stream has no misses"
+    flipped = {k ^ 0x8000_0000_0000_0000 for k in key_set}
+    offenders = [m for m in misses if m in flipped]
+    assert not offenders, (
+        f"{len(offenders)} miss key(s) are a fixed transform of a present key; "
+        "misses must be drawn from the population's generator and rejected on "
+        "membership (section 8.6)"
+    )
+    membership = [p in key_set for p in probes]
+    alternating = all(membership[i] != membership[i + 1] for i in range(len(membership) - 1))
+    assert not alternating, "hits and misses must be shuffled together, not alternated"
+
+    # A miss half that silently came up short would raise the true hit rate
+    # while the artifact kept reporting 50%.
+    assert len(misses) >= 18, f"miss half is under-filled: {len(misses)}/20"
 
     d = {k: k & 0xFFFF for k in keys}
     # The worker must return a non-zero sink, or the probe is not being consumed.
