@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""scripts/generate_wasm_svg.py
+"""docs/benchmarks/wasm/scripts/generate_charts.py
 
 Renders the WebAssembly suite chart from the committed fuel baseline
 ``results/baseline_wasm_fuel.json`` (written by ``scripts/wasm_fuel.py
@@ -13,7 +13,7 @@ Every bar, label, ratio and footer value is derived from that file at render
 time; no summary constant is stamped into the markup (AGENTS.md §8.2) and the
 footer carries the provenance (§8.7). Regenerate after every re-baseline:
 
-    python3 scripts/generate_wasm_svg.py
+    python3 docs/benchmarks/wasm/scripts/generate_charts.py
 """
 from __future__ import annotations
 

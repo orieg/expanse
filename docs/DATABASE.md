@@ -574,7 +574,7 @@ four.*
 
 ![Embedded Storage Engines: sensor TSDB density, BLE tracker footprint, ingest+flush wall clock](./benchmarks/embedded/results/bench_embedded.svg)
 
-*(Panel 1 derived by `scripts/embedded_envelope.py`; panels 2-4 measured on the reference bench host with BCa 95% CIs recorded in `docs/benchmarks/embedded/results.json` — panel 4 shows both the batched `remove_range` eviction and the per-key loop it replaces. Regenerate with `python3 scripts/generate_embedded_svg.py`. The on-device chart is rendered separately by `python3 scripts/generate_embedded_svg.py --on-device` from `docs/benchmarks/embedded/esp32.json`, because those arms are CPU cycles on a microcontroller and these are host wall-clock nanoseconds — the two do not belong on one canvas (§8.12). **ESP32-C3/C6 remain unharvested**: the on-device run below is on the Xtensa ESP32 and says nothing about the RISC-V parts.)*
+*(Panel 1 derived by `scripts/embedded_envelope.py`; panels 2-4 measured on the reference bench host with BCa 95% CIs recorded in `docs/benchmarks/embedded/results.json` — panel 4 shows both the batched `remove_range` eviction and the per-key loop it replaces. Regenerate with `python3 docs/benchmarks/embedded/scripts/generate_charts.py`. The on-device chart is rendered separately by `python3 docs/benchmarks/embedded/scripts/generate_charts.py --on-device` from `docs/benchmarks/embedded/esp32.json`, because those arms are CPU cycles on a microcontroller and these are host wall-clock nanoseconds — the two do not belong on one canvas (§8.12). **ESP32-C3/C6 remain unharvested**: the on-device run below is on the Xtensa ESP32 and says nothing about the RISC-V parts.)*
 
 #### On-device measurements (ESP32, Xtensa) — Expanse against comparison twins
 

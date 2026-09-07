@@ -79,7 +79,7 @@ the README's scorecard rather than folded into the hypothesis.
 - **Provenance**: one board, one run per PR; `results.json` is produced from
   `transcript.txt` by `harvest.py` with the staticlib commit passed on the
   command line; the charts and the README tables are rendered from that file
-  (`scripts/generate_stm32_svg.py`), never typed in.
+  ([`scripts/generate_charts.py`](scripts/generate_charts.py)), never typed in.
 - **Clock ceiling**: the DISCO is wired for direct SMPS supply, which caps the
   part at VOS1 / 400 MHz; VOS0 / 480 MHz needs the LDO path and a board
   modification, and was not attempted.

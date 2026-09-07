@@ -540,7 +540,7 @@ on. In addition, an **insertion-order sensitivity set** re-runs both arms on a
 Fisher–Yates permutation of the same population from the suite PRNG
 (`workload::shuffle_in_place`) at N = 10⁶ — `random` for M1; `short` and
 `prefixed` for M2; memory, 100%-hit lookup and insert — and is published as
-its own table (`results/baseline_order_sensitivity.json`), never merged with
+its own table (`results/baseline_sensitivity.json`), never merged with
 the sorted cells or given a verdict against §6. Every result row now carries an
 `order` field. The concurrent cells are unaffected: their prefill is sorted and
 their fresh keys arrive in generator order on both arms, as in #692.

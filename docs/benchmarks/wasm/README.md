@@ -9,11 +9,11 @@ Two instruments, with different standing.
 
 **What the pairing is.** On a 32-bit target the public aliases point at the 32-bit engine (`ExpanseMap` is `ExpanseMap32`, 8-byte `Edge32`); on wasm64 they point at the 64-bit engine (16-byte `Edge`). The fuel module's source is byte-identical across the two builds, so each row below is one fixture on the two engines under one runtime. That comparison exists nowhere else in the repository.
 
-**Superseded when** `results/baseline_wasm_fuel.json` changes: the artifact is authoritative and these tables are its rendering. Regenerate them with `scripts/wasm_fuel.py --build wasm32 --markdown` and `--build wasm64 --markdown`, re-render the chart with `scripts/generate_wasm_svg.py`, and replace the tables, the chart and the provenance line together.
+**Superseded when** `results/baseline_wasm_fuel.json` changes: the artifact is authoritative and these tables are its rendering. Regenerate them with `scripts/wasm_fuel.py --build wasm32 --markdown` and `--build wasm64 --markdown`, re-render the chart with [`scripts/generate_charts.py`](scripts/generate_charts.py), and replace the tables, the chart and the provenance line together.
 
 ![Expanse on WebAssembly: exact fuel per operation for every map and set arm on wasm32 (32-bit engine) and wasm64 (64-bit engine), and the engines' own bytes per key](results/bench_wasm_fuel.svg)
 
-**Left and middle panels.** One row per arm and key distribution, two bars: the 32-bit engine on wasm32 (blue) and the 64-bit engine on wasm64 (amber), scaled to the panel's largest value; the label is the two fuel counts and their ratio. Shorter is better. **Right panel.** The same pair for bytes per key by the engine's own accounting after the build. The footer carries the runtime, both compilers and the commit; everything drawn is read from the artifact by `scripts/generate_wasm_svg.py`.
+**Left and middle panels.** One row per arm and key distribution, two bars: the 32-bit engine on wasm32 (blue) and the 64-bit engine on wasm64 (amber), scaled to the panel's largest value; the label is the two fuel counts and their ratio. Shorter is better. **Right panel.** The same pair for bytes per key by the engine's own accounting after the build. The footer carries the runtime, both compilers and the commit; everything drawn is read from the artifact by [`scripts/generate_charts.py`](scripts/generate_charts.py).
 
 ## Fuel per operation, N = 10,000
 

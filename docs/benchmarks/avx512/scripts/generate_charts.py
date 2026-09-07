@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""scripts/generate_avx512_svg.py
+"""docs/benchmarks/avx512/scripts/generate_charts.py
 
 Regenerates ``docs/benchmarks/avx512/results/bench_avx512.svg`` — the two-panel AVX-512 kernel
 chart embedded by ``docs/HARDWARE.md`` §6 and
@@ -20,7 +20,7 @@ Panel 2 is why: cost per bitmap pair on a log axis. The kernel's share of the
 work collapses as the working set leaves cache, so the same vector width buys
 progressively less.
 
-    python3 scripts/generate_avx512_svg.py
+    python3 docs/benchmarks/avx512/scripts/generate_charts.py
 
 XML is validated before writing (same discipline as
 ``integrations/rocksdb/scripts/generate_bench_svg.py``, whose dual-theme

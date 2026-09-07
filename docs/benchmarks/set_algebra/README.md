@@ -147,7 +147,7 @@ which needs valgrind and runs in the `instruction-counts` CI job.
 
 ## 5. Chart renderer
 
-`scripts/generate_domain_algebra_svg.py` still writes to `docs/assets/` and has
-not moved into this suite's `scripts/`; that move is tracked with the rest of
-the chart-asset consolidation in
-[#643](https://github.com/orieg/expanse/issues/643).
+[`scripts/generate_charts.py`](scripts/generate_charts.py), alongside the suite
+it renders. It moved here from the top-level `scripts/` with the rest of the
+chart-asset consolidation ([#643](https://github.com/orieg/expanse/issues/643),
+[#654](https://github.com/orieg/expanse/issues/654)).
