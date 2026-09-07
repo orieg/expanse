@@ -496,11 +496,49 @@ the miss cost is the string tree's own shape. (`counter` retires more
 instructions than `short` and is the slower arm in cycles despite fewer
 misses. That is its own question and not this one.)
 
-**Not yet measured**: whether the translation misses move under huge pages —
-the sensitivity pair [#724](https://github.com/orieg/expanse/issues/724)
-registers next, which the 0.704 → 3.878 `dTLB-load-misses` figure now
-motivates — and no per-function ranking has been taken, which §6 requires
-before any change to this path.
+**The huge-page pair is measured, and it refutes the page-size hypothesis.**
+[#724](https://github.com/orieg/expanse/issues/724) registered a sensitivity
+pair on the strength of that 0.704 → 3.878 `dTLB-load-misses` figure. Running
+it needs no engine change: `GLIBC_TUNABLES=glibc.malloc.hugetlb=1` makes
+glibc `madvise(MADV_HUGEPAGE)` its arenas, so the shipped code is what gets
+measured. The host runs THP in `madvise` mode, and **the treatment was verified
+before it was interpreted** — the probe's own `AnonHugePages` went 0 kB →
+573 MB under the tunable, so a null result could not have been an inert knob
+*(measured: reference host, commit `b1868813`,
+`results/counters_strmap_hugepage_off_1m.json` and
+`…_on_1m.json`; 7 paired runs each, same events, same quiet host)*:
+
+| per probe, N = 10⁶ | 4 KiB pages | huge pages | change |
+|---|---:|---:|---:|
+| `strmap_get` `cycles` | 670.08 [662.04, 682.83] | 594.79 [571.97, 624.22] | −11.2% |
+| `map_get` `cycles` | 194.97 [187.67, 207.68] | 180.93 [175.88, 189.62] | −7.2% |
+| `strmap_get` `dTLB-load-misses` | 3.878 [3.843, 3.912] | **0.002** [0.000, 0.005] | −99.9% |
+| `map_get` `dTLB-load-misses` | 0.699 [0.676, 0.715] | **0.001** [-0.000, 0.001] | −99.9% |
+| `strmap_get` `LLC-load-misses` | 2.576 [2.553, 2.631] | 2.899 [2.833, 2.969] | +12.5% |
+| `strmap_get` `L1-dcache-load-misses` | 12.343 [12.269, 12.424] | 8.556 [8.267, 8.981] | −30.7% |
+| **string ÷ `u64`, in cycles** | **3.44×** | **3.29×** | **−4.3%** |
+
+Translation misses go to **zero** on both arms and the gap does not close:
+3.44× → 3.29×. The misses were real and removing them is worth about 11% of
+the string arm, but **they were not the cost** — 96% of the gap survives their
+complete elimination. An `madvise(MADV_HUGEPAGE)` change to the engine's
+arenas would buy a real, small win and would not address what #724 is about.
+`instructions` are flat to four digits on every arm, which is the control
+confirming the two runs executed identical work and only the page mapping
+differed.
+
+**What it leaves.** With translation eliminated as a variable, the surviving
+memory signal is unambiguous: `LLC-load-misses` 2.899 against `map_get`'s
+0.107, and `L1-dcache-load-misses` 8.556 against 3.918, both under huge pages.
+Read with `strmap_get_counter` — no suffix leaf, still 1.156 `LLC-load-misses`
+— the remaining target is the **string tree's descent and node layout**,
+neither the leaf nor the allocator. That `LLC-load-misses` rose 12.5% under
+huge pages while L1 misses fell 30.7% is recorded as observed; no counter run
+covers why, and this suite does not guess (§8.9).
+
+**Still not measured**: a per-function ranking of the string lookup body,
+which §6 requires before any change to this path. That is the one step of
+[#724](https://github.com/orieg/expanse/issues/724) left.
 
 #### What the counters say about the order effect (#737)
 
