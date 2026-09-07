@@ -346,3 +346,383 @@ fn test_branch_b_digit_removal_count_invariant() {
     // count_range reads subtree_count on the BranchB child of root
     assert_eq!(map.count_range(0, u32::MAX), 24);
 }
+
+// ---------------------------------------------------------------------------
+// The 64-bit node ladder, crossed in both directions (#763)
+//
+// This file was named for boundary invariants and exercised only the 32-bit
+// ladder: every 64-bit capacity, demotion floor and hysteresis constant was
+// referenced by name in `test_encoding_reference_sync.rs` and
+// `test_visualizer_sync.rs`, which pin a constant's *value* for doc-sync, and
+// nowhere by *behaviour*. An off-by-one in a promote/demote comparison (`<` vs
+// `<=`), or a hysteresis band collapsed to zero width, passed the whole suite.
+//
+// The engine does not expose which node form holds a population, and these
+// tests deliberately do not guess at it. They assert the property that must
+// hold whichever form is in play — agreement with an ordered oracle at
+// `N - 1`, `N` and `N + 1` on the way up, and again at `floor + 1`, `floor`
+// and `floor - 1` on the way back down. That is what an off-by-one breaks.
+// ---------------------------------------------------------------------------
+
+use expanse_trie::types::{
+    BITMAP_TO_UNCOMPRESSED_THRESHOLD, BRANCH_L3_CAP, BRANCH_L7_CAP, BRANCHB_TO_L7_DOWN,
+    BRANCHU_TO_B_DOWN, LEAF_CAP, LEAF1_CAP, LEAFB1_DOWN, ROOT_LEAF_CAP,
+};
+use std::collections::{BTreeMap, BTreeSet};
+
+/// `n` keys that all descend into the same leaf: identical in every byte but
+/// the last, so no branch is created above them by construction.
+fn keys_in_one_leaf(n: usize) -> Vec<u64> {
+    (0..n as u64).map(|i| 0x1234_5678_9ABC_DE00 | i).collect()
+}
+
+/// `n` keys occupying `n` distinct subexpanses of the branch at `level`, so the
+/// count that drives a branch's promotion is exactly `n`.
+fn keys_in_n_subexpanses(level: u32, n: usize) -> Vec<u64> {
+    let shift = 8 * (7 - level);
+    (0..n as u64)
+        .map(|i| 0xAA00_0000_0000_0000u64 | (i << shift) | 0x11)
+        .collect()
+}
+
+/// Insert `keys` one at a time, checking every engine against an ordered oracle
+/// after each step. Then remove them in reverse, checking again — so a demotion
+/// floor is crossed with the structure fully populated above it.
+fn walk_up_and_down(label: &str, keys: &[u64]) {
+    let mut map = ExpanseMap::new();
+    let mut set = ExpanseSet::new();
+    let mut omap: BTreeMap<u64, u64> = BTreeMap::new();
+    let mut oset: BTreeSet<u64> = BTreeSet::new();
+
+    for (step, &k) in keys.iter().enumerate() {
+        map.insert(k, k ^ 0xDEAD_BEEF);
+        set.insert(k);
+        omap.insert(k, k ^ 0xDEAD_BEEF);
+        oset.insert(k);
+        agree(label, "insert", step, &map, &set, &omap, &oset);
+    }
+    for (step, &k) in keys.iter().enumerate().rev() {
+        map.remove(k);
+        set.remove(k);
+        omap.remove(&k);
+        oset.remove(&k);
+        agree(label, "remove", step, &map, &set, &omap, &oset);
+    }
+    assert_eq!(
+        map.len(),
+        0,
+        "{label}: map not empty after removing every key"
+    );
+    assert_eq!(
+        set.len(),
+        0,
+        "{label}: set not empty after removing every key"
+    );
+}
+
+fn agree(
+    label: &str,
+    phase: &str,
+    step: usize,
+    map: &ExpanseMap,
+    set: &ExpanseSet,
+    omap: &BTreeMap<u64, u64>,
+    oset: &BTreeSet<u64>,
+) {
+    assert_eq!(
+        map.len(),
+        omap.len() as u64,
+        "{label}/{phase} step {step}: map len"
+    );
+    assert_eq!(
+        set.len(),
+        oset.len() as u64,
+        "{label}/{phase} step {step}: set len"
+    );
+    for (k, v) in omap {
+        assert_eq!(
+            map.get(*k),
+            Some(*v),
+            "{label}/{phase} step {step}: map lost {k:#x}"
+        );
+        assert!(
+            set.contains(*k),
+            "{label}/{phase} step {step}: set lost {k:#x}"
+        );
+    }
+    // Ordered iteration is where a mis-sized node shows up as a lost or
+    // duplicated key rather than a wrong length.
+    let got: Vec<u64> = set.iter().collect();
+    let want: Vec<u64> = oset.iter().copied().collect();
+    assert_eq!(
+        got, want,
+        "{label}/{phase} step {step}: set iteration order"
+    );
+    let got_m: Vec<u64> = map.iter().map(|(k, _)| k).collect();
+    assert_eq!(
+        got_m, want,
+        "{label}/{phase} step {step}: map iteration order"
+    );
+}
+
+#[test]
+fn ladder_leaf_capacities_cross_in_both_directions() {
+    // ROOT_LEAF_CAP (31), LEAF_CAP (32), LEAF1_CAP (25) and its demotion floor
+    // LEAFB1_DOWN (21). Each is walked from below the threshold to above it and
+    // back, so both the promote and the demote comparison are exercised.
+    for &cap in &[ROOT_LEAF_CAP, LEAF_CAP, LEAF1_CAP, LEAFB1_DOWN] {
+        for n in [cap - 1, cap, cap + 1] {
+            walk_up_and_down(&format!("leaf n={n} (cap {cap})"), &keys_in_one_leaf(n));
+        }
+    }
+}
+
+/// The node forms holding a population, as the engine reports them.
+///
+/// `stats()` is what makes this test able to see a *structurally benign*
+/// off-by-one — one that moves the promotion by one key without losing data.
+/// An oracle comparison cannot: it only fails when a threshold error corrupts
+/// the structure, and the common `<` vs `<=` slip does not. Both checks are
+/// kept: the oracle catches the destructive class, the census the silent one.
+fn set_of(keys: &[u64]) -> ExpanseSet {
+    let mut s = ExpanseSet::new();
+    for &k in keys {
+        s.insert(k);
+    }
+    s
+}
+
+#[test]
+fn ladder_branch_capacities_cross_in_both_directions() {
+    // BRANCH_L3_CAP (3), BRANCH_L7_CAP (7) and the hysteresis floor beneath it
+    // BRANCHB_TO_L7_DOWN (6). Populations are subexpanse counts, not key counts,
+    // so the keys are spread one per subexpanse.
+    for &cap in &[BRANCH_L3_CAP, BRANCH_L7_CAP, BRANCHB_TO_L7_DOWN] {
+        for n in [cap - 1, cap, cap + 1] {
+            walk_up_and_down(
+                &format!("branch n={n} (cap {cap})"),
+                &keys_in_n_subexpanses(1, n),
+            );
+        }
+    }
+}
+
+#[test]
+fn root_leaf_cascades_into_a_branch_one_key_past_its_capacity() {
+    // The census, not the oracle. An oracle comparison only fails when a
+    // threshold error corrupts the structure; the common `<` vs `<=` slip moves
+    // the promotion by one key without losing anything, and every behavioural
+    // assertion in this file passes it. Verified: mutating `pop_val <
+    // ROOT_LEAF_CAP` to `<=` in map.rs leaves the oracle walks green.
+    let forms = |n: usize| {
+        let c = set_of(&keys_in_one_leaf(n)).stats().node_counts;
+        (c.leaf_linear, c.leaf_bitmap, c.branch_l3)
+    };
+    assert_eq!(
+        forms(ROOT_LEAF_CAP),
+        (1, 0, 0),
+        "a population of exactly ROOT_LEAF_CAP should still be a flat root leaf"
+    );
+    let (_, _, branched) = forms(ROOT_LEAF_CAP + 1);
+    assert_eq!(
+        branched, 1,
+        "ROOT_LEAF_CAP + 1 keys should have cascaded the root leaf into a branch"
+    );
+}
+
+#[test]
+fn a_leaf_converts_to_bitmap_one_key_past_leaf_cap() {
+    let forms = |n: usize| {
+        let c = set_of(&keys_in_one_leaf(n)).stats().node_counts;
+        (c.leaf_linear, c.leaf_bitmap)
+    };
+    assert_eq!(
+        forms(LEAF_CAP),
+        (1, 0),
+        "at LEAF_CAP the leaf should still be linear"
+    );
+    assert_eq!(
+        forms(LEAF_CAP + 1),
+        (0, 1),
+        "one key past LEAF_CAP the leaf should have converted to a bitmap leaf"
+    );
+}
+
+#[test]
+fn bitmap_branch_converts_to_uncompressed_one_child_past_the_threshold() {
+    // NOTE the off-by-one against the constant's own wording. `types.rs`
+    // documents BITMAP_TO_UNCOMPRESSED_THRESHOLD as "the populated-subexpanse
+    // count *at which* a bitmap branch converts", but the conversion is
+    // measured one child later: 192 children are still a bitmap branch and 193
+    // are uncompressed. The test pins the engine's behaviour and names the
+    // discrepancy rather than quietly encoding 193, because which of the two is
+    // wrong — the comparison or the doc comment — is a question for whoever
+    // owns the ladder, and a test that silently agreed with the code would
+    // remove the evidence.
+    let forms = |n: usize| {
+        let c = set_of(&keys_in_n_subexpanses(1, n)).stats().node_counts;
+        (c.branch_b, c.branch_u)
+    };
+    assert_eq!(
+        forms(BITMAP_TO_UNCOMPRESSED_THRESHOLD),
+        (1, 0),
+        "at BITMAP_TO_UNCOMPRESSED_THRESHOLD children the branch is still a bitmap"
+    );
+    assert_eq!(
+        forms(BITMAP_TO_UNCOMPRESSED_THRESHOLD + 1),
+        (0, 1),
+        "one child past the threshold the branch should be uncompressed"
+    );
+}
+
+#[test]
+fn the_bitmap_branch_hysteresis_band_does_not_thrash_at_its_edge() {
+    // The band is 192 up / 191 down. Taking one child back off an uncompressed
+    // branch must NOT demote it — that one-index gap is what stops an
+    // alternating insert/remove pair rebuilding the node every time.
+    let keys = keys_in_n_subexpanses(1, BITMAP_TO_UNCOMPRESSED_THRESHOLD + 1);
+    let mut set = set_of(&keys);
+    assert_eq!(
+        set.stats().node_counts.branch_u,
+        1,
+        "expected an uncompressed branch"
+    );
+
+    set.remove(*keys.last().unwrap());
+    assert_eq!(
+        set.stats().node_counts.branch_u,
+        1,
+        "one child below the promotion point the branch demoted immediately: the \
+         {BITMAP_TO_UNCOMPRESSED_THRESHOLD}/{BRANCHU_TO_B_DOWN} hysteresis band is not holding"
+    );
+
+    // And it must give way eventually, or the band is a ratchet rather than a band.
+    let mut sorted = keys.clone();
+    sorted.sort_unstable();
+    for &k in sorted.iter().rev() {
+        if set.stats().node_counts.branch_u == 0 {
+            break;
+        }
+        set.remove(k);
+    }
+    assert_eq!(
+        set.stats().node_counts.branch_u,
+        0,
+        "the branch never demoted out of its uncompressed form"
+    );
+}
+
+#[test]
+fn ladder_bitmap_to_uncompressed_crosses_in_both_directions() {
+    // 192 up / 191 down — the widest band on the ladder, and the one whose
+    // collapse would thrash a branch between two forms on every insert/remove
+    // pair at the boundary.
+    for n in [
+        BRANCHU_TO_B_DOWN - 1,
+        BRANCHU_TO_B_DOWN,
+        BITMAP_TO_UNCOMPRESSED_THRESHOLD,
+        BITMAP_TO_UNCOMPRESSED_THRESHOLD + 1,
+    ] {
+        walk_up_and_down(&format!("bitmap n={n}"), &keys_in_n_subexpanses(1, n));
+    }
+}
+
+#[test]
+fn ladder_hysteresis_bands_are_wider_than_zero() {
+    // AGENTS.md section 2.1.6 derives every demotion floor from its capacity so
+    // the band cannot silently decay. A band of zero width means a structure
+    // that promotes and demotes on the same population, thrashing on an
+    // alternating insert/remove pair. Pinned as a property of the constants,
+    // then demonstrated on the engine at the widest band.
+    // The band widths are compile-time facts about the constants, so they are
+    // pinned at compile time -- a collapsed band fails the build, not a test
+    // run. Same idiom as the layout invariants in `node.rs` and `types32.rs`.
+    const _: () = assert!(
+        BRANCH_L7_CAP > BRANCHB_TO_L7_DOWN,
+        "BranchB->L7 band collapsed"
+    );
+    const _: () = assert!(
+        BITMAP_TO_UNCOMPRESSED_THRESHOLD > BRANCHU_TO_B_DOWN,
+        "BranchU->B band collapsed"
+    );
+    const _: () = assert!(
+        LEAF1_CAP > LEAFB1_DOWN,
+        "bitmap-leaf demotion band collapsed"
+    );
+
+    let keys = keys_in_n_subexpanses(1, BITMAP_TO_UNCOMPRESSED_THRESHOLD);
+    let mut set = ExpanseSet::new();
+    for &k in &keys {
+        set.insert(k);
+    }
+    let last = *keys.last().unwrap();
+    for round in 0..8 {
+        set.remove(last);
+        assert_eq!(
+            set.len(),
+            keys.len() as u64 - 1,
+            "round {round}: len after remove"
+        );
+        assert!(
+            !set.contains(last),
+            "round {round}: key present after remove"
+        );
+        set.insert(last);
+        assert_eq!(
+            set.len(),
+            keys.len() as u64,
+            "round {round}: len after re-insert"
+        );
+        assert!(
+            set.contains(last),
+            "round {round}: key absent after re-insert"
+        );
+        let got: Vec<u64> = set.iter().collect();
+        let mut want = keys.clone();
+        want.sort_unstable();
+        assert_eq!(got, want, "round {round}: iteration after boundary churn");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Public surface with no caller and no test (#763 items 3 and 4)
+//
+// Each of these is reachable from outside the crate and had neither a caller in
+// the repository nor a test. A public escape hatch with no caller is an
+// untested contract either way, so the choice is to test it or withdraw it;
+// these are tested, which also fixes what the contract *is*.
+// ---------------------------------------------------------------------------
+
+// `DomainSet::contains_ordinal` and `ExpanseBlobMap::arena_mut` are the other
+// two callerless public items #763 names. They are deliberately NOT covered
+// here: both need a decision about what their contract *is* (does a foreign
+// ordinal mismatch or miss; is a direct arena write through the mutable hatch
+// legal while the map holds entries), and inventing an answer in a test would
+// fix the contract by accident. Left on #763.
+
+#[test]
+fn get_slot_ptr_addresses_the_live_value_and_is_none_when_absent() {
+    let mut map = ExpanseMap::new();
+    map.insert(42, 0xAAAA);
+    assert_eq!(map.get_slot_ptr(99), None, "absent key must yield no slot");
+
+    let p = map.get_slot_ptr(42).expect("present key must yield a slot");
+    // SAFETY: `p` points at 42's value slot and no structural mutation has
+    // happened since it was handed out, which is the documented validity
+    // window (the JudyL contract in the doc comment above `get_slot_ptr`).
+    let seen = unsafe { *p.as_ptr() };
+    assert_eq!(
+        seen, 0xAAAA,
+        "slot pointer does not address the stored value"
+    );
+
+    // A non-structural overwrite is visible through the same pointer.
+    map.insert(42, 0xBBBB);
+    // SAFETY: as above; `insert` over an existing key replaces a value in
+    // place and is not a structural mutation of the map.
+    let seen = unsafe { *p.as_ptr() };
+    assert_eq!(
+        seen, 0xBBBB,
+        "slot pointer went stale on an in-place value overwrite"
+    );
+}
