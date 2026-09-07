@@ -36,7 +36,7 @@
 //!
 //! | Variable | Default | Meaning |
 //! |---|---|---|
-//! | `EXPANSE_PERF_ARM` | `map_get` | `map_get` or `set_contains` |
+//! | `EXPANSE_PERF_ARM` | `map_get` | `map_get`, `set_contains`, `strmap_get` (`short` strings) or `strmap_get_counter` |
 //! | `EXPANSE_PERF_PHASE` | `probe` | `probe` or `build` |
 //! | `EXPANSE_PERF_POP` | `1000000` | keys inserted |
 //! | `EXPANSE_PERF_HIT_PCT` | `100` | percent of probes that are present keys |
@@ -48,12 +48,12 @@
 //! |---|---|
 //! | `workload_id` | `example_perf_point_lookup` |
 //! | `group` | 5 |
-//! | `population` | 1M (configurable via `EXPANSE_PERF_POP`) |
+//! | `population` | 1M (configurable via `EXPANSE_PERF_POP`); the string arms draw the suites' `short` (mean 12.0 B) and `counter` (12 B) shapes |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
 //! | `probes_and_reuse` | 1M distinct per pass, reuse 1.0 |
 //! | `hit_rate` | 100% default (configurable via `EXPANSE_PERF_HIT_PCT`) |
-//! | `miss_gen_method` | Independent PRNG + membership rejection |
-//! | `value_dereference` | `sink ^= *pval` |
+//! | `miss_gen_method` | Independent PRNG + membership rejection; the string arms continue the shape's own generator past the population and reject on membership (§8.6) |
+//! | `value_dereference` | `sink ^= *pval`; the string and set arms add rather than XOR, since values `0..pop` XOR back to zero over a full pass and the sink would stop seeing its own loop |
 //! | `measured_region` | Phase differencing (`probe - build`) |
 //! | `arm_symmetry` | Twin to Callgrind `core_instructions` |
 //! | `statistics` | `perf stat` hardware counters |
@@ -77,6 +77,7 @@
 
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
+use expanse_trie::strmap::ExpanseStrMap;
 use std::hint::black_box;
 
 struct XorShift(u64);
@@ -121,6 +122,82 @@ fn env_usize(name: &str, default: usize) -> usize {
 fn build_keys(pop: usize) -> Vec<u64> {
     let mut rng = XorShift(SEED_KEYS);
     (0..pop).map(|_| rng.next()).collect()
+}
+
+/// `pop` byte-string keys in one of the shapes the comparison suites use
+/// (#724). Kept byte-for-byte compatible with
+/// `crates/expanse-hot-bench/src/strings.rs` so a counter taken here and a
+/// wall-clock cell taken there describe the same tree:
+///
+/// - `short`: `8 + rng % 9` alphanumeric bytes, mean length 12.0 — the shape
+///   whose 100%-hit lookup costs about four times a `u64` lookup.
+/// - `counter`: `k` followed by 11 decimal digits, 12 bytes exactly, every
+///   key resolving inside its terminal chunk with no suffix leaf at all.
+///
+/// The two differ in exactly the structure this probe exists to price: a
+/// `short` lookup ends at a suffix leaf, a `counter` lookup does not.
+fn build_str_keys(pop: usize, shape: &str) -> Vec<Vec<u8>> {
+    const ALNUM: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    let mut rng = XorShift(SEED_KEYS);
+    let mut out = Vec::with_capacity(pop);
+    let mut seen = std::collections::HashSet::with_capacity(pop);
+    match shape {
+        "short" => {
+            while out.len() < pop {
+                let n = 8 + (rng.next() % 9) as usize;
+                let k: Vec<u8> = (0..n)
+                    .map(|_| ALNUM[(rng.next() % ALNUM.len() as u64) as usize])
+                    .collect();
+                if seen.insert(k.clone()) {
+                    out.push(k);
+                }
+            }
+        }
+        "counter" => {
+            for i in 0..pop {
+                out.push(format!("k{i:011}").into_bytes());
+            }
+        }
+        other => panic!("string shape {other} is not recognised: use `short` or `counter`"),
+    }
+    out
+}
+
+/// The string analogue of [`build_probes`], with the same miss discipline:
+/// misses come from the shape's own generator and are rejected on membership,
+/// never a transform of a present key (§8.6).
+fn build_str_probes(
+    keys: &[Vec<u8>],
+    present: &dyn Fn(&[u8]) -> bool,
+    hit_pct: usize,
+    shape: &str,
+) -> Vec<Vec<u8>> {
+    let pop = keys.len();
+    let hits = pop * hit_pct / 100;
+    let mut probes: Vec<Vec<u8>> = keys[..hits].to_vec();
+
+    if probes.len() < pop {
+        // Continue the shape's own stream past the population rather than
+        // restarting it, so a miss is the same kind of key as a hit and lands
+        // at a comparable depth (§8.6, and the `with_offset` rule).
+        let wanted = pop - probes.len();
+        let extra = build_str_keys(pop + wanted * 4, shape);
+        for k in extra.into_iter().rev() {
+            if probes.len() == pop {
+                break;
+            }
+            if !present(&k) {
+                probes.push(k);
+            }
+        }
+        assert_eq!(probes.len(), pop, "miss budget exhausted for shape {shape}");
+    }
+
+    let mut rng = XorShift(SEED_SHUFFLE);
+    for i in (1..probes.len()).rev() {
+        probes.swap(i, (rng.next() % (i as u64 + 1)) as usize);
+    }
+    probes
 }
 
 /// The probe vector: `hit_pct` percent present keys, the rest drawn from an
@@ -209,8 +286,50 @@ fn main() {
             core::mem::forget(set);
             core::mem::forget(probes);
         }
+        // The two string arms exist to price #724's question with per-engine
+        // attribution: the comparison suites run Expanse and the competitor in
+        // one process, and `perf stat` counts the process, so their counters
+        // cannot say which engine's translation misses moved. These run one
+        // engine, so they can — and `map_get` above is the `u64` baseline the
+        // 4x is measured against, on the same instrument in the same shape of
+        // process.
+        arm @ ("strmap_get" | "strmap_get_counter") => {
+            let shape = if arm == "strmap_get" {
+                "short"
+            } else {
+                "counter"
+            };
+            let str_keys = build_str_keys(pop, shape);
+            let mut map = ExpanseStrMap::new();
+            for (i, k) in str_keys.iter().enumerate() {
+                map.insert(k, i as u64);
+            }
+            let probes = build_str_probes(&str_keys, &|k| map.get(k).is_some(), hit_pct, shape);
+            sink ^= map.len();
+            if run_probe {
+                for _ in 0..passes {
+                    for k in &probes {
+                        // Added, not XORed, for the reason `set_contains`
+                        // records: values here are `0..pop`, whose XOR over a
+                        // full pass folds back to zero and leaves the probe
+                        // phase's checksum identical to the build phase's —
+                        // a sink that cannot see the loop it is guarding.
+                        // Verified: with `^=` both phases printed 200000.
+                        sink = sink.wrapping_add(map.get(black_box(k.as_slice())).unwrap_or(0));
+                    }
+                }
+            }
+            // Leaked for the same reason as the integer arms: a teardown walk
+            // at exit would land inside the process `perf stat` is counting.
+            core::mem::forget(map);
+            core::mem::forget(probes);
+            core::mem::forget(str_keys);
+        }
         other => {
-            panic!("EXPANSE_PERF_ARM={other} is not recognised: use `map_get` or `set_contains`")
+            panic!(
+                "EXPANSE_PERF_ARM={other} is not recognised: use `map_get`, `set_contains`, \
+                 `strmap_get` or `strmap_get_counter`"
+            )
         }
     }
 
