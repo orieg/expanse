@@ -33,11 +33,18 @@
 //!
 //! ## Scan surface
 //!
-//! The Expanse scan drives the shipped `ExpanseStrMap` navigation surface —
-//! `next_at_or_after` then `next_after` per element, each a root descent
-//! returning a fresh key allocation — against HOT's `lower_bound` plus
-//! incremental iterator (§10.6). `ExpanseBytesMap` is unordered and has no scan
-//! pillar.
+//! The Expanse scan drives `ExpanseStrMap::cursor_at_or_after` (#722): one
+//! descent, then a step along the recorded path per element. It is measured
+//! against HOT's `lower_bound` plus incremental iterator (§10.6).
+//! `ExpanseBytesMap` is unordered and has no scan pillar.
+//!
+//! **This pairs like with like, and the arm it replaces did not.** HOT's side
+//! has always been a seek plus an incremental iterator; Expanse's was
+//! `next_at_or_after` / `next_after`, a *positional* surface where each
+//! element is a fresh root descent returning a freshly allocated key that the
+//! arm discards. The comparison was a cursor against repeated seeks, which is
+//! the asymmetry §8.3 exists to catch, and it is why the 72 of 72 cells this
+//! suite lost were read as a finding about the surface rather than the trie.
 
 use std::env;
 use std::hint::black_box;
@@ -417,16 +424,16 @@ fn main() {
                     let mut sink = 0u64;
                     for s in &starts {
                         let mut c = 0usize;
-                        let mut cur = e.next_at_or_after(s.bytes());
-                        while let Some((key, slot)) = cur {
-                            // SAFETY: the slot pointer is valid until the next
-                            // structural mutation, and none occurs during the scan.
+                        let mut cur = e.cursor_at_or_after(s.bytes());
+                        while let Some((_key, slot)) = cur.next() {
+                            // SAFETY: the cursor borrows the map for its
+                            // lifetime, so the slot is a live value word and no
+                            // structural mutation can run during the scan.
                             sink ^= unsafe { *slot.as_ptr() };
                             c += 1;
                             if c == scan_k {
                                 break;
                             }
-                            cur = e.next_after(&key);
                         }
                         visited += c;
                     }
