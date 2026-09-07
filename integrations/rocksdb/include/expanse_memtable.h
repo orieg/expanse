@@ -421,7 +421,10 @@ namespace rocksdb {
 class ExpanseMemTableRep : public MemTableRep {
 public:
     struct alignas(64) LeafBlock {
-        static constexpr size_t kMaxCapacity = 64; // 64 entries per cache-line block
+        // 64 entries. Not "a cache-line block": with the header this struct is
+        // 576 bytes, or nine 64-byte lines, and the version word shares line 0
+        // with the link pointers and the first three entry slots.
+        static constexpr size_t kMaxCapacity = 64;
         std::atomic<uint32_t> version{0};
         std::atomic<uint32_t> count{0};
         std::atomic<LeafBlock*> prev{nullptr};
@@ -446,6 +449,17 @@ public:
             return c > 0 ? entries[c - 1].load(std::memory_order_acquire) : nullptr;
         }
     };
+
+    // Pinned rather than described. The previous comment claimed "64
+    // entries per cache-line block" and was wrong by nine lines; a comment
+    // cannot fail when the layout changes and this can. The version word
+    // sharing line 0 with the links and the first entry slots is the part
+    // that matters: every bracket increment takes that line exclusive from
+    // every reader touching them.
+    static_assert(sizeof(LeafBlock) == 576, "LeafBlock layout changed");
+    static_assert(alignof(LeafBlock) == 64, "LeafBlock must stay line-aligned");
+    static_assert(offsetof(LeafBlock, version) == 0, "version leads the block");
+
 
     class IteratorImpl : public MemTableRep::Iterator {
     public:

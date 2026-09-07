@@ -3,6 +3,7 @@
 //
 // expanse_memtable.cc — Implementation of RocksDB Pluggable MemTable backed by Expanse.
 
+#include <cassert>
 #include "expanse_memtable.h"
 
 namespace rocksdb {
@@ -202,10 +203,25 @@ void ExpanseMemTableRep::SplitLeafBlock(LeafBlock* block) {
     size_t mid = b_count / 2;
     size_t move_count = b_count - mid;
 
-    block->version.fetch_add(1, std::memory_order_acquire);
+    // Relaxed store plus a release fence, not an acquire RMW. Acquire on the
+    // increment that opens the bracket orders nothing for the payload stores
+    // that follow it; the fence is what guarantees a reader observing any
+    // covered store must also observe the odd version. It also removes the
+    // dependence on every covered store being individually a release store --
+    // the nulling loop below is deliberately relaxed, and under the previous
+    // spelling only the readers' ad-hoc null checks stood between that and a
+    // bracket validating over a torn slot.
+    //
+    // There is one writer (mutex_ is held), so no read-modify-write is needed
+    // to compute the next value. Boehm, "Can seqlocks get along with
+    // programming language memory models?", MSPC 2012; this is the same
+    // construction as SeqVersion::begin in crates/expanse/src/occ.rs.
+    block->version.store(block->version.load(std::memory_order_relaxed) + 1,
+                         std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
 
     for (size_t i = 0; i < move_count; ++i) {
-        // Release: a lock-free reader that acquire-loads this moved entry pointer must
+        // Release: a reader that acquire-loads this moved entry pointer must
         // gain a happens-before edge to the entry's (write-once) key bytes, which were
         // published under mutex_ by the original inserter.
         new_block->entries[i].store(block->entries[mid + i].load(std::memory_order_relaxed), std::memory_order_release);
@@ -262,11 +278,26 @@ void ExpanseMemTableRep::Insert(KeyHandle handle) {
         }
     }
 
-    block->version.fetch_add(1, std::memory_order_acquire);
+    // Relaxed store plus a release fence, not an acquire RMW. Acquire on the
+    // increment that opens the bracket orders nothing for the payload stores
+    // that follow it; the fence is what guarantees a reader observing any
+    // covered store must also observe the odd version. It also removes the
+    // dependence on every covered store being individually a release store --
+    // the nulling loop below is deliberately relaxed, and under the previous
+    // spelling only the readers' ad-hoc null checks stood between that and a
+    // bracket validating over a torn slot.
+    //
+    // There is one writer (mutex_ is held), so no read-modify-write is needed
+    // to compute the next value. Boehm, "Can seqlocks get along with
+    // programming language memory models?", MSPC 2012; this is the same
+    // construction as SeqVersion::begin in crates/expanse/src/occ.rs.
+    block->version.store(block->version.load(std::memory_order_relaxed) + 1,
+                         std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
     
     for (int i = static_cast<int>(b_count); i > left; --i) {
         // Release: shifting republishes an existing entry pointer into a new slot that
-        // lock-free readers scan; the acquire-load on the reader side needs this release
+        // readers scan; the acquire-load on the reader side needs this release
         // to carry happens-before to that entry's key bytes.
         block->entries[i].store(block->entries[i - 1].load(std::memory_order_relaxed), std::memory_order_release);
     }
@@ -345,7 +376,13 @@ bool ExpanseMemTableRep::Contains(const char* key) const {
             }
             if (retry) continue;
 
-            uint32_t v_end = block->version.load(std::memory_order_acquire);
+            // An acquire *fence* before a relaxed load, not an acquire load.
+            // An acquire load orders what follows it; this re-read has to be
+            // ordered after the bracket's payload reads, which is the opposite
+            // direction. Mirrors SeqVersion::validate in
+            // crates/expanse/src/occ.rs.
+            std::atomic_thread_fence(std::memory_order_acquire);
+            uint32_t v_end = block->version.load(std::memory_order_relaxed);
             if (v_start == v_end) {
                 break;
             }
@@ -390,8 +427,14 @@ void ExpanseMemTableRep::Get(
     while (block != nullptr) {
         bool retry_block = false;
         bool out_of_bounds = false;
-        const char* matches[32];
-        int num_matches = 0;
+        // Sized to the block, not to a guess. A block holds kMaxCapacity
+        // entries and every one of them can carry the same user key with a
+        // different sequence number, so a smaller buffer drops versions of a
+        // heavily overwritten key -- and Get would then miss the sequence
+        // number it was asked for and return a wrong answer rather than a slow
+        // one. 512 bytes of stack is the cheaper side of that trade.
+        const char* matches[LeafBlock::kMaxCapacity];
+        size_t num_matches = 0;
         
         while (true) {
             uint32_t v_start = block->version.load(std::memory_order_acquire);
@@ -443,19 +486,28 @@ void ExpanseMemTableRep::Get(
                     out_of_bounds = true;
                     break;
                 }
-                if (num_matches < 32) {
-                    matches[num_matches++] = entry;
-                }
+                // Cannot overflow: the loop is bounded by the block's own
+                // count, which never exceeds kMaxCapacity. Asserted rather
+                // than silently clamped, because a clamp here is a dropped
+                // version and a wrong Get.
+                assert(num_matches < LeafBlock::kMaxCapacity);
+                matches[num_matches++] = entry;
             }
             if (retry_block) continue;
 
-            uint32_t v_end = block->version.load(std::memory_order_acquire);
+            // An acquire *fence* before a relaxed load, not an acquire load.
+            // An acquire load orders what follows it; this re-read has to be
+            // ordered after the bracket's payload reads, which is the opposite
+            // direction. Mirrors SeqVersion::validate in
+            // crates/expanse/src/occ.rs.
+            std::atomic_thread_fence(std::memory_order_acquire);
+            uint32_t v_end = block->version.load(std::memory_order_relaxed);
             if (v_start == v_end) {
                 break;
             }
         }
         
-        for (int i = 0; i < num_matches; ++i) {
+        for (size_t i = 0; i < num_matches; ++i) {
             if (!callback_func(callback_args, matches[i])) {
                 return;
             }
@@ -716,7 +768,13 @@ void ExpanseMemTableRep::IteratorImpl::Seek(const Slice& internal_key, const cha
             }
             if (retry) continue;
 
-            uint32_t v_end = block->version.load(std::memory_order_acquire);
+            // An acquire *fence* before a relaxed load, not an acquire load.
+            // An acquire load orders what follows it; this re-read has to be
+            // ordered after the bracket's payload reads, which is the opposite
+            // direction. Mirrors SeqVersion::validate in
+            // crates/expanse/src/occ.rs.
+            std::atomic_thread_fence(std::memory_order_acquire);
+            uint32_t v_end = block->version.load(std::memory_order_relaxed);
             if (v_start == v_end) {
                 if (left < orig_right) {
                     found = true;
@@ -815,8 +873,13 @@ size_t ExpanseMemTableRep::IteratorImpl::ScanBatch(
                         out_values[extracted].clear();
                     }
                 }
+                // Only a slot that was actually written counts as extracted.
+                // Incrementing outside this branch reported a null slot -- or
+                // one whose varint header failed to parse -- as extracted while
+                // leaving out_keys[extracted] untouched, so the caller read an
+                // unwritten Slice as if it were a key.
+                extracted++;
             }
-            extracted++;
         }
 
         current_slot_ += to_extract;
