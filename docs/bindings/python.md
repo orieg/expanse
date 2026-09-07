@@ -12,7 +12,7 @@
 - **Zero-Overhead Memory Compaction**: Consumes as low as **0.07–0.36 bytes/key** on clustered integer sets *(measured: Apple M1, `bytes_per_key` example, commit 6c63826a — deterministic byte accounting)*, versus tens of bytes/key for Python's standard `set` and `dict`.
 - **Cache-Line Aligned Digital Tries**: $O(\text{depth})$ traversals (at most 8 digit steps for 64-bit keys) keeping branch and leaf evaluations within 64-byte L1 cache lines.
 - **Ordered Traversal & Range Scans**: Native sorted iteration, $O(\text{depth})$ `first()`, `last()`, `next_at_or_after()`, `prev_at_or_before()`, rank (`count_below`), and select (`by_count`) without maintaining secondary index trees.
-- **GIL-Free Optimistic Concurrency Control (OCC)**: `SyncExpanseSet` and `SyncExpanseMap` release the Python GIL (`py.detach`, pyo3 0.29's renamed `allow_threads`) during queries, so multiple Python `threading` / `ThreadPoolExecutor` workers execute reads concurrently across cores with zero read locks. **Which API you call decides whether you get multi-core reads.** Per-call `get` releases and reacquires the GIL around a lookup of tens of nanoseconds, so the handoff costs more than the work and concurrent callers convoy on reacquisition — it measures **0.02×** at 16 threads, below a GIL-bound `dict`. `get_many` amortises one release across the batch and is the form to use for concurrent reads: **1.64× faster single-threaded** and **1.26× at two threads**, beating `dict` at every width measured *(measured: reference host, run [33454057737](https://github.com/orieg/expanse/actions/runs/33454057737), artifact [`results/baseline_python_concurrency.json`](../../results/baseline_python_concurrency.json))*.
+- **GIL-Free Optimistic Concurrency Control (OCC)**: `SyncExpanseSet` and `SyncExpanseMap` release the Python GIL (`py.detach`, pyo3 0.29's renamed `allow_threads`) during queries, so multiple Python `threading` / `ThreadPoolExecutor` workers execute reads concurrently across cores with zero read locks. **Which API you call decides whether you get multi-core reads.** Per-call `get` releases and reacquires the GIL around a lookup of tens of nanoseconds, so the handoff costs more than the work and concurrent callers convoy on reacquisition — it measures **0.02×** at 16 threads, below a GIL-bound `dict`. `get_many` amortises one release across the batch and is the form to use for concurrent reads. **The cross-arm figures against `dict` are withheld pending re-measurement (#755)**: the harness that produced them built its miss half as `k ^ (1 << 63)` of each hit, a shape that costs a trie a different descent depth than a hit while costing a hash `dict` nothing, so the comparison was not like for like (section 8.6). The harness is corrected and the replacement figures come from a re-run on the reference host. The within-arm scaling shape is unaffected and is stated in [§ Concurrency](#concurrency).
 - **Strict Typing & IDE Support**: Full PEP 561 compliance (`py.typed` and `__init__.pyi` stubs) for mypy, Pyright, and IDE autocompletion.
 
 ---
@@ -202,18 +202,39 @@ In standard CPython, multithreaded CPU-bound data lookups often serialize on the
 
 1. **Lock-Free Reads**: Query operations (`contains`, `get`, `len`, `is_empty`) validate version seqlocks and read concurrently without holding mutexes or the Python GIL.
 2. **Serialized Writes**: Mutations (`insert`, `remove`) synchronize internally while allowing readers to proceed optimistically.
-3. **Multi-Core Reads** — through `get_many`, not `get`. Measured on the reference host (200,000 keys, 200,000 probes at 50% hit, 5 rounds, load average 0.77 on 24 cores), Mops/s with scaling against that arm's own single-thread figure:
+3. **Multi-Core Reads** — through `get_many`, not `get`. Which API you call decides
+   whether you get multi-core reads: per-call `get` releases and reacquires the GIL
+   around a lookup of tens of nanoseconds, so the handoff costs more than the work and
+   concurrent callers convoy on reacquisition, while `get_many` amortises one release
+   across the batch.
 
-   | Threads | `get_many` | per-call `get` | `dict` (GIL-bound control) |
-   |---:|---:|---:|---:|
-   | 1 | **10.61** (1.00×) | 6.45 (1.00×) | 8.64 (1.00×) |
-   | 2 | **13.39 (1.26×)** | 2.41 (0.37×) | 7.28 (0.84×) |
-   | 4 | 6.72 (0.63×) | 0.78 (0.12×) | 8.40 (0.97×) |
-   | 16 | 2.88 (0.27×) | 0.12 (0.02×) | 1.76 (0.20×) |
+   **The figures for this are withheld pending re-measurement (#755).** The harness
+   (`bindings/python/bench_concurrency.py`) drew its miss half as `k ^ (1 << 63)` of
+   each hit key. That lands every miss in a different top-level expanse from the key it
+   came from, so it shares no prefix and terminates at a systematically different depth
+   than a hit — the stream met its stated 50% hit rate while averaging two different
+   descents into one number (section 8.6). It also alternated hits and misses strictly,
+   making membership perfectly branch-predictable.
 
-   `get_many` is the only arm that exceeds parity (1.26× at two threads) and it beats the `dict` control at every width. It still falls off past two threads: at 16 threads each worker runs only about three batches, so there is little left to amortise, and assembling the result list is itself GIL-bound Python work. The batch size is not tuned against this run — picking one to flatter the curve would be the mid-execution tuning section 8.7 warns about.
+   What survives and what does not, under section 8.10's ratio-versus-absolute rule:
 
-   *(measured: reference host — Intel i9-12900F, 24 threads, run [33454057737](https://github.com/orieg/expanse/actions/runs/33454057737), artifact [`results/baseline_python_concurrency.json`](../../results/baseline_python_concurrency.json))*
+   - **Withheld pending re-measurement (#755)**: every absolute Mops/s figure, and every
+     comparison *between* arms. The defect is present in all arms but not equal in
+     magnitude across them — a hash `dict` has no descent depth for the miss shape to
+     distort, and the trie does — so the cross-arm ratio is not a like-for-like
+     comparison. The previously published "beats the `dict` control at every width"
+     rests on exactly that ratio and is withdrawn with it.
+   - **Structurally sound, and retained**: the *shape* of the within-arm scaling curve.
+     Each arm ran the identical stream at every thread width, so the contamination is
+     constant along that axis. `get_many` is the only arm that exceeds its own
+     single-thread throughput, and it falls off past two threads — at 16 threads each
+     worker runs about three batches, so there is little left to amortise, and
+     assembling the result list is itself GIL-bound Python work.
+
+   The claim is withheld, not retracted: the corrected harness produces replacements
+   from a re-run on the reference host under the section 8.4 interval and section 8.17
+   load-snapshot rules (#755). The batch size is not tuned against any run — picking one
+   to flatter the curve would be the mid-execution tuning section 8.7 warns about.
 
 ### Multithreaded Concurrency Example:
 

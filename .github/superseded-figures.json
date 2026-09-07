@@ -310,6 +310,26 @@
       "replacement": "Expanse 1.50×–1.53× on structured keys and 2.67× on random at k = 10 (docs/benchmarks/art_comparison/results/baseline_scan.json)",
       "provenance": "#745",
       "rationale": "Measured from one start key per round, so a k = 10 window held ten element visits between two clock reads; re-measured with scan starts that scale as max(1000, 10^6/k), the cell reverses"
+    },
+    {
+      "id": "python_concurrency_cross_arm_degenerate_miss",
+      "patterns": [
+        "(?<![\\w.])1\\.64\\s*[x×](?!\\w)",
+        "(?<![\\w.])10\\.61\\s*(?:Mops|\\()",
+        "(?<![\\w.])13\\.39\\s*(?:Mops|\\()",
+        "beats?\\s+(?:the\\s+)?`?dict`?\\s+control\\s+at\\s+every\\s+width"
+      ],
+      "context": [
+        "python",
+        "get_many",
+        "dict",
+        "mops",
+        "concurrency",
+        "threads"
+      ],
+      "replacement": "withheld pending re-measurement on the reference host with the corrected miss shape (#755)",
+      "provenance": "#755",
+      "rationale": "bindings/python/bench_concurrency.py built its miss half as `k ^ (1 << 63)` of each hit (AGENTS.md §8.6 degenerate miss shape) and alternated hits and misses strictly. The defect is present in every arm but not equal in magnitude across them: a hash `dict` has no descent depth for the miss shape to distort and the trie does, so every cross-arm figure from that run is not a like-for-like comparison. Within-arm scaling across thread widths is unaffected and was retained."
     }
   ]
 }
