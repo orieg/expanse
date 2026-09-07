@@ -2269,8 +2269,12 @@ jobs:
         with:
           command: check
           # Default is `check advisories bans sources` only; naming all four
-          # keeps the licence arm armed.
-          arguments: --all-features advisories bans licenses sources
+          # keeps the licence arm armed. No global flags here: the action
+          # composes `cargo deny check <arguments>`, so anything cargo-deny
+          # accepts only before the subcommand is rejected as an unexpected
+          # argument. Feature selection lives in `deny.toml`'s [graph] section,
+          # which is where it can be reviewed alongside the policy it affects.
+          arguments: advisories bans licenses sources
 
   ci-gate:
     name: CI Gate / All Checks Passed
