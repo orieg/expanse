@@ -41,6 +41,19 @@ jobs:
       - uses: dorny/paths-filter@v4
         id: filter
         with:
+          # REQUIRED for the `!`-prefixed pattern in `rust-src` below. Under the
+          # action's default `some`, a leading `!` is a picomatch *negation*
+          # OR'd with the other patterns, not an exclusion -- so
+          # `!crates/expanse-hot-bench/**` reads "any path outside that crate"
+          # and matches essentially every file in the repo. That is how it
+          # behaved from #671 until this line was added: `rust-src` was true for
+          # every PR, and no job was ever filtered out (a docs-only PR skipped
+          # 37 of 40 jobs the hour before #671 merged, and 0 of 69 after).
+          # `some-with-excludes` is the action's own name for the intended
+          # reading: "matches at least one pattern and no negated pattern".
+          # `scripts/check_ci_gate.py` fails if a `!` pattern is reintroduced
+          # while this input is absent.
+          predicate-quantifier: 'some-with-excludes'
           filters: |
             # Rust/C++ behaviour: the sources every compiled artifact is
             # built from. This is the only filter that gates the expensive
@@ -320,6 +333,7 @@ jobs:
           # its perf-CSV and criterion parsers and its window summary are not.
           python3 scripts/warmup_ramp.py --self-test
           python3 scripts/check_docs_hygiene.py --self-test
+          python3 scripts/check_ci_gate.py --self-test
           python3 scripts/check_ecosystem_theme.py --self-test
           python3 scripts/check_miri_shards.py --self-test
           python3 scripts/check_bench_suites.py --self-test
