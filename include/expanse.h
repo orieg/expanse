@@ -171,6 +171,16 @@ bool expanse_map_prev_before(const expanse_map_t *map, expanse_word_t key,
  * with `user_ctx`, and returns the count removed. One descent to the range
  * and one structural fix-up per touched node — the batched form of a
  * first/remove eviction loop. The callback must not touch `map`.
+ *
+ * Every callback below must return normally. Throwing a C++ exception through
+ * it, or `longjmp`-ing out of it, unwinds through Rust frames that are mid
+ * traversal or mid structural fix-up: no destructor runs, and the map is left
+ * in a state that satisfies none of its invariants, with no diagnostic. This
+ * is undefined behaviour and the library cannot detect it. A C++ caller
+ * passing a lambda that can throw must catch inside the lambda. (A Rust panic
+ * raised inside a callback is not an exception to this: `extern "C"` aborts
+ * the process rather than unwinding, which is the defined -- and debuggable --
+ * outcome.)
  */
 typedef void (*expanse_map_remove_range_fn)(expanse_word_t key, expanse_word_t value,
                                             void *user_ctx);
@@ -188,7 +198,8 @@ size_t expanse_map_remove_range(expanse_map_t *map, expanse_word_t lo, expanse_w
  * range spans, where an expanse_map_next_after loop pays a fresh O(depth)
  * root descent per key. Nothing is borrowed across the call boundary: the
  * callback receives keys and values by value, so no pointer outlives the
- * walk. The callback must not mutate `map` during the walk.
+ * walk. The callback must not mutate `map` during the walk, and must return
+ * normally -- see the note on `expanse_map_remove_range_fn` above.
  */
 typedef bool (*expanse_map_for_each_range_fn)(expanse_word_t key, expanse_word_t value,
                                               void *user_ctx);
@@ -546,6 +557,14 @@ typedef struct {
     bool           is_inline;
 } ExpanseBlobView;
 
+/*
+ * Scan callbacks. Both must return normally: throwing a C++ exception through
+ * one, or `longjmp`-ing out of it, unwinds through Rust frames mid traversal,
+ * runs no destructor, and leaves the map in a state that satisfies none of its
+ * invariants, with no diagnostic. Undefined behaviour, undetectable by the
+ * library; catch inside the callback. A Rust panic in a callback aborts the
+ * process instead of unwinding, which is the defined outcome.
+ */
 typedef bool (*expanse_predicate_fn)(uint64_t key, uint32_t hot_meta, void *user_ctx);
 typedef bool (*expanse_scan_cb_fn)(uint64_t key, ExpanseBlobView view, void *user_ctx);
 
