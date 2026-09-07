@@ -864,6 +864,17 @@ on the reference host at the feature commit and refreshes that suite's
 `results/` and README in the same PR; the "Outcome" column here is updated
 only from those re-measured tables.
 
+**Running a suite over `ssh`.** A non-interactive shell does not read an
+interactive profile, so `ssh host 'nohup docs/benchmarks/<suite>/run.sh …'`
+resolves `cargo` to whatever the distribution ships — on the reference host that
+is Cargo 1.75, which cannot parse an edition-2024 manifest and fails the build
+step with a message that names neither the cause nor the fix. Put the toolchain
+on `PATH` in the command itself, as the AGENTS.md §6 remote recipe does:
+`export PATH="$HOME/.cargo/bin:$PATH"`. `scripts/bench_pin.sh` — sourced by
+every wall-clock runner before anything is built — checks the resolved `cargo`
+against the workspace's own `rust-version` and refuses by name if it is below
+it (#728), so the failure arrives before the build rather than inside it.
+
 **Suite layout and artifacts split.** Every comparative suite lives under `docs/benchmarks/<suite>/` containing its results `README.md`, pre-registration `METHODOLOGY.md`, reproduction `run.sh`, and `results/` artifacts. Top-level `results/` is reserved strictly for CI regression gate baselines (`baseline_*.json` consumed by `scripts/bench_baseline.py`), separating gate inputs from comparative suite deliverables. Integration guides under `integrations/<x>/README.md` focus on building, linking, and integrating Expanse, with a concise summary and a pointer to the suite under `docs/benchmarks/<x>/`. Renderers live either in top-level `scripts/` (e.g. `generate_stm32_svg.py`, `generate_embedded_svg.py`, `generate_asset_svgs.py`, `generate_domain_algebra_svg.py`), in the suite's own `scripts/` (`hashbrown_comparison/scripts/`, `search_inverted_index/scripts/`, `redis_zset_engine/scripts/`, `llm_inference/scripts/`), or in the integration's `scripts/` (`integrations/rocksdb/scripts/generate_bench_svg.py`).
 
 ## Automated Benchmark Comparison Report Tool (`scripts/bench_report.py`)

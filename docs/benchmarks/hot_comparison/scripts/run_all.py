@@ -444,6 +444,47 @@ def main() -> int:
 
     add_load(provenance, "start")
 
+    # Ordering (#727): the single-threaded phases run FIRST, the concurrent
+    # sweep LAST. A cell in that sweep runs up to sixteen busy threads, which
+    # lifts the 1-minute load average to about 5 and leaves it decaying for
+    # minutes. A single-threaded phase timed inside that decay publishes a load
+    # series that reads as contamination under docs/BENCHMARKING.md rule 2 and
+    # is only the sweep's own tail — `masstree_comparison` discarded a full run
+    # for exactly that (start 0.88, 4.79 after the concurrent join) before its
+    # runner was ordered this way.
+    if not only_concurrent:
+        if sensitivity:
+            print("\n[sensitivity] §12.2 — the same population sorted and shuffled")
+            sens = sweep_sensitivity(env, quick)
+            add_load(provenance, "after-sensitivity")
+            (out_dir / "baseline_sensitivity.json").write_text(
+                json.dumps({"provenance": provenance, **sens}, indent=2) + "\n")
+            print(f"wrote {out_dir}/baseline_sensitivity.json")
+            if only_sensitivity:
+                return 0
+
+        print("\n[1/2] memory pillar — sweeping λ across the LEAF_CAP cascade")
+        memory = sweep_memory(env, quick)
+        add_load(provenance, "after-memory")
+
+        memory["payload_delta"] = payload_delta_check(memory["cells"])
+
+        print("\n[2/2] latency pillars")
+        latency = sweep_latency(env, quick)
+        add_load(provenance, "end")
+
+        (out_dir / "baseline_memory_curve.json").write_text(
+            json.dumps({"provenance": provenance, **memory}, indent=2) + "\n")
+        (out_dir / "baseline_latency.json").write_text(
+            json.dumps({"provenance": provenance, **latency}, indent=2) + "\n")
+
+        loads = [snap["load1"] for snap in provenance["loads"]]
+        print(f"\nload average across the run: {loads}")
+        if max(loads) - min(loads) > 2.0:
+            print("WARNING: load shifted by more than 2 during the run — "
+                  "the comparison is contaminated (docs/BENCHMARKING.md rule 2)")
+        print(f"wrote {out_dir}/baseline_memory_curve.json and baseline_latency.json")
+
     if concurrent:
         print("\n[concurrent] HOT-ROWEX arm (#692, §11) — one process per cell, "
               "threads inside the P-core pin")
@@ -471,41 +512,7 @@ def main() -> int:
         if start_load > 2.0:
             print("WARNING: load average above 2 at start — another process was "
                   "running; the comparison is contaminated (docs/BENCHMARKING.md rule 2)")
-        if only_concurrent:
-            return 0
-        add_load(provenance, "after-concurrent")
 
-    if sensitivity:
-        print("\n[sensitivity] §12.2 — the same population sorted and shuffled")
-        sens = sweep_sensitivity(env, quick)
-        add_load(provenance, "after-sensitivity")
-        (out_dir / "baseline_sensitivity.json").write_text(
-            json.dumps({"provenance": provenance, **sens}, indent=2) + "\n")
-        print(f"wrote {out_dir}/baseline_sensitivity.json")
-        if only_sensitivity:
-            return 0
-
-    print("\n[1/2] memory pillar — sweeping λ across the LEAF_CAP cascade")
-    memory = sweep_memory(env, quick)
-    add_load(provenance, "after-memory")
-
-    memory["payload_delta"] = payload_delta_check(memory["cells"])
-
-    print("\n[2/2] latency pillars")
-    latency = sweep_latency(env, quick)
-    add_load(provenance, "end")
-
-    (out_dir / "baseline_memory_curve.json").write_text(
-        json.dumps({"provenance": provenance, **memory}, indent=2) + "\n")
-    (out_dir / "baseline_latency.json").write_text(
-        json.dumps({"provenance": provenance, **latency}, indent=2) + "\n")
-
-    loads = [snap["load1"] for snap in provenance["loads"]]
-    print(f"\nload average across the run: {loads}")
-    if max(loads) - min(loads) > 2.0:
-        print("WARNING: load shifted by more than 2 during the run — "
-              "the comparison is contaminated (docs/BENCHMARKING.md rule 2)")
-    print(f"wrote {out_dir}/baseline_memory_curve.json and baseline_latency.json")
     return 0
 
 

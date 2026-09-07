@@ -150,6 +150,14 @@ fi
 exit 2
 """
 
+# The toolchain gate (#728) resolves a cargo and compares it against the
+# workspace `rust-version`. The synthetic PATH below carries this stub so the
+# pin's own refusal paths are exercised against a toolchain that clears the
+# floor, and so the gate's refusals can be driven by version alone.
+FAKE_CARGO = """#!/bin/sh
+echo "cargo ${FAKE_CARGO_VERSION:-9.99.0} (0000000 1970-01-01)"
+"""
+
 
 def _run_pin(tmp: Path, *, hybrid: bool, taskset: bool, env: dict[str, str]) -> subprocess.CompletedProcess:
     """Source bench_pin.sh against a synthetic topology and return the result."""
@@ -173,6 +181,14 @@ def _run_pin(tmp: Path, *, hybrid: bool, taskset: bool, env: dict[str, str]) -> 
     # instead would remove /usr/bin along with it on any host where the two
     # live together, taking sh/sed/awk/tr with it — which is how this self-test
     # first passed on a host without `taskset` and failed on one with it.
+    cargo_stub = bindir / "cargo"
+    if env.pop("NO_CARGO", None):
+        if cargo_stub.exists():
+            cargo_stub.unlink()
+    else:
+        cargo_stub.write_text(FAKE_CARGO, encoding="utf-8")
+        cargo_stub.chmod(cargo_stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
     _link_tools(bindir)
     path = str(bindir)
 
@@ -181,8 +197,12 @@ def _run_pin(tmp: Path, *, hybrid: bool, taskset: bool, env: dict[str, str]) -> 
         "PATH": path,
         "EXPANSE_PIN_SYSFS_ROOT": str(sysfs),
         "STATE": str(tmp / "affinity"),
+        # Every real runner sets this before sourcing; the toolchain gate reads
+        # the workspace floor out of the manifest it points at.
+        "REPO_ROOT": str(REPO_ROOT),
         **env,
     }
+    full.pop("CARGO", None)
     return subprocess.run(
         ["sh", "-c", f'. "{REPO_ROOT / PIN_HELPER}"; echo "APPLIED=$EXPANSE_BENCH_PIN_APPLIED"'],
         capture_output=True,
@@ -195,7 +215,7 @@ def _run_pin(tmp: Path, *, hybrid: bool, taskset: bool, env: dict[str, str]) -> 
 # self-test builds a PATH containing exactly these (plus, in the cases that
 # want one, the stub `taskset`), so "no taskset on PATH" is a real condition
 # rather than a side effect of editing the host's PATH.
-REQUIRED_TOOLS = ("sh", "tr", "sort", "uniq", "sed", "awk", "cat")
+REQUIRED_TOOLS = ("sh", "tr", "sort", "uniq", "sed", "awk", "cat", "head")
 
 
 def _link_tools(bindir: Path) -> None:
@@ -292,6 +312,41 @@ def self_test() -> None:
         r = _run_pin(tmp, hybrid=True, taskset=True, env={"EXPANSE_BENCH_PIN": "off"})
         assert r.returncode == 0 and "APPLIED=off" in r.stdout, (r.returncode, r.stdout)
         assert "DISABLED" in r.stderr, r.stderr
+
+    # ---- the toolchain gate's refusal paths (#728) -----------------------
+    #
+    # These drive `bench_pin.sh` itself, not a helper: a cargo below the
+    # workspace floor has to stop the run before the pin is even applied, and
+    # the message has to name the PATH cause rather than leave the caller with
+    # a manifest parse error from the build step.
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+
+        # a cargo that clears the floor runs, and says which floor it cleared
+        r = _run_pin(tmp, hybrid=False, taskset=True, env={})
+        assert r.returncode == 0 and "APPLIED=none" in r.stdout, (r.returncode, r.stdout, r.stderr)
+        assert "clears the workspace floor" in r.stdout, r.stdout
+
+        # the reference host's non-interactive default: refuses, names the fix,
+        # and never reaches the pin
+        r = _run_pin(tmp, hybrid=True, taskset=True, env={"FAKE_CARGO_VERSION": "1.75.0"})
+        assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+        assert "cargo 1.75.0" in r.stderr and "edition 2024" in r.stderr, r.stderr
+        assert ".cargo/bin" in r.stderr, r.stderr
+        assert "core pin:" not in r.stdout, "the toolchain gate must run before the pin"
+
+        # exactly at the floor is not below it
+        r = _run_pin(tmp, hybrid=False, taskset=True, env={"FAKE_CARGO_VERSION": "1.88.0"})
+        assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+
+        # no cargo at all: refuses rather than letting the build report it
+        r = _run_pin(tmp, hybrid=False, taskset=True, env={"NO_CARGO": "1"})
+        assert r.returncode == 1 and "no `cargo` on PATH" in r.stderr, (r.returncode, r.stderr)
+
+        # a checkout whose manifest cannot be found is a refusal, not a skip
+        r = _run_pin(tmp, hybrid=False, taskset=True, env={"REPO_ROOT": str(tmp / "nowhere")})
+        assert r.returncode == 1 and "Cargo.toml could not be located" in r.stderr, (
+            r.returncode, r.stderr)
 
     print("check_bench_pin.py --self-test: all checks passed")
 
