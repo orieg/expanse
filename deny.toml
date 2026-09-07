@@ -1,0 +1,72 @@
+# Supply-chain gate for the Expanse workspace.
+#
+# `expanse-trie` itself has no runtime dependencies; everything this file sees
+# arrives through dev-dependencies (benchmark harnesses, the differential
+# oracle) or through a binding crate's own toolchain (PyO3, napi, ext-php-rs,
+# wasm-bindgen). That makes the gate cheap to keep green and therefore worth
+# keeping fail-closed: a new advisory or a new licence is a decision, not a
+# surprise discovered at publish time across seven package registries.
+
+[graph]
+all-features = false
+
+[advisories]
+version = 2
+# A yanked crate in the lockfile is a release hazard on its own.
+yanked = "deny"
+ignore = [
+    # All three are `unmaintained` warnings, not vulnerabilities, and all three
+    # reach the tree only through dev-dependencies of the benchmark harnesses:
+    #   bincode, proc-macro-error2  <- iai-callgrind (Callgrind instrument)
+    #   paste                       <- blart (an ART comparison arm)
+    # No shipped artifact links any of them. They are listed individually
+    # rather than switching unmaintained detection off, so a *new* unmaintained
+    # crate still fails the gate.
+    "RUSTSEC-2025-0141", # bincode
+    "RUSTSEC-2024-0436", # paste
+    "RUSTSEC-2026-0173", # proc-macro-error2
+]
+
+[licenses]
+version = 2
+# Permissive only. This list is deliberately exhaustive rather than a
+# catch-all: Expanse is a clean-room reimplementation of an LGPL library
+# (AGENTS.md §3), so a copyleft licence appearing anywhere in the dependency
+# graph is a fact the project needs to see, not absorb. `r-efi` currently
+# offers LGPL-2.1-or-later as one arm of a triple licence and resolves to
+# Apache-2.0/MIT here; if it ever stopped offering a permissive arm, this gate
+# is what would say so.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+    "bzip2-1.0.6",
+]
+confidence-threshold = 0.9
+
+[bans]
+# Duplicate versions are noise in a tree this shallow, not a defect; warn so a
+# genuine explosion is visible without failing the gate on a transitive bump.
+multiple-versions = "warn"
+# Wildcard *version* requirements on a published crate are a real hazard; the
+# in-workspace `path` dependencies that `expanse-wasm` and `expanse-wasm-fuel`
+# use are not, because neither is published to crates.io (release.yml publishes
+# only `expanse-trie` and `expanse-capi`). Allowing path wildcards keeps the
+# rule pointed at the case that can actually break a consumer.
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -90,6 +90,12 @@ jobs:
               - '.github/workflows/**'
               - '.github/bench-suites.json'
               - '.github/superseded-figures.json'
+              # The `cargo deny` policy. Kept out of `rust-src` for the same
+              # reason `man/**` is: editing a policy file compiles nothing, and
+              # gating Miri/ASan/fuzz/Callgrind on it would undo #412. The
+              # dependency graph itself (Cargo.toml, Cargo.lock) is already in
+              # `rust-src`, and `supply-chain` gates on both filters.
+              - 'deny.toml'
               # `lint` runs check_man_pages.py, so a man-page-only PR must run
               # it. Kept out of `rust-src`: troff edits compile nothing, and
               # gating the safety lane on them would undo #412.
@@ -2241,12 +2247,46 @@ jobs:
           cd bindings/go
           go test -v -bench=. -benchtime=100ms .
 
+  supply-chain:
+    name: Core / Supply Chain (advisories, licences, sources)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # `expanse-trie` has no runtime dependencies, so this graph is small and
+      # the gate is cheap to keep green -- which is the argument for keeping it
+      # fail-closed rather than advisory. A new advisory, a copyleft licence
+      # appearing in the graph (AGENTS.md section 3 makes that a fact the
+      # project needs to see, not absorb), an unknown registry, or a wildcard
+      # version requirement on a published crate each fail the job by name.
+      # The policy, including every ignored advisory and why, is `deny.toml`.
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          # The action composes `cargo-deny <arguments> <command>
+          # <command-arguments>`, so `arguments` are cargo-deny's *global*
+          # options and the list of checks belongs to the command. Putting the
+          # list in `arguments` makes `advisories` the subcommand.
+          command: check
+          # Overrides the action's `--all-features` default, which contradicts
+          # `[graph] all-features = false` in deny.toml. Feature selection lives
+          # there, next to the policy it affects.
+          arguments: ""
+          # cargo-deny's default is `advisories bans sources`; naming all four
+          # is what keeps the licence arm armed.
+          command-arguments: advisories bans licenses sources
+
   ci-gate:
     name: CI Gate / All Checks Passed
     if: always()
     needs:
       - detect-changes
       - lint
+      - supply-chain
       - msrv
       - man-examples
       - docs-lint

@@ -57,9 +57,61 @@ def main():
     if missing:
         print(f"Error: The following jobs are missing from ci-gate needs: {missing}")
         sys.exit(1)
-        
+
+    if not check_documented_job_count(jobs):
+        sys.exit(1)
+
     print("ci-gate needs are up-to-date.")
     sys.exit(0)
+
+
+# docs/CI.md owns the job catalogue (AGENTS.md section 1), and its opening
+# sentence states how many jobs `ci.yml` defines. That number drifted to 36
+# while the workflow carried 40, because adding a job means editing `needs:`
+# -- which this script already checks -- and editing a sentence, which nothing
+# did. A reader counting on the catalogue being complete had no way to know
+# five jobs were missing from it. Deriving the count from the workflow rather
+# than pinning it here keeps the assertion honest: the workflow is the source
+# of truth and the sentence has to follow it.
+DOC_PATH = 'docs/CI.md'
+COUNT_RE = re.compile(
+    r'`ci\.yml` defines \*\*(\d+) jobs\*\* [^.]*?(\d+) verification jobs'
+)
+
+
+def check_documented_job_count(jobs):
+    try:
+        with open(DOC_PATH, 'r') as f:
+            doc = f.read()
+    except OSError as e:
+        # Fail closed: a missing catalogue is a problem, not a reason to pass.
+        print(f"Error reading {DOC_PATH}: {e}")
+        return False
+
+    m = COUNT_RE.search(doc)
+    if not m:
+        print(
+            f"Error: {DOC_PATH} no longer states a job count in the expected form "
+            "(\"`ci.yml` defines **N jobs** - M verification jobs plus the `ci-gate` "
+            "rollup\"). Restore the sentence or update COUNT_RE alongside it."
+        )
+        return False
+
+    doc_total, doc_verification = int(m.group(1)), int(m.group(2))
+    actual_total = len(jobs)
+    actual_verification = actual_total - 1  # every job except the `ci-gate` rollup
+
+    if (doc_total, doc_verification) != (actual_total, actual_verification):
+        print(
+            f"Error: {DOC_PATH} says ci.yml defines {doc_total} jobs "
+            f"({doc_verification} verification + ci-gate), but it defines "
+            f"{actual_total} ({actual_verification} verification + ci-gate). "
+            "Update the sentence and add the new job to the catalogue table below it."
+        )
+        return False
+
+    return True
+
 
 if __name__ == '__main__':
     main()

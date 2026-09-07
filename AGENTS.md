@@ -19,10 +19,9 @@ Named for Judy's defining structural invariant: **partitioning digital trees by 
 - **`crates/expanse-capi`** (`package: expanse-capi`): C ABI shared (`libexpanse.so` / `expanse.dll` / `libexpanse.dylib`) and static (`libexpanse.a` / `expanse.lib`) libraries providing both modern `expanse_*` and legacy `Judy*` symbols.
 - **`crates/expanse-py`**: PyO3 native Python extension.
 - **`crates/expanse-node`**: napi native Node.js addon.
-- **`crates/expanse-rb`**: magnus native Ruby extension.
 - **`crates/expanse-wasm`**: WebAssembly (wasm-bindgen) surface.
 - **`crates/expanse-php`**: PHP native extension.
-- **`bindings/`**: language SDK packages that wrap the native surfaces — `bindings/java` (Panama FFM), `bindings/dotnet` (P/Invoke .NET), plus `bindings/go`, `bindings/python`, `bindings/ruby`, `bindings/php` packaging.
+- **`bindings/`**: language SDK packages that wrap the native surfaces — `bindings/java` (Panama FFM), `bindings/dotnet` (P/Invoke .NET), plus `bindings/go`, `bindings/python`, `bindings/ruby` (FFI over `libexpanse`, not a native extension), `bindings/php` packaging.
 - **`include/expanse.hpp`**: header-only C++20 wrapper over the C ABI.
 
 ### Canonical Documentation Hierarchy
