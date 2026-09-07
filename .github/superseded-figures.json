@@ -327,9 +327,9 @@
         "concurrency",
         "threads"
       ],
-      "replacement": "withheld pending re-measurement on the reference host with the corrected miss shape (#755)",
-      "provenance": "#755",
-      "rationale": "bindings/python/bench_concurrency.py built its miss half as `k ^ (1 << 63)` of each hit (AGENTS.md §8.6 degenerate miss shape) and alternated hits and misses strictly. The defect is present in every arm but not equal in magnitude across them: a hash `dict` has no descent depth for the miss shape to distort and the trie does, so every cross-arm figure from that run is not a like-for-like comparison. Within-arm scaling across thread widths is unaffected and was retained."
+      "replacement": "single thread only: get_many 1.152x [1.040, 1.227] and per-call get 0.656x [0.637, 0.691] against the dict control (results/baseline_python_concurrency.json); at two threads and above the control is multi-modal and the comparison is INTERMEDIATE",
+      "provenance": "#755, #774",
+      "rationale": "bindings/python/bench_concurrency.py built its miss half as `k ^ (1 << 63)` of each hit (AGENTS.md §8.6 degenerate miss shape) and alternated hits and misses strictly. The defect is present in every arm but not equal in magnitude across them: a hash `dict` has no descent depth for the miss shape to distort and the trie does, so every cross-arm figure from that run is not a like-for-like comparison. Within-arm scaling was retained at the time on the reasoning that the contamination was constant along the thread axis; #774 refuted that for a second, independent reason -- the run was also unpinned, and pin exposure grows with thread count -- so the scaling curve was superseded too."
     },
     {
       "id": "strmap_two_allocation_leaf_2ce92b7f",
@@ -381,6 +381,25 @@
       "replacement": "scan cells re-measured at 7fe02c0b through `ExpanseStrMap::cursor_at_or_after` (#722): masstree 0.089 [0.089, 0.091] at worst and 2.149 [2.140, 2.175] at best, Expanse winning 3 of 36; HOT still winning 72 of 72 but every cell moved 1.38x-11.21x. Paired against the positional surface at 82f400b0 (docs/benchmarks/masstree_comparison/results/baseline_string_latency.json, docs/benchmarks/hot_comparison/results/baseline_string_latency.json)",
       "provenance": "#661, #693, #722",
       "rationale": "The string scan pillars measured `next_at_or_after` / `next_after` — a fresh root descent per element that allocated a key the arm discarded — against competitor visitors that never materialize a key (Masstree's `str_scan`) or that are already incremental (HOT's `lower_bound` plus iterator). That is a section 8.3 asymmetry, and #722 gave ExpanseStrMap a cursor and re-paired both arms. Superseded, not silently overwritten (section 8.7). `0.019` is deliberately not a pattern here: it is also the sixteen-writer concurrent ratio, and a figure that means two things cannot be gated on its digits alone."
+    },
+    {
+      "id": "python_concurrency_unpinned_scaling",
+      "patterns": [
+        "(?<![\\w.])0\\.02\\s*[x×](?!\\w)",
+        "(?<![\\w.])0\\.087(?![\\d])"
+      ],
+      "context": [
+        "python",
+        "get_many",
+        "dict",
+        "concurrency",
+        "threads",
+        "scaling",
+        "gil"
+      ],
+      "replacement": "0.124 at 16 threads and 0.121 at 8, measured under the P-core pin (results/baseline_python_concurrency.json)",
+      "provenance": "#774",
+      "rationale": "results/baseline_python_concurrency.json was measured unpinned on a hybrid host and scripts/bench_pin.sh was never sourced by this harness. Pin exposure is not constant along the thread axis -- 0.999 [0.927, 1.040] at one thread against 5.569 [5.305, 5.742] at sixteen -- so the within-arm scaling curve, which normalises every width by its own single-thread arm, is distorted most exactly where it makes its claim. The unpinned 16-thread cell reproduces at 0.121 Mops/s, which is what identified the committed run as unpinned. `0.019` is deliberately not a pattern: the sixteen-writer concurrent ratio is the same digits, and this entry's context words are generic enough to match near that table."
     }
   ]
 }
