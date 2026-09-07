@@ -277,6 +277,19 @@ class JsonVersionHandler(ManifestHandler):
 PIN_CARGO_DEP = re.compile(r'(expanse-trie = ")([^"]+)(")')
 PIN_WINDOWS_BUNDLE = re.compile(r"(expanse-v)([0-9]+\.[0-9]+\.[0-9]+)(-x86_64-pc-windows-msvc\.zip)")
 PIN_MAVEN_SNIPPET = re.compile(r"(<version>)([^<]+)(</version>)")
+# The bare `<version>` above also matches maven-plugin versions, which is why
+# it is applied to one file's first occurrence only. These name the artifact,
+# so every occurrence of them is ours and a blanket replace is safe.
+PIN_JAVA_MAVEN = re.compile(
+    r"(<artifactId>expanse-java</artifactId>\s*\n\s*<version>)([^<]+)(</version>)"
+)
+PIN_JAVA_COORD = re.compile(r"""(io\.github\.orieg:expanse-java:)([0-9][^"'\s)]*)()""")
+PIN_JAVA_SBT = re.compile(r'("io\.github\.orieg" % "expanse-java" % ")([^"]+)(")')
+# The README's BibTeX example cites the *concept* DOI, which always resolves to
+# the latest release, so its `version` field labels which release is being
+# cited and has to move with the bump. The per-version DOI table beside it is a
+# historical record and does not.
+PIN_BIBTEX_VERSION = re.compile(r"(\n  version = \{)([^}]+)(\})")
 PIN_ESP_IDF = re.compile(r'(version: "\^)([^"]+)(")')
 PIN_NUGET_PACKAGEREF = re.compile(r'(<PackageReference Include="Orieg\.Expanse" Version=")([^"]+)(")')
 # CITATION.cff `version:` is validated against the workspace by
@@ -304,15 +317,19 @@ class DocPinsHandler(ManifestHandler):
         text = self.get_path(root).read_text(encoding="utf-8")
         out: Dict[str, str] = {}
         for name, pat in self.pins:
-            match = pat.search(text)
-            if match:
-                out[name] = match.group(2)
+            # Every occurrence, keyed by ordinal, not just the first: a doc
+            # that shows the same coordinate in Maven, Gradle and sbt blocks
+            # has one pin per block, and reporting only the first let the rest
+            # sit at the previous release while `--check` reported lockstep
+            # (v0.6.0 prep: four Java coordinates across two files).
+            for i, match in enumerate(pat.finditer(text)):
+                out[name if i == 0 else f"{name}[{i}]"] = match.group(2)
         return out
 
     def set_version(self, root: Path, new_version: str) -> str:
         text = self.get_path(root).read_text(encoding="utf-8")
         for _, pat in self.pins:
-            text = pat.sub(rf"\g<1>{new_version}\g<3>", text, count=1)
+            text = pat.sub(rf"\g<1>{new_version}\g<3>", text)
         return text
 
 
@@ -452,6 +469,7 @@ def get_handlers(root: Path) -> List[ManifestHandler]:
                 ("windows-bundle", PIN_WINDOWS_BUNDLE),
                 ("maven-snippet", PIN_MAVEN_SNIPPET),
                 ("esp-idf", PIN_ESP_IDF),
+                ("bibtex-version", PIN_BIBTEX_VERSION),
             ],
         ),
         DocPinsHandler(
@@ -476,7 +494,20 @@ def get_handlers(root: Path) -> List[ManifestHandler]:
         DocPinsHandler(
             "docs/bindings/java.md",
             "docs/bindings/java.md (version pins)",
-            [("maven-snippet", PIN_MAVEN_SNIPPET)],
+            [
+                ("java-maven", PIN_JAVA_MAVEN),
+                ("java-coord", PIN_JAVA_COORD),
+                ("java-sbt", PIN_JAVA_SBT),
+            ],
+        ),
+        DocPinsHandler(
+            "bindings/java/README.md",
+            "bindings/java/README.md (version pins)",
+            [
+                ("java-maven", PIN_JAVA_MAVEN),
+                ("java-coord", PIN_JAVA_COORD),
+                ("java-sbt", PIN_JAVA_SBT),
+            ],
         ),
         DocPinsHandler(
             "components/expanse/README.md",
