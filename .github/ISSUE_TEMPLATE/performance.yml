@@ -1,0 +1,92 @@
+name: Performance report
+description: A regression, or a measured opportunity, on a hot path.
+labels: ["performance"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A performance claim here is held to the same standard as one in the
+        repository (`AGENTS.md` §6 and §8): an instrument, a workload whose
+        shape is stated, provenance for every number, and an interval on any
+        wall-clock ratio. An unmeasured hypothesis is welcome — say so plainly
+        and leave the numbers out rather than estimating them.
+
+  - type: dropdown
+    id: instrument
+    attributes:
+      label: Instrument
+      description: Callgrind instruction counts are the deterministic regression instrument; wall clock is primary only for changes that hide latency rather than remove work.
+      options:
+        - Callgrind instruction counts (deterministic)
+        - Wall clock with BCa 95% bootstrap CI
+        - Wall clock, point estimate only (no interval)
+        - Hardware performance counters (perf stat)
+        - Memory footprint / bytes per key
+        - Unmeasured — hypothesis only
+    validations:
+      required: true
+
+  - type: textarea
+    id: workload
+    attributes:
+      label: Workload shape
+      description: |
+        The dimensions that decide whether two numbers are comparable at all
+        (`AGENTS.md` §8.12): population, key distribution, insertion order,
+        hit rate, how misses are generated, whether values are dereferenced,
+        and what the timed region includes. A miss probe must be drawn from the
+        same generator as the population and rejected on membership — a fixed
+        transform of a present key terminates at a different depth and silently
+        averages two descents into one number.
+      value: |
+        - population:
+        - key distribution:
+        - insertion order (sorted / shuffled / generator):
+        - hit rate:
+        - miss generation:
+        - value dereferenced:
+        - timed region (does it include construction or drop?):
+    validations:
+      required: true
+
+  - type: textarea
+    id: numbers
+    attributes:
+      label: Numbers and provenance
+      description: |
+        Each figure with its `(measured: host, commit)` tag — host described by
+        hardware, never by name. Wall-clock ratios carry `[lo, hi]`. Include the
+        system-load snapshot taken before the run and between compared arms; a
+        contaminated run is discarded, not reinterpreted (`AGENTS.md` §8.17).
+      placeholder: |
+        map_get random 1M: 1.031x vs stock, BCa 95% CI [1.024, 1.038]
+        (measured: Intel i9-12900F, commit 4c4e852, load average 0.02)
+    validations:
+      required: false
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: The exact invocation — benchmark or example harness, feature flags, target CPU features, and toolchain version.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: mechanism
+    attributes:
+      label: Suspected mechanism
+      description: Optional. If you name a microarchitectural cause — branch misprediction, TLB pressure, cache-line conflict — say which counter you measured it with. If you did not measure it, label it a hypothesis (`AGENTS.md` §8.9); an aggregate instruction count is not an observation of an internal sub-event.
+
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Before submitting
+      options:
+        - label: Compared arms use identical population, hit rate, and key distribution — an optimized arm is not measured against a baseline taken at another workload (`AGENTS.md` §8.3).
+          required: true
+        - label: No estimated, inferred, or placeholder numbers. Where a measurement is missing it is stated as missing.
+          required: true
+        - label: No time estimates, and no personal hostnames, home paths, or LAN addresses.
+          required: true
