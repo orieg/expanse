@@ -14,6 +14,7 @@ paired per-task delta alpha and tok/s speedup ceiling gain CIs, lookup latencies
 and Step 0 boundary result verdicts per Research Discipline Rule 1 (CI lower bound >= floor).
 """
 
+import os
 import sys
 import json
 import time
@@ -31,7 +32,22 @@ import expanse_trie
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
-RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def results_dir(quick: bool) -> Path:
+    """Resolve the suite's output directory.
+
+    A --quick run is a reduced-sweep smoke run: its output is scratch and goes
+    to the gitignored results/quick/ so it can never overwrite the committed
+    baselines (AGENTS.md §8.5). LLM_RESULTS_DIR lets the suite runner own the
+    decision for every harness at once; direct invocation applies the same rule
+    here.
+    """
+    env_dir = os.environ.get("LLM_RESULTS_DIR")
+    if env_dir:
+        return Path(env_dir)
+    return RESULTS_DIR / "quick" if quick else RESULTS_DIR
+
 
 MAX_MATCH_LEN = 16
 DRAFT_LEN = 4
@@ -250,7 +266,9 @@ class HFFixedPromptLookupMatcher:
         return []
 
 
-def simulate_speculation(matcher_cls, matcher_kwargs, prompt_tokens, ground_truth_tokens) -> Tuple[int, int, int, float, float]:
+def simulate_speculation(
+    matcher_cls, matcher_kwargs, prompt_tokens, ground_truth_tokens
+) -> Tuple[int, int, int, int, float, float]:
     matcher = matcher_cls(prompt_tokens, **matcher_kwargs)
     history = list(prompt_tokens)
     pos = 0
@@ -363,7 +381,13 @@ def run_benchmark():
                     t_gt = task["reference_tokens"]
                     if not t_p or not t_gt:
                         continue
-                    _, _, _, t_alpha, _ = simulate_speculation(cls_type, kwargs, t_p, t_gt)
+                    # Six values, not five: the return is (steps, accepted, drafted,
+                    # draft_accepted, alpha, latency_us) and alpha is the fifth. The
+                    # annotation said five and this unpack matched the annotation
+                    # rather than the code, so every run reaching the per-task loop
+                    # died with ValueError and the harness could not reproduce its
+                    # own committed artifact.
+                    _, _, _, _, t_alpha, _ = simulate_speculation(cls_type, kwargs, t_p, t_gt)
                     task_alphas.append(t_alpha)
 
             per_arm_task_alphas[arm_name] = task_alphas
@@ -439,7 +463,9 @@ def run_benchmark():
 
         results[workload_name] = workload_res
 
-    out_file = RESULTS_DIR / "bench_draft_quality.json"
+    out_dir = results_dir(args.quick)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / "bench_draft_quality.json"
     with open(out_file, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
     print(f"\nPillar A results written to {out_file}")

@@ -32,6 +32,7 @@ use expanse_trie::ExpanseSet;
 use roaring::RoaringBitmap;
 use serde_json::json;
 use std::alloc::{GlobalAlloc, Layout, System};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
@@ -88,6 +89,31 @@ impl DenseBitmask {
             false
         }
     }
+}
+
+fn resolve_path(rel_path: &str) -> PathBuf {
+    let p1 = Path::new(rel_path);
+    if p1.exists() || p1.parent().is_some_and(|p| p.exists()) {
+        return p1.to_path_buf();
+    }
+    Path::new("../../").join(rel_path)
+}
+
+/// Resolve the suite's output directory.
+///
+/// A `--quick` run is a reduced-sweep smoke run: its output is scratch and goes
+/// to the gitignored `results/quick/` so it can never overwrite the committed
+/// baselines (AGENTS.md §8.5). `LLM_RESULTS_DIR` lets the suite runner own the
+/// decision for every harness at once; direct invocation applies the same rule
+/// here.
+fn results_dir(quick: bool) -> PathBuf {
+    if let Ok(dir) = std::env::var("LLM_RESULTS_DIR")
+        && !dir.is_empty()
+    {
+        return PathBuf::from(dir);
+    }
+    let base = resolve_path("docs/benchmarks/llm_inference/results");
+    if quick { base.join("quick") } else { base }
 }
 
 fn main() {
@@ -243,12 +269,7 @@ fn main() {
         }
     });
 
-    let p1 = std::path::Path::new("docs/benchmarks/llm_inference/results");
-    let results_dir = if p1.exists() || p1.parent().is_some_and(|p| p.exists()) {
-        p1.to_path_buf()
-    } else {
-        std::path::Path::new("../../docs/benchmarks/llm_inference/results").to_path_buf()
-    };
+    let results_dir = results_dir(quick);
     let _ = std::fs::create_dir_all(&results_dir);
     let out_file = results_dir.join("bench_grammar_masks.json");
     std::fs::write(&out_file, serde_json::to_string_pretty(&output).unwrap())

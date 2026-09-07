@@ -101,6 +101,23 @@ fn resolve_path(rel_path: &str) -> PathBuf {
     p1.to_path_buf()
 }
 
+/// Resolve the suite's output directory.
+///
+/// A `--quick` run is a reduced-sweep smoke run: its output is scratch and goes
+/// to the gitignored `results/quick/` so it can never overwrite the committed
+/// baselines (AGENTS.md §8.5). `LLM_RESULTS_DIR` lets the suite runner own the
+/// decision for every harness at once; direct invocation applies the same rule
+/// here.
+fn results_dir(quick: bool) -> PathBuf {
+    if let Ok(dir) = std::env::var("LLM_RESULTS_DIR")
+        && !dir.is_empty()
+    {
+        return PathBuf::from(dir);
+    }
+    let base = resolve_path("docs/benchmarks/llm_inference/results");
+    if quick { base.join("quick") } else { base }
+}
+
 fn load_corpus_tokens(max_n: usize) -> Vec<u32> {
     let corpus_path = resolve_path("docs/benchmarks/llm_inference/data/datastore_corpus.bin");
     if corpus_path.exists()
@@ -199,7 +216,7 @@ fn main() {
         results.insert(n.to_string(), cell);
     }
 
-    let results_dir = resolve_path("docs/benchmarks/llm_inference/results");
+    let results_dir = results_dir(quick);
     let _ = std::fs::create_dir_all(&results_dir);
     let out_file = results_dir.join("bench_llm_datastore.json");
     std::fs::write(&out_file, serde_json::to_string_pretty(&results).unwrap())

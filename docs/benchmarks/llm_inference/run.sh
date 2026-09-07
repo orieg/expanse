@@ -11,14 +11,25 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-RESULTS_DIR="${SCRIPT_DIR}/results"
 DATA_DIR="${SCRIPT_DIR}/data"
-mkdir -p "${RESULTS_DIR}" "${DATA_DIR}"
 
 QUICK_FLAG=""
 if [[ "${1:-}" == "--quick" ]]; then
     QUICK_FLAG="--quick"
 fi
+
+# A --quick run is a reduced-sweep smoke run: its output is scratch and goes to
+# the gitignored results/quick/ so it can never overwrite the committed
+# baselines (AGENTS.md §8.5). LLM_RESULTS_DIR carries that decision to every
+# harness this script spawns, Python and cargo alike; each harness applies the
+# same rule on its own when invoked directly.
+if [[ -n "${QUICK_FLAG}" ]]; then
+    RESULTS_DIR="${SCRIPT_DIR}/results/quick"
+else
+    RESULTS_DIR="${SCRIPT_DIR}/results"
+fi
+export LLM_RESULTS_DIR="${RESULTS_DIR}"
+mkdir -p "${RESULTS_DIR}" "${DATA_DIR}"
 
 # Host-wide benchmark lock (docs/BENCHMARKING.md, methodology rule 8): one
 # suite at a time per machine, across every checkout. `mkdir` is atomic and
@@ -101,17 +112,14 @@ echo "==> [5/5] Running Pillar E: Prefix-Cache KV-Block Table..."
 log_system_load
 python3 "${SCRIPT_DIR}/benches/bench_prefix_lru.py" ${QUICK_FLAG}
 
-# Step 6: Generate Dual-Theme SVGs — full runs only. A --quick run writes
-# reduced-sweep data into results/*.json, and regenerating the committed
-# charts from it would ship blank/mislabeled SVGs.
+# Step 6: Generate Dual-Theme SVGs — full runs only. The committed charts are
+# rendered from the committed results; a --quick run's reduced-sweep data is
+# scratch and would render blank or mislabeled SVGs over them.
 if [[ -z "${QUICK_FLAG}" ]]; then
     echo "==> Generating Dual-Theme SVG Comparison Charts..."
     python3 "${SCRIPT_DIR}/scripts/generate_charts.py"
 else
     echo "==> Skipping chart regeneration (--quick)."
-    echo "    WARNING: the quick run rewrote results/*.json with reduced-sweep"
-    echo "    smoke data. Restore before committing:"
-    echo "      git restore docs/benchmarks/llm_inference/results"
 fi
 
 log_system_load
