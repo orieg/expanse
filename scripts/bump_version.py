@@ -443,7 +443,7 @@ def get_handlers(root: Path) -> List[ManifestHandler]:
         CrateCargoHandler(
             "crates/expanse-wasm/Cargo.toml",
             "crates/expanse-wasm/Cargo.toml",
-            has_internal_dep=False,
+            has_internal_dep=True,
         ),
         PackageJsonHandler("crates/expanse-node/package.json", "crates/expanse-node/package.json"),
         PackageJsonHandler("crates/expanse-wasm/package.json", "crates/expanse-wasm/package.json"),
