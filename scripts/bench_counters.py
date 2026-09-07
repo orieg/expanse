@@ -440,6 +440,13 @@ def main() -> int:
             print(f"  {c.name:36} #{c.issue}  {c.suite:22} {c.binary} {' '.join(c.args)}")
         return 0
 
+    # After --list and --self-test, which measure nothing, and before any cell
+    # runs. This script is invoked directly, so no runner pinned it (#779).
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import bench_pin  # noqa: PLC0415
+
+    bench_pin.apply("bench_counters.py")
+
     if args.all:
         names = [c.name for c in CELLS if not c.blocked]
         for c in CELLS:

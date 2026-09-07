@@ -36,6 +36,36 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 PIN_HELPER = "scripts/bench_pin.sh"
 
+# The Python twin of the helper, for harnesses nothing sources a shell for.
+PIN_HELPER_PY = "scripts/bench_pin.py"
+
+# Wall-clock harnesses that are invoked DIRECTLY rather than through a suite
+# runner. The glob below finds runners; it was never going to find these, and
+# nothing warned -- which is how an unpinned results/baseline_python_concurrency.json
+# shipped and survived a full withhold-and-replace cycle (#755, #774, #779).
+#
+# Declared, not discovered. A glob over "things that look like a benchmark"
+# silently excludes whatever does not match it, and that silence is the defect
+# this list exists to close: adding a directly-invoked wall-clock harness means
+# adding it here, and the gate names it if it does not take the pin.
+DIRECT_HARNESSES = {
+    "bindings/python/bench_concurrency.py":
+        "the concurrency artifact this gate's gap already shipped unpinned (#774)",
+    "bindings/python/bench.py":
+        "driven by scripts/bench_bindings.py, so the cross-language binding "
+        "comparison carried the same exposure",
+    "scripts/bench_counters.py":
+        "runs benchmark cells under perf on the reference host",
+}
+
+# Directly-invoked scripts that time things but must NOT be pinned here, with
+# the reason. pin_exposure.py measures the pin itself, so a pin applied behind
+# its back would erase its own subject.
+DIRECT_EXEMPT = {
+    "scripts/pin_exposure.py": "measures pinned against unpinned; it sets affinity per arm itself",
+    "scripts/warmup_ramp.py": "sets its own affinity per phase; the ramp is the measurement",
+}
+
 # Runners that must source the pin. `docs/benchmarks/*/run.sh` is discovered
 # rather than listed, so a new suite is covered the moment it lands.
 # `bench_aarch64.yml` is deliberately absent: it runs `--quick` on a
@@ -80,6 +110,24 @@ def sources_pin(text: str) -> bool:
     return False
 
 
+
+def calls_pin(text: str) -> bool:
+    """True iff some non-comment line actually calls `bench_pin.apply(...)`.
+
+    Substring-matching `bench_pin` is not enough and was not: the first version
+    of this check passed a mutation that deleted the call from `main()` and left
+    the module docstring mentioning it. A gate satisfied by prose about the rule
+    is measuring the wrong thing (AGENTS.md 8.12.3).
+    """
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("#"):
+            continue
+        if "bench_pin.apply(" in line:
+            return True
+    return False
+
+
 def read(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8")
@@ -111,6 +159,39 @@ def check(root: Path) -> list[str]:
                 f"the P-core time (#639). Add `. \"$REPO_ROOT/{PIN_HELPER}\"` after the bench lock, "
                 f"or record an exemption with its reason in EXEMPT_SUITES."
             )
+
+    py_helper = root / PIN_HELPER_PY
+    if not py_helper.is_file():
+        problems.append(
+            f"{PIN_HELPER_PY} is missing; the directly-invoked harnesses have no pin to take "
+            f"and nothing would catch it (#779)."
+        )
+    else:
+        for rel, why in sorted(DIRECT_HARNESSES.items()):
+            path = root / rel
+            if not path.is_file():
+                problems.append(
+                    f"DIRECT_HARNESSES names {rel}, which does not exist. Either the file moved "
+                    f"and this entry is now exempting nothing, or the entry is stale."
+                )
+                continue
+            if not calls_pin(read(path)):
+                problems.append(
+                    f"{rel} is a directly-invoked wall-clock harness ({why}) and never calls "
+                    f"bench_pin.apply(). No runner sources the shell helper for it, so nothing "
+                    f"pins it: import the module and call `bench_pin.apply(...)` before the "
+                    f"first timed region, or record an exemption with its reason in "
+                    f"DIRECT_EXEMPT (#639, #779)."
+                )
+        overlap = set(DIRECT_HARNESSES) & set(DIRECT_EXEMPT)
+        if overlap:
+            problems.append(
+                f"{sorted(overlap)} appear in both DIRECT_HARNESSES and DIRECT_EXEMPT; "
+                f"a harness either takes the pin or is exempt, never both."
+            )
+        for rel in sorted(DIRECT_EXEMPT):
+            if not (root / rel).is_file():
+                problems.append(f"DIRECT_EXEMPT names a missing file: {rel}")
 
     for wf in WORKFLOWS:
         path = root / wf
@@ -229,6 +310,21 @@ def _link_tools(bindir: Path) -> None:
             link.symlink_to(found)
 
 
+
+def _scaffold_direct(tree: Path) -> None:
+    """Satisfy the DIRECT_HARNESSES checks in a synthetic tree.
+
+    A test that is about the shell-runner rules should not have its problem
+    count moved by the directly-invoked ones; this makes those contribute zero
+    so the counts each test asserts stay about their own subject.
+    """
+    (tree / PIN_HELPER_PY).parent.mkdir(parents=True, exist_ok=True)
+    (tree / PIN_HELPER_PY).write_text("# python helper\n", encoding="utf-8")
+    for rel in list(DIRECT_HARNESSES) + list(DIRECT_EXEMPT):
+        (tree / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tree / rel).write_text("import bench_pin\nbench_pin.apply('x')\n", encoding="utf-8")
+
+
 def self_test() -> None:
     # ---- the policy check ------------------------------------------------
     assert sources_pin('. "$REPO_ROOT/scripts/bench_pin.sh"')
@@ -243,6 +339,7 @@ def self_test() -> None:
         (tree / ".github" / "workflows").mkdir(parents=True)
         (tree / "scripts").mkdir(parents=True)
         (tree / PIN_HELPER).write_text("# helper\n", encoding="utf-8")
+        _scaffold_direct(tree)
         runner = tree / "docs" / "benchmarks" / "suite_a" / "run.sh"
         wfs = [tree / w for w in WORKFLOWS]
 
@@ -347,6 +444,82 @@ def self_test() -> None:
         r = _run_pin(tmp, hybrid=False, taskset=True, env={"REPO_ROOT": str(tmp / "nowhere")})
         assert r.returncode == 1 and "Cargo.toml could not be located" in r.stderr, (
             r.returncode, r.stderr)
+
+    # ---- the gate must fail when a call site drops the pin ---------------
+    # Mutating the production call site, not a helper: a check anchored on the
+    # helper stays green when the caller stops calling it (the lesson the
+    # repo's other self-tests already carry).
+    with tempfile.TemporaryDirectory() as td:
+        tree = Path(td)
+        (tree / "scripts").mkdir(parents=True)
+        (tree / "docs" / "benchmarks").mkdir(parents=True)
+        (tree / PIN_HELPER).write_text("# helper\n", encoding="utf-8")
+        _scaffold_direct(tree)
+        for wf in WORKFLOWS:
+            (tree / wf).parent.mkdir(parents=True, exist_ok=True)
+            (tree / wf).write_text(f'. "$REPO_ROOT/{PIN_HELPER}"\n', encoding="utf-8")
+        suite = tree / "docs" / "benchmarks" / "suite_a"
+        suite.mkdir(parents=True)
+        (suite / "run.sh").write_text(f'. "$REPO_ROOT/{PIN_HELPER}"\n', encoding="utf-8")
+        # every declared harness takes the pin -> clean
+        assert check(tree) == [], check(tree)
+
+        # one harness stops calling it -> the gate must name that file
+        victim = "bindings/python/bench_concurrency.py"
+        # The mutation the real fail-then-pass used: the module still mentions
+        # bench_pin, it just stops calling it. A substring check passes this.
+        (tree / victim).write_text(
+            '"""... see bench_pin for why."""\nimport bench_pin\n', encoding="utf-8")
+        problems = check(tree)
+        assert any(victim in p for p in problems), problems
+        assert any("#779" in p for p in problems), problems
+        assert "bench_pin" in (tree / victim).read_text(), (
+            "the mutation must keep the mention, or it does not test calls_pin")
+
+        # a stale declaration is a finding too, not a silent pass
+        (tree / victim).write_text("import bench_pin\nbench_pin.apply('x')\n", encoding="utf-8")
+        (tree / "scripts" / "bench_counters.py").unlink()
+        assert any("does not exist" in p for p in check(tree)), check(tree)
+
+    # ---- the two pin implementations must choose the same mask -----------
+    # Two implementations of one rule is the risk this file's Python twin
+    # introduces, so it is pinned rather than trusted: same synthetic topology,
+    # same environment, same answer.
+    import bench_pin as _pin_py  # noqa: PLC0415
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        sysfs = tmp / "sysfs"
+        (sysfs / "cpu_core").mkdir(parents=True)
+        (sysfs / "cpu_core" / "cpus").write_text("0-15\n", encoding="utf-8")
+        (sysfs / "cpu_atom").mkdir(parents=True)
+        (sysfs / "cpu_atom" / "cpus").write_text("16-23\n", encoding="utf-8")
+        prev = os.environ.get("EXPANSE_PIN_SYSFS_ROOT")
+        os.environ["EXPANSE_PIN_SYSFS_ROOT"] = str(sysfs)
+        try:
+            assert _pin_py.read_pmu_cpus("cpu_core") == "0-15", _pin_py.read_pmu_cpus("cpu_core")
+            assert _pin_py.read_pmu_cpus("cpu_atom") == "16-23"
+            shell = _run_pin(tmp, hybrid=True, taskset=True, env={})
+            assert "APPLIED=0-15" in shell.stdout, shell.stdout
+            # The shell helper picked 0-15 from cpu_core; the Python twin must
+            # read the same list from the same file rather than its own idea.
+            assert _pin_py.expand(_pin_py.read_pmu_cpus("cpu_core")) == list(range(16))
+        finally:
+            if prev is None:
+                os.environ.pop("EXPANSE_PIN_SYSFS_ROOT", None)
+            else:
+                os.environ["EXPANSE_PIN_SYSFS_ROOT"] = prev
+
+        # the uniform-host rule agrees on both sides: no pin, and say so
+        sysfs2 = tmp / "sysfs_uniform"
+        (sysfs2 / "cpu_core").mkdir(parents=True)
+        (sysfs2 / "cpu_core" / "cpus").write_text("0-15\n", encoding="utf-8")
+        os.environ["EXPANSE_PIN_SYSFS_ROOT"] = str(sysfs2)
+        try:
+            assert _pin_py.apply("parity") == "none"
+        finally:
+            os.environ.pop("EXPANSE_PIN_SYSFS_ROOT", None)
+            os.environ.pop("EXPANSE_BENCH_PIN_APPLIED", None)
 
     print("check_bench_pin.py --self-test: all checks passed")
 
