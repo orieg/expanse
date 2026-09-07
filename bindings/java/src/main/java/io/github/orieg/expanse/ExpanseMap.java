@@ -28,6 +28,26 @@ public final class ExpanseMap implements AutoCloseable {
     private static final ThreadLocal<MemorySegment> SCRATCH =
             ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(ValueLayout.JAVA_LONG, 2));
 
+    /**
+     * Scopes every slot segment this map hands out to the map's own lifetime.
+     *
+     * The single-argument {@code MemorySegment.reinterpret(long)} produces a
+     * segment in the <em>global</em> scope: permanently alive, never
+     * invalidated. Every other method on this class is guarded by
+     * {@code checkOpen()}, so a slot segment was the one way to read this map's
+     * native memory after {@link #close()} had freed it -- silently, and
+     * returning plausible garbage. Binding the segment to an arena the
+     * {@code close()} closes turns that into an {@code IllegalStateException},
+     * which is the whole reason to prefer a {@code MemorySegment} over a raw
+     * address.
+     *
+     * <p>This scopes <em>close</em>, not <em>mutation</em>. A slot pointer is
+     * documented as valid only until the next structural mutation, and no arena
+     * can express that -- an arena's lifetime has no relationship to insert and
+     * remove events. That contract remains the caller's to honour.
+     */
+    private final Arena slotLifetime = Arena.ofShared();
+
     private MemorySegment handle;
     private boolean closed = false;
 
@@ -249,7 +269,7 @@ public final class ExpanseMap implements AutoCloseable {
         checkOpen();
         try {
             MemorySegment ptr = (MemorySegment) ExpanseNative.MH_expanse_map_slot.invokeExact(handle, key);
-            return ptr.equals(MemorySegment.NULL) ? null : ptr.reinterpret(ValueLayout.JAVA_LONG.byteSize());
+            return ptr.equals(MemorySegment.NULL) ? null : ptr.reinterpret(ValueLayout.JAVA_LONG.byteSize(), slotLifetime, null);
         } catch (Throwable t) {
             throw new RuntimeException(t);
         }
@@ -272,7 +292,7 @@ public final class ExpanseMap implements AutoCloseable {
             if (ptr.equals(MemorySegment.NULL)) {
                 throw new OutOfMemoryError("Failed to allocate slot for key " + key);
             }
-            return ptr.reinterpret(ValueLayout.JAVA_LONG.byteSize());
+            return ptr.reinterpret(ValueLayout.JAVA_LONG.byteSize(), slotLifetime, null);
         } catch (Throwable t) {
             throw new RuntimeException(t);
         }
@@ -728,6 +748,9 @@ public final class ExpanseMap implements AutoCloseable {
             } finally {
                 handle = MemorySegment.NULL;
                 closed = true;
+                // After the native free, so a slot segment cannot outlive the
+                // memory it points at even by one statement.
+                slotLifetime.close();
             }
         }
     }

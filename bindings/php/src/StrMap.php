@@ -39,8 +39,36 @@ if (!class_exists(StrMap::class)) {
             }
         }
 
+        /**
+         * Rejects a key carrying an embedded NUL byte.
+         *
+         * ExpanseStrMap documents a NUL-free key domain and it is load-bearing:
+         * a trailing NUL is how the encoding terminates a string, so a
+         * NUL-bearing key is stored and returned by get() but cannot be
+         * addressed by the ordered surface. PHP strings are binary-safe, so
+         * this class is the boundary that has to hold the line.
+         *
+         * It is checked here, above the driver switch, because the three
+         * backends disagreed without it. The native extension received the full
+         * binary-safe string; the \FFI driver passes the key as a char*, which
+         * the C ABI reads with CStr::from_ptr and truncates at the first NUL;
+         * the pure-PHP array keeps it whole. The same PHP source therefore
+         * stored a different key depending on which backend happened to be
+         * available on the host, silently. One check above the switch is what
+         * makes "identical contracts" true rather than aspirational.
+         */
+        private static function assertNulFree(string $key): void
+        {
+            if (\strpos($key, "\0") !== false) {
+                throw new \InvalidArgumentException(
+                    'NUL bytes ("\0") are not allowed in ExpanseStrMap keys'
+                );
+            }
+        }
+
         public function set(string $key, int $value): void
         {
+            self::assertNulFree($key);
             if ($this->native !== null) {
                 $this->native->set($key, $value);
                 return;
@@ -56,6 +84,7 @@ if (!class_exists(StrMap::class)) {
 
         public function get(string $key): ?int
         {
+            self::assertNulFree($key);
             if ($this->native !== null) {
                 return $this->native->get($key);
             }
@@ -72,6 +101,7 @@ if (!class_exists(StrMap::class)) {
 
         public function delete(string $key): bool
         {
+            self::assertNulFree($key);
             if ($this->native !== null) {
                 return $this->native->delete($key);
             }
@@ -86,6 +116,7 @@ if (!class_exists(StrMap::class)) {
 
         public function has(string $key): bool
         {
+            self::assertNulFree($key);
             if ($this->native !== null) {
                 return $this->native->has($key);
             }

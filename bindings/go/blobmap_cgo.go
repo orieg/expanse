@@ -31,6 +31,8 @@ func NewBlobMap(chunkSize uint64) *BlobMap {
 }
 
 func (b *BlobMap) Set(key uint64, data []byte, hotMeta uint32) {
+	defer runtime.KeepAlive(b)
+	defer runtime.KeepAlive(data)
 	var cData *C.uint8_t
 	if len(data) > 0 {
 		cData = (*C.uint8_t)(unsafe.Pointer(&data[0]))
@@ -39,6 +41,7 @@ func (b *BlobMap) Set(key uint64, data []byte, hotMeta uint32) {
 }
 
 func (b *BlobMap) Get(key uint64) ([]byte, uint32, bool) {
+	defer runtime.KeepAlive(b)
 	var view C.ExpanseBlobView
 	if bool(C.expanse_blob_map_get(b.ptr, C.uint64_t(key), &view)) {
 		var data []byte
@@ -51,26 +54,32 @@ func (b *BlobMap) Get(key uint64) ([]byte, uint32, bool) {
 }
 
 func (b *BlobMap) Delete(key uint64) bool {
+	defer runtime.KeepAlive(b)
 	return bool(C.expanse_blob_map_remove(b.ptr, C.uint64_t(key)))
 }
 
 func (b *BlobMap) Contains(key uint64) bool {
+	defer runtime.KeepAlive(b)
 	return bool(C.expanse_blob_map_contains_key(b.ptr, C.uint64_t(key)))
 }
 
 func (b *BlobMap) Size() uint64 {
+	defer runtime.KeepAlive(b)
 	return uint64(C.expanse_blob_map_len(b.ptr))
 }
 
 func (b *BlobMap) MemoryUsed() uint64 {
+	defer runtime.KeepAlive(b)
 	return uint64(C.expanse_blob_map_mem_used(b.ptr))
 }
 
 func (b *BlobMap) Clear() {
+	defer runtime.KeepAlive(b)
 	C.expanse_blob_map_clear(b.ptr)
 }
 
 func (b *BlobMap) Compact() bool {
+	defer runtime.KeepAlive(b)
 	return bool(C.expanse_blob_map_compact(b.ptr))
 }
 
@@ -82,6 +91,7 @@ func goPrunePredicate(key C.uint64_t, meta C.uint32_t, ctx unsafe.Pointer) C.boo
 }
 
 func (b *BlobMap) Prune(predicate func(key uint64, hotMeta uint32) bool) int {
+	defer runtime.KeepAlive(b)
 	var toRemove []uint64
 	wrapper := func(key uint64, hotMeta uint32) bool {
 		if predicate(key, hotMeta) {
@@ -115,7 +125,11 @@ func OpenBlobMapImage(path string, mmap bool) (*BlobMap, error) {
 	return nil, errors.New("OpenBlobMapImage not implemented in C API")
 }
 
+// Free releases the native handle. It is idempotent and optional -- the
+// finalizer performs the same release -- but calling it concurrently from
+// two goroutines is caller error: the check and the store are unguarded.
 func (b *BlobMap) Free() {
+	runtime.SetFinalizer(b, nil)
 	if b.ptr != nil {
 		C.expanse_blob_map_free(b.ptr)
 		b.ptr = nil

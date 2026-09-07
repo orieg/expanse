@@ -23,6 +23,8 @@ func NewBytesMap() *BytesMap {
 }
 
 func (m *BytesMap) Set(key []byte, value uint64) {
+	defer runtime.KeepAlive(m)
+	defer runtime.KeepAlive(key)
 	var cKey unsafe.Pointer
 	if len(key) > 0 {
 		cKey = unsafe.Pointer(&key[0])
@@ -31,6 +33,8 @@ func (m *BytesMap) Set(key []byte, value uint64) {
 }
 
 func (m *BytesMap) Get(key []byte) (uint64, bool) {
+	defer runtime.KeepAlive(m)
+	defer runtime.KeepAlive(key)
 	var cKey unsafe.Pointer
 	if len(key) > 0 {
 		cKey = unsafe.Pointer(&key[0])
@@ -43,6 +47,8 @@ func (m *BytesMap) Get(key []byte) (uint64, bool) {
 }
 
 func (m *BytesMap) Delete(key []byte) bool {
+	defer runtime.KeepAlive(m)
+	defer runtime.KeepAlive(key)
 	var cKey unsafe.Pointer
 	if len(key) > 0 {
 		cKey = unsafe.Pointer(&key[0])
@@ -51,6 +57,8 @@ func (m *BytesMap) Delete(key []byte) bool {
 }
 
 func (m *BytesMap) Contains(key []byte) bool {
+	defer runtime.KeepAlive(m)
+	defer runtime.KeepAlive(key)
 	var cKey unsafe.Pointer
 	if len(key) > 0 {
 		cKey = unsafe.Pointer(&key[0])
@@ -60,18 +68,25 @@ func (m *BytesMap) Contains(key []byte) bool {
 }
 
 func (m *BytesMap) Size() uint64 {
+	defer runtime.KeepAlive(m)
 	return uint64(C.expanse_bytesmap_len(m.ptr))
 }
 
 func (m *BytesMap) MemoryUsed() uint64 {
+	defer runtime.KeepAlive(m)
 	return uint64(C.expanse_bytesmap_mem_used(m.ptr))
 }
 
 func (m *BytesMap) Clear() {
+	defer runtime.KeepAlive(m)
 	C.expanse_bytesmap_clear(m.ptr)
 }
 
+// Free releases the native handle. It is idempotent and optional -- the
+// finalizer performs the same release -- but calling it concurrently from
+// two goroutines is caller error: the check and the store are unguarded.
 func (m *BytesMap) Free() {
+	runtime.SetFinalizer(m, nil)
 	if m.ptr != nil {
 		C.expanse_bytesmap_free(m.ptr)
 		m.ptr = nil

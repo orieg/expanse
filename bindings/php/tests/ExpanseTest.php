@@ -83,6 +83,53 @@ class ExpanseTest extends PHPUnit\Framework\TestCase
         $this->assertEquals(0, count($map));
     }
 
+    /**
+     * The three StrMap backends -- native extension, \FFI, and the pure-PHP
+     * array -- must agree about a key carrying an embedded NUL. They did not:
+     * the \FFI driver passes the key as a char*, which the C ABI reads with
+     * CStr::from_ptr and truncates at the first NUL, while the other two kept
+     * it whole. The same PHP source stored a different key depending on which
+     * backend happened to be available on the host.
+     *
+     * The contract is now "rejected everywhere", which is checkable from PHP
+     * without knowing which backend is active -- and that is the point, since
+     * `docs/bindings/php.md` promises identical contracts across drivers.
+     */
+    public function testStrMapRejectsEmbeddedNulOnEveryDriver()
+    {
+        $m = new StrMap();
+        foreach (["abc\0def", "\0", "a\0"] as $bad) {
+            $threw = false;
+            try {
+                $m->set($bad, 1);
+            } catch (\InvalidArgumentException $e) {
+                $threw = true;
+            }
+            $this->assertTrue($threw, 'set() must reject a key containing NUL');
+
+            $threw = false;
+            try {
+                $m->get($bad);
+            } catch (\InvalidArgumentException $e) {
+                $threw = true;
+            }
+            $this->assertTrue($threw, 'get() must reject a key containing NUL');
+
+            $threw = false;
+            try {
+                $m->has($bad);
+            } catch (\InvalidArgumentException $e) {
+                $threw = true;
+            }
+            $this->assertTrue($threw, 'has() must reject a key containing NUL');
+        }
+
+        // A NUL-free key that shares the truncation prefix must still work, so
+        // the guard is rejecting the NUL and not the prefix.
+        $m->set("abc", 7);
+        $this->assertEquals(7, $m->get("abc"));
+    }
+
     public function testStrMap()
     {
         $map = new StrMap();

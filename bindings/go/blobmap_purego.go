@@ -22,6 +22,8 @@ func NewBlobMap(chunkSize uint64) *BlobMap {
 }
 
 func (b *BlobMap) Set(key uint64, data []byte, hotMeta uint32) {
+	defer runtime.KeepAlive(b)
+	defer runtime.KeepAlive(data)
 	var cData unsafe.Pointer
 	if len(data) > 0 {
 		cData = unsafe.Pointer(&data[0])
@@ -30,6 +32,7 @@ func (b *BlobMap) Set(key uint64, data []byte, hotMeta uint32) {
 }
 
 func (b *BlobMap) Get(key uint64) ([]byte, uint32, bool) {
+	defer runtime.KeepAlive(b)
 	var view blobView
 	if expanse_blob_map_get(b.ptr, key, &view) {
 		var data []byte
@@ -42,30 +45,37 @@ func (b *BlobMap) Get(key uint64) ([]byte, uint32, bool) {
 }
 
 func (b *BlobMap) Delete(key uint64) bool {
+	defer runtime.KeepAlive(b)
 	return expanse_blob_map_remove(b.ptr, key)
 }
 
 func (b *BlobMap) Contains(key uint64) bool {
+	defer runtime.KeepAlive(b)
 	return expanse_blob_map_contains_key(b.ptr, key)
 }
 
 func (b *BlobMap) Size() uint64 {
+	defer runtime.KeepAlive(b)
 	return expanse_blob_map_len(b.ptr)
 }
 
 func (b *BlobMap) MemoryUsed() uint64 {
+	defer runtime.KeepAlive(b)
 	return uint64(expanse_blob_map_mem_used(b.ptr))
 }
 
 func (b *BlobMap) Clear() {
+	defer runtime.KeepAlive(b)
 	expanse_blob_map_clear(b.ptr)
 }
 
 func (b *BlobMap) Compact() bool {
+	defer runtime.KeepAlive(b)
 	return expanse_blob_map_compact(b.ptr)
 }
 
 func (b *BlobMap) Prune(predicate func(key uint64, hotMeta uint32) bool) int {
+	defer runtime.KeepAlive(b)
 	ctx := &pruneContext{
 		predicate: predicate,
 	}
@@ -91,7 +101,11 @@ func OpenBlobMapImage(path string, mmap bool) (*BlobMap, error) {
 	return nil, errors.New("OpenBlobMapImage not implemented in C API")
 }
 
+// Free releases the native handle. It is idempotent and optional -- the
+// finalizer performs the same release -- but calling it concurrently from
+// two goroutines is caller error: the check and the store are unguarded.
 func (b *BlobMap) Free() {
+	runtime.SetFinalizer(b, nil)
 	if b.ptr != 0 {
 		expanse_blob_map_free(b.ptr)
 		b.ptr = 0

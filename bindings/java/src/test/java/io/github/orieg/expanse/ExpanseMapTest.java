@@ -16,6 +16,28 @@ import static org.junit.jupiter.api.Assertions.*;
 class ExpanseMapTest {
 
     @Test
+    @DisplayName("A slot segment is invalidated by close(), not left reading freed memory")
+    void slotSegmentIsScopedToTheMap() {
+        MemorySegment escaped;
+        try (ExpanseMap map = new ExpanseMap()) {
+            escaped = map.insertSlot(42);
+            escaped.set(ValueLayout.JAVA_LONG, 0, 99L);
+            assertEquals(99L, escaped.get(ValueLayout.JAVA_LONG, 0),
+                    "a live slot must be readable and writable");
+            assertTrue(escaped.scope().isAlive(), "a live slot's scope must be alive");
+        }
+
+        // Every other method on a closed map throws. Before the slot segment was
+        // bound to the map's arena it was in the global scope -- permanently
+        // alive -- so this read returned whatever the allocator had done with
+        // the freed page, with no indication anything was wrong.
+        assertFalse(escaped.scope().isAlive(), "close() must invalidate the slot's scope");
+        assertThrows(IllegalStateException.class,
+                () -> escaped.get(ValueLayout.JAVA_LONG, 0),
+                "reading a slot after close() must throw, not read freed memory");
+    }
+
+    @Test
     @DisplayName("Basic map operations: put, get, remove, putAndGetOld, getOrDefault")
     void basicOperations() {
         try (ExpanseMap map = new ExpanseMap()) {

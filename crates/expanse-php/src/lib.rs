@@ -189,6 +189,31 @@ pub struct PhpExpanseStrMap {
     inner: ExpanseStrMap,
 }
 
+/// Rejects a key carrying an embedded NUL byte.
+///
+/// `ExpanseStrMap` documents a NUL-free key domain, and it is load-bearing
+/// rather than cosmetic: a NUL-bearing key is stored and returned by `get`, but
+/// a trailing NUL is how the encoding terminates a string, so the ordered
+/// surface cannot address it and `count()` and an ordered walk disagree about
+/// which keys exist. PHP strings are binary-safe and can carry NULs, so this is
+/// the boundary that has to hold the line.
+///
+/// It also makes the two drivers agree. The `\FFI` fallback passes the key as a
+/// `char*`, which the C ABI reads with `CStr::from_ptr` and therefore truncates
+/// at the first NUL; without this check the same PHP source stored a different
+/// key depending on whether the native extension happened to compile on the
+/// host. Matches `expanse-node`'s `str_to_nul_free_bytes` and `expanse-py`'s
+/// `extract_str_key`.
+fn nul_free(key: &str) -> PhpResult<&[u8]> {
+    let bytes = key.as_bytes();
+    if bytes.contains(&0) {
+        return Err(PhpException::default(
+            "NUL bytes ('\\0') are not allowed in ExpanseStrMap keys".into(),
+        ));
+    }
+    Ok(bytes)
+}
+
 #[php_impl]
 impl PhpExpanseStrMap {
     /// Creates a new empty ExpanseStrMap.
@@ -197,23 +222,24 @@ impl PhpExpanseStrMap {
     }
 
     /// Sets string key -> integer value.
-    pub fn set(&mut self, key: &str, value: u64) {
-        self.inner.insert(key.as_bytes(), value);
+    pub fn set(&mut self, key: &str, value: u64) -> PhpResult<()> {
+        self.inner.insert(nul_free(key)?, value);
+        Ok(())
     }
 
     /// Gets the integer value associated with key, or null if absent.
-    pub fn get(&self, key: &str) -> Option<u64> {
-        self.inner.get(key.as_bytes())
+    pub fn get(&self, key: &str) -> PhpResult<Option<u64>> {
+        Ok(self.inner.get(nul_free(key)?))
     }
 
     /// Deletes a string key from the map. Returns true if removed.
-    pub fn delete(&mut self, key: &str) -> bool {
-        self.inner.remove(key.as_bytes()).is_some()
+    pub fn delete(&mut self, key: &str) -> PhpResult<bool> {
+        Ok(self.inner.remove(nul_free(key)?).is_some())
     }
 
     /// Checks if a string key exists in the map.
-    pub fn has(&self, key: &str) -> bool {
-        self.inner.get(key.as_bytes()).is_some()
+    pub fn has(&self, key: &str) -> PhpResult<bool> {
+        Ok(self.inner.get(nul_free(key)?).is_some())
     }
 
     /// Returns the count of entries in the map.
