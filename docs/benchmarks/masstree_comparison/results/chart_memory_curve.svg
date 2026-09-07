@@ -148,16 +148,16 @@
 <circle cx="730.0" cy="195.3" r="2.4" fill="#2563eb" stroke="#2563eb" stroke-width="1.5"/>
 <line x1="748" y1="88" x2="766" y2="88" stroke="#2563eb" stroke-width="2" stroke-dasharray="5 4"/>
 <text class="t-legend" x="772" y="92">Masstree, own node census</text>
-<path d="M70.0,186.9 L181.3,179.9 L292.6,195.0 L403.9,223.6 L504.8,240.6 L573.4,244.0 L616.1,220.6 L654.0,186.7 L684.7,180.7 L730.0,187.3" fill="none" stroke="#16a34a" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
+<path d="M70.0,186.9 L181.3,180.0 L292.6,195.0 L403.9,223.6 L504.8,240.6 L573.4,244.0 L616.1,220.6 L654.0,186.7 L684.7,180.6 L730.0,187.3" fill="none" stroke="#16a34a" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
 <circle cx="70.0" cy="186.9" r="2.4" fill="#16a34a" stroke="#16a34a" stroke-width="1.5"/>
-<circle cx="181.3" cy="179.9" r="2.4" fill="#16a34a" stroke="#16a34a" stroke-width="1.5"/>
+<circle cx="181.3" cy="180.0" r="2.4" fill="#16a34a" stroke="#16a34a" stroke-width="1.5"/>
 <circle cx="292.6" cy="195.0" r="2.4" fill="#16a34a" stroke="#16a34a" stroke-width="1.5"/>
 <circle cx="403.9" cy="223.6" r="2.4" fill="#16a34a" stroke="#16a34a" stroke-width="1.5"/>
 <circle cx="504.8" cy="240.6" r="2.4" fill="#16a34a" stroke="#16a34a" stroke-width="1.5"/>
 <circle cx="573.4" cy="244.0" r="2.4" fill="#16a34a" stroke="#16a34a" stroke-width="1.5"/>
 <circle cx="616.1" cy="220.6" r="2.4" fill="#16a34a" stroke="#16a34a" stroke-width="1.5"/>
 <circle cx="654.0" cy="186.7" r="2.4" fill="#16a34a" stroke="#16a34a" stroke-width="1.5"/>
-<circle cx="684.7" cy="180.7" r="2.4" fill="#16a34a" stroke="#16a34a" stroke-width="1.5"/>
+<circle cx="684.7" cy="180.6" r="2.4" fill="#16a34a" stroke="#16a34a" stroke-width="1.5"/>
 <circle cx="730.0" cy="187.3" r="2.4" fill="#16a34a" stroke="#16a34a" stroke-width="1.5"/>
 <line x1="748" y1="106" x2="766" y2="106" stroke="#16a34a" stroke-width="2" stroke-dasharray="4 0"/>
 <text class="t-legend" x="772" y="110">ExpanseMap, allocator</text>

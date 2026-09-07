@@ -1,5 +1,5 @@
 ok  HOT discriminates 255 key bytes (MAX_STRING_KEY_LENGTH, read from the header)
-ok  one instrument sees both string arms at N=100000 (short): HOT 12.13 B/key (4566 allocs, < N), ExpanseStrMap 63.97 B/key (204791 allocs); pool was cold
+ok  one instrument sees both string arms at N=100000 (short): HOT 12.13 B/key (4566 allocs, < N), ExpanseStrMap 42.48 B/key (115916 allocs); pool was cold
 ok  census controls: +1048584 B on a 1048576 B request, residual 0 B; 10000 strings = 10000 allocations, 24.00 B/string as allocated, live 0 after free
 ok  key window: len 254 → two entries — discriminated
 ok  key window: len 255 → two entries — discriminated

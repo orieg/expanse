@@ -110,19 +110,19 @@
 <text class="t-axis-label" x="400.0" y="404" text-anchor="middle">population N (log scale)</text>
 <text class="t-axis-label" x="16" y="216.0" text-anchor="middle" transform="rotate(-90 16 216.0)">B / key</text>
 <line class="axis" x1="70" y1="366" x2="730" y2="366"/>
-<path d="M70.0,153.1 L136.2,186.7 L223.8,204.3 L290.0,214.8 L356.2,225.0 L443.8,236.8 L510.0,238.0 L531.3,230.0 L548.7,223.5 L576.2,222.4 L663.8,223.4 L730.0,227.7" fill="none" stroke="#16a34a" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
-<circle cx="70.0" cy="153.1" r="2.2" fill="#16a34a"/>
-<circle cx="136.2" cy="186.7" r="2.2" fill="#16a34a"/>
-<circle cx="223.8" cy="204.3" r="2.2" fill="#16a34a"/>
-<circle cx="290.0" cy="214.8" r="2.2" fill="#16a34a"/>
-<circle cx="356.2" cy="225.0" r="2.2" fill="#16a34a"/>
-<circle cx="443.8" cy="236.8" r="2.2" fill="#16a34a"/>
-<circle cx="510.0" cy="238.0" r="2.2" fill="#16a34a"/>
-<circle cx="531.3" cy="230.0" r="2.2" fill="#16a34a"/>
-<circle cx="548.7" cy="223.5" r="2.2" fill="#16a34a"/>
-<circle cx="576.2" cy="222.4" r="2.2" fill="#16a34a"/>
-<circle cx="663.8" cy="223.4" r="2.2" fill="#16a34a"/>
-<circle cx="730.0" cy="227.7" r="2.2" fill="#16a34a"/>
+<path d="M70.0,195.1 L136.2,229.7 L223.8,247.0 L290.0,257.4 L356.2,267.7 L443.8,279.5 L510.0,281.0 L531.3,273.0 L548.7,266.3 L576.2,265.0 L663.8,266.1 L730.0,270.3" fill="none" stroke="#16a34a" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
+<circle cx="70.0" cy="195.1" r="2.2" fill="#16a34a"/>
+<circle cx="136.2" cy="229.7" r="2.2" fill="#16a34a"/>
+<circle cx="223.8" cy="247.0" r="2.2" fill="#16a34a"/>
+<circle cx="290.0" cy="257.4" r="2.2" fill="#16a34a"/>
+<circle cx="356.2" cy="267.7" r="2.2" fill="#16a34a"/>
+<circle cx="443.8" cy="279.5" r="2.2" fill="#16a34a"/>
+<circle cx="510.0" cy="281.0" r="2.2" fill="#16a34a"/>
+<circle cx="531.3" cy="273.0" r="2.2" fill="#16a34a"/>
+<circle cx="548.7" cy="266.3" r="2.2" fill="#16a34a"/>
+<circle cx="576.2" cy="265.0" r="2.2" fill="#16a34a"/>
+<circle cx="663.8" cy="266.1" r="2.2" fill="#16a34a"/>
+<circle cx="730.0" cy="270.3" r="2.2" fill="#16a34a"/>
 <line x1="748" y1="70" x2="766" y2="70" stroke="#16a34a" stroke-width="2" stroke-dasharray="4 0"/>
 <text class="t-legend" x="772" y="74">short · Expanse</text>
 <path d="M663.8,289.8 L730.0,298.2" fill="none" stroke="#16a34a" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round"/>
@@ -145,13 +145,13 @@
 <circle cx="730.0" cy="302.0" r="2.2" fill="#16a34a"/>
 <line x1="748" y1="104" x2="766" y2="104" stroke="#16a34a" stroke-width="2" stroke-dasharray="2 3"/>
 <text class="t-legend" x="772" y="108">short · Masstree nodes</text>
-<path d="M70.0,183.9 L136.2,254.0 L223.8,297.8 L290.0,311.0 L356.2,318.0 L443.8,322.4 L510.0,323.7 L531.3,324.0 L548.7,324.2 L576.2,324.4 L663.8,324.8 L730.0,324.9" fill="none" stroke="#0891b2" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
-<circle cx="70.0" cy="183.9" r="2.2" fill="#0891b2"/>
-<circle cx="136.2" cy="254.0" r="2.2" fill="#0891b2"/>
-<circle cx="223.8" cy="297.8" r="2.2" fill="#0891b2"/>
-<circle cx="290.0" cy="311.0" r="2.2" fill="#0891b2"/>
+<path d="M70.0,183.2 L136.2,253.7 L223.8,297.6 L290.0,310.9 L356.2,318.0 L443.8,322.3 L510.0,323.7 L531.3,324.0 L548.7,324.2 L576.2,324.4 L663.8,324.8 L730.0,324.9" fill="none" stroke="#0891b2" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
+<circle cx="70.0" cy="183.2" r="2.2" fill="#0891b2"/>
+<circle cx="136.2" cy="253.7" r="2.2" fill="#0891b2"/>
+<circle cx="223.8" cy="297.6" r="2.2" fill="#0891b2"/>
+<circle cx="290.0" cy="310.9" r="2.2" fill="#0891b2"/>
 <circle cx="356.2" cy="318.0" r="2.2" fill="#0891b2"/>
-<circle cx="443.8" cy="322.4" r="2.2" fill="#0891b2"/>
+<circle cx="443.8" cy="322.3" r="2.2" fill="#0891b2"/>
 <circle cx="510.0" cy="323.7" r="2.2" fill="#0891b2"/>
 <circle cx="531.3" cy="324.0" r="2.2" fill="#0891b2"/>
 <circle cx="548.7" cy="324.2" r="2.2" fill="#0891b2"/>
@@ -180,25 +180,25 @@
 <circle cx="730.0" cy="320.4" r="2.2" fill="#0891b2"/>
 <line x1="748" y1="155" x2="766" y2="155" stroke="#0891b2" stroke-width="2" stroke-dasharray="2 3"/>
 <text class="t-legend" x="772" y="159">counter · Masstree nodes</text>
-<path d="M70.0,145.7 L136.2,183.7 L223.8,195.5 L290.0,206.7 L356.2,217.7 L443.8,229.9 L510.0,231.0 L531.3,222.6 L548.7,216.5 L576.2,215.3 L663.8,216.3 L730.0,220.9" fill="none" stroke="#d97706" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
-<circle cx="70.0" cy="145.7" r="2.2" fill="#d97706"/>
-<circle cx="136.2" cy="183.7" r="2.2" fill="#d97706"/>
-<circle cx="223.8" cy="195.5" r="2.2" fill="#d97706"/>
-<circle cx="290.0" cy="206.7" r="2.2" fill="#d97706"/>
-<circle cx="356.2" cy="217.7" r="2.2" fill="#d97706"/>
-<circle cx="443.8" cy="229.9" r="2.2" fill="#d97706"/>
-<circle cx="510.0" cy="231.0" r="2.2" fill="#d97706"/>
-<circle cx="531.3" cy="222.6" r="2.2" fill="#d97706"/>
-<circle cx="548.7" cy="216.5" r="2.2" fill="#d97706"/>
-<circle cx="576.2" cy="215.3" r="2.2" fill="#d97706"/>
-<circle cx="663.8" cy="216.3" r="2.2" fill="#d97706"/>
-<circle cx="730.0" cy="220.9" r="2.2" fill="#d97706"/>
+<path d="M70.0,162.7 L136.2,202.3 L223.8,214.4 L290.0,225.6 L356.2,236.0 L443.8,249.0 L510.0,250.0 L531.3,241.6 L548.7,235.2 L576.2,234.0 L663.8,235.3 L730.0,239.1" fill="none" stroke="#d97706" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
+<circle cx="70.0" cy="162.7" r="2.2" fill="#d97706"/>
+<circle cx="136.2" cy="202.3" r="2.2" fill="#d97706"/>
+<circle cx="223.8" cy="214.4" r="2.2" fill="#d97706"/>
+<circle cx="290.0" cy="225.6" r="2.2" fill="#d97706"/>
+<circle cx="356.2" cy="236.0" r="2.2" fill="#d97706"/>
+<circle cx="443.8" cy="249.0" r="2.2" fill="#d97706"/>
+<circle cx="510.0" cy="250.0" r="2.2" fill="#d97706"/>
+<circle cx="531.3" cy="241.6" r="2.2" fill="#d97706"/>
+<circle cx="548.7" cy="235.2" r="2.2" fill="#d97706"/>
+<circle cx="576.2" cy="234.0" r="2.2" fill="#d97706"/>
+<circle cx="663.8" cy="235.3" r="2.2" fill="#d97706"/>
+<circle cx="730.0" cy="239.1" r="2.2" fill="#d97706"/>
 <line x1="748" y1="172" x2="766" y2="172" stroke="#d97706" stroke-width="2" stroke-dasharray="4 0"/>
 <text class="t-legend" x="772" y="176">prefixed · Expanse</text>
-<path d="M576.2,210.5 L663.8,219.0 L730.0,227.9" fill="none" stroke="#d97706" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round"/>
+<path d="M576.2,210.5 L663.8,219.0 L730.0,227.8" fill="none" stroke="#d97706" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round"/>
 <circle cx="576.2" cy="210.5" r="2.2" fill="#d97706"/>
 <circle cx="663.8" cy="219.0" r="2.2" fill="#d97706"/>
-<circle cx="730.0" cy="227.9" r="2.2" fill="#d97706"/>
+<circle cx="730.0" cy="227.8" r="2.2" fill="#d97706"/>
 <line x1="748" y1="189" x2="766" y2="189" stroke="#d97706" stroke-width="2" stroke-dasharray="5 4"/>
 <text class="t-legend" x="772" y="193">prefixed · Masstree allocator</text>
 <path d="M70.0,225.8 L136.2,230.6 L223.8,233.2 L290.0,234.2 L356.2,234.7 L443.8,235.0 L510.0,235.1 L531.3,235.1 L548.7,235.1 L576.2,235.1 L663.8,235.1 L730.0,235.1" fill="none" stroke="#d97706" stroke-width="2" stroke-dasharray="2 3" stroke-linejoin="round"/>
@@ -216,19 +216,19 @@
 <circle cx="730.0" cy="235.1" r="2.2" fill="#d97706"/>
 <line x1="748" y1="206" x2="766" y2="206" stroke="#d97706" stroke-width="2" stroke-dasharray="2 3"/>
 <text class="t-legend" x="772" y="210">prefixed · Masstree nodes</text>
-<path d="M70.0,196.5 L136.2,231.6 L223.8,247.8 L290.0,258.0 L356.2,268.2 L443.8,280.3 L510.0,281.0 L531.3,272.7 L548.7,266.4 L576.2,265.2 L663.7,266.5 L729.8,270.5" fill="none" stroke="#7c3aed" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
-<circle cx="70.0" cy="196.5" r="2.2" fill="#7c3aed"/>
-<circle cx="136.2" cy="231.6" r="2.2" fill="#7c3aed"/>
-<circle cx="223.8" cy="247.8" r="2.2" fill="#7c3aed"/>
-<circle cx="290.0" cy="258.0" r="2.2" fill="#7c3aed"/>
-<circle cx="356.2" cy="268.2" r="2.2" fill="#7c3aed"/>
-<circle cx="443.8" cy="280.3" r="2.2" fill="#7c3aed"/>
-<circle cx="510.0" cy="281.0" r="2.2" fill="#7c3aed"/>
-<circle cx="531.3" cy="272.7" r="2.2" fill="#7c3aed"/>
-<circle cx="548.7" cy="266.4" r="2.2" fill="#7c3aed"/>
-<circle cx="576.2" cy="265.2" r="2.2" fill="#7c3aed"/>
-<circle cx="663.7" cy="266.5" r="2.2" fill="#7c3aed"/>
-<circle cx="729.8" cy="270.5" r="2.2" fill="#7c3aed"/>
+<path d="M70.0,208.7 L136.2,243.3 L223.8,260.3 L290.0,270.7 L356.2,280.9 L443.8,293.2 L510.0,293.8 L531.3,285.5 L548.7,279.2 L576.2,278.0 L663.7,279.4 L729.8,283.3" fill="none" stroke="#7c3aed" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
+<circle cx="70.0" cy="208.7" r="2.2" fill="#7c3aed"/>
+<circle cx="136.2" cy="243.3" r="2.2" fill="#7c3aed"/>
+<circle cx="223.8" cy="260.3" r="2.2" fill="#7c3aed"/>
+<circle cx="290.0" cy="270.7" r="2.2" fill="#7c3aed"/>
+<circle cx="356.2" cy="280.9" r="2.2" fill="#7c3aed"/>
+<circle cx="443.8" cy="293.2" r="2.2" fill="#7c3aed"/>
+<circle cx="510.0" cy="293.8" r="2.2" fill="#7c3aed"/>
+<circle cx="531.3" cy="285.5" r="2.2" fill="#7c3aed"/>
+<circle cx="548.7" cy="279.2" r="2.2" fill="#7c3aed"/>
+<circle cx="576.2" cy="278.0" r="2.2" fill="#7c3aed"/>
+<circle cx="663.7" cy="279.4" r="2.2" fill="#7c3aed"/>
+<circle cx="729.8" cy="283.3" r="2.2" fill="#7c3aed"/>
 <line x1="748" y1="223" x2="766" y2="223" stroke="#7c3aed" stroke-width="2" stroke-dasharray="4 0"/>
 <text class="t-legend" x="772" y="227">skewed · Expanse</text>
 <path d="M663.7,264.4 L729.8,272.7" fill="none" stroke="#7c3aed" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round"/>
@@ -251,19 +251,19 @@
 <circle cx="729.8" cy="279.5" r="2.2" fill="#7c3aed"/>
 <line x1="748" y1="257" x2="766" y2="257" stroke="#7c3aed" stroke-width="2" stroke-dasharray="2 3"/>
 <text class="t-legend" x="772" y="261">skewed · Masstree nodes</text>
-<path d="M70.0,146.4 L136.2,183.0 L223.8,197.0 L290.0,209.3 L356.2,219.4 L443.8,231.5 L510.0,232.7 L531.3,224.6 L548.7,218.4 L576.2,217.1 L663.8,218.0 L730.0,222.3" fill="none" stroke="#dc2626" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
-<circle cx="70.0" cy="146.4" r="2.2" fill="#dc2626"/>
-<circle cx="136.2" cy="183.0" r="2.2" fill="#dc2626"/>
-<circle cx="223.8" cy="197.0" r="2.2" fill="#dc2626"/>
-<circle cx="290.0" cy="209.3" r="2.2" fill="#dc2626"/>
-<circle cx="356.2" cy="219.4" r="2.2" fill="#dc2626"/>
-<circle cx="443.8" cy="231.5" r="2.2" fill="#dc2626"/>
-<circle cx="510.0" cy="232.7" r="2.2" fill="#dc2626"/>
-<circle cx="531.3" cy="224.6" r="2.2" fill="#dc2626"/>
-<circle cx="548.7" cy="218.4" r="2.2" fill="#dc2626"/>
-<circle cx="576.2" cy="217.1" r="2.2" fill="#dc2626"/>
-<circle cx="663.8" cy="218.0" r="2.2" fill="#dc2626"/>
-<circle cx="730.0" cy="222.3" r="2.2" fill="#dc2626"/>
+<path d="M70.0,194.1 L136.2,230.8 L223.8,244.9 L290.0,257.3 L356.2,267.4 L443.8,279.5 L510.0,281.1 L531.3,272.9 L548.7,266.5 L576.2,265.0 L663.8,266.1 L730.0,270.3" fill="none" stroke="#dc2626" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
+<circle cx="70.0" cy="194.1" r="2.2" fill="#dc2626"/>
+<circle cx="136.2" cy="230.8" r="2.2" fill="#dc2626"/>
+<circle cx="223.8" cy="244.9" r="2.2" fill="#dc2626"/>
+<circle cx="290.0" cy="257.3" r="2.2" fill="#dc2626"/>
+<circle cx="356.2" cy="267.4" r="2.2" fill="#dc2626"/>
+<circle cx="443.8" cy="279.5" r="2.2" fill="#dc2626"/>
+<circle cx="510.0" cy="281.1" r="2.2" fill="#dc2626"/>
+<circle cx="531.3" cy="272.9" r="2.2" fill="#dc2626"/>
+<circle cx="548.7" cy="266.5" r="2.2" fill="#dc2626"/>
+<circle cx="576.2" cy="265.0" r="2.2" fill="#dc2626"/>
+<circle cx="663.8" cy="266.1" r="2.2" fill="#dc2626"/>
+<circle cx="730.0" cy="270.3" r="2.2" fill="#dc2626"/>
 <line x1="748" y1="274" x2="766" y2="274" stroke="#dc2626" stroke-width="2" stroke-dasharray="4 0"/>
 <text class="t-legend" x="772" y="278">beyond · Expanse</text>
 <text class="t-note" x="70" y="416">39 QUANTUM_DOMINATED Masstree allocator cell(s) left off the dashed lines (table carries them). Masstree has no line for a shape whose keys exceed 255 bytes (§3.4).</text>
