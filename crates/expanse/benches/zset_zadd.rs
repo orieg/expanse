@@ -21,6 +21,7 @@
 //! | `workload_id` | `domain_zset_zadd` |
 //! | `group` | 4 |
 //! | `population` | 10k, 100k |
+//! | `insertion_order` | shuffled — `zset_common::shuffled_members` builds through a Fisher-Yates permutation so neither engine sees a favourable monotonic build |
 //! | `probes_and_reuse` | Ops stream |
 //! | `hit_rate` | Churn |
 //! | `miss_gen_method` | Bounded score stream |

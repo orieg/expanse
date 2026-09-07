@@ -5,8 +5,9 @@
 //! | Property | Value |
 //! |---|---|
 //! | `workload_id` | `hot_memory_curve` |
-//! | `group` | 5 |
+//! | `group` | 7 |
 //! | `population` | swept; reported as λ, not as N (§9.6); `rowex_set` / `rowex_map` arms (feature `rowex`) census ROWEX against `SyncExpanseSet` / `SyncExpanseMap` on the same λ targets, build-only, single writer (§11.3 decision 1) |
+//! | `insertion_order` | both — the shared generator sorts and dedups (`workload.rs`), and the trailing `order` token selects that or a Fisher-Yates permutation from the suite PRNG; the runner sweeps both and every result row carries the order (§12.2) |
 //! | `probes_and_reuse` | N/A (memory census) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |

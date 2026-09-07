@@ -42,6 +42,7 @@
 //! | `workload_id` | `example_bench_lookup_compare` |
 //! | `group` | 5 |
 //! | `population` | 10k, 100k, 500k, 1M |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
 //! | `probes_and_reuse` | $\min(N, 1\text{M})$, sampled with replacement |
 //! | `hit_rate` | 50% hit / 50% miss |
 //! | `miss_gen_method` | **DEGENERATE XOR**: `hit_k ^ (1<<63) ^ 0x5A5A_...` (L249) |

@@ -12,6 +12,7 @@
 //! | `workload_id` | `domain_interned_set` |
 //! | `group` | 4 |
 //! | `population` | 10k, 50k, 100k |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled |
 //! | `probes_and_reuse` | Domain sets and key slices |
 //! | `hit_rate` | 100% hits on insertion & resolution; 50% overlap on intersections |
 //! | `miss_gen_method` | None |

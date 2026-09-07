@@ -45,6 +45,7 @@
 //! | `workload_id` | `core_leaf_cap_cascaded_instructions` |
 //! | `group` | 2 |
 //! | `population` | 1,000,000 uniform random keys masked to 63 bits (λ = N / 2^(63−48) = 30.52; the 2M @64 cell at half the N) |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
 //! | `probes_and_reuse` | 1,000,000 hit probes (the population, fixed-seed Fisher-Yates shuffle) and 1,000,000 miss probes, each probed once; reuse 1.0 |
 //! | `hit_rate` | 100% on the `hit` arms, 0% on the `miss` arms (separate arms, so each Ir/probe is one descent shape) |
 //! | `miss_gen_method` | Rejection-sampled from the same XorShift64 generator at the same 63-bit width under a second seed, rejected on membership and deduplicated (§8.6) |

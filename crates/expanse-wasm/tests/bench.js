@@ -26,6 +26,7 @@
  * | `workload_id` | `wasm_node_wallclock` |
  * | `group` | `6` |
  * | population | 50,000 keys (`--quick`: 10,000); `random` is XorShift64 seed `0x0DDB_1A5E_5EED_0001` (u32 rows: low 32 bits, duplicates dropped; legacy rows: full u64), `sequential` is 0..N, `clustered` is runs of 8 keys 4,096 apart |
+ * | insertion_order | generator draw order — the population is inserted as drawn, neither sorted nor shuffled — `sequential` is 0..N, `random` and `clustered` are inserted as generated |
  * | probes_and_reuse | N probes per arm in a seeded Fisher-Yates order, each once; reuse 1.0; `iter` walks every key once; `range` is 100 windows of N/100 entries that together cover the key space once |
  * | hit_rate | `lookup_hit50`: 50% hit / 50% miss; legacy `lookup`: 100% hit (kept for baseline continuity, labelled as such); `insert` and `remove`: every key once |
  * | miss_gen_method | misses drawn from the continuation of the same XorShift64 stream and rejected on membership; never a transform of a present key |

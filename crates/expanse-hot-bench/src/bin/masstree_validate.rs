@@ -7,8 +7,9 @@
 //! | Property | Value |
 //! |---|---|
 //! | `workload_id` | `masstree_validate` |
-//! | `group` | 5 |
+//! | `group` | 7 |
 //! | `population` | 200k per integer distribution and 100k per string shape for fidelity; 1k for the key-length finding; 200k prefill + 200k fresh for the threaded checks; 100k for the census |
+//! | `insertion_order` | sorted — `workload.rs` sorts the integer population and `strings.rs` the string shapes; a fidelity gate, not a timing |
 //! | `probes_and_reuse` | 50/50 shuffled stream, one pass, every string probe its own allocation |
 //! | `hit_rate` | 50% |
 //! | `miss_gen_method` | same-generator rejection sampling (§8.6) |

@@ -7,8 +7,9 @@
 //! | Property | Value |
 //! |---|---|
 //! | `workload_id` | `hot_string_memory` |
-//! | `group` | 5 |
+//! | `group` | 7 |
 //! | `population` | swept by the runner (§10.5); one cell per invocation |
+//! | `insertion_order` | both — `strings.rs` sorts byte-lexicographically, and the trailing `order` token selects that or a Fisher-Yates permutation from the suite PRNG; the runner sweeps both and every result row carries the order |
 //! | `probes_and_reuse` | N/A (memory census) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |

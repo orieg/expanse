@@ -49,6 +49,7 @@
 //! | `workload_id` | `avx512_bitmap_count_and` |
 //! | `group` | 5 |
 //! | `population` | 256 to 4,194,304 bitmap pairs (16 KiB to 256 MiB) |
+//! | `insertion_order` | n/a — bitmap pairs are filled by index and no keyed population is built; the pointer-chase permutation is a traversal order, not an insertion order |
 //! | `probes_and_reuse` | Whole buffer traversed per iteration; buffer reused across arms |
 //! | `hit_rate` | N/A (cardinality kernel, every pair is visited) |
 //! | `miss_gen_method` | N/A |

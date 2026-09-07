@@ -6,8 +6,9 @@
 //! | Property | Value |
 //! |---|---|
 //! | `workload_id` | `hot_string_latency` |
-//! | `group` | 5 |
+//! | `group` | 7 |
 //! | `population` | selected per invocation; mean key length reported per cell |
+//! | `insertion_order` | both — `strings.rs` sorts byte-lexicographically, and the trailing `order` token selects that or a Fisher-Yates permutation from the suite PRNG; the runner sweeps both and every result row carries the order |
 //! | `probes_and_reuse` | shuffled stream, one pass, `population`-many probes, every probe its own allocation; `scan` takes `max(1000, 10⁶ / k)` starts from that stream, cycling it when shorter (§12.1) |
 //! | `hit_rate` | 100% for `lookup_hit`, 50% for `lookup_miss`, n/a otherwise |
 //! | `miss_gen_method` | same-generator rejection sampling (§8.6) |

@@ -45,6 +45,7 @@
 //! | `workload_id` | `core_batch_lookup` |
 //! | `group` | 2 |
 //! | `population` | 100k, 4M |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
 //! | `probes_and_reuse` | 4M (CHUNK 1024 rolling) |
 //! | `hit_rate` | 50% |
 //! | `miss_gen_method` | **DEGENERATE XOR**: `k ^ (1<<63) ^ 0xA5` alternating `i % 2` (L72) |

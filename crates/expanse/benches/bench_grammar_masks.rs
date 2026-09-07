@@ -17,6 +17,7 @@
 //! | `workload_id` | `domain_grammar_masks` |
 //! | `group` | 4 |
 //! | `population` | 32k vocab |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled |
 //! | `probes_and_reuse` | 32k, looped |
 //! | `hit_rate` | 100% |
 //! | `miss_gen_method` | None |

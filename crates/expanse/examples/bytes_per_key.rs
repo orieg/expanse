@@ -12,6 +12,7 @@
 //! | `workload_id` | `example_bytes_per_key` |
 //! | `group` | 5 |
 //! | `population` | 1k to 1M census; the `random` gate also samples 2M |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled |
 //! | `probes_and_reuse` | N/A (Memory) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |

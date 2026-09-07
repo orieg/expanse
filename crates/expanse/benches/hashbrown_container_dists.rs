@@ -14,6 +14,7 @@
 //! | `workload_id` | `hashbrown_container_dists` |
 //! | `group` | 3 |
 //! | `population` | 10k, 100k, 500k |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled |
 //! | `probes_and_reuse` | Full keys, reuse 1.0 |
 //! | `hit_rate` | 100% |
 //! | `miss_gen_method` | None |

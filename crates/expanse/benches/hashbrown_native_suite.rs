@@ -15,6 +15,7 @@
 //! | `workload_id` | `hashbrown_native_suite` |
 //! | `group` | 3 |
 //! | `population` | 10k, 100k, 500k |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled |
 //! | `probes_and_reuse` | Sub-slice `iters < pop` sequential index |
 //! | `hit_rate` | 100% hit / 100% miss arms |
 //! | `miss_gen_method` | Separate PRNG seed (no membership check) |

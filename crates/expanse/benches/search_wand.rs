@@ -27,6 +27,7 @@
 //! | `workload_id` | `domain_search_wand` |
 //! | `group` | 4 |
 //! | `population` | 100k postings |
+//! | `insertion_order` | sorted ascending — a posting list is an ordered docID set by definition (`search_common` sorts and dedups), so no second order exists to measure |
 //! | `probes_and_reuse` | Monotonic targets |
 //! | `hit_rate` | Skip scan |
 //! | `miss_gen_method` | N/A |

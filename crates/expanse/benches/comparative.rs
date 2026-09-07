@@ -7,6 +7,7 @@
 //! | `workload_id` | `core_comparative` |
 //! | `group` | 2 |
 //! | `population` | 10k, 100k |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled |
 //! | `probes_and_reuse` | Full keys, looped |
 //! | `hit_rate` | 100% |
 //! | `miss_gen_method` | None |

@@ -10,6 +10,7 @@
 //! | `workload_id` | `core_smoke_instructions` |
 //! | `group` | 2 |
 //! | `population` | 10k |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
 //! | `probes_and_reuse` | 10k, reuse 1.0 |
 //! | `hit_rate` | 100% |
 //! | `miss_gen_method` | None |

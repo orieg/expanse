@@ -56,6 +56,7 @@
 //! | `workload_id` | `capi_vs_stock` |
 //! | `group` | 1 |
 //! | `population` | `POP = 30_000`, `POP_BIG = 1_500_000` (L204, 209) |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
 //! | `probes_and_reuse` | 30k / 1.5M, reuse 1.0 |
 //! | `hit_rate` | 100% / mixed |
 //! | `miss_gen_method` | Interleaved keys |

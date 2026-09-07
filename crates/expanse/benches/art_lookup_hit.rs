@@ -11,6 +11,7 @@
 //! | `workload_id` | `art_lookup_hit` |
 //! | `group` | 4 |
 //! | `population` | 10k to 1M |
+//! | `insertion_order` | generator draw order — ascending on `sequential` and `sparse`, draw order on `random`, `clustered` and `zipfian`; `art_common` neither sorts nor shuffles, and `dedupe_preserve_order` keeps first-seen order |
 //! | `probes_and_reuse` | Interleaved shuffled probe stream |
 //! | `hit_rate` | 100% Hit |
 //! | `miss_gen_method` | None |

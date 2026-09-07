@@ -10,8 +10,9 @@
 //! | Property | Value |
 //! |---|---|
 //! | `workload_id` | `masstree_concurrent` |
-//! | `group` | 5 |
+//! | `group` | 7 |
 //! | `population` | prefill 2^20 keys (uniform random u64 at 64 bits, or `short` strings), plus 2^20 fresh keys inserted concurrently by W writers |
+//! | `insertion_order` | sorted ascending — the shared generator sorts and dedups the population (`workload.rs`); this harness takes no `order` token |
 //! | `probes_and_reuse` | R readers cycle a shuffled 2^20-probe stream against the prefill until the writers finish; at W = 0 each reader makes exactly one pass |
 //! | `hit_rate` | 50% against the prefill; some misses become hits as writers land, identically on both arms |
 //! | `miss_gen_method` | same-generator rejection sampling (§8.6); fresh writer keys rejected on prefill membership |

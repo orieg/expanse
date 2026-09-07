@@ -44,6 +44,7 @@
 //! | `workload_id` | `example_keyspace_density` |
 //! | `group` | 5 |
 //! | `population` | 100k to 2.6M at 64 bits; 100k to 2M at 63 and 62 bits (plus exact-λ 27/40/58 cells); 2M at 58, 57 and 55 bits and 1.2M to 2.7M at 56 bits |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled |
 //! | `probes_and_reuse` | N/A (Memory) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |

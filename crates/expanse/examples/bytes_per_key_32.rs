@@ -20,6 +20,7 @@
 //! | `workload_id` | `example_bytes_per_key_32` |
 //! | `group` | 5 |
 //! | `population` | 10k; 5k on the uniform-random arm |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled |
 //! | `probes_and_reuse` | N/A (Memory) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A (no probes; the uniform-random arm rejects duplicates on insert) |

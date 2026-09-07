@@ -8,6 +8,7 @@
 //! | `workload_id` | `core_embedded_memtable` |
 //! | `group` | 2 |
 //! | `population` | 500, 2k, 5k |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled |
 //! | `probes_and_reuse` | 500, 2k, 5k, looped |
 //! | `hit_rate` | 100% hits on present timestamps/IDs; 50% hits on mixed point lookups |
 //! | `miss_gen_method` | None |

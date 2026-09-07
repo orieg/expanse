@@ -49,6 +49,7 @@
 //! | `workload_id` | `example_perf_point_lookup` |
 //! | `group` | 5 |
 //! | `population` | 1M (configurable via `EXPANSE_PERF_POP`) |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
 //! | `probes_and_reuse` | 1M distinct per pass, reuse 1.0 |
 //! | `hit_rate` | 100% default (configurable via `EXPANSE_PERF_HIT_PCT`) |
 //! | `miss_gen_method` | Independent PRNG + membership rejection |

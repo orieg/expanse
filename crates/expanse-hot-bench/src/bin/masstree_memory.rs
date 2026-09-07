@@ -8,8 +8,9 @@
 //! | Property | Value |
 //! |---|---|
 //! | `workload_id` | `masstree_memory` |
-//! | `group` | 5 |
+//! | `group` | 7 |
 //! | `population` | swept by the runner: λ targets on `random` u64 (§5), one N = 10⁶ cell per structured distribution, the string population sweep; one cell per invocation |
+//! | `insertion_order` | both — the shared generator sorts and dedups (`workload.rs`), and the trailing `order` token selects that or a Fisher-Yates permutation from the suite PRNG; the runner sweeps both and every result row carries the order (§12.2) |
 //! | `probes_and_reuse` | N/A (memory census) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |
