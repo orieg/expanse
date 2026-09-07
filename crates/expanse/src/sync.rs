@@ -1854,7 +1854,7 @@ mod tests {
     }
     use super::*;
     use std::collections::BTreeMap;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
     struct XorShift(u64);
     impl XorShift {
@@ -1964,6 +1964,9 @@ mod tests {
     fn concurrent_readers_under_churn() {
         let m = Arc::new(SyncExpanseMap::new());
         let stop = Arc::new(AtomicBool::new(false));
+        // Published so the writer can wait for a reader to observe a stable
+        // map instead of racing one; see the bounded wait below.
+        let observed = Arc::new(AtomicU64::new(0));
         let val_of = |k: u64| !k ^ 0xABCD;
 
         // Clustered keys force cascades, skips, and downgrades.
@@ -1976,6 +1979,7 @@ mod tests {
             .map(|i| {
                 let m = Arc::clone(&m);
                 let stop = Arc::clone(&stop);
+                let observed = Arc::clone(&observed);
                 std::thread::spawn(move || {
                     let rd = m.reader();
                     let mut rng = XorShift(0x1000 + i);
@@ -1985,6 +1989,7 @@ mod tests {
                         if let Some(v) = rd.get(k) {
                             assert_eq!(v, val_of(k), "wrong-slot value for {k:#x}");
                             hits += 1;
+                            observed.fetch_add(1, Ordering::Relaxed);
                         }
                     }
                     hits
@@ -2010,14 +2015,27 @@ mod tests {
                 }
             }
         }
+        // Wait for a reader to observe the map, rather than asserting that one
+        // happened to during the churn. The map is left populated by the loop
+        // above, so a reader that cannot see it here has a real problem -- an
+        // unhandled tag decoding to `None` is exactly the §2.3 hazard this test
+        // exists for. Racing for it made the assertion a scheduling outcome:
+        // it fired on a loaded Windows runner with nothing wrong (§8.4 -- a
+        // hard assertion belongs on a deterministic invariant, and "a reader
+        // got scheduled inside a populated window" is not one).
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while observed.load(Ordering::Relaxed) == 0 && std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
         stop.store(true, Ordering::Relaxed);
         let mut total_hits = 0;
         for r in readers {
             total_hits += r.join().expect("reader panicked");
         }
-        // The churn keys stay populated ~half the time; a zero hit count
-        // would mean the readers never actually raced the writer.
-        assert!(total_hits > 0, "readers observed nothing");
+        assert!(
+            total_hits > 0,
+            "no reader observed the map within 10s while it was populated"
+        );
 
         // Final state agrees with the model, via both read paths.
         let rd = m.reader();
@@ -2148,11 +2166,15 @@ mod tests {
     fn concurrent_str_readers_under_churn() {
         let m = Arc::new(SyncExpanseStrMap::new());
         let stop = Arc::new(AtomicBool::new(false));
+        // Published so the writer can wait for a reader to observe a stable
+        // map instead of racing one; see the bounded wait below.
+        let observed = Arc::new(AtomicU64::new(0));
 
         let readers: Vec<_> = (0..3)
             .map(|i| {
                 let m = Arc::clone(&m);
                 let stop = Arc::clone(&stop);
+                let observed = Arc::clone(&observed);
                 std::thread::spawn(move || {
                     let rd = m.reader();
                     let mut rng = XorShift(0x5000 + i);
@@ -2162,6 +2184,7 @@ mod tests {
                         if let Some(v) = rd.get(&k) {
                             assert_eq!(v, str_val_of(&k), "torn value for {k:?}");
                             hits += 1;
+                            observed.fetch_add(1, Ordering::Relaxed);
                         }
                     }
                     hits
@@ -2193,12 +2216,27 @@ mod tests {
                 model.insert(k, ());
             }
         }
+        // Wait for a reader to observe the map, rather than asserting that one
+        // happened to during the churn. The map is left populated by the loop
+        // above, so a reader that cannot see it here has a real problem -- an
+        // unhandled tag decoding to `None` is exactly the §2.3 hazard this test
+        // exists for. Racing for it made the assertion a scheduling outcome:
+        // it fired on a loaded Windows runner with nothing wrong (§8.4 -- a
+        // hard assertion belongs on a deterministic invariant, and "a reader
+        // got scheduled inside a populated window" is not one).
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while observed.load(Ordering::Relaxed) == 0 && std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
         stop.store(true, Ordering::Relaxed);
         let mut total_hits = 0;
         for r in readers {
             total_hits += r.join().expect("reader panicked");
         }
-        assert!(total_hits > 0, "readers observed nothing");
+        assert!(
+            total_hits > 0,
+            "no reader observed the map within 10s while it was populated"
+        );
 
         let rd = m.reader();
         for k in model.keys() {
@@ -2451,6 +2489,9 @@ mod tests {
     fn concurrent_blob_readers_under_churn() {
         let m = Arc::new(SyncExpanseBlobMap::with_chunk_size(4096));
         let stop = Arc::new(AtomicBool::new(false));
+        // Published so the writer can wait for a reader to observe a stable
+        // map instead of racing one; see the bounded wait below.
+        let observed = Arc::new(AtomicU64::new(0));
         let key_of = |r: &mut XorShift| {
             let base = [0u64, 0x11_2233_4400, 0xFFFF_FF00_0000][(r.next() % 3) as usize];
             base + r.next() % 512
@@ -2460,6 +2501,7 @@ mod tests {
             .map(|i| {
                 let m = Arc::clone(&m);
                 let stop = Arc::clone(&stop);
+                let observed = Arc::clone(&observed);
                 std::thread::spawn(move || {
                     let mut rd = m.reader();
                     let mut rng = XorShift(0x3000 + i);
@@ -2475,6 +2517,7 @@ mod tests {
                             );
                             assert_eq!(meta, blob_expected_meta(k), "torn metadata for {k:#x}");
                             hits += 1;
+                            observed.fetch_add(1, Ordering::Relaxed);
                         }
                     }
                     hits
@@ -2498,12 +2541,27 @@ mod tests {
             }
             m.compact().expect("compaction under churn");
         }
+        // Wait for a reader to observe the map, rather than asserting that one
+        // happened to during the churn. The map is left populated by the loop
+        // above, so a reader that cannot see it here has a real problem -- an
+        // unhandled tag decoding to `None` is exactly the §2.3 hazard this test
+        // exists for. Racing for it made the assertion a scheduling outcome:
+        // it fired on a loaded Windows runner with nothing wrong (§8.4 -- a
+        // hard assertion belongs on a deterministic invariant, and "a reader
+        // got scheduled inside a populated window" is not one).
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while observed.load(Ordering::Relaxed) == 0 && std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
         stop.store(true, Ordering::Relaxed);
         let mut total_hits = 0;
         for r in readers {
             total_hits += r.join().expect("reader panicked");
         }
-        assert!(total_hits > 0, "readers observed nothing");
+        assert!(
+            total_hits > 0,
+            "no reader observed the map within 10s while it was populated"
+        );
 
         // Final state agrees with the model through the pinned read path.
         let mut rd = m.reader();
@@ -2642,11 +2700,15 @@ mod tests {
     fn concurrent_bytes_readers_under_churn() {
         let m = Arc::new(SyncExpanseBytesMap::new());
         let stop = Arc::new(AtomicBool::new(false));
+        // Published so the writer can wait for a reader to observe a stable
+        // map instead of racing one; see the bounded wait below.
+        let observed = Arc::new(AtomicU64::new(0));
 
         let readers: Vec<_> = (0..3)
             .map(|i| {
                 let m = Arc::clone(&m);
                 let stop = Arc::clone(&stop);
+                let observed = Arc::clone(&observed);
                 std::thread::spawn(move || {
                     let rd = m.reader();
                     let mut rng = XorShift(0x7000 + i);
@@ -2656,6 +2718,7 @@ mod tests {
                         if let Some(v) = rd.get(&k) {
                             assert_eq!(v, str_val_of(&k), "torn value for {k:?}");
                             hits += 1;
+                            observed.fetch_add(1, Ordering::Relaxed);
                         }
                     }
                     hits
@@ -2687,12 +2750,27 @@ mod tests {
                 model.insert(k, ());
             }
         }
+        // Wait for a reader to observe the map, rather than asserting that one
+        // happened to during the churn. The map is left populated by the loop
+        // above, so a reader that cannot see it here has a real problem -- an
+        // unhandled tag decoding to `None` is exactly the §2.3 hazard this test
+        // exists for. Racing for it made the assertion a scheduling outcome:
+        // it fired on a loaded Windows runner with nothing wrong (§8.4 -- a
+        // hard assertion belongs on a deterministic invariant, and "a reader
+        // got scheduled inside a populated window" is not one).
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while observed.load(Ordering::Relaxed) == 0 && std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
         stop.store(true, Ordering::Relaxed);
         let mut total_hits = 0;
         for r in readers {
             total_hits += r.join().expect("reader panicked");
         }
-        assert!(total_hits > 0, "readers observed nothing");
+        assert!(
+            total_hits > 0,
+            "no reader observed the map within 10s while it was populated"
+        );
 
         let rd = m.reader();
         for k in model.keys() {
