@@ -2267,14 +2267,18 @@ jobs:
       # The policy, including every ignored advisory and why, is `deny.toml`.
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
+          # The action composes `cargo-deny <arguments> <command>
+          # <command-arguments>`, so `arguments` are cargo-deny's *global*
+          # options and the list of checks belongs to the command. Putting the
+          # list in `arguments` makes `advisories` the subcommand.
           command: check
-          # Default is `check advisories bans sources` only; naming all four
-          # keeps the licence arm armed. No global flags here: the action
-          # composes `cargo deny check <arguments>`, so anything cargo-deny
-          # accepts only before the subcommand is rejected as an unexpected
-          # argument. Feature selection lives in `deny.toml`'s [graph] section,
-          # which is where it can be reviewed alongside the policy it affects.
-          arguments: advisories bans licenses sources
+          # Overrides the action's `--all-features` default, which contradicts
+          # `[graph] all-features = false` in deny.toml. Feature selection lives
+          # there, next to the policy it affects.
+          arguments: ""
+          # cargo-deny's default is `advisories bans sources`; naming all four
+          # is what keeps the licence arm armed.
+          command-arguments: advisories bans licenses sources
 
   ci-gate:
     name: CI Gate / All Checks Passed
