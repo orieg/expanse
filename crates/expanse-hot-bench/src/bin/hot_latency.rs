@@ -8,7 +8,7 @@
 //! | `group` | 7 |
 //! | `population` | selected per invocation; `random` cells also carry λ |
 //! | `insertion_order` | both — the shared generator sorts and dedups (`workload.rs`), and the trailing `order` token selects that or a Fisher-Yates permutation from the suite PRNG; the runner sweeps both and every result row carries the order (§12.2) |
-//! | `probes_and_reuse` | shuffled stream, one pass, `population`-many probes; `scan` takes `max(1000, 10⁶ / k)` starts from that stream, cycling it when shorter (§12.1) |
+//! | `probes_and_reuse` | shuffled stream, one pass, `population`-many probes; `scan` takes `max(1000, 10⁶ / k)` starts from that stream, cycling it when shorter (§12.1); hits strided across the whole sorted population, not its prefix (§8.6) |
 //! | `hit_rate` | 100% for `lookup_hit`, 50% for `lookup_miss`, n/a otherwise |
 //! | `miss_gen_method` | same-generator rejection sampling (§8.6) |
 //! | `value_dereference` | Arm B fetches the stored value on both sides and sinks it (§9.8) |

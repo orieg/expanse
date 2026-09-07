@@ -146,6 +146,19 @@ non-scan HOT win, 0.938 [0.893, 0.959].
 
 ### Point lookup, 50% hit / 50% rejection-sampled miss
 
+> ⚠️ **Harness methodology disclosure (§8.10, [#760](https://github.com/orieg/expanse/issues/760)).**
+> The figures below were measured with a probe builder that drew the hit half of
+> the stream from `population[..hits_wanted]`. The population is sorted, so every
+> hit landed in the low half of the keyspace — root byte `0x00..0x7F` for uniform
+> 64-bit keys — while the misses spanned all of it. The defect is **structurally
+> symmetric across both arms**: both saw the identical probe stream, so the
+> **ratios and their intervals stand** under §8.10's ratio-versus-absolute
+> framework, and the verdicts below are unchanged. The **absolute ns/op are a
+> measurement of a keyspace half** and are pending re-measurement under [#760](https://github.com/orieg/expanse/issues/760). The builder is
+> fixed (hits are now strided across the whole population); the cells are queued
+> for a re-run on the reference host, after which these figures carry a fresh
+> provenance tag rather than this note.
+
 | Distribution | Arm | HOT ns | Expanse ns | Ratio | Verdict |
 |---|---|---:|---:|---:|---|
 | sequential | set | 18.95 | **8.07** | 2.378 | Expanse |
@@ -387,6 +400,15 @@ Stated before the numbers existed (§7) and unchanged by them:
 ---
 
 ## 6. String keys (#693): `ExpanseStrMap` and `ExpanseBytesMap` against HOT's C-string configuration
+
+> ⚠️ **Harness methodology disclosure (§8.10, [#760](https://github.com/orieg/expanse/issues/760)).**
+> The 50/50 cells in this section carry the same hit-sampling defect as §2's,
+> in the string builder: the hit half was drawn from the sorted population's
+> prefix rather than strided across it. Symmetric across both arms, so the
+> **ratios, intervals and verdicts stand**; the **absolute ns/op of the 50/50
+> cells are pending re-measurement** under [#760](https://github.com/orieg/expanse/issues/760). 100%-hit, insert, scan and memory cells
+> are unaffected — at `hit_rate = 1.0` every key is a hit and the sampling is
+> the whole population by construction.
 
 > *(measured: reference host — Intel Core i9-12900F, 8P+8E/24 threads, 30 MiB L3,
 > Ubuntu 22.04 / kernel 6.8; HOT `96bf6fb`; harness commit `0f4fd40c`;

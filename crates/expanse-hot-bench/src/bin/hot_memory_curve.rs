@@ -35,7 +35,7 @@ use std::env;
 
 #[cfg(feature = "rowex")]
 use expanse_hot_bench::rowex::{RowexMap, RowexSet};
-use expanse_hot_bench::workload::Order;
+use expanse_hot_bench::workload::{self, Dist, Order};
 use expanse_hot_bench::{
     Census, HotMap, HotSet, hot_can_inline, require_cold_pool, validate_census,
 };
@@ -43,18 +43,6 @@ use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
 #[cfg(feature = "rowex")]
 use expanse_trie::sync::{SyncExpanseMap, SyncExpanseSet};
-
-struct XorShift(u64);
-impl XorShift {
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
 
 /// Which pairing is being measured.
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -113,17 +101,18 @@ impl Arm {
     }
 }
 
+/// The population, from the suite's shared generator.
+///
+/// This pillar used to carry a private `XorShift` and a private `keys()` that
+/// were byte-for-byte equivalent to `workload`'s — same algorithm, same seed,
+/// same mask, sort and dedup — and nothing pinned the equivalence. A change to
+/// either would have desynchronised the memory pillar's population from the
+/// latency pillars' while both kept publishing under one `workload_id`
+/// (§8.12.2). `workload`'s
+/// `the_memory_pillar_and_the_latency_pillars_share_one_population` now pins
+/// it, and there is only one generator left to change.
 fn keys(n: usize, width: u32) -> Vec<u64> {
-    let mask = if width >= 64 {
-        u64::MAX
-    } else {
-        (1u64 << width) - 1
-    };
-    let mut rng = XorShift(0x0DDB_1A5E_5EED_0001);
-    let mut v: Vec<u64> = (0..n).map(|_| rng.next() & mask).collect();
-    v.sort_unstable();
-    v.dedup();
-    v
+    workload::population(Dist::Random, n, width)
 }
 
 /// Occupancy of a populated 2-byte-prefix expanse.
@@ -188,7 +177,7 @@ fn main() {
 
     let mut ks = keys(n, arm.width());
     if order == Order::Shuffled {
-        expanse_hot_bench::workload::shuffle_in_place(&mut ks);
+        workload::shuffle_in_place(&mut ks);
     }
     let pop = ks.len();
 

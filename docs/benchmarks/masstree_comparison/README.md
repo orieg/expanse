@@ -297,6 +297,19 @@ Both sides copy key bytes into their own nodes, so the index column is the owner
 
 #### Point lookup, 50% hit / 50% rejection-sampled miss, integer keys (N = 1,000,000)
 
+> ⚠️ **Harness methodology disclosure (§8.10, [#760](https://github.com/orieg/expanse/issues/760)).**
+> The figures below were measured with a probe builder that drew the hit half of
+> the stream from `population[..hits_wanted]`. The population is sorted, so every
+> hit landed in the low half of the keyspace — root byte `0x00..0x7F` for uniform
+> 64-bit keys — while the misses spanned all of it. The defect is **structurally
+> symmetric across both arms**: both saw the identical probe stream, so the
+> **ratios and their intervals stand** under §8.10's ratio-versus-absolute
+> framework, and the verdicts below are unchanged. The **absolute ns/op are a
+> measurement of a keyspace half** and are pending re-measurement under [#760](https://github.com/orieg/expanse/issues/760). The builder is
+> fixed (hits are now strided across the whole population); the cells are queued
+> for a re-run on the reference host, after which these figures carry a fresh
+> provenance tag rather than this note.
+
 | Distribution | λ | Masstree ns | Expanse ns | Masstree ÷ Expanse [BCa 95%] | Verdict |
 |---|---:|---:|---:|---:|---|
 | `clustered` | — | 97.99 | 15.77 | 6.276 [6.220, 6.328] | Expanse — `not pre-registered` |
@@ -337,6 +350,11 @@ Both sides copy key bytes into their own nodes, so the index column is the owner
 | `skewed` | 998,150 | 14.3 | 202.24 | 138.95 | 1.459 [1.455, 1.462] | Expanse — `not pre-registered` |
 
 #### Point lookup, 50% hit / 50% rejection-sampled miss, string keys (N = 1,000,000)
+
+> ⚠️ **Harness methodology disclosure (§8.10, [#760](https://github.com/orieg/expanse/issues/760)).**
+> Same hit-sampling defect as the integer 50/50 pillar above, in the string
+> builder. Symmetric across arms, so the **ratios and verdicts stand**; the
+> **absolute ns/op are pending re-measurement** under [#760](https://github.com/orieg/expanse/issues/760).
 
 | Shape | N held | mean len | Masstree ns | Expanse ns | Masstree ÷ Expanse [BCa 95%] | Verdict |
 |---|---:|---:|---:|---:|---:|---|

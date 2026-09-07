@@ -293,9 +293,15 @@ here.
 
 Shared with the HOT suite through `expanse-hot-bench`'s `workload.rs` and
 `strings.rs` — the same XorShift64 at the same seed, the same rejection-sampled
-misses (§8.6), the same shuffled probe streams (§9.8 there), extended rather
-than duplicated (§8.3 symmetry by construction; #693's scaffolding reused as
-#661 requires).
+misses and whole-population strided hits (§8.6), the same shuffled probe streams
+(§9.8 there), extended rather than duplicated (§8.3 symmetry by construction;
+#693's scaffolding reused as #661 requires).
+
+Sharing the builder means sharing its history: the 50/50 cells published here
+were measured before the hit half was strided across the population
+([#760](https://github.com/orieg/expanse/issues/760)), and carry the same
+disclosure as the HOT suite's. The defect was symmetric across both arms, so the
+ratios stand and the absolute ns/op are pending re-measurement under [#760](https://github.com/orieg/expanse/issues/760).
 
 **Integer cells (M1).** Distributions `sequential`, `clustered`, `sparse`,
 `random` over the full 64-bit domain — no keyspace restriction, since §2 found
