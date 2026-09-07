@@ -224,6 +224,76 @@ void TestForwardAndReverseIteration() {
     std::cout << "  -> PASSED" << std::endl;
 }
 
+void TestIteratorSurvivesLeafSplitUnderCursor() {
+    std::cout << "[RUN] TestIteratorSurvivesLeafSplitUnderCursor" << std::endl;
+    TestBytewiseComparator cmp;
+    Arena arena;
+    // Small leaf capacity so one insert provokes a split deterministically --
+    // no threads and no timing are needed to reach the defect.
+    ExpanseMemTableRep memtable(cmp, &arena, nullptr, nullptr, 8);
+
+    // Stay one below the split threshold so the whole set is still in a single
+    // block: seeding to capacity would split during setup and park the cursor in
+    // a block the later insert never touches, which is how an earlier draft of
+    // this test passed against the defect it exists for.
+    std::vector<std::string> seeded;
+    for (int i = 0; i < 7; ++i) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "key%03d", i * 2);
+        seeded.emplace_back(buf);
+        const char* e = EncodeEntry(arena, seeded.back(), 100, kTypeValue, "v");
+        memtable.Insert(const_cast<char*>(e));
+    }
+
+    // Park a cursor in the half a split will carry into the new block.
+    std::unique_ptr<MemTableRep::Iterator> it(memtable.GetIterator());
+    it->SeekToFirst();
+    for (int i = 0; i < 5; ++i) {
+        assert(it->Valid());
+        it->Next();
+    }
+    assert(it->Valid());
+    Slice parked_ikey = expanse_rocksdb::GetLengthPrefixedSlice(it->key());
+    std::string parked(parked_ikey.data(), parked_ikey.size() - 8);
+
+    // Split the block the cursor is sitting in. `SplitLeafBlock` lowers this
+    // block's count and moves the upper half into a new one, so the cursor's
+    // slot index now names either a different entry or nothing at all.
+    const char* extra = EncodeEntry(arena, std::string("key001"), 100, kTypeValue, "v");
+    memtable.Insert(const_cast<char*>(extra));
+
+    // Everything from the parked key onward must still be emitted, exactly once.
+    // Before the cursor was anchored on its entry, `Valid()` returned false here
+    // -- RocksDB reads that as end-of-memtable, so the whole moved half vanished
+    // from the scan with no error.
+    std::vector<std::string> scanned;
+    while (it->Valid()) {
+        Slice ikey = expanse_rocksdb::GetLengthPrefixedSlice(it->key());
+        scanned.emplace_back(ikey.data(), ikey.size() - 8);
+        it->Next();
+    }
+
+    std::vector<std::string> expected;
+    for (const auto& k : seeded) {
+        if (k >= parked) expected.push_back(k);
+    }
+    assert(scanned.size() == expected.size() && "iterator dropped keys across a split");
+    for (size_t i = 0; i < expected.size(); ++i) {
+        assert(scanned[i] == expected[i] && "iterator emitted keys out of order across a split");
+    }
+
+    // A full re-scan must still see every key, the inserted one included.
+    it->SeekToFirst();
+    size_t total = 0;
+    while (it->Valid()) {
+        total++;
+        it->Next();
+    }
+    assert(total == seeded.size() + 1);
+
+    std::cout << "  -> PASSED" << std::endl;
+}
+
 void TestPrefixSeeksAndSeekForPrev() {
     std::cout << "[RUN] TestPrefixSeeksAndSeekForPrev" << std::endl;
     TestBytewiseComparator cmp;
@@ -706,6 +776,7 @@ int main() {
     TestBasicInsertAndContains();
     TestMvccDescendingSequenceOrder();
     TestForwardAndReverseIteration();
+    TestIteratorSurvivesLeafSplitUnderCursor();
     TestPrefixSeeksAndSeekForPrev();
     TestSuggestCompactRange();
     TestMultiThreadedConcurrentOperations();

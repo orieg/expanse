@@ -563,6 +563,42 @@ void ExpanseMemTableRep::SuggestCompactRange(Slice* begin, Slice* end) {
 ExpanseMemTableRep::IteratorImpl::IteratorImpl(const ExpanseMemTableRep* rep)
     : rep_(rep), current_leaf_(nullptr), current_slot_(-1), valid_(false) {}
 
+void ExpanseMemTableRep::IteratorImpl::CaptureAnchor() const {
+    if (!valid_ || current_leaf_ == nullptr || current_slot_ < 0) {
+        anchor_entry_ = nullptr;
+        anchor_version_ = 0;
+        return;
+    }
+    anchor_version_ = current_leaf_->version.load(std::memory_order_acquire);
+    anchor_entry_ = current_leaf_->entries[current_slot_].load(std::memory_order_acquire);
+}
+
+bool ExpanseMemTableRep::IteratorImpl::RevalidatePosition() const {
+    if (!valid_ || current_leaf_ == nullptr || current_slot_ < 0) return false;
+
+    const uint32_t v = current_leaf_->version.load(std::memory_order_acquire);
+    // Even and unchanged: the slot still names the entry we anchored on.
+    if (v == anchor_version_ && (v & 1) == 0) return true;
+    if (anchor_entry_ == nullptr) return false;
+
+    // The leaf moved under us. Before this, the cursor kept its slot index and
+    // simply reported whatever now sat there -- or nothing, when a split had
+    // lowered `count` below it, which `Valid()` returned as false and RocksDB
+    // read as end-of-memtable. Both are silent: a shift re-emits a key, a split
+    // drops the whole moved half from the scan.
+    //
+    // Re-seek by the anchored entry instead. It still exists, so the seek lands
+    // on it exactly, in this block or in the one the split carried it into.
+    uint32_t ikey_len = 0;
+    const char* entry = anchor_entry_;
+    const char* p = expanse_rocksdb::GetVarint32Ptr(entry, entry + 5, &ikey_len);
+    if (p == nullptr) return false;
+
+    auto* self = const_cast<IteratorImpl*>(this);
+    self->Seek(Slice(p, ikey_len), entry);
+    return valid_;
+}
+
 void ExpanseMemTableRep::IteratorImpl::EnsureKeyCached() const {
     if (cached_key_.valid) return;
     const char* entry = key();
@@ -611,12 +647,12 @@ Slice ExpanseMemTableRep::IteratorImpl::value() const {
 }
 
 bool ExpanseMemTableRep::IteratorImpl::Valid() const {
-    if (!valid_ || current_leaf_ == nullptr || current_slot_ < 0) return false;
+    if (!RevalidatePosition()) return false;
     return current_slot_ < static_cast<int>(current_leaf_->count.load(std::memory_order_acquire));
 }
 
 const char* ExpanseMemTableRep::IteratorImpl::key() const {
-    if (!valid_ || current_leaf_ == nullptr || current_slot_ < 0 ||
+    if (!RevalidatePosition() ||
         current_slot_ >= static_cast<int>(current_leaf_->count.load(std::memory_order_acquire))) {
         return nullptr;
     }
@@ -626,7 +662,12 @@ const char* ExpanseMemTableRep::IteratorImpl::key() const {
 }
 
 void ExpanseMemTableRep::IteratorImpl::Next() {
-    if (!valid_ || current_leaf_ == nullptr || current_slot_ < 0) return;
+    // Recover the position before stepping off it, or the step is relative to
+    // a slot index a writer has already invalidated.
+    if (!RevalidatePosition()) {
+        valid_ = false;
+        return;
+    }
     InvalidateCache();
     current_slot_++;
     uint32_t count = current_leaf_->count.load(std::memory_order_acquire);
@@ -663,10 +704,18 @@ void ExpanseMemTableRep::IteratorImpl::Next() {
             valid_ = false;
         }
     }
+    // Anchor the new position: the slot index alone does not survive a
+    // concurrent shift or split.
+    CaptureAnchor();
 }
 
 void ExpanseMemTableRep::IteratorImpl::Prev() {
-    if (!valid_ || current_leaf_ == nullptr || current_slot_ < 0) return;
+    // Recover the position before stepping off it, or the step is relative to
+    // a slot index a writer has already invalidated.
+    if (!RevalidatePosition()) {
+        valid_ = false;
+        return;
+    }
     InvalidateCache();
     current_slot_--;
 
@@ -693,6 +742,9 @@ void ExpanseMemTableRep::IteratorImpl::Prev() {
             valid_ = false;
         }
     }
+    // Anchor the new position: the slot index alone does not survive a
+    // concurrent shift or split.
+    CaptureAnchor();
 }
 
 void ExpanseMemTableRep::IteratorImpl::SeekToFirst() {
@@ -712,6 +764,9 @@ void ExpanseMemTableRep::IteratorImpl::SeekToFirst() {
         current_slot_ = -1;
         valid_ = false;
     }
+    // Anchor the new position: the slot index alone does not survive a
+    // concurrent shift or split.
+    CaptureAnchor();
 }
 
 void ExpanseMemTableRep::IteratorImpl::SeekToLast() {
@@ -727,6 +782,9 @@ void ExpanseMemTableRep::IteratorImpl::SeekToLast() {
         current_slot_ = -1;
         valid_ = false;
     }
+    // Anchor the new position: the slot index alone does not survive a
+    // concurrent shift or split.
+    CaptureAnchor();
 }
 
 void ExpanseMemTableRep::IteratorImpl::Seek(const Slice& internal_key, const char* memtable_key) {
@@ -787,6 +845,7 @@ void ExpanseMemTableRep::IteratorImpl::Seek(const Slice& internal_key, const cha
             current_leaf_ = block;
             current_slot_ = left;
             valid_ = true;
+            CaptureAnchor();
             return;
         }
         block = block->next_leaf.load(std::memory_order_acquire);
@@ -794,6 +853,9 @@ void ExpanseMemTableRep::IteratorImpl::Seek(const Slice& internal_key, const cha
     current_leaf_ = nullptr;
     current_slot_ = -1;
     valid_ = false;
+    // Anchor the new position: the slot index alone does not survive a
+    // concurrent shift or split.
+    CaptureAnchor();
 }
 
 void ExpanseMemTableRep::IteratorImpl::SeekForPrev(const Slice& internal_key, const char* memtable_key) {
@@ -808,6 +870,9 @@ void ExpanseMemTableRep::IteratorImpl::SeekForPrev(const Slice& internal_key, co
     } else {
         SeekToLast();
     }
+    // Anchor the new position: the slot index alone does not survive a
+    // concurrent shift or split.
+    CaptureAnchor();
 }
 
 size_t ExpanseMemTableRep::IteratorImpl::ScanBatch(

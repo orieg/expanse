@@ -499,6 +499,27 @@ public:
         bool valid_;
         mutable CachedKeyInfo cached_key_{};
 
+        // The cursor is a (leaf, slot) pair, and a writer's in-place shift or a
+        // block split moves entries between slots and between blocks -- so the
+        // pair names a different entry, or none at all, the moment the leaf's
+        // version changes. Anchoring on the entry itself is what makes the
+        // position recoverable: memtable entries are append-only (RocksDB
+        // expresses a delete as a tombstone *entry*, never a removal) and live
+        // in the allocator's arena, so a saved entry pointer stays valid and a
+        // re-seek by its key lands on it exactly, in whichever block now holds
+        // it.
+        mutable uint32_t anchor_version_{0};
+        mutable const char* anchor_entry_{nullptr};
+
+        // Records the version and entry the cursor currently rests on. Called
+        // after every operation that establishes a position.
+        void CaptureAnchor() const;
+
+        // True when the cursor still names the entry it was anchored on,
+        // re-seeking to it first if the leaf changed underneath. False only
+        // when there is no position to recover.
+        bool RevalidatePosition() const;
+
         void InvalidateCache() {
             cached_key_.valid = false;
             cached_key_.raw_entry = nullptr;
