@@ -1,14 +1,14 @@
 //! PyO3 wrappers for SyncExpanseMap and SyncExpanseSet (GIL-free multithreaded concurrent structures).
 
 use crate::buffer::{for_each_u64_key, for_each_u64_pair};
-use expanse_trie::sync::OwnedMapReader;
+use expanse_trie::sync::DetachedMapReader;
 use expanse_trie::sync::{SyncExpanseMap as InnerSyncMap, SyncExpanseSet as InnerSyncSet};
 use pyo3::exceptions::PyKeyError;
 use pyo3::prelude::*;
 use pyo3::types::PyDictMethods;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 // Per-thread reader cache (#554).
 //
@@ -20,20 +20,51 @@ use std::sync::Arc;
 //
 // A reader owns one epoch slot and its pins are not reentrant, so the cache is
 // thread-local rather than shared: each thread registers once and reuses it.
-// Keyed by the map's `Arc` address so several maps in one thread each get their
-// own, and entries are dropped when the map is.
+//
+// Two invariants make the map's address usable as the key.
+//
+// The reader is a `DetachedMapReader`, which holds no reference to the map. An
+// `OwnedMapReader` holds an `Arc<SyncExpanseMap>`, so caching one here kept
+// every map a thread had ever read from alive for the life of that thread —
+// the map could not be dropped precisely because the cache entry existed, and
+// nothing in the map's own drop could evict it.
+//
+// The `Weak` is not there to be upgraded; the caller already holds the `Arc`.
+// It is what keeps the address a valid key. A `Weak` holds the allocation
+// (not the value) alive, so the address cannot be recycled by a later `Arc`
+// while an entry for it exists. Without it, dropping the strong reference
+// would trade the retention for an ABA: a dead map's address reused by a new
+// one would hit a cached reader registered against a different collector,
+// which is a wrong answer rather than a leak.
 thread_local! {
-    static MAP_READERS: RefCell<HashMap<usize, OwnedMapReader>> = RefCell::new(HashMap::new());
+    static MAP_READERS: RefCell<HashMap<usize, (Weak<InnerSyncMap>, DetachedMapReader)>> =
+        RefCell::new(HashMap::new());
 }
 
+/// Entries this thread may accumulate before dead ones are swept. A dead entry
+/// costs the `Weak`'s share of one `ArcInner` plus an epoch slot, so sweeping
+/// eagerly would put a scan on the hot path to reclaim tens of bytes.
+const READER_CACHE_SWEEP_AT: usize = 64;
+
 /// Runs `f` against this thread's cached reader for `map`, registering on first
-/// use. Falls back to nothing else: every read path should route through here.
-fn with_map_reader<R>(map: &Arc<InnerSyncMap>, f: impl FnOnce(&OwnedMapReader) -> R) -> R {
+/// use. Every read path routes through here; see the caller list below.
+fn with_map_reader<R>(map: &Arc<InnerSyncMap>, f: impl FnOnce(&DetachedMapReader) -> R) -> R {
     let key = Arc::as_ptr(map) as usize;
     MAP_READERS.with(|c| {
         let mut cache = c.borrow_mut();
-        let reader = cache.entry(key).or_insert_with(|| map.owned_reader());
-        f(reader)
+        if !cache.contains_key(&key) && cache.len() >= READER_CACHE_SWEEP_AT {
+            cache.retain(|_, (weak, _)| weak.strong_count() > 0);
+        }
+        let entry = cache
+            .entry(key)
+            .or_insert_with(|| (Arc::downgrade(map), map.detached_reader()));
+        // The `Weak` pins the allocation, so a live entry's address can only
+        // belong to the map it was registered against.
+        debug_assert!(
+            std::ptr::eq(entry.0.as_ptr(), Arc::as_ptr(map)),
+            "reader cache key aliased a different map"
+        );
+        f(&entry.1)
     })
 }
 
@@ -81,12 +112,12 @@ impl SyncExpanseMap {
 
     /// Optimistic membership test `key in map` releasing the GIL.
     pub fn __contains__(&self, py: Python<'_>, key: u64) -> bool {
-        py.detach(|| self.inner.get(key).is_some())
+        py.detach(|| with_map_reader(&self.inner, |r| r.get(&self.inner, key).is_some()))
     }
 
     /// Retrieves `val = map[key]` releasing the GIL; raises `KeyError` if key is missing.
     pub fn __getitem__(&self, py: Python<'_>, key: u64) -> PyResult<u64> {
-        let val = py.detach(|| self.inner.get(key));
+        let val = py.detach(|| with_map_reader(&self.inner, |r| r.get(&self.inner, key)));
         val.ok_or_else(|| PyKeyError::new_err(format!("Key {key} not found in SyncExpanseMap")))
     }
 
@@ -112,7 +143,7 @@ impl SyncExpanseMap {
     /// Look up `key` releasing the GIL, returning `default` (or None) if absent.
     #[pyo3(signature = (key, default=None))]
     pub fn get(&self, py: Python<'_>, key: u64, default: Option<u64>) -> Option<u64> {
-        py.detach(|| with_map_reader(&self.inner, |r| r.get(key)))
+        py.detach(|| with_map_reader(&self.inner, |r| r.get(&self.inner, key)))
             .or(default)
     }
 
@@ -345,8 +376,11 @@ impl SyncExpanseMap {
     pub fn get_many(&self, py: Python<'_>, keys: &Bound<'_, PyAny>) -> PyResult<Vec<Option<u64>>> {
         let mut batch: Vec<u64> = Vec::new();
         for_each_u64_key(keys, |k| batch.push(k))?;
-        Ok(py
-            .detach(|| with_map_reader(&self.inner, |r| batch.iter().map(|&k| r.get(k)).collect())))
+        Ok(py.detach(|| {
+            with_map_reader(&self.inner, |r| {
+                batch.iter().map(|&k| r.get(&self.inner, k)).collect()
+            })
+        }))
     }
 
     /// String representation.

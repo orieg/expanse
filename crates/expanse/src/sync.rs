@@ -761,6 +761,18 @@ impl SyncExpanseMap {
         }
     }
 
+    /// Registers a reader that holds no reference to this map.
+    ///
+    /// Use this where the reader is cached somewhere whose lifetime is not the
+    /// map's -- a per-thread cache, say -- and pass the map back in at lookup
+    /// time. See [`DetachedMapReader`].
+    #[must_use]
+    pub fn detached_reader(&self) -> DetachedMapReader {
+        DetachedMapReader {
+            reader: self.shared.collector.register(),
+        }
+    }
+
     /// One-shot lookup (registers a throwaway reader; use
     /// [`Self::reader`] in hot loops).
     #[must_use]
@@ -840,6 +852,36 @@ impl OwnedMapReader {
     #[must_use]
     pub fn get(&self, key: Key) -> Option<u64> {
         map_get_with(&self.map, &self.reader, key)
+    }
+}
+
+/// A reader that owns neither its map nor a reference to it.
+///
+/// [`OwnedMapReader`] holds an `Arc<SyncExpanseMap>` so it can be cached
+/// without a borrow. That is the right shape when the cache's lifetime is the
+/// reader's, and the wrong one when the cache outlives the map: a per-thread
+/// cache keyed by map keeps every map a thread ever read from alive for the
+/// life of that thread, and nothing in the map's own drop can evict it.
+///
+/// This variant holds only the epoch slot, so caching one says nothing about
+/// how long the map lives. The caller supplies the map at lookup time, which it
+/// necessarily has anyway — it is the thing being read.
+///
+/// The same non-reentrancy rule applies: one [`Reader`] owns a single epoch
+/// slot, so a `DetachedMapReader` must not be shared between threads.
+pub struct DetachedMapReader {
+    reader: Reader,
+}
+
+impl DetachedMapReader {
+    /// Optimistic lookup against `map`, without the per-call registry lock
+    /// [`SyncExpanseMap::get`] pays.
+    ///
+    /// `map` must be the map this reader was registered against; reading a
+    /// different map through it would validate against the wrong collector.
+    #[must_use]
+    pub fn get(&self, map: &SyncExpanseMap, key: Key) -> Option<u64> {
+        map_get_with(map, &self.reader, key)
     }
 }
 
@@ -1702,6 +1744,65 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
 
 #[cfg(all(test, not(miri)))]
 mod tests {
+
+    /// A `DetachedMapReader` must give the same answers as the owned reader
+    /// and the one-shot `get`, register exactly once, and — the property it
+    /// exists for — hold no strong reference to the map.
+    ///
+    /// A per-thread cache keyed by map is the natural place to put a cached
+    /// reader, and an `OwnedMapReader` in one keeps every map a thread has
+    /// read from alive for the life of that thread: the map cannot drop
+    /// because the cache entry exists, and the map's own drop cannot evict it.
+    /// The strong-count assertion is what makes that structural rather than a
+    /// convention, so it is checked here and not in the binding that depends
+    /// on it.
+    #[test]
+    fn detached_reader_answers_correctly_without_retaining_the_map() {
+        let map = Arc::new(SyncExpanseMap::new());
+        for k in 0..500u64 {
+            map.insert(k, k * 3);
+        }
+
+        let strong_before = Arc::strong_count(&map);
+        let before = map.shared.collector.registered_readers();
+        let reader = map.detached_reader();
+        assert_eq!(
+            map.shared.collector.registered_readers(),
+            before + 1,
+            "constructing a detached reader registers exactly one slot"
+        );
+        assert_eq!(
+            Arc::strong_count(&map),
+            strong_before,
+            "a detached reader must not take a strong reference to its map — \
+             that is the whole difference from OwnedMapReader, and a cache \
+             holding one would pin the map for the life of the cache"
+        );
+
+        for k in 0..500u64 {
+            assert_eq!(
+                reader.get(&map, k),
+                map.get(k),
+                "detached reader disagrees at {k}"
+            );
+        }
+        assert_eq!(reader.get(&map, 9_999), None, "absent key must miss");
+
+        let regs_before_loop = map.shared.collector.registrations();
+        for k in 0..500u64 {
+            assert_eq!(reader.get(&map, k), Some(k * 3));
+        }
+        assert_eq!(
+            map.shared.collector.registrations(),
+            regs_before_loop,
+            "lookups through a detached reader must not call register()"
+        );
+
+        // The map drops while the reader is still alive. An owned reader could
+        // not be dropped after its map; a detached one has nothing to dangle.
+        drop(map);
+        drop(reader);
+    }
 
     /// An `OwnedMapReader` must agree with the one-shot `get` it replaces, and
     /// must register exactly once however many lookups go through it — that
