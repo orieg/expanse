@@ -126,65 +126,73 @@ interval spans parity is `BOUNDARY_RESULT` and claims no winner.
 ![Latency at N=1M](results/chart_latency_1m.svg)
 
 Both exceptions sit against the parity line: `lookup_hit · map · random` is a
-`BOUNDARY_RESULT` at 0.992 [0.977, 1.007], and `lookup_miss · set · random` is a
-non-scan HOT win at 0.959 [0.953, 0.965]. At 10⁵ the map hit cell is the second
-non-scan HOT win, 0.938 [0.893, 0.959].
+`BOUNDARY_RESULT` at 0.986 [0.970, 1.003], and `lookup_miss · set · random` is a
+non-scan HOT win at 0.960 [0.953, 0.967]. At 10⁵ the map hit cell is the second
+non-scan HOT win, 0.939 [0.888, 0.970].
 
 
 ### Point lookup, 100% hit
 
 | Distribution | Arm | HOT ns | Expanse ns | Ratio | Verdict |
 |---|---|---:|---:|---:|---|
-| sequential | set | 19.29 | **4.16** | 4.656 | Expanse |
-| clustered | set | 24.89 | **7.67** | 3.261 | Expanse |
-| sparse | set | 21.85 | **9.83** | 2.430 | Expanse |
-| random | set | 36.37 | **35.91** | 1.015 | Expanse |
-| sequential | map | 43.47 | **13.89** | 3.452 | Expanse |
-| clustered | map | 50.06 | **23.04** | 2.186 | Expanse |
-| sparse | map | 44.10 | **10.25** | 4.856 | Expanse |
-| **random** | **map** | 60.07 | 61.27 | **0.992** | **`BOUNDARY_RESULT`** |
+| sequential | set | 19.45 | **4.18** | 4.673 | Expanse |
+| clustered | set | 24.85 | **7.64** | 3.251 | Expanse |
+| sparse | set | 21.83 | **9.85** | 2.422 | Expanse |
+| random | set | 36.45 | **36.03** | 1.012 | Expanse |
+| sequential | map | 43.40 | **13.81** | 3.451 | Expanse |
+| clustered | map | 49.91 | **23.08** | 2.182 | Expanse |
+| sparse | map | 43.90 | **10.21** | 4.839 | Expanse |
+| **random** | **map** | 59.87 | 61.34 | **0.986** | **`BOUNDARY_RESULT`** |
 
 ### Point lookup, 50% hit / 50% rejection-sampled miss
 
-> ⚠️ **Harness methodology disclosure (§8.10, [#760](https://github.com/orieg/expanse/issues/760)).**
-> The figures below were measured with a probe builder that drew the hit half of
-> the stream from `population[..hits_wanted]`. The population is sorted, so every
-> hit landed in the low half of the keyspace — root byte `0x00..0x7F` for uniform
-> 64-bit keys — while the misses spanned all of it. The defect is **structurally
-> symmetric across both arms**: both saw the identical probe stream, so the
-> **ratios and their intervals stand** under §8.10's ratio-versus-absolute
-> framework, and the verdicts below are unchanged. The **absolute ns/op are a
-> measurement of a keyspace half** and are pending re-measurement under [#760](https://github.com/orieg/expanse/issues/760). The builder is
-> fixed (hits are now strided across the whole population); the cells are queued
-> for a re-run on the reference host, after which these figures carry a fresh
-> provenance tag rather than this note.
+> **Re-measured with the corrected probe builder ([#760](https://github.com/orieg/expanse/issues/760)).**
+> The superseded cells drew the hit half of the stream from
+> `population[..hits_wanted]`; the sort above confines that to one end of the
+> keyspace while the misses span all of it. The builder now strides hits across
+> the whole population, and this section is re-measured at `ae0c610d`.
+>
+> **The earlier disclosure said the ratios would stand because the defect was
+> symmetric across both arms. That was wrong, and the re-run is what showed it.**
+> Both arms did see the identical probe stream, but the two structures do not
+> respond alike to *where* in the keyspace the hits land, so the ratio moved:
+> seven `lookup_miss` cells shifted with intervals separated from the superseded
+> figures, confirmed by two independent sweeps in the same direction — `set ·
+> sparse · 10⁶` from 2.803 to 2.438/2.453 and `map · sparse · 10⁵` from 4.995 to
+> 4.378/4.407 among them. Symmetric *in presence* is not symmetric *in
+> magnitude*, the caveat §8.10 already carries for teardown cost.
+>
+> Cross-run spread exceeds any single run's interval
+> ([#783](https://github.com/orieg/expanse/issues/783)): two sweeps of identical
+> code separate on roughly a sixth of cells. The seven above are the ones **both**
+> sweeps moved, in the same direction; a cell only one sweep moved is not claimed.
 
 | Distribution | Arm | HOT ns | Expanse ns | Ratio | Verdict |
 |---|---|---:|---:|---:|---|
-| sequential | set | 18.95 | **8.07** | 2.378 | Expanse |
-| clustered | set | 24.30 | **11.04** | 2.212 | Expanse |
-| sparse | set | 21.05 | **7.72** | 2.803 | Expanse |
-| **random** | **set** | **35.80** | 37.22 | **0.959** | **HOT** |
-| sequential | map | 53.08 | **10.89** | 5.256 | Expanse |
-| clustered | map | 59.81 | **16.39** | 3.675 | Expanse |
-| sparse | map | 53.94 | **8.26** | 6.937 | Expanse |
-| random | map | 73.72 | **60.00** | 1.237 | Expanse |
+| sequential | set | 19.24 | **8.16** | 2.374 | Expanse |
+| clustered | set | 24.78 | **11.19** | 2.227 | Expanse |
+| sparse | set | 21.81 | **9.51** | 2.453 | Expanse |
+| **random** | **set** | **36.45** | 38.09 | **0.960** | **HOT** |
+| sequential | map | 55.46 | **12.99** | 4.765 | Expanse |
+| clustered | map | 62.65 | **18.50** | 3.433 | Expanse |
+| sparse | map | 56.31 | **10.00** | 6.296 | Expanse |
+| random | map | 76.34 | **62.06** | 1.245 | Expanse |
 
 **The pre-registered uniform-random loss is confirmed on Arm A only on the miss
 path, and refuted on Arm B.** §5.1 registered HOT winning uniform-random point
 lookup at medium-high confidence, reasoning that random keys discriminate late
 and force a deep descent at a fixed 8-bit span while HOT's variable bit selection
-bounds height. On the set arm the miss path is a HOT win (0.959 [0.953, 0.965])
-and the hit path is a narrow Expanse win (1.015 [1.007, 1.023]) — the registered
+bounds height. On the set arm the miss path is a HOT win (0.960 [0.953, 0.967])
+and the hit path is a narrow Expanse win (1.012 [1.004, 1.021]) — the registered
 direction holds on one of the two. On the map arm it did not hold at all: the hit
-cell claims no winner (0.992 [0.977, 1.007]) and the miss cell goes to Expanse
-(1.237 [1.214, 1.257]), because HOT's pointer chase to its heap pair costs more
+cell claims no winner (0.986 [0.970, 1.003]) and the miss cell goes to Expanse
+(1.245 [1.224, 1.266]), because HOT's pointer chase to its heap pair costs more
 than the descent it saves.
 
 These four cells are the ones §12.1's arm alternation moved most. At `5232af74`,
 with HOT timed first in every round and Expanse inheriting its warmed cache, the
 map hit cell read 1.399 and the set hit cell 0.998; alternating the arm timed
-first puts them at 0.992 and 1.015. The direction of the map hit cell reversed
+first puts them at 0.986 and 1.012. The direction of the map hit cell reversed
 and it now claims no winner, which is the largest single consequence of the
 harness change. **The boundary result is not one run's accident:** two
 independent runs of the alternating harness put the map hit cell at 0.993
@@ -195,14 +203,14 @@ decimal *(measured: reference host, `5232af74` → `134a0471` → `0f4fd40c`)*.
 
 | Distribution | Arm | HOT ns | Expanse ns | Ratio |
 |---|---|---:|---:|---:|
-| sequential | set | 62.24 | **4.83** | 12.933 |
-| clustered | set | 62.48 | **13.18** | 4.736 |
-| sparse | set | 57.65 | **29.11** | 1.981 |
-| random | set | 78.04 | **30.67** | 2.540 |
-| sequential | map | 73.40 | **12.95** | 5.662 |
-| clustered | map | 77.52 | **21.33** | 3.623 |
-| sparse | map | 72.16 | **30.79** | 2.344 |
-| random | map | 95.25 | **27.28** | 3.501 |
+| sequential | set | 58.62 | **4.83** | 12.119 |
+| clustered | set | 62.51 | **13.19** | 4.747 |
+| sparse | set | 57.72 | **29.17** | 1.977 |
+| random | set | 78.11 | **30.83** | 2.532 |
+| sequential | map | 72.88 | **12.87** | 5.661 |
+| clustered | map | 76.82 | **21.35** | 3.591 |
+| sparse | map | 71.94 | **30.70** | 2.344 |
+| random | map | 94.84 | **27.15** | 3.504 |
 
 Expanse wins every insertion cell, 1.63×–12.93×. §5.2 registered this as a *weak*
 prediction; it landed stronger than registered. Every one of these is a
@@ -252,12 +260,12 @@ axes, and both are recorded as **`UNPREDICTED LOSS`**:
 
 | Arm | Dist | N | k=10 | k=100 | k=1000 |
 |---|---|---:|---:|---:|---:|
-| set | random | 10,000 | 0.536 | 0.437 | 0.428 |
-| set | random | 100,000 | 0.754 | 0.551 | 0.521 |
-| set | random | 1,000,000 | 0.836 | 0.744 | 0.732 |
-| map | random | 10,000 | 0.617 | 0.484 | 0.464 |
-| map | random | 100,000 | 0.776 | 0.472 | 0.407 |
-| map | random | 1,000,000 | **1.835** | **1.719** | **1.615** |
+| set | random | 10,000 | 0.535 | 0.431 | 0.424 |
+| set | random | 100,000 | 0.766 | 0.554 | 0.521 |
+| set | random | 1,000,000 | 0.837 | 0.743 | 0.732 |
+| map | random | 10,000 | 0.663 | 0.495 | 0.473 |
+| map | random | 100,000 | 0.781 | 0.477 | 0.413 |
+| map | random | 1,000,000 | **1.822** | **1.706** | **1.624** |
 
 The `map`/`random`/1M row is the exception and it reverses cleanly: Expanse wins
 every scan width there, and by more than it did at `5232af74` (1.835 / 1.719 /
@@ -286,7 +294,7 @@ Against the pre-registration:
 
 | Registered | Outcome |
 |---|---|
-| HOT wins uniform-random point lookup (§5.1, medium-high) | **CONFIRMED** on Arm A's miss path only (0.959), and on Arm B's hit path at 10⁵ (0.938); **REFUTED** on Arm A's hit path (1.015) and on Arm B at 10⁶ (hit `BOUNDARY_RESULT` 0.992, miss 1.237) |
+| HOT wins uniform-random point lookup (§5.1, medium-high) | **CONFIRMED** on Arm A's miss path only (0.960), and on Arm B's hit path at 10⁵ (0.939); **REFUTED** on Arm A's hit path (1.012) and on Arm B at 10⁶ (hit `BOUNDARY_RESULT` 0.986, miss 1.245) |
 | HOT wins short range scans k=10, k=100 (§5.1, medium-high) | **CONFIRMED**, and wider — see §3 |
 | HOT wins sparse-stride memory (§5.1, downgraded to low in §9.5) | **CONFIRMED** as part of the λ story: HOT wins above the cascade |
 | Expanse wins Arm B memory (§5.2, high) | **CONFIRMED**, labelled `PASS_categorical_by_design` |
@@ -401,17 +409,13 @@ Stated before the numbers existed (§7) and unchanged by them:
 
 ## 6. String keys (#693): `ExpanseStrMap` and `ExpanseBytesMap` against HOT's C-string configuration
 
-> ⚠️ **Harness methodology disclosure (§8.10, [#760](https://github.com/orieg/expanse/issues/760)).**
-> The 50/50 cells in this section carry the same hit-sampling defect as §2's,
-> in the string builder: the hit half was drawn from the sorted population's
-> prefix rather than strided across it. Symmetric across both arms, so the
-> **ratios, intervals and verdicts stand**; the **absolute ns/op of the 50/50
-> cells are pending re-measurement** under [#760](https://github.com/orieg/expanse/issues/760). 100%-hit, insert, scan and memory cells
-> are unaffected — at `hit_rate = 1.0` every key is a hit and the sampling is
-> the whole population by construction.
+> **Measured with the corrected probe builder.** The string builder's hit
+> sampling was fixed alongside the integer one ([#760](https://github.com/orieg/expanse/issues/760)), and this section's
+> artifacts were measured at `7fe02c0b`, which postdates that fix. These cells
+> need no re-measurement; §2's integer cells predated it and were re-run.
 
 > *(measured: reference host — Intel Core i9-12900F, 8P+8E/24 threads, 30 MiB L3,
-> Ubuntu 22.04 / kernel 6.8; HOT `96bf6fb`; harness commit `0f4fd40c`;
+> Ubuntu 22.04 / kernel 6.8; HOT `96bf6fb`; harness commit `7fe02c0b`;
 > `docs/benchmarks/hot_comparison/run.sh strings`; benchmark shell pinned to CPUs
 > 0-15; both arms `-C target-cpu=haswell` / `-march=haswell -O3 -std=c++17
 > -DNDEBUG`; load average 0.57 / 0.57 / 0.98 / 0.99 / 1.00 at start, after the gate,
