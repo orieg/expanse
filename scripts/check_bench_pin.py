@@ -56,6 +56,8 @@ DIRECT_HARNESSES = {
         "comparison carried the same exposure",
     "scripts/bench_counters.py":
         "runs benchmark cells under perf on the reference host",
+    "docs/benchmarks/concurrency/scripts/ablations.py":
+        "runs the #789 ablation builds on the concurrent cells (#568 Step 0)",
 }
 
 # Directly-invoked scripts that time things but must NOT be pinned here, with
