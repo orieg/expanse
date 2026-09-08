@@ -11,7 +11,7 @@ reached through a C++ FFI shim over the reference implementation.
 > their own provenance block.
 > *(measured: reference host — Intel Core i9-12900F, 8P+8E/24 threads, 30 MiB L3,
 > Ubuntu 22.04; HOT [`speedskater/hot`](https://github.com/speedskater/hot) `96bf6fb`,
-> ISC; harness commit `0f4fd40c` for the integer arms; **the string arms (§6) were re-measured at `41dc7bfd` for [#723](https://github.com/orieg/expanse/issues/723)** with `run.sh strings`, at load 0.50 / 0.50 / 0.67 / 1.02 and a busy-CPU delta of 1.0-1.02 core-equivalents — the benchmark and nothing else — except §6.3's string insertion-order rows, withheld pending [#772](https://github.com/orieg/expanse/issues/772); `docs/benchmarks/hot_comparison/run.sh`; benchmark
+> ISC; harness commit `0f4fd40c` for the integer arms; **the string arms (§6) were re-measured at `41dc7bfd` for [#723](https://github.com/orieg/expanse/issues/723)** with `run.sh strings`, at load 0.50 / 0.50 / 0.67 / 1.02 and a busy-CPU delta of 1.0-1.02 core-equivalents — the benchmark and nothing else — except §6.3's string insertion-order rows, re-measured at `64f8a3af` ([#772](https://github.com/orieg/expanse/issues/772)); `docs/benchmarks/hot_comparison/run.sh`; benchmark
 > shell pinned to CPUs 0-15; both arms built for one ISA target —
 > `-C target-cpu=haswell` and `-march=haswell -O3 -std=c++17 -DNDEBUG`; load average
 > 0.55 / 0.65 / 0.68 / 0.94 across the run with the host's busy CPU at 1.0
@@ -321,33 +321,37 @@ and reconciling them against a different workload in place is what §8.7 forbids
 | map | `sorted` | 35.71 | 16.67 | **16.70** | 0.990 [0.977, 1.005] | 3.514 [3.505, 3.523] |
 | map | `shuffled` | 36.22 | 23.62 | **16.70** | 1.072 [1.056, 1.091] | 2.828 [2.806, 2.851] |
 
-**String arms, `short`, N = 1,000,000** — *withheld pending re-measurement ([#772](https://github.com/orieg/expanse/issues/772)).*
+**String arms, `short`, N = 1,000,000**
 
-> **These four rows are superseded and not yet replaced (§8.10).** They were
-> measured at `0f4fd40c`, against the two-allocation `ExpanseStrMap` leaf that
-> [#723](https://github.com/orieg/expanse/issues/723) replaced; the Expanse
-> columns they carried (69.16 / 71.99 index, 50.77 `mem_used`) are the
-> superseded figures registered in `.github/superseded-figures.json`. Every
-> *other* string cell in this suite was re-measured at `41dc7bfd`; this phase
-> is a separate `--only-sensitivity` invocation and was not part of that run.
->
-> **A re-run was attempted and discarded, which is disclosed rather than
-> repeated silently (§8.17).** It started at a 1-minute load average of 5.88
-> with 2.01 busy core-equivalents across its first phase — a co-resident
-> process, not the benchmark — so the comparison is void and the artifact was
-> not kept. The host has not since been quiet enough to retake it.
->
-> What the rows established does not depend on the missing numbers and is not
-> withdrawn: `mem_used` was identical across both insertion orders on every
-> arm, and the allocator census was not. That invariant is pinned as an exact
-> equality in
-> [`crates/expanse/tests/test_mem_used_order_invariant.rs`](../../../crates/expanse/tests/test_mem_used_order_invariant.rs),
-> which is where it belongs (§8.18) — the table illustrated it, the test
-> enforces it. The **levels** are what is withheld.
+| Arm | Order | HOT alloc B/key | Expanse alloc B/key | Expanse `mem_used` B/key | `lookup_hit` HOT ÷ Expanse | `insert` HOT ÷ Expanse |
+|---|---|---:|---:|---:|---:|---:|
+| C · str | `sorted` | 12.23 | 47.83 | **42.77** | 1.268 [1.265, 1.271] | 1.396 [1.355, 1.417] |
+| C · str | `shuffled` | 12.72 | 50.61 | **42.77** | 1.283 [1.280, 1.286] | 1.287 [1.280, 1.292] |
+| D · map | `sorted` | 36.29 | 47.83 | **42.77** | 1.912 [1.895, 1.942] | 1.558 [1.542, 1.574] |
+| D · map | `shuffled` | 36.83 | 50.60 | **42.77** | 1.911 [1.906, 1.916] | 1.773 [1.766, 1.781] |
 
+*(measured: reference host — Intel i9-12900F, 8P+8E / 24 threads, P-core pin;
+commit `64f8a3af`; `run.sh strings --only-sensitivity`; 15 rounds per cell,
+BCa 95%; busy-CPU delta 1.01 core-equivalents across every phase;
+[`results/baseline_string_sensitivity.json`](results/baseline_string_sensitivity.json))*.
+
+These replace the four rows withheld under
+[#772](https://github.com/orieg/expanse/issues/772), which were measured at
+`0f4fd40c` against the two-allocation `ExpanseStrMap` leaf that
+[#723](https://github.com/orieg/expanse/issues/723) replaced. The superseded
+Expanse columns (69.16 / 71.99 index, 50.77 `mem_used`) stay registered in
+`.github/superseded-figures.json`; the leaf change moved them to 47.83 / 50.61
+and 42.77.
+
+**`mem_used` is identical in both orders and the allocator figure is not** —
+42.77 either way against 47.83 sorted and 50.61 shuffled. That is the same
+split the integer rows show, and the reason the two instruments are published
+side by side rather than one standing for the other: a digital trie's node
+census is fixed by the key set, and only its allocator footprint depends on
+arrival order.
 - **`mem_used` is identical in both orders on every arm** — 16.70 B/key
-  for the integer map, and likewise on the string arms, whose level is withheld
-  above — while the allocator census moves on both arms. A digital trie's shape is fixed by the key set, not by the sequence
+  for the integer map and 42.77 for the string arms — while the allocator
+  census moves on both arms. A digital trie's shape is fixed by the key set, not by the sequence
   the keys arrived in; the allocator's is not. That is the invariant
   `crates/expanse/tests/test_mem_used_order_invariant.rs` pins, and it is what
   makes the two columns readable side by side: the difference between them is
