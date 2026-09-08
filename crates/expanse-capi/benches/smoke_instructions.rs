@@ -1,7 +1,14 @@
 //! Fast Callgrind C ABI instruction regression smoke gate ($N = 10,000$).
 //!
 //! Provides deterministic instruction and cache-miss metrics for libexpanse
-//! C ABI entry points (JudyLIns, JudyLGet, Judy1Set, Judy1Test) in <20s.
+//! C ABI entry points (JudyLIns, JudyLGet, Judy1Set, Judy1Test, JudySLIns,
+//! JudySLGet) in <20s.
+//!
+//! The `judysl_*` arms exist because `JudySLIns` and `JudySLGet` reach the
+//! engine through `ins_slot` and `get_value_slot`, neither of which any arm
+//! covered: the `strmap_*` arms in `crates/expanse/benches/instructions.rs`
+//! call `insert`/`get` instead, so the C surface's cost was inferred from a
+//! proxy rather than measured (§6's benchmark-arm prerequisite).
 //!
 //! # Workload shape
 //!
@@ -177,13 +184,90 @@ fn judy1_test(built: Built) -> Word {
     black_box(hits)
 }
 
+/// NUL-terminated route-shaped keys, byte-identical to `str_keys("routes")` in
+/// `crates/expanse/benches/smoke_instructions.rs` plus the terminator the C ABI
+/// requires, so `judysl_get` pairs with that file's `strmap_get` -- both at
+/// `POP = 10_000`. It is *not* the 50k `instructions.rs` arm; the two must not
+/// be compared to each other.
+fn str_keys(_dist: &str) -> Vec<Vec<u8>> {
+    (0..POP)
+        .map(|i| {
+            let mut k =
+                format!("/api/v2/tenants/{:06}/resources/{:04}", i / 16, i % 16).into_bytes();
+            k.push(0);
+            k
+        })
+        .collect()
+}
+
+struct BuiltStr {
+    arr: *mut c_void,
+    probes: Vec<Vec<u8>>,
+}
+
+// SAFETY: built and consumed on the same thread by the benchmark harness.
+unsafe impl Send for BuiltStr {}
+
+fn build_judysl(dist: &str) -> BuiltStr {
+    let ks = str_keys(dist);
+    let mut probes = ks.clone();
+    let mut rng = XorShift(0x9E37_79B9);
+    for i in (1..probes.len()).rev() {
+        probes.swap(i, (rng.next() % (i as u64 + 1)) as usize);
+    }
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard JudySLIns usage; each key is NUL-terminated and the
+    // returned slot is valid until the next mutation.
+    unsafe {
+        for (i, k) in ks.iter().enumerate() {
+            let slot = expanse::JudySLIns(&raw mut arr, k.as_ptr(), null_mut()).cast::<Word>();
+            *slot = i;
+        }
+    }
+    BuiltStr { arr, probes }
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = str_keys)]
+fn judysl_insert(ks: Vec<Vec<u8>>) -> Word {
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard JudySLIns usage; the slot is written immediately.
+    unsafe {
+        for (i, k) in ks.iter().enumerate() {
+            let slot =
+                expanse::JudySLIns(&raw mut arr, black_box(k.as_ptr()), null_mut()).cast::<Word>();
+            *slot = i;
+        }
+        black_box(map_len_sentinel(arr))
+    }
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = build_judysl)]
+fn judysl_get(built: BuiltStr) -> Word {
+    let mut sink = 0usize;
+    // SAFETY: the array was built by `build_judysl`; JudySLGet only reads.
+    unsafe {
+        for k in &built.probes {
+            let slot =
+                expanse::JudySLGet(built.arr, black_box(k.as_ptr()), null_mut()).cast::<Word>();
+            if !slot.is_null() {
+                sink ^= *slot;
+            }
+        }
+    }
+    black_box(sink)
+}
+
 library_benchmark_group!(
     name = smoke_capi_cost;
     benchmarks =
         judyl_insert,
         judyl_get,
         judy1_set,
-        judy1_test
+        judy1_test,
+        judysl_insert,
+        judysl_get
 );
 
 #[cfg(target_os = "linux")]

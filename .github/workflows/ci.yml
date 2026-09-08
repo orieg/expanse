@@ -663,6 +663,7 @@ jobs:
             echo "Benchmarking AArch64 smoke merge base $MERGE_BASE against origin/${{ github.base_ref }}..."
             git checkout "$MERGE_BASE"
             cargo bench --bench smoke_instructions -p expanse-trie -- --save-baseline=aarch64_smoke_base | tee aarch64-base-smoke-counts.txt || true
+            cargo bench --bench smoke_instructions -p expanse-capi -- --save-baseline=aarch64_smoke_base | tee -a aarch64-base-smoke-counts.txt || true
             git checkout -
           fi
 
@@ -673,8 +674,10 @@ jobs:
         run: |
           if [ -f aarch64-base-smoke-counts.txt ]; then
             cargo bench --bench smoke_instructions -p expanse-trie -- --baseline=aarch64_smoke_base | tee aarch64-smoke-instructions.txt
+            cargo bench --bench smoke_instructions -p expanse-capi -- --baseline=aarch64_smoke_base | tee -a aarch64-smoke-instructions.txt
           else
             cargo bench --bench smoke_instructions -p expanse-trie | tee aarch64-smoke-instructions.txt
+            cargo bench --bench smoke_instructions -p expanse-capi | tee -a aarch64-smoke-instructions.txt
           fi
 
       - name: Generate AArch64 Report and Enforce Regression Guard
@@ -1523,6 +1526,7 @@ jobs:
             echo "Benchmarking smoke merge base $MERGE_BASE against origin/${{ github.base_ref }}..."
             git checkout "$MERGE_BASE"
             cargo bench --bench smoke_instructions -p expanse-trie -- --save-baseline=smoke_base | tee base-smoke-counts.txt || true
+            cargo bench --bench smoke_instructions -p expanse-capi -- --save-baseline=smoke_base | tee -a base-smoke-counts.txt || true
             git checkout -
           fi
 
@@ -1533,8 +1537,10 @@ jobs:
         run: |
           if [ -f base-smoke-counts.txt ]; then
             cargo bench --bench smoke_instructions -p expanse-trie -- --baseline=smoke_base | tee smoke-instruction-counts.txt
+            cargo bench --bench smoke_instructions -p expanse-capi -- --baseline=smoke_base | tee -a smoke-instruction-counts.txt
           else
             cargo bench --bench smoke_instructions -p expanse-trie | tee smoke-instruction-counts.txt
+            cargo bench --bench smoke_instructions -p expanse-capi | tee -a smoke-instruction-counts.txt
           fi
 
       - name: Generate Report and Enforce Regression Guard
