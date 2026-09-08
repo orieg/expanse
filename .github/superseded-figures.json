@@ -400,6 +400,24 @@
       "replacement": "0.124 at 16 threads and 0.121 at 8, measured under the P-core pin (results/baseline_python_concurrency.json)",
       "provenance": "#774",
       "rationale": "results/baseline_python_concurrency.json was measured unpinned on a hybrid host and scripts/bench_pin.sh was never sourced by this harness. Pin exposure is not constant along the thread axis -- 0.999 [0.927, 1.040] at one thread against 5.569 [5.305, 5.742] at sixteen -- so the within-arm scaling curve, which normalises every width by its own single-thread arm, is distorted most exactly where it makes its claim. The unpinned 16-thread cell reproduces at 0.121 Mops/s, which is what identified the committed run as unpinned. `0.019` is deliberately not a pattern: the sixteen-writer concurrent ratio is the same digits, and this entry's context words are generic enough to match near that table."
+    },
+    {
+      "id": "hot_health_hand_typed_ratios",
+      "patterns": [
+        "(?<![\\w.])1\\.64\\s*[–-]\\s*2\\.05(?!\\w)",
+        "(?<![\\w.])1\\.6\\s*[–-]\\s*2\\.1\\s+per\\s+read\\s+op",
+        "one to two waits per\\s+lookup"
+      ],
+      "context": [
+        "restart",
+        "spins",
+        "health",
+        "sample_spins",
+        "read_ops"
+      ],
+      "replacement": "0.58–1.30 spins per lookup over the 64f8a3af pair and 1.8–3.7 over the a1982ff2 pair with per-thread shards; a band, never a level (docs/benchmarks/hot_comparison/README.md §7.3, docs/benchmarks/concurrency/README.md §5)",
+      "provenance": "#568 Step 0",
+      "rationale": "The HOT README §7.3 health table was typed by hand from an earlier harness commit and disagreed with both committed artifacts; it and its prose are generated from the artifacts now"
     }
   ]
 }
