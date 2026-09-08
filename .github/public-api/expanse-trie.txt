@@ -1128,7 +1128,7 @@ impl core::marker::UnsafeUnpin for expanse_trie::node32::LeafBitmapL_32
 impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::node32::LeafBitmapL_32
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::node32::LeafBitmapL_32
 pub mod expanse_trie::occ
-pub struct expanse_trie::occ::Collector
+#[repr(C, align(64))] pub struct expanse_trie::occ::Collector
 impl expanse_trie::occ::Collector
 pub fn expanse_trie::occ::Collector::new() -> Self
 pub fn expanse_trie::occ::Collector::register(&alloc::sync::Arc<Self>) -> expanse_trie::occ::Reader

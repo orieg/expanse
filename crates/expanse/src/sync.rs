@@ -517,6 +517,26 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
     }
 }
 
+/// What `Shared::write_root_covered` asks of an engine: whether its root is
+/// a level-8 trie right now (read under the writer lock).
+pub(crate) trait RootState {
+    fn root_is_tree(&self) -> bool;
+}
+
+impl RootState for ExpanseMap {
+    #[inline(always)]
+    fn root_is_tree(&self) -> bool {
+        ExpanseMap::root_is_tree(self)
+    }
+}
+
+impl RootState for ExpanseSet {
+    #[inline(always)]
+    fn root_is_tree(&self) -> bool {
+        ExpanseSet::root_is_tree(self)
+    }
+}
+
 /// The shared writer/reader state behind both wrappers.
 struct Shared<T> {
     inner: UnsafeCell<T>,
@@ -614,14 +634,20 @@ impl<T> Shared<T> {
         r
     }
 
-    /// One mutation under the writer lock **without** the tree-level bracket
-    /// (#568 PR 3): for trees whose engine brackets root-state writes itself
-    /// (`NodeAlloc::defer_to_engine_root`), so an ordinary insert or remove
-    /// never stores to the word every reader samples. The engine opens the
-    /// tree bracket only around a `Root` variant change, a root-leaf mutation
-    /// or a top-edge rewrite, and every other store under the version of the
-    /// node that contains it.
-    fn write_unbracketed<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
+    /// One mutation under the writer lock, bracketed with the tree-level
+    /// word only while the root is not a tree (#568 PR 3). In root-leaf
+    /// state every store is a root-state write — the leaf in place, its
+    /// reallocation, the promotion to a tree — so the wrapper holds the word
+    /// for the whole operation, exactly as `write` does. In tree state an
+    /// ordinary insert or remove never touches the word: the engine brackets
+    /// every store with the version of the node that holds it, and the two
+    /// root-state changes a remove can make (to empty, or a condense back to
+    /// a root leaf) bracket themselves. The unshared path pays nothing for
+    /// this: the decision is one branch here, on the shared path only.
+    fn write_root_covered<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
+    where
+        T: RootState,
+    {
         crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
         let _g = self.write.lock().expect("writer lock poisoned");
         #[cfg(feature = "occ-stats")]
@@ -638,7 +664,20 @@ impl<T> Shared<T> {
         }
         crate::occ_stats::op_begin();
         // SAFETY: the writer mutex makes this the only mutable borrow.
-        let r = f(unsafe { &mut *self.inner.get() });
+        let inner = unsafe { &mut *self.inner.get() };
+        // Read under the lock: the root state is the writer's to change.
+        let r = if inner.root_is_tree() {
+            f(inner)
+        } else {
+            self.collector.version().begin();
+            #[cfg(debug_assertions)]
+            crate::alloc::bracket_stack::enter(self.tree_cover_addr());
+            let r = f(inner);
+            #[cfg(debug_assertions)]
+            crate::alloc::bracket_stack::leave(self.tree_cover_addr());
+            self.collector.version().end();
+            r
+        };
         crate::occ_stats::op_end();
         #[cfg(not(feature = "advance-never"))]
         {
@@ -726,12 +765,12 @@ impl SyncExpanseSet {
     /// Inserts `key`; returns `true` if it was absent. Serializes with
     /// other writers.
     pub fn insert(&self, key: Key) -> bool {
-        self.shared.write_unbracketed(|s| s.insert(key))
+        self.shared.write_root_covered(|s| s.insert(key))
     }
 
     /// Removes `key`; returns `true` if it was present.
     pub fn remove(&self, key: Key) -> bool {
-        self.shared.write_unbracketed(|s| s.remove(key))
+        self.shared.write_root_covered(|s| s.remove(key))
     }
 
     /// Removes every key from the set.
@@ -833,12 +872,12 @@ impl SyncExpanseMap {
 
     /// Inserts `key → val`; returns the replaced value, if any.
     pub fn insert(&self, key: Key, val: u64) -> Option<u64> {
-        self.shared.write_unbracketed(|m| m.insert(key, val))
+        self.shared.write_root_covered(|m| m.insert(key, val))
     }
 
     /// Removes `key`; returns its value, if present.
     pub fn remove(&self, key: Key) -> Option<u64> {
-        self.shared.write_unbracketed(|m| m.remove(key))
+        self.shared.write_root_covered(|m| m.remove(key))
     }
 
     /// Removes every key-value pair from the map.
@@ -3000,7 +3039,7 @@ mod tests {
     /// have stored into the leaf unbracketed.
     #[test]
     #[cfg(debug_assertions)]
-    fn shared_map_insert_ignores_a_warm_path_cache() {
+    fn shared_map_insert_leaves_the_path_cache_cold() {
         let mut map = ExpanseMap::new();
         // The map/set wrapper's mode: the engine covers the root state, so
         // no bracket is open around any call here.
@@ -3010,18 +3049,24 @@ mod tests {
         for k in 0..40u64 {
             map.insert(k, k * 10);
         }
-        // Simulate a warm path cache matching the next insert's prefix.
-        map.path_mut().prefix = 0;
         assert_eq!(map.insert(50, 500), None);
         assert_eq!(map.get(50), Some(500));
-        assert_eq!(map.path_mut().depth, 0, "the shared engine records no path");
+        // Sequential keys are the bypass's own case; on a shared tree the
+        // engine leaves the cache cold, so the bypass can never fire.
+        let path = map.path_mut();
+        assert_eq!(path.depth, 0, "the shared engine records no path");
+        assert!(
+            path.leaf.is_null() && path.leaf1.is_null(),
+            "no terminal cursor"
+        );
+        assert_eq!(path.prefix, u64::MAX, "no warm prefix");
         assert!(crate::alloc::bracket_stack::open().is_empty());
     }
 
     /// Set twin of the test above.
     #[test]
     #[cfg(debug_assertions)]
-    fn shared_set_insert_ignores_a_warm_path_cache() {
+    fn shared_set_insert_leaves_the_path_cache_cold() {
         let mut set = ExpanseSet::new();
         // The map/set wrapper's mode: the engine covers the root state, so
         // no bracket is open around any call here.
@@ -3031,10 +3076,15 @@ mod tests {
         for k in 0..40u64 {
             set.insert(k);
         }
-        set.path_mut().prefix = 0;
         assert!(set.insert(50));
         assert!(set.contains(50));
-        assert_eq!(set.path_mut().depth, 0, "the shared engine records no path");
+        let path = set.path_mut();
+        assert_eq!(path.depth, 0, "the shared engine records no path");
+        assert!(
+            path.leaf.is_null() && path.leaf1.is_null(),
+            "no terminal cursor"
+        );
+        assert_eq!(path.prefix, u64::MAX, "no warm prefix");
         assert!(crate::alloc::bracket_stack::open().is_empty());
     }
 

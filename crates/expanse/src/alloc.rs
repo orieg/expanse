@@ -565,6 +565,13 @@ impl NodeAlloc {
         self.engine_covers_root.load(Ordering::Relaxed)
     }
 
+    /// `no_std` twin: nothing is shared, nothing covers a root.
+    #[cfg(not(feature = "std"))]
+    #[inline(always)]
+    pub(crate) fn engine_covers_root(&self) -> bool {
+        false
+    }
+
     /// [`Self::defer_to`], with root-state coverage handed to the engine:
     /// the wrapper then runs mutations *without* the tree-level bracket and
     /// the engine opens it only around a `Root` variant change, a root-leaf

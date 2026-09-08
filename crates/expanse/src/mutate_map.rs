@@ -363,7 +363,7 @@ impl InsertPathMap {
 /// # Safety
 ///
 /// Same contract as `mutate::insert`, for map-flavor trees.
-pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
+pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool, const NESTED: bool>(
     a: &NodeAlloc,
     edge: &mut Edge,
     key: Key,
@@ -373,7 +373,7 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
 ) -> (Option<u64>, *mut u64) {
     // SAFETY: forwarded contract.
     unsafe {
-        map_insert_with_path::<KEEP, OCC>(
+        map_insert_with_path::<KEEP, OCC, NESTED>(
             a,
             edge,
             key,
@@ -391,7 +391,7 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
 /// # Safety
 ///
 /// Same contract as [`map_insert`].
-pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
+pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool, const NESTED: bool>(
     a: &NodeAlloc,
     edge: &mut Edge,
     key: Key,
@@ -402,7 +402,9 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
 ) -> (Option<u64>, *mut u64) {
     if OCC {
         // SAFETY: forwarded contract.
-        unsafe { map_insert_with_path_occ::<KEEP, OCC>(a, edge, key, val, level, path, cover) }
+        unsafe {
+            map_insert_with_path_occ::<KEEP, OCC, NESTED>(a, edge, key, val, level, path, cover)
+        }
     } else {
         // SAFETY: forwarded contract.
         unsafe { map_insert_with_path_flat::<KEEP>(a, edge as *mut Edge, key, val, level, path) }
@@ -1131,7 +1133,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
 /// The insert-path cache is never consulted on a shared map (the owner's
 /// bypass is compiled out at `OCC = true`), so it is cleared here and never
 /// recorded.
-unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
+unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NESTED: bool>(
     a: &NodeAlloc,
     edge: &mut Edge,
     key: Key,
@@ -1152,9 +1154,9 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                     unsafe {
                         (*node.as_ptr()).hdr.level = level;
                     }
-                    cover.begin_if::<OCC>(a);
+                    cover.begin_if::<OCC, NESTED>(a);
                     *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
-                    cover.end_if::<OCC>(a);
+                    cover.end_if::<OCC, NESTED>(a);
                     // SAFETY: forwarded contract; edge is now a branch.
                     continue;
                 }
@@ -1166,12 +1168,12 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                 unsafe {
                     write_packed(aux.as_mut_ptr(), 0, kb as usize, k);
                 }
-                cover.begin_if::<OCC>(a);
+                cover.begin_if::<OCC, NESTED>(a);
                 *edge = Edge::NULL;
                 edge.set_imm_bytes(val.to_le_bytes());
                 edge.set_aux_bytes(aux);
                 edge.set_tag(im.as_u8());
-                cover.end_if::<OCC>(a);
+                cover.end_if::<OCC, NESTED>(a);
                 // A single-entry immediate's value slot is the edge's word 0.
                 return (None, (&raw mut *edge).cast::<u64>());
             }
@@ -1188,9 +1190,9 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                     if existing_k == k {
                         let old = u64::from_le_bytes(edge.imm_bytes());
                         if !KEEP {
-                            cover.begin_if::<OCC>(a);
+                            cover.begin_if::<OCC, NESTED>(a);
                             edge.set_imm_bytes(val.to_le_bytes());
-                            cover.end_if::<OCC>(a);
+                            cover.end_if::<OCC, NESTED>(a);
                         }
                         return (Some(old), (&raw mut *edge).cast::<u64>());
                     }
@@ -1214,19 +1216,19 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                             write_packed(new_aux.as_mut_ptr(), 1, kb_usize, slot1_k);
                         }
                         let new_im = ImmedType::new(kb, 2).expect("immediate capacity");
-                        cover.begin_if::<OCC>(a);
+                        cover.begin_if::<OCC, NESTED>(a);
                         *edge = Edge::new_node(vals.as_ptr().cast(), 0);
                         edge.set_aux_bytes(new_aux);
                         edge.set_tag(new_im.as_u8());
-                        cover.end_if::<OCC>(a);
+                        cover.end_if::<OCC, NESTED>(a);
                         // SAFETY: slot `pos` in the newly allocated value array.
                         return (None, unsafe { vals.as_ptr().add(pos) });
                     } else {
                         // Immediate max capacity is 1 (for kb in 4..=7): upgrade directly to linear leaf.
                         let entries = [(slot0_k, slot0_v), (slot1_k, slot1_v)];
-                        cover.begin_if::<OCC>(a);
+                        cover.begin_if::<OCC, NESTED>(a);
                         build_map_leaf(a, edge, kb, &entries);
-                        cover.end_if::<OCC>(a);
+                        cover.end_if::<OCC, NESTED>(a);
                         // SAFETY: build_map_leaf places value array at the base of the leaf.
                         return (None, unsafe { edge.node_ptr().cast::<u64>().add(pos) });
                     }
@@ -1241,10 +1243,10 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                         if !KEEP {
                             // A value store readers validate against the
                             // parent's word: bracketed like any other.
-                            cover.begin_if::<OCC>(a);
+                            cover.begin_if::<OCC, NESTED>(a);
                             // SAFETY: slot is writable per contract.
                             unsafe { slot.write(val) };
-                            cover.end_if::<OCC>(a);
+                            cover.end_if::<OCC, NESTED>(a);
                         }
                         return (Some(old), slot);
                     }
@@ -1265,7 +1267,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                             write_packed(new_aux.as_mut_ptr(), pos, kb_usize, k);
                         }
                         let new_im = ImmedType::new(kb, (n + 1) as u8).expect("immediate capacity");
-                        cover.begin_if::<OCC>(a);
+                        cover.begin_if::<OCC, NESTED>(a);
                         a.assert_bracketed_by(cover.addr(a));
                         // SAFETY: class capacity holds n + 1 entries; in-bounds shifts.
                         unsafe {
@@ -1276,7 +1278,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                         }
                         edge.set_aux_bytes(new_aux);
                         edge.set_tag(new_im.as_u8());
-                        cover.end_if::<OCC>(a);
+                        cover.end_if::<OCC, NESTED>(a);
                         // SAFETY: old_vals has capacity for n + 1 entries; pos is in-bounds.
                         return (None, unsafe { old_vals.add(pos) });
                     }
@@ -1304,11 +1306,11 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                         write_packed(new_aux.as_mut_ptr(), pos, kb_usize, k);
                     }
                     let new_im = ImmedType::new(kb, (n + 1) as u8).expect("immediate capacity");
-                    cover.begin_if::<OCC>(a);
+                    cover.begin_if::<OCC, NESTED>(a);
                     *edge = Edge::new_node(new_vals.as_ptr().cast(), 0);
                     edge.set_aux_bytes(new_aux);
                     edge.set_tag(new_im.as_u8());
-                    cover.end_if::<OCC>(a);
+                    cover.end_if::<OCC, NESTED>(a);
                     // SAFETY: the old array is unlinked above; freed (or retired).
                     unsafe {
                         a.free_bytes(
@@ -1336,9 +1338,9 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                     let vi = unsafe { *old_vals.add(i) };
                     entries.push((ki, vi));
                 }
-                cover.begin_if::<OCC>(a);
+                cover.begin_if::<OCC, NESTED>(a);
                 build_map_leaf(a, edge, kb, entries.as_slice());
-                cover.end_if::<OCC>(a);
+                cover.end_if::<OCC, NESTED>(a);
                 // SAFETY: old_vals points to the unlinked n*8 byte allocation.
                 unsafe {
                     a.free_bytes(
@@ -1366,9 +1368,9 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                     // Diverges inside the skipped prefix: branch out one
                     // level and retry. The rewrite of this slot is the
                     // parent's store.
-                    cover.begin_if::<OCC>(a);
+                    cover.begin_if::<OCC, NESTED>(a);
                     split_skip(a, edge, key, level, pop as u64);
-                    cover.end_if::<OCC>(a);
+                    cover.end_if::<OCC, NESTED>(a);
                     continue;
                 }
                 let k = key_low(key, kb);
@@ -1401,10 +1403,10 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                             let slot = base.cast::<u64>().add(pos);
                             let old = *slot;
                             if !KEEP {
-                                cover.begin_if::<OCC>(a);
+                                cover.begin_if::<OCC, NESTED>(a);
                                 a.assert_bracketed_by(cover.addr(a));
                                 slot.write(val);
-                                cover.end_if::<OCC>(a);
+                                cover.end_if::<OCC, NESTED>(a);
                             }
                             return (Some(old), slot);
                         }
@@ -1414,12 +1416,12 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                         if pop < cap && leaf::cap_class(pop + 1) == leaf::cap_class(pop) {
                             // Fast path: spare class capacity — shift both
                             // areas in place under the parent's word.
-                            cover.begin_if::<OCC>(a);
+                            cover.begin_if::<OCC, NESTED>(a);
                             a.assert_bracketed_by(cover.addr(a));
                             // SAFETY: class capacity spare per the check.
                             unsafe { leaf::map_insert_at(base, kb, pop, pos, k, val) };
                             edge.set_pop0(kb, pop as u64);
-                            cover.end_if::<OCC>(a);
+                            cover.end_if::<OCC, NESTED>(a);
                             // SAFETY: freshly shifted value area.
                             return (None, unsafe { base.cast::<u64>().add(pos) });
                         }
@@ -1437,11 +1439,11 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                                 leaf::map_realloc_insert(base, new.as_ptr(), kb, pop, pos, k, val);
                             }
                             let saved_aux = *edge.aux_bytes();
-                            cover.begin_if::<OCC>(a);
+                            cover.begin_if::<OCC, NESTED>(a);
                             *edge = Edge::new_node(new.as_ptr(), t.as_u8());
                             edge.set_aux_bytes(saved_aux);
                             edge.set_pop0(kb, pop as u64);
-                            cover.end_if::<OCC>(a);
+                            cover.end_if::<OCC, NESTED>(a);
                             // SAFETY: the old leaf is unlinked above; freed
                             // (or retired) with its allocation size.
                             unsafe {
@@ -1524,7 +1526,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                             for &(k, v) in &entries {
                                 // SAFETY: freshly built branch subtree.
                                 let prev = unsafe {
-                                    map_insert_with_path::<KEEP, OCC>(
+                                    map_insert_with_path::<KEEP, OCC, NESTED>(
                                         a, &mut tmp, k, v, level, path, private,
                                     )
                                 };
@@ -1534,9 +1536,9 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                             // pin the true population (see mutate::insert).
                             tmp.set_pop0(bl, entries.len() as u64 - 1);
                         }
-                        cover.begin_if::<OCC>(a);
+                        cover.begin_if::<OCC, NESTED>(a);
                         *edge = tmp;
-                        cover.end_if::<OCC>(a);
+                        cover.end_if::<OCC, NESTED>(a);
                         // SAFETY: old leaf allocation no longer referenced.
                         unsafe {
                             a.free_bytes(core::ptr::NonNull::new(old_ptr).expect("leaf"), old_size);
@@ -1557,9 +1559,9 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                     // Diverges inside the skipped prefix: branch out one
                     // level and retry.
                     let pop = edge.pop0(1) + 1;
-                    cover.begin_if::<OCC>(a);
+                    cover.begin_if::<OCC, NESTED>(a);
                     split_skip(a, edge, key, level, pop);
-                    cover.end_if::<OCC>(a);
+                    cover.end_if::<OCC, NESTED>(a);
                     continue;
                 }
                 let d = digit(key, 1);
@@ -1575,10 +1577,10 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                         let slot = (*node).values[sub].add(rank);
                         let old = *slot;
                         if !KEEP {
-                            cover.begin_if::<OCC>(a);
+                            cover.begin_if::<OCC, NESTED>(a);
                             a.assert_bracketed_by(cover.addr(a));
                             slot.write(val);
-                            cover.end_if::<OCC>(a);
+                            cover.end_if::<OCC, NESTED>(a);
                         }
                         return (Some(old), slot);
                     }
@@ -1590,7 +1592,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                         (*node).bitmap.subexpanse_count(sub) as usize,
                     )
                 };
-                cover.begin_if::<OCC>(a);
+                cover.begin_if::<OCC, NESTED>(a);
                 a.assert_bracketed_by(cover.addr(a));
                 if old_n > 0 && leaf::cap_class(old_n + 1) == leaf::cap_class(old_n) {
                     // Fast path: spare class capacity — shift in place.
@@ -1626,7 +1628,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                 }
                 let pop0 = edge.pop0(1);
                 edge.set_pop0(1, pop0 + 1);
-                cover.end_if::<OCC>(a);
+                cover.end_if::<OCC, NESTED>(a);
                 // SAFETY: the value now lives at this subarray rank.
                 return (None, unsafe { (*node).values[sub].add(rank) });
             }
@@ -1641,9 +1643,9 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                 let bl = unsafe { branch_form_level(edge, t, level) };
                 if bl < level && !crate::get::decode_matches(edge, key, bl, level) {
                     let pop = edge.pop0(bl) + 1;
-                    cover.begin_if::<OCC>(a);
+                    cover.begin_if::<OCC, NESTED>(a);
                     split_skip(a, edge, key, level, pop);
-                    cover.end_if::<OCC>(a);
+                    cover.end_if::<OCC, NESTED>(a);
                     continue;
                 }
                 let d = digit(key, bl);
@@ -1676,7 +1678,8 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                         if is_l3 {
                             let b = edge.node_ptr().cast::<BranchL3>();
                             let inner = Cover::Node(&raw mut (*b).hdr.version);
-                            map_insert_with_path::<KEEP, OCC>(
+                            inner.nest_begin::<OCC, NESTED>(a);
+                            let r = map_insert_with_path::<KEEP, OCC, NESTED>(
                                 a,
                                 &mut (*b).edges[slot],
                                 key,
@@ -1684,11 +1687,14 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                                 bl - 1,
                                 path,
                                 inner,
-                            )
+                            );
+                            inner.nest_end::<OCC, NESTED>(a);
+                            r
                         } else {
                             let b = edge.node_ptr().cast::<BranchL7>();
                             let inner = Cover::Node(&raw mut (*b).hdr.version);
-                            map_insert_with_path::<KEEP, OCC>(
+                            inner.nest_begin::<OCC, NESTED>(a);
+                            let r = map_insert_with_path::<KEEP, OCC, NESTED>(
                                 a,
                                 &mut (*b).edges[slot],
                                 key,
@@ -1696,16 +1702,18 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                                 bl - 1,
                                 path,
                                 inner,
-                            )
+                            );
+                            inner.nest_end::<OCC, NESTED>(a);
+                            r
                         }
                     };
                     if res.0.is_none() {
                         // The population lives in this node's incoming edge,
                         // which the parent's word covers.
-                        cover.begin_if::<OCC>(a);
+                        cover.begin_if::<OCC, NESTED>(a);
                         // SAFETY: edge is a valid live edge.
                         unsafe { bump_pop0(edge, bl, 1) };
-                        cover.end_if::<OCC>(a);
+                        cover.end_if::<OCC, NESTED>(a);
                     }
                     return res;
                 }
@@ -1713,7 +1721,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                 if num == cap {
                     // The rebuild rewrites this node's incoming edge: the
                     // parent's word covers it.
-                    cover.begin_if::<OCC>(a);
+                    cover.begin_if::<OCC, NESTED>(a);
                     // SAFETY: upgrade rebuilds the node; subtree stays owned.
                     unsafe {
                         if is_l3 {
@@ -1722,7 +1730,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                             upgrade_l7_to_b::<OCC>(a, edge);
                         }
                     }
-                    cover.end_if::<OCC>(a);
+                    cover.end_if::<OCC, NESTED>(a);
                     continue;
                 }
                 // Open the new slot under this node's own bracket, close it,
@@ -1732,13 +1740,14 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                     if is_l3 {
                         let b = edge.node_ptr().cast::<BranchL3>();
                         let inner = Cover::Node(&raw mut (*b).hdr.version);
-                        inner.begin_if::<OCC>(a);
+                        inner.nest_begin::<OCC, NESTED>(a);
+                        inner.begin_if::<OCC, NESTED>(a);
                         let slot =
                             linear_insert_slot_l3(&mut (*b).hdr.digits, &mut (*b).edges, num, d);
                         (*b).hdr.num += 1;
                         (*b).hdr.add_presence(d);
-                        inner.end_if::<OCC>(a);
-                        map_insert_with_path::<KEEP, OCC>(
+                        inner.end_if::<OCC, NESTED>(a);
+                        let r = map_insert_with_path::<KEEP, OCC, NESTED>(
                             a,
                             &mut (*b).edges[slot],
                             key,
@@ -1746,17 +1755,20 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                             bl - 1,
                             path,
                             inner,
-                        )
+                        );
+                        inner.nest_end::<OCC, NESTED>(a);
+                        r
                     } else {
                         let b = edge.node_ptr().cast::<BranchL7>();
                         let inner = Cover::Node(&raw mut (*b).hdr.version);
-                        inner.begin_if::<OCC>(a);
+                        inner.nest_begin::<OCC, NESTED>(a);
+                        inner.begin_if::<OCC, NESTED>(a);
                         let slot =
                             linear_insert_slot(&mut (*b).hdr.digits, &mut (*b).edges, num, d);
                         (*b).hdr.num += 1;
                         (*b).hdr.add_presence(d);
-                        inner.end_if::<OCC>(a);
-                        map_insert_with_path::<KEEP, OCC>(
+                        inner.end_if::<OCC, NESTED>(a);
+                        let r = map_insert_with_path::<KEEP, OCC, NESTED>(
                             a,
                             &mut (*b).edges[slot],
                             key,
@@ -1764,14 +1776,16 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                             bl - 1,
                             path,
                             inner,
-                        )
+                        );
+                        inner.nest_end::<OCC, NESTED>(a);
+                        r
                     }
                 };
                 debug_assert!(res.0.is_none());
-                cover.begin_if::<OCC>(a);
+                cover.begin_if::<OCC, NESTED>(a);
                 // SAFETY: edge is a valid live edge.
                 unsafe { bump_pop0(edge, bl, 1) };
-                cover.end_if::<OCC>(a);
+                cover.end_if::<OCC, NESTED>(a);
                 return (None, res.1);
             }
 
@@ -1781,9 +1795,9 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                 let bl = unsafe { branch_form_level(edge, EdgeType::BranchB, level) };
                 if bl < level && !crate::get::decode_matches(edge, key, bl, level) {
                     let pop = edge.pop0(bl) + 1;
-                    cover.begin_if::<OCC>(a);
+                    cover.begin_if::<OCC, NESTED>(a);
                     split_skip(a, edge, key, level, pop);
-                    cover.end_if::<OCC>(a);
+                    cover.end_if::<OCC, NESTED>(a);
                     continue;
                 }
                 let slot_level = level;
@@ -1793,12 +1807,13 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                 let inner = Cover::Node(unsafe { &raw mut (*b).version });
                 // SAFETY: live BranchB per contract.
                 if let Some(slot) = unsafe { (*b).bitmap.test_and_subexpanse_rank(d) } {
+                    inner.nest_begin::<OCC, NESTED>(a);
                     // SAFETY: bitmap/subarray consistency invariant. The
-                    // descent is not bracketed; the child frame takes
-                    // `inner` for its stores.
+                    // descent is not bracketed in the brief mode; the child
+                    // frame takes `inner` for its stores.
                     let res = unsafe {
                         let sub = (*b).subarrays[(d >> 5) as usize];
-                        map_insert_with_path::<KEEP, OCC>(
+                        map_insert_with_path::<KEEP, OCC, NESTED>(
                             a,
                             &mut *sub.add(slot),
                             key,
@@ -1808,11 +1823,12 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                             inner,
                         )
                     };
+                    inner.nest_end::<OCC, NESTED>(a);
                     if res.0.is_none() {
-                        cover.begin_if::<OCC>(a);
+                        cover.begin_if::<OCC, NESTED>(a);
                         // SAFETY: edge is a valid live edge.
                         unsafe { bump_pop0(edge, bl, 1) };
-                        cover.end_if::<OCC>(a);
+                        cover.end_if::<OCC, NESTED>(a);
                     }
                     return res;
                 }
@@ -1821,18 +1837,18 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                     if bl < slot_level {
                         // BranchU cannot skip: materialize one chain level.
                         let pop = edge.pop0(bl) + 1;
-                        cover.begin_if::<OCC>(a);
+                        cover.begin_if::<OCC, NESTED>(a);
                         wrap_skip_level(a, edge, bl + 1, slot_level, pop);
-                        cover.end_if::<OCC>(a);
+                        cover.end_if::<OCC, NESTED>(a);
                         level = slot_level;
                         continue;
                     }
-                    cover.begin_if::<OCC>(a);
+                    cover.begin_if::<OCC, NESTED>(a);
                     // SAFETY: upgrade rebuilds the node; subtree stays owned.
                     unsafe {
                         upgrade_b_to_u::<OCC>(a, edge);
                     }
-                    cover.end_if::<OCC>(a);
+                    cover.end_if::<OCC, NESTED>(a);
                     level = slot_level;
                     continue;
                 }
@@ -1846,7 +1862,8 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                 };
                 // Open the new subarray slot under this node's own word,
                 // close it, then the child frame fills the slot under it.
-                inner.begin_if::<OCC>(a);
+                inner.nest_begin::<OCC, NESTED>(a);
+                inner.begin_if::<OCC, NESTED>(a);
                 if old_n > 0 && leaf::cap_class(old_n + 1) == leaf::cap_class(old_n) {
                     // Fast path: spare class capacity — shift in place.
                     // SAFETY: the subarray holds cap_class(old_n) slots.
@@ -1880,10 +1897,12 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                     (*b).pop_counts[sub] = (old_n + 1) as u16;
                     (*b).bitmap.set(d);
                 }
-                inner.end_if::<OCC>(a);
+                inner.end_if::<OCC, NESTED>(a);
+                inner.nest_end::<OCC, NESTED>(a);
+                inner.nest_begin::<OCC, NESTED>(a);
                 // SAFETY: fresh null child slot within the subarray.
                 let res = unsafe {
-                    map_insert_with_path::<KEEP, OCC>(
+                    map_insert_with_path::<KEEP, OCC, NESTED>(
                         a,
                         &mut *(*b).subarrays[sub].add(rank),
                         key,
@@ -1893,11 +1912,12 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                         inner,
                     )
                 };
+                inner.nest_end::<OCC, NESTED>(a);
                 debug_assert!(res.0.is_none());
-                cover.begin_if::<OCC>(a);
+                cover.begin_if::<OCC, NESTED>(a);
                 // SAFETY: edge is a valid live edge.
                 unsafe { bump_pop0(edge, bl, 1) };
-                cover.end_if::<OCC>(a);
+                cover.end_if::<OCC, NESTED>(a);
                 return (None, res.1);
             }
 
@@ -1907,11 +1927,12 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                 let b = edge.node_ptr().cast::<BranchU>();
                 // SAFETY: the node is live for the frame.
                 let inner = Cover::Node(unsafe { &raw mut (*b).version });
+                inner.nest_begin::<OCC, NESTED>(a);
                 // SAFETY: live BranchU per contract; child subtree well-formed
                 // (or null). The descent is not bracketed; the child frame
                 // takes `inner` for its stores into this node's slot.
                 let res = unsafe {
-                    map_insert_with_path::<KEEP, OCC>(
+                    map_insert_with_path::<KEEP, OCC, NESTED>(
                         a,
                         &mut (*b).edges[d as usize],
                         key,
@@ -1921,11 +1942,12 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                         inner,
                     )
                 };
+                inner.nest_end::<OCC, NESTED>(a);
                 if res.0.is_none() {
-                    cover.begin_if::<OCC>(a);
+                    cover.begin_if::<OCC, NESTED>(a);
                     // SAFETY: edge is a valid live edge.
                     unsafe { bump_pop0(edge, level, 1) };
-                    cover.end_if::<OCC>(a);
+                    cover.end_if::<OCC, NESTED>(a);
                 }
                 return res;
             }
@@ -1944,7 +1966,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
 /// # Safety
 ///
 /// Same contract as [`map_insert`].
-pub(crate) unsafe fn map_remove<const OCC: bool>(
+pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
     a: &NodeAlloc,
     edge: &mut Edge,
     key: Key,
@@ -1966,9 +1988,9 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                 let existing_k = unsafe { read_packed(edge.aux_bytes().as_ptr(), 0, kb as usize) };
                 if existing_k == k {
                     let old = u64::from_le_bytes(edge.imm_bytes());
-                    cover.begin_if::<OCC>(a);
+                    cover.begin_if::<OCC, NESTED>(a);
                     *edge = Edge::NULL;
-                    cover.end_if::<OCC>(a);
+                    cover.end_if::<OCC, NESTED>(a);
                     return Some(old);
                 }
                 return None;
@@ -1991,12 +2013,12 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                     &edge.aux_bytes()[remain_slot * kb_usize..(remain_slot + 1) * kb_usize],
                 );
                 let new_im = ImmedType::new(kb, 1).expect("immediate capacity");
-                cover.begin_if::<OCC>(a);
+                cover.begin_if::<OCC, NESTED>(a);
                 *edge = Edge::NULL;
                 edge.set_imm_bytes(remain_val.to_le_bytes());
                 edge.set_aux_bytes(new_aux);
                 edge.set_tag(new_im.as_u8());
-                cover.end_if::<OCC>(a);
+                cover.end_if::<OCC, NESTED>(a);
                 // SAFETY: the old 2-entry value array is unlinked above.
                 unsafe {
                     a.free_bytes(
@@ -2014,7 +2036,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                 new_aux.copy_within((pos + 1) * kb_usize..n * kb_usize, pos * kb_usize);
                 new_aux[((n - 1) * kb_usize)..].fill(0);
                 let new_im = ImmedType::new(kb, (n - 1) as u8).expect("immediate capacity");
-                cover.begin_if::<OCC>(a);
+                cover.begin_if::<OCC, NESTED>(a);
                 a.assert_bracketed_by(cover.addr(a));
                 // SAFETY: shift surviving values left within the allocated array.
                 unsafe {
@@ -2024,7 +2046,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                 }
                 edge.set_aux_bytes(new_aux);
                 edge.set_tag(new_im.as_u8());
-                cover.end_if::<OCC>(a);
+                cover.end_if::<OCC, NESTED>(a);
                 return Some(old);
             }
             // n > 2: copy values around pos into a private array and shift
@@ -2047,11 +2069,11 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
             new_aux.copy_within((pos + 1) * kb_usize..n * kb_usize, pos * kb_usize);
             new_aux[((n - 1) * kb_usize)..].fill(0);
             let new_im = ImmedType::new(kb, (n - 1) as u8).expect("immediate capacity");
-            cover.begin_if::<OCC>(a);
+            cover.begin_if::<OCC, NESTED>(a);
             *edge = Edge::new_node(new_vals.as_ptr().cast(), 0);
             edge.set_aux_bytes(new_aux);
             edge.set_tag(new_im.as_u8());
-            cover.end_if::<OCC>(a);
+            cover.end_if::<OCC, NESTED>(a);
             // SAFETY: the old array is unlinked above.
             unsafe {
                 a.free_bytes(
@@ -2091,14 +2113,14 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
             if pop > map_immed_max(level) && leaf::cap_class(pop - 1) == leaf::cap_class(pop) {
                 // Fast path: stays a leaf in the same class. Linear leaves
                 // carry no version; the parent's word brackets the shift.
-                cover.begin_if::<OCC>(a);
+                cover.begin_if::<OCC, NESTED>(a);
                 a.assert_bracketed_by(cover.addr(a));
                 // SAFETY: pos < pop; same-class allocation.
                 unsafe {
                     leaf::map_remove_at(base, kb, pop, pos);
                 }
                 edge.set_pop0(kb, pop as u64 - 2);
-                cover.end_if::<OCC>(a);
+                cover.end_if::<OCC, NESTED>(a);
                 return Some(old);
             }
             if pop >= 2 && pop > map_immed_max(level) {
@@ -2111,11 +2133,11 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                 // destination sized for `pop - 1`.
                 unsafe { leaf::map_realloc_remove(base, new.as_ptr(), kb, pop, pos) };
                 let saved_aux = *edge.aux_bytes();
-                cover.begin_if::<OCC>(a);
+                cover.begin_if::<OCC, NESTED>(a);
                 *edge = Edge::new_node(new.as_ptr(), t.as_u8());
                 edge.set_aux_bytes(saved_aux);
                 edge.set_pop0(kb, pop as u64 - 2);
-                cover.end_if::<OCC>(a);
+                cover.end_if::<OCC, NESTED>(a);
                 // SAFETY: the old leaf is unlinked above; freed (or
                 // retired) with its allocation size.
                 unsafe {
@@ -2130,9 +2152,9 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
             let old_ptr = edge.node_ptr();
             let old_size = leaf::size_map(kb, pop);
             if pop == 1 {
-                cover.begin_if::<OCC>(a);
+                cover.begin_if::<OCC, NESTED>(a);
                 *edge = Edge::NULL;
-                cover.end_if::<OCC>(a);
+                cover.end_if::<OCC, NESTED>(a);
                 // SAFETY: old leaf allocation no longer referenced.
                 unsafe {
                     a.free_bytes(core::ptr::NonNull::new(old_ptr).expect("leaf"), old_size);
@@ -2160,9 +2182,9 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                 entries[idx] = (k, v);
                 idx += 1;
             }
-            cover.begin_if::<OCC>(a);
+            cover.begin_if::<OCC, NESTED>(a);
             write_map_immed(a, edge, level, &entries[..rem_pop]);
-            cover.end_if::<OCC>(a);
+            cover.end_if::<OCC, NESTED>(a);
             // SAFETY: old leaf allocation no longer referenced.
             unsafe {
                 a.free_bytes(core::ptr::NonNull::new(old_ptr).expect("leaf"), old_size);
@@ -2188,7 +2210,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
             // A bitmap leaf carries no version of its own — readers
             // validate its payload against the parent branch's word,
             // which brackets every store below.
-            cover.begin_if::<OCC>(a);
+            cover.begin_if::<OCC, NESTED>(a);
             a.assert_bracketed_by(cover.addr(a));
             // SAFETY: shrink of the packed value subarray — in place
             // when the class holds, reallocating across boundaries.
@@ -2269,7 +2291,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
             } else {
                 edge.set_pop0(1, pop as u64 - 1);
             }
-            cover.end_if::<OCC>(a);
+            cover.end_if::<OCC, NESTED>(a);
             Some(old)
         }
 
@@ -2294,10 +2316,13 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                     let b = edge.node_ptr().cast::<BranchL3>();
                     let slot = (*b).hdr.find(d)?;
                     let inner = Cover::Node(&raw mut (*b).hdr.version);
-                    let r = map_remove::<OCC>(a, &mut (*b).edges[slot], key, bl - 1, inner);
+                    inner.nest_begin::<OCC, NESTED>(a);
+                    let r = map_remove::<OCC, NESTED>(a, &mut (*b).edges[slot], key, bl - 1, inner);
+                    inner.nest_end::<OCC, NESTED>(a);
                     let child_null = r.is_some() && (*b).edges[slot].is_null();
                     if child_null {
-                        inner.begin_if::<OCC>(a);
+                        inner.nest_begin::<OCC, NESTED>(a);
+                        inner.begin_if::<OCC, NESTED>(a);
                         linear_remove_slot(
                             &mut (*b).hdr.digits,
                             &mut (*b).edges,
@@ -2306,17 +2331,21 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                         );
                         (*b).hdr.num -= 1;
                         (*b).hdr.refresh_presence();
-                        inner.end_if::<OCC>(a);
+                        inner.end_if::<OCC, NESTED>(a);
+                        inner.nest_end::<OCC, NESTED>(a);
                     }
                     (r, child_null)
                 } else {
                     let b = edge.node_ptr().cast::<BranchL7>();
                     let slot = (*b).hdr.find(d)?;
                     let inner = Cover::Node(&raw mut (*b).hdr.version);
-                    let r = map_remove::<OCC>(a, &mut (*b).edges[slot], key, bl - 1, inner);
+                    inner.nest_begin::<OCC, NESTED>(a);
+                    let r = map_remove::<OCC, NESTED>(a, &mut (*b).edges[slot], key, bl - 1, inner);
+                    inner.nest_end::<OCC, NESTED>(a);
                     let child_null = r.is_some() && (*b).edges[slot].is_null();
                     if child_null {
-                        inner.begin_if::<OCC>(a);
+                        inner.nest_begin::<OCC, NESTED>(a);
+                        inner.begin_if::<OCC, NESTED>(a);
                         linear_remove_slot(
                             &mut (*b).hdr.digits,
                             &mut (*b).edges,
@@ -2325,7 +2354,8 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                         );
                         (*b).hdr.num -= 1;
                         (*b).hdr.refresh_presence();
-                        inner.end_if::<OCC>(a);
+                        inner.end_if::<OCC, NESTED>(a);
+                        inner.nest_end::<OCC, NESTED>(a);
                     }
                     (r, child_null)
                 }
@@ -2342,24 +2372,24 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                     // This node's incoming edge is the parent's slot: its
                     // word covers the stores below. The node's own bracket
                     // is closed, as `free_branch_node`'s obsolete mark needs.
-                    cover.begin_if::<OCC>(a);
+                    cover.begin_if::<OCC, NESTED>(a);
                     if num == 0 {
                         free_branch_node::<OCC>(a, edge, is_l3);
                         *edge = Edge::NULL;
-                        cover.end_if::<OCC>(a);
+                        cover.end_if::<OCC, NESTED>(a);
                         return Some(old);
                     }
                     bump_pop0(edge, bl, -1);
                     if !is_l3 && num < BRANCH_L3_CAP {
                         downgrade_l7_to_l3::<OCC>(a, edge);
                     }
-                    cover.end_if::<OCC>(a);
+                    cover.end_if::<OCC, NESTED>(a);
                 }
             } else {
-                cover.begin_if::<OCC>(a);
+                cover.begin_if::<OCC, NESTED>(a);
                 // SAFETY: edge is a valid live edge.
                 unsafe { bump_pop0(edge, bl, -1) };
-                cover.end_if::<OCC>(a);
+                cover.end_if::<OCC, NESTED>(a);
             }
             Some(old)
         }
@@ -2377,11 +2407,25 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
             let sub = (d >> 5) as usize;
             // SAFETY: the node is live for the frame.
             let inner = Cover::Node(unsafe { &raw mut (*b).version });
+            inner.nest_begin::<OCC, NESTED>(a);
             // SAFETY: bitmap/subarray consistency invariant. The descent is
             // not bracketed; the child frame takes `inner` for its stores.
-            let old = unsafe {
-                map_remove::<OCC>(a, &mut *(*b).subarrays[sub].add(rank), key, bl - 1, inner)
-            }?;
+            let old = match unsafe {
+                map_remove::<OCC, NESTED>(
+                    a,
+                    &mut *(*b).subarrays[sub].add(rank),
+                    key,
+                    bl - 1,
+                    inner,
+                )
+            } {
+                Some(v) => v,
+                None => {
+                    inner.nest_end::<OCC, NESTED>(a);
+                    return None;
+                }
+            };
+            inner.nest_end::<OCC, NESTED>(a);
             // SAFETY: child slot checked/live per invariant.
             let child_null = unsafe { (*(*b).subarrays[sub].add(rank)).is_null() };
             if child_null {
@@ -2391,7 +2435,8 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                 // node's word.
                 let digits = unsafe {
                     let old_n = (*b).pop_counts[sub] as usize;
-                    inner.begin_if::<OCC>(a);
+                    inner.nest_begin::<OCC, NESTED>(a);
+                    inner.begin_if::<OCC, NESTED>(a);
                     let old_arr = (*b).subarrays[sub];
                     if old_n == 1 {
                         (*b).subarrays[sub] = core::ptr::null_mut();
@@ -2415,10 +2460,11 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                     }
                     (*b).pop_counts[sub] = (old_n - 1) as u16;
                     (*b).bitmap.clear(d);
-                    inner.end_if::<OCC>(a);
+                    inner.end_if::<OCC, NESTED>(a);
+                    inner.nest_end::<OCC, NESTED>(a);
                     (*b).bitmap.count() as usize
                 };
-                cover.begin_if::<OCC>(a);
+                cover.begin_if::<OCC, NESTED>(a);
                 if digits == 0 {
                     // SAFETY: empty node no longer referenced; marked
                     // obsolete first (its own bracket is closed).
@@ -2427,7 +2473,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                         a.free_node(core::ptr::NonNull::new(b).unwrap());
                     }
                     *edge = Edge::NULL;
-                    cover.end_if::<OCC>(a);
+                    cover.end_if::<OCC, NESTED>(a);
                     return Some(old);
                 }
                 // SAFETY: edge is a valid live edge.
@@ -2436,12 +2482,12 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_b_to_l7::<OCC>(a, edge) };
                 }
-                cover.end_if::<OCC>(a);
+                cover.end_if::<OCC, NESTED>(a);
             } else {
-                cover.begin_if::<OCC>(a);
+                cover.begin_if::<OCC, NESTED>(a);
                 // SAFETY: edge is a valid live edge.
                 unsafe { bump_pop0(edge, bl, -1) };
-                cover.end_if::<OCC>(a);
+                cover.end_if::<OCC, NESTED>(a);
             }
             Some(old)
         }
@@ -2451,18 +2497,26 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
             let b = edge.node_ptr().cast::<BranchU>();
             // SAFETY: the node is live for the frame.
             let inner = Cover::Node(unsafe { &raw mut (*b).version });
+            inner.nest_begin::<OCC, NESTED>(a);
             // SAFETY: live BranchU per contract; child subtree well-formed
             // (or null). The descent is not bracketed; the child frame
             // takes `inner` for its stores into this node's slot.
-            let old = unsafe {
-                map_remove::<OCC>(a, &mut (*b).edges[d as usize], key, level - 1, inner)
-            }?;
+            let old = match unsafe {
+                map_remove::<OCC, NESTED>(a, &mut (*b).edges[d as usize], key, level - 1, inner)
+            } {
+                Some(v) => v,
+                None => {
+                    inner.nest_end::<OCC, NESTED>(a);
+                    return None;
+                }
+            };
+            inner.nest_end::<OCC, NESTED>(a);
             // SAFETY: live BranchU per contract.
             let child_is_null = unsafe { (*b).edges[d as usize].is_null() };
             if child_is_null {
                 // SAFETY: live BranchU per contract.
                 let digits = unsafe { (*b).edges.iter().filter(|e| !e.is_null()).count() };
-                cover.begin_if::<OCC>(a);
+                cover.begin_if::<OCC, NESTED>(a);
                 if digits == 0 {
                     // SAFETY: empty node no longer referenced; marked
                     // obsolete first (its own bracket is closed).
@@ -2471,7 +2525,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                         a.free_node(core::ptr::NonNull::new(b).unwrap());
                     }
                     *edge = Edge::NULL;
-                    cover.end_if::<OCC>(a);
+                    cover.end_if::<OCC, NESTED>(a);
                     return Some(old);
                 }
                 // SAFETY: edge is a valid live edge.
@@ -2480,12 +2534,12 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_u_to_b::<OCC>(a, edge, level) };
                 }
-                cover.end_if::<OCC>(a);
+                cover.end_if::<OCC, NESTED>(a);
             } else {
-                cover.begin_if::<OCC>(a);
+                cover.begin_if::<OCC, NESTED>(a);
                 // SAFETY: edge is a valid live edge.
                 unsafe { bump_pop0(edge, level, -1) };
-                cover.end_if::<OCC>(a);
+                cover.end_if::<OCC, NESTED>(a);
             }
             Some(old)
         }
@@ -2696,7 +2750,7 @@ mod tests {
         let mut path = InsertPathMap::empty();
         // SAFETY: edge is a valid immediate node; `word` outlives the call.
         let (old, _slot) = unsafe {
-            map_insert_with_path_occ::<false, true>(
+            map_insert_with_path_occ::<false, true, false>(
                 &alloc,
                 &mut edge,
                 0x07,
@@ -2760,7 +2814,7 @@ mod tests {
         let mut path = InsertPathMap::empty();
         // SAFETY: edge is a valid Leaf1 map node; `word` outlives the call.
         let (old, _slot) = unsafe {
-            map_insert_with_path_occ::<false, true>(
+            map_insert_with_path_occ::<false, true, false>(
                 &alloc,
                 &mut edge,
                 0x07,

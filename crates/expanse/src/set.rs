@@ -32,6 +32,7 @@ fn root_leaf_size(pop: usize) -> usize {
     8 * crate::leaf::cap_class(pop)
 }
 
+#[derive(Clone, Copy)]
 enum Root {
     Empty,
     /// Sorted full-width keys, `pop` of them, in one allocation.
@@ -39,13 +40,12 @@ enum Root {
         keys: NonNull<u8>,
         pop: usize,
     },
-    /// A level-8 trie; `pop` is the total population (the JPM role). An
-    /// atomic word so a shared tree bumps it under no bracket and a
-    /// concurrent `len()` reads it whole (#568 PR 3); the single-threaded
-    /// monomorph writes it through `get_mut`, no atomic instruction.
+    /// A level-8 trie; the population lives beside the root in
+    /// `ExpanseSet::tree_pop` (the JPM role) so the enum stays a plain
+    /// `Copy` word pair — an atomic inside it would make every read of the
+    /// root reload through memory.
     Tree {
         top: Edge,
-        pop: core::sync::atomic::AtomicU64,
     },
 }
 
@@ -56,6 +56,11 @@ enum Root {
 /// distributions, and membership tests run in at most eight digit steps.
 pub struct ExpanseSet {
     root: Root,
+    /// Total population while `root` is a `Tree` (the JPM role): an atomic
+    /// word so a shared tree bumps it under no bracket and a concurrent
+    /// `len()` reads it whole (#568 PR 3); the unshared path writes it
+    /// through `get_mut`, no atomic instruction.
+    tree_pop: core::sync::atomic::AtomicU64,
     alloc: NodeAlloc,
     path: core::cell::UnsafeCell<crate::mutate::InsertPath>,
 }
@@ -66,12 +71,114 @@ pub struct ExpanseSet {
 // deliberately NOT `Sync` — shared access goes through `SyncExpanseSet`.
 unsafe impl Send for ExpanseSet {}
 
+/// The three sharing modes an engine call is monomorphized for (#568 PR 3):
+/// unshared; shared with the engine covering the root (`SyncExpanseSet`,
+/// `SyncExpanseMap`: brief per-node brackets); shared with the wrapper
+/// holding the tree word for the whole operation (the string, bytes and
+/// blob wrappers' inner trees: nested brackets, the protocol their readers
+/// are built for). Decided once per operation, exactly where the runtime
+/// dispatch always sat, so the unshared path pays one load and one branch.
+macro_rules! by_mode {
+    ($alloc:expr, $call:ident $args:tt) => {
+        if $alloc.occ_enabled() {
+            if $alloc.engine_covers_root() {
+                $call::<true, false> $args
+            } else {
+                $call::<true, true> $args
+            }
+        } else {
+            $call::<false, false> $args
+        }
+    };
+}
+
+/// The tree arm of insert, per sharing mode: the engine call and the
+/// population bump (atomic on a shared tree, a plain add otherwise).
+#[inline(always)]
+fn tree_insert<const OCC: bool, const NESTED: bool>(
+    alloc: &NodeAlloc,
+    tree_pop: &mut core::sync::atomic::AtomicU64,
+    path: &mut crate::mutate::InsertPath,
+    top: &mut Edge,
+    key: Key,
+) -> bool {
+    // SAFETY: trie maintained/owned by this set's engine.
+    let inserted = unsafe {
+        mutate::insert_with_path::<OCC, NESTED>(alloc, top, key, 8, path, crate::occ::Cover::Tree)
+    };
+    if inserted {
+        if OCC {
+            tree_pop.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        } else {
+            *tree_pop.get_mut() += 1;
+        }
+    }
+    inserted
+}
+
+/// The tree arm of remove, per sharing mode: `(removed, population after)`,
+/// `u64::MAX` when nothing was removed.
+#[inline(always)]
+fn tree_remove<const OCC: bool, const NESTED: bool>(
+    alloc: &NodeAlloc,
+    tree_pop: &mut core::sync::atomic::AtomicU64,
+    top: &mut Edge,
+    key: Key,
+) -> (bool, u64) {
+    // SAFETY: trie maintained/owned by this set's engine.
+    let removed =
+        unsafe { mutate::remove::<OCC, NESTED>(alloc, top, key, 8, crate::occ::Cover::Tree) };
+    let now = if !removed {
+        u64::MAX
+    } else if OCC {
+        tree_pop.fetch_sub(1, core::sync::atomic::Ordering::Relaxed) - 1
+    } else {
+        let p = tree_pop.get_mut();
+        *p -= 1;
+        *p
+    };
+    (removed, now)
+}
+
+/// The root-leaf promotion, per sharing mode: builds the level-8 trie for
+/// `slice` plus `key` on a private edge. On a shared tree the wrapper holds
+/// the tree bracket for this root-state change and the build brackets a
+/// scratch word — never the tree word (a nested `begin` would make it even
+/// mid-write), never a node's own (an upgrade inside the build marks that
+/// node obsolete, which needs it even).
+#[inline(always)]
+fn promote_leaf<const OCC: bool, const NESTED: bool>(
+    alloc: &NodeAlloc,
+    slice: &[u64],
+    key: Key,
+    path: &mut crate::mutate::InsertPath,
+) -> Edge {
+    let mut top = Edge::NULL;
+    let mut scratch = 0u32;
+    let cover = if OCC {
+        crate::occ::Cover::Node(&raw mut scratch)
+    } else {
+        crate::occ::Cover::Tree
+    };
+    for &k in slice {
+        // SAFETY: trie built and owned by `alloc`.
+        let ins = unsafe { mutate::insert::<OCC, NESTED>(alloc, &mut top, k, 8, cover) };
+        debug_assert!(ins);
+    }
+    // SAFETY: same trie; populate path for subsequent sequential/clustered inserts.
+    let ins =
+        unsafe { mutate::insert_with_path::<OCC, NESTED>(alloc, &mut top, key, 8, path, cover) };
+    debug_assert!(ins);
+    top
+}
+
 impl ExpanseSet {
     /// Creates an empty set.
     #[must_use]
     pub fn new() -> Self {
         Self {
             root: Root::Empty,
+            tree_pop: core::sync::atomic::AtomicU64::new(0),
             alloc: NodeAlloc::new(),
             path: core::cell::UnsafeCell::new(crate::mutate::InsertPath::empty()),
         }
@@ -100,7 +207,7 @@ impl ExpanseSet {
         match &self.root {
             Root::Empty => 0,
             Root::Leaf { pop, .. } => *pop as u64,
-            Root::Tree { pop, .. } => pop.load(core::sync::atomic::Ordering::Relaxed),
+            Root::Tree { .. } => self.tree_pop.load(core::sync::atomic::Ordering::Relaxed),
         }
     }
 
@@ -293,33 +400,11 @@ impl ExpanseSet {
     /// Inserts `key`; returns `true` if it was newly inserted.
     #[inline(always)]
     pub fn insert(&mut self, key: Key) -> bool {
-        // One OCC check per operation, then monomorphized (#568 PR 3): a
-        // shared tree brackets its root-state writes with the tree-level
-        // word here and every other store under the node that holds it.
-        if self.alloc.occ_enabled() {
-            self.noting_root_rewrite(|t| t.insert_inner::<true>(key))
-        } else {
-            self.noting_root_rewrite(|t| t.insert_inner::<false>(key))
-        }
+        self.noting_root_rewrite(|t| t.insert_inner(key))
     }
 
     #[inline(always)]
-    fn insert_inner<const OCC: bool>(&mut self, key: Key) -> bool {
-        if !matches!(self.root, Root::Tree { .. }) {
-            // Root state: the empty root, the root leaf and the promotion to
-            // a tree are all covered by the tree-level word.
-            crate::occ::tree_begin_if::<OCC>(&self.alloc);
-            let r = self.insert_root_leaf::<OCC>(key);
-            crate::occ::tree_end_if::<OCC>(&self.alloc);
-            return r;
-        }
-        self.insert_tree::<OCC>(key)
-    }
-
-    /// The `Empty` and `Leaf` arms of insert (the caller holds the tree
-    /// cover when `OCC`).
-    #[inline(always)]
-    fn insert_root_leaf<const OCC: bool>(&mut self, key: Key) -> bool {
+    fn insert_inner(&mut self, key: Key) -> bool {
         match &mut self.root {
             Root::Empty => {
                 let keys = self.alloc.alloc_bytes(root_leaf_size(1));
@@ -382,63 +467,35 @@ impl ExpanseSet {
                         pop: pop + 1,
                     };
                 } else {
-                    // Root leaf overflow: build the level-8 trie. It is
-                    // private until `self.root` is set below, so its
-                    // brackets land on a scratch word: not the tree word
-                    // (the caller holds that for the root-state change, and
-                    // a nested `begin` would make it even mid-write) and
-                    // never a node's own (an upgrade inside the build marks
-                    // that node obsolete, which needs it even). The shared
-                    // engine is used because a deferred tree must not take
-                    // the flat path's unbracketed stores.
-                    let mut scratch = 0u32;
-                    let private = crate::occ::Cover::Node(&raw mut scratch);
-                    let mut top = Edge::NULL;
-                    for &k in slice {
-                        // SAFETY: trie built and owned by self.alloc.
-                        let ins =
-                            unsafe { mutate::insert::<OCC>(&self.alloc, &mut top, k, 8, private) };
-                        debug_assert!(ins);
-                    }
-                    // SAFETY: same trie; populate path for subsequent sequential/clustered inserts.
-                    let ins = unsafe {
-                        mutate::insert_with_path::<OCC>(
-                            &self.alloc,
-                            &mut top,
-                            key,
-                            8,
-                            self.path.get_mut(),
-                            private,
-                        )
-                    };
-                    debug_assert!(ins);
+                    // Root leaf overflow: build the level-8 trie. The build
+                    // is private until `self.root` is set; on a shared tree
+                    // the wrapper holds the tree bracket for this root-state
+                    // change (`sync::Shared::write_root_covered`) and the
+                    // shared engine builds under a scratch word — never the
+                    // tree word (a nested `begin` would make it even
+                    // mid-write), never a node's own (an upgrade inside the
+                    // build marks that node obsolete, which needs it even).
+                    let top = by_mode!(
+                        self.alloc,
+                        promote_leaf(&self.alloc, slice, key, self.path.get_mut())
+                    );
                     // SAFETY: old root leaf no longer referenced.
                     unsafe { self.alloc.free_bytes(keys, root_leaf_size(pop)) };
-                    self.root = Root::Tree {
-                        top,
-                        pop: core::sync::atomic::AtomicU64::new(pop as u64 + 1),
-                    };
+                    self.tree_pop
+                        .store(pop as u64 + 1, core::sync::atomic::Ordering::Relaxed);
+                    self.root = Root::Tree { top };
                 }
                 true
             }
-            Root::Tree { .. } => unreachable!("tree arm handled by insert_tree"),
-        }
-    }
-
-    /// The `Tree` arm of insert: ordinary writes never touch the tree-level
-    /// word; the engine brackets a top-edge rewrite itself (`Cover::Tree`).
-    /// The sequential-insert bypass caches raw edge pointers that cannot
-    /// name their cover, so it is skipped on a shared tree.
-    #[inline(always)]
-    fn insert_tree<const OCC: bool>(&mut self, key: Key) -> bool {
-        match &mut self.root {
-            Root::Empty | Root::Leaf { .. } => {
-                unreachable!("root-leaf arms handled by insert_root_leaf")
-            }
-            Root::Tree { top, pop } => {
+            Root::Tree { top } => {
                 let prefix = key >> 8;
                 let path = self.path.get_mut();
-                if !OCC && path.prefix == prefix {
+                // A warm path never exists on a shared tree: the shared engine
+                // clears the cache on entry and records nothing, so this bypass
+                // is structurally cold there (AGENTS.md §2.1.5); the assert is
+                // the tripwire, not the guard.
+                if path.prefix == prefix {
+                    self.alloc.assert_bracketed();
                     if !path.leaf.is_null() {
                         let d = (key & 0xFF) as u8;
                         // SAFETY: path holds valid live LeafBitmap1 pointer.
@@ -464,7 +521,7 @@ impl ExpanseSet {
                                     path.clear();
                                 }
                             }
-                            *pop.get_mut() += 1;
+                            *self.tree_pop.get_mut() += 1;
                             return true;
                         } else {
                             return false;
@@ -486,7 +543,7 @@ impl ExpanseSet {
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;
-                                *pop.get_mut() += 1;
+                                *self.tree_pop.get_mut() += 1;
                                 return true;
                             }
                         } else if d == last {
@@ -495,27 +552,25 @@ impl ExpanseSet {
                     }
                 }
                 path.clear();
-                // SAFETY: trie maintained/owned by this set's engine.
-                let inserted = unsafe {
-                    mutate::insert_with_path::<OCC>(
-                        &self.alloc,
-                        top,
-                        key,
-                        8,
-                        path,
-                        crate::occ::Cover::Tree,
-                    )
-                };
-                if inserted {
-                    if OCC {
-                        pop.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-                    } else {
-                        *pop.get_mut() += 1;
-                    }
-                }
-                inserted
+                // One OCC check per operation, where the runtime dispatch
+                // always sat; the shared monomorph brackets every store by the
+                // node that holds it and bumps the population atomically.
+                by_mode!(
+                    self.alloc,
+                    tree_insert(&self.alloc, &mut self.tree_pop, path, top, key)
+                )
             }
         }
+    }
+
+    /// Whether the root is a level-8 trie (#568 PR 3): on a shared tree the
+    /// wrapper brackets a root-leaf-state operation with the tree word
+    /// itself, since every store then is a root-state write, and leaves a
+    /// tree-state operation to the engine's per-node brackets.
+    #[inline(always)]
+    #[cfg(feature = "std")]
+    pub(crate) fn root_is_tree(&self) -> bool {
+        matches!(self.root, Root::Tree { .. })
     }
 
     /// Phase 7 (occ): a by-value snapshot of the root state plus the
@@ -531,9 +586,9 @@ impl ExpanseSet {
                 ptr: keys.as_ptr(),
                 pop: *pop,
             },
-            Root::Tree { top, pop } => RootSnapshot::Tree {
+            Root::Tree { top } => RootSnapshot::Tree {
                 top: *top,
-                pop: pop.load(core::sync::atomic::Ordering::Relaxed),
+                pop: self.tree_pop.load(core::sync::atomic::Ordering::Relaxed),
             },
         };
         (snap, &self.alloc)
@@ -548,59 +603,11 @@ impl ExpanseSet {
     /// Removes `key`; returns `true` if it was present.
     #[inline(always)]
     pub fn remove(&mut self, key: Key) -> bool {
-        if self.alloc.occ_enabled() {
-            self.noting_root_rewrite(|t| t.remove_inner::<true>(key))
-        } else {
-            self.noting_root_rewrite(|t| t.remove_inner::<false>(key))
-        }
+        self.noting_root_rewrite(|t| t.remove_inner(key))
     }
 
-    fn remove_inner<const OCC: bool>(&mut self, key: Key) -> bool {
+    fn remove_inner(&mut self, key: Key) -> bool {
         self.path.get_mut().clear();
-        if !matches!(self.root, Root::Tree { .. }) {
-            crate::occ::tree_begin_if::<OCC>(&self.alloc);
-            let r = self.remove_root_leaf(key);
-            crate::occ::tree_end_if::<OCC>(&self.alloc);
-            return r;
-        }
-        match &mut self.root {
-            Root::Empty | Root::Leaf { .. } => unreachable!("handled by remove_root_leaf"),
-            Root::Tree { top, pop } => {
-                // SAFETY: trie maintained/owned by this set's engine.
-                let removed = unsafe {
-                    mutate::remove::<OCC>(&self.alloc, top, key, 8, crate::occ::Cover::Tree)
-                };
-                if removed {
-                    let now = if OCC {
-                        pop.fetch_sub(1, core::sync::atomic::Ordering::Relaxed) - 1
-                    } else {
-                        let p = pop.get_mut();
-                        *p -= 1;
-                        *p
-                    };
-                    if now == 0 {
-                        debug_assert!(top.is_null());
-                        crate::occ::tree_begin_if::<OCC>(&self.alloc);
-                        self.root = Root::Empty;
-                        crate::occ::tree_end_if::<OCC>(&self.alloc);
-                    } else if now < ROOT_LEAF_CAP as u64 {
-                        // Hysteresis: condense back to a root leaf one
-                        // index below the promotion boundary (promote at
-                        // CAP + 1, condense at CAP - 1; CAP is stable in
-                        // both forms). A root-state change: tree-covered.
-                        crate::occ::tree_begin_if::<OCC>(&self.alloc);
-                        self.condense_to_root_leaf();
-                        crate::occ::tree_end_if::<OCC>(&self.alloc);
-                    }
-                }
-                removed
-            }
-        }
-    }
-
-    /// The `Empty` and `Leaf` arms of remove (the caller holds the tree
-    /// cover when `OCC`).
-    fn remove_root_leaf(&mut self, key: Key) -> bool {
         match &mut self.root {
             Root::Empty => false,
             Root::Leaf { keys, pop } => {
@@ -641,7 +648,34 @@ impl ExpanseSet {
                 }
                 true
             }
-            Root::Tree { .. } => unreachable!("tree arm handled by remove_inner"),
+            Root::Tree { top } => {
+                // One OCC check per operation, where the runtime dispatch
+                // always sat (see `insert_inner`).
+                let (removed, now) = by_mode!(
+                    self.alloc,
+                    tree_remove(&self.alloc, &mut self.tree_pop, top, key)
+                );
+                if removed {
+                    if now == 0 {
+                        debug_assert!(top.is_null());
+                        // A root-state change: on a shared tree whose engine
+                        // covers the root, the tree word brackets it (a no-op
+                        // elsewhere; one load on this rare path).
+                        crate::occ::tree_begin_if::<true>(&self.alloc);
+                        self.root = Root::Empty;
+                        crate::occ::tree_end_if::<true>(&self.alloc);
+                    } else if now < ROOT_LEAF_CAP as u64 {
+                        // Hysteresis: condense back to a root leaf one
+                        // index below the promotion boundary (promote at
+                        // CAP + 1, condense at CAP - 1; CAP is stable in
+                        // both forms). A root-state change, as above.
+                        crate::occ::tree_begin_if::<true>(&self.alloc);
+                        self.condense_to_root_leaf();
+                        crate::occ::tree_end_if::<true>(&self.alloc);
+                    }
+                }
+                removed
+            }
         }
     }
 
@@ -689,7 +723,7 @@ impl ExpanseSet {
                 }
                 Ok(())
             }
-            Root::Tree { top, pop } => {
+            Root::Tree { top } => {
                 if top.is_null() {
                     return Err("tree root with null top".into());
                 }
@@ -697,7 +731,7 @@ impl ExpanseSet {
                 let mut stats = ExpanseStats::default();
                 let counted =
                     crate::validate::expanse_validate_and_stats::<false>(top, 8, &mut stats, 0)?;
-                let pop = pop.load(core::sync::atomic::Ordering::Relaxed);
+                let pop = self.tree_pop.load(core::sync::atomic::Ordering::Relaxed);
                 if counted != pop {
                     return Err(format!(
                         "total population {pop} disagrees with tree {counted}"
@@ -1231,10 +1265,8 @@ impl ExpanseSet {
         }
         // SAFETY: `keys` is sorted/distinct; `out.alloc` owns the built trie.
         let top = unsafe { crate::algebra_build::build_subtree(&out.alloc, &keys, 8) };
-        out.root = Root::Tree {
-            top,
-            pop: core::sync::atomic::AtomicU64::new(n as u64),
-        };
+        out.root = Root::Tree { top };
+        out.tree_pop = core::sync::atomic::AtomicU64::new(n as u64);
         out
     }
 }
@@ -1244,10 +1276,10 @@ impl ExpanseSet {
     /// twin of the root-leaf → trie promotion).
     fn condense_to_root_leaf(&mut self) {
         self.path.get_mut().clear();
-        let Root::Tree { top, pop } = &mut self.root else {
+        let Root::Tree { top } = &mut self.root else {
             unreachable!("condense outside tree state")
         };
-        let n = pop.load(core::sync::atomic::Ordering::Relaxed) as usize;
+        let n = self.tree_pop.load(core::sync::atomic::Ordering::Relaxed) as usize;
         debug_assert!((1..ROOT_LEAF_CAP).contains(&n));
         let leaf = self.alloc.alloc_bytes(root_leaf_size(n));
         let mut written = 0usize;
@@ -1693,10 +1725,8 @@ impl ExpanseSet {
                 // built subtree in order, then free it.
                 out.condense_built_tree(top, pop as usize);
             } else {
-                out.root = Root::Tree {
-                    top,
-                    pop: core::sync::atomic::AtomicU64::new(pop),
-                };
+                out.root = Root::Tree { top };
+                out.tree_pop = core::sync::atomic::AtomicU64::new(pop);
             }
             return out;
         }
@@ -1850,10 +1880,23 @@ mod tests {
     /// Miri's borrow tracking.
     #[test]
     fn occ_engine_single_thread_under_miri() {
+        // Both sharing modes: the engine covering the root (brief per-node
+        // brackets) and the wrapper holding the tree word (nested brackets).
+        occ_engine_drive(true);
+        occ_engine_drive(false);
+    }
+
+    fn occ_engine_drive(engine_covers_root: bool) {
         let mut s = ExpanseSet::new();
-        s.occ_root()
-            .1
-            .defer_to_engine_root(std::sync::Arc::new(crate::occ::Collector::new()));
+        let collector = std::sync::Arc::new(crate::occ::Collector::new());
+        if engine_covers_root {
+            s.occ_root().1.defer_to_engine_root(collector);
+        } else {
+            s.occ_root().1.defer_to(collector);
+            // The wrapper would hold the tree word; here the drive does.
+            #[cfg(debug_assertions)]
+            s.occ_root().1.bracket_enter_any();
+        }
         let mut model = BTreeSet::new();
         let mut keys: Vec<u64> = Vec::new();
         keys.extend(0..600u64);
@@ -1875,6 +1918,10 @@ mod tests {
         }
         assert!(s.is_empty());
         s.validate();
+        if !engine_covers_root {
+            #[cfg(debug_assertions)]
+            s.occ_root().1.bracket_leave_any();
+        }
         #[cfg(debug_assertions)]
         assert!(crate::alloc::bracket_stack::open().is_empty());
     }

@@ -9,9 +9,13 @@
 //! version of the node that *contains* the stored address — the parent's
 //! word for a slot, an immediate, or a leaf / subarray payload; the tree
 //! word for the root state — through [`Cover`] (active only for
-//! concurrently shared trees). A branch child's frame is entered with its
-//! parent's word closed, so a word is odd only while one frame stores into
-//! that node, never for a whole descent; readers validate hand-over-hand
+//! concurrently shared trees). Where the engine covers the root, a branch
+//! child's frame is entered with its parent's word closed, so a word is
+//! odd only while one frame stores into that node, never for a whole
+//! descent; where the wrapper holds the tree word for the whole operation
+//! (the string, bytes and blob wrappers) the engine's nested mode keeps a
+//! node's word odd across the descent beneath it, the protocol those
+//! readers are built for (`Cover::nest_begin`). Readers validate hand-over-hand
 //! with `node_sample`/`node_validate`. Measured motivation and effect in
 //! `docs/BENCHMARKING.md` (concurrent read scaling) and
 //! `docs/benchmarks/concurrency/`.
@@ -177,9 +181,15 @@ pub(crate) enum Cover {
 }
 
 impl Cover {
-    /// Opens the bracket when `OCC`.
+    /// Opens the bracket when `OCC`. In the nested mode (`NESTED`, the
+    /// trees whose wrapper holds the tree word for the whole operation) the
+    /// frame's own stores are already under the word its parent opened
+    /// around the descent (`nest_begin`), so this is a no-op there.
     #[inline(always)]
-    pub(crate) fn begin_if<const OCC: bool>(self, a: &crate::alloc::NodeAlloc) {
+    pub(crate) fn begin_if<const OCC: bool, const NESTED: bool>(self, a: &crate::alloc::NodeAlloc) {
+        if NESTED {
+            return;
+        }
         match self {
             Cover::Tree => tree_begin_if::<OCC>(a),
             // SAFETY: a live node's version field, per the engine's contract
@@ -215,9 +225,49 @@ impl Cover {
         }
     }
 
-    /// Closes the bracket when `OCC`.
+    /// Nested mode only: opens this node's word before the descent into a
+    /// child and holds it until [`Self::nest_end`], so the whole recursion
+    /// beneath the node runs under its word — the protocol the string,
+    /// bytes and blob wrappers keep, whose readers wait on the tree word
+    /// anyway and for whom a per-node brief bracket only turns a wait into
+    /// a restart of the whole multi-trie walk (measured, `docs/benchmarks/
+    /// concurrency/README.md` §8). A no-op on the tree cover (the wrapper
+    /// holds that word) and in the brief-bracket mode.
     #[inline(always)]
-    pub(crate) fn end_if<const OCC: bool>(self, a: &crate::alloc::NodeAlloc) {
+    pub(crate) fn nest_begin<const OCC: bool, const NESTED: bool>(
+        self,
+        a: &crate::alloc::NodeAlloc,
+    ) {
+        if OCC && NESTED {
+            let Cover::Node(p) = self else {
+                return;
+            };
+            // SAFETY: a live node's version field, per the engine's contract
+            // that a `Cover::Node` names the node containing the edge.
+            unsafe { version_begin_if_ptr::<true>(a, p) }
+        }
+    }
+
+    /// Closes the word opened by [`Self::nest_begin`].
+    #[inline(always)]
+    pub(crate) fn nest_end<const OCC: bool, const NESTED: bool>(self, a: &crate::alloc::NodeAlloc) {
+        if OCC && NESTED {
+            let Cover::Node(p) = self else {
+                return;
+            };
+            // SAFETY: a live node's version field, per the engine's contract
+            // that a `Cover::Node` names the node containing the edge.
+            unsafe { version_end_if_ptr::<true>(a, p) }
+        }
+    }
+
+    /// Closes the bracket when `OCC` (a no-op in the nested mode, as
+    /// [`Self::begin_if`]).
+    #[inline(always)]
+    pub(crate) fn end_if<const OCC: bool, const NESTED: bool>(self, a: &crate::alloc::NodeAlloc) {
+        if NESTED {
+            return;
+        }
         match self {
             Cover::Tree => tree_end_if::<OCC>(a),
             // SAFETY: as in `begin_if`.
