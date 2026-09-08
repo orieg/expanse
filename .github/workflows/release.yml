@@ -233,6 +233,17 @@ jobs:
             cp "target/$T/release/libexpanse.dylib" dist/lib/libexpanse.dylib
           fi
 
+          # glibc-hwcaps micro-architecture variants (x86_64 only). The
+          # packagers already stage dist/lib/glibc-hwcaps if it exists; until
+          # #762 nothing populated it, so every published .deb and .rpm carried
+          # the baseline alone while the docs said otherwise. The builder skips
+          # non-x86_64 targets itself, and the validator fails if a variant is
+          # byte-identical to the baseline — i.e. if -C target-cpu did not take.
+          if [ "$T" = "x86_64-unknown-linux-gnu" ]; then
+            bash scripts/build_hwcaps.sh "$T" dist
+            bash scripts/test_hwcaps.sh dist
+          fi
+
           tar -czvf "expanse-${VERSION}-${T}.tar.gz" -C dist .
 
           if [ -n "${{ matrix.deb_arch }}" ]; then

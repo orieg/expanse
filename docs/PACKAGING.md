@@ -80,12 +80,12 @@ sudo apt-get install -y libexpanse1 libexpanse-dev libjudy-compat
 ```
 
 - **Architectures Supported in APT Repo**:
-  - `amd64` (baseline `x86-64-v1`; the `glibc-hwcaps` `v2`/`v3`/`v4` variants are a build recipe the release pipeline does not run — #762)
+  - `amd64` (baseline `x86-64-v1`, plus the `glibc-hwcaps` `v2`/`v3`/`v4` variants, built by `scripts/build_hwcaps.sh` in the release job and validated by `scripts/test_hwcaps.sh` — #762)
   - `arm64` (AArch64 Apple Silicon Linux, Graviton, Raspberry Pi 4/5)
   - `riscv64` (RV64GC embedded and server systems)
 
 - **Packages Available**:
-  - `libexpanse1`: Runtime shared libraries (`libexpanse.so.1.0.0`; the packagers stage `glibc-hwcaps/` variants when `dist/lib/glibc-hwcaps/` is populated, which the release pipeline does not do — #762).
+  - `libexpanse1`: Runtime shared libraries (`libexpanse.so.1.0.0`, plus `glibc-hwcaps/x86-64-v{2,3,4}/` on `amd64` — the release job populates `dist/lib/glibc-hwcaps/` before packaging, and the packagers stage it — #762).
   - `libexpanse-dev`: Development headers (`expanse.h`, `Judy.h`), static library (`libexpanse.a`), pkg-config, and Section 3 man pages (`expanse(3)`, `expanse_set(3)`, etc.).
   - `libjudy-compat`: Drop-in replacement creating system-wide `/usr/lib/.../libJudy.so.1` symlinks to Expanse, pkg-config, and Judy compatibility man pages (`Judy(3)`, `Judy1(3)`, `JudyL(3)`, etc.).
 
