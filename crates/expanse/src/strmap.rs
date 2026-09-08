@@ -324,7 +324,6 @@ fn dispose_tree(root: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
 /// owns, and the ordered surface reconstructs a truncated key. That is lossy
 /// and documented, and `ExpanseStrMap::assert_key` still rejects it in debug
 /// builds. It is not memory-unsafe, which is the property that matters here.
-#[inline]
 fn chunk_at(key: &[u8], off: usize) -> (u64, bool) {
     let rest = &key[off.min(key.len())..];
     let mut c = [0u8; CHUNK];
