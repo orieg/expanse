@@ -1610,7 +1610,14 @@ an active writer readers spin on the odd version or retry — a hypothesis,
 not a measured attribution; the counters that decide it, and the predictions
 they can refute, are pre-registered in
 [`docs/benchmarks/concurrency/METHODOLOGY.md`](benchmarks/concurrency/METHODOLOGY.md)
-([#568](https://github.com/orieg/expanse/issues/568)). The per-node version refinement (writers bracket each
+([#568](https://github.com/orieg/expanse/issues/568)). Its Step 0 measured
+that hypothesis: with one writer and eight readers the readers spend 53–60% of
+their time spinning on the odd tree-level version (P0.1 `CONFIRMED` on every
+integer cell, both runs), the writer's RFO misses per insert rise ~6× on flat
+instructions (P0.2 `CONFIRMED`), and `perf c2c` places about half of the
+contended-line samples on the line holding the tree version and the writer
+mutex *(measured: reference host, tree at `a1982ff2`; every table generated
+from the artifacts in `docs/benchmarks/concurrency/`)*. The per-node version refinement (writers bracket each
 node's in-place mutations; readers validate hand-over-hand) keeps churn in the
 millions rather than collapsing to zero, but closing the write-mixed gap needs
 multi-writer support — sharding or per-node write locks — not finer validation

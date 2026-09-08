@@ -615,20 +615,20 @@ cell in this suite was measured on.
 
 ## 7. The concurrent arm
 
-> **Pending re-measurement, tracked by [#730](https://github.com/orieg/expanse/issues/730).**
-> Every cell in this section was measured at harness commit `2ce92b7f` and was
-> **not** re-run for [#723](https://github.com/orieg/expanse/issues/723). MC1, C1/C2 on `u64` keys, and the `M` census are
-> unaffected by that change — it touches `ExpanseStrMap` only. **MC2 is not**:
-> its readers walk the string suffix leaf whose representation changed, so its
-> levels are stale. They are left in place rather than deleted because the
-> *direction* they establish — Expanse string writers losing from one writer —
-> rests on the writer mutex, which #723 does not touch, and no re-run is
-> needed to keep saying that. The **levels** are withheld pending
-> re-measurement (§8.10): quote the direction, not the number, until they are
-> re-taken. Re-taking them means two runs, not one, because a concurrent
-> level does not replicate within its own interval (rule 18) — that work
-> belongs with [#730](https://github.com/orieg/expanse/issues/730), which is
-> already open on this arm.
+> **Re-measured at `a1982ff2`, two runs, for [#568](https://github.com/orieg/expanse/issues/568) Step 0.**
+> Every cell in this section — MC1 and MC2, C1, C2 and the H health cells —
+> was re-taken twice under the standing conditions (host lock, P-core pin,
+> a load snapshot per cell with the runner's own CPU subtracted, foreign
+> load ≤ 0.02 core-equivalents at every cell). The tables below are run 1 of
+> that pair; run 2 is [`results/baseline_concurrent_run2.json`](results/baseline_concurrent_run2.json),
+> and "Between-run spread" at the end of this section reads both against the
+> `64f8a3af` pair. This is the re-run [#730](https://github.com/orieg/expanse/issues/730)
+> asked for on MC2: its levels are current again, and its W = 1 R = 8 reader
+> cell is the one that separates most between the two runs (0.066 [0.048,
+> 0.123] against 0.219 [0.198, 0.233]) — quote its direction, not a level.
+> The health cells now carry the attribution counters #568 added and are
+> summed from per-thread shards, so their restart and spin ratios are not
+> comparable to the `64f8a3af` pair's levels (see §7's health paragraph).
 
 #### MC1 — `u64` keys, Masstree vs `SyncExpanseMap`
 
@@ -801,6 +801,17 @@ it is the instrument's normal behaviour rather than a fault of this run. Both
 runs were on the quiet host under the P-core pin, worst busy-CPU delta 5.7
 core-equivalents — the concurrent benchmark's own threads, with no non-target
 process.
+
+**Two more runs, at `a1982ff2`, for [#568](https://github.com/orieg/expanse/issues/568)
+Step 0 — the pair the tables above now carry.** Against the union of the
+`64f8a3af` pair, 27 of the 28 C1/C2 ratio cells overlap; the one that does
+not is `C2 str W=0 R=8` (0.973–0.997 → 0.997–1.035), a parity cell either
+way. Within the new pair, **9 of 28 cells separate** — six integer cells at
+W ≥ 2 and the three string reader cells at W ∈ {1, 2, 4} with eight readers,
+the widest being `C2 str W=1 R=8` (0.066 → 0.219) — and **no direction and no
+verdict moved**. Per rule 18 those nine are direction-only. The per-cell
+load snapshots put the foreign share at ≤ 0.02 core-equivalents throughout,
+so the spread is the host and the engine, not a competing process.
 
 ## 8. Scorecard against the pre-registration
 

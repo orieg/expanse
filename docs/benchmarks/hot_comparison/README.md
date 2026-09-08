@@ -952,19 +952,33 @@ replication rule rather than leaving each arm to rediscover it: two runs for a
 concurrent cell, the claim ceiling is the union of the two intervals, and a cell
 whose runs do not overlap is reported as direction-only.
 
-The health counters move the same way. The restart share is a band, not a
-trend: set 4.4 → 7.0 → 5.3 → 6.8% in run A against 5.7 → 4.8 → 5.9 → 6.2% in
-run B, map 5.0 → 3.4 → 5.7 → 4.3% against 6.0 → 4.9 → 5.3 → 5.7%. The two runs
-do not agree on the ordering of the four values, which is why §7.3 reads the
-share as a band between 3% and 7% and grades the registered rise **`REFUTED`**.
+The health counters move the same way, and §7.3 reads them as a band: the
+two runs do not agree on the ordering of the restart share across writer
+counts, so the registered rise is direction-only (run 1 monotonic on the set
+arm, run 2 not).
 
-What the pair does **not** do is explain the spread. Whether it is scheduling,
-frequency, memory placement or something else on this host is unmeasured here —
-that is #568's counter plan (`perf c2c`, `xsnp_hitm`, futex counts) and #737's
-wrapper, not this table.
+**A second pair, at `a1982ff2`, for [#568](https://github.com/orieg/expanse/issues/568)
+Step 0.** The concurrent sweep was re-taken twice with a load snapshot per
+cell (foreign share ≤ 0.02 core-equivalents throughout) and health rows that
+carry the attribution counters and are summed from per-thread shards. Against
+the union of the `64f8a3af` pair, 24 of the 28 C1/C2 ratio cells overlap; the
+four that do not are all on the set arm — `C1 set W=4` (0.247–0.270 →
+0.273–0.304), `C2 set W=4 R=8 writer` (0.154–0.170 → 0.173–0.192), `C2 set W=8
+R=8 reader` (0.297–0.321 → 0.258–0.279) and `C2 set W=8 R=8 writer`
+(0.086–0.099 → 0.100–0.109). Within the new pair **14 of 28 cells separate**,
+the widest `C2 set W=1 R=8 reader` (0.254 → 0.141); **no direction and no
+verdict moved** in either pair. §7.3's table is the new pair; §7.1, §7.2, §7.4
+and §7.5 keep the `64f8a3af` levels, which the new pair replicates in
+direction everywhere and in level on 24 of 28 cells. Both runs are in
+`results/baseline_concurrent.json` and `results/baseline_concurrent_run2.json`
+with their own provenance.
 
-The levels quoted in §7.1–§7.5 are run A's; run B is in
-`results/baseline_concurrent_run2.json` with its own provenance.
+What explains the spread was the open question this table left, and #568's
+Step 0 has now measured the mechanism it left open — readers spending most of
+their time on the writer's open tree-level bracket, the writer's coherence
+cost with readers present — in
+[`docs/benchmarks/concurrency/README.md`](../concurrency/README.md). The
+run-to-run spread itself is still unattributed there too.
 ---
 
 ## 8. Reproducing
