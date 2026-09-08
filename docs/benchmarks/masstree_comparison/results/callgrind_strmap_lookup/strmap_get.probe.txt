@@ -1,0 +1,46 @@
+--------------------------------------------------------------------------------
+Profile data file '/w/cg2/strmap_get.probe.out' (creator: callgrind-3.24.0)
+--------------------------------------------------------------------------------
+I1 cache: 32768 B, 64 B, 8-way associative
+D1 cache: 32768 B, 64 B, 8-way associative
+LL cache: 33554432 B, 64 B, 16-way associative
+Timerange: Basic block 0 - 490122359
+Trigger: Program termination
+Profiled target:  /t/release/examples/perf_point_lookup (PID 217, part 1)
+Events recorded:  Ir Dr Dw I1mr D1mr D1mw ILmr DLmr DLmw
+Events shown:     Ir Dr Dw I1mr D1mr D1mw ILmr DLmr DLmw
+Event sort order: DLmr
+Thresholds:       99.9
+Include dirs:     
+User annotated:   
+Auto-annotation:  on
+
+--------------------------------------------------------------------------------
+Ir                     Dr                   Dw                   I1mr             D1mr                D1mw               ILmr           DLmr                DLmw               
+--------------------------------------------------------------------------------
+2,799,865,242 (100.0%) 496,744,380 (100.0%) 345,427,909 (100.0%) 154,094 (100.0%) 27,544,850 (100.0%) 5,752,568 (100.0%) 2,450 (100.0%) 11,326,823 (100.0%) 4,850,608 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                   Dr                  Dw                  I1mr            D1mr                D1mw               ILmr         DLmr               DLmw                file:function
+--------------------------------------------------------------------------------
+ 85,983,916 ( 3.07%) 21,033,045 ( 4.23%) 14,018,135 ( 4.06%)  2,816 ( 1.83%)  3,657,954 (13.28%)    33,006 ( 0.57%)  11 ( 0.45%) 2,607,715 (23.02%)     4,037 ( 0.08%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+ 95,500,220 ( 3.41%) 19,000,039 ( 3.82%) 16,000,054 ( 4.63%)     35 ( 0.02%)  2,736,785 ( 9.94%)   500,013 ( 8.69%)  35 ( 1.43%) 1,382,501 (12.21%)   500,010 (10.31%)  ???:perf_point_lookup::main [/t/release/examples/perf_point_lookup]
+530,514,294 (18.95%) 83,837,990 (16.88%) 52,019,487 (15.06%) 23,876 (15.49%)  1,767,442 ( 6.42%) 2,867,699 (49.85%)  55 ( 2.24%) 1,265,744 (11.17%) 2,564,348 (52.87%)  ./malloc/./malloc/malloc.c:_int_malloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+ 42,999,777 ( 1.54%)  6,999,975 ( 1.41%)  5,999,972 ( 1.74%)      6 ( 0.00%)  1,999,151 ( 7.26%)         1 ( 0.00%)   6 ( 0.24%) 1,161,302 (10.25%)         1 ( 0.00%)  ./malloc/./malloc/malloc.c:malloc_consolidate [/usr/lib/x86_64-linux-gnu/libc.so.6]
+ 61,813,851 ( 2.21%) 18,860,463 ( 3.80%)  8,442,683 ( 2.44%)      7 ( 0.00%)  1,158,819 ( 4.21%)        49 ( 0.00%)   7 ( 0.29%)   963,463 ( 8.51%)         .           ./malloc/./malloc/malloc.c:free [/usr/lib/x86_64-linux-gnu/libc.so.6]
+ 68,000,000 ( 2.43%) 17,000,000 ( 3.42%) 10,000,000 ( 2.89%)     10 ( 0.01%)    999,978 ( 3.63%)         1 ( 0.00%)  10 ( 0.41%)   960,661 ( 8.48%)         1 ( 0.00%)  ???:<expanse_trie::strmap::ExpanseStrMap>::get [/t/release/examples/perf_point_lookup]
+ 85,639,998 ( 3.06%) 14,219,709 ( 2.86%)      6,944 ( 0.00%)    581 ( 0.38%)  1,780,628 ( 6.46%)         1 ( 0.00%)  25 ( 1.02%)   841,313 ( 7.43%)         .           ???:expanse_trie::leaf::search [/t/release/examples/perf_point_lookup]
+408,587,500 (14.59%) 31,377,705 ( 6.32%) 30,147,144 ( 8.73%)     26 ( 0.02%)  1,689,547 ( 6.13%) 1,622,260 (28.20%)  26 ( 1.06%)   639,726 ( 5.65%) 1,335,415 (27.53%)  ???:perf_point_lookup::build_str_keys [/t/release/examples/perf_point_lookup]
+ 16,601,579 ( 0.59%)  2,990,397 ( 0.60%)          0              11 ( 0.01%)    715,367 ( 2.60%)         0           11 ( 0.45%)   611,480 ( 5.40%)         .           ./string/../sysdeps/x86_64/multiarch/memcmp-avx2-movbe.S:__memcmp_avx2_movbe [/usr/lib/x86_64-linux-gnu/libc.so.6]
+253,283,169 ( 9.05%) 59,054,237 (11.89%) 13,518,312 ( 3.91%)    748 ( 0.49%) 10,041,595 (36.46%)         1 ( 0.00%)  12 ( 0.49%)   516,319 ( 4.56%)         1 ( 0.00%)  ???:expanse_trie::get::get_map_popcnt [/t/release/examples/perf_point_lookup]
+ 47,573,169 ( 1.70%) 12,183,436 ( 2.45%)  8,114,644 ( 2.35%)      6 ( 0.00%)    442,245 ( 1.61%)        40 ( 0.00%)   6 ( 0.24%)   347,350 ( 3.07%)         .           ./malloc/./malloc/malloc.c:_int_free_chunk [/usr/lib/x86_64-linux-gnu/libc.so.6]
+163,158,000 ( 5.83%) 44,043,196 ( 8.87%) 17,775,769 ( 5.15%)    264 ( 0.17%)     20,455 ( 0.07%)         1 ( 0.00%)   8 ( 0.33%)    11,625 ( 0.10%)         .           ./malloc/./malloc/malloc.c:malloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+    861,663 ( 0.03%)    344,677 ( 0.07%)     86,488 ( 0.03%) 10,681 ( 6.93%)     61,708 ( 0.22%)         0            5 ( 0.20%)     8,669 ( 0.08%)         .           ./malloc/./malloc/malloc.c:unlink_chunk.isra.0 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+
+--------------------------------------------------------------------------------
+The following files chosen for auto-annotation could not be found:
+--------------------------------------------------------------------------------
+  ./malloc/./malloc/malloc.c
+  ./string/../sysdeps/x86_64/multiarch/memcmp-avx2-movbe.S
+  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S
+
