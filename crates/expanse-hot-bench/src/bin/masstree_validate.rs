@@ -398,7 +398,7 @@ fn main() {
             if t.str_insert(ti, k.bytes(), value_of(i)) != StrInsert::Inserted {
                 fail(&format!("{}: key {i} not newly inserted", dist.name()));
             }
-            e.insert(k.bytes(), value_of(i));
+            e.insert(k.key(), value_of(i));
             if (i as u64 + 1).is_multiple_of(QUIESCE_EVERY) {
                 ti.quiesce();
             }
@@ -414,7 +414,7 @@ fn main() {
         let (mut a_sink, mut b_sink, mut disagree) = (0u64, 0u64, 0usize);
         for p in &w.probes {
             let a = t.str_get(ti, p.bytes());
-            let b = e.get(p.bytes());
+            let b = e.get(p.key());
             disagree += usize::from(a != b);
             a_sink ^= a.unwrap_or(0);
             b_sink ^= b.unwrap_or(0);
@@ -425,7 +425,7 @@ fn main() {
         for s in w.probes.iter().take(200) {
             let (c, sink) = t.str_scan(ti, s.bytes(), 100);
             let (mut ce, mut se) = (0usize, 0u64);
-            let mut cur = e.next_at_or_after(s.bytes());
+            let mut cur = e.next_at_or_after(s.key());
             while let Some((key, slot)) = cur {
                 // SAFETY: valid until the next structural mutation; none occurs.
                 se ^= unsafe { *slot.as_ptr() };
@@ -433,7 +433,7 @@ fn main() {
                 if ce == 100 {
                     break;
                 }
-                cur = e.next_after(&key);
+                cur = e.next_after(expanse_trie::strmap::NulFreeStr::new(&key).expect("suite keys are NUL-free"));
             }
             if c != ce || sink != se {
                 fail(&format!(

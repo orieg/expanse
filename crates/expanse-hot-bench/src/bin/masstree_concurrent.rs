@@ -247,11 +247,11 @@ impl ConcArm<KeyStr> for SyncExpanseStrMap {
     }
     #[inline]
     fn insert(&self, _: (), k: &KeyStr) {
-        SyncExpanseStrMap::insert(self, k.bytes(), k.value());
+        SyncExpanseStrMap::insert(self, k.key(), k.value());
     }
     #[inline]
     fn probe(r: &Self::Reader<'_>, _: (), k: &KeyStr) -> Option<bool> {
-        r.get(k.bytes()).map(|v| v == k.value())
+        r.get(k.key()).map(|v| v == k.value())
     }
     fn len(&self, _: ()) -> usize {
         SyncExpanseStrMap::len(self) as usize

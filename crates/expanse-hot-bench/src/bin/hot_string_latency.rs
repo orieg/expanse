@@ -150,7 +150,7 @@ impl Exp {
     fn insert(&mut self, k: &[u8], v: u64) {
         match self {
             Exp::Str(m) => {
-                m.insert(k, v);
+                m.insert(expanse_trie::strmap::NulFreeStr::new(k).expect("suite keys are NUL-free"), v);
             }
             Exp::Bytes(m) => {
                 m.insert(k, v);
@@ -160,7 +160,7 @@ impl Exp {
     #[inline]
     fn get(&self, k: &[u8]) -> Option<u64> {
         match self {
-            Exp::Str(m) => m.get(k),
+            Exp::Str(m) => m.get(expanse_trie::strmap::NulFreeStr::new(k).expect("suite keys are NUL-free")),
             Exp::Bytes(m) => m.get(k),
         }
     }
@@ -424,7 +424,7 @@ fn main() {
                     let mut sink = 0u64;
                     for s in &starts {
                         let mut c = 0usize;
-                        let mut cur = e.cursor_at_or_after(s.bytes());
+                        let mut cur = e.cursor_at_or_after(s.key());
                         while let Some((_key, slot)) = cur.next() {
                             // SAFETY: the cursor borrows the map for its
                             // lifetime, so the slot is a live value word and no

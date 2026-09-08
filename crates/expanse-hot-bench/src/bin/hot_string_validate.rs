@@ -80,7 +80,7 @@ fn main() {
         let (exp_len, exp) = Census::measure(|| {
             let mut t = ExpanseStrMap::new();
             for k in &w.population {
-                t.insert(k.bytes(), k.word());
+                t.insert(k.key(), k.word());
             }
             let len = t.len() as usize;
             std::mem::forget(t);
@@ -246,12 +246,12 @@ fn main() {
         // The Expanse side is unrestricted and must hold the whole population.
         let mut e = ExpanseStrMap::new();
         for k in &w.population {
-            e.insert(k.bytes(), k.word());
+            e.insert(k.key(), k.word());
         }
         if e.len() as usize != n
             || w.population
                 .iter()
-                .any(|k| e.get(k.bytes()) != Some(k.word()))
+                .any(|k| e.get(k.key()) != Some(k.word()))
         {
             fail("beyond: ExpanseStrMap lost keys the workload contains");
         }
@@ -271,8 +271,8 @@ fn main() {
         let mut em = ExpanseStrMap::new();
         let mut eb = ExpanseBytesMap::new();
         for (i, k) in w.population.iter().enumerate() {
-            es.insert(k.bytes(), k.word());
-            em.insert(k.bytes(), (i as u64).wrapping_mul(GOLDEN));
+            es.insert(k.key(), k.word());
+            em.insert(k.key(), (i as u64).wrapping_mul(GOLDEN));
             eb.insert(k.bytes(), k.word());
         }
         if es.len() as usize != n || em.len() as usize != n || eb.len() as usize != n {
@@ -316,10 +316,10 @@ fn main() {
         let (mut sh, mut se, mut sb, mut shm, mut sem) = (0u64, 0u64, 0u64, 0u64, 0u64);
         for p in &w.probes {
             let h = hs.lookup(p);
-            let e = es.get(p.bytes());
+            let e = es.get(p.key());
             let b = eb.get(p.bytes());
             let hmv = hm.get(p);
-            let emv = em.get(p.bytes());
+            let emv = em.get(p.key());
             if h.is_some() {
                 hits += 1;
             }
@@ -361,7 +361,7 @@ fn main() {
             let (hn, hsink) = hs.scan(start, 100);
             let mut en = 0usize;
             let mut esink = 0u64;
-            let mut cur = es.next_at_or_after(start.bytes());
+            let mut cur = es.next_at_or_after(start.key());
             while let Some((key, slot)) = cur {
                 // SAFETY: the slot is live until the next mutation; none occurs.
                 esink ^= unsafe { *slot.as_ptr() };
@@ -369,7 +369,7 @@ fn main() {
                 if en == 100 {
                     break;
                 }
-                cur = es.next_after(&key);
+                cur = es.next_after(expanse_trie::strmap::NulFreeStr::new(&key).expect("suite keys are NUL-free"));
             }
             if hn != en || hsink != esink {
                 scan_dis += 1;
@@ -428,14 +428,14 @@ fn main() {
         let mut es = ExpanseStrMap::new();
         let mut eb = ExpanseBytesMap::new();
         for (k, wd) in a.population.iter().zip(&words) {
-            es.insert(k.bytes(), *wd);
+            es.insert(k.key(), *wd);
             eb.insert(k.bytes(), *wd);
         }
         drop(a);
         let bad = b
             .iter()
             .zip(&words)
-            .filter(|(k, wd)| es.get(k.bytes()) != Some(**wd) || eb.get(k.bytes()) != Some(**wd))
+            .filter(|(k, wd)| es.get(k.key()) != Some(**wd) || eb.get(k.bytes()) != Some(**wd))
             .count();
         if bad != 0 {
             fail(&format!(

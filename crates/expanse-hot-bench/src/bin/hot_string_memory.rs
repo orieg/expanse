@@ -215,7 +215,7 @@ fn main() {
         Arm::Ptr | Arm::Map => {
             let mut t = ExpanseStrMap::new();
             for (i, k) in table.iter().enumerate() {
-                t.insert(k.bytes(), value_for(arm, k, i));
+                t.insert(k.key(), value_for(arm, k, i));
             }
             let p = t.len() as usize;
             std::mem::forget(t);
@@ -243,7 +243,7 @@ fn main() {
         Arm::Ptr | Arm::Map => {
             let mut t = ExpanseStrMap::new();
             for (i, k) in table.iter().enumerate() {
-                t.insert(k.bytes(), value_for(arm, k, i));
+                t.insert(k.key(), value_for(arm, k, i));
             }
             t.mem_used()
         }

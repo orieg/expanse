@@ -289,7 +289,7 @@ fn main() {
         (Arm::Str, _, Some(ks)) => {
             let mut t = ExpanseStrMap::new();
             for (i, k) in ks.iter().enumerate() {
-                t.insert(k.bytes(), value_of(i));
+                t.insert(k.key(), value_of(i));
             }
             let p = t.len() as usize;
             std::mem::forget(t);
@@ -323,7 +323,7 @@ fn main() {
         (Arm::Str, _, Some(ks)) => {
             let mut t = ExpanseStrMap::new();
             for (i, k) in ks.iter().enumerate() {
-                t.insert(k.bytes(), value_of(i));
+                t.insert(k.key(), value_of(i));
             }
             t.mem_used()
         }
