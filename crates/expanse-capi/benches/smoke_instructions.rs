@@ -185,9 +185,10 @@ fn judy1_test(built: Built) -> Word {
 }
 
 /// NUL-terminated route-shaped keys, byte-identical to `str_keys("routes")` in
-/// `crates/expanse/benches/instructions.rs` plus the terminator the C ABI
-/// requires, so the `judysl_*` arms and the `strmap_*` arms describe the same
-/// workload on the two surfaces.
+/// `crates/expanse/benches/smoke_instructions.rs` plus the terminator the C ABI
+/// requires, so `judysl_get` pairs with that file's `strmap_get` -- both at
+/// `POP = 10_000`. It is *not* the 50k `instructions.rs` arm; the two must not
+/// be compared to each other.
 fn str_keys(_dist: &str) -> Vec<Vec<u8>> {
     (0..POP)
         .map(|i| {
