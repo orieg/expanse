@@ -347,6 +347,7 @@ jobs:
           python3 scripts/check_bench_provenance.py --self-test
           python3 scripts/check_man_pages.py --self-test
           python3 scripts/check_abi_parity.py --self-test
+          python3 scripts/check_public_api.py --self-test
           python3 scripts/check_deletion_rationale.py --self-test
           python3 scripts/check_test_floors.py --self-test
 
@@ -2294,6 +2295,45 @@ jobs:
           # is what keeps the licence arm armed.
           command-arguments: advisories bans licenses sources
 
+  public-api:
+    name: Core / Public Rust API Surface
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      # `cargo public-api` reads rustdoc JSON, which is nightly-only. The
+      # channel is pinned so a rustdoc format change arrives as one deliberate
+      # regeneration rather than a surprise red run on an unrelated pull
+      # request; the same reasoning as the wasm-fuel pin below.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-09-03
+
+      - uses: Swatinem/rust-cache@v2
+
+      # `cargo-public-api` has no install-action manifest of its own, so this
+      # installs the installer and fetches the tool's prebuilt release binary
+      # rather than building it from source on every run.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-binstall
+
+      - name: Install cargo-public-api
+        run: cargo binstall --no-confirm --locked cargo-public-api
+
+      # `check_abi_parity.py` pins the C symbols; nothing pinned the Rust
+      # surface, which is what a crates.io consumer compiles against, and that
+      # is how `ExpanseBlobMap::arena_mut` and `DomainOrdinal::new` reached a
+      # published release with no caller and no test (#763, #797). The check is
+      # symmetric: an accidental removal or signature change fails here too.
+      - name: Verify Public Rust API Matches Its Committed Snapshot
+        env:
+          EXPANSE_PUBLIC_API_TOOLCHAIN: nightly-2026-09-03
+        run: python3 scripts/check_public_api.py
+
   ci-gate:
     name: CI Gate / All Checks Passed
     if: always()
@@ -2301,6 +2341,7 @@ jobs:
       - detect-changes
       - lint
       - supply-chain
+      - public-api
       - msrv
       - man-examples
       - docs-lint

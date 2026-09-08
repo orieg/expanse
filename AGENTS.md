@@ -282,6 +282,7 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | `allow-regression:` reason carries a resolvable citation (run URL or artifact path) | **CI (fatal)** | `scripts/perf_report.py` — an unsourced reason is void, the gate stays armed and reports why; pinned by `--self-test` |
 | Memory density ceilings | **CI** | `memory-budget` |
 | C ABI symbol parity · version lockstep · gate completeness · report-script self-tests | **CI** | `lint` job scripts |
+| Public **Rust** API surface: every addition, removal or signature change is a diff against a committed snapshot | **CI** | `public-api` job → `scripts/check_public_api.py` (snapshot in `.github/public-api/`; regenerate a deliberate change with `--write`). A snapshot diff, not a semver classifier — it makes the change visible and a reviewer decides major/minor, against the Cargo 0.x rule that `^0.6` spans every 0.6.x, so a removal or signature change needs 0.7.0 and never a patch |
 | File deletions require `removes:` / `deletes:` rationale in PR body | **CI** | `lint` job → `scripts/check_deletion_rationale.py` |
 | Exported C symbol floor (≥100) · workspace test count floor (≥300) | **CI** | `lint` job → `scripts/check_abi_parity.py`, `scripts/check_test_floors.py` |
 | Nightly Miri shard census: every `expanse-trie` lib test in exactly one shard, every integration target in the matrix or `#![cfg(not(miri))]` | **CI** | `lint` job → `scripts/check_miri_shards.py` (module→shard map lives in the script; shards select by `--exact` name, never substring) |
