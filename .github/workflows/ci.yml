@@ -2315,8 +2315,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       # `cargo-public-api` has no install-action manifest of its own, so this
-      # installs the installer and fetches the tool's prebuilt release binary
-      # rather than building it from source on every run.
+      # installs the installer instead. cargo-binstall finds no prebuilt
+      # binary for it either and falls back to building from source -- checked,
+      # not assumed: the run log says so. It is kept because the fallback is
+      # automatic and the whole job still lands in under two minutes; if the
+      # project ever publishes release binaries, this step picks them up with
+      # no change here.
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-binstall
