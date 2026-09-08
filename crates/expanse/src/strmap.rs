@@ -373,34 +373,6 @@ fn is_terminal_scan(chunk: u64) -> bool {
     chunk.to_be_bytes().contains(&0)
 }
 
-/// Publishes a suffix leaf under `chunk`, refusing to do so at a chunk that
-/// [`is_terminal`] will later read as terminal.
-///
-/// The check and the publication are one operation, so `pack_suffix` has a
-/// single caller. The module once decided "terminal" two ways and they
-/// disagreed off the NUL-free domain (#794); it now decides it one way, in
-/// [`chunk_at`].
-///
-/// The assertion is a `debug_assert!` and is unreachable by construction:
-/// `chunk_at` now reports terminal by exactly this predicate, so a caller that
-/// took the non-terminal branch has already established `!is_terminal(chunk)`.
-/// It is retained as a statement of the invariant at the one site that can
-/// violate it, not as the mechanism enforcing it -- the mechanism is that
-/// there is only one rule.
-///
-fn publish_suffix(
-    node: &mut StrNode,
-    alloc: &NodeAlloc,
-    chunk: u64,
-    suffix: *mut StrSuffix,
-) -> Option<u64> {
-    debug_assert!(
-        !is_terminal(chunk),
-        "suffix pointer published at a terminal chunk: keys must be NUL-free"
-    );
-    node.map.insert_pathless(alloc, chunk, pack_suffix(suffix))
-}
-
 /// A byte string containing no NUL byte: the key domain of [`ExpanseStrMap`].
 ///
 /// The map is a digital trie over 8-byte chunks that uses a zero byte as the
@@ -1231,7 +1203,7 @@ impl ExpanseStrMap {
             // the borrow of `old` is over before it is disposed of.
             // SAFETY: as above.
             let s1 = unsafe { new_suffix(&suffix_bytes(old)[CHUNK..], value) };
-            publish_suffix(&mut child, alloc, c1, s1);
+            child.map.insert_pathless(alloc, c1, pack_suffix(s1));
         }
         let child_raw = Box::into_raw(child);
         node.map
@@ -1265,7 +1237,7 @@ impl ExpanseStrMap {
             match node.map.get(chunk) {
                 None => {
                     let suffix = new_suffix(&key[off + CHUNK..], val);
-                    publish_suffix(node, alloc, chunk, suffix);
+                    node.map.insert_pathless(alloc, chunk, pack_suffix(suffix));
                     self.pop += 1;
                     return None;
                 }
@@ -1325,7 +1297,7 @@ impl ExpanseStrMap {
             match node.map.get(chunk) {
                 None => {
                     let suffix = new_suffix(&key[off + CHUNK..], 0);
-                    publish_suffix(node, alloc, chunk, suffix);
+                    node.map.insert_pathless(alloc, chunk, pack_suffix(suffix));
                     self.pop += 1;
                     // SAFETY: suffix is a live, uniquely owned pointer
                     // allocated above; `value` sits at offset 0.
