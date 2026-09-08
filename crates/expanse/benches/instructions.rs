@@ -55,6 +55,17 @@ use iai_callgrind::{
 };
 use std::hint::black_box;
 
+/// Wraps a key for `ExpanseStrMap`.
+///
+/// `new_unchecked`: the validating constructor would put a whole-key scan
+/// inside the measured region, and the arm would measure the check instead of
+/// the descent. Every generator in this file emits route-shaped ASCII.
+#[inline(always)]
+fn tk<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> &expanse_trie::strmap::NulFreeStr {
+    // SAFETY: generators in this file emit no NUL bytes.
+    unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(bytes.as_ref()) }
+}
+
 struct XorShift(u64);
 impl XorShift {
     fn next(&mut self) -> u64 {
@@ -680,7 +691,7 @@ fn built_strmap(dist: &str) -> (ExpanseStrMap, Vec<Vec<u8>>) {
     let ks = str_keys(dist);
     let mut map = ExpanseStrMap::new();
     for (i, k) in ks.iter().enumerate() {
-        map.insert(k, i as u64);
+        map.insert(tk(k), i as u64);
     }
     let mut probes = ks;
     let mut rng = XorShift(0x9E37_79B9);
@@ -710,7 +721,7 @@ fn built_bytesmap(dist: &str) -> (ExpanseBytesMap<DetHasher>, Vec<Vec<u8>>) {
 fn strmap_insert(ks: Vec<Vec<u8>>) -> u64 {
     let mut map = ExpanseStrMap::new();
     for (i, k) in ks.iter().enumerate() {
-        map.insert(black_box(k), black_box(i as u64));
+        map.insert(black_box(tk(k)), black_box(i as u64));
     }
     let n = map.len();
     core::mem::forget(map);
@@ -723,7 +734,7 @@ fn strmap_get(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
     let (map, probes) = built;
     let mut sink = 0u64;
     for k in &probes {
-        sink ^= map.get(black_box(k)).unwrap_or(0);
+        sink ^= map.get(black_box(tk(k))).unwrap_or(0);
     }
     core::mem::forget(map);
     black_box(sink)
@@ -738,9 +749,9 @@ fn strmap_churn(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
     let (mut map, probes) = built;
     let mut sink = 0u64;
     for k in &probes {
-        sink ^= map.insert(black_box(k), black_box(7)).unwrap_or(0);
-        sink ^= map.remove(black_box(k)).unwrap_or(0);
-        map.insert(black_box(k), black_box(9));
+        sink ^= map.insert(black_box(tk(k)), black_box(7)).unwrap_or(0);
+        sink ^= map.remove(black_box(tk(k))).unwrap_or(0);
+        map.insert(black_box(tk(k)), black_box(9));
     }
     core::mem::forget(map);
     black_box(sink)

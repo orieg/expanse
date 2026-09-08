@@ -1,5 +1,6 @@
 //! Buffer protocol and key/value extraction utilities for zero-copy and bulk ingestion.
 
+use expanse_trie::strmap::NulFreeStr;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{
@@ -8,8 +9,33 @@ use pyo3::types::{
 };
 use std::borrow::Cow;
 
+/// A key this module has already validated as NUL-free.
+///
+/// Derefs to [`NulFreeStr`], so the engine takes it without re-checking: the
+/// binding boundary is where an untrusted string enters, and it is the only
+/// place the scan is paid.
+pub struct StrKey<'a>(Cow<'a, [u8]>);
+
+impl core::ops::Deref for StrKey<'_> {
+    type Target = NulFreeStr;
+    #[inline]
+    fn deref(&self) -> &NulFreeStr {
+        // SAFETY: every constructor of `StrKey` rejects a NUL first.
+        unsafe { NulFreeStr::new_unchecked(&self.0) }
+    }
+}
+
+impl StrKey<'_> {
+    /// The validated bytes.
+    #[inline]
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 /// Extracts a string or byte slice as a NUL-free byte slice for `ExpanseStrMap`.
-pub fn extract_str_key<'a>(key: &'a Bound<'_, PyAny>) -> PyResult<Cow<'a, [u8]>> {
+pub fn extract_str_key<'a>(key: &'a Bound<'_, PyAny>) -> PyResult<StrKey<'a>> {
     if let Ok(s) = key.cast::<PyString>() {
         let text = s.to_cow()?;
         let bytes = text.as_bytes();
@@ -18,7 +44,7 @@ pub fn extract_str_key<'a>(key: &'a Bound<'_, PyAny>) -> PyResult<Cow<'a, [u8]>>
                 "NUL bytes are not allowed in ExpanseStrMap keys",
             ));
         }
-        return Ok(Cow::Owned(bytes.to_vec()));
+        return Ok(StrKey(Cow::Owned(bytes.to_vec())));
     }
     if let Ok(b) = key.cast::<PyBytes>() {
         let bytes = b.as_bytes();
@@ -27,7 +53,7 @@ pub fn extract_str_key<'a>(key: &'a Bound<'_, PyAny>) -> PyResult<Cow<'a, [u8]>>
                 "NUL bytes are not allowed in ExpanseStrMap keys",
             ));
         }
-        return Ok(Cow::Borrowed(bytes));
+        return Ok(StrKey(Cow::Borrowed(bytes)));
     }
     if let Ok(ba) = key.cast::<PyByteArray>() {
         // SAFETY: `ba` is a valid PyByteArray reference whose backing bytes remain valid during this call.
@@ -37,7 +63,7 @@ pub fn extract_str_key<'a>(key: &'a Bound<'_, PyAny>) -> PyResult<Cow<'a, [u8]>>
                 "NUL bytes are not allowed in ExpanseStrMap keys",
             ));
         }
-        return Ok(Cow::Owned(bytes.to_vec()));
+        return Ok(StrKey(Cow::Owned(bytes.to_vec())));
     }
     Err(PyTypeError::new_err(
         "Expected str, bytes, or bytearray for key",

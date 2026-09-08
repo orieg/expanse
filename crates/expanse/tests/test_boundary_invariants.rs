@@ -179,17 +179,17 @@ fn test_bytesmap_and_strmap_edge_cases() {
 
     // 4. StrMap empty and prefix hierarchy
     let mut str_map = ExpanseStrMap::new();
-    assert_eq!(str_map.insert(b"", 10), None);
-    assert_eq!(str_map.insert(b"a", 20), None);
-    assert_eq!(str_map.insert(b"aa", 30), None);
-    assert_eq!(str_map.insert(b"aaa", 40), None);
-    assert_eq!(str_map.insert(b"aab", 50), None);
+    assert_eq!(str_map.insert(tk(b""), 10), None);
+    assert_eq!(str_map.insert(tk(b"a"), 20), None);
+    assert_eq!(str_map.insert(tk(b"aa"), 30), None);
+    assert_eq!(str_map.insert(tk(b"aaa"), 40), None);
+    assert_eq!(str_map.insert(tk(b"aab"), 50), None);
 
-    assert_eq!(str_map.get(b""), Some(10));
-    assert_eq!(str_map.get(b"a"), Some(20));
-    assert_eq!(str_map.get(b"aa"), Some(30));
-    assert_eq!(str_map.get(b"aaa"), Some(40));
-    assert_eq!(str_map.get(b"aab"), Some(50));
+    assert_eq!(str_map.get(tk(b"")), Some(10));
+    assert_eq!(str_map.get(tk(b"a")), Some(20));
+    assert_eq!(str_map.get(tk(b"aa")), Some(30));
+    assert_eq!(str_map.get(tk(b"aaa")), Some(40));
+    assert_eq!(str_map.get(tk(b"aab")), Some(50));
     assert_eq!(str_map.len(), 5);
 
     // StrMap ordered navigation
@@ -369,6 +369,12 @@ use expanse_trie::types::{
     BRANCHU_TO_B_DOWN, LEAF_CAP, LEAF1_CAP, LEAFB1_DOWN, ROOT_LEAF_CAP,
 };
 use std::collections::{BTreeMap, BTreeSet};
+
+/// Wraps a key for `ExpanseStrMap`. Every generator in this file emits
+/// NUL-free keys; a NUL would be a bug here, so panicking is right.
+fn tk<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> &expanse_trie::strmap::NulFreeStr {
+    expanse_trie::strmap::NulFreeStr::new(bytes.as_ref()).expect("key contains a NUL")
+}
 
 /// `n` keys that all descend into the same leaf: identical in every byte but
 /// the last, so no branch is created above them by construction.

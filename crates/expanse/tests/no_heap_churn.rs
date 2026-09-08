@@ -17,6 +17,12 @@ use expanse_trie::set::ExpanseSet;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
+/// Wraps a key for `ExpanseStrMap`. Every generator in this file emits
+/// NUL-free keys; a NUL would be a bug here, so panicking is right.
+fn tk<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> &expanse_trie::strmap::NulFreeStr {
+    expanse_trie::strmap::NulFreeStr::new(bytes.as_ref()).expect("key contains a NUL")
+}
+
 // Per-thread, not process-wide: the test harness runs tests on parallel
 // threads, and a shared counter makes each test measure its neighbours'
 // allocations (which is exactly how the first draft of this file
@@ -477,13 +483,13 @@ fn strmap_suffix_leaf_costs_one_allocation() {
         let mut a = ExpanseStrMap::new();
         let with = allocations_during(|| {
             for (i, k) in leafy.iter().enumerate() {
-                a.insert(k, i as u64);
+                a.insert(tk(k), i as u64);
             }
         });
         // Read back inside the same map so a shape that quietly stopped
         // producing leaves cannot pass by allocating nothing.
         for (i, k) in leafy.iter().enumerate() {
-            assert_eq!(a.get(k), Some(i as u64), "leaf key {i} lost at n={n}");
+            assert_eq!(a.get(tk(k)), Some(i as u64), "leaf key {i} lost at n={n}");
         }
         // Dropped rather than leaked: a retained map fails LeakSanitizer in
         // the ASan job (AGENTS.md §5).
@@ -492,7 +498,7 @@ fn strmap_suffix_leaf_costs_one_allocation() {
         let mut b = ExpanseStrMap::new();
         let without = allocations_during(|| {
             for (i, k) in flat.iter().enumerate() {
-                b.insert(k, i as u64);
+                b.insert(tk(k), i as u64);
             }
         });
         assert_eq!(b.len(), u64::from(n), "terminal arm lost keys at n={n}");
@@ -546,7 +552,7 @@ fn strmap_cursor_scan_does_not_allocate_per_element() {
     let n: u32 = if cfg!(miri) { 400 } else { 20_000 };
     let mut m = ExpanseStrMap::new();
     for i in 0..n {
-        m.insert(&key(i), u64::from(i));
+        m.insert(tk(&key(i)), u64::from(i));
     }
 
     // Scan `k` elements from the start and report the allocations it cost.
@@ -595,7 +601,7 @@ fn strmap_cursor_scan_does_not_allocate_per_element() {
             let mut cur = Some(first.clone());
             for _ in 0..k {
                 match cur.take() {
-                    Some(key) => cur = m.next_after(&key).map(|(k, _)| k),
+                    Some(key) => cur = m.next_after(tk(&key)).map(|(k, _)| k),
                     None => break,
                 }
             }

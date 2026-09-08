@@ -25,6 +25,12 @@ use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
 use expanse_trie::strmap::ExpanseStrMap;
 
+/// Wraps a key for `ExpanseStrMap`. Every generator in this file emits
+/// NUL-free keys; a NUL would be a bug here, so panicking is right.
+fn tk<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> &expanse_trie::strmap::NulFreeStr {
+    expanse_trie::strmap::NulFreeStr::new(bytes.as_ref()).expect("key contains a NUL")
+}
+
 /// XorShift64, the generator the comparative suites use.
 struct XorShift(u64);
 
@@ -152,11 +158,11 @@ fn strmap_mem_used_is_identical_in_both_insertion_orders() {
 
     let mut a = ExpanseStrMap::new();
     for k in &sorted {
-        a.insert(k, 1);
+        a.insert(tk(k), 1);
     }
     let mut b = ExpanseStrMap::new();
     for k in &shuf {
-        b.insert(k, 1);
+        b.insert(tk(k), 1);
     }
 
     assert_eq!(a.len(), b.len());

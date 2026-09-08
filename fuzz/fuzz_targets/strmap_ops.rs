@@ -18,9 +18,19 @@
 #![no_main]
 
 use arbitrary::Arbitrary;
-use expanse_trie::strmap::ExpanseStrMap;
+use expanse_trie::strmap::{ExpanseStrMap, NulFreeStr};
 use libfuzzer_sys::fuzz_target;
 use std::collections::BTreeMap;
+
+/// The fuzzer's keys are NUL-free by construction: `Key::bytes` maps `0` to
+/// `1` precisely so it stays in the map's domain.
+///
+/// Validating rather than `new_unchecked` on purpose. If `Key::bytes` ever
+/// stops holding the line, this is a fuzz target -- the right outcome is a
+/// loud, reproducible failure, not silently exercising an out-of-domain key.
+fn fk(bytes: &[u8]) -> &NulFreeStr {
+    NulFreeStr::new(bytes).expect("Key::bytes emitted a NUL")
+}
 
 /// Keys are built from a template so the fuzzer spends its budget on op
 /// sequences and *depths* rather than rediscovering that shared prefixes
@@ -40,9 +50,8 @@ impl Key {
     fn bytes(&self) -> Vec<u8> {
         // NUL terminates a key in this map (the JudySL contract), so it
         // can never appear inside one.
-        let clean = |v: &Vec<u8>| -> Vec<u8> {
-            v.iter().map(|&b| if b == 0 { 1 } else { b }).collect()
-        };
+        let clean =
+            |v: &Vec<u8>| -> Vec<u8> { v.iter().map(|&b| if b == 0 { 1 } else { b }).collect() };
         match self {
             Key::Short(v) => clean(v),
             Key::Prefixed(p, v) => {
@@ -82,19 +91,19 @@ fuzz_target!(|ops: Vec<Op>| {
         match op {
             Op::Insert(k, v) => {
                 let k = k.bytes();
-                assert_eq!(map.insert(&k, *v), model.insert(k.clone(), *v));
+                assert_eq!(map.insert(fk(&k), *v), model.insert(k.clone(), *v));
             }
             Op::Remove(k) => {
                 let k = k.bytes();
-                assert_eq!(map.remove(&k), model.remove(&k));
+                assert_eq!(map.remove(fk(&k)), model.remove(&k));
             }
             Op::Get(k) => {
                 let k = k.bytes();
-                assert_eq!(map.get(&k), model.get(&k).copied());
+                assert_eq!(map.get(fk(&k)), model.get(&k).copied());
             }
             Op::NextAtOrAfter(k) => {
                 let k = k.bytes();
-                let got = map.next_at_or_after(&k).map(|(key, slot)| {
+                let got = map.next_at_or_after(fk(&k)).map(|(key, slot)| {
                     // SAFETY: the slot is valid until the next mutation,
                     // and nothing mutates between here and the read.
                     (key, unsafe { *slot.as_ptr() })
@@ -130,11 +139,16 @@ fuzz_target!(|ops: Vec<Op>| {
     // Every model entry is retrievable, then drain — the removal path
     // and its emptied-node pruning, at whatever depths the fuzzer built.
     for (k, &v) in &model {
-        assert_eq!(map.get(k), Some(v), "final {:02x?}", &k[..k.len().min(16)]);
+        assert_eq!(
+            map.get(fk(k)),
+            Some(v),
+            "final {:02x?}",
+            &k[..k.len().min(16)]
+        );
     }
     let keys: Vec<Vec<u8>> = model.keys().cloned().collect();
     for k in keys {
-        assert!(map.remove(&k).is_some(), "drain");
+        assert!(map.remove(fk(&k)).is_some(), "drain");
     }
     assert!(map.is_empty());
     // `clear` on an emptied map must report nothing left to free, which

@@ -1645,22 +1645,22 @@ pub struct expanse_trie::strmap::ExpanseStrMap
 impl expanse_trie::strmap::ExpanseStrMap
 pub fn expanse_trie::strmap::ExpanseStrMap::clear(&mut self) -> u64
 pub fn expanse_trie::strmap::ExpanseStrMap::cursor(&mut self) -> expanse_trie::strmap::StrCursor<'_>
-pub fn expanse_trie::strmap::ExpanseStrMap::cursor_at_or_after(&mut self, &[u8]) -> expanse_trie::strmap::StrCursor<'_>
+pub fn expanse_trie::strmap::ExpanseStrMap::cursor_at_or_after(&mut self, &expanse_trie::strmap::NulFreeStr) -> expanse_trie::strmap::StrCursor<'_>
 pub fn expanse_trie::strmap::ExpanseStrMap::first(&mut self) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
-pub fn expanse_trie::strmap::ExpanseStrMap::get(&self, &[u8]) -> core::option::Option<u64>
-pub fn expanse_trie::strmap::ExpanseStrMap::get_value_slot(&mut self, &[u8]) -> core::option::Option<core::ptr::non_null::NonNull<u64>>
-pub fn expanse_trie::strmap::ExpanseStrMap::ins_slot(&mut self, &[u8]) -> core::ptr::non_null::NonNull<u64>
-pub fn expanse_trie::strmap::ExpanseStrMap::insert(&mut self, &[u8], u64) -> core::option::Option<u64>
+pub fn expanse_trie::strmap::ExpanseStrMap::get(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
+pub fn expanse_trie::strmap::ExpanseStrMap::get_value_slot(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<core::ptr::non_null::NonNull<u64>>
+pub fn expanse_trie::strmap::ExpanseStrMap::ins_slot(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::ptr::non_null::NonNull<u64>
+pub fn expanse_trie::strmap::ExpanseStrMap::insert(&mut self, &expanse_trie::strmap::NulFreeStr, u64) -> core::option::Option<u64>
 pub fn expanse_trie::strmap::ExpanseStrMap::is_empty(&self) -> bool
 pub fn expanse_trie::strmap::ExpanseStrMap::last(&mut self) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
 pub fn expanse_trie::strmap::ExpanseStrMap::len(&self) -> u64
 pub fn expanse_trie::strmap::ExpanseStrMap::mem_used(&self) -> usize
 pub fn expanse_trie::strmap::ExpanseStrMap::new() -> Self
-pub fn expanse_trie::strmap::ExpanseStrMap::next_after(&mut self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
-pub fn expanse_trie::strmap::ExpanseStrMap::next_at_or_after(&mut self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
-pub fn expanse_trie::strmap::ExpanseStrMap::prev_at_or_before(&mut self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
-pub fn expanse_trie::strmap::ExpanseStrMap::prev_before(&mut self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
-pub fn expanse_trie::strmap::ExpanseStrMap::remove(&mut self, &[u8]) -> core::option::Option<u64>
+pub fn expanse_trie::strmap::ExpanseStrMap::next_after(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
+pub fn expanse_trie::strmap::ExpanseStrMap::next_at_or_after(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
+pub fn expanse_trie::strmap::ExpanseStrMap::prev_at_or_before(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
+pub fn expanse_trie::strmap::ExpanseStrMap::prev_before(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
+pub fn expanse_trie::strmap::ExpanseStrMap::remove(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
 impl core::convert::From<expanse_trie::strmap::ExpanseStrMap> for expanse_trie::sync::SyncExpanseStrMap
 pub fn expanse_trie::sync::SyncExpanseStrMap::from(expanse_trie::strmap::ExpanseStrMap) -> Self
 impl core::default::Default for expanse_trie::strmap::ExpanseStrMap
@@ -1674,6 +1674,56 @@ impl core::marker::Unpin for expanse_trie::strmap::ExpanseStrMap
 impl core::marker::UnsafeUnpin for expanse_trie::strmap::ExpanseStrMap
 impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::strmap::ExpanseStrMap
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::strmap::ExpanseStrMap
+#[repr(transparent)] pub struct expanse_trie::strmap::NulFreeStr(_)
+impl expanse_trie::strmap::NulFreeStr
+pub const fn expanse_trie::strmap::NulFreeStr::as_bytes(&self) -> &[u8]
+pub const fn expanse_trie::strmap::NulFreeStr::is_empty(&self) -> bool
+pub const fn expanse_trie::strmap::NulFreeStr::len(&self) -> usize
+pub fn expanse_trie::strmap::NulFreeStr::new(&[u8]) -> core::option::Option<&Self>
+pub unsafe const fn expanse_trie::strmap::NulFreeStr::new_unchecked(&[u8]) -> &Self
+impl core::cmp::Eq for expanse_trie::strmap::NulFreeStr
+impl core::cmp::Ord for expanse_trie::strmap::NulFreeStr
+pub fn expanse_trie::strmap::NulFreeStr::cmp(&self, &expanse_trie::strmap::NulFreeStr) -> core::cmp::Ordering
+impl core::cmp::PartialEq for expanse_trie::strmap::NulFreeStr
+pub fn expanse_trie::strmap::NulFreeStr::eq(&self, &expanse_trie::strmap::NulFreeStr) -> bool
+impl core::cmp::PartialOrd for expanse_trie::strmap::NulFreeStr
+pub fn expanse_trie::strmap::NulFreeStr::partial_cmp(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<core::cmp::Ordering>
+impl core::fmt::Debug for expanse_trie::strmap::NulFreeStr
+pub fn expanse_trie::strmap::NulFreeStr::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for expanse_trie::strmap::NulFreeStr
+pub fn expanse_trie::strmap::NulFreeStr::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::StructuralPartialEq for expanse_trie::strmap::NulFreeStr
+impl<'a> core::convert::TryFrom<&'a [u8]> for &'a expanse_trie::strmap::NulFreeStr
+pub type &'a expanse_trie::strmap::NulFreeStr::Error = expanse_trie::strmap::NulInKey
+pub fn &'a expanse_trie::strmap::NulFreeStr::try_from(&'a [u8]) -> core::result::Result<Self, Self::Error>
+impl core::marker::Freeze for expanse_trie::strmap::NulFreeStr
+impl core::marker::Send for expanse_trie::strmap::NulFreeStr
+impl !core::marker::Sized for expanse_trie::strmap::NulFreeStr
+impl core::marker::Sync for expanse_trie::strmap::NulFreeStr
+impl core::marker::Unpin for expanse_trie::strmap::NulFreeStr
+impl core::marker::UnsafeUnpin for expanse_trie::strmap::NulFreeStr
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::strmap::NulFreeStr
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::strmap::NulFreeStr
+pub struct expanse_trie::strmap::NulInKey
+impl core::clone::Clone for expanse_trie::strmap::NulInKey
+pub fn expanse_trie::strmap::NulInKey::clone(&self) -> expanse_trie::strmap::NulInKey
+impl core::cmp::Eq for expanse_trie::strmap::NulInKey
+impl core::cmp::PartialEq for expanse_trie::strmap::NulInKey
+pub fn expanse_trie::strmap::NulInKey::eq(&self, &expanse_trie::strmap::NulInKey) -> bool
+impl core::error::Error for expanse_trie::strmap::NulInKey
+impl core::fmt::Debug for expanse_trie::strmap::NulInKey
+pub fn expanse_trie::strmap::NulInKey::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for expanse_trie::strmap::NulInKey
+pub fn expanse_trie::strmap::NulInKey::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for expanse_trie::strmap::NulInKey
+impl core::marker::StructuralPartialEq for expanse_trie::strmap::NulInKey
+impl core::marker::Freeze for expanse_trie::strmap::NulInKey
+impl core::marker::Send for expanse_trie::strmap::NulInKey
+impl core::marker::Sync for expanse_trie::strmap::NulInKey
+impl core::marker::Unpin for expanse_trie::strmap::NulInKey
+impl core::marker::UnsafeUnpin for expanse_trie::strmap::NulInKey
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::strmap::NulInKey
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::strmap::NulInKey
 pub struct expanse_trie::strmap::StrCursor<'a>
 impl<'a> expanse_trie::strmap::StrCursor<'a>
 pub fn expanse_trie::strmap::StrCursor<'a>::next(&mut self) -> core::option::Option<(&[u8], core::ptr::non_null::NonNull<u64>)>
@@ -1793,8 +1843,8 @@ impl<'a> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::SetRea
 impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::SetReader<'a>
 pub struct expanse_trie::sync::StrReader<'a>
 impl expanse_trie::sync::StrReader<'_>
-pub fn expanse_trie::sync::StrReader<'_>::contains(&self, &[u8]) -> bool
-pub fn expanse_trie::sync::StrReader<'_>::get(&self, &[u8]) -> core::option::Option<u64>
+pub fn expanse_trie::sync::StrReader<'_>::contains(&self, &expanse_trie::strmap::NulFreeStr) -> bool
+pub fn expanse_trie::sync::StrReader<'_>::get(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
 impl<'a> core::marker::Freeze for expanse_trie::sync::StrReader<'a>
 impl<'a> core::marker::Send for expanse_trie::sync::StrReader<'a>
 impl<'a> core::marker::Sync for expanse_trie::sync::StrReader<'a>
@@ -1901,14 +1951,14 @@ impl core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::SyncExpanseSet
 pub struct expanse_trie::sync::SyncExpanseStrMap
 impl expanse_trie::sync::SyncExpanseStrMap
 pub fn expanse_trie::sync::SyncExpanseStrMap::clear(&self) -> u64
-pub fn expanse_trie::sync::SyncExpanseStrMap::contains_key(&self, &[u8]) -> bool
-pub fn expanse_trie::sync::SyncExpanseStrMap::get(&self, &[u8]) -> core::option::Option<u64>
-pub fn expanse_trie::sync::SyncExpanseStrMap::insert(&self, &[u8], u64) -> core::option::Option<u64>
+pub fn expanse_trie::sync::SyncExpanseStrMap::contains_key(&self, &expanse_trie::strmap::NulFreeStr) -> bool
+pub fn expanse_trie::sync::SyncExpanseStrMap::get(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
+pub fn expanse_trie::sync::SyncExpanseStrMap::insert(&self, &expanse_trie::strmap::NulFreeStr, u64) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseStrMap::is_empty(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseStrMap::len(&self) -> u64
 pub fn expanse_trie::sync::SyncExpanseStrMap::new() -> Self
 pub fn expanse_trie::sync::SyncExpanseStrMap::reader(&self) -> expanse_trie::sync::StrReader<'_>
-pub fn expanse_trie::sync::SyncExpanseStrMap::remove(&self, &[u8]) -> core::option::Option<u64>
+pub fn expanse_trie::sync::SyncExpanseStrMap::remove(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseStrMap::with_locked<R>(&self, impl core::ops::function::FnOnce(&expanse_trie::strmap::ExpanseStrMap) -> R) -> R
 pub fn expanse_trie::sync::SyncExpanseStrMap::with_locked_mut<R>(&self, impl core::ops::function::FnOnce(&mut expanse_trie::strmap::ExpanseStrMap) -> R) -> R
 impl core::convert::From<expanse_trie::strmap::ExpanseStrMap> for expanse_trie::sync::SyncExpanseStrMap

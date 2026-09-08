@@ -66,8 +66,14 @@ pub fn bytes_input_to_slice(input: &BytesInput) -> &[u8] {
     }
 }
 
-/// Validates that a string contains no NUL (`\0`) bytes and returns its byte slice.
-pub fn str_to_nul_free_bytes(s: &str) -> Result<&[u8]> {
+/// Validates that a string contains no NUL (`\0`) bytes and returns it as an
+/// [`ExpanseStrMap`] key.
+///
+/// The binding boundary is where an untrusted string enters, so it is where
+/// the scan is paid; the engine takes the result without re-checking.
+///
+/// [`ExpanseStrMap`]: expanse_trie::strmap::ExpanseStrMap
+pub fn str_to_nul_free_bytes(s: &str) -> Result<&expanse_trie::strmap::NulFreeStr> {
     let bytes = s.as_bytes();
     if bytes.contains(&0) {
         return Err(Error::new(
@@ -75,7 +81,8 @@ pub fn str_to_nul_free_bytes(s: &str) -> Result<&[u8]> {
             "NUL bytes ('\\0') are not allowed in ExpanseStrMap keys",
         ));
     }
-    Ok(bytes)
+    // SAFETY: just checked.
+    Ok(unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(bytes) })
 }
 
 #[napi(object)]

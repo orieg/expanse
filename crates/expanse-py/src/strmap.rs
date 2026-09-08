@@ -2,6 +2,7 @@
 
 use crate::buffer::extract_str_key;
 use expanse_trie::strmap::ExpanseStrMap as InnerStrMap;
+use expanse_trie::strmap::NulFreeStr;
 use pyo3::exceptions::PyKeyError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDictMethods, PyString};
@@ -241,7 +242,11 @@ impl ExpanseStrMap {
         loop {
             let next_entry = match &cur {
                 None => self.inner.first(),
-                Some(prev_k) => self.inner.next_after(prev_k),
+                // SAFETY: `prev_k` is a key the map returned, so it is in the
+                // NUL-free domain by construction.
+                Some(prev_k) => self
+                    .inner
+                    .next_after(unsafe { NulFreeStr::new_unchecked(prev_k) }),
             };
             match next_entry {
                 Some((bytes, slot)) => {
@@ -305,7 +310,7 @@ impl ExpanseStrMap {
 
         while let Some((bytes, slot)) = cur {
             if let Some(ref eb) = end_bytes {
-                let cmp = bytes.as_slice().cmp(eb.as_ref());
+                let cmp = bytes.as_slice().cmp(eb.as_bytes());
                 if inclusive && cmp > std::cmp::Ordering::Equal {
                     break;
                 }
@@ -316,7 +321,10 @@ impl ExpanseStrMap {
             // SAFETY: `slot` is guaranteed non-null and points to a valid value by `ExpanseStrMap`.
             let val = unsafe { *slot.as_ptr() };
             items.push((key_to_py(py, &bytes), val));
-            cur = self.inner.next_after(&bytes);
+            // SAFETY: as above -- a key the map produced.
+            cur = self
+                .inner
+                .next_after(unsafe { NulFreeStr::new_unchecked(&bytes) });
         }
 
         Ok(items)

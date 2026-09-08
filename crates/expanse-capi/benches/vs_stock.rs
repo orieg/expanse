@@ -101,6 +101,10 @@ type FpGet = unsafe extern "C" fn(*const c_void, Word, *mut c_void) -> *mut c_vo
 type F1Set = unsafe extern "C" fn(*mut *mut c_void, Word, *mut c_void) -> c_int;
 type F1Test = unsafe extern "C" fn(*const c_void, Word, *mut c_void) -> c_int;
 type FpDel = unsafe extern "C" fn(*mut *mut c_void, Word, *mut c_void) -> c_int;
+/// JudySL takes a NUL-terminated `char*` rather than a `Word`, which is the
+/// only shape difference from the families above.
+type FslIns = unsafe extern "C" fn(*mut *mut c_void, *const u8, *mut c_void) -> *mut c_void;
+type FslGet = unsafe extern "C" fn(*const c_void, *const u8, *mut c_void) -> *mut c_void;
 
 /// Keeps a built array observable so the optimizer cannot delete the
 /// work that produced it, without calling into either library.
@@ -180,6 +184,8 @@ impl Lib {
             set1: self.sym(c"Judy1Set"),
             test1: self.sym(c"Judy1Test"),
             del: self.sym(c"JudyLDel"),
+            sl_ins: self.sym(c"JudySLIns"),
+            sl_get: self.sym(c"JudySLGet"),
         }
     }
 }
@@ -192,6 +198,8 @@ struct Api {
     set1: F1Set,
     test1: F1Test,
     del: FpDel,
+    sl_ins: FslIns,
+    sl_get: FslGet,
 }
 
 struct XorShift(u64);
@@ -723,6 +731,213 @@ fn bench_config() -> LibraryBenchmarkConfig {
     config
 }
 
+// ---- JudySL (C-string keys) ------------------------------------------
+//
+// The fourth compat family, and until now the only one absent from this
+// comparison: §2.2 commits `JudySL*` to the same zero-overhead drop-in
+// parity as `JudyL*` and `Judy1*`, and nothing measured it.
+//
+// Keys are derived from the same `keys(dist)` the other arms use, so the
+// three distributions carry over: a clustered `Word` set is a clustered
+// string set once formatted at fixed width. Both sides pay the same
+// `strlen`, so the ratio stays like-for-like even though the absolute
+// counts are larger than the `Word`-keyed arms and are not comparable to
+// them.
+
+/// NUL-terminated, fixed-width keys derived from `keys(dist)`.
+fn str_keys(dist: &str) -> Vec<Vec<u8>> {
+    keys(dist)
+        .into_iter()
+        .map(|k| {
+            let mut b = format!("/k/{k:016x}").into_bytes();
+            b.push(0);
+            b
+        })
+        .collect()
+}
+
+/// Keys for a JudySL insert arm, generated in `setup`.
+struct StrFeed {
+    ks: Vec<Vec<u8>>,
+    api: Option<Api>,
+}
+
+// SAFETY: fn pointers into a library that is never `dlclose`d; used only on
+// the harness thread that built the struct.
+unsafe impl Send for StrFeed {}
+
+/// A built JudySL array plus its shuffled probe order.
+struct StrBuilt {
+    arr: *mut c_void,
+    probes: Vec<Vec<u8>>,
+    api: Option<Api>,
+}
+
+// SAFETY: created and consumed on the same thread; never shared.
+unsafe impl Send for StrBuilt {}
+
+fn str_feed(dist: &str, api: Option<Api>) -> StrFeed {
+    StrFeed {
+        ks: str_keys(dist),
+        api,
+    }
+}
+fn str_feed_expanse(dist: &str) -> StrFeed {
+    str_feed(dist, None)
+}
+fn str_feed_expanse_dl(dist: &str) -> StrFeed {
+    str_feed(dist, ours_api())
+}
+fn str_feed_stock(dist: &str) -> StrFeed {
+    str_feed(dist, stock_api())
+}
+
+/// Builds a JudySL array through `api` (or directly, when `None`), outside
+/// the measured region.
+fn build_strmap(dist: &str, api: Option<Api>) -> StrBuilt {
+    let ks = str_keys(dist);
+    let mut probes = ks.clone();
+    let mut rng = XorShift(0x9E37_79B9);
+    for i in (1..probes.len()).rev() {
+        probes.swap(i, (rng.next() % (i as u64 + 1)) as usize);
+    }
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard JudySL usage; each key is NUL-terminated and the
+    // returned slot is valid until the next mutation.
+    unsafe {
+        for (i, k) in ks.iter().enumerate() {
+            let slot = match api {
+                Some(a) => (a.sl_ins)(&raw mut arr, k.as_ptr(), null_mut()),
+                None => expanse::JudySLIns(&raw mut arr, k.as_ptr(), null_mut()),
+            }
+            .cast::<Word>();
+            *slot = i as Word;
+        }
+    }
+    StrBuilt { arr, probes, api }
+}
+fn build_str_expanse(dist: &str) -> StrBuilt {
+    build_strmap(dist, None)
+}
+fn build_str_expanse_dl(dist: &str) -> StrBuilt {
+    build_strmap(dist, ours_api())
+}
+fn build_str_stock(dist: &str) -> StrBuilt {
+    build_strmap(dist, stock_api())
+}
+
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = str_feed_expanse)]
+#[bench::random(args = ("random",), setup = str_feed_expanse)]
+#[bench::clustered(args = ("clustered",), setup = str_feed_expanse)]
+fn judysl_insert_expanse(f: StrFeed) -> Word {
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard JudySL usage; the slot is written immediately.
+    unsafe {
+        for (i, k) in f.ks.iter().enumerate() {
+            let slot =
+                expanse::JudySLIns(&raw mut arr, black_box(k.as_ptr()), null_mut()).cast::<Word>();
+            *slot = i as Word;
+        }
+        // Not freed, as in every other arm here: teardown is a different
+        // code path and each bench runs in its own process.
+        black_box(map_len_sentinel(arr))
+    }
+}
+
+// Our own `libexpanse.so`, reached exactly as stock is. THIS is the arm to
+// compare against `judysl_insert_stock`.
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = str_feed_expanse_dl)]
+#[bench::random(args = ("random",), setup = str_feed_expanse_dl)]
+#[bench::clustered(args = ("clustered",), setup = str_feed_expanse_dl)]
+fn judysl_insert_expanse_dl(f: StrFeed) -> Word {
+    let ins = f.api.expect("dl arm needs a resolved api").sl_ins;
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: same contract as the rlib arm.
+    unsafe {
+        for (i, k) in f.ks.iter().enumerate() {
+            let slot = ins(&raw mut arr, black_box(k.as_ptr()), null_mut()).cast::<Word>();
+            *slot = i as Word;
+        }
+        black_box(map_len_sentinel(arr))
+    }
+}
+
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = str_feed_stock)]
+#[bench::random(args = ("random",), setup = str_feed_stock)]
+#[bench::clustered(args = ("clustered",), setup = str_feed_stock)]
+fn judysl_insert_stock(f: StrFeed) -> Word {
+    let ins = f.api.expect("stock arm needs a resolved api").sl_ins;
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: same contract as the libexpanse arms.
+    unsafe {
+        for (i, k) in f.ks.iter().enumerate() {
+            let slot = ins(&raw mut arr, black_box(k.as_ptr()), null_mut()).cast::<Word>();
+            *slot = i as Word;
+        }
+        black_box(map_len_sentinel(arr))
+    }
+}
+
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = build_str_expanse)]
+#[bench::random(args = ("random",), setup = build_str_expanse)]
+#[bench::clustered(args = ("clustered",), setup = build_str_expanse)]
+fn judysl_get_expanse(built: StrBuilt) -> Word {
+    let mut sink = 0 as Word;
+    // SAFETY: the array was built in `setup`; JudySLGet only reads.
+    unsafe {
+        for k in &built.probes {
+            let slot =
+                expanse::JudySLGet(built.arr, black_box(k.as_ptr()), null_mut()).cast::<Word>();
+            if !slot.is_null() {
+                sink ^= *slot;
+            }
+        }
+    }
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = build_str_expanse_dl)]
+#[bench::random(args = ("random",), setup = build_str_expanse_dl)]
+#[bench::clustered(args = ("clustered",), setup = build_str_expanse_dl)]
+fn judysl_get_expanse_dl(built: StrBuilt) -> Word {
+    let get = built.api.expect("dl arm needs a resolved api").sl_get;
+    let mut sink = 0 as Word;
+    // SAFETY: same contract as the rlib arm.
+    unsafe {
+        for k in &built.probes {
+            let slot = get(built.arr, black_box(k.as_ptr()), null_mut()).cast::<Word>();
+            if !slot.is_null() {
+                sink ^= *slot;
+            }
+        }
+    }
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = build_str_stock)]
+#[bench::random(args = ("random",), setup = build_str_stock)]
+#[bench::clustered(args = ("clustered",), setup = build_str_stock)]
+fn judysl_get_stock(built: StrBuilt) -> Word {
+    let get = built.api.expect("stock arm needs a resolved api").sl_get;
+    let mut sink = 0 as Word;
+    // SAFETY: same contract as the libexpanse arms.
+    unsafe {
+        for k in &built.probes {
+            let slot = get(built.arr, black_box(k.as_ptr()), null_mut()).cast::<Word>();
+            if !slot.is_null() {
+                sink ^= *slot;
+            }
+        }
+    }
+    black_box(sink)
+}
+
 library_benchmark_group!(
     name = vs_stock;
     benchmarks =
@@ -740,7 +955,13 @@ library_benchmark_group!(
         judy1_set_stock,
         judy1_test_expanse,
         judy1_test_expanse_dl,
-        judy1_test_stock
+        judy1_test_stock,
+        judysl_insert_expanse,
+        judysl_insert_expanse_dl,
+        judysl_insert_stock,
+        judysl_get_expanse,
+        judysl_get_expanse_dl,
+        judysl_get_stock
 );
 
 #[cfg(target_os = "linux")]

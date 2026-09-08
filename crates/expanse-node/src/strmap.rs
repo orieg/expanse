@@ -146,7 +146,11 @@ impl ExpanseStrMap {
         loop {
             let next_entry = match &cur {
                 None => self.inner.first(),
-                Some(prev_k) => self.inner.next_after(prev_k),
+                // SAFETY: `prev_k` is a key the map returned, so it is in
+                // the NUL-free domain by construction.
+                Some(prev_k) => self
+                    .inner
+                    .next_after(unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(prev_k) }),
             };
             match next_entry {
                 Some((bytes, slot)) => {

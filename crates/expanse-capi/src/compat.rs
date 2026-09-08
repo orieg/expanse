@@ -22,6 +22,7 @@ use crate::{
 };
 use core::ffi::{c_int, c_void};
 use core::ptr::{NonNull, null_mut};
+use expanse_trie::strmap::NulFreeStr;
 
 pub(crate) const JERR_INT: c_int = -1;
 /// The `PJERR` sentinel returned by pointer-returning entry points.
@@ -645,14 +646,20 @@ pub unsafe extern "C" fn JudyLMemUsed(parray: *const c_void) -> Word {
 
 /// # Safety
 /// `p` must be a valid NUL-terminated C string.
-unsafe fn cstr_bytes<'a>(p: *const u8) -> &'a [u8] {
+/// The JudySL key at `p`, as [`NulFreeStr`].
+///
+/// The scan that finds the terminator *is* the domain proof, so the engine
+/// never re-derives it: this is the C ABI's half of the contract that lets
+/// `chunk_at` keep its length rule.
+unsafe fn cstr_bytes<'a>(p: *const u8) -> &'a NulFreeStr {
     // SAFETY: caller passes a NUL-terminated string.
     unsafe {
         let mut n = 0usize;
         while *p.add(n) != 0 {
             n += 1;
         }
-        core::slice::from_raw_parts(p, n)
+        // SAFETY: the loop stopped at the first NUL, so `[0, n)` has none.
+        NulFreeStr::new_unchecked(core::slice::from_raw_parts(p, n))
     }
 }
 
