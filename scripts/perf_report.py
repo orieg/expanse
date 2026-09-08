@@ -89,6 +89,8 @@ BENCH_N_MAP: Dict[str, int] = {
     "judyl_churn": 50_000,
     "judy1_set": 50_000,
     "judy1_test": 50_000,
+    "judysl_insert": 10_000,
+    "judysl_get": 10_000,
 }
 
 SMOKE_BENCH_N_MAP: Dict[str, int] = {
@@ -117,6 +119,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "sync_set_contains",
             "judyl_get",
             "judy1_test",
+            "judysl_get",
         },
     ),
     (
@@ -143,6 +146,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "judyl_insert",
             "judy1_set",
             "judyl_churn",
+            "judysl_insert",
         },
     ),
 ]
