@@ -105,20 +105,25 @@ pub(crate) fn leaf_values_offset(pop: usize) -> usize {
 /// See `set::by_mode`: the three sharing modes an engine call is
 /// monomorphized for, decided once per operation.
 macro_rules! by_mode {
-    ($alloc:expr, $call:ident, $shared:ident $args:tt) => {
+    ($alloc:expr, $call:ident $args:tt) => {
         if $alloc.occ_enabled() {
-            // The two shared arms live out of line (`$shared`): inlined
-            // here they doubled the owner's body and cost the unshared
-            // arms 0.4–1.4% (#568 PR 3, measured on Callgrind).
-            $shared $args
+            if $alloc.engine_covers_root() {
+                $call::<true, false> $args
+            } else {
+                $call::<true, true> $args
+            }
         } else {
             $call::<false, false> $args
         }
     };
     // With a leading const argument of the call's own (`KEEP`).
-    ($alloc:expr, $call:ident::<$k:literal>, $shared:ident::<$k2:literal> $args:tt) => {
+    ($alloc:expr, $call:ident::<$k:literal> $args:tt) => {
         if $alloc.occ_enabled() {
-            $shared::<$k2> $args
+            if $alloc.engine_covers_root() {
+                $call::<$k, true, false> $args
+            } else {
+                $call::<$k, true, true> $args
+            }
         } else {
             $call::<$k, false, false> $args
         }
@@ -158,23 +163,6 @@ fn tree_insert<const KEEP: bool, const OCC: bool, const NESTED: bool>(
     r
 }
 
-/// The shared arms of [`tree_insert`], out of line (see `by_mode`).
-#[inline(never)]
-fn tree_insert_shared<const KEEP: bool>(
-    alloc: &NodeAlloc,
-    tree_pop: &mut core::sync::atomic::AtomicU64,
-    path: &mut crate::mutate_map::InsertPathMap,
-    top: &mut Edge,
-    key: Key,
-    val: u64,
-) -> (Option<u64>, *mut u64) {
-    if alloc.engine_covers_root() {
-        tree_insert::<KEEP, true, false>(alloc, tree_pop, path, top, key, val)
-    } else {
-        tree_insert::<KEEP, true, true>(alloc, tree_pop, path, top, key, val)
-    }
-}
-
 /// The tree arm of remove, per sharing mode: `(removed value, population
 /// after)`, `u64::MAX` when nothing was removed.
 #[inline(always)]
@@ -198,21 +186,6 @@ fn tree_remove<const OCC: bool, const NESTED: bool>(
         *p
     };
     (old, now)
-}
-
-/// The shared arms of [`tree_remove`], out of line (see `by_mode`).
-#[inline(never)]
-fn tree_remove_shared(
-    alloc: &NodeAlloc,
-    tree_pop: &mut core::sync::atomic::AtomicU64,
-    top: &mut Edge,
-    key: Key,
-) -> (Option<u64>, u64) {
-    if alloc.engine_covers_root() {
-        tree_remove::<true, false>(alloc, tree_pop, top, key)
-    } else {
-        tree_remove::<true, true>(alloc, tree_pop, top, key)
-    }
 }
 
 /// The root-leaf promotion, per sharing mode (see `set::promote_leaf`).
@@ -254,23 +227,6 @@ fn promote_leaf<const OCC: bool, const NESTED: bool>(
     };
     debug_assert!(prev.0.is_none());
     top
-}
-
-/// The shared arms of [`promote_leaf`], out of line (see `by_mode`).
-#[inline(never)]
-fn promote_leaf_shared(
-    alloc: &NodeAlloc,
-    keys: &[u64],
-    vals: *const u64,
-    key: Key,
-    val: u64,
-    path: &mut crate::mutate_map::InsertPathMap,
-) -> Edge {
-    if alloc.engine_covers_root() {
-        promote_leaf::<true, false>(alloc, keys, vals, key, val, path)
-    } else {
-        promote_leaf::<true, true>(alloc, keys, vals, key, val, path)
-    }
 }
 
 impl MapCore {
@@ -745,8 +701,7 @@ impl MapCore {
                 // tree still dispatches by flag so its stores are bracketed.
                 let (_prev, slot) = by_mode!(
                     alloc,
-                    tree_insert::<true>,
-                    tree_insert_shared::<true>(alloc, &mut self.tree_pop, path, top, key, 0)
+                    tree_insert::<true>(alloc, &mut self.tree_pop, path, top, key, 0)
                 );
                 // SAFETY: map_insert always returns a valid, non-null slot pointer.
                 unsafe { core::ptr::NonNull::new_unchecked(slot) }
@@ -1036,11 +991,7 @@ impl MapCore {
                     // tree word (a nested `begin` would make it even
                     // mid-write), never a node's own (an upgrade inside the
                     // build marks that node obsolete, which needs it even).
-                    let top = by_mode!(
-                        alloc,
-                        promote_leaf,
-                        promote_leaf_shared(alloc, keys, vals, key, val, path)
-                    );
+                    let top = by_mode!(alloc, promote_leaf(alloc, keys, vals, key, val, path));
                     // SAFETY: old root leaf no longer referenced.
                     unsafe { alloc.free_bytes(ptr, leaf_size(pop)) };
                     self.tree_pop
@@ -1156,8 +1107,7 @@ impl MapCore {
                 // node that holds it and bumps the population atomically.
                 by_mode!(
                     alloc,
-                    tree_insert::<false>,
-                    tree_insert_shared::<false>(alloc, &mut self.tree_pop, path, top, key, val)
+                    tree_insert::<false>(alloc, &mut self.tree_pop, path, top, key, val)
                 )
                 .0
             }
@@ -1229,11 +1179,7 @@ impl MapCore {
             Root::Tree { top } => {
                 // One OCC check per operation, where the runtime dispatch
                 // always sat (see `insert_inner`).
-                let (old, now) = by_mode!(
-                    alloc,
-                    tree_remove,
-                    tree_remove_shared(alloc, &mut self.tree_pop, top, key)
-                );
+                let (old, now) = by_mode!(alloc, tree_remove(alloc, &mut self.tree_pop, top, key));
                 if old.is_some() {
                     if now == 0 {
                         debug_assert!(top.is_null());
