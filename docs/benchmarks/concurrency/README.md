@@ -54,18 +54,18 @@ One row per candidate share of the per-probe delta at C2 W=1 R=8, per cell.
 Filled from the FFI suites' health and counter artifacts once both runs
 exist; the verdict labels are the shared vocabulary.
 
-| cell | run | spin time (P0.1) | restarts | fallback | writer RFO / insert (P0.2) | unattributed | verdict |
-|---|--:|---|---|---|---|---|---|
-| `hot_conc_set_w1_r8` | — | pending ([#568](https://github.com/orieg/expanse/issues/568)) | pending | 0 by construction | pending | pending | pending |
-| `hot_conc_map_w1_r8` | — | pending | pending | 0 by construction | pending | pending | pending |
-| `masstree_conc_map_w1_r8` | — | pending | pending | 0 by construction | pending | pending | pending |
+| cell | run | spin time (P0.1) | restarts | fallback | writer RFO / insert (P0.2) | writer HITM / insert | reader HITM / probe (vs alone) | reader cycles / probe (vs alone) | unattributed | verdict |
+|---|--:|---|---|---|---|---|---|---|---|---|
+| `hot_conc_set_w1_r8` | — | pending ([#568](https://github.com/orieg/expanse/issues/568)) | pending | 0 by construction | pending | pending | pending | pending | pending | pending |
+| `hot_conc_map_w1_r8` | — | pending | pending | 0 by construction | pending | pending | pending | pending | pending | pending |
+| `masstree_conc_map_w1_r8` | — | pending | pending | 0 by construction | pending | pending | pending | pending | pending | pending |
 
 ## 4. Attribution — D2, writers under load (METHODOLOGY §4, §5)
 
-| cell | context switches / insert (P0.3) | handoffs / insert | RFO / insert | futex / insert | verdict |
-|---|---|---|---|---|---|
-| `masstree_conc_str_w8_r0` | `NOT_INSTRUMENTED` | n/a (R=0 cell; H cells carry R=8) | `NOT_INSTRUMENTED` | `NOT_INSTRUMENTED` | see METHODOLOGY §4 P0.3 |
-| `masstree_conc_map_w8_r0` | `NOT_INSTRUMENTED` | n/a (R=0 cell; H cells carry R=8) | `NOT_INSTRUMENTED` | `NOT_INSTRUMENTED` | see METHODOLOGY §4 P0.3 |
+| cell | context switches / insert (P0.3) | writer off-CPU share | cycles / insert | RFO / insert | HITM / insert | futex / insert | verdict |
+|---|---|---|---|---|---|---|---|
+| `masstree_conc_str_w8_r0` | `NOT_INSTRUMENTED` | `NOT_INSTRUMENTED` | `NOT_INSTRUMENTED` | `NOT_INSTRUMENTED` | `NOT_INSTRUMENTED` | `NOT_INSTRUMENTED` | see METHODOLOGY §4 P0.3 |
+| `masstree_conc_map_w8_r0` | `NOT_INSTRUMENTED` | `NOT_INSTRUMENTED` | `NOT_INSTRUMENTED` | `NOT_INSTRUMENTED` | `NOT_INSTRUMENTED` | `NOT_INSTRUMENTED` | see METHODOLOGY §4 P0.3 |
 
 ## 5. The counter's own spread (P0.4)
 

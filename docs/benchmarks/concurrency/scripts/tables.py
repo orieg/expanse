@@ -146,8 +146,8 @@ def role_event(art: dict | None, role: str, ev: str) -> dict | None:
 # ---- 3. D1 -----------------------------------------------------------------
 def d1() -> list[str]:
     out = ["## 3. Attribution — D1, readers under one writer (METHODOLOGY §4, §5)", "",
-           "| cell | run | spin time (P0.1) | restarts | fallback | writer RFO / insert (P0.2) | unattributed | verdict |",
-           "|---|--:|---|---|---|---|---|---|"]
+           "| cell | run | spin time (P0.1) | restarts | fallback | writer RFO / insert (P0.2) | writer HITM / insert | reader HITM / probe (vs alone) | reader cycles / probe (vs alone) | unattributed | verdict |",
+           "|---|--:|---|---|---|---|---|---|---|---|---|"]
     any_rows = False
     for label, results, arm, ccell in D1:
         for run, fname in ((1, "baseline_concurrent.json"), (2, "baseline_concurrent_run2.json")):
@@ -183,18 +183,28 @@ def d1() -> list[str]:
                 rfo_txt = f"{pm(rfo_c2):.2f} vs {pm(rfo_c1):.2f} alone (Δ {pm(rfo_c2)-pm(rfo_c1):+.2f})"
             else:
                 rfo_txt = "`NOT_INSTRUMENTED`"
-            out.append(f"| `{label}` | {run} | {spin_txt} | {rs_txt} | 0 by construction | {rfo_txt} | {un_txt} | {verdict} |")
+            hitm_w = role_event(c2, "writer", "mem_load_l3_hit_retired.xsnp_hitm")
+            hitm_w_txt = fmt_iv(hitm_w, 2) if pm(hitm_w) is not None else "`NOT_INSTRUMENTED`"
+            c0 = counters(results, ccell.replace("_w1_r8", "_w0_r8"))
+            def pair(ev: str, digits: int) -> str:
+                a, b = role_event(c2, "reader", ev), role_event(c0, "reader", ev)
+                if pm(a) is None:
+                    return "`NOT_INSTRUMENTED`"
+                if pm(b) is None:
+                    return f"{pm(a):.{digits}f} (control not measured)"
+                return f"{pm(a):.{digits}f} vs {pm(b):.{digits}f} alone"
+            out.append(f"| `{label}` | {run} | {spin_txt} | {rs_txt} | 0 by construction | {rfo_txt} | {hitm_w_txt} | {pair('mem_load_l3_hit_retired.xsnp_hitm', 2)} | {pair('cycles', 0)} | {un_txt} | {verdict} |")
     if not any_rows:
         for i, (label, *_rest) in enumerate(D1):
-            out.append(f"| `{label}` | — | {PENDING if i == 0 else 'pending'} | pending | 0 by construction | pending | pending | pending |")
+            out.append(f"| `{label}` | — | {PENDING if i == 0 else 'pending'} | pending | 0 by construction | pending | pending | pending | pending | pending | pending |")
     return out
 
 
 # ---- 4. D2 -----------------------------------------------------------------
 def d2() -> list[str]:
     out = ["## 4. Attribution — D2, writers under load (METHODOLOGY §4, §5)", "",
-           "| cell | context switches / insert (P0.3) | handoffs / insert | RFO / insert | futex / insert | verdict |",
-           "|---|---|---|---|---|---|"]
+           "| cell | context switches / insert (P0.3) | writer off-CPU share | cycles / insert | RFO / insert | HITM / insert | futex / insert | verdict |",
+           "|---|---|---|---|---|---|---|---|"]
     any_rows = False
     for label, results, arm, w, ccell, note in D2:
         c = counters(results, ccell)
@@ -207,9 +217,29 @@ def d2() -> list[str]:
             continue
         any_rows = True
         cs_txt = fmt_iv(cs, 3) if pm(cs) is not None else "`NOT_INSTRUMENTED`"
-        hand_txt = "n/a (R=0 cell; H cells carry R=8)" if not h or "handoffs_per_write" not in h else f"{h['handoffs_per_write']['median']:.3f} (H W={w} R=8)"
+        # Off-CPU share: 1 - on-CPU ms per insert / wall ms per insert per writer
+        # (task-clock is per thread; the wall time is the round's writer phase
+        # divided by that writer's share of the fresh keys).
+        off_txt = "`NOT_INSTRUMENTED`"
+        tc = role_event(c, "writer", "task-clock")
+        if c and pm(tc) is not None:
+            shares = []
+            for rr in c.get("rounds_raw", []):
+                wo, ws = rr.get("write_ops"), rr.get("writer_elapsed_s")
+                tcm = rr.get("per_op", {}).get("writer", {}).get("task-clock")
+                if wo and ws and tcm is not None:
+                    wall_ms = ws * 1e3 / (wo / w)
+                    shares.append(1.0 - tcm / wall_ms)
+            if shares:
+                shares.sort()
+                off_txt = f"{shares[len(shares)//2]:.0%} (median of {len(shares)} rounds)"
+        cyc = role_event(c, "writer", "cycles")
+        cyc_txt = fmt_iv(cyc, 0) if pm(cyc) is not None else "`NOT_INSTRUMENTED`"
+        hitm = role_event(c, "writer", "mem_load_l3_hit_retired.xsnp_hitm")
+        hitm_txt = fmt_iv(hitm, 2) if pm(hitm) is not None else "`NOT_INSTRUMENTED`"
         rfo_txt = fmt_iv(rfo, 2) if pm(rfo) is not None else "`NOT_INSTRUMENTED`"
         fut_txt = fmt_iv(futex, 3) if pm(futex) is not None else "`NOT_INSTRUMENTED`"
+        _ = h
         verdict = note or "see METHODOLOGY §4 P0.3"
         if pm(cs) is not None:
             m = pm(cs)
@@ -221,11 +251,11 @@ def d2() -> list[str]:
                 verdict = ("`CONFIRMED`" if m <= 0.1 else "`BOUNDARY_RESULT`") + "; " + note
             elif arm == "map" and w == 8:
                 verdict = "control"
-        out.append(f"| `{label}` | {cs_txt} | {hand_txt} | {rfo_txt} | {fut_txt} | {verdict} |")
+        out.append(f"| `{label}` | {cs_txt} | {off_txt} | {cyc_txt} | {rfo_txt} | {hitm_txt} | {fut_txt} | {verdict} |")
     if not any_rows:
         for i, (label, _r, _a, _w, _c, note) in enumerate(D2):
             v = note or "pending"
-            out.append(f"| `{label}` | {PENDING if i == 0 else 'pending'} | pending | pending | pending or `NOT_INSTRUMENTED` | {v} |")
+            out.append(f"| `{label}` | {PENDING if i == 0 else 'pending'} | pending | pending | pending | pending | pending or `NOT_INSTRUMENTED` | {v} |")
     return out
 
 
