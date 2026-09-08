@@ -317,7 +317,25 @@ fn terminal_bytes(chunk: u64) -> impl Iterator<Item = u8> {
 }
 
 /// True when the chunk contains a NUL byte (terminal entry).
+///
+/// SWAR haszero rather than `to_be_bytes().contains(&0)`: this runs on every
+/// descent level and at every suffix publication, and the slice search
+/// lowered to a byte-wise scan. The three-operation form is branchless and
+/// byte-order independent -- it asks whether any lane borrowed, which does
+/// not depend on which end the lanes came from.
+///
+/// `is_terminal_scan` is the reference implementation, kept as the parity
+/// oracle for `swar_haszero_matches_the_byte_scan`.
+#[inline]
 fn is_terminal(chunk: u64) -> bool {
+    const LO: u64 = 0x0101_0101_0101_0101;
+    const HI: u64 = 0x8080_8080_8080_8080;
+    chunk.wrapping_sub(LO) & !chunk & HI != 0
+}
+
+/// The byte-scan definition of [`is_terminal`], retained as the parity oracle.
+#[cfg(test)]
+fn is_terminal_scan(chunk: u64) -> bool {
     chunk.to_be_bytes().contains(&0)
 }
 
@@ -1749,6 +1767,41 @@ mod tests {
             .map(|(k, _)| k.clone())
             .collect();
         assert_eq!(walked, from, "the seeked cursor did not resume correctly");
+    }
+
+    /// The SWAR haszero in [`is_terminal`] agrees with the byte scan it
+    /// replaced, on every single-byte position and over a wide random sweep.
+    ///
+    /// Required by AGENTS.md §5: a vectorised or SWAR path carries a portable
+    /// reference and a parity test. `is_terminal_scan` is that reference.
+    #[test]
+    fn swar_haszero_matches_the_byte_scan() {
+        // Every byte value in every lane, which is where a borrow-propagation
+        // bug in a haszero shows up first.
+        for b in 0u64..=255 {
+            for lane in 0..8 {
+                let v = b << (8 * lane);
+                assert_eq!(is_terminal(v), is_terminal_scan(v), "lane {lane} byte {b}");
+                let filled = v | !(0xFFu64 << (8 * lane));
+                assert_eq!(
+                    is_terminal(filled),
+                    is_terminal_scan(filled),
+                    "lane {lane} byte {b}, others set"
+                );
+            }
+        }
+        // Boundaries the identity is most likely to trip on.
+        for v in [0, 1, u64::MAX, 0x0101_0101_0101_0101, 0x8080_8080_8080_8080] {
+            assert_eq!(is_terminal(v), is_terminal_scan(v), "boundary {v:#x}");
+        }
+        // Random sweep, deterministic seed.
+        let mut rng = 0x2545_F491_4F6C_DD1Du64;
+        for _ in 0..if cfg!(miri) { 500 } else { 200_000 } {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            assert_eq!(is_terminal(rng), is_terminal_scan(rng), "random {rng:#x}");
+        }
     }
 
     /// The guard that refuses to publish a suffix pointer at a chunk every
