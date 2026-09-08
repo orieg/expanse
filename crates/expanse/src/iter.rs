@@ -2725,7 +2725,7 @@ mod tests {
         );
 
         let (snap, _) = map.occ_root();
-        let RootSnapshot::Tree { top, .. } = snap else {
+        let RootSnapshot::Tree { top } = snap else {
             panic!("expected a tree root");
         };
         // SAFETY: `top` is the live tree root of `map`, held immutable here.

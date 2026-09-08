@@ -60,7 +60,7 @@ pub(crate) struct MapCore {
     /// word so a shared tree bumps it under no bracket and a concurrent
     /// `len()` reads it whole (#568 PR 3); the unshared path writes it
     /// through `get_mut`, no atomic instruction.
-    tree_pop: core::sync::atomic::AtomicU64,
+    tree_pop: u64,
 }
 
 /// A sparse, dynamic map from `u64` keys to `u64` values (compat: JudyL).
@@ -135,7 +135,7 @@ macro_rules! by_mode {
 #[inline(always)]
 fn tree_insert<const KEEP: bool, const OCC: bool, const NESTED: bool>(
     alloc: &NodeAlloc,
-    tree_pop: &mut core::sync::atomic::AtomicU64,
+    tree_pop: &mut u64,
     path: &mut crate::mutate_map::InsertPathMap,
     top: &mut Edge,
     key: Key,
@@ -154,11 +154,7 @@ fn tree_insert<const KEEP: bool, const OCC: bool, const NESTED: bool>(
         )
     };
     if r.0.is_none() {
-        if OCC {
-            tree_pop.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        } else {
-            *tree_pop.get_mut() += 1;
-        }
+        *tree_pop += 1;
     }
     r
 }
@@ -168,7 +164,7 @@ fn tree_insert<const KEEP: bool, const OCC: bool, const NESTED: bool>(
 #[inline(always)]
 fn tree_remove<const OCC: bool, const NESTED: bool>(
     alloc: &NodeAlloc,
-    tree_pop: &mut core::sync::atomic::AtomicU64,
+    tree_pop: &mut u64,
     top: &mut Edge,
     key: Key,
 ) -> (Option<u64>, u64) {
@@ -178,12 +174,9 @@ fn tree_remove<const OCC: bool, const NESTED: bool>(
     };
     let now = if old.is_none() {
         u64::MAX
-    } else if OCC {
-        tree_pop.fetch_sub(1, core::sync::atomic::Ordering::Relaxed) - 1
     } else {
-        let p = tree_pop.get_mut();
-        *p -= 1;
-        *p
+        *tree_pop -= 1;
+        *tree_pop
     };
     (old, now)
 }
@@ -234,7 +227,7 @@ impl MapCore {
     pub(crate) const fn new() -> Self {
         Self {
             root: Root::Empty,
-            tree_pop: core::sync::atomic::AtomicU64::new(0),
+            tree_pop: 0,
         }
     }
 
@@ -245,7 +238,7 @@ impl MapCore {
         match &self.root {
             Root::Empty => 0,
             Root::Leaf { pop, .. } => *pop as u64,
-            Root::Tree { .. } => self.tree_pop.load(core::sync::atomic::Ordering::Relaxed),
+            Root::Tree { .. } => self.tree_pop,
         }
     }
 
@@ -653,7 +646,7 @@ impl MapCore {
                         node.bitmap.set(d);
                         path.pending_pop += 1;
                         path.terminal_pop += 1;
-                        *self.tree_pop.get_mut() += 1;
+                        self.tree_pop += 1;
                         // SAFETY: keep terminal edge pop0 up to date.
                         unsafe {
                             (*path.edges[0]).set_pop0(1, (path.terminal_pop - 1) as u64);
@@ -683,7 +676,7 @@ impl MapCore {
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;
-                                *self.tree_pop.get_mut() += 1;
+                                self.tree_pop += 1;
                                 // SAFETY: freshly written slot in live value area.
                                 let slot = unsafe { base.cast::<u64>().add(cur_pop) };
                                 return core::ptr::NonNull::new(slot).expect("slot");
@@ -845,10 +838,7 @@ impl MapCore {
                 ptr: ptr.as_ptr(),
                 pop: *pop,
             },
-            Root::Tree { top } => RootSnapshot::Tree {
-                top: *top,
-                pop: self.tree_pop.load(core::sync::atomic::Ordering::Relaxed),
-            },
+            Root::Tree { top } => RootSnapshot::Tree { top: *top },
         }
     }
 
@@ -994,8 +984,7 @@ impl MapCore {
                     let top = by_mode!(alloc, promote_leaf(alloc, keys, vals, key, val, path));
                     // SAFETY: old root leaf no longer referenced.
                     unsafe { alloc.free_bytes(ptr, leaf_size(pop)) };
-                    self.tree_pop
-                        .store(pop as u64 + 1, core::sync::atomic::Ordering::Relaxed);
+                    self.tree_pop = pop as u64 + 1;
                     self.root = Root::Tree { top };
                     None
                 }
@@ -1058,7 +1047,7 @@ impl MapCore {
                         node.bitmap.set(d);
                         path.pending_pop += 1;
                         path.terminal_pop += 1;
-                        *self.tree_pop.get_mut() += 1;
+                        self.tree_pop += 1;
                         // SAFETY: keep terminal edge pop0 up to date.
                         unsafe {
                             (*path.edges[0]).set_pop0(1, (path.terminal_pop - 1) as u64);
@@ -1086,7 +1075,7 @@ impl MapCore {
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;
-                                *self.tree_pop.get_mut() += 1;
+                                self.tree_pop += 1;
                                 return None;
                             }
                         } else if d == last {
@@ -1252,7 +1241,7 @@ impl MapCore {
                 let mut stats = ExpanseStats::default();
                 let counted =
                     crate::validate::expanse_validate_and_stats::<true>(top, 8, &mut stats, 0)?;
-                let pop = self.tree_pop.load(core::sync::atomic::Ordering::Relaxed);
+                let pop = self.tree_pop;
                 if counted != pop {
                     return Err(format!(
                         "total population {pop} disagrees with tree {counted}"
@@ -1789,7 +1778,7 @@ impl MapCore {
         let Root::Tree { top } = &mut self.root else {
             unreachable!("condense outside tree state")
         };
-        let n = self.tree_pop.load(core::sync::atomic::Ordering::Relaxed) as usize;
+        let n = self.tree_pop as usize;
         debug_assert!((1..ROOT_LEAF_CAP).contains(&n));
         let new = alloc.alloc_bytes(leaf_size(n));
         let mut written = 0usize;

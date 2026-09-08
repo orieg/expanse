@@ -69,8 +69,6 @@ pub(crate) enum RootSnapshot {
     Tree {
         /// The top edge (by value).
         top: Edge,
-        /// Total population.
-        pop: u64,
     },
 }
 
@@ -210,7 +208,7 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
             chk!();
             return Ok(Some(v));
         }
-        RootSnapshot::Tree { top, .. } => (top, 8),
+        RootSnapshot::Tree { top } => (top, 8),
     };
 
     loop {
@@ -564,12 +562,19 @@ pub(crate) trait SharedTree {
     /// As `NodeAlloc::bind_tree_word`: `word` outlives every operation on
     /// this tree.
     unsafe fn bind_tree_word(&self, word: *const SeqVersion);
+
+    /// Total entries currently stored.
+    fn tree_pop(&self) -> u64;
 }
 
 impl SharedTree for ExpanseMap {
     unsafe fn bind_tree_word(&self, word: *const SeqVersion) {
         // SAFETY: forwarded contract.
         unsafe { self.occ_root().1.bind_tree_word(word) };
+    }
+
+    fn tree_pop(&self) -> u64 {
+        self.len()
     }
 }
 
@@ -578,12 +583,20 @@ impl SharedTree for ExpanseSet {
         // SAFETY: forwarded contract.
         unsafe { self.occ_root().1.bind_tree_word(word) };
     }
+
+    fn tree_pop(&self) -> u64 {
+        self.len()
+    }
 }
 
 impl SharedTree for ExpanseStrMap {
     unsafe fn bind_tree_word(&self, word: *const SeqVersion) {
         // SAFETY: forwarded contract.
         unsafe { ExpanseStrMap::bind_tree_word(self, word) };
+    }
+
+    fn tree_pop(&self) -> u64 {
+        self.len()
     }
 }
 
@@ -592,12 +605,20 @@ impl<S: BuildHasher> SharedTree for ExpanseBytesMap<S> {
         // SAFETY: forwarded contract.
         unsafe { ExpanseBytesMap::bind_tree_word(self, word) };
     }
+
+    fn tree_pop(&self) -> u64 {
+        self.len()
+    }
 }
 
 impl SharedTree for ExpanseBlobMap {
     unsafe fn bind_tree_word(&self, word: *const SeqVersion) {
         // SAFETY: forwarded contract.
         unsafe { ExpanseBlobMap::bind_tree_word(self, word) };
+    }
+
+    fn tree_pop(&self) -> u64 {
+        self.len()
     }
 }
 
@@ -635,6 +656,7 @@ impl RootState for ExpanseSet {
 struct Shared<T> {
     version: Line<SeqVersion>,
     inner: UnsafeCell<T>,
+    tree_pop: core::sync::atomic::AtomicU64,
     collector: Arc<Collector>,
     write: Line<Mutex<()>>,
     /// Token of the thread that last held `write`, for the `Handoffs`
@@ -676,9 +698,11 @@ impl<T: SharedTree> Shared<T> {
     /// allocators; see `NodeAlloc::defer_to`). Boxed, then the tree word is
     /// bound to `inner`'s allocators at its final address.
     fn with_collector(inner: T, collector: Arc<Collector>) -> Box<Self> {
+        let initial_pop = inner.tree_pop();
         let shared = Box::new(Self {
             version: line(SeqVersion::new()),
             inner: UnsafeCell::new(inner),
+            tree_pop: core::sync::atomic::AtomicU64::new(initial_pop),
             collector,
             write: line(Mutex::new(())),
             #[cfg(feature = "occ-stats")]
@@ -850,7 +874,9 @@ impl<T> Shared<T> {
                 return match root {
                     RootSnapshot::Empty => 0,
                     RootSnapshot::Leaf { pop, .. } => pop as u64,
-                    RootSnapshot::Tree { pop, .. } => pop,
+                    RootSnapshot::Tree { .. } => {
+                        self.tree_pop.load(core::sync::atomic::Ordering::Relaxed)
+                    }
                 };
             }
         }
@@ -889,17 +915,38 @@ impl SyncExpanseSet {
     /// Inserts `key`; returns `true` if it was absent. Serializes with
     /// other writers.
     pub fn insert(&self, key: Key) -> bool {
-        self.shared.write_root_covered(|s| s.insert(key))
+        self.shared.write_root_covered(|s| {
+            let ins = s.insert(key);
+            if ins {
+                self.shared
+                    .tree_pop
+                    .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            }
+            ins
+        })
     }
 
     /// Removes `key`; returns `true` if it was present.
     pub fn remove(&self, key: Key) -> bool {
-        self.shared.write_root_covered(|s| s.remove(key))
+        self.shared.write_root_covered(|s| {
+            let rem = s.remove(key);
+            if rem {
+                self.shared
+                    .tree_pop
+                    .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+            }
+            rem
+        })
     }
 
     /// Removes every key from the set.
     pub fn clear(&self) {
-        self.shared.write(|s| s.clear());
+        self.shared.write(|s| {
+            s.clear();
+            self.shared
+                .tree_pop
+                .store(0, core::sync::atomic::Ordering::Relaxed);
+        });
     }
 
     /// Registers a reader handle for this thread's lookups.
@@ -997,17 +1044,38 @@ impl SyncExpanseMap {
 
     /// Inserts `key → val`; returns the replaced value, if any.
     pub fn insert(&self, key: Key, val: u64) -> Option<u64> {
-        self.shared.write_root_covered(|m| m.insert(key, val))
+        self.shared.write_root_covered(|m| {
+            let prev = m.insert(key, val);
+            if prev.is_none() {
+                self.shared
+                    .tree_pop
+                    .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            }
+            prev
+        })
     }
 
     /// Removes `key`; returns its value, if present.
     pub fn remove(&self, key: Key) -> Option<u64> {
-        self.shared.write_root_covered(|m| m.remove(key))
+        self.shared.write_root_covered(|m| {
+            let prev = m.remove(key);
+            if prev.is_some() {
+                self.shared
+                    .tree_pop
+                    .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+            }
+            prev
+        })
     }
 
     /// Removes every key-value pair from the map.
     pub fn clear(&self) {
-        self.shared.write(|m| m.clear());
+        self.shared.write(|m| {
+            m.clear();
+            self.shared
+                .tree_pop
+                .store(0, core::sync::atomic::Ordering::Relaxed);
+        });
     }
 
     /// Registers a reader handle for this thread's lookups.
@@ -1229,12 +1297,29 @@ impl SyncExpanseBlobMap {
     /// writers. Semantics as [`ExpanseBlobMap::insert`] (inline payloads
     /// ignore `hot_meta`).
     pub fn insert(&self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
-        self.shared.write(|m| m.insert(key, data, hot_meta))
+        self.shared.write(|m| {
+            let old = m.len();
+            let r = m.insert(key, data, hot_meta);
+            if r.is_ok() && m.len() > old {
+                self.shared
+                    .tree_pop
+                    .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            }
+            r
+        })
     }
 
     /// Removes `key`; returns `true` if it was present.
     pub fn remove(&self, key: Key) -> bool {
-        self.shared.write(|m| m.remove(key))
+        self.shared.write(|m| {
+            let r = m.remove(key);
+            if r {
+                self.shared
+                    .tree_pop
+                    .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+            }
+            r
+        })
     }
 
     /// Runs arena garbage collection and compaction. Dead chunks are retired
@@ -1246,7 +1331,12 @@ impl SyncExpanseBlobMap {
 
     /// Removes every entry and retires all arena chunks.
     pub fn clear(&self) {
-        self.shared.write(ExpanseBlobMap::clear);
+        self.shared.write(|m| {
+            m.clear();
+            self.shared
+                .tree_pop
+                .store(0, core::sync::atomic::Ordering::Relaxed);
+        });
     }
 
     /// Registers a reader handle for this thread's lookups.
@@ -3352,6 +3442,11 @@ pub fn layout_report() -> Vec<(&'static str, &'static str, usize)> {
                 "version",
                 core::mem::offset_of!(Shared<T>, version),
             ),
+            (
+                wrapper,
+                "tree_pop",
+                core::mem::offset_of!(Shared<T>, tree_pop),
+            ),
             (wrapper, "write", core::mem::offset_of!(Shared<T>, write)),
             (
                 wrapper,
@@ -3380,9 +3475,9 @@ pub fn layout_report() -> Vec<(&'static str, &'static str, usize)> {
     out
 }
 
-/// Rows per wrapper in [`layout_report`]: the six fields and the size row.
+/// Rows per wrapper in [`layout_report`]: the seven fields and the size row.
 #[cfg(feature = "occ-stats")]
-const LAYOUT_ROWS: usize = 7;
+const LAYOUT_ROWS: usize = 8;
 
 #[cfg(all(test, feature = "occ-stats"))]
 mod diagnostics_tests {
@@ -3449,9 +3544,10 @@ mod diagnostics_tests {
 
     #[test]
     fn layout_report_names_every_field_of_every_wrapper() {
-        const FIELDS: [&str; 6] = [
+        const FIELDS: [&str; 7] = [
             "inner",
             "version",
+            "tree_pop",
             "write",
             "collector",
             "last_holder",
@@ -3586,8 +3682,7 @@ mod obsolete_tests {
         // shape must actually be the one the interleaving needs.
         let probe = 0x1021u64;
         // SAFETY: no writer is running; the snapshot is read for its shape.
-        let RootSnapshot::Tree { top, .. } = (unsafe { (*map.shared.inner.get()).occ_root().0 })
-        else {
+        let RootSnapshot::Tree { top } = (unsafe { (*map.shared.inner.get()).occ_root().0 }) else {
             panic!("root must be a tree")
         };
         // The keys share bytes 7..2, so the path from the top is a chain of

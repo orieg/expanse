@@ -60,7 +60,7 @@ pub struct ExpanseSet {
     /// word so a shared tree bumps it under no bracket and a concurrent
     /// `len()` reads it whole (#568 PR 3); the unshared path writes it
     /// through `get_mut`, no atomic instruction.
-    tree_pop: core::sync::atomic::AtomicU64,
+    tree_pop: u64,
     alloc: NodeAlloc,
     path: core::cell::UnsafeCell<crate::mutate::InsertPath>,
 }
@@ -97,7 +97,7 @@ macro_rules! by_mode {
 #[inline(always)]
 fn tree_insert<const OCC: bool, const NESTED: bool>(
     alloc: &NodeAlloc,
-    tree_pop: &mut core::sync::atomic::AtomicU64,
+    tree_pop: &mut u64,
     path: &mut crate::mutate::InsertPath,
     top: &mut Edge,
     key: Key,
@@ -107,11 +107,7 @@ fn tree_insert<const OCC: bool, const NESTED: bool>(
         mutate::insert_with_path::<OCC, NESTED>(alloc, top, key, 8, path, crate::occ::Cover::Tree)
     };
     if inserted {
-        if OCC {
-            tree_pop.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        } else {
-            *tree_pop.get_mut() += 1;
-        }
+        *tree_pop += 1;
     }
     inserted
 }
@@ -121,7 +117,7 @@ fn tree_insert<const OCC: bool, const NESTED: bool>(
 #[inline(always)]
 fn tree_remove<const OCC: bool, const NESTED: bool>(
     alloc: &NodeAlloc,
-    tree_pop: &mut core::sync::atomic::AtomicU64,
+    tree_pop: &mut u64,
     top: &mut Edge,
     key: Key,
 ) -> (bool, u64) {
@@ -130,12 +126,9 @@ fn tree_remove<const OCC: bool, const NESTED: bool>(
         unsafe { mutate::remove::<OCC, NESTED>(alloc, top, key, 8, crate::occ::Cover::Tree) };
     let now = if !removed {
         u64::MAX
-    } else if OCC {
-        tree_pop.fetch_sub(1, core::sync::atomic::Ordering::Relaxed) - 1
     } else {
-        let p = tree_pop.get_mut();
-        *p -= 1;
-        *p
+        *tree_pop -= 1;
+        *tree_pop
     };
     (removed, now)
 }
@@ -178,7 +171,7 @@ impl ExpanseSet {
     pub fn new() -> Self {
         Self {
             root: Root::Empty,
-            tree_pop: core::sync::atomic::AtomicU64::new(0),
+            tree_pop: 0,
             alloc: NodeAlloc::new(),
             path: core::cell::UnsafeCell::new(crate::mutate::InsertPath::empty()),
         }
@@ -207,7 +200,7 @@ impl ExpanseSet {
         match &self.root {
             Root::Empty => 0,
             Root::Leaf { pop, .. } => *pop as u64,
-            Root::Tree { .. } => self.tree_pop.load(core::sync::atomic::Ordering::Relaxed),
+            Root::Tree { .. } => self.tree_pop,
         }
     }
 
@@ -481,8 +474,7 @@ impl ExpanseSet {
                     );
                     // SAFETY: old root leaf no longer referenced.
                     unsafe { self.alloc.free_bytes(keys, root_leaf_size(pop)) };
-                    self.tree_pop
-                        .store(pop as u64 + 1, core::sync::atomic::Ordering::Relaxed);
+                    self.tree_pop = pop as u64 + 1;
                     self.root = Root::Tree { top };
                 }
                 true
@@ -521,7 +513,7 @@ impl ExpanseSet {
                                     path.clear();
                                 }
                             }
-                            *self.tree_pop.get_mut() += 1;
+                            self.tree_pop += 1;
                             return true;
                         } else {
                             return false;
@@ -543,7 +535,7 @@ impl ExpanseSet {
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;
-                                *self.tree_pop.get_mut() += 1;
+                                self.tree_pop += 1;
                                 return true;
                             }
                         } else if d == last {
@@ -586,10 +578,7 @@ impl ExpanseSet {
                 ptr: keys.as_ptr(),
                 pop: *pop,
             },
-            Root::Tree { top } => RootSnapshot::Tree {
-                top: *top,
-                pop: self.tree_pop.load(core::sync::atomic::Ordering::Relaxed),
-            },
+            Root::Tree { top } => RootSnapshot::Tree { top: *top },
         };
         (snap, &self.alloc)
     }
@@ -731,7 +720,7 @@ impl ExpanseSet {
                 let mut stats = ExpanseStats::default();
                 let counted =
                     crate::validate::expanse_validate_and_stats::<false>(top, 8, &mut stats, 0)?;
-                let pop = self.tree_pop.load(core::sync::atomic::Ordering::Relaxed);
+                let pop = self.tree_pop;
                 if counted != pop {
                     return Err(format!(
                         "total population {pop} disagrees with tree {counted}"
@@ -1266,7 +1255,7 @@ impl ExpanseSet {
         // SAFETY: `keys` is sorted/distinct; `out.alloc` owns the built trie.
         let top = unsafe { crate::algebra_build::build_subtree(&out.alloc, &keys, 8) };
         out.root = Root::Tree { top };
-        out.tree_pop = core::sync::atomic::AtomicU64::new(n as u64);
+        out.tree_pop = n as u64;
         out
     }
 }
@@ -1279,7 +1268,7 @@ impl ExpanseSet {
         let Root::Tree { top } = &mut self.root else {
             unreachable!("condense outside tree state")
         };
-        let n = self.tree_pop.load(core::sync::atomic::Ordering::Relaxed) as usize;
+        let n = self.tree_pop as usize;
         debug_assert!((1..ROOT_LEAF_CAP).contains(&n));
         let leaf = self.alloc.alloc_bytes(root_leaf_size(n));
         let mut written = 0usize;
@@ -1726,7 +1715,7 @@ impl ExpanseSet {
                 out.condense_built_tree(top, pop as usize);
             } else {
                 out.root = Root::Tree { top };
-                out.tree_pop = core::sync::atomic::AtomicU64::new(pop);
+                out.tree_pop = pop;
             }
             return out;
         }
