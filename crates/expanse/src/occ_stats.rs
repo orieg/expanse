@@ -18,8 +18,13 @@
 //! `cargo run --release -p expanse-trie --features occ-stats --example occ_stats_probe`.
 
 /// A counted event in the OCC protocol.
+///
+/// `#[non_exhaustive]`: counters are added as diagnostics need them
+/// (AGENTS.md §2.3 semver protection); index [`snapshot`] by
+/// `Stat::X as usize` rather than matching on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(usize)]
+#[non_exhaustive]
 pub enum Stat {
     /// Public optimistic read calls entered.
     ReadOps = 0,
@@ -49,10 +54,21 @@ pub enum Stat {
     ///
     /// `locked_reads - read_fallbacks` is the unconditional share.
     LockedReads = 9,
+    /// Writer-lock acquisitions by a thread other than the previous holder
+    /// (a real handoff). Consecutive acquisitions by the same thread — a
+    /// releaser barging back in ahead of a woken waiter — are not handoffs,
+    /// which is why a per-op cost model needs this count and not `write_ops`.
+    /// Counted in the 64-bit `sync` wrappers, which need `std`; the
+    /// single-writer `sync32` protocol has no writer lock to hand over.
+    Handoffs = 10,
+    /// Blocks handed to the collector for deferred reclamation.
+    Retired = 11,
+    /// Blocks actually freed by the collector (after their epoch passed).
+    FreedRaw = 12,
 }
 
 /// Number of distinct counters.
-pub const NUM_STATS: usize = 10;
+pub const NUM_STATS: usize = 13;
 
 /// Human-readable counter names, indexed by [`Stat`].
 pub const NAMES: [&str; NUM_STATS] = [
@@ -66,6 +82,9 @@ pub const NAMES: [&str; NUM_STATS] = [
     "retained_bytes",
     "retained_hwm",
     "locked_reads",
+    "handoffs",
+    "retired",
+    "freed_raw",
 ];
 
 #[cfg(feature = "occ-stats")]

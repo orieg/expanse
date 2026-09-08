@@ -313,6 +313,7 @@ impl Collector {
 
     /// Queues an allocation for deferred freeing (writer side).
     pub fn retire(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
+        crate::occ_stats::bump(crate::occ_stats::Stat::Retired);
         let e = self.epoch.load(Ordering::Relaxed);
         self.bins[e % BINS]
             .lock()
@@ -412,6 +413,7 @@ impl Collector {
     // Miri this is legitimately unreferenced.
     #[cfg(test)]
     #[cfg_attr(miri, allow(dead_code))]
+    #[cfg_attr(feature = "advance-never", allow(dead_code))]
     pub(crate) fn epoch_now(&self) -> usize {
         self.epoch.load(Ordering::Relaxed)
     }
@@ -455,6 +457,7 @@ impl Drop for Collector {
 
 #[cfg(feature = "std")]
 fn free_raw(ptr: NonNull<u8>, bytes: usize, align: usize) {
+    crate::occ_stats::bump(crate::occ_stats::Stat::FreedRaw);
     let layout = Layout::from_size_align(bytes, align).expect("valid retired layout");
     // SAFETY: retired allocations come from `NodeAlloc` (same
     // size/alignment contract) and are freed exactly once, after their
