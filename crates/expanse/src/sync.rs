@@ -125,7 +125,9 @@ impl Cover<'_> {
             Cover::Tree(v, s) => v.validate(*s),
             // SAFETY: the node whose version this is stays EBR-live for
             // the duration of the reader's pin.
-            Cover::Node(p, s) => unsafe { crate::occ::node_validate(*p, *s) },
+            Cover::Node(p, s) => unsafe {
+                crate::occ::node_validate(crate::occ::version_cell(*p), *s)
+            },
         }
     }
 }
@@ -233,7 +235,9 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                         unsafe { &raw const (*node.cast::<BranchL7>()).hdr.version }
                     };
                     // SAFETY: live version field (EBR).
-                    let Some(nsnap) = (unsafe { crate::occ::node_sample(vp) }) else {
+                    let Some(nsnap) =
+                        (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
+                    else {
                         return Err(Retry);
                     };
                     // SAFETY: EBR-live branch node; loads validated below.
@@ -261,7 +265,9 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                     }
                     if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
                         // SAFETY: live version field (EBR).
-                        if !unsafe { crate::occ::node_validate(vp, nsnap) } {
+                        if !unsafe {
+                            crate::occ::node_validate(crate::occ::version_cell(vp), nsnap)
+                        } {
                             return Err(Retry);
                         }
                         return Ok(None);
@@ -269,7 +275,9 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                     let d = digit(key, bl);
                     let Some(slot) = digits[..num].iter().position(|&x| x == d) else {
                         // SAFETY: live version field (EBR).
-                        if !unsafe { crate::occ::node_validate(vp, nsnap) } {
+                        if !unsafe {
+                            crate::occ::node_validate(crate::occ::version_cell(vp), nsnap)
+                        } {
                             return Err(Retry);
                         }
                         return Ok(None);
@@ -278,7 +286,7 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                     // the EBR-live node, validated just below.
                     edge = unsafe { edges_base.add(slot).read() };
                     // SAFETY: live version field (EBR).
-                    if !unsafe { crate::occ::node_validate(vp, nsnap) } {
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
                         return Err(Retry);
                     }
                     cover = Cover::Node(vp, nsnap);
@@ -290,7 +298,9 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                     // SAFETY: EBR-live node; field projection only.
                     let vp: *const u32 = unsafe { &raw const (*node).version };
                     // SAFETY: live version field (EBR).
-                    let Some(nsnap) = (unsafe { crate::occ::node_sample(vp) }) else {
+                    let Some(nsnap) =
+                        (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
+                    else {
                         return Err(Retry);
                     };
                     // SAFETY: EBR-live BranchB; loads validated below.
@@ -309,14 +319,18 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                     };
                     if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
                         // SAFETY: live version field (EBR).
-                        if !unsafe { crate::occ::node_validate(vp, nsnap) } {
+                        if !unsafe {
+                            crate::occ::node_validate(crate::occ::version_cell(vp), nsnap)
+                        } {
                             return Err(Retry);
                         }
                         return Ok(None);
                     }
                     if !bit {
                         // SAFETY: live version field (EBR).
-                        if !unsafe { crate::occ::node_validate(vp, nsnap) } {
+                        if !unsafe {
+                            crate::occ::node_validate(crate::occ::version_cell(vp), nsnap)
+                        } {
                             return Err(Retry);
                         }
                         return Ok(None);
@@ -334,7 +348,7 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                     // mapped, so a *stale* pointer is safe to read; a
                     // stale pointer with a fresh rank is not.)
                     // SAFETY: live version field (EBR).
-                    if !unsafe { crate::occ::node_validate(vp, nsnap) } {
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
                         return Err(Retry);
                     }
                     // SAFETY: bitmap/subarray pair validated consistent
@@ -344,7 +358,7 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                     // The edge copy itself must also be covered: re-check
                     // before the next iteration dereferences it.
                     // SAFETY: live version field (EBR).
-                    if !unsafe { crate::occ::node_validate(vp, nsnap) } {
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
                         return Err(Retry);
                     }
                     cover = Cover::Node(vp, nsnap);
@@ -356,14 +370,16 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                     // SAFETY: EBR-live node; field projection only.
                     let vp: *const u32 = unsafe { &raw const (*node).version };
                     // SAFETY: live version field (EBR).
-                    let Some(nsnap) = (unsafe { crate::occ::node_sample(vp) }) else {
+                    let Some(nsnap) =
+                        (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
+                    else {
                         return Err(Retry);
                     };
                     let d = digit(key, level);
                     // SAFETY: EBR-live BranchU; direct 256-slot index.
                     edge = unsafe { (*node).edges.as_ptr().add(d as usize).read() };
                     // SAFETY: live version field (EBR).
-                    if !unsafe { crate::occ::node_validate(vp, nsnap) } {
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
                         return Err(Retry);
                     }
                     cover = Cover::Node(vp, nsnap);

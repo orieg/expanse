@@ -125,7 +125,12 @@ impl SeqVersion {
 pub(crate) fn version_begin_if<const OCC: bool>(a: &crate::alloc::NodeAlloc, v: &mut u32) {
     if OCC {
         debug_assert!(a.occ_enabled(), "OCC=true on a non-shared tree");
-        version_begin(v);
+        // SAFETY: `v` is a live node's version field, borrowed exclusively by
+        // the caller; the field is only ever accessed through `VersionCell`.
+        // The raw pointer is taken with `&raw mut` so it unambiguously carries
+        // write permission under Stacked/Tree Borrows (§5) — the store below
+        // goes through it.
+        version_begin(unsafe { version_cell(&raw mut *v) });
     }
     #[cfg(debug_assertions)]
     a.bracket_enter();
@@ -136,34 +141,84 @@ pub(crate) fn version_begin_if<const OCC: bool>(a: &crate::alloc::NodeAlloc, v: 
 #[inline]
 pub(crate) fn version_end_if<const OCC: bool>(a: &crate::alloc::NodeAlloc, v: &mut u32) {
     if OCC {
-        version_end(v);
+        // SAFETY: as in `version_begin_if`.
+        version_end(unsafe { version_cell(&raw mut *v) });
     }
     #[cfg(debug_assertions)]
     a.bracket_leave();
     let _ = a;
 }
 
+/// The node version word, as the OCC protocol addresses it.
+///
+/// `AtomicU32` normally; loom's under `--cfg loom`, which is what lets
+/// `loom_hand_over_hand_node_bracket_safety` call [`version_begin`],
+/// [`version_end`], [`node_sample`] and [`node_validate`] instead of
+/// re-implementing them (#756). A test that re-implements the protocol cannot
+/// fail when the protocol loses a fence.
+///
+/// Storing through this rather than `write_volatile` also removes a formal
+/// data race: the writer's non-atomic volatile store raced the reader's atomic
+/// load, which is UB in both the C++ and Rust models however well it behaved.
+/// `AtomicU32::store(Relaxed)` lowers to the same instruction.
+#[cfg(not(loom))]
+pub(crate) type VersionCell = core::sync::atomic::AtomicU32;
+/// See the `not(loom)` twin.
+#[cfg(loom)]
+pub(crate) type VersionCell = loom::sync::atomic::AtomicU32;
+
+/// Views a node's version field as a [`VersionCell`].
+///
+/// # Safety
+///
+/// `ptr` must point at a live node's version field (EBR-pinned). The field is
+/// only ever accessed through this view, so the `AtomicU32` aliasing is sound:
+/// `AtomicU32` has the same size and alignment as `u32`.
+#[cfg(not(loom))]
+#[inline(always)]
+pub(crate) unsafe fn version_cell<'a>(ptr: *const u32) -> &'a VersionCell {
+    // SAFETY: caller guarantees a live, aligned version field; `AtomicU32` is
+    // layout-compatible with `u32` and this is the only access path to it.
+    unsafe { &*ptr.cast::<VersionCell>() }
+}
+
+/// Under loom this is unreachable and says so rather than casting.
+///
+/// loom's atomics carry model state and are **not** layout-compatible with raw
+/// memory, so there is no honest cast to make here. The whole crate compiles
+/// under `--cfg loom` but the loom job runs only `loom_` tests, which build
+/// their own cells; nothing reaches this.
+///
+/// # Safety
+///
+/// Never call this under `--cfg loom`.
+#[cfg(loom)]
+#[inline(always)]
+pub(crate) unsafe fn version_cell<'a>(_ptr: *const u32) -> &'a VersionCell {
+    panic!(
+        "version_cell is not loom-modelled: loom atomics are not layout-compatible \
+         with raw node memory. The loom tests construct their own VersionCell."
+    )
+}
+
 /// Writer: marks a node mutation in progress (even → odd, then a release
 /// fence so the odd version is visible before any covered write).
 #[inline]
-pub(crate) fn version_begin(v: &mut u32) {
-    let cur = *v;
+pub(crate) fn version_begin(v: &VersionCell) {
+    let cur = v.load(Ordering::Relaxed);
     debug_assert!(cur.is_multiple_of(2), "nested node write bracket");
-    // SAFETY: plain field write through the exclusive borrow; volatile
-    // only pins the store's shape for concurrent atomic readers.
-    unsafe { core::ptr::write_volatile(v, cur + 1) };
+    v.store(cur + 1, Ordering::Relaxed);
     fence(Ordering::Release);
 }
 
 /// Writer: marks the node mutation complete (odd → even; the release
 /// fence orders every covered write before the even version).
 #[inline]
-pub(crate) fn version_end(v: &mut u32) {
-    let cur = *v;
+pub(crate) fn version_end(v: &VersionCell) {
+    let cur = v.load(Ordering::Relaxed);
     debug_assert!(cur % 2 == 1, "version_end without begin");
     fence(Ordering::Release);
-    // SAFETY: as in version_begin.
-    unsafe { core::ptr::write_volatile(v, cur + 1) };
+    v.store(cur + 1, Ordering::Relaxed);
 }
 
 /// Reader: loads a node's seqlock version word, returning `None` if
@@ -173,29 +228,23 @@ pub(crate) fn version_end(v: &mut u32) {
 /// Returns `Some(even)` on a consistent snapshot; `None` if a write is in
 /// progress (odd).
 ///
-/// # Safety
-///
-/// `ptr` must point at a live node's version field (EBR-pinned).
+/// Taking a `&VersionCell` rather than a raw pointer is what makes this
+/// callable from the loom model; the EBR-liveness obligation this used to
+/// carry now sits on [`version_cell`], which is where the pointer is.
 #[cfg(feature = "std")]
-pub(crate) unsafe fn node_sample(ptr: *const u32) -> Option<u32> {
-    // SAFETY: valid, aligned version field per contract.
-    let a = unsafe { core::sync::atomic::AtomicU32::from_ptr(ptr.cast_mut()) };
-    let v = a.load(Ordering::Acquire);
-    (v % 2 == 0).then_some(v)
+pub(crate) fn node_sample(v: &VersionCell) -> Option<u32> {
+    let v = v.load(Ordering::Acquire);
+    v.is_multiple_of(2).then_some(v)
 }
 
 /// Reader: true when the node version still equals `snap` (the acquire
 /// fence orders the caller's preceding loads before the re-read).
 ///
-/// # Safety
-///
 /// Same contract as [`node_sample`].
 #[cfg(feature = "std")]
-pub(crate) unsafe fn node_validate(ptr: *const u32, snap: u32) -> bool {
+pub(crate) fn node_validate(v: &VersionCell, snap: u32) -> bool {
     fence(Ordering::Acquire);
-    // SAFETY: valid, aligned version field per contract.
-    let a = unsafe { core::sync::atomic::AtomicU32::from_ptr(ptr.cast_mut()) };
-    a.load(Ordering::Relaxed) == snap
+    v.load(Ordering::Relaxed) == snap
 }
 
 /// Number of epoch garbage bins. A retired node becomes freeable once
@@ -707,7 +756,7 @@ mod loom_tests {
     fn loom_hand_over_hand_node_bracket_safety() {
         loom::model(|| {
             let tree_v = Arc::new(SeqVersion::new());
-            let node_v = Arc::new(AtomicU32::new(0));
+            let node_v = Arc::new(VersionCell::new(0));
             // Leaf payload: key and value slots
             let key_slot = Arc::new(AtomicU64::new(0xFD));
             let val_slot = Arc::new(AtomicU64::new(100));
@@ -718,31 +767,33 @@ mod loom_tests {
             let v_w = Arc::clone(&val_slot);
 
             let writer = loom::thread::spawn(move || {
-                // Writer takes tree version and parent node bracket
+                // The production bracket, called — not re-implemented. This is
+                // the whole point of #756: the previous version of this test
+                // open-coded `store(Release)` plus a fence on the write side
+                // and `fence(Acquire)` plus `load(Acquire)` on the read side,
+                // which is neither what the engine does nor sensitive to it
+                // losing a fence. Deleting `fence(Ordering::Release)` from
+                // `version_begin` or `fence(Ordering::Acquire)` from
+                // `node_validate` left the old test green; each deletion fails
+                // this one on the assertion below.
                 tv_w.begin();
-                let nv = nv_w.load(Ordering::Relaxed);
-                nv_w.store(nv + 1, Ordering::Release);
-                loom::sync::atomic::fence(Ordering::Release);
+                version_begin(&nv_w);
 
                 // Mutate leaf payload (shift/insert neighbouring key 0xF1 -> 200)
                 k_w.store(0xF1, Ordering::Relaxed);
                 v_w.store(200, Ordering::Relaxed);
 
-                loom::sync::atomic::fence(Ordering::Release);
-                nv_w.store(nv + 2, Ordering::Release);
+                version_end(&nv_w);
                 tv_w.end();
             });
 
             // Reader: samples tree version, descends to parent node, validates
             let ts = tree_v.sample();
-            let ns = node_v.load(Ordering::Acquire);
-            if ns % 2 == 0 {
+            if let Some(ns) = node_sample(&node_v) {
                 // Cover narrowed to parent node: read leaf key and value
                 let k = key_slot.load(Ordering::Relaxed);
                 let v = val_slot.load(Ordering::Relaxed);
-                fence(Ordering::Acquire);
-                let nv_after = node_v.load(Ordering::Acquire);
-                if nv_after == ns {
+                if node_validate(&node_v, ns) {
                     // Successful validation: must be consistent
                     assert!(
                         (k == 0xFD && v == 100) || (k == 0xF1 && v == 200),
