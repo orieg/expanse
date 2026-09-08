@@ -1635,6 +1635,7 @@ millions rather than collapsing to zero, but closing the write-mixed gap needs
 multi-writer support — sharding or per-node write locks — not finer validation
 (`docs/ARCHITECTURE.md` §6). Single-threaded trees skip the version brackets
 entirely (`NodeAlloc::occ_enabled`), so the classic engine pays nothing.
+Multi-writer Optimistic Lock Coupling (OLC, Leis et al. DaMoN 2016) is pre-registered as Stage B (PR 5, issue #568; protocol spec and analytical bounds in `docs/ARCHITECTURE.md` §4.2 and `scripts/olc_bounds.py`). The pre-registered acceptance gate: on FFI C1 cells ($W \in \{2, 4, 8, 16\}$), the aggregate insert rate must plateau or rise (union-lower of post-change rate above the $W=1$ union-upper; never fall), with BCa 95% confidence intervals over $\ge 15$ rounds; `Stat::LockRestarts / write_ops` must remain strictly below the derived bound (< 5.64 at $W=16$ on disjoint workloads); zero regressions across all single-threaded Callgrind arms and $C2$ reader latency cells.
 
 ### Cortex-M7 on-target
 

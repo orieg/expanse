@@ -204,6 +204,90 @@ Two assumptions are stated rather than proven: a per-node word is a `u32`, so a 
 
 **Deferred mode must be entered before an allocator ever slab-carves** (`NodeAlloc::defer_to` asserts this). The sync wrappers therefore share a populated structure by rebuilding it through pre-deferred allocators.
 
+### 4.2 Multi-writer Optimistic Lock Coupling protocol (Stage B specification, #568 PR 4)
+
+Stage B replaces the single-writer mutex with per-node write locking (Leis et al. DaMoN 2016), enabling writers targeting disjoint subtrees to proceed in parallel ($W \ge 2$).
+
+**Representation & Version Words:**
+- **Node version words**: Every branch node header carries a 32-bit atomic word (`AtomicU32`). Even numbers are stable (unlocked); odd numbers represent an active write lock or an obsolete marker (`occ::OBSOLETE = 0x8000_0000 | (v + 1)`).
+- **Tree version word**: A single `SeqVersion` in the `Collector` covers global root-state transitions (empty $\leftrightarrow$ leaf $\leftrightarrow$ trie).
+- **Writer gate word**: A separate atomic quiescence flag (`WriterGate`), independent of the tree version word, arbitrates reader fallback and exclusive operations (`with_locked`), preventing whole-tree reader stalls (L2).
+
+**Writer Protocol (Optimistic Descent & Hand-over-Hand Locking):**
+1. **Optimistic Descent**: Writers descend optimistically without holding locks, validating each node version hand-over-hand identically to readers.
+2. **Lock Set Acquisition**: Before mutating shared memory, a writer acquires the minimal lock set:
+   - For slot updates within a leaf or branch: the parent node $P$.
+   - For split or cascade mutations requiring child and parent modification: the parent $P$ and grandparent $G$ ($P + G$).
+   - For deep structural cascades extending above $G$: the tree-level lock (measured rare via `Stat::DeepCascades`).
+3. **Lock Ordering & Acyclicity**: Locks are acquired top-down via CAS (`even -> even + 1`) along a single root-to-leaf path. A writer never requests an ancestor lock while holding a descendant lock, guaranteeing deadlock-freedom (S6).
+4. **Lock Upgrade Failure**: If a CAS fails during lock acquisition, the writer drops all held locks in LIFO order (`unlock` via $+2$ if unmodified, avoiding spurious reader retries) and restarts descent from the root. No persistent memory allocation occurs prior to full lock-set acquisition.
+5. **No Mutation Before Lock Completion**: Stores to shared memory begin only after all required locks in the lock set are successfully acquired; no restarts are permitted after the first shared store has committed.
+
+**Population Accounting (`pop0`) Protocol:**
+Subtree population counts in Judy ancestor edges (`pop0`) cannot be updated via unbounded ancestor lock chains without re-serializing at the root. Per the mathematical contention derivation (`scripts/olc_bounds.py`):
+1. **Brief Bottom-Up Locks**: After the terminal leaf mutation completes under the parent lock $P$, ancestor `pop0` bumps proceed bottom-up as brief, isolated node locks on each ancestor, holding no other lock concurrently.
+2. **Obsolete Node Handling (Rule a)**: If an ancestor node $A$ is marked obsolete during the bottom-up bump (due to an intervening `split_skip` or `upgrade_*`), the writer aborts that local bump and re-descends from the root to locate the new covering branch node, completing the bump on the current expanse.
+3. **Prefix Split Sizing (Rule b)**: Reorganization routines (`split_skip`, `wrap_skip_level`) inspect `edge.pop0` strictly under the lock of the node holding that edge, ensuring structural sizing is exact-modulo-pending-bumps.
+4. **Root Population**: Root `pop` is maintained via `AtomicU64` in `Shared<T>`, updated with Relaxed atomics under the root write lock.
+
+**Reader Fallback & `with_locked` Quiescence (`WriterGate`):**
+- Readers that exhaust `MAX_RETRIES` arbitrate via an exclusive `fallback_mutex`. The winning fallback reader acquires the mutex, sets `WriterGate` to closed, waits for in-flight writers to drain, performs its read under quiescence, clears `WriterGate`, and releases the mutex.
+- Writers check `WriterGate` upon operation entry before publishing in-flight status and never wait on `WriterGate` while holding node locks.
+- `with_locked` acquires the same `fallback_mutex` and closes `WriterGate`, guaranteeing exclusive access without holding the tree version odd across lookups.
+
+**Epoch-Based Reclamation (EBR) for Multi-Writer Scaling:**
+- Writers pin their local `Collector` epoch for the duration of each operation.
+- Retire operations execute a `fence(SeqCst)` prior to loading the global epoch to establish happens-before with concurrent advancers.
+- Epoch advancement is coordinated via a non-blocking `try_advance` try-lock; reader-slot scans run on an amortized per-writer tick.
+- Retired nodes are maintained in per-writer retire shards, eliminating bin mutex contention on the fast deallocation path.
+
+**Multi-Writer Safety & Liveness Invariants:**
+
+| | property | falsified by |
+|---|---|---|
+| S5 | two writers never concurrently modify the same node or child slot | `loom_multi_writer_mutual_exclusion` (fails if lock is skipped or CAS replaced by store) |
+| S6 | lock acquisition along root-to-leaf paths is strictly acyclic and deadlock-free | `tests/linearizability.rs` at $W \ge 2$, `tests/sync_stress.rs` |
+| S7 | ancestor `pop0` counts monotonically converge to exact subtree populations | multi-writer census verification test: $\sum \text{pop0} + 1 == \|\text{keys}\|$ after writer drain |
+| S8 | writer memory fences guarantee release-acquire visibility of newly published subtrees | `loom_multi_writer_fence_pairing` (fails if acquire on lock or release on unlock is omitted) |
+| L4 | writers operating on disjoint key expanses make concurrent progress without blocking | FFI C1 benchmarks at $W \in \{2, 4, 8, 16\}$, `scripts/olc_bounds.py` |
+| L5 | `WriterGate` guarantees bounded reader fallback without starving concurrent lookups on un-contended subtrees | `loom_with_locked_quiescence`, `read_fallbacks` counter |
+
+Two assumptions are stated rather than proven: a per-node word is a `u32`, so a writer or reader descheduled across $2^{31}$ lock cycles could observe an ABA condition (bounded by $2^{31}$ operations on a single node); and readers fallback to `WriterGate` after `MAX_RETRIES`, bounding reader latency to writer operation drain duration.
+
+**Loom Concurrency Model Specifications (Stage B, issue #568):**
+
+Each model verifies an invariant under exhaustive thread interleaving via `--cfg loom`. Per AGENTS.md §5 and Rule 12, each model specifies its exact falsifier (the deleted line that turns the model red):
+
+1. **`loom_multi_writer_mutual_exclusion` (S5)**:
+   - *Setup*: Two concurrent writers attempt to acquire a lock on the same node `N` via `try_lock()`.
+   - *Invariant*: At no point do both writers enter the critical section simultaneously (`assert!(in_crit <= 1)`).
+   - *Falsifier*: Replace the atomic CAS in `try_lock()` (`compare_exchange_weak(Acquire)`) with an unsynchronized load/store.
+2. **`loom_obsolete_mark_covers_replaced_node` (S3)**:
+   - *Setup*: Writer 1 replaces branch node $C \to C'$ and mutates leaf $D$; Reader pinned with `cover = C` validates.
+   - *Invariant*: Reader validation fails on obsolete version, preventing torn reads from $D$.
+   - *Falsifier*: Delete `version_obsolete(&cw)` prior to slot rewrite.
+3. **`loom_multi_writer_fence_pairing` (S8)**:
+   - *Setup*: Writer 1 locks node, stores data into child payload with `Relaxed` stores, unlocks; Writer 2 locks node, reads payload.
+   - *Invariant*: Writer 2 observes all stores made by Writer 1 (`assert_eq!(read_val, written_val)`).
+   - *Falsifier*: Delete `fence(Ordering::Acquire)` from `try_lock()` or `fence(Ordering::Release)` from `unlock()`.
+4. **`loom_multi_writer_pop0_convergence` (S7)**:
+   - *Setup*: Two concurrent writers perform disjoint leaf inserts beneath common ancestor $A$, then execute bottom-up `pop0` bumps.
+   - *Invariant*: Final `A.edge.pop0()` equals initial `pop0 + 2` with no lost updates.
+   - *Falsifier*: Perform `pop0` increment without acquiring $A$'s node lock.
+5. **`loom_with_locked_quiescence` (L5)**:
+   - *Setup*: Two writers execute mutating loops; one coordinator thread invokes `with_locked(f)`.
+   - *Invariant*: While closure `f` executes, zero writer stores are in-flight; in-flight writers drain before `f` begins.
+   - *Falsifier*: Omit checking `WriterGate` before publishing in-flight status in writer entry.
+6. **`loom_multi_writer_ebr_safety` (S4)**:
+   - *Setup*: Writer 1 unlinks node $C$ and retires it; Writer 2 advances the epoch; Reader remains pinned at earlier epoch.
+   - *Invariant*: Node $C$ is never returned to the allocator or overwritten while the reader remains pinned.
+   - *Falsifier*: Remove `fence(Ordering::SeqCst)` before the retire-side epoch load.
+
+**Pre-Registered Gate for Stage B (PR 5, multi-writer OLC):**
+- **FFI C1 Cells ($W \in \{2, 4, 8, 16\}$)**: Aggregate insert rate must plateau or rise (union-lower of post-change rate above the $W=1$ union-upper; never fall). BCa 95% confidence intervals derived from $\ge 15$ rounds.
+- **Restart Ratio Ceiling**: `Stat::LockRestarts / write_ops` must remain strictly below the derived bound ($< 5.64$ at $W=16$, `scripts/olc_bounds.py`) under disjoint workloads, confirming no restart storms.
+- **Controls**: Zero regressions across all single-threaded Callgrind arms and $C2$ reader latency cells.
+
 ## 5. Crate structure
 
 `crates/expanse` (package `expanse-trie`) is the core engine (`std` by default, full `#![no_std]` supported via `default = ["std"]`). Its principal modules:
