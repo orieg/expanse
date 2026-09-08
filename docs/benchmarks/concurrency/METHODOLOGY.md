@@ -172,3 +172,92 @@ changes.
 - Anything about the string wrapper's reader path beyond P0.3 (#730).
 - Competitor-side counters.
 - Any level for the Masstree-suite map C1 W=16 cell (rule 18, above).
+
+## 8. Pre-registration for #568 PR 3 — the single-writer bracket re-scope (appended 2026-09-08)
+
+**Status: locked before any engine code on this branch. Appended, never
+rewritten in place (AGENTS.md §8.7); §1–§7 above are Step 0's record and stand
+as written.** Baseline: the `a1982ff2` pair, two runs per cell, in this
+directory and the two FFI suites.
+
+### 8.1 What the change is, and is not
+
+The writer keeps its mutex. What moves is *which* version words go odd for
+*which* stores: the tree-level `SeqVersion` brackets only root-state writes
+(a `Root` variant change, a root-leaf mutation, a `top` edge rewrite), the
+root population becomes an atomic word bumped under no bracket, and every
+per-node bracket wraps the frame's own writes to that node — never the
+recursion into a branch child. Readers are unchanged. It is not multi-writer,
+not lock coupling with per-node acquisition, and it does not touch C1: the
+writer-count cells are predicted unchanged and are published as controls.
+
+### 8.2 Hypotheses, each with its refuter
+
+- **H3.1 — the reader collapse under one writer is mostly the tree-level
+  bracket.** Step 0 measured readers at C2 W=1 R=8 spending 53–60% of their
+  time in `SeqVersion::sample` waiting on that bracket (P0.1). Removing it
+  from ordinary writes should recover at least that share. Gate cells and
+  their baseline (reader ns per probe = 8 ÷ aggregate M ops/s, the runner's
+  own median; union of the two runs):
+
+  | cell | readers alone (ns/probe) | under one writer, run A / run B (ns/probe) | union |
+  |---|--:|--:|--:|
+  | `hot_conc_set_w1_r8` (`hot_rowex_set_63bit`) | 54 | 282 / 521 | [282, 521] |
+  | `hot_conc_map_w1_r8` (`hot_rowex_map_64bit`) | 63 | 499 / 435 | [435, 499] |
+  | `masstree_conc_map_w1_r8` (`masstree_conc_map_64bit`) | 57 | 407 / 273 | [273, 407] |
+
+  **PASS iff, on every cell, the union-upper of two post-change runs' ns per
+  probe is below 0.5 × the baseline union-lower**: 141, 218 and 137 ns. That is
+  a 2× improvement, the smallest effect consistent with a 50–60% spin share
+  removed. Both runs improved but unions overlapping the threshold →
+  `BOUNDARY_RESULT`, gate unmet; either run in the wrong direction →
+  `REFUTED`. Instrument: two-commit mode in the suite runners (base and head
+  binaries interleaved per round, the only before/after admissible under
+  BENCHMARKING rule 18) — that runner work is part of this PR and lands
+  before the numbers.
+- **H3.2 — the writer's cost with readers present falls with the version
+  line's traffic.** `perf c2c` put 47.7% / 51.7% of HITM samples on the line
+  holding the tree version and the mutex (Step 0). A writer that stops storing
+  to that line on ordinary writes should see its RFO misses per insert fall
+  from 12.2–12.3 toward the readers-absent 1.9–2.1. Registered: writer-thread
+  `l2_rqsts.rfo_miss ÷ write_ops` at C2 W=1 R=8 **≤ 6.0** (half the Step 0
+  level); **REFUTED if ≥ 10.0**. The writer's insert rate at C2 W=1 R=8 is
+  published beside it but is *not* a gate: its baseline union is wide
+  (1.53–2.23 M/s across the three cells' runs) and c2c's share sat at the 50%
+  line, so a level is predicted only as "above the baseline union-upper" with
+  confidence `low`.
+- **H3.3 — restarts rise, bounded.** Two brief brackets per level per op
+  (slot write, then the population bump on the way out) replace one nested
+  bracket; readers mid-node when either opens restart instead of waiting.
+  Registered ceiling: restart share at C2 W=1 R=8 **≤ 30%** (Step 0 band
+  9–15%); above it the design is reconsidered before shipping.
+- **H3.4 — nothing the change is not targeting moves.** Callgrind: 0
+  regressions on every non-`sync_*` arm (brackets compile out at
+  `OCC=false`; measured, not assumed). The six `sync_*` arms are the path the
+  change *targets* and may rise (a second bracket per level); their deltas are
+  disclosed in the PR body and are not regressions under §6 — a
+  `sync_map_get` rise above 0.1% *is*, since readers are unchanged. C1 W ∈
+  {1, 2, 4, 8, 16} on both FFI suites: predicted inside the baseline union;
+  a move is unpredicted and reported as such.
+
+### 8.3 Soundness instruments that precede any measurement
+
+- The address-checked bracket assert (`assert_bracketed_by(&node.version)` at
+  every interior write, `assert_bracketed_by(parent_version)` at every leaf,
+  immediate and subarray write) replaces `bracket_depth`; deleting any one
+  bracket must panic at that site (fail-then-pass, AGENTS.md §5).
+- `loom_obsolete_mark_covers_replaced_node` (#806) stays green; a single-threaded
+  test drives the `OCC=true` monomorph under Miri (Stacked and Tree Borrows).
+- `linearizability.rs`, `sync32_stress.rs`, the TSan shard, ASan.
+
+### 8.4 What voids a cell
+
+§6 above, plus: a post-change run taken without the two-commit interleaving,
+or a cell whose base-commit half does not reproduce the `a1982ff2` union
+(direction and overlap) — then the host, not the change, is being measured.
+
+### 8.5 Explicitly not predicted
+
+The string, bytes and blob wrappers (they keep the full tree bracket); the
+50/50 `core_concurrency` sweep (a different workload, and single-writer
+bound by construction); any writer-count scaling.
