@@ -301,14 +301,36 @@ fn dispose_tree(root: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
     }
 }
 
-/// Packs `key[off..]`'s next chunk big-endian; `true` when the chunk
-/// contains the terminating NUL (i.e. fewer than 8 bytes remain).
+/// Packs `key[off..]`'s next chunk big-endian; `true` when the chunk is
+/// terminal, which is [`is_terminal`]'s definition and no other.
+///
+/// The flag used to be `rest.len() < CHUNK` -- a *length* rule, where every
+/// read of a stored entry uses `is_terminal`'s *content* rule. The two agree
+/// on the NUL-free key domain and disagree outside it, and that disagreement
+/// was the whole of #794: a key whose NUL fell inside a chunk was written by
+/// one rule and read by the other, so a suffix pointer could be published
+/// where a later read expected a terminal value, and a stored value could be
+/// read where a later descent expected a pointer. `get` and `remove`
+/// segfaulted on the second of those in a release build.
+///
+/// The rules are now one rule, so the discriminant is a total function of the
+/// chunk rather than of the key that produced it, and there is nothing left to
+/// disagree. This is a deletion, not an added condition: the padding above
+/// means `rest.len() < CHUNK` *implies* `is_terminal(chunk)`, so the old flag
+/// was the new one plus a false-negative case.
+///
+/// Out-of-domain keys become defined rather than undefined. They alias: the
+/// chunk stops at the first NUL, so `b"ab\0..."` reaches the entry `b"ab"`
+/// owns, and the ordered surface reconstructs a truncated key. That is lossy
+/// and documented, and `ExpanseStrMap::assert_key` still rejects it in debug
+/// builds. It is not memory-unsafe, which is the property that matters here.
 fn chunk_at(key: &[u8], off: usize) -> (u64, bool) {
     let rest = &key[off.min(key.len())..];
     let mut c = [0u8; CHUNK];
     let n = rest.len().min(CHUNK);
     c[..n].copy_from_slice(&rest[..n]);
-    (u64::from_be_bytes(c), rest.len() < CHUNK)
+    let chunk = u64::from_be_bytes(c);
+    (chunk, is_terminal(chunk))
 }
 
 /// The byte content of a terminal chunk (bytes before the NUL).
@@ -377,7 +399,7 @@ fn publish_suffix(
     chunk: u64,
     suffix: *mut StrSuffix,
 ) -> Option<u64> {
-    assert!(
+    debug_assert!(
         !is_terminal(chunk),
         "suffix pointer published at a terminal chunk: keys must be NUL-free"
     );
