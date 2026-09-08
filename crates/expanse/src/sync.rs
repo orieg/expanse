@@ -34,8 +34,8 @@
 //! not Miri/loom-checkable end-to-end; loom covers the `occ` protocol
 //! pieces, and the thread stress tests cover the whole); it is the
 //! industry-standard trade until Rust grows blessed tearable atomics.
-//! The per-node version slots reserved in the node headers are the
-//! planned contention refinement, not a correctness requirement.
+//! The per-node version words are live protocol state (readers validate
+//! against them hand-over-hand); the two bitmap-leaf words are reserved.
 
 use crate::blobmap::{ArenaError, CompactionStats, ExpanseBlobMap};
 use crate::bytesmap::ExpanseBytesMap;

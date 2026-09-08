@@ -318,7 +318,9 @@ def ablations() -> list[str]:
 
 
 def main() -> int:
-    blocks = [line_transfer(), d1(), d2(), spread(), ablations()]
+    import pr3_gate  # the §8 verdicts, beside this file
+
+    blocks = [line_transfer(), d1(), d2(), spread(), ablations(), pr3_gate.render()]
     print("\n\n".join("\n".join(b) for b in blocks))
     return 0
 

@@ -1147,7 +1147,7 @@ jobs:
 
       - name: Miri (core unsafe smoke — leaf, node, slot, 32-bit trie invariants, deferred-dispose round trips, the strmap cursor's raw path stack)
         run: |
-          cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types:: blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots
+          cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types:: blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots map::tests::occ_engine_single_thread_under_miri set::tests::occ_engine_single_thread_under_miri
 
   test-asan:
     name: Safety / ASan Core Smoke (Ubuntu)

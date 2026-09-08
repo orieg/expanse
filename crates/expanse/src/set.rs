@@ -1845,6 +1845,39 @@ mod tests {
         }
     }
 
+    /// Set twin of `map::tests::occ_engine_single_thread_under_miri` (#568
+    /// PR 3): the shared-tree engine on one thread, every node form, under
+    /// Miri's borrow tracking.
+    #[test]
+    fn occ_engine_single_thread_under_miri() {
+        let mut s = ExpanseSet::new();
+        s.occ_root()
+            .1
+            .defer_to_engine_root(std::sync::Arc::new(crate::occ::Collector::new()));
+        let mut model = BTreeSet::new();
+        let mut keys: Vec<u64> = Vec::new();
+        keys.extend(0..600u64);
+        keys.extend((0..200u64).map(|i| (i + 1) << 8));
+        let mut rng = XorShift(0x9E37_79B9_7F4A_7C15);
+        for _ in 0..40 {
+            keys.push(rng.next());
+        }
+        for &k in &keys {
+            assert_eq!(s.insert(k), model.insert(k), "insert {k:#x}");
+        }
+        assert_eq!(s.len(), model.len() as u64);
+        s.validate();
+        for &k in &keys {
+            assert_eq!(s.contains(k), model.contains(&k), "contains {k:#x}");
+        }
+        for &k in keys.iter().rev() {
+            assert_eq!(s.remove(k), model.remove(&k), "remove {k:#x}");
+        }
+        assert!(s.is_empty());
+        s.validate();
+        assert!(crate::alloc::bracket_stack::open().is_empty());
+    }
+
     #[cfg(miri)]
     const OPS: usize = 250;
     #[cfg(not(miri))]

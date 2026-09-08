@@ -2179,6 +2179,54 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
+    /// The shared-tree engine (`OCC = true`) on one thread, so Miri can see
+    /// its raw-pointer discipline (#568 PR 3): a map deferred to a collector
+    /// in the wrapper's mode is driven through every node form — dense keys
+    /// through the bitmap leaves, one wide level through `BranchB` into
+    /// `BranchU`, scattered keys through cascades and narrow pointers — and
+    /// back down to empty. Sized for the Tier-1 Miri lane (docs/CI.md §5).
+    #[test]
+    fn occ_engine_single_thread_under_miri() {
+        let mut m = ExpanseMap::new();
+        m.occ_root()
+            .1
+            .defer_to_engine_root(std::sync::Arc::new(crate::occ::Collector::new()));
+        let mut model = BTreeMap::new();
+        let mut keys: Vec<u64> = Vec::new();
+        // Dense: root leaf, promotion, linear leaves into a bitmap leaf.
+        keys.extend(0..600u64);
+        // One wide level: 200 distinct digits at level 2 (BranchB, then U).
+        keys.extend((0..200u64).map(|i| (i + 1) << 8));
+        // Scattered: cascades at every level and narrow pointers.
+        let mut x = 0x9E37_79B9_7F4A_7C15u64;
+        for _ in 0..40 {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            keys.push(x);
+        }
+        for (i, &k) in keys.iter().enumerate() {
+            let v = i as u64 * 3 + 1;
+            assert_eq!(m.insert(k, v), model.insert(k, v), "insert {k:#x}");
+        }
+        assert_eq!(m.len(), model.len() as u64);
+        m.validate();
+        for &k in &keys {
+            assert_eq!(m.get(k), model.get(&k).copied(), "get {k:#x}");
+        }
+        // Overwrite in place, then remove everything in an order that
+        // crosses every hysteresis floor.
+        for &k in keys.iter().step_by(7) {
+            assert_eq!(m.insert(k, 0), model.insert(k, 0));
+        }
+        for &k in keys.iter().rev() {
+            assert_eq!(m.remove(k), model.remove(&k), "remove {k:#x}");
+        }
+        assert!(m.is_empty());
+        m.validate();
+        assert!(crate::alloc::bracket_stack::open().is_empty());
+    }
+
     /// Regression for the fuzz crash `crash-7048e639` (ASan overflow):
     /// a 1-byte-remainder linear leaf with pop 9..=12 has a
     /// cap_class-derived key area of only 12 bytes, which the 16-byte

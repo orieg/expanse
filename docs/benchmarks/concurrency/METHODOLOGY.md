@@ -261,3 +261,30 @@ or a cell whose base-commit half does not reproduce the `a1982ff2` union
 The string, bytes and blob wrappers (they keep the full tree bracket); the
 50/50 `core_concurrency` sweep (a different workload, and single-writer
 bound by construction); any writer-count scaling.
+
+## 9. Reproducing the §8 gate (appended 2026-09-08, instrument only)
+
+Nothing here changes §8; it names the commands that produce the artifacts §8
+is read against. The reference host's session directory is an rsync'd tree,
+so the base build comes from a second synced tree at the base commit, not
+from a checkout.
+
+```bash
+# base tree (the branch's parent commit) built once; its two harness binaries
+# are the `--ab-base-bin` of each suite
+EXPANSE_BENCH_COMMIT=<head-sha> EXPANSE_BENCH_BASE_TREE=<path> EXPANSE_BENCH_BASE_COMMIT=<base-sha> \
+  nohup docs/benchmarks/concurrency/scripts/pr3_campaign.sh > pr3.log 2>&1 &
+```
+
+The base binaries are the head tree's harness sources built against the base
+tree's engine — one harness, two engines — so the interleaving flags exist in
+both and only the engine differs. The campaign takes the host lock and the
+P-core pin once, then in this order: the H3.2 counter cells at the head commit (`scripts/bench_counters.py`
+into `results/pr3/` of each suite, so the Step 0 counter artifacts they are
+read against stay in place), then two two-commit runs of each FFI suite's
+concurrent arm (`results/baseline_concurrent_ab.json` and `_ab_run2.json`:
+C1 W ∈ {1, 2, 4, 8, 16}, C2 W ∈ {0, 1} at R = 8, and the head-only health
+cell at W = 1 R = 8). `scripts/pr3_gate.py` reads the six artifacts against
+§8.2 and §8.4 and `scripts/tables.py` renders its verdicts into
+[`README.md`](README.md) §8; nothing in the table is typed.
+

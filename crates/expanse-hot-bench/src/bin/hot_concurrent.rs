@@ -17,7 +17,7 @@
 //! | `value_dereference` | map arm fetches the stored value on both sides and checks it against its key-derived expectation; set arm checks presence of every prefill probe |
 //! | `measured_region` | barrier release to last-writer join (writers) and to last-reader join (readers); prefill, teardown and population walks outside |
 //! | `arm_symmetry` | identical prefill, probe and fresh-key streams; both arms below any external lock through their native concurrent APIs (§8.16, §11.3 decision 4); same ISA target; W + R ≤ 16 inside the P-core pin, which is 16 logical CPUs on 8 physical P-cores — a cell with W + R > 8 places two threads per physical core (SMT siblings), and no interval says so |
-//! | `statistics` | per-round throughput emitted raw, arms interleaved per round; BCa 95% CIs on the Expanse ÷ ROWEX ratio computed by the runner (§8.4); every row carries the harness's own operation counts (`*_read_ops` = probes completed by the readers, `*_write_ops` = fresh keys inserted) as the divisor for any per-operation figure (§8.9 principle 5); `--health` emits event ratios from a diagnostic build and never a timing; `--arm <expanse or rowex>` runs one arm alone and emits `counters` rows (`read_ops`, `write_ops`, elapsed) for `scripts/bench_counters.py`'s per-thread `perf stat` attach, never a comparison |
+//! | `statistics` | per-round throughput emitted raw, arms interleaved per round (`--rounds N --round-offset K` runs rounds K..K+N of that interleaving in one process, so a two-commit runner can alternate two builds round by round with the arm order continuous across them — the only before/after form docs/BENCHMARKING.md rule 18 admits); BCa 95% CIs on the Expanse ÷ ROWEX ratio computed by the runner (§8.4); every row carries the harness's own operation counts (`*_read_ops` = probes completed by the readers, `*_write_ops` = fresh keys inserted) as the divisor for any per-operation figure (§8.9 principle 5); `--health` emits event ratios from a diagnostic build and never a timing; `--arm <expanse or rowex>` runs one arm alone and emits `counters` rows (`read_ops`, `write_ops`, elapsed) for `scripts/bench_counters.py`'s per-thread `perf stat` attach, never a comparison |
 //! | `verdict` | pending measurement |
 //!
 //! ## Fixed work, not a fixed window
@@ -428,11 +428,12 @@ fn cpus_allowed() -> String {
 fn usage() -> ! {
     eprintln!(
         "usage: hot_concurrent <set|map> <writers> <readers> \
-         [--health | --arm <expanse|rowex> [--rounds N] [--wait-stdin]]"
+         [--rounds N] [--round-offset K] [--health | --arm <expanse|rowex> [--rounds N] [--wait-stdin]]"
     );
     eprintln!("       hot_concurrent --layout");
     eprintln!("  writers + readers <= {MAX_THREADS}; one cell per invocation (§11.3 decision 6)");
     eprintln!("  --health needs the `occ-stats` feature and emits event ratios only");
+    eprintln!("  --rounds / --round-offset run rounds K..K+N of the interleaved comparison");
     eprintln!("  --arm runs one arm alone and emits `counters` rows with its own op counts");
     eprintln!("  --wait-stdin blocks each round on one stdin line after `threads_ready`");
     eprintln!("  --layout prints sync::layout_report() as JSON lines (occ-stats build only)");
@@ -442,7 +443,12 @@ fn usage() -> ! {
 /// What one invocation does; the three are mutually exclusive.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
-    Throughput,
+    /// The interleaved comparison for rounds `offset..offset + rounds`
+    /// (`--rounds` / `--round-offset`; the whole cell by default). A
+    /// two-commit runner splits one cell across processes of two builds,
+    /// one round each, and the offset keeps the round numbers — and the
+    /// arm order, which alternates by round — continuous across them.
+    Throughput { rounds: usize, offset: usize },
     Health,
     /// One arm alone for `rounds` rounds, with the optional stdin handshake.
     Counters {
@@ -474,6 +480,7 @@ fn parse_cli(a: &[String]) -> Cli {
     let writers: usize = a[2].parse().unwrap_or_else(|_| usage());
     let readers: usize = a[3].parse().unwrap_or_else(|_| usage());
     let (mut health, mut side, mut rounds, mut wait_stdin) = (false, None, None, false);
+    let mut offset = 0usize;
     let mut i = 4;
     while i < a.len() {
         match a[i].as_str() {
@@ -492,14 +499,21 @@ fn parse_cli(a: &[String]) -> Cli {
                         .unwrap_or_else(|| usage()),
                 );
             }
+            "--round-offset" => {
+                i += 1;
+                offset = a
+                    .get(i)
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or_else(|| usage());
+            }
             _ => usage(),
         }
         i += 1;
     }
     let mode = match (health, side) {
         (true, None) => {
-            if rounds.is_some() || wait_stdin {
-                eprintln!("--rounds and --wait-stdin belong to --arm, not --health");
+            if rounds.is_some() || wait_stdin || offset != 0 {
+                eprintln!("--rounds, --round-offset and --wait-stdin do not apply to --health");
                 usage();
             }
             Mode::Health
@@ -510,6 +524,10 @@ fn parse_cli(a: &[String]) -> Cli {
                 "rowex" => false,
                 _ => usage(),
             };
+            if offset != 0 {
+                eprintln!("--round-offset applies to the interleaved comparison, not --arm");
+                usage();
+            }
             Mode::Counters {
                 expanse,
                 rounds: rounds.unwrap_or(COUNTER_ROUNDS),
@@ -517,11 +535,14 @@ fn parse_cli(a: &[String]) -> Cli {
             }
         }
         (false, None) => {
-            if rounds.is_some() || wait_stdin {
-                eprintln!("--rounds and --wait-stdin need --arm");
+            if wait_stdin {
+                eprintln!("--wait-stdin needs --arm");
                 usage();
             }
-            Mode::Throughput
+            Mode::Throughput {
+                rounds: rounds.unwrap_or(ROUNDS),
+                offset,
+            }
         }
         (true, Some(_)) => {
             eprintln!("--health and --arm are two different builds; pick one");
@@ -773,7 +794,10 @@ fn main() {
         return;
     }
 
-    for round in 0..ROUNDS {
+    let Mode::Throughput { rounds, offset } = mode else {
+        unreachable!("health and counters modes returned above");
+    };
+    for round in offset..offset + rounds {
         // Interleave the arms round by round (docs/BENCHMARKING.md rule 1):
         // drift hits both and cancels in the paired ratio.
         let rowex_first = round % 2 == 0;

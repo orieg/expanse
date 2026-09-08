@@ -155,3 +155,66 @@ Both runs, load snapshots per cell with the foreign-CPU share, governor per
 pinned core, effective clock per counter cell — all in the artifacts, none
 retyped here. A cell voided under METHODOLOGY §6 is listed in this section
 with its reason, never silently dropped (AGENTS.md §8.1).
+
+## 8. PR 3 gate — the single-writer bracket re-scope (METHODOLOGY §8)
+
+Read against §8.2; every number is the runner's own estimator over the two-commit artifacts (`results/baseline_concurrent_ab*.json` of each FFI suite) and the head build's counters (`results/pr3/`). A cell whose base half falls outside the committed `a1982ff2` union is `VOID` (§8.4) and decides nothing.
+
+**H3.1 — reader ns per probe at C2 W = 1 R = 8** (gate: head union-upper below 0.5 × the baseline union-lower):
+
+| cell | baseline union (ns) | threshold (ns) | base half, run 1 / 2 | head half, run 1 / 2 | verdict |
+|---|--:|--:|--:|--:|---|
+| `hot_conc_set_w1_r8` | [282, 521] | 141 | pending / pending | pending / pending | pending |
+| `hot_conc_map_w1_r8` | [435, 499] | 218 | pending / pending | pending / pending | pending |
+| `masstree_conc_map_w1_r8` | [273, 407] | 136 | pending / pending | pending / pending | pending |
+
+**H3.2 — writer `l2_rqsts.rfo_miss` per insert at C2 W = 1 R = 8** (gate: ≤ 6.0; refuted at ≥ 10.0):
+
+| cell | Step 0 (base) | head | verdict |
+|---|--:|--:|---|
+| `hot_conc_set_w1_r8` | 11.67 [11.23, 11.97] | pending | pending |
+| `hot_conc_map_w1_r8` | 12.22 [11.83, 12.36] | pending | pending |
+| `masstree_conc_map_w1_r8` | 12.34 [12.14, 12.42] | pending | pending |
+
+**H3.3 — restart share at C2 W = 1 R = 8, head build** (ceiling 30%):
+
+| cell | restart share, run 1 / 2 | verdict |
+|---|--:|---|
+| `hot_conc_set_w1_r8` | pending / pending | pending |
+| `hot_conc_map_w1_r8` | pending / pending | pending |
+| `masstree_conc_map_w1_r8` | pending / pending | pending |
+
+**The writer at the gate cell** (published beside H3.1, not a gate; M inserts/s):
+
+| cell | baseline union | head, run 1 / 2 | reading |
+|---|--:|--:|---|
+| `hot_conc_set_w1_r8` | [1.66, 2.23] | pending / pending | pending |
+| `hot_conc_map_w1_r8` | [1.88, 1.92] | pending / pending | pending |
+| `masstree_conc_map_w1_r8` | [1.53, 1.90] | pending / pending | pending |
+
+**H3.4 controls — C1 aggregate M inserts/s, predicted inside the baseline union** (the Callgrind half of H3.4 is the PR's own `instruction-counts` run):
+
+| suite | arm | W | baseline union | base half, run 1 / 2 | head half, run 1 / 2 | reading |
+|---|---|--:|--:|--:|--:|---|
+| hot_comparison | set | 1 | [8.57, 8.61] | pending / pending | pending / pending | pending |
+| hot_comparison | set | 2 | [4.53, 5.12] | pending / pending | pending / pending | pending |
+| hot_comparison | set | 4 | [4.32, 4.62] | pending / pending | pending / pending | pending |
+| hot_comparison | set | 8 | [3.71, 3.80] | pending / pending | pending / pending | pending |
+| hot_comparison | set | 16 | [2.73, 3.11] | pending / pending | pending / pending | pending |
+| hot_comparison | map | 1 | [5.13, 5.20] | pending / pending | pending / pending | pending |
+| hot_comparison | map | 2 | [3.49, 3.57] | pending / pending | pending / pending | pending |
+| hot_comparison | map | 4 | [2.99, 3.07] | pending / pending | pending / pending | pending |
+| hot_comparison | map | 8 | [2.43, 2.65] | pending / pending | pending / pending | pending |
+| hot_comparison | map | 16 | [2.42, 2.67] | pending / pending | pending / pending | pending |
+| masstree_comparison | map | 1 | [5.55, 5.71] | pending / pending | pending / pending | pending |
+| masstree_comparison | map | 2 | [3.76, 3.92] | pending / pending | pending / pending | pending |
+| masstree_comparison | map | 4 | [3.44, 3.48] | pending / pending | pending / pending | pending |
+| masstree_comparison | map | 8 | [2.56, 3.16] | pending / pending | pending / pending | pending |
+| masstree_comparison | map | 16 | [2.20, 2.22] | pending / pending | pending / pending | pending |
+| masstree_comparison | str | 1 | [3.99, 4.01] | pending / pending | pending / pending | pending |
+| masstree_comparison | str | 2 | [2.68, 2.84] | pending / pending | pending / pending | pending |
+| masstree_comparison | str | 4 | [2.50, 2.59] | pending / pending | pending / pending | pending |
+| masstree_comparison | str | 8 | [2.00, 2.20] | pending / pending | pending / pending | pending |
+| masstree_comparison | str | 16 | [0.51, 0.53] | pending / pending | pending / pending | pending |
+
+The two-commit artifacts are not committed yet: pending ([#568](https://github.com/orieg/expanse/issues/568)).

@@ -15,6 +15,7 @@ pub fn expanse_trie::alloc::NodeAlloc::alloc_node<T>(&self, T) -> core::ptr::non
 pub fn expanse_trie::alloc::NodeAlloc::alloc_node_zeroed<T>(&self) -> core::ptr::non_null::NonNull<T>
 pub fn expanse_trie::alloc::NodeAlloc::bytes_in_use(&self) -> usize
 pub fn expanse_trie::alloc::NodeAlloc::defer_to(&self, alloc::sync::Arc<expanse_trie::occ::Collector>)
+pub fn expanse_trie::alloc::NodeAlloc::defer_to_engine_root(&self, alloc::sync::Arc<expanse_trie::occ::Collector>)
 pub unsafe fn expanse_trie::alloc::NodeAlloc::free_bytes(&self, core::ptr::non_null::NonNull<u8>, usize)
 pub unsafe fn expanse_trie::alloc::NodeAlloc::free_node<T>(&self, core::ptr::non_null::NonNull<T>)
 pub fn expanse_trie::alloc::NodeAlloc::live_allocs(&self) -> usize
@@ -1134,6 +1135,7 @@ pub fn expanse_trie::occ::Collector::register(&alloc::sync::Arc<Self>) -> expans
 pub fn expanse_trie::occ::Collector::retained_bytes(&self) -> usize
 pub fn expanse_trie::occ::Collector::retire(&self, core::ptr::non_null::NonNull<u8>, usize, usize)
 pub fn expanse_trie::occ::Collector::try_advance(&self)
+pub fn expanse_trie::occ::Collector::version(&self) -> &expanse_trie::occ::SeqVersion
 impl core::default::Default for expanse_trie::occ::Collector
 pub fn expanse_trie::occ::Collector::default() -> Self
 impl core::fmt::Debug for expanse_trie::occ::Collector
