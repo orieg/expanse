@@ -636,21 +636,21 @@ cell in this suite was measured on.
 
 | W | Masstree M/s | Expanse M/s | ratio [BCa 95%] | verdict |
 |--:|---:|---:|---|---|
-| 1 | 5.12 | 5.68 | 1.141 [1.103, 1.177] | Expanse — **`REFUTED`** (in Expanse's favour) |
-| 2 | 9.67 | 4.17 | 0.438 [0.422, 0.452] | Masstree — `CONFIRMED` |
-| 4 | 18.19 | 3.24 | 0.180 [0.175, 0.184] | Masstree — `CONFIRMED` |
-| 8 | 32.29 | 3.01 | 0.096 [0.093, 0.099] | Masstree — `CONFIRMED` |
-| 16 | 35.13 | 2.29 | 0.061 [0.056, 0.065] | Masstree — `not pre-registered` |
+| 1 | 5.07 | 5.68 | 1.134 [1.095, 1.173] | Expanse — **`REFUTED`** (in Expanse's favour) |
+| 2 | 9.76 | 3.92 | 0.407 [0.395, 0.418] | Masstree — `CONFIRMED` |
+| 4 | 18.27 | 3.21 | 0.179 [0.175, 0.183] | Masstree — `CONFIRMED` |
+| 8 | 32.02 | 2.58 | 0.081 [0.080, 0.084] | Masstree — `CONFIRMED` |
+| 16 | 34.43 | 1.84 | 0.050 [0.044, 0.054] | Masstree — `not pre-registered` |
 
 **C2 — reader throughput alongside writers** (8 readers probe 50/50 while W writers insert; W = 0 is the reader-only reference; the reader window is the writers' fixed work, so the two arms' windows differ in length by the writer ratio and the population grows at different rates inside them)
 
 | W | Masstree readers M/s | Expanse readers M/s | ratio [BCa 95%] | verdict | Masstree writers M/s | Expanse writers M/s | writer ratio |
 |--:|---:|---:|---|---|---:|---:|---|
-| 0 | 59.54 | 140.03 | 2.366 [2.347, 2.396] | Expanse — `CONFIRMED` | — | — | — |
-| 1 | 42.53 | 16.70 | 0.473 [0.412, 0.556] | Masstree — `CONFIRMED` | 3.81 | 1.95 | 0.485 [0.449, 0.511] |
-| 2 | 40.77 | 26.52 | 0.651 [0.635, 0.667] | Masstree — `CONFIRMED` | 7.27 | 1.61 | 0.222 [0.217, 0.229] |
-| 4 | 37.26 | 24.77 | 0.662 [0.649, 0.672] | Masstree — `CONFIRMED` | 13.80 | 1.58 | 0.114 [0.112, 0.116] |
-| 8 | 32.21 | 24.71 | 0.772 [0.738, 0.805] | Masstree — `CONFIRMED` | 19.30 | 1.54 | 0.075 [0.070, 0.081] |
+| 0 | 56.88 | 138.65 | 2.392 [2.321, 2.428] | Expanse — `CONFIRMED` | — | — | — |
+| 1 | 40.94 | 16.36 | 0.400 [0.391, 0.409] | Masstree — `CONFIRMED` | 3.85 | 2.00 | 0.521 [0.501, 0.534] |
+| 2 | 39.10 | 25.87 | 0.653 [0.639, 0.667] | Masstree — `CONFIRMED` | 7.35 | 1.66 | 0.227 [0.222, 0.234] |
+| 4 | 35.45 | 22.18 | 0.618 [0.603, 0.633] | Masstree — `CONFIRMED` | 14.17 | 1.78 | 0.128 [0.125, 0.132] |
+| 8 | 30.09 | 21.94 | 0.718 [0.690, 0.747] | Masstree — `CONFIRMED` | 18.70 | 1.67 | 0.080 [0.073, 0.088] |
 
 #### MC2 — `short` string keys, Masstree vs `SyncExpanseStrMap`
 
@@ -658,34 +658,34 @@ cell in this suite was measured on.
 
 | W | Masstree M/s | Expanse M/s | ratio [BCa 95%] | verdict |
 |--:|---:|---:|---|---|
-| 1 | 4.18 | 3.57 | 0.897 [0.807, 1.003] | `BOUNDARY_RESULT` — `CONFIRMED` |
-| 2 | 7.91 | 2.43 | 0.328 [0.304, 0.362] | Masstree — `CONFIRMED` |
-| 4 | 14.82 | 2.18 | 0.163 [0.151, 0.180] | Masstree — `CONFIRMED` |
-| 8 | 23.75 | 1.29 | 0.066 [0.052, 0.084] | Masstree — `CONFIRMED` |
-| 16 | 30.60 | 0.50 | 0.019 [0.017, 0.021] | Masstree — `not pre-registered` |
+| 1 | 4.18 | 3.99 | 0.954 [0.865, 1.043] | `BOUNDARY_RESULT` — `CONFIRMED` |
+| 2 | 7.92 | 2.67 | 0.378 [0.354, 0.407] | Masstree — `CONFIRMED` |
+| 4 | 14.81 | 2.38 | 0.172 [0.161, 0.186] | Masstree — `CONFIRMED` |
+| 8 | 24.02 | 2.28 | 0.101 [0.093, 0.111] | Masstree — `CONFIRMED` |
+| 16 | 28.46 | 0.54 | 0.018 [0.017, 0.020] | Masstree — `not pre-registered` |
 
 **C2 — reader throughput alongside writers** (8 readers probe 50/50 while W writers insert; W = 0 is the reader-only reference; the reader window is the writers' fixed work, so the two arms' windows differ in length by the writer ratio and the population grows at different rates inside them)
 
 | W | Masstree readers M/s | Expanse readers M/s | ratio [BCa 95%] | verdict | Masstree writers M/s | Expanse writers M/s | writer ratio |
 |--:|---:|---:|---|---|---:|---:|---|
-| 0 | 36.47 | 30.96 | 0.851 [0.845, 0.866] | Masstree — **`UNPREDICTED LOSS`** | — | — | — |
-| 1 | 26.81 | 4.05 | 0.161 [0.131, 0.222] | Masstree — `CONFIRMED` | 2.89 | 1.78 | 0.651 [0.602, 0.746] |
-| 2 | 25.00 | 7.63 | 0.314 [0.293, 0.345] | Masstree — `CONFIRMED` | 3.89 | 1.20 | 0.296 [0.254, 0.334] |
-| 4 | 22.23 | 5.67 | 0.282 [0.263, 0.307] | Masstree — `CONFIRMED` | 7.25 | 1.41 | 0.188 [0.169, 0.207] |
-| 8 | 18.23 | 6.50 | 0.365 [0.347, 0.384] | Masstree — `CONFIRMED` | 12.34 | 1.30 | 0.102 [0.093, 0.109] |
+| 0 | 34.07 | 33.83 | 0.993 [0.989, 0.997] | Masstree — **`UNPREDICTED LOSS`** | — | — | — |
+| 1 | 25.43 | 7.06 | 0.272 [0.249, 0.287] | Masstree — `CONFIRMED` | 2.86 | 1.65 | 0.614 [0.554, 0.704] |
+| 2 | 23.88 | 8.52 | 0.349 [0.335, 0.365] | Masstree — `CONFIRMED` | 4.21 | 1.34 | 0.280 [0.253, 0.302] |
+| 4 | 21.16 | 8.16 | 0.392 [0.378, 0.408] | Masstree — `CONFIRMED` | 9.03 | 1.28 | 0.141 [0.132, 0.148] |
+| 8 | 16.58 | 7.51 | 0.442 [0.421, 0.460] | Masstree — `CONFIRMED` | 14.77 | 1.31 | 0.089 [0.085, 0.095] |
 
 #### H — protocol health, Expanse side only (occ-stats build; event ratios, never a timing)
 
 | Arm | W | R | restart share, median [min, max] | fallback share, median | `sample_spins` ÷ `read_ops` (medians) | §6.3 |
 |---|--:|--:|---|---|---:|---|
-| map | 1 | 8 | 4.22% [4.13%, 4.95%] | 0.0000% | 0.96 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 2 | 8 | 5.65% [4.12%, 6.39%] | 0.0000% | 1.12 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 4 | 8 | 6.09% [5.83%, 6.73%] | 0.0000% | 1.19 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 8 | 8 | 5.93% [5.27%, 6.82%] | 0.0000% | 1.18 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| str | 1 | 8 | 35.93% [35.65%, 38.28%] | 0.0000% | 2.49 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| str | 2 | 8 | 26.36% [25.04%, 31.44%] | 0.0000% | 2.07 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| str | 4 | 8 | 29.23% [26.52%, 30.52%] | 0.0000% | 2.61 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| str | 8 | 8 | 31.14% [29.91%, 33.90%] | 0.0000% | 2.59 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 1 | 8 | 4.14% [3.87%, 4.65%] | 0.0000% | 0.91 | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 2 | 8 | 5.07% [4.68%, 8.67%] | 0.0000% | 1.00 | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 4 | 8 | 5.38% [4.85%, 5.59%] | 0.0000% | 1.13 | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 8 | 8 | 6.37% [6.19%, 6.63%] | 0.0000% | 1.25 | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 1 | 8 | 35.37% [35.05%, 37.71%] | 0.0000% | 2.26 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 2 | 8 | 26.93% [26.11%, 27.59%] | 0.0000% | 2.00 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 4 | 8 | 26.10% [25.16%, 26.98%] | 0.0000% | 2.11 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 8 | 8 | 29.57% [28.55%, 30.94%] | 0.0000% | 2.31 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
 
 The MC1 health rows land where `hot_comparison` §7.3's did on the same
 construction: restart share 3.8–6.8% **without rising monotonically with
@@ -731,7 +731,7 @@ tested.
 | 23 | 1,507,328 | 23.66 | 16.36 | 22.76 | 16.20 | `ok` |
 | 30 | 1,966,080 | 23.47 | 20.34 | 22.76 | 19.05 | `ok` |
 | 38 | 2,490,368 | 23.58 | 25.90 | 22.76 | 23.24 | `ok` |
-| 46 | 3,014,656 | 22.96 | 26.77 | 22.76 | 24.00 | `ok` |
+| 46 | 3,014,656 | 22.96 | 26.78 | 22.76 | 24.00 | `ok` |
 | 61 | 3,997,696 | 23.09 | 25.60 | 22.76 | 23.17 | `ok` |
 
 **The Expanse column beside #692's.** MC1's cells are the construction of
@@ -768,8 +768,26 @@ any of the three runs**, and no verdict moved. The levels above are therefore
 one run's and not a settled figure: per
 [`docs/BENCHMARKING.md`](../../BENCHMARKING.md) rule 18 the claim ceiling on a
 concurrent cell is the union of the runs' intervals, and a cell whose runs do
-not overlap is quoted as a direction and a range, never as a level. What three
+not overlap is quoted as a direction and a range, never as a level. What the
 runs settle is direction; what they do not settle is magnitude.
+
+**Two further runs, at `64f8a3af`, for [#760](https://github.com/orieg/expanse/issues/760).**
+The tables above are the second of them; the first is committed beside it as
+[`results/baseline_concurrent_run2.json`](results/baseline_concurrent_run2.json),
+which is what rule 18 means by both runs side by side. **Four of the twenty
+C1/C2 ratio cells separate between the pair** — `C1 map W=4` (0.194 → 0.179),
+`C1 map W=8` (0.087 → 0.081), `C1 str W=2` (0.436 → 0.378) and
+`C2 str W=4 R=8` (0.161 → 0.141). Those four are **direction-only**: Masstree's,
+by a factor the pair brackets rather than fixes. Every other cell overlaps, and
+**no direction and no verdict moved in either run** — the same outcome the three
+earlier runs gave.
+
+Twenty per cent of cells separating is the rate rule 18 now records across this
+repository's suites (13 of 72 and 24 of 144 on the single-threaded sweeps), so
+it is the instrument's normal behaviour rather than a fault of this run. Both
+runs were on the quiet host under the P-core pin, worst busy-CPU delta 5.7
+core-equivalents — the concurrent benchmark's own threads, with no non-target
+process.
 
 ## 8. Scorecard against the pre-registration
 
@@ -793,6 +811,14 @@ runs settle is direction; what they do not settle is magnitude.
 | `BOUNDARY_RESULT` | 5 |
 | Expanse — **`REFUTED`** (in Expanse's favour) | 1 |
 | `BOUNDARY_RESULT` — `CONFIRMED` | 1 |
+
+#### Against the pre-registration
+
+This table is written by hand — a verdict against a registered prediction is a
+judgement, not a count — which is why it lives under its own heading rather than
+inside the generated scorecard above. `check_readme_tables.py` matches a
+section's tables against the generator's positionally, and a third table the
+generator does not emit made that match ambiguous.
 
 | Registered (§6) | Outcome |
 |---|---|
