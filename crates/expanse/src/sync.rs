@@ -455,6 +455,8 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                     if !MAP {
                         return Ok(Some(0));
                     }
+                    #[cfg(test)]
+                    test_hooks::before_leaf_value();
                     // SAFETY: `slot < pop` values at the leaf base.
                     let v = unsafe { base.cast::<u64>().add(slot).read() };
                     chk!();
@@ -3289,5 +3291,146 @@ mod diagnostics_tests {
                 );
             }
         }
+    }
+}
+
+/// Test-only pause points inside the validated walk, so a test can hold a
+/// reader at a precise step while the writer moves the structure under it.
+/// Armed per thread: only the thread that armed itself parks, so tests in
+/// the same binary never catch each other's readers.
+#[cfg(test)]
+pub(crate) mod test_hooks {
+    use std::cell::Cell;
+    use std::sync::{Arc, Barrier};
+
+    /// Two rendezvous: `parked` fires when the reader has reached the hook,
+    /// `release` lets it continue.
+    pub(crate) struct Gate {
+        pub(crate) parked: Barrier,
+        pub(crate) release: Barrier,
+    }
+
+    impl Gate {
+        pub(crate) fn new() -> Arc<Self> {
+            Arc::new(Self {
+                parked: Barrier::new(2),
+                release: Barrier::new(2),
+            })
+        }
+    }
+
+    thread_local! {
+        static ARMED: Cell<Option<Arc<Gate>>> = const { Cell::new(None) };
+    }
+
+    /// The next time *this thread's* walk reaches a linear-leaf value load,
+    /// it stops at `gate` (once).
+    pub(crate) fn arm_current_thread(gate: Arc<Gate>) {
+        ARMED.with(|c| c.set(Some(gate)));
+    }
+
+    /// Between finding a key in a linear map leaf and loading its value.
+    #[inline(always)]
+    pub(crate) fn before_leaf_value() {
+        if let Some(g) = ARMED.with(Cell::take) {
+            g.parked.wait();
+            g.release.wait();
+        }
+    }
+}
+
+/// A reader whose cover node is replaced must restart, not trust the dead
+/// node's frozen version (#568 plan PR 1).
+#[cfg(all(test, not(miri)))]
+mod obsolete_tests {
+    use super::*;
+    use crate::node::BranchL3;
+    use crate::types::{EdgeTag, EdgeType};
+
+    /// The reader is held between finding its key in the leaf and loading
+    /// the value; the writer then promotes the reader's cover (an L3 at
+    /// capacity, retired by the promotion) and shifts that leaf in place
+    /// under the replacement. Without the obsolete mark the reader's
+    /// validation passes and it returns the value that shifted into its
+    /// slot; with it, the reader restarts and answers correctly.
+    #[test]
+    fn reader_restarts_after_its_cover_is_replaced() {
+        let map = SyncExpanseMap::new();
+        // Seventeen 1-byte keys under each of three level-2 digits: a full
+        // BranchL3 at level 2 whose children are linear leaves of 17 keys
+        // (class 20, so an 18th shifts in place). 51 keys > ROOT_LEAF_CAP.
+        for d in [0x10u64, 0x20, 0x30] {
+            for i in 0..17u64 {
+                let k = (d << 8) | (1 + 2 * i);
+                map.insert(k, !k);
+            }
+        }
+        // Preconditions (AGENTS.md §5 negative-control discrimination): the
+        // shape must actually be the one the interleaving needs.
+        let probe = 0x1021u64;
+        // SAFETY: no writer is running; the snapshot is read for its shape.
+        let RootSnapshot::Tree { top, .. } = (unsafe { (*map.shared.inner.get()).occ_root().0 })
+        else {
+            panic!("root must be a tree")
+        };
+        // The keys share bytes 7..2, so the path from the top is a chain of
+        // single-digit linear branches down to the full level-2 L3; walk it.
+        let mut edge = top;
+        // SAFETY: live nodes, single-threaded here.
+        let c = unsafe {
+            loop {
+                assert_eq!(
+                    edge.tag(),
+                    Some(EdgeTag::Structural(EdgeType::BranchL3)),
+                    "every node on the path must be an L3"
+                );
+                let b = &*edge.node_ptr().cast::<BranchL3>();
+                if b.hdr.level == 2 {
+                    break b;
+                }
+                assert_eq!(b.hdr.num, 1, "chain node above level 2 has one digit");
+                edge = b.edges[0];
+            }
+        };
+        let (level, num, leaf_tag, leaf_pop) = {
+            let slot = c.hdr.digits[..c.hdr.num as usize]
+                .iter()
+                .position(|&d| d == 0x10)
+                .expect("digit 0x10 present");
+            let e = c.edges[slot];
+            (c.hdr.level, c.hdr.num, e.tag(), e.pop0(1) + 1)
+        };
+        assert_eq!((level, num), (2, 3), "L3 at level 2, full");
+        assert_eq!(
+            leaf_tag,
+            Some(EdgeTag::Structural(EdgeType::Leaf1)),
+            "linear leaf under 0x10"
+        );
+        assert_eq!(leaf_pop, 17);
+
+        let gate = test_hooks::Gate::new();
+        let value = std::thread::scope(|sc| {
+            let g = Arc::clone(&gate);
+            let map = &map;
+            let reader = sc.spawn(move || {
+                test_hooks::arm_current_thread(g);
+                let rd = map.reader();
+                rd.get(probe)
+            });
+            gate.parked.wait();
+            // Op 1: a fourth digit promotes the L3 to an L7 and retires it —
+            // the reader's cover is now a dead node.
+            map.insert(0x4001, !0x4001);
+            // Op 2: the smallest key into the 0x10 leaf, shifting keys and
+            // values right by one in place, under the replacement's bracket.
+            map.insert(0x1000, !0x1000);
+            gate.release.wait();
+            reader.join().expect("reader thread")
+        });
+        assert_eq!(
+            value,
+            Some(!probe),
+            "the reader must restart, not read the shifted slot"
+        );
     }
 }

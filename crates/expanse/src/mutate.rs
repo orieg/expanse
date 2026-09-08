@@ -863,7 +863,7 @@ unsafe fn insert_with_path_flat(
                     }
                     if num == BRANCH_L3_CAP {
                         path.clear();
-                        upgrade_l3_to_l7(a, &mut *edge);
+                        upgrade_l3_to_l7::<false>(a, &mut *edge);
                         continue;
                     }
                     let slot = linear_insert_slot_l3(
@@ -905,7 +905,7 @@ unsafe fn insert_with_path_flat(
                     let num = (*b_ptr).hdr.num as usize;
                     if num == BRANCH_L7_CAP {
                         path.clear();
-                        upgrade_l7_to_b(a, &mut *edge);
+                        upgrade_l7_to_b::<false>(a, &mut *edge);
                         continue;
                     }
                     let slot =
@@ -959,7 +959,7 @@ unsafe fn insert_with_path_flat(
                     path.clear();
                     // SAFETY: upgrade_b_to_u upgrades live BranchB to BranchU.
                     unsafe {
-                        upgrade_b_to_u(a, &mut *edge);
+                        upgrade_b_to_u::<false>(a, &mut *edge);
                     }
                     level = slot_level;
                     continue;
@@ -1858,9 +1858,9 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                     // SAFETY: upgrade rebuilds the node; subtree stays owned.
                     unsafe {
                         if is_l3 {
-                            upgrade_l3_to_l7(a, edge);
+                            upgrade_l3_to_l7::<OCC>(a, edge);
                         } else {
-                            upgrade_l7_to_b(a, edge);
+                            upgrade_l7_to_b::<OCC>(a, edge);
                         }
                     }
                     continue;
@@ -1939,7 +1939,7 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                     // SAFETY: upgrade rebuilds the node; subtree stays owned
                     // (the guard above ensures it sits at its slot level).
                     unsafe {
-                        upgrade_b_to_u(a, edge);
+                        upgrade_b_to_u::<OCC>(a, edge);
                     }
                     level = slot_level;
                     continue;
@@ -2022,7 +2022,7 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
 /// # Safety
 ///
 /// `edge` must reference a live, full `BranchL3` owned by `a`.
-pub(crate) unsafe fn upgrade_l3_to_l7(a: &NodeAlloc, edge: &mut Edge) {
+pub(crate) unsafe fn upgrade_l3_to_l7<const OCC: bool>(a: &NodeAlloc, edge: &mut Edge) {
     crate::occ_stats::note_branch_replacement();
     // SAFETY: live BranchL3 per contract.
     let old = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
@@ -2037,6 +2037,16 @@ pub(crate) unsafe fn upgrade_l3_to_l7(a: &NodeAlloc, edge: &mut Edge) {
         );
     }
     let aux = *edge.aux_bytes();
+    // The old node is about to become unreachable: make its version
+    // permanently odd before the slot changes and before it is retired, so
+    // a reader still covered by it restarts (`occ::version_obsolete_if`).
+    // SAFETY: live node owned by `a`; its shared borrow above is not used
+    // again, and this node's own bracket is not open here.
+    unsafe {
+        crate::occ::version_obsolete_if::<OCC>(
+            &raw mut (*edge.node_ptr().cast::<BranchL3>()).hdr.version,
+        );
+    }
     // SAFETY: old node no longer referenced.
     unsafe { a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL3>()).unwrap()) };
     *edge = Edge::new_node(new.as_ptr().cast(), EdgeType::BranchL7.as_u8());
@@ -2048,7 +2058,7 @@ pub(crate) unsafe fn upgrade_l3_to_l7(a: &NodeAlloc, edge: &mut Edge) {
 /// # Safety
 ///
 /// `edge` must reference a live, full `BranchL7` owned by `a`.
-pub(crate) unsafe fn upgrade_l7_to_b(a: &NodeAlloc, edge: &mut Edge) {
+pub(crate) unsafe fn upgrade_l7_to_b<const OCC: bool>(a: &NodeAlloc, edge: &mut Edge) {
     crate::occ_stats::note_branch_replacement();
     // SAFETY: live BranchL7 per contract.
     let old = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
@@ -2080,6 +2090,16 @@ pub(crate) unsafe fn upgrade_l7_to_b(a: &NodeAlloc, edge: &mut Edge) {
         }
     }
     let aux = *edge.aux_bytes();
+    // The old node is about to become unreachable: make its version
+    // permanently odd before the slot changes and before it is retired, so
+    // a reader still covered by it restarts (`occ::version_obsolete_if`).
+    // SAFETY: live node owned by `a`; its shared borrow above is not used
+    // again, and this node's own bracket is not open here.
+    unsafe {
+        crate::occ::version_obsolete_if::<OCC>(
+            &raw mut (*edge.node_ptr().cast::<BranchL7>()).hdr.version,
+        );
+    }
     // SAFETY: old node no longer referenced.
     unsafe { a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL7>()).unwrap()) };
     *edge = Edge::new_node(new.as_ptr().cast(), EdgeType::BranchB.as_u8());
@@ -2092,7 +2112,7 @@ pub(crate) unsafe fn upgrade_l7_to_b(a: &NodeAlloc, edge: &mut Edge) {
 ///
 /// `edge` must reference a live **non-skipping** `BranchB` owned by `a`
 /// (`BranchU` has no header level; callers wrap a skipping node first).
-pub(crate) unsafe fn upgrade_b_to_u(a: &NodeAlloc, edge: &mut Edge) {
+pub(crate) unsafe fn upgrade_b_to_u<const OCC: bool>(a: &NodeAlloc, edge: &mut Edge) {
     crate::occ_stats::note_branch_replacement();
     let new = a.alloc_node_zeroed::<BranchU>();
     // SAFETY: live BranchB; subarray reads bounded by pop_counts.
@@ -2121,6 +2141,16 @@ pub(crate) unsafe fn upgrade_b_to_u(a: &NodeAlloc, edge: &mut Edge) {
         }
     }
     let aux = *edge.aux_bytes();
+    // The old node is about to become unreachable: make its version
+    // permanently odd before the slot changes and before it is retired, so
+    // a reader still covered by it restarts (`occ::version_obsolete_if`).
+    // SAFETY: live node owned by `a`; its shared borrow above is not used
+    // again, and this node's own bracket is not open here.
+    unsafe {
+        crate::occ::version_obsolete_if::<OCC>(
+            &raw mut (*edge.node_ptr().cast::<BranchB>()).version,
+        );
+    }
     // SAFETY: old node no longer referenced.
     unsafe { a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchB>()).unwrap()) };
     *edge = Edge::new_node(new.as_ptr().cast(), EdgeType::BranchU.as_u8());
@@ -2426,14 +2456,14 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                     if num == 0 {
                         // Last key of the subtree: pop0 cannot express an
                         // empty branch, so free it instead of bumping.
-                        free_branch_node(a, edge, is_l3);
+                        free_branch_node::<OCC>(a, edge, is_l3);
                         *edge = Edge::NULL;
                         return true;
                     }
                     bump_pop0(edge, bl, -1);
                     if !is_l3 && num < BRANCH_L3_CAP {
                         // Hysteresis: L7 → L3 one index below the L3 capacity.
-                        downgrade_l7_to_l3(a, edge);
+                        downgrade_l7_to_l3::<OCC>(a, edge);
                     }
                 }
             } else {
@@ -2516,7 +2546,7 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                 if digits < BRANCH_L7_CAP {
                     // Hysteresis: B → L7 one index below the L7 capacity.
                     // SAFETY: rebuild keeps the subtree owned.
-                    unsafe { downgrade_b_to_l7(a, edge) };
+                    unsafe { downgrade_b_to_l7::<OCC>(a, edge) };
                 }
             } else {
                 // SAFETY: edge is a valid live edge.
@@ -2555,7 +2585,7 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                 if digits < BRANCHB_UP {
                     // Hysteresis: U → B one index below the U threshold.
                     // SAFETY: rebuild keeps the subtree owned.
-                    unsafe { downgrade_u_to_b(a, edge, level) };
+                    unsafe { downgrade_u_to_b::<OCC>(a, edge, level) };
                 }
             } else {
                 // SAFETY: edge is a valid live edge.
@@ -2584,14 +2614,20 @@ pub(crate) fn linear_remove_slot(
 ///
 /// `edge` must reference a live linear-branch node of the flavor named by
 /// `is_l3`, no longer referenced afterwards.
-unsafe fn free_branch_node(a: &NodeAlloc, edge: &mut Edge, is_l3: bool) {
+unsafe fn free_branch_node<const OCC: bool>(a: &NodeAlloc, edge: &mut Edge, is_l3: bool) {
     crate::occ_stats::note_branch_replacement();
-    // SAFETY: forwarded contract.
+    // SAFETY: forwarded contract; the node becomes unreachable, so it is
+    // marked obsolete first (see `occ::version_obsolete_if`) — its own
+    // bracket is closed by the time a caller decides to free it.
     unsafe {
         if is_l3 {
-            a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL3>()).unwrap());
+            let p = edge.node_ptr().cast::<BranchL3>();
+            crate::occ::version_obsolete_if::<OCC>(&raw mut (*p).hdr.version);
+            a.free_node(core::ptr::NonNull::new(p).unwrap());
         } else {
-            a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL7>()).unwrap());
+            let p = edge.node_ptr().cast::<BranchL7>();
+            crate::occ::version_obsolete_if::<OCC>(&raw mut (*p).hdr.version);
+            a.free_node(core::ptr::NonNull::new(p).unwrap());
         }
     }
 }
@@ -2599,7 +2635,7 @@ unsafe fn free_branch_node(a: &NodeAlloc, edge: &mut Edge, is_l3: bool) {
 /// # Safety
 ///
 /// `edge` must reference a live `BranchL7` with ≤ 3 children, owned by `a`.
-pub(crate) unsafe fn downgrade_l7_to_l3(a: &NodeAlloc, edge: &mut Edge) {
+pub(crate) unsafe fn downgrade_l7_to_l3<const OCC: bool>(a: &NodeAlloc, edge: &mut Edge) {
     crate::occ_stats::note_branch_replacement();
     // SAFETY: live BranchL7 per contract.
     let old = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
@@ -2614,6 +2650,16 @@ pub(crate) unsafe fn downgrade_l7_to_l3(a: &NodeAlloc, edge: &mut Edge) {
         );
     }
     let aux = *edge.aux_bytes();
+    // The old node is about to become unreachable: make its version
+    // permanently odd before the slot changes and before it is retired, so
+    // a reader still covered by it restarts (`occ::version_obsolete_if`).
+    // SAFETY: live node owned by `a`; its shared borrow above is not used
+    // again, and this node's own bracket is not open here.
+    unsafe {
+        crate::occ::version_obsolete_if::<OCC>(
+            &raw mut (*edge.node_ptr().cast::<BranchL7>()).hdr.version,
+        );
+    }
     // SAFETY: old node no longer referenced.
     unsafe { a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL7>()).unwrap()) };
     *edge = Edge::new_node(new.as_ptr().cast(), EdgeType::BranchL3.as_u8());
@@ -2623,7 +2669,7 @@ pub(crate) unsafe fn downgrade_l7_to_l3(a: &NodeAlloc, edge: &mut Edge) {
 /// # Safety
 ///
 /// `edge` must reference a live `BranchB` with ≤ 7 digits, owned by `a`.
-pub(crate) unsafe fn downgrade_b_to_l7(a: &NodeAlloc, edge: &mut Edge) {
+pub(crate) unsafe fn downgrade_b_to_l7<const OCC: bool>(a: &NodeAlloc, edge: &mut Edge) {
     crate::occ_stats::note_branch_replacement();
     // SAFETY: live BranchB per contract (level read below).
     let b_level = unsafe { (*edge.node_ptr().cast::<BranchB>()).level };
@@ -2658,6 +2704,16 @@ pub(crate) unsafe fn downgrade_b_to_l7(a: &NodeAlloc, edge: &mut Edge) {
         }
     }
     let aux = *edge.aux_bytes();
+    // The old node is about to become unreachable: make its version
+    // permanently odd before the slot changes and before it is retired, so
+    // a reader still covered by it restarts (`occ::version_obsolete_if`).
+    // SAFETY: live node owned by `a`; its shared borrow above is not used
+    // again, and this node's own bracket is not open here.
+    unsafe {
+        crate::occ::version_obsolete_if::<OCC>(
+            &raw mut (*edge.node_ptr().cast::<BranchB>()).version,
+        );
+    }
     // SAFETY: old node no longer referenced.
     unsafe { a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchB>()).unwrap()) };
     *edge = Edge::new_node(new.as_ptr().cast(), EdgeType::BranchL7.as_u8());
@@ -2668,7 +2724,7 @@ pub(crate) unsafe fn downgrade_b_to_l7(a: &NodeAlloc, edge: &mut Edge) {
 ///
 /// `edge` must reference a live `BranchU` with ≤ `BRANCHB_UP - 1` non-null
 /// children, owned by `a`.
-pub(crate) unsafe fn downgrade_u_to_b(a: &NodeAlloc, edge: &mut Edge, level: u8) {
+pub(crate) unsafe fn downgrade_u_to_b<const OCC: bool>(a: &NodeAlloc, edge: &mut Edge, level: u8) {
     crate::occ_stats::note_branch_replacement();
     let new = a.alloc_node_zeroed::<BranchB>();
     // SAFETY: live BranchU per contract.
@@ -2699,6 +2755,16 @@ pub(crate) unsafe fn downgrade_u_to_b(a: &NodeAlloc, edge: &mut Edge, level: u8)
         }
     }
     let aux = *edge.aux_bytes();
+    // The old node is about to become unreachable: make its version
+    // permanently odd before the slot changes and before it is retired, so
+    // a reader still covered by it restarts (`occ::version_obsolete_if`).
+    // SAFETY: live node owned by `a`; its shared borrow above is not used
+    // again, and this node's own bracket is not open here.
+    unsafe {
+        crate::occ::version_obsolete_if::<OCC>(
+            &raw mut (*edge.node_ptr().cast::<BranchU>()).version,
+        );
+    }
     // SAFETY: old node no longer referenced.
     unsafe { a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchU>()).unwrap()) };
     *edge = Edge::new_node(new.as_ptr().cast(), EdgeType::BranchB.as_u8());
