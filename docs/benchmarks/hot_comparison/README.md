@@ -39,7 +39,6 @@ HOT's two lines are flat; Expanse's dip into the shaded band and climb out of it
 past the cascade is the whole finding. The shaded region is derived by comparing
 the two arms cell by cell, not drawn by eye.
 
-
 | λ | N | HOT B/key | `ExpanseSet` B/key | winner |
 |---:|---:|---:|---:|---|
 | 1 | 32,768 | 12.06 | 16.17 | HOT 1.34× |
@@ -129,7 +128,6 @@ Both exceptions sit against the parity line: `lookup_hit · map · random` is a
 `BOUNDARY_RESULT` at 0.986 [0.970, 1.003], and `lookup_miss · set · random` is a
 non-scan HOT win at 0.960 [0.953, 0.967]. At 10⁵ the map hit cell is the second
 non-scan HOT win, 0.939 [0.888, 0.970].
-
 
 ### Point lookup, 100% hit
 
@@ -371,7 +369,6 @@ arrival order.
 - The mechanism is **unmeasured**. Nothing here attributes the shuffled-order
   cost to page faults, allocator span reuse or node-shape churn; #725's counter
   plan and #737's wrapper are what would.
-
 
 ---
 
@@ -803,24 +800,24 @@ Nothing in this table is a timing. 5 rounds per cell; median with range.
 
 > The table below is the output of `scripts/integer_tables.py` over `results/baseline_concurrent.json` (run 1) and `results/baseline_concurrent_run2.json` (run 2), both runs side by side per `docs/BENCHMARKING.md` rule 18; nothing in it is typed by hand, and a column the artifacts do not carry reads `not recorded`.
 
-| Arm | W | R | run | restart share, median [min, max] | fallback share | `sample_spins` ÷ `read_ops` (ratio of medians) | `locked_reads` ÷ `read_ops` | §11.5.3 |
-|---|--:|--:|--:|---|---:|---:|---:|---|
-| set | 1 | 8 | 1 | 4.17% [4.01%, 4.22%] | 0.0000% | 0.89 | not recorded | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 1 | 8 | 2 | 1.34% [1.18%, 6.09%] | 0.0000% | 0.58 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 2 | 8 | 1 | 4.61% [3.70%, 5.04%] | 0.0000% | 0.86 | not recorded | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 2 | 8 | 2 | 10.60% [5.71%, 11.26%] | 0.0000% | 1.30 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 4 | 8 | 1 | 5.82% [5.62%, 6.38%] | 0.0000% | 1.00 | not recorded | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 4 | 8 | 2 | 5.16% [4.87%, 6.37%] | 0.0000% | 0.93 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 8 | 8 | 1 | 6.30% [6.07%, 6.59%] | 0.0000% | 1.03 | not recorded | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 8 | 8 | 2 | 5.03% [4.95%, 5.20%] | 0.0000% | 0.99 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 1 | 8 | 1 | 3.60% [3.47%, 4.51%] | 0.0000% | 1.01 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 1 | 8 | 2 | 3.61% [3.58%, 3.75%] | 0.0000% | 1.02 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 2 | 8 | 1 | 4.31% [3.65%, 5.87%] | 0.0000% | 1.00 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 2 | 8 | 2 | 4.96% [4.74%, 5.14%] | 0.0000% | 1.03 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 4 | 8 | 1 | 5.29% [4.29%, 5.60%] | 0.0000% | 1.19 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 4 | 8 | 2 | 5.68% [5.31%, 6.03%] | 0.0000% | 1.16 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 8 | 8 | 1 | 5.01% [4.82%, 5.18%] | 0.0000% | 1.18 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 8 | 8 | 2 | 5.21% [5.15%, 5.51%] | 0.0000% | 1.20 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| Arm | W | R | run | restart share, median [min, max] | fallback share | `sample_spins` ÷ `read_ops` (ratio of medians) | `locked_reads` ÷ `read_ops` | unconditional lock share | handoffs ÷ write | branch replacements ÷ write | deep-cascade share | root-rewrite share | spin time ÷ reader wall | §11.5.3 |
+|---|--:|--:|--:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| set | 1 | 8 | 1 | 9.23% [9.12%, 9.46%] | 0.0000% | 2.52 | 0.00% | 0.00% | 0.000 | 0.034 | 1.71% | 0.00% | 52.76% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 1 | 8 | 2 | 13.39% [12.57%, 30.84%] | 0.0000% | 3.36 | 0.00% | 0.00% | 0.000 | 0.034 | 1.71% | 0.00% | 57.33% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 2 | 8 | 1 | 6.05% [5.85%, 6.08%] | 0.0000% | 1.77 | 0.00% | 0.00% | 0.127 | 0.034 | 1.71% | 0.00% | 48.48% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 2 | 8 | 2 | 5.89% [5.76%, 6.05%] | 0.0000% | 1.81 | 0.00% | 0.00% | 0.124 | 0.034 | 1.71% | 0.00% | 49.23% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 4 | 8 | 1 | 6.72% [5.80%, 8.02%] | 0.0000% | 1.85 | 0.00% | 0.00% | 0.280 | 0.034 | 1.71% | 0.00% | 48.36% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 4 | 8 | 2 | 8.30% [8.01%, 9.97%] | 0.0000% | 2.21 | 0.00% | 0.00% | 0.472 | 0.034 | 1.71% | 0.00% | 50.86% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 8 | 8 | 1 | 12.03% [11.39%, 12.87%] | 0.0000% | 2.39 | 0.00% | 0.00% | 0.546 | 0.034 | 1.71% | 0.00% | 52.14% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 8 | 8 | 2 | 12.01% [11.46%, 12.37%] | 0.0000% | 2.52 | 0.00% | 0.00% | 0.532 | 0.034 | 1.71% | 0.00% | 51.73% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 1 | 8 | 1 | 10.15% [9.74%, 24.83%] | 0.0000% | 3.38 | 0.00% | 0.00% | 0.000 | 0.057 | 2.84% | 0.00% | 58.74% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 1 | 8 | 2 | 12.17% [11.88%, 23.81%] | 0.0000% | 3.64 | 0.00% | 0.00% | 0.000 | 0.057 | 2.84% | 0.00% | 59.91% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 2 | 8 | 1 | 5.31% [5.25%, 6.30%] | 0.0000% | 2.19 | 0.00% | 0.00% | 0.128 | 0.057 | 2.84% | 0.00% | 52.47% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 2 | 8 | 2 | 5.49% [5.25%, 5.54%] | 0.0000% | 2.16 | 0.00% | 0.00% | 0.137 | 0.057 | 2.84% | 0.00% | 52.00% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 4 | 8 | 1 | 7.36% [6.81%, 10.53%] | 0.0000% | 2.54 | 0.00% | 0.00% | 0.381 | 0.057 | 2.84% | 0.00% | 54.06% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 4 | 8 | 2 | 6.97% [6.41%, 7.34%] | 0.0000% | 2.55 | 0.00% | 0.00% | 0.385 | 0.057 | 2.84% | 0.00% | 52.85% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 8 | 8 | 1 | 5.75% [5.37%, 6.07%] | 0.0000% | 2.36 | 0.00% | 0.00% | 0.326 | 0.057 | 2.84% | 0.00% | 51.26% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 8 | 8 | 2 | 6.99% [6.62%, 7.84%] | 0.0000% | 2.59 | 0.00% | 0.00% | 0.288 | 0.057 | 2.84% | 0.00% | 53.11% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
 
 - **No reader ever took the writer mutex**: `read_fallbacks` is zero in every
   round of every cell, so the §11.5.3 starvation falsifier (fallback share

@@ -126,11 +126,12 @@ def health_cell(art: dict, arm: str, w: int, r: int) -> dict | None:
 
 
 def reader_ns(cell: dict, readers: int) -> float | None:
-    """Per-probe ns of one reader from the cell's aggregate reader rate."""
-    iv = cell.get("expanse_reader_mops")
-    if not iv or not iv.get("mean"):
+    """Per-probe ns of one reader from the cell's aggregate reader rate — the
+    runner's own estimator, the median over rounds of the harness's M ops/s."""
+    m = cell.get("expanse_reader_mops_median")
+    if not m:
         return None
-    return readers / iv["mean"] * 1e3
+    return readers / m * 1e3
 
 
 def counters(results: Path, cell_name: str) -> dict | None:

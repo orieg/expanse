@@ -133,12 +133,10 @@ CELL_KEYS = ("cells", "results", "throughput", "health", "latency", "memory")
 # `load.foreign_busy_cpus` on every throughput and health cell and
 # `host.scaling_governor_by_cpu`. Both runs of each suite are listed because
 # rule 18 commits both.
-ATTRIBUTION_GRANDFATHERED = {
-    "hot_comparison/results/baseline_concurrent.json": ("64f8a3af",),
-    "hot_comparison/results/baseline_concurrent_run2.json": ("64f8a3af",),
-    "masstree_comparison/results/baseline_concurrent.json": ("64f8a3af",),
-    "masstree_comparison/results/baseline_concurrent_run2.json": ("64f8a3af",),
-}
+# Empty since the four concurrent artifacts were re-measured at a1982ff2 with
+# per-cell attribution (#568 Step 0); the mechanism stays for the next artifact
+# that predates a field.
+ATTRIBUTION_GRANDFATHERED: dict[str, tuple[str, ...]] = {}
 
 # The cell lists in a concurrent artifact that are timed or counted under
 # thread load, and so owe a per-cell attribution. `memory` there is a
@@ -511,14 +509,22 @@ def _self_test() -> int:
 
     # The grandfather mechanism, both directions: the pinned commit is exempt,
     # any other commit is enforced and told why.
+    # The list may be empty (every committed concurrent artifact attributed);
+    # pin the mechanism on a synthetic entry rather than on a real one.
     old = copy.deepcopy(_GOOD_CONC)
     del old["throughput"][0]["load"]
     del old["provenance"]["host"]["scaling_governor_by_cpu"]
-    old["provenance"]["commit"] = ATTRIBUTION_GRANDFATHERED[_CONC_OLD][0]
-    expect("the committed pre-attribution run at its pinned commit is exempt", old, None, _CONC_OLD)
-    old["provenance"]["commit"] = "0000000"
-    expect("the same artifact at another commit is enforced", old, "foreign_busy_cpus", _CONC_OLD)
-    expect("... and says the entry must go", old, "ATTRIBUTION_GRANDFATHERED", _CONC_OLD)
+    saved = dict(ATTRIBUTION_GRANDFATHERED)
+    ATTRIBUTION_GRANDFATHERED[_CONC_OLD] = ("64f8a3af",)
+    try:
+        old["provenance"]["commit"] = ATTRIBUTION_GRANDFATHERED[_CONC_OLD][0]
+        expect("a pre-attribution run at its pinned commit is exempt", old, None, _CONC_OLD)
+        old["provenance"]["commit"] = "0000000"
+        expect("the same artifact at another commit is enforced", old, "foreign_busy_cpus", _CONC_OLD)
+        expect("... and says the entry must go", old, "ATTRIBUTION_GRANDFATHERED", _CONC_OLD)
+    finally:
+        ATTRIBUTION_GRANDFATHERED.clear()
+        ATTRIBUTION_GRANDFATHERED.update(saved)
 
     for rel in ATTRIBUTION_GRANDFATHERED:
         if not (BENCH / rel).is_file():
