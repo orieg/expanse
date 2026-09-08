@@ -152,42 +152,71 @@ fn main() {
     let ms: Vec<u64> = env_csv("PROBE_MS", &[500u64]);
     let window = Duration::from_millis(ms[0]);
 
+    // The cycle counter behind `sample_spin_cycles`, calibrated on this host so
+    // the spin *time* can be expressed as a share of the readers' elapsed time.
+    let hz = occ_stats::cycles_hz(Duration::from_millis(200));
     println!("counters (load-immune): {}", NAMES.join(", "));
+    println!("cycle counter: {hz} Hz (calibrated over 200 ms; spin_t% converts with it)");
     println!(
-        "\n{:>3} {:>5} {:>12} {:>12} {:>10} {:>10} {:>12} {:>10} {:>10} {:>13}",
+        "\n{:>3} {:>5} {:>12} {:>12} {:>9} {:>9} {:>10} {:>8} {:>8} {:>8} {:>6} {:>6} {:>8} {:>13}",
         "thr",
         "rd%",
         "read_ops",
         "write_ops",
         "att/read",
-        "fallback%",
+        "fallbk%",
         "spins/read",
-        "adv_ok%",
+        "spin_t%",
+        "lockd%",
+        "hand/wr",
+        "deep%",
+        "root%",
         "hwm(KB)",
         "rd_ops/s(*)"
     );
+    let idx = |name: &str| {
+        NAMES
+            .iter()
+            .position(|n| *n == name)
+            .unwrap_or_else(|| panic!("occ_stats counter {name} is not published"))
+    };
     for &rp in &read_pcts {
         for &t in &threads {
             let row = run(t, rp, window);
             let s = row.stats;
-            let (rops, atts, fbs, wops, adv_c, adv_ok, spins, _ret_bytes, ret_hwm) =
-                (s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8]);
+            let st = |name: &str| s[idx(name)];
             let per = |n: u64, d: u64| if d == 0 { 0.0 } else { n as f64 / d as f64 };
+            // Every thread reads in this probe, so the readers' elapsed time
+            // is `threads × window`; the share is spin seconds over that.
+            let spin_secs = if hz == 0 {
+                0.0
+            } else {
+                st("sample_spin_cycles") as f64 / hz as f64
+            };
+            let spin_share = if t == 0 {
+                0.0
+            } else {
+                spin_secs / (t as f64 * row.secs)
+            };
             println!(
-                "{:>3} {:>5} {:>12} {:>12} {:>10.3} {:>9.2}% {:>12.3} {:>9.1}% {:>10.1} {:>13.0}",
+                "{:>3} {:>5} {:>12} {:>12} {:>9.3} {:>8.2}% {:>10.3} {:>7.1}% {:>7.2}% {:>8.3} {:>5.2}% {:>5.2}% {:>8.1} {:>13.0}",
                 row.threads,
                 row.read_pct,
-                rops,
-                wops,
-                per(atts, rops),
-                100.0 * per(fbs, rops),
-                per(spins, rops),
-                100.0 * per(adv_ok, adv_c),
-                ret_hwm as f64 / 1024.0,
+                st("read_ops"),
+                st("write_ops"),
+                per(st("read_attempts"), st("read_ops")),
+                100.0 * per(st("read_fallbacks"), st("read_ops")),
+                per(st("sample_spins"), st("read_ops")),
+                100.0 * spin_share,
+                100.0 * per(st("locked_reads"), st("read_ops")),
+                per(st("handoffs"), st("write_ops")),
+                100.0 * per(st("deep_cascades"), st("write_ops")),
+                100.0 * per(st("root_rewrites"), st("write_ops")),
+                st("retained_hwm") as f64 / 1024.0,
                 row.read_ops as f64 / row.secs,
             );
-            debug_assert_eq!(rops, row.read_ops);
-            debug_assert_eq!(wops, row.write_ops);
+            debug_assert_eq!(st("read_ops"), row.read_ops);
+            debug_assert_eq!(st("write_ops"), row.write_ops);
         }
     }
     println!(

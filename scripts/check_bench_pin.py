@@ -64,6 +64,8 @@ DIRECT_HARNESSES = {
 DIRECT_EXEMPT = {
     "scripts/pin_exposure.py": "measures pinned against unpinned; it sets affinity per arm itself",
     "scripts/warmup_ramp.py": "sets its own affinity per phase; the ramp is the measurement",
+    "scripts/line_transfer_matrix.py": "pins each core pair itself; a suite-wide pin behind its back "
+                                       "would be its own subject (#568)",
 }
 
 # Runners that must source the pin. `docs/benchmarks/*/run.sh` is discovered
