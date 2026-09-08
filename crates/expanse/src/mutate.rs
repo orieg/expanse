@@ -519,6 +519,7 @@ pub(crate) fn wrap_skip_level(
     slot_level: u8,
     subtree_pop: u64,
 ) {
+    crate::occ_stats::note_branch_replacement();
     debug_assert!((2..=slot_level).contains(&at));
     let aux = *edge.aux_bytes();
     let t = aux[at as usize - 1];
@@ -2022,6 +2023,7 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
 ///
 /// `edge` must reference a live, full `BranchL3` owned by `a`.
 pub(crate) unsafe fn upgrade_l3_to_l7(a: &NodeAlloc, edge: &mut Edge) {
+    crate::occ_stats::note_branch_replacement();
     // SAFETY: live BranchL3 per contract.
     let old = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
     let new = a.alloc_node_zeroed::<BranchL7>();
@@ -2047,6 +2049,7 @@ pub(crate) unsafe fn upgrade_l3_to_l7(a: &NodeAlloc, edge: &mut Edge) {
 ///
 /// `edge` must reference a live, full `BranchL7` owned by `a`.
 pub(crate) unsafe fn upgrade_l7_to_b(a: &NodeAlloc, edge: &mut Edge) {
+    crate::occ_stats::note_branch_replacement();
     // SAFETY: live BranchL7 per contract.
     let old = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
     let new = a.alloc_node_zeroed::<BranchB>();
@@ -2090,6 +2093,7 @@ pub(crate) unsafe fn upgrade_l7_to_b(a: &NodeAlloc, edge: &mut Edge) {
 /// `edge` must reference a live **non-skipping** `BranchB` owned by `a`
 /// (`BranchU` has no header level; callers wrap a skipping node first).
 pub(crate) unsafe fn upgrade_b_to_u(a: &NodeAlloc, edge: &mut Edge) {
+    crate::occ_stats::note_branch_replacement();
     let new = a.alloc_node_zeroed::<BranchU>();
     // SAFETY: live BranchB; subarray reads bounded by pop_counts.
     unsafe {
@@ -2581,6 +2585,7 @@ pub(crate) fn linear_remove_slot(
 /// `edge` must reference a live linear-branch node of the flavor named by
 /// `is_l3`, no longer referenced afterwards.
 unsafe fn free_branch_node(a: &NodeAlloc, edge: &mut Edge, is_l3: bool) {
+    crate::occ_stats::note_branch_replacement();
     // SAFETY: forwarded contract.
     unsafe {
         if is_l3 {
@@ -2595,6 +2600,7 @@ unsafe fn free_branch_node(a: &NodeAlloc, edge: &mut Edge, is_l3: bool) {
 ///
 /// `edge` must reference a live `BranchL7` with ≤ 3 children, owned by `a`.
 pub(crate) unsafe fn downgrade_l7_to_l3(a: &NodeAlloc, edge: &mut Edge) {
+    crate::occ_stats::note_branch_replacement();
     // SAFETY: live BranchL7 per contract.
     let old = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
     let new = a.alloc_node_zeroed::<BranchL3>();
@@ -2618,6 +2624,7 @@ pub(crate) unsafe fn downgrade_l7_to_l3(a: &NodeAlloc, edge: &mut Edge) {
 ///
 /// `edge` must reference a live `BranchB` with ≤ 7 digits, owned by `a`.
 pub(crate) unsafe fn downgrade_b_to_l7(a: &NodeAlloc, edge: &mut Edge) {
+    crate::occ_stats::note_branch_replacement();
     // SAFETY: live BranchB per contract (level read below).
     let b_level = unsafe { (*edge.node_ptr().cast::<BranchB>()).level };
     let new = a.alloc_node_zeroed::<BranchL7>();
@@ -2662,6 +2669,7 @@ pub(crate) unsafe fn downgrade_b_to_l7(a: &NodeAlloc, edge: &mut Edge) {
 /// `edge` must reference a live `BranchU` with ≤ `BRANCHB_UP - 1` non-null
 /// children, owned by `a`.
 pub(crate) unsafe fn downgrade_u_to_b(a: &NodeAlloc, edge: &mut Edge, level: u8) {
+    crate::occ_stats::note_branch_replacement();
     let new = a.alloc_node_zeroed::<BranchB>();
     // SAFETY: live BranchU per contract.
     unsafe {

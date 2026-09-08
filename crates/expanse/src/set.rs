@@ -263,9 +263,39 @@ impl ExpanseSet {
         self.insert(key) as core::ffi::c_int
     }
 
+    /// The root state that a tree-level bracket must cover, as a value:
+    /// variant, allocation address and the top edge's two words. Population
+    /// is deliberately excluded — a `pop` bump alone is not a root rewrite.
+    #[cfg(feature = "occ-stats")]
+    fn root_fingerprint(&self) -> (u8, u64, u64) {
+        match self.root {
+            Root::Empty => (0, 0, 0),
+            Root::Leaf { keys, .. } => (1, keys.as_ptr() as u64, 0),
+            Root::Tree { top, .. } => (2, top.word0(), top.aux_word()),
+        }
+    }
+
+    /// Runs `f` and counts a root-state change (diagnostic builds only).
+    #[inline(always)]
+    fn noting_root_rewrite<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        #[cfg(feature = "occ-stats")]
+        let before = self.root_fingerprint();
+        let r = f(self);
+        #[cfg(feature = "occ-stats")]
+        if self.root_fingerprint() != before {
+            crate::occ_stats::note_root_rewrite();
+        }
+        r
+    }
+
     /// Inserts `key`; returns `true` if it was newly inserted.
     #[inline(always)]
     pub fn insert(&mut self, key: Key) -> bool {
+        self.noting_root_rewrite(|t| t.insert_inner(key))
+    }
+
+    #[inline(always)]
+    fn insert_inner(&mut self, key: Key) -> bool {
         match &mut self.root {
             Root::Empty => {
                 let keys = self.alloc.alloc_bytes(root_leaf_size(1));
@@ -443,7 +473,12 @@ impl ExpanseSet {
     }
 
     /// Removes `key`; returns `true` if it was present.
+    #[inline(always)]
     pub fn remove(&mut self, key: Key) -> bool {
+        self.noting_root_rewrite(|t| t.remove_inner(key))
+    }
+
+    fn remove_inner(&mut self, key: Key) -> bool {
         self.path.get_mut().clear();
         match &mut self.root {
             Root::Empty => false,

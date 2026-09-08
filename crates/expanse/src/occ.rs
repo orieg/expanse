@@ -77,10 +77,26 @@ impl SeqVersion {
     /// states. Pair with [`Self::validate`].
     #[must_use]
     pub fn sample(&self) -> u64 {
+        // Diagnostic build only: the tick at the first odd observation, so
+        // the wait is charged as a duration (`SampleSpinCycles`) and not
+        // just as a spin count.
+        #[cfg(feature = "occ-stats")]
+        let mut wait_from: u64 = 0;
         loop {
             let v = self.0.load(Ordering::Acquire);
             if v.is_multiple_of(2) {
+                #[cfg(feature = "occ-stats")]
+                if wait_from != 0 {
+                    crate::occ_stats::bump_by(
+                        crate::occ_stats::Stat::SampleSpinCycles,
+                        crate::occ_stats::cycles_now().wrapping_sub(wait_from),
+                    );
+                }
                 return v;
+            }
+            #[cfg(feature = "occ-stats")]
+            if wait_from == 0 {
+                wait_from = crate::occ_stats::cycles_now() | 1;
             }
             crate::occ_stats::bump(crate::occ_stats::Stat::SampleSpins);
             core::hint::spin_loop();
