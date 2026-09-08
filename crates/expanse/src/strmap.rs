@@ -1033,9 +1033,27 @@ impl ExpanseStrMap {
     /// [`get`](Self::get). What it is *not* is addressable by the ordered
     /// surface. A trailing NUL is how the encoding terminates a string, so
     /// `next_at_or_after(b"abc\0X")` answers with `"abc"` -- a different and
-    /// smaller key than the one asked for. `len` and an ordered walk therefore
-    /// disagree about which keys exist, silently. That is the reason the domain
-    /// is a contract and not a preference.
+    /// smaller key than the one asked for.
+    ///
+    /// For a key whose NUL falls *inside* the first chunk the consequence is
+    /// worse than a disagreement, because the module decides "terminal" two
+    /// ways that coincide only on this domain: [`chunk_at`] decides by length
+    /// (`rest.len() < CHUNK`) and [`is_terminal`] by content (the chunk holds
+    /// a zero byte). `b"abc\0defghij"` is eleven bytes, so `insert` takes the
+    /// non-terminal path and publishes a [`pack_suffix`] pointer at a chunk
+    /// every later `is_terminal` reads as terminal. The ordered surface then
+    /// takes its terminal branch over that entry and hands back the word
+    /// holding the tagged pointer *as the caller's value slot* -- a `*mut
+    /// Word` a JudySL caller is contracted to write through, which corrupts
+    /// the edge and leaves the next [`get`] dereferencing a wild address. The
+    /// suffix block is leaked in the same breath: `dispose_tree` and
+    /// `shell_bytes` skip it under that same `is_terminal` test, so they agree
+    /// with each other and the `bytes_in_use() == 0` accounting invariant
+    /// still passes. That is the reason the domain is a contract and not a
+    /// preference. Closing it in a release build costs one `is_terminal` on an
+    /// already-loaded word at the two sites that publish a suffix pointer, not
+    /// the whole-key scan this assertion declines to pay for; that is an
+    /// insert-path change and wants its own instruction count.
     fn assert_key(key: &[u8]) {
         debug_assert!(!key.contains(&0), "keys are NUL-free byte strings");
     }
@@ -1636,6 +1654,72 @@ mod tests {
         assert_eq!(seen[0], (b"apple".to_vec(), 5));
         assert_eq!(seen[1], (b"apricot".to_vec(), 7));
         assert_eq!(seen[2], (b"banana".to_vec(), 6));
+    }
+
+    /// The cursor's raw path stack over every entry form it can meet, in a
+    /// corpus small enough for the per-PR Miri lane.
+    ///
+    /// `cursor_matches_the_positional_walk` covers the same ground far more
+    /// thoroughly, but on 2,040 keys — too slow for the interpreter, so it
+    /// runs only in the nightly shard. The forms that have to be reached
+    /// here are the ones the one-allocation leaf and the lending cursor
+    /// introduced, and that the short-key tests above never build:
+    ///
+    /// * a **zero-length suffix leaf** the walk still meets (`aaaaaaab`, one
+    ///   chunk exactly, no other key sharing it) — the case the old
+    ///   two-allocation shape needed a special path for;
+    /// * a zero-length leaf that is **created, compared and then disposed** by
+    ///   a split (`aaaaaaaa`, once `aaaaaaaaBBBBBBBB` arrives), which is the
+    ///   `dispose_suffix` path for an empty remainder;
+    /// * a **populated suffix leaf** read back through `suffix_bytes` (`cc`,
+    ///   under the level-2 child), whose provenance must reach past the
+    ///   header (see [`StrSuffix`]);
+    /// * **backtracking** from depth 3 back to the root, which is the only
+    ///   shape that drives `next`'s unwind loop more than one frame.
+    #[test]
+    fn cursor_walks_a_deep_trie_with_suffix_leaves() {
+        let keys: [&[u8]; 6] = [
+            b"aaaaaaaa",           // one chunk exactly: zero-length suffix leaf
+            b"aaaaaaaaBBBBBBBB",   // two chunks: zero-length suffix under a child
+            b"aaaaaaaaBBBBBBBBcc", // splits the leaf above; depth 3
+            b"aaaaaaaaXX",         // diverges at level 2: populated suffix leaf
+            b"aaaaaaab",           // diverges in the first chunk
+            b"zz",                 // terminal at the root: forces a full unwind
+        ];
+        let mut m = ExpanseStrMap::new();
+        for (i, k) in keys.iter().enumerate() {
+            m.insert(k, i as u64);
+        }
+
+        let mut expected: Vec<(Vec<u8>, u64)> = keys
+            .iter()
+            .enumerate()
+            .map(|(i, k)| (k.to_vec(), i as u64))
+            .collect();
+        expected.sort();
+
+        let mut c = m.cursor();
+        let mut walked = Vec::new();
+        while let Some((key, slot)) = c.next() {
+            // SAFETY: the cursor holds the map borrowed for its lifetime, so
+            // the slot is a live value word and nothing can mutate it here.
+            walked.push((key.to_vec(), unsafe { *slot.as_ptr() }));
+        }
+        assert_eq!(walked, expected, "the cursor did not return the corpus");
+
+        // The same corpus from a seek that lands mid-trie, so the unwind runs
+        // from a stack the seek built rather than one `next` built.
+        let mut c = m.cursor_at_or_after(b"aaaaaaaaBBBBBBBBcc");
+        let mut walked = Vec::new();
+        while let Some((key, _)) = c.next() {
+            walked.push(key.to_vec());
+        }
+        let from: Vec<Vec<u8>> = expected
+            .iter()
+            .filter(|(k, _)| k.as_slice() >= b"aaaaaaaaBBBBBBBBcc".as_slice())
+            .map(|(k, _)| k.clone())
+            .collect();
+        assert_eq!(walked, from, "the seeked cursor did not resume correctly");
     }
 
     /// Degenerate shapes: empty map, one key, and a cursor driven past the
