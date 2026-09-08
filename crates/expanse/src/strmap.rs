@@ -301,35 +301,23 @@ fn dispose_tree(root: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
     }
 }
 
-/// Packs `key[off..]`'s next chunk big-endian; `true` when the chunk is
-/// terminal, which is [`is_terminal`]'s definition and no other.
+/// Packs `key[off..]`'s next chunk big-endian; `true` when fewer than eight
+/// bytes remain, so the chunk is the last one this key contributes.
 ///
-/// The flag used to be `rest.len() < CHUNK` -- a *length* rule, where every
-/// read of a stored entry uses `is_terminal`'s *content* rule. The two agree
-/// on the NUL-free key domain and disagree outside it, and that disagreement
-/// was the whole of #794: a key whose NUL fell inside a chunk was written by
-/// one rule and read by the other, so a suffix pointer could be published
-/// where a later read expected a terminal value, and a stored value could be
-/// read where a later descent expected a pointer. `get` and `remove`
-/// segfaulted on the second of those in a release build.
+/// This is a *length* rule, while every read of a stored entry decides
+/// terminality by *content* ([`is_terminal`], a zero byte in the chunk). The
+/// two agree on the NUL-free key domain and only there, and outside it they
+/// disagreed badly enough to hand a caller a tagged heap pointer as their
+/// value slot (#794).
 ///
-/// The rules are now one rule, so the discriminant is a total function of the
-/// chunk rather than of the key that produced it, and there is nothing left to
-/// disagree. This is a deletion, not an added condition: the padding above
-/// means `rest.len() < CHUNK` *implies* `is_terminal(chunk)`, so the old flag
-/// was the new one plus a false-negative case.
-///
-/// Out-of-domain keys become memory-safe but **unspecified**. No behaviour is
-/// promised beyond that: not which entries the container appears to hold, not
-/// what an ordered walk emits, and not that the two ordered surfaces agree
-/// with each other -- `cursor` and `first`/`next_after` do not. This is the
-/// guarantee `BTreeMap` gives for a type with an inconsistent `Ord`: no
-/// undefined behaviour, no memory unsafety, effects confined to the map.
-///
-/// Deliberately no examples. Every enumeration of this behaviour written so
-/// far has been refuted by the next probe, which is what "unspecified" means.
-/// `ExpanseStrMap::assert_key` rejects such keys in debug builds, and they are
-/// unreachable from the C ABI and every language binding.
+/// They are not reconciled here. They are reconciled by [`NulFreeStr`], which
+/// is what the public entry points take: a key with no NUL cannot produce a
+/// chunk `is_terminal` calls terminal unless it was zero-padded, which is
+/// exactly when this rule reports terminal too. The domain is a type, so this
+/// rule can stay the cheap one -- it reduces to a bound on the descent's
+/// induction variable and hoists out of the loop, where a content test on a
+/// data-dependent word does not. Deciding terminality by content here was
+/// measured at +4.12% on `strmap_get`; the key type costs nothing.
 fn chunk_at(key: &[u8], off: usize) -> (u64, bool) {
     let rest = &key[off.min(key.len())..];
     let mut c = [0u8; CHUNK];
