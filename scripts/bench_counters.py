@@ -222,7 +222,7 @@ def _conc(name: str, issue: int, suite: str, binary: str, args: list[str],
 
 
 # The cells #737's gate names (the four from #724 / #725 / #730 and the HOT
-# `random` 1M lookup cell), the two #730 concurrent cells, and #568's ten.
+# `random` 1M lookup cell), the two #730 concurrent cells, and #568's thirteen.
 CELLS = [
     # --- #724: a 12-byte string lookup costs four times a u64 lookup ---
     Cell("masstree_str_lookup_counter_1m", 724, "masstree_comparison",
@@ -269,6 +269,9 @@ CELLS = [
     _conc("masstree_conc_map_w1_r0", 568, "masstree_comparison",
           "masstree_concurrent", ["map", "1", "0"], ["masstree"],
           "one writer alone — the writer's uncontended per-insert cost"),
+    _conc("masstree_conc_map_w0_r8", 568, "masstree_comparison",
+          "masstree_concurrent", ["map", "0", "8"], ["masstree"],
+          "eight readers, no writer — the reader-side control for the C2 coherence columns"),
     _conc("masstree_conc_map_w8_r0", 568, "masstree_comparison",
           "masstree_concurrent", ["map", "8", "0"], ["masstree"],
           "eight writers — one thread per physical P-core"),
@@ -288,6 +291,12 @@ CELLS = [
           "hot_concurrent", ["map", "1", "8"], ["rowex"],
           "one writer, eight readers, map arm; also the `perf c2c` cell",
           c2c=True, layout=True),
+    _conc("hot_conc_set_w0_r8", 568, "hot_comparison",
+          "hot_concurrent", ["set", "0", "8"], ["rowex"],
+          "eight readers, no writer, set arm — the reader-side control"),
+    _conc("hot_conc_map_w0_r8", 568, "hot_comparison",
+          "hot_concurrent", ["map", "0", "8"], ["rowex"],
+          "eight readers, no writer, map arm — the reader-side control"),
     _conc("hot_conc_set_w1_r0", 568, "hot_comparison",
           "hot_concurrent", ["set", "1", "0"], ["rowex"],
           "one writer alone, set arm"),
@@ -979,8 +988,9 @@ def _self_test() -> int:
     if len(BY_NAME) != len(CELLS):
         failures.append("two cells share a name")
     # The gate names four cells from #724/#725/#730 plus the HOT lookup cell,
-    # and #568 adds ten per-thread cells.
-    for issue, want in ((724, 2), (725, 3), (730, 2), (737, 1), (568, 10)):
+    # and #568 adds thirteen per-thread cells (ten attribution cells and three
+    # readers-alone controls).
+    for issue, want in ((724, 2), (725, 3), (730, 2), (737, 1), (568, 13)):
         got = sum(1 for c in CELLS if c.issue == issue)
         if got != want:
             failures.append(f"expected {want} cell(s) for #{issue}, found {got}")
