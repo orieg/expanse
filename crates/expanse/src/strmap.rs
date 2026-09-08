@@ -321,6 +321,35 @@ fn is_terminal(chunk: u64) -> bool {
     chunk.to_be_bytes().contains(&0)
 }
 
+/// Publishes a suffix leaf under `chunk`, refusing to do so at a chunk that
+/// [`is_terminal`] will later read as terminal.
+///
+/// The check and the publication are one operation on purpose. This module
+/// decides "terminal" two ways -- [`chunk_at`] by length, `is_terminal` by
+/// content -- and they coincide only on the NUL-free key domain. A key whose
+/// NUL falls inside a chunk takes the non-terminal path here while every
+/// later read treats the entry as terminal, so the ordered surface hands the
+/// tagged pointer back as the caller's value slot and the block is leaked
+/// where the byte accounting cannot see it (#794).
+///
+/// It is a release assertion, not a `debug_assert!`. [`ExpanseStrMap::assert_key`]
+/// already rejects the key in debug builds, so a debug-only check here would
+/// be unreachable; the case this guards is precisely the one no build
+/// currently catches. The cost is one `is_terminal` on a chunk already in a
+/// register, on the insert path only.
+fn publish_suffix(
+    node: &mut StrNode,
+    alloc: &NodeAlloc,
+    chunk: u64,
+    suffix: *mut StrSuffix,
+) -> Option<u64> {
+    assert!(
+        !is_terminal(chunk),
+        "suffix pointer published at a terminal chunk: keys must be NUL-free"
+    );
+    node.map.insert_pathless(alloc, chunk, pack_suffix(suffix))
+}
+
 impl StrNode {
     fn new() -> Self {
         Self {
@@ -1087,7 +1116,7 @@ impl ExpanseStrMap {
             // the borrow of `old` is over before it is disposed of.
             // SAFETY: as above.
             let s1 = unsafe { new_suffix(&suffix_bytes(old)[CHUNK..], value) };
-            child.map.insert_pathless(alloc, c1, pack_suffix(s1));
+            publish_suffix(&mut child, alloc, c1, s1);
         }
         let child_raw = Box::into_raw(child);
         node.map
@@ -1121,7 +1150,7 @@ impl ExpanseStrMap {
             match node.map.get(chunk) {
                 None => {
                     let suffix = new_suffix(&key[off + CHUNK..], val);
-                    node.map.insert_pathless(alloc, chunk, pack_suffix(suffix));
+                    publish_suffix(node, alloc, chunk, suffix);
                     self.pop += 1;
                     return None;
                 }
@@ -1181,7 +1210,7 @@ impl ExpanseStrMap {
             match node.map.get(chunk) {
                 None => {
                     let suffix = new_suffix(&key[off + CHUNK..], 0);
-                    node.map.insert_pathless(alloc, chunk, pack_suffix(suffix));
+                    publish_suffix(node, alloc, chunk, suffix);
                     self.pop += 1;
                     // SAFETY: suffix is a live, uniquely owned pointer
                     // allocated above; `value` sits at offset 0.
@@ -1720,6 +1749,31 @@ mod tests {
             .map(|(k, _)| k.clone())
             .collect();
         assert_eq!(walked, from, "the seeked cursor did not resume correctly");
+    }
+
+    /// The guard that refuses to publish a suffix pointer at a chunk every
+    /// later read treats as terminal (#794).
+    ///
+    /// Driven at `publish_suffix` rather than through `insert`, deliberately.
+    /// `assert_key` rejects a NUL-bearing key at the entry of `insert` in any
+    /// build with debug assertions on -- which is every build this suite runs
+    /// in -- so a test through the public API would panic at the upstream
+    /// guard and pass while saying nothing about this one (AGENTS.md §5).
+    ///
+    /// The check lives inside the function that publishes, so there is no
+    /// call site that can drop it: `pack_suffix` is reachable from nowhere
+    /// else in the module.
+    #[test]
+    #[should_panic(expected = "suffix pointer published at a terminal chunk")]
+    fn a_suffix_pointer_is_never_published_at_a_terminal_chunk() {
+        let mut node = StrNode::new();
+        let alloc = NodeAlloc::new();
+        // Eight bytes, so `chunk_at` would call this non-terminal, while
+        // `is_terminal` reads the embedded NUL and calls it terminal -- the
+        // exact disagreement. The pointer is never dereferenced or stored:
+        // the assertion fires before `pack_suffix`, so nothing is leaked.
+        let chunk = u64::from_be_bytes(*b"abc\0defg");
+        publish_suffix(&mut node, &alloc, chunk, NonNull::dangling().as_ptr());
     }
 
     /// Degenerate shapes: empty map, one key, and a cursor driven past the
