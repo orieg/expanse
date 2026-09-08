@@ -41,7 +41,7 @@ use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafB
 use crate::occ::{Collector, Pin, Reader, SeqVersion};
 use crate::set::ExpanseSet;
 use crate::slot::{SlotTag, ValueSlot};
-use crate::strmap::ExpanseStrMap;
+use crate::strmap::{ExpanseStrMap, NulFreeStr};
 use crate::types::{EdgeTag, EdgeType, Key, digit};
 use core::cell::UnsafeCell;
 use std::hash::{BuildHasher, RandomState};
@@ -1512,10 +1512,14 @@ impl SyncExpanseStrMap {
         // construction cost, acceptable for its startup use case.
         let mut cursor = src.first();
         while let Some((key, slot)) = cursor {
+            // SAFETY: `key` came out of a `StrMap` walk, so it is already in
+            // the NUL-free domain by construction.
+            let k = unsafe { NulFreeStr::new_unchecked(&key) };
             // SAFETY: the slot is valid until `src`'s next mutation; only
             // navigation happens between here and the next hop.
-            map.insert(&key, unsafe { *slot.as_ptr() });
-            cursor = src.next_after(&key);
+            let v = unsafe { *slot.as_ptr() };
+            map.insert(k, v);
+            cursor = src.next_after(k);
         }
         Self {
             shared: Shared::with_collector(map, collector),
@@ -1524,12 +1528,12 @@ impl SyncExpanseStrMap {
 
     /// Inserts `key → val`; returns the replaced value, if any. Serializes
     /// with other writers. Keys are NUL-free byte strings.
-    pub fn insert(&self, key: &[u8], val: u64) -> Option<u64> {
+    pub fn insert(&self, key: &NulFreeStr, val: u64) -> Option<u64> {
         self.shared.write(|m| m.insert(key, val))
     }
 
     /// Removes `key`; returns its value, if present.
-    pub fn remove(&self, key: &[u8]) -> Option<u64> {
+    pub fn remove(&self, key: &NulFreeStr) -> Option<u64> {
         self.shared.write(|m| m.remove(key))
     }
 
@@ -1550,14 +1554,14 @@ impl SyncExpanseStrMap {
     /// One-shot lookup (registers a throwaway reader; use [`Self::reader`]
     /// in hot loops).
     #[must_use]
-    pub fn get(&self, key: &[u8]) -> Option<u64> {
+    pub fn get(&self, key: &NulFreeStr) -> Option<u64> {
         self.reader().get(key)
     }
 
     /// One-shot membership test (registers a throwaway reader; use
     /// [`Self::reader`] in hot loops).
     #[must_use]
-    pub fn contains_key(&self, key: &[u8]) -> bool {
+    pub fn contains_key(&self, key: &NulFreeStr) -> bool {
         self.get(key).is_some()
     }
 
@@ -1621,7 +1625,7 @@ impl StrReader<'_> {
     /// (one hop per 8 key bytes), falling back to the writer lock after
     /// bounded retries.
     #[must_use]
-    pub fn get(&self, key: &[u8]) -> Option<u64> {
+    pub fn get(&self, key: &NulFreeStr) -> Option<u64> {
         let shared = &self.map.shared;
         crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
         for _ in 0..MAX_RETRIES {
@@ -1642,7 +1646,7 @@ impl StrReader<'_> {
 
     /// Optimistic membership test.
     #[must_use]
-    pub fn contains(&self, key: &[u8]) -> bool {
+    pub fn contains(&self, key: &NulFreeStr) -> bool {
         self.get(key).is_some()
     }
 }
@@ -1841,6 +1845,12 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
 
 #[cfg(all(test, not(miri)))]
 mod tests {
+
+    /// Wraps a test key. These are literals and generated keys the tests know
+    /// are in-domain; a NUL in one is a bug in the test, so panicking is right.
+    fn tk<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> &NulFreeStr {
+        NulFreeStr::new(bytes.as_ref()).expect("test key contains a NUL")
+    }
 
     /// A `DetachedMapReader` must give the same answers as the owned reader
     /// and the one-shot `get`, register exactly once, and — the property it
@@ -2231,10 +2241,10 @@ mod tests {
             match rng.next() % 3 {
                 0 => {
                     let v = str_val_of(&k);
-                    assert_eq!(m.insert(&k, v), model.insert(k.clone(), v), "ins {k:?}");
+                    assert_eq!(m.insert(tk(&k), v), model.insert(k.clone(), v), "ins {k:?}");
                 }
-                1 => assert_eq!(m.remove(&k), model.remove(&k), "rm {k:?}"),
-                _ => assert_eq!(m.get(&k), model.get(&k).copied(), "get {k:?}"),
+                1 => assert_eq!(m.remove(tk(&k)), model.remove(&k), "rm {k:?}"),
+                _ => assert_eq!(m.get(tk(&k)), model.get(&k).copied(), "get {k:?}"),
             }
             if i % 1000 == 999 {
                 m.clear();
@@ -2250,7 +2260,7 @@ mod tests {
                 assert_eq!(&k, mk);
                 // SAFETY: slot valid until the next mutation; none happens.
                 assert_eq!(unsafe { *slot.as_ptr() }, *mv);
-                cursor = inner.next_after(&k);
+                cursor = inner.next_after(tk(&k));
             }
             assert!(cursor.is_none());
         });
@@ -2280,7 +2290,7 @@ mod tests {
                     let mut hits = 0u64;
                     while !stop.load(Ordering::Relaxed) {
                         let k = str_key_of(rng.next() % 512);
-                        if let Some(v) = rd.get(&k) {
+                        if let Some(v) = rd.get(tk(&k)) {
                             assert_eq!(v, str_val_of(&k), "torn value for {k:?}");
                             hits += 1;
                             observed.fetch_add(1, Ordering::Relaxed);
@@ -2298,10 +2308,10 @@ mod tests {
             for _ in 0..2000 {
                 let k = str_key_of(rng.next() % 512);
                 if rng.next().is_multiple_of(2) {
-                    m.insert(&k, str_val_of(&k));
+                    m.insert(tk(&k), str_val_of(&k));
                     model.insert(k, ());
                 } else {
-                    m.remove(&k);
+                    m.remove(tk(&k));
                     model.remove(&k);
                 }
             }
@@ -2311,7 +2321,7 @@ mod tests {
             model.clear();
             for idx in 0..64 {
                 let k = str_key_of(idx);
-                m.insert(&k, str_val_of(&k));
+                m.insert(tk(&k), str_val_of(&k));
                 model.insert(k, ());
             }
         }
@@ -2339,7 +2349,7 @@ mod tests {
 
         let rd = m.reader();
         for k in model.keys() {
-            assert_eq!(rd.get(k), Some(str_val_of(k)), "model key {k:?}");
+            assert_eq!(rd.get(tk(k)), Some(str_val_of(k)), "model key {k:?}");
         }
         assert_eq!(m.len(), model.len() as u64);
     }
@@ -2355,7 +2365,7 @@ mod tests {
         // suffix split path (publish child + retire old suffix).
         let sibling = b"tenant:0000000042:quota-counters".to_vec();
         let (a, b) = (0x1111_2222_3333_4444u64, 0xAAAA_BBBB_CCCC_DDDDu64);
-        m.insert(&key, a);
+        m.insert(tk(&key), a);
         let stop = Arc::new(AtomicBool::new(false));
         let readers: Vec<_> = (0..3)
             .map(|_| {
@@ -2365,7 +2375,7 @@ mod tests {
                 std::thread::spawn(move || {
                     let rd = m.reader();
                     while !stop.load(Ordering::Relaxed) {
-                        let v = rd.get(&key).expect("key always present");
+                        let v = rd.get(tk(&key)).expect("key always present");
                         assert!(v == a || v == b, "torn overwrite state: {v:#x}");
                     }
                 })
@@ -2378,13 +2388,13 @@ mod tests {
         while start.elapsed() < std::time::Duration::from_millis(250) {
             for _ in 0..500 {
                 flip = !flip;
-                m.insert(&key, if flip { b } else { a });
+                m.insert(tk(&key), if flip { b } else { a });
             }
             sibling_in = !sibling_in;
             if sibling_in {
-                m.insert(&sibling, 7);
+                m.insert(tk(&sibling), 7);
             } else {
-                m.remove(&sibling);
+                m.remove(tk(&sibling));
             }
         }
         stop.store(true, Ordering::Relaxed);
@@ -2405,10 +2415,10 @@ mod tests {
                 let key = vec![b'k'; 64 * 1024];
                 let mut sibling = key.clone();
                 *sibling.last_mut().expect("non-empty") = b'z';
-                assert_eq!(m.insert(&key, 1), None);
-                assert_eq!(m.insert(&sibling, 2), None);
-                assert_eq!(m.get(&key), Some(1));
-                assert_eq!(m.get(&sibling), Some(2));
+                assert_eq!(m.insert(tk(&key), 1), None);
+                assert_eq!(m.insert(tk(&sibling), 2), None);
+                assert_eq!(m.get(tk(&key)), Some(1));
+                assert_eq!(m.get(tk(&sibling)), Some(2));
                 m.clear(); // deferred subtree disposal, 8k+ nodes deep
                 assert!(m.is_empty());
                 drop(m); // collector drains the retired chain
@@ -2459,7 +2469,7 @@ mod tests {
         let mut plain = ExpanseStrMap::new();
         for idx in 0..300u64 {
             let k = str_key_of(idx);
-            plain.insert(&k, str_val_of(&k));
+            plain.insert(tk(&k), str_val_of(&k));
         }
         let expected = plain.len();
         let m = SyncExpanseStrMap::from(plain);
@@ -2467,13 +2477,13 @@ mod tests {
         let rd = m.reader();
         for idx in 0..300u64 {
             let k = str_key_of(idx);
-            assert_eq!(rd.get(&k), Some(str_val_of(&k)), "wrapped key {k:?}");
+            assert_eq!(rd.get(tk(&k)), Some(str_val_of(&k)), "wrapped key {k:?}");
         }
         for idx in 0..150u64 {
-            m.remove(&str_key_of(idx));
+            m.remove(tk(&str_key_of(idx)));
         }
-        m.insert(b"post-wrap", 7);
-        assert_eq!(m.get(b"post-wrap"), Some(7));
+        m.insert(tk(b"post-wrap"), 7);
+        assert_eq!(m.get(tk(b"post-wrap")), Some(7));
         m.clear();
         drop(m);
     }

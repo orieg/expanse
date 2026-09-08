@@ -54,6 +54,17 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
+/// Wraps a key for `ExpanseStrMap`.
+///
+/// `new_unchecked`: the validating constructor would put a whole-key scan
+/// inside the measured region, and the arm would measure the check instead of
+/// the descent. Every generator in this file emits route-shaped ASCII.
+#[inline(always)]
+fn tk<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> &expanse_trie::strmap::NulFreeStr {
+    // SAFETY: generators in this file emit no NUL bytes.
+    unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(bytes.as_ref()) }
+}
+
 struct XorShift(u64);
 impl XorShift {
     fn next(&mut self) -> u64 {
@@ -388,7 +399,7 @@ fn bench_str_sync(ratio_read: u32, readers: usize) -> (f64, f64) {
     let mut rng = XorShift(0x5CA1_AB1E);
     for _ in 0..STR_POP {
         let k = &keys[(rng.next() as usize) % STR_KEYSPACE];
-        m.insert(k, rng.next());
+        m.insert(tk(k), rng.next());
     }
     run_window(readers, move |i, stop| {
         let rd = m.reader();
@@ -399,13 +410,13 @@ fn bench_str_sync(ratio_read: u32, readers: usize) -> (f64, f64) {
             let r = (rng.next() % 100) as u32;
             let k = &keys[(rng.next() as usize) % STR_KEYSPACE];
             if r < ratio_read {
-                sink ^= rd.get(k).unwrap_or(0);
+                sink ^= rd.get(tk(k)).unwrap_or(0);
                 read_ops += 1;
             } else {
                 if rng.next() & 1 == 0 {
-                    m.insert(k, rng.next());
+                    m.insert(tk(k), rng.next());
                 } else {
-                    m.remove(k);
+                    m.remove(tk(k));
                 }
                 write_ops += 1;
             }
@@ -423,7 +434,7 @@ fn bench_str_mutex(ratio_read: u32, readers: usize) -> (f64, f64) {
         let mut g = m.lock().expect("lock");
         for _ in 0..STR_POP {
             let k = &keys[(rng.next() as usize) % STR_KEYSPACE];
-            g.insert(k, rng.next());
+            g.insert(tk(k), rng.next());
         }
     }
     run_window(readers, move |i, stop| {
@@ -435,13 +446,13 @@ fn bench_str_mutex(ratio_read: u32, readers: usize) -> (f64, f64) {
             let k = &keys[(rng.next() as usize) % STR_KEYSPACE];
             let mut g = m.lock().expect("lock");
             if r < ratio_read {
-                sink ^= g.get(k).unwrap_or(0);
+                sink ^= g.get(tk(k)).unwrap_or(0);
                 read_ops += 1;
             } else {
                 if rng.next() & 1 == 0 {
-                    g.insert(k, rng.next());
+                    g.insert(tk(k), rng.next());
                 } else {
-                    g.remove(k);
+                    g.remove(tk(k));
                 }
                 write_ops += 1;
             }

@@ -192,10 +192,9 @@ pub struct PhpExpanseStrMap {
 /// Rejects a key carrying an embedded NUL byte.
 ///
 /// `ExpanseStrMap` documents a NUL-free key domain, and it is load-bearing
-/// rather than cosmetic: a NUL-bearing key is stored and returned by `get`, but
-/// a trailing NUL is how the encoding terminates a string, so the ordered
-/// surface cannot address it and `count()` and an ordered walk disagree about
-/// which keys exist. PHP strings are binary-safe and can carry NULs, so this is
+/// rather than cosmetic: outside it the map's behaviour is unspecified (see
+/// `ExpanseStrMap`), and the key type now makes that a compile-time contract
+/// rather than a documented precondition. PHP strings are binary-safe and can carry NULs, so this is
 /// the boundary that has to hold the line.
 ///
 /// It also makes the two drivers agree. The `\FFI` fallback passes the key as a
@@ -204,14 +203,16 @@ pub struct PhpExpanseStrMap {
 /// key depending on whether the native extension happened to compile on the
 /// host. Matches `expanse-node`'s `str_to_nul_free_bytes` and `expanse-py`'s
 /// `extract_str_key`.
-fn nul_free(key: &str) -> PhpResult<&[u8]> {
+fn nul_free(key: &str) -> PhpResult<&expanse_trie::strmap::NulFreeStr> {
     let bytes = key.as_bytes();
     if bytes.contains(&0) {
         return Err(PhpException::default(
             "NUL bytes ('\\0') are not allowed in ExpanseStrMap keys".into(),
         ));
     }
-    Ok(bytes)
+    // SAFETY: just checked. The scan is paid once, here, at the boundary an
+    // untrusted string enters; the engine takes the result without repeating it.
+    Ok(unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(bytes) })
 }
 
 #[php_impl]

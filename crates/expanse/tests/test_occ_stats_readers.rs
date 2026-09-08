@@ -31,6 +31,11 @@ use expanse_trie::sync::{
     SyncExpanseBlobMap, SyncExpanseBytesMap, SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap,
 };
 
+/// Wraps a key for `ExpanseStrMap`; `str_key` emits NUL-free keys.
+fn tk<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> &expanse_trie::strmap::NulFreeStr {
+    expanse_trie::strmap::NulFreeStr::new(bytes.as_ref()).expect("key contains a NUL")
+}
+
 /// Lookups per family. Large enough that an accidental single bump
 /// somewhere else could not be mistaken for the loop.
 const N: u64 = 256;
@@ -102,18 +107,18 @@ fn every_sync_reader_family_counts_its_optimistic_reads() {
 
     let strmap = SyncExpanseStrMap::new();
     for k in 0..N {
-        strmap.insert(&str_key(k), k);
+        strmap.insert(tk(&str_key(k)), k);
     }
     let str_reader = strmap.reader();
     assert_counted("StrReader::get", N, || {
         for k in 0..N {
-            assert_eq!(str_reader.get(&str_key(k)), Some(k));
+            assert_eq!(str_reader.get(tk(&str_key(k))), Some(k));
         }
     });
     // `contains` delegates to `get`, so it must count once, not twice.
     assert_counted("StrReader::contains", N, || {
         for k in 0..N {
-            assert!(str_reader.contains(&str_key(k)));
+            assert!(str_reader.contains(tk(&str_key(k))));
         }
     });
 

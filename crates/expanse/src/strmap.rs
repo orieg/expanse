@@ -336,7 +336,7 @@ fn chunk_at(key: &[u8], off: usize) -> (u64, bool) {
     let n = rest.len().min(CHUNK);
     c[..n].copy_from_slice(&rest[..n]);
     let chunk = u64::from_be_bytes(c);
-    (chunk, is_terminal(chunk))
+    (chunk, rest.len() < CHUNK)
 }
 
 /// The byte content of a terminal chunk (bytes before the NUL).
@@ -400,6 +400,111 @@ fn publish_suffix(
     );
     node.map.insert_pathless(alloc, chunk, pack_suffix(suffix))
 }
+
+/// A byte string containing no NUL byte: the key domain of [`ExpanseStrMap`].
+///
+/// The map is a digital trie over 8-byte chunks that uses a zero byte as the
+/// end-of-key sentinel, so a NUL inside a key is not a value the encoding can
+/// represent -- it is the terminator. Before this type the domain was a
+/// documented precondition on `&[u8]` enforced by a `debug_assert!`, and a
+/// release build met an out-of-domain key with a wild pointer dereference
+/// from safe code (#794).
+///
+/// Construction is where the cost is paid, once, rather than on every descent
+/// level of every operation:
+///
+/// * [`new`](Self::new) validates and is the safe path;
+/// * [`new_unchecked`](Self::new_unchecked) is for callers that have already
+///   established the invariant -- the C ABI shims, which reach the key through
+///   `strlen` or `CStr::from_ptr`, and [`escape_encode`](crate::domain) output,
+///   which maps `0x00` away by construction.
+///
+/// Callers holding arbitrary bytes want either [`ExpanseBytesMap`] (hashed, no
+/// ordered iteration) or the order-preserving escape the domain dictionary
+/// uses; see #808.
+///
+/// [`ExpanseBytesMap`]: crate::bytesmap::ExpanseBytesMap
+#[repr(transparent)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NulFreeStr([u8]);
+
+impl NulFreeStr {
+    /// Borrows `bytes` as a key, or `None` if it contains a NUL.
+    #[inline]
+    #[must_use]
+    pub fn new(bytes: &[u8]) -> Option<&Self> {
+        if bytes.contains(&0) {
+            None
+        } else {
+            // SAFETY: just checked; `Self` is `repr(transparent)` over `[u8]`.
+            Some(unsafe { Self::new_unchecked(bytes) })
+        }
+    }
+
+    /// Borrows `bytes` as a key without checking.
+    ///
+    /// # Safety
+    ///
+    /// `bytes` must contain no NUL byte. A violation is not immediately
+    /// unsound, but it puts the map into the unspecified state [`chunk_at`]
+    /// describes, from which the ordered surfaces disagree with each other.
+    #[inline]
+    #[must_use]
+    pub const unsafe fn new_unchecked(bytes: &[u8]) -> &Self {
+        // SAFETY: `repr(transparent)` makes the layouts identical; the caller
+        // guarantees the domain.
+        unsafe { &*(core::ptr::from_ref(bytes) as *const Self) }
+    }
+
+    /// The underlying bytes.
+    #[inline]
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    /// Length in bytes.
+    #[inline]
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether the key is empty.
+    #[inline]
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl core::fmt::Debug for NulFreeStr {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&self.0, f)
+    }
+}
+
+impl<'a> TryFrom<&'a [u8]> for &'a NulFreeStr {
+    type Error = NulInKey;
+
+    #[inline]
+    fn try_from(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        NulFreeStr::new(bytes).ok_or(NulInKey)
+    }
+}
+
+/// The key handed to [`NulFreeStr`] contained a NUL byte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NulInKey;
+
+impl core::fmt::Display for NulInKey {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("ExpanseStrMap keys must not contain a NUL byte")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for NulInKey {}
 
 impl StrNode {
     fn new() -> Self {
@@ -1097,26 +1202,6 @@ impl ExpanseStrMap {
         self.alloc.bytes_in_use() + self.root.as_deref().map_or(0, |r| r.shell_bytes() as usize)
     }
 
-    /// Debug-only check of the NUL-free key domain documented at the top of
-    /// this module.
-    ///
-    /// It is `debug_assert!` rather than `assert!` deliberately: every caller
-    /// below is on a Callgrind-gated descent path, and a byte scan per key
-    /// would be paid by every correct caller to catch an incorrect one. The
-    /// cost belongs at the boundary where an untrusted string actually enters
-    /// -- the language bindings, which reject an embedded NUL before the key
-    /// reaches here.
-    ///
-    /// A release build compiles this out and stores the key anyway. What it
-    /// then does is **unspecified** -- see [`chunk_at`], which is where the
-    /// domain is actually enforced by construction. It is memory-safe, and it
-    /// was not always: before #794 an out-of-domain key could hand a caller a
-    /// tagged heap pointer as their value slot.
-    ///
-    fn assert_key(key: &[u8]) {
-        debug_assert!(!key.contains(&0), "keys are NUL-free byte strings");
-    }
-
     /// Splits a suffix entry that diverges from the key being inserted:
     /// builds a child node holding the existing suffix's continuation,
     /// publishes it over the suffix's map entry, and disposes of the old
@@ -1156,8 +1241,8 @@ impl ExpanseStrMap {
     }
 
     /// Inserts `key → val`; returns the replaced value if present.
-    pub fn insert(&mut self, key: &[u8], val: u64) -> Option<u64> {
-        Self::assert_key(key);
+    pub fn insert(&mut self, key: &NulFreeStr, val: u64) -> Option<u64> {
+        let key = key.as_bytes();
         let defer = self.defer_handle();
         // Field-level borrows on purpose: `node` must borrow only
         // `self.root` so `self.pop` and `self.alloc` stay reachable in
@@ -1217,8 +1302,8 @@ impl ExpanseStrMap {
     /// Inserts `key` with value 0 if absent (existing value kept) and
     /// returns a writable pointer to its value slot — the compat
     /// `JudySLIns` contract. Valid until the next structural mutation.
-    pub fn ins_slot(&mut self, key: &[u8]) -> NonNull<u64> {
-        Self::assert_key(key);
+    pub fn ins_slot(&mut self, key: &NulFreeStr) -> NonNull<u64> {
+        let key = key.as_bytes();
         let defer = self.defer_handle();
         // Field-level borrows on purpose: `node` must borrow only
         // `self.root` so `self.pop` and `self.alloc` stay reachable in
@@ -1274,8 +1359,8 @@ impl ExpanseStrMap {
 
     /// Returns the value stored for `key`.
     #[must_use]
-    pub fn get(&self, key: &[u8]) -> Option<u64> {
-        Self::assert_key(key);
+    pub fn get(&self, key: &NulFreeStr) -> Option<u64> {
+        let key = key.as_bytes();
         let mut node = self.root.as_deref()?;
         let mut off = 0;
         loop {
@@ -1332,12 +1417,12 @@ impl ExpanseStrMap {
     #[cfg(feature = "std")]
     pub(crate) unsafe fn get_validated(
         &self,
-        key: &[u8],
+        key: &NulFreeStr,
         ver: &crate::occ::SeqVersion,
         snap: u64,
     ) -> Result<Option<u64>, crate::sync::Retry> {
         use crate::sync::Retry;
-        Self::assert_key(key);
+        let key = key.as_bytes();
         // Racy single-word copy of the root pointer; the first sub-map
         // walk's validation covers it before anything read through it is
         // used (and a stale-but-retired root stays EBR-live under the pin).
@@ -1392,8 +1477,8 @@ impl ExpanseStrMap {
     /// Returns a writable pointer to `key`'s value slot (compat:
     /// `JudySLGet`), or `None` if absent.
     #[must_use]
-    pub fn get_value_slot(&mut self, key: &[u8]) -> Option<NonNull<u64>> {
-        Self::assert_key(key);
+    pub fn get_value_slot(&mut self, key: &NulFreeStr) -> Option<NonNull<u64>> {
+        let key = key.as_bytes();
         let mut node = self.root.as_deref_mut()?;
         let mut off = 0;
         loop {
@@ -1423,8 +1508,8 @@ impl ExpanseStrMap {
     }
 
     /// Removes `key`; returns its value if it was present.
-    pub fn remove(&mut self, key: &[u8]) -> Option<u64> {
-        Self::assert_key(key);
+    pub fn remove(&mut self, key: &NulFreeStr) -> Option<u64> {
+        let key = key.as_bytes();
         let defer = self.defer_handle();
         let alloc = &self.alloc;
         let root = self.root.as_deref_mut()?;
@@ -1455,8 +1540,8 @@ impl ExpanseStrMap {
     /// The seek is the one descent a bounded range scan needs; every
     /// subsequent element is a step along the path it recorded.
     #[must_use]
-    pub fn cursor_at_or_after(&mut self, key: &[u8]) -> StrCursor<'_> {
-        Self::assert_key(key);
+    pub fn cursor_at_or_after(&mut self, key: &NulFreeStr) -> StrCursor<'_> {
+        let key = key.as_bytes();
         let mut c = StrCursor::new(self);
         c.pending = c.seek(key);
         c
@@ -1464,8 +1549,8 @@ impl ExpanseStrMap {
 
     /// Smallest entry with key `>= key`: `(key bytes, value slot)`
     /// (compat: `JudySLFirst`).
-    pub fn next_at_or_after(&mut self, key: &[u8]) -> Option<(Vec<u8>, NonNull<u64>)> {
-        Self::assert_key(key);
+    pub fn next_at_or_after(&mut self, key: &NulFreeStr) -> Option<(Vec<u8>, NonNull<u64>)> {
+        let key = key.as_bytes();
         let root = self.root.as_deref_mut()?;
         let mut out = Vec::with_capacity(key.len() + CHUNK);
         let slot = root.next_at_or_after(key, 0, &mut out)?;
@@ -1474,16 +1559,19 @@ impl ExpanseStrMap {
 
     /// Smallest entry with key `> key` (compat: `JudySLNext`). The
     /// immediate successor of a NUL-free string is itself + `0x01`.
-    pub fn next_after(&mut self, key: &[u8]) -> Option<(Vec<u8>, NonNull<u64>)> {
+    pub fn next_after(&mut self, key: &NulFreeStr) -> Option<(Vec<u8>, NonNull<u64>)> {
         let mut succ = Vec::with_capacity(key.len() + 1);
-        succ.extend_from_slice(key);
+        succ.extend_from_slice(key.as_bytes());
         succ.push(1);
-        self.next_at_or_after(&succ)
+        // SAFETY: `key` is NUL-free and the appended sentinel is `1`, so the
+        // successor is too. `1` rather than `0` precisely because `0` would
+        // leave the domain.
+        self.next_at_or_after(unsafe { NulFreeStr::new_unchecked(&succ) })
     }
 
     /// Largest entry with key `<= key` (compat: `JudySLLast`).
-    pub fn prev_at_or_before(&mut self, key: &[u8]) -> Option<(Vec<u8>, NonNull<u64>)> {
-        Self::assert_key(key);
+    pub fn prev_at_or_before(&mut self, key: &NulFreeStr) -> Option<(Vec<u8>, NonNull<u64>)> {
+        let key = key.as_bytes();
         let root = self.root.as_deref_mut()?;
         let mut out = Vec::with_capacity(key.len() + CHUNK);
         let slot = root.prev_at_or_before(key, 0, false, &mut out)?;
@@ -1491,8 +1579,8 @@ impl ExpanseStrMap {
     }
 
     /// Largest entry with key `< key` (compat: `JudySLPrev`).
-    pub fn prev_before(&mut self, key: &[u8]) -> Option<(Vec<u8>, NonNull<u64>)> {
-        Self::assert_key(key);
+    pub fn prev_before(&mut self, key: &NulFreeStr) -> Option<(Vec<u8>, NonNull<u64>)> {
+        let key = key.as_bytes();
         let root = self.root.as_deref_mut()?;
         let mut out = Vec::with_capacity(key.len() + CHUNK);
         let slot = root.prev_at_or_before(key, 0, true, &mut out)?;
@@ -1501,7 +1589,8 @@ impl ExpanseStrMap {
 
     /// Smallest entry.
     pub fn first(&mut self) -> Option<(Vec<u8>, NonNull<u64>)> {
-        self.next_at_or_after(&[])
+        // SAFETY: the empty key contains no NUL.
+        self.next_at_or_after(unsafe { NulFreeStr::new_unchecked(&[]) })
     }
 
     /// Largest entry.
@@ -1552,6 +1641,12 @@ impl Drop for ExpanseStrMap {
 
 #[cfg(test)]
 mod tests {
+
+    /// Wraps a test key. These are literals and generated keys the tests know
+    /// are in-domain; a NUL in one is a bug in the test, so panicking is right.
+    fn tk<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> &NulFreeStr {
+        NulFreeStr::new(bytes.as_ref()).expect("test key contains a NUL")
+    }
     /// Keys that exercise every entry form the cursor has to walk: resolved
     /// inside a terminal chunk, held in a suffix leaf, and reached through a
     /// chain of child nodes; plus shared prefixes at each of those depths and
@@ -1602,7 +1697,7 @@ mod tests {
         let keys = walk_corpus();
         let mut m = ExpanseStrMap::new();
         for (i, k) in keys.iter().enumerate() {
-            m.insert(k, i as u64);
+            m.insert(tk(k), i as u64);
         }
 
         let mut positional: Vec<(Vec<u8>, u64)> = Vec::new();
@@ -1611,7 +1706,7 @@ mod tests {
             // SAFETY: slot is live until the next structural mutation, and
             // this walk performs none.
             positional.push((k.clone(), unsafe { *slot.as_ptr() }));
-            cur = m.next_after(&k);
+            cur = m.next_after(tk(&k));
         }
 
         let mut walked: Vec<(Vec<u8>, u64)> = Vec::new();
@@ -1637,7 +1732,7 @@ mod tests {
         let keys = walk_corpus();
         let mut m = ExpanseStrMap::new();
         for (i, k) in keys.iter().enumerate() {
-            m.insert(k, i as u64);
+            m.insert(tk(k), i as u64);
         }
 
         let mut probes: Vec<Vec<u8>> = Vec::new();
@@ -1656,11 +1751,11 @@ mod tests {
         probes.push(b"!".to_vec());
 
         for probe in probes {
-            let expected = m.next_at_or_after(&probe).map(|(k, slot)| {
+            let expected = m.next_at_or_after(tk(&probe)).map(|(k, slot)| {
                 // SAFETY: no structural mutation between here and the read.
                 (k, unsafe { *slot.as_ptr() })
             });
-            let mut c = m.cursor_at_or_after(&probe);
+            let mut c = m.cursor_at_or_after(tk(&probe));
             let got = c.next().map(|(k, slot)| {
                 // SAFETY: as above.
                 (k.to_vec(), unsafe { *slot.as_ptr() })
@@ -1676,13 +1771,13 @@ mod tests {
         let keys = walk_corpus();
         let mut m = ExpanseStrMap::new();
         for (i, k) in keys.iter().enumerate() {
-            m.insert(k, i as u64);
+            m.insert(tk(k), i as u64);
         }
         let start = &keys[keys.len() / 3];
         let expected: Vec<Vec<u8>> = keys.iter().skip(keys.len() / 3).cloned().collect();
 
         let mut got: Vec<Vec<u8>> = Vec::new();
-        let mut c = m.cursor_at_or_after(start);
+        let mut c = m.cursor_at_or_after(tk(start));
         while let Some((k, _)) = c.next() {
             got.push(k.to_vec());
         }
@@ -1700,9 +1795,9 @@ mod tests {
     fn cursor_walks_the_documented_example() {
         let mut map = ExpanseStrMap::new();
         for k in [b"apple".as_slice(), b"apricot", b"banana"] {
-            map.insert(k, k.len() as u64);
+            map.insert(tk(k), k.len() as u64);
         }
-        let mut c = map.cursor_at_or_after(b"ap");
+        let mut c = map.cursor_at_or_after(tk(b"ap"));
         let mut seen = Vec::new();
         while let Some((key, slot)) = c.next() {
             // SAFETY: the cursor borrows the map for its lifetime, so the slot
@@ -1747,7 +1842,7 @@ mod tests {
         ];
         let mut m = ExpanseStrMap::new();
         for (i, k) in keys.iter().enumerate() {
-            m.insert(k, i as u64);
+            m.insert(tk(k), i as u64);
         }
 
         let mut expected: Vec<(Vec<u8>, u64)> = keys
@@ -1768,7 +1863,7 @@ mod tests {
 
         // The same corpus from a seek that lands mid-trie, so the unwind runs
         // from a stack the seek built rather than one `next` built.
-        let mut c = m.cursor_at_or_after(b"aaaaaaaaBBBBBBBBcc");
+        let mut c = m.cursor_at_or_after(tk(b"aaaaaaaaBBBBBBBBcc"));
         let mut walked = Vec::new();
         while let Some((key, _)) = c.next() {
             walked.push(key.to_vec());
@@ -1816,47 +1911,41 @@ mod tests {
         }
     }
 
-    /// `chunk_at`'s terminal flag *is* [`is_terminal`] of the chunk it returns,
-    /// at every offset, for keys in and out of the domain.
+    /// The key type is the domain, so an out-of-domain key cannot be built.
     ///
-    /// This is the invariant that makes #794 unreachable, and it replaces a
-    /// `#[should_panic]` test on `publish_suffix`'s assertion. That assertion
-    /// is now dead by construction, so a test that it fires tested nothing --
-    /// and, because it was demoted to `debug_assert!`, the test failed under
-    /// `cargo test --release` while passing in CI, which only runs the lib
-    /// suite in debug.
-    ///
-    /// The length rule this replaced (`rest.len() < CHUNK`) disagrees with
-    /// `is_terminal` on exactly the keys #794 is about, so the out-of-domain
-    /// cases below fail against it and pass here.
+    /// This replaces a test that asserted `chunk_at` decided terminality by
+    /// content. That was the previous fix for #794 and it cost 2.6-4.3% on
+    /// every string operation; the domain is now carried by [`NulFreeStr`],
+    /// which is why `chunk_at` can keep its hoistable length rule.
     #[test]
-    fn chunk_at_reports_terminal_by_content_not_length() {
-        let keys: [&[u8]; 8] = [
-            b"",
-            b"ab",
-            b"abcdefgh",
-            b"abcdefghij",
-            b"abc\0defghij", // the #794 key: 11 bytes, NUL inside chunk 0
-            b"ab\0foo",
-            b"12345678\0tail", // NUL past the first chunk
-            b"\0leading",
-        ];
-        for k in keys {
-            for off in 0..=k.len() + CHUNK {
-                let (_, terminal) = chunk_at(k, off);
-                // Oracle stated over the *key*, not over the chunk, so it does
-                // not restate `chunk_at`'s body: an entry ends at this chunk
-                // when fewer than eight bytes remain, or when the eight it
-                // would take contain a NUL. The length rule this replaced
-                // omits the second clause, which is the #794 defect.
-                let rest = &k[off.min(k.len())..];
-                let expected = rest.len() < CHUNK || rest[..rest.len().min(CHUNK)].contains(&0);
-                assert_eq!(
-                    terminal, expected,
-                    "chunk_at's terminal flag is wrong at off={off} for {k:?}"
-                );
-            }
+    fn the_key_type_rejects_every_position_of_a_nul() {
+        assert!(NulFreeStr::new(b"").is_some(), "the empty key is in domain");
+        assert!(NulFreeStr::new(b"abc").is_some());
+        for n in 0..12usize {
+            let mut k = vec![b'a'; 12];
+            k[n] = 0;
+            assert!(
+                NulFreeStr::new(&k).is_none(),
+                "a NUL at index {n} was accepted"
+            );
         }
+        // The #794 key specifically.
+        assert!(NulFreeStr::new(b"abc\0defghij").is_none());
+        // And the round trip is the identity on the bytes.
+        let k = NulFreeStr::new(b"/api/v2/tenants").expect("in domain");
+        assert_eq!(k.as_bytes(), b"/api/v2/tenants");
+        assert_eq!(k.len(), 15);
+        assert!(!k.is_empty());
+    }
+
+    /// `TryFrom` is the fallible conversion callers reach for, and its error
+    /// says what the domain is.
+    #[test]
+    fn try_from_reports_the_domain_violation() {
+        let ok: Result<&NulFreeStr, _> = b"fine".as_slice().try_into();
+        assert!(ok.is_ok());
+        let bad: Result<&NulFreeStr, _> = b"no\0good".as_slice().try_into();
+        assert_eq!(bad.unwrap_err(), NulInKey);
     }
 
     /// Degenerate shapes: empty map, one key, and a cursor driven past the
@@ -1865,16 +1954,16 @@ mod tests {
     fn cursor_edges() {
         let mut empty = ExpanseStrMap::new();
         assert!(empty.cursor().next().is_none());
-        assert!(empty.cursor_at_or_after(b"anything").next().is_none());
+        assert!(empty.cursor_at_or_after(tk(b"anything")).next().is_none());
 
         let mut one = ExpanseStrMap::new();
-        one.insert(b"solo", 7);
+        one.insert(tk(b"solo"), 7);
         let mut c = one.cursor();
         assert_eq!(c.next().map(|(k, _)| k.to_vec()), Some(b"solo".to_vec()));
         assert!(c.next().is_none());
         assert!(c.next().is_none(), "an exhausted cursor restarted");
 
-        let mut past = one.cursor_at_or_after(b"zzz");
+        let mut past = one.cursor_at_or_after(tk(b"zzz"));
         assert!(past.next().is_none());
     }
 
@@ -1883,7 +1972,7 @@ mod tests {
     fn cursor_slots_are_writable_in_place() {
         let mut m = ExpanseStrMap::new();
         for k in [b"alpha".as_slice(), b"beta", b"gamma"] {
-            m.insert(k, 0);
+            m.insert(tk(k), 0);
         }
         let mut c = m.cursor();
         while let Some((_, slot)) = c.next() {
@@ -1891,7 +1980,11 @@ mod tests {
             unsafe { *slot.as_ptr() = 42 };
         }
         for k in [b"alpha".as_slice(), b"beta", b"gamma"] {
-            assert_eq!(m.get(k), Some(42), "in-place write through the cursor lost");
+            assert_eq!(
+                m.get(tk(k)),
+                Some(42),
+                "in-place write through the cursor lost"
+            );
         }
     }
 
@@ -1908,13 +2001,13 @@ mod tests {
             .spawn(|| {
                 let mut m = ExpanseStrMap::new();
                 let key = vec![b'k'; if cfg!(miri) { 512 } else { 64 * 1024 }];
-                assert_eq!(m.insert(&key, 1), None);
-                assert_eq!(m.get(&key), Some(1));
+                assert_eq!(m.insert(tk(&key), 1), None);
+                assert_eq!(m.get(tk(&key)), Some(1));
                 // A second key sharing most of the chain, so teardown has
                 // branching to walk rather than one straight line.
                 let mut other = key.clone();
                 *other.last_mut().expect("non-empty") = b'z';
-                assert_eq!(m.insert(&other, 2), None);
+                assert_eq!(m.insert(tk(&other), 2), None);
                 assert_eq!(m.len(), 2);
                 drop(m);
             })
@@ -1932,10 +2025,10 @@ mod tests {
             .spawn(|| {
                 let mut m = ExpanseStrMap::new();
                 let key = vec![b'q'; if cfg!(miri) { 512 } else { 32 * 1024 }];
-                m.insert(&key, 7);
-                assert_eq!(m.remove(&key), Some(7));
+                m.insert(tk(&key), 7);
+                assert_eq!(m.remove(tk(&key)), Some(7));
                 assert!(m.is_empty());
-                assert_eq!(m.get(&key), None);
+                assert_eq!(m.get(tk(&key)), None);
                 assert_eq!(m.clear(), 0, "removing the last key freed everything");
             })
             .expect("spawn");
@@ -1959,29 +2052,35 @@ mod tests {
                 // bottom before it can resolve.
                 let mut sibling = deep.clone();
                 *sibling.last_mut().expect("non-empty") = b'n';
-                m.insert(&deep, 1);
-                m.insert(&sibling, 2);
+                m.insert(tk(&deep), 1);
+                m.insert(tk(&sibling), 2);
 
                 assert_eq!(m.first().map(|(k, _)| k), Some(deep.clone()));
                 assert_eq!(m.last().map(|(k, _)| k), Some(sibling.clone()));
-                assert_eq!(m.get(&deep), Some(1));
-                assert_eq!(m.get(&sibling), Some(2));
+                assert_eq!(m.get(tk(&deep)), Some(1));
+                assert_eq!(m.get(tk(&sibling)), Some(2));
                 assert_eq!(
-                    m.next_at_or_after(&deep).map(|(k, _)| k),
+                    m.next_at_or_after(tk(&deep)).map(|(k, _)| k),
                     Some(deep.clone())
                 );
-                assert_eq!(m.next_after(&deep).map(|(k, _)| k), Some(sibling.clone()));
-                assert_eq!(m.prev_before(&sibling).map(|(k, _)| k), Some(deep.clone()));
+                assert_eq!(
+                    m.next_after(tk(&deep)).map(|(k, _)| k),
+                    Some(sibling.clone())
+                );
+                assert_eq!(
+                    m.prev_before(tk(&sibling)).map(|(k, _)| k),
+                    Some(deep.clone())
+                );
 
                 // Past the end: descends the full chain, finds nothing at
                 // or after, and unwinds every recorded level.
                 let mut past = deep.clone();
                 *past.last_mut().expect("non-empty") = b'z';
-                assert_eq!(m.next_at_or_after(&past), None);
+                assert_eq!(m.next_at_or_after(tk(&past)), None);
                 // Mirror: before the beginning.
                 let mut before = deep.clone();
                 *before.last_mut().expect("non-empty") = b'a';
-                assert_eq!(m.prev_before(&before), None);
+                assert_eq!(m.prev_before(tk(&before)), None);
             })
             .expect("spawn");
         handle
@@ -2031,33 +2130,33 @@ mod tests {
         // Deferral must precede every allocation (`defer_to` requires an
         // empty map — slab-carved memory must never reach the collector).
         m.defer_to(Arc::clone(&collector));
-        m.insert(b"pre-existing:alpha", 1);
-        m.insert(b"pre-existing:beta", 2);
+        m.insert(tk(b"pre-existing:alpha"), 1);
+        m.insert(tk(b"pre-existing:beta"), 2);
 
         // Suffix creation, then a split (disposes the old suffix).
-        m.insert(b"shared-prefix-01:aaaa", 10);
-        m.insert(b"shared-prefix-01:bbbb", 11);
+        m.insert(tk(b"shared-prefix-01:aaaa"), 10);
+        m.insert(tk(b"shared-prefix-01:bbbb"), 11);
         // In-place value update on a suffix leaf (no disposal).
-        assert_eq!(m.insert(b"shared-prefix-01:aaaa", 12), Some(10));
-        assert_eq!(m.get(b"shared-prefix-01:aaaa"), Some(12));
+        assert_eq!(m.insert(tk(b"shared-prefix-01:aaaa"), 12), Some(10));
+        assert_eq!(m.get(tk(b"shared-prefix-01:aaaa")), Some(12));
         // ins_slot split path.
-        let slot = m.ins_slot(b"shared-prefix-01:aaXX");
+        let slot = m.ins_slot(tk(b"shared-prefix-01:aaXX"));
         // SAFETY: slot valid until next mutation.
         unsafe { slot.as_ptr().write(13) };
-        assert_eq!(m.get(b"shared-prefix-01:aaXX"), Some(13));
+        assert_eq!(m.get(tk(b"shared-prefix-01:aaXX")), Some(13));
 
         // Suffix removal + emptied-node pruning back up the chain.
-        assert_eq!(m.remove(b"shared-prefix-01:aaXX"), Some(13));
-        assert_eq!(m.remove(b"shared-prefix-01:bbbb"), Some(11));
-        assert_eq!(m.remove(b"shared-prefix-01:aaaa"), Some(12));
-        assert_eq!(m.get(b"pre-existing:alpha"), Some(1));
+        assert_eq!(m.remove(tk(b"shared-prefix-01:aaXX")), Some(13));
+        assert_eq!(m.remove(tk(b"shared-prefix-01:bbbb")), Some(11));
+        assert_eq!(m.remove(tk(b"shared-prefix-01:aaaa")), Some(12));
+        assert_eq!(m.get(tk(b"pre-existing:alpha")), Some(1));
 
         // Whole-tree disposal (dispose_tree), then root removal via the
         // last-key path.
         assert_eq!(m.len(), 2);
         assert!(m.clear() > 0);
-        m.insert(b"solo", 42);
-        assert_eq!(m.remove(b"solo"), Some(42));
+        m.insert(tk(b"solo"), 42);
+        assert_eq!(m.remove(tk(b"solo")), Some(42));
         assert!(m.is_empty());
 
         // Grace-period advances free the retired chain; drop drains the rest.
@@ -2090,7 +2189,7 @@ mod tests {
         let n = if cfg!(miri) { 60 } else { 500 };
         for i in 0..n {
             let k = format!("/api/v2/tenants/{:04}/resources/item-{:06}", i % 37, i);
-            m.insert(k.as_bytes(), i);
+            m.insert(tk(k.as_bytes()), i);
         }
         let used = m.mem_used() as u64;
         assert!(used > 0);
@@ -2109,10 +2208,14 @@ mod tests {
             match rng.next() % 4 {
                 0 | 1 => {
                     let v = rng.next();
-                    assert_eq!(map.insert(&k, v), model.insert(k.clone(), v), "ins {k:?}");
+                    assert_eq!(
+                        map.insert(tk(&k), v),
+                        model.insert(k.clone(), v),
+                        "ins {k:?}"
+                    );
                 }
-                2 => assert_eq!(map.remove(&k), model.remove(&k), "rm {k:?}"),
-                _ => assert_eq!(map.get(&k), model.get(&k).copied(), "get {k:?}"),
+                2 => assert_eq!(map.remove(tk(&k)), model.remove(&k), "rm {k:?}"),
+                _ => assert_eq!(map.get(tk(&k)), model.get(&k).copied(), "get {k:?}"),
             }
             assert_eq!(map.len(), model.len() as u64);
         }
@@ -2123,7 +2226,7 @@ mod tests {
             assert_eq!(&k, mk, "sweep key");
             // SAFETY: slot valid until next mutation; none happens here.
             assert_eq!(unsafe { *slot.as_ptr() }, *mv, "sweep value");
-            cursor = map.next_after(&k);
+            cursor = map.next_after(tk(&k));
         }
         assert!(cursor.is_none());
         let mut cursor = map.last();
@@ -2132,19 +2235,19 @@ mod tests {
             assert_eq!(&k, mk, "rev sweep key");
             // SAFETY: as above.
             assert_eq!(unsafe { *slot.as_ptr() }, *mv, "rev sweep value");
-            cursor = map.prev_before(&k);
+            cursor = map.prev_before(tk(&k));
         }
         assert!(cursor.is_none());
         // Point navigation probes.
         for _ in 0..if cfg!(miri) { 30 } else { 400 } {
             let k = keygen(&mut rng);
             assert_eq!(
-                map.next_at_or_after(&k).map(|e| e.0),
+                map.next_at_or_after(tk(&k)).map(|e| e.0),
                 model.range(k.clone()..).next().map(|(mk, _)| mk.clone()),
                 "next>= {k:?}"
             );
             assert_eq!(
-                map.prev_at_or_before(&k).map(|e| e.0),
+                map.prev_at_or_before(tk(&k)).map(|e| e.0),
                 model
                     .range(..=k.clone())
                     .next_back()
@@ -2155,7 +2258,7 @@ mod tests {
         // Drain.
         let keys: Vec<Vec<u8>> = model.keys().cloned().collect();
         for k in keys {
-            assert_eq!(map.remove(&k), model.remove(&k));
+            assert_eq!(map.remove(tk(&k)), model.remove(&k));
         }
         assert!(map.is_empty());
     }
@@ -2175,26 +2278,29 @@ mod tests {
         .into_iter()
         .enumerate()
         {
-            assert_eq!(map.insert(k, i as u64 + 10), None, "{k:?}");
+            assert_eq!(map.insert(tk(k), i as u64 + 10), None, "{k:?}");
         }
-        assert_eq!(map.get(b""), Some(10));
-        assert_eq!(map.get(b"abcdefgh"), Some(12));
-        assert_eq!(map.get(b"abcdefg"), None);
+        assert_eq!(map.get(tk(b"")), Some(10));
+        assert_eq!(map.get(tk(b"abcdefgh")), Some(12));
+        assert_eq!(map.get(tk(b"abcdefg")), None);
         // ins_slot keeps existing values and writes through.
-        let slot = map.ins_slot(b"abcdefgh");
+        let slot = map.ins_slot(tk(b"abcdefgh"));
         // SAFETY: slot valid until next mutation.
         unsafe {
             assert_eq!(*slot.as_ptr(), 12);
             slot.as_ptr().write(99);
         }
-        assert_eq!(map.get(b"abcdefgh"), Some(99));
+        assert_eq!(map.get(tk(b"abcdefgh")), Some(99));
         // Ordering across boundary shapes.
         let (first, _) = map.first().unwrap();
         assert_eq!(first, b"");
-        assert_eq!(map.next_after(b"").unwrap().0, b"a");
-        assert_eq!(map.next_after(b"abcdefgg").unwrap().0, b"abcdefgh");
-        assert_eq!(map.next_after(b"abcdefgh").unwrap().0, b"abcdefghabcdefgh");
-        assert_eq!(map.prev_before(b"abcdefgh").unwrap().0, b"abcdefgg");
+        assert_eq!(map.next_after(tk(b"")).unwrap().0, b"a");
+        assert_eq!(map.next_after(tk(b"abcdefgg")).unwrap().0, b"abcdefgh");
+        assert_eq!(
+            map.next_after(tk(b"abcdefgh")).unwrap().0,
+            b"abcdefghabcdefgh"
+        );
+        assert_eq!(map.prev_before(tk(b"abcdefgh")).unwrap().0, b"abcdefgg");
         assert_eq!(map.last().unwrap().0, b"abcdefghi");
         let freed = map.clear();
         assert!(freed > 0);
@@ -2206,23 +2312,23 @@ mod tests {
         let mut map = ExpanseStrMap::new();
         // Insert a 64-byte key. With tail collapse, this creates 1 StrNode + 1 StrSuffix.
         let key1 = b"org.apache.hadoop.fs.azurebfs.services.AbfsClientTestFixture";
-        map.insert(key1, 100);
-        assert_eq!(map.get(key1), Some(100));
+        map.insert(tk(key1), 100);
+        assert_eq!(map.get(tk(key1)), Some(100));
         assert_eq!(map.len(), 1);
 
         // Insert a second key sharing a long prefix (35 bytes).
         let key2 = b"org.apache.hadoop.fs.azurebfs.services.AbfsRestOperation";
-        map.insert(key2, 200);
-        assert_eq!(map.get(key1), Some(100));
-        assert_eq!(map.get(key2), Some(200));
+        map.insert(tk(key2), 200);
+        assert_eq!(map.get(tk(key1)), Some(100));
+        assert_eq!(map.get(tk(key2)), Some(200));
         assert_eq!(map.len(), 2);
 
         // Insert a third key diverging early (at byte 4).
         let key3 = b"org.eclipse.jetty.server.Server";
-        map.insert(key3, 300);
-        assert_eq!(map.get(key1), Some(100));
-        assert_eq!(map.get(key2), Some(200));
-        assert_eq!(map.get(key3), Some(300));
+        map.insert(tk(key3), 300);
+        assert_eq!(map.get(tk(key1)), Some(100));
+        assert_eq!(map.get(tk(key2)), Some(200));
+        assert_eq!(map.get(tk(key3)), Some(300));
         assert_eq!(map.len(), 3);
 
         // Verify sorted navigation across compressed paths:
@@ -2231,23 +2337,23 @@ mod tests {
         // SAFETY: slot is valid until next mutation.
         unsafe { assert_eq!(*s1.as_ptr(), 100) };
 
-        let (k2, s2) = map.next_after(key1).unwrap();
+        let (k2, s2) = map.next_after(tk(key1)).unwrap();
         assert_eq!(k2, key2);
         // SAFETY: slot is valid until next mutation.
         unsafe { assert_eq!(*s2.as_ptr(), 200) };
 
-        let (k3, s3) = map.next_after(key2).unwrap();
+        let (k3, s3) = map.next_after(tk(key2)).unwrap();
         assert_eq!(k3, key3);
         // SAFETY: slot is valid until next mutation.
         unsafe { assert_eq!(*s3.as_ptr(), 300) };
 
-        assert_eq!(map.next_after(key3), None);
+        assert_eq!(map.next_after(tk(key3)), None);
 
         // Remove the split key:
-        assert_eq!(map.remove(key2), Some(200));
-        assert_eq!(map.get(key2), None);
-        assert_eq!(map.get(key1), Some(100));
-        assert_eq!(map.get(key3), Some(300));
+        assert_eq!(map.remove(tk(key2)), Some(200));
+        assert_eq!(map.get(tk(key2)), None);
+        assert_eq!(map.get(tk(key1)), Some(100));
+        assert_eq!(map.get(tk(key3)), Some(300));
         assert_eq!(map.len(), 2);
     }
 }

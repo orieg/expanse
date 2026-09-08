@@ -38,16 +38,23 @@ pub(crate) unsafe fn put<T>(out: *mut T, v: T) {
     }
 }
 
-/// Reads a NUL-terminated C string argument into a byte slice.
+/// Reads a NUL-terminated C string argument as an [`ExpanseStrMap`] key.
+///
+/// `CStr::to_bytes` stops at the terminator, so the result is in the key
+/// domain by construction and the engine never re-checks it.
+///
+/// [`ExpanseStrMap`]: expanse_trie::strmap::ExpanseStrMap
 #[cfg(target_pointer_width = "64")]
 #[inline]
-unsafe fn cstr<'a>(key: *const c_char) -> Option<&'a [u8]> {
+unsafe fn cstr<'a>(key: *const c_char) -> Option<&'a expanse_trie::strmap::NulFreeStr> {
     if key.is_null() {
         return None;
     }
     // SAFETY: caller guarantees a valid NUL-terminated C string.
     let s = unsafe { CStr::from_ptr(key) };
-    Some(s.to_bytes())
+    // SAFETY: `to_bytes` excludes the terminator and a C string has no
+    // interior NUL.
+    Some(unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(s.to_bytes()) })
 }
 
 /// Copies a byte slice plus terminating NUL into the caller's buffer.

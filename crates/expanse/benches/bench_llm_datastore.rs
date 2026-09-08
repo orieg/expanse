@@ -35,6 +35,17 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+/// Wraps a key for `ExpanseStrMap`.
+///
+/// `new_unchecked`: the validating constructor would put a whole-key scan
+/// inside the measured region, and the arm would measure the check instead of
+/// the descent. Every generator in this file emits route-shaped ASCII.
+#[inline(always)]
+fn tk<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> &expanse_trie::strmap::NulFreeStr {
+    // SAFETY: generators in this file emit no NUL bytes.
+    unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(bytes.as_ref()) }
+}
+
 fn encode_token_7bit(tok: u32) -> [u8; 3] {
     let b0 = (((tok >> 14) & 0x7F) + 1) as u8;
     let b1 = (((tok >> 7) & 0x7F) + 1) as u8;
@@ -178,7 +189,7 @@ fn main() {
             let start = i.saturating_add(1).saturating_sub(16);
             let window = &tokens[start..=i];
             let key = encode_rev_window(window);
-            expanse.insert(&key, i as u64);
+            expanse.insert(tk(&key), i as u64);
         }
         let expanse_build_time = t0.elapsed();
         let expanse_mem = expanse.mem_used();

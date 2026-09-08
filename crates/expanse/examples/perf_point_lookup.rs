@@ -80,6 +80,17 @@ use expanse_trie::set::ExpanseSet;
 use expanse_trie::strmap::ExpanseStrMap;
 use std::hint::black_box;
 
+/// Wraps a key for `ExpanseStrMap`.
+///
+/// `new_unchecked`: the validating constructor would put a whole-key scan
+/// inside the measured region, and the arm would measure the check instead of
+/// the descent. Every generator in this file emits route-shaped ASCII.
+#[inline(always)]
+fn tk<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> &expanse_trie::strmap::NulFreeStr {
+    // SAFETY: generators in this file emit no NUL bytes.
+    unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(bytes.as_ref()) }
+}
+
 struct XorShift(u64);
 impl XorShift {
     fn next(&mut self) -> u64 {
@@ -302,9 +313,9 @@ fn main() {
             let str_keys = build_str_keys(pop, shape);
             let mut map = ExpanseStrMap::new();
             for (i, k) in str_keys.iter().enumerate() {
-                map.insert(k, i as u64);
+                map.insert(tk(k), i as u64);
             }
-            let probes = build_str_probes(&str_keys, &|k| map.get(k).is_some(), hit_pct, shape);
+            let probes = build_str_probes(&str_keys, &|k| map.get(tk(k)).is_some(), hit_pct, shape);
             sink ^= map.len();
             if run_probe {
                 for _ in 0..passes {
@@ -315,7 +326,7 @@ fn main() {
                         // phase's checksum identical to the build phase's —
                         // a sink that cannot see the loop it is guarding.
                         // Verified: with `^=` both phases printed 200000.
-                        sink = sink.wrapping_add(map.get(black_box(k.as_slice())).unwrap_or(0));
+                        sink = sink.wrapping_add(map.get(tk(black_box(k))).unwrap_or(0));
                     }
                 }
             }

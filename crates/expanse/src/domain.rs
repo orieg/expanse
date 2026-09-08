@@ -77,7 +77,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::blobmap::{ArenaError, BlobArena, DEFAULT_CHUNK_SIZE};
 use crate::set::ExpanseSet;
-use crate::strmap::ExpanseStrMap;
+use crate::strmap::{ExpanseStrMap, NulFreeStr};
 
 static NEXT_DOMAIN_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -202,12 +202,19 @@ pub(crate) fn escape_encode(data: &[u8]) -> Vec<u8> {
 }
 
 #[inline]
-fn with_escaped_key<R>(key: &[u8], f: impl FnOnce(&[u8]) -> R) -> R {
+/// Runs `f` on `key`'s escaped form, which is in [`NulFreeStr`]'s domain by
+/// construction: [`escape_encode`] maps `0x00` to `[0x01, 0x01]`, so no NUL
+/// survives it, and the fast path is taken only when the key had none to
+/// begin with. This is the one place the dictionary establishes that
+/// invariant, so it is the one place that may assert it.
+fn with_escaped_key<R>(key: &[u8], f: impl FnOnce(&NulFreeStr) -> R) -> R {
     if !key.iter().any(|&b| b <= 1) {
-        f(key)
+        // SAFETY: no byte is `<= 1`, so in particular none is NUL.
+        f(unsafe { NulFreeStr::new_unchecked(key) })
     } else {
         let encoded = escape_encode(key);
-        f(&encoded)
+        // SAFETY: `escape_encode` emits no `0x00`.
+        f(unsafe { NulFreeStr::new_unchecked(&encoded) })
     }
 }
 
