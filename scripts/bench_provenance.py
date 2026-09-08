@@ -36,6 +36,23 @@ jiffy delta between two snapshots is exact over the interval it covers, the
 harness's own threads included: a single-threaded phase on a quiet host reads
 about 1.0, and a concurrent sweep reads its own thread count.
 
+**`own_busy_cpus` / `foreign_busy_cpus`** — the busy-CPU delta above counts the
+harness's own threads, so over a concurrent sweep it reads the sweep (5.7
+core-equivalents on the reference host) and cannot say whether anything else
+was resident. Splitting it needs a second instrument the jiffy line does not
+carry: the CPU seconds the runner's *children* consumed, from
+`getrusage(RUSAGE_CHILDREN)`, which only the benchmark processes add to.
+Divided by the cell's wall time that is the cell's own core-equivalents, and
+the remainder — `foreign_busy_cpus` — is everything else on the host during
+that cell. It is taken per cell (`begin_cell` / `end_cell`) because a sweep
+mixes one-thread and sixteen-thread cells and a whole-sweep number attributes
+neither (#568 Step 0).
+
+**`scaling_governor_by_cpu`** — the governor of every CPU in the pin set, not
+of `cpu0` alone. `intel_pstate` sets it per policy, so a run that reads
+`performance` on `cpu0` can still be executing on a core left at `powersave`;
+the artifact records the set it read, so the claim is bounded to it.
+
 Linux-only where it reads `/proc` and `/sys`; every reader degrades to `None`
 off Linux rather than inventing a value.
 """
@@ -48,9 +65,15 @@ import subprocess
 import time
 from pathlib import Path
 
+try:
+    import resource
+except ImportError:  # not a POSIX host: no child CPU accounting, recorded as None
+    resource = None
+
 __all__ = [
-    "cpu_jiffies", "load_snapshot", "add_load", "host_facts", "raw_rounds",
-    "estimators", "git_sha", "new_provenance", "attach", "body", "rewrite",
+    "cpu_jiffies", "child_cpu_seconds", "load_snapshot", "add_load", "begin_cell",
+    "end_cell", "host_facts", "scaling_governor_by_cpu", "expand_cpu_list", "pin_set",
+    "raw_rounds", "estimators", "git_sha", "new_provenance", "attach", "body", "rewrite",
 ]
 
 
@@ -93,19 +116,77 @@ def busy_cpus(prev: dict | None, busy: int | None, total: int | None,
     return round((busy - p_busy) / dt * n, 2)
 
 
+def child_cpu_seconds() -> float | None:
+    """CPU seconds consumed by this process's reaped children, user plus system.
+
+    Only the benchmark processes the runner spawns add to it, so its delta over
+    a cell is the cell's own CPU time and nothing else's. `None` where the
+    platform has no `getrusage`.
+    """
+    if resource is None:
+        return None
+    ru = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return ru.ru_utime + ru.ru_stime
+
+
+def own_busy_cpus(prev: dict | None, child_cpu_s: float | None, monotonic_s: float) -> float | None:
+    """Core-equivalents the runner's own children consumed since `prev`.
+
+    `(child CPU seconds now - then) / (wall seconds now - then)`. `None` when
+    there is no previous snapshot, when either side lacks the accounting, or
+    when no wall time passed.
+    """
+    if not prev or child_cpu_s is None:
+        return None
+    p_child, p_mono = prev.get("child_cpu_s"), prev.get("monotonic_s")
+    if p_child is None or p_mono is None:
+        return None
+    wall = monotonic_s - p_mono
+    if wall <= 0:
+        return None
+    return round((child_cpu_s - p_child) / wall, 2)
+
+
+def foreign_busy_cpus(host: float | None, own: float | None) -> float | None:
+    """What was busy on the host that was not the runner's own children.
+
+    `None` unless both sides are numbers: a difference with a missing operand
+    is not a smaller number, it is no number (section 8.1).
+    """
+    if host is None or own is None:
+        return None
+    return round(host - own, 2)
+
+
 def load_snapshot(label: str, prev: dict | None = None) -> dict:
-    """Load averages, plus the host's busy CPU since `prev` in core-equivalents."""
+    """Load averages, plus the host's busy CPU since `prev` in core-equivalents.
+
+    Also the runner's own children's CPU since `prev` (`own_busy_cpus_since_prev`)
+    and the remainder (`foreign_busy_cpus_since_prev`). `since` names the
+    snapshot the `*_since_prev` fields are differenced against, so a reader
+    knows which interval — the one that ended here, not the one starting — they
+    describe.
+    """
     try:
         one, five, fifteen = os.getloadavg()
     except OSError:
         one = five = fifteen = float("nan")
     busy, total = cpu_jiffies()
+    child = child_cpu_seconds()
+    mono = time.monotonic()
+    host = busy_cpus(prev, busy, total)
+    own = own_busy_cpus(prev, child, mono)
     return {
         "label": label,
+        "since": prev.get("label") if prev else None,
         "load1": round(one, 2), "load5": round(five, 2), "load15": round(fifteen, 2),
         "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "stat_busy_jiffies": busy, "stat_total_jiffies": total,
-        "busy_cpus_since_prev": busy_cpus(prev, busy, total),
+        "child_cpu_s": None if child is None else round(child, 3),
+        "monotonic_s": round(mono, 3),
+        "busy_cpus_since_prev": host,
+        "own_busy_cpus_since_prev": own,
+        "foreign_busy_cpus_since_prev": foreign_busy_cpus(host, own),
     }
 
 
@@ -113,6 +194,41 @@ def add_load(prov: dict, label: str) -> None:
     """Appends a snapshot to `prov["loads"]`, differenced against the last one."""
     loads = prov.setdefault("loads", [])
     loads.append(load_snapshot(label, loads[-1] if loads else None))
+
+
+def begin_cell(prov: dict, label: str) -> dict:
+    """`add_load(prov, label)` before a cell; returns the snapshot for `end_cell`.
+
+    The label convention is `cell:<arm>:W<writers>:R<readers>`, one snapshot
+    per timed or counted cell, so the artifact's load series has an entry at
+    every cell boundary and not one per phase.
+    """
+    add_load(prov, label)
+    return prov["loads"][-1]
+
+
+def end_cell(start: dict) -> dict:
+    """Attribution over the cell that began at `start`, once it has finished.
+
+    Not appended to `loads` — the next cell's `begin_cell` is that boundary —
+    but stored on the cell itself, so `cell["load"]["foreign_busy_cpus"]` is
+    the number for *this* cell and the gate can require it per cell.
+    `busy_cpus_since_prev` is the host over the cell's own wall time,
+    `own_busy_cpus` the runner's children over the same window, and their
+    difference is what else was resident.
+    """
+    busy, total = cpu_jiffies()
+    child = child_cpu_seconds()
+    mono = time.monotonic()
+    host = busy_cpus(start, busy, total)
+    own = own_busy_cpus(start, child, mono)
+    return {
+        "since": start.get("label"),
+        "wall_s": round(mono - start["monotonic_s"], 3),
+        "busy_cpus_since_prev": host,
+        "own_busy_cpus": own,
+        "foreign_busy_cpus": foreign_busy_cpus(host, own),
+    }
 
 
 def _read(path: str) -> str | None:
@@ -123,8 +239,63 @@ def _read(path: str) -> str | None:
         return None
 
 
-def host_facts() -> dict:
-    """What a wall-clock number depends on that `platform.platform()` does not say."""
+def expand_cpu_list(cpu_list: str) -> list[int]:
+    """`"0-3,8"` -> `[0, 1, 2, 3, 8]`, the kernel's cpulist grammar.
+
+    The grammar `scripts/bench_pin.py::expand` parses, duplicated so this
+    module stays importable on its own. Raises `ValueError` on anything else:
+    a pin set that cannot be parsed is not silently the empty set.
+    """
+    out: set[int] = set()
+    for part in cpu_list.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            lo, _, hi = part.partition("-")
+            out.update(range(int(lo), int(hi) + 1))
+        else:
+            out.add(int(part))
+    return sorted(out)
+
+
+_SYSFS_CPU = "/sys/devices/system/cpu"
+
+
+def pin_set(pin: str | None) -> tuple[str | None, str]:
+    """The CPU set a run is confined to, and where that answer came from.
+
+    `pin` is `EXPANSE_BENCH_PIN_APPLIED`: a cpulist when `bench_pin.sh` pinned
+    the shell; `none` (uniform host), `off` (deliberately unpinned) or unset
+    otherwise, in which case the run could execute on any online CPU and the
+    online list is the set — read from sysfs, and `None` off Linux rather than
+    a guess from `os.cpu_count()`.
+    """
+    if pin and pin not in ("none", "off", "unset"):
+        return pin, "EXPANSE_BENCH_PIN_APPLIED"
+    return _read(f"{_SYSFS_CPU}/online"), "online"
+
+
+def scaling_governor_by_cpu(cpus: str | None) -> dict | None:
+    """`{"0": "powersave", ...}` for every CPU in the cpulist `cpus`.
+
+    `None` when sysfs has no CPU tree (not Linux) or when `cpus` is `None`; a
+    CPU without a cpufreq policy maps to `None` individually. Never a value
+    copied from `cpu0` to the others.
+    """
+    if cpus is None or not os.path.isdir(_SYSFS_CPU):
+        return None
+    return {str(c): _read(f"{_SYSFS_CPU}/cpu{c}/cpufreq/scaling_governor")
+            for c in expand_cpu_list(cpus)}
+
+
+def host_facts(pin: str | None = None) -> dict:
+    """What a wall-clock number depends on that `platform.platform()` does not say.
+
+    `pin` is the applied core pin (`EXPANSE_BENCH_PIN_APPLIED` when omitted);
+    the per-CPU governor map is read for exactly that set, and the artifact
+    says which set it was.
+    """
     model = None
     try:
         with open("/proc/cpuinfo") as fh:
@@ -134,6 +305,9 @@ def host_facts() -> dict:
                     break
     except OSError:
         pass
+    if pin is None:
+        pin = os.environ.get("EXPANSE_BENCH_PIN_APPLIED")
+    cpus, source = pin_set(pin)
     return {
         "cpu_model": model or platform.processor() or platform.machine(),
         "cpus_online": os.cpu_count(),
@@ -141,9 +315,15 @@ def host_facts() -> dict:
         # an eight-P-core host runs two threads per physical core.
         "cpu_core_cpus": _read("/sys/devices/cpu_core/cpus"),
         "cpu_atom_cpus": _read("/sys/devices/cpu_atom/cpus"),
-        "cpu0_thread_siblings": _read("/sys/devices/system/cpu/cpu0/topology/thread_siblings_list"),
-        "scaling_driver": _read("/sys/devices/system/cpu/cpu0/cpufreq/scaling_driver"),
-        "scaling_governor": _read("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"),
+        "cpu0_thread_siblings": _read(f"{_SYSFS_CPU}/cpu0/topology/thread_siblings_list"),
+        "scaling_driver": _read(f"{_SYSFS_CPU}/cpu0/cpufreq/scaling_driver"),
+        "scaling_governor": _read(f"{_SYSFS_CPU}/cpu0/cpufreq/scaling_governor"),
+        # Per CPU over the pin set, never cpu0's value copied: intel_pstate sets
+        # the governor per policy, and the set it was read for is recorded so
+        # the claim is bounded to it.
+        "scaling_governor_by_cpu": scaling_governor_by_cpu(cpus),
+        "scaling_governor_pin_set": cpus,
+        "scaling_governor_pin_source": source,
         "transparent_hugepage": _read("/sys/kernel/mm/transparent_hugepage/enabled"),
         "platform": platform.platform(),
     }

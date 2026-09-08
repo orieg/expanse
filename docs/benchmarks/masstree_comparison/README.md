@@ -676,16 +676,24 @@ cell in this suite was measured on.
 
 #### H — protocol health, Expanse side only (occ-stats build; event ratios, never a timing)
 
-| Arm | W | R | restart share, median [min, max] | fallback share, median | `sample_spins` ÷ `read_ops` (medians) | §6.3 |
-|---|--:|--:|---|---|---:|---|
-| map | 1 | 8 | 4.14% [3.87%, 4.65%] | 0.0000% | 0.91 | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 2 | 8 | 5.07% [4.68%, 8.67%] | 0.0000% | 1.00 | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 4 | 8 | 5.38% [4.85%, 5.59%] | 0.0000% | 1.13 | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 8 | 8 | 6.37% [6.19%, 6.63%] | 0.0000% | 1.25 | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| str | 1 | 8 | 35.37% [35.05%, 37.71%] | 0.0000% | 2.26 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| str | 2 | 8 | 26.93% [26.11%, 27.59%] | 0.0000% | 2.00 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| str | 4 | 8 | 26.10% [25.16%, 26.98%] | 0.0000% | 2.11 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| str | 8 | 8 | 29.57% [28.55%, 30.94%] | 0.0000% | 2.31 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| Arm | W | R | run | restart share, median [min, max] | fallback share, median | `sample_spins` ÷ `read_ops` (medians) | `locked_reads` ÷ `read_ops` | §6.3 |
+|---|--:|--:|--:|---|---|---:|---:|---|
+| map | 1 | 8 | 1 | 4.14% [3.87%, 4.65%] | 0.0000% | 0.91 | not recorded | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 1 | 8 | 2 | 4.80% [4.69%, 4.82%] | 0.0000% | 0.96 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 2 | 8 | 1 | 5.07% [4.68%, 8.67%] | 0.0000% | 1.00 | not recorded | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 2 | 8 | 2 | 7.43% [5.90%, 8.90%] | 0.0000% | 1.22 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 4 | 8 | 1 | 5.38% [4.85%, 5.59%] | 0.0000% | 1.13 | not recorded | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 4 | 8 | 2 | 5.52% [4.93%, 5.66%] | 0.0000% | 1.11 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 8 | 8 | 1 | 6.37% [6.19%, 6.63%] | 0.0000% | 1.25 | not recorded | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 8 | 8 | 2 | 5.78% [5.54%, 5.86%] | 0.0000% | 1.20 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 1 | 8 | 1 | 35.37% [35.05%, 37.71%] | 0.0000% | 2.26 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 1 | 8 | 2 | 31.53% [31.17%, 34.22%] | 0.0000% | 2.06 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 2 | 8 | 1 | 26.93% [26.11%, 27.59%] | 0.0000% | 2.00 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 2 | 8 | 2 | 26.18% [25.08%, 28.67%] | 0.0000% | 1.81 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 4 | 8 | 1 | 26.10% [25.16%, 26.98%] | 0.0000% | 2.11 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 4 | 8 | 2 | 28.35% [26.87%, 29.55%] | 0.0000% | 2.20 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 8 | 8 | 1 | 29.57% [28.55%, 30.94%] | 0.0000% | 2.31 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 8 | 8 | 2 | 30.50% [29.69%, 31.47%] | 0.0000% | 2.39 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
 
 The MC1 health rows land where `hot_comparison` §7.3's did on the same
 construction: restart share 3.8–6.8% **without rising monotonically with
