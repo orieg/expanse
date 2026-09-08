@@ -897,8 +897,8 @@ peer review.
 ### 7.6 Between-run spread: the C2 cells are a direction and a range, not a level (#735)
 
 This arm has now been run twice on the reference host **at one commit**,
-`d3bc49c0`, both under the P-core pin and both gated on a load average of 0.40
-at the concurrent start. Publishing the pair at a single commit is what the
+`64f8a3af`, both under the P-core pin, worst busy-CPU delta 5.7 core-equivalents
+across each — the concurrent benchmark's own threads and no non-target process. Publishing the pair at a single commit is what the
 earlier pair could not do: the runs at `5232af74` and `134a0471` differed by the
 engine as well as by the run, and nothing separated the two. Here the binaries
 are identical, so the table below is run-to-run spread on this host and nothing
@@ -906,25 +906,29 @@ else.
 
 | Arm | W | R | run A | run B | intervals overlap |
 |---|--:|--:|---|---|---|
-| set | 0 | 8 | 1.220 [1.198, 1.264] | 1.217 [1.196, 1.263] | yes |
-| set | 1 | 8 | 0.140 [0.136, 0.142] | 0.142 [0.140, 0.145] | yes |
-| set | 2 | 8 | 0.247 [0.238, 0.253] | 0.258 [0.244, 0.267] | yes |
-| set | 4 | 8 | 0.216 [0.203, 0.228] | 0.269 [0.260, 0.283] | **no** |
-| set | 8 | 8 | 0.311 [0.306, 0.316] | 0.271 [0.261, 0.279] | **no** |
-| map | 0 | 8 | 1.707 [1.648, 1.744] | 1.731 [1.677, 1.769] | yes |
-| map | 1 | 8 | 0.271 [0.260, 0.281] | 0.300 [0.291, 0.311] | **no** |
-| map | 2 | 8 | 0.467 [0.448, 0.488] | 0.456 [0.443, 0.468] | yes |
-| map | 4 | 8 | 0.493 [0.478, 0.507] | 0.500 [0.485, 0.512] | yes |
-| map | 8 | 8 | 0.663 [0.638, 0.679] | 0.610 [0.585, 0.627] | **no** |
+| set | 0 | 8 | 1.183 [1.158, 1.196] | 1.206 [1.184, 1.268] | yes |
+| set | 1 | 8 | 0.138 [0.130, 0.141] | 0.145 [0.138, 0.149] | yes |
+| set | 2 | 8 | 0.234 [0.220, 0.242] | 0.281 [0.259, 0.298] | **no** |
+| set | 4 | 8 | 0.241 [0.236, 0.246] | 0.247 [0.239, 0.255] | yes |
+| set | 8 | 8 | 0.307 [0.297, 0.313] | 0.310 [0.298, 0.321] | yes |
+| map | 0 | 8 | 1.780 [1.733, 1.802] | 1.847 [1.788, 1.985] | yes |
+| map | 1 | 8 | 0.315 [0.301, 0.326] | 0.309 [0.298, 0.321] | yes |
+| map | 2 | 8 | 0.453 [0.424, 0.469] | 0.450 [0.440, 0.464] | yes |
+| map | 4 | 8 | 0.524 [0.513, 0.538] | 0.515 [0.502, 0.531] | yes |
+| map | 8 | 8 | 0.600 [0.576, 0.622] | 0.681 [0.655, 0.695] | **no** |
 
-**4 of the 10 C2 reader cells moved past their own intervals** — set W = 4 from
-0.216 [0.203, 0.228] to 0.269 [0.260, 0.283], set W = 8 from 0.311 to 0.271,
-map W = 1 from 0.271 to 0.300, map W = 8 from 0.663 to 0.610 — and so did 2 of
-the 10 C1 writer cells (set W = 8 and W = 16). **Every direction and every
-verdict held in all 20 cells**, and the 20 concurrent memory cells are
-byte-identical between the runs, which is the control: a deterministic census
-taken by the same code on the same host reproduces exactly, so the wall-clock
-spread is not the instrument reading differently.
+**2 of the 10 C2 reader cells moved past their own intervals** — set W = 2 from
+0.234 to 0.281 and map W = 8 from 0.600 to 0.681 — and 3 of the 10 C1 writer
+cells did the same (`map W = 16`, `set W = 4`, `set W = 8`), 5 of 20 in all.
+**Every direction and every verdict held in all 20 cells.** The concurrent
+memory cells are byte-identical between the runs, which is the control: a
+deterministic census taken by the same code on the same host reproduces
+exactly, so the wall-clock spread is not the instrument reading differently.
+
+Five of twenty is the rate `docs/BENCHMARKING.md` rule 18 now records across
+this repository's suites — 13 of 72 and 24 of 144 on the single-threaded
+sweeps, 4 of 20 on the Masstree concurrent arm. It is the instrument's normal
+behaviour, not a fault of this pair.
 
 For the cells that moved, the between-run spread exceeds the within-run
 interval, so **a single run's level is not a settled figure**: every citation of
