@@ -44,6 +44,31 @@
 //! different facts — "this member is absent" and "this ordinal denotes nothing
 //! here" — and a caller who wants them merged writes `.unwrap_or(false)` at a
 //! line a reviewer can see.
+//!
+//! ### The ordinal is a read handle; the write path is by key
+//!
+//! [`DomainOrdinal`] is vended by [`ExpanseDomainDict::intern`] and
+//! [`ExpanseDomainDict::intern_batch`], and it is consumed by exactly two
+//! operations: [`DomainSet::contains_ordinal`] and
+//! [`ExpanseDomainDict::resolve_id`]. That is deliberate, not an omission
+//! (#798).
+//!
+//! Membership and mutation by key — [`ExpanseDomainDict::insert`],
+//! [`ExpanseDomainDict::remove`], [`ExpanseDomainDict::contains`] — each escape
+//! the key and descend the string trie **per call**. An ordinal is what that
+//! work buys: intern once, then probe many sets with
+//! [`DomainSet::contains_ordinal`], which is a plain `u64` membership test
+//! against a brand check and touches neither the escaper nor the dictionary.
+//! `intern`, being the operation that may grow the vocabulary, needs
+//! `&mut self` on the dictionary; `contains_ordinal` needs no dictionary at
+//! all, which is what makes the intern-once-probe-many shape work.
+//!
+//! There is no `insert_ordinal` or `remove_ordinal`. Mutation goes through the
+//! key so that insertion and interning stay one step and a set can never hold
+//! an ordinal the dictionary cannot resolve. A caller with a measured
+//! intern-once-mutate-many workload is the reason to revisit this; absent one,
+//! a second write path would be public surface with no caller, which is the
+//! defect #763 closed.
 
 extern crate alloc;
 
@@ -471,6 +496,13 @@ impl DomainSet {
     }
 
     /// Checks whether this set contains the specified branded ordinal.
+    ///
+    /// This is the read half of the intern-once-probe-many shape: unlike
+    /// [`ExpanseDomainDict::contains`], it neither escapes a key nor descends
+    /// the dictionary's string trie, and it borrows no dictionary at all, so
+    /// one interned ordinal can be probed against many sets. There is
+    /// deliberately no mutating counterpart — see the module docs on the
+    /// ordinal being a read handle (#798).
     pub fn contains_ordinal(&self, id: DomainOrdinal) -> Result<bool, DomainMismatch> {
         if self.domain_id != id.domain_id {
             return Err(DomainMismatch {
