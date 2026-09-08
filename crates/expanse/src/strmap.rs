@@ -1142,6 +1142,19 @@ impl ExpanseStrMap {
         );
     }
 
+    /// Binds the wrapper's tree-level version word to the one allocator
+    /// behind every sub-trie (#568 PR 3; see `NodeAlloc::bind_tree_word`).
+    ///
+    /// # Safety
+    ///
+    /// As `NodeAlloc::bind_tree_word`: `word` outlives every operation on
+    /// this map.
+    #[cfg(feature = "std")]
+    pub(crate) unsafe fn bind_tree_word(&self, word: *const crate::occ::SeqVersion) {
+        // SAFETY: forwarded contract.
+        unsafe { self.alloc.bind_tree_word(word) };
+    }
+
     /// Number of strings stored.
     #[must_use]
     pub fn len(&self) -> u64 {

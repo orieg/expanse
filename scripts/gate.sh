@@ -117,7 +117,7 @@ if [ "$MIRI" -eq 1 ]; then
   # cursor walks a raw *mut StrNode path stack; only tests small enough for
   # the interpreter belong in them (the 2,040-key walks run nightly).
   cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types:: \
-    blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots
+    blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots map::tests::occ_engine_single_thread_under_miri set::tests::occ_engine_single_thread_under_miri
 else
   step "6/6 Miri — skipped (pass --miri for the Tier-1 filter; CI runs it on every PR)"
 fi

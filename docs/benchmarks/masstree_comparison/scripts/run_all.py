@@ -41,6 +41,7 @@ CRATE = REPO_ROOT / "crates" / "expanse-hot-bench" / "Cargo.toml"
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from bca_bootstrap import bca_bootstrap_ratio_ci  # noqa: E402
+from bench_ab import ab_provenance, interleave  # noqa: E402
 from bench_provenance import (  # noqa: E402
     add_load, begin_cell, end_cell, estimators, git_sha, host_facts, load_snapshot, raw_rounds,
 )
@@ -64,6 +65,11 @@ STRING_MEMORY_POPULATIONS = [1_000, 2_000, 5_000, 10_000, 20_000, 50_000, 100_00
 CONCURRENT_WRITE_SCALING = [1, 2, 4, 8, 16]
 CONCURRENT_MIXED_WRITERS = [0, 1, 2, 4, 8]
 CONCURRENT_MIXED_READERS = 8
+# Two-commit mode (#568 PR 3, docs/BENCHMARKING.md rule 18): the readers-alone
+# reference and the gate cell at R = 8; C1 stays the full writer-count control.
+AB_MIXED_WRITERS = [0, 1]
+# One process per round per build, so the pair sees the same host minute.
+AB_ROUNDS = 15
 CONCURRENT_HEALTH_WRITERS = [1, 2, 4, 8]
 CONCURRENT_ARMS = ["map", "str"]
 OCC_STATS_TARGET = CRATE.parent / "target-occ-stats"
@@ -325,6 +331,11 @@ def concurrent_cell(arm: str, writers: int, readers: int, env: dict) -> dict:
     rows = run_cell([str(binary("masstree_concurrent")), arm, str(writers), str(readers)], env)
     if not rows:
         raise RuntimeError(f"concurrent cell {arm} W={writers} R={readers} emitted no rows")
+    return reduce_throughput(rows, arm, writers, readers)
+
+
+def reduce_throughput(rows: list, arm: str, writers: int, readers: int) -> dict:
+    """One cell's rows into medians, the BCa ratio interval and `rounds_raw`."""
     head = rows[0]
     cell = {"workload_id": head["workload_id"], "arm": arm, "dist": head["dist"],
             "writers": writers, "readers": readers, "prefill": head["prefill"],
@@ -430,6 +441,63 @@ def health_cell(arm: str, writers: int, readers: int, env: dict) -> dict:
           f"fallback {cell['fallback_share']['median']:.4%}  locked {locked}  spin-time {spin}"
           f"{'  STARVATION' if cell['starvation_flag'] else ''}")
     return cell
+
+
+def ab_cell(arm: str, writers: int, readers: int, base_bin: Path, env: dict) -> dict:
+    """One cell with the base and head builds interleaved round by round.
+
+    Each build's rounds are reduced with `reduce_throughput`, exactly as a
+    single-build cell is; the cell carries both reductions and every round
+    of both builds (`rounds_raw`, tagged `build`).
+    """
+    head_bin = binary("masstree_concurrent")
+    base_rows, head_rows = interleave(base_bin, head_bin, [arm, str(writers), str(readers)],
+                                      AB_ROUNDS, env, run_cell)
+    print(f"  base build ({len(base_rows)} rounds):")
+    base = reduce_throughput(base_rows, arm, writers, readers)
+    print(f"  head build ({len(head_rows)} rounds):")
+    head = reduce_throughput(head_rows, arm, writers, readers)
+    cell = {k: v for k, v in head.items() if k not in ("rounds_raw",) and not k.endswith(("_median", "_lower", "_upper", "_verdict")) and "_over_" not in k}
+    for build in (base, head):
+        build.pop("rounds_raw", None)
+    cell["rounds"] = AB_ROUNDS
+    cell["base"] = base
+    cell["head"] = head
+    cell["rounds_raw"] = raw_rounds(base_rows + head_rows, ("build", *("masstree_writer_mops", "expanse_writer_mops", "masstree_reader_mops", "expanse_reader_mops")))
+    return cell
+
+
+def sweep_ab(env: dict, prov: dict, base_bin: Path) -> dict:
+    """The two-commit sweep (#568 PR 3): C1 at every writer count, C2 at
+    W = 0 and W = 1 with eight readers, both builds interleaved per round;
+    then the head build's health cell at W = 1 R = 8 (the base build's
+    counters are the committed Step 0 artifacts)."""
+
+    def attributed(kind: str, arm: str, w: int, r: int) -> dict:
+        start = begin_cell(prov, f"cell:{arm}:W{w}:R{r}")
+        if kind == "ab":
+            cell = ab_cell(arm, w, r, base_bin, env)
+        else:
+            cell = health_cell(arm, w, r, env)
+        cell["load"] = end_cell(start)
+        return cell
+
+    throughput, health = [], []
+    for arm in CONCURRENT_ARMS:
+        print(f"\n  C1 write scaling, base vs head — {arm} arm")
+        for w in CONCURRENT_WRITE_SCALING:
+            c = attributed("ab", arm, w, 0)
+            c["pillar"] = "C1"
+            throughput.append(c)
+        print(f"\n  C2 readers alongside writers, base vs head — {arm} arm")
+        for w in AB_MIXED_WRITERS:
+            c = attributed("ab", arm, w, CONCURRENT_MIXED_READERS)
+            c["pillar"] = "C2"
+            throughput.append(c)
+    for arm in CONCURRENT_ARMS:
+        print(f"\n  H protocol health at the head build — {arm} arm W=1 R={CONCURRENT_MIXED_READERS}")
+        health.append(attributed("health", arm, 1, CONCURRENT_MIXED_READERS))
+    return {"throughput": throughput, "health": health}
 
 
 def sweep_concurrent(env: dict, quick: bool, prov: dict) -> dict:
@@ -564,12 +632,52 @@ def _self_test() -> int:
     return 0
 
 
+def _flag_value(name: str) -> str | None:
+    """`--flag VALUE` from argv, or None."""
+    if name not in sys.argv:
+        return None
+    i = sys.argv.index(name)
+    if i + 1 >= len(sys.argv):
+        print(f"{name} needs a value", file=sys.stderr)
+        sys.exit(2)
+    return sys.argv[i + 1]
+
+
+def run_ab(env: dict, provenance: dict, out_dir: Path, base_bin: Path, base_commit: str) -> int:
+    """The two-commit concurrent sweep into results/baseline_concurrent_ab.json."""
+    print(f"\n[ab] two-commit concurrent sweep: base {base_commit} ({base_bin}) vs head {provenance['commit']}")
+    prov = dict(provenance)
+    prov["loads"] = [load_snapshot("start")]
+    prov["ab"] = ab_provenance(base_bin, base_commit, provenance["commit"], AB_ROUNDS)
+    prov["estimators"] = estimators(
+        provenance["estimators"]["ratio"] + "; each of `base` and `head` is that reduction over its own "
+        "rounds, the two builds having alternated round by round inside the cell (scripts/bench_ab.py)")
+    res = sweep_ab(env, prov, base_bin)
+    add_load(prov, "after-ab")
+    out = out_dir / "baseline_concurrent_ab.json"
+    out.write_text(json.dumps({"provenance": prov, **res}, indent=2) + "\n")
+    print(f"wrote {out}")
+    start_load = prov["loads"][0]["load1"]
+    if start_load > 2.0:
+        print("WARNING: load average above 2 at the sweep start — another process was running (docs/BENCHMARKING.md rule 2)")
+    return 0
+
+
 def main() -> int:
     if "--self-test" in sys.argv:
         return _self_test()
     quick = "--quick" in sys.argv
     concurrent = "--concurrent" in sys.argv or "--only-concurrent" in sys.argv
     only_concurrent = "--only-concurrent" in sys.argv
+    ab_base_bin, ab_base_commit = _flag_value("--ab-base-bin"), _flag_value("--ab-base-commit")
+    if (ab_base_bin is None) != (ab_base_commit is None):
+        print("--ab-base-bin and --ab-base-commit go together", file=sys.stderr)
+        return 2
+    if ab_base_bin is not None:
+        if quick or (concurrent and not only_concurrent):
+            print("the two-commit mode is its own sweep: no --quick, no single-threaded phases", file=sys.stderr)
+            return 2
+        concurrent = only_concurrent = True
     env = dict(os.environ)
     env["RUSTFLAGS"] = env.get("RUSTFLAGS", "") + " -C target-cpu=haswell"
 
@@ -579,7 +687,8 @@ def main() -> int:
     if quick:
         print("QUICK MODE — reduced sweep, writing to gitignored results/quick/ (§8.5)")
 
-    build(env)
+    if ab_base_bin is None:
+        build(env)
     if concurrent:
         build_concurrent(env)
 
@@ -598,6 +707,11 @@ def main() -> int:
         "core_pin": os.environ.get("EXPANSE_BENCH_PIN_APPLIED", "unset"),
         "loads": [load_snapshot("start")], "quick": quick,
     }
+
+    # The two-commit sweep needs only the concurrent binaries: no validate gate
+    # (that binary is not built) and no single-threaded phase.
+    if ab_base_bin is not None:
+        return run_ab(env, provenance, out_dir, Path(ab_base_bin), ab_base_commit)
 
     validate_log = validate(env)
     add_load(provenance, "after-validate")

@@ -1,0 +1,5032 @@
+{
+  "provenance": {
+    "suite": "masstree_comparison",
+    "issue": 661,
+    "commit": "38fb2b1e",
+    "masstree_commit": "1119842",
+    "cpu": "x86_64",
+    "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "powersave",
+      "scaling_governor_by_cpu": {
+        "0": "powersave",
+        "1": "powersave",
+        "2": "powersave",
+        "3": "powersave",
+        "4": "powersave",
+        "5": "powersave",
+        "6": "powersave",
+        "7": "powersave",
+        "8": "powersave",
+        "9": "powersave",
+        "10": "powersave",
+        "11": "powersave",
+        "12": "powersave",
+        "13": "powersave",
+        "14": "powersave",
+        "15": "powersave"
+      },
+      "scaling_governor_pin_set": "0-15",
+      "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+      "transparent_hugepage": "always [madvise] never",
+      "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35"
+    },
+    "estimators": {
+      "ratio": "mean(Masstree rounds) / mean(Expanse rounds) \u2014 or Expanse / Masstree for throughput \u2014 with a two-sample BCa 95% interval (scripts/bca_bootstrap.py); each of `base` and `head` is that reduction over its own rounds, the two builds having alternated round by round inside the cell (scripts/bench_ab.py)",
+      "columns": "per-arm columns are medians of the same rounds; the ratio column is not the quotient of the two median columns beside it",
+      "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+    },
+    "rustflags": "-C target-cpu=haswell -C target-cpu=haswell",
+    "cxx_flags": "-march=haswell -O3 -std=c++17 -DNDEBUG (assertions, preconditions and invariants off)",
+    "allocator": "glibc malloc, superpages on (METHODOLOGY \u00a73.3)",
+    "core_pin": "0-15",
+    "loads": [
+      {
+        "label": "start",
+        "since": null,
+        "load1": 1.95,
+        "load5": 0.95,
+        "load15": 0.41,
+        "at": "2026-09-08T22:51:45Z",
+        "stat_busy_jiffies": 54922155,
+        "stat_total_jiffies": 6438721165,
+        "child_cpu_s": 15.306,
+        "monotonic_s": 2683501.455,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "cell:map:W1:R0",
+        "since": "start",
+        "load1": 1.95,
+        "load5": 0.95,
+        "load15": 0.41,
+        "at": "2026-09-08T22:51:45Z",
+        "stat_busy_jiffies": 54922155,
+        "stat_total_jiffies": 6438721167,
+        "child_cpu_s": 15.306,
+        "monotonic_s": 2683501.456,
+        "busy_cpus_since_prev": 0.0,
+        "own_busy_cpus_since_prev": 0.39,
+        "foreign_busy_cpus_since_prev": -0.39
+      },
+      {
+        "label": "cell:map:W2:R0",
+        "since": "cell:map:W1:R0",
+        "load1": 1.62,
+        "load5": 0.95,
+        "load15": 0.43,
+        "at": "2026-09-08T22:52:07Z",
+        "stat_busy_jiffies": 54924338,
+        "stat_total_jiffies": 6438773346,
+        "child_cpu_s": 37.013,
+        "monotonic_s": 2683523.207,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:map:W4:R0",
+        "since": "cell:map:W2:R0",
+        "load1": 1.44,
+        "load5": 0.95,
+        "load15": 0.44,
+        "at": "2026-09-08T22:52:29Z",
+        "stat_busy_jiffies": 54927453,
+        "stat_total_jiffies": 6438825667,
+        "child_cpu_s": 68.508,
+        "monotonic_s": 2683545.083,
+        "busy_cpus_since_prev": 1.43,
+        "own_busy_cpus_since_prev": 1.44,
+        "foreign_busy_cpus_since_prev": -0.01
+      },
+      {
+        "label": "cell:map:W8:R0",
+        "since": "cell:map:W4:R0",
+        "load1": 1.51,
+        "load5": 1.01,
+        "load15": 0.48,
+        "at": "2026-09-08T22:52:51Z",
+        "stat_busy_jiffies": 54931950,
+        "stat_total_jiffies": 6438878689,
+        "child_cpu_s": 114.542,
+        "monotonic_s": 2683567.353,
+        "busy_cpus_since_prev": 2.04,
+        "own_busy_cpus_since_prev": 2.07,
+        "foreign_busy_cpus_since_prev": -0.03
+      },
+      {
+        "label": "cell:map:W16:R0",
+        "since": "cell:map:W8:R0",
+        "load1": 2.31,
+        "load5": 1.22,
+        "load15": 0.56,
+        "at": "2026-09-08T22:53:14Z",
+        "stat_busy_jiffies": 54938656,
+        "stat_total_jiffies": 6438934565,
+        "child_cpu_s": 183.944,
+        "monotonic_s": 2683590.96,
+        "busy_cpus_since_prev": 2.88,
+        "own_busy_cpus_since_prev": 2.94,
+        "foreign_busy_cpus_since_prev": -0.06
+      },
+      {
+        "label": "cell:map:W0:R8",
+        "since": "cell:map:W16:R0",
+        "load1": 2.09,
+        "load5": 1.26,
+        "load15": 0.59,
+        "at": "2026-09-08T22:53:40Z",
+        "stat_busy_jiffies": 54946863,
+        "stat_total_jiffies": 6438996019,
+        "child_cpu_s": 268.316,
+        "monotonic_s": 2683616.958,
+        "busy_cpus_since_prev": 3.21,
+        "own_busy_cpus_since_prev": 3.25,
+        "foreign_busy_cpus_since_prev": -0.04
+      },
+      {
+        "label": "cell:map:W1:R8",
+        "since": "cell:map:W0:R8",
+        "load1": 2.84,
+        "load5": 1.48,
+        "load15": 0.68,
+        "at": "2026-09-08T22:53:55Z",
+        "stat_busy_jiffies": 54952720,
+        "stat_total_jiffies": 6439031885,
+        "child_cpu_s": 326.807,
+        "monotonic_s": 2683631.909,
+        "busy_cpus_since_prev": 3.92,
+        "own_busy_cpus_since_prev": 3.91,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:str:W1:R0",
+        "since": "cell:map:W1:R8",
+        "load1": 4.81,
+        "load5": 2.07,
+        "load15": 0.9,
+        "at": "2026-09-08T22:54:29Z",
+        "stat_busy_jiffies": 54974657,
+        "stat_total_jiffies": 6439112022,
+        "child_cpu_s": 546.065,
+        "monotonic_s": 2683665.316,
+        "busy_cpus_since_prev": 6.57,
+        "own_busy_cpus_since_prev": 6.56,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:str:W2:R0",
+        "since": "cell:str:W1:R0",
+        "load1": 1.47,
+        "load5": 1.7,
+        "load15": 0.92,
+        "at": "2026-09-08T22:56:32Z",
+        "stat_busy_jiffies": 54986962,
+        "stat_total_jiffies": 6439406510,
+        "child_cpu_s": 668.739,
+        "monotonic_s": 2683788.039,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:str:W4:R0",
+        "since": "cell:str:W2:R0",
+        "load1": 1.23,
+        "load5": 1.52,
+        "load15": 0.95,
+        "at": "2026-09-08T22:58:35Z",
+        "stat_busy_jiffies": 55000405,
+        "stat_total_jiffies": 6439702485,
+        "child_cpu_s": 803.69,
+        "monotonic_s": 2683911.524,
+        "busy_cpus_since_prev": 1.09,
+        "own_busy_cpus_since_prev": 1.09,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:str:W8:R0",
+        "since": "cell:str:W4:R0",
+        "load1": 1.26,
+        "load5": 1.41,
+        "load15": 0.99,
+        "at": "2026-09-08T23:00:38Z",
+        "stat_busy_jiffies": 55014235,
+        "stat_total_jiffies": 6439997083,
+        "child_cpu_s": 942.915,
+        "monotonic_s": 2684034.463,
+        "busy_cpus_since_prev": 1.13,
+        "own_busy_cpus_since_prev": 1.13,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:str:W16:R0",
+        "since": "cell:str:W8:R0",
+        "load1": 1.11,
+        "load5": 1.3,
+        "load15": 1.0,
+        "at": "2026-09-08T23:02:46Z",
+        "stat_busy_jiffies": 55029272,
+        "stat_total_jiffies": 6440303180,
+        "child_cpu_s": 1094.781,
+        "monotonic_s": 2684162.275,
+        "busy_cpus_since_prev": 1.18,
+        "own_busy_cpus_since_prev": 1.19,
+        "foreign_busy_cpus_since_prev": -0.01
+      },
+      {
+        "label": "cell:str:W0:R8",
+        "since": "cell:str:W16:R0",
+        "load1": 1.21,
+        "load5": 1.3,
+        "load15": 1.05,
+        "at": "2026-09-08T23:05:40Z",
+        "stat_busy_jiffies": 55053261,
+        "stat_total_jiffies": 6440718424,
+        "child_cpu_s": 1340.836,
+        "monotonic_s": 2684336.407,
+        "busy_cpus_since_prev": 1.39,
+        "own_busy_cpus_since_prev": 1.41,
+        "foreign_busy_cpus_since_prev": -0.02
+      },
+      {
+        "label": "cell:str:W1:R8",
+        "since": "cell:str:W0:R8",
+        "load1": 1.8,
+        "load5": 1.56,
+        "load15": 1.18,
+        "at": "2026-09-08T23:07:38Z",
+        "stat_busy_jiffies": 55076274,
+        "stat_total_jiffies": 6441001444,
+        "child_cpu_s": 1570.433,
+        "monotonic_s": 2684454.36,
+        "busy_cpus_since_prev": 1.95,
+        "own_busy_cpus_since_prev": 1.95,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:map:W1:R8",
+        "since": "cell:str:W1:R8",
+        "load1": 1.61,
+        "load5": 1.74,
+        "load15": 1.31,
+        "at": "2026-09-08T23:09:53Z",
+        "stat_busy_jiffies": 55111533,
+        "stat_total_jiffies": 6441324559,
+        "child_cpu_s": 1922.628,
+        "monotonic_s": 2684589.023,
+        "busy_cpus_since_prev": 2.62,
+        "own_busy_cpus_since_prev": 2.62,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:str:W1:R8",
+        "since": "cell:map:W1:R8",
+        "load1": 2.2,
+        "load5": 1.86,
+        "load15": 1.35,
+        "at": "2026-09-08T23:09:56Z",
+        "stat_busy_jiffies": 55113907,
+        "stat_total_jiffies": 6441332869,
+        "child_cpu_s": 1946.366,
+        "monotonic_s": 2684592.487,
+        "busy_cpus_since_prev": 6.86,
+        "own_busy_cpus_since_prev": 6.85,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "after-ab",
+        "since": "cell:str:W1:R8",
+        "load1": 2.74,
+        "load5": 1.98,
+        "load15": 1.39,
+        "at": "2026-09-08T23:10:04Z",
+        "stat_busy_jiffies": 55116950,
+        "stat_total_jiffies": 6441353218,
+        "child_cpu_s": 1976.778,
+        "monotonic_s": 2684600.967,
+        "busy_cpus_since_prev": 3.59,
+        "own_busy_cpus_since_prev": 3.59,
+        "foreign_busy_cpus_since_prev": 0.0
+      }
+    ],
+    "quick": false,
+    "ab": {
+      "mode": "two-commit interleaved per round",
+      "base_commit": "55b511df",
+      "head_commit": "38fb2b1e",
+      "base_binary_sha256": "ccf0fb8f87ac4a59f97c0a7c60a3cafa98e2484fc2b58563908409f7f6baed3f",
+      "rounds_per_build": 15,
+      "harness": "one harness, two engines: the head tree's harness sources built against each tree's engine, so only the engine differs between the two builds",
+      "order": "base first on even rounds, head first on odd rounds; each process runs one round at its offset so the harness's competitor-first alternation is continuous"
+    }
+  },
+  "throughput": [
+    {
+      "workload_id": "masstree_conc_map_64bit",
+      "arm": "map",
+      "dist": "random",
+      "writers": 1,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "masstree_conc_map_64bit",
+        "arm": "map",
+        "dist": "random",
+        "writers": 1,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 5.2734,
+        "expanse_writer_mops_median": 5.6615,
+        "writer_expanse_over_masstree": 1.07,
+        "writer_ci_lower": 1.0571,
+        "writer_ci_upper": 1.0767,
+        "writer_verdict": "expanse"
+      },
+      "head": {
+        "workload_id": "masstree_conc_map_64bit",
+        "arm": "map",
+        "dist": "random",
+        "writers": 1,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 5.2688,
+        "expanse_writer_mops_median": 5.4346,
+        "writer_expanse_over_masstree": 1.0207,
+        "writer_ci_lower": 1.0047,
+        "writer_ci_upper": 1.0284,
+        "writer_verdict": "expanse"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "masstree_writer_mops": 5.3105,
+          "expanse_writer_mops": 5.6615,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "masstree_writer_mops": 5.2121,
+          "expanse_writer_mops": 5.3711,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "masstree_writer_mops": 5.2993,
+          "expanse_writer_mops": 5.6608,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "masstree_writer_mops": 5.2358,
+          "expanse_writer_mops": 5.6523,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "masstree_writer_mops": 5.293,
+          "expanse_writer_mops": 5.6785,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "masstree_writer_mops": 5.214,
+          "expanse_writer_mops": 5.6267,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "masstree_writer_mops": 5.2734,
+          "expanse_writer_mops": 5.6374,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "masstree_writer_mops": 5.1926,
+          "expanse_writer_mops": 5.6798,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "masstree_writer_mops": 5.3545,
+          "expanse_writer_mops": 5.6635,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "masstree_writer_mops": 5.2375,
+          "expanse_writer_mops": 5.6734,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "masstree_writer_mops": 5.3135,
+          "expanse_writer_mops": 5.6236,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "masstree_writer_mops": 5.228,
+          "expanse_writer_mops": 5.6622,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "masstree_writer_mops": 5.3463,
+          "expanse_writer_mops": 5.6796,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "masstree_writer_mops": 5.2286,
+          "expanse_writer_mops": 5.6444,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "masstree_writer_mops": 5.3289,
+          "expanse_writer_mops": 5.6888,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "masstree_writer_mops": 5.262,
+          "expanse_writer_mops": 5.0605,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "masstree_writer_mops": 5.2069,
+          "expanse_writer_mops": 5.4612,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "masstree_writer_mops": 5.3074,
+          "expanse_writer_mops": 5.4005,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "masstree_writer_mops": 5.257,
+          "expanse_writer_mops": 5.4236,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "masstree_writer_mops": 5.3041,
+          "expanse_writer_mops": 5.3805,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "masstree_writer_mops": 5.2456,
+          "expanse_writer_mops": 5.4556,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "masstree_writer_mops": 5.3887,
+          "expanse_writer_mops": 5.3749,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "masstree_writer_mops": 5.2688,
+          "expanse_writer_mops": 5.469,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "masstree_writer_mops": 5.3658,
+          "expanse_writer_mops": 5.4346,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "masstree_writer_mops": 5.2382,
+          "expanse_writer_mops": 5.4453,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "masstree_writer_mops": 5.3657,
+          "expanse_writer_mops": 5.4223,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "masstree_writer_mops": 5.2645,
+          "expanse_writer_mops": 5.4623,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "masstree_writer_mops": 5.3627,
+          "expanse_writer_mops": 5.4015,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "masstree_writer_mops": 5.2371,
+          "expanse_writer_mops": 5.4479,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "masstree_writer_mops": 5.3578,
+          "expanse_writer_mops": 5.4359,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:map:W1:R0",
+        "wall_s": 21.75,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus": 1.0,
+        "foreign_busy_cpus": 0.0
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "masstree_conc_map_64bit",
+      "arm": "map",
+      "dist": "random",
+      "writers": 2,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "masstree_conc_map_64bit",
+        "arm": "map",
+        "dist": "random",
+        "writers": 2,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 10.0244,
+        "expanse_writer_mops_median": 3.8742,
+        "writer_expanse_over_masstree": 0.3876,
+        "writer_ci_lower": 0.3825,
+        "writer_ci_upper": 0.3926,
+        "writer_verdict": "masstree"
+      },
+      "head": {
+        "workload_id": "masstree_conc_map_64bit",
+        "arm": "map",
+        "dist": "random",
+        "writers": 2,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 10.0978,
+        "expanse_writer_mops_median": 3.441,
+        "writer_expanse_over_masstree": 0.3406,
+        "writer_ci_lower": 0.3343,
+        "writer_ci_upper": 0.3453,
+        "writer_verdict": "masstree"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "masstree_writer_mops": 10.0463,
+          "expanse_writer_mops": 3.8219,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "masstree_writer_mops": 9.9079,
+          "expanse_writer_mops": 3.8628,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "masstree_writer_mops": 10.0976,
+          "expanse_writer_mops": 3.9345,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "masstree_writer_mops": 9.934,
+          "expanse_writer_mops": 3.8797,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "masstree_writer_mops": 10.0244,
+          "expanse_writer_mops": 3.8412,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "masstree_writer_mops": 9.8719,
+          "expanse_writer_mops": 3.8246,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "masstree_writer_mops": 10.1066,
+          "expanse_writer_mops": 3.8852,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "masstree_writer_mops": 9.9232,
+          "expanse_writer_mops": 3.9213,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "masstree_writer_mops": 10.0647,
+          "expanse_writer_mops": 3.7888,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "masstree_writer_mops": 9.8767,
+          "expanse_writer_mops": 3.8797,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "masstree_writer_mops": 10.0251,
+          "expanse_writer_mops": 3.6598,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "masstree_writer_mops": 9.8832,
+          "expanse_writer_mops": 4.1017,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "masstree_writer_mops": 10.1677,
+          "expanse_writer_mops": 3.8602,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "masstree_writer_mops": 9.787,
+          "expanse_writer_mops": 3.8742,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "masstree_writer_mops": 10.1155,
+          "expanse_writer_mops": 3.9433,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "masstree_writer_mops": 10.1473,
+          "expanse_writer_mops": 3.3681,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "masstree_writer_mops": 10.0038,
+          "expanse_writer_mops": 3.548,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "masstree_writer_mops": 10.1744,
+          "expanse_writer_mops": 3.4928,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "masstree_writer_mops": 9.9882,
+          "expanse_writer_mops": 3.4832,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "masstree_writer_mops": 10.1583,
+          "expanse_writer_mops": 3.4377,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "masstree_writer_mops": 9.9638,
+          "expanse_writer_mops": 3.441,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "masstree_writer_mops": 10.123,
+          "expanse_writer_mops": 3.3634,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "masstree_writer_mops": 9.9394,
+          "expanse_writer_mops": 3.4452,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "masstree_writer_mops": 10.1308,
+          "expanse_writer_mops": 3.2239,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "masstree_writer_mops": 9.77,
+          "expanse_writer_mops": 3.5138,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "masstree_writer_mops": 10.2203,
+          "expanse_writer_mops": 3.2168,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "masstree_writer_mops": 9.9442,
+          "expanse_writer_mops": 3.504,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "masstree_writer_mops": 10.2434,
+          "expanse_writer_mops": 3.4142,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "masstree_writer_mops": 10.0417,
+          "expanse_writer_mops": 3.5362,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "masstree_writer_mops": 10.0978,
+          "expanse_writer_mops": 3.4292,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:map:W2:R0",
+        "wall_s": 21.876,
+        "busy_cpus_since_prev": 1.43,
+        "own_busy_cpus": 1.44,
+        "foreign_busy_cpus": -0.01
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "masstree_conc_map_64bit",
+      "arm": "map",
+      "dist": "random",
+      "writers": 4,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "masstree_conc_map_64bit",
+        "arm": "map",
+        "dist": "random",
+        "writers": 4,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 18.8967,
+        "expanse_writer_mops_median": 3.2222,
+        "writer_expanse_over_masstree": 0.1724,
+        "writer_ci_lower": 0.1684,
+        "writer_ci_upper": 0.1766,
+        "writer_verdict": "masstree"
+      },
+      "head": {
+        "workload_id": "masstree_conc_map_64bit",
+        "arm": "map",
+        "dist": "random",
+        "writers": 4,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 19.0718,
+        "expanse_writer_mops_median": 2.7631,
+        "writer_expanse_over_masstree": 0.1461,
+        "writer_ci_lower": 0.1442,
+        "writer_ci_upper": 0.1484,
+        "writer_verdict": "masstree"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "masstree_writer_mops": 18.8733,
+          "expanse_writer_mops": 3.0137,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "masstree_writer_mops": 18.865,
+          "expanse_writer_mops": 3.0412,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "masstree_writer_mops": 18.9518,
+          "expanse_writer_mops": 3.2531,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "masstree_writer_mops": 18.7006,
+          "expanse_writer_mops": 3.3676,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "masstree_writer_mops": 18.9908,
+          "expanse_writer_mops": 3.1246,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "masstree_writer_mops": 18.8286,
+          "expanse_writer_mops": 3.2222,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "masstree_writer_mops": 19.0486,
+          "expanse_writer_mops": 3.3557,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "masstree_writer_mops": 18.8363,
+          "expanse_writer_mops": 3.1576,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "masstree_writer_mops": 19.0434,
+          "expanse_writer_mops": 3.485,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "masstree_writer_mops": 18.6957,
+          "expanse_writer_mops": 3.5506,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "masstree_writer_mops": 18.8967,
+          "expanse_writer_mops": 3.419,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "masstree_writer_mops": 18.8801,
+          "expanse_writer_mops": 3.1709,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "masstree_writer_mops": 18.9258,
+          "expanse_writer_mops": 3.2014,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "masstree_writer_mops": 19.0303,
+          "expanse_writer_mops": 3.1475,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "masstree_writer_mops": 19.1923,
+          "expanse_writer_mops": 3.4137,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "masstree_writer_mops": 19.119,
+          "expanse_writer_mops": 2.8474,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "masstree_writer_mops": 19.029,
+          "expanse_writer_mops": 2.757,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "masstree_writer_mops": 19.2321,
+          "expanse_writer_mops": 2.7384,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "masstree_writer_mops": 18.9072,
+          "expanse_writer_mops": 2.8917,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "masstree_writer_mops": 19.1952,
+          "expanse_writer_mops": 2.6496,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "masstree_writer_mops": 18.9574,
+          "expanse_writer_mops": 2.7374,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "masstree_writer_mops": 19.123,
+          "expanse_writer_mops": 2.6912,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "masstree_writer_mops": 19.0718,
+          "expanse_writer_mops": 2.7631,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "masstree_writer_mops": 18.9933,
+          "expanse_writer_mops": 2.8547,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "masstree_writer_mops": 18.9443,
+          "expanse_writer_mops": 2.8141,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "masstree_writer_mops": 19.23,
+          "expanse_writer_mops": 2.7583,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "masstree_writer_mops": 18.9111,
+          "expanse_writer_mops": 2.8589,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "masstree_writer_mops": 19.2249,
+          "expanse_writer_mops": 2.7262,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "masstree_writer_mops": 19.0353,
+          "expanse_writer_mops": 2.7725,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "masstree_writer_mops": 19.1859,
+          "expanse_writer_mops": 2.9391,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:map:W4:R0",
+        "wall_s": 22.27,
+        "busy_cpus_since_prev": 2.04,
+        "own_busy_cpus": 2.07,
+        "foreign_busy_cpus": -0.03
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "masstree_conc_map_64bit",
+      "arm": "map",
+      "dist": "random",
+      "writers": 8,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "masstree_conc_map_64bit",
+        "arm": "map",
+        "dist": "random",
+        "writers": 8,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 33.8009,
+        "expanse_writer_mops_median": 2.6205,
+        "writer_expanse_over_masstree": 0.0809,
+        "writer_ci_lower": 0.0785,
+        "writer_ci_upper": 0.0846,
+        "writer_verdict": "masstree"
+      },
+      "head": {
+        "workload_id": "masstree_conc_map_64bit",
+        "arm": "map",
+        "dist": "random",
+        "writers": 8,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 33.8858,
+        "expanse_writer_mops_median": 2.4047,
+        "writer_expanse_over_masstree": 0.0719,
+        "writer_ci_lower": 0.07,
+        "writer_ci_upper": 0.0747,
+        "writer_verdict": "masstree"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "masstree_writer_mops": 33.8009,
+          "expanse_writer_mops": 2.6115,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "masstree_writer_mops": 33.8397,
+          "expanse_writer_mops": 2.8328,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "masstree_writer_mops": 34.4369,
+          "expanse_writer_mops": 2.6205,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "masstree_writer_mops": 33.6897,
+          "expanse_writer_mops": 2.6161,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "masstree_writer_mops": 33.8706,
+          "expanse_writer_mops": 2.6972,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "masstree_writer_mops": 29.5238,
+          "expanse_writer_mops": 2.9261,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "masstree_writer_mops": 34.2315,
+          "expanse_writer_mops": 2.7668,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "masstree_writer_mops": 33.5395,
+          "expanse_writer_mops": 3.0787,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "masstree_writer_mops": 33.8653,
+          "expanse_writer_mops": 2.5605,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "masstree_writer_mops": 30.0036,
+          "expanse_writer_mops": 2.6087,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "masstree_writer_mops": 34.2243,
+          "expanse_writer_mops": 2.5513,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "masstree_writer_mops": 33.304,
+          "expanse_writer_mops": 2.5716,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "masstree_writer_mops": 34.1218,
+          "expanse_writer_mops": 2.6271,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "masstree_writer_mops": 33.6663,
+          "expanse_writer_mops": 2.8014,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "masstree_writer_mops": 33.5313,
+          "expanse_writer_mops": 2.5328,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "masstree_writer_mops": 29.5863,
+          "expanse_writer_mops": 2.4685,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "masstree_writer_mops": 29.6096,
+          "expanse_writer_mops": 2.4188,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "masstree_writer_mops": 34.591,
+          "expanse_writer_mops": 2.4104,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "masstree_writer_mops": 30.0446,
+          "expanse_writer_mops": 2.3286,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "masstree_writer_mops": 34.3051,
+          "expanse_writer_mops": 2.4142,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "masstree_writer_mops": 33.8858,
+          "expanse_writer_mops": 2.319,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "masstree_writer_mops": 34.2009,
+          "expanse_writer_mops": 2.2939,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "masstree_writer_mops": 33.7075,
+          "expanse_writer_mops": 2.375,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "masstree_writer_mops": 34.2692,
+          "expanse_writer_mops": 2.3178,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "masstree_writer_mops": 34.0351,
+          "expanse_writer_mops": 2.3034,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "masstree_writer_mops": 30.7485,
+          "expanse_writer_mops": 2.4243,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "masstree_writer_mops": 33.7616,
+          "expanse_writer_mops": 2.2805,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "masstree_writer_mops": 34.424,
+          "expanse_writer_mops": 2.4047,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "masstree_writer_mops": 33.4533,
+          "expanse_writer_mops": 2.4274,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "masstree_writer_mops": 34.3306,
+          "expanse_writer_mops": 2.4241,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:map:W8:R0",
+        "wall_s": 23.607,
+        "busy_cpus_since_prev": 2.88,
+        "own_busy_cpus": 2.94,
+        "foreign_busy_cpus": -0.06
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "masstree_conc_map_64bit",
+      "arm": "map",
+      "dist": "random",
+      "writers": 16,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "masstree_conc_map_64bit",
+        "arm": "map",
+        "dist": "random",
+        "writers": 16,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 34.0536,
+        "expanse_writer_mops_median": 2.1717,
+        "writer_expanse_over_masstree": 0.0589,
+        "writer_ci_lower": 0.0519,
+        "writer_ci_upper": 0.0659,
+        "writer_verdict": "masstree"
+      },
+      "head": {
+        "workload_id": "masstree_conc_map_64bit",
+        "arm": "map",
+        "dist": "random",
+        "writers": 16,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 35.0278,
+        "expanse_writer_mops_median": 2.2287,
+        "writer_expanse_over_masstree": 0.0548,
+        "writer_ci_lower": 0.0494,
+        "writer_ci_upper": 0.0599,
+        "writer_verdict": "masstree"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "masstree_writer_mops": 44.9383,
+          "expanse_writer_mops": 2.6647,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "masstree_writer_mops": 33.3887,
+          "expanse_writer_mops": 1.6401,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "masstree_writer_mops": 44.9847,
+          "expanse_writer_mops": 2.6951,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "masstree_writer_mops": 33.954,
+          "expanse_writer_mops": 1.847,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "masstree_writer_mops": 34.0192,
+          "expanse_writer_mops": 1.5596,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "masstree_writer_mops": 34.1955,
+          "expanse_writer_mops": 2.5465,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "masstree_writer_mops": 45.3536,
+          "expanse_writer_mops": 2.1676,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "masstree_writer_mops": 33.9526,
+          "expanse_writer_mops": 1.754,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "masstree_writer_mops": 33.8306,
+          "expanse_writer_mops": 2.5629,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "masstree_writer_mops": 33.6061,
+          "expanse_writer_mops": 1.8342,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "masstree_writer_mops": 45.0868,
+          "expanse_writer_mops": 2.5336,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "masstree_writer_mops": 33.0079,
+          "expanse_writer_mops": 2.8376,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "masstree_writer_mops": 34.0536,
+          "expanse_writer_mops": 2.1717,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "masstree_writer_mops": 35.6598,
+          "expanse_writer_mops": 2.6968,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "masstree_writer_mops": 44.5042,
+          "expanse_writer_mops": 1.7461,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "masstree_writer_mops": 45.2107,
+          "expanse_writer_mops": 2.3033,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "masstree_writer_mops": 33.2721,
+          "expanse_writer_mops": 2.2783,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "masstree_writer_mops": 44.739,
+          "expanse_writer_mops": 1.3251,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "masstree_writer_mops": 34.451,
+          "expanse_writer_mops": 2.0136,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "masstree_writer_mops": 31.4176,
+          "expanse_writer_mops": 2.2469,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "masstree_writer_mops": 34.4249,
+          "expanse_writer_mops": 1.9709,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "masstree_writer_mops": 43.4828,
+          "expanse_writer_mops": 2.277,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "masstree_writer_mops": 32.5775,
+          "expanse_writer_mops": 2.1501,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "masstree_writer_mops": 44.8408,
+          "expanse_writer_mops": 2.3142,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "masstree_writer_mops": 35.0278,
+          "expanse_writer_mops": 2.0778,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "masstree_writer_mops": 45.6409,
+          "expanse_writer_mops": 2.3484,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "masstree_writer_mops": 33.3811,
+          "expanse_writer_mops": 1.9829,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "masstree_writer_mops": 45.2406,
+          "expanse_writer_mops": 2.171,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "masstree_writer_mops": 33.8451,
+          "expanse_writer_mops": 2.2579,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "masstree_writer_mops": 45.6454,
+          "expanse_writer_mops": 2.2287,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:map:W16:R0",
+        "wall_s": 25.997,
+        "busy_cpus_since_prev": 3.21,
+        "own_busy_cpus": 3.25,
+        "foreign_busy_cpus": -0.04
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "masstree_conc_map_64bit",
+      "arm": "map",
+      "dist": "random",
+      "writers": 0,
+      "readers": 8,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "masstree_conc_map_64bit",
+        "arm": "map",
+        "dist": "random",
+        "writers": 0,
+        "readers": 8,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_reader_mops_median": 55.5464,
+        "expanse_reader_mops_median": 140.5099,
+        "reader_expanse_over_masstree": 2.4502,
+        "reader_ci_lower": 2.3249,
+        "reader_ci_upper": 2.5157,
+        "reader_verdict": "expanse"
+      },
+      "head": {
+        "workload_id": "masstree_conc_map_64bit",
+        "arm": "map",
+        "dist": "random",
+        "writers": 0,
+        "readers": 8,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_reader_mops_median": 56.2265,
+        "expanse_reader_mops_median": 139.6886,
+        "reader_expanse_over_masstree": 2.5098,
+        "reader_ci_lower": 2.4821,
+        "reader_ci_upper": 2.5494,
+        "reader_verdict": "expanse"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 53.4912,
+          "expanse_reader_mops": 140.5099
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 56.7428,
+          "expanse_reader_mops": 108.6585
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 56.4001,
+          "expanse_reader_mops": 141.0505
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 56.6241,
+          "expanse_reader_mops": 140.8272
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 56.9037,
+          "expanse_reader_mops": 140.104
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 56.8659,
+          "expanse_reader_mops": 116.0204
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 56.0419,
+          "expanse_reader_mops": 141.4337
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 55.3991,
+          "expanse_reader_mops": 139.7187
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 55.4211,
+          "expanse_reader_mops": 141.1165
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 55.3558,
+          "expanse_reader_mops": 139.6666
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 55.4516,
+          "expanse_reader_mops": 140.9244
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 55.1696,
+          "expanse_reader_mops": 139.6951
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 55.3968,
+          "expanse_reader_mops": 141.1507
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 55.5464,
+          "expanse_reader_mops": 140.1008
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 56.5696,
+          "expanse_reader_mops": 140.7506
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 55.5688,
+          "expanse_reader_mops": 139.5918
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 57.4764,
+          "expanse_reader_mops": 139.6478
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 54.6654,
+          "expanse_reader_mops": 139.5102
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 57.3225,
+          "expanse_reader_mops": 140.1453
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 52.7729,
+          "expanse_reader_mops": 140.0289
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 52.6366,
+          "expanse_reader_mops": 139.5188
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 55.5162,
+          "expanse_reader_mops": 139.5638
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 54.6233,
+          "expanse_reader_mops": 139.7682
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 56.3067,
+          "expanse_reader_mops": 139.5183
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 55.2259,
+          "expanse_reader_mops": 139.6886
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 56.2265,
+          "expanse_reader_mops": 140.3978
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 56.3198,
+          "expanse_reader_mops": 139.4215
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 56.9639,
+          "expanse_reader_mops": 140.0563
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 56.3331,
+          "expanse_reader_mops": 139.7355
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 57.4715,
+          "expanse_reader_mops": 140.1635
+        }
+      ],
+      "load": {
+        "since": "cell:map:W0:R8",
+        "wall_s": 14.951,
+        "busy_cpus_since_prev": 3.92,
+        "own_busy_cpus": 3.91,
+        "foreign_busy_cpus": 0.01
+      },
+      "pillar": "C2"
+    },
+    {
+      "workload_id": "masstree_conc_map_64bit",
+      "arm": "map",
+      "dist": "random",
+      "writers": 1,
+      "readers": 8,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "masstree_conc_map_64bit",
+        "arm": "map",
+        "dist": "random",
+        "writers": 1,
+        "readers": 8,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 3.9659,
+        "expanse_writer_mops_median": 1.9748,
+        "writer_expanse_over_masstree": 0.5269,
+        "writer_ci_lower": 0.4821,
+        "writer_ci_upper": 0.5953,
+        "writer_verdict": "masstree",
+        "masstree_reader_mops_median": 42.4281,
+        "expanse_reader_mops_median": 16.7067,
+        "reader_expanse_over_masstree": 0.41,
+        "reader_ci_lower": 0.3503,
+        "reader_ci_upper": 0.4997,
+        "reader_verdict": "masstree"
+      },
+      "head": {
+        "workload_id": "masstree_conc_map_64bit",
+        "arm": "map",
+        "dist": "random",
+        "writers": 1,
+        "readers": 8,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 3.9469,
+        "expanse_writer_mops_median": 2.0223,
+        "writer_expanse_over_masstree": 0.5118,
+        "writer_ci_lower": 0.4852,
+        "writer_ci_upper": 0.5496,
+        "writer_verdict": "masstree",
+        "masstree_reader_mops_median": 42.8155,
+        "expanse_reader_mops_median": 82.6219,
+        "reader_expanse_over_masstree": 1.899,
+        "reader_ci_lower": 1.8427,
+        "reader_ci_upper": 1.9321,
+        "reader_verdict": "expanse"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "masstree_writer_mops": 4.5239,
+          "expanse_writer_mops": 1.5423,
+          "masstree_reader_mops": 41.0399,
+          "expanse_reader_mops": 29.346
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "masstree_writer_mops": 3.9861,
+          "expanse_writer_mops": 2.1989,
+          "masstree_reader_mops": 42.7959,
+          "expanse_reader_mops": 13.4328
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "masstree_writer_mops": 3.8613,
+          "expanse_writer_mops": 2.4483,
+          "masstree_reader_mops": 41.0127,
+          "expanse_reader_mops": 14.5718
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "masstree_writer_mops": 3.9401,
+          "expanse_writer_mops": 2.5552,
+          "masstree_reader_mops": 42.4281,
+          "expanse_reader_mops": 14.4166
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "masstree_writer_mops": 3.9669,
+          "expanse_writer_mops": 2.1666,
+          "masstree_reader_mops": 42.8073,
+          "expanse_reader_mops": 13.7069
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "masstree_writer_mops": 3.946,
+          "expanse_writer_mops": 1.9629,
+          "masstree_reader_mops": 42.2131,
+          "expanse_reader_mops": 19.0063
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "masstree_writer_mops": 3.9797,
+          "expanse_writer_mops": 1.4787,
+          "masstree_reader_mops": 42.6877,
+          "expanse_reader_mops": 31.0252
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "masstree_writer_mops": 3.837,
+          "expanse_writer_mops": 1.9583,
+          "masstree_reader_mops": 41.2728,
+          "expanse_reader_mops": 16.7067
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "masstree_writer_mops": 3.833,
+          "expanse_writer_mops": 1.9748,
+          "masstree_reader_mops": 40.7902,
+          "expanse_reader_mops": 17.5384
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "masstree_writer_mops": 4.5977,
+          "expanse_writer_mops": 1.9687,
+          "masstree_reader_mops": 41.2023,
+          "expanse_reader_mops": 16.8511
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "masstree_writer_mops": 3.9659,
+          "expanse_writer_mops": 2.1659,
+          "masstree_reader_mops": 42.2889,
+          "expanse_reader_mops": 13.3444
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "masstree_writer_mops": 3.9326,
+          "expanse_writer_mops": 3.2985,
+          "masstree_reader_mops": 42.4954,
+          "expanse_reader_mops": 8.0929
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "masstree_writer_mops": 3.98,
+          "expanse_writer_mops": 1.931,
+          "masstree_reader_mops": 42.8778,
+          "expanse_reader_mops": 19.6147
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "masstree_writer_mops": 3.957,
+          "expanse_writer_mops": 2.2428,
+          "masstree_reader_mops": 42.8125,
+          "expanse_reader_mops": 12.8126
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "masstree_writer_mops": 3.9791,
+          "expanse_writer_mops": 1.871,
+          "masstree_reader_mops": 43.0442,
+          "expanse_reader_mops": 18.5393
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "masstree_writer_mops": 3.901,
+          "expanse_writer_mops": 2.0187,
+          "masstree_reader_mops": 42.5687,
+          "expanse_reader_mops": 83.0447
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "masstree_writer_mops": 3.9295,
+          "expanse_writer_mops": 2.0521,
+          "masstree_reader_mops": 42.851,
+          "expanse_reader_mops": 82.8231
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "masstree_writer_mops": 3.927,
+          "expanse_writer_mops": 2.6053,
+          "masstree_reader_mops": 42.8155,
+          "expanse_reader_mops": 73.6817
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "masstree_writer_mops": 3.8723,
+          "expanse_writer_mops": 1.9282,
+          "masstree_reader_mops": 42.0336,
+          "expanse_reader_mops": 82.4324
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "masstree_writer_mops": 3.9637,
+          "expanse_writer_mops": 1.8741,
+          "masstree_reader_mops": 43.3887,
+          "expanse_reader_mops": 81.6318
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "masstree_writer_mops": 3.9591,
+          "expanse_writer_mops": 1.8644,
+          "masstree_reader_mops": 42.9224,
+          "expanse_reader_mops": 79.5455
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "masstree_writer_mops": 3.9585,
+          "expanse_writer_mops": 2.0124,
+          "masstree_reader_mops": 43.4669,
+          "expanse_reader_mops": 82.6219
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "masstree_writer_mops": 3.9469,
+          "expanse_writer_mops": 2.5386,
+          "masstree_reader_mops": 42.531,
+          "expanse_reader_mops": 72.4838
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "masstree_writer_mops": 3.9235,
+          "expanse_writer_mops": 2.0223,
+          "masstree_reader_mops": 42.7771,
+          "expanse_reader_mops": 83.0987
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "masstree_writer_mops": 4.6452,
+          "expanse_writer_mops": 2.0494,
+          "masstree_reader_mops": 41.5225,
+          "expanse_reader_mops": 82.6619
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "masstree_writer_mops": 4.6138,
+          "expanse_writer_mops": 2.0353,
+          "masstree_reader_mops": 42.4001,
+          "expanse_reader_mops": 83.581
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "masstree_writer_mops": 3.9162,
+          "expanse_writer_mops": 2.0282,
+          "masstree_reader_mops": 42.5333,
+          "expanse_reader_mops": 83.3441
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "masstree_writer_mops": 3.9534,
+          "expanse_writer_mops": 1.9369,
+          "masstree_reader_mops": 43.1948,
+          "expanse_reader_mops": 82.9506
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "masstree_writer_mops": 3.9438,
+          "expanse_writer_mops": 2.026,
+          "masstree_reader_mops": 43.2078,
+          "expanse_reader_mops": 82.2859
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "masstree_writer_mops": 3.9751,
+          "expanse_writer_mops": 1.9361,
+          "masstree_reader_mops": 43.5545,
+          "expanse_reader_mops": 82.5288
+        }
+      ],
+      "load": {
+        "since": "cell:map:W1:R8",
+        "wall_s": 33.407,
+        "busy_cpus_since_prev": 6.57,
+        "own_busy_cpus": 6.56,
+        "foreign_busy_cpus": 0.01
+      },
+      "pillar": "C2"
+    },
+    {
+      "workload_id": "masstree_conc_str",
+      "arm": "str",
+      "dist": "short",
+      "writers": 1,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "masstree_conc_str",
+        "arm": "str",
+        "dist": "short",
+        "writers": 1,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 4.2936,
+        "expanse_writer_mops_median": 3.9223,
+        "writer_expanse_over_masstree": 0.9126,
+        "writer_ci_lower": 0.9059,
+        "writer_ci_upper": 0.9198,
+        "writer_verdict": "masstree"
+      },
+      "head": {
+        "workload_id": "masstree_conc_str",
+        "arm": "str",
+        "dist": "short",
+        "writers": 1,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 4.3083,
+        "expanse_writer_mops_median": 3.8848,
+        "writer_expanse_over_masstree": 0.9028,
+        "writer_ci_lower": 0.8959,
+        "writer_ci_upper": 0.9095,
+        "writer_verdict": "masstree"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "masstree_writer_mops": 4.297,
+          "expanse_writer_mops": 3.961,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "masstree_writer_mops": 4.2439,
+          "expanse_writer_mops": 3.8457,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "masstree_writer_mops": 4.2947,
+          "expanse_writer_mops": 3.9556,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "masstree_writer_mops": 4.2221,
+          "expanse_writer_mops": 3.8562,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "masstree_writer_mops": 4.2936,
+          "expanse_writer_mops": 3.9341,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "masstree_writer_mops": 4.2016,
+          "expanse_writer_mops": 3.8513,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "masstree_writer_mops": 4.3267,
+          "expanse_writer_mops": 3.9223,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "masstree_writer_mops": 4.2607,
+          "expanse_writer_mops": 3.8551,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "masstree_writer_mops": 4.3042,
+          "expanse_writer_mops": 3.9466,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "masstree_writer_mops": 4.2347,
+          "expanse_writer_mops": 3.8475,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "masstree_writer_mops": 4.3153,
+          "expanse_writer_mops": 3.9365,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "masstree_writer_mops": 4.2302,
+          "expanse_writer_mops": 3.8326,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "masstree_writer_mops": 4.3256,
+          "expanse_writer_mops": 3.9586,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "masstree_writer_mops": 4.2666,
+          "expanse_writer_mops": 3.863,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "masstree_writer_mops": 4.3029,
+          "expanse_writer_mops": 3.952,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "masstree_writer_mops": 4.3083,
+          "expanse_writer_mops": 3.9196,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "masstree_writer_mops": 4.2346,
+          "expanse_writer_mops": 3.8156,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "masstree_writer_mops": 4.3096,
+          "expanse_writer_mops": 3.9105,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "masstree_writer_mops": 4.2529,
+          "expanse_writer_mops": 3.8402,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "masstree_writer_mops": 4.3108,
+          "expanse_writer_mops": 3.916,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "masstree_writer_mops": 4.2166,
+          "expanse_writer_mops": 3.8215,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "masstree_writer_mops": 4.3233,
+          "expanse_writer_mops": 3.9088,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "masstree_writer_mops": 4.2445,
+          "expanse_writer_mops": 3.8166,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "masstree_writer_mops": 4.3287,
+          "expanse_writer_mops": 3.9118,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "masstree_writer_mops": 4.2832,
+          "expanse_writer_mops": 3.8227,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "masstree_writer_mops": 4.3253,
+          "expanse_writer_mops": 3.8848,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "masstree_writer_mops": 4.2407,
+          "expanse_writer_mops": 3.8277,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "masstree_writer_mops": 4.3249,
+          "expanse_writer_mops": 3.9251,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "masstree_writer_mops": 4.248,
+          "expanse_writer_mops": 3.8147,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "masstree_writer_mops": 4.3356,
+          "expanse_writer_mops": 3.9046,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:str:W1:R0",
+        "wall_s": 122.723,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus": 1.0,
+        "foreign_busy_cpus": 0.0
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "masstree_conc_str",
+      "arm": "str",
+      "dist": "short",
+      "writers": 2,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "masstree_conc_str",
+        "arm": "str",
+        "dist": "short",
+        "writers": 2,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 8.0232,
+        "expanse_writer_mops_median": 2.5627,
+        "writer_expanse_over_masstree": 0.324,
+        "writer_ci_lower": 0.3167,
+        "writer_ci_upper": 0.3322,
+        "writer_verdict": "masstree"
+      },
+      "head": {
+        "workload_id": "masstree_conc_str",
+        "arm": "str",
+        "dist": "short",
+        "writers": 2,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 8.0972,
+        "expanse_writer_mops_median": 2.3932,
+        "writer_expanse_over_masstree": 0.3066,
+        "writer_ci_lower": 0.2964,
+        "writer_ci_upper": 0.3268,
+        "writer_verdict": "masstree"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "masstree_writer_mops": 8.1201,
+          "expanse_writer_mops": 2.557,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "masstree_writer_mops": 8.0733,
+          "expanse_writer_mops": 2.7767,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "masstree_writer_mops": 7.785,
+          "expanse_writer_mops": 2.4482,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "masstree_writer_mops": 7.9978,
+          "expanse_writer_mops": 2.4186,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "masstree_writer_mops": 8.1176,
+          "expanse_writer_mops": 2.5364,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "masstree_writer_mops": 7.9781,
+          "expanse_writer_mops": 2.5429,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "masstree_writer_mops": 8.1279,
+          "expanse_writer_mops": 2.7912,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "masstree_writer_mops": 8.0124,
+          "expanse_writer_mops": 2.8112,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "masstree_writer_mops": 8.117,
+          "expanse_writer_mops": 2.6743,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "masstree_writer_mops": 7.9422,
+          "expanse_writer_mops": 2.5627,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "masstree_writer_mops": 8.073,
+          "expanse_writer_mops": 2.5649,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "masstree_writer_mops": 7.9324,
+          "expanse_writer_mops": 2.7061,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "masstree_writer_mops": 8.0232,
+          "expanse_writer_mops": 2.4872,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "masstree_writer_mops": 7.9834,
+          "expanse_writer_mops": 2.5129,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "masstree_writer_mops": 8.1189,
+          "expanse_writer_mops": 2.6215,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "masstree_writer_mops": 8.139,
+          "expanse_writer_mops": 2.3962,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "masstree_writer_mops": 8.0238,
+          "expanse_writer_mops": 2.3998,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "masstree_writer_mops": 8.0972,
+          "expanse_writer_mops": 2.3336,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "masstree_writer_mops": 8.0601,
+          "expanse_writer_mops": 2.3439,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "masstree_writer_mops": 8.1641,
+          "expanse_writer_mops": 2.6725,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "masstree_writer_mops": 7.9774,
+          "expanse_writer_mops": 2.3932,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "masstree_writer_mops": 8.1503,
+          "expanse_writer_mops": 3.0239,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "masstree_writer_mops": 7.9317,
+          "expanse_writer_mops": 2.3493,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "masstree_writer_mops": 8.1504,
+          "expanse_writer_mops": 2.3487,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "masstree_writer_mops": 8.0523,
+          "expanse_writer_mops": 2.3705,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "masstree_writer_mops": 8.1697,
+          "expanse_writer_mops": 2.3696,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "masstree_writer_mops": 7.965,
+          "expanse_writer_mops": 2.9787,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "masstree_writer_mops": 8.1918,
+          "expanse_writer_mops": 2.4119,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "masstree_writer_mops": 8.012,
+          "expanse_writer_mops": 2.4416,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "masstree_writer_mops": 8.1281,
+          "expanse_writer_mops": 2.3333,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:str:W2:R0",
+        "wall_s": 123.485,
+        "busy_cpus_since_prev": 1.09,
+        "own_busy_cpus": 1.09,
+        "foreign_busy_cpus": 0.0
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "masstree_conc_str",
+      "arm": "str",
+      "dist": "short",
+      "writers": 4,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "masstree_conc_str",
+        "arm": "str",
+        "dist": "short",
+        "writers": 4,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 15.063,
+        "expanse_writer_mops_median": 2.327,
+        "writer_expanse_over_masstree": 0.1558,
+        "writer_ci_lower": 0.1529,
+        "writer_ci_upper": 0.1596,
+        "writer_verdict": "masstree"
+      },
+      "head": {
+        "workload_id": "masstree_conc_str",
+        "arm": "str",
+        "dist": "short",
+        "writers": 4,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 15.1383,
+        "expanse_writer_mops_median": 2.2464,
+        "writer_expanse_over_masstree": 0.1488,
+        "writer_ci_lower": 0.1471,
+        "writer_ci_upper": 0.1513,
+        "writer_verdict": "masstree"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "masstree_writer_mops": 15.0184,
+          "expanse_writer_mops": 2.2389,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "masstree_writer_mops": 14.863,
+          "expanse_writer_mops": 2.3277,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "masstree_writer_mops": 15.063,
+          "expanse_writer_mops": 2.4498,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "masstree_writer_mops": 14.942,
+          "expanse_writer_mops": 2.2745,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "masstree_writer_mops": 15.1534,
+          "expanse_writer_mops": 2.327,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "masstree_writer_mops": 14.9211,
+          "expanse_writer_mops": 2.2761,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "masstree_writer_mops": 15.1241,
+          "expanse_writer_mops": 2.3569,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "masstree_writer_mops": 15.0943,
+          "expanse_writer_mops": 2.3039,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "masstree_writer_mops": 15.1145,
+          "expanse_writer_mops": 2.2126,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "masstree_writer_mops": 14.9019,
+          "expanse_writer_mops": 2.2712,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "masstree_writer_mops": 14.577,
+          "expanse_writer_mops": 2.2247,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "masstree_writer_mops": 15.0124,
+          "expanse_writer_mops": 2.4127,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "masstree_writer_mops": 15.077,
+          "expanse_writer_mops": 2.3504,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "masstree_writer_mops": 15.1205,
+          "expanse_writer_mops": 2.5482,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "masstree_writer_mops": 15.1488,
+          "expanse_writer_mops": 2.4944,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "masstree_writer_mops": 15.0908,
+          "expanse_writer_mops": 2.3032,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "masstree_writer_mops": 14.9866,
+          "expanse_writer_mops": 2.1884,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "masstree_writer_mops": 15.1319,
+          "expanse_writer_mops": 2.2052,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "masstree_writer_mops": 15.243,
+          "expanse_writer_mops": 2.2479,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "masstree_writer_mops": 15.2609,
+          "expanse_writer_mops": 2.2087,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "masstree_writer_mops": 15.0511,
+          "expanse_writer_mops": 2.3126,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "masstree_writer_mops": 15.2691,
+          "expanse_writer_mops": 2.3967,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "masstree_writer_mops": 15.057,
+          "expanse_writer_mops": 2.222,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "masstree_writer_mops": 15.2952,
+          "expanse_writer_mops": 2.1948,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "masstree_writer_mops": 15.1407,
+          "expanse_writer_mops": 2.3296,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "masstree_writer_mops": 15.1561,
+          "expanse_writer_mops": 2.2121,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "masstree_writer_mops": 15.1383,
+          "expanse_writer_mops": 2.2773,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "masstree_writer_mops": 15.1266,
+          "expanse_writer_mops": 2.2003,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "masstree_writer_mops": 14.9991,
+          "expanse_writer_mops": 2.2533,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "masstree_writer_mops": 15.1925,
+          "expanse_writer_mops": 2.2464,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:str:W4:R0",
+        "wall_s": 122.939,
+        "busy_cpus_since_prev": 1.13,
+        "own_busy_cpus": 1.13,
+        "foreign_busy_cpus": 0.0
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "masstree_conc_str",
+      "arm": "str",
+      "dist": "short",
+      "writers": 8,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "masstree_conc_str",
+        "arm": "str",
+        "dist": "short",
+        "writers": 8,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 24.5878,
+        "expanse_writer_mops_median": 2.0756,
+        "writer_expanse_over_masstree": 0.0776,
+        "writer_ci_lower": 0.0669,
+        "writer_ci_upper": 0.0838,
+        "writer_verdict": "masstree"
+      },
+      "head": {
+        "workload_id": "masstree_conc_str",
+        "arm": "str",
+        "dist": "short",
+        "writers": 8,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 24.6662,
+        "expanse_writer_mops_median": 2.0393,
+        "writer_expanse_over_masstree": 0.075,
+        "writer_ci_lower": 0.0598,
+        "writer_ci_upper": 0.0828,
+        "writer_verdict": "masstree"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "masstree_writer_mops": 24.775,
+          "expanse_writer_mops": 2.1921,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "masstree_writer_mops": 24.5878,
+          "expanse_writer_mops": 2.1497,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "masstree_writer_mops": 24.8353,
+          "expanse_writer_mops": 1.9045,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "masstree_writer_mops": 23.0083,
+          "expanse_writer_mops": 2.2582,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "masstree_writer_mops": 24.7109,
+          "expanse_writer_mops": 2.0756,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "masstree_writer_mops": 24.5992,
+          "expanse_writer_mops": 2.1303,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "masstree_writer_mops": 24.6449,
+          "expanse_writer_mops": 0.8308,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "masstree_writer_mops": 23.2697,
+          "expanse_writer_mops": 1.8137,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "masstree_writer_mops": 24.5797,
+          "expanse_writer_mops": 2.1861,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "masstree_writer_mops": 23.4067,
+          "expanse_writer_mops": 1.8315,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "masstree_writer_mops": 24.6239,
+          "expanse_writer_mops": 2.1386,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "masstree_writer_mops": 24.4261,
+          "expanse_writer_mops": 1.2408,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "masstree_writer_mops": 24.5827,
+          "expanse_writer_mops": 1.8257,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "masstree_writer_mops": 23.9857,
+          "expanse_writer_mops": 2.1333,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "masstree_writer_mops": 24.6263,
+          "expanse_writer_mops": 1.5841,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "masstree_writer_mops": 24.7636,
+          "expanse_writer_mops": 2.2001,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "masstree_writer_mops": 22.3862,
+          "expanse_writer_mops": 1.9772,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "masstree_writer_mops": 24.7971,
+          "expanse_writer_mops": 2.1677,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "masstree_writer_mops": 24.5323,
+          "expanse_writer_mops": 2.0166,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "masstree_writer_mops": 24.8084,
+          "expanse_writer_mops": 2.0907,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "masstree_writer_mops": 24.6242,
+          "expanse_writer_mops": 1.4253,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "masstree_writer_mops": 24.7034,
+          "expanse_writer_mops": 1.7749,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "masstree_writer_mops": 22.8739,
+          "expanse_writer_mops": 0.6221,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "masstree_writer_mops": 24.7613,
+          "expanse_writer_mops": 2.2205,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "masstree_writer_mops": 24.6779,
+          "expanse_writer_mops": 2.0393,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "masstree_writer_mops": 24.5018,
+          "expanse_writer_mops": 2.192,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "masstree_writer_mops": 24.6434,
+          "expanse_writer_mops": 1.7711,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "masstree_writer_mops": 24.7907,
+          "expanse_writer_mops": 2.1278,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "masstree_writer_mops": 22.8565,
+          "expanse_writer_mops": 0.6138,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "masstree_writer_mops": 24.6662,
+          "expanse_writer_mops": 2.0824,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:str:W8:R0",
+        "wall_s": 127.812,
+        "busy_cpus_since_prev": 1.18,
+        "own_busy_cpus": 1.19,
+        "foreign_busy_cpus": -0.01
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "masstree_conc_str",
+      "arm": "str",
+      "dist": "short",
+      "writers": 16,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "masstree_conc_str",
+        "arm": "str",
+        "dist": "short",
+        "writers": 16,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 23.3022,
+        "expanse_writer_mops_median": 0.4824,
+        "writer_expanse_over_masstree": 0.0198,
+        "writer_ci_lower": 0.0186,
+        "writer_ci_upper": 0.0209,
+        "writer_verdict": "masstree"
+      },
+      "head": {
+        "workload_id": "masstree_conc_str",
+        "arm": "str",
+        "dist": "short",
+        "writers": 16,
+        "readers": 0,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 23.3253,
+        "expanse_writer_mops_median": 0.4796,
+        "writer_expanse_over_masstree": 0.0198,
+        "writer_ci_lower": 0.0186,
+        "writer_ci_upper": 0.0206,
+        "writer_verdict": "masstree"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "masstree_writer_mops": 23.2027,
+          "expanse_writer_mops": 0.479,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "masstree_writer_mops": 23.3022,
+          "expanse_writer_mops": 0.4466,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "masstree_writer_mops": 21.9482,
+          "expanse_writer_mops": 0.4974,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "masstree_writer_mops": 22.6762,
+          "expanse_writer_mops": 0.4772,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "masstree_writer_mops": 23.3171,
+          "expanse_writer_mops": 0.4827,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "masstree_writer_mops": 22.824,
+          "expanse_writer_mops": 0.4854,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "masstree_writer_mops": 23.6518,
+          "expanse_writer_mops": 0.4427,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "masstree_writer_mops": 22.477,
+          "expanse_writer_mops": 0.4806,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "masstree_writer_mops": 28.2152,
+          "expanse_writer_mops": 0.493,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "masstree_writer_mops": 22.8536,
+          "expanse_writer_mops": 0.5197,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "masstree_writer_mops": 28.5594,
+          "expanse_writer_mops": 0.471,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "masstree_writer_mops": 22.6958,
+          "expanse_writer_mops": 0.4824,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "masstree_writer_mops": 28.3219,
+          "expanse_writer_mops": 0.4876,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "masstree_writer_mops": 23.4219,
+          "expanse_writer_mops": 0.4683,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "masstree_writer_mops": 28.3496,
+          "expanse_writer_mops": 0.5448,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "masstree_writer_mops": 23.3253,
+          "expanse_writer_mops": 0.4831,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "masstree_writer_mops": 23.7193,
+          "expanse_writer_mops": 0.4756,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "masstree_writer_mops": 23.5711,
+          "expanse_writer_mops": 0.4712,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "masstree_writer_mops": 22.8604,
+          "expanse_writer_mops": 0.4732,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "masstree_writer_mops": 28.4972,
+          "expanse_writer_mops": 0.4589,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "masstree_writer_mops": 23.154,
+          "expanse_writer_mops": 0.4626,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "masstree_writer_mops": 23.198,
+          "expanse_writer_mops": 0.4832,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "masstree_writer_mops": 22.7272,
+          "expanse_writer_mops": 0.4581,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "masstree_writer_mops": 28.2085,
+          "expanse_writer_mops": 0.4693,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "masstree_writer_mops": 22.7194,
+          "expanse_writer_mops": 0.5103,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "masstree_writer_mops": 23.6081,
+          "expanse_writer_mops": 0.4864,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "masstree_writer_mops": 23.8004,
+          "expanse_writer_mops": 0.5023,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "masstree_writer_mops": 28.5097,
+          "expanse_writer_mops": 0.4796,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "masstree_writer_mops": 22.8413,
+          "expanse_writer_mops": 0.4814,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "masstree_writer_mops": 22.9915,
+          "expanse_writer_mops": 0.4931,
+          "masstree_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:str:W16:R0",
+        "wall_s": 174.132,
+        "busy_cpus_since_prev": 1.39,
+        "own_busy_cpus": 1.41,
+        "foreign_busy_cpus": -0.02
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "masstree_conc_str",
+      "arm": "str",
+      "dist": "short",
+      "writers": 0,
+      "readers": 8,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "masstree_conc_str",
+        "arm": "str",
+        "dist": "short",
+        "writers": 0,
+        "readers": 8,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_reader_mops_median": 34.175,
+        "expanse_reader_mops_median": 28.5779,
+        "reader_expanse_over_masstree": 0.8359,
+        "reader_ci_lower": 0.832,
+        "reader_ci_upper": 0.8395,
+        "reader_verdict": "masstree"
+      },
+      "head": {
+        "workload_id": "masstree_conc_str",
+        "arm": "str",
+        "dist": "short",
+        "writers": 0,
+        "readers": 8,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_reader_mops_median": 34.2609,
+        "expanse_reader_mops_median": 28.7397,
+        "reader_expanse_over_masstree": 0.8397,
+        "reader_ci_lower": 0.8379,
+        "reader_ci_upper": 0.8416,
+        "reader_verdict": "masstree"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 33.7898,
+          "expanse_reader_mops": 28.4273
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.1065,
+          "expanse_reader_mops": 28.5903
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.2636,
+          "expanse_reader_mops": 28.5072
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.0284,
+          "expanse_reader_mops": 28.679
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.3728,
+          "expanse_reader_mops": 28.2256
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.1159,
+          "expanse_reader_mops": 28.2239
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 33.8483,
+          "expanse_reader_mops": 28.7565
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.0489,
+          "expanse_reader_mops": 28.5779
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.3362,
+          "expanse_reader_mops": 28.8888
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.175,
+          "expanse_reader_mops": 28.6043
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.4474,
+          "expanse_reader_mops": 28.7263
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.2953,
+          "expanse_reader_mops": 28.3805
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 33.8248,
+          "expanse_reader_mops": 28.4696
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.1992,
+          "expanse_reader_mops": 28.69
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.5667,
+          "expanse_reader_mops": 28.5627
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.2673,
+          "expanse_reader_mops": 28.6409
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.2104,
+          "expanse_reader_mops": 28.7085
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.0743,
+          "expanse_reader_mops": 28.72
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.1825,
+          "expanse_reader_mops": 28.7773
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.3112,
+          "expanse_reader_mops": 28.7361
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.0416,
+          "expanse_reader_mops": 28.8091
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.4236,
+          "expanse_reader_mops": 28.722
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.4153,
+          "expanse_reader_mops": 28.8082
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.2988,
+          "expanse_reader_mops": 28.7825
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.095,
+          "expanse_reader_mops": 28.7397
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.3151,
+          "expanse_reader_mops": 28.6896
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.2043,
+          "expanse_reader_mops": 28.8002
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.2609,
+          "expanse_reader_mops": 28.6403
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.3914,
+          "expanse_reader_mops": 28.8711
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "masstree_writer_mops": null,
+          "expanse_writer_mops": null,
+          "masstree_reader_mops": 34.0413,
+          "expanse_reader_mops": 28.7684
+        }
+      ],
+      "load": {
+        "since": "cell:str:W0:R8",
+        "wall_s": 117.953,
+        "busy_cpus_since_prev": 1.95,
+        "own_busy_cpus": 1.95,
+        "foreign_busy_cpus": 0.0
+      },
+      "pillar": "C2"
+    },
+    {
+      "workload_id": "masstree_conc_str",
+      "arm": "str",
+      "dist": "short",
+      "writers": 1,
+      "readers": 8,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "masstree_conc_str",
+        "arm": "str",
+        "dist": "short",
+        "writers": 1,
+        "readers": 8,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 2.9244,
+        "expanse_writer_mops_median": 1.7782,
+        "writer_expanse_over_masstree": 0.595,
+        "writer_ci_lower": 0.5707,
+        "writer_ci_upper": 0.6214,
+        "writer_verdict": "masstree",
+        "masstree_reader_mops_median": 26.0451,
+        "expanse_reader_mops_median": 6.2042,
+        "reader_expanse_over_masstree": 0.2127,
+        "reader_ci_lower": 0.1621,
+        "reader_ci_upper": 0.2441,
+        "reader_verdict": "masstree"
+      },
+      "head": {
+        "workload_id": "masstree_conc_str",
+        "arm": "str",
+        "dist": "short",
+        "writers": 1,
+        "readers": 8,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "masstree_writer_mops_median": 2.9955,
+        "expanse_writer_mops_median": 1.9128,
+        "writer_expanse_over_masstree": 0.6304,
+        "writer_ci_lower": 0.6059,
+        "writer_ci_upper": 0.6527,
+        "writer_verdict": "masstree",
+        "masstree_reader_mops_median": 26.2487,
+        "expanse_reader_mops_median": 1.0347,
+        "reader_expanse_over_masstree": 0.042,
+        "reader_ci_lower": 0.04,
+        "reader_ci_upper": 0.0452,
+        "reader_verdict": "masstree"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "masstree_writer_mops": 2.9378,
+          "expanse_writer_mops": 1.6168,
+          "masstree_reader_mops": 26.2486,
+          "expanse_reader_mops": 6.4849
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "masstree_writer_mops": 3.3685,
+          "expanse_writer_mops": 1.7151,
+          "masstree_reader_mops": 25.675,
+          "expanse_reader_mops": 6.6063
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "masstree_writer_mops": 2.9244,
+          "expanse_writer_mops": 1.6908,
+          "masstree_reader_mops": 26.1045,
+          "expanse_reader_mops": 6.0173
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "masstree_writer_mops": 3.3294,
+          "expanse_writer_mops": 1.8372,
+          "masstree_reader_mops": 25.5354,
+          "expanse_reader_mops": 6.8126
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "masstree_writer_mops": 2.9318,
+          "expanse_writer_mops": 1.8841,
+          "masstree_reader_mops": 26.2996,
+          "expanse_reader_mops": 1.4993
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "masstree_writer_mops": 2.921,
+          "expanse_writer_mops": 1.7489,
+          "masstree_reader_mops": 25.953,
+          "expanse_reader_mops": 6.7938
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "masstree_writer_mops": 3.3455,
+          "expanse_writer_mops": 1.7645,
+          "masstree_reader_mops": 25.7384,
+          "expanse_reader_mops": 8.0846
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "masstree_writer_mops": 2.9034,
+          "expanse_writer_mops": 1.7411,
+          "masstree_reader_mops": 25.9156,
+          "expanse_reader_mops": 6.5973
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "masstree_writer_mops": 2.9103,
+          "expanse_writer_mops": 1.8257,
+          "masstree_reader_mops": 26.0451,
+          "expanse_reader_mops": 5.8086
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "masstree_writer_mops": 2.9112,
+          "expanse_writer_mops": 1.9844,
+          "masstree_reader_mops": 26.0672,
+          "expanse_reader_mops": 5.9132
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "masstree_writer_mops": 2.9193,
+          "expanse_writer_mops": 1.8149,
+          "masstree_reader_mops": 26.1639,
+          "expanse_reader_mops": 6.2422
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "masstree_writer_mops": 3.3472,
+          "expanse_writer_mops": 1.9769,
+          "masstree_reader_mops": 25.5316,
+          "expanse_reader_mops": 2.5936
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "masstree_writer_mops": 2.926,
+          "expanse_writer_mops": 1.6885,
+          "masstree_reader_mops": 26.0955,
+          "expanse_reader_mops": 5.9158
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "masstree_writer_mops": 2.8976,
+          "expanse_writer_mops": 1.994,
+          "masstree_reader_mops": 25.9574,
+          "expanse_reader_mops": 6.2042
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "masstree_writer_mops": 2.9071,
+          "expanse_writer_mops": 1.7782,
+          "masstree_reader_mops": 26.1406,
+          "expanse_reader_mops": 1.2502
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "masstree_writer_mops": 3.013,
+          "expanse_writer_mops": 1.9675,
+          "masstree_reader_mops": 26.4711,
+          "expanse_reader_mops": 0.9598
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "masstree_writer_mops": 3.4313,
+          "expanse_writer_mops": 2.1754,
+          "masstree_reader_mops": 25.9771,
+          "expanse_reader_mops": 0.9858
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "masstree_writer_mops": 3.0025,
+          "expanse_writer_mops": 1.9527,
+          "masstree_reader_mops": 26.3513,
+          "expanse_reader_mops": 1.0827
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "masstree_writer_mops": 2.9955,
+          "expanse_writer_mops": 1.8782,
+          "masstree_reader_mops": 26.1484,
+          "expanse_reader_mops": 1.3037
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "masstree_writer_mops": 2.9938,
+          "expanse_writer_mops": 1.927,
+          "masstree_reader_mops": 26.3584,
+          "expanse_reader_mops": 0.9952
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "masstree_writer_mops": 2.981,
+          "expanse_writer_mops": 1.8942,
+          "masstree_reader_mops": 26.1406,
+          "expanse_reader_mops": 1.1866
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "masstree_writer_mops": 2.994,
+          "expanse_writer_mops": 1.899,
+          "masstree_reader_mops": 26.3477,
+          "expanse_reader_mops": 1.0296
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "masstree_writer_mops": 3.4256,
+          "expanse_writer_mops": 1.9128,
+          "masstree_reader_mops": 25.8304,
+          "expanse_reader_mops": 1.3768
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "masstree_writer_mops": 2.9985,
+          "expanse_writer_mops": 1.8892,
+          "masstree_reader_mops": 26.3694,
+          "expanse_reader_mops": 1.2802
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "masstree_writer_mops": 2.9832,
+          "expanse_writer_mops": 1.8937,
+          "masstree_reader_mops": 26.2487,
+          "expanse_reader_mops": 1.0182
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "masstree_writer_mops": 3.4223,
+          "expanse_writer_mops": 2.1509,
+          "masstree_reader_mops": 25.9715,
+          "expanse_reader_mops": 1.0096
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "masstree_writer_mops": 2.9882,
+          "expanse_writer_mops": 1.9184,
+          "masstree_reader_mops": 26.2101,
+          "expanse_reader_mops": 1.0161
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "masstree_writer_mops": 2.9853,
+          "expanse_writer_mops": 1.9311,
+          "masstree_reader_mops": 26.2782,
+          "expanse_reader_mops": 1.0678
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "masstree_writer_mops": 2.9767,
+          "expanse_writer_mops": 1.8231,
+          "masstree_reader_mops": 26.1527,
+          "expanse_reader_mops": 1.1702
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "masstree_writer_mops": 3.0077,
+          "expanse_writer_mops": 1.9127,
+          "masstree_reader_mops": 26.3519,
+          "expanse_reader_mops": 1.0347
+        }
+      ],
+      "load": {
+        "since": "cell:str:W1:R8",
+        "wall_s": 134.662,
+        "busy_cpus_since_prev": 2.62,
+        "own_busy_cpus": 2.62,
+        "foreign_busy_cpus": 0.0
+      },
+      "pillar": "C2"
+    }
+  ],
+  "health": [
+    {
+      "workload_id": "masstree_conc_map_64bit",
+      "arm": "map",
+      "dist": "random",
+      "writers": 1,
+      "readers": 8,
+      "rounds": 5,
+      "restart_share": {
+        "median": 0.036842,
+        "min": 0.023732,
+        "max": 0.043795
+      },
+      "fallback_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "read_ops": {
+        "median": 40355359,
+        "min": 27582911,
+        "max": 42563119
+      },
+      "read_attempts": {
+        "median": 41895578,
+        "min": 28253408,
+        "max": 44512562
+      },
+      "read_fallbacks": {
+        "median": 6,
+        "min": 0,
+        "max": 12
+      },
+      "sample_spins": {
+        "median": 11446,
+        "min": 6041,
+        "max": 17367
+      },
+      "write_ops": {
+        "median": 1048576,
+        "min": 1048576,
+        "max": 1048576
+      },
+      "locked_reads": {
+        "median": 6,
+        "min": 0,
+        "max": 12
+      },
+      "handoffs": {
+        "median": 1,
+        "min": 1,
+        "max": 1
+      },
+      "retired": {
+        "median": 729312,
+        "min": 729312,
+        "max": 729312
+      },
+      "freed_raw": {
+        "median": 204114,
+        "min": 204114,
+        "max": 204114
+      },
+      "sample_spin_cycles": {
+        "median": 1467673,
+        "min": 752121,
+        "max": 2146929
+      },
+      "branch_replacements": {
+        "median": 59558,
+        "min": 59558,
+        "max": 59558
+      },
+      "deep_cascades": {
+        "median": 29779,
+        "min": 29779,
+        "max": 29779
+      },
+      "root_rewrites": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "cycles_hz": {
+        "median": 2419152159,
+        "min": 2419152159,
+        "max": 2419152159
+      },
+      "reader_elapsed_s": {
+        "median": 0.5267,
+        "min": 0.4026,
+        "max": 0.5682
+      },
+      "writer_elapsed_s": {
+        "median": 0.5266,
+        "min": 0.4024,
+        "max": 0.5682
+      },
+      "locked_share": {
+        "median": 1.4096711286595326e-07,
+        "min": 0.0,
+        "max": 2.914846335009459e-07
+      },
+      "unconditional_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "handoffs_per_write": {
+        "median": 9.5367431640625e-07,
+        "min": 9.5367431640625e-07,
+        "max": 9.5367431640625e-07
+      },
+      "replacements_per_write": {
+        "median": 0.05679893493652344,
+        "min": 0.05679893493652344,
+        "max": 0.05679893493652344
+      },
+      "deep_cascade_share": {
+        "median": 0.02839946746826172,
+        "min": 0.02839946746826172,
+        "max": 0.02839946746826172
+      },
+      "root_rewrite_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "spin_time_share": {
+        "median": 0.00014439475396690478,
+        "min": 9.652965898285876e-05,
+        "max": 0.0002106207678232268
+      },
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rounds_raw": [
+        {
+          "round": 0,
+          "restart_share": 0.036842,
+          "fallback_share": 0.0,
+          "read_ops": 40220548,
+          "read_attempts": 41759036,
+          "read_fallbacks": 1,
+          "sample_spins": 17367,
+          "write_ops": 1048576,
+          "locked_reads": 1,
+          "handoffs": 1,
+          "retired": 729312,
+          "freed_raw": 204114,
+          "sample_spin_cycles": 2146929,
+          "branch_replacements": 59558,
+          "deep_cascades": 29779,
+          "root_rewrites": 0,
+          "cycles_hz": 2419152159,
+          "reader_elapsed_s": 0.5267,
+          "writer_elapsed_s": 0.5266
+        },
+        {
+          "round": 1,
+          "restart_share": 0.036763,
+          "fallback_share": 0.0,
+          "read_ops": 40355359,
+          "read_attempts": 41895578,
+          "read_fallbacks": 7,
+          "sample_spins": 11446,
+          "write_ops": 1048576,
+          "locked_reads": 7,
+          "handoffs": 1,
+          "retired": 729312,
+          "freed_raw": 204114,
+          "sample_spin_cycles": 1467673,
+          "branch_replacements": 59558,
+          "deep_cascades": 29779,
+          "root_rewrites": 0,
+          "cycles_hz": 2419152159,
+          "reader_elapsed_s": 0.5252,
+          "writer_elapsed_s": 0.5252
+        },
+        {
+          "round": 2,
+          "restart_share": 0.023732,
+          "fallback_share": 0.0,
+          "read_ops": 27582911,
+          "read_attempts": 28253408,
+          "read_fallbacks": 0,
+          "sample_spins": 6041,
+          "write_ops": 1048576,
+          "locked_reads": 0,
+          "handoffs": 1,
+          "retired": 729312,
+          "freed_raw": 204114,
+          "sample_spin_cycles": 752121,
+          "branch_replacements": 59558,
+          "deep_cascades": 29779,
+          "root_rewrites": 0,
+          "cycles_hz": 2419152159,
+          "reader_elapsed_s": 0.4026,
+          "writer_elapsed_s": 0.4024
+        },
+        {
+          "round": 3,
+          "restart_share": 0.038036,
+          "fallback_share": 0.0,
+          "read_ops": 41168551,
+          "read_attempts": 42796331,
+          "read_fallbacks": 12,
+          "sample_spins": 11250,
+          "write_ops": 1048576,
+          "locked_reads": 12,
+          "handoffs": 1,
+          "retired": 729312,
+          "freed_raw": 204114,
+          "sample_spin_cycles": 1408881,
+          "branch_replacements": 59558,
+          "deep_cascades": 29779,
+          "root_rewrites": 0,
+          "cycles_hz": 2419152159,
+          "reader_elapsed_s": 0.5362,
+          "writer_elapsed_s": 0.5361
+        },
+        {
+          "round": 4,
+          "restart_share": 0.043795,
+          "fallback_share": 0.0,
+          "read_ops": 42563119,
+          "read_attempts": 44512562,
+          "read_fallbacks": 6,
+          "sample_spins": 12806,
+          "write_ops": 1048576,
+          "locked_reads": 6,
+          "handoffs": 1,
+          "retired": 729312,
+          "freed_raw": 204114,
+          "sample_spin_cycles": 1639351,
+          "branch_replacements": 59558,
+          "deep_cascades": 29779,
+          "root_rewrites": 0,
+          "cycles_hz": 2419152159,
+          "reader_elapsed_s": 0.5682,
+          "writer_elapsed_s": 0.5682
+        }
+      ],
+      "starvation_flag": false,
+      "load": {
+        "since": "cell:map:W1:R8",
+        "wall_s": 3.464,
+        "busy_cpus_since_prev": 6.86,
+        "own_busy_cpus": 6.85,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "workload_id": "masstree_conc_str",
+      "arm": "str",
+      "dist": "short",
+      "writers": 1,
+      "readers": 8,
+      "rounds": 5,
+      "restart_share": {
+        "median": 0.922865,
+        "min": 0.911458,
+        "max": 0.925123
+      },
+      "fallback_share": {
+        "median": 0.002374,
+        "min": 0.000762,
+        "max": 0.006804
+      },
+      "read_ops": {
+        "median": 577422,
+        "min": 566431,
+        "max": 668244
+      },
+      "read_attempts": {
+        "median": 7539246,
+        "min": 7466204,
+        "max": 7564826
+      },
+      "read_fallbacks": {
+        "median": 1367,
+        "min": 509,
+        "max": 3929
+      },
+      "sample_spins": {
+        "median": 58235395,
+        "min": 49898965,
+        "max": 60180311
+      },
+      "write_ops": {
+        "median": 1048576,
+        "min": 1048576,
+        "max": 1048576
+      },
+      "locked_reads": {
+        "median": 1367,
+        "min": 509,
+        "max": 3929
+      },
+      "handoffs": {
+        "median": 1,
+        "min": 1,
+        "max": 1
+      },
+      "retired": {
+        "median": 302052,
+        "min": 302052,
+        "max": 302052
+      },
+      "freed_raw": {
+        "median": 26428,
+        "min": 26428,
+        "max": 26428
+      },
+      "sample_spin_cycles": {
+        "median": 7545850644,
+        "min": 6841901975,
+        "max": 7763609187
+      },
+      "branch_replacements": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "deep_cascades": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "root_rewrites": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "cycles_hz": {
+        "median": 2419152667,
+        "min": 2419152667,
+        "max": 2419152667
+      },
+      "reader_elapsed_s": {
+        "median": 0.5616,
+        "min": 0.5249,
+        "max": 0.5707
+      },
+      "writer_elapsed_s": {
+        "median": 0.5615,
+        "min": 0.5249,
+        "max": 0.5706
+      },
+      "locked_share": {
+        "median": 0.0023736430124255956,
+        "min": 0.0007616978229508982,
+        "max": 0.006804382236908189
+      },
+      "unconditional_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "handoffs_per_write": {
+        "median": 9.5367431640625e-07,
+        "min": 9.5367431640625e-07,
+        "max": 9.5367431640625e-07
+      },
+      "replacements_per_write": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "deep_cascade_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "root_rewrite_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "spin_time_share": {
+        "median": 0.6942691093147656,
+        "min": 0.6735145951890801,
+        "max": 0.7029145437092981
+      },
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rounds_raw": [
+        {
+          "round": 0,
+          "restart_share": 0.922865,
+          "fallback_share": 0.002374,
+          "read_ops": 575908,
+          "read_attempts": 7466204,
+          "read_fallbacks": 1367,
+          "sample_spins": 60180311,
+          "write_ops": 1048576,
+          "locked_reads": 1367,
+          "handoffs": 1,
+          "retired": 302052,
+          "freed_raw": 26428,
+          "sample_spin_cycles": 7763609187,
+          "branch_replacements": 0,
+          "deep_cascades": 0,
+          "root_rewrites": 0,
+          "cycles_hz": 2419152667,
+          "reader_elapsed_s": 0.5707,
+          "writer_elapsed_s": 0.5706
+        },
+        {
+          "round": 1,
+          "restart_share": 0.920615,
+          "fallback_share": 0.001313,
+          "read_ops": 598502,
+          "read_attempts": 7539246,
+          "read_fallbacks": 786,
+          "sample_spins": 59483171,
+          "write_ops": 1048576,
+          "locked_reads": 786,
+          "handoffs": 1,
+          "retired": 302052,
+          "freed_raw": 26428,
+          "sample_spin_cycles": 7679700083,
+          "branch_replacements": 0,
+          "deep_cascades": 0,
+          "root_rewrites": 0,
+          "cycles_hz": 2419152667,
+          "reader_elapsed_s": 0.5661,
+          "writer_elapsed_s": 0.566
+        },
+        {
+          "round": 2,
+          "restart_share": 0.925123,
+          "fallback_share": 0.00464,
+          "read_ops": 566431,
+          "read_attempts": 7564826,
+          "read_fallbacks": 2628,
+          "sample_spins": 52970172,
+          "write_ops": 1048576,
+          "locked_reads": 2628,
+          "handoffs": 1,
+          "retired": 302052,
+          "freed_raw": 26428,
+          "sample_spin_cycles": 7208356564,
+          "branch_replacements": 0,
+          "deep_cascades": 0,
+          "root_rewrites": 0,
+          "cycles_hz": 2419152667,
+          "reader_elapsed_s": 0.5434,
+          "writer_elapsed_s": 0.5433
+        },
+        {
+          "round": 3,
+          "restart_share": 0.911458,
+          "fallback_share": 0.000762,
+          "read_ops": 668244,
+          "read_attempts": 7547173,
+          "read_fallbacks": 509,
+          "sample_spins": 58235395,
+          "write_ops": 1048576,
+          "locked_reads": 509,
+          "handoffs": 1,
+          "retired": 302052,
+          "freed_raw": 26428,
+          "sample_spin_cycles": 7545850644,
+          "branch_replacements": 0,
+          "deep_cascades": 0,
+          "root_rewrites": 0,
+          "cycles_hz": 2419152667,
+          "reader_elapsed_s": 0.5616,
+          "writer_elapsed_s": 0.5615
+        },
+        {
+          "round": 4,
+          "restart_share": 0.923164,
+          "fallback_share": 0.006804,
+          "read_ops": 577422,
+          "read_attempts": 7514994,
+          "read_fallbacks": 3929,
+          "sample_spins": 49898965,
+          "write_ops": 1048576,
+          "locked_reads": 3929,
+          "handoffs": 1,
+          "retired": 302052,
+          "freed_raw": 26428,
+          "sample_spin_cycles": 6841901975,
+          "branch_replacements": 0,
+          "deep_cascades": 0,
+          "root_rewrites": 0,
+          "cycles_hz": 2419152667,
+          "reader_elapsed_s": 0.5249,
+          "writer_elapsed_s": 0.5249
+        }
+      ],
+      "starvation_flag": false,
+      "load": {
+        "since": "cell:str:W1:R8",
+        "wall_s": 8.48,
+        "busy_cpus_since_prev": 3.59,
+        "own_busy_cpus": 3.59,
+        "foreign_busy_cpus": 0.0
+      }
+    }
+  ]
+}

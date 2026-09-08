@@ -127,7 +127,7 @@ fn build_mt(ti: MtThread, table: Table, pop: &[KeyStr]) -> Masstree {
 fn build_exp(pop: &[KeyStr]) -> ExpanseStrMap {
     let mut e = ExpanseStrMap::new();
     for (i, k) in pop.iter().enumerate() {
-        e.insert(k.bytes(), value_of(i));
+        e.insert(k.key(), value_of(i));
     }
     e
 }
@@ -224,7 +224,7 @@ fn main() {
                     let t0 = Instant::now();
                     let mut sink = 0u64;
                     for p in &w.probes {
-                        sink ^= e.get(p.bytes()).unwrap_or(0);
+                        sink ^= e.get(p.key()).unwrap_or(0);
                     }
                     let t = t0.elapsed().as_nanos();
                     black_box(sink);
@@ -260,7 +260,7 @@ fn main() {
                     let t0 = Instant::now();
                     let mut e = ExpanseStrMap::new();
                     for (i, k) in w.population.iter().enumerate() {
-                        e.insert(k.bytes(), value_of(i));
+                        e.insert(k.key(), value_of(i));
                     }
                     let t = t0.elapsed().as_nanos();
                     let built = e.len() as usize;
@@ -313,7 +313,7 @@ fn main() {
                     let mut sink = 0u64;
                     for s in &starts {
                         let mut c = 0usize;
-                        let mut cur = e.cursor_at_or_after(s.bytes());
+                        let mut cur = e.cursor_at_or_after(s.key());
                         while let Some((_key, slot)) = cur.next() {
                             // SAFETY: the cursor borrows the map for its
                             // lifetime, so the slot is a live value word and no

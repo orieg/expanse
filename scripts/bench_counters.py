@@ -794,7 +794,7 @@ def c2c_round(cell: Cell, pin: list[str], env: dict, out_dir: Path) -> dict:
     if not data.is_file():
         raise Preflight(f"{cell.name}: perf c2c record wrote no {data} (rc {record_rc})\n"
                         f"{record_err.strip()[:800]}")
-    rep = subprocess.run(["perf", "c2c", "report", "--stdio", "-i", str(data)],
+    rep = subprocess.run(["perf", "c2c", "report", "--stdio", "--full-symbols", "-i", str(data)],
                          capture_output=True, text=True)
     if rep.returncode != 0 or not rep.stdout.strip():
         raise Preflight(f"{cell.name}: perf c2c report exited {rep.returncode} or was empty\n"

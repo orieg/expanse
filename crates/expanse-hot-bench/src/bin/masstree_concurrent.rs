@@ -20,7 +20,7 @@
 //! | `value_dereference` | both sides fetch the stored value and check it against its key-derived expectation |
 //! | `measured_region` | barrier release to last-writer join (writers) and to last-reader join (readers); prefill, teardown and walks outside; Masstree's per-64-op `quiesce` inside its threads (§3.2) |
 //! | `arm_symmetry` | identical prefill, probe and fresh-key streams; both arms below any external lock through their native concurrent APIs (§8.16); one thread slot per Masstree thread; same ISA target; W + R ≤ 16 inside the P-core pin, which is 16 logical CPUs on 8 physical P-cores — a cell with W + R > 8 places two threads per physical core (SMT siblings), and no interval says so |
-//! | `statistics` | per-round throughput emitted raw, arms interleaved per round; BCa 95% CIs on the Expanse ÷ Masstree ratio computed by the runner (§8.4); every row carries the harness's own operation counts (`*_read_ops` = probes completed by the readers, `*_write_ops` = fresh keys inserted) as the divisor for any per-operation figure (§8.9 principle 5); `--health` emits event ratios from a diagnostic build and never a timing; `--arm <expanse or masstree>` runs one arm alone and emits `counters` rows (`read_ops`, `write_ops`, elapsed) for `scripts/bench_counters.py`'s per-thread `perf stat` attach, never a comparison |
+//! | `statistics` | per-round throughput emitted raw, arms interleaved per round (`--rounds N --round-offset K` runs rounds K..K+N of that interleaving in one process, so a two-commit runner can alternate two builds round by round with the arm order continuous across them — the only before/after form docs/BENCHMARKING.md rule 18 admits); BCa 95% CIs on the Expanse ÷ Masstree ratio computed by the runner (§8.4); every row carries the harness's own operation counts (`*_read_ops` = probes completed by the readers, `*_write_ops` = fresh keys inserted) as the divisor for any per-operation figure (§8.9 principle 5); `--health` emits event ratios from a diagnostic build and never a timing; `--arm <expanse or masstree>` runs one arm alone and emits `counters` rows (`read_ops`, `write_ops`, elapsed) for `scripts/bench_counters.py`'s per-thread `perf stat` attach, never a comparison |
 //! | `verdict` | pending measurement |
 //!
 //! ## Fixed work, not a fixed window
@@ -247,11 +247,11 @@ impl ConcArm<KeyStr> for SyncExpanseStrMap {
     }
     #[inline]
     fn insert(&self, _: (), k: &KeyStr) {
-        SyncExpanseStrMap::insert(self, k.bytes(), k.value());
+        SyncExpanseStrMap::insert(self, k.key(), k.value());
     }
     #[inline]
     fn probe(r: &Self::Reader<'_>, _: (), k: &KeyStr) -> Option<bool> {
-        r.get(k.bytes()).map(|v| v == k.value())
+        r.get(k.key()).map(|v| v == k.value())
     }
     fn len(&self, _: ()) -> usize {
         SyncExpanseStrMap::len(self) as usize
@@ -480,11 +480,12 @@ fn cpus_allowed() -> String {
 fn usage() -> ! {
     eprintln!(
         "usage: masstree_concurrent <map|str> <writers> <readers> \
-         [--health | --arm <expanse|masstree> [--rounds N] [--wait-stdin]]"
+         [--rounds N] [--round-offset K] [--health | --arm <expanse|masstree> [--rounds N] [--wait-stdin]]"
     );
     eprintln!("       masstree_concurrent --layout");
     eprintln!("  writers + readers <= {MAX_THREADS}; one cell per invocation (§3.6)");
     eprintln!("  --health needs the `occ-stats` feature and emits event ratios only");
+    eprintln!("  --rounds / --round-offset run rounds K..K+N of the interleaved comparison");
     eprintln!("  --arm runs one arm alone and emits `counters` rows with its own op counts");
     eprintln!("  --wait-stdin blocks each round on one stdin line after `threads_ready`");
     eprintln!("  --layout prints sync::layout_report() as JSON lines (occ-stats build only)");
@@ -494,7 +495,12 @@ fn usage() -> ! {
 /// What one invocation does; the three are mutually exclusive.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
-    Throughput,
+    /// The interleaved comparison for rounds `offset..offset + rounds`
+    /// (`--rounds` / `--round-offset`; the whole cell by default). A
+    /// two-commit runner splits one cell across processes of two builds,
+    /// one round each, and the offset keeps the round numbers — and the
+    /// arm order, which alternates by round — continuous across them.
+    Throughput { rounds: usize, offset: usize },
     Health,
     /// One arm alone for `rounds` rounds, with the optional stdin handshake.
     Counters {
@@ -525,6 +531,7 @@ fn parse_cli(a: &[String]) -> Cli {
     let writers: usize = a[2].parse().unwrap_or_else(|_| usage());
     let readers: usize = a[3].parse().unwrap_or_else(|_| usage());
     let (mut health, mut arm, mut rounds, mut wait_stdin) = (false, None, None, false);
+    let mut offset = 0usize;
     let mut i = 4;
     while i < a.len() {
         match a[i].as_str() {
@@ -543,14 +550,21 @@ fn parse_cli(a: &[String]) -> Cli {
                         .unwrap_or_else(|| usage()),
                 );
             }
+            "--round-offset" => {
+                i += 1;
+                offset = a
+                    .get(i)
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or_else(|| usage());
+            }
             _ => usage(),
         }
         i += 1;
     }
     let mode = match (health, arm) {
         (true, None) => {
-            if rounds.is_some() || wait_stdin {
-                eprintln!("--rounds and --wait-stdin belong to --arm, not --health");
+            if rounds.is_some() || wait_stdin || offset != 0 {
+                eprintln!("--rounds, --round-offset and --wait-stdin do not apply to --health");
                 usage();
             }
             Mode::Health
@@ -561,6 +575,10 @@ fn parse_cli(a: &[String]) -> Cli {
                 "masstree" => false,
                 _ => usage(),
             };
+            if offset != 0 {
+                eprintln!("--round-offset applies to the interleaved comparison, not --arm");
+                usage();
+            }
             Mode::Counters {
                 expanse,
                 rounds: rounds.unwrap_or(COUNTER_ROUNDS),
@@ -568,11 +586,14 @@ fn parse_cli(a: &[String]) -> Cli {
             }
         }
         (false, None) => {
-            if rounds.is_some() || wait_stdin {
-                eprintln!("--rounds and --wait-stdin need --arm");
+            if wait_stdin {
+                eprintln!("--wait-stdin needs --arm");
                 usage();
             }
-            Mode::Throughput
+            Mode::Throughput {
+                rounds: rounds.unwrap_or(ROUNDS),
+                offset,
+            }
         }
         (true, Some(_)) => {
             eprintln!("--health and --arm are two different builds; pick one");
@@ -741,7 +762,10 @@ fn drive<K: KeyLike, M: ConcArm<K>, E: ConcArm<K>>(
         return;
     }
 
-    for round in 0..ROUNDS {
+    let Mode::Throughput { rounds, offset } = mode else {
+        unreachable!("health and counters modes returned above");
+    };
+    for round in offset..offset + rounds {
         // Interleave the arms round by round (docs/BENCHMARKING.md rule 1).
         let mt_first = round % 2 == 0;
         let run_mt = || {

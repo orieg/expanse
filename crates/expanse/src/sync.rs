@@ -3,11 +3,15 @@
 //! [`SyncExpanseSet`] / [`SyncExpanseMap`] / [`SyncExpanseBlobMap`] wrap the
 //! single-threaded structures with the `occ` protocol:
 //!
-//! - **Writers** serialize on a mutex; the tree-level [`SeqVersion`]
-//!   brackets each operation (covering the root state), and the engine
-//!   brackets every branch node's in-place mutation region with that
-//!   node's own version (`occ::version_begin_if` — active only for
-//!   concurrently shared trees). All node frees route through the epoch
+//! - **Writers** serialize on a mutex. The tree-level [`SeqVersion`] (in
+//!   the [`Collector`]) covers the root state: on the set and map the
+//!   engine brackets root-state writes itself and ordinary writes never
+//!   touch it, while the string / bytes / blob wrappers still bracket the
+//!   whole operation with it. Inside the tree every store is bracketed by
+//!   the version of the node containing its address (`occ::Cover` — active
+//!   only for concurrently shared trees), one frame at a time, so a node's
+//!   word is odd only while that node is being written, never for a whole
+//!   descent (#568 PR 3). All node frees route through the epoch
 //!   [`Collector`] (the tree's `NodeAlloc` is switched to deferred
 //!   reclamation at construction), so a reader never dereferences freed
 //!   memory.
@@ -30,8 +34,8 @@
 //! not Miri/loom-checkable end-to-end; loom covers the `occ` protocol
 //! pieces, and the thread stress tests cover the whole); it is the
 //! industry-standard trade until Rust grows blessed tearable atomics.
-//! The per-node version slots reserved in the node headers are the
-//! planned contention refinement, not a correctness requirement.
+//! The per-node version words are live protocol state (readers validate
+//! against them hand-over-hand); the two bitmap-leaf words are reserved.
 
 use crate::blobmap::{ArenaError, CompactionStats, ExpanseBlobMap};
 use crate::bytesmap::ExpanseBytesMap;
@@ -65,8 +69,6 @@ pub(crate) enum RootSnapshot {
     Tree {
         /// The top edge (by value).
         top: Edge,
-        /// Total population.
-        pop: u64,
     },
 }
 
@@ -206,7 +208,7 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
             chk!();
             return Ok(Some(v));
         }
-        RootSnapshot::Tree { top, .. } => (top, 8),
+        RootSnapshot::Tree { top } => (top, 8),
     };
 
     loop {
@@ -514,14 +516,13 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
 }
 
 /// A field on its own cache line when the `lock-padded` diagnostic feature is
-/// on; the bare field otherwise. `Shared`'s writer mutex, version word and
-/// advance tick are a few words apart, so by default they generally sit on
-/// one line (`repr(Rust)` decides; [`layout_report`] says which): every
-/// handoff and every version bracket then invalidates the line every reader
-/// samples. The padded layout is the arm that measures what that sharing
-/// costs; it is not the default because it costs two cache lines per
-/// structure.
+/// on; the bare field otherwise. It wraps `Shared`'s writer mutex and tree
+/// version word, so the feature measures what padding the mutex away from
+/// the wrapper's other writer-private words costs (the version already
+/// heads the struct on the readers' line in either configuration).
+/// [`layout_report`] says where each field landed.
 #[cfg(feature = "lock-padded")]
+#[derive(Debug)]
 #[repr(align(64))]
 pub(crate) struct Line<X>(X);
 #[cfg(feature = "lock-padded")]
@@ -534,32 +535,130 @@ impl<X> core::ops::Deref for Line<X> {
 #[cfg(feature = "lock-padded")]
 impl<X> From<X> for Line<X> {
     fn from(x: X) -> Self {
-        Line(x)
+        Self(x)
     }
 }
+/// See the `lock-padded` twin: the bare field.
 #[cfg(not(feature = "lock-padded"))]
 pub(crate) type Line<X> = X;
-
-/// Wrap a synchronisation field for its own line (`lock-padded`) or leave it
-/// bare; one constructor so the two layouts share the same field initialisers.
+/// Wraps a field for [`Line`] whichever way the feature resolves.
+#[cfg(feature = "lock-padded")]
 #[inline]
 fn line<X>(x: X) -> Line<X> {
-    #[cfg(feature = "lock-padded")]
-    {
-        Line(x)
+    Line(x)
+}
+/// See the `lock-padded` twin: the bare field.
+#[cfg(not(feature = "lock-padded"))]
+#[inline]
+fn line<X>(x: X) -> Line<X> {
+    x
+}
+
+/// What every wrapped engine offers `Shared`: a way to bind the tree-level
+/// version word to its allocator(s) once the wrapper is boxed (#568 PR 3).
+pub(crate) trait SharedTree {
+    /// # Safety
+    ///
+    /// As `NodeAlloc::bind_tree_word`: `word` outlives every operation on
+    /// this tree.
+    unsafe fn bind_tree_word(&self, word: *const SeqVersion);
+
+    /// Total entries currently stored.
+    fn tree_pop(&self) -> u64;
+}
+
+impl SharedTree for ExpanseMap {
+    unsafe fn bind_tree_word(&self, word: *const SeqVersion) {
+        // SAFETY: forwarded contract.
+        unsafe { self.occ_root().1.bind_tree_word(word) };
     }
-    #[cfg(not(feature = "lock-padded"))]
-    {
-        x
+
+    fn tree_pop(&self) -> u64 {
+        self.len()
     }
 }
 
-/// The shared writer/reader state behind both wrappers.
+impl SharedTree for ExpanseSet {
+    unsafe fn bind_tree_word(&self, word: *const SeqVersion) {
+        // SAFETY: forwarded contract.
+        unsafe { self.occ_root().1.bind_tree_word(word) };
+    }
+
+    fn tree_pop(&self) -> u64 {
+        self.len()
+    }
+}
+
+impl SharedTree for ExpanseStrMap {
+    unsafe fn bind_tree_word(&self, word: *const SeqVersion) {
+        // SAFETY: forwarded contract.
+        unsafe { ExpanseStrMap::bind_tree_word(self, word) };
+    }
+
+    fn tree_pop(&self) -> u64 {
+        self.len()
+    }
+}
+
+impl<S: BuildHasher> SharedTree for ExpanseBytesMap<S> {
+    unsafe fn bind_tree_word(&self, word: *const SeqVersion) {
+        // SAFETY: forwarded contract.
+        unsafe { ExpanseBytesMap::bind_tree_word(self, word) };
+    }
+
+    fn tree_pop(&self) -> u64 {
+        self.len()
+    }
+}
+
+impl SharedTree for ExpanseBlobMap {
+    unsafe fn bind_tree_word(&self, word: *const SeqVersion) {
+        // SAFETY: forwarded contract.
+        unsafe { ExpanseBlobMap::bind_tree_word(self, word) };
+    }
+
+    fn tree_pop(&self) -> u64 {
+        self.len()
+    }
+}
+
+/// What `Shared::write_root_covered` asks of an engine: whether its root is
+/// a level-8 trie right now (read under the writer lock).
+pub(crate) trait RootState {
+    fn root_is_tree(&self) -> bool;
+}
+
+impl RootState for ExpanseMap {
+    #[inline(always)]
+    fn root_is_tree(&self) -> bool {
+        ExpanseMap::root_is_tree(self)
+    }
+}
+
+impl RootState for ExpanseSet {
+    #[inline(always)]
+    fn root_is_tree(&self) -> bool {
+        ExpanseSet::root_is_tree(self)
+    }
+}
+
+/// The shared writer/reader state behind every wrapper. `repr(C)` and
+/// line-aligned, and always boxed (see [`Shared::new`]): the tree-level
+/// version word heads the struct, on the cache line the root snapshot
+/// shares, so a reader's sample, root load and validate touch one line and
+/// reach the word at a fixed offset from the pointer they already hold; the
+/// writer-private words (mutex, holder token, advance tick) sit after
+/// `inner`, on a line no reader samples. The engine reaches the word
+/// through `NodeAlloc::bind_tree_word`, which is why the block is boxed —
+/// its address must not change when the wrapper moves. `layout_report`
+/// names the offsets and its test pins the invariant (#568 PR 3).
+#[repr(C, align(64))]
 struct Shared<T> {
-    inner: UnsafeCell<T>,
     version: Line<SeqVersion>,
-    write: Line<Mutex<()>>,
+    inner: UnsafeCell<T>,
+    tree_pop: core::sync::atomic::AtomicU64,
     collector: Arc<Collector>,
+    write: Line<Mutex<()>>,
     /// Token of the thread that last held `write`, for the `Handoffs`
     /// counter. Read and written only under the lock — no coherence traffic
     /// beyond the line it shares (which [`layout_report`] names). Diagnostic
@@ -584,10 +683,10 @@ unsafe impl<T: Send> Send for Shared<T> {}
 // SAFETY: as above.
 unsafe impl<T: Send> Sync for Shared<T> {}
 
-impl<T> Shared<T> {
+impl<T: SharedTree> Shared<T> {
     /// Wraps `inner`, handing every allocation source `attach` names over to
     /// a fresh epoch collector (deferred reclamation).
-    fn new(inner: T, attach: impl FnOnce(&T, &Arc<Collector>)) -> Self {
+    fn new(inner: T, attach: impl FnOnce(&T, &Arc<Collector>)) -> Box<Self> {
         let collector = Arc::new(Collector::new());
         attach(&inner, &collector);
         Self::with_collector(inner, collector)
@@ -596,17 +695,45 @@ impl<T> Shared<T> {
     /// Wraps `inner` around an existing collector — for construction paths
     /// that must defer allocators *while building* `inner` (a populated
     /// structure is shared by rebuilding it through pre-deferred
-    /// allocators; see `NodeAlloc::defer_to`).
-    fn with_collector(inner: T, collector: Arc<Collector>) -> Self {
-        Self {
-            inner: UnsafeCell::new(inner),
+    /// allocators; see `NodeAlloc::defer_to`). Boxed, then the tree word is
+    /// bound to `inner`'s allocators at its final address.
+    fn with_collector(inner: T, collector: Arc<Collector>) -> Box<Self> {
+        let initial_pop = inner.tree_pop();
+        let shared = Box::new(Self {
             version: line(SeqVersion::new()),
-            write: line(Mutex::new(())),
+            inner: UnsafeCell::new(inner),
+            tree_pop: core::sync::atomic::AtomicU64::new(initial_pop),
             collector,
+            write: line(Mutex::new(())),
             #[cfg(feature = "occ-stats")]
             last_holder: UnsafeCell::new(0),
             advance_tick: UnsafeCell::new(0),
-        }
+        });
+        // SAFETY: the word and the tree live in this one heap block, which
+        // the wrapper owns and never opens; `inner` drops before `version`
+        // (field order) and nothing hands the tree out.
+        unsafe {
+            shared
+                .inner_ref()
+                .bind_tree_word(core::ptr::from_ref(shared.version()))
+        };
+        shared
+    }
+}
+
+impl<T> Shared<T> {
+    /// The tree-level version word.
+    #[inline(always)]
+    fn version(&self) -> &SeqVersion {
+        &self.version
+    }
+
+    /// The wrapped engine, for construction-time calls that need no lock.
+    #[inline(always)]
+    fn inner_ref(&self) -> &T {
+        // SAFETY: a shared borrow of the engine; callers use it only where
+        // no writer can be running (construction).
+        unsafe { &*self.inner.get() }
     }
 
     /// Runs one mutation under the writer lock and version bracket, and
@@ -630,12 +757,16 @@ impl<T> Shared<T> {
                 *holder = me;
             }
         }
-        self.version.begin();
+        self.version().begin();
+        #[cfg(debug_assertions)]
+        crate::alloc::bracket_stack::enter(self.tree_cover_addr());
         crate::occ_stats::op_begin();
         // SAFETY: the writer mutex makes this the only mutable borrow.
         let r = f(unsafe { &mut *self.inner.get() });
         crate::occ_stats::op_end();
-        self.version.end();
+        #[cfg(debug_assertions)]
+        crate::alloc::bracket_stack::leave(self.tree_cover_addr());
+        self.version().end();
         #[cfg(not(feature = "advance-never"))]
         {
             // SAFETY: as above — the writer mutex serializes this counter.
@@ -647,6 +778,70 @@ impl<T> Shared<T> {
             }
         }
         r
+    }
+
+    /// One mutation under the writer lock, bracketed with the tree-level
+    /// word only while the root is not a tree (#568 PR 3). In root-leaf
+    /// state every store is a root-state write — the leaf in place, its
+    /// reallocation, the promotion to a tree — so the wrapper holds the word
+    /// for the whole operation, exactly as `write` does. In tree state an
+    /// ordinary insert or remove never touches the word: the engine brackets
+    /// every store with the version of the node that holds it, and the two
+    /// root-state changes a remove can make (to empty, or a condense back to
+    /// a root leaf) bracket themselves. The unshared path pays nothing for
+    /// this: the decision is one branch here, on the shared path only.
+    fn write_root_covered<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
+    where
+        T: RootState,
+    {
+        crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+        let _g = self.write.lock().expect("writer lock poisoned");
+        #[cfg(feature = "occ-stats")]
+        {
+            // SAFETY: the writer mutex serializes this word.
+            let holder = unsafe { &mut *self.last_holder.get() };
+            let me = thread_token();
+            if *holder != me {
+                if *holder != 0 {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::Handoffs);
+                }
+                *holder = me;
+            }
+        }
+        crate::occ_stats::op_begin();
+        // SAFETY: the writer mutex makes this the only mutable borrow.
+        let inner = unsafe { &mut *self.inner.get() };
+        // Read under the lock: the root state is the writer's to change.
+        let r = if inner.root_is_tree() {
+            f(inner)
+        } else {
+            self.version().begin();
+            #[cfg(debug_assertions)]
+            crate::alloc::bracket_stack::enter(self.tree_cover_addr());
+            let r = f(inner);
+            #[cfg(debug_assertions)]
+            crate::alloc::bracket_stack::leave(self.tree_cover_addr());
+            self.version().end();
+            r
+        };
+        crate::occ_stats::op_end();
+        #[cfg(not(feature = "advance-never"))]
+        {
+            // SAFETY: as in `write` — the writer mutex serializes this counter.
+            let tick = unsafe { &mut *self.advance_tick.get() };
+            *tick += 1;
+            if *tick >= ADVANCE_EVERY {
+                *tick = 0;
+                self.collector.try_advance();
+            }
+        }
+        r
+    }
+
+    /// The tree cover's sentinel on the debug bracket stack.
+    #[cfg(debug_assertions)]
+    fn tree_cover_addr(&self) -> *const u32 {
+        core::ptr::from_ref(self.version()).cast::<u32>()
     }
 
     /// Consistent fallback read under the writer lock.
@@ -672,14 +867,16 @@ impl<T> Shared<T> {
         locked: impl FnOnce(&T) -> u64,
     ) -> u64 {
         for _ in 0..MAX_RETRIES {
-            let snap = self.version.sample();
+            let snap = self.version().sample();
             // SAFETY: by-value snapshot; validated before use.
             let root = root_of(unsafe { &*self.inner.get() });
-            if self.version.validate(snap) {
+            if self.version().validate(snap) {
                 return match root {
                     RootSnapshot::Empty => 0,
                     RootSnapshot::Leaf { pop, .. } => pop as u64,
-                    RootSnapshot::Tree { pop, .. } => pop,
+                    RootSnapshot::Tree { .. } => {
+                        self.tree_pop.load(core::sync::atomic::Ordering::Relaxed)
+                    }
                 };
             }
         }
@@ -692,7 +889,7 @@ impl<T> Shared<T> {
 /// serialized), validated optimistic readers. See the module docs for the
 /// protocol and its trade-offs.
 pub struct SyncExpanseSet {
-    shared: Shared<ExpanseSet>,
+    shared: Box<Shared<ExpanseSet>>,
 }
 
 impl Default for SyncExpanseSet {
@@ -705,28 +902,51 @@ impl SyncExpanseSet {
     /// Creates an empty concurrent set.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            shared: Shared::new(ExpanseSet::new(), |s, c| {
-                s.clear_path();
-                s.occ_root().1.defer_to(Arc::clone(c));
-            }),
-        }
+        let shared = Shared::new(ExpanseSet::new(), |s, c| {
+            s.clear_path();
+            s.occ_root().1.defer_to(Arc::clone(c));
+        });
+        // The word is bound at its final address; the engine may now cover
+        // the root state itself.
+        shared.inner_ref().occ_root().1.cover_root();
+        Self { shared }
     }
 
     /// Inserts `key`; returns `true` if it was absent. Serializes with
     /// other writers.
     pub fn insert(&self, key: Key) -> bool {
-        self.shared.write(|s| s.insert(key))
+        self.shared.write_root_covered(|s| {
+            let ins = s.insert(key);
+            if ins {
+                self.shared
+                    .tree_pop
+                    .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            }
+            ins
+        })
     }
 
     /// Removes `key`; returns `true` if it was present.
     pub fn remove(&self, key: Key) -> bool {
-        self.shared.write(|s| s.remove(key))
+        self.shared.write_root_covered(|s| {
+            let rem = s.remove(key);
+            if rem {
+                self.shared
+                    .tree_pop
+                    .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+            }
+            rem
+        })
     }
 
     /// Removes every key from the set.
     pub fn clear(&self) {
-        self.shared.write(|s| s.clear());
+        self.shared.write(|s| {
+            s.clear();
+            self.shared
+                .tree_pop
+                .store(0, core::sync::atomic::Ordering::Relaxed);
+        });
     }
 
     /// Registers a reader handle for this thread's lookups.
@@ -781,12 +1001,13 @@ impl SetReader<'_> {
         for _ in 0..MAX_RETRIES {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = self.reader.pin();
-            let snap = shared.version.sample();
+            let snap = shared.version().sample();
             // SAFETY: pinned + freshly sampled version; the walk
             // validates every load (see `walk_validated`).
             let root = unsafe { (*shared.inner.get()).occ_root().0 };
             // SAFETY: same pin + snapshot contract as the line above.
-            if let Ok(r) = unsafe { walk_validated::<false>(root, key, &shared.version, snap) } {
+            let walked = unsafe { walk_validated::<false>(root, key, shared.version(), snap) };
+            if let Ok(r) = walked {
                 return r.is_some();
             }
         }
@@ -798,7 +1019,7 @@ impl SetReader<'_> {
 /// A map shareable across threads: one writer at a time (internally
 /// serialized), validated optimistic readers. See the module docs.
 pub struct SyncExpanseMap {
-    shared: Shared<ExpanseMap>,
+    shared: Box<Shared<ExpanseMap>>,
 }
 
 impl Default for SyncExpanseMap {
@@ -811,27 +1032,50 @@ impl SyncExpanseMap {
     /// Creates an empty concurrent map.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            shared: Shared::new(ExpanseMap::new(), |m, c| {
-                m.clear_path();
-                m.occ_root().1.defer_to(Arc::clone(c));
-            }),
-        }
+        let shared = Shared::new(ExpanseMap::new(), |m, c| {
+            m.clear_path();
+            m.occ_root().1.defer_to(Arc::clone(c));
+        });
+        // The word is bound at its final address; the engine may now cover
+        // the root state itself.
+        shared.inner_ref().occ_root().1.cover_root();
+        Self { shared }
     }
 
     /// Inserts `key → val`; returns the replaced value, if any.
     pub fn insert(&self, key: Key, val: u64) -> Option<u64> {
-        self.shared.write(|m| m.insert(key, val))
+        self.shared.write_root_covered(|m| {
+            let prev = m.insert(key, val);
+            if prev.is_none() {
+                self.shared
+                    .tree_pop
+                    .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            }
+            prev
+        })
     }
 
     /// Removes `key`; returns its value, if present.
     pub fn remove(&self, key: Key) -> Option<u64> {
-        self.shared.write(|m| m.remove(key))
+        self.shared.write_root_covered(|m| {
+            let prev = m.remove(key);
+            if prev.is_some() {
+                self.shared
+                    .tree_pop
+                    .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+            }
+            prev
+        })
     }
 
     /// Removes every key-value pair from the map.
     pub fn clear(&self) {
-        self.shared.write(|m| m.clear());
+        self.shared.write(|m| {
+            m.clear();
+            self.shared
+                .tree_pop
+                .store(0, core::sync::atomic::Ordering::Relaxed);
+        });
     }
 
     /// Registers a reader handle for this thread's lookups.
@@ -913,12 +1157,13 @@ fn map_get_with(map: &SyncExpanseMap, reader: &Reader, key: Key) -> Option<u64> 
     for _ in 0..MAX_RETRIES {
         crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
         let _pin = reader.pin();
-        let snap = shared.version.sample();
+        let snap = shared.version().sample();
         // SAFETY: pinned + freshly sampled version; the walk validates every
         // load (see `walk_validated`).
         let root = unsafe { (*shared.inner.get()).occ_root().0 };
         // SAFETY: same pin + snapshot contract as the line above.
-        if let Ok(r) = unsafe { walk_validated::<true>(root, key, &shared.version, snap) } {
+        let walked = unsafe { walk_validated::<true>(root, key, shared.version(), snap) };
+        if let Ok(r) = walked {
             return r;
         }
     }
@@ -1011,7 +1256,7 @@ impl MapReader<'_> {
 /// - Structural reads that need multi-field consistency (`mem_used`,
 ///   `scan_filtered`, iteration) go through [`Self::with_locked`].
 pub struct SyncExpanseBlobMap {
-    shared: Shared<ExpanseBlobMap>,
+    shared: Box<Shared<ExpanseBlobMap>>,
 }
 
 impl Default for SyncExpanseBlobMap {
@@ -1052,12 +1297,29 @@ impl SyncExpanseBlobMap {
     /// writers. Semantics as [`ExpanseBlobMap::insert`] (inline payloads
     /// ignore `hot_meta`).
     pub fn insert(&self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
-        self.shared.write(|m| m.insert(key, data, hot_meta))
+        self.shared.write(|m| {
+            let old = m.len();
+            let r = m.insert(key, data, hot_meta);
+            if r.is_ok() && m.len() > old {
+                self.shared
+                    .tree_pop
+                    .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            }
+            r
+        })
     }
 
     /// Removes `key`; returns `true` if it was present.
     pub fn remove(&self, key: Key) -> bool {
-        self.shared.write(|m| m.remove(key))
+        self.shared.write(|m| {
+            let r = m.remove(key);
+            if r {
+                self.shared
+                    .tree_pop
+                    .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+            }
+            r
+        })
     }
 
     /// Runs arena garbage collection and compaction. Dead chunks are retired
@@ -1069,7 +1331,12 @@ impl SyncExpanseBlobMap {
 
     /// Removes every entry and retires all arena chunks.
     pub fn clear(&self) {
-        self.shared.write(ExpanseBlobMap::clear);
+        self.shared.write(|m| {
+            m.clear();
+            self.shared
+                .tree_pop
+                .store(0, core::sync::atomic::Ordering::Relaxed);
+        });
     }
 
     /// Registers a reader handle for this thread's lookups.
@@ -1218,12 +1485,13 @@ impl BlobReader<'_> {
         for _ in 0..MAX_RETRIES {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = self.reader.pin();
-            let snap = shared.version.sample();
+            let snap = shared.version().sample();
             // SAFETY: pinned + freshly sampled version; the walk validates
             // every load (see `walk_validated`).
             let root = unsafe { (*shared.inner.get()).index().occ_root().0 };
             // SAFETY: same pin + snapshot contract as the line above.
-            if let Ok(found) = unsafe { walk_validated::<true>(root, key, &shared.version, snap) } {
+            let walked = unsafe { walk_validated::<true>(root, key, shared.version(), snap) };
+            if let Ok(found) = walked {
                 return Ok(found);
             }
         }
@@ -1292,12 +1560,12 @@ impl BlobReadGuard<'_> {
         crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
         for _ in 0..MAX_RETRIES {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
-            let snap = shared.version.sample();
+            let snap = shared.version().sample();
             // SAFETY: the guard's pin predates this sample; the walk
             // validates every load (see `walk_validated`).
             let root = unsafe { (*shared.inner.get()).index().occ_root().0 };
             // SAFETY: same pin + snapshot contract as the line above.
-            let Ok(found) = (unsafe { walk_validated::<true>(root, key, &shared.version, snap) })
+            let Ok(found) = (unsafe { walk_validated::<true>(root, key, shared.version(), snap) })
             else {
                 continue;
             };
@@ -1346,7 +1614,7 @@ impl BlobReadGuard<'_> {
                 unsafe { crate::blobmap::resolve_meta_in_table(table, slot.arena_meta_locator()) };
             match resolved {
                 Some((ptr, len)) => {
-                    if shared.version.validate(snap) {
+                    if shared.version().validate(snap) {
                         // No writer overlapped: the resolution used the
                         // table consistent with `snap`, so `ptr..ptr+len` is
                         // the record's live payload. Arena records are never
@@ -1360,7 +1628,7 @@ impl BlobReadGuard<'_> {
                     }
                 }
                 None => {
-                    if shared.version.validate(snap) {
+                    if shared.version().validate(snap) {
                         // Validated dangling locator — mirrors the
                         // single-threaded `get` returning `None`.
                         return None;
@@ -1484,7 +1752,7 @@ impl<'g> PartialEq<SyncBlobView<'g>> for [u8] {
 /// single-threaded API (they return writable slots), so they are reachable
 /// only through [`Self::with_locked_mut`].
 pub struct SyncExpanseStrMap {
-    shared: Shared<ExpanseStrMap>,
+    shared: Box<Shared<ExpanseStrMap>>,
 }
 
 impl Default for SyncExpanseStrMap {
@@ -1569,10 +1837,10 @@ impl SyncExpanseStrMap {
     #[must_use]
     pub fn len(&self) -> u64 {
         for _ in 0..MAX_RETRIES {
-            let snap = self.shared.version.sample();
+            let snap = self.shared.version().sample();
             // SAFETY: single-word racy copy; validated before use.
             let pop = unsafe { (*self.shared.inner.get()).len() };
-            if self.shared.version.validate(snap) {
+            if self.shared.version().validate(snap) {
                 return pop;
             }
         }
@@ -1631,11 +1899,11 @@ impl StrReader<'_> {
         for _ in 0..MAX_RETRIES {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = self.reader.pin();
-            let snap = shared.version.sample();
+            let snap = shared.version().sample();
             // SAFETY: pinned + freshly sampled version; every hop of the
             // cascade validates its loads (see `ExpanseStrMap::get_validated`).
             let attempt =
-                unsafe { (*shared.inner.get()).get_validated(key, &shared.version, snap) };
+                unsafe { (*shared.inner.get()).get_validated(key, shared.version(), snap) };
             if let Ok(r) = attempt {
                 return r;
             }
@@ -1669,7 +1937,7 @@ impl StrReader<'_> {
 /// The hasher is shared untouched between the writer and every reader
 /// (hashing goes through `&self` concurrently), hence the `Sync` bound.
 pub struct SyncExpanseBytesMap<S: BuildHasher + Send + Sync = RandomState> {
-    shared: Shared<ExpanseBytesMap<S>>,
+    shared: Box<Shared<ExpanseBytesMap<S>>>,
 }
 
 impl Default for SyncExpanseBytesMap<RandomState> {
@@ -1743,10 +2011,10 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
     #[must_use]
     pub fn len(&self) -> u64 {
         for _ in 0..MAX_RETRIES {
-            let snap = self.shared.version.sample();
+            let snap = self.shared.version().sample();
             // SAFETY: single-word racy copy; validated before use.
             let pop = unsafe { (*self.shared.inner.get()).len() };
-            if self.shared.version.validate(snap) {
+            if self.shared.version().validate(snap) {
                 return pop;
             }
         }
@@ -1823,11 +2091,11 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
         for _ in 0..MAX_RETRIES {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = self.reader.pin();
-            let snap = shared.version.sample();
+            let snap = shared.version().sample();
             // SAFETY: pinned + freshly sampled version; every load is
             // validated (see `ExpanseBytesMap::get_validated`).
             let attempt =
-                unsafe { (*shared.inner.get()).get_validated(key, &shared.version, snap) };
+                unsafe { (*shared.inner.get()).get_validated(key, shared.version(), snap) };
             if let Ok(r) = attempt {
                 return r;
             }
@@ -1845,6 +2113,17 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
 
 #[cfg(all(test, not(miri)))]
 mod tests {
+    /// A tree whose root state the engine covers, with no wrapper: defers
+    /// to a fresh collector and binds `word` (the wrapper would own both;
+    /// here the test declares the word before the tree so it outlives it).
+    #[allow(dead_code)]
+    pub(super) fn cover_root_for_test(alloc: &crate::alloc::NodeAlloc, word: &SeqVersion) {
+        alloc.defer_to(Arc::new(crate::occ::Collector::new()));
+        // SAFETY: the caller declared `word` before the tree, so it drops
+        // after it.
+        unsafe { alloc.bind_tree_word(core::ptr::from_ref(word)) };
+        alloc.cover_root();
+    }
 
     /// Wraps a test key. These are literals and generated keys the tests know
     /// are in-domain; a NUL in one is a bug in the test, so panicking is right.
@@ -2974,54 +3253,59 @@ mod tests {
         drop(m);
     }
 
-    /// Negative invariant control (#477, #479): verifies that if an unbracketed
-    /// mutation is attempted on an OCC-enabled ExpanseMap (simulating a path-cache
-    /// bypass that skipped parent version bracketing), the engine panics deterministically.
+    /// The insert-path bypass is compiled out on a shared tree (#477, #479,
+    /// #568 PR 3 — AGENTS.md §2.1.5, a compile-time path rather than a
+    /// runtime check): a warm path cache matching the next key's prefix is
+    /// ignored, the engine brackets its own stores, and the cache is left
+    /// cold. With no bracket open around the call, the old bypass would
+    /// have stored into the leaf unbracketed.
     #[test]
     #[cfg(debug_assertions)]
-    #[should_panic(expected = "node interior mutated outside any version bracket")]
-    fn negative_control_map_unbracketed_bypass_panics() {
+    fn shared_map_insert_leaves_the_path_cache_cold() {
+        let word = SeqVersion::new();
         let mut map = ExpanseMap::new();
-        map.occ_root()
-            .1
-            .defer_to(Arc::new(crate::occ::Collector::new()));
-
-        // Populate under a bracket until it transitions to a multi-level tree
-        map.occ_root().1.bracket_enter();
+        // The map/set wrapper's mode: the engine covers the root state, so
+        // no bracket is open around any call here.
+        cover_root_for_test(map.occ_root().1, &word);
         for k in 0..40u64 {
             map.insert(k, k * 10);
         }
-        map.occ_root().1.bracket_leave();
-
-        // Simulate a warm path cache matching the next insert's prefix
-        map.path_mut().prefix = 0;
-
-        // An unbracketed insert with matching prefix takes the fast path and must panic
-        map.insert(50, 500);
+        assert_eq!(map.insert(50, 500), None);
+        assert_eq!(map.get(50), Some(500));
+        // Sequential keys are the bypass's own case; on a shared tree the
+        // engine leaves the cache cold, so the bypass can never fire.
+        let path = map.path_mut();
+        assert_eq!(path.depth, 0, "the shared engine records no path");
+        assert!(
+            path.leaf.is_null() && path.leaf1.is_null(),
+            "no terminal cursor"
+        );
+        assert_eq!(path.prefix, u64::MAX, "no warm prefix");
+        assert!(crate::alloc::bracket_stack::open().is_empty());
     }
 
-    /// Negative invariant control (#477, #479): the set twin of the test above.
+    /// Set twin of the test above.
     #[test]
     #[cfg(debug_assertions)]
-    #[should_panic(expected = "node interior mutated outside any version bracket")]
-    fn negative_control_set_unbracketed_bypass_panics() {
+    fn shared_set_insert_leaves_the_path_cache_cold() {
+        let word = SeqVersion::new();
         let mut set = ExpanseSet::new();
-        set.occ_root()
-            .1
-            .defer_to(Arc::new(crate::occ::Collector::new()));
-
-        // Populate under a bracket until it transitions to a multi-level tree
-        set.occ_root().1.bracket_enter();
+        // The map/set wrapper's mode: the engine covers the root state, so
+        // no bracket is open around any call here.
+        cover_root_for_test(set.occ_root().1, &word);
         for k in 0..40u64 {
             set.insert(k);
         }
-        set.occ_root().1.bracket_leave();
-
-        // Simulate a warm path cache matching the next insert's prefix
-        set.path_mut().prefix = 0;
-
-        // An unbracketed insert with matching prefix takes the fast path and must panic
-        set.insert(50);
+        assert!(set.insert(50));
+        assert!(set.contains(50));
+        let path = set.path_mut();
+        assert_eq!(path.depth, 0, "the shared engine records no path");
+        assert!(
+            path.leaf.is_null() && path.leaf1.is_null(),
+            "no terminal cursor"
+        );
+        assert_eq!(path.prefix, u64::MAX, "no warm prefix");
+        assert!(crate::alloc::bracket_stack::open().is_empty());
     }
 
     /// Positive companion: when properly bracketed, map mutations covered
@@ -3034,13 +3318,13 @@ mod tests {
             .1
             .defer_to(Arc::new(crate::occ::Collector::new()));
 
-        map.occ_root().1.bracket_enter();
+        map.occ_root().1.bracket_enter_any();
         for k in 0..40u64 {
             map.insert(k, k * 10);
         }
         map.path_mut().prefix = 0;
         map.insert(50, 500);
-        map.occ_root().1.bracket_leave();
+        map.occ_root().1.bracket_leave_any();
     }
 
     /// Positive companion: set twin of the test above.
@@ -3052,13 +3336,13 @@ mod tests {
             .1
             .defer_to(Arc::new(crate::occ::Collector::new()));
 
-        set.occ_root().1.bracket_enter();
+        set.occ_root().1.bracket_enter_any();
         for k in 0..40u64 {
             set.insert(k);
         }
         set.path_mut().prefix = 0;
         set.insert(50);
-        set.occ_root().1.bracket_leave();
+        set.occ_root().1.bracket_leave_any();
     }
 
     /// A long-held `BlobReadGuard` holds an epoch `Pin` that stalls `Collector::try_advance`
@@ -3158,6 +3442,11 @@ pub fn layout_report() -> Vec<(&'static str, &'static str, usize)> {
                 "version",
                 core::mem::offset_of!(Shared<T>, version),
             ),
+            (
+                wrapper,
+                "tree_pop",
+                core::mem::offset_of!(Shared<T>, tree_pop),
+            ),
             (wrapper, "write", core::mem::offset_of!(Shared<T>, write)),
             (
                 wrapper,
@@ -3186,9 +3475,9 @@ pub fn layout_report() -> Vec<(&'static str, &'static str, usize)> {
     out
 }
 
-/// Rows per wrapper in [`layout_report`]: the six fields and the size row.
+/// Rows per wrapper in [`layout_report`]: the seven fields and the size row.
 #[cfg(feature = "occ-stats")]
-const LAYOUT_ROWS: usize = 7;
+const LAYOUT_ROWS: usize = 8;
 
 #[cfg(all(test, feature = "occ-stats"))]
 mod diagnostics_tests {
@@ -3255,9 +3544,10 @@ mod diagnostics_tests {
 
     #[test]
     fn layout_report_names_every_field_of_every_wrapper() {
-        const FIELDS: [&str; 6] = [
+        const FIELDS: [&str; 7] = [
             "inner",
             "version",
+            "tree_pop",
             "write",
             "collector",
             "last_holder",
@@ -3289,16 +3579,29 @@ mod diagnostics_tests {
                 offs.iter().all(|&o| o < size),
                 "{wrapper}: every offset inside the struct"
             );
+            let off = |name: &str| rows.iter().find(|(_, n, _)| *n == name).unwrap().2;
+            // The readers' line: the word heads the block, the root
+            // snapshot follows it; the writer's private words are on
+            // another line (#568 PR 3).
+            assert_eq!(
+                off("version"),
+                0,
+                "{wrapper}: the tree word heads the block"
+            );
+            assert_eq!(
+                off("inner"),
+                core::mem::size_of::<Line<SeqVersion>>(),
+                "{wrapper}: the root snapshot follows the word"
+            );
+            for w in ["write", "last_holder", "advance_tick"] {
+                assert!(
+                    off(w) / 64 != off("version") / 64,
+                    "{wrapper}: {w} shares no line with the tree word"
+                );
+            }
             #[cfg(feature = "lock-padded")]
             {
-                let off = |name: &str| rows.iter().find(|(_, n, _)| *n == name).unwrap().2;
-                let (v, w) = (off("version"), off("write"));
-                assert_eq!(v % 64, 0, "{wrapper}: version line-aligned");
-                assert_eq!(w % 64, 0, "{wrapper}: write line-aligned");
-                assert!(
-                    v.abs_diff(w) >= 64,
-                    "{wrapper}: padded — version and write on different lines"
-                );
+                assert_eq!(off("write") % 64, 0, "{wrapper}: write line-aligned");
             }
         }
     }
@@ -3379,8 +3682,7 @@ mod obsolete_tests {
         // shape must actually be the one the interleaving needs.
         let probe = 0x1021u64;
         // SAFETY: no writer is running; the snapshot is read for its shape.
-        let RootSnapshot::Tree { top, .. } = (unsafe { (*map.shared.inner.get()).occ_root().0 })
-        else {
+        let RootSnapshot::Tree { top } = (unsafe { (*map.shared.inner.get()).occ_root().0 }) else {
             panic!("root must be a tree")
         };
         // The keys share bytes 7..2, so the path from the top is a chain of

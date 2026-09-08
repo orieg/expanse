@@ -46,6 +46,13 @@ impl KeyStr {
         &self.0[..self.0.len() - 1]
     }
 
+    /// The key as the Expanse string maps take it: the generators never
+    /// emit a NUL byte, so the domain check cannot fail on a suite key.
+    #[inline]
+    pub fn key(&self) -> &expanse_trie::strmap::NulFreeStr {
+        expanse_trie::strmap::NulFreeStr::new(self.bytes()).expect("suite keys are NUL-free")
+    }
+
     /// Key length in bytes, without the terminator.
     #[inline]
     pub fn len(&self) -> usize {

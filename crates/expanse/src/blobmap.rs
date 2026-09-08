@@ -1338,6 +1338,19 @@ impl ExpanseBlobMap {
     /// never be retired to the collector (see `NodeAlloc::defer_to`); the
     /// old index (and its slab pages, wholesale) is freed here. Arena
     /// payloads are untouched — the raw `ValueSlot` words carry over.
+    /// Binds the wrapper's tree-level version word to the index trie's
+    /// allocator (#568 PR 3; see `NodeAlloc::bind_tree_word`).
+    ///
+    /// # Safety
+    ///
+    /// As `NodeAlloc::bind_tree_word`: `word` outlives every operation on
+    /// this map.
+    #[cfg(feature = "std")]
+    pub(crate) unsafe fn bind_tree_word(&self, word: *const crate::occ::SeqVersion) {
+        // SAFETY: forwarded contract.
+        unsafe { self.index.occ_root().1.bind_tree_word(word) };
+    }
+
     #[cfg(feature = "std")]
     pub(crate) fn rebuild_index_deferred(&mut self, collector: &Arc<Collector>) {
         let fresh = ExpanseMap::new();

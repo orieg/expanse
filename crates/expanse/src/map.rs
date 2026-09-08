@@ -30,10 +30,12 @@ enum Root {
         ptr: NonNull<u8>,
         pop: usize,
     },
-    /// A level-8 trie; `pop` is the total population (the JPM role).
+    /// A level-8 trie; the population lives beside the root in
+    /// `MapCore::tree_pop` (the JPM role) so the enum stays a plain `Copy`
+    /// word pair — an atomic inside it would make every read of the root
+    /// reload through memory.
     Tree {
         top: Edge,
-        pop: u64,
     },
 }
 
@@ -54,6 +56,11 @@ enum Root {
 /// pathless twin) with the allocator that produced the core's nodes.
 pub(crate) struct MapCore {
     root: Root,
+    /// Total population while `root` is a `Tree` (the JPM role): an atomic
+    /// word so a shared tree bumps it under no bracket and a concurrent
+    /// `len()` reads it whole (#568 PR 3); the unshared path writes it
+    /// through `get_mut`, no atomic instruction.
+    tree_pop: u64,
 }
 
 /// A sparse, dynamic map from `u64` keys to `u64` values (compat: JudyL).
@@ -95,10 +102,133 @@ pub(crate) fn leaf_values_offset(pop: usize) -> usize {
     8 * crate::leaf::cap_class(pop)
 }
 
+/// See `set::by_mode`: the three sharing modes an engine call is
+/// monomorphized for, decided once per operation.
+macro_rules! by_mode {
+    ($alloc:expr, $call:ident $args:tt) => {
+        if $alloc.occ_enabled() {
+            if $alloc.engine_covers_root() {
+                $call::<true, false> $args
+            } else {
+                $call::<true, true> $args
+            }
+        } else {
+            $call::<false, false> $args
+        }
+    };
+    // With a leading const argument of the call's own (`KEEP`).
+    ($alloc:expr, $call:ident::<$k:literal> $args:tt) => {
+        if $alloc.occ_enabled() {
+            if $alloc.engine_covers_root() {
+                $call::<$k, true, false> $args
+            } else {
+                $call::<$k, true, true> $args
+            }
+        } else {
+            $call::<$k, false, false> $args
+        }
+    };
+}
+
+/// The tree arm of insert, per sharing mode: the engine call and the
+/// population bump (atomic on a shared tree, a plain add otherwise).
+#[inline(always)]
+fn tree_insert<const KEEP: bool, const OCC: bool, const NESTED: bool>(
+    alloc: &NodeAlloc,
+    tree_pop: &mut u64,
+    path: &mut crate::mutate_map::InsertPathMap,
+    top: &mut Edge,
+    key: Key,
+    val: u64,
+) -> (Option<u64>, *mut u64) {
+    // SAFETY: trie maintained/owned by this map's engine.
+    let r = unsafe {
+        mutate_map::map_insert_with_path::<KEEP, OCC, NESTED>(
+            alloc,
+            top,
+            key,
+            val,
+            8,
+            path,
+            crate::occ::Cover::Tree,
+        )
+    };
+    if r.0.is_none() {
+        *tree_pop += 1;
+    }
+    r
+}
+
+/// The tree arm of remove, per sharing mode: `(removed value, population
+/// after)`, `u64::MAX` when nothing was removed.
+#[inline(always)]
+fn tree_remove<const OCC: bool, const NESTED: bool>(
+    alloc: &NodeAlloc,
+    tree_pop: &mut u64,
+    top: &mut Edge,
+    key: Key,
+) -> (Option<u64>, u64) {
+    // SAFETY: trie maintained/owned by this map's engine.
+    let old = unsafe {
+        mutate_map::map_remove::<OCC, NESTED>(alloc, top, key, 8, crate::occ::Cover::Tree)
+    };
+    let now = if old.is_none() {
+        u64::MAX
+    } else {
+        *tree_pop -= 1;
+        *tree_pop
+    };
+    (old, now)
+}
+
+/// The root-leaf promotion, per sharing mode (see `set::promote_leaf`).
+#[inline(always)]
+fn promote_leaf<const OCC: bool, const NESTED: bool>(
+    alloc: &NodeAlloc,
+    keys: &[u64],
+    vals: *const u64,
+    key: Key,
+    val: u64,
+    path: &mut crate::mutate_map::InsertPathMap,
+) -> Edge {
+    let mut top = Edge::NULL;
+    let mut scratch = 0u32;
+    let cover = if OCC {
+        crate::occ::Cover::Node(&raw mut scratch)
+    } else {
+        crate::occ::Cover::Tree
+    };
+    for (at, &k) in keys.iter().enumerate() {
+        // SAFETY: trie built and owned by `alloc`; values read in-bounds.
+        let prev = unsafe {
+            mutate_map::map_insert::<false, OCC, NESTED>(
+                alloc,
+                &mut top,
+                k,
+                *vals.add(at),
+                8,
+                cover,
+            )
+        };
+        debug_assert!(prev.0.is_none());
+    }
+    // SAFETY: same trie; populate path for subsequent sequential/clustered inserts.
+    let prev = unsafe {
+        mutate_map::map_insert_with_path::<false, OCC, NESTED>(
+            alloc, &mut top, key, val, 8, path, cover,
+        )
+    };
+    debug_assert!(prev.0.is_none());
+    top
+}
+
 impl MapCore {
     /// An empty core.
     pub(crate) const fn new() -> Self {
-        Self { root: Root::Empty }
+        Self {
+            root: Root::Empty,
+            tree_pop: 0,
+        }
     }
 
     /// Number of keys in the map.
@@ -108,7 +238,7 @@ impl MapCore {
         match &self.root {
             Root::Empty => 0,
             Root::Leaf { pop, .. } => *pop as u64,
-            Root::Tree { pop, .. } => *pop,
+            Root::Tree { .. } => self.tree_pop,
         }
     }
 
@@ -466,7 +596,7 @@ impl MapCore {
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> core::ptr::NonNull<u64> {
         match &mut self.root {
-            Root::Tree { top, pop } => {
+            Root::Tree { top } => {
                 let prefix = key >> 8;
                 if path.prefix == prefix {
                     alloc.assert_bracketed();
@@ -516,7 +646,7 @@ impl MapCore {
                         node.bitmap.set(d);
                         path.pending_pop += 1;
                         path.terminal_pop += 1;
-                        *pop += 1;
+                        self.tree_pop += 1;
                         // SAFETY: keep terminal edge pop0 up to date.
                         unsafe {
                             (*path.edges[0]).set_pop0(1, (path.terminal_pop - 1) as u64);
@@ -546,7 +676,7 @@ impl MapCore {
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;
-                                *pop += 1;
+                                self.tree_pop += 1;
                                 // SAFETY: freshly written slot in live value area.
                                 let slot = unsafe { base.cast::<u64>().add(cur_pop) };
                                 return core::ptr::NonNull::new(slot).expect("slot");
@@ -560,11 +690,12 @@ impl MapCore {
                 }
                 path.clear();
                 // SAFETY: trie maintained/owned by this map's engine.
-                let (prev, slot) =
-                    unsafe { mutate_map::map_insert_path_dyn::<true>(alloc, top, key, 0, 8, path) };
-                if prev.is_none() {
-                    *pop += 1;
-                }
+                // The slot API is not on the shared wrapper; a deferred
+                // tree still dispatches by flag so its stores are bracketed.
+                let (_prev, slot) = by_mode!(
+                    alloc,
+                    tree_insert::<true>(alloc, &mut self.tree_pop, path, top, key, 0)
+                );
                 // SAFETY: map_insert always returns a valid, non-null slot pointer.
                 unsafe { core::ptr::NonNull::new_unchecked(slot) }
             }
@@ -684,18 +815,30 @@ impl MapCore {
         }
     }
 
+    /// Whether the root is a level-8 trie (#568 PR 3): on a shared tree the
+    /// wrapper brackets a root-leaf-state operation with the tree word
+    /// itself, since every store then is a root-state write, and leaves a
+    /// tree-state operation to the engine's per-node brackets.
+    #[inline(always)]
+    #[cfg(feature = "std")]
+    pub(crate) fn root_is_tree(&self) -> bool {
+        matches!(self.root, Root::Tree { .. })
+    }
+
     /// Phase 7 (occ): by-value root snapshot for the validated concurrent
     /// read walk (see `ExpanseSet::occ_root`).
     #[inline(always)]
     #[cfg(all(target_pointer_width = "64", feature = "std"))]
     pub(crate) fn occ_snapshot(&self) -> RootSnapshot {
-        match self.root {
+        // `top` is a possibly-torn by-value copy (validated by the reader);
+        // `pop` is loaded whole, since a shared tree bumps it under no bracket.
+        match &self.root {
             Root::Empty => RootSnapshot::Empty,
             Root::Leaf { ptr, pop } => RootSnapshot::Leaf {
                 ptr: ptr.as_ptr(),
-                pop,
+                pop: *pop,
             },
-            Root::Tree { top, pop } => RootSnapshot::Tree { top, pop },
+            Root::Tree { top } => RootSnapshot::Tree { top: *top },
         }
     }
 
@@ -711,7 +854,7 @@ impl MapCore {
     /// is deliberately excluded — a `pop` bump alone is not a root rewrite.
     #[cfg(feature = "occ-stats")]
     fn root_fingerprint(&self) -> (u8, u64, u64) {
-        match self.root {
+        match &self.root {
             Root::Empty => (0, 0, 0),
             Root::Leaf { ptr, .. } => (1, ptr.as_ptr() as u64, 0),
             Root::Tree { top, .. } => (2, top.word0(), top.aux_word()),
@@ -830,38 +973,28 @@ impl MapCore {
                     };
                     None
                 } else {
-                    // Root leaf overflow: build the level-8 trie.
-                    let mut top = Edge::NULL;
-                    for (at, &k) in keys.iter().enumerate() {
-                        // SAFETY: trie built and owned by `alloc`;
-                        // values read in-bounds.
-                        let prev = unsafe {
-                            mutate_map::map_insert_dyn::<false>(
-                                alloc,
-                                &mut top,
-                                k,
-                                *vals.add(at),
-                                8,
-                            )
-                        };
-                        debug_assert!(prev.0.is_none());
-                    }
-                    // SAFETY: same trie; populate path for subsequent sequential/clustered inserts.
-                    let prev = unsafe {
-                        mutate_map::map_insert_path_dyn::<false>(alloc, &mut top, key, val, 8, path)
-                    };
-                    debug_assert!(prev.0.is_none());
+                    // Root leaf overflow: build the level-8 trie. The build
+                    // is private until `self.root` is set; on a shared tree
+                    // the wrapper holds the tree bracket for this root-state
+                    // change (`sync::Shared::write_root_covered`) and the
+                    // shared engine builds under a scratch word — never the
+                    // tree word (a nested `begin` would make it even
+                    // mid-write), never a node's own (an upgrade inside the
+                    // build marks that node obsolete, which needs it even).
+                    let top = by_mode!(alloc, promote_leaf(alloc, keys, vals, key, val, path));
                     // SAFETY: old root leaf no longer referenced.
                     unsafe { alloc.free_bytes(ptr, leaf_size(pop)) };
-                    self.root = Root::Tree {
-                        top,
-                        pop: pop as u64 + 1,
-                    };
+                    self.tree_pop = pop as u64 + 1;
+                    self.root = Root::Tree { top };
                     None
                 }
             }
-            Root::Tree { top, pop } => {
+            Root::Tree { top } => {
                 let prefix = key >> 8;
+                // A warm path never exists on a shared tree: the shared engine
+                // clears the cache on entry and records nothing, so this bypass
+                // is structurally cold there (AGENTS.md §2.1.5); the assert is
+                // the tripwire, not the guard.
                 if path.prefix == prefix {
                     alloc.assert_bracketed();
                     if !path.leaf.is_null() {
@@ -914,7 +1047,7 @@ impl MapCore {
                         node.bitmap.set(d);
                         path.pending_pop += 1;
                         path.terminal_pop += 1;
-                        *pop += 1;
+                        self.tree_pop += 1;
                         // SAFETY: keep terminal edge pop0 up to date.
                         unsafe {
                             (*path.edges[0]).set_pop0(1, (path.terminal_pop - 1) as u64);
@@ -942,7 +1075,7 @@ impl MapCore {
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;
-                                *pop += 1;
+                                self.tree_pop += 1;
                                 return None;
                             }
                         } else if d == last {
@@ -958,15 +1091,14 @@ impl MapCore {
                     }
                 }
                 path.clear();
-                // SAFETY: trie maintained/owned by this map's engine.
-                let prev = unsafe {
-                    mutate_map::map_insert_path_dyn::<false>(alloc, top, key, val, 8, path)
-                }
-                .0;
-                if prev.is_none() {
-                    *pop += 1;
-                }
-                prev
+                // One OCC check per operation, where the runtime dispatch
+                // always sat; the shared monomorph brackets every store by the
+                // node that holds it and bumps the population atomically.
+                by_mode!(
+                    alloc,
+                    tree_insert::<false>(alloc, &mut self.tree_pop, path, top, key, val)
+                )
+                .0
             }
         }
     }
@@ -1033,17 +1165,25 @@ impl MapCore {
                 }
                 Some(old)
             }
-            Root::Tree { top, pop } => {
-                // SAFETY: trie maintained/owned by this map's engine.
-                let old = unsafe { mutate_map::map_remove_dyn(alloc, top, key, 8) };
+            Root::Tree { top } => {
+                // One OCC check per operation, where the runtime dispatch
+                // always sat (see `insert_inner`).
+                let (old, now) = by_mode!(alloc, tree_remove(alloc, &mut self.tree_pop, top, key));
                 if old.is_some() {
-                    *pop -= 1;
-                    if *pop == 0 {
+                    if now == 0 {
                         debug_assert!(top.is_null());
+                        // A root-state change: on a shared tree whose engine
+                        // covers the root, the tree word brackets it (a no-op
+                        // elsewhere; one load on this rare path).
+                        crate::occ::tree_begin_if::<true>(alloc);
                         self.root = Root::Empty;
-                    } else if *pop < ROOT_LEAF_CAP as u64 {
-                        // Hysteresis twin of the root-leaf promotion.
+                        crate::occ::tree_end_if::<true>(alloc);
+                    } else if now < ROOT_LEAF_CAP as u64 {
+                        // Hysteresis twin of the root-leaf promotion; a
+                        // root-state change, as above.
+                        crate::occ::tree_begin_if::<true>(alloc);
                         self.condense_to_root_leaf(alloc, path);
+                        crate::occ::tree_end_if::<true>(alloc);
                     }
                 }
                 old
@@ -1094,14 +1234,15 @@ impl MapCore {
                 }
                 Ok(())
             }
-            Root::Tree { top, pop } => {
+            Root::Tree { top } => {
                 if top.is_null() {
                     return Err("tree root with null top".into());
                 }
                 let mut stats = ExpanseStats::default();
                 let counted =
                     crate::validate::expanse_validate_and_stats::<true>(top, 8, &mut stats, 0)?;
-                if counted != *pop {
+                let pop = self.tree_pop;
+                if counted != pop {
                     return Err(format!(
                         "total population {pop} disagrees with tree {counted}"
                     ));
@@ -1634,10 +1775,10 @@ impl MapCore {
         alloc: &NodeAlloc,
         path: &mut crate::mutate_map::InsertPathMap,
     ) {
-        let Root::Tree { top, pop } = &mut self.root else {
+        let Root::Tree { top } = &mut self.root else {
             unreachable!("condense outside tree state")
         };
-        let n = *pop as usize;
+        let n = self.tree_pop as usize;
         debug_assert!((1..ROOT_LEAF_CAP).contains(&n));
         let new = alloc.alloc_bytes(leaf_size(n));
         let mut written = 0usize;
@@ -1771,6 +1912,13 @@ impl ExpanseMap {
     #[must_use]
     pub fn get(&self, key: Key) -> Option<u64> {
         self.core.get(key)
+    }
+
+    /// See `MapCore::root_is_tree`.
+    #[inline(always)]
+    #[cfg(feature = "std")]
+    pub(crate) fn root_is_tree(&self) -> bool {
+        self.core.root_is_tree()
     }
 
     /// Look up a batch of `keys` simultaneously, writing values into `out`.
@@ -2044,6 +2192,77 @@ impl Drop for ExpanseMap {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    /// The shared-tree engine (`OCC = true`) on one thread, so Miri can see
+    /// its raw-pointer discipline (#568 PR 3): a map deferred to a collector
+    /// in the wrapper's mode is driven through every node form — dense keys
+    /// through the bitmap leaves, one wide level through `BranchB` into
+    /// `BranchU`, scattered keys through cascades and narrow pointers — and
+    /// back down to empty. Sized for the Tier-1 Miri lane (docs/CI.md §5).
+    #[test]
+    fn occ_engine_single_thread_under_miri() {
+        // Both sharing modes: the engine covering the root (brief per-node
+        // brackets) and the wrapper holding the tree word (nested brackets).
+        occ_engine_drive(true);
+        occ_engine_drive(false);
+    }
+
+    fn occ_engine_drive(engine_covers_root: bool) {
+        // The wrapper would own the tree word beside the tree; the drive
+        // declares it first so it outlives the tree.
+        let word = crate::occ::SeqVersion::new();
+        let mut m = ExpanseMap::new();
+        let collector = std::sync::Arc::new(crate::occ::Collector::new());
+        m.occ_root().1.defer_to(collector);
+        // SAFETY: `word` is declared before the tree, so it drops after it.
+        unsafe { m.occ_root().1.bind_tree_word(core::ptr::from_ref(&word)) };
+        if engine_covers_root {
+            m.occ_root().1.cover_root();
+        } else {
+            // The wrapper would hold the tree word; here the drive does.
+            #[cfg(debug_assertions)]
+            m.occ_root().1.bracket_enter_any();
+        }
+        let mut model = BTreeMap::new();
+        let mut keys: Vec<u64> = Vec::new();
+        // Dense: root leaf, promotion, linear leaves into a bitmap leaf.
+        keys.extend(0..600u64);
+        // One wide level: 200 distinct digits at level 2 (BranchB, then U).
+        keys.extend((0..200u64).map(|i| (i + 1) << 8));
+        // Scattered: cascades at every level and narrow pointers.
+        let mut x = 0x9E37_79B9_7F4A_7C15u64;
+        for _ in 0..40 {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            keys.push(x);
+        }
+        for (i, &k) in keys.iter().enumerate() {
+            let v = i as u64 * 3 + 1;
+            assert_eq!(m.insert(k, v), model.insert(k, v), "insert {k:#x}");
+        }
+        assert_eq!(m.len(), model.len() as u64);
+        m.validate();
+        for &k in &keys {
+            assert_eq!(m.get(k), model.get(&k).copied(), "get {k:#x}");
+        }
+        // Overwrite in place, then remove everything in an order that
+        // crosses every hysteresis floor.
+        for &k in keys.iter().step_by(7) {
+            assert_eq!(m.insert(k, 0), model.insert(k, 0));
+        }
+        for &k in keys.iter().rev() {
+            assert_eq!(m.remove(k), model.remove(&k), "remove {k:#x}");
+        }
+        assert!(m.is_empty());
+        m.validate();
+        if !engine_covers_root {
+            #[cfg(debug_assertions)]
+            m.occ_root().1.bracket_leave_any();
+        }
+        #[cfg(debug_assertions)]
+        assert!(crate::alloc::bracket_stack::open().is_empty());
+    }
 
     /// Regression for the fuzz crash `crash-7048e639` (ASan overflow):
     /// a 1-byte-remainder linear leaf with pop 9..=12 has a
