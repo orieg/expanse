@@ -10,7 +10,8 @@
 //! opens.
 //!
 //! Both arms drive the **same C ABI**: `JudyLIns`/`JudyLGet`/`Judy1Set`/
-//! `Judy1Test` with identical key streams. Stock is reached through
+//! `Judy1Test`/`JudySLIns`/`JudySLGet` with identical key streams. Stock is
+//! reached through
 //! `dlopen`/`dlsym` because it exports the very symbols we do — loading
 //! it privately is what keeps the two from colliding at link time (the
 //! differential oracle uses the same trick).
@@ -55,12 +56,13 @@
 //! |---|---|
 //! | `workload_id` | `capi_vs_stock` |
 //! | `group` | 1 |
-//! | `population` | `POP = 30_000`, `POP_BIG = 1_500_000` (L204, 209) |
+//! | `population` | `POP = 30_000`, `POP_BIG = 1_500_000` (L204, 209); the `judysl_*` arms use `POP` |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
 //! | `probes_and_reuse` | 30k / 1.5M, reuse 1.0 |
 //! | `hit_rate` | 100% / mixed |
 //! | `miss_gen_method` | Interleaved keys |
 //! | `value_dereference` | `*slot` dereferenced |
+//! | `key_shape` | `Word` for the `judyl_*`/`judy1_*` arms; NUL-terminated fixed-width strings for `judysl_*`, derived from the same `keys(dist)` so the three distributions carry over. Absolute counts for the string arms include `strlen` on both sides and are **not** comparable to the `Word`-keyed arms; their ratio is. |
 //! | `measured_region` | Deliberately leaks to exclude drop |
 //! | `arm_symmetry` | **Three arms**: `*_expanse` (rlib, LTO-linked), `*_expanse_dl` (dlopen'd cdylib), and `*_stock` (dlopen'd libjudy). `*_expanse_dl` vs `*_stock` is symmetric; `*_expanse` vs `*_stock` is asymmetric (LTO bias). |
 //! | `statistics` | iai Callgrind exact counts (simulated 8 MiB LL) |
