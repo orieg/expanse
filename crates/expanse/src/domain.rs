@@ -23,6 +23,27 @@
 //! 4. **Stable Slab Reverse Storage**: Payloads are stored in [`BlobArena`] using 64-bit global
 //!    offsets. Memory addresses never move on chunk allocation, and reverse resolution yields
 //!    uniform borrowed `&[u8]` slices directly from stable chunks.
+//!
+//! ### What the domain brand is, and is not
+//!
+//! The `domain_id` carried by every [`DomainSet`] and [`DomainOrdinal`] detects
+//! **accidental** cross-vocabulary use within a process: every operation checks
+//! it and returns [`DomainMismatch`] rather than computing a meaningless
+//! answer. That is its whole job, and it does it well.
+//!
+//! It is **not** a tenancy or capability boundary, and must not be used as one
+//! (#763). Domain ids come from a process-global counter starting at 1, so they
+//! are guessable and repeat across processes and restarts — id `3` in one run
+//! satisfies a check against id `3` in another. [`DomainOrdinal`] is `Copy`,
+//! `Hash` and `Ord` with public accessors, so it is the shape of a value people
+//! serialize; round-tripping one through a cache or a restart carries no
+//! provenance with it. Isolation between tenants belongs in the caller's own
+//! authorization check, over separate dictionary instances.
+//!
+//! A foreign ordinal is therefore an [`Err`], never `Ok(false)`. The two are
+//! different facts — "this member is absent" and "this ordinal denotes nothing
+//! here" — and a caller who wants them merged writes `.unwrap_or(false)` at a
+//! line a reviewer can see.
 
 extern crate alloc;
 
@@ -56,9 +77,9 @@ impl core::fmt::Display for DomainMismatch {
 
 #[cfg(feature = "std")]
 impl std::error::Error for DomainMismatch {}
-
 /// Unified error type for domain dictionary operations.
 #[derive(Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DomainError {
     /// Operands originated from different domain dictionaries.
     Mismatch(DomainMismatch),
@@ -98,12 +119,17 @@ pub struct DomainOrdinal {
 }
 
 impl DomainOrdinal {
-    /// Constructs a branded ordinal for the given domain and ordinal values.
-    #[inline]
-    #[must_use]
-    pub const fn new(domain_id: u64, ordinal: u64) -> Self {
-        Self { domain_id, ordinal }
-    }
+    // No public constructor. `DomainOrdinal::new(domain_id, ordinal)` used to be
+    // `pub const`, which made the "branded" claim false: any caller could forge
+    // `DomainOrdinal::new(set.domain_id(), n)` and satisfy a check whose entire
+    // point is provenance (#763). `intern` and `intern_batch` are the vending
+    // path, and they build the struct directly — narrowing `new` to
+    // `pub(crate)` left it with no caller at all, so it is gone rather than
+    // kept as dead crate-private surface.
+    //
+    // The brand is a same-process mistake detector, not a capability: domain
+    // ids come from a process-global counter starting at 1, so they are
+    // guessable and repeat across restarts. The module docs say so.
 
     /// Returns the domain identifier that vended this ordinal.
     #[inline]
