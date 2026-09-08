@@ -202,10 +202,13 @@ pub struct NodeAlloc {
     /// released — concurrent readers may still hold the pointers.
     #[cfg(feature = "std")]
     deferred: OnceLock<Arc<Collector>>,
-    /// Debug-only: how many node version brackets are open on this
-    /// tree's mutation stack (see [`Self::assert_bracketed`]).
-    #[cfg(debug_assertions)]
-    bracket_depth: AtomicUsize,
+    /// Phase 7 / #568 PR 3: who brackets root-state writes. `true` when the
+    /// engine does (the map and set wrappers: ordinary writes never touch the
+    /// tree word); `false` when the wrapper brackets whole operations in
+    /// `Shared::write` (string, bytes, blob), so the engine's tree cover is a
+    /// no-op and the word is never opened twice.
+    #[cfg(feature = "std")]
+    engine_covers_root: core::sync::atomic::AtomicBool,
     /// Cumulative allocation count (never decremented). Lets a test
     /// separate the engine's own node/leaf allocations from incidental
     /// scratch allocations elsewhere in a code path — see
@@ -222,8 +225,8 @@ impl Default for NodeAlloc {
             live_allocs: AtomicUsize::new(0),
             #[cfg(feature = "std")]
             deferred: OnceLock::new(),
-            #[cfg(debug_assertions)]
-            bracket_depth: AtomicUsize::new(0),
+            #[cfg(feature = "std")]
+            engine_covers_root: core::sync::atomic::AtomicBool::new(false),
             total_allocs: AtomicUsize::new(0),
             freelists: [const { AtomicPtr::new(core::ptr::null_mut()) }; NUM_CLASSES],
             slab_pages: AtomicPtr::new(core::ptr::null_mut()),
@@ -468,37 +471,108 @@ impl NodeAlloc {
         false
     }
 
-    /// Debug-only bracket bookkeeping (see [`Self::assert_bracketed`]).
+    /// Debug-only bracket bookkeeping: `v` — a node version field, or the
+    /// tree cover sentinel — is now open on this thread's mutation stack.
     #[cfg(debug_assertions)]
-    pub(crate) fn bracket_enter(&self) {
-        self.bracket_depth.fetch_add(1, Ordering::Relaxed);
+    pub(crate) fn bracket_enter(&self, v: *const u32) {
+        debug_assert!(
+            !bracket_stack::contains(v),
+            "version bracket opened twice on one word: a nested `begin` \
+             makes the word even while the outer write is still in flight"
+        );
+        bracket_stack::enter(v);
     }
 
-    /// Debug-only bracket bookkeeping (see [`Self::assert_bracketed`]).
+    /// Debug-only bracket bookkeeping: the most recently opened bracket,
+    /// which must be `v`, closes.
     #[cfg(debug_assertions)]
-    pub(crate) fn bracket_leave(&self) {
-        self.bracket_depth.fetch_sub(1, Ordering::Relaxed);
+    pub(crate) fn bracket_leave(&self, v: *const u32) {
+        bracket_stack::leave(v);
+    }
+
+    /// Test-only: opens an anonymous bracket (a sentinel address), for tests
+    /// that need "some bracket is open" without a node.
+    #[cfg(all(test, debug_assertions))]
+    pub(crate) fn bracket_enter_any(&self) {
+        bracket_stack::enter(core::ptr::without_provenance(usize::MAX));
+    }
+
+    /// Test-only twin of [`Self::bracket_enter_any`].
+    #[cfg(all(test, debug_assertions))]
+    pub(crate) fn bracket_leave_any(&self) {
+        bracket_stack::leave(core::ptr::without_provenance(usize::MAX));
     }
 
     /// Asserts the Phase 7 coverage invariant at a mutation site: **every
-    /// mutation of a node's interior happens with an enclosing node's
-    /// version bracket open**, so a concurrent reader validating against
-    /// that node's version cannot miss it.
+    /// store to a node's interior happens with *that node's* version
+    /// bracket open** (or, for a leaf, immediate or subarray payload, the
+    /// bracket of the branch whose slot points at it), so a concurrent
+    /// reader validating against that node's version cannot miss it.
     ///
-    /// Terminal nodes (leaves, bitmap leaves) carry no version of their
-    /// own; readers validate their payloads against the parent branch's
-    /// version, which is exactly why the parent's bracket must still be
-    /// open while a leaf is being rewritten. Checked only in debug
-    /// builds, and only for concurrently shared trees — a single-threaded
-    /// tree has no readers to protect.
+    /// Address-checked (#568 PR 3): a bracket open on the wrong node would
+    /// satisfy a depth counter and still leave a reader's validation blind,
+    /// so the check is that `v` itself is on this thread's open stack.
+    /// Checked only in debug builds, and only for concurrently shared trees
+    /// — a single-threaded tree has no readers to protect.
+    #[inline]
+    pub(crate) fn assert_bracketed_by(&self, v: *const u32) {
+        #[cfg(debug_assertions)]
+        debug_assert!(
+            !self.occ_enabled() || bracket_stack::contains(v),
+            "node interior mutated outside its own version bracket ({v:p}): a \
+             concurrent reader validating against that node could observe it \
+             mid-write; open brackets on this thread: {:?}",
+            bracket_stack::open()
+        );
+        let _ = v;
+    }
+
+    /// The weaker form: *some* bracket is open on this thread. Kept for the
+    /// single-threaded bypass sites the concurrent engine does not take.
     #[inline]
     pub(crate) fn assert_bracketed(&self) {
         #[cfg(debug_assertions)]
         debug_assert!(
-            !self.occ_enabled() || self.bracket_depth.load(Ordering::Relaxed) > 0,
+            !self.occ_enabled() || !bracket_stack::open().is_empty(),
             "node interior mutated outside any version bracket: a concurrent \
              reader could observe it mid-write"
         );
+    }
+
+    /// The tree-level version word of the collector this tree is deferred
+    /// to (#568 PR 3). Only meaningful on a shared tree.
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    pub(crate) fn tree_version(&self) -> &crate::occ::SeqVersion {
+        self.deferred
+            .get()
+            .expect("tree_version on a tree that is not shared")
+            .version()
+    }
+
+    /// Sentinel address for the tree cover on the debug bracket stack.
+    #[cfg(all(debug_assertions, feature = "std"))]
+    #[inline(always)]
+    pub(crate) fn tree_cover_addr(&self) -> *const u32 {
+        core::ptr::from_ref(self.tree_version()).cast::<u32>()
+    }
+
+    /// Whether the engine brackets root-state writes on this tree (see the
+    /// field). False until [`Self::defer_to_engine_root`].
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    pub(crate) fn engine_covers_root(&self) -> bool {
+        self.engine_covers_root.load(Ordering::Relaxed)
+    }
+
+    /// [`Self::defer_to`], with root-state coverage handed to the engine:
+    /// the wrapper then runs mutations *without* the tree-level bracket and
+    /// the engine opens it only around a `Root` variant change, a root-leaf
+    /// mutation or a top-edge rewrite (#568 PR 3).
+    #[cfg(feature = "std")]
+    pub fn defer_to_engine_root(&self, collector: Arc<Collector>) {
+        self.defer_to(collector);
+        self.engine_covers_root.store(true, Ordering::Relaxed);
     }
 
     /// Switches this allocator to deferred reclamation through
@@ -583,6 +657,63 @@ impl NodeAlloc {
     }
 }
 
+/// The per-thread stack of open version brackets, debug builds only.
+///
+/// Per thread rather than per tree: with more than one writer a tree-wide
+/// counter would let thread A's bracket satisfy thread B's assert (#568),
+/// and a counter cannot say *which* node is covered at all. Addresses only —
+/// nothing is dereferenced.
+#[cfg(debug_assertions)]
+pub(crate) mod bracket_stack {
+    #[cfg(feature = "std")]
+    std::thread_local! {
+        static OPEN: core::cell::RefCell<Vec<usize>> = const { core::cell::RefCell::new(Vec::new()) };
+    }
+
+    #[cfg(feature = "std")]
+    pub(crate) fn enter(v: *const u32) {
+        OPEN.with(|o| o.borrow_mut().push(v as usize));
+    }
+
+    #[cfg(feature = "std")]
+    pub(crate) fn leave(v: *const u32) {
+        OPEN.with(|o| {
+            let top = o.borrow_mut().pop();
+            debug_assert_eq!(
+                top,
+                Some(v as usize),
+                "version brackets closed out of order"
+            );
+        });
+    }
+
+    #[cfg(feature = "std")]
+    pub(crate) fn contains(v: *const u32) -> bool {
+        OPEN.with(|o| o.borrow().contains(&(v as usize)))
+    }
+
+    #[cfg(feature = "std")]
+    pub(crate) fn open() -> Vec<usize> {
+        OPEN.with(|o| o.borrow().clone())
+    }
+
+    // Without `std` there is no thread-local storage and no shared tree
+    // (`occ_enabled` is always false), so the stack is a no-op that reports
+    // "nothing open".
+    #[cfg(not(feature = "std"))]
+    pub(crate) fn enter(_v: *const u32) {}
+    #[cfg(not(feature = "std"))]
+    pub(crate) fn leave(_v: *const u32) {}
+    #[cfg(not(feature = "std"))]
+    pub(crate) fn contains(_v: *const u32) -> bool {
+        false
+    }
+    #[cfg(not(feature = "std"))]
+    pub(crate) fn open() -> [usize; 0] {
+        []
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -657,9 +788,32 @@ mod tests {
         // Shared tree with a bracket open: also fine.
         a.defer_to(Arc::new(crate::occ::Collector::new()));
         let mut version = 0u32;
-        crate::occ::version_begin_if::<true>(&a, &mut version);
-        a.assert_bracketed();
-        crate::occ::version_end_if::<true>(&a, &mut version);
+        // SAFETY: `version` is a live local for the whole bracket.
+        unsafe {
+            crate::occ::version_begin_if_ptr::<true>(&a, &raw mut version);
+            a.assert_bracketed();
+            a.assert_bracketed_by(&raw const version);
+            crate::occ::version_end_if_ptr::<true>(&a, &raw mut version);
+        }
+    }
+
+    /// The address check is the point (#568 PR 3): a bracket open on
+    /// another node must not satisfy a store into this one.
+    #[test]
+    #[cfg(feature = "std")]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "outside its own version bracket")]
+    fn negative_control_wrong_node_bracket_must_fire() {
+        let a = NodeAlloc::new();
+        a.defer_to(Arc::new(crate::occ::Collector::new()));
+        let mut other = 0u32;
+        let this = 0u32;
+        // SAFETY: `other` is a live local for the whole bracket.
+        unsafe {
+            crate::occ::version_begin_if_ptr::<true>(&a, &raw mut other);
+            a.assert_bracketed_by(&raw const this);
+            crate::occ::version_end_if_ptr::<true>(&a, &raw mut other);
+        }
     }
 
     #[test]

@@ -3,11 +3,15 @@
 //! [`SyncExpanseSet`] / [`SyncExpanseMap`] / [`SyncExpanseBlobMap`] wrap the
 //! single-threaded structures with the `occ` protocol:
 //!
-//! - **Writers** serialize on a mutex; the tree-level [`SeqVersion`]
-//!   brackets each operation (covering the root state), and the engine
-//!   brackets every branch node's in-place mutation region with that
-//!   node's own version (`occ::version_begin_if` — active only for
-//!   concurrently shared trees). All node frees route through the epoch
+//! - **Writers** serialize on a mutex. The tree-level [`SeqVersion`] (in
+//!   the [`Collector`]) covers the root state: on the set and map the
+//!   engine brackets root-state writes itself and ordinary writes never
+//!   touch it, while the string / bytes / blob wrappers still bracket the
+//!   whole operation with it. Inside the tree every store is bracketed by
+//!   the version of the node containing its address (`occ::Cover` — active
+//!   only for concurrently shared trees), one frame at a time, so a node's
+//!   word is odd only while that node is being written, never for a whole
+//!   descent (#568 PR 3). All node frees route through the epoch
 //!   [`Collector`] (the tree's `NodeAlloc` is switched to deferred
 //!   reclamation at construction), so a reader never dereferences freed
 //!   memory.
@@ -38,7 +42,7 @@ use crate::bytesmap::ExpanseBytesMap;
 use crate::leaf;
 use crate::map::ExpanseMap;
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL};
-use crate::occ::{Collector, Pin, Reader, SeqVersion};
+use crate::occ::{Collector, Line, Pin, Reader, SeqVersion, line};
 use crate::set::ExpanseSet;
 use crate::slot::{SlotTag, ValueSlot};
 use crate::strmap::{ExpanseStrMap, NulFreeStr};
@@ -513,51 +517,9 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
     }
 }
 
-/// A field on its own cache line when the `lock-padded` diagnostic feature is
-/// on; the bare field otherwise. `Shared`'s writer mutex, version word and
-/// advance tick are a few words apart, so by default they generally sit on
-/// one line (`repr(Rust)` decides; [`layout_report`] says which): every
-/// handoff and every version bracket then invalidates the line every reader
-/// samples. The padded layout is the arm that measures what that sharing
-/// costs; it is not the default because it costs two cache lines per
-/// structure.
-#[cfg(feature = "lock-padded")]
-#[repr(align(64))]
-pub(crate) struct Line<X>(X);
-#[cfg(feature = "lock-padded")]
-impl<X> core::ops::Deref for Line<X> {
-    type Target = X;
-    fn deref(&self) -> &X {
-        &self.0
-    }
-}
-#[cfg(feature = "lock-padded")]
-impl<X> From<X> for Line<X> {
-    fn from(x: X) -> Self {
-        Line(x)
-    }
-}
-#[cfg(not(feature = "lock-padded"))]
-pub(crate) type Line<X> = X;
-
-/// Wrap a synchronisation field for its own line (`lock-padded`) or leave it
-/// bare; one constructor so the two layouts share the same field initialisers.
-#[inline]
-fn line<X>(x: X) -> Line<X> {
-    #[cfg(feature = "lock-padded")]
-    {
-        Line(x)
-    }
-    #[cfg(not(feature = "lock-padded"))]
-    {
-        x
-    }
-}
-
 /// The shared writer/reader state behind both wrappers.
 struct Shared<T> {
     inner: UnsafeCell<T>,
-    version: Line<SeqVersion>,
     write: Line<Mutex<()>>,
     collector: Arc<Collector>,
     /// Token of the thread that last held `write`, for the `Handoffs`
@@ -600,7 +562,6 @@ impl<T> Shared<T> {
     fn with_collector(inner: T, collector: Arc<Collector>) -> Self {
         Self {
             inner: UnsafeCell::new(inner),
-            version: line(SeqVersion::new()),
             write: line(Mutex::new(())),
             collector,
             #[cfg(feature = "occ-stats")]
@@ -630,12 +591,16 @@ impl<T> Shared<T> {
                 *holder = me;
             }
         }
-        self.version.begin();
+        self.collector.version().begin();
+        #[cfg(debug_assertions)]
+        crate::alloc::bracket_stack::enter(self.tree_cover_addr());
         crate::occ_stats::op_begin();
         // SAFETY: the writer mutex makes this the only mutable borrow.
         let r = f(unsafe { &mut *self.inner.get() });
         crate::occ_stats::op_end();
-        self.version.end();
+        #[cfg(debug_assertions)]
+        crate::alloc::bracket_stack::leave(self.tree_cover_addr());
+        self.collector.version().end();
         #[cfg(not(feature = "advance-never"))]
         {
             // SAFETY: as above — the writer mutex serializes this counter.
@@ -647,6 +612,51 @@ impl<T> Shared<T> {
             }
         }
         r
+    }
+
+    /// One mutation under the writer lock **without** the tree-level bracket
+    /// (#568 PR 3): for trees whose engine brackets root-state writes itself
+    /// (`NodeAlloc::defer_to_engine_root`), so an ordinary insert or remove
+    /// never stores to the word every reader samples. The engine opens the
+    /// tree bracket only around a `Root` variant change, a root-leaf mutation
+    /// or a top-edge rewrite, and every other store under the version of the
+    /// node that contains it.
+    fn write_unbracketed<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
+        crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+        let _g = self.write.lock().expect("writer lock poisoned");
+        #[cfg(feature = "occ-stats")]
+        {
+            // SAFETY: the writer mutex serializes this word.
+            let holder = unsafe { &mut *self.last_holder.get() };
+            let me = thread_token();
+            if *holder != me {
+                if *holder != 0 {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::Handoffs);
+                }
+                *holder = me;
+            }
+        }
+        crate::occ_stats::op_begin();
+        // SAFETY: the writer mutex makes this the only mutable borrow.
+        let r = f(unsafe { &mut *self.inner.get() });
+        crate::occ_stats::op_end();
+        #[cfg(not(feature = "advance-never"))]
+        {
+            // SAFETY: as in `write` — the writer mutex serializes this counter.
+            let tick = unsafe { &mut *self.advance_tick.get() };
+            *tick += 1;
+            if *tick >= ADVANCE_EVERY {
+                *tick = 0;
+                self.collector.try_advance();
+            }
+        }
+        r
+    }
+
+    /// The tree cover's sentinel on the debug bracket stack.
+    #[cfg(debug_assertions)]
+    fn tree_cover_addr(&self) -> *const u32 {
+        core::ptr::from_ref(self.collector.version()).cast::<u32>()
     }
 
     /// Consistent fallback read under the writer lock.
@@ -672,10 +682,10 @@ impl<T> Shared<T> {
         locked: impl FnOnce(&T) -> u64,
     ) -> u64 {
         for _ in 0..MAX_RETRIES {
-            let snap = self.version.sample();
+            let snap = self.collector.version().sample();
             // SAFETY: by-value snapshot; validated before use.
             let root = root_of(unsafe { &*self.inner.get() });
-            if self.version.validate(snap) {
+            if self.collector.version().validate(snap) {
                 return match root {
                     RootSnapshot::Empty => 0,
                     RootSnapshot::Leaf { pop, .. } => pop as u64,
@@ -708,7 +718,7 @@ impl SyncExpanseSet {
         Self {
             shared: Shared::new(ExpanseSet::new(), |s, c| {
                 s.clear_path();
-                s.occ_root().1.defer_to(Arc::clone(c));
+                s.occ_root().1.defer_to_engine_root(Arc::clone(c));
             }),
         }
     }
@@ -716,12 +726,12 @@ impl SyncExpanseSet {
     /// Inserts `key`; returns `true` if it was absent. Serializes with
     /// other writers.
     pub fn insert(&self, key: Key) -> bool {
-        self.shared.write(|s| s.insert(key))
+        self.shared.write_unbracketed(|s| s.insert(key))
     }
 
     /// Removes `key`; returns `true` if it was present.
     pub fn remove(&self, key: Key) -> bool {
-        self.shared.write(|s| s.remove(key))
+        self.shared.write_unbracketed(|s| s.remove(key))
     }
 
     /// Removes every key from the set.
@@ -781,12 +791,14 @@ impl SetReader<'_> {
         for _ in 0..MAX_RETRIES {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = self.reader.pin();
-            let snap = shared.version.sample();
+            let snap = shared.collector.version().sample();
             // SAFETY: pinned + freshly sampled version; the walk
             // validates every load (see `walk_validated`).
             let root = unsafe { (*shared.inner.get()).occ_root().0 };
             // SAFETY: same pin + snapshot contract as the line above.
-            if let Ok(r) = unsafe { walk_validated::<false>(root, key, &shared.version, snap) } {
+            let walked =
+                unsafe { walk_validated::<false>(root, key, shared.collector.version(), snap) };
+            if let Ok(r) = walked {
                 return r.is_some();
             }
         }
@@ -814,19 +826,19 @@ impl SyncExpanseMap {
         Self {
             shared: Shared::new(ExpanseMap::new(), |m, c| {
                 m.clear_path();
-                m.occ_root().1.defer_to(Arc::clone(c));
+                m.occ_root().1.defer_to_engine_root(Arc::clone(c));
             }),
         }
     }
 
     /// Inserts `key → val`; returns the replaced value, if any.
     pub fn insert(&self, key: Key, val: u64) -> Option<u64> {
-        self.shared.write(|m| m.insert(key, val))
+        self.shared.write_unbracketed(|m| m.insert(key, val))
     }
 
     /// Removes `key`; returns its value, if present.
     pub fn remove(&self, key: Key) -> Option<u64> {
-        self.shared.write(|m| m.remove(key))
+        self.shared.write_unbracketed(|m| m.remove(key))
     }
 
     /// Removes every key-value pair from the map.
@@ -913,12 +925,13 @@ fn map_get_with(map: &SyncExpanseMap, reader: &Reader, key: Key) -> Option<u64> 
     for _ in 0..MAX_RETRIES {
         crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
         let _pin = reader.pin();
-        let snap = shared.version.sample();
+        let snap = shared.collector.version().sample();
         // SAFETY: pinned + freshly sampled version; the walk validates every
         // load (see `walk_validated`).
         let root = unsafe { (*shared.inner.get()).occ_root().0 };
         // SAFETY: same pin + snapshot contract as the line above.
-        if let Ok(r) = unsafe { walk_validated::<true>(root, key, &shared.version, snap) } {
+        let walked = unsafe { walk_validated::<true>(root, key, shared.collector.version(), snap) };
+        if let Ok(r) = walked {
             return r;
         }
     }
@@ -1218,12 +1231,14 @@ impl BlobReader<'_> {
         for _ in 0..MAX_RETRIES {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = self.reader.pin();
-            let snap = shared.version.sample();
+            let snap = shared.collector.version().sample();
             // SAFETY: pinned + freshly sampled version; the walk validates
             // every load (see `walk_validated`).
             let root = unsafe { (*shared.inner.get()).index().occ_root().0 };
             // SAFETY: same pin + snapshot contract as the line above.
-            if let Ok(found) = unsafe { walk_validated::<true>(root, key, &shared.version, snap) } {
+            let walked =
+                unsafe { walk_validated::<true>(root, key, shared.collector.version(), snap) };
+            if let Ok(found) = walked {
                 return Ok(found);
             }
         }
@@ -1292,12 +1307,13 @@ impl BlobReadGuard<'_> {
         crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
         for _ in 0..MAX_RETRIES {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
-            let snap = shared.version.sample();
+            let snap = shared.collector.version().sample();
             // SAFETY: the guard's pin predates this sample; the walk
             // validates every load (see `walk_validated`).
             let root = unsafe { (*shared.inner.get()).index().occ_root().0 };
             // SAFETY: same pin + snapshot contract as the line above.
-            let Ok(found) = (unsafe { walk_validated::<true>(root, key, &shared.version, snap) })
+            let Ok(found) =
+                (unsafe { walk_validated::<true>(root, key, shared.collector.version(), snap) })
             else {
                 continue;
             };
@@ -1346,7 +1362,7 @@ impl BlobReadGuard<'_> {
                 unsafe { crate::blobmap::resolve_meta_in_table(table, slot.arena_meta_locator()) };
             match resolved {
                 Some((ptr, len)) => {
-                    if shared.version.validate(snap) {
+                    if shared.collector.version().validate(snap) {
                         // No writer overlapped: the resolution used the
                         // table consistent with `snap`, so `ptr..ptr+len` is
                         // the record's live payload. Arena records are never
@@ -1360,7 +1376,7 @@ impl BlobReadGuard<'_> {
                     }
                 }
                 None => {
-                    if shared.version.validate(snap) {
+                    if shared.collector.version().validate(snap) {
                         // Validated dangling locator — mirrors the
                         // single-threaded `get` returning `None`.
                         return None;
@@ -1569,10 +1585,10 @@ impl SyncExpanseStrMap {
     #[must_use]
     pub fn len(&self) -> u64 {
         for _ in 0..MAX_RETRIES {
-            let snap = self.shared.version.sample();
+            let snap = self.shared.collector.version().sample();
             // SAFETY: single-word racy copy; validated before use.
             let pop = unsafe { (*self.shared.inner.get()).len() };
-            if self.shared.version.validate(snap) {
+            if self.shared.collector.version().validate(snap) {
                 return pop;
             }
         }
@@ -1631,11 +1647,12 @@ impl StrReader<'_> {
         for _ in 0..MAX_RETRIES {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = self.reader.pin();
-            let snap = shared.version.sample();
+            let snap = shared.collector.version().sample();
             // SAFETY: pinned + freshly sampled version; every hop of the
             // cascade validates its loads (see `ExpanseStrMap::get_validated`).
-            let attempt =
-                unsafe { (*shared.inner.get()).get_validated(key, &shared.version, snap) };
+            let attempt = unsafe {
+                (*shared.inner.get()).get_validated(key, shared.collector.version(), snap)
+            };
             if let Ok(r) = attempt {
                 return r;
             }
@@ -1743,10 +1760,10 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
     #[must_use]
     pub fn len(&self) -> u64 {
         for _ in 0..MAX_RETRIES {
-            let snap = self.shared.version.sample();
+            let snap = self.shared.collector.version().sample();
             // SAFETY: single-word racy copy; validated before use.
             let pop = unsafe { (*self.shared.inner.get()).len() };
-            if self.shared.version.validate(snap) {
+            if self.shared.collector.version().validate(snap) {
                 return pop;
             }
         }
@@ -1823,11 +1840,12 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
         for _ in 0..MAX_RETRIES {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = self.reader.pin();
-            let snap = shared.version.sample();
+            let snap = shared.collector.version().sample();
             // SAFETY: pinned + freshly sampled version; every load is
             // validated (see `ExpanseBytesMap::get_validated`).
-            let attempt =
-                unsafe { (*shared.inner.get()).get_validated(key, &shared.version, snap) };
+            let attempt = unsafe {
+                (*shared.inner.get()).get_validated(key, shared.collector.version(), snap)
+            };
             if let Ok(r) = attempt {
                 return r;
             }
@@ -2974,54 +2992,50 @@ mod tests {
         drop(m);
     }
 
-    /// Negative invariant control (#477, #479): verifies that if an unbracketed
-    /// mutation is attempted on an OCC-enabled ExpanseMap (simulating a path-cache
-    /// bypass that skipped parent version bracketing), the engine panics deterministically.
+    /// The insert-path bypass is compiled out on a shared tree (#477, #479,
+    /// #568 PR 3 — AGENTS.md §2.1.5, a compile-time path rather than a
+    /// runtime check): a warm path cache matching the next key's prefix is
+    /// ignored, the engine brackets its own stores, and the cache is left
+    /// cold. With no bracket open around the call, the old bypass would
+    /// have stored into the leaf unbracketed.
     #[test]
     #[cfg(debug_assertions)]
-    #[should_panic(expected = "node interior mutated outside any version bracket")]
-    fn negative_control_map_unbracketed_bypass_panics() {
+    fn shared_map_insert_ignores_a_warm_path_cache() {
         let mut map = ExpanseMap::new();
+        // The map/set wrapper's mode: the engine covers the root state, so
+        // no bracket is open around any call here.
         map.occ_root()
             .1
-            .defer_to(Arc::new(crate::occ::Collector::new()));
-
-        // Populate under a bracket until it transitions to a multi-level tree
-        map.occ_root().1.bracket_enter();
+            .defer_to_engine_root(Arc::new(crate::occ::Collector::new()));
         for k in 0..40u64 {
             map.insert(k, k * 10);
         }
-        map.occ_root().1.bracket_leave();
-
-        // Simulate a warm path cache matching the next insert's prefix
+        // Simulate a warm path cache matching the next insert's prefix.
         map.path_mut().prefix = 0;
-
-        // An unbracketed insert with matching prefix takes the fast path and must panic
-        map.insert(50, 500);
+        assert_eq!(map.insert(50, 500), None);
+        assert_eq!(map.get(50), Some(500));
+        assert_eq!(map.path_mut().depth, 0, "the shared engine records no path");
+        assert!(crate::alloc::bracket_stack::open().is_empty());
     }
 
-    /// Negative invariant control (#477, #479): the set twin of the test above.
+    /// Set twin of the test above.
     #[test]
     #[cfg(debug_assertions)]
-    #[should_panic(expected = "node interior mutated outside any version bracket")]
-    fn negative_control_set_unbracketed_bypass_panics() {
+    fn shared_set_insert_ignores_a_warm_path_cache() {
         let mut set = ExpanseSet::new();
+        // The map/set wrapper's mode: the engine covers the root state, so
+        // no bracket is open around any call here.
         set.occ_root()
             .1
-            .defer_to(Arc::new(crate::occ::Collector::new()));
-
-        // Populate under a bracket until it transitions to a multi-level tree
-        set.occ_root().1.bracket_enter();
+            .defer_to_engine_root(Arc::new(crate::occ::Collector::new()));
         for k in 0..40u64 {
             set.insert(k);
         }
-        set.occ_root().1.bracket_leave();
-
-        // Simulate a warm path cache matching the next insert's prefix
         set.path_mut().prefix = 0;
-
-        // An unbracketed insert with matching prefix takes the fast path and must panic
-        set.insert(50);
+        assert!(set.insert(50));
+        assert!(set.contains(50));
+        assert_eq!(set.path_mut().depth, 0, "the shared engine records no path");
+        assert!(crate::alloc::bracket_stack::open().is_empty());
     }
 
     /// Positive companion: when properly bracketed, map mutations covered
@@ -3034,13 +3048,13 @@ mod tests {
             .1
             .defer_to(Arc::new(crate::occ::Collector::new()));
 
-        map.occ_root().1.bracket_enter();
+        map.occ_root().1.bracket_enter_any();
         for k in 0..40u64 {
             map.insert(k, k * 10);
         }
         map.path_mut().prefix = 0;
         map.insert(50, 500);
-        map.occ_root().1.bracket_leave();
+        map.occ_root().1.bracket_leave_any();
     }
 
     /// Positive companion: set twin of the test above.
@@ -3052,13 +3066,13 @@ mod tests {
             .1
             .defer_to(Arc::new(crate::occ::Collector::new()));
 
-        set.occ_root().1.bracket_enter();
+        set.occ_root().1.bracket_enter_any();
         for k in 0..40u64 {
             set.insert(k);
         }
         set.path_mut().prefix = 0;
         set.insert(50);
-        set.occ_root().1.bracket_leave();
+        set.occ_root().1.bracket_leave_any();
     }
 
     /// A long-held `BlobReadGuard` holds an epoch `Pin` that stalls `Collector::try_advance`
@@ -3153,11 +3167,6 @@ pub fn layout_report() -> Vec<(&'static str, &'static str, usize)> {
     fn rows<T>(wrapper: &'static str, out: &mut Vec<(&'static str, &'static str, usize)>) {
         out.extend([
             (wrapper, "inner", core::mem::offset_of!(Shared<T>, inner)),
-            (
-                wrapper,
-                "version",
-                core::mem::offset_of!(Shared<T>, version),
-            ),
             (wrapper, "write", core::mem::offset_of!(Shared<T>, write)),
             (
                 wrapper,
@@ -3177,18 +3186,30 @@ pub fn layout_report() -> Vec<(&'static str, &'static str, usize)> {
             (wrapper, "size_of", core::mem::size_of::<Shared<T>>()),
         ]);
     }
-    let mut out = Vec::with_capacity(5 * LAYOUT_ROWS);
+    let mut out = Vec::with_capacity(5 * LAYOUT_ROWS + COLLECTOR_ROWS);
     rows::<ExpanseSet>("SyncExpanseSet", &mut out);
     rows::<ExpanseMap>("SyncExpanseMap", &mut out);
     rows::<ExpanseBlobMap>("SyncExpanseBlobMap", &mut out);
     rows::<ExpanseStrMap>("SyncExpanseStrMap", &mut out);
     rows::<ExpanseBytesMap>("SyncExpanseBytesMap", &mut out);
+    // The tree version lives in the collector (#568 PR 3): its line is the
+    // one every reader samples, so its offsets are reported beside the
+    // wrappers', under the `Collector` name.
+    out.extend(
+        Collector::layout_rows()
+            .into_iter()
+            .map(|(field, off)| ("Collector", field, off)),
+    );
     out
 }
 
-/// Rows per wrapper in [`layout_report`]: the six fields and the size row.
+/// Rows per wrapper in [`layout_report`]: the five fields and the size row.
 #[cfg(feature = "occ-stats")]
-const LAYOUT_ROWS: usize = 7;
+const LAYOUT_ROWS: usize = 6;
+
+/// Rows for the collector in [`layout_report`]: six fields and the size row.
+#[cfg(feature = "occ-stats")]
+const COLLECTOR_ROWS: usize = 7;
 
 #[cfg(all(test, feature = "occ-stats"))]
 mod diagnostics_tests {
@@ -3255,14 +3276,7 @@ mod diagnostics_tests {
 
     #[test]
     fn layout_report_names_every_field_of_every_wrapper() {
-        const FIELDS: [&str; 6] = [
-            "inner",
-            "version",
-            "write",
-            "collector",
-            "last_holder",
-            "advance_tick",
-        ];
+        const FIELDS: [&str; 5] = ["inner", "write", "collector", "last_holder", "advance_tick"];
         const WRAPPERS: [&str; 5] = [
             "SyncExpanseSet",
             "SyncExpanseMap",
@@ -3271,7 +3285,7 @@ mod diagnostics_tests {
             "SyncExpanseBytesMap",
         ];
         let r = layout_report();
-        assert_eq!(r.len(), WRAPPERS.len() * LAYOUT_ROWS);
+        assert_eq!(r.len(), WRAPPERS.len() * LAYOUT_ROWS + COLLECTOR_ROWS);
         for (i, wrapper) in WRAPPERS.iter().enumerate() {
             let rows = &r[i * LAYOUT_ROWS..(i + 1) * LAYOUT_ROWS];
             assert!(
@@ -3292,15 +3306,28 @@ mod diagnostics_tests {
             #[cfg(feature = "lock-padded")]
             {
                 let off = |name: &str| rows.iter().find(|(_, n, _)| *n == name).unwrap().2;
-                let (v, w) = (off("version"), off("write"));
-                assert_eq!(v % 64, 0, "{wrapper}: version line-aligned");
-                assert_eq!(w % 64, 0, "{wrapper}: write line-aligned");
-                assert!(
-                    v.abs_diff(w) >= 64,
-                    "{wrapper}: padded — version and write on different lines"
-                );
+                assert_eq!(off("write") % 64, 0, "{wrapper}: write line-aligned");
             }
         }
+        let coll = &r[WRAPPERS.len() * LAYOUT_ROWS..];
+        assert!(coll.iter().all(|(w, _, _)| *w == "Collector"));
+        let names: Vec<&str> = coll.iter().map(|(_, n, _)| *n).collect();
+        assert_eq!(
+            names,
+            [
+                "version",
+                "epoch",
+                "readers",
+                "bins",
+                "freelists",
+                "retained_bytes",
+                "size_of"
+            ]
+        );
+        let size = coll[COLLECTOR_ROWS - 1].2;
+        assert!(coll[..COLLECTOR_ROWS - 1].iter().all(|(_, _, o)| *o < size));
+        #[cfg(feature = "lock-padded")]
+        assert_eq!(coll[0].2 % 64, 0, "Collector: version line-aligned");
     }
 }
 

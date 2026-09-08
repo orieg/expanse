@@ -3,14 +3,18 @@
 //! reader never dereferences a freed node.
 //!
 //! The concurrent wrappers (`SyncExpanseSet`/`SyncExpanseMap` in `sync`)
-//! combine a **tree-level** [`SeqVersion`] (bracketing each write op;
-//! readers validate their root snapshot against it) with **per-node**
-//! versions in the branch headers: the mutation engine brackets each
-//! node's in-place mutation region — child-slot rewrites and the
-//! recursion beneath them — via `version_begin_if` (active only for
-//! concurrently shared trees), and readers validate hand-over-hand with
-//! `node_sample`/`node_validate`. Measured motivation and effect in
-//! `docs/BENCHMARKING.md` (concurrent read scaling).
+//! combine a **tree-level** [`SeqVersion`] (in the [`Collector`]; readers
+//! validate their root snapshot against it) with **per-node** versions in
+//! the branch headers. The mutation engine brackets every store by the
+//! version of the node that *contains* the stored address — the parent's
+//! word for a slot, an immediate, or a leaf / subarray payload; the tree
+//! word for the root state — through [`Cover`] (active only for
+//! concurrently shared trees). A branch child's frame is entered with its
+//! parent's word closed, so a word is odd only while one frame stores into
+//! that node, never for a whole descent; readers validate hand-over-hand
+//! with `node_sample`/`node_validate`. Measured motivation and effect in
+//! `docs/BENCHMARKING.md` (concurrent read scaling) and
+//! `docs/benchmarks/concurrency/`.
 //!
 //! Under `--cfg loom` the atomics and sync types swap to loom's, and the
 //! `loom_` tests model-check writer/reader/reclamation interleavings.
@@ -37,6 +41,46 @@ use core_alloc::alloc::dealloc;
 use core_alloc::sync::Arc;
 #[cfg(feature = "std")]
 use core_alloc::vec::Vec;
+
+/// A field on its own cache line when the `lock-padded` diagnostic feature is
+/// on; the bare field otherwise. The tree version word and the writer mutex
+/// are a few words apart, so by default they generally sit on one line
+/// (`repr(Rust)` decides; `sync::layout_report` says which): every handoff
+/// and every version bracket then invalidates the line every reader samples.
+/// The padded layout is the arm that measures what that sharing costs; it is
+/// not the default because it costs a cache line per field.
+#[cfg(all(feature = "std", feature = "lock-padded"))]
+#[derive(Debug)]
+#[repr(align(64))]
+pub(crate) struct Line<X>(X);
+#[cfg(all(feature = "std", feature = "lock-padded"))]
+impl<X> core::ops::Deref for Line<X> {
+    type Target = X;
+    fn deref(&self) -> &X {
+        &self.0
+    }
+}
+#[cfg(all(feature = "std", feature = "lock-padded"))]
+impl<X> From<X> for Line<X> {
+    fn from(x: X) -> Self {
+        Self(x)
+    }
+}
+/// See the `lock-padded` twin: the bare field.
+#[cfg(all(feature = "std", not(feature = "lock-padded")))]
+pub(crate) type Line<X> = X;
+/// Wraps a field for [`Line`] whichever way the feature resolves.
+#[cfg(feature = "lock-padded")]
+#[inline]
+pub(crate) fn line<X>(x: X) -> Line<X> {
+    Line(x)
+}
+/// See the `lock-padded` twin: the bare field.
+#[cfg(all(feature = "std", not(feature = "lock-padded")))]
+#[inline]
+pub(crate) fn line<X>(x: X) -> Line<X> {
+    x
+}
 
 /// A seqlock word: even = stable, odd = mutation in progress.
 ///
@@ -116,52 +160,142 @@ impl SeqVersion {
     }
 }
 
-/// Per-node seqlock over the plain `u32` version fields embedded in the
-/// node headers (`BranchHeader.version`, `BranchB.version`,
-/// `BranchU.version`). The single writer wraps each node's in-place
-/// mutation region — child-slot rewrites and the recursion beneath them
-/// included — in [`version_begin`]/[`version_end`]; readers
-/// [`node_sample`]/[`node_validate`] hand-over-hand along their walk.
-/// Same Boehm fence construction as [`SeqVersion`], `u32`-wide (a
-/// 2^31-write wrap mid-walk is not a practical hazard).
+/// Which version word brackets a store (#568 PR 3): the tree-level
+/// [`SeqVersion`] for root state — the `Root` variant, the root leaf, the
+/// top edge — or the `u32` of the branch node whose allocation contains the
+/// stored address. The rule the reader protocol relies on: **every store to
+/// address `x` happens inside the bracket of `node(x)`**, where `node(x)` is
+/// the branch containing `x`, or, for a leaf, immediate or subarray payload,
+/// the branch whose slot points at it. A frame receives the cover of the
+/// node holding its incoming edge and passes its own node's version down.
+#[derive(Clone, Copy)]
+pub(crate) enum Cover {
+    /// The tree-level word (root state).
+    Tree,
+    /// A branch node's version field.
+    Node(*mut u32),
+}
+
+impl Cover {
+    /// Opens the bracket when `OCC`.
+    #[inline(always)]
+    pub(crate) fn begin_if<const OCC: bool>(self, a: &crate::alloc::NodeAlloc) {
+        match self {
+            Cover::Tree => tree_begin_if::<OCC>(a),
+            // SAFETY: a live node's version field, per the engine's contract
+            // that a `Cover::Node` names the node containing the edge.
+            Cover::Node(p) => unsafe { version_begin_if_ptr::<OCC>(a, p) },
+        }
+    }
+
+    /// The address the debug bracket stack records for this cover.
+    #[cfg(debug_assertions)]
+    #[inline(always)]
+    pub(crate) fn addr(self, a: &crate::alloc::NodeAlloc) -> *const u32 {
+        match self {
+            #[cfg(feature = "std")]
+            Cover::Tree => a.tree_cover_addr(),
+            #[cfg(not(feature = "std"))]
+            Cover::Tree => {
+                let _ = a;
+                core::ptr::null()
+            }
+            Cover::Node(p) => p.cast_const(),
+        }
+    }
+
+    /// Release-build twin of [`Self::addr`]: the asserts it feeds compile
+    /// out, so this is never called.
+    #[cfg(not(debug_assertions))]
+    #[inline(always)]
+    pub(crate) fn addr(self, _a: &crate::alloc::NodeAlloc) -> *const u32 {
+        match self {
+            Cover::Tree => core::ptr::null(),
+            Cover::Node(p) => p.cast_const(),
+        }
+    }
+
+    /// Closes the bracket when `OCC`.
+    #[inline(always)]
+    pub(crate) fn end_if<const OCC: bool>(self, a: &crate::alloc::NodeAlloc) {
+        match self {
+            Cover::Tree => tree_end_if::<OCC>(a),
+            // SAFETY: as in `begin_if`.
+            Cover::Node(p) => unsafe { version_end_if_ptr::<OCC>(a, p) },
+        }
+    }
+}
+
+/// Opens a node's bracket when `OCC` (`version_begin` on the word `v`),
+/// through a raw pointer: the `OCC = true` engine holds no `&mut` to node
+/// memory. Also records the word on the debug bracket stack.
 ///
-/// Writer stores are volatile through the ordinary `&mut` — never split,
-/// merged, or elided, with no raw-pointer aliasing against the engine's
-/// live borrows — while readers load the same field atomically; that
-/// mixed access is part of the documented seqlock caveat (`sync` docs).
+/// # Safety
 ///
-/// Writer: opens a node's mutation bracket when `OCC` — i.e. when the
-/// tree is shared through a Phase 7 wrapper. The flag is a **const
-/// generic threaded down from the operation's entry point**, not a
-/// per-node check: `NodeAlloc::occ_enabled()` is an atomic load through
-/// a `OnceLock`, and calling it twice per branch level cost ~10 atomic
-/// loads per insert on a deep tree (issue #1 item 1). Single-threaded
-/// trees now compile the brackets out entirely.
-#[inline]
-pub(crate) fn version_begin_if<const OCC: bool>(a: &crate::alloc::NodeAlloc, v: &mut u32) {
+/// `v` must point at a live branch node's version field owned by the
+/// calling writer, with no live `&mut` to it.
+#[inline(always)]
+pub(crate) unsafe fn version_begin_if_ptr<const OCC: bool>(
+    a: &crate::alloc::NodeAlloc,
+    v: *mut u32,
+) {
     if OCC {
         debug_assert!(a.occ_enabled(), "OCC=true on a non-shared tree");
-        // SAFETY: `v` is a live node's version field, borrowed exclusively by
-        // the caller; the field is only ever accessed through `VersionCell`.
-        // The raw pointer is taken with `&raw mut` so it unambiguously carries
-        // write permission under Stacked/Tree Borrows (§5) — the store below
-        // goes through it.
-        version_begin(unsafe { version_cell(&raw mut *v) });
+        // SAFETY: forwarded contract.
+        version_begin(unsafe { version_cell(v) });
     }
     #[cfg(debug_assertions)]
-    a.bracket_enter();
+    a.bracket_enter(v.cast_const());
     let _ = a;
 }
 
-/// Writer: closes a node's mutation bracket (see [`version_begin_if`]).
-#[inline]
-pub(crate) fn version_end_if<const OCC: bool>(a: &crate::alloc::NodeAlloc, v: &mut u32) {
+/// Closes the bracket opened by [`version_begin_if_ptr`].
+///
+/// # Safety
+///
+/// As [`version_begin_if_ptr`].
+#[inline(always)]
+pub(crate) unsafe fn version_end_if_ptr<const OCC: bool>(a: &crate::alloc::NodeAlloc, v: *mut u32) {
     if OCC {
-        // SAFETY: as in `version_begin_if`.
-        version_end(unsafe { version_cell(&raw mut *v) });
+        // SAFETY: forwarded contract.
+        version_end(unsafe { version_cell(v) });
     }
     #[cfg(debug_assertions)]
-    a.bracket_leave();
+    a.bracket_leave(v.cast_const());
+    let _ = a;
+}
+
+/// Opens the tree-level bracket for a root-state write, when `OCC` and when
+/// the engine (not the wrapper) covers root state for this tree
+/// (`NodeAlloc::engine_covers_root`). The map and set wrappers hand root
+/// coverage to the engine so ordinary writes never touch the tree word; the
+/// string, bytes and blob wrappers keep bracketing whole operations in
+/// `Shared::write`, and there this is a no-op so the word is never opened
+/// twice.
+#[inline(always)]
+pub(crate) fn tree_begin_if<const OCC: bool>(a: &crate::alloc::NodeAlloc) {
+    #[cfg(feature = "std")]
+    if OCC && a.engine_covers_root() {
+        a.tree_version().begin();
+    }
+    #[cfg(all(debug_assertions, feature = "std"))]
+    if OCC && a.engine_covers_root() {
+        a.bracket_enter(a.tree_cover_addr());
+    }
+    let _ = a;
+}
+
+/// Closes the tree-level bracket opened by [`tree_begin_if`].
+#[inline(always)]
+pub(crate) fn tree_end_if<const OCC: bool>(a: &crate::alloc::NodeAlloc) {
+    #[cfg(all(debug_assertions, feature = "std"))]
+    if OCC && a.engine_covers_root() {
+        a.bracket_leave(a.tree_cover_addr());
+    }
+    #[cfg(feature = "std")]
+    if OCC && a.engine_covers_root() {
+        a.tree_version().end();
+    }
     let _ = a;
 }
 
@@ -359,6 +493,12 @@ use crate::alloc::{CLASS_SPECS, FreeBlock, NUM_CLASSES, class_for};
 #[cfg(feature = "std")]
 #[derive(Debug)]
 pub struct Collector {
+    /// The tree-level seqlock (#568 PR 3): here rather than in the wrapper
+    /// so the engine can bracket root-state writes itself, reaching it
+    /// through `NodeAlloc::tree_version`, and every wrapper reads the one
+    /// word. On the reader's hottest line already (`Reader::pin` loads
+    /// `epoch`); `sync::layout_report` names the offsets.
+    version: Line<SeqVersion>,
     epoch: AtomicUsize,
     readers: Mutex<Vec<Arc<Slot>>>,
     bins: [Mutex<Vec<Garbage>>; BINS],
@@ -366,6 +506,28 @@ pub struct Collector {
     retained_bytes: AtomicUsize,
     #[cfg(test)]
     registrations: core::sync::atomic::AtomicU64,
+}
+
+#[cfg(all(feature = "std", feature = "occ-stats"))]
+impl Collector {
+    /// Field offsets of the collector (`(field, offset)`, then `size_of`),
+    /// for `sync::layout_report`: the tree version lives here, so this is
+    /// where a `perf c2c` line of the shared state resolves.
+    #[must_use]
+    pub(crate) fn layout_rows() -> [(&'static str, usize); 7] {
+        [
+            ("version", core::mem::offset_of!(Collector, version)),
+            ("epoch", core::mem::offset_of!(Collector, epoch)),
+            ("readers", core::mem::offset_of!(Collector, readers)),
+            ("bins", core::mem::offset_of!(Collector, bins)),
+            ("freelists", core::mem::offset_of!(Collector, freelists)),
+            (
+                "retained_bytes",
+                core::mem::offset_of!(Collector, retained_bytes),
+            ),
+            ("size_of", core::mem::size_of::<Collector>()),
+        ]
+    }
 }
 
 #[cfg(feature = "std")]
@@ -381,6 +543,7 @@ impl Collector {
     #[must_use]
     pub fn new() -> Self {
         Self {
+            version: line(SeqVersion::new()),
             epoch: AtomicUsize::new(0),
             readers: Mutex::new(Vec::new()),
             bins: [
@@ -393,6 +556,14 @@ impl Collector {
             #[cfg(test)]
             registrations: core::sync::atomic::AtomicU64::new(0),
         }
+    }
+
+    /// The tree-level version word every reader of this tree samples and
+    /// every root-state write brackets.
+    #[inline(always)]
+    #[must_use]
+    pub fn version(&self) -> &SeqVersion {
+        &self.version
     }
 
     /// Pops a reclaimed block from this collector's size-class freelist.
