@@ -18,8 +18,13 @@
 //! `cargo run --release -p expanse-trie --features occ-stats --example occ_stats_probe`.
 
 /// A counted event in the OCC protocol.
+///
+/// `#[non_exhaustive]`: counters are added as diagnostics need them
+/// (AGENTS.md §2.3 semver protection); index [`snapshot`] by
+/// `Stat::X as usize` rather than matching on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(usize)]
+#[non_exhaustive]
 pub enum Stat {
     /// Public optimistic read calls entered.
     ReadOps = 0,
@@ -53,7 +58,8 @@ pub enum Stat {
     /// (a real handoff). Consecutive acquisitions by the same thread — a
     /// releaser barging back in ahead of a woken waiter — are not handoffs,
     /// which is why a per-op cost model needs this count and not `write_ops`.
-    /// Needs `std` for the thread token; zero without it.
+    /// Counted in the 64-bit `sync` wrappers, which need `std`; the
+    /// single-writer `sync32` protocol has no writer lock to hand over.
     Handoffs = 10,
     /// Blocks handed to the collector for deferred reclamation.
     Retired = 11,

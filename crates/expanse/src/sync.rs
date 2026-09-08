@@ -100,11 +100,13 @@ const MAX_RETRIES: usize = 64;
 const ADVANCE_EVERY: u64 = 32;
 /// Diagnostic: a long advance interval, to measure what the epoch-advance
 /// scan costs the critical section (compare against the default).
-#[cfg(feature = "advance-every-4096")]
+#[cfg(all(feature = "advance-every-4096", not(feature = "advance-never")))]
 const ADVANCE_EVERY: u64 = 4096;
 // `advance-never` (diagnostic): the write path never attempts an epoch advance,
 // so there is no interval constant at all. Only sound for a workload that retires
 // nothing (pure overwrites); with retirements the bins grow without bound.
+// Features are additive, so a build that enables both variants gets this one:
+// the interval constant is gated out rather than left defined and unused.
 
 /// The reader's cover for the bytes it just loaded: the tree-level
 /// version for the root state, then — hand-over-hand — the version of
@@ -493,13 +495,14 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
     }
 }
 
-/// The shared writer/reader state behind both wrappers.
 /// A field on its own cache line when the `lock-padded` diagnostic feature is
 /// on; the bare field otherwise. `Shared`'s writer mutex, version word and
-/// advance tick share a line by default: every handoff and every version
-/// bracket invalidates the line every reader samples. The padded layout is
-/// the arm that measures what that sharing costs; it is not the default
-/// because it costs two cache lines per structure.
+/// advance tick are a few words apart, so by default they generally sit on
+/// one line (`repr(Rust)` decides; [`layout_report`] says which): every
+/// handoff and every version bracket then invalidates the line every reader
+/// samples. The padded layout is the arm that measures what that sharing
+/// costs; it is not the default because it costs two cache lines per
+/// structure.
 #[cfg(feature = "lock-padded")]
 #[repr(align(64))]
 pub(crate) struct Line<X>(X);
@@ -533,6 +536,7 @@ fn line<X>(x: X) -> Line<X> {
     }
 }
 
+/// The shared writer/reader state behind both wrappers.
 struct Shared<T> {
     inner: UnsafeCell<T>,
     version: Line<SeqVersion>,
@@ -540,8 +544,9 @@ struct Shared<T> {
     collector: Arc<Collector>,
     /// Token of the thread that last held `write`, for the `Handoffs`
     /// counter. Read and written only under the lock — no coherence traffic
-    /// beyond the line it shares. Diagnostic only.
-    #[cfg(all(feature = "occ-stats", feature = "std"))]
+    /// beyond the line it shares (which [`layout_report`] names). Diagnostic
+    /// only.
+    #[cfg(feature = "occ-stats")]
     last_holder: UnsafeCell<u64>,
     /// Mutations since the last epoch-advance attempt (see
     /// [`ADVANCE_EVERY`]). Read and written only by [`Shared::write`],
@@ -580,7 +585,7 @@ impl<T> Shared<T> {
             version: line(SeqVersion::new()),
             write: line(Mutex::new(())),
             collector,
-            #[cfg(all(feature = "occ-stats", feature = "std"))]
+            #[cfg(feature = "occ-stats")]
             last_holder: UnsafeCell::new(0),
             advance_tick: UnsafeCell::new(0),
         }
@@ -595,7 +600,7 @@ impl<T> Shared<T> {
     fn write<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
         crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
         let _g = self.write.lock().expect("writer lock poisoned");
-        #[cfg(all(feature = "occ-stats", feature = "std"))]
+        #[cfg(feature = "occ-stats")]
         {
             // SAFETY: the writer mutex serializes this word.
             let holder = unsafe { &mut *self.last_holder.get() };
@@ -3093,7 +3098,7 @@ mod tests {
 
 /// A small integer naming the calling thread, for the `Handoffs` counter.
 /// Allocated once per thread from a global counter; 0 is never issued.
-#[cfg(all(feature = "occ-stats", feature = "std"))]
+#[cfg(feature = "occ-stats")]
 fn thread_token() -> u64 {
     use core::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(1);
@@ -3103,25 +3108,59 @@ fn thread_token() -> u64 {
     TOKEN.with(|t| *t)
 }
 
-/// Byte offsets of `Shared`'s synchronisation fields, for a benchmark that
-/// wants to know which of them share a cache line before attributing a cost
-/// to line sharing. `(name, offset)` pairs; the struct is `repr(Rust)`, so the
-/// order is whatever the compiler chose and this is the only way to know it.
+/// Byte offsets of every `Shared` field, for a benchmark that wants to know
+/// which of them share a cache line before attributing a cost to line
+/// sharing. One row per (wrapper, field): the wrapper's type name, the field
+/// name, and the field's byte offset within `Shared`; a final `size_of` row
+/// per wrapper carries the struct's size. `Shared` is `repr(Rust)`, so the
+/// order is whatever the compiler chose, and it is chosen per instantiation:
+/// the offsets are reported for each concrete wrapped type rather than for a
+/// placeholder, because a `Shared<()>` need not be laid out like a
+/// `Shared<ExpanseMap>`. This is the only way to know the layout.
 #[cfg(feature = "occ-stats")]
 #[must_use]
-pub fn layout_report() -> [(&'static str, usize); 4] {
-    [
-        ("version", core::mem::offset_of!(Shared<()>, version)),
-        ("write", core::mem::offset_of!(Shared<()>, write)),
-        ("collector", core::mem::offset_of!(Shared<()>, collector)),
-        (
-            "advance_tick",
-            core::mem::offset_of!(Shared<()>, advance_tick),
-        ),
-    ]
+pub fn layout_report() -> Vec<(&'static str, &'static str, usize)> {
+    fn rows<T>(wrapper: &'static str, out: &mut Vec<(&'static str, &'static str, usize)>) {
+        out.extend([
+            (wrapper, "inner", core::mem::offset_of!(Shared<T>, inner)),
+            (
+                wrapper,
+                "version",
+                core::mem::offset_of!(Shared<T>, version),
+            ),
+            (wrapper, "write", core::mem::offset_of!(Shared<T>, write)),
+            (
+                wrapper,
+                "collector",
+                core::mem::offset_of!(Shared<T>, collector),
+            ),
+            (
+                wrapper,
+                "last_holder",
+                core::mem::offset_of!(Shared<T>, last_holder),
+            ),
+            (
+                wrapper,
+                "advance_tick",
+                core::mem::offset_of!(Shared<T>, advance_tick),
+            ),
+            (wrapper, "size_of", core::mem::size_of::<Shared<T>>()),
+        ]);
+    }
+    let mut out = Vec::with_capacity(5 * LAYOUT_ROWS);
+    rows::<ExpanseSet>("SyncExpanseSet", &mut out);
+    rows::<ExpanseMap>("SyncExpanseMap", &mut out);
+    rows::<ExpanseBlobMap>("SyncExpanseBlobMap", &mut out);
+    rows::<ExpanseStrMap>("SyncExpanseStrMap", &mut out);
+    rows::<ExpanseBytesMap>("SyncExpanseBytesMap", &mut out);
+    out
 }
 
-#[cfg(all(test, feature = "occ-stats", feature = "std"))]
+/// Rows per wrapper in [`layout_report`]: the six fields and the size row.
+#[cfg(feature = "occ-stats")]
+const LAYOUT_ROWS: usize = 7;
+
+#[cfg(all(test, feature = "occ-stats"))]
 mod diagnostics_tests {
     use super::*;
     use crate::occ_stats::{Stat, snapshot};
@@ -3176,30 +3215,61 @@ mod diagnostics_tests {
             snapshot()[Stat::Retired as usize] > r0,
             "removes must retire blocks"
         );
+        let f0 = snapshot()[Stat::FreedRaw as usize];
         drop(m);
         assert!(
-            snapshot()[Stat::FreedRaw as usize] > 0,
+            snapshot()[Stat::FreedRaw as usize] > f0,
             "dropping the map frees retired blocks"
         );
     }
 
     #[test]
-    fn layout_report_names_every_synchronisation_field() {
+    fn layout_report_names_every_field_of_every_wrapper() {
+        const FIELDS: [&str; 6] = [
+            "inner",
+            "version",
+            "write",
+            "collector",
+            "last_holder",
+            "advance_tick",
+        ];
+        const WRAPPERS: [&str; 5] = [
+            "SyncExpanseSet",
+            "SyncExpanseMap",
+            "SyncExpanseBlobMap",
+            "SyncExpanseStrMap",
+            "SyncExpanseBytesMap",
+        ];
         let r = layout_report();
-        let names: Vec<&str> = r.iter().map(|(n, _)| *n).collect();
-        assert_eq!(names, ["version", "write", "collector", "advance_tick"]);
-        let offs: std::collections::BTreeSet<usize> = r.iter().map(|(_, o)| *o).collect();
-        assert_eq!(offs.len(), 4, "distinct offsets");
-        #[cfg(feature = "lock-padded")]
-        {
-            let v = r[0].1;
-            let w = r[1].1;
-            assert_eq!(v % 64, 0);
-            assert_eq!(w % 64, 0);
+        assert_eq!(r.len(), WRAPPERS.len() * LAYOUT_ROWS);
+        for (i, wrapper) in WRAPPERS.iter().enumerate() {
+            let rows = &r[i * LAYOUT_ROWS..(i + 1) * LAYOUT_ROWS];
             assert!(
-                v.abs_diff(w) >= 64,
-                "padded: version and write on different lines"
+                rows.iter().all(|(w, _, _)| w == wrapper),
+                "{wrapper}: rows grouped"
             );
+            let names: Vec<&str> = rows.iter().map(|(_, n, _)| *n).collect();
+            assert_eq!(&names[..FIELDS.len()], &FIELDS, "{wrapper}: every field");
+            assert_eq!(names[FIELDS.len()], "size_of");
+            let size = rows[FIELDS.len()].2;
+            let offs: std::collections::BTreeSet<usize> =
+                rows[..FIELDS.len()].iter().map(|(_, _, o)| *o).collect();
+            assert_eq!(offs.len(), FIELDS.len(), "{wrapper}: distinct offsets");
+            assert!(
+                offs.iter().all(|&o| o < size),
+                "{wrapper}: every offset inside the struct"
+            );
+            #[cfg(feature = "lock-padded")]
+            {
+                let off = |name: &str| rows.iter().find(|(_, n, _)| *n == name).unwrap().2;
+                let (v, w) = (off("version"), off("write"));
+                assert_eq!(v % 64, 0, "{wrapper}: version line-aligned");
+                assert_eq!(w % 64, 0, "{wrapper}: write line-aligned");
+                assert!(
+                    v.abs_diff(w) >= 64,
+                    "{wrapper}: padded — version and write on different lines"
+                );
+            }
         }
     }
 }
