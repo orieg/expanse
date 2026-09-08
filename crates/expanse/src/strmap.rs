@@ -319,21 +319,17 @@ fn dispose_tree(root: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
 /// means `rest.len() < CHUNK` *implies* `is_terminal(chunk)`, so the old flag
 /// was the new one plus a false-negative case.
 ///
-/// Out-of-domain keys become memory-safe but **unspecified**. They do *not*
-/// simply truncate at the first NUL -- `chunk_at` copies eight bytes whatever
-/// they are, so `b"ab\0cdef"` and `b"ab"` are different chunks and different
-/// entries. What they lose is agreement between the surfaces: `terminal_bytes`
-/// stops at the NUL when reconstructing a key, so an ordered walk over
-/// `b"ab\0foo"` and `b"ab\0bar"` emits `"ab"` twice with two values, and
-/// `get(b"ab")` finds neither. Aliasing happens only in the narrow case where
-/// the rest of the chunk is zero.
+/// Out-of-domain keys become memory-safe but **unspecified**. No behaviour is
+/// promised beyond that: not which entries the container appears to hold, not
+/// what an ordered walk emits, and not that the two ordered surfaces agree
+/// with each other -- `cursor` and `first`/`next_after` do not. This is the
+/// guarantee `BTreeMap` gives for a type with an inconsistent `Ord`: no
+/// undefined behaviour, no memory unsafety, effects confined to the map.
 ///
-/// So the guarantee is the one `BTreeMap` gives for a type with an
-/// inconsistent `Ord`: no undefined behaviour, no memory unsafety, and no
-/// promise about which entries the container appears to hold. The behaviour
-/// is confined to the map. `ExpanseStrMap::assert_key` still rejects such keys
-/// in debug builds, and they are unreachable from the C ABI and every language
-/// binding, which establish NUL-freedom before the engine sees the key.
+/// Deliberately no examples. Every enumeration of this behaviour written so
+/// far has been refuted by the next probe, which is what "unspecified" means.
+/// `ExpanseStrMap::assert_key` rejects such keys in debug builds, and they are
+/// unreachable from the C ABI and every language binding.
 fn chunk_at(key: &[u8], off: usize) -> (u64, bool) {
     let rest = &key[off.min(key.len())..];
     let mut c = [0u8; CHUNK];
@@ -355,10 +351,12 @@ fn terminal_bytes(chunk: u64) -> impl Iterator<Item = u8> {
 /// borrowed, which does not depend on which end the lanes came from.
 ///
 /// No codegen claim is made for the form it replaced: §8.7 wants an
-/// `--emit asm` citation for one and there is none. The substitution has not
-/// been shown to pay for itself either -- every call site below is on the
-/// ordered-navigation and teardown paths, and no benchmark arm covers them
-/// (§6's benchmark-arm prerequisite), so its effect is unmeasured.
+/// `--emit asm` citation for one and there is none.
+///
+/// This runs at every descent level, via [`chunk_at`], on every operation --
+/// it is the whole of the instruction cost the pull request discloses, and
+/// the reason the length rule it replaced was cheaper (that rule reduced to a
+/// bound on the loop's induction variable and hoisted; this does not).
 ///
 /// `is_terminal_scan` is the reference implementation, kept as the parity
 /// oracle for `swar_haszero_matches_the_byte_scan`.
@@ -378,13 +376,10 @@ fn is_terminal_scan(chunk: u64) -> bool {
 /// Publishes a suffix leaf under `chunk`, refusing to do so at a chunk that
 /// [`is_terminal`] will later read as terminal.
 ///
-/// The check and the publication are one operation on purpose. This module
-/// decides "terminal" two ways -- [`chunk_at`] by length, `is_terminal` by
-/// content -- and they coincide only on the NUL-free key domain. A key whose
-/// NUL falls inside a chunk takes the non-terminal path here while every
-/// later read treats the entry as terminal, so the ordered surface hands the
-/// tagged pointer back as the caller's value slot and the block is leaked
-/// where the byte accounting cannot see it (#794).
+/// The check and the publication are one operation, so `pack_suffix` has a
+/// single caller. The module once decided "terminal" two ways and they
+/// disagreed off the NUL-free domain (#794); it now decides it one way, in
+/// [`chunk_at`].
 ///
 /// The assertion is a `debug_assert!` and is unreachable by construction:
 /// `chunk_at` now reports terminal by exactly this predicate, so a caller that
@@ -393,18 +388,6 @@ fn is_terminal_scan(chunk: u64) -> bool {
 /// violate it, not as the mechanism enforcing it -- the mechanism is that
 /// there is only one rule.
 ///
-/// It does not close #794. The guard fires only where a *fresh* leaf is
-/// published, and the disagreement reaches a wild pointer by two other routes
-/// that publish nothing: an out-of-domain key whose first chunk collides with
-/// an existing terminal entry makes the descent read the caller's own value
-/// word and, when its low bit happens to be set, treat it as a tagged suffix
-/// pointer. `get` and `remove` both segfault on that in a release build, and
-/// `get_validated` takes the same shape inside the seqlock bracket.
-///
-/// Its cost is measured and disclosed on the pull request, and is *not*
-/// attributed: the arm deltas have opposite signs on the two architectures,
-/// which is codegen, not arithmetic. Callgrind counts retired instructions,
-/// so the cold panic path contributes nothing to them.
 fn publish_suffix(
     node: &mut StrNode,
     alloc: &NodeAlloc,
@@ -1124,34 +1107,12 @@ impl ExpanseStrMap {
     /// -- the language bindings, which reject an embedded NUL before the key
     /// reaches here.
     ///
-    /// What a release build does with an out-of-domain key, since this
-    /// assertion is compiled out of it and the behaviour is not obvious: the
-    /// key is stored, counted by [`len`](Self::len), and returned by
-    /// [`get`](Self::get). What it is *not* is addressable by the ordered
-    /// surface. A trailing NUL is how the encoding terminates a string, so
-    /// `next_at_or_after(b"abc\0X")` answers with `"abc"` -- a different and
-    /// smaller key than the one asked for.
+    /// A release build compiles this out and stores the key anyway. What it
+    /// then does is **unspecified** -- see [`chunk_at`], which is where the
+    /// domain is actually enforced by construction. It is memory-safe, and it
+    /// was not always: before #794 an out-of-domain key could hand a caller a
+    /// tagged heap pointer as their value slot.
     ///
-    /// For a key whose NUL falls *inside* the first chunk the consequence is
-    /// worse than a disagreement, because the module decides "terminal" two
-    /// ways that coincide only on this domain: [`chunk_at`] decides by length
-    /// (`rest.len() < CHUNK`) and [`is_terminal`] by content (the chunk holds
-    /// a zero byte). `b"abc\0defghij"` is eleven bytes, so `insert` takes the
-    /// non-terminal path and publishes a [`pack_suffix`] pointer at a chunk
-    /// every later `is_terminal` reads as terminal. The ordered surface then
-    /// takes its terminal branch over that entry and hands back the word
-    /// holding the tagged pointer *as the caller's value slot* -- a `*mut
-    /// Word` a JudySL caller is contracted to write through, which corrupts
-    /// the edge and leaves the next [`get`] dereferencing a wild address. The
-    /// suffix block is leaked in the same breath: `dispose_tree` and
-    /// `shell_bytes` skip it under that same `is_terminal` test, so they agree
-    /// with each other and the `bytes_in_use() == 0` accounting invariant
-    /// still passes. That is the reason the domain is a contract and not a
-    /// preference. Note that the publication sites are not the whole of it:
-    /// the same disagreement reaches a wild pointer through `get` and
-    /// `remove`, which publish nothing, when an out-of-domain key's first
-    /// chunk collides with an existing terminal entry and its stored value
-    /// has the low bit set. Guarding publication alone does not close it.
     fn assert_key(key: &[u8]) {
         debug_assert!(!key.contains(&0), "keys are NUL-free byte strings");
     }
@@ -1882,11 +1843,17 @@ mod tests {
         ];
         for k in keys {
             for off in 0..=k.len() + CHUNK {
-                let (chunk, terminal) = chunk_at(k, off);
+                let (_, terminal) = chunk_at(k, off);
+                // Oracle stated over the *key*, not over the chunk, so it does
+                // not restate `chunk_at`'s body: an entry ends at this chunk
+                // when fewer than eight bytes remain, or when the eight it
+                // would take contain a NUL. The length rule this replaced
+                // omits the second clause, which is the #794 defect.
+                let rest = &k[off.min(k.len())..];
+                let expected = rest.len() < CHUNK || rest[..rest.len().min(CHUNK)].contains(&0);
                 assert_eq!(
-                    terminal,
-                    is_terminal(chunk),
-                    "chunk_at disagreed with is_terminal at off={off} for {k:?}"
+                    terminal, expected,
+                    "chunk_at's terminal flag is wrong at off={off} for {k:?}"
                 );
             }
         }
