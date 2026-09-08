@@ -96,7 +96,15 @@ const MAX_RETRIES: usize = 64;
 /// dropped). 32 sits at the knee — a sweep over 1/4/8/32/128/1024 on a
 /// 16-thread mix reached ~85% of the total available gain by 32, with
 /// 1024 adding only a few more points for 32x the retained garbage.
+#[cfg(not(any(feature = "advance-every-4096", feature = "advance-never")))]
 const ADVANCE_EVERY: u64 = 32;
+/// Diagnostic: a long advance interval, to measure what the epoch-advance
+/// scan costs the critical section (compare against the default).
+#[cfg(feature = "advance-every-4096")]
+const ADVANCE_EVERY: u64 = 4096;
+// `advance-never` (diagnostic): the write path never attempts an epoch advance,
+// so there is no interval constant at all. Only sound for a workload that retires
+// nothing (pure overwrites); with retirements the bins grow without bound.
 
 /// The reader's cover for the bytes it just loaded: the tree-level
 /// version for the root state, then — hand-over-hand — the version of
@@ -486,15 +494,62 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
 }
 
 /// The shared writer/reader state behind both wrappers.
+/// A field on its own cache line when the `lock-padded` diagnostic feature is
+/// on; the bare field otherwise. `Shared`'s writer mutex, version word and
+/// advance tick share a line by default: every handoff and every version
+/// bracket invalidates the line every reader samples. The padded layout is
+/// the arm that measures what that sharing costs; it is not the default
+/// because it costs two cache lines per structure.
+#[cfg(feature = "lock-padded")]
+#[repr(align(64))]
+pub(crate) struct Line<X>(X);
+#[cfg(feature = "lock-padded")]
+impl<X> core::ops::Deref for Line<X> {
+    type Target = X;
+    fn deref(&self) -> &X {
+        &self.0
+    }
+}
+#[cfg(feature = "lock-padded")]
+impl<X> From<X> for Line<X> {
+    fn from(x: X) -> Self {
+        Line(x)
+    }
+}
+#[cfg(not(feature = "lock-padded"))]
+pub(crate) type Line<X> = X;
+
+/// Wrap a synchronisation field for its own line (`lock-padded`) or leave it
+/// bare; one constructor so the two layouts share the same field initialisers.
+#[inline]
+fn line<X>(x: X) -> Line<X> {
+    #[cfg(feature = "lock-padded")]
+    {
+        Line(x)
+    }
+    #[cfg(not(feature = "lock-padded"))]
+    {
+        x
+    }
+}
+
 struct Shared<T> {
     inner: UnsafeCell<T>,
-    version: SeqVersion,
-    write: Mutex<()>,
+    version: Line<SeqVersion>,
+    write: Line<Mutex<()>>,
     collector: Arc<Collector>,
+    /// Token of the thread that last held `write`, for the `Handoffs`
+    /// counter. Read and written only under the lock — no coherence traffic
+    /// beyond the line it shares. Diagnostic only.
+    #[cfg(all(feature = "occ-stats", feature = "std"))]
+    last_holder: UnsafeCell<u64>,
     /// Mutations since the last epoch-advance attempt (see
     /// [`ADVANCE_EVERY`]). Read and written only by [`Shared::write`],
     /// which holds `write` — a plain counter, not an atomic, so it adds
     /// no coherence traffic to the critical section.
+    // Kept under `advance-never` even though nothing reads it: the field stays so
+    // `Shared`'s layout -- and `layout_report()` -- is the same across variants.
+    #[cfg_attr(feature = "advance-never", allow(dead_code))]
     advance_tick: UnsafeCell<u64>,
 }
 
@@ -522,9 +577,11 @@ impl<T> Shared<T> {
     fn with_collector(inner: T, collector: Arc<Collector>) -> Self {
         Self {
             inner: UnsafeCell::new(inner),
-            version: SeqVersion::new(),
-            write: Mutex::new(()),
+            version: line(SeqVersion::new()),
+            write: line(Mutex::new(())),
             collector,
+            #[cfg(all(feature = "occ-stats", feature = "std"))]
+            last_holder: UnsafeCell::new(0),
             advance_tick: UnsafeCell::new(0),
         }
     }
@@ -538,16 +595,31 @@ impl<T> Shared<T> {
     fn write<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
         crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
         let _g = self.write.lock().expect("writer lock poisoned");
+        #[cfg(all(feature = "occ-stats", feature = "std"))]
+        {
+            // SAFETY: the writer mutex serializes this word.
+            let holder = unsafe { &mut *self.last_holder.get() };
+            let me = thread_token();
+            if *holder != me {
+                if *holder != 0 {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::Handoffs);
+                }
+                *holder = me;
+            }
+        }
         self.version.begin();
         // SAFETY: the writer mutex makes this the only mutable borrow.
         let r = f(unsafe { &mut *self.inner.get() });
         self.version.end();
-        // SAFETY: as above — the writer mutex serializes this counter.
-        let tick = unsafe { &mut *self.advance_tick.get() };
-        *tick += 1;
-        if *tick >= ADVANCE_EVERY {
-            *tick = 0;
-            self.collector.try_advance();
+        #[cfg(not(feature = "advance-never"))]
+        {
+            // SAFETY: as above — the writer mutex serializes this counter.
+            let tick = unsafe { &mut *self.advance_tick.get() };
+            *tick += 1;
+            if *tick >= ADVANCE_EVERY {
+                *tick = 0;
+                self.collector.try_advance();
+            }
         }
         r
     }
@@ -1876,6 +1948,8 @@ mod tests {
     ///
     /// With no readers registered, every attempt succeeds, so the epoch
     /// delta counts the attempts exactly.
+    // Loops on the advance interval; there is no finite interval under `advance-never`.
+    #[cfg(not(feature = "advance-never"))]
     #[test]
     fn write_batches_epoch_advances_without_dropping_them() {
         let collector = Arc::new(Collector::new());
@@ -2962,6 +3036,10 @@ mod tests {
     /// 3. Without a held guard, epoch advances succeed every `ADVANCE_EVERY` writes, keeping backlog bounded.
     /// 4. `retained_held > retained_unheld` strictly holds.
     /// 5. Once the guard is dropped and advances resume, `retained_held` drains back to the baseline.
+    // Assumes the default epoch-advance interval: with `advance-every-4096` or
+    // `advance-never` no advance happens inside this test, so held and unheld
+    // retain the same garbage -- which is what those variants exist to show.
+    #[cfg(not(any(feature = "advance-every-4096", feature = "advance-never")))]
     #[test]
     fn blob_read_guard_stalls_reclamation_and_tracks_retained_garbage() {
         crate::occ_stats::reset();
@@ -3010,5 +3088,118 @@ mod tests {
             retained_after_drop < retained_held,
             "retained garbage must drop after releasing guard: before {retained_held}, after {retained_after_drop}"
         );
+    }
+}
+
+/// A small integer naming the calling thread, for the `Handoffs` counter.
+/// Allocated once per thread from a global counter; 0 is never issued.
+#[cfg(all(feature = "occ-stats", feature = "std"))]
+fn thread_token() -> u64 {
+    use core::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    std::thread_local! {
+        static TOKEN: u64 = NEXT.fetch_add(1, Ordering::Relaxed);
+    }
+    TOKEN.with(|t| *t)
+}
+
+/// Byte offsets of `Shared`'s synchronisation fields, for a benchmark that
+/// wants to know which of them share a cache line before attributing a cost
+/// to line sharing. `(name, offset)` pairs; the struct is `repr(Rust)`, so the
+/// order is whatever the compiler chose and this is the only way to know it.
+#[cfg(feature = "occ-stats")]
+#[must_use]
+pub fn layout_report() -> [(&'static str, usize); 4] {
+    [
+        ("version", core::mem::offset_of!(Shared<()>, version)),
+        ("write", core::mem::offset_of!(Shared<()>, write)),
+        ("collector", core::mem::offset_of!(Shared<()>, collector)),
+        (
+            "advance_tick",
+            core::mem::offset_of!(Shared<()>, advance_tick),
+        ),
+    ]
+}
+
+#[cfg(all(test, feature = "occ-stats", feature = "std"))]
+mod diagnostics_tests {
+    use super::*;
+    use crate::occ_stats::{Stat, snapshot};
+
+    #[test]
+    fn handoffs_count_holder_changes_not_acquisitions() {
+        // Strict alternation: A writes, hands a baton to B, B writes, hands it
+        // back. Every acquisition changes the holder, so the counter must rise
+        // by at least ROUNDS regardless of how the scheduler interleaves the
+        // two threads. (The counters are process-global and other tests write
+        // concurrently, so only lower bounds are sound here; an "exactly zero
+        // for one thread" assertion is not.)
+        const ROUNDS: u64 = 200;
+        let m = std::sync::Arc::new(SyncExpanseMap::new());
+        let (to_b, from_a) = std::sync::mpsc::channel::<u64>();
+        let (to_a, from_b) = std::sync::mpsc::channel::<u64>();
+        let before = snapshot()[Stat::Handoffs as usize];
+        let mb = std::sync::Arc::clone(&m);
+        let b = std::thread::spawn(move || {
+            for k in from_a {
+                mb.insert(1_000_000 + k, k);
+                if to_a.send(k).is_err() {
+                    break;
+                }
+            }
+        });
+        for k in 0..ROUNDS {
+            m.insert(k, k);
+            to_b.send(k).unwrap();
+            from_b.recv().unwrap();
+        }
+        drop(to_b);
+        b.join().unwrap();
+        let handoffs = snapshot()[Stat::Handoffs as usize] - before;
+        assert!(
+            handoffs >= ROUNDS,
+            "strict alternation over {ROUNDS} rounds must hand the lock over at least {ROUNDS} times; counted {handoffs}"
+        );
+    }
+
+    #[test]
+    fn retire_and_free_are_counted_on_remove() {
+        let m = SyncExpanseMap::new();
+        for k in 0..50_000u64 {
+            m.insert(k.wrapping_mul(0x9E37_79B9_7F4A_7C15), k);
+        }
+        let r0 = snapshot()[Stat::Retired as usize];
+        for k in 0..50_000u64 {
+            m.remove(k.wrapping_mul(0x9E37_79B9_7F4A_7C15));
+        }
+        assert!(
+            snapshot()[Stat::Retired as usize] > r0,
+            "removes must retire blocks"
+        );
+        drop(m);
+        assert!(
+            snapshot()[Stat::FreedRaw as usize] > 0,
+            "dropping the map frees retired blocks"
+        );
+    }
+
+    #[test]
+    fn layout_report_names_every_synchronisation_field() {
+        let r = layout_report();
+        let names: Vec<&str> = r.iter().map(|(n, _)| *n).collect();
+        assert_eq!(names, ["version", "write", "collector", "advance_tick"]);
+        let offs: std::collections::BTreeSet<usize> = r.iter().map(|(_, o)| *o).collect();
+        assert_eq!(offs.len(), 4, "distinct offsets");
+        #[cfg(feature = "lock-padded")]
+        {
+            let v = r[0].1;
+            let w = r[1].1;
+            assert_eq!(v % 64, 0);
+            assert_eq!(w % 64, 0);
+            assert!(
+                v.abs_diff(w) >= 64,
+                "padded: version and write on different lines"
+            );
+        }
     }
 }

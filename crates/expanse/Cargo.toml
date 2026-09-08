@@ -23,6 +23,15 @@ std = []
 # writer-lock fallbacks, epoch advances). Off by default and compiled
 # out entirely — never enable it for a published benchmark.
 occ-stats = []
+# Diagnostic-only: put the writer mutex and the version word on their own
+# cache lines, to measure what their sharing costs. Two extra lines per
+# structure; never the default.
+lock-padded = []
+# Diagnostic-only: epoch-advance interval variants, to measure what the advance
+# scan costs the write path. `advance-never` is sound only for workloads that
+# retire nothing.
+advance-every-4096 = []
+advance-never = []
 # Diagnostic-only: arms the AVX-512 arms of the `avx512_bitmap` bench and
 # the `--force` path of the `avx512_probe` example. Off by default, and it
 # must stay off: `core::arch`'s AVX-512 intrinsics are stable only since

@@ -49,10 +49,20 @@ pub enum Stat {
     ///
     /// `locked_reads - read_fallbacks` is the unconditional share.
     LockedReads = 9,
+    /// Writer-lock acquisitions by a thread other than the previous holder
+    /// (a real handoff). Consecutive acquisitions by the same thread — a
+    /// releaser barging back in ahead of a woken waiter — are not handoffs,
+    /// which is why a per-op cost model needs this count and not `write_ops`.
+    /// Needs `std` for the thread token; zero without it.
+    Handoffs = 10,
+    /// Blocks handed to the collector for deferred reclamation.
+    Retired = 11,
+    /// Blocks actually freed by the collector (after their epoch passed).
+    FreedRaw = 12,
 }
 
 /// Number of distinct counters.
-pub const NUM_STATS: usize = 10;
+pub const NUM_STATS: usize = 13;
 
 /// Human-readable counter names, indexed by [`Stat`].
 pub const NAMES: [&str; NUM_STATS] = [
@@ -66,6 +76,9 @@ pub const NAMES: [&str; NUM_STATS] = [
     "retained_bytes",
     "retained_hwm",
     "locked_reads",
+    "handoffs",
+    "retired",
+    "freed_raw",
 ];
 
 #[cfg(feature = "occ-stats")]
