@@ -214,32 +214,35 @@ Stage B replaces the single-writer mutex with per-node write locking (Leis et al
 - **Writer gate word**: A separate atomic quiescence flag (`WriterGate`), independent of the tree version word, arbitrates reader fallback and exclusive operations (`with_locked`), preventing whole-tree reader stalls (L2).
 
 **Writer Protocol (Optimistic Descent & Hand-over-Hand Locking):**
-1. **Optimistic Descent**: Writers descend optimistically without holding locks, validating each node version hand-over-hand identically to readers.
-2. **Lock Set Acquisition**: Before mutating shared memory, a writer acquires the minimal lock set:
-   - For slot updates within a leaf or branch: the parent node $P$.
-   - For split or cascade mutations requiring child and parent modification: the parent $P$ and grandparent $G$ ($P + G$).
-   - For deep structural cascades extending above $G$: the tree-level lock (measured rare via `Stat::DeepCascades`).
-3. **Lock Ordering & Acyclicity**: Locks are acquired top-down via CAS (`even -> even + 1`) along a single root-to-leaf path. A writer never requests an ancestor lock while holding a descendant lock, guaranteeing deadlock-freedom (S6).
-4. **Lock Upgrade Failure**: If a CAS fails during lock acquisition, the writer drops all held locks in LIFO order (`unlock` via $+2$ if unmodified, avoiding spurious reader retries) and restarts descent from the root. No persistent memory allocation occurs prior to full lock-set acquisition.
+1. **Optimistic Descent & Capacity Pre-Check**: Writers descend optimistically without holding locks, validating each node version hand-over-hand identically to readers. If descent encounters a node with remaining capacity $\le 1$, the prospective lock set is escalated early to include the grandparent ($P + G$), preventing restart cycles on leaf cascades.
+2. **Lock Set Acquisition & Memory Ordering**: Before mutating shared memory, a writer acquires the minimal lock set via atomic CAS (`even -> even + 1` with `Ordering::Acquire` on success, `Ordering::Relaxed` on failure):
+   - For in-place slot updates: parent node $P$.
+   - For split/cascade mutations: parent $P$ and grandparent $G$ ($P + G$).
+   - For deep cascades extending above $G$: the tree-level lock (measured rare via `Stat::DeepCascades`).
+   - Unlocking executes an atomic store (`v + 1` on mutation, or `v + 2` if unmodified to avoid spurious reader retries) with `Ordering::Release`, establishing release-acquire synchronization with both concurrent readers and subsequent writers.
+3. **Lock Ordering & Acyclicity**: Locks are acquired top-down strictly along a single root-to-leaf path. A writer never requests an ancestor lock while holding a descendant lock, guaranteeing deadlock-freedom (S6).
+4. **Lock Upgrade Failure**: If a CAS fails during lock acquisition, the writer drops all held locks in LIFO order (`unlock` via $+2$ if unmodified) and restarts descent from the root. No persistent memory allocation occurs prior to full lock-set acquisition.
 5. **No Mutation Before Lock Completion**: Stores to shared memory begin only after all required locks in the lock set are successfully acquired; no restarts are permitted after the first shared store has committed.
 
 **Population Accounting (`pop0`) Protocol:**
 Subtree population counts in Judy ancestor edges (`pop0`) cannot be updated via unbounded ancestor lock chains without re-serializing at the root. Per the mathematical contention derivation (`scripts/olc_bounds.py`):
 1. **Brief Bottom-Up Locks**: After the terminal leaf mutation completes under the parent lock $P$, ancestor `pop0` bumps proceed bottom-up as brief, isolated node locks on each ancestor, holding no other lock concurrently.
-2. **Obsolete Node Handling (Rule a)**: If an ancestor node $A$ is marked obsolete during the bottom-up bump (due to an intervening `split_skip` or `upgrade_*`), the writer aborts that local bump and re-descends from the root to locate the new covering branch node, completing the bump on the current expanse.
-3. **Prefix Split Sizing (Rule b)**: Reorganization routines (`split_skip`, `wrap_skip_level`) inspect `edge.pop0` strictly under the lock of the node holding that edge, ensuring structural sizing is exact-modulo-pending-bumps.
-4. **Root Population**: Root `pop` is maintained via `AtomicU64` in `Shared<T>`, updated with Relaxed atomics under the root write lock.
+2. **Point Lookup Linearizability**: Point lookups (`get`, `contains`) consume `pop0` strictly on **leaf-pointing edges** under the parent's lock; they never inspect ancestor `pop0` words. Therefore, pending bottom-up bumps on ancestor edges do not compromise snapshot consistency or linearizability for point readers.
+3. **Obsolete Node Handling (Rule a)**: If an ancestor node $A$ is marked obsolete during the bottom-up bump (due to an intervening `split_skip` or `upgrade_*`), the writer aborts that local bump and re-descends from the root to locate the new covering branch node, completing the bump on the current expanse.
+4. **Prefix Split Sizing (Rule b)**: Reorganization routines (`split_skip`, `wrap_skip_level`) inspect `edge.pop0` strictly under the lock of the node holding that edge, ensuring structural sizing is exact-modulo-pending-bumps.
+5. **Root Population**: Root `pop` is maintained via `AtomicU64` in `Shared<T>`, updated with Relaxed atomics under the root write lock.
 
 **Reader Fallback & `with_locked` Quiescence (`WriterGate`):**
-- Readers that exhaust `MAX_RETRIES` arbitrate via an exclusive `fallback_mutex`. The winning fallback reader acquires the mutex, sets `WriterGate` to closed, waits for in-flight writers to drain, performs its read under quiescence, clears `WriterGate`, and releases the mutex.
-- Writers check `WriterGate` upon operation entry before publishing in-flight status and never wait on `WriterGate` while holding node locks.
-- `with_locked` acquires the same `fallback_mutex` and closes `WriterGate`, guaranteeing exclusive access without holding the tree version odd across lookups.
+- **Drain Protocol**: Each active writer thread owns an atomic in-flight slot. Upon operation entry, a writer publishes its active status, executes a `fence(Ordering::SeqCst)`, and re-checks `WriterGate`. If `WriterGate` is closed, the writer clears its in-flight slot and waits.
+- **Reader Fallback**: Readers that exhaust `MAX_RETRIES` arbitrate via an exclusive `fallback_mutex`. The winning fallback reader acquires the mutex, sets `WriterGate` to closed, executes a `fence(Ordering::SeqCst)`, waits for all published in-flight writer slots to drain to zero, performs its read under complete quiescence, clears `WriterGate`, and releases the mutex.
+- `with_locked` acquires the same `fallback_mutex` and closes `WriterGate`, guaranteeing exclusive access without holding the tree version odd across lookups (L2, L5).
 
-**Epoch-Based Reclamation (EBR) for Multi-Writer Scaling:**
+**Epoch-Based Reclamation & Allocator Scaling:**
 - Writers pin their local `Collector` epoch for the duration of each operation.
 - Retire operations execute a `fence(SeqCst)` prior to loading the global epoch to establish happens-before with concurrent advancers.
 - Epoch advancement is coordinated via a non-blocking `try_advance` try-lock; reader-slot scans run on an amortized per-writer tick.
 - Retired nodes are maintained in per-writer retire shards, eliminating bin mutex contention on the fast deallocation path.
+- `NodeAlloc` accounting counters (`bytes_in_use`, `live_allocs`) must be thread-local or cache-line padded in PR 5, preventing the 29.86 M allocs/s false-sharing ceiling derived in `scripts/olc_bounds.py`.
 
 **Multi-Writer Safety & Liveness Invariants:**
 

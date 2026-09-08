@@ -74,6 +74,22 @@ def contended_rmw_ceiling(k: int, t_line_ns: float, t_hold_ns: float) -> float:
     return 1.0 / t_crit_seconds
 
 
+def derive_usl_sigma(t_crit_ns: float, t0_ns: float) -> float:
+    """Derives Gunther's USL contention parameter sigma directly from the ratio of
+    critical section serialization latency to total single-threaded operation latency.
+
+    Reference:
+      Gunther, N. J. (2007). Guerrilla Capacity Planning, Springer. §6.3.
+      sigma = T_crit / T_0 represents the fraction of time spent in serial bottlenecks.
+    """
+    if t_crit_ns < 0.0:
+        raise ValueError(f"t_crit_ns cannot be negative, got {t_crit_ns}")
+    if t0_ns <= 0.0:
+        raise ValueError(f"t0_ns must be positive, got {t0_ns}")
+    sigma = t_crit_ns / t0_ns
+    return min(1.0, sigma)
+
+
 def usl_throughput(
     w: int,
     t0_ns: float = W1_BASELINE_OP_LATENCY_NS,
@@ -87,7 +103,7 @@ def usl_throughput(
       Gunther, N. J. (2007). Guerrilla Capacity Planning, Springer.
       X(W) = (W * X(1)) / (1 + sigma * (W - 1) + kappa * W * (W - 1))
       where sigma represents contention/serialization share, and kappa represents
-      cross-talk / coherence coherence coherency penalty.
+      cross-talk / coherence coherency penalty.
     """
     if w < 1:
         raise ValueError(f"w (workers) must be >= 1, got {w}")
@@ -232,6 +248,15 @@ class TestOlcBounds(unittest.TestCase):
         # When all writers contend on one cache line, alloc ceiling is ~29.86 M allocs/s
         alloc_ceil = allocator_counter_ceiling(T_LINE_SPIN_MEDIAN_NS)
         self.assertAlmostEqual(alloc_ceil / 1e6, 29.8635, places=3)
+
+    def test_derive_usl_sigma(self):
+        # T_crit = 17.544 ns, T0 = 175.44 ns -> sigma = 0.10
+        sigma1 = derive_usl_sigma(17.544, 175.44)
+        self.assertAlmostEqual(sigma1, 0.10, places=3)
+
+        # T_crit exceeding T0 clamps to 1.0
+        sigma_clamped = derive_usl_sigma(200.0, 100.0)
+        self.assertEqual(sigma_clamped, 1.0)
 
     def test_usl_throughput(self):
         # At w=1, throughput is exactly 1 / t0
