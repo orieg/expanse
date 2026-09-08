@@ -288,8 +288,36 @@ def spread() -> list[str]:
     return out
 
 
+# ---- 6. ablations ----------------------------------------------------------
+def ablations() -> list[str]:
+    out = ["## 6. Ablations — the #789 features on C1 W=1 and C2 W=1 R=8 (`results/ablations.json`)", "",
+           "| variant | W | R | Expanse inserts M/s [BCa 95%] | Expanse lookups M/s [BCa 95%] | vs `default` inserts | vs `default` lookups |",
+           "|---|--:|--:|---|---|---|---|"]
+    art = load(SUITE / "results" / "ablations.json")
+    if art is None:
+        out.append(f"| `default` | 1 | 0 | {PENDING} | no readers | — | — |")
+        return out
+    base = {(c["writers"], c["readers"]): c for c in art["cells"] if c["variant"] == "default"}
+
+    def rel(iv: dict | None, ref: dict | None) -> str:
+        if not iv or not ref or not pm(ref):
+            return "—"
+        r = pm(iv) / pm(ref)
+        overlap = not (iv["ci_upper"] < ref["ci_lower"] or iv["ci_lower"] > ref["ci_upper"])
+        return f"{r:.2f}×" + (" (intervals overlap)" if overlap else "")
+
+    for c in art["cells"]:
+        b = base.get((c["writers"], c["readers"]))
+        wi, ri = c["expanse_writer_mops"], c["expanse_reader_mops"]
+        ws = fmt_iv(wi, 2)
+        rs = fmt_iv(ri, 2) if ri else "no readers"
+        out.append(f"| `{c['variant']}` | {c['writers']} | {c['readers']} | {ws} | {rs} | "
+                   f"{rel(wi, b and b['expanse_writer_mops'])} | {rel(ri, b and b['expanse_reader_mops']) if ri else '—'} |")
+    return out
+
+
 def main() -> int:
-    blocks = [line_transfer(), d1(), d2(), spread()]
+    blocks = [line_transfer(), d1(), d2(), spread(), ablations()]
     print("\n\n".join("\n".join(b) for b in blocks))
     return 0
 

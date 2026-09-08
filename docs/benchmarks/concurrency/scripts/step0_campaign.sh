@@ -29,6 +29,11 @@ trap 'rm -rf "${BENCH_LOCK}"' EXIT
 # shellcheck source-path=SCRIPTDIR/../../../..
 . "${REPO_ROOT}/scripts/bench_pin.sh"
 
+# The session directory on the reference host is an rsync'd tree, not a git
+# checkout, so the commit every artifact must carry (§8.7) is passed in.
+: "${EXPANSE_BENCH_COMMIT:?set EXPANSE_BENCH_COMMIT to the commit this tree was synced from}"
+export EXPANSE_BENCH_COMMIT
+
 stamp() { echo "== $(date -u +%H:%M:%SZ) $*"; uptime; }
 CONC="${REPO_ROOT}/docs/benchmarks/concurrency/results"
 HOT="${REPO_ROOT}/docs/benchmarks/hot_comparison"
