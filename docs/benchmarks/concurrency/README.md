@@ -173,64 +173,64 @@ Read against §8.2; every number is the runner's own estimator over the two-comm
 
 | cell | baseline union (ns) | threshold (ns) | base half, run 1 / 2 | head half, run 1 / 2 | verdict |
 |---|--:|--:|--:|--:|---|
-| `hot_conc_set_w1_r8` | [282, 521] | 141 | pending / pending | pending / pending | pending |
-| `hot_conc_map_w1_r8` | [435, 499] | 218 | pending / pending | pending / pending | pending |
-| `masstree_conc_map_w1_r8` | [273, 407] | 136 | pending / pending | pending / pending | pending |
+| `hot_conc_set_w1_r8` | [282, 521] | 141 | 535 / 546 | 104 / 103 | **`VOID (base half outside the committed union, §8.4)`** |
+| `hot_conc_map_w1_r8` | [435, 499] | 218 | 457 / 450 | 96 / 96 | `PASS` |
+| `masstree_conc_map_w1_r8` | [273, 407] | 136 | 479 / 449 | 97 / 98 | **`VOID (base half outside the committed union, §8.4)`** |
 
 **H3.2 — writer `l2_rqsts.rfo_miss` per insert at C2 W = 1 R = 8** (gate: ≤ 6.0; refuted at ≥ 10.0):
 
 | cell | Step 0 (base) | head | verdict |
 |---|--:|--:|---|
-| `hot_conc_set_w1_r8` | 11.67 [11.23, 11.97] | pending | pending |
-| `hot_conc_map_w1_r8` | 12.22 [11.83, 12.36] | pending | pending |
-| `masstree_conc_map_w1_r8` | 12.34 [12.14, 12.42] | pending | pending |
+| `hot_conc_set_w1_r8` | 11.67 [11.23, 11.97] | 10.49 [10.35, 10.70] | **`REFUTED`** |
+| `hot_conc_map_w1_r8` | 12.22 [11.83, 12.36] | 10.85 [10.42, 11.37] | **`REFUTED`** |
+| `masstree_conc_map_w1_r8` | 12.34 [12.14, 12.42] | 10.87 [10.57, 11.19] | **`REFUTED`** |
 
 **H3.3 — restart share at C2 W = 1 R = 8, head build** (ceiling 30%):
 
 | cell | restart share, run 1 / 2 | verdict |
 |---|--:|---|
-| `hot_conc_set_w1_r8` | pending / pending | pending |
-| `hot_conc_map_w1_r8` | pending / pending | pending |
-| `masstree_conc_map_w1_r8` | pending / pending | pending |
+| `hot_conc_set_w1_r8` | 7.16% / 6.74% | `PASS` |
+| `hot_conc_map_w1_r8` | 4.06% / 3.91% | `PASS` |
+| `masstree_conc_map_w1_r8` | 3.68% / 3.60% | `PASS` |
 
 **The writer at the gate cell** (published beside H3.1, not a gate; M inserts/s):
 
 | cell | baseline union | head, run 1 / 2 | reading |
 |---|--:|--:|---|
-| `hot_conc_set_w1_r8` | [1.66, 2.23] | pending / pending | pending |
-| `hot_conc_map_w1_r8` | [1.88, 1.92] | pending / pending | pending |
-| `masstree_conc_map_w1_r8` | [1.53, 1.90] | pending / pending | pending |
+| `hot_conc_set_w1_r8` | [1.66, 2.23] | 2.30 / 2.33 | above the baseline union-upper (as predicted, confidence low) |
+| `hot_conc_map_w1_r8` | [1.88, 1.92] | 2.05 / 2.05 | above the baseline union-upper (as predicted, confidence low) |
+| `masstree_conc_map_w1_r8` | [1.53, 1.90] | 2.02 / 1.96 | above the baseline union-upper (as predicted, confidence low) |
 
 **H3.4 controls — C1 aggregate M inserts/s, predicted inside the baseline union** (the Callgrind half of H3.4 is the PR's own `instruction-counts` run):
 
 | suite | arm | W | baseline union | base half, run 1 / 2 | head half, run 1 / 2 | reading |
 |---|---|--:|--:|--:|--:|---|
-| hot_comparison | set | 1 | [8.57, 8.61] | pending / pending | pending / pending | pending |
-| hot_comparison | set | 2 | [4.53, 5.12] | pending / pending | pending / pending | pending |
-| hot_comparison | set | 4 | [4.32, 4.62] | pending / pending | pending / pending | pending |
-| hot_comparison | set | 8 | [3.71, 3.80] | pending / pending | pending / pending | pending |
-| hot_comparison | set | 16 | [2.73, 3.11] | pending / pending | pending / pending | pending |
-| hot_comparison | map | 1 | [5.13, 5.20] | pending / pending | pending / pending | pending |
-| hot_comparison | map | 2 | [3.49, 3.57] | pending / pending | pending / pending | pending |
-| hot_comparison | map | 4 | [2.99, 3.07] | pending / pending | pending / pending | pending |
-| hot_comparison | map | 8 | [2.43, 2.65] | pending / pending | pending / pending | pending |
-| hot_comparison | map | 16 | [2.42, 2.67] | pending / pending | pending / pending | pending |
-| masstree_comparison | map | 1 | [5.55, 5.71] | pending / pending | pending / pending | pending |
-| masstree_comparison | map | 2 | [3.76, 3.92] | pending / pending | pending / pending | pending |
-| masstree_comparison | map | 4 | [3.44, 3.48] | pending / pending | pending / pending | pending |
-| masstree_comparison | map | 8 | [2.56, 3.16] | pending / pending | pending / pending | pending |
-| masstree_comparison | map | 16 | [2.20, 2.22] | pending / pending | pending / pending | pending |
-| masstree_comparison | str | 1 | [3.99, 4.01] | pending / pending | pending / pending | pending |
-| masstree_comparison | str | 2 | [2.68, 2.84] | pending / pending | pending / pending | pending |
-| masstree_comparison | str | 4 | [2.50, 2.59] | pending / pending | pending / pending | pending |
-| masstree_comparison | str | 8 | [2.00, 2.20] | pending / pending | pending / pending | pending |
-| masstree_comparison | str | 16 | [0.51, 0.53] | pending / pending | pending / pending | pending |
+| hot_comparison | set | 1 | [8.57, 8.61] | 7.76 / 8.25 | 7.24 / 7.19 | moved (unpredicted; both runs) |
+| hot_comparison | set | 2 | [4.53, 5.12] | 5.01 / 5.13 | 4.16 / 4.11 | moved (unpredicted; both runs) |
+| hot_comparison | set | 4 | [4.32, 4.62] | 4.05 / 4.09 | 3.21 / 3.17 | moved (unpredicted; both runs) |
+| hot_comparison | set | 8 | [3.71, 3.80] | 3.41 / 3.63 | 2.55 / 2.57 | moved (unpredicted; both runs) |
+| hot_comparison | set | 16 | [2.73, 3.11] | 3.04 / 2.98 | 2.35 / 2.40 | moved (unpredicted; both runs) |
+| hot_comparison | map | 1 | [5.13, 5.20] | 5.30 / 5.30 | 5.09 / 5.09 | moved (unpredicted; both runs) |
+| hot_comparison | map | 2 | [3.49, 3.57] | 3.93 / 3.74 | 3.36 / 3.32 | moved (unpredicted; both runs) |
+| hot_comparison | map | 4 | [2.99, 3.07] | 3.18 / 3.25 | 2.73 / 2.72 | moved (unpredicted; both runs) |
+| hot_comparison | map | 8 | [2.43, 2.65] | 2.74 / 2.75 | 2.35 / 2.34 | moved (unpredicted; both runs) |
+| hot_comparison | map | 16 | [2.42, 2.67] | 2.50 / 2.67 | 2.12 / 1.69 | moved (unpredicted; both runs) |
+| masstree_comparison | map | 1 | [5.55, 5.71] | 5.66 / 5.67 | 5.43 / 5.44 | moved (unpredicted; both runs) |
+| masstree_comparison | map | 2 | [3.76, 3.92] | 3.87 / 3.87 | 3.44 / 3.47 | moved (unpredicted; both runs) |
+| masstree_comparison | map | 4 | [3.44, 3.48] | 3.22 / 3.34 | 2.76 / 2.75 | moved (unpredicted; both runs) |
+| masstree_comparison | map | 8 | [2.56, 3.16] | 2.62 / 2.75 | 2.40 / 2.33 | moved (unpredicted; both runs) |
+| masstree_comparison | map | 16 | [2.20, 2.22] | 2.17 / 2.48 | 2.23 / 2.23 | moved (unpredicted; both runs) |
+| masstree_comparison | str | 1 | [3.99, 4.01] | 3.92 / 3.92 | 3.88 / 3.87 | moved (unpredicted; both runs) |
+| masstree_comparison | str | 2 | [2.68, 2.84] | 2.56 / 2.54 | 2.39 / 2.38 | moved (unpredicted; both runs) |
+| masstree_comparison | str | 4 | [2.50, 2.59] | 2.33 / 2.33 | 2.25 / 2.23 | moved (unpredicted; both runs) |
+| masstree_comparison | str | 8 | [2.00, 2.20] | 2.08 / 2.05 | 2.04 / 1.93 | moved in one run (direction only) |
+| masstree_comparison | str | 16 | [0.51, 0.53] | 0.48 / 0.49 | 0.48 / 0.48 | moved (unpredicted; both runs) |
 
 **The string wrapper's C2 cell, per round** (not a gate cell — it keeps the whole-operation tree bracket, §8.3 — but a non-targeted arm; each half is the harness's per-round lookup rate, split at 3 M/s, the gap between the two modes every run has shown; §6b is the ablation that names the mechanism):
 
 | cell | run | base half: rounds ≥ 3 M/s, min–max | head half: rounds ≥ 3 M/s, min–max | head restart share | head locked share | reading |
 |---|--:|--:|--:|--:|--:|---|
-| `masstree_conc_str_w1_r8` | 1 | pending | pending | pending | pending | pending |
-| `masstree_conc_str_w1_r8` | 2 | pending | pending | pending | pending | pending |
+| `masstree_conc_str_w1_r8` | 1 | 12 / 15, 1.25–8.08 | 0 / 15, 0.96–1.38 | 92.3% | 0.24% | the high mode is absent from the head half (non-targeted arm; §6b names the mechanism) |
+| `masstree_conc_str_w1_r8` | 2 | 14 / 15, 1.68–8.96 | 0 / 15, 0.98–1.28 | 92.6% | 0.28% | the high mode is absent from the head half (non-targeted arm; §6b names the mechanism) |
 
 The two-commit artifacts are not committed yet: pending ([#568](https://github.com/orieg/expanse/issues/568)).
