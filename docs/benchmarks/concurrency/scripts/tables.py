@@ -70,10 +70,22 @@ def need(d: dict, key: str, where: str):
     return d[key]
 
 
-def fmt_iv(iv: dict | None, digits: int = 1, unit: str = "") -> str:
+def pm(iv: dict | None) -> float | None:
+    """The point estimate of an interval dict: throughput artifacts carry `mean`,
+    counter artifacts `per_op_mean` (bench_counters.py::interval_over)."""
     if not iv:
+        return None
+    return iv.get("mean", iv.get("per_op_mean"))
+
+
+def fmt_iv(iv: dict | None, digits: int = 1, unit: str = "") -> str:
+    m = pm(iv)
+    if m is None:
         return "n/a"
-    return f"{iv['mean']:.{digits}f} [{iv['ci_lower']:.{digits}f}, {iv['ci_upper']:.{digits}f}]{unit}"
+    lo, hi = iv.get("ci_lower"), iv.get("ci_upper")
+    if lo is None or hi is None:
+        return f"{m:.{digits}f} (no interval){unit}"
+    return f"{m:.{digits}f} [{lo:.{digits}f}, {hi:.{digits}f}]{unit}"
 
 
 # ---- 2. line transfer ------------------------------------------------------
@@ -167,8 +179,8 @@ def d1() -> list[str]:
             c2 = counters(results, ccell)
             rfo_c1 = role_event(c1, "writer", "l2_rqsts.rfo_miss")
             rfo_c2 = role_event(c2, "writer", "l2_rqsts.rfo_miss")
-            if rfo_c1 and rfo_c2 and rfo_c1.get("mean") is not None and rfo_c2.get("mean") is not None:
-                rfo_txt = f"{rfo_c2['mean']:.2f} vs {rfo_c1['mean']:.2f} alone (Δ {rfo_c2['mean']-rfo_c1['mean']:+.2f})"
+            if pm(rfo_c1) is not None and pm(rfo_c2) is not None:
+                rfo_txt = f"{pm(rfo_c2):.2f} vs {pm(rfo_c1):.2f} alone (Δ {pm(rfo_c2)-pm(rfo_c1):+.2f})"
             else:
                 rfo_txt = "`NOT_INSTRUMENTED`"
             out.append(f"| `{label}` | {run} | {spin_txt} | {rs_txt} | 0 by construction | {rfo_txt} | {un_txt} | {verdict} |")
@@ -194,13 +206,13 @@ def d2() -> list[str]:
         if c is None and h is None:
             continue
         any_rows = True
-        cs_txt = fmt_iv(cs, 3) if cs and cs.get("mean") is not None else "`NOT_INSTRUMENTED`"
+        cs_txt = fmt_iv(cs, 3) if pm(cs) is not None else "`NOT_INSTRUMENTED`"
         hand_txt = "n/a (R=0 cell; H cells carry R=8)" if not h or "handoffs_per_write" not in h else f"{h['handoffs_per_write']['median']:.3f} (H W={w} R=8)"
-        rfo_txt = fmt_iv(rfo, 2) if rfo and rfo.get("mean") is not None else "`NOT_INSTRUMENTED`"
-        fut_txt = fmt_iv(futex, 3) if futex and futex.get("mean") is not None else "`NOT_INSTRUMENTED`"
+        rfo_txt = fmt_iv(rfo, 2) if pm(rfo) is not None else "`NOT_INSTRUMENTED`"
+        fut_txt = fmt_iv(futex, 3) if pm(futex) is not None else "`NOT_INSTRUMENTED`"
         verdict = note or "see METHODOLOGY §4 P0.3"
-        if cs and cs.get("mean") is not None:
-            m = cs["mean"]
+        if pm(cs) is not None:
+            m = pm(cs)
             if arm == "str" and w == 16:
                 verdict = "`CONFIRMED`" if m >= 0.5 else ("**`REFUTED`**" if m < 0.2 else "`BOUNDARY_RESULT`")
             elif arm == "str" and w == 8:
