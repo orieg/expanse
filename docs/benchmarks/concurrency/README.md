@@ -149,6 +149,12 @@ variant that does not is a negative result, published as one.
 | `advance-never` | 1 | 0 | 4.77 [4.76, 4.78] | no readers | 0.84× | — |
 | `advance-never` | 1 | 8 | 1.81 [1.79, 1.81] | 13.99 [13.79, 14.17] | 0.89× | 0.86× |
 
+### 6b. The string wrapper's reader mode — `lock-padded` on the base engine (`results/ablations_str.json`)
+
+| variant | W | R | Expanse inserts M/s [BCa 95%] | Expanse lookups M/s [BCa 95%] | lookup rounds ≥ 3 M/s | lookups min–max |
+|---|--:|--:|---|---|--:|--:|
+| `default` | 1 | 8 | pending ([#568](https://github.com/orieg/expanse/issues/568)) | pending ([#568](https://github.com/orieg/expanse/issues/568)) | — | — |
+
 ## 7. Between-run spread and what voids a cell
 
 Both runs, load snapshots per cell with the foreign-CPU share, governor per
@@ -216,5 +222,12 @@ Read against §8.2; every number is the runner's own estimator over the two-comm
 | masstree_comparison | str | 4 | [2.50, 2.59] | pending / pending | pending / pending | pending |
 | masstree_comparison | str | 8 | [2.00, 2.20] | pending / pending | pending / pending | pending |
 | masstree_comparison | str | 16 | [0.51, 0.53] | pending / pending | pending / pending | pending |
+
+**The string wrapper's C2 cell, per round** (not a gate cell — it keeps the whole-operation tree bracket, §8.3 — but a non-targeted arm; each half is the harness's per-round lookup rate, split at 3 M/s, the gap between the two modes every run has shown; §6b is the ablation that names the mechanism):
+
+| cell | run | base half: rounds ≥ 3 M/s, min–max | head half: rounds ≥ 3 M/s, min–max | head restart share | head locked share | reading |
+|---|--:|--:|--:|--:|--:|---|
+| `masstree_conc_str_w1_r8` | 1 | pending | pending | pending | pending | pending |
+| `masstree_conc_str_w1_r8` | 2 | pending | pending | pending | pending | pending |
 
 The two-commit artifacts are not committed yet: pending ([#568](https://github.com/orieg/expanse/issues/568)).

@@ -317,10 +317,44 @@ def ablations() -> list[str]:
     return out
 
 
+# ---- 6b. the string wrapper's reader mode ---------------------------------
+HIGH_MODE_MOPS = 3.0
+
+
+def ablations_str() -> list[str]:
+    """`results/ablations_str.json`: the base engine's string C2 cell under
+    `default` and `lock-padded`. The cell is bimodal per process (one round
+    per process in the two-commit runs; here the harness's own round loop),
+    so beside the BCa mean each row counts the rounds above
+    `HIGH_MODE_MOPS` — a descriptive split at the gap between the two
+    observed modes, not a gate."""
+    out = ["### 6b. The string wrapper's reader mode — `lock-padded` on the base engine "
+           "(`results/ablations_str.json`)", "",
+           "| variant | W | R | Expanse inserts M/s [BCa 95%] | Expanse lookups M/s [BCa 95%] | "
+           f"lookup rounds ≥ {HIGH_MODE_MOPS:.0f} M/s | lookups min–max |",
+           "|---|--:|--:|---|---|--:|--:|"]
+    art = load(SUITE / "results" / "ablations_str.json")
+    if art is None:
+        out.append(f"| `default` | 1 | 8 | {PENDING} | {PENDING} | — | — |")
+        return out
+    for c in art["cells"]:
+        wi, ri = c["expanse_writer_mops"], c["expanse_reader_mops"]
+        ws = fmt_iv(wi, 2)
+        if ri:
+            rs = fmt_iv(ri, 2)
+            vals = [r["expanse_reader_mops"] for r in c["rounds_raw"] if r.get("expanse_reader_mops") is not None]
+            high = f"{sum(v >= HIGH_MODE_MOPS for v in vals)} / {len(vals)}"
+            span = f"{min(vals):.2f}–{max(vals):.2f}"
+        else:
+            rs, high, span = "no readers", "—", "—"
+        out.append(f"| `{c['variant']}` | {c['writers']} | {c['readers']} | {ws} | {rs} | {high} | {span} |")
+    return out
+
+
 def main() -> int:
     import pr3_gate  # the §8 verdicts, beside this file
 
-    blocks = [line_transfer(), d1(), d2(), spread(), ablations(), pr3_gate.render()]
+    blocks = [line_transfer(), d1(), d2(), spread(), ablations(), ablations_str(), pr3_gate.render()]
     print("\n\n".join("\n".join(b) for b in blocks))
     return 0
 

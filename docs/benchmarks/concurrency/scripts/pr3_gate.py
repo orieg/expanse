@@ -43,6 +43,13 @@ READERS = 8
 H31_FACTOR = 0.5          # head union-upper below 0.5 × baseline union-lower
 H32_PASS, H32_REFUTED = 6.0, 10.0
 H33_CEILING = 0.30
+# The string wrapper's C2 cell is not a gate cell (it keeps the whole-operation
+# tree bracket, METHODOLOGY §8.3) but it is a non-targeted arm, so its two
+# halves are published per round: the cell is bimodal per process, and a
+# median hides which mode a run landed in. The split is descriptive — the gap
+# between the two observed modes — never a threshold a verdict rests on.
+STR_CELL = ("masstree_conc_str_w1_r8", "masstree_comparison", "str")
+STR_HIGH_MODE_MOPS = 3.0
 
 
 def default_load(suite: str, name: str) -> dict | None:
@@ -72,8 +79,20 @@ def union(vals: list) -> tuple[float, float] | None:
     return (min(vals), max(vals)) if vals else None
 
 
+def _rounds(cell: dict | None, build: str) -> list[float]:
+    """Per-round reader M/s of one build in a two-commit cell."""
+    rows = (cell or {}).get("rounds_raw") or []
+    return [r["expanse_reader_mops"] for r in rows
+            if r.get("build") == build and r.get("expanse_reader_mops") is not None]
+
+
+def _modes(vals: list[float]) -> dict:
+    return {"n": len(vals), "high": sum(v >= STR_HIGH_MODE_MOPS for v in vals),
+            "min": min(vals) if vals else None, "max": max(vals) if vals else None}
+
+
 def evaluate(load) -> dict:
-    out = {"h31": [], "h32": [], "h33": [], "controls": [], "writer_c2": []}
+    out = {"h31": [], "h32": [], "h33": [], "controls": [], "writer_c2": [], "str_c2": []}
     arts = {}
     for suite in ("hot_comparison", "masstree_comparison"):
         arts[suite] = {
@@ -141,6 +160,26 @@ def evaluate(load) -> dict:
         else:
             v = "inside the baseline union"
         out["writer_c2"].append({"label": label, "baseline_union": wu, "head": heads, "verdict": v})
+
+    label, suite, arm = STR_CELL
+    a = arts[suite]
+    for i, x in enumerate(a["ab_pair"]):
+        c = _cell(x, "throughput", arm, 1, READERS)
+        base, head = _rounds(c, "base"), _rounds(c, "head")
+        h = _cell(x, "health", arm, 1, READERS) or {}
+        row = {"label": label, "run": i + 1,
+               "base": _modes(base), "head": _modes(head),
+               "restart_share": (h.get("restart_share") or {}).get("median"),
+               "locked_share": (h.get("locked_share") or {}).get("median"),
+               "verdict": "pending"}
+        if base and head:
+            if row["base"]["high"] and not row["head"]["high"]:
+                row["verdict"] = "the high mode is absent from the head half (non-targeted arm; §6b names the mechanism)"
+            elif row["base"]["high"] == row["head"]["high"]:
+                row["verdict"] = "same mode count in both halves"
+            else:
+                row["verdict"] = "mode counts differ (direction only)"
+        out["str_c2"].append(row)
 
     for suite, arm in CONTROL_ARMS:
         a = arts[suite]
@@ -221,6 +260,22 @@ def render(load=default_load) -> list[str]:
     for row in r["controls"]:
         out.append(f"| {row['suite']} | {row['arm']} | {row['writers']} | {_u(row['baseline_union'], 2)} | "
                    f"{_pair(row['base'], 2)} | {_pair(row['head'], 2)} | {row['verdict']} |")
+    out += ["", "**The string wrapper's C2 cell, per round** (not a gate cell — it keeps the "
+            "whole-operation tree bracket, §8.3 — but a non-targeted arm; each half is the "
+            f"harness's per-round lookup rate, split at {STR_HIGH_MODE_MOPS:.0f} M/s, the gap between "
+            "the two modes every run has shown; §6b is the ablation that names the mechanism):", "",
+            "| cell | run | base half: rounds ≥ 3 M/s, min–max | head half: rounds ≥ 3 M/s, min–max | "
+            "head restart share | head locked share | reading |",
+            "|---|--:|--:|--:|--:|--:|---|"]
+    for row in r["str_c2"]:
+        def modes(m):
+            if not m["n"]:
+                return "pending"
+            return f"{m['high']} / {m['n']}, {m['min']:.2f}–{m['max']:.2f}"
+        rs = "pending" if row["restart_share"] is None else f"{row['restart_share']:.1%}"
+        ls = "pending" if row["locked_share"] is None else f"{row['locked_share']:.2%}"
+        out.append(f"| `{row['label']}` | {row['run']} | {modes(row['base'])} | {modes(row['head'])} | "
+                   f"{rs} | {ls} | {row['verdict']} |")
     if all(row["verdict"].startswith("pending") for row in r["h31"]):
         out += ["", f"The two-commit artifacts are not committed yet: {PENDING}."]
     return out
@@ -244,6 +299,15 @@ def _fixture(base_ns, head_ns, base_pair_ns, w_base=2.0, w_head=2.5, restart=0.1
                             "restart_share": {"median": restart}}]}
                for b, h in zip(base_ns, head_ns)]
     return base_pair, ab_pair
+
+
+def _str_fixture(base_rounds, head_rounds, restart=0.92, locked=0.01):
+    """One two-commit artifact carrying the string C2 cell with per-round rows."""
+    rows = [{"round": i, "build": "base", "expanse_reader_mops": v} for i, v in enumerate(base_rounds)]
+    rows += [{"round": i, "build": "head", "expanse_reader_mops": v} for i, v in enumerate(head_rounds)]
+    return {"throughput": [{"arm": "str", "writers": 1, "readers": READERS, "rounds_raw": rows}],
+            "health": [{"arm": "str", "writers": 1, "readers": READERS,
+                        "restart_share": {"median": restart}, "locked_share": {"median": locked}}]}
 
 
 def _self_test() -> int:
@@ -308,6 +372,19 @@ def _self_test() -> int:
     lines = render(lambda s, n: None)
     check("render names the open issue when pending", any(ISSUE in l for l in lines))
     check("render is a Markdown section", lines[0].startswith("## 8."))
+    # The string cell: base bimodal, head single-mode — named, never a verdict on a median.
+    def str_loader(suite, name):
+        if suite == "masstree_comparison" and name.startswith("baseline_concurrent_ab"):
+            return _str_fixture([1.5, 7.0, 6.5, 1.2], [1.1, 1.0, 1.3, 0.9])
+        return None
+    r = evaluate(str_loader)
+    check("str cell: high mode absent from the head", all(
+        x["verdict"].startswith("the high mode is absent") and x["base"]["high"] == 2 and x["head"]["high"] == 0
+        for x in r["str_c2"]))
+    check("str cell rendered", any("`masstree_conc_str_w1_r8` | 1 | 2 / 4, 1.20–7.00 | 0 / 4, 0.90–1.30 | 92.0% | 1.00%" in l
+                                   for l in render(str_loader)))
+    r = evaluate(lambda s, n: None)
+    check("str cell pending without artifacts", all(x["verdict"] == "pending" for x in r["str_c2"]))
     print("pr3_gate self-test:", "ok" if fails == 0 else f"{fails} failure(s)")
     return 1 if fails else 0
 
