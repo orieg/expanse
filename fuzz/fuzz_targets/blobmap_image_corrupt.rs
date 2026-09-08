@@ -1,7 +1,7 @@
 #![no_main]
 
-use libfuzzer_sys::fuzz_target;
 use expanse_trie::blobmap::ExpanseBlobMap;
+use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
     // Test feeding arbitrary mutated/corrupted byte streams to ExpanseBlobMap
@@ -63,7 +63,11 @@ fuzz_target!(|data: &[u8]| {
             for (key, _raw) in map.index().iter() {
                 match (map.get(key), reloaded.get(key)) {
                     (Some((v0, m0)), Some((v1, m1))) => {
-                        assert_eq!(v0.as_bytes(), v1.as_bytes(), "payload differs after roundtrip");
+                        assert_eq!(
+                            v0.as_bytes(),
+                            v1.as_bytes(),
+                            "payload differs after roundtrip"
+                        );
                         assert_eq!(m0, m1, "hot_meta differs after roundtrip");
                     }
                     (None, None) => {}
