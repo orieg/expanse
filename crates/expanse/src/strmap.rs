@@ -318,11 +318,15 @@ fn terminal_bytes(chunk: u64) -> impl Iterator<Item = u8> {
 
 /// True when the chunk contains a NUL byte (terminal entry).
 ///
-/// SWAR haszero rather than `to_be_bytes().contains(&0)`: this runs on every
-/// descent level and at every suffix publication, and the slice search
-/// lowered to a byte-wise scan. The three-operation form is branchless and
-/// byte-order independent -- it asks whether any lane borrowed, which does
-/// not depend on which end the lanes came from.
+/// SWAR haszero rather than `to_be_bytes().contains(&0)`. The three-operation
+/// form is branchless and byte-order independent -- it asks whether any lane
+/// borrowed, which does not depend on which end the lanes came from.
+///
+/// No codegen claim is made for the form it replaced: §8.7 wants an
+/// `--emit asm` citation for one and there is none. The substitution has not
+/// been shown to pay for itself either -- every call site below is on the
+/// ordered-navigation and teardown paths, and no benchmark arm covers them
+/// (§6's benchmark-arm prerequisite), so its effect is unmeasured.
 ///
 /// `is_terminal_scan` is the reference implementation, kept as the parity
 /// oracle for `swar_haszero_matches_the_byte_scan`.
@@ -353,8 +357,20 @@ fn is_terminal_scan(chunk: u64) -> bool {
 /// It is a release assertion, not a `debug_assert!`. [`ExpanseStrMap::assert_key`]
 /// already rejects the key in debug builds, so a debug-only check here would
 /// be unreachable; the case this guards is precisely the one no build
-/// currently catches. The cost is one `is_terminal` on a chunk already in a
-/// register, on the insert path only.
+/// currently catches.
+///
+/// It does not close #794. The guard fires only where a *fresh* leaf is
+/// published, and the disagreement reaches a wild pointer by two other routes
+/// that publish nothing: an out-of-domain key whose first chunk collides with
+/// an existing terminal entry makes the descent read the caller's own value
+/// word and, when its low bit happens to be set, treat it as a tagged suffix
+/// pointer. `get` and `remove` both segfault on that in a release build, and
+/// `get_validated` takes the same shape inside the seqlock bracket.
+///
+/// Its cost is measured and disclosed on the pull request, and is *not*
+/// attributed: the arm deltas have opposite signs on the two architectures,
+/// which is codegen, not arithmetic. Callgrind counts retired instructions,
+/// so the cold panic path contributes nothing to them.
 fn publish_suffix(
     node: &mut StrNode,
     alloc: &NodeAlloc,
@@ -1097,10 +1113,11 @@ impl ExpanseStrMap {
     /// `shell_bytes` skip it under that same `is_terminal` test, so they agree
     /// with each other and the `bytes_in_use() == 0` accounting invariant
     /// still passes. That is the reason the domain is a contract and not a
-    /// preference. Closing it in a release build costs one `is_terminal` on an
-    /// already-loaded word at the two sites that publish a suffix pointer, not
-    /// the whole-key scan this assertion declines to pay for; that is an
-    /// insert-path change and wants its own instruction count.
+    /// preference. Note that the publication sites are not the whole of it:
+    /// the same disagreement reaches a wild pointer through `get` and
+    /// `remove`, which publish nothing, when an out-of-domain key's first
+    /// chunk collides with an existing terminal entry and its stored value
+    /// has the low bit set. Guarding publication alone does not close it.
     fn assert_key(key: &[u8]) {
         debug_assert!(!key.contains(&0), "keys are NUL-free byte strings");
     }
