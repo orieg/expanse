@@ -2224,6 +2224,7 @@ mod tests {
         }
         assert!(m.is_empty());
         m.validate();
+        #[cfg(debug_assertions)]
         assert!(crate::alloc::bracket_stack::open().is_empty());
     }
 

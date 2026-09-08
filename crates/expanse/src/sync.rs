@@ -3326,8 +3326,36 @@ mod diagnostics_tests {
         );
         let size = coll[COLLECTOR_ROWS - 1].2;
         assert!(coll[..COLLECTOR_ROWS - 1].iter().all(|(_, _, o)| *o < size));
-        #[cfg(feature = "lock-padded")]
-        assert_eq!(coll[0].2 % 64, 0, "Collector: version line-aligned");
+        // The line every reader samples carries nothing a writer
+        // read-modify-writes per operation: `version` opens the struct (the
+        // struct is line-aligned, so an `Arc` keeps it on a line boundary),
+        // `epoch` sits beside it, and the registry mutex, the bins, the
+        // free lists and `retained_bytes` start on a later line.
+        let coff = |name: &str| coll.iter().find(|(_, n, _)| *n == name).unwrap().2;
+        assert_eq!(coff("version"), 0, "Collector: version opens the struct");
+        assert_eq!(
+            core::mem::align_of::<Collector>() % 64,
+            0,
+            "Collector: line-aligned"
+        );
+        // With `lock-padded` the version owns its line outright and the
+        // epoch takes the next; the writer-side fields start after both.
+        let first_cold = if cfg!(feature = "lock-padded") {
+            128
+        } else {
+            64
+        };
+        assert!(
+            coff("epoch") < first_cold,
+            "Collector: epoch inside the padded head"
+        );
+        for f in ["readers", "bins", "freelists", "retained_bytes"] {
+            assert!(
+                coff(f) >= first_cold,
+                "Collector: `{f}` (writer-side RMW) off the version line, at {}",
+                coff(f)
+            );
+        }
     }
 }
 

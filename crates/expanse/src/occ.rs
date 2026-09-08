@@ -43,12 +43,12 @@ use core_alloc::sync::Arc;
 use core_alloc::vec::Vec;
 
 /// A field on its own cache line when the `lock-padded` diagnostic feature is
-/// on; the bare field otherwise. The tree version word and the writer mutex
-/// are a few words apart, so by default they generally sit on one line
-/// (`repr(Rust)` decides; `sync::layout_report` says which): every handoff
-/// and every version bracket then invalidates the line every reader samples.
-/// The padded layout is the arm that measures what that sharing costs; it is
-/// not the default because it costs a cache line per field.
+/// on; the bare field otherwise. It wraps the writer mutex in the wrappers'
+/// `Shared` and the tree version in the [`Collector`]; the version's line is
+/// isolated from every per-operation writer store by the collector's layout
+/// in either configuration (see [`Collector`]), so the feature now measures
+/// only what padding the mutex away from the wrapper's other fields costs.
+/// `sync::layout_report` says where each field landed.
 #[cfg(all(feature = "std", feature = "lock-padded"))]
 #[derive(Debug)]
 #[repr(align(64))]
@@ -492,14 +492,29 @@ use crate::alloc::{CLASS_SPECS, FreeBlock, NUM_CLASSES, class_for};
 /// they are freed, so a pinned reader can never observe freed memory.
 #[cfg(feature = "std")]
 #[derive(Debug)]
+#[repr(C, align(64))]
 pub struct Collector {
     /// The tree-level seqlock (#568 PR 3): here rather than in the wrapper
     /// so the engine can bracket root-state writes itself, reaching it
     /// through `NodeAlloc::tree_version`, and every wrapper reads the one
-    /// word. On the reader's hottest line already (`Reader::pin` loads
-    /// `epoch`); `sync::layout_report` names the offsets.
+    /// word. Every reader samples it on every walk, so its cache line must
+    /// carry nothing a writer read-modify-writes per operation: `version`
+    /// and `epoch` (read per pin, stored every `ADVANCE_EVERY` writes) fill
+    /// the first line alone, and the registry mutex, the bins the writer
+    /// locks on every retire, the free-list atomics and `retained_bytes`
+    /// start on the next. The layout is `repr(C)` and line-aligned so an
+    /// `Arc` places it on a line boundary; `sync::layout_report` names the
+    /// offsets and its test pins the invariant. Sharing that line with the
+    /// per-retire counters was measured as a reader collapse on the string
+    /// wrapper (`docs/benchmarks/concurrency/README.md` §8).
     version: Line<SeqVersion>,
     epoch: AtomicUsize,
+    /// Pads `version` + `epoch` to the line boundary (see above).
+    #[cfg(not(feature = "lock-padded"))]
+    _pad: [u8; 48],
+    /// With `lock-padded`, `version` already owns a line; this pads `epoch`.
+    #[cfg(feature = "lock-padded")]
+    _pad: [u8; 56],
     readers: Mutex<Vec<Arc<Slot>>>,
     bins: [Mutex<Vec<Garbage>>; BINS],
     freelists: [AtomicPtr<FreeBlock>; NUM_CLASSES],
@@ -545,6 +560,10 @@ impl Collector {
         Self {
             version: line(SeqVersion::new()),
             epoch: AtomicUsize::new(0),
+            #[cfg(not(feature = "lock-padded"))]
+            _pad: [0; 48],
+            #[cfg(feature = "lock-padded")]
+            _pad: [0; 56],
             readers: Mutex::new(Vec::new()),
             bins: [
                 Mutex::new(Vec::new()),
