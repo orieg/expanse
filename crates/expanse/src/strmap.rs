@@ -319,11 +319,21 @@ fn dispose_tree(root: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
 /// means `rest.len() < CHUNK` *implies* `is_terminal(chunk)`, so the old flag
 /// was the new one plus a false-negative case.
 ///
-/// Out-of-domain keys become defined rather than undefined. They alias: the
-/// chunk stops at the first NUL, so `b"ab\0..."` reaches the entry `b"ab"`
-/// owns, and the ordered surface reconstructs a truncated key. That is lossy
-/// and documented, and `ExpanseStrMap::assert_key` still rejects it in debug
-/// builds. It is not memory-unsafe, which is the property that matters here.
+/// Out-of-domain keys become memory-safe but **unspecified**. They do *not*
+/// simply truncate at the first NUL -- `chunk_at` copies eight bytes whatever
+/// they are, so `b"ab\0cdef"` and `b"ab"` are different chunks and different
+/// entries. What they lose is agreement between the surfaces: `terminal_bytes`
+/// stops at the NUL when reconstructing a key, so an ordered walk over
+/// `b"ab\0foo"` and `b"ab\0bar"` emits `"ab"` twice with two values, and
+/// `get(b"ab")` finds neither. Aliasing happens only in the narrow case where
+/// the rest of the chunk is zero.
+///
+/// So the guarantee is the one `BTreeMap` gives for a type with an
+/// inconsistent `Ord`: no undefined behaviour, no memory unsafety, and no
+/// promise about which entries the container appears to hold. The behaviour
+/// is confined to the map. `ExpanseStrMap::assert_key` still rejects such keys
+/// in debug builds, and they are unreachable from the C ABI and every language
+/// binding, which establish NUL-freedom before the engine sees the key.
 fn chunk_at(key: &[u8], off: usize) -> (u64, bool) {
     let rest = &key[off.min(key.len())..];
     let mut c = [0u8; CHUNK];
@@ -376,10 +386,12 @@ fn is_terminal_scan(chunk: u64) -> bool {
 /// tagged pointer back as the caller's value slot and the block is leaked
 /// where the byte accounting cannot see it (#794).
 ///
-/// It is a release assertion, not a `debug_assert!`. [`ExpanseStrMap::assert_key`]
-/// already rejects the key in debug builds, so a debug-only check here would
-/// be unreachable; the case this guards is precisely the one no build
-/// currently catches.
+/// The assertion is a `debug_assert!` and is unreachable by construction:
+/// `chunk_at` now reports terminal by exactly this predicate, so a caller that
+/// took the non-terminal branch has already established `!is_terminal(chunk)`.
+/// It is retained as a statement of the invariant at the one site that can
+/// violate it, not as the mechanism enforcing it -- the mechanism is that
+/// there is only one rule.
 ///
 /// It does not close #794. The guard fires only where a *fresh* leaf is
 /// published, and the disagreement reaches a wild pointer by two other routes
@@ -1843,29 +1855,41 @@ mod tests {
         }
     }
 
-    /// The guard that refuses to publish a suffix pointer at a chunk every
-    /// later read treats as terminal (#794).
+    /// `chunk_at`'s terminal flag *is* [`is_terminal`] of the chunk it returns,
+    /// at every offset, for keys in and out of the domain.
     ///
-    /// Driven at `publish_suffix` rather than through `insert`, deliberately.
-    /// `assert_key` rejects a NUL-bearing key at the entry of `insert` in any
-    /// build with debug assertions on -- which is every build this suite runs
-    /// in -- so a test through the public API would panic at the upstream
-    /// guard and pass while saying nothing about this one (AGENTS.md §5).
+    /// This is the invariant that makes #794 unreachable, and it replaces a
+    /// `#[should_panic]` test on `publish_suffix`'s assertion. That assertion
+    /// is now dead by construction, so a test that it fires tested nothing --
+    /// and, because it was demoted to `debug_assert!`, the test failed under
+    /// `cargo test --release` while passing in CI, which only runs the lib
+    /// suite in debug.
     ///
-    /// The check lives inside the function that publishes, so there is no
-    /// call site that can drop it: `pack_suffix` is reachable from nowhere
-    /// else in the module.
+    /// The length rule this replaced (`rest.len() < CHUNK`) disagrees with
+    /// `is_terminal` on exactly the keys #794 is about, so the out-of-domain
+    /// cases below fail against it and pass here.
     #[test]
-    #[should_panic(expected = "suffix pointer published at a terminal chunk")]
-    fn a_suffix_pointer_is_never_published_at_a_terminal_chunk() {
-        let mut node = StrNode::new();
-        let alloc = NodeAlloc::new();
-        // Eight bytes, so `chunk_at` would call this non-terminal, while
-        // `is_terminal` reads the embedded NUL and calls it terminal -- the
-        // exact disagreement. The pointer is never dereferenced or stored:
-        // the assertion fires before `pack_suffix`, so nothing is leaked.
-        let chunk = u64::from_be_bytes(*b"abc\0defg");
-        publish_suffix(&mut node, &alloc, chunk, NonNull::dangling().as_ptr());
+    fn chunk_at_reports_terminal_by_content_not_length() {
+        let keys: [&[u8]; 8] = [
+            b"",
+            b"ab",
+            b"abcdefgh",
+            b"abcdefghij",
+            b"abc\0defghij", // the #794 key: 11 bytes, NUL inside chunk 0
+            b"ab\0foo",
+            b"12345678\0tail", // NUL past the first chunk
+            b"\0leading",
+        ];
+        for k in keys {
+            for off in 0..=k.len() + CHUNK {
+                let (chunk, terminal) = chunk_at(k, off);
+                assert_eq!(
+                    terminal,
+                    is_terminal(chunk),
+                    "chunk_at disagreed with is_terminal at off={off} for {k:?}"
+                );
+            }
+        }
     }
 
     /// Degenerate shapes: empty map, one key, and a cursor driven past the
