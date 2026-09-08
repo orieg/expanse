@@ -46,46 +46,6 @@ use core_alloc::sync::Arc;
 #[cfg(feature = "std")]
 use core_alloc::vec::Vec;
 
-/// A field on its own cache line when the `lock-padded` diagnostic feature is
-/// on; the bare field otherwise. It wraps the writer mutex in the wrappers'
-/// `Shared` and the tree version in the [`Collector`]; the version's line is
-/// isolated from every per-operation writer store by the collector's layout
-/// in either configuration (see [`Collector`]), so the feature now measures
-/// only what padding the mutex away from the wrapper's other fields costs.
-/// `sync::layout_report` says where each field landed.
-#[cfg(all(feature = "std", feature = "lock-padded"))]
-#[derive(Debug)]
-#[repr(align(64))]
-pub(crate) struct Line<X>(X);
-#[cfg(all(feature = "std", feature = "lock-padded"))]
-impl<X> core::ops::Deref for Line<X> {
-    type Target = X;
-    fn deref(&self) -> &X {
-        &self.0
-    }
-}
-#[cfg(all(feature = "std", feature = "lock-padded"))]
-impl<X> From<X> for Line<X> {
-    fn from(x: X) -> Self {
-        Self(x)
-    }
-}
-/// See the `lock-padded` twin: the bare field.
-#[cfg(all(feature = "std", not(feature = "lock-padded")))]
-pub(crate) type Line<X> = X;
-/// Wraps a field for [`Line`] whichever way the feature resolves.
-#[cfg(feature = "lock-padded")]
-#[inline]
-pub(crate) fn line<X>(x: X) -> Line<X> {
-    Line(x)
-}
-/// See the `lock-padded` twin: the bare field.
-#[cfg(all(feature = "std", not(feature = "lock-padded")))]
-#[inline]
-pub(crate) fn line<X>(x: X) -> Line<X> {
-    x
-}
-
 /// A seqlock word: even = stable, odd = mutation in progress.
 ///
 /// One writer at a time (the wrappers enforce this with a mutex); any
@@ -542,57 +502,14 @@ use crate::alloc::{CLASS_SPECS, FreeBlock, NUM_CLASSES, class_for};
 /// they are freed, so a pinned reader can never observe freed memory.
 #[cfg(feature = "std")]
 #[derive(Debug)]
-#[repr(C, align(64))]
 pub struct Collector {
-    /// The tree-level seqlock (#568 PR 3): here rather than in the wrapper
-    /// so the engine can bracket root-state writes itself, reaching it
-    /// through `NodeAlloc::tree_version`, and every wrapper reads the one
-    /// word. Every reader samples it on every walk, so its cache line must
-    /// carry nothing a writer read-modify-writes per operation: `version`
-    /// and `epoch` (read per pin, stored every `ADVANCE_EVERY` writes) fill
-    /// the first line alone, and the registry mutex, the bins the writer
-    /// locks on every retire, the free-list atomics and `retained_bytes`
-    /// start on the next. The layout is `repr(C)` and line-aligned so an
-    /// `Arc` places it on a line boundary; `sync::layout_report` names the
-    /// offsets and its test pins the invariant. Sharing that line with the
-    /// per-retire counters was measured as a reader collapse on the string
-    /// wrapper (`docs/benchmarks/concurrency/README.md` §8).
-    version: Line<SeqVersion>,
     epoch: AtomicUsize,
-    /// Pads `version` + `epoch` to the line boundary (see above).
-    #[cfg(not(feature = "lock-padded"))]
-    _pad: [u8; 48],
-    /// With `lock-padded`, `version` already owns a line; this pads `epoch`.
-    #[cfg(feature = "lock-padded")]
-    _pad: [u8; 56],
     readers: Mutex<Vec<Arc<Slot>>>,
     bins: [Mutex<Vec<Garbage>>; BINS],
     freelists: [AtomicPtr<FreeBlock>; NUM_CLASSES],
     retained_bytes: AtomicUsize,
     #[cfg(test)]
     registrations: core::sync::atomic::AtomicU64,
-}
-
-#[cfg(all(feature = "std", feature = "occ-stats"))]
-impl Collector {
-    /// Field offsets of the collector (`(field, offset)`, then `size_of`),
-    /// for `sync::layout_report`: the tree version lives here, so this is
-    /// where a `perf c2c` line of the shared state resolves.
-    #[must_use]
-    pub(crate) fn layout_rows() -> [(&'static str, usize); 7] {
-        [
-            ("version", core::mem::offset_of!(Collector, version)),
-            ("epoch", core::mem::offset_of!(Collector, epoch)),
-            ("readers", core::mem::offset_of!(Collector, readers)),
-            ("bins", core::mem::offset_of!(Collector, bins)),
-            ("freelists", core::mem::offset_of!(Collector, freelists)),
-            (
-                "retained_bytes",
-                core::mem::offset_of!(Collector, retained_bytes),
-            ),
-            ("size_of", core::mem::size_of::<Collector>()),
-        ]
-    }
 }
 
 #[cfg(feature = "std")]
@@ -608,12 +525,7 @@ impl Collector {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            version: line(SeqVersion::new()),
             epoch: AtomicUsize::new(0),
-            #[cfg(not(feature = "lock-padded"))]
-            _pad: [0; 48],
-            #[cfg(feature = "lock-padded")]
-            _pad: [0; 56],
             readers: Mutex::new(Vec::new()),
             bins: [
                 Mutex::new(Vec::new()),
@@ -625,14 +537,6 @@ impl Collector {
             #[cfg(test)]
             registrations: core::sync::atomic::AtomicU64::new(0),
         }
-    }
-
-    /// The tree-level version word every reader of this tree samples and
-    /// every root-state write brackets.
-    #[inline(always)]
-    #[must_use]
-    pub fn version(&self) -> &SeqVersion {
-        &self.version
     }
 
     /// Pops a reclaimed block from this collector's size-class freelist.

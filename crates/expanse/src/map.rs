@@ -2221,10 +2221,16 @@ mod tests {
     fn occ_engine_drive(engine_covers_root: bool) {
         let mut m = ExpanseMap::new();
         let collector = std::sync::Arc::new(crate::occ::Collector::new());
+        m.occ_root().1.defer_to(collector);
+        // The wrapper would own the tree word beside the tree; the drive
+        // leaks one so its address is stable.
+        let word: &'static crate::occ::SeqVersion =
+            Box::leak(Box::new(crate::occ::SeqVersion::new()));
+        // SAFETY: leaked, so it outlives the drive's tree.
+        unsafe { m.occ_root().1.bind_tree_word(core::ptr::from_ref(word)) };
         if engine_covers_root {
-            m.occ_root().1.defer_to_engine_root(collector);
+            m.occ_root().1.cover_root();
         } else {
-            m.occ_root().1.defer_to(collector);
             // The wrapper would hold the tree word; here the drive does.
             #[cfg(debug_assertions)]
             m.occ_root().1.bracket_enter_any();

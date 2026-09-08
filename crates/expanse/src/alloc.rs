@@ -209,6 +209,12 @@ pub struct NodeAlloc {
     /// no-op and the word is never opened twice.
     #[cfg(feature = "std")]
     engine_covers_root: core::sync::atomic::AtomicBool,
+    /// #568 PR 3: the tree-level version word this tree's root state is
+    /// bracketed by — the wrapper's `Shared::version`, bound once by
+    /// [`Self::bind_tree_word`] after the wrapper is boxed, so the address
+    /// is stable for the life of the tree. Null until then.
+    #[cfg(feature = "std")]
+    tree_word: AtomicPtr<crate::occ::SeqVersion>,
     /// Cumulative allocation count (never decremented). Lets a test
     /// separate the engine's own node/leaf allocations from incidental
     /// scratch allocations elsewhere in a code path — see
@@ -227,6 +233,8 @@ impl Default for NodeAlloc {
             deferred: OnceLock::new(),
             #[cfg(feature = "std")]
             engine_covers_root: core::sync::atomic::AtomicBool::new(false),
+            #[cfg(feature = "std")]
+            tree_word: AtomicPtr::new(core::ptr::null_mut()),
             total_allocs: AtomicUsize::new(0),
             freelists: [const { AtomicPtr::new(core::ptr::null_mut()) }; NUM_CLASSES],
             slab_pages: AtomicPtr::new(core::ptr::null_mut()),
@@ -539,26 +547,75 @@ impl NodeAlloc {
         );
     }
 
-    /// The tree-level version word of the collector this tree is deferred
-    /// to (#568 PR 3). Only meaningful on a shared tree.
+    /// The tree-level version word bound by [`Self::bind_tree_word`]
+    /// (#568 PR 3). Reached only on a tree whose root state the engine
+    /// covers, which [`Self::cover_root`] refuses to set before the word is
+    /// bound.
     #[cfg(feature = "std")]
     #[inline(always)]
     pub(crate) fn tree_version(&self) -> &crate::occ::SeqVersion {
-        self.deferred
-            .get()
-            .expect("tree_version on a tree that is not shared")
-            .version()
+        let p = self.tree_word.load(Ordering::Relaxed);
+        assert!(!p.is_null(), "tree_version on a tree with no tree word bound");
+        // SAFETY: `bind_tree_word`'s contract — the word outlives every
+        // operation on this allocator — and the null check above.
+        unsafe { &*p }
     }
 
-    /// Sentinel address for the tree cover on the debug bracket stack.
+    /// Binds the tree-level version word (#568 PR 3). Called once by a
+    /// `sync` wrapper after it is boxed, with the address of its own
+    /// `Shared::version`; idempotent for the same word.
+    ///
+    /// # Safety
+    ///
+    /// `word` must stay valid, at that address, for as long as any
+    /// operation can run on a tree allocated through this allocator. The
+    /// wrappers guarantee it by owning the tree and the word in one heap
+    /// block that neither leaves.
+    #[cfg(feature = "std")]
+    pub(crate) unsafe fn bind_tree_word(&self, word: *const crate::occ::SeqVersion) {
+        let prev = self
+            .tree_word
+            .swap(word.cast_mut(), Ordering::Relaxed);
+        assert!(
+            prev.is_null() || core::ptr::eq(prev, word),
+            "NodeAlloc already bound to a different tree word"
+        );
+    }
+
+    /// Hands root-state coverage to the engine (#568 PR 3): the wrapper then
+    /// runs mutations *without* the tree-level bracket and the engine opens
+    /// it only around a `Root` variant change, a root-leaf mutation or a
+    /// top-edge rewrite. Requires [`Self::defer_to`] and
+    /// [`Self::bind_tree_word`] first.
+    #[cfg(feature = "std")]
+    pub(crate) fn cover_root(&self) {
+        assert!(self.deferred.get().is_some(), "cover_root before defer_to");
+        assert!(
+            !self.tree_word.load(Ordering::Relaxed).is_null(),
+            "cover_root before bind_tree_word"
+        );
+        self.engine_covers_root.store(true, Ordering::Relaxed);
+    }
+
+    /// Sentinel address for the tree cover on the debug bracket stack: the
+    /// bound tree word, or — before a wrapper binds one (a tree being
+    /// rebuilt through a pre-deferred allocator) — the collector's address,
+    /// which nothing pushes, so any tree-cover assertion then fails loudly.
     #[cfg(all(debug_assertions, feature = "std"))]
     #[inline(always)]
     pub(crate) fn tree_cover_addr(&self) -> *const u32 {
-        core::ptr::from_ref(self.tree_version()).cast::<u32>()
+        let p = self.tree_word.load(Ordering::Relaxed);
+        if p.is_null() {
+            return self
+                .deferred
+                .get()
+                .map_or(core::ptr::null(), |c| Arc::as_ptr(c).cast::<u32>());
+        }
+        p.cast_const().cast::<u32>()
     }
 
     /// Whether the engine brackets root-state writes on this tree (see the
-    /// field). False until [`Self::defer_to_engine_root`].
+    /// field). False until [`Self::cover_root`].
     #[cfg(feature = "std")]
     #[inline(always)]
     pub(crate) fn engine_covers_root(&self) -> bool {
@@ -570,16 +627,6 @@ impl NodeAlloc {
     #[inline(always)]
     pub(crate) fn engine_covers_root(&self) -> bool {
         false
-    }
-
-    /// [`Self::defer_to`], with root-state coverage handed to the engine:
-    /// the wrapper then runs mutations *without* the tree-level bracket and
-    /// the engine opens it only around a `Root` variant change, a root-leaf
-    /// mutation or a top-edge rewrite (#568 PR 3).
-    #[cfg(feature = "std")]
-    pub fn defer_to_engine_root(&self, collector: Arc<Collector>) {
-        self.defer_to(collector);
-        self.engine_covers_root.store(true, Ordering::Relaxed);
     }
 
     /// Switches this allocator to deferred reclamation through
