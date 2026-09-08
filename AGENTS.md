@@ -170,7 +170,8 @@ PROPTEST_CASES=500 cargo test --test proptest_model
 # 5. Miri: run the SAME Tier-1 filter CI runs per PR. Do NOT run the full
 #    suite locally (it is slow and the nightly CI job is the authority).
 cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types:: \
-  blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred
+  blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred \
+  strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots
 ```
 
 ### Benchmark Changes Require Direct Harness Execution

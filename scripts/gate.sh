@@ -111,8 +111,12 @@ python3 scripts/check_docs_hygiene.py
 
 if [ "$MIRI" -eq 1 ]; then
   step "6/6 Tier-1 Miri filter (the per-PR CI scope; the full suite runs nightly in CI only)"
+  # Keep this list byte-identical to the one in .github/workflows/ci.yml.
+  # The cursor entries are substring matches and are here because the strmap
+  # cursor walks a raw *mut StrNode path stack; only tests small enough for
+  # the interpreter belong in them (the 2,040-key walks run nightly).
   cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types:: \
-    blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred
+    blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots
 else
   step "6/6 Miri — skipped (pass --miri for the Tier-1 filter; CI runs it on every PR)"
 fi
