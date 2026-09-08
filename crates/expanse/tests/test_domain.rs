@@ -275,6 +275,49 @@ fn test_cross_domain_negative_controls() {
             got: dict_b.domain_id(),
         }
     );
+
+    // 5. The rest of the family. This test was written to enumerate the
+    // mismatch contract rather than sample it, and six entry points were
+    // missing from it (#763): `contains_ordinal` — the direct twin of
+    // `resolve_id` above, and the only method on `DomainSet` that consumes a
+    // `DomainOrdinal` — plus the by-key `contains`/`remove` pair and three of
+    // the four `_many` combinators. Every one returns the same
+    // `DomainMismatch`, which is the property that lets a reader reason about
+    // the family instead of about twelve separate methods.
+    let mismatch = DomainMismatch {
+        expected: dict_a.domain_id(),
+        got: dict_b.domain_id(),
+    };
+
+    assert_eq!(set_a.contains_ordinal(id_b).unwrap_err(), mismatch);
+    assert_eq!(dict_a.contains(&set_b, b"entity_1").unwrap_err(), mismatch);
+    assert_eq!(
+        dict_a.remove(&mut set_b, b"entity_1").unwrap_err(),
+        mismatch
+    );
+    assert_eq!(
+        DomainSet::union_many(&[&set_a, &set_b]).unwrap_err(),
+        mismatch
+    );
+    assert_eq!(
+        DomainSet::intersection_len_many(&[&set_a, &set_b]).unwrap_err(),
+        mismatch
+    );
+    assert_eq!(
+        DomainSet::union_len_many(&[&set_a, &set_b]).unwrap_err(),
+        mismatch
+    );
+
+    // A foreign ordinal must be a mismatch, never `Ok(false)`. The two answers
+    // are not interchangeable: `Ok(false)` reports a lookup that never
+    // happened, and for a deny-list — revoked tokens, blocked identities — it
+    // reads as "not blocked" and fails open. `Result` is `#[must_use]`, so a
+    // caller who wants the lenient form writes `.unwrap_or(false)` at a
+    // greppable line; the reverse direction is not available.
+    assert!(
+        set_a.contains_ordinal(id_b).is_err(),
+        "a foreign ordinal must not collapse into Ok(false)"
+    );
 }
 
 #[test]
@@ -372,4 +415,78 @@ fn test_memory_introspection_honesty() {
 
     assert!(dict_mem > 0, "dictionary memory must be accounted for");
     assert!(set_mem > 0, "set memory must be accounted for");
+}
+
+/// `contains_ordinal` answers exactly what the by-key path answers (#763).
+///
+/// This asserts an **equivalence**, not an independent truth, and that is the
+/// point. `contains_ordinal` had no caller and no test, so a test written to
+/// make it pass would have fixed its contract by accident — inventing an
+/// answer to an open question and then pinning it, after which the assertion
+/// would look like evidence. Oracling it against `ExpanseDomainDict::contains`
+/// — which is already tested and is the surface callers actually use — asserts
+/// no new answer at all. If the two ever diverge the test reports a
+/// disagreement, which is real information.
+///
+/// The two are not redundant in use: `dict.contains(&set, key)` needs the
+/// dictionary and re-descends the string trie per probe, which is the work an
+/// interned ordinal exists to avoid when probing many sets.
+#[test]
+fn contains_ordinal_agrees_with_the_by_key_path() {
+    let mut dict = ExpanseDomainDict::new();
+    let mut set = dict.new_set();
+
+    for key in [b"alpha".as_slice(), b"beta", b"gamma"] {
+        dict.insert(&mut set, key).unwrap();
+    }
+
+    // Present, absent-but-interned, and never-interned all agree.
+    for key in [
+        b"alpha".as_slice(),
+        b"beta",
+        b"gamma",
+        b"interned_not_inserted",
+        b"never_seen",
+    ] {
+        let id = dict.intern(key).unwrap();
+        assert_eq!(
+            set.contains_ordinal(id).unwrap(),
+            dict.contains(&set, key).unwrap(),
+            "contains_ordinal disagrees with contains for {key:?}",
+        );
+    }
+}
+
+/// An in-domain ordinal that was interned but never inserted is `Ok(false)`,
+/// and a foreign ordinal is `Err` — the distinction that must not collapse.
+///
+/// Without this pair, `Err` and `Ok(false)` could be swapped and only one of
+/// them would be under test. Absence and un-answerability are different facts
+/// and the type distinguishes them; this pins that they stay distinguished.
+#[test]
+fn contains_ordinal_separates_absence_from_domain_mismatch() {
+    let mut dict_a = ExpanseDomainDict::new();
+    let mut dict_b = ExpanseDomainDict::new();
+    let mut set_a = dict_a.new_set();
+
+    dict_a.insert(&mut set_a, b"present").unwrap();
+
+    let present = dict_a.intern(b"present").unwrap();
+    let absent = dict_a.intern(b"absent").unwrap();
+    let foreign = dict_b.intern(b"present").unwrap();
+
+    assert_eq!(set_a.contains_ordinal(present), Ok(true), "present member");
+    assert_eq!(
+        set_a.contains_ordinal(absent),
+        Ok(false),
+        "an in-domain ordinal never inserted is an absence, not an error"
+    );
+    assert_eq!(
+        set_a.contains_ordinal(foreign).unwrap_err(),
+        DomainMismatch {
+            expected: dict_a.domain_id(),
+            got: dict_b.domain_id(),
+        },
+        "a foreign ordinal is unanswerable, not absent"
+    );
 }

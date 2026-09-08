@@ -219,9 +219,9 @@ impl<'a> PartialEq<BlobView<'a>> for [u8] {
         self == other.as_bytes()
     }
 }
-
 /// Error conditions during blob arena operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ArenaError {
     /// Arena memory allocation failed.
     AllocationFailed,
@@ -893,9 +893,24 @@ impl BlobArena {
     /// [`ArenaError::AllocationFailed`] / [`ArenaError::OffsetOverflow`]) the
     /// method returns `Err` with both `self` and `index` left untouched — the
     /// half-built new arena is dropped and no index slot points into it. The
-    /// new arena's generation is bumped so any arena offset still held from
-    /// before the compaction fails the [`ArenaChunk::get_slice`] generation
-    /// check rather than resolving to relocated bytes.
+    /// The new arena's generation is bumped so a **retired** chunk — one a
+    /// pinned reader still holds a payload borrow into — fails the
+    /// [`ArenaChunk::get_slice`] generation check rather than resolving to
+    /// relocated bytes.
+    ///
+    /// That is the whole of what the bump buys, and it is narrower than it
+    /// looks (#763). `self.chunks` is replaced wholesale here and every record
+    /// in the new set carries the *new* generation, so an offset held from
+    /// before the compaction and resolved against the compacted arena reads a
+    /// header stamped with the current generation and **passes** the check. It
+    /// then yields `None`, or another key's payload where a 16-byte-aligned
+    /// stale offset lands on a re-packed record. Nothing unsound — every read
+    /// is bounds-checked against `cursor` — but not the "fails closed" the
+    /// bump suggests on its own.
+    ///
+    /// Callers never see that, because the only supported path,
+    /// [`ExpanseBlobMap::compact`], rewrites every index slot in the same call
+    /// and leaves no stale offset behind.
     pub fn compact_with_index(
         &mut self,
         index: &mut ExpanseMap,
@@ -1117,10 +1132,24 @@ impl ExpanseBlobMap {
         &self.arena
     }
 
-    /// Returns a mutable reference to the backing blob arena.
-    pub fn arena_mut(&mut self) -> &mut BlobArena {
-        &mut self.arena
-    }
+    // No `arena_mut`. The index stores flat arena offsets, so handing out
+    // `&mut BlobArena` is a licence to change one half of a two-part invariant
+    // whose other half the holder cannot see (#763). Every mutation reachable
+    // through it desynchronises the two: `clear` frees the chunks while the
+    // index keeps its slots, `record_deleted` double-counts against the
+    // `record_deleted_slot` calls `insert`/`remove` already make, and
+    // `alloc_blob`/`push_chunk` grow the arena behind the index's back.
+    //
+    // The one arena mutation that preserves the invariant, `compact_with_index`,
+    // was never reachable through it anyway: it needs `&mut` to both halves and
+    // `index()` is shared-only, so the only call that compiled passed a foreign
+    // index. `ExpanseBlobMap::compact()` is that operation, done correctly, and
+    // it reached past this accessor to the field rather than using it.
+    //
+    // `arena()` stays: shared access to `mem_used`/`live_bytes`/`generation`
+    // has an obvious use and no hazard. If a narrow need appears, add a method
+    // on the map named for the intent (`reserve_chunks`), not a hole in the
+    // encapsulation named for the field.
 
     /// Inserts a key-blob pair with 32-bit hot metadata.
     ///

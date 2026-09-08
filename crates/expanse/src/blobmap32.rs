@@ -21,9 +21,9 @@ use core::option::Option::{self, None, Some};
 use crate::map32::ExpanseMap32;
 use crate::slot32::{SlotTag32, ValueSlot32};
 use crate::types32::Key32;
-
 /// Error returned by [`ExpanseBlobMap32::insert`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum BlobMap32Error {
     /// The arena grew beyond the 12-bit slab-offset field (> `0x0FFF` entries).
     OffsetOverflow,
