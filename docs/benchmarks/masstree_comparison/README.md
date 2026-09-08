@@ -530,9 +530,52 @@ neither the leaf nor the allocator. That `LLC-load-misses` rose 12.5% under
 huge pages while L1 misses fell 30.7% is recorded as observed; no counter run
 covers why, and this suite does not guess (§8.9).
 
-**Still not measured**: a per-function ranking of the string lookup body,
-which §6 requires before any change to this path. That is the one step of
-[#724](https://github.com/orieg/expanse/issues/724) left.
+**The per-function ranking, which §6 requires before any change to this path.**
+Callgrind with cache simulation over the same probe at the same population,
+phase-differenced so only the lookup loop is attributed. Two things make it
+readable as an attribution rather than as numbers: the last-level cache is
+forced to 32 MiB / 16-way — the nearest geometry Callgrind accepts to the
+reference host's 30 MiB L3, since it requires a power-of-two set count — and
+the simulation is checked against the machine before it is believed.
+`Ir` comes out at 179.66 and 296.07 per probe against 179.98 and 298.54
+measured, **within 0.8%**, and the string-to-`u64` miss ratio at 77× against
+83× measured *(measured: reference host counters at `b1868813`; Callgrind at
+`ee6b4290`, `results/callgrind_strmap_lookup/`)*.
+
+| `DLmr` per probe, lookup loop only | `map_get` | `strmap_get` | share of the string arm |
+|---|---:|---:|---:|
+| `ExpanseStrMap::get` — the chunk cascade | — | 0.961 | 25.1% |
+| `__memcpy_avx_unaligned_erms` — `chunk_at` | — | 0.830 | 21.7% |
+| `leaf::search` | — | 0.633 | 16.5% |
+| `get_map_popcnt` | 0.029 | 0.516 | 13.5% |
+| the probe's own key vector | — | 0.331 | 8.6% |
+| **total** | **0.050** | **3.835** | |
+
+**There is no hot spot, and that is the finding.** The misses spread across
+four functions at 13–25% each. No `StrSuffix` dereference dominates — which
+agrees with [#723](https://github.com/orieg/expanse/issues/723) having already
+collapsed that leaf into one allocation, with `strmap_get_counter` taking 1.156
+misses while allocating no leaf at all, and with the huge-page pair above. Three
+instruments now say the same thing: this is not one idiom, it is the shape of
+the descent.
+
+**A fifth of the cost is reading the key, not walking the tree.** `chunk_at`
+copies each 8-byte slice into a `[u8; 8]` with `copy_from_slice`, twice for a
+12-byte key, and those reads touch the caller's key bytes — a million separate
+allocations in this probe. That is a property of the byte-slice API rather than
+of the trie, and it is the one line item here that a caller's own key storage
+can move.
+
+**`get_map_popcnt` is the shared word-map node search**, and it is the only
+function that appears in both arms: 0.029 misses on `u64` against 0.516 on
+strings, 18× for being entered at every cascade level over a larger and
+sparser node set.
+
+**What Callgrind cannot say.** Its cache is an LRU model with no prefetcher and
+no adjacent-line fetch, so the absolute counts above are not the machine's —
+the reference host measures 2.558 `LLC-load-misses` where this simulates 3.835.
+The ranking is what is claimed, not the levels, and the `Ir` agreement is the
+evidence that the ranking is worth reading.
 
 #### What the counters say about the order effect (#737)
 
