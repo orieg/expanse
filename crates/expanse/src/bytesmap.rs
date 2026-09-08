@@ -276,7 +276,6 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     ///
     /// `pub(crate)` deliberately — only the `sync` wrapper drives a
     /// collector's epochs (see `BlobArena::defer_to` for the rationale).
-    #[cfg(feature = "std")]
     /// Binds the wrapper's tree-level version word to the hash trie's
     /// allocator (#568 PR 3; see `NodeAlloc::bind_tree_word`).
     ///
@@ -290,6 +289,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         unsafe { self.map.occ_root().1.bind_tree_word(word) };
     }
 
+    #[cfg(feature = "std")]
     pub(crate) fn defer_to(&self, collector: Arc<Collector>) {
         assert!(
             self.len == 0 && self.map.is_empty(),

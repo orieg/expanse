@@ -555,7 +555,10 @@ impl NodeAlloc {
     #[inline(always)]
     pub(crate) fn tree_version(&self) -> &crate::occ::SeqVersion {
         let p = self.tree_word.load(Ordering::Relaxed);
-        assert!(!p.is_null(), "tree_version on a tree with no tree word bound");
+        assert!(
+            !p.is_null(),
+            "tree_version on a tree with no tree word bound"
+        );
         // SAFETY: `bind_tree_word`'s contract — the word outlives every
         // operation on this allocator — and the null check above.
         unsafe { &*p }
@@ -573,9 +576,7 @@ impl NodeAlloc {
     /// block that neither leaves.
     #[cfg(feature = "std")]
     pub(crate) unsafe fn bind_tree_word(&self, word: *const crate::occ::SeqVersion) {
-        let prev = self
-            .tree_word
-            .swap(word.cast_mut(), Ordering::Relaxed);
+        let prev = self.tree_word.swap(word.cast_mut(), Ordering::Relaxed);
         assert!(
             prev.is_null() || core::ptr::eq(prev, word),
             "NodeAlloc already bound to a different tree word"

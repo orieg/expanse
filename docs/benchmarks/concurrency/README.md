@@ -153,7 +153,10 @@ variant that does not is a negative result, published as one.
 
 | variant | W | R | Expanse inserts M/s [BCa 95%] | Expanse lookups M/s [BCa 95%] | lookup rounds ≥ 3 M/s | lookups min–max |
 |---|--:|--:|---|---|--:|--:|
-| `default` | 1 | 8 | pending ([#568](https://github.com/orieg/expanse/issues/568)) | pending ([#568](https://github.com/orieg/expanse/issues/568)) | — | — |
+| `default` | 1 | 0 | 3.98 [3.95, 4.01] | no readers | — | — |
+| `default` | 1 | 8 | 1.74 [1.63, 1.82] | 6.28 [4.84, 7.07] | 12 / 15 | 2.17–8.82 |
+| `lock-padded` | 1 | 0 | 3.97 [3.94, 3.99] | no readers | — | — |
+| `lock-padded` | 1 | 8 | 2.24 [2.15, 2.34] | 1.25 [1.14, 1.33] | 0 / 15 | 0.91–1.50 |
 
 ## 7. Between-run spread and what voids a cell
 

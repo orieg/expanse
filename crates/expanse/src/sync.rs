@@ -688,7 +688,11 @@ impl<T: SharedTree> Shared<T> {
         // SAFETY: the word and the tree live in this one heap block, which
         // the wrapper owns and never opens; `inner` drops before `version`
         // (field order) and nothing hands the tree out.
-        unsafe { shared.inner_ref().bind_tree_word(core::ptr::from_ref(shared.version())) };
+        unsafe {
+            shared
+                .inner_ref()
+                .bind_tree_word(core::ptr::from_ref(shared.version()))
+        };
         shared
     }
 }
@@ -955,8 +959,7 @@ impl SetReader<'_> {
             // validates every load (see `walk_validated`).
             let root = unsafe { (*shared.inner.get()).occ_root().0 };
             // SAFETY: same pin + snapshot contract as the line above.
-            let walked =
-                unsafe { walk_validated::<false>(root, key, shared.version(), snap) };
+            let walked = unsafe { walk_validated::<false>(root, key, shared.version(), snap) };
             if let Ok(r) = walked {
                 return r.is_some();
             }
@@ -1397,8 +1400,7 @@ impl BlobReader<'_> {
             // every load (see `walk_validated`).
             let root = unsafe { (*shared.inner.get()).index().occ_root().0 };
             // SAFETY: same pin + snapshot contract as the line above.
-            let walked =
-                unsafe { walk_validated::<true>(root, key, shared.version(), snap) };
+            let walked = unsafe { walk_validated::<true>(root, key, shared.version(), snap) };
             if let Ok(found) = walked {
                 return Ok(found);
             }
@@ -1473,8 +1475,7 @@ impl BlobReadGuard<'_> {
             // validates every load (see `walk_validated`).
             let root = unsafe { (*shared.inner.get()).index().occ_root().0 };
             // SAFETY: same pin + snapshot contract as the line above.
-            let Ok(found) =
-                (unsafe { walk_validated::<true>(root, key, shared.version(), snap) })
+            let Ok(found) = (unsafe { walk_validated::<true>(root, key, shared.version(), snap) })
             else {
                 continue;
             };
@@ -1811,9 +1812,8 @@ impl StrReader<'_> {
             let snap = shared.version().sample();
             // SAFETY: pinned + freshly sampled version; every hop of the
             // cascade validates its loads (see `ExpanseStrMap::get_validated`).
-            let attempt = unsafe {
-                (*shared.inner.get()).get_validated(key, shared.version(), snap)
-            };
+            let attempt =
+                unsafe { (*shared.inner.get()).get_validated(key, shared.version(), snap) };
             if let Ok(r) = attempt {
                 return r;
             }
@@ -2004,9 +2004,8 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
             let snap = shared.version().sample();
             // SAFETY: pinned + freshly sampled version; every load is
             // validated (see `ExpanseBytesMap::get_validated`).
-            let attempt = unsafe {
-                (*shared.inner.get()).get_validated(key, shared.version(), snap)
-            };
+            let attempt =
+                unsafe { (*shared.inner.get()).get_validated(key, shared.version(), snap) };
             if let Ok(r) = attempt {
                 return r;
             }
@@ -2025,13 +2024,13 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
 #[cfg(all(test, not(miri)))]
 mod tests {
     /// A tree whose root state the engine covers, with no wrapper: defers
-    /// to a fresh collector and binds a leaked tree word (the wrapper would
-    /// own both).
+    /// to a fresh collector and binds `word` (the wrapper would own both;
+    /// here the test declares the word before the tree so it outlives it).
     #[allow(dead_code)]
-    pub(super) fn cover_root_for_test(alloc: &crate::alloc::NodeAlloc) {
+    pub(super) fn cover_root_for_test(alloc: &crate::alloc::NodeAlloc, word: &SeqVersion) {
         alloc.defer_to(Arc::new(crate::occ::Collector::new()));
-        let word: &'static SeqVersion = Box::leak(Box::new(SeqVersion::new()));
-        // SAFETY: leaked, so it outlives the test's tree.
+        // SAFETY: the caller declared `word` before the tree, so it drops
+        // after it.
         unsafe { alloc.bind_tree_word(core::ptr::from_ref(word)) };
         alloc.cover_root();
     }
@@ -3173,10 +3172,11 @@ mod tests {
     #[test]
     #[cfg(debug_assertions)]
     fn shared_map_insert_leaves_the_path_cache_cold() {
+        let word = SeqVersion::new();
         let mut map = ExpanseMap::new();
         // The map/set wrapper's mode: the engine covers the root state, so
         // no bracket is open around any call here.
-        cover_root_for_test(map.occ_root().1);
+        cover_root_for_test(map.occ_root().1, &word);
         for k in 0..40u64 {
             map.insert(k, k * 10);
         }
@@ -3198,10 +3198,11 @@ mod tests {
     #[test]
     #[cfg(debug_assertions)]
     fn shared_set_insert_leaves_the_path_cache_cold() {
+        let word = SeqVersion::new();
         let mut set = ExpanseSet::new();
         // The map/set wrapper's mode: the engine covers the root state, so
         // no bracket is open around any call here.
-        cover_root_for_test(set.occ_root().1);
+        cover_root_for_test(set.occ_root().1, &word);
         for k in 0..40u64 {
             set.insert(k);
         }
@@ -3448,7 +3449,14 @@ mod diagnostics_tests {
 
     #[test]
     fn layout_report_names_every_field_of_every_wrapper() {
-        const FIELDS: [&str; 6] = ["inner", "version", "write", "collector", "last_holder", "advance_tick"];
+        const FIELDS: [&str; 6] = [
+            "inner",
+            "version",
+            "write",
+            "collector",
+            "last_holder",
+            "advance_tick",
+        ];
         const WRAPPERS: [&str; 5] = [
             "SyncExpanseSet",
             "SyncExpanseMap",
@@ -3479,7 +3487,11 @@ mod diagnostics_tests {
             // The readers' line: the word heads the block, the root
             // snapshot follows it; the writer's private words are on
             // another line (#568 PR 3).
-            assert_eq!(off("version"), 0, "{wrapper}: the tree word heads the block");
+            assert_eq!(
+                off("version"),
+                0,
+                "{wrapper}: the tree word heads the block"
+            );
             assert_eq!(
                 off("inner"),
                 core::mem::size_of::<Line<SeqVersion>>(),

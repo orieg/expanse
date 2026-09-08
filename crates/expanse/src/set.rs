@@ -1887,15 +1887,14 @@ mod tests {
     }
 
     fn occ_engine_drive(engine_covers_root: bool) {
+        // The wrapper would own the tree word beside the tree; the drive
+        // declares it first so it outlives the tree.
+        let word = crate::occ::SeqVersion::new();
         let mut s = ExpanseSet::new();
         let collector = std::sync::Arc::new(crate::occ::Collector::new());
         s.occ_root().1.defer_to(collector);
-        // The wrapper would own the tree word beside the tree; the drive
-        // leaks one so its address is stable.
-        let word: &'static crate::occ::SeqVersion =
-            Box::leak(Box::new(crate::occ::SeqVersion::new()));
-        // SAFETY: leaked, so it outlives the drive's tree.
-        unsafe { s.occ_root().1.bind_tree_word(core::ptr::from_ref(word)) };
+        // SAFETY: `word` is declared before the tree, so it drops after it.
+        unsafe { s.occ_root().1.bind_tree_word(core::ptr::from_ref(&word)) };
         if engine_covers_root {
             s.occ_root().1.cover_root();
         } else {
