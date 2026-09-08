@@ -537,7 +537,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                     }
                     if num == BRANCH_L3_CAP {
                         path.clear();
-                        upgrade_l3_to_l7(a, &mut *edge);
+                        upgrade_l3_to_l7::<false>(a, &mut *edge);
                         continue;
                     }
                     let slot = linear_insert_slot_l3(
@@ -579,7 +579,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                     let num = (*b_ptr).hdr.num as usize;
                     if num == BRANCH_L7_CAP {
                         path.clear();
-                        upgrade_l7_to_b(a, &mut *edge);
+                        upgrade_l7_to_b::<false>(a, &mut *edge);
                         continue;
                     }
                     let slot =
@@ -633,7 +633,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                     path.clear();
                     // SAFETY: upgrade_b_to_u upgrades live BranchB to BranchU.
                     unsafe {
-                        upgrade_b_to_u(a, &mut *edge);
+                        upgrade_b_to_u::<false>(a, &mut *edge);
                     }
                     level = slot_level;
                     continue;
@@ -1702,9 +1702,9 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                     // SAFETY: upgrade rebuilds the node; subtree stays owned.
                     unsafe {
                         if is_l3 {
-                            upgrade_l3_to_l7(a, edge);
+                            upgrade_l3_to_l7::<OCC>(a, edge);
                         } else {
-                            upgrade_l7_to_b(a, edge);
+                            upgrade_l7_to_b::<OCC>(a, edge);
                         }
                     }
                     continue;
@@ -1802,7 +1802,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                     path.clear();
                     // SAFETY: upgrade rebuilds the node; subtree stays owned.
                     unsafe {
-                        upgrade_b_to_u(a, edge);
+                        upgrade_b_to_u::<OCC>(a, edge);
                     }
                     level = slot_level;
                     continue;
@@ -2280,7 +2280,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                     }
                     bump_pop0(edge, bl, -1);
                     if !is_l3 && num < BRANCH_L3_CAP {
-                        downgrade_l7_to_l3(a, edge);
+                        downgrade_l7_to_l3::<OCC>(a, edge);
                     }
                 }
             } else {
@@ -2363,7 +2363,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                 unsafe { bump_pop0(edge, bl, -1) };
                 if digits < BRANCH_L7_CAP {
                     // SAFETY: rebuild keeps the subtree owned.
-                    unsafe { downgrade_b_to_l7(a, edge) };
+                    unsafe { downgrade_b_to_l7::<OCC>(a, edge) };
                 }
             } else {
                 // SAFETY: edge is a valid live edge.
@@ -2405,7 +2405,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                 unsafe { bump_pop0(edge, level, -1) };
                 if digits < BRANCHB_UP {
                     // SAFETY: rebuild keeps the subtree owned.
-                    unsafe { downgrade_u_to_b(a, edge, level) };
+                    unsafe { downgrade_u_to_b::<OCC>(a, edge, level) };
                 }
             } else {
                 // SAFETY: edge is a valid live edge.
