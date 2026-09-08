@@ -54,10 +54,10 @@ Masstree's keep 43.2 of their 58.4 — 0.450 [0.431, 0.501]; on strings from
 31.4 to 6.4 against Masstree's 26.9 — 0.228 [0.212, 0.241] *(workloads:
 `masstree_conc_map_64bit`, `masstree_conc_str`)*. **`CONFIRMED`** in direction
 (§6.1 row 3). The mechanism is **unmeasured**, and the health cells rule out
-the obvious one: the restart share stays at 3.8–6.8% at every writer count (§7),
-which cannot account for a seven-fold drop, while `sample_spins ÷ read_ops`
-of 0.95–1.24 says a reader waits on the writer's open tree-level bracket about
-once per lookup. Whether the remainder is that wait or coherence traffic
+the obvious one: the restart share stays in a 4.1–7.4% band across both runs
+at every writer count (§7), which cannot account for a seven-fold drop, while
+`sample_spins ÷ read_ops` of 0.91–1.25 says a reader waits on the writer's
+open tree-level bracket about once per lookup. Whether the remainder is that wait or coherence traffic
 on the shared version line is a counter question this arm did not take (§8.9).
 The writer pays too: with eight readers probing, the Expanse single writer
 falls from 5.66 to 1.86 M inserts/s where Masstree's falls from 5.09 to 3.82
@@ -615,20 +615,20 @@ cell in this suite was measured on.
 
 ## 7. The concurrent arm
 
-> **Pending re-measurement, tracked by [#730](https://github.com/orieg/expanse/issues/730).**
-> Every cell in this section was measured at harness commit `2ce92b7f` and was
-> **not** re-run for [#723](https://github.com/orieg/expanse/issues/723). MC1, C1/C2 on `u64` keys, and the `M` census are
-> unaffected by that change — it touches `ExpanseStrMap` only. **MC2 is not**:
-> its readers walk the string suffix leaf whose representation changed, so its
-> levels are stale. They are left in place rather than deleted because the
-> *direction* they establish — Expanse string writers losing from one writer —
-> rests on the writer mutex, which #723 does not touch, and no re-run is
-> needed to keep saying that. The **levels** are withheld pending
-> re-measurement (§8.10): quote the direction, not the number, until they are
-> re-taken. Re-taking them means two runs, not one, because a concurrent
-> level does not replicate within its own interval (rule 18) — that work
-> belongs with [#730](https://github.com/orieg/expanse/issues/730), which is
-> already open on this arm.
+> **Re-measured at `a1982ff2`, two runs, for [#568](https://github.com/orieg/expanse/issues/568) Step 0.**
+> Every cell in this section — MC1 and MC2, C1, C2 and the H health cells —
+> was re-taken twice under the standing conditions (host lock, P-core pin,
+> a load snapshot per cell with the runner's own CPU subtracted, foreign
+> load ≤ 0.02 core-equivalents at every cell). The tables below are run 1 of
+> that pair; run 2 is [`results/baseline_concurrent_run2.json`](results/baseline_concurrent_run2.json),
+> and "Between-run spread" at the end of this section reads both against the
+> `64f8a3af` pair. This is the re-run [#730](https://github.com/orieg/expanse/issues/730)
+> asked for on MC2: its levels are current again, and its W = 1 R = 8 reader
+> cell is the one that separates most between the two runs (0.066 [0.048,
+> 0.123] against 0.219 [0.198, 0.233]) — quote its direction, not a level.
+> The health cells now carry the attribution counters #568 added and are
+> summed from per-thread shards, so their restart and spin ratios are not
+> comparable to the `64f8a3af` pair's levels (see §7's health paragraph).
 
 #### MC1 — `u64` keys, Masstree vs `SyncExpanseMap`
 
@@ -636,21 +636,21 @@ cell in this suite was measured on.
 
 | W | Masstree M/s | Expanse M/s | ratio [BCa 95%] | verdict |
 |--:|---:|---:|---|---|
-| 1 | 5.07 | 5.68 | 1.134 [1.095, 1.173] | Expanse — **`REFUTED`** (in Expanse's favour) |
-| 2 | 9.76 | 3.92 | 0.407 [0.395, 0.418] | Masstree — `CONFIRMED` |
-| 4 | 18.27 | 3.21 | 0.179 [0.175, 0.183] | Masstree — `CONFIRMED` |
-| 8 | 32.02 | 2.58 | 0.081 [0.080, 0.084] | Masstree — `CONFIRMED` |
-| 16 | 34.43 | 1.84 | 0.050 [0.044, 0.054] | Masstree — `not pre-registered` |
+| 1 | 5.08 | 5.55 | 1.139 [1.100, 1.179] | Expanse — **`REFUTED`** (in Expanse's favour) |
+| 2 | 9.64 | 3.92 | 0.410 [0.399, 0.420] | Masstree — `CONFIRMED` |
+| 4 | 18.31 | 3.48 | 0.192 [0.188, 0.198] | Masstree — `CONFIRMED` |
+| 8 | 31.26 | 3.16 | 0.100 [0.097, 0.102] | Masstree — `CONFIRMED` |
+| 16 | 34.53 | 2.20 | 0.057 [0.051, 0.062] | Masstree — `not pre-registered` |
 
 **C2 — reader throughput alongside writers** (8 readers probe 50/50 while W writers insert; W = 0 is the reader-only reference; the reader window is the writers' fixed work, so the two arms' windows differ in length by the writer ratio and the population grows at different rates inside them)
 
 | W | Masstree readers M/s | Expanse readers M/s | ratio [BCa 95%] | verdict | Masstree writers M/s | Expanse writers M/s | writer ratio |
 |--:|---:|---:|---|---|---:|---:|---|
-| 0 | 56.88 | 138.65 | 2.392 [2.321, 2.428] | Expanse — `CONFIRMED` | — | — | — |
-| 1 | 40.94 | 16.36 | 0.400 [0.391, 0.409] | Masstree — `CONFIRMED` | 3.85 | 2.00 | 0.521 [0.501, 0.534] |
-| 2 | 39.10 | 25.87 | 0.653 [0.639, 0.667] | Masstree — `CONFIRMED` | 7.35 | 1.66 | 0.227 [0.222, 0.234] |
-| 4 | 35.45 | 22.18 | 0.618 [0.603, 0.633] | Masstree — `CONFIRMED` | 14.17 | 1.78 | 0.128 [0.125, 0.132] |
-| 8 | 30.09 | 21.94 | 0.718 [0.690, 0.747] | Masstree — `CONFIRMED` | 18.70 | 1.67 | 0.080 [0.073, 0.088] |
+| 0 | 58.98 | 140.34 | 2.372 [2.296, 2.407] | Expanse — `CONFIRMED` | — | — | — |
+| 1 | 41.36 | 19.64 | 0.450 [0.394, 0.480] | Masstree — `CONFIRMED` | 3.88 | 1.90 | 0.523 [0.487, 0.595] |
+| 2 | 39.54 | 29.09 | 0.746 [0.715, 0.776] | Masstree — `CONFIRMED` | 7.25 | 1.56 | 0.215 [0.208, 0.225] |
+| 4 | 35.73 | 26.17 | 0.719 [0.699, 0.736] | Masstree — `CONFIRMED` | 13.97 | 1.55 | 0.111 [0.109, 0.114] |
+| 8 | 30.91 | 20.61 | 0.666 [0.651, 0.685] | Masstree — `CONFIRMED` | 17.98 | 1.82 | 0.088 [0.079, 0.097] |
 
 #### MC2 — `short` string keys, Masstree vs `SyncExpanseStrMap`
 
@@ -658,47 +658,60 @@ cell in this suite was measured on.
 
 | W | Masstree M/s | Expanse M/s | ratio [BCa 95%] | verdict |
 |--:|---:|---:|---|---|
-| 1 | 4.18 | 3.99 | 0.954 [0.865, 1.043] | `BOUNDARY_RESULT` — `CONFIRMED` |
-| 2 | 7.92 | 2.67 | 0.378 [0.354, 0.407] | Masstree — `CONFIRMED` |
-| 4 | 14.81 | 2.38 | 0.172 [0.161, 0.186] | Masstree — `CONFIRMED` |
-| 8 | 24.02 | 2.28 | 0.101 [0.093, 0.111] | Masstree — `CONFIRMED` |
-| 16 | 28.46 | 0.54 | 0.018 [0.017, 0.020] | Masstree — `not pre-registered` |
+| 1 | 4.06 | 4.01 | 0.951 [0.864, 1.038] | `BOUNDARY_RESULT` — `CONFIRMED` |
+| 2 | 7.90 | 2.84 | 0.385 [0.362, 0.413] | Masstree — `CONFIRMED` |
+| 4 | 14.27 | 2.50 | 0.183 [0.171, 0.197] | Masstree — `CONFIRMED` |
+| 8 | 23.98 | 2.20 | 0.100 [0.089, 0.110] | Masstree — `CONFIRMED` |
+| 16 | 27.05 | 0.53 | 0.019 [0.017, 0.021] | Masstree — `not pre-registered` |
 
 **C2 — reader throughput alongside writers** (8 readers probe 50/50 while W writers insert; W = 0 is the reader-only reference; the reader window is the writers' fixed work, so the two arms' windows differ in length by the writer ratio and the population grows at different rates inside them)
 
 | W | Masstree readers M/s | Expanse readers M/s | ratio [BCa 95%] | verdict | Masstree writers M/s | Expanse writers M/s | writer ratio |
 |--:|---:|---:|---|---|---:|---:|---|
-| 0 | 34.07 | 33.83 | 0.993 [0.989, 0.997] | Masstree — **`UNPREDICTED LOSS`** | — | — | — |
-| 1 | 25.43 | 7.06 | 0.272 [0.249, 0.287] | Masstree — `CONFIRMED` | 2.86 | 1.65 | 0.614 [0.554, 0.704] |
-| 2 | 23.88 | 8.52 | 0.349 [0.335, 0.365] | Masstree — `CONFIRMED` | 4.21 | 1.34 | 0.280 [0.253, 0.302] |
-| 4 | 21.16 | 8.16 | 0.392 [0.378, 0.408] | Masstree — `CONFIRMED` | 9.03 | 1.28 | 0.141 [0.132, 0.148] |
-| 8 | 16.58 | 7.51 | 0.442 [0.421, 0.460] | Masstree — `CONFIRMED` | 14.77 | 1.31 | 0.089 [0.085, 0.095] |
+| 0 | 34.04 | 35.17 | 1.025 [1.001, 1.035] | Expanse — `CONFIRMED` | — | — | — |
+| 1 | 25.25 | 1.21 | 0.066 [0.048, 0.123] | Masstree — `CONFIRMED` | 2.89 | 1.80 | 0.651 [0.617, 0.699] |
+| 2 | 23.81 | 5.24 | 0.235 [0.219, 0.265] | Masstree — `CONFIRMED` | 4.30 | 1.48 | 0.309 [0.285, 0.332] |
+| 4 | 20.86 | 4.64 | 0.232 [0.222, 0.245] | Masstree — `CONFIRMED` | 8.87 | 1.52 | 0.169 [0.159, 0.180] |
+| 8 | 17.55 | 7.86 | 0.457 [0.438, 0.477] | Masstree — `CONFIRMED` | 15.14 | 1.32 | 0.089 [0.084, 0.095] |
 
 #### H — protocol health, Expanse side only (occ-stats build; event ratios, never a timing)
 
-| Arm | W | R | restart share, median [min, max] | fallback share, median | `sample_spins` ÷ `read_ops` (medians) | §6.3 |
-|---|--:|--:|---|---|---:|---|
-| map | 1 | 8 | 4.14% [3.87%, 4.65%] | 0.0000% | 0.91 | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 2 | 8 | 5.07% [4.68%, 8.67%] | 0.0000% | 1.00 | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 4 | 8 | 5.38% [4.85%, 5.59%] | 0.0000% | 1.13 | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 8 | 8 | 6.37% [6.19%, 6.63%] | 0.0000% | 1.25 | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| str | 1 | 8 | 35.37% [35.05%, 37.71%] | 0.0000% | 2.26 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| str | 2 | 8 | 26.93% [26.11%, 27.59%] | 0.0000% | 2.00 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| str | 4 | 8 | 26.10% [25.16%, 26.98%] | 0.0000% | 2.11 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| str | 8 | 8 | 29.57% [28.55%, 30.94%] | 0.0000% | 2.31 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| Arm | W | R | run | restart share, median [min, max] | fallback share, median | `sample_spins` ÷ `read_ops` (medians) | `locked_reads` ÷ `read_ops` | unconditional lock share | handoffs ÷ write | branch replacements ÷ write | deep-cascade share | root-rewrite share | spin time ÷ reader wall | §6.3 |
+|---|--:|--:|--:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| map | 1 | 8 | 1 | 9.57% [9.30%, 9.83%] | 0.0000% | 3.31 | 0.00% | 0.00% | 0.000 | 0.057 | 2.84% | 0.00% | 57.63% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 1 | 8 | 2 | 12.22% [11.45%, 20.12%] | 0.0000% | 3.70 | 0.00% | 0.00% | 0.000 | 0.057 | 2.84% | 0.00% | 60.32% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 2 | 8 | 1 | 6.25% [5.51%, 7.32%] | 0.0000% | 2.30 | 0.00% | 0.00% | 0.136 | 0.057 | 2.84% | 0.00% | 52.33% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 2 | 8 | 2 | 5.70% [5.54%, 8.11%] | 0.0000% | 2.21 | 0.00% | 0.00% | 0.116 | 0.057 | 2.84% | 0.00% | 51.76% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 4 | 8 | 1 | 7.24% [6.76%, 8.78%] | 0.0000% | 2.63 | 0.00% | 0.00% | 0.224 | 0.057 | 2.84% | 0.00% | 54.41% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 4 | 8 | 2 | 10.38% [8.01%, 11.42%] | 0.0000% | 3.10 | 0.00% | 0.00% | 0.344 | 0.057 | 2.84% | 0.00% | 57.57% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 8 | 8 | 1 | 8.33% [7.89%, 8.50%] | 0.0000% | 2.91 | 0.00% | 0.00% | 0.248 | 0.057 | 2.84% | 0.00% | 55.31% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 8 | 8 | 2 | 10.32% [9.76%, 10.77%] | 0.0000% | 3.15 | 0.00% | 0.00% | 0.434 | 0.057 | 2.84% | 0.00% | 56.44% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 1 | 8 | 1 | 49.77% [49.14%, 51.65%] | 0.0000% | 7.12 | 0.00% | 0.00% | 0.000 | 0.000 | 0.00% | 0.00% | 46.01% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 1 | 8 | 2 | 56.53% [54.88%, 64.86%] | 0.0000% | 8.85 | 0.00% | 0.00% | 0.000 | 0.000 | 0.00% | 0.00% | 51.12% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 2 | 8 | 1 | 69.71% [57.10%, 69.77%] | 0.0817% | 21.55 | 0.08% | 0.00% | 0.022 | 0.000 | 0.00% | 0.00% | 64.37% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 2 | 8 | 2 | 58.10% [56.13%, 59.17%] | 0.0017% | 15.25 | 0.00% | 0.00% | 0.157 | 0.000 | 0.00% | 0.00% | 61.44% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 4 | 8 | 1 | 44.58% [44.11%, 48.63%] | 0.0003% | 9.38 | 0.00% | 0.00% | 0.161 | 0.000 | 0.00% | 0.00% | 52.42% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 4 | 8 | 2 | 43.37% [40.86%, 44.14%] | 0.0000% | 8.37 | 0.00% | 0.00% | 0.157 | 0.000 | 0.00% | 0.00% | 49.06% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 8 | 8 | 1 | 48.78% [46.69%, 49.59%] | 0.0000% | 10.70 | 0.00% | 0.00% | 0.246 | 0.000 | 0.00% | 0.00% | 53.83% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 8 | 8 | 2 | 46.40% [46.28%, 48.92%] | 0.0001% | 10.70 | 0.00% | 0.00% | 0.195 | 0.000 | 0.00% | 0.00% | 53.53% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
 
 The MC1 health rows land where `hot_comparison` §7.3's did on the same
-construction: restart share 3.8–6.8% **without rising monotonically with
-writer count** (3.75% at W = 1, then 6.84%, 4.90%, 6.02%) — the first half of
-§6.3 registered a rise and is `REFUTED` — and zero reads took
-the writer mutex at any writer count. That zero is not a finding about the
-protocol: a fallback needs 64 consecutive failed walks, and at these bracket
-lengths the probability of one is negligible by construction, so the second
-half of §6.3 is `PASS_categorical_by_design` and a health falsifier that can
-fire — reader nanoseconds per probe under a writer against alone, which moved
-seven-fold here — is what a future arm should register. The health build
-itself perturbs what it counts: every restart and spin is a `fetch_add` on
-one shared counter line across nine threads (#721 scopes per-thread counters).
+construction: restart share in a 4.1–7.4% band across both runs, and whether
+it rises with writer count is **not settled by two runs** — run 1 rises
+monotonically (4.14 → 5.07 → 5.38 → 6.37%, `CONFIRMED`), run 2 does not
+(4.80 → 7.43 → 5.52 → 5.78%, `REFUTED`) — so under `docs/BENCHMARKING.md`
+rule 18 the first half of §6.3 is reported direction-only, as a band. Zero
+reads took the writer mutex at any writer count. That zero is not a finding
+about the protocol: a fallback needs 64 consecutive failed walks, and at
+these bracket lengths the probability of one is negligible by construction,
+so the second half of §6.3 is `PASS_categorical_by_design` and a health
+falsifier that can fire — reader nanoseconds per probe under a writer
+against alone, which moved seven-fold here — is what
+`docs/benchmarks/concurrency/METHODOLOGY.md` registers. The health build of
+these two runs perturbed what it counted: every restart and spin was a
+`fetch_add` on one shared counter line across nine threads; the counters are
+per-thread shards since #568's Step 0 commit, and that pre-registration
+measures the counter's own between-run spread before any level is quoted.
 
 MC2's rows were `NOT_INSTRUMENTED` until #744: `StrReader::get` counted
 fallbacks only, so a 0% restart share would have been a number about the
@@ -724,14 +737,14 @@ tested.
 | λ | N | Masstree allocator | SyncExpanseMap allocator | Masstree structural | Expanse `mem_used` | flag |
 |---:|---:|---:|---:|---:|---:|---|
 | 1 | 65,536 | 32.19 | 24.26 | 22.78 | 22.66 | `QUANTUM_DOMINATED` |
-| 2 | 131,072 | 32.09 | 24.72 | 22.77 | 24.09 | `QUANTUM_DOMINATED` |
+| 2 | 131,072 | 32.09 | 24.71 | 22.77 | 24.09 | `QUANTUM_DOMINATED` |
 | 4 | 262,144 | 24.05 | 22.95 | 22.76 | 22.28 | `ok` |
 | 8 | 524,288 | 24.02 | 19.34 | 22.76 | 19.05 | `ok` |
 | 15 | 983,040 | 23.48 | 16.80 | 22.76 | 16.75 | `ok` |
 | 23 | 1,507,328 | 23.66 | 16.36 | 22.76 | 16.20 | `ok` |
-| 30 | 1,966,080 | 23.47 | 20.34 | 22.76 | 19.05 | `ok` |
+| 30 | 1,966,080 | 23.47 | 20.35 | 22.76 | 19.05 | `ok` |
 | 38 | 2,490,368 | 23.58 | 25.90 | 22.76 | 23.24 | `ok` |
-| 46 | 3,014,656 | 22.96 | 26.78 | 22.76 | 24.00 | `ok` |
+| 46 | 3,014,656 | 22.96 | 26.77 | 22.76 | 24.00 | `ok` |
 | 61 | 3,997,696 | 23.09 | 25.60 | 22.76 | 23.17 | `ok` |
 
 **The Expanse column beside #692's.** MC1's cells are the construction of
@@ -789,14 +802,25 @@ runs were on the quiet host under the P-core pin, worst busy-CPU delta 5.7
 core-equivalents — the concurrent benchmark's own threads, with no non-target
 process.
 
+**Two more runs, at `a1982ff2`, for [#568](https://github.com/orieg/expanse/issues/568)
+Step 0 — the pair the tables above now carry.** Against the union of the
+`64f8a3af` pair, 27 of the 28 C1/C2 ratio cells overlap; the one that does
+not is `C2 str W=0 R=8` (0.973–0.997 → 0.997–1.035), a parity cell either
+way. Within the new pair, **9 of 28 cells separate** — six integer cells at
+W ≥ 2 and the three string reader cells at W ∈ {1, 2, 4} with eight readers,
+the widest being `C2 str W=1 R=8` (0.066 → 0.219) — and **no direction and no
+verdict moved**. Per rule 18 those nine are direction-only. The per-cell
+load snapshots put the foreign share at ≤ 0.02 core-equivalents throughout,
+so the spread is the host and the engine, not a competing process.
+
 ## 8. Scorecard against the pre-registration
 
 #### Scorecard (wall-clock cells with a Masstree column)
 
 | | Count |
 |---|---:|
-| Expanse wins (CI excludes parity) | 85 |
-| Masstree wins (CI excludes parity) | 81 |
+| Expanse wins (CI excludes parity) | 86 |
+| Masstree wins (CI excludes parity) | 80 |
 | `BOUNDARY_RESULT` | 6 |
 | Masstree column withheld (§3.4, `beyond`) | 18 |
 
@@ -805,9 +829,9 @@ process.
 | Masstree — `CONFIRMED` | 58 |
 | Expanse — `not pre-registered` | 32 |
 | Expanse — **`REFUTED`** | 31 |
-| Expanse — `CONFIRMED` | 21 |
+| Expanse — `CONFIRMED` | 22 |
 | Masstree — `not pre-registered` | 13 |
-| Masstree — **`UNPREDICTED LOSS`** | 10 |
+| Masstree — **`UNPREDICTED LOSS`** | 9 |
 | `BOUNDARY_RESULT` | 5 |
 | Expanse — **`REFUTED`** (in Expanse's favour) | 1 |
 | `BOUNDARY_RESULT` — `CONFIRMED` | 1 |
@@ -838,7 +862,7 @@ generator does not emit made that match ambiguous.
 | Expanse wins `short` 100%-hit lookup (low-medium) | **CONFIRMED** |
 | Expanse wins `counter` / `prefixed` index memory (medium) | `counter` **CONFIRMED**; `prefixed` **UNPREDICTED LOSS** (by magnitude) |
 | Expanse wins reader-only C2 (medium) | **CONFIRMED** on integers; **UNPREDICTED LOSS** on strings |
-| H: restart share rises with W; fallback share < 1% at W ≤ 8 (§6.3) | restart share **did not rise monotonically** (3.75% at W = 1, then 6.84%, 4.90%, 6.02%) — that half **REFUTED** on MC1; fallback 0% — `PASS_categorical_by_design`, since a fallback needs 64 consecutive failed walks and cannot occur at these bracket lengths; not evaluable on MC2 (§10.5) |
+| H: restart share rises with W; fallback share < 1% at W ≤ 8 (§6.3) | restart share direction-only (rule 18): run 1 `CONFIRMED`, run 2 `REFUTED`, a 4.1–7.4% band across both; fallback share **`PASS_categorical_by_design`** — zero at every W, a falsifier that cannot fire at these bracket lengths (§7) |
 
 Eleven `UNPREDICTED LOSS` cells (registered Expanse wins that Masstree took)
 and 28 `REFUTED` cells (registered Masstree wins that Expanse took — every

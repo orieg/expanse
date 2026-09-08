@@ -39,7 +39,6 @@ HOT's two lines are flat; Expanse's dip into the shaded band and climb out of it
 past the cascade is the whole finding. The shaded region is derived by comparing
 the two arms cell by cell, not drawn by eye.
 
-
 | λ | N | HOT B/key | `ExpanseSet` B/key | winner |
 |---:|---:|---:|---:|---|
 | 1 | 32,768 | 12.06 | 16.17 | HOT 1.34× |
@@ -129,7 +128,6 @@ Both exceptions sit against the parity line: `lookup_hit · map · random` is a
 `BOUNDARY_RESULT` at 0.986 [0.970, 1.003], and `lookup_miss · set · random` is a
 non-scan HOT win at 0.960 [0.953, 0.967]. At 10⁵ the map hit cell is the second
 non-scan HOT win, 0.939 [0.888, 0.970].
-
 
 ### Point lookup, 100% hit
 
@@ -371,7 +369,6 @@ arrival order.
 - The mechanism is **unmeasured**. Nothing here attributes the shuffled-order
   cost to page faults, allocator span reuse or node-shape churn; #725's counter
   plan and #737's wrapper are what would.
-
 
 ---
 
@@ -776,9 +773,10 @@ two windows are the same length.
   → 23 set; 16 → 25 → 23 → 21 map) while ROWEX's declines as its writers take
   more of the machine, which is why the ratio narrows toward W = 8 without
   Expanse recovering. **The mechanism of the collapse is unmeasured.** The
-  restart share cannot account for a ten-fold drop — it is 3–7% at every
-  writer count (§7.3) — and `sample_spins` ÷ `read_ops`, one to two waits per
-  lookup there, is the only counter this suite takes that speaks to it. No
+  restart share cannot account for a ten-fold drop — it sits in a 1–11% band
+  across both runs at every writer count (§7.3) — and `sample_spins` ÷
+  `read_ops`, about one wait per lookup there (0.58–1.30 over the two runs),
+  is the only counter this suite takes that speaks to it. No
   hardware counter was taken on either arm, so nothing here attributes the fall
   to a cache-line transfer, a futex or a bracket wait (§8.9 principle 1);
   #737's shared `perf stat` wrapper is what would take one.
@@ -800,16 +798,26 @@ the writer mutex), read from the engine's `occ_stats` counters on a **separate
 `occ-stats` build** of the same cells, Expanse side only (§11.3, decision 5).
 Nothing in this table is a timing. 5 rounds per cell; median with range.
 
-| Arm | W | R | restart share, median [min, max] | fallback share | `sample_spins` ÷ `read_ops` (ratio of medians) | §11.5.3 |
-|---|--:|--:|---|---|---:|---|
-| set | 1 | 8 | 4.44% [4.38%, 5.61%] | 0 | 1.64 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 2 | 8 | 6.99% [6.82%, 7.25%] | 0 | 1.88 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 4 | 8 | 5.25% [5.13%, 5.67%] | 0 | 1.72 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 8 | 8 | 6.84% [6.82%, 6.98%] | 0 | 1.85 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 1 | 8 | 4.96% [4.76%, 8.54%] | 0 | 1.94 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 2 | 8 | 3.36% [3.07%, 3.89%] | 0 | 1.98 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 4 | 8 | 5.67% [5.36%, 5.96%] | 0 | 2.05 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 8 | 8 | 4.29% [4.07%, 4.47%] | 0 | 1.93 | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+> The table below is the output of `scripts/integer_tables.py` over `results/baseline_concurrent.json` (run 1) and `results/baseline_concurrent_run2.json` (run 2), both runs side by side per `docs/BENCHMARKING.md` rule 18; nothing in it is typed by hand, and a column the artifacts do not carry reads `not recorded`.
+
+| Arm | W | R | run | restart share, median [min, max] | fallback share | `sample_spins` ÷ `read_ops` (ratio of medians) | `locked_reads` ÷ `read_ops` | unconditional lock share | handoffs ÷ write | branch replacements ÷ write | deep-cascade share | root-rewrite share | spin time ÷ reader wall | §11.5.3 |
+|---|--:|--:|--:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| set | 1 | 8 | 1 | 9.23% [9.12%, 9.46%] | 0.0000% | 2.52 | 0.00% | 0.00% | 0.000 | 0.034 | 1.71% | 0.00% | 52.76% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 1 | 8 | 2 | 13.39% [12.57%, 30.84%] | 0.0000% | 3.36 | 0.00% | 0.00% | 0.000 | 0.034 | 1.71% | 0.00% | 57.33% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 2 | 8 | 1 | 6.05% [5.85%, 6.08%] | 0.0000% | 1.77 | 0.00% | 0.00% | 0.127 | 0.034 | 1.71% | 0.00% | 48.48% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 2 | 8 | 2 | 5.89% [5.76%, 6.05%] | 0.0000% | 1.81 | 0.00% | 0.00% | 0.124 | 0.034 | 1.71% | 0.00% | 49.23% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 4 | 8 | 1 | 6.72% [5.80%, 8.02%] | 0.0000% | 1.85 | 0.00% | 0.00% | 0.280 | 0.034 | 1.71% | 0.00% | 48.36% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 4 | 8 | 2 | 8.30% [8.01%, 9.97%] | 0.0000% | 2.21 | 0.00% | 0.00% | 0.472 | 0.034 | 1.71% | 0.00% | 50.86% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 8 | 8 | 1 | 12.03% [11.39%, 12.87%] | 0.0000% | 2.39 | 0.00% | 0.00% | 0.546 | 0.034 | 1.71% | 0.00% | 52.14% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 8 | 8 | 2 | 12.01% [11.46%, 12.37%] | 0.0000% | 2.52 | 0.00% | 0.00% | 0.532 | 0.034 | 1.71% | 0.00% | 51.73% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 1 | 8 | 1 | 10.15% [9.74%, 24.83%] | 0.0000% | 3.38 | 0.00% | 0.00% | 0.000 | 0.057 | 2.84% | 0.00% | 58.74% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 1 | 8 | 2 | 12.17% [11.88%, 23.81%] | 0.0000% | 3.64 | 0.00% | 0.00% | 0.000 | 0.057 | 2.84% | 0.00% | 59.91% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 2 | 8 | 1 | 5.31% [5.25%, 6.30%] | 0.0000% | 2.19 | 0.00% | 0.00% | 0.128 | 0.057 | 2.84% | 0.00% | 52.47% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 2 | 8 | 2 | 5.49% [5.25%, 5.54%] | 0.0000% | 2.16 | 0.00% | 0.00% | 0.137 | 0.057 | 2.84% | 0.00% | 52.00% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 4 | 8 | 1 | 7.36% [6.81%, 10.53%] | 0.0000% | 2.54 | 0.00% | 0.00% | 0.381 | 0.057 | 2.84% | 0.00% | 54.06% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 4 | 8 | 2 | 6.97% [6.41%, 7.34%] | 0.0000% | 2.55 | 0.00% | 0.00% | 0.385 | 0.057 | 2.84% | 0.00% | 52.85% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 8 | 8 | 1 | 5.75% [5.37%, 6.07%] | 0.0000% | 2.36 | 0.00% | 0.00% | 0.326 | 0.057 | 2.84% | 0.00% | 51.26% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| map | 8 | 8 | 2 | 6.99% [6.62%, 7.84%] | 0.0000% | 2.59 | 0.00% | 0.00% | 0.288 | 0.057 | 2.84% | 0.00% | 53.11% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
 
 - **No reader ever took the writer mutex**: `read_fallbacks` is zero in every
   round of every cell, so the §11.5.3 starvation falsifier (fallback share
@@ -820,14 +828,19 @@ Nothing in this table is a timing. 5 rounds per cell; median with range.
   property of the protocol: the falsifier could not have fired at these writer
   counts whatever the engine did, and a falsifier that cannot fire is not a
   measurement (AGENTS.md §8, C-b). METHODOLOGY §11.8 registers one that can.
-- **The restart share does not rise monotonically with W** — set 4.44 → 6.99
-  → 5.25 → 6.84%, map 4.96 → 3.36 → 5.67 → 4.29% — so that half of the
-  §11.5.3 hypothesis is **`REFUTED`**. It sits between 3% and 7% at every
-  writer count measured, and the two runs of §7.6 disagree on the ordering of
-  the four values within that band, which is another reason to read it as a
-  band rather than a trend.
+- **Whether the restart share rises with W is not settled by two runs.**
+  On the set arm run 1 rises monotonically (4.17 → 4.61 → 5.82 → 6.30%,
+  `CONFIRMED`) and run 2 does not (1.34 → 10.60 → 5.16 → 5.03%, `REFUTED`);
+  on the map arm neither run is monotonic. Under `docs/BENCHMARKING.md` rule
+  18 a cell whose two runs disagree is reported as direction-only: the share
+  sits in a 1–11% band across both runs and every writer count, and the
+  §11.5.3 rise hypothesis is neither `CONFIRMED` nor `REFUTED` across runs.
+  The table above carries each run's own verdict; the scorecard carries the
+  band.
 - The counters account for restarts and for spin iterations in
-  `SeqVersion::sample` (1.6–2.1 per read op); they do not time a spin. The size
+  `SeqVersion::sample` (0.58–1.30 per read op over the two runs); they do not
+  time a spin — the `sample_spin_cycles` counter that does is
+  pre-registered in `docs/benchmarks/concurrency/METHODOLOGY.md`. The size
   of the §7.2 reader collapse is therefore **not attributed** by this table —
   the cause beyond the bracket wait itself is unmeasured.
 
@@ -882,7 +895,7 @@ sub-cells), 8 health cells, 20 memory cells.
 | Memory, map arm, all λ (high) | **CONFIRMED**, `PASS_categorical_by_design` |
 | Memory, set arm: Expanse wins λ ∈ [8, 23], ROWEX outside (medium) | **CONFIRMED** on both sides |
 | Health: fallback share < 1% at all W (falsifier) | **`PASS_categorical_by_design`** — zero fallbacks; a fallback needs 64 consecutive failed walks, which cannot occur at these bracket lengths (§7.3) |
-| Health: restart share rises monotonically with W | **REFUTED** — 3–7% at every W, not monotonic |
+| Health: restart share rises monotonically with W | direction-only (rule 18): set run 1 `CONFIRMED`, run 2 `REFUTED`; map both `REFUTED`; a 1–11% band across both runs (§7.3) |
 | W = 16 cells | `not pre-registered`; reported: 0.084 (set), 0.130 (map) |
 | Writers with readers present | `not pre-registered`; reported: ROWEX wins every cell but the map arm at W = 1, which claims no winner |
 
@@ -939,19 +952,33 @@ replication rule rather than leaving each arm to rediscover it: two runs for a
 concurrent cell, the claim ceiling is the union of the two intervals, and a cell
 whose runs do not overlap is reported as direction-only.
 
-The health counters move the same way. The restart share is a band, not a
-trend: set 4.4 → 7.0 → 5.3 → 6.8% in run A against 5.7 → 4.8 → 5.9 → 6.2% in
-run B, map 5.0 → 3.4 → 5.7 → 4.3% against 6.0 → 4.9 → 5.3 → 5.7%. The two runs
-do not agree on the ordering of the four values, which is why §7.3 reads the
-share as a band between 3% and 7% and grades the registered rise **`REFUTED`**.
+The health counters move the same way, and §7.3 reads them as a band: the
+two runs do not agree on the ordering of the restart share across writer
+counts, so the registered rise is direction-only (run 1 monotonic on the set
+arm, run 2 not).
 
-What the pair does **not** do is explain the spread. Whether it is scheduling,
-frequency, memory placement or something else on this host is unmeasured here —
-that is #568's counter plan (`perf c2c`, `xsnp_hitm`, futex counts) and #737's
-wrapper, not this table.
+**A second pair, at `a1982ff2`, for [#568](https://github.com/orieg/expanse/issues/568)
+Step 0.** The concurrent sweep was re-taken twice with a load snapshot per
+cell (foreign share ≤ 0.02 core-equivalents throughout) and health rows that
+carry the attribution counters and are summed from per-thread shards. Against
+the union of the `64f8a3af` pair, 24 of the 28 C1/C2 ratio cells overlap; the
+four that do not are all on the set arm — `C1 set W=4` (0.247–0.270 →
+0.273–0.304), `C2 set W=4 R=8 writer` (0.154–0.170 → 0.173–0.192), `C2 set W=8
+R=8 reader` (0.297–0.321 → 0.258–0.279) and `C2 set W=8 R=8 writer`
+(0.086–0.099 → 0.100–0.109). Within the new pair **14 of 28 cells separate**,
+the widest `C2 set W=1 R=8 reader` (0.254 → 0.141); **no direction and no
+verdict moved** in either pair. §7.3's table is the new pair; §7.1, §7.2, §7.4
+and §7.5 keep the `64f8a3af` levels, which the new pair replicates in
+direction everywhere and in level on 24 of 28 cells. Both runs are in
+`results/baseline_concurrent.json` and `results/baseline_concurrent_run2.json`
+with their own provenance.
 
-The levels quoted in §7.1–§7.5 are run A's; run B is in
-`results/baseline_concurrent_run2.json` with its own provenance.
+What explains the spread was the open question this table left, and #568's
+Step 0 has now measured the mechanism it left open — readers spending most of
+their time on the writer's open tree-level bracket, the writer's coherence
+cost with readers present — in
+[`docs/benchmarks/concurrency/README.md`](../concurrency/README.md). The
+run-to-run spread itself is still unattributed there too.
 ---
 
 ## 8. Reproducing

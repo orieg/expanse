@@ -31,6 +31,19 @@ and census artifacts are exact byte counts with no rounds and no interval
 exempt from `rounds_raw`; the exemption is per artifact and stated, never
 inferred from the file being empty of them.
 
+## The concurrent artifacts owe attribution as well (#568 Step 0)
+
+A concurrent sweep's busy-CPU delta is the sweep's own threads — 5.7
+core-equivalents on the reference host — so it cannot say whether anything else
+was resident, and `scaling_governor` read from `cpu0` cannot say what governor
+the other fifteen pinned CPUs ran under. Every `baseline_concurrent*.json` must
+therefore carry, per throughput and health cell, `load.foreign_busy_cpus` — the
+host's busy CPU over that cell minus the runner's own children's, a number and
+never `None` — and `provenance.host.scaling_governor_by_cpu` with the pin set it
+was read for. The four artifacts measured before the runners recorded these are
+grandfathered by the same commit-pinned mechanism: re-measure at another commit
+and the fields are required.
+
 Usage:
   python3 scripts/check_bench_provenance.py
   python3 scripts/check_bench_provenance.py --self-test
@@ -113,6 +126,27 @@ SUITES = (
 # Keys under which an artifact holds its cells.
 CELL_KEYS = ("cells", "results", "throughput", "health", "latency", "memory")
 
+# Concurrent artifacts measured before the runners took a load snapshot per
+# cell with the runner's own child CPU split out, and read the governor of
+# every pinned CPU (#568 Step 0). Same mechanism as GRANDFATHERED: the entry
+# names the commit, and a re-measurement at any other commit must carry
+# `load.foreign_busy_cpus` on every throughput and health cell and
+# `host.scaling_governor_by_cpu`. Both runs of each suite are listed because
+# rule 18 commits both.
+# Empty since the four concurrent artifacts were re-measured at a1982ff2 with
+# per-cell attribution (#568 Step 0); the mechanism stays for the next artifact
+# that predates a field.
+ATTRIBUTION_GRANDFATHERED: dict[str, tuple[str, ...]] = {}
+
+# The cell lists in a concurrent artifact that are timed or counted under
+# thread load, and so owe a per-cell attribution. `memory` there is a
+# single-writer build-only census (section 8.4) and does not.
+ATTRIBUTED_CELL_KEYS = ("throughput", "health")
+
+
+def is_concurrent(rel: str) -> bool:
+    return Path(rel).name.startswith("baseline_concurrent")
+
 
 def cell_lists(obj: dict) -> list[tuple[str, list]]:
     out = []
@@ -178,6 +212,76 @@ def check_artifact(rel: str, obj) -> list[str]:
     return problems
 
 
+def check_attribution(rel: str, obj) -> list[str]:
+    """Findings for a concurrent artifact that is not attribution-grandfathered.
+
+    `foreign_busy_cpus` must be a number on every timed or counted cell: a
+    `None` there is a snapshot that could not attribute, which is not a
+    smaller finding than a missing one (section 8.1). The governor map must
+    be present with the pin set it was read for.
+    """
+    problems = []
+    if not isinstance(obj, dict) or not isinstance(obj.get("provenance"), dict):
+        return problems  # check_artifact already reported the block
+    host = obj["provenance"].get("host")
+    if isinstance(host, dict):
+        if "scaling_governor_by_cpu" not in host or "scaling_governor_pin_set" not in host:
+            problems.append(
+                f"{rel}: `provenance.host` carries no `scaling_governor_by_cpu` / "
+                f"`scaling_governor_pin_set` — the governor of cpu0 does not say what the "
+                f"other pinned CPUs ran under; bench_provenance.host_facts() records both"
+            )
+    for key in ATTRIBUTED_CELL_KEYS:
+        cells = obj.get(key)
+        if not isinstance(cells, list):
+            continue
+        bad = [i for i, c in enumerate(cells)
+               if not (isinstance(c, dict) and isinstance(c.get("load"), dict)
+                       and isinstance(c["load"].get("foreign_busy_cpus"), (int, float))
+                       and not isinstance(c["load"].get("foreign_busy_cpus"), bool))]
+        if bad:
+            problems.append(
+                f"{rel}: {len(bad)} of {len(cells)} cells under `{key}` carry no numeric "
+                f"`load.foreign_busy_cpus` (first at index {bad[0]}) — the sweep's busy-CPU "
+                f"delta is its own threads, so a per-cell split of own and foreign CPU is "
+                f"what says whether anything else was resident (bench_provenance.begin_cell "
+                f"/ end_cell)"
+            )
+    return problems
+
+
+def attribution_status(rel: str, obj) -> tuple[bool, str | None]:
+    """`(exempt, finding)` for the concurrent-attribution grandfather table.
+
+    Exempt only when the artifact is listed *and* carries a listed commit; a
+    listed artifact at another commit was re-measured, is not exempt, and
+    says so.
+    """
+    if rel not in ATTRIBUTION_GRANDFATHERED:
+        return False, None
+    allowed = ATTRIBUTION_GRANDFATHERED[rel]
+    got = obj.get("provenance", {}).get("commit") if isinstance(obj, dict) else None
+    if got in allowed:
+        return True, None
+    return False, (
+        f"{rel}: attribution-grandfathered at commit(s) {allowed!r} but carries {got!r} — "
+        f"it was re-measured, so it must now carry per-cell load.foreign_busy_cpus and "
+        f"host.scaling_governor_by_cpu; drop its ATTRIBUTION_GRANDFATHERED entry"
+    )
+
+
+def findings_for(rel: str, obj) -> list[str]:
+    """Every finding for one non-grandfathered artifact, both requirement sets."""
+    out = check_artifact(rel, obj)
+    if is_concurrent(rel):
+        exempt, note = attribution_status(rel, obj)
+        if note:
+            out.append(note)
+        if not exempt:
+            out.extend(check_attribution(rel, obj))
+    return out
+
+
 def artifacts() -> list[Path]:
     out = []
     for suite in SUITES:
@@ -186,7 +290,7 @@ def artifacts() -> list[Path]:
 
 
 def run() -> int:
-    findings, checked, grandfathered = [], 0, 0
+    findings, checked, grandfathered, attribution_grandfathered = [], 0, 0, 0
     for path in artifacts():
         rel = str(path.relative_to(BENCH))
         try:
@@ -209,7 +313,9 @@ def run() -> int:
             )
             # Fall through and report exactly what it is missing.
         checked += 1
-        findings.extend(check_artifact(rel, obj))
+        if is_concurrent(rel) and attribution_status(rel, obj)[0]:
+            attribution_grandfathered += 1
+        findings.extend(findings_for(rel, obj))
 
     if findings:
         for f in findings:
@@ -218,7 +324,9 @@ def run() -> int:
               f"{checked} enforced artifact(s)")
         return 1
     print(f"check_bench_provenance.py: {checked} artifact(s) carry host, estimators, "
-          f"busy-CPU deltas and per-cell rounds_raw; {grandfathered} grandfathered")
+          f"busy-CPU deltas and per-cell rounds_raw; {grandfathered} grandfathered; "
+          f"{attribution_grandfathered} concurrent artifact(s) grandfathered from per-cell "
+          f"attribution and the per-CPU governor map (#568 Step 0)")
     return 0
 
 
@@ -239,13 +347,46 @@ _GOOD = {
                "rounds_raw": [{"round": 0, "first_arm": "hot", "hot_ns_per_op": 1.0}]}],
 }
 
+# A concurrent artifact as the runners write it from #568 Step 0 on: the
+# governor map over the pin set, and a per-cell load with the runner's own
+# child CPU split from the host's.
+_GOOD_CONC = {
+    "provenance": {
+        "commit": "fedcba9",
+        "host": {"cpu_model": "x", "scaling_governor": "powersave",
+                 "scaling_governor_by_cpu": {"0": "powersave", "1": "powersave"},
+                 "scaling_governor_pin_set": "0-1",
+                 "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED"},
+        "estimators": {"ratio": "mean(A)/mean(B)", "columns": "medians", "raw": "rounds_raw"},
+        "loads": [{"label": "start", "busy_cpus_since_prev": None},
+                  {"label": "cell:set:W1:R0", "since": "start", "busy_cpus_since_prev": 1.01,
+                   "own_busy_cpus_since_prev": 0.0, "foreign_busy_cpus_since_prev": 1.01},
+                  {"label": "after-concurrent", "since": "cell:set:W1:R0",
+                   "busy_cpus_since_prev": 1.98, "own_busy_cpus_since_prev": 0.97,
+                   "foreign_busy_cpus_since_prev": 1.01}],
+    },
+    "throughput": [{"arm": "set", "writers": 1, "readers": 0,
+                    "rounds_raw": [{"round": 0, "expanse_writer_mops": 8.6}],
+                    "load": {"since": "cell:set:W1:R0", "wall_s": 12.0, "busy_cpus_since_prev": 1.98,
+                             "own_busy_cpus": 0.97, "foreign_busy_cpus": 1.01}}],
+    "health": [{"arm": "set", "writers": 1, "readers": 8,
+                "rounds_raw": [{"round": 0, "read_ops": 100}],
+                "load": {"since": "cell:set:W1:R8", "wall_s": 6.0, "busy_cpus_since_prev": 9.1,
+                         "own_busy_cpus": 8.9, "foreign_busy_cpus": 0.2}}],
+    "memory": [{"lambda_target": 1.0, "expanse_alloc_bytes_per_key": 14.1}],
+}
+# A listed path, for the grandfather cases, and an unlisted concurrent path,
+# for the field cases — a listed path at a foreign commit is itself a finding.
+_CONC_OLD = "hot_comparison/results/baseline_concurrent.json"
+_CONC_REL = "hot_comparison/results/baseline_concurrent_run3.json"
+
 
 def _self_test() -> int:
     import copy
     failures = []
 
-    def expect(name, obj, want_substr):
-        got = check_artifact("fixture.json", obj)
+    def expect(name, obj, want_substr, rel="fixture.json"):
+        got = findings_for(rel, obj)
         if want_substr is None:
             if got:
                 failures.append(f"{name}: expected no finding, got {got}")
@@ -333,6 +474,63 @@ def _self_test() -> int:
     for rel in NO_ROUNDS:
         if not (BENCH / rel).is_file():
             failures.append(f"NO_ROUNDS names a missing artifact: {rel}")
+
+    # --- #568 Step 0: per-cell attribution and the per-CPU governor map -----
+    # THE MOTIVATING DEFECT: a concurrent artifact whose busy-CPU delta is
+    # its own sixteen threads and whose governor is cpu0's. Complete passes;
+    # each half missing is a finding; a non-concurrent artifact owes neither.
+    expect("a complete concurrent artifact passes", copy.deepcopy(_GOOD_CONC), None, _CONC_REL)
+
+    no_split = copy.deepcopy(_GOOD_CONC)
+    del no_split["throughput"][0]["load"]
+    expect("a throughput cell with no per-cell load", no_split, "foreign_busy_cpus", _CONC_REL)
+
+    none_split = copy.deepcopy(_GOOD_CONC)
+    none_split["health"][0]["load"]["foreign_busy_cpus"] = None
+    expect("a health cell whose foreign_busy_cpus is None", none_split,
+           "foreign_busy_cpus", _CONC_REL)
+
+    no_map = copy.deepcopy(_GOOD_CONC)
+    del no_map["provenance"]["host"]["scaling_governor_by_cpu"]
+    expect("cpu0's governor only", no_map, "scaling_governor_by_cpu", _CONC_REL)
+
+    no_set = copy.deepcopy(_GOOD_CONC)
+    del no_set["provenance"]["host"]["scaling_governor_pin_set"]
+    expect("a governor map with no pin set named", no_set, "scaling_governor_pin_set", _CONC_REL)
+
+    # The requirement is scoped to concurrent artifacts: the same shape under a
+    # latency name owes host/estimators/rounds_raw and nothing more.
+    expect("a non-concurrent artifact is not asked for attribution",
+           copy.deepcopy(_GOOD), None, "hot_comparison/results/baseline_latency.json")
+    lat_shaped = copy.deepcopy(_GOOD_CONC)
+    del lat_shaped["throughput"][0]["load"]
+    expect("a non-concurrent artifact without per-cell load passes", lat_shaped, None,
+           "hot_comparison/results/baseline_latency.json")
+
+    # The grandfather mechanism, both directions: the pinned commit is exempt,
+    # any other commit is enforced and told why.
+    # The list may be empty (every committed concurrent artifact attributed);
+    # pin the mechanism on a synthetic entry rather than on a real one.
+    old = copy.deepcopy(_GOOD_CONC)
+    del old["throughput"][0]["load"]
+    del old["provenance"]["host"]["scaling_governor_by_cpu"]
+    saved = dict(ATTRIBUTION_GRANDFATHERED)
+    ATTRIBUTION_GRANDFATHERED[_CONC_OLD] = ("64f8a3af",)
+    try:
+        old["provenance"]["commit"] = ATTRIBUTION_GRANDFATHERED[_CONC_OLD][0]
+        expect("a pre-attribution run at its pinned commit is exempt", old, None, _CONC_OLD)
+        old["provenance"]["commit"] = "0000000"
+        expect("the same artifact at another commit is enforced", old, "foreign_busy_cpus", _CONC_OLD)
+        expect("... and says the entry must go", old, "ATTRIBUTION_GRANDFATHERED", _CONC_OLD)
+    finally:
+        ATTRIBUTION_GRANDFATHERED.clear()
+        ATTRIBUTION_GRANDFATHERED.update(saved)
+
+    for rel in ATTRIBUTION_GRANDFATHERED:
+        if not (BENCH / rel).is_file():
+            failures.append(f"ATTRIBUTION_GRANDFATHERED names a missing artifact: {rel}")
+        elif not is_concurrent(rel):
+            failures.append(f"ATTRIBUTION_GRANDFATHERED lists a non-concurrent artifact: {rel}")
 
     for msg in failures:
         print(f"  FAIL {msg}")

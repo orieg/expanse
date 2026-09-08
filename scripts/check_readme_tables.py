@@ -78,6 +78,7 @@ class Suite:
 
 SUITES = [
     Suite("masstree_comparison", "tables.py", enforce=True),
+    Suite("concurrency", "tables.py", enforce=True),
     Suite(
         "hot_comparison", "string_tables.py", enforce=False, pending_issue=733,
         reason="README section 6 curates the generator's flat per-pillar tables into "

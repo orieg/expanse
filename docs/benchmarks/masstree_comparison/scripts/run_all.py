@@ -42,7 +42,7 @@ CRATE = REPO_ROOT / "crates" / "expanse-hot-bench" / "Cargo.toml"
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from bca_bootstrap import bca_bootstrap_ratio_ci  # noqa: E402
 from bench_provenance import (  # noqa: E402
-    add_load, estimators, git_sha, host_facts, load_snapshot, raw_rounds,
+    add_load, begin_cell, end_cell, estimators, git_sha, host_facts, load_snapshot, raw_rounds,
 )
 from masstree_envelope import census_quantum_dominated  # noqa: E402
 
@@ -77,6 +77,27 @@ def population_for_lambda(lam: float) -> int:
 
 
 LATENCY_RAW = ("first_arm", "masstree_ns_per_op", "expanse_ns_per_op")
+
+# Every counter a health row carries, all kept verbatim per round. The first
+# ten are the protocol counters the cells have always emitted (`locked_reads`
+# was emitted and dropped by the runner until #568); the rest are the
+# attribution counters #568's Step 0 adds. A row missing any of them is an
+# error, never a zero: a counter that was not recorded is not a count of nothing.
+HEALTH_RAW = (
+    "restart_share", "fallback_share", "read_ops", "read_attempts", "read_fallbacks",
+    "sample_spins", "write_ops", "locked_reads",
+    "handoffs", "retired", "freed_raw", "sample_spin_cycles", "branch_replacements",
+    "deep_cascades", "root_rewrites", "cycles_hz", "reader_elapsed_s", "writer_elapsed_s",
+)
+# The shares derived from those counters per round, then summarised as median
+# with range like the counters themselves. Each is a ratio of two counters from
+# the same round, so its median is a median of per-round ratios — not the
+# quotient of two medians, which is what the README's `sample_spins ÷ read_ops`
+# column has always been and stays.
+HEALTH_DERIVED = (
+    "locked_share", "unconditional_share", "handoffs_per_write", "replacements_per_write",
+    "deep_cascade_share", "root_rewrite_share", "spin_time_share",
+)
 
 
 BINS = ["masstree_validate", "masstree_latency", "masstree_string_latency", "masstree_memory"]
@@ -329,52 +350,124 @@ def concurrent_cell(arm: str, writers: int, readers: int, env: dict) -> dict:
     return cell
 
 
-def health_cell(arm: str, writers: int, readers: int, env: dict) -> dict:
-    exe = OCC_STATS_TARGET / "release" / "masstree_concurrent"
-    rows = run_cell([str(exe), arm, str(writers), str(readers), "--health"], env)
+def _share(num, den):
+    """`num / den`, or `None` when there were no operations to take a share of."""
+    return None if den == 0 else num / den
+
+
+def health_shares(r: dict, readers: int) -> dict:
+    """The derived ratios of one health round (#568 Step 0).
+
+    `spin_time_share` is the readers' time inside `SeqVersion::sample` as a
+    share of their wall time: cycles spent spinning, converted through the
+    host's cycle rate, over `readers × reader_elapsed_s`. Zero by definition
+    with no readers. Every other share is a counter over the ops that could
+    have raised it; a share of zero ops is `None`, not zero — the string arm
+    before #744 had `read_ops = 0` (§10.5), and its shares were not 0%.
+    """
+    if readers == 0:
+        spin = 0.0
+    else:
+        spin_s = _share(r["sample_spin_cycles"], r["cycles_hz"])
+        spin = _share(spin_s, readers * r["reader_elapsed_s"]) if spin_s is not None else None
+    return {
+        "locked_share": _share(r["locked_reads"], r["read_ops"]),
+        "unconditional_share": _share(r["locked_reads"] - r["read_fallbacks"], r["read_ops"]),
+        "handoffs_per_write": _share(r["handoffs"], r["write_ops"]),
+        "replacements_per_write": _share(r["branch_replacements"], r["write_ops"]),
+        "deep_cascade_share": _share(r["deep_cascades"], r["write_ops"]),
+        "root_rewrite_share": _share(r["root_rewrites"], r["write_ops"]),
+        "spin_time_share": spin,
+    }
+
+
+def med_range(vals: list) -> dict | None:
+    """Median with range; `None` if any round could not produce the value."""
+    if any(v is None for v in vals):
+        return None
+    vals = sorted(vals)
+    return {"median": vals[len(vals) // 2], "min": vals[0], "max": vals[-1]}
+
+
+def reduce_health(rows: list, arm: str, writers: int, readers: int) -> dict:
+    """One health cell from its rounds: every counter and every derived share.
+
+    Fails loud on a round missing any counter in `HEALTH_RAW` (AGENTS.md §8.1)
+    — the harness emits all of them, and a row without one is a harness or
+    build mismatch, not a zero.
+    """
     if not rows:
         raise RuntimeError(f"health cell {arm} W={writers} R={readers} emitted no rows")
-
-    def med_range(key: str) -> dict:
-        vals = sorted(r[key] for r in rows)
-        return {"median": vals[len(vals) // 2], "min": vals[0], "max": vals[-1]}
-
+    for r in rows:
+        missing = [k for k in HEALTH_RAW if k not in r]
+        if missing:
+            raise RuntimeError(
+                f"health cell {arm} W={writers} R={readers} round {r.get('round')} lacks "
+                f"{missing} — every health counter must be emitted; a missing counter is "
+                f"not 0 (§8.1)"
+            )
     cell = {"workload_id": rows[0]["workload_id"], "arm": arm, "dist": rows[0]["dist"],
-            "writers": writers, "readers": readers, "rounds": len(rows),
-            "restart_share": med_range("restart_share"), "fallback_share": med_range("fallback_share"),
-            "read_ops": med_range("read_ops"), "read_attempts": med_range("read_attempts"),
-            "read_fallbacks": med_range("read_fallbacks"), "sample_spins": med_range("sample_spins"),
-            "write_ops": med_range("write_ops"),
-            "cpus_allowed": rows[0]["cpus_allowed"], "pin_applied": rows[0]["pin_applied"],
-            "rounds_raw": raw_rounds(rows, ("restart_share", "fallback_share", "read_ops", "read_attempts",
-                                            "read_fallbacks", "sample_spins", "write_ops"))}
+            "writers": writers, "readers": readers, "rounds": len(rows)}
+    for key in HEALTH_RAW:
+        cell[key] = med_range([r[key] for r in rows])
+    shares = [health_shares(r, readers) for r in rows]
+    for key in HEALTH_DERIVED:
+        cell[key] = med_range([s[key] for s in shares])
+    cell["cpus_allowed"] = rows[0]["cpus_allowed"]
+    cell["pin_applied"] = rows[0]["pin_applied"]
+    cell["rounds_raw"] = raw_rounds(rows, HEALTH_RAW)
     cell["starvation_flag"] = cell["fallback_share"]["median"] >= 0.01
-    print(f"  health {arm:>3} W={writers:<2} R={readers:<2} restart {cell['restart_share']['median']:.4%}  "
-          f"fallback {cell['fallback_share']['median']:.4%}{'  STARVATION' if cell['starvation_flag'] else ''}")
     return cell
 
 
-def sweep_concurrent(env: dict, quick: bool) -> dict:
+def health_cell(arm: str, writers: int, readers: int, env: dict) -> dict:
+    exe = OCC_STATS_TARGET / "release" / "masstree_concurrent"
+    rows = run_cell([str(exe), arm, str(writers), str(readers), "--health"], env)
+    cell = reduce_health(rows, arm, writers, readers)
+    locked = "n/a" if cell["locked_share"] is None else f"{cell['locked_share']['median']:.4%}"
+    spin = "n/a" if cell["spin_time_share"] is None else f"{cell['spin_time_share']['median']:.2%}"
+    print(f"  health {arm:>3} W={writers:<2} R={readers:<2} restart {cell['restart_share']['median']:.4%}  "
+          f"fallback {cell['fallback_share']['median']:.4%}  locked {locked}  spin-time {spin}"
+          f"{'  STARVATION' if cell['starvation_flag'] else ''}")
+    return cell
+
+
+def sweep_concurrent(env: dict, quick: bool, prov: dict) -> dict:
+    """MC1 / MC2, one process per cell.
+
+    A load snapshot is taken into `prov` before every throughput and health
+    cell (#568 Step 0) and the cell carries its own `load` block — the host's
+    busy CPU over the cell, the runner's own children's share of it, and the
+    difference — so a cell that ran beside something else is visible as that
+    cell, not as a whole-sweep average.
+    """
     write_w = [1, 4] if quick else CONCURRENT_WRITE_SCALING
     mixed_w = [0, 4] if quick else CONCURRENT_MIXED_WRITERS
     health_w = [4] if quick else CONCURRENT_HEALTH_WRITERS
     lambdas = LAMBDA_TARGETS[:2] if quick else LAMBDA_TARGETS
+
+    def attributed(kind: str, arm: str, w: int, r: int) -> dict:
+        start = begin_cell(prov, f"cell:{arm}:W{w}:R{r}")
+        cell = (concurrent_cell if kind == "throughput" else health_cell)(arm, w, r, env)
+        cell["load"] = end_cell(start)
+        return cell
+
     throughput, health, memory = [], [], []
     for arm in CONCURRENT_ARMS:
         print(f"\n  C1 write scaling — {arm} arm")
         for w in write_w:
-            c = concurrent_cell(arm, w, 0, env)
+            c = attributed("throughput", arm, w, 0)
             c["pillar"] = "C1"
             throughput.append(c)
         print(f"\n  C2 readers alongside writers — {arm} arm")
         for w in mixed_w:
-            c = concurrent_cell(arm, w, CONCURRENT_MIXED_READERS, env)
+            c = attributed("throughput", arm, w, CONCURRENT_MIXED_READERS)
             c["pillar"] = "C2"
             throughput.append(c)
     for arm in CONCURRENT_ARMS:
         print(f"\n  H protocol health — {arm} arm (occ-stats build, Expanse side only)")
         for w in health_w:
-            health.append(health_cell(arm, w, CONCURRENT_MIXED_READERS, env))
+            health.append(attributed("health", arm, w, CONCURRENT_MIXED_READERS))
     print("\n  M memory — Masstree single writer vs SyncExpanseMap, build-only")
     for lam in lambdas:
         n = population_for_lambda(lam)
@@ -387,7 +480,93 @@ def sweep_concurrent(env: dict, quick: bool) -> dict:
     return {"throughput": throughput, "health": health, "memory": memory}
 
 
+# --------------------------------------------------------------------------
+# self-test: the health reduction, driven by a fixture (no harness needed)
+# --------------------------------------------------------------------------
+
+def _health_row(round_: int, **over) -> dict:
+    """One health round with every counter, at values whose shares are exact."""
+    row = {
+        "workload_id": "masstree_conc_map_64bit", "role": "health", "arm": "map",
+        "dist": "random", "writers": 1, "readers": 8, "round": round_,
+        "read_ops": 1000, "read_attempts": 1050, "read_fallbacks": 10,
+        "sample_spins": 900, "write_ops": 200, "locked_reads": 100,
+        "handoffs": 50, "retired": 300, "freed_raw": 250,
+        "sample_spin_cycles": 3_000_000_000, "branch_replacements": 400,
+        "deep_cascades": 20, "root_rewrites": 2, "cycles_hz": 3_000_000_000,
+        "reader_elapsed_s": 0.5, "writer_elapsed_s": 0.4,
+        "restart_share": 50 / 1050, "fallback_share": 0.01,
+        "cpus_allowed": "0-15", "pin_applied": "0-15",
+    }
+    row.update(over)
+    return row
+
+
+def _self_test() -> int:
+    failures = []
+
+    def check(name, cond):
+        if not cond:
+            failures.append(name)
+
+    # Three rounds whose locked share is 0.10, 0.12, 0.08: the published median
+    # must be the median of per-round ratios (0.10), not a ratio of medians.
+    rows = [_health_row(0), _health_row(1, locked_reads=120), _health_row(2, locked_reads=80)]
+    cell = reduce_health(rows, "map", 1, 8)
+    want = {
+        "locked_share": 100 / 1000,
+        "unconditional_share": (100 - 10) / 1000,
+        "handoffs_per_write": 50 / 200,
+        "replacements_per_write": 400 / 200,
+        "deep_cascade_share": 20 / 200,
+        "root_rewrite_share": 2 / 200,
+        # 3e9 cycles at 3e9 Hz = 1 s spinning, over 8 readers × 0.5 s.
+        "spin_time_share": 1.0 / (8 * 0.5),
+    }
+    for key, val in want.items():
+        got = cell[key]
+        check(f"{key} median {got and got['median']} != {val}",
+              got is not None and abs(got["median"] - val) < 1e-12)
+    check("locked_share range is [0.08, 0.12]",
+          abs(cell["locked_share"]["min"] - 0.08) < 1e-12 and abs(cell["locked_share"]["max"] - 0.12) < 1e-12)
+    check("every counter is summarised", all(isinstance(cell[k], dict) for k in HEALTH_RAW))
+    check("rounds_raw carries every counter on every round",
+          all(all(k in r for k in HEALTH_RAW) for r in cell["rounds_raw"]) and len(cell["rounds_raw"]) == 3)
+    check("starvation flag fires at 1%", cell["starvation_flag"] is True)
+    check("the dist survives", cell["dist"] == "random")
+    check("locked_reads median is the raw counter", cell["locked_reads"]["median"] == 100)
+
+    # No readers: the spin-time share is zero by definition, not a division.
+    alone = reduce_health([_health_row(0, readers=0, reader_elapsed_s=0.0)], "map", 1, 0)
+    check("spin_time_share is 0.0 with no readers", alone["spin_time_share"] == {"median": 0.0, "min": 0.0, "max": 0.0})
+
+    # No read ops at all (the §10.5 string reader before #744): a share of
+    # nothing is None, never 0.
+    unread = reduce_health([_health_row(0, read_ops=0, locked_reads=0, read_fallbacks=0)], "str", 1, 8)
+    check("locked_share is None with no read ops", unread["locked_share"] is None)
+
+    # THE NEGATIVE CASE: a row without `locked_reads` — the counter the runner
+    # silently dropped until #568 — is an error naming the field, not a zero.
+    short = [_health_row(0), _health_row(1)]
+    del short[1]["locked_reads"]
+    try:
+        reduce_health(short, "map", 1, 8)
+        failures.append("a row missing locked_reads was reduced instead of refused")
+    except RuntimeError as exc:
+        check("the refusal names locked_reads and the round", "locked_reads" in str(exc) and "round 1" in str(exc))
+
+    for msg in failures:
+        print(f"  FAIL {msg}")
+    if failures:
+        print(f"run_all.py --self-test: {len(failures)} failure(s)")
+        return 1
+    print("run_all.py --self-test: all checks passed")
+    return 0
+
+
 def main() -> int:
+    if "--self-test" in sys.argv:
+        return _self_test()
     quick = "--quick" in sys.argv
     concurrent = "--concurrent" in sys.argv or "--only-concurrent" in sys.argv
     only_concurrent = "--only-concurrent" in sys.argv
@@ -463,7 +642,7 @@ def main() -> int:
         print("\n[concurrent] MC1 / MC2 — one process per cell, threads inside the P-core pin")
         conc_prov = dict(provenance)
         conc_prov["loads"] = [load_snapshot("start")]
-        conc = sweep_concurrent(env, quick)
+        conc = sweep_concurrent(env, quick, conc_prov)
         add_load(conc_prov, "after-concurrent")
         (out_dir / "baseline_concurrent.json").write_text(json.dumps({"provenance": conc_prov, **conc}, indent=2) + "\n")
         print(f"wrote {out_dir}/baseline_concurrent.json")

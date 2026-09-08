@@ -125,7 +125,8 @@
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "`Sync*` wall-clock scaling instrument on a reduced thread/workload sweep; report-only, never gating."
+      "summary": "`Sync*` wall-clock scaling instrument on a reduced thread/workload sweep; report-only, never gating.",
+      "suite": "concurrency"
     },
     {
       "name": "point_lookup_counters",

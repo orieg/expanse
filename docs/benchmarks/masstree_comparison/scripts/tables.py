@@ -242,7 +242,75 @@ def str_memory_tables(mem: dict) -> str:
     return "\n".join(out)
 
 
-def concurrent_tables(conc: dict) -> str:
+# Derived health shares that become columns once any loaded run carries them; a
+# run that lacks one reads "not recorded". `locked_reads ÷ read_ops` is always a
+# column — it is the share #568's Step 0 asks for, and the two committed runs
+# predate the runner recording it, which the table says rather than hides.
+HEALTH_EXTRA = (
+    ("unconditional_share", "unconditional lock share"),
+    ("handoffs_per_write", "handoffs ÷ write"),
+    ("replacements_per_write", "branch replacements ÷ write"),
+    ("deep_cascade_share", "deep-cascade share"),
+    ("root_rewrite_share", "root-rewrite share"),
+    ("spin_time_share", "spin time ÷ reader wall"),
+)
+
+
+def stat_cell(c: dict, key: str, fmt: str) -> str:
+    """A derived-share cell: its median, `n/a` on a zero denominator, or `not recorded`."""
+    if key not in c:
+        return "not recorded"
+    if c[key] is None:
+        return "n/a"
+    return fmt.format(c[key]["median"])
+
+
+def health_table(runs: list) -> str:
+    """The H table over both concurrent runs (docs/BENCHMARKING.md rule 18).
+
+    §6.3 half one — the restart share was registered to rise with W — is
+    evaluated per arm and per run on the medians, once, and printed on every
+    row of that arm and run. Half two is the median fallback share against 1%.
+    """
+    cells = [(run, c) for run, art in runs for c in art["health"]]
+    extras = [(k, h) for k, h in HEALTH_EXTRA if any(k in c for _, c in cells)]
+    head = ["Arm", "W", "R", "run", "restart share, median [min, max]", "fallback share, median",
+            "`sample_spins` ÷ `read_ops` (medians)", "`locked_reads` ÷ `read_ops`",
+            *[h for _, h in extras], "§6.3"]
+    out = ["| " + " | ".join(head) + " |",
+           "|---|--:|--:|--:|---|---|---:|---:|" + "---:|" * len(extras) + "---|"]
+    rising = {}
+    for run, art in runs:
+        for arm in {c["arm"] for c in art["health"]}:
+            rows = sorted((c for c in art["health"] if c["arm"] == arm and c["read_ops"]["median"] > 0),
+                          key=lambda x: x["writers"])
+            shares = [c["restart_share"]["median"] for c in rows]
+            rising[(run, arm)] = None if len(shares) < 2 else all(b > a for a, b in zip(shares, shares[1:]))
+    blank = ["—"] * len(extras)
+    for run, c in sorted(cells, key=lambda rc: (rc[1]["arm"], rc[1]["writers"], rc[0])):
+        rs, fs = c["restart_share"], c["fallback_share"]
+        if c["read_ops"]["median"] == 0:
+            # §10.5: the string reader counts fallbacks only; no share exists.
+            out.append(f"| {c['arm']} | {c['writers']} | {c['readers']} | {run} | `NOT_INSTRUMENTED` (§10.5) | "
+                       f"`NOT_INSTRUMENTED`; `read_fallbacks` = {c['read_fallbacks']['median']:,} absolute | — | — | "
+                       + " | ".join(blank + ["not evaluable"]) + " |")
+            continue
+        spins = c["sample_spins"]["median"] / max(c["read_ops"]["median"], 1)
+        rise = rising.get((run, c["arm"]))
+        half1 = ("rise with W: `CONFIRMED`" if rise else "rise with W: **`REFUTED`**") if rise is not None else "rise with W: n/a"
+        half2 = ("**STARVATION**" if c["starvation_flag"]
+                 else "fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks)")
+        row = [c["arm"], str(c["writers"]), str(c["readers"]), run,
+               f"{rs['median']:.2%} [{rs['min']:.2%}, {rs['max']:.2%}]", f"{fs['median']:.4%}",
+               f"{spins:.2f}", stat_cell(c, "locked_share", "{:.2%}"),
+               *[stat_cell(c, k, "{:.3f}" if k.endswith("per_write") else "{:.2%}") for k, _ in extras],
+               f"{half1}; {half2}"]
+        out.append("| " + " | ".join(row) + " |")
+    out.append("")
+    return "\n".join(out)
+
+
+def concurrent_tables(conc: dict, conc2: dict | None = None) -> str:
     out = []
     for arm, title in (("map", "MC1 — `u64` keys, Masstree vs `SyncExpanseMap`"),
                        ("str", "MC2 — `short` string keys, Masstree vs `SyncExpanseStrMap`")):
@@ -271,33 +339,10 @@ def concurrent_tables(conc: dict) -> str:
                        f"{c['reader_expanse_over_masstree']:.3f} [{c['reader_ci_lower']:.3f}, {c['reader_ci_upper']:.3f}] | "
                        f"{label(c['reader_verdict'], registered_conc(c, 'reader'))} | {wcol[0]} | {wcol[1]} | {wcol[2]} |")
         out.append("")
-    health = conc.get("health", [])
-    if health:
+    runs = [(run, art) for run, art in (("1", conc), ("2", conc2)) if art and art.get("health")]
+    if runs:
         out.append("### H — protocol health, Expanse side only (occ-stats build; event ratios, never a timing)\n")
-        out.append("| Arm | W | R | restart share, median [min, max] | fallback share, median | `sample_spins` ÷ `read_ops` (medians) | §6.3 |")
-        out.append("|---|--:|--:|---|---|---:|---|")
-        # §6.3 half one: the restart share was registered to rise with W. Evaluated
-        # per arm on the medians, once, and printed on every row of that arm.
-        rising = {}
-        for arm in {c["arm"] for c in health}:
-            rows = sorted((c for c in health if c["arm"] == arm and c["read_ops"]["median"] > 0), key=lambda x: x["writers"])
-            shares = [c["restart_share"]["median"] for c in rows]
-            rising[arm] = None if len(shares) < 2 else all(b > a for a, b in zip(shares, shares[1:]))
-        for c in sorted(health, key=lambda x: (x["arm"], x["writers"])):
-            rs, fs = c["restart_share"], c["fallback_share"]
-            if c["read_ops"]["median"] == 0:
-                # §10.5: the string reader counts fallbacks only; no share exists.
-                out.append(f"| {c['arm']} | {c['writers']} | {c['readers']} | `NOT_INSTRUMENTED` (§10.5) | "
-                           f"`NOT_INSTRUMENTED`; `read_fallbacks` = {c['read_fallbacks']['median']:,} absolute | — | not evaluable |")
-                continue
-            spins = c["sample_spins"]["median"] / max(c["read_ops"]["median"], 1)
-            rise = rising.get(c["arm"])
-            half1 = ("rise with W: `CONFIRMED`" if rise else "rise with W: **`REFUTED`**") if rise is not None else "rise with W: n/a"
-            half2 = ("**STARVATION**" if c["starvation_flag"]
-                     else "fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks)")
-            out.append(f"| {c['arm']} | {c['writers']} | {c['readers']} | {rs['median']:.2%} [{rs['min']:.2%}, {rs['max']:.2%}] | "
-                       f"{fs['median']:.4%} | {spins:.2f} | {half1}; {half2} |")
-        out.append("")
+        out.append(health_table(runs))
     mem = conc.get("memory", [])
     if mem:
         out.append("### M — build-only single-writer census, Masstree vs `SyncExpanseMap` (B/key)\n")
@@ -375,6 +420,7 @@ def main() -> int:
     lat, slat = load("baseline_latency.json"), load("baseline_string_latency.json")
     mem, smem = load("baseline_memory.json"), load("baseline_string_memory.json")
     conc = load("baseline_concurrent.json")
+    conc2 = load("baseline_concurrent_run2.json")
     sens = load("baseline_sensitivity.json")
     prov = (lat or slat or conc or {}).get("provenance", {})
     print(f"<!-- generated by scripts/tables.py from results/ at commit {prov.get('commit', '?')} -->\n")
@@ -389,7 +435,7 @@ def main() -> int:
     if sens:
         print(order_tables(sens))
     if conc:
-        print(concurrent_tables(conc))
+        print(concurrent_tables(conc, conc2))
     print(scorecard(lat, slat, conc))
     for name, d in (("main", lat), ("concurrent", conc)):
         if d:

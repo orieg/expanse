@@ -706,10 +706,46 @@ impl MapCore {
         self.get(key).is_some()
     }
 
+    /// The root state that a tree-level bracket must cover, as a value:
+    /// variant, allocation address and the top edge's two words. Population
+    /// is deliberately excluded — a `pop` bump alone is not a root rewrite.
+    #[cfg(feature = "occ-stats")]
+    fn root_fingerprint(&self) -> (u8, u64, u64) {
+        match self.root {
+            Root::Empty => (0, 0, 0),
+            Root::Leaf { ptr, .. } => (1, ptr.as_ptr() as u64, 0),
+            Root::Tree { top, .. } => (2, top.word0(), top.aux_word()),
+        }
+    }
+
+    /// Runs `f` and counts a root-state change (diagnostic builds only).
+    #[inline(always)]
+    fn noting_root_rewrite<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        #[cfg(feature = "occ-stats")]
+        let before = self.root_fingerprint();
+        let r = f(self);
+        #[cfg(feature = "occ-stats")]
+        if self.root_fingerprint() != before {
+            crate::occ_stats::note_root_rewrite();
+        }
+        r
+    }
+
     /// Inserts `key → val`; returns the replaced value if the key was
     /// already present.
     #[inline(always)]
     pub(crate) fn insert(
+        &mut self,
+        alloc: &NodeAlloc,
+        key: Key,
+        val: u64,
+        path: &mut crate::mutate_map::InsertPathMap,
+    ) -> Option<u64> {
+        self.noting_root_rewrite(|m| m.insert_inner(alloc, key, val, path))
+    }
+
+    #[inline(always)]
+    fn insert_inner(
         &mut self,
         alloc: &NodeAlloc,
         key: Key,
@@ -938,6 +974,16 @@ impl MapCore {
     /// Removes `key`; returns its value if it was present.
     #[inline(always)]
     pub(crate) fn remove(
+        &mut self,
+        alloc: &NodeAlloc,
+        key: Key,
+        path: &mut crate::mutate_map::InsertPathMap,
+    ) -> Option<u64> {
+        self.noting_root_rewrite(|m| m.remove_inner(alloc, key, path))
+    }
+
+    #[inline(always)]
+    fn remove_inner(
         &mut self,
         alloc: &NodeAlloc,
         key: Key,

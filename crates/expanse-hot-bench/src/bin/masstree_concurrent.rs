@@ -11,7 +11,7 @@
 //! |---|---|
 //! | `workload_id` | `masstree_concurrent` |
 //! | `group` | 7 |
-//! | `emits` | `masstree_conc_map_64bit`, `masstree_conc_str` — the id(s) this harness writes into its JSON artifact, which is what the suite README's `(workload: …)` tags cite |
+//! | `emits` | `masstree_conc_map_64bit`, `masstree_conc_str` — the id(s) this harness writes into its JSON artifact, which is what the suite README's `(workload: …)` tags cite; every row carries `role` = `throughput`, `health` or `counters` |
 //! | `population` | prefill 2^20 keys (uniform random u64 at 64 bits, or `short` strings), plus 2^20 fresh keys inserted concurrently by W writers |
 //! | `insertion_order` | sorted ascending — the shared generator sorts and dedups the population (`workload.rs`); this harness takes no `order` token |
 //! | `probes_and_reuse` | R readers cycle a shuffled 2^20-probe stream against the prefill until the writers finish; at W = 0 each reader makes exactly one pass; hits strided across the whole sorted population, not its prefix (§8.6) |
@@ -19,8 +19,8 @@
 //! | `miss_gen_method` | same-generator rejection sampling (§8.6); fresh writer keys rejected on prefill membership |
 //! | `value_dereference` | both sides fetch the stored value and check it against its key-derived expectation |
 //! | `measured_region` | barrier release to last-writer join (writers) and to last-reader join (readers); prefill, teardown and walks outside; Masstree's per-64-op `quiesce` inside its threads (§3.2) |
-//! | `arm_symmetry` | identical prefill, probe and fresh-key streams; both arms below any external lock through their native concurrent APIs (§8.16); one thread slot per Masstree thread; same ISA target; W + R ≤ 16 inside the P-core pin |
-//! | `statistics` | per-round throughput emitted raw, arms interleaved per round; BCa 95% CIs on the Expanse ÷ Masstree ratio computed by the runner (§8.4); `--health` emits event ratios from a diagnostic build and never a timing |
+//! | `arm_symmetry` | identical prefill, probe and fresh-key streams; both arms below any external lock through their native concurrent APIs (§8.16); one thread slot per Masstree thread; same ISA target; W + R ≤ 16 inside the P-core pin, which is 16 logical CPUs on 8 physical P-cores — a cell with W + R > 8 places two threads per physical core (SMT siblings), and no interval says so |
+//! | `statistics` | per-round throughput emitted raw, arms interleaved per round; BCa 95% CIs on the Expanse ÷ Masstree ratio computed by the runner (§8.4); every row carries the harness's own operation counts (`*_read_ops` = probes completed by the readers, `*_write_ops` = fresh keys inserted) as the divisor for any per-operation figure (§8.9 principle 5); `--health` emits event ratios from a diagnostic build and never a timing; `--arm <expanse or masstree>` runs one arm alone and emits `counters` rows (`read_ops`, `write_ops`, elapsed) for `scripts/bench_counters.py`'s per-thread `perf stat` attach, never a comparison |
 //! | `verdict` | pending measurement |
 //!
 //! ## Fixed work, not a fixed window
@@ -33,11 +33,35 @@
 //!
 //! Masstree's pools and limbo lists are per slot and outlive every table
 //! (§3.6); the runner drives the sweep. `--health` requires the `occ-stats`
-//! feature and refuses to run without it; a throughput cell refuses to run
-//! with it (the counters are diagnostic-only in the engine).
+//! feature and refuses to run without it; a throughput cell — and the
+//! `--arm` counters cell — refuses to run with it (the counters are
+//! diagnostic-only in the engine).
+//!
+//! ## Counters mode (`--arm`), and the per-thread attach handshake
+//!
+//! `--arm <expanse|masstree> [--rounds N] [--wait-stdin]` runs only that arm,
+//! with no interleaving, over the same prefill, probe and fresh-key streams
+//! as the throughput cell, and prints one `{"role":"counters",...}` row per
+//! round carrying `read_ops` and `write_ops` — the harness's own counts, so a
+//! driver dividing a hardware-counter row by them publishes a per-operation
+//! figure the harness agrees with (§8.9 principle 5). It is not a comparison
+//! and its elapsed fields are not a published timing.
+//!
+//! Every thread is named: writer `w` is `writer-{w}`, reader `r` is
+//! `reader-{r}` (the kernel's `comm`, which `perf stat --per-thread` keys its
+//! rows on). After a round's threads are spawned and *before* the barrier
+//! releases them, the harness prints `{"event":"threads_ready","round":N,"pid":P}`
+//! and, with `--wait-stdin`, blocks on one line of stdin. The handshake is
+//! what puts a `perf stat -p <pid>` attach between the spawn and the barrier;
+//! what that attach does and does not count is recorded on [`threads_ready`].
+//!
+//! `--layout` (health build only) prints `expanse_trie::sync::layout_report()`
+//! as JSON lines and exits — the byte offsets a `perf c2c` reader needs to
+//! name which fields share a line.
 
 use std::env;
 use std::hint::black_box;
+use std::io::{BufRead, Write};
 use std::sync::Barrier;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -52,6 +76,8 @@ const N_PREFILL: usize = 1 << 20;
 const M_NEW: usize = 1 << 20;
 const ROUNDS: usize = 15;
 const HEALTH_ROUNDS: usize = 5;
+/// Rounds per `--arm` counters cell unless `--rounds` says otherwise.
+const COUNTER_ROUNDS: usize = 5;
 /// The P-core pin on the reference host is 16 logical CPUs.
 const MAX_THREADS: usize = 16;
 const GOLDEN: u64 = 0x9E37_79B9_7F4A_7C15;
@@ -240,12 +266,16 @@ struct RoundResult {
     population: usize,
 }
 
+/// `ready` runs on the main thread after every writer and reader has been
+/// spawned and before the barrier releases them — the attach point for a
+/// per-thread `perf stat` (see the module doc).
 fn run_round<K: KeyLike, A: ConcArm<K>>(
     arm: &A,
     s: &Stream<K>,
     writers: usize,
     readers: usize,
     prefill: bool,
+    ready: Option<&dyn Fn()>,
 ) -> RoundResult {
     if prefill {
         let c = A::ctx(MAIN_SLOT);
@@ -274,22 +304,28 @@ fn run_round<K: KeyLike, A: ConcArm<K>>(
             };
             let slice = &s.new_keys[lo..hi];
             let barrier = &barrier;
-            wh.push(sc.spawn(move || {
-                let c = A::ctx(w as u32);
-                A::begin(c);
-                barrier.wait();
-                for (i, k) in slice.iter().enumerate() {
-                    arm.insert(c, k);
-                    A::tick(c, i as u64 + 1);
-                }
-                A::end(c);
-            }));
+            let name = format!("writer-{w}");
+            let h = std::thread::Builder::new()
+                .name(name.clone())
+                .spawn_scoped(sc, move || {
+                    let c = A::ctx(w as u32);
+                    A::begin(c);
+                    barrier.wait();
+                    for (i, k) in slice.iter().enumerate() {
+                        arm.insert(c, k);
+                        A::tick(c, i as u64 + 1);
+                    }
+                    A::end(c);
+                })
+                .unwrap_or_else(|e| panic!("spawning {name} failed: {e}"));
+            wh.push(h);
         }
         let mut rh = Vec::with_capacity(readers);
         for r in 0..readers {
             let (barrier, stop) = (&barrier, &stop);
             let (reads_total, errors_total) = (&reads_total, &errors_total);
-            rh.push(sc.spawn(move || {
+            let name = format!("reader-{r}");
+            let body = move || {
                 let c = A::ctx(READER_SLOT_BASE + r as u32);
                 A::begin(c);
                 let rd = arm.reader();
@@ -335,9 +371,17 @@ fn run_round<K: KeyLike, A: ConcArm<K>>(
                 A::end(c);
                 reads_total.fetch_add(reads, Ordering::Relaxed);
                 errors_total.fetch_add(errors, Ordering::Relaxed);
-            }));
+            };
+            let h = std::thread::Builder::new()
+                .name(name.clone())
+                .spawn_scoped(sc, body)
+                .unwrap_or_else(|e| panic!("spawning {name} failed: {e}"));
+            rh.push(h);
         }
 
+        if let Some(f) = ready {
+            f();
+        }
         barrier.wait();
         let t0 = Instant::now();
         for h in wh {
@@ -373,6 +417,55 @@ fn json_opt(v: Option<f64>) -> String {
     v.map_or_else(|| "null".to_string(), |x| format!("{x:.4}"))
 }
 
+/// Elapsed seconds as a JSON number, `null` when the role had no thread.
+fn json_secs(d: Option<Duration>) -> String {
+    json_opt(d.map(|d| d.as_secs_f64()))
+}
+
+/// The `occ_stats` counter called `name`. A name the engine does not publish
+/// is a harness bug, never a zero: a zero would read as "measured, and there
+/// were none".
+fn stat(snap: &[u64; occ_stats::NUM_STATS], name: &str) -> u64 {
+    let i = occ_stats::NAMES
+        .iter()
+        .position(|n| *n == name)
+        .unwrap_or_else(|| panic!("occ_stats::NAMES publishes no counter named `{name}`"));
+    snap[i]
+}
+
+/// The attach handshake: announce the round's threads, then (with
+/// `--wait-stdin`) block until the driver has attached and says so.
+///
+/// What `perf stat --per-thread -p <pid>` does, as observed on the reference
+/// host (perf 6.8.12, Linux 6.8) before this was relied on: the attach reads
+/// `/proc/<pid>/task` once and opens one counter set per thread it finds; the
+/// `-x,` CSV then carries one row per (thread, event) keyed `<comm>-<tid>`; a
+/// thread created after the attach has no row and is never counted; a thread
+/// that exits before perf stops keeps its row; `SIGINT` to perf ends the
+/// count and writes the rows. That is why this runs after every spawn and
+/// before the barrier: each writer and reader is counted from its first
+/// instruction of the round, and the main thread's join and population walk
+/// land on the main thread's own row, which the driver keeps but does not
+/// attribute to either role.
+fn threads_ready(round: usize, wait_stdin: bool) {
+    println!(
+        "{{\"event\":\"threads_ready\",\"round\":{round},\"pid\":{}}}",
+        std::process::id()
+    );
+    std::io::stdout().flush().expect("stdout flush failed");
+    if wait_stdin {
+        let mut line = String::new();
+        let n = std::io::stdin()
+            .lock()
+            .read_line(&mut line)
+            .expect("reading the release line from stdin failed");
+        if n == 0 {
+            eprintln!("stdin closed before round {round} was released; the driver detached");
+            std::process::exit(1);
+        }
+    }
+}
+
 fn cpus_allowed() -> String {
     std::fs::read_to_string("/proc/self/status")
         .ok()
@@ -385,10 +478,132 @@ fn cpus_allowed() -> String {
 }
 
 fn usage() -> ! {
-    eprintln!("usage: masstree_concurrent <map|str> <writers> <readers> [--health]");
+    eprintln!(
+        "usage: masstree_concurrent <map|str> <writers> <readers> \
+         [--health | --arm <expanse|masstree> [--rounds N] [--wait-stdin]]"
+    );
+    eprintln!("       masstree_concurrent --layout");
     eprintln!("  writers + readers <= {MAX_THREADS}; one cell per invocation (§3.6)");
     eprintln!("  --health needs the `occ-stats` feature and emits event ratios only");
+    eprintln!("  --arm runs one arm alone and emits `counters` rows with its own op counts");
+    eprintln!("  --wait-stdin blocks each round on one stdin line after `threads_ready`");
+    eprintln!("  --layout prints sync::layout_report() as JSON lines (occ-stats build only)");
     std::process::exit(2);
+}
+
+/// What one invocation does; the three are mutually exclusive.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Throughput,
+    Health,
+    /// One arm alone for `rounds` rounds, with the optional stdin handshake.
+    Counters {
+        expanse: bool,
+        rounds: usize,
+        wait_stdin: bool,
+    },
+}
+
+struct Cli {
+    kind: String,
+    writers: usize,
+    readers: usize,
+    mode: Mode,
+}
+
+fn parse_cli(a: &[String]) -> Cli {
+    if a.len() == 2 && a[1] == "--layout" {
+        print_layout();
+    }
+    if a.len() < 4 {
+        usage();
+    }
+    let kind = a[1].clone();
+    if kind != "map" && kind != "str" {
+        usage();
+    }
+    let writers: usize = a[2].parse().unwrap_or_else(|_| usage());
+    let readers: usize = a[3].parse().unwrap_or_else(|_| usage());
+    let (mut health, mut arm, mut rounds, mut wait_stdin) = (false, None, None, false);
+    let mut i = 4;
+    while i < a.len() {
+        match a[i].as_str() {
+            "--health" => health = true,
+            "--wait-stdin" => wait_stdin = true,
+            "--arm" => {
+                i += 1;
+                arm = Some(a.get(i).cloned().unwrap_or_else(|| usage()));
+            }
+            "--rounds" => {
+                i += 1;
+                rounds = Some(
+                    a.get(i)
+                        .and_then(|v| v.parse::<usize>().ok())
+                        .filter(|n| *n > 0)
+                        .unwrap_or_else(|| usage()),
+                );
+            }
+            _ => usage(),
+        }
+        i += 1;
+    }
+    let mode = match (health, arm) {
+        (true, None) => {
+            if rounds.is_some() || wait_stdin {
+                eprintln!("--rounds and --wait-stdin belong to --arm, not --health");
+                usage();
+            }
+            Mode::Health
+        }
+        (false, Some(arm)) => {
+            let expanse = match arm.as_str() {
+                "expanse" => true,
+                "masstree" => false,
+                _ => usage(),
+            };
+            Mode::Counters {
+                expanse,
+                rounds: rounds.unwrap_or(COUNTER_ROUNDS),
+                wait_stdin,
+            }
+        }
+        (false, None) => {
+            if rounds.is_some() || wait_stdin {
+                eprintln!("--rounds and --wait-stdin need --arm");
+                usage();
+            }
+            Mode::Throughput
+        }
+        (true, Some(_)) => {
+            eprintln!("--health and --arm are two different builds; pick one");
+            usage();
+        }
+    };
+    Cli {
+        kind,
+        writers,
+        readers,
+        mode,
+    }
+}
+
+/// `--layout`: the sync wrappers' field offsets as JSON lines, from the
+/// health build only (the engine gates `layout_report` on `occ-stats`).
+fn print_layout() -> ! {
+    #[cfg(feature = "occ-stats")]
+    {
+        for (wrapper, field, offset) in expanse_trie::sync::layout_report() {
+            println!(
+                "{{\"role\":\"layout\",\"wrapper\":\"{wrapper}\",\"field\":\"{field}\",\"offset\":{offset}}}"
+            );
+        }
+        std::process::exit(0);
+    }
+    #[cfg(not(feature = "occ-stats"))]
+    {
+        eprintln!("--layout needs the `occ-stats` build; this binary was built without it");
+        std::process::exit(1);
+    }
 }
 
 fn void_cell(round: usize, side: &str, r: &RoundResult, expected: usize) {
@@ -415,18 +630,62 @@ fn drive<K: KeyLike, M: ConcArm<K>, E: ConcArm<K>>(
     make_exp: impl Fn() -> E,
     writers: usize,
     readers: usize,
-    health: bool,
+    mode: Mode,
     id: &CellId<'_>,
 ) {
     let (workload_id, label, dist) = (id.workload_id, id.label, id.dist);
     let n0 = s.prefill.len();
     let m = s.new_keys.len() as u64;
+    // Fresh keys inserted per round: the writer-side operation count.
+    let write_ops = if writers > 0 { m } else { 0 };
     let expected = n0 + if writers > 0 { s.new_keys.len() } else { 0 };
     let cpus = cpus_allowed();
     let pin = env::var("EXPANSE_BENCH_PIN_APPLIED").unwrap_or_else(|_| "unset".to_string());
 
-    if health {
+    if let Mode::Counters {
+        expanse,
+        rounds,
+        wait_stdin,
+    } = mode
+    {
+        // One arm alone, no interleaving: the rows exist to give a per-thread
+        // counter attach a harness-owned divisor, not to compare anything.
+        let arm_name = if expanse { "expanse" } else { "masstree" };
+        let pid = std::process::id();
+        for round in 0..rounds {
+            let ready = move || threads_ready(round, wait_stdin);
+            let r = if expanse {
+                let e = make_exp();
+                let r = run_round(&e, s, writers, readers, true, Some(&ready));
+                void_cell(round, "expanse", &r, expected);
+                r
+            } else {
+                let t = make_mt();
+                let r = run_round(&t, s, writers, readers, true, Some(&ready));
+                void_cell(round, "masstree", &r, expected);
+                r
+            };
+            println!(
+                "{{\"workload_id\":\"{workload_id}\",\"role\":\"counters\",\"arm\":\"{arm_name}\",\
+                 \"cell\":\"{label}\",\"dist\":\"{dist}\",\"prefill\":{n0},\"fresh_keys\":{m},\
+                 \"writers\":{writers},\"readers\":{readers},\"round\":{round},\"pid\":{pid},\
+                 \"read_ops\":{},\"write_ops\":{write_ops},\
+                 \"reader_elapsed_s\":{},\"writer_elapsed_s\":{},\
+                 \"population_after\":{expected},\"cpus_allowed\":\"{cpus}\",\"pin_applied\":\"{pin}\"}}",
+                r.reads,
+                json_secs(r.reader_elapsed),
+                json_secs(r.writer_elapsed),
+            );
+            std::io::stdout().flush().expect("stdout flush failed");
+        }
+        return;
+    }
+
+    if mode == Mode::Health {
         // Expanse side only: Masstree has no counterpart counter (§6.3).
+        // The cycle counter behind `sample_spin_cycles` is calibrated once per
+        // process and published beside every row that carries it.
+        let cycles_hz = occ_stats::cycles_hz(Duration::from_millis(200));
         for round in 0..HEALTH_ROUNDS {
             let e = make_exp();
             {
@@ -437,10 +696,10 @@ fn drive<K: KeyLike, M: ConcArm<K>, E: ConcArm<K>>(
                 }
             }
             occ_stats::reset();
-            let r = run_round(&e, s, writers, readers, false);
+            let r = run_round(&e, s, writers, readers, false, None);
             let snap = occ_stats::snapshot();
             void_cell(round, "expanse", &r, expected);
-            let st = |name: &str| snap[occ_stats::NAMES.iter().position(|n| *n == name).unwrap()];
+            let st = |name: &str| stat(&snap, name);
             let (ops, attempts, fallbacks) =
                 (st("read_ops"), st("read_attempts"), st("read_fallbacks"));
             let restart_share = if attempts == 0 {
@@ -458,10 +717,25 @@ fn drive<K: KeyLike, M: ConcArm<K>, E: ConcArm<K>>(
                  \"writers\":{writers},\"readers\":{readers},\"round\":{round},\"read_ops\":{ops},\
                  \"read_attempts\":{attempts},\"read_fallbacks\":{fallbacks},\"sample_spins\":{},\
                  \"write_ops\":{},\"locked_reads\":{},\"restart_share\":{restart_share:.6},\
-                 \"fallback_share\":{fallback_share:.6},\"cpus_allowed\":\"{cpus}\",\"pin_applied\":\"{pin}\"}}",
+                 \"fallback_share\":{fallback_share:.6},\
+                 \"handoffs\":{},\"retired\":{},\"freed_raw\":{},\"sample_spin_cycles\":{},\
+                 \"branch_replacements\":{},\"deep_cascades\":{},\"root_rewrites\":{},\
+                 \"cycles_hz\":{cycles_hz},\"reader_elapsed_s\":{},\"writer_elapsed_s\":{},\
+                 \"cpus_allowed\":\"{cpus}\",\"pin_applied\":\"{pin}\"}}",
                 st("sample_spins"),
                 st("write_ops"),
                 st("locked_reads"),
+                st("handoffs"),
+                st("retired"),
+                st("freed_raw"),
+                st("sample_spin_cycles"),
+                st("branch_replacements"),
+                st("deep_cascades"),
+                st("root_rewrites"),
+                // Barrier release to last-reader join / last-writer join:
+                // one duration per role, not a per-thread mean.
+                json_secs(r.reader_elapsed),
+                json_secs(r.writer_elapsed),
             );
         }
         return;
@@ -472,13 +746,13 @@ fn drive<K: KeyLike, M: ConcArm<K>, E: ConcArm<K>>(
         let mt_first = round % 2 == 0;
         let run_mt = || {
             let t = make_mt();
-            let r = run_round(&t, s, writers, readers, true);
+            let r = run_round(&t, s, writers, readers, true, None);
             void_cell(round, "masstree", &r, expected);
             r
         };
         let run_exp = || {
             let e = make_exp();
-            let r = run_round(&e, s, writers, readers, true);
+            let r = run_round(&e, s, writers, readers, true, None);
             void_cell(round, "expanse", &r, expected);
             r
         };
@@ -495,7 +769,10 @@ fn drive<K: KeyLike, M: ConcArm<K>, E: ConcArm<K>>(
              \"round\":{round},\"first\":\"{}\",\
              \"masstree_writer_mops\":{},\"expanse_writer_mops\":{},\
              \"masstree_reader_mops\":{},\"expanse_reader_mops\":{},\
-             \"masstree_reads\":{},\"expanse_reads\":{},\"population_after\":{expected},\
+             \"masstree_reads\":{},\"expanse_reads\":{},\
+             \"masstree_read_ops\":{},\"expanse_read_ops\":{},\
+             \"masstree_write_ops\":{write_ops},\"expanse_write_ops\":{write_ops},\
+             \"population_after\":{expected},\
              \"cpus_allowed\":\"{cpus}\",\"pin_applied\":\"{pin}\"}}",
             if mt_first { "masstree" } else { "expanse" },
             json_opt(mops(m, mt.writer_elapsed)),
@@ -504,34 +781,33 @@ fn drive<K: KeyLike, M: ConcArm<K>, E: ConcArm<K>>(
             json_opt(mops(ex.reads, ex.reader_elapsed)),
             mt.reads,
             ex.reads,
+            // `*_read_ops` repeats `*_reads` under the name every role's rows
+            // share, so one divisor name serves throughput and counters rows.
+            mt.reads,
+            ex.reads,
         );
     }
 }
 
 fn main() {
     let a: Vec<String> = env::args().collect();
-    if a.len() < 4 || a.len() > 5 {
-        usage();
-    }
-    let arm = a[1].as_str();
-    if arm != "map" && arm != "str" {
-        usage();
-    }
-    let writers: usize = a[2].parse().unwrap_or_else(|_| usage());
-    let readers: usize = a[3].parse().unwrap_or_else(|_| usage());
-    let health = match a.get(4).map(String::as_str) {
-        None => false,
-        Some("--health") => true,
-        Some(_) => usage(),
-    };
+    let Cli {
+        kind,
+        writers,
+        readers,
+        mode,
+    } = parse_cli(&a);
+    let health = mode == Mode::Health;
     if writers + readers == 0 || writers + readers > MAX_THREADS {
         eprintln!("writers + readers must be in 1..={MAX_THREADS} (the P-core pin); refusing");
         std::process::exit(1);
     }
+    // Two builds, never one: health rows come from the occ-stats build only;
+    // throughput and counters rows come from the default build only.
     if health != occ_stats::enabled() {
         eprintln!(
-            "build/role mismatch: occ-stats {} but --health {} — a throughput figure from a \
-             diagnostic build, or a health ratio from a default build, is void (§9)",
+            "build/role mismatch: occ-stats {} but --health {} — a throughput or counters \
+             figure from a diagnostic build, or a health ratio from a default build, is void (§9)",
             if occ_stats::enabled() { "on" } else { "off" },
             if health { "given" } else { "absent" }
         );
@@ -539,7 +815,7 @@ fn main() {
     }
 
     let main_ti = MtThread::slot(MAIN_SLOT);
-    match arm {
+    match kind.as_str() {
         "map" => {
             let cw = workload::build_concurrent(N_PREFILL, M_NEW, 64, 0.5);
             let s = Stream {
@@ -554,7 +830,7 @@ fn main() {
                 SyncExpanseMap::new,
                 writers,
                 readers,
-                health,
+                mode,
                 &CellId {
                     workload_id: "masstree_conc_map_64bit",
                     label: "map",
@@ -576,7 +852,7 @@ fn main() {
                 SyncExpanseStrMap::new,
                 writers,
                 readers,
-                health,
+                mode,
                 &CellId {
                     workload_id: "masstree_conc_str",
                     label: "str",

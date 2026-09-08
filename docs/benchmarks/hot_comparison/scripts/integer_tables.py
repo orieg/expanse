@@ -124,6 +124,99 @@ def scan_share(lat: dict) -> str:
     return f"{len(scans)} of this suite's {len(hot)} HOT wins are scan cells."
 
 
+# --- §7.3 protocol health ---------------------------------------------------
+#
+# Both concurrent runs side by side (docs/BENCHMARKING.md rule 18: a
+# concurrent level is quoted only across two runs). The verdict column is the
+# §11.5.3 logic as `masstree_comparison/scripts/tables.py` derives it for §6.3:
+# "rise with W" is evaluated per arm and per run on the restart-share medians,
+# strictly increasing across writer counts; the starvation half is the median
+# fallback share against 1%, and a zero is `PASS_categorical_by_design` because
+# a fallback needs 64 consecutive failed walks.
+
+HEALTH_RUNS = (("1", "baseline_concurrent.json"), ("2", "baseline_concurrent_run2.json"))
+
+# Derived shares that become columns once any loaded run carries them; a run
+# that lacks one reads "not recorded". `locked_reads ÷ read_ops` is always a
+# column — it is the share #568's Step 0 asks for, and the two committed runs
+# predate the runner recording it, which the table says rather than hides.
+HEALTH_EXTRA = (
+    ("unconditional_share", "unconditional lock share"),
+    ("handoffs_per_write", "handoffs ÷ write"),
+    ("replacements_per_write", "branch replacements ÷ write"),
+    ("deep_cascade_share", "deep-cascade share"),
+    ("root_rewrite_share", "root-rewrite share"),
+    ("spin_time_share", "spin time ÷ reader wall"),
+)
+
+
+def load_optional(name: str) -> dict | None:
+    p = RESULTS / name
+    return json.loads(p.read_text()) if p.exists() else None
+
+
+def stat_cell(c: dict, key: str, fmt: str) -> str:
+    """A derived-share cell: its median, `n/a` on a zero denominator, or `not recorded`."""
+    if key not in c:
+        return "not recorded"
+    if c[key] is None:
+        return "n/a"
+    return fmt.format(c[key]["median"])
+
+
+def health_verdict(c: dict, rising: bool | None) -> str:
+    half1 = ("rise with W: n/a" if rising is None
+             else "rise with W: `CONFIRMED`" if rising else "rise with W: **`REFUTED`**")
+    half2 = ("**STARVATION**" if c["starvation_flag"]
+             else "fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks)")
+    return f"{half1}; {half2}"
+
+
+def health_table(runs: list[tuple[str, dict]]) -> str:
+    cells = [(run, c) for run, art in runs for c in art.get("health", [])]
+    if not cells:
+        return "_no health cells in results/_\n"
+    extras = [(k, h) for k, h in HEALTH_EXTRA if any(k in c for _, c in cells)]
+    head = ["Arm", "W", "R", "run", "restart share, median [min, max]", "fallback share",
+            "`sample_spins` ÷ `read_ops` (ratio of medians)", "`locked_reads` ÷ `read_ops`",
+            *[h for _, h in extras], "§11.5.3"]
+    out = ["| " + " | ".join(head) + " |",
+           "|---|--:|--:|--:|---|---:|---:|---:|" + "---:|" * len(extras) + "---|"]
+    # "rise with W", per arm and per run, on the medians.
+    rising = {}
+    for run, art in runs:
+        for arm in {c["arm"] for c in art.get("health", [])}:
+            rows = sorted((c for c in art["health"] if c["arm"] == arm and c["read_ops"]["median"] > 0),
+                          key=lambda x: x["writers"])
+            shares = [c["restart_share"]["median"] for c in rows]
+            rising[(run, arm)] = None if len(shares) < 2 else all(b > a for a, b in zip(shares, shares[1:]))
+    order = {a: i for i, a in enumerate(ARMS)}
+    for run, c in sorted(cells, key=lambda rc: (order.get(rc[1]["arm"], 9), rc[1]["writers"], rc[0])):
+        rs, fs = c["restart_share"], c["fallback_share"]
+        spins = c["sample_spins"]["median"] / max(c["read_ops"]["median"], 1)
+        row = [c["arm"], str(c["writers"]), str(c["readers"]), run,
+               f"{rs['median']:.2%} [{rs['min']:.2%}, {rs['max']:.2%}]", f"{fs['median']:.4%}",
+               f"{spins:.2f}", stat_cell(c, "locked_share", "{:.2%}"),
+               *[stat_cell(c, k, "{:.3f}" if k.endswith("per_write") else "{:.2%}") for k, _ in extras],
+               health_verdict(c, rising.get((run, c["arm"])))]
+        out.append("| " + " | ".join(row) + " |")
+    out.append("")
+    return "\n".join(out)
+
+
+def health_section() -> str:
+    runs = [(run, art) for run, name in HEALTH_RUNS if (art := load_optional(name)) is not None]
+    if not runs:
+        return "### 7.3 Protocol health — event ratios from the diagnostic build\n\n_no concurrent artifact in results/_\n"
+    out = ["### 7.3 Protocol health — event ratios from the diagnostic build\n", health_table(runs)]
+    for run, art in runs:
+        prov = art["provenance"]
+        loads = [s["load1"] for s in prov["loads"]]
+        out.append(f"load average across the concurrent run {run}: {', '.join(f'{x:.2f}' for x in loads)}; "
+                   f"commit {prov.get('commit', '?')}; core pin: {prov.get('core_pin', 'unset')}")
+    return "\n".join(out)
+
+
 def main() -> int:
     lat = load("baseline_latency.json")
     mem = load("baseline_memory_curve.json")
@@ -141,7 +234,8 @@ def main() -> int:
     print(scan_share(lat))
     loads = [s["load1"] for s in prov["loads"]]
     print(f"load average across the run: {', '.join(f'{x:.2f}' for x in loads)}; "
-          f"core pin: {prov.get('core_pin', 'unset')}")
+          f"core pin: {prov.get('core_pin', 'unset')}\n")
+    print(health_section())
     return 0
 
 

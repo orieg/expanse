@@ -35,6 +35,7 @@ not reachable as `/benchmark` tokens and so do not appear below.
 |---|---|---|---|
 | [`art_comparison/`](art_comparison/README.md) | `art_insert`, `art_lookup_hit`, `art_lookup_miss`, `art_memory`, `art_scan`, `art_small_payload` | wall-clock | Expanse vs. Adaptive Radix Tree (ART): Empirical Benchmark Suite |
 | [`avx512/`](avx512/README.md) | `avx512_bitmap` | wall-clock | AVX-512 `vpopcntq` for `Bitmap256` cardinality |
+| [`concurrency/`](concurrency/README.md) | `concurrency` | wall-clock | Concurrency instruments — results |
 | [`embedded/`](embedded/README.md) | `embedded`, `embedded_memtable` | wall-clock | Embedded memtable shapes (host suite) |
 | [`hashbrown_comparison/`](hashbrown_comparison/README.md) | `hashbrown_container_dists`, `hashbrown_memory_alloc`, `hashbrown_native_suite`, `hashbrown_tail_latency`, `hashbrown_ycsb` | wall-clock | Expanse vs. Hashbrown vs. BTreeMap: Empirical Comparative Benchmark Suite |
 | [`hot_comparison/`](hot_comparison/README.md) | `hot_concurrent`, `hot_latency`, `hot_memory_curve`, `hot_string_latency`, `hot_string_memory`, `leaf_cap_cascaded`, `leaf_cap_cascaded_wallclock` | Callgrind + wall-clock | Expanse vs. HOT (Height Optimized Trie): Empirical Benchmark Suite |
@@ -58,7 +59,6 @@ suite is visible rather than silently absent from this index.
 | `batch_lookup` | wall-clock | Interleave-width sweep for the batched descent, on a cold-DRAM population and a cache-resident control. |
 | `comparative` | wall-clock | Wall-clock head-to-head against hashbrown / BTreeMap, with the `bench_report.py --quick` markdown table. |
 | `compare` | wall-clock | Standing container comparison harness across the core map and set types. |
-| `concurrency` | wall-clock | `Sync*` wall-clock scaling instrument on a reduced thread/workload sweep; report-only, never gating. |
 | `domain_aarch64` | wall-clock | Interned set domain on aarch64-apple-darwin, wall clock. Indicative cross-architecture check on the ingestion and resolution results; gates nothing. |
 | `extended` | Callgrind | Everything in `all`, plus the multi-population scaling sweep and the microarchitecture target-CPU matrix (`bench_report.py --extended --arch-sweep`). |
 | `instructions` | Callgrind | Core deterministic Callgrind instruction counters plus the 64-bit and 32-bit B/key examples, dual-pass against the base ref. |

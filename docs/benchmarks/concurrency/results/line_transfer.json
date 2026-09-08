@@ -1,0 +1,5985 @@
+{
+  "provenance": {
+    "suite": "concurrency",
+    "issue": 568,
+    "commit": "a1982ff2",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "powersave",
+      "scaling_governor_by_cpu": {
+        "0": "powersave",
+        "1": "powersave",
+        "2": "powersave",
+        "3": "powersave",
+        "4": "powersave",
+        "5": "powersave",
+        "6": "powersave",
+        "7": "powersave",
+        "8": "powersave",
+        "9": "powersave",
+        "10": "powersave",
+        "11": "powersave",
+        "12": "powersave",
+        "13": "powersave",
+        "14": "powersave",
+        "15": "powersave"
+      },
+      "scaling_governor_pin_set": "0-15",
+      "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+      "transparent_hugepage": "always [madvise] never",
+      "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35"
+    },
+    "cpu_source": "cpu_core",
+    "cpus_considered": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "physical_cores": {
+      "0": [
+        0,
+        1
+      ],
+      "4": [
+        2,
+        3
+      ],
+      "8": [
+        4,
+        5
+      ],
+      "12": [
+        6,
+        7
+      ],
+      "16": [
+        8,
+        9
+      ],
+      "20": [
+        10,
+        11
+      ],
+      "24": [
+        12,
+        13
+      ],
+      "28": [
+        14,
+        15
+      ]
+    },
+    "representatives": [
+      0,
+      2,
+      4,
+      6,
+      8,
+      10,
+      12,
+      14
+    ],
+    "trips_per_invocation": 200000,
+    "repeats": 7,
+    "estimators": {
+      "point": "mean over repeats of ns per one-way transfer (elapsed / (2 x round trips))",
+      "interval": "BCa 95% over repeats, bca_bootstrap.py"
+    },
+    "loads": [
+      {
+        "label": "start",
+        "since": null,
+        "load1": 0.52,
+        "load5": 0.18,
+        "load15": 0.53,
+        "at": "2026-09-08T07:10:23Z",
+        "stat_busy_jiffies": 52009587,
+        "stat_total_jiffies": 6303312437,
+        "child_cpu_s": 0.001,
+        "monotonic_s": 2627019.315,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "after-pause",
+        "since": "start",
+        "load1": 0.52,
+        "load5": 0.18,
+        "load15": 0.53,
+        "at": "2026-09-08T07:10:23Z",
+        "stat_busy_jiffies": 52009593,
+        "stat_total_jiffies": 6303312581,
+        "child_cpu_s": 0.056,
+        "monotonic_s": 2627019.375,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 0.92,
+        "foreign_busy_cpus_since_prev": 0.08
+      },
+      {
+        "label": "after-cross-spin",
+        "since": "after-pause",
+        "load1": 0.64,
+        "load5": 0.21,
+        "load15": 0.54,
+        "at": "2026-09-08T07:10:26Z",
+        "stat_busy_jiffies": 52010206,
+        "stat_total_jiffies": 6303320124,
+        "child_cpu_s": 5.973,
+        "monotonic_s": 2627022.519,
+        "busy_cpus_since_prev": 1.95,
+        "own_busy_cpus_since_prev": 1.88,
+        "foreign_busy_cpus_since_prev": 0.07
+      },
+      {
+        "label": "after-cross-park",
+        "since": "after-cross-spin",
+        "load1": 0.94,
+        "load5": 0.45,
+        "load15": 0.59,
+        "at": "2026-09-08T07:12:10Z",
+        "stat_busy_jiffies": 52019653,
+        "stat_total_jiffies": 6303565482,
+        "child_cpu_s": 105.658,
+        "monotonic_s": 2627126.463,
+        "busy_cpus_since_prev": 0.92,
+        "own_busy_cpus_since_prev": 0.96,
+        "foreign_busy_cpus_since_prev": -0.04
+      },
+      {
+        "label": "after-smt-spin",
+        "since": "after-cross-park",
+        "load1": 0.94,
+        "load5": 0.45,
+        "load15": 0.59,
+        "at": "2026-09-08T07:12:11Z",
+        "stat_busy_jiffies": 52019760,
+        "stat_total_jiffies": 6303566825,
+        "child_cpu_s": 106.674,
+        "monotonic_s": 2627127.023,
+        "busy_cpus_since_prev": 1.91,
+        "own_busy_cpus_since_prev": 1.82,
+        "foreign_busy_cpus_since_prev": 0.09
+      },
+      {
+        "label": "after-smt-park",
+        "since": "after-smt-spin",
+        "load1": 0.98,
+        "load5": 0.51,
+        "load15": 0.61,
+        "at": "2026-09-08T07:12:47Z",
+        "stat_busy_jiffies": 52022748,
+        "stat_total_jiffies": 6303652227,
+        "child_cpu_s": 141.724,
+        "monotonic_s": 2627163.511,
+        "busy_cpus_since_prev": 0.84,
+        "own_busy_cpus_since_prev": 0.96,
+        "foreign_busy_cpus_since_prev": -0.12
+      },
+      {
+        "label": "end",
+        "since": "after-smt-park",
+        "load1": 0.98,
+        "load5": 0.51,
+        "load15": 0.61,
+        "at": "2026-09-08T07:12:47Z",
+        "stat_busy_jiffies": 52022748,
+        "stat_total_jiffies": 6303652227,
+        "child_cpu_s": 141.724,
+        "monotonic_s": 2627163.511,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      }
+    ],
+    "quick": false,
+    "commit_source": "the tree rsynced to the host at a1982ff2; EXPANSE_BENCH_COMMIT was not exported for this run and the campaign script now requires it"
+  },
+  "cells": [
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "pause@0",
+      "kind": "pause",
+      "cpu_a": 0,
+      "cpu_b": null,
+      "mode": "pause",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 34.15,
+        "ci_lower": 33.68142857142856,
+        "ci_upper": 35.010000000000005
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": null,
+          "mode": "pause",
+          "round_trips": 200000,
+          "elapsed_s": 0.006867,
+          "ns_per_transfer": 34.33
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": null,
+          "mode": "pause",
+          "round_trips": 200000,
+          "elapsed_s": 0.007192,
+          "ns_per_transfer": 35.96
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": null,
+          "mode": "pause",
+          "round_trips": 200000,
+          "elapsed_s": 0.006867,
+          "ns_per_transfer": 34.33
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": null,
+          "mode": "pause",
+          "round_trips": 200000,
+          "elapsed_s": 0.006814,
+          "ns_per_transfer": 34.07
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": null,
+          "mode": "pause",
+          "round_trips": 200000,
+          "elapsed_s": 0.006763,
+          "ns_per_transfer": 33.81
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": null,
+          "mode": "pause",
+          "round_trips": 200000,
+          "elapsed_s": 0.00667,
+          "ns_per_transfer": 33.35
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": null,
+          "mode": "pause",
+          "round_trips": 200000,
+          "elapsed_s": 0.006639,
+          "ns_per_transfer": 33.2
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "0-2/spin",
+      "kind": "cross-core",
+      "cpu_a": 0,
+      "cpu_b": 2,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 36.129999999999995,
+        "ci_lower": 35.47714285714285,
+        "ci_upper": 37.83857142857143
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 2,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014213,
+          "ns_per_transfer": 35.53
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 2,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014264,
+          "ns_per_transfer": 35.66
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 2,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014005,
+          "ns_per_transfer": 35.01
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 2,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.015828,
+          "ns_per_transfer": 39.57
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 2,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01426,
+          "ns_per_transfer": 35.65
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 2,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014341,
+          "ns_per_transfer": 35.85
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 2,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014254,
+          "ns_per_transfer": 35.64
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "0-4/spin",
+      "kind": "cross-core",
+      "cpu_a": 0,
+      "cpu_b": 4,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 34.65571428571429,
+        "ci_lower": 34.29714285714286,
+        "ci_upper": 35.08857142857143
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 4,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013574,
+          "ns_per_transfer": 33.93
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 4,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014089,
+          "ns_per_transfer": 35.22
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 4,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013833,
+          "ns_per_transfer": 34.58
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 4,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013678,
+          "ns_per_transfer": 34.2
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 4,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013738,
+          "ns_per_transfer": 34.34
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 4,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013904,
+          "ns_per_transfer": 34.76
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 4,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014224,
+          "ns_per_transfer": 35.56
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "0-6/spin",
+      "kind": "cross-core",
+      "cpu_a": 0,
+      "cpu_b": 6,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 33.75714285714285,
+        "ci_lower": 32.60142857142857,
+        "ci_upper": 35.51
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013619,
+          "ns_per_transfer": 34.05
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013435,
+          "ns_per_transfer": 33.59
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012799,
+          "ns_per_transfer": 32.0
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012812,
+          "ns_per_transfer": 32.03
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014957,
+          "ns_per_transfer": 37.39
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012803,
+          "ns_per_transfer": 32.01
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014093,
+          "ns_per_transfer": 35.23
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "0-8/spin",
+      "kind": "cross-core",
+      "cpu_a": 0,
+      "cpu_b": 8,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 34.987142857142864,
+        "ci_lower": 33.902857142857144,
+        "ci_upper": 36.332857142857144
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012856,
+          "ns_per_transfer": 32.14
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.015283,
+          "ns_per_transfer": 38.21
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014392,
+          "ns_per_transfer": 35.98
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014043,
+          "ns_per_transfer": 35.11
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013683,
+          "ns_per_transfer": 34.21
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013785,
+          "ns_per_transfer": 34.46
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01392,
+          "ns_per_transfer": 34.8
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "0-10/spin",
+      "kind": "cross-core",
+      "cpu_a": 0,
+      "cpu_b": 10,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 33.801428571428566,
+        "ci_lower": 32.58142857142857,
+        "ci_upper": 34.51142857142857
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012523,
+          "ns_per_transfer": 31.31
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013942,
+          "ns_per_transfer": 34.86
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.0139,
+          "ns_per_transfer": 34.75
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013988,
+          "ns_per_transfer": 34.97
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013805,
+          "ns_per_transfer": 34.51
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013241,
+          "ns_per_transfer": 33.1
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013243,
+          "ns_per_transfer": 33.11
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "0-12/spin",
+      "kind": "cross-core",
+      "cpu_a": 0,
+      "cpu_b": 12,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 33.924285714285716,
+        "ci_lower": 33.287142857142854,
+        "ci_upper": 34.83571428571428
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013427,
+          "ns_per_transfer": 33.57
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013241,
+          "ns_per_transfer": 33.1
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013261,
+          "ns_per_transfer": 33.15
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013207,
+          "ns_per_transfer": 33.02
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014047,
+          "ns_per_transfer": 35.12
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013454,
+          "ns_per_transfer": 33.63
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014352,
+          "ns_per_transfer": 35.88
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "0-14/spin",
+      "kind": "cross-core",
+      "cpu_a": 0,
+      "cpu_b": 14,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 33.645714285714284,
+        "ci_lower": 33.207142857142856,
+        "ci_upper": 34.65142857142857
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014265,
+          "ns_per_transfer": 35.66
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013586,
+          "ns_per_transfer": 33.97
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013125,
+          "ns_per_transfer": 32.81
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013311,
+          "ns_per_transfer": 33.28
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013286,
+          "ns_per_transfer": 33.21
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013303,
+          "ns_per_transfer": 33.26
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013334,
+          "ns_per_transfer": 33.33
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "2-4/spin",
+      "kind": "cross-core",
+      "cpu_a": 2,
+      "cpu_b": 4,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 34.387142857142855,
+        "ci_lower": 32.825714285714284,
+        "ci_upper": 35.04285714285714
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 4,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012525,
+          "ns_per_transfer": 31.31
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 4,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013662,
+          "ns_per_transfer": 34.15
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 4,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013994,
+          "ns_per_transfer": 34.98
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 4,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014078,
+          "ns_per_transfer": 35.19
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 4,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014163,
+          "ns_per_transfer": 35.41
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 4,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014162,
+          "ns_per_transfer": 35.4
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 4,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013708,
+          "ns_per_transfer": 34.27
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "2-6/spin",
+      "kind": "cross-core",
+      "cpu_a": 2,
+      "cpu_b": 6,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 35.2,
+        "ci_lower": 33.614285714285714,
+        "ci_upper": 36.27285714285715
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012705,
+          "ns_per_transfer": 31.76
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01496,
+          "ns_per_transfer": 37.4
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014092,
+          "ns_per_transfer": 35.23
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014084,
+          "ns_per_transfer": 35.21
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014895,
+          "ns_per_transfer": 37.24
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014086,
+          "ns_per_transfer": 35.21
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01374,
+          "ns_per_transfer": 34.35
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "2-8/spin",
+      "kind": "cross-core",
+      "cpu_a": 2,
+      "cpu_b": 8,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 33.48571428571429,
+        "ci_lower": 32.597142857142856,
+        "ci_upper": 34.31571428571429
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013908,
+          "ns_per_transfer": 34.77
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012821,
+          "ns_per_transfer": 32.05
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01299,
+          "ns_per_transfer": 32.47
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012797,
+          "ns_per_transfer": 31.99
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013874,
+          "ns_per_transfer": 34.68
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013867,
+          "ns_per_transfer": 34.67
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013506,
+          "ns_per_transfer": 33.77
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "2-10/spin",
+      "kind": "cross-core",
+      "cpu_a": 2,
+      "cpu_b": 10,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 34.06285714285714,
+        "ci_lower": 33.36714285714285,
+        "ci_upper": 34.808571428571426
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014028,
+          "ns_per_transfer": 35.07
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013367,
+          "ns_per_transfer": 33.42
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013018,
+          "ns_per_transfer": 32.54
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013488,
+          "ns_per_transfer": 33.72
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01337,
+          "ns_per_transfer": 33.42
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013833,
+          "ns_per_transfer": 34.58
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014276,
+          "ns_per_transfer": 35.69
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "2-12/spin",
+      "kind": "cross-core",
+      "cpu_a": 2,
+      "cpu_b": 12,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 34.708571428571425,
+        "ci_lower": 33.75857142857142,
+        "ci_upper": 35.642857142857146
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014749,
+          "ns_per_transfer": 36.87
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013835,
+          "ns_per_transfer": 34.59
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014017,
+          "ns_per_transfer": 35.04
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013138,
+          "ns_per_transfer": 32.84
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014264,
+          "ns_per_transfer": 35.66
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013992,
+          "ns_per_transfer": 34.98
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01319,
+          "ns_per_transfer": 32.98
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "2-14/spin",
+      "kind": "cross-core",
+      "cpu_a": 2,
+      "cpu_b": 14,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 34.36857142857143,
+        "ci_lower": 33.621428571428574,
+        "ci_upper": 35.33571428571428
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013373,
+          "ns_per_transfer": 33.43
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014392,
+          "ns_per_transfer": 35.98
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014398,
+          "ns_per_transfer": 35.99
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01354,
+          "ns_per_transfer": 33.85
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014026,
+          "ns_per_transfer": 35.06
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013185,
+          "ns_per_transfer": 32.96
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013322,
+          "ns_per_transfer": 33.31
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "4-6/spin",
+      "kind": "cross-core",
+      "cpu_a": 4,
+      "cpu_b": 6,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 33.87571428571429,
+        "ci_lower": 33.41142857142857,
+        "ci_upper": 34.26428571428571
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013674,
+          "ns_per_transfer": 34.19
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013545,
+          "ns_per_transfer": 33.86
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013913,
+          "ns_per_transfer": 34.78
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013328,
+          "ns_per_transfer": 33.32
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013146,
+          "ns_per_transfer": 32.86
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013676,
+          "ns_per_transfer": 34.19
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 6,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013573,
+          "ns_per_transfer": 33.93
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "4-8/spin",
+      "kind": "cross-core",
+      "cpu_a": 4,
+      "cpu_b": 8,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 33.76714285714286,
+        "ci_lower": 33.027142857142856,
+        "ci_upper": 35.112857142857145
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012944,
+          "ns_per_transfer": 32.36
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013438,
+          "ns_per_transfer": 33.6
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01357,
+          "ns_per_transfer": 33.92
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013074,
+          "ns_per_transfer": 32.68
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013664,
+          "ns_per_transfer": 34.16
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014646,
+          "ns_per_transfer": 36.62
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013213,
+          "ns_per_transfer": 33.03
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "4-10/spin",
+      "kind": "cross-core",
+      "cpu_a": 4,
+      "cpu_b": 10,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 33.76857142857143,
+        "ci_lower": 32.642857142857146,
+        "ci_upper": 35.001428571428576
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013067,
+          "ns_per_transfer": 32.67
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013676,
+          "ns_per_transfer": 34.19
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014362,
+          "ns_per_transfer": 35.9
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014433,
+          "ns_per_transfer": 36.08
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013376,
+          "ns_per_transfer": 33.44
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013127,
+          "ns_per_transfer": 32.82
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01251,
+          "ns_per_transfer": 31.28
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "4-12/spin",
+      "kind": "cross-core",
+      "cpu_a": 4,
+      "cpu_b": 12,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 33.26142857142857,
+        "ci_lower": 32.32285714285714,
+        "ci_upper": 34.34428571428571
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012779,
+          "ns_per_transfer": 31.95
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013886,
+          "ns_per_transfer": 34.71
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012753,
+          "ns_per_transfer": 31.88
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013119,
+          "ns_per_transfer": 32.8
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012747,
+          "ns_per_transfer": 31.87
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014016,
+          "ns_per_transfer": 35.04
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01383,
+          "ns_per_transfer": 34.58
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "4-14/spin",
+      "kind": "cross-core",
+      "cpu_a": 4,
+      "cpu_b": 14,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 34.21142857142857,
+        "ci_lower": 33.70285714285714,
+        "ci_upper": 34.43571428571429
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013735,
+          "ns_per_transfer": 34.34
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013654,
+          "ns_per_transfer": 34.13
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013803,
+          "ns_per_transfer": 34.51
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013809,
+          "ns_per_transfer": 34.52
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013686,
+          "ns_per_transfer": 34.22
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01383,
+          "ns_per_transfer": 34.57
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013277,
+          "ns_per_transfer": 33.19
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "6-8/spin",
+      "kind": "cross-core",
+      "cpu_a": 6,
+      "cpu_b": 8,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 32.181428571428576,
+        "ci_lower": 31.76714285714286,
+        "ci_upper": 32.67857142857143
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012592,
+          "ns_per_transfer": 31.48
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012782,
+          "ns_per_transfer": 31.95
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013261,
+          "ns_per_transfer": 33.15
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013079,
+          "ns_per_transfer": 32.7
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012613,
+          "ns_per_transfer": 31.53
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012683,
+          "ns_per_transfer": 31.71
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 8,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013098,
+          "ns_per_transfer": 32.75
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "6-10/spin",
+      "kind": "cross-core",
+      "cpu_a": 6,
+      "cpu_b": 10,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 33.208571428571425,
+        "ci_lower": 32.30428571428571,
+        "ci_upper": 34.40571428571428
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.0125,
+          "ns_per_transfer": 31.25
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013649,
+          "ns_per_transfer": 34.12
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013402,
+          "ns_per_transfer": 33.51
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014382,
+          "ns_per_transfer": 35.95
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012908,
+          "ns_per_transfer": 32.27
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013075,
+          "ns_per_transfer": 32.69
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013067,
+          "ns_per_transfer": 32.67
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "6-12/spin",
+      "kind": "cross-core",
+      "cpu_a": 6,
+      "cpu_b": 12,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 32.45285714285714,
+        "ci_lower": 32.07142857142857,
+        "ci_upper": 33.05285714285714
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013362,
+          "ns_per_transfer": 33.41
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012762,
+          "ns_per_transfer": 31.9
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012857,
+          "ns_per_transfer": 32.14
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012983,
+          "ns_per_transfer": 32.46
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012797,
+          "ns_per_transfer": 31.99
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012742,
+          "ns_per_transfer": 31.86
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013364,
+          "ns_per_transfer": 33.41
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "6-14/spin",
+      "kind": "cross-core",
+      "cpu_a": 6,
+      "cpu_b": 14,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 32.86857142857143,
+        "ci_lower": 32.285714285714285,
+        "ci_upper": 33.66
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01389,
+          "ns_per_transfer": 34.72
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012772,
+          "ns_per_transfer": 31.93
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013216,
+          "ns_per_transfer": 33.04
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01333,
+          "ns_per_transfer": 33.32
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01275,
+          "ns_per_transfer": 31.87
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013243,
+          "ns_per_transfer": 33.11
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012835,
+          "ns_per_transfer": 32.09
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "8-10/spin",
+      "kind": "cross-core",
+      "cpu_a": 8,
+      "cpu_b": 10,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 32.70142857142857,
+        "ci_lower": 31.79714285714286,
+        "ci_upper": 33.410000000000004
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013413,
+          "ns_per_transfer": 33.53
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013624,
+          "ns_per_transfer": 34.06
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013242,
+          "ns_per_transfer": 33.11
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012621,
+          "ns_per_transfer": 31.55
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012309,
+          "ns_per_transfer": 30.77
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012899,
+          "ns_per_transfer": 32.25
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 10,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013454,
+          "ns_per_transfer": 33.64
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "8-12/spin",
+      "kind": "cross-core",
+      "cpu_a": 8,
+      "cpu_b": 12,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 32.38142857142857,
+        "ci_lower": 31.74857142857143,
+        "ci_upper": 33.035714285714285
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013364,
+          "ns_per_transfer": 33.41
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012397,
+          "ns_per_transfer": 30.99
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012976,
+          "ns_per_transfer": 32.44
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013437,
+          "ns_per_transfer": 33.59
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012805,
+          "ns_per_transfer": 32.01
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012642,
+          "ns_per_transfer": 31.61
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013049,
+          "ns_per_transfer": 32.62
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "8-14/spin",
+      "kind": "cross-core",
+      "cpu_a": 8,
+      "cpu_b": 14,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 33.51857142857143,
+        "ci_lower": 32.71857142857143,
+        "ci_upper": 35.105714285714285
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013633,
+          "ns_per_transfer": 34.08
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01356,
+          "ns_per_transfer": 33.9
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013076,
+          "ns_per_transfer": 32.69
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013098,
+          "ns_per_transfer": 32.75
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012781,
+          "ns_per_transfer": 31.95
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.014653,
+          "ns_per_transfer": 36.63
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013052,
+          "ns_per_transfer": 32.63
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "10-12/spin",
+      "kind": "cross-core",
+      "cpu_a": 10,
+      "cpu_b": 12,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 32.527142857142856,
+        "ci_lower": 31.387142857142855,
+        "ci_upper": 33.32285714285714
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01249,
+          "ns_per_transfer": 31.22
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012408,
+          "ns_per_transfer": 31.02
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013451,
+          "ns_per_transfer": 33.63
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01343,
+          "ns_per_transfer": 33.57
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013539,
+          "ns_per_transfer": 33.85
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01343,
+          "ns_per_transfer": 33.57
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 12,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012332,
+          "ns_per_transfer": 30.83
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "10-14/spin",
+      "kind": "cross-core",
+      "cpu_a": 10,
+      "cpu_b": 14,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 31.90857142857143,
+        "ci_lower": 31.46,
+        "ci_upper": 32.348571428571425
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013006,
+          "ns_per_transfer": 32.52
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012596,
+          "ns_per_transfer": 31.49
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012803,
+          "ns_per_transfer": 32.01
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013053,
+          "ns_per_transfer": 32.63
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012445,
+          "ns_per_transfer": 31.11
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012471,
+          "ns_per_transfer": 31.18
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012968,
+          "ns_per_transfer": 32.42
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "12-14/spin",
+      "kind": "cross-core",
+      "cpu_a": 12,
+      "cpu_b": 14,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 32.720000000000006,
+        "ci_lower": 32.145714285714284,
+        "ci_upper": 33.487142857142864
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013803,
+          "ns_per_transfer": 34.51
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.01341,
+          "ns_per_transfer": 33.52
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012947,
+          "ns_per_transfer": 32.37
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012843,
+          "ns_per_transfer": 32.11
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012668,
+          "ns_per_transfer": 31.67
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.013197,
+          "ns_per_transfer": 32.99
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 14,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.012748,
+          "ns_per_transfer": 31.87
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "0-2/park",
+      "kind": "cross-core",
+      "cpu_a": 0,
+      "cpu_b": 2,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1210.5328571428574,
+        "ci_lower": 1153.8700000000001,
+        "ci_upper": 1250.31
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 2,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.473877,
+          "ns_per_transfer": 1184.69
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 2,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.434859,
+          "ns_per_transfer": 1087.15
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 2,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.494421,
+          "ns_per_transfer": 1236.05
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 2,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.517283,
+          "ns_per_transfer": 1293.21
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 2,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.465989,
+          "ns_per_transfer": 1164.97
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 2,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.490359,
+          "ns_per_transfer": 1225.9
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 2,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.512702,
+          "ns_per_transfer": 1281.76
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "0-4/park",
+      "kind": "cross-core",
+      "cpu_a": 0,
+      "cpu_b": 4,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1233.4857142857143,
+        "ci_lower": 1213.3771428571429,
+        "ci_upper": 1253.0457142857142
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 4,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.478376,
+          "ns_per_transfer": 1195.94
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 4,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.508438,
+          "ns_per_transfer": 1271.09
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 4,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.499008,
+          "ns_per_transfer": 1247.52
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 4,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.480637,
+          "ns_per_transfer": 1201.59
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 4,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.498269,
+          "ns_per_transfer": 1245.67
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 4,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.484431,
+          "ns_per_transfer": 1211.08
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 4,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.504604,
+          "ns_per_transfer": 1261.51
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "0-6/park",
+      "kind": "cross-core",
+      "cpu_a": 0,
+      "cpu_b": 6,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1199.1585714285716,
+        "ci_lower": 1166.4885714285715,
+        "ci_upper": 1231.7914285714287
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.509433,
+          "ns_per_transfer": 1273.58
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.476869,
+          "ns_per_transfer": 1192.17
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.447222,
+          "ns_per_transfer": 1118.05
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.469221,
+          "ns_per_transfer": 1173.05
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.474341,
+          "ns_per_transfer": 1185.85
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.485715,
+          "ns_per_transfer": 1214.29
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.494847,
+          "ns_per_transfer": 1237.12
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "0-8/park",
+      "kind": "cross-core",
+      "cpu_a": 0,
+      "cpu_b": 8,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1199.8228571428572,
+        "ci_lower": 1171.8985714285714,
+        "ci_upper": 1227.0114285714285
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.470014,
+          "ns_per_transfer": 1175.04
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.452596,
+          "ns_per_transfer": 1131.49
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.509063,
+          "ns_per_transfer": 1272.66
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.479093,
+          "ns_per_transfer": 1197.73
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.480241,
+          "ns_per_transfer": 1200.6
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.485016,
+          "ns_per_transfer": 1212.54
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.483479,
+          "ns_per_transfer": 1208.7
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "0-10/park",
+      "kind": "cross-core",
+      "cpu_a": 0,
+      "cpu_b": 10,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1181.6971428571428,
+        "ci_lower": 1125.7485714285715,
+        "ci_upper": 1218.784285714286
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.423895,
+          "ns_per_transfer": 1059.74
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.446599,
+          "ns_per_transfer": 1116.5
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.502291,
+          "ns_per_transfer": 1255.73
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.479373,
+          "ns_per_transfer": 1198.43
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.489284,
+          "ns_per_transfer": 1223.21
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.482254,
+          "ns_per_transfer": 1205.63
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.485056,
+          "ns_per_transfer": 1212.64
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "0-12/park",
+      "kind": "cross-core",
+      "cpu_a": 0,
+      "cpu_b": 12,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1233.2414285714283,
+        "ci_lower": 1218.3628571428574,
+        "ci_upper": 1249.7957142857142
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.494319,
+          "ns_per_transfer": 1235.8
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.503386,
+          "ns_per_transfer": 1258.47
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.488485,
+          "ns_per_transfer": 1221.21
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.485161,
+          "ns_per_transfer": 1212.9
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.481041,
+          "ns_per_transfer": 1202.6
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.494497,
+          "ns_per_transfer": 1236.24
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.506186,
+          "ns_per_transfer": 1265.47
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "0-14/park",
+      "kind": "cross-core",
+      "cpu_a": 0,
+      "cpu_b": 14,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1202.2142857142858,
+        "ci_lower": 1175.1914285714283,
+        "ci_upper": 1218.831428571429
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.45839,
+          "ns_per_transfer": 1145.98
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.48598,
+          "ns_per_transfer": 1214.95
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.486306,
+          "ns_per_transfer": 1215.77
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.480061,
+          "ns_per_transfer": 1200.15
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.49479,
+          "ns_per_transfer": 1236.98
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.489639,
+          "ns_per_transfer": 1224.1
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.471029,
+          "ns_per_transfer": 1177.57
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "2-4/park",
+      "kind": "cross-core",
+      "cpu_a": 2,
+      "cpu_b": 4,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1260.0142857142857,
+        "ci_lower": 1236.3942857142858,
+        "ci_upper": 1281.6542857142856
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 4,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.516885,
+          "ns_per_transfer": 1292.21
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 4,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.519674,
+          "ns_per_transfer": 1299.19
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 4,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.513329,
+          "ns_per_transfer": 1283.32
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 4,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.498792,
+          "ns_per_transfer": 1246.98
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 4,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.482511,
+          "ns_per_transfer": 1206.28
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 4,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.495203,
+          "ns_per_transfer": 1238.01
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 4,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.501644,
+          "ns_per_transfer": 1254.11
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "2-6/park",
+      "kind": "cross-core",
+      "cpu_a": 2,
+      "cpu_b": 6,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1228.6571428571428,
+        "ci_lower": 1215.4699999999998,
+        "ci_upper": 1236.782857142857
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.497612,
+          "ns_per_transfer": 1244.03
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.494966,
+          "ns_per_transfer": 1237.41
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.49123,
+          "ns_per_transfer": 1228.07
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.49223,
+          "ns_per_transfer": 1230.57
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.479773,
+          "ns_per_transfer": 1199.43
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.488316,
+          "ns_per_transfer": 1220.79
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.496119,
+          "ns_per_transfer": 1240.3
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "2-8/park",
+      "kind": "cross-core",
+      "cpu_a": 2,
+      "cpu_b": 8,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1186.2742857142857,
+        "ci_lower": 1135.8814285714284,
+        "ci_upper": 1226.3999999999999
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.43698,
+          "ns_per_transfer": 1092.45
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.481563,
+          "ns_per_transfer": 1203.91
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.443158,
+          "ns_per_transfer": 1107.9
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.50358,
+          "ns_per_transfer": 1258.95
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.50482,
+          "ns_per_transfer": 1262.05
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.470381,
+          "ns_per_transfer": 1175.95
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.481086,
+          "ns_per_transfer": 1202.71
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "2-10/park",
+      "kind": "cross-core",
+      "cpu_a": 2,
+      "cpu_b": 10,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1203.2614285714285,
+        "ci_lower": 1179.8642857142859,
+        "ci_upper": 1215.8442857142857
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.463282,
+          "ns_per_transfer": 1158.2
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.4882,
+          "ns_per_transfer": 1220.5
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.488959,
+          "ns_per_transfer": 1222.4
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.48241,
+          "ns_per_transfer": 1206.02
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.487792,
+          "ns_per_transfer": 1219.48
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.485636,
+          "ns_per_transfer": 1214.09
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.472856,
+          "ns_per_transfer": 1182.14
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "2-12/park",
+      "kind": "cross-core",
+      "cpu_a": 2,
+      "cpu_b": 12,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1222.8842857142859,
+        "ci_lower": 1193.1514285714286,
+        "ci_upper": 1243.702857142857
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.46314,
+          "ns_per_transfer": 1157.85
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.501875,
+          "ns_per_transfer": 1254.69
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.487654,
+          "ns_per_transfer": 1219.13
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.487375,
+          "ns_per_transfer": 1218.44
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.50738,
+          "ns_per_transfer": 1268.45
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.4926,
+          "ns_per_transfer": 1231.5
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.484051,
+          "ns_per_transfer": 1210.13
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "2-14/park",
+      "kind": "cross-core",
+      "cpu_a": 2,
+      "cpu_b": 14,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1233.5257142857142,
+        "ci_lower": 1210.9714285714285,
+        "ci_upper": 1250.23
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.491496,
+          "ns_per_transfer": 1228.74
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.485198,
+          "ns_per_transfer": 1212.99
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.500261,
+          "ns_per_transfer": 1250.65
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.508901,
+          "ns_per_transfer": 1272.25
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.474911,
+          "ns_per_transfer": 1187.28
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.499796,
+          "ns_per_transfer": 1249.49
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.49331,
+          "ns_per_transfer": 1233.28
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "4-6/park",
+      "kind": "cross-core",
+      "cpu_a": 4,
+      "cpu_b": 6,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1193.91,
+        "ci_lower": 1086.5314285714285,
+        "ci_upper": 1232.2271428571428
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.491155,
+          "ns_per_transfer": 1227.89
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.48818,
+          "ns_per_transfer": 1220.45
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.48866,
+          "ns_per_transfer": 1221.65
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.395693,
+          "ns_per_transfer": 989.23
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.497861,
+          "ns_per_transfer": 1244.65
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.4992,
+          "ns_per_transfer": 1248.0
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 6,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.482201,
+          "ns_per_transfer": 1205.5
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "4-8/park",
+      "kind": "cross-core",
+      "cpu_a": 4,
+      "cpu_b": 8,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1212.045714285714,
+        "ci_lower": 1201.7728571428572,
+        "ci_upper": 1222.4157142857143
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.493704,
+          "ns_per_transfer": 1234.26
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.483304,
+          "ns_per_transfer": 1208.26
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.480535,
+          "ns_per_transfer": 1201.34
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.48864,
+          "ns_per_transfer": 1221.6
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.479445,
+          "ns_per_transfer": 1198.61
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.491181,
+          "ns_per_transfer": 1227.95
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.476919,
+          "ns_per_transfer": 1192.3
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "4-10/park",
+      "kind": "cross-core",
+      "cpu_a": 4,
+      "cpu_b": 10,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1182.0385714285715,
+        "ci_lower": 1152.5828571428572,
+        "ci_upper": 1205.9714285714285
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.472193,
+          "ns_per_transfer": 1180.48
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.476408,
+          "ns_per_transfer": 1191.02
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.448106,
+          "ns_per_transfer": 1120.26
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.476738,
+          "ns_per_transfer": 1191.85
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.483349,
+          "ns_per_transfer": 1208.37
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.495004,
+          "ns_per_transfer": 1237.51
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.457911,
+          "ns_per_transfer": 1144.78
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "4-12/park",
+      "kind": "cross-core",
+      "cpu_a": 4,
+      "cpu_b": 12,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1215.8228571428572,
+        "ci_lower": 1201.3799999999999,
+        "ci_upper": 1240.3785714285714
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.503597,
+          "ns_per_transfer": 1258.99
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.480396,
+          "ns_per_transfer": 1200.99
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.48017,
+          "ns_per_transfer": 1200.43
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.481242,
+          "ns_per_transfer": 1203.1
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.480646,
+          "ns_per_transfer": 1201.61
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.48015,
+          "ns_per_transfer": 1200.37
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.498109,
+          "ns_per_transfer": 1245.27
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "4-14/park",
+      "kind": "cross-core",
+      "cpu_a": 4,
+      "cpu_b": 14,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1223.662857142857,
+        "ci_lower": 1202.6128571428574,
+        "ci_upper": 1237.7700000000002
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.469178,
+          "ns_per_transfer": 1172.94
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.493853,
+          "ns_per_transfer": 1234.63
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.494772,
+          "ns_per_transfer": 1236.93
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.486165,
+          "ns_per_transfer": 1215.41
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.490479,
+          "ns_per_transfer": 1226.2
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.48837,
+          "ns_per_transfer": 1220.93
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.503441,
+          "ns_per_transfer": 1258.6
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "6-8/park",
+      "kind": "cross-core",
+      "cpu_a": 6,
+      "cpu_b": 8,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1190.2,
+        "ci_lower": 1160.3785714285711,
+        "ci_upper": 1221.8014285714287
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.45085,
+          "ns_per_transfer": 1127.12
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.457012,
+          "ns_per_transfer": 1142.53
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.496681,
+          "ns_per_transfer": 1241.7
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.48318,
+          "ns_per_transfer": 1207.95
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.467079,
+          "ns_per_transfer": 1167.7
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.478097,
+          "ns_per_transfer": 1195.24
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 8,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.499664,
+          "ns_per_transfer": 1249.16
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "6-10/park",
+      "kind": "cross-core",
+      "cpu_a": 6,
+      "cpu_b": 10,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1180.6357142857144,
+        "ci_lower": 1148.5228571428572,
+        "ci_upper": 1199.8914285714286
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.443056,
+          "ns_per_transfer": 1107.64
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.475209,
+          "ns_per_transfer": 1188.02
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.471702,
+          "ns_per_transfer": 1179.26
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.475416,
+          "ns_per_transfer": 1188.54
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.467933,
+          "ns_per_transfer": 1169.83
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.482768,
+          "ns_per_transfer": 1206.92
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.489697,
+          "ns_per_transfer": 1224.24
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "6-12/park",
+      "kind": "cross-core",
+      "cpu_a": 6,
+      "cpu_b": 12,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1197.1499999999999,
+        "ci_lower": 1192.75,
+        "ci_upper": 1202.064285714286
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.478834,
+          "ns_per_transfer": 1197.09
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.475917,
+          "ns_per_transfer": 1189.79
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.480382,
+          "ns_per_transfer": 1200.95
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.482806,
+          "ns_per_transfer": 1207.01
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.481059,
+          "ns_per_transfer": 1202.65
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.476637,
+          "ns_per_transfer": 1191.59
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.47639,
+          "ns_per_transfer": 1190.97
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "6-14/park",
+      "kind": "cross-core",
+      "cpu_a": 6,
+      "cpu_b": 14,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1192.9942857142855,
+        "ci_lower": 1170.6299999999999,
+        "ci_upper": 1215.0585714285714
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.45622,
+          "ns_per_transfer": 1140.55
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.499395,
+          "ns_per_transfer": 1248.49
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.480793,
+          "ns_per_transfer": 1201.98
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.481566,
+          "ns_per_transfer": 1203.92
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.46661,
+          "ns_per_transfer": 1166.53
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.480906,
+          "ns_per_transfer": 1202.27
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.47489,
+          "ns_per_transfer": 1187.22
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "8-10/park",
+      "kind": "cross-core",
+      "cpu_a": 8,
+      "cpu_b": 10,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1116.762857142857,
+        "ci_lower": 1007.132857142857,
+        "ci_upper": 1180.2371428571428
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.477106,
+          "ns_per_transfer": 1192.76
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.483289,
+          "ns_per_transfer": 1208.22
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.483525,
+          "ns_per_transfer": 1208.81
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.470866,
+          "ns_per_transfer": 1177.16
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.353612,
+          "ns_per_transfer": 884.03
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.450297,
+          "ns_per_transfer": 1125.74
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 10,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.408248,
+          "ns_per_transfer": 1020.62
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "8-12/park",
+      "kind": "cross-core",
+      "cpu_a": 8,
+      "cpu_b": 12,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1186.4314285714286,
+        "ci_lower": 1146.435714285714,
+        "ci_upper": 1222.73
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.507514,
+          "ns_per_transfer": 1268.79
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.474272,
+          "ns_per_transfer": 1185.68
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.488167,
+          "ns_per_transfer": 1220.42
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.435467,
+          "ns_per_transfer": 1088.67
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.467297,
+          "ns_per_transfer": 1168.24
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.464777,
+          "ns_per_transfer": 1161.94
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.484511,
+          "ns_per_transfer": 1211.28
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "8-14/park",
+      "kind": "cross-core",
+      "cpu_a": 8,
+      "cpu_b": 14,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1189.607142857143,
+        "ci_lower": 1166.0900000000001,
+        "ci_upper": 1206.2714285714285
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.472304,
+          "ns_per_transfer": 1180.76
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.469984,
+          "ns_per_transfer": 1174.96
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.4888,
+          "ns_per_transfer": 1222.0
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.474186,
+          "ns_per_transfer": 1185.46
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.486962,
+          "ns_per_transfer": 1217.4
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.454957,
+          "ns_per_transfer": 1137.39
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.483711,
+          "ns_per_transfer": 1209.28
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "10-12/park",
+      "kind": "cross-core",
+      "cpu_a": 10,
+      "cpu_b": 12,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1212.1528571428573,
+        "ci_lower": 1196.507142857143,
+        "ci_upper": 1223.1742857142858
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.486533,
+          "ns_per_transfer": 1216.33
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.486155,
+          "ns_per_transfer": 1215.39
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.49319,
+          "ns_per_transfer": 1232.97
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.488352,
+          "ns_per_transfer": 1220.88
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.490951,
+          "ns_per_transfer": 1227.38
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.475039,
+          "ns_per_transfer": 1187.6
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 12,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.473809,
+          "ns_per_transfer": 1184.52
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "10-14/park",
+      "kind": "cross-core",
+      "cpu_a": 10,
+      "cpu_b": 14,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1204.4814285714285,
+        "ci_lower": 1197.7857142857142,
+        "ci_upper": 1211.7485714285715
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.483905,
+          "ns_per_transfer": 1209.76
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.480041,
+          "ns_per_transfer": 1200.1
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.476683,
+          "ns_per_transfer": 1191.71
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.478225,
+          "ns_per_transfer": 1195.56
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.480199,
+          "ns_per_transfer": 1200.5
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.487188,
+          "ns_per_transfer": 1217.97
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.48631,
+          "ns_per_transfer": 1215.77
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "12-14/park",
+      "kind": "cross-core",
+      "cpu_a": 12,
+      "cpu_b": 14,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1157.0428571428572,
+        "ci_lower": 1099.7914285714285,
+        "ci_upper": 1193.3771428571429
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.413143,
+          "ns_per_transfer": 1032.86
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.480825,
+          "ns_per_transfer": 1202.06
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.43917,
+          "ns_per_transfer": 1097.92
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.4834,
+          "ns_per_transfer": 1208.5
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.464438,
+          "ns_per_transfer": 1161.1
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.473222,
+          "ns_per_transfer": 1183.06
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 14,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.485522,
+          "ns_per_transfer": 1213.8
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "0-1/spin",
+      "kind": "smt-sibling",
+      "cpu_a": 0,
+      "cpu_b": 1,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 20.24857142857143,
+        "ci_lower": 19.97142857142857,
+        "ci_upper": 20.948571428571427
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 1,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007929,
+          "ns_per_transfer": 19.82
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 1,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008652,
+          "ns_per_transfer": 21.63
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 1,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007967,
+          "ns_per_transfer": 19.92
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 1,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007969,
+          "ns_per_transfer": 19.92
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 1,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008019,
+          "ns_per_transfer": 20.05
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 1,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.0081,
+          "ns_per_transfer": 20.25
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 1,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008059,
+          "ns_per_transfer": 20.15
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "2-3/spin",
+      "kind": "smt-sibling",
+      "cpu_a": 2,
+      "cpu_b": 3,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 20.127142857142854,
+        "ci_lower": 19.98428571428571,
+        "ci_upper": 20.224285714285713
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 3,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007971,
+          "ns_per_transfer": 19.93
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 3,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007947,
+          "ns_per_transfer": 19.87
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 3,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008041,
+          "ns_per_transfer": 20.1
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 3,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008082,
+          "ns_per_transfer": 20.2
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 3,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008102,
+          "ns_per_transfer": 20.25
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 3,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008126,
+          "ns_per_transfer": 20.32
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 3,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008088,
+          "ns_per_transfer": 20.22
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "4-5/spin",
+      "kind": "smt-sibling",
+      "cpu_a": 4,
+      "cpu_b": 5,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 19.797142857142855,
+        "ci_lower": 19.647142857142857,
+        "ci_upper": 19.905714285714286
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 5,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007952,
+          "ns_per_transfer": 19.88
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 5,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007987,
+          "ns_per_transfer": 19.97
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 5,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007935,
+          "ns_per_transfer": 19.84
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 5,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007907,
+          "ns_per_transfer": 19.77
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 5,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007792,
+          "ns_per_transfer": 19.48
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 5,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007854,
+          "ns_per_transfer": 19.63
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 5,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008003,
+          "ns_per_transfer": 20.01
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "6-7/spin",
+      "kind": "smt-sibling",
+      "cpu_a": 6,
+      "cpu_b": 7,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 19.961428571428574,
+        "ci_lower": 19.78,
+        "ci_upper": 20.467142857142854
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 7,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007969,
+          "ns_per_transfer": 19.92
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 7,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008377,
+          "ns_per_transfer": 20.94
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 7,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007907,
+          "ns_per_transfer": 19.77
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 7,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007881,
+          "ns_per_transfer": 19.7
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 7,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007934,
+          "ns_per_transfer": 19.84
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 7,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007926,
+          "ns_per_transfer": 19.81
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 7,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007902,
+          "ns_per_transfer": 19.75
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "8-9/spin",
+      "kind": "smt-sibling",
+      "cpu_a": 8,
+      "cpu_b": 9,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 20.101428571428574,
+        "ci_lower": 19.891428571428573,
+        "ci_upper": 20.63714285714286
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 9,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007934,
+          "ns_per_transfer": 19.83
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 9,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008442,
+          "ns_per_transfer": 21.1
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 9,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007913,
+          "ns_per_transfer": 19.78
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 9,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.00795,
+          "ns_per_transfer": 19.87
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 9,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008102,
+          "ns_per_transfer": 20.25
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 9,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007992,
+          "ns_per_transfer": 19.98
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 9,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007961,
+          "ns_per_transfer": 19.9
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "10-11/spin",
+      "kind": "smt-sibling",
+      "cpu_a": 10,
+      "cpu_b": 11,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 19.827142857142857,
+        "ci_lower": 19.68857142857143,
+        "ci_upper": 19.880000000000003
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 11,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007956,
+          "ns_per_transfer": 19.89
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 11,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.00783,
+          "ns_per_transfer": 19.57
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 11,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007947,
+          "ns_per_transfer": 19.87
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 11,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007954,
+          "ns_per_transfer": 19.88
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 11,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007933,
+          "ns_per_transfer": 19.83
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 11,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007973,
+          "ns_per_transfer": 19.93
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 11,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007926,
+          "ns_per_transfer": 19.82
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "12-13/spin",
+      "kind": "smt-sibling",
+      "cpu_a": 12,
+      "cpu_b": 13,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 20.13,
+        "ci_lower": 19.919999999999998,
+        "ci_upper": 20.481428571428573
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 13,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007933,
+          "ns_per_transfer": 19.83
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 13,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008354,
+          "ns_per_transfer": 20.88
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 13,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007932,
+          "ns_per_transfer": 19.83
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 13,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.007904,
+          "ns_per_transfer": 19.76
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 13,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008102,
+          "ns_per_transfer": 20.25
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 13,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008079,
+          "ns_per_transfer": 20.2
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 13,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008066,
+          "ns_per_transfer": 20.16
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "14-15/spin",
+      "kind": "smt-sibling",
+      "cpu_a": 14,
+      "cpu_b": 15,
+      "mode": "spin",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 20.36428571428571,
+        "ci_lower": 20.207142857142856,
+        "ci_upper": 20.805714285714288
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 14,
+          "cpu_b": 15,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008065,
+          "ns_per_transfer": 20.16
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 14,
+          "cpu_b": 15,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008492,
+          "ns_per_transfer": 21.23
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 14,
+          "cpu_b": 15,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008083,
+          "ns_per_transfer": 20.21
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 14,
+          "cpu_b": 15,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008073,
+          "ns_per_transfer": 20.18
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 14,
+          "cpu_b": 15,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008108,
+          "ns_per_transfer": 20.27
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 14,
+          "cpu_b": 15,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008084,
+          "ns_per_transfer": 20.21
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 14,
+          "cpu_b": 15,
+          "mode": "spin",
+          "round_trips": 200000,
+          "elapsed_s": 0.008118,
+          "ns_per_transfer": 20.29
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "0-1/park",
+      "kind": "smt-sibling",
+      "cpu_a": 0,
+      "cpu_b": 1,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1479.8799999999999,
+        "ci_lower": 1458.1657142857143,
+        "ci_upper": 1501.0442857142857
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 1,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.608635,
+          "ns_per_transfer": 1521.59
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 1,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.590923,
+          "ns_per_transfer": 1477.31
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 1,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.578486,
+          "ns_per_transfer": 1446.21
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 1,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.586472,
+          "ns_per_transfer": 1466.18
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 1,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.604663,
+          "ns_per_transfer": 1511.66
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 1,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.575555,
+          "ns_per_transfer": 1438.89
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 0,
+          "cpu_b": 1,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.598929,
+          "ns_per_transfer": 1497.32
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "2-3/park",
+      "kind": "smt-sibling",
+      "cpu_a": 2,
+      "cpu_b": 3,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1469.1028571428571,
+        "ci_lower": 1435.8614285714284,
+        "ci_upper": 1511.3414285714287
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 3,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.569186,
+          "ns_per_transfer": 1422.97
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 3,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.5709,
+          "ns_per_transfer": 1427.25
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 3,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.615604,
+          "ns_per_transfer": 1539.01
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 3,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.618588,
+          "ns_per_transfer": 1546.47
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 3,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.597905,
+          "ns_per_transfer": 1494.76
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 3,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.570215,
+          "ns_per_transfer": 1425.54
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 2,
+          "cpu_b": 3,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.571087,
+          "ns_per_transfer": 1427.72
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "4-5/park",
+      "kind": "smt-sibling",
+      "cpu_a": 4,
+      "cpu_b": 5,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1477.68,
+        "ci_lower": 1449.3828571428571,
+        "ci_upper": 1522.6699999999998
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 5,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.613851,
+          "ns_per_transfer": 1534.63
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 5,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.624526,
+          "ns_per_transfer": 1561.32
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 5,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.587576,
+          "ns_per_transfer": 1468.94
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 5,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.579939,
+          "ns_per_transfer": 1449.85
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 5,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.586536,
+          "ns_per_transfer": 1466.34
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 5,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.5735,
+          "ns_per_transfer": 1433.75
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 4,
+          "cpu_b": 5,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.571572,
+          "ns_per_transfer": 1428.93
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "6-7/park",
+      "kind": "smt-sibling",
+      "cpu_a": 6,
+      "cpu_b": 7,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1497.034285714286,
+        "ci_lower": 1446.9414285714286,
+        "ci_upper": 1586.0271428571427
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 7,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.67552,
+          "ns_per_transfer": 1688.8
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 7,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.62571,
+          "ns_per_transfer": 1564.28
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 7,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.584177,
+          "ns_per_transfer": 1460.44
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 7,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.592447,
+          "ns_per_transfer": 1481.12
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 7,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.570995,
+          "ns_per_transfer": 1427.49
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 7,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.572398,
+          "ns_per_transfer": 1431.0
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 6,
+          "cpu_b": 7,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.570446,
+          "ns_per_transfer": 1426.11
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "8-9/park",
+      "kind": "smt-sibling",
+      "cpu_a": 8,
+      "cpu_b": 9,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1545.4400000000003,
+        "ci_lower": 1496.7728571428572,
+        "ci_upper": 1605.047142857143
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 9,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.618693,
+          "ns_per_transfer": 1546.73
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 9,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.616295,
+          "ns_per_transfer": 1540.74
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 9,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.602658,
+          "ns_per_transfer": 1506.64
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 9,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.570982,
+          "ns_per_transfer": 1427.46
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 9,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.630191,
+          "ns_per_transfer": 1575.48
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 9,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.672039,
+          "ns_per_transfer": 1680.1
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 8,
+          "cpu_b": 9,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.616371,
+          "ns_per_transfer": 1540.93
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "10-11/park",
+      "kind": "smt-sibling",
+      "cpu_a": 10,
+      "cpu_b": 11,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1442.1185714285714,
+        "ci_lower": 1422.48,
+        "ci_upper": 1472.957142857143
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 11,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.600002,
+          "ns_per_transfer": 1500.0
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 11,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.569783,
+          "ns_per_transfer": 1424.46
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 11,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.567146,
+          "ns_per_transfer": 1417.86
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 11,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.593677,
+          "ns_per_transfer": 1484.19
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 11,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.572378,
+          "ns_per_transfer": 1430.94
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 11,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.566594,
+          "ns_per_transfer": 1416.49
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 10,
+          "cpu_b": 11,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.568354,
+          "ns_per_transfer": 1420.89
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "12-13/park",
+      "kind": "smt-sibling",
+      "cpu_a": 12,
+      "cpu_b": 13,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1454.6142857142859,
+        "ci_lower": 1436.5242857142857,
+        "ci_upper": 1477.892857142857
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 13,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.603132,
+          "ns_per_transfer": 1507.83
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 13,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.589656,
+          "ns_per_transfer": 1474.14
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 13,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.580296,
+          "ns_per_transfer": 1450.74
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 13,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.570531,
+          "ns_per_transfer": 1426.33
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 13,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.570552,
+          "ns_per_transfer": 1426.38
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 13,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.587686,
+          "ns_per_transfer": 1469.21
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 12,
+          "cpu_b": 13,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.571069,
+          "ns_per_transfer": 1427.67
+        }
+      ]
+    },
+    {
+      "workload_id": "line_transfer_pair",
+      "label": "14-15/park",
+      "kind": "smt-sibling",
+      "cpu_a": 14,
+      "cpu_b": 15,
+      "mode": "park",
+      "repeats": 7,
+      "ns_per_transfer": {
+        "mean": 1471.0428571428572,
+        "ci_lower": 1448.1214285714284,
+        "ci_upper": 1496.2528571428572
+      },
+      "rounds_raw": [
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 14,
+          "cpu_b": 15,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.60641,
+          "ns_per_transfer": 1516.02
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 14,
+          "cpu_b": 15,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.580294,
+          "ns_per_transfer": 1450.73
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 14,
+          "cpu_b": 15,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.601408,
+          "ns_per_transfer": 1503.52
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 14,
+          "cpu_b": 15,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.579994,
+          "ns_per_transfer": 1449.98
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 14,
+          "cpu_b": 15,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.60262,
+          "ns_per_transfer": 1506.55
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 14,
+          "cpu_b": 15,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.572424,
+          "ns_per_transfer": 1431.06
+        },
+        {
+          "workload_id": "line_transfer_pair",
+          "cpu_a": 14,
+          "cpu_b": 15,
+          "mode": "park",
+          "round_trips": 200000,
+          "elapsed_s": 0.575777,
+          "ns_per_transfer": 1439.44
+        }
+      ]
+    }
+  ]
+}

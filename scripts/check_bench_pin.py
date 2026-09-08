@@ -56,6 +56,8 @@ DIRECT_HARNESSES = {
         "comparison carried the same exposure",
     "scripts/bench_counters.py":
         "runs benchmark cells under perf on the reference host",
+    "docs/benchmarks/concurrency/scripts/ablations.py":
+        "runs the #789 ablation builds on the concurrent cells (#568 Step 0)",
 }
 
 # Directly-invoked scripts that time things but must NOT be pinned here, with
@@ -64,6 +66,8 @@ DIRECT_HARNESSES = {
 DIRECT_EXEMPT = {
     "scripts/pin_exposure.py": "measures pinned against unpinned; it sets affinity per arm itself",
     "scripts/warmup_ramp.py": "sets its own affinity per phase; the ramp is the measurement",
+    "scripts/line_transfer_matrix.py": "pins each core pair itself; a suite-wide pin behind its back "
+                                       "would be its own subject (#568)",
 }
 
 # Runners that must source the pin. `docs/benchmarks/*/run.sh` is discovered

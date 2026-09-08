@@ -46,6 +46,7 @@ use expanse_trie::bytesmap::ExpanseBytesMap;
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
 use expanse_trie::strmap::ExpanseStrMap;
+use expanse_trie::sync::{SyncExpanseMap, SyncExpanseSet};
 use expanse_trie::{ExpanseBlobMap32, ExpanseMap32, ExpanseSet32, Key32, Value32};
 #[cfg(target_os = "linux")]
 use iai_callgrind::main;
@@ -786,6 +787,127 @@ fn bytesmap_churn(built: (ExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -> u64 {
     black_box(sink)
 }
 
+// ---- Concurrent wrappers, one thread (#568) -----------------------------
+//
+// The same operations through `SyncExpanseMap` / `SyncExpanseSet` on a
+// single thread: the uncontended writer mutex, the tree-level bracket,
+// every per-node version bracket, deferred reclamation and the epoch
+// advance every 32 writes — the `OCC=true` monomorph of the engine, which
+// no other arm reaches (`version_begin_if::<false>` compiles the brackets
+// out of the plain arms). One thread means no lock is ever contended and
+// the advance interval is a constant, so the count is exact. A change to
+// the bracket scope (#568) is measured here; the plain arms above are its
+// control for the single-threaded engine. `sync_map_get` is the
+// optimistic reader (pin, sample, hand-over-hand walk) with no writer.
+
+fn shuffled(ks: Vec<u64>) -> Vec<u64> {
+    let mut probes = ks;
+    let mut rng = XorShift(0x9E37_79B9);
+    for i in (1..probes.len()).rev() {
+        probes.swap(i, (rng.next() % (i as u64 + 1)) as usize);
+    }
+    probes
+}
+
+fn built_sync_map(dist: &str) -> (SyncExpanseMap, Vec<u64>) {
+    let ks = keys(dist);
+    let map = SyncExpanseMap::new();
+    for &k in &ks {
+        map.insert(k, !k);
+    }
+    (map, shuffled(ks))
+}
+
+fn built_sync_set(dist: &str) -> (SyncExpanseSet, Vec<u64>) {
+    let ks = keys(dist);
+    let set = SyncExpanseSet::new();
+    for &k in &ks {
+        set.insert(k);
+    }
+    (set, shuffled(ks))
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = keys)]
+fn sync_map_insert(ks: Vec<u64>) -> u64 {
+    let map = SyncExpanseMap::new();
+    for &k in &ks {
+        map.insert(black_box(k), black_box(!k));
+    }
+    let n = map.len();
+    // Leaked, as every insert arm is: teardown is a different path.
+    core::mem::forget(map);
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = keys)]
+fn sync_set_insert(ks: Vec<u64>) -> u64 {
+    let set = SyncExpanseSet::new();
+    for &k in &ks {
+        set.insert(black_box(k));
+    }
+    let n = set.len();
+    core::mem::forget(set);
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_map)]
+fn sync_map_get(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let rd = map.reader();
+    let mut sink = 0u64;
+    for &k in &probes {
+        sink ^= rd.get(black_box(k)).unwrap_or(0);
+    }
+    // Both leaked: the reader's deregistration and the map's teardown are
+    // other paths (see `map_get`).
+    core::mem::forget(rd);
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_set)]
+fn sync_set_contains(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
+    let (set, probes) = built;
+    let rd = set.reader();
+    let mut hits = 0u64;
+    for &k in &probes {
+        hits += u64::from(rd.contains(black_box(k)));
+    }
+    core::mem::forget(rd);
+    core::mem::forget(set);
+    black_box(hits)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_map)]
+fn sync_map_churn(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for &k in &probes {
+        sink ^= map.insert(black_box(k), black_box(!k)).unwrap_or(0);
+        map.insert(black_box(k ^ 1), k);
+        sink ^= u64::from(map.remove(black_box(k ^ 1)).is_some());
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_map)]
+fn sync_map_remove(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let mut removed = 0u64;
+    for &k in &probes {
+        removed += u64::from(map.remove(black_box(k)).is_some());
+    }
+    core::mem::forget(map);
+    black_box(removed)
+}
+
 /// Callgrind simulator settings for this harness.
 ///
 /// **`--cache-sim=yes` is stated here, not inherited.** iai-callgrind's runner
@@ -863,7 +985,13 @@ library_benchmark_group!(
         strmap_churn,
         bytesmap_insert,
         bytesmap_get,
-        bytesmap_churn
+        bytesmap_churn,
+        sync_map_insert,
+        sync_set_insert,
+        sync_map_get,
+        sync_set_contains,
+        sync_map_churn,
+        sync_map_remove
 );
 
 library_benchmark_group!(

@@ -629,8 +629,10 @@ impl<T> Shared<T> {
             }
         }
         self.version.begin();
+        crate::occ_stats::op_begin();
         // SAFETY: the writer mutex makes this the only mutable borrow.
         let r = f(unsafe { &mut *self.inner.get() });
+        crate::occ_stats::op_end();
         self.version.end();
         #[cfg(not(feature = "advance-never"))]
         {
