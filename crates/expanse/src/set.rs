@@ -79,13 +79,12 @@ unsafe impl Send for ExpanseSet {}
 /// are built for). Decided once per operation, exactly where the runtime
 /// dispatch always sat, so the unshared path pays one load and one branch.
 macro_rules! by_mode {
-    ($alloc:expr, $call:ident $args:tt) => {
+    ($alloc:expr, $call:ident, $shared:ident $args:tt) => {
         if $alloc.occ_enabled() {
-            if $alloc.engine_covers_root() {
-                $call::<true, false> $args
-            } else {
-                $call::<true, true> $args
-            }
+            // The two shared arms live out of line (`$shared`): inlined
+            // here they doubled the owner's body and cost the unshared
+            // arms 0.4–1.4% (#568 PR 3, measured on Callgrind).
+            $shared $args
         } else {
             $call::<false, false> $args
         }
@@ -116,6 +115,22 @@ fn tree_insert<const OCC: bool, const NESTED: bool>(
     inserted
 }
 
+/// The shared arms of [`tree_insert`], out of line (see `by_mode`).
+#[inline(never)]
+fn tree_insert_shared(
+    alloc: &NodeAlloc,
+    tree_pop: &mut core::sync::atomic::AtomicU64,
+    path: &mut crate::mutate::InsertPath,
+    top: &mut Edge,
+    key: Key,
+) -> bool {
+    if alloc.engine_covers_root() {
+        tree_insert::<true, false>(alloc, tree_pop, path, top, key)
+    } else {
+        tree_insert::<true, true>(alloc, tree_pop, path, top, key)
+    }
+}
+
 /// The tree arm of remove, per sharing mode: `(removed, population after)`,
 /// `u64::MAX` when nothing was removed.
 #[inline(always)]
@@ -138,6 +153,21 @@ fn tree_remove<const OCC: bool, const NESTED: bool>(
         *p
     };
     (removed, now)
+}
+
+/// The shared arms of [`tree_remove`], out of line (see `by_mode`).
+#[inline(never)]
+fn tree_remove_shared(
+    alloc: &NodeAlloc,
+    tree_pop: &mut core::sync::atomic::AtomicU64,
+    top: &mut Edge,
+    key: Key,
+) -> (bool, u64) {
+    if alloc.engine_covers_root() {
+        tree_remove::<true, false>(alloc, tree_pop, top, key)
+    } else {
+        tree_remove::<true, true>(alloc, tree_pop, top, key)
+    }
 }
 
 /// The root-leaf promotion, per sharing mode: builds the level-8 trie for
@@ -170,6 +200,21 @@ fn promote_leaf<const OCC: bool, const NESTED: bool>(
         unsafe { mutate::insert_with_path::<OCC, NESTED>(alloc, &mut top, key, 8, path, cover) };
     debug_assert!(ins);
     top
+}
+
+/// The shared arms of [`promote_leaf`], out of line (see `by_mode`).
+#[inline(never)]
+fn promote_leaf_shared(
+    alloc: &NodeAlloc,
+    slice: &[u64],
+    key: Key,
+    path: &mut crate::mutate::InsertPath,
+) -> Edge {
+    if alloc.engine_covers_root() {
+        promote_leaf::<true, false>(alloc, slice, key, path)
+    } else {
+        promote_leaf::<true, true>(alloc, slice, key, path)
+    }
 }
 
 impl ExpanseSet {
@@ -477,7 +522,8 @@ impl ExpanseSet {
                     // build marks that node obsolete, which needs it even).
                     let top = by_mode!(
                         self.alloc,
-                        promote_leaf(&self.alloc, slice, key, self.path.get_mut())
+                        promote_leaf,
+                        promote_leaf_shared(&self.alloc, slice, key, self.path.get_mut())
                     );
                     // SAFETY: old root leaf no longer referenced.
                     unsafe { self.alloc.free_bytes(keys, root_leaf_size(pop)) };
@@ -557,7 +603,8 @@ impl ExpanseSet {
                 // node that holds it and bumps the population atomically.
                 by_mode!(
                     self.alloc,
-                    tree_insert(&self.alloc, &mut self.tree_pop, path, top, key)
+                    tree_insert,
+                    tree_insert_shared(&self.alloc, &mut self.tree_pop, path, top, key)
                 )
             }
         }
@@ -653,7 +700,8 @@ impl ExpanseSet {
                 // always sat (see `insert_inner`).
                 let (removed, now) = by_mode!(
                     self.alloc,
-                    tree_remove(&self.alloc, &mut self.tree_pop, top, key)
+                    tree_remove,
+                    tree_remove_shared(&self.alloc, &mut self.tree_pop, top, key)
                 );
                 if removed {
                     if now == 0 {
