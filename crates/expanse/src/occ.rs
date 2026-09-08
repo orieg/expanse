@@ -217,6 +217,63 @@ pub(crate) unsafe fn version_cell<'a>(_ptr: *const u32) -> &'a VersionCell {
     )
 }
 
+/// Version-word flag of a branch node that has been replaced or removed:
+/// odd, so it reads as "mutation in progress" forever, with the top bit
+/// set so an obsolete word is distinguishable from a live bracket in a
+/// debugger. Readers already treat any odd version as `Retry`.
+pub(crate) const OBSOLETE: u32 = 0x8000_0000;
+
+/// Writer: marks a node that is about to become unreachable — its parent's
+/// slot is being rewritten to point elsewhere and the node is about to be
+/// retired — as [`OBSOLETE`].
+///
+/// Why this exists: a rebuild copies the old header, version included, into
+/// the replacement and retires the old node, and EBR keeps the old node
+/// mapped for every pinned reader. A reader that validated the parent,
+/// loaded the edge to the old node and was descheduled resumes with a
+/// cover whose version nobody will ever bump again; a later mutation of a
+/// leaf both old and new node point at, bracketed by the *new* node, is
+/// then invisible to that reader's validation. Marking the old node odd
+/// before the slot changes and before retirement closes that window: the
+/// reader's next sample or validate of it fails and the walk restarts from
+/// the root (Leis et al., DaMoN 2016, `writeUnlockObsolete`).
+///
+/// Same construction as [`version_begin`]: the store, then a release
+/// fence, so a reader whose acquire-fenced re-read of this word returns the
+/// old even value cannot have observed any store the writer makes after
+/// the fence. Taking a `&VersionCell` is what lets
+/// `loom_obsolete_mark_covers_replaced_node` call it.
+///
+/// Must be called **outside** the node's own bracket: `version_end` on an
+/// obsolete word would make it even again.
+#[inline]
+pub(crate) fn version_obsolete(v: &VersionCell) {
+    let cur = v.load(Ordering::Relaxed);
+    debug_assert!(cur & OBSOLETE == 0, "node marked obsolete twice");
+    debug_assert!(
+        cur.is_multiple_of(2),
+        "node marked obsolete inside its own bracket"
+    );
+    v.store(OBSOLETE | cur | 1, Ordering::Relaxed);
+    fence(Ordering::Release);
+}
+
+/// Engine boundary for [`version_obsolete`]: compiled out on unshared trees
+/// (`OCC = false`) like every other bracket.
+///
+/// # Safety
+///
+/// `v` must point at the version field of a live branch node owned by the
+/// calling writer, with no live `&mut` or `&` to that field.
+#[inline]
+pub(crate) unsafe fn version_obsolete_if<const OCC: bool>(v: *mut u32) {
+    if OCC {
+        // SAFETY: forwarded contract; `version_cell` carries the liveness
+        // obligation.
+        version_obsolete(unsafe { version_cell(v) });
+    }
+}
+
 /// Writer: marks a node mutation in progress (even → odd, then a release
 /// fence so the odd version is visible before any covered write).
 #[inline]
@@ -825,6 +882,77 @@ mod loom_tests {
                         (k == 0xFD && v == 100) || (k == 0xF1 && v == 200),
                         "root-covered reader saw inconsistent leaf state: key {k:#x}, val {v}"
                     );
+                }
+            }
+            writer.join().unwrap();
+        });
+    }
+
+    /// A replaced node must be marked obsolete before its slot changes:
+    /// otherwise a reader whose cover is the *old* node validates a leaf
+    /// the writer mutates under the *new* node's bracket. The writer here
+    /// promotes child C to C′ (copying C's version, as the engine does),
+    /// then mutates the shared leaf D under C′. The reader validated the
+    /// parent N and loaded the edge to C before the promotion; with
+    /// `OBSOLETE` marking its next sample or validate of C fails and it
+    /// restarts. Delete the `mark` store and this model finds the torn
+    /// read. Models the protocol shape with loom atomics (the production
+    /// version word is a plain `u32` until #756).
+    #[test]
+    fn loom_obsolete_mark_covers_replaced_node() {
+        loom::model(|| {
+            let n_v = Arc::new(VersionCell::new(0));
+            let c_v = Arc::new(VersionCell::new(0));
+            let c2_v = Arc::new(VersionCell::new(0));
+            // The slot in N: 0 = C, 1 = C′.
+            let slot = Arc::new(AtomicU64::new(0));
+            let d_key = Arc::new(AtomicU64::new(0xA0));
+            let d_val = Arc::new(AtomicU64::new(1));
+
+            let (nw, cw, c2w, sw, kw, vw) = (
+                Arc::clone(&n_v),
+                Arc::clone(&c_v),
+                Arc::clone(&c2_v),
+                Arc::clone(&slot),
+                Arc::clone(&d_key),
+                Arc::clone(&d_val),
+            );
+            let writer = loom::thread::spawn(move || {
+                // Op 1, under N's bracket: promote C → C′. C′ starts from
+                // C's version (the header copy the engine makes); C is
+                // marked obsolete before N's slot is rewritten and before
+                // C is retired — the store under test.
+                version_begin(&nw);
+                c2w.store(cw.load(Ordering::Relaxed), Ordering::Relaxed);
+                version_obsolete(&cw);
+                sw.store(1, Ordering::Relaxed);
+                version_end(&nw);
+                // Op 2: mutate leaf D — which C and C′ both point at —
+                // under C′'s bracket (and N's, as the engine nests them).
+                version_begin(&nw);
+                version_begin(&c2w);
+                kw.store(0xB0, Ordering::Relaxed);
+                vw.store(2, Ordering::Relaxed);
+                version_end(&c2w);
+                version_end(&nw);
+            });
+
+            // Reader: sample N, load the slot, validate N, move the cover to
+            // whichever child the slot named, read D, validate that child.
+            if let Some(ns) = node_sample(&n_v) {
+                let which = slot.load(Ordering::Relaxed);
+                if node_validate(&n_v, ns) {
+                    let child = if which == 0 { &c_v } else { &c2_v };
+                    if let Some(cs) = node_sample(child) {
+                        let k = d_key.load(Ordering::Relaxed);
+                        let v = d_val.load(Ordering::Relaxed);
+                        if node_validate(child, cs) {
+                            assert!(
+                                (k == 0xA0 && v == 1) || (k == 0xB0 && v == 2),
+                                "validated read through a replaced node is torn: key {k:#x}, val {v}"
+                            );
+                        }
+                    }
                 }
             }
             writer.join().unwrap();
