@@ -54,25 +54,27 @@ One row per candidate share of the per-probe delta at C2 W=1 R=8, per cell.
 Filled from the FFI suites' health and counter artifacts once both runs
 exist; the verdict labels are the shared vocabulary.
 
-| cell | spin time (P0.1) | restarts | fallback | writer RFO / HITM (P0.2) | unattributed | verdict |
-|---|---|---|---|---|---|---|
-| `hot_conc_set_w1_r8` | pending ([#568](https://github.com/orieg/expanse/issues/568)) | pending | 0 by construction | pending | pending | pending |
-| `hot_conc_map_w1_r8` | pending | pending | 0 by construction | pending | pending | pending |
-| `masstree_conc_map_w1_r8` | pending | pending | 0 by construction | pending | pending | pending |
+| cell | run | spin time (P0.1) | restarts | fallback | writer RFO / insert (P0.2) | unattributed | verdict |
+|---|--:|---|---|---|---|---|---|
+| `hot_conc_set_w1_r8` | — | pending ([#568](https://github.com/orieg/expanse/issues/568)) | pending | 0 by construction | pending | pending | pending |
+| `hot_conc_map_w1_r8` | — | pending | pending | 0 by construction | pending | pending | pending |
+| `masstree_conc_map_w1_r8` | — | pending | pending | 0 by construction | pending | pending | pending |
 
 ## 4. Attribution — D2, writers under load (METHODOLOGY §4, §5)
 
 | cell | context switches / insert (P0.3) | handoffs / insert | RFO / insert | futex / insert | verdict |
 |---|---|---|---|---|---|
-| `masstree_conc_str_w8_r0` | pending ([#568](https://github.com/orieg/expanse/issues/568)) | pending | pending | pending or `NOT_INSTRUMENTED` | pending |
-| `masstree_conc_str_w16_r0` | pending | pending | pending | pending or `NOT_INSTRUMENTED` | pending |
-| `masstree_conc_map_w8_r0` | pending | pending | pending | pending or `NOT_INSTRUMENTED` | pending |
-| `masstree_conc_map_w16_r0` | pending | pending | pending | pending or `NOT_INSTRUMENTED` | direction only (rule 18) |
+| `masstree_conc_str_w8_r0` | `NOT_INSTRUMENTED` | n/a (R=0 cell; H cells carry R=8) | `NOT_INSTRUMENTED` | `NOT_INSTRUMENTED` | see METHODOLOGY §4 P0.3 |
+| `masstree_conc_map_w8_r0` | `NOT_INSTRUMENTED` | n/a (R=0 cell; H cells carry R=8) | `NOT_INSTRUMENTED` | `NOT_INSTRUMENTED` | see METHODOLOGY §4 P0.3 |
 
 ## 5. The counter's own spread (P0.4)
 
 Two runs of the H cells at one commit with per-thread counter shards;
 reported as a band per cell. Pending ([#568](https://github.com/orieg/expanse/issues/568)).
+
+| suite | arm | W | spins ÷ read_ops run 1 | run 2 | ratio | restart run 1 | run 2 | ratio | verdict |
+|---|---|--:|--:|--:|--:|--:|--:|--:|---|
+| — | — | — | pending ([#568](https://github.com/orieg/expanse/issues/568)) | pending | pending | pending | pending | pending | pending |
 
 ## 6. Between-run spread and what voids a cell
 
