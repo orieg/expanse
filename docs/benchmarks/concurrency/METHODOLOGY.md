@@ -48,9 +48,10 @@ judge how much of §4 was informed:
   on the integer arms and 2.06–2.26 on the string arm, restart share
   1.3–4.8% (integers) and 31–35% (strings), fallback share 0 in every
   round *(measured: `64f8a3af`, both suites' `baseline_concurrent.json` and
-  `baseline_concurrent_run2.json`)*. The HOT README §7.3 table printed
-  1.64–2.05 for the same cells from an earlier harness commit; PR 0
-  regenerates it from the artifacts (AGENTS.md §8.2).
+  `baseline_concurrent_run2.json`)*. The HOT README §7.3 table was
+  hand-typed from an earlier harness commit and printed 1.64–2.05 for the
+  same cells; both suites' health tables are now generated from the
+  artifacts (AGENTS.md §8.2), and each README's prose reads from them.
 - The counter itself moved between two identical runs — HOT set C2 W=1:
   0.89 → 0.58 spins per lookup, restart share 4.2% → 1.3% — while the
   throughput cells overlapped. The counters were one process-global cache

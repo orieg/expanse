@@ -776,9 +776,10 @@ two windows are the same length.
   → 23 set; 16 → 25 → 23 → 21 map) while ROWEX's declines as its writers take
   more of the machine, which is why the ratio narrows toward W = 8 without
   Expanse recovering. **The mechanism of the collapse is unmeasured.** The
-  restart share cannot account for a ten-fold drop — it is 3–7% at every
-  writer count (§7.3) — and `sample_spins` ÷ `read_ops`, one to two waits per
-  lookup there, is the only counter this suite takes that speaks to it. No
+  restart share cannot account for a ten-fold drop — it sits in a 1–11% band
+  across both runs at every writer count (§7.3) — and `sample_spins` ÷
+  `read_ops`, about one wait per lookup there (0.58–1.30 over the two runs),
+  is the only counter this suite takes that speaks to it. No
   hardware counter was taken on either arm, so nothing here attributes the fall
   to a cache-line transfer, a futex or a bracket wait (§8.9 principle 1);
   #737's shared `perf stat` wrapper is what would take one.
@@ -830,14 +831,19 @@ Nothing in this table is a timing. 5 rounds per cell; median with range.
   property of the protocol: the falsifier could not have fired at these writer
   counts whatever the engine did, and a falsifier that cannot fire is not a
   measurement (AGENTS.md §8, C-b). METHODOLOGY §11.8 registers one that can.
-- **The restart share does not rise monotonically with W** — set 4.44 → 6.99
-  → 5.25 → 6.84%, map 4.96 → 3.36 → 5.67 → 4.29% — so that half of the
-  §11.5.3 hypothesis is **`REFUTED`**. It sits between 3% and 7% at every
-  writer count measured, and the two runs of §7.6 disagree on the ordering of
-  the four values within that band, which is another reason to read it as a
-  band rather than a trend.
+- **Whether the restart share rises with W is not settled by two runs.**
+  On the set arm run 1 rises monotonically (4.17 → 4.61 → 5.82 → 6.30%,
+  `CONFIRMED`) and run 2 does not (1.34 → 10.60 → 5.16 → 5.03%, `REFUTED`);
+  on the map arm neither run is monotonic. Under `docs/BENCHMARKING.md` rule
+  18 a cell whose two runs disagree is reported as direction-only: the share
+  sits in a 1–11% band across both runs and every writer count, and the
+  §11.5.3 rise hypothesis is neither `CONFIRMED` nor `REFUTED` across runs.
+  The table above carries each run's own verdict; the scorecard carries the
+  band.
 - The counters account for restarts and for spin iterations in
-  `SeqVersion::sample` (1.6–2.1 per read op); they do not time a spin. The size
+  `SeqVersion::sample` (0.58–1.30 per read op over the two runs); they do not
+  time a spin — the `sample_spin_cycles` counter that does is
+  pre-registered in `docs/benchmarks/concurrency/METHODOLOGY.md`. The size
   of the §7.2 reader collapse is therefore **not attributed** by this table —
   the cause beyond the bracket wait itself is unmeasured.
 
@@ -892,7 +898,7 @@ sub-cells), 8 health cells, 20 memory cells.
 | Memory, map arm, all λ (high) | **CONFIRMED**, `PASS_categorical_by_design` |
 | Memory, set arm: Expanse wins λ ∈ [8, 23], ROWEX outside (medium) | **CONFIRMED** on both sides |
 | Health: fallback share < 1% at all W (falsifier) | **`PASS_categorical_by_design`** — zero fallbacks; a fallback needs 64 consecutive failed walks, which cannot occur at these bracket lengths (§7.3) |
-| Health: restart share rises monotonically with W | **REFUTED** — 3–7% at every W, not monotonic |
+| Health: restart share rises monotonically with W | direction-only (rule 18): set run 1 `CONFIRMED`, run 2 `REFUTED`; map both `REFUTED`; a 1–11% band across both runs (§7.3) |
 | W = 16 cells | `not pre-registered`; reported: 0.084 (set), 0.130 (map) |
 | Writers with readers present | `not pre-registered`; reported: ROWEX wins every cell but the map arm at W = 1, which claims no winner |
 

@@ -54,10 +54,10 @@ Masstree's keep 43.2 of their 58.4 — 0.450 [0.431, 0.501]; on strings from
 31.4 to 6.4 against Masstree's 26.9 — 0.228 [0.212, 0.241] *(workloads:
 `masstree_conc_map_64bit`, `masstree_conc_str`)*. **`CONFIRMED`** in direction
 (§6.1 row 3). The mechanism is **unmeasured**, and the health cells rule out
-the obvious one: the restart share stays at 3.8–6.8% at every writer count (§7),
-which cannot account for a seven-fold drop, while `sample_spins ÷ read_ops`
-of 0.95–1.24 says a reader waits on the writer's open tree-level bracket about
-once per lookup. Whether the remainder is that wait or coherence traffic
+the obvious one: the restart share stays in a 4.1–7.4% band across both runs
+at every writer count (§7), which cannot account for a seven-fold drop, while
+`sample_spins ÷ read_ops` of 0.91–1.25 says a reader waits on the writer's
+open tree-level bracket about once per lookup. Whether the remainder is that wait or coherence traffic
 on the shared version line is a counter question this arm did not take (§8.9).
 The writer pays too: with eight readers probing, the Expanse single writer
 falls from 5.66 to 1.86 M inserts/s where Masstree's falls from 5.09 to 3.82
@@ -696,17 +696,22 @@ cell in this suite was measured on.
 | str | 8 | 8 | 2 | 30.50% [29.69%, 31.47%] | 0.0000% | 2.39 | not recorded | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
 
 The MC1 health rows land where `hot_comparison` §7.3's did on the same
-construction: restart share 3.8–6.8% **without rising monotonically with
-writer count** (3.75% at W = 1, then 6.84%, 4.90%, 6.02%) — the first half of
-§6.3 registered a rise and is `REFUTED` — and zero reads took
-the writer mutex at any writer count. That zero is not a finding about the
-protocol: a fallback needs 64 consecutive failed walks, and at these bracket
-lengths the probability of one is negligible by construction, so the second
-half of §6.3 is `PASS_categorical_by_design` and a health falsifier that can
-fire — reader nanoseconds per probe under a writer against alone, which moved
-seven-fold here — is what a future arm should register. The health build
-itself perturbs what it counts: every restart and spin is a `fetch_add` on
-one shared counter line across nine threads (#721 scopes per-thread counters).
+construction: restart share in a 4.1–7.4% band across both runs, and whether
+it rises with writer count is **not settled by two runs** — run 1 rises
+monotonically (4.14 → 5.07 → 5.38 → 6.37%, `CONFIRMED`), run 2 does not
+(4.80 → 7.43 → 5.52 → 5.78%, `REFUTED`) — so under `docs/BENCHMARKING.md`
+rule 18 the first half of §6.3 is reported direction-only, as a band. Zero
+reads took the writer mutex at any writer count. That zero is not a finding
+about the protocol: a fallback needs 64 consecutive failed walks, and at
+these bracket lengths the probability of one is negligible by construction,
+so the second half of §6.3 is `PASS_categorical_by_design` and a health
+falsifier that can fire — reader nanoseconds per probe under a writer
+against alone, which moved seven-fold here — is what
+`docs/benchmarks/concurrency/METHODOLOGY.md` registers. The health build of
+these two runs perturbed what it counted: every restart and spin was a
+`fetch_add` on one shared counter line across nine threads; the counters are
+per-thread shards since #568's Step 0 commit, and that pre-registration
+measures the counter's own between-run spread before any level is quoted.
 
 MC2's rows were `NOT_INSTRUMENTED` until #744: `StrReader::get` counted
 fallbacks only, so a 0% restart share would have been a number about the
@@ -846,7 +851,7 @@ generator does not emit made that match ambiguous.
 | Expanse wins `short` 100%-hit lookup (low-medium) | **CONFIRMED** |
 | Expanse wins `counter` / `prefixed` index memory (medium) | `counter` **CONFIRMED**; `prefixed` **UNPREDICTED LOSS** (by magnitude) |
 | Expanse wins reader-only C2 (medium) | **CONFIRMED** on integers; **UNPREDICTED LOSS** on strings |
-| H: restart share rises with W; fallback share < 1% at W ≤ 8 (§6.3) | restart share **did not rise monotonically** (3.75% at W = 1, then 6.84%, 4.90%, 6.02%) — that half **REFUTED** on MC1; fallback 0% — `PASS_categorical_by_design`, since a fallback needs 64 consecutive failed walks and cannot occur at these bracket lengths; not evaluable on MC2 (§10.5) |
+| H: restart share rises with W; fallback share < 1% at W ≤ 8 (§6.3) | restart share direction-only (rule 18): run 1 `CONFIRMED`, run 2 `REFUTED`, a 4.1–7.4% band across both; fallback share **`PASS_categorical_by_design`** — zero at every W, a falsifier that cannot fire at these bracket lengths (§7) |
 
 Eleven `UNPREDICTED LOSS` cells (registered Expanse wins that Masstree took)
 and 28 `REFUTED` cells (registered Masstree wins that Expanse took — every
