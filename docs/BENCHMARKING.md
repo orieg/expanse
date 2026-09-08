@@ -633,10 +633,14 @@ Bench targets deliberately **not** reachable from a slash command:
     order versus sorted order (workload: `hot_instrument_bridge`;
     [`METHODOLOGY.md` §9.10](benchmarks/hot_comparison/METHODOLOGY.md)).
 
-18. **A concurrent cell is replicated before its level is quoted.** Within-run
-    BCa intervals understate the spread of concurrent throughput cells, and
-    two suites have now measured it. The `masstree_comparison` arm was run
-    twice and two C2 reader cells moved past their own intervals — string
+18. **A published cell is replicated before its level is quoted.** Within-run
+    BCa intervals do not bound between-run spread. They are not wrong — they
+    describe round-to-round variation inside one run, which is genuinely tiny —
+    they simply measure something narrower than the question "would another run
+    of this code agree?". Both comparative FFI suites have now measured the gap,
+    in their concurrent arms and again in their single-threaded ones, so it is
+    not a property of concurrency. The `masstree_comparison` concurrent arm was
+    run twice and two C2 reader cells moved past their own intervals — string
     W = 1 R = 8 from 0.114 [0.095, 0.129] to 0.228 [0.212, 0.241], integer
     W = 4 R = 8 from 0.697 [0.683, 0.710] to 0.472 [0.455, 0.494] *(measured:
     reference host, `82966aae` and `2ce92b7f`)*. The `hot_comparison`
@@ -645,8 +649,32 @@ Bench targets deliberately **not** reachable from a slash command:
     *(measured: reference host, `5232af74` and `134a0471`,
     [`hot_comparison/README.md` §7.6](benchmarks/hot_comparison/README.md))*.
     In both arms **every direction and every verdict held**; it is the level
-    that does not replicate. So, binding on any arm publishing concurrent
-    throughput:
+    that does not replicate.
+
+    **Single-threaded latency cells do it too, at a measured background rate.**
+    Two full sweeps of `masstree_comparison` at the *same commit* separate on
+    **13 of 72** cells, median absolute delta 3.7%; two sweeps of
+    `hot_comparison` separate on **24 of 144** *(measured: reference host,
+    `ae0c610d` twice)*. `scan` cells dominate both counts because their
+    intervals are the tightest in the suite — tightness is what makes a cell
+    prone to this, not immunity from it.
+
+    One of those cells shows why the interval cannot be the guard on its own:
+    `lookup_miss · map · random · 10⁶` read 142.02 ns/op with its fifteen
+    rounds spanning 141.2–142.8 — cv under 0.5% — while the committed artifact,
+    a second sweep and a 60-round standalone reproduction all agree at
+    120–122. A tight interval around a wrong number is the failure this rule
+    exists to catch, and the §8.17 load snapshot for that phase read 1.01
+    busy core-equivalents and saw nothing. Why is a **separate, unmeasured
+    question** ([#783](https://github.com/orieg/expanse/issues/783)).
+
+    **The inference this forbids** is the tempting one: comparing a new
+    artifact against the committed one and reading non-overlapping intervals
+    as evidence that a change moved the cell. At a background separation rate
+    near a sixth of cells, that test reports movement that is not there. It was
+    used exactly that way while re-measuring #760 and had to be retracted.
+
+    So, binding on any arm publishing concurrent throughput:
     - **Two runs**, on the reference host, under the standing conditions
       (host lock, P-core pin, load snapshot before each).
     - **The claim ceiling is the union of the two intervals**, never one
@@ -660,6 +688,16 @@ Bench targets deliberately **not** reachable from a slash command:
       question**; attributing it needs counters
       ([#568](https://github.com/orieg/expanse/issues/568),
       [#737](https://github.com/orieg/expanse/issues/737)), not a third run.
+
+    And binding on any **cross-run** comparison of latency cells, concurrent or
+    not — a re-measurement against a committed artifact, or a suite re-run after
+    a harness change:
+    - **Interval separation between two runs is not evidence of a change.**
+      Confirm with a second run and claim only cells both runs moved, in the
+      same direction; a cell one run moved is reported as unconfirmed or not at
+      all. This is what #760's re-measurement ended up publishing.
+    - Where only one run exists, the honest statement is that the cells were
+      re-measured, not that particular cells moved.
 
 19. **Insertion order is a workload dimension, declared and — where it
     matters — measured in both.** The shared generators of
