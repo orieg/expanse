@@ -902,7 +902,7 @@ impl SyncExpanseSet {
     #[must_use]
     pub fn reader(&self) -> SetReader<'_> {
         SetReader {
-            shared: &self.shared,
+            set: self,
             reader: self.shared.collector.register(),
         }
     }
@@ -936,13 +936,8 @@ impl SyncExpanseSet {
 }
 
 /// A per-thread reader handle for [`SyncExpanseSet`].
-///
-/// Holds the shared block itself, not the wrapper: the retry loop then
-/// reaches the tree word and the root at fixed offsets from one pointer it
-/// loads once, where a reference to the wrapper made every attempt reload
-/// the block's address across the acquire (#568 PR 3, measured on Callgrind).
 pub struct SetReader<'a> {
-    shared: &'a Shared<ExpanseSet>,
+    set: &'a SyncExpanseSet,
     reader: Reader,
 }
 
@@ -950,7 +945,7 @@ impl SetReader<'_> {
     /// Optimistic membership test.
     #[must_use]
     pub fn contains(&self, key: Key) -> bool {
-        let shared = self.shared;
+        let shared = &self.set.shared;
         crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
         for _ in 0..MAX_RETRIES {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
@@ -1016,7 +1011,7 @@ impl SyncExpanseMap {
     #[must_use]
     pub fn reader(&self) -> MapReader<'_> {
         MapReader {
-            shared: &self.shared,
+            map: self,
             reader: self.shared.collector.register(),
         }
     }
@@ -1076,19 +1071,17 @@ impl SyncExpanseMap {
 }
 
 /// A per-thread reader handle for [`SyncExpanseMap`].
-///
-/// Holds the shared block itself, not the wrapper (see [`SetReader`]).
 pub struct MapReader<'a> {
-    shared: &'a Shared<ExpanseMap>,
+    map: &'a SyncExpanseMap,
     reader: Reader,
 }
 
 /// The validated walk shared by [`MapReader`] and [`OwnedMapReader`].
 ///
 /// Split out so the borrowing and owning readers cannot drift: both are the
-/// same protocol, differing only in how they hold the map (#554). Takes the
-/// shared block, so the loop's pointer is an argument, loaded once.
-fn map_get_with(shared: &Shared<ExpanseMap>, reader: &Reader, key: Key) -> Option<u64> {
+/// same protocol, differing only in how they hold the map (#554).
+fn map_get_with(map: &SyncExpanseMap, reader: &Reader, key: Key) -> Option<u64> {
+    let shared = &map.shared;
     crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
     for _ in 0..MAX_RETRIES {
         crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
@@ -1129,7 +1122,7 @@ impl OwnedMapReader {
     /// Optimistic lookup, without the per-call registry lock `get` pays.
     #[must_use]
     pub fn get(&self, key: Key) -> Option<u64> {
-        map_get_with(&self.map.shared, &self.reader, key)
+        map_get_with(&self.map, &self.reader, key)
     }
 }
 
@@ -1159,7 +1152,7 @@ impl DetachedMapReader {
     /// different map through it would validate against the wrong collector.
     #[must_use]
     pub fn get(&self, map: &SyncExpanseMap, key: Key) -> Option<u64> {
-        map_get_with(&map.shared, &self.reader, key)
+        map_get_with(map, &self.reader, key)
     }
 }
 
@@ -1167,7 +1160,7 @@ impl MapReader<'_> {
     /// Optimistic lookup.
     #[must_use]
     pub fn get(&self, key: Key) -> Option<u64> {
-        map_get_with(self.shared, &self.reader, key)
+        map_get_with(self.map, &self.reader, key)
     }
 }
 
