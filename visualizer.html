@@ -1024,6 +1024,7 @@
             <option value="ins_slot">Slot Insertion (ins_slot / JudyLIns)</option>
             <option value="nav">Navigation (next / prev / rank)</option>
             <option value="sync_read">Concurrent OCC Read (SyncExpanseMap)</option>
+            <option value="sync_write">Concurrent Multi-Writer OLC (SyncExpanseMap)</option>
           </select>
         </div>
 
@@ -1339,10 +1340,10 @@
         </div>
       </div>
       <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:12px;">
-        <div style="font-size:11px; font-weight:700; color:#f97316; text-transform:uppercase;">🔒 Lock-Free OCC Concurrency (<code>SyncExpanseMap</code>)</div>
-        <div style="font-family:ui-monospace, monospace; font-size:11px; color:#f97316; margin:4px 0;">Optimistic Version Bracketing + EBR</div>
+        <div style="font-size:11px; font-weight:700; color:#f97316; text-transform:uppercase;">🔒 Multi-Writer Optimistic Lock Coupling (<code>SyncExpanseMap</code>)</div>
+        <div style="font-family:ui-monospace, monospace; font-size:11px; color:#f97316; margin:4px 0;">Stage B Multi-Writer OLC + Version Bracketing + EBR</div>
         <div style="font-size:11px; color:var(--text-muted);">
-          Zero reader locking, wait-free point gets, and Epoch-Based Memory Reclamation ensuring departed readers never stall concurrent writer progress.
+          Zero reader locking on uncontended paths, hand-over-hand optimistic lock coupling for concurrent writers on disjoint expanses, and Epoch-Based Memory Reclamation.
         </div>
       </div>
       <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:12px;">
@@ -3564,6 +3565,14 @@
         desc: "Reads root OCC sequence counter with acquire fence (`seq.load(Acquire)`). Spins if active writer (`version & 1 == 1`).",
         algo: "Atomic SeqLock Acquire Fence (version load)"
       });
+    } else if (op === "sync_write") {
+      steps.push({
+        badge: "GATE & ROOT SNAPSHOT",
+        badgeClass: "highlight",
+        title: "WriterGate Entry & Root Snapshot",
+        desc: "Registers in-flight slot via WriterGate with SeqCst fence. Samples root SeqVersion to verify no active root-covered exclusive lock is open.",
+        algo: "WriterGate Slot Publication + Atomic Version Sample"
+      });
     } else if (op === "ins_slot") {
       steps.push({
         badge: "SLOT LOCATE",
@@ -3762,6 +3771,16 @@
       });
       instr += 4;
       baselineInstr += 12;
+    } else if (op === "sync_write") {
+      steps.push({
+        badge: "OLC COMMIT & CENSUS",
+        badgeClass: "highlight",
+        title: "In-Place Store & Ancestor Census Bump",
+        desc: "Performs leaf mutation under parent node lock, releases lock with version increment, and executes bottom-up ancestor pop0 updates.",
+        algo: "Hand-Over-Hand Unlock (version + 2) + Ancestor pop0 Bumps"
+      });
+      instr += 14;
+      baselineInstr += 45;
     }
 
     const winPct = Math.round(((baselineInstr - instr) / baselineInstr) * 100);
