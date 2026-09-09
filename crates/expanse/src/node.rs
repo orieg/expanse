@@ -590,6 +590,15 @@ const _: () = {
     assert!(offset_of!(LeafBitmapL, values) == 32);
 };
 
+impl Edge {
+    /// Bit-level equality check (compares word0 and aux_word).
+    #[inline(always)]
+    #[allow(dead_code)]
+    pub(crate) fn bits_eq(&self, other: &Self) -> bool {
+        self.word0() == other.word0() && self.aux_word() == other.aux_word()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

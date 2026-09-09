@@ -217,6 +217,12 @@ impl ExpanseSet {
         self.len() == 0
     }
 
+    #[inline(always)]
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    pub(crate) fn set_tree_pop(&mut self, pop: u64) {
+        self.tree_pop = pop;
+    }
+
     /// Heap bytes currently used by the set's nodes and leaves.
     #[must_use]
     pub fn mem_used(&self) -> usize {
@@ -570,6 +576,15 @@ impl ExpanseSet {
     #[cfg(feature = "std")]
     pub(crate) fn root_is_tree(&self) -> bool {
         matches!(self.root, Root::Tree { .. })
+    }
+
+    #[inline(always)]
+    #[cfg(feature = "std")]
+    pub(crate) unsafe fn root_top_ptr(&self) -> *mut Edge {
+        match &self.root {
+            Root::Tree { top } => (top as *const Edge).cast_mut(),
+            _ => core::ptr::null_mut(),
+        }
     }
 
     /// Phase 7 (occ): a by-value snapshot of the root state plus the
