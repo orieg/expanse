@@ -23,17 +23,17 @@
 //! Under `--cfg loom` the atomics and sync types swap to loom's, and the
 //! `loom_` tests model-check writer/reader/reclamation interleavings.
 
+#[cfg(not(loom))]
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering, fence};
 #[cfg(all(not(loom), feature = "std"))]
 use core::sync::atomic::{AtomicPtr, AtomicUsize};
-#[cfg(not(loom))]
-use core::sync::atomic::{AtomicU64, Ordering, fence};
 #[cfg(all(not(loom), feature = "std"))]
 use std::sync::Mutex;
 
 #[cfg(loom)]
 use loom::sync::Mutex;
 #[cfg(loom)]
-use loom::sync::atomic::{AtomicPtr, AtomicU64, AtomicUsize, Ordering, fence};
+use loom::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering, fence};
 
 #[cfg(feature = "std")]
 use core::alloc::Layout;
@@ -438,6 +438,288 @@ pub(crate) fn version_end(v: &VersionCell) {
     v.store(cur + 1, Ordering::Relaxed);
 }
 
+/// Attempts to acquire an exclusive write lock on a node's version word via atomic CAS.
+///
+/// Follows the OLC protocol specified in `docs/ARCHITECTURE.md` §4.2:
+/// If `v` is even and not [`OBSOLETE`], attempts to transition `even -> even + 1`
+/// using `compare_exchange_weak`.
+///
+/// On success, executes an acquire fence to ensure subsequent node reads and writes
+/// do not reorder prior to lock acquisition.
+///
+/// Returns `Ok(even_version)` on successful lock acquisition, or `Err(current_version)`
+/// if the lock was already held, obsolete, or if the CAS failed.
+#[allow(dead_code)]
+#[inline]
+pub(crate) fn version_try_lock(v: &VersionCell) -> Result<u32, u32> {
+    let cur = v.load(Ordering::Relaxed);
+    if !cur.is_multiple_of(2) || (cur & OBSOLETE != 0) {
+        return Err(cur);
+    }
+    match v.compare_exchange_weak(cur, cur + 1, Ordering::Relaxed, Ordering::Relaxed) {
+        Ok(val) => {
+            fence(Ordering::Acquire);
+            Ok(val)
+        }
+        Err(actual) => Err(actual),
+    }
+}
+
+/// Releases an exclusive write lock on a node's version word.
+///
+/// Follows the OLC protocol specified in `docs/ARCHITECTURE.md` §4.2:
+/// - If `modified` is true, advances the version to `old_v + 2`, invalidating any
+///   concurrent optimistic reader that sampled `old_v`.
+/// - If `modified` is false, restores `old_v`, preventing spurious reader retries
+///   on nodes that were locked during speculative descent or split sizing but left unmodified.
+///
+/// Executes a release fence prior to storing the updated version to ensure that all
+/// node mutations are visible to readers and subsequent writers before the node is unlocked.
+#[allow(dead_code)]
+#[inline]
+pub(crate) fn version_unlock(v: &VersionCell, old_v: u32, modified: bool) {
+    debug_assert!(
+        v.load(Ordering::Relaxed) % 2 == 1,
+        "version_unlock without lock"
+    );
+    fence(Ordering::Release);
+    let next = if modified {
+        old_v.wrapping_add(2)
+    } else {
+        old_v
+    };
+    v.store(next, Ordering::Relaxed);
+}
+
+/// Engine boundary for [`version_try_lock`]: tries to lock `v` when `OCC = true`.
+///
+/// # Safety
+///
+/// `v` must point to a live branch node's version field.
+#[allow(dead_code)]
+#[inline(always)]
+pub(crate) unsafe fn version_try_lock_if_ptr<const OCC: bool>(v: *mut u32) -> Result<u32, u32> {
+    if OCC {
+        // SAFETY: forwarded contract; `version_cell` carries liveness obligation.
+        version_try_lock(unsafe { version_cell(v) })
+    } else {
+        Ok(0)
+    }
+}
+
+/// Engine boundary for [`version_unlock`]: unlocks `v` when `OCC = true`.
+///
+/// # Safety
+///
+/// `v` must point to a live branch node's version field previously locked.
+#[allow(dead_code)]
+#[inline(always)]
+pub(crate) unsafe fn version_unlock_if_ptr<const OCC: bool>(
+    v: *mut u32,
+    old_v: u32,
+    modified: bool,
+) {
+    if OCC {
+        // SAFETY: forwarded contract; `version_cell` carries liveness obligation.
+        version_unlock(unsafe { version_cell(v) }, old_v, modified);
+    }
+}
+
+/// An RAII guard representing exclusive write access to a branch node `N`.
+///
+/// Acquired via [`version_try_lock`]. On drop, automatically unlocks the node
+/// via [`version_unlock`] in LIFO order. If modified, the node's version advances
+/// to `old_v + 2` (invalidating concurrent optimistic readers); if unmodified,
+/// it restores `old_v` (preventing spurious reader retries).
+///
+/// # Invariant & Safety
+///
+/// `NodeLock` strictly dereferences to raw `*mut N`, NEVER `&mut N`, ensuring
+/// that Stacked Borrows and Tree Borrows invariants are preserved while concurrent
+/// readers sample and load fields of `N`.
+#[allow(dead_code)]
+pub(crate) struct NodeLock<'a, N> {
+    ptr: *mut N,
+    version: &'a VersionCell,
+    old_v: u32,
+    modified: core::cell::Cell<bool>,
+}
+
+#[allow(dead_code)]
+impl<'a, N> NodeLock<'a, N> {
+    /// Attempts to lock `node` using its `VersionCell`.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must point to a live node `N` whose version field is `v`.
+    /// The caller must ensure that `ptr` remains valid for the lifetime `'a`.
+    #[inline]
+    pub(crate) unsafe fn try_lock(ptr: *mut N, v: &'a VersionCell) -> Result<Self, u32> {
+        let old_v = version_try_lock(v)?;
+        Ok(Self {
+            ptr,
+            version: v,
+            old_v,
+            modified: core::cell::Cell::new(false),
+        })
+    }
+
+    /// Constructs a `NodeLock` for an already-acquired lock.
+    ///
+    /// # Safety
+    ///
+    /// `v` must have been successfully locked via `version_try_lock` returning `old_v`.
+    #[inline]
+    pub(crate) unsafe fn from_locked(ptr: *mut N, v: &'a VersionCell, old_v: u32) -> Self {
+        Self {
+            ptr,
+            version: v,
+            old_v,
+            modified: core::cell::Cell::new(false),
+        }
+    }
+
+    /// Marks the node as modified under this lock.
+    #[inline(always)]
+    pub(crate) fn mark_modified(&self) {
+        self.modified.set(true);
+    }
+
+    /// Returns whether the node was marked modified.
+    #[inline(always)]
+    pub(crate) fn is_modified(&self) -> bool {
+        self.modified.get()
+    }
+
+    /// Returns the raw pointer to the node.
+    #[inline(always)]
+    pub(crate) fn as_ptr(&self) -> *mut N {
+        self.ptr
+    }
+
+    /// Returns the version at the time of lock acquisition.
+    #[inline(always)]
+    pub(crate) fn old_version(&self) -> u32 {
+        self.old_v
+    }
+
+    /// Returns the reference to the underlying `VersionCell`.
+    #[inline(always)]
+    pub(crate) fn version_cell(&self) -> &'a VersionCell {
+        self.version
+    }
+}
+
+impl<N> core::ops::Deref for NodeLock<'_, N> {
+    type Target = *mut N;
+
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.ptr
+    }
+}
+
+impl<N> Drop for NodeLock<'_, N> {
+    #[inline]
+    fn drop(&mut self) {
+        version_unlock(self.version, self.old_v, self.modified.get());
+    }
+}
+
+/// Coordinates writer quiescence for reader fallback and exclusive operations (`with_locked`).
+///
+/// Follows the Dekker-style fence pairing protocol specified in `docs/ARCHITECTURE.md` §4.2:
+/// - Writers publish an in-flight status flag, execute `fence(Ordering::SeqCst)`, and re-check
+///   whether `WriterGate` is closed.
+/// - Quiescence coordinators (reader fallback or `with_locked`) close `WriterGate`, execute
+///   `fence(Ordering::SeqCst)`, and wait for all registered in-flight writer slots to drain to 0.
+#[allow(dead_code)]
+#[derive(Debug)]
+pub(crate) struct WriterGate {
+    closed: AtomicBool,
+}
+
+#[allow(dead_code)]
+impl WriterGate {
+    /// Creates a fresh, open gate.
+    #[must_use]
+    pub(crate) fn new() -> Self {
+        Self {
+            closed: AtomicBool::new(false),
+        }
+    }
+
+    /// Returns whether the gate is closed (quiescence in progress).
+    #[inline(always)]
+    pub(crate) fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Relaxed)
+    }
+
+    /// Closes the gate and executes a `SeqCst` fence to initiate quiescence.
+    #[inline]
+    pub(crate) fn close(&self) {
+        self.closed.store(true, Ordering::Relaxed);
+        fence(Ordering::SeqCst);
+    }
+
+    /// Re-opens the gate after quiescence completes.
+    #[inline]
+    pub(crate) fn open(&self) {
+        self.closed.store(false, Ordering::Release);
+    }
+
+    /// Writer op entry: publishes in-flight status, executes `fence(Ordering::SeqCst)`,
+    /// and verifies that the gate is not closed.
+    ///
+    /// Returns `true` if entry succeeded, or `false` if the gate is closed and the writer
+    /// must back off.
+    #[cfg(feature = "std")]
+    #[inline]
+    pub(crate) fn enter_writer(&self, in_flight: &AtomicUsize) -> bool {
+        in_flight.store(1, Ordering::Relaxed);
+        fence(Ordering::SeqCst);
+        if self.is_closed() {
+            in_flight.store(0, Ordering::Relaxed);
+            false
+        } else {
+            true
+        }
+    }
+
+    /// Writer op exit: clears the in-flight status.
+    #[cfg(feature = "std")]
+    #[inline]
+    pub(crate) fn exit_writer(in_flight: &AtomicUsize) {
+        in_flight.store(0, Ordering::Release);
+    }
+}
+
+impl Default for WriterGate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Marker trait for trie engines that support multi-writer Optimistic Lock Coupling.
+///
+/// # Safety
+///
+/// Implementors must uphold the multi-writer OLC protocol invariants specified in
+/// `docs/ARCHITECTURE.md` §4.2:
+///
+/// 1. **Per-Node Write Locking (S5)**: Any shared mutation to a branch node or its child
+///    slots must occur under an acquired `NodeLock` (via `version_try_lock`).
+/// 2. **Acyclic Lock Acquisition (S6)**: Locks along root-to-leaf paths must be acquired
+///    strictly top-down. A writer must never request an ancestor lock while holding a
+///    descendant lock.
+/// 3. **Release-Acquire Visibility (S8)**: New child nodes and leaf payloads must be
+///    published using release-acquire ordering via `version_unlock`.
+/// 4. **Obsolete Node Retirement (S3)**: Any node replaced by reorganization must be marked
+///    [`OBSOLETE`] before its incoming slot in the parent is rewritten.
+/// 5. **Bottom-Up Population Convergence (S7)**: Ancestor `pop0` counts must be updated
+///    via isolated bottom-up locks conforming to Rule (a) and Rule (b).
+pub unsafe trait OlcEngine: Send {}
+
 /// Reader: loads a node's seqlock version word, returning `None` if
 /// torn (odd). Node versions are `u32` (half-words; see Phase 7 node
 /// layouts).
@@ -580,6 +862,9 @@ impl Collector {
     /// Queues an allocation for deferred freeing (writer side).
     pub fn retire(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
         crate::occ_stats::bump(crate::occ_stats::Stat::Retired);
+        // SeqCst fence pairs with `try_advance` to establish happens-before with
+        // concurrent advancers under multi-writer OLC (Stage B, S4).
+        fence(Ordering::SeqCst);
         let e = self.epoch.load(Ordering::Relaxed);
         self.bins[e % BINS]
             .lock()
@@ -898,12 +1183,69 @@ mod tests {
         drop(reader);
         c.drain();
     }
+
+    #[test]
+    fn node_lock_and_unlock_modified() {
+        let cell = VersionCell::new(0);
+        let mut dummy = 1234u64;
+        {
+            // SAFETY: dummy is a live stack variable.
+            let lock = unsafe { NodeLock::try_lock(&raw mut dummy, &cell) }.expect("lock acquired");
+            assert_eq!(*lock, &raw mut dummy);
+            assert_eq!(lock.old_version(), 0);
+            assert!(!lock.is_modified());
+            lock.mark_modified();
+            assert!(lock.is_modified());
+            // cell is odd while locked
+            assert_eq!(cell.load(Ordering::Relaxed), 1);
+        }
+        // Dropped with modified = true: advanced to old_v + 2 = 2
+        assert_eq!(cell.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn node_lock_and_unlock_unmodified() {
+        let cell = VersionCell::new(4);
+        let mut dummy = 5678u64;
+        {
+            // SAFETY: dummy is a live stack variable.
+            let lock = unsafe { NodeLock::try_lock(&raw mut dummy, &cell) }.expect("lock acquired");
+            assert_eq!(lock.old_version(), 4);
+            assert_eq!(cell.load(Ordering::Relaxed), 5);
+            // Dropped without mark_modified: restores old_v = 4
+        }
+        assert_eq!(cell.load(Ordering::Relaxed), 4);
+    }
+
+    #[test]
+    fn writer_gate_protocol() {
+        let gate = WriterGate::new();
+        let in_flight = AtomicUsize::new(0);
+        assert!(!gate.is_closed());
+
+        // Normal entry when open
+        assert!(gate.enter_writer(&in_flight));
+        assert_eq!(in_flight.load(Ordering::Relaxed), 1);
+        WriterGate::exit_writer(&in_flight);
+        assert_eq!(in_flight.load(Ordering::Relaxed), 0);
+
+        // Quiescence closure
+        gate.close();
+        assert!(gate.is_closed());
+        // Entry fails when closed
+        assert!(!gate.enter_writer(&in_flight));
+        assert_eq!(in_flight.load(Ordering::Relaxed), 0);
+
+        gate.open();
+        assert!(!gate.is_closed());
+        assert!(gate.enter_writer(&in_flight));
+        WriterGate::exit_writer(&in_flight);
+    }
 }
 
 #[cfg(all(test, loom))]
 mod loom_tests {
     use super::*;
-    use loom::sync::atomic::AtomicU32;
     /// The EBR safety property on observable state: while a reader is
     /// pinned at epoch `e`, the writer can advance at most once (to
     /// `e + 1`) — so a bin retired at `e` (freed only by the advance
@@ -1100,6 +1442,203 @@ mod loom_tests {
                 }
             }
             writer.join().unwrap();
+        });
+    }
+
+    /// S5: Two concurrent writers attempt to acquire a lock on the same node `N` via `try_lock()`.
+    /// At no point do both writers enter the critical section simultaneously.
+    #[test]
+    fn loom_multi_writer_mutual_exclusion() {
+        loom::model(|| {
+            let node_v = Arc::new(VersionCell::new(0));
+            let in_crit = Arc::new(AtomicUsize::new(0));
+
+            let (nv1, ic1) = (Arc::clone(&node_v), Arc::clone(&in_crit));
+            let w1 = loom::thread::spawn(move || {
+                if let Ok(v) = version_try_lock(&nv1) {
+                    let prev = ic1.fetch_add(1, Ordering::SeqCst);
+                    assert_eq!(
+                        prev, 0,
+                        "mutual exclusion violated: concurrent writers inside critical section"
+                    );
+                    ic1.fetch_sub(1, Ordering::SeqCst);
+                    version_unlock(&nv1, v, true);
+                }
+            });
+
+            let (nv2, ic2) = (Arc::clone(&node_v), Arc::clone(&in_crit));
+            let w2 = loom::thread::spawn(move || {
+                if let Ok(v) = version_try_lock(&nv2) {
+                    let prev = ic2.fetch_add(1, Ordering::SeqCst);
+                    assert_eq!(
+                        prev, 0,
+                        "mutual exclusion violated: concurrent writers inside critical section"
+                    );
+                    ic2.fetch_sub(1, Ordering::SeqCst);
+                    version_unlock(&nv2, v, true);
+                }
+            });
+
+            w1.join().unwrap();
+            w2.join().unwrap();
+        });
+    }
+
+    /// S8: Writer 1 locks node, stores data into child payload with Relaxed store, unlocks;
+    /// Writer 2 locks node, reads payload. Writer 2 observes all stores made by Writer 1.
+    #[test]
+    fn loom_multi_writer_fence_pairing() {
+        loom::model(|| {
+            let node_v = Arc::new(VersionCell::new(0));
+            let payload = Arc::new(AtomicU64::new(0));
+
+            let (nv1, p1) = (Arc::clone(&node_v), Arc::clone(&payload));
+            let w1 = loom::thread::spawn(move || {
+                if let Ok(v) = version_try_lock(&nv1) {
+                    p1.store(42, Ordering::Relaxed);
+                    version_unlock(&nv1, v, true);
+                }
+            });
+
+            let (nv2, p2) = (Arc::clone(&node_v), Arc::clone(&payload));
+            let w2 = loom::thread::spawn(move || {
+                if let Ok(v) = version_try_lock(&nv2) {
+                    let val = p2.load(Ordering::Relaxed);
+                    if v == 2 {
+                        assert_eq!(val, 42, "Writer 2 saw stale payload under Acquire lock");
+                    }
+                    version_unlock(&nv2, v, false);
+                }
+            });
+
+            w1.join().unwrap();
+            w2.join().unwrap();
+        });
+    }
+
+    /// S7: Two concurrent writers perform disjoint leaf inserts beneath common ancestor `A`,
+    /// then execute bottom-up `pop0` bumps under `A`'s node lock. Final `pop0` equals initial `pop0 + 2`.
+    #[test]
+    fn loom_multi_writer_pop0_convergence() {
+        loom::model(|| {
+            let node_v = Arc::new(VersionCell::new(0));
+            let pop0 = Arc::new(AtomicU64::new(0));
+
+            let (nv1, p1) = (Arc::clone(&node_v), Arc::clone(&pop0));
+            let w1 = loom::thread::spawn(move || {
+                loop {
+                    if let Ok(v) = version_try_lock(&nv1) {
+                        let cur = p1.load(Ordering::Relaxed);
+                        p1.store(cur + 1, Ordering::Relaxed);
+                        version_unlock(&nv1, v, true);
+                        break;
+                    }
+                    loom::thread::yield_now();
+                }
+            });
+
+            let (nv2, p2) = (Arc::clone(&node_v), Arc::clone(&pop0));
+            let w2 = loom::thread::spawn(move || {
+                loop {
+                    if let Ok(v) = version_try_lock(&nv2) {
+                        let cur = p2.load(Ordering::Relaxed);
+                        p2.store(cur + 1, Ordering::Relaxed);
+                        version_unlock(&nv2, v, true);
+                        break;
+                    }
+                    loom::thread::yield_now();
+                }
+            });
+
+            w1.join().unwrap();
+            w2.join().unwrap();
+            assert_eq!(pop0.load(Ordering::Relaxed), 2, "pop0 updates lost");
+        });
+    }
+
+    /// L5: Two writers execute mutating loops; one coordinator invokes quiescence (`with_locked`).
+    /// While coordinator executes in quiescence, zero writer stores are in-flight.
+    #[test]
+    fn loom_with_locked_quiescence() {
+        loom::model(|| {
+            let gate = Arc::new(WriterGate::new());
+            let w1_inflight = Arc::new(AtomicUsize::new(0));
+            let in_quiescence = Arc::new(AtomicBool::new(false));
+            let stores_during_quiescence = Arc::new(AtomicUsize::new(0));
+
+            let (g1, if1, q1, sq1) = (
+                Arc::clone(&gate),
+                Arc::clone(&w1_inflight),
+                Arc::clone(&in_quiescence),
+                Arc::clone(&stores_during_quiescence),
+            );
+            let w1 = loom::thread::spawn(move || {
+                for _ in 0..2 {
+                    if g1.enter_writer(&if1) {
+                        if q1.load(Ordering::Relaxed) {
+                            sq1.fetch_add(1, Ordering::SeqCst);
+                        }
+                        WriterGate::exit_writer(&if1);
+                        break;
+                    }
+                    loom::thread::yield_now();
+                }
+            });
+
+            // Coordinator (with_locked / fallback reader)
+            gate.close();
+            while w1_inflight.load(Ordering::Relaxed) != 0 {
+                loom::thread::yield_now();
+            }
+
+            in_quiescence.store(true, Ordering::Relaxed);
+            assert_eq!(
+                stores_during_quiescence.load(Ordering::SeqCst),
+                0,
+                "writer mutated during quiescence window"
+            );
+            in_quiescence.store(false, Ordering::Relaxed);
+            gate.open();
+
+            w1.join().unwrap();
+        });
+    }
+
+    /// S4: Writer 1 retires an allocation; Writer 2 advances the epoch; Reader remains pinned at epoch 0.
+    /// The epoch cannot advance past Reader's pin (at most to epoch 1), so retired blocks remain safe.
+    #[test]
+    fn loom_multi_writer_ebr_safety() {
+        loom::model(|| {
+            let c = Arc::new(Collector::new());
+            let reader = c.register();
+            let pin = reader.pin();
+
+            let cw1 = Arc::clone(&c);
+            let w1 = loom::thread::spawn(move || {
+                let layout = Layout::from_size_align(64, 16).unwrap();
+                // SAFETY: nonzero test allocation.
+                let ptr = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
+                cw1.retire(ptr, 64, 16);
+            });
+
+            let cw2 = Arc::clone(&c);
+            let w2 = loom::thread::spawn(move || {
+                cw2.try_advance();
+            });
+
+            w1.join().unwrap();
+            w2.join().unwrap();
+
+            let now = c.epoch.load(Ordering::SeqCst);
+            assert!(now <= 1, "epoch advanced twice past a live pin: now {now}");
+            assert!(
+                c.retained_bytes() == 64,
+                "retired block reclaimed while reader remained pinned"
+            );
+
+            drop(pin);
+            drop(reader);
+            c.drain();
         });
     }
 }

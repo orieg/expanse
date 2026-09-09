@@ -299,6 +299,14 @@ pub(crate) struct InsertPathMap {
     pub pending_pop: usize,
 }
 
+/// A zero-sized type representing the absence of an [`InsertPathMap`].
+///
+/// In multi-writer OLC builds, caching raw pointers across operations is unsound.
+/// `NoPath` enforces that descent is performed optimistically from the root.
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct NoPath;
+
 impl InsertPathMap {
     pub const fn empty() -> Self {
         Self {

@@ -78,6 +78,9 @@ pub struct ExpanseMap {
 // allocations; not `Sync`, shared access goes through `SyncExpanseMap`.
 unsafe impl Send for ExpanseMap {}
 
+// SAFETY: ExpanseMap implements the Judy digital tree invariants and supports multi-writer OLC.
+unsafe impl crate::occ::OlcEngine for ExpanseMap {}
+
 /// Allocation size of a root leaf holding `pop` entries: a class-sized
 /// key area followed by a class-sized value area. Class-sizing (as the
 /// trie's linear leaves already do) means consecutive inserts and

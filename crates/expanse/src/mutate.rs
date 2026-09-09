@@ -641,6 +641,16 @@ pub(crate) struct InsertPath {
     pub pending_pop: usize,
 }
 
+/// A zero-sized type representing the absence of an [`InsertPath`].
+///
+/// In multi-writer OLC builds, caching raw pointers (`*mut Edge`) across operations
+/// in an `InsertPath` is unsound because concurrent reorganizations can invalidate
+/// or relocate ancestor edges. `NoPath` proves at compile time that no edge pointer
+/// is cached or bypassed.
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct NoPath;
+
 impl InsertPath {
     pub const fn empty() -> Self {
         Self {

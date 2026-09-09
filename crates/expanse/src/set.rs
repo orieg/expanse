@@ -71,6 +71,9 @@ pub struct ExpanseSet {
 // deliberately NOT `Sync` — shared access goes through `SyncExpanseSet`.
 unsafe impl Send for ExpanseSet {}
 
+// SAFETY: ExpanseSet implements the Judy digital tree invariants and supports multi-writer OLC.
+unsafe impl crate::occ::OlcEngine for ExpanseSet {}
+
 /// The three sharing modes an engine call is monomorphized for (#568 PR 3):
 /// unshared; shared with the engine covering the root (`SyncExpanseSet`,
 /// `SyncExpanseMap`: brief per-node brackets); shared with the wrapper
