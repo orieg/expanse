@@ -206,7 +206,7 @@ Two assumptions are stated rather than proven: a per-node word is a `u32`, so a 
 
 ### 4.2 Multi-writer optimistic lock coupling (Stage B, #568 PR 5)
 
-Stage B replaces the single writer mutex with per-node write locks (Leis, Scheibner, Kemper & Neumann, DaMoN 2016), so writers on disjoint subtrees proceed in parallel. Shipped in PR 5 (#816); its gate is pre-registered in [`benchmarks/concurrency/METHODOLOGY.md`](benchmarks/concurrency/METHODOLOGY.md) §10 and its bounds are `scripts/olc_bounds.py`.
+Stage B replaces the single writer mutex with per-node write locks (Leis, Scheibner, Kemper & Neumann, DaMoN 2016), so writers on disjoint subtrees proceed in parallel. Implemented in PR 5 (Refs #568); its gate is pre-registered in [`benchmarks/concurrency/METHODOLOGY.md`](benchmarks/concurrency/METHODOLOGY.md) §10 and its bounds are `scripts/olc_bounds.py`, pending the benchmark campaign.
 
 **Words.** Every branch node header keeps its 32-bit version word (§4.1): even is stable, odd is locked or obsolete (`occ::OBSOLETE`, the top bit). The tree word stays where #809 put it, heading the wrapper's boxed `Shared` block, and covers root-state transitions (empty ↔ leaf ↔ trie) and the top edge. A third word, `WriterGate`, is a quiescence flag distinct from the tree word: `with_locked` and reader fallback close it, so an exclusive section never holds the tree word odd across every lookup (L2).
 

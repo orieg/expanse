@@ -811,6 +811,7 @@ impl<T: SharedTree> Shared<T> {
         });
         if needs_reg {
             let mut writers = self.writers.lock().expect("writers poisoned");
+            writers.retain(|s| Arc::strong_count(s) > 1);
             if !writers.iter().any(|s| Arc::ptr_eq(s, &slot)) {
                 writers.push(Arc::clone(&slot));
             }
@@ -824,7 +825,8 @@ impl<T: SharedTree> Shared<T> {
     pub(crate) fn quiesce_writers(&self) {
         self.gate.close();
         let slots = {
-            let writers = self.writers.lock().expect("writers poisoned");
+            let mut writers = self.writers.lock().expect("writers poisoned");
+            writers.retain(|s| Arc::strong_count(s) > 1);
             writers.clone()
         };
         for slot in &slots {
@@ -862,10 +864,6 @@ impl<T: SharedTree> Shared<T> {
     /// and the lock is already held.
     fn write<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
         crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
-        #[cfg(feature = "std")]
-        let _fallback = self.fallback_mutex.lock().expect("fallback mutex poisoned");
-        #[cfg(feature = "std")]
-        self.quiesce_writers();
         let _g = self.write.lock().expect("writer lock poisoned");
         #[cfg(feature = "occ-stats")]
         {
@@ -904,9 +902,6 @@ impl<T: SharedTree> Shared<T> {
                 self.collector.try_advance();
             }
         }
-        drop(_g);
-        #[cfg(feature = "std")]
-        self.reopen_gate();
         r
     }
 
@@ -997,7 +992,9 @@ impl<T: SharedTree> Shared<T> {
         #[cfg(feature = "std")]
         self.quiesce_writers();
         let _g: MutexGuard<'_, ()> = self.write.lock().expect("writer lock poisoned");
-        // SAFETY: the writer mutex and WriterGate quiescence exclude all mutation.
+        // SAFETY: the writer mutex and WriterGate quiescence exclude all concurrent
+        // readers and writers, so creating a temporary unique reference to flush
+        // acceleration path cursors (`inner.clear_path()`) does not alias any concurrent access.
         let inner = unsafe { &mut *self.inner.get() };
         inner.clear_path();
         inner.set_tree_pop(self.tree_pop.load(core::sync::atomic::Ordering::Relaxed));
@@ -2021,7 +2018,7 @@ impl SyncExpanseSet {
 
     /// Removes every key from the set.
     pub fn clear(&self) {
-        self.shared.write(|s| {
+        self.shared.write_root_covered(|s| {
             s.clear();
             self.shared
                 .tree_pop
@@ -3157,7 +3154,7 @@ impl SyncExpanseMap {
 
     /// Removes every key-value pair from the map.
     pub fn clear(&self) {
-        self.shared.write(|m| {
+        self.shared.write_root_covered(|m| {
             m.clear();
             self.shared
                 .tree_pop

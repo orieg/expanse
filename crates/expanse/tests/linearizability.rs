@@ -543,3 +543,190 @@ fn test_multi_writer_parallel_disjoint_and_census() {
         }
     });
 }
+
+/// Exercises the Stage B multi-writer OLC execution path (`olc_insert_map`, `olc_remove_map`)
+/// under concurrent W = 4 writers and readers, verifying Wing-Gong linearizability
+/// on a tree-rooted trie (`Root::Tree`) across a widened key set spanning disjoint
+/// and contended expanses (Docs/ARCHITECTURE.md §4.2 Table row S6).
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_map_linearizability_tree_rooted() {
+    let map = Arc::new(SyncExpanseMap::new());
+    let history = Arc::new(Mutex::new(Vec::new()));
+
+    // Pre-populate keys so root transitions permanently to Root::Tree.
+    const PREPOP: u64 = 64;
+    for b in 1..=PREPOP {
+        map.insert(b << 56, b);
+    }
+
+    let num_threads = 4;
+    let ops_per_thread = 40;
+
+    // Widened key set spanning multiple branches and leaves:
+    let keys = [
+        (1u64 << 48) | 1, (1u64 << 48) | 2, (1u64 << 48) | 3, (1u64 << 48) | 4,
+        (2u64 << 48) | 1, (2u64 << 48) | 2, (2u64 << 48) | 3, (2u64 << 48) | 4,
+        (3u64 << 48) | 1, (3u64 << 48) | 2, (3u64 << 48) | 3, (3u64 << 48) | 4,
+        (4u64 << 48) | 1, (4u64 << 48) | 2, (4u64 << 48) | 3, (4u64 << 48) | 4,
+    ];
+
+    let mut handles = vec![];
+
+    for t_id in 0..num_threads {
+        let map_clone = Arc::clone(&map);
+        let history_clone = Arc::clone(&history);
+
+        handles.push(thread::spawn(move || {
+            let mut local_events = Vec::with_capacity(ops_per_thread);
+
+            for i in 0..ops_per_thread {
+                // Each thread accesses its dedicated branch keys and shares contention on adjacent keys:
+                let key = keys[(t_id * 4 + i) % keys.len()];
+
+                let op = match (t_id + i) % 3 {
+                    0 => Op::Insert(key, (t_id * 1000 + i) as u64),
+                    1 => Op::Remove(key),
+                    _ => Op::Get(key),
+                };
+
+                let start = Instant::now();
+                let ret = match &op {
+                    Op::Insert(k, v) => Ret::Insert(map_clone.insert(*k, *v)),
+                    Op::Remove(k) => Ret::Remove(map_clone.remove(*k)),
+                    Op::Get(k) => Ret::Get(map_clone.get(*k)),
+                };
+                let end = Instant::now();
+
+                local_events.push(Event {
+                    op,
+                    ret,
+                    start,
+                    end,
+                });
+            }
+
+            let mut h = history_clone.lock().unwrap();
+            h.extend(local_events);
+        }));
+    }
+
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    let history = history.lock().unwrap().clone();
+
+    // Group by key
+    let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
+    for e in history {
+        by_key.entry(e.op.key()).or_default().push(e);
+    }
+
+    for (key, events) in by_key {
+        assert!(
+            check_linearizability_for_key(&events),
+            "Linearizability violation on tree-rooted OLC path for key {}",
+            key
+        );
+    }
+
+    // Census and structural validation
+    map.with_locked(|inner| {
+        inner.validate();
+    });
+}
+
+/// Exercises the Stage B multi-writer OLC execution path (`olc_insert_set`, `olc_remove_set`)
+/// under concurrent W = 4 writers and readers, verifying Wing-Gong linearizability
+/// on a tree-rooted trie (`Root::Tree`) across a widened key set spanning disjoint
+/// and contended expanses (Docs/ARCHITECTURE.md §4.2 Table row S6).
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_set_linearizability_tree_rooted() {
+    let set = Arc::new(SyncExpanseSet::new());
+    let history = Arc::new(Mutex::new(Vec::new()));
+
+    const PREPOP: u64 = 64;
+    for b in 1..=PREPOP {
+        set.insert(b << 56);
+    }
+
+    let num_threads = 4;
+    let ops_per_thread = 40;
+
+    let keys = [
+        (1u64 << 48) | 1, (1u64 << 48) | 2, (1u64 << 48) | 3, (1u64 << 48) | 4,
+        (2u64 << 48) | 1, (2u64 << 48) | 2, (2u64 << 48) | 3, (2u64 << 48) | 4,
+        (3u64 << 48) | 1, (3u64 << 48) | 2, (3u64 << 48) | 3, (3u64 << 48) | 4,
+        (4u64 << 48) | 1, (4u64 << 48) | 2, (4u64 << 48) | 3, (4u64 << 48) | 4,
+    ];
+
+    let mut handles = vec![];
+
+    for t_id in 0..num_threads {
+        let set_clone = Arc::clone(&set);
+        let history_clone = Arc::clone(&history);
+
+        handles.push(thread::spawn(move || {
+            let mut local_events = Vec::with_capacity(ops_per_thread);
+
+            for i in 0..ops_per_thread {
+                let key = keys[(t_id * 4 + i) % keys.len()];
+
+                let op = match (t_id + i) % 3 {
+                    0 => SetOp::Insert(key),
+                    1 => SetOp::Remove(key),
+                    _ => SetOp::Contains(key),
+                };
+
+                let start = Instant::now();
+                let ret = match &op {
+                    SetOp::Insert(k) => SetRet::Insert(set_clone.insert(*k)),
+                    SetOp::Remove(k) => SetRet::Remove(set_clone.remove(*k)),
+                    SetOp::Contains(k) => SetRet::Contains(set_clone.contains(*k)),
+                };
+                let end = Instant::now();
+
+                local_events.push(SetEvent {
+                    op,
+                    ret,
+                    start,
+                    end,
+                });
+            }
+
+            let mut h = history_clone.lock().unwrap();
+            h.extend(local_events);
+        }));
+    }
+
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    let history = history.lock().unwrap().clone();
+
+    let mut by_key: HashMap<u64, Vec<SetEvent>> = HashMap::new();
+    for e in history {
+        by_key.entry(e.op.key()).or_default().push(e);
+    }
+
+    for (key, events) in by_key {
+        assert!(
+            check_set_linearizability_for_key(&events),
+            "Linearizability violation on tree-rooted OLC set path for key {}",
+            key
+        );
+    }
+
+    set.with_locked(|inner| {
+        inner.validate();
+    });
+}
