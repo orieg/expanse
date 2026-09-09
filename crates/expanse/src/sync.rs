@@ -874,11 +874,16 @@ impl<T: SharedTree> Shared<T> {
         let key = Arc::as_ptr(&self.collector) as usize;
         WRITER_READERS.with(|cell| {
             let mut vec = cell.borrow_mut();
+            // Prune dead collectors whose Shared tree has been dropped (M4).
+            vec.retain(|(_, r)| !r.is_orphan());
             let idx = if let Some(pos) = vec.iter().position(|(k, _)| *k == key) {
-                pos
+                // True LRU: promote accessed entry to the back (MRU) (M5).
+                let item = vec.remove(pos);
+                vec.push(item);
+                vec.len() - 1
             } else {
                 if vec.len() >= 16 {
-                    vec.remove(0);
+                    vec.remove(0); // Evict LRU entry
                 }
                 let r = self.collector.register();
                 vec.push((key, r));
@@ -1726,7 +1731,7 @@ impl SyncExpanseSet {
                 }
 
                 EdgeTag::Structural(EdgeType::Null) => {
-                    return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                    return OlcOutcome::Fallback(FallbackCause::ImmediateConversion);
                 }
 
                 EdgeTag::Structural(
@@ -2176,10 +2181,6 @@ impl SyncExpanseSet {
                         return OlcOutcome::Done(true);
                     }
                     return OlcOutcome::Fallback(FallbackCause::CapExpansion);
-                }
-
-                EdgeTag::Structural(EdgeType::FullExpanse) => {
-                    return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                 }
 
                 EdgeTag::Structural(EdgeType::Null) => {
@@ -2970,8 +2971,8 @@ impl SyncExpanseMap {
                     return OlcOutcome::Fallback(FallbackCause::ImmediateConversion);
                 }
 
-                EdgeTag::Structural(EdgeType::Null | EdgeType::FullExpanse) => {
-                    return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                EdgeTag::Structural(EdgeType::Null) => {
+                    return OlcOutcome::Fallback(FallbackCause::ImmediateConversion);
                 }
 
                 #[allow(unreachable_patterns)]
@@ -3384,10 +3385,6 @@ impl SyncExpanseMap {
                         }
                     }
                     return OlcOutcome::Fallback(FallbackCause::ImmediateConversion);
-                }
-
-                EdgeTag::Structural(EdgeType::FullExpanse) => {
-                    return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                 }
 
                 EdgeTag::Structural(EdgeType::Null) => {

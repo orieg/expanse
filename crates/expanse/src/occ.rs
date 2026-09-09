@@ -499,7 +499,6 @@ pub(crate) fn version_try_lock(v: &VersionCell) -> Result<u32, u32> {
 ///
 /// Returns `Ok(expected)` on success, or `Err(current_version)` if the version changed,
 /// was odd, obsolete, or if CAS failed.
-#[allow(dead_code)]
 #[inline]
 pub(crate) fn version_try_lock_expect(v: &VersionCell, expected: u32) -> Result<u32, u32> {
     if !expected.is_multiple_of(2) || (expected & OBSOLETE != 0) {
@@ -1161,6 +1160,10 @@ impl Collector {
     /// Queues an allocation for deferred freeing (writer side).
     pub fn retire(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
         crate::occ_stats::bump(crate::occ_stats::Stat::Retired);
+        // S4 store-buffer pairing with `try_advance` / `Reader::pin` (ARCHITECTURE.md §4.2):
+        // the retire-side epoch load is preceded by a SeqCst fence, ensuring that a retirer
+        // has a happens-before with an advance and readers pinned at the next epoch.
+        fence(Ordering::SeqCst);
         let e = self.epoch.load(Ordering::Relaxed);
         self.bins[e % BINS]
             .lock()
@@ -1212,7 +1215,6 @@ impl Collector {
                 }
             }
         }
-        crate::occ_stats::bump(crate::occ_stats::Stat::AdvanceOk);
         if self
             .epoch
             .compare_exchange(e, e + 1, Ordering::SeqCst, Ordering::Relaxed)
@@ -1220,6 +1222,7 @@ impl Collector {
         {
             return;
         }
+        crate::occ_stats::bump(crate::occ_stats::Stat::AdvanceOk);
         // Everything retired at epoch e - 1 predates every possible pin
         // in epochs e and e + 1: no live reader can hold it.
         let stale = core::mem::take(
@@ -1233,8 +1236,11 @@ impl Collector {
             if let Some(class) = class_for(g.bytes, g.align) {
                 let block = g.ptr.as_ptr().cast::<FreeBlock>();
                 let mut head = self.freelists[class].lock().expect("freelist poisoned");
-                // SAFETY: block points to a valid allocation of at least size_of::<FreeBlock>().
-                unsafe { (*block).next = head.0 };
+                // SAFETY: block was retired by a well-aligned allocation
+                // matching this size class, and grace period elapsed.
+                unsafe {
+                    (*block).next = head.0;
+                }
                 head.0 = block;
             } else {
                 free_raw(g.ptr, g.bytes, g.align);
@@ -1247,7 +1253,7 @@ impl Collector {
 
     /// Records one mutation operation and triggers `try_advance()` if `ADVANCE_EVERY` operations have elapsed.
     #[inline]
-    pub fn tick_advance(&self) {
+    pub(crate) fn tick_advance(&self) {
         #[cfg(not(feature = "advance-never"))]
         {
             if self
@@ -1297,9 +1303,9 @@ impl Collector {
         self.epoch.load(Ordering::Relaxed)
     }
 
-    /// Frees everything still queued. Only sound once no reader can be
-    /// pinned (the owning wrapper calls this on drop, when exclusive
-    /// ownership proves that).
+    /// Frees everything still queued in garbage bins and size-class freelists.
+    /// Only sound once no reader can be pinned (the owning wrapper calls this
+    /// on drop, when exclusive ownership proves that).
     pub(crate) fn drain(&self) {
         for bin in &self.bins {
             let stale = core::mem::take(&mut *bin.lock().expect("garbage bin poisoned"));
@@ -1312,16 +1318,11 @@ impl Collector {
                 .fetch_sub(freed_bytes, Ordering::Relaxed);
             crate::occ_stats::record_reclaim(freed_bytes);
         }
-    }
-}
-
-#[cfg(feature = "std")]
-impl Drop for Collector {
-    fn drop(&mut self) {
-        // Last owner: no readers remain by definition.
-        self.drain();
         for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
-            let mut cur = self.freelists[class].lock().expect("freelist poisoned").0;
+            let mut head = self.freelists[class].lock().expect("freelist poisoned");
+            let mut cur = head.0;
+            head.0 = core::ptr::null_mut();
+            drop(head);
             let layout = Layout::from_size_align(bytes, align).expect("valid node layout");
             while !cur.is_null() {
                 // SAFETY: cur was allocated with `layout`.
@@ -1331,6 +1332,14 @@ impl Drop for Collector {
                 cur = next;
             }
         }
+    }
+}
+
+#[cfg(feature = "std")]
+impl Drop for Collector {
+    fn drop(&mut self) {
+        // Frees queued garbage bins and size-class freelists.
+        self.drain();
     }
 }
 
@@ -1348,12 +1357,18 @@ fn free_raw(ptr: NonNull<u8>, bytes: usize, align: usize) {
 /// `Sync` — one per reading thread.
 #[cfg(feature = "std")]
 pub struct Reader {
-    collector: Arc<Collector>,
+    pub(crate) collector: Arc<Collector>,
     slot: Arc<Slot>,
 }
 
 #[cfg(feature = "std")]
 impl Reader {
+    /// Returns true if this reader handle is the sole owner of the underlying collector
+    /// (the owning tree has been dropped).
+    #[inline]
+    pub(crate) fn is_orphan(&self) -> bool {
+        Arc::strong_count(&self.collector) <= 1
+    }
     /// Pins the current epoch for the duration of the returned guard:
     /// nothing retired from here on is freed while the guard lives.
     ///
