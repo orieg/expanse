@@ -85,6 +85,7 @@ impl SeqVersion {
     ///
     /// Returns `Ok(old_even_version)` on success, or `Err(current_version)` if locked or changed.
     #[inline]
+    #[allow(dead_code)]
     pub(crate) fn try_lock(&self) -> Result<u64, u64> {
         let cur = self.0.load(Ordering::Relaxed);
         if !cur.is_multiple_of(2) {
@@ -99,6 +100,7 @@ impl SeqVersion {
     /// If `modified` is true, advances to `old_v + 2` (`Release`).
     /// If `modified` is false, restores `old_v` so readers do not needlessly retry.
     #[inline]
+    #[allow(dead_code)]
     pub(crate) fn unlock(&self, old_v: u64, modified: bool) {
         let cur = self.0.load(Ordering::Relaxed);
         debug_assert!(cur % 2 == 1, "unlock without lock");
