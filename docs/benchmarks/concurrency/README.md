@@ -234,3 +234,72 @@ Read against §8.2; every number is the runner's own estimator over the two-comm
 | `masstree_conc_str_w1_r8` | 2 | 14 / 15, 1.68–8.96 | 0 / 15, 0.98–1.28 | 92.6% | 0.28% | the high mode is absent from the head half (non-targeted arm; §6b names the mechanism) |
 
 The two-commit artifacts are not committed yet: pending ([#568](https://github.com/orieg/expanse/issues/568)).
+
+## 9. Multi-writer OLC gate (METHODOLOGY §10)
+
+Read against §10.2; every number is evaluated over two two-commit runs against baseline `1edfa952` and the head build's counters.
+
+**P5.1 — Writers scale on disjoint expanses** (gate: head union-lower at W ≥ 2 above W = 1 union-upper; M inserts/s):
+
+| suite | arm | W | base W = 1, run 1 / 2 | base W = 1 union | head W = 1 union | head half, run 1 / 2 | head union | verdict |
+|---|---|--:|--:|--:|--:|--:|--:|---|
+| `hot_comparison` | `set` | 2 | 7.21 / 7.21 | [7.21, 7.21] | [4.40, 4.40] | 2.33 / 2.33 | [2.33, 2.33] | **`REFUTED (writers still fall)`** |
+| `hot_comparison` | `set` | 4 | 7.21 / 7.21 | [7.21, 7.21] | [4.40, 4.40] | 1.99 / 1.99 | [1.99, 1.99] | **`REFUTED (writers still fall)`** |
+| `hot_comparison` | `set` | 8 | 7.21 / 7.21 | [7.21, 7.21] | [4.40, 4.40] | 1.79 / 1.77 | [1.77, 1.79] | **`REFUTED (writers still fall)`** |
+| `hot_comparison` | `set` | 16 | 7.21 / 7.21 | [7.21, 7.21] | [4.40, 4.40] | 0.33 / 0.32 | [0.32, 0.33] | **`REFUTED (writers still fall)`** |
+| `hot_comparison` | `map` | 2 | 5.09 / 5.08 | [5.08, 5.09] | [3.65, 3.65] | 2.30 / 2.28 | [2.28, 2.30] | **`REFUTED (writers still fall)`** |
+| `hot_comparison` | `map` | 4 | 5.09 / 5.08 | [5.08, 5.09] | [3.65, 3.65] | 1.95 / 1.95 | [1.95, 1.95] | **`REFUTED (writers still fall)`** |
+| `hot_comparison` | `map` | 8 | 5.09 / 5.08 | [5.08, 5.09] | [3.65, 3.65] | 1.83 / 1.81 | [1.81, 1.83] | **`REFUTED (writers still fall)`** |
+| `hot_comparison` | `map` | 16 | 5.09 / 5.08 | [5.08, 5.09] | [3.65, 3.65] | 0.40 / 0.38 | [0.38, 0.40] | **`REFUTED (writers still fall)`** |
+| `masstree_comparison` | `map` | 2 | 5.53 / 5.52 | [5.52, 5.53] | [3.81, 3.82] | 2.25 / 2.25 | [2.25, 2.25] | **`REFUTED (writers still fall)`** |
+| `masstree_comparison` | `map` | 4 | 5.53 / 5.52 | [5.52, 5.53] | [3.81, 3.82] | 1.95 / 1.95 | [1.95, 1.95] | **`REFUTED (writers still fall)`** |
+| `masstree_comparison` | `map` | 8 | 5.53 / 5.52 | [5.52, 5.53] | [3.81, 3.82] | 1.79 / 1.79 | [1.79, 1.79] | **`REFUTED (writers still fall)`** |
+| `masstree_comparison` | `map` | 16 | 5.53 / 5.52 | [5.52, 5.53] | [3.81, 3.82] | 0.35 / 0.35 | [0.35, 0.35] | **`REFUTED (writers still fall)`** |
+| `masstree_comparison` | `str` | 2 | 3.90 / 3.87 | [3.87, 3.90] | [3.80, 3.82] | 2.44 / 2.42 | [2.42, 2.44] | published (not a gate cell; tree bracket held) |
+| `masstree_comparison` | `str` | 4 | 3.90 / 3.87 | [3.87, 3.90] | [3.80, 3.82] | 2.19 / 2.16 | [2.16, 2.19] | published (not a gate cell; tree bracket held) |
+| `masstree_comparison` | `str` | 8 | 3.90 / 3.87 | [3.87, 3.90] | [3.80, 3.82] | 2.08 / 2.04 | [2.04, 2.08] | published (not a gate cell; tree bracket held) |
+| `masstree_comparison` | `str` | 16 | 3.90 / 3.87 | [3.87, 3.90] | [3.80, 3.82] | 0.48 / 0.48 | [0.48, 0.48] | published (not a gate cell; tree bracket held) |
+
+**P5.2 — Pre-#809 levels recovered** (gate: head union-lower above pre-#809 base halves; M inserts/s):
+
+| suite | arm | W | pre-#809 target | head half, run 1 / 2 | head union | verdict |
+|---|---|--:|--:|--:|--:|---|
+| `hot_comparison` | `set` | 4 | [4.05, 4.09] | 1.99 / 1.99 | [1.99, 1.99] | **`REFUTED (below pre-#809 base halves)`** |
+| `hot_comparison` | `set` | 8 | [3.41, 3.63] | 1.79 / 1.77 | [1.77, 1.79] | **`REFUTED (below pre-#809 base halves)`** |
+| `hot_comparison` | `map` | 4 | [3.18, 3.25] | 1.95 / 1.95 | [1.95, 1.95] | **`REFUTED (below pre-#809 base halves)`** |
+| `hot_comparison` | `map` | 8 | [2.74, 2.75] | 1.83 / 1.81 | [1.81, 1.83] | **`REFUTED (below pre-#809 base halves)`** |
+| `masstree_comparison` | `map` | 4 | [3.22, 3.34] | 1.95 / 1.95 | [1.95, 1.95] | **`REFUTED (below pre-#809 base halves)`** |
+| `masstree_comparison` | `map` | 8 | [2.62, 2.75] | 1.79 / 1.79 | [1.79, 1.79] | **`REFUTED (below pre-#809 base halves)`** |
+
+**P5.3 — Restarts stay bounded** (safety factor 2.0; instantiated with t_hold = 34.2 ns):
+
+| suite | arm | W | t_op (ns) | ceiling (restarts/op) | observed, run 1 / 2 | verdict |
+|---|---|--:|--:|--:|--:|---|
+| `hot_comparison` | `set` | 2 | 227.5 | 0.354 | pending | pending |
+| `hot_comparison` | `set` | 4 | 227.5 | 1.261 | pending | pending |
+| `hot_comparison` | `set` | 8 | 227.5 | 4.257 | pending | pending |
+| `hot_comparison` | `set` | 16 | 227.5 | 21.037 | pending | pending |
+| `hot_comparison` | `map` | 2 | 274.2 | 0.285 | pending | pending |
+| `hot_comparison` | `map` | 4 | 274.2 | 0.983 | pending | pending |
+| `hot_comparison` | `map` | 8 | 274.2 | 3.082 | pending | pending |
+| `hot_comparison` | `map` | 16 | 274.2 | 12.752 | pending | pending |
+| `masstree_comparison` | `map` | 2 | 262.5 | 0.300 | pending | pending |
+| `masstree_comparison` | `map` | 4 | 262.5 | 1.040 | pending | pending |
+| `masstree_comparison` | `map` | 8 | 262.5 | 3.314 | pending | pending |
+| `masstree_comparison` | `map` | 16 | 262.5 | 14.236 | pending | pending |
+
+**P5.4 — Contended-line bound at W = 16** (ceiling = 1 / (t_line + t_hold); t_line = 33.4 ns, t_hold = 34.2 ns):
+
+| suite | arm | ceiling (M/s) | head union (M/s) | verdict |
+|---|---|--:|--:|---|
+| `hot_comparison` | `set` | 14.80 | [0.32, 0.33] | `PASS (at or below contended-line ceiling)` |
+| `hot_comparison` | `map` | 14.80 | [0.38, 0.40] | `PASS (at or below contended-line ceiling)` |
+| `masstree_comparison` | `map` | 14.80 | [0.35, 0.35] | `PASS (at or below contended-line ceiling)` |
+
+**Controls — C2 readers alongside writers at W = 1 R = 8** (predicted inside [97, 104] ns; lower is faster):
+
+| suite | arm | target union (ns) | head half, run 1 / 2 (ns) | verdict |
+|---|---|--:|--:|---|
+| `hot_comparison` | `set` | [97.0, 104.0] | 94.4 / 95.0 | **`MOVED (faster: 94.4 / 95.0 ns vs [97.0, 104.0] ns)`** |
+| `hot_comparison` | `map` | [97.0, 104.0] | 94.0 / 94.3 | **`MOVED (faster: 94.0 / 94.3 ns vs [97.0, 104.0] ns)`** |
+| `masstree_comparison` | `map` | [97.0, 104.0] | 93.7 / 93.4 | **`MOVED (faster: 93.7 / 93.4 ns vs [97.0, 104.0] ns)`** |

@@ -195,6 +195,11 @@ def check_artifact(rel: str, obj) -> list[str]:
     if rel in NO_ROUNDS:
         return problems
 
+    if Path(rel).name.startswith("counters_"):
+        if not obj.get("rounds_raw"):
+            problems.append(f"{rel}: missing `rounds_raw`")
+        return problems
+
     lists = cell_lists(obj)
     if not lists:
         problems.append(f"{rel}: no cell list found under any of {CELL_KEYS}")
@@ -285,7 +290,14 @@ def findings_for(rel: str, obj) -> list[str]:
 def artifacts() -> list[Path]:
     out = []
     for suite in SUITES:
-        out.extend(sorted((BENCH / suite / "results").glob("baseline_*.json")))
+        res = BENCH / suite / "results"
+        if not res.is_dir():
+            continue
+        out.extend(sorted(res.glob("baseline_*.json")))
+        mwo = res / "multi_writer_olc"
+        if mwo.is_dir():
+            out.extend(sorted(mwo.glob("baseline_*.json")))
+            out.extend(sorted(mwo.glob("counters_*.json")))
     return out
 
 

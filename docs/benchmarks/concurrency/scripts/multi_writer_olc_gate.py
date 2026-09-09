@@ -140,7 +140,9 @@ def evaluate(load=default_load) -> dict:
         a = arts[suite]
         ab = a["ab_pair"]
         w1_heads = [writer_mops((_cell(x, "throughput", arm, 1, 0) or {}).get("head")) for x in ab]
+        w1_bases = [writer_mops((_cell(x, "throughput", arm, 1, 0) or {}).get("base")) for x in ab]
         w1_u = union(w1_heads)
+        w1_base_u = union(w1_bases)
         is_gate = (suite, arm) in GATE_ARMS
 
         for w in C1_WRITERS:
@@ -151,6 +153,8 @@ def evaluate(load=default_load) -> dict:
                 "arm": arm,
                 "writers": w,
                 "is_gate": is_gate,
+                "w1_base_halves": w1_bases,
+                "w1_base_union": w1_base_u,
                 "w1_union": w1_u,
                 "head_union": w_u,
                 "head_halves": w_heads,
@@ -277,8 +281,10 @@ def evaluate(load=default_load) -> dict:
             row["verdict"] = "pending"
         elif target[0] <= c2_u[0] and c2_u[1] <= target[1]:
             row["verdict"] = "PASS (inside #809 head-half union)"
+        elif c2_u[1] < target[0]:
+            row["verdict"] = f"MOVED (faster: {_pair(c2_heads, 1)} ns vs [{target[0]:.1f}, {target[1]:.1f}] ns)"
         else:
-            row["verdict"] = f"MOVED (outside [{target[0]:.1f}, {target[1]:.1f}] ns)"
+            row["verdict"] = f"MOVED (slower: {_pair(c2_heads, 1)} ns vs [{target[0]:.1f}, {target[1]:.1f}] ns)"
         out["controls"].append(row)
 
     return out
@@ -316,13 +322,14 @@ def render(load=default_load) -> list[str]:
         "",
         "**P5.1 — Writers scale on disjoint expanses** (gate: head union-lower at W ≥ 2 above W = 1 union-upper; M inserts/s):",
         "",
-        "| suite | arm | W | W = 1 union | head half, run 1 / 2 | head union | verdict |",
-        "|---|---|--:|--:|--:|--:|---|",
+        "| suite | arm | W | base W = 1, run 1 / 2 | base W = 1 union | head W = 1 union | head half, run 1 / 2 | head union | verdict |",
+        "|---|---|--:|--:|--:|--:|--:|--:|---|",
     ]
     for row in r["p51"]:
         out.append(
-            f"| `{row['suite']}` | `{row['arm']}` | {row['writers']} | {_u(row['w1_union'])} | "
-            f"{_pair(row['head_halves'])} | {_u(row['head_union'])} | {_verdict(row['verdict'])} |"
+            f"| `{row['suite']}` | `{row['arm']}` | {row['writers']} | {_pair(row['w1_base_halves'])} | "
+            f"{_u(row['w1_base_union'])} | {_u(row['w1_union'])} | {_pair(row['head_halves'])} | "
+            f"{_u(row['head_union'])} | {_verdict(row['verdict'])} |"
         )
 
     out += [
@@ -367,7 +374,7 @@ def render(load=default_load) -> list[str]:
 
     out += [
         "",
-        "**Controls — C2 readers alongside writers at W = 1 R = 8** (predicted inside [97, 104] ns):",
+        "**Controls — C2 readers alongside writers at W = 1 R = 8** (predicted inside [97, 104] ns; lower is faster):",
         "",
         "| suite | arm | target union (ns) | head half, run 1 / 2 (ns) | verdict |",
         "|---|---|--:|--:|---|",
