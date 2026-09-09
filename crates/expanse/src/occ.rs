@@ -456,39 +456,48 @@ pub(crate) fn version_try_lock(v: &VersionCell) -> Result<u32, u32> {
     if !cur.is_multiple_of(2) || (cur & OBSOLETE != 0) {
         return Err(cur);
     }
-    match v.compare_exchange_weak(cur, cur + 1, Ordering::Relaxed, Ordering::Relaxed) {
-        Ok(val) => {
-            fence(Ordering::Acquire);
-            Ok(val)
-        }
-        Err(actual) => Err(actual),
-    }
+    v.compare_exchange(cur, cur + 1, Ordering::Acquire, Ordering::Relaxed)
+}
+
+/// Marks an actively locked node as [`OBSOLETE`].
+///
+/// Must be called while holding the lock (version is odd). Sets `OBSOLETE | 1`
+/// with release ordering so that when `NodeLock` drops, `version_unlock` will
+/// preserve the obsolete state rather than restoring an even version.
+#[allow(dead_code)]
+#[inline]
+pub(crate) fn version_obsolete_locked(v: &VersionCell) {
+    let cur = v.load(Ordering::Relaxed);
+    debug_assert!(
+        cur % 2 == 1,
+        "node must be locked when calling version_obsolete_locked"
+    );
+    v.store(OBSOLETE | cur, Ordering::Release);
 }
 
 /// Releases an exclusive write lock on a node's version word.
 ///
 /// Follows the OLC protocol specified in `docs/ARCHITECTURE.md` §4.2:
+/// - If the node was marked [`OBSOLETE`], the obsolete bit and odd parity are preserved.
 /// - If `modified` is true, advances the version to `old_v + 2`, invalidating any
 ///   concurrent optimistic reader that sampled `old_v`.
 /// - If `modified` is false, restores `old_v`, preventing spurious reader retries
 ///   on nodes that were locked during speculative descent or split sizing but left unmodified.
-///
-/// Executes a release fence prior to storing the updated version to ensure that all
-/// node mutations are visible to readers and subsequent writers before the node is unlocked.
 #[allow(dead_code)]
 #[inline]
 pub(crate) fn version_unlock(v: &VersionCell, old_v: u32, modified: bool) {
-    debug_assert!(
-        v.load(Ordering::Relaxed) % 2 == 1,
-        "version_unlock without lock"
-    );
-    fence(Ordering::Release);
+    let cur = v.load(Ordering::Relaxed);
+    debug_assert!(cur % 2 == 1, "version_unlock without lock");
+    // If marked OBSOLETE while locked, preserve the OBSOLETE state.
+    if cur & OBSOLETE != 0 {
+        return;
+    }
     let next = if modified {
         old_v.wrapping_add(2)
     } else {
         old_v
     };
-    v.store(next, Ordering::Relaxed);
+    v.store(next, Ordering::Release);
 }
 
 /// Engine boundary for [`version_try_lock`]: tries to lock `v` when `OCC = true`.
@@ -527,10 +536,17 @@ pub(crate) unsafe fn version_unlock_if_ptr<const OCC: bool>(
 
 /// An RAII guard representing exclusive write access to a branch node `N`.
 ///
+/// An RAII guard representing exclusive write access to a branch node `N`.
+///
 /// Acquired via [`version_try_lock`]. On drop, automatically unlocks the node
-/// via [`version_unlock`] in LIFO order. If modified, the node's version advances
-/// to `old_v + 2` (invalidating concurrent optimistic readers); if unmodified,
-/// it restores `old_v` (preventing spurious reader retries).
+/// via [`version_unlock`] in LIFO order.
+///
+/// - Defaults to `modified = true` (fail-closed): if a writer panics or returns
+///   early without explicit cleanup, the version advances to invalidate readers.
+/// - If marked obsolete via [`mark_obsolete`](Self::mark_obsolete), or if dropped
+///   during panic unwinding, the node is poisoned as [`OBSOLETE`].
+/// - If unmodified, callers can explicitly call [`abort_unmodified`](Self::abort_unmodified)
+///   to restore the previous version.
 ///
 /// # Invariant & Safety
 ///
@@ -543,6 +559,7 @@ pub(crate) struct NodeLock<'a, N> {
     version: &'a VersionCell,
     old_v: u32,
     modified: core::cell::Cell<bool>,
+    obsolete: core::cell::Cell<bool>,
 }
 
 #[allow(dead_code)]
@@ -560,7 +577,8 @@ impl<'a, N> NodeLock<'a, N> {
             ptr,
             version: v,
             old_v,
-            modified: core::cell::Cell::new(false),
+            modified: core::cell::Cell::new(true),
+            obsolete: core::cell::Cell::new(false),
         })
     }
 
@@ -575,7 +593,8 @@ impl<'a, N> NodeLock<'a, N> {
             ptr,
             version: v,
             old_v,
-            modified: core::cell::Cell::new(false),
+            modified: core::cell::Cell::new(true),
+            obsolete: core::cell::Cell::new(false),
         }
     }
 
@@ -585,10 +604,34 @@ impl<'a, N> NodeLock<'a, N> {
         self.modified.set(true);
     }
 
+    /// Declares that no modifications were performed on the node under this lock.
+    ///
+    /// Reverts version advancement on drop, preventing spurious reader retries.
+    #[inline(always)]
+    pub(crate) fn abort_unmodified(&self) {
+        self.modified.set(false);
+    }
+
+    /// Marks the node as [`OBSOLETE`].
+    ///
+    /// When dropped, the node's version word will retain `OBSOLETE | 1`, preventing
+    /// concurrent and future readers from validating through this node.
+    #[inline(always)]
+    pub(crate) fn mark_obsolete(&self) {
+        self.obsolete.set(true);
+        version_obsolete_locked(self.version);
+    }
+
     /// Returns whether the node was marked modified.
     #[inline(always)]
     pub(crate) fn is_modified(&self) -> bool {
         self.modified.get()
+    }
+
+    /// Returns whether the node was marked obsolete.
+    #[inline(always)]
+    pub(crate) fn is_obsolete(&self) -> bool {
+        self.obsolete.get()
     }
 
     /// Returns the raw pointer to the node.
@@ -622,7 +665,29 @@ impl<N> core::ops::Deref for NodeLock<'_, N> {
 impl<N> Drop for NodeLock<'_, N> {
     #[inline]
     fn drop(&mut self) {
-        version_unlock(self.version, self.old_v, self.modified.get());
+        if self.obsolete.get() || std::thread::panicking() {
+            version_obsolete_locked(self.version);
+        } else {
+            version_unlock(self.version, self.old_v, self.modified.get());
+        }
+    }
+}
+
+/// An RAII guard representing an active writer operation within [`WriterGate`].
+///
+/// On drop or panic unwinding, automatically clears the in-flight writer status,
+/// preventing quiescence deadlocks.
+#[allow(dead_code)]
+pub(crate) struct WriterGuard<'a> {
+    gate: &'a WriterGate,
+    in_flight: &'a AtomicUsize,
+}
+
+#[allow(dead_code)]
+impl<'a> Drop for WriterGuard<'a> {
+    #[inline]
+    fn drop(&mut self) {
+        self.gate.exit_writer(self.in_flight);
     }
 }
 
@@ -668,28 +733,36 @@ impl WriterGate {
         self.closed.store(false, Ordering::Release);
     }
 
-    /// Writer op entry: publishes in-flight status, executes `fence(Ordering::SeqCst)`,
-    /// and verifies that the gate is not closed.
+    /// Writer op entry: verifies the gate is open, publishes in-flight status,
+    /// executes `fence(Ordering::SeqCst)`, and re-verifies that the gate is not closed.
     ///
-    /// Returns `true` if entry succeeded, or `false` if the gate is closed and the writer
-    /// must back off.
+    /// Returns `Some(WriterGuard)` if entry succeeded, or `None` if the gate is closed.
     #[cfg(feature = "std")]
     #[inline]
-    pub(crate) fn enter_writer(&self, in_flight: &AtomicUsize) -> bool {
+    pub(crate) fn enter_writer<'a>(
+        &'a self,
+        in_flight: &'a AtomicUsize,
+    ) -> Option<WriterGuard<'a>> {
+        if self.is_closed() {
+            return None;
+        }
         in_flight.store(1, Ordering::Relaxed);
         fence(Ordering::SeqCst);
         if self.is_closed() {
             in_flight.store(0, Ordering::Relaxed);
-            false
+            None
         } else {
-            true
+            Some(WriterGuard {
+                gate: self,
+                in_flight,
+            })
         }
     }
 
     /// Writer op exit: clears the in-flight status.
     #[cfg(feature = "std")]
     #[inline]
-    pub(crate) fn exit_writer(in_flight: &AtomicUsize) {
+    pub(crate) fn exit_writer(&self, in_flight: &AtomicUsize) {
         in_flight.store(0, Ordering::Release);
     }
 }
@@ -718,7 +791,8 @@ impl Default for WriterGate {
 ///    [`OBSOLETE`] before its incoming slot in the parent is rewritten.
 /// 5. **Bottom-Up Population Convergence (S7)**: Ancestor `pop0` counts must be updated
 ///    via isolated bottom-up locks conforming to Rule (a) and Rule (b).
-pub unsafe trait OlcEngine: Send {}
+#[allow(dead_code)]
+pub(crate) unsafe trait OlcEngine: Send {}
 
 /// Reader: loads a node's seqlock version word, returning `None` if
 /// torn (odd). Node versions are `u32` (half-words; see Phase 7 node
@@ -899,7 +973,7 @@ impl Collector {
             }
         }
         crate::occ_stats::bump(crate::occ_stats::Stat::AdvanceOk);
-        self.epoch.store(e + 1, Ordering::Release);
+        self.epoch.store(e + 1, Ordering::SeqCst);
         // Everything retired at epoch e - 1 predates every possible pin
         // in epochs e and e + 1: no live reader can hold it.
         let stale = core::mem::take(
@@ -1193,9 +1267,7 @@ mod tests {
             let lock = unsafe { NodeLock::try_lock(&raw mut dummy, &cell) }.expect("lock acquired");
             assert_eq!(*lock, &raw mut dummy);
             assert_eq!(lock.old_version(), 0);
-            assert!(!lock.is_modified());
-            lock.mark_modified();
-            assert!(lock.is_modified());
+            assert!(lock.is_modified()); // Fail closed: modified by default
             // cell is odd while locked
             assert_eq!(cell.load(Ordering::Relaxed), 1);
         }
@@ -1212,9 +1284,28 @@ mod tests {
             let lock = unsafe { NodeLock::try_lock(&raw mut dummy, &cell) }.expect("lock acquired");
             assert_eq!(lock.old_version(), 4);
             assert_eq!(cell.load(Ordering::Relaxed), 5);
-            // Dropped without mark_modified: restores old_v = 4
+            // Explicitly abort unmodified: restores old_v = 4
+            lock.abort_unmodified();
+            assert!(!lock.is_modified());
         }
         assert_eq!(cell.load(Ordering::Relaxed), 4);
+    }
+
+    #[test]
+    fn node_lock_and_unlock_obsolete() {
+        let cell = VersionCell::new(0);
+        let mut dummy = 1234u64;
+        {
+            // SAFETY: dummy is a live stack variable.
+            let lock = unsafe { NodeLock::try_lock(&raw mut dummy, &cell) }.expect("lock acquired");
+            lock.mark_obsolete();
+            assert!(lock.is_obsolete());
+            assert_eq!(cell.load(Ordering::Relaxed), OBSOLETE | 1);
+        }
+        // Dropped with obsolete = true: retains OBSOLETE | 1
+        assert_eq!(cell.load(Ordering::Relaxed), OBSOLETE | 1);
+        // Future try_lock fails due to OBSOLETE
+        assert!(version_try_lock(&cell).is_err());
     }
 
     #[test]
@@ -1224,22 +1315,28 @@ mod tests {
         assert!(!gate.is_closed());
 
         // Normal entry when open
-        assert!(gate.enter_writer(&in_flight));
-        assert_eq!(in_flight.load(Ordering::Relaxed), 1);
-        WriterGate::exit_writer(&in_flight);
+        {
+            let guard = gate.enter_writer(&in_flight);
+            assert!(guard.is_some());
+            assert_eq!(in_flight.load(Ordering::Relaxed), 1);
+        }
         assert_eq!(in_flight.load(Ordering::Relaxed), 0);
 
         // Quiescence closure
         gate.close();
         assert!(gate.is_closed());
         // Entry fails when closed
-        assert!(!gate.enter_writer(&in_flight));
+        assert!(gate.enter_writer(&in_flight).is_none());
         assert_eq!(in_flight.load(Ordering::Relaxed), 0);
 
         gate.open();
         assert!(!gate.is_closed());
-        assert!(gate.enter_writer(&in_flight));
-        WriterGate::exit_writer(&in_flight);
+        {
+            let guard = gate.enter_writer(&in_flight);
+            assert!(guard.is_some());
+            assert_eq!(in_flight.load(Ordering::Relaxed), 1);
+        }
+        assert_eq!(in_flight.load(Ordering::Relaxed), 0);
     }
 }
 
@@ -1563,6 +1660,7 @@ mod loom_tests {
         loom::model(|| {
             let gate = Arc::new(WriterGate::new());
             let w1_inflight = Arc::new(AtomicUsize::new(0));
+            let w2_inflight = Arc::new(AtomicUsize::new(0));
             let in_quiescence = Arc::new(AtomicBool::new(false));
             let stores_during_quiescence = Arc::new(AtomicUsize::new(0));
 
@@ -1574,11 +1672,28 @@ mod loom_tests {
             );
             let w1 = loom::thread::spawn(move || {
                 for _ in 0..2 {
-                    if g1.enter_writer(&if1) {
+                    if let Some(_guard) = g1.enter_writer(&if1) {
                         if q1.load(Ordering::Relaxed) {
                             sq1.fetch_add(1, Ordering::SeqCst);
                         }
-                        WriterGate::exit_writer(&if1);
+                        break;
+                    }
+                    loom::thread::yield_now();
+                }
+            });
+
+            let (g2, if2, q2, sq2) = (
+                Arc::clone(&gate),
+                Arc::clone(&w2_inflight),
+                Arc::clone(&in_quiescence),
+                Arc::clone(&stores_during_quiescence),
+            );
+            let w2 = loom::thread::spawn(move || {
+                for _ in 0..2 {
+                    if let Some(_guard) = g2.enter_writer(&if2) {
+                        if q2.load(Ordering::Relaxed) {
+                            sq2.fetch_add(1, Ordering::SeqCst);
+                        }
                         break;
                     }
                     loom::thread::yield_now();
@@ -1587,7 +1702,9 @@ mod loom_tests {
 
             // Coordinator (with_locked / fallback reader)
             gate.close();
-            while w1_inflight.load(Ordering::Relaxed) != 0 {
+            while w1_inflight.load(Ordering::Relaxed) != 0
+                || w2_inflight.load(Ordering::Relaxed) != 0
+            {
                 loom::thread::yield_now();
             }
 
@@ -1601,6 +1718,7 @@ mod loom_tests {
             gate.open();
 
             w1.join().unwrap();
+            w2.join().unwrap();
         });
     }
 
@@ -1631,13 +1749,21 @@ mod loom_tests {
 
             let now = c.epoch.load(Ordering::SeqCst);
             assert!(now <= 1, "epoch advanced twice past a live pin: now {now}");
-            assert!(
-                c.retained_bytes() == 64,
+            assert_eq!(
+                c.retained_bytes(),
+                64,
                 "retired block reclaimed while reader remained pinned"
             );
 
             drop(pin);
             drop(reader);
+            c.try_advance();
+            c.try_advance();
+            assert_eq!(
+                c.retained_bytes(),
+                0,
+                "retired block not reclaimed after reader unpinned"
+            );
             c.drain();
         });
     }
