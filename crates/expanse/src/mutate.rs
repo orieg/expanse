@@ -3054,7 +3054,9 @@ pub(crate) unsafe fn free_subtree<const MAP: bool>(a: &NodeAlloc, edge: &mut Edg
 
 #[cfg(test)]
 mod tests {
+    #[cfg(debug_assertions)]
     use super::*;
+    #[cfg(debug_assertions)]
     use core::ptr::NonNull;
     #[cfg(debug_assertions)]
     use std::sync::Arc;

@@ -204,9 +204,9 @@ Two assumptions are stated rather than proven: a per-node word is a `u32`, so a 
 
 **Deferred mode must be entered before an allocator ever slab-carves** (`NodeAlloc::defer_to` asserts this). The sync wrappers therefore share a populated structure by rebuilding it through pre-deferred allocators.
 
-### 4.2 Multi-writer optimistic lock coupling (Stage B specification, #568 plan PR 4)
+### 4.2 Multi-writer optimistic lock coupling (Stage B, #568 PR 5)
 
-Stage B replaces the single writer mutex with per-node write locks (Leis, Scheibner, Kemper & Neumann, DaMoN 2016), so writers on disjoint subtrees proceed in parallel. This section is the specification PR 5 implements against; its gate is pre-registered in [`benchmarks/concurrency/METHODOLOGY.md`](benchmarks/concurrency/METHODOLOGY.md) §10 and its bounds are `scripts/olc_bounds.py`. Nothing here is built yet.
+Stage B replaces the single writer mutex with per-node write locks (Leis, Scheibner, Kemper & Neumann, DaMoN 2016), so writers on disjoint subtrees proceed in parallel. Shipped in PR 5 (#816); its gate is pre-registered in [`benchmarks/concurrency/METHODOLOGY.md`](benchmarks/concurrency/METHODOLOGY.md) §10 and its bounds are `scripts/olc_bounds.py`.
 
 **Words.** Every branch node header keeps its 32-bit version word (§4.1): even is stable, odd is locked or obsolete (`occ::OBSOLETE`, the top bit). The tree word stays where #809 put it, heading the wrapper's boxed `Shared` block, and covers root-state transitions (empty ↔ leaf ↔ trie) and the top edge. A third word, `WriterGate`, is a quiescence flag distinct from the tree word: `with_locked` and reader fallback close it, so an exclusive section never holds the tree word odd across every lookup (L2).
 

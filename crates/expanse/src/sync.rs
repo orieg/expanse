@@ -51,6 +51,11 @@ use core::cell::UnsafeCell;
 use std::hash::{BuildHasher, RandomState};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+#[cfg(not(loom))]
+type AtomicUsize = core::sync::atomic::AtomicUsize;
+#[cfg(loom)]
+type AtomicUsize = loom::sync::atomic::AtomicUsize;
+
 /// By-value snapshot of a tree's root state (possibly torn — the reader
 /// validates before acting on it).
 #[derive(Clone, Copy)]
@@ -697,7 +702,7 @@ struct Shared<T> {
     #[cfg(feature = "std")]
     fallback_mutex: Mutex<()>,
     #[cfg(feature = "std")]
-    writers: Mutex<Vec<Arc<core::sync::atomic::AtomicUsize>>>,
+    writers: Mutex<Vec<Arc<AtomicUsize>>>,
     /// Token of the thread that last held `write`, for the `Handoffs`
     /// counter. Read and written only under the lock — no coherence traffic
     /// beyond the line it shares (which [`layout_report`] names). Diagnostic
@@ -788,7 +793,7 @@ impl<T: SharedTree> Shared<T> {
         use std::cell::RefCell;
         std::thread_local! {
             static REGISTERED: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
-            static SLOT: Arc<core::sync::atomic::AtomicUsize> = Arc::new(core::sync::atomic::AtomicUsize::new(0));
+            static SLOT: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
         }
         let slot = SLOT.with(Arc::clone);
         let key = self.gate.id();
@@ -811,7 +816,7 @@ impl<T: SharedTree> Shared<T> {
             }
         }
         // SAFETY: slot is allocated in a static Arc and outlives the thread.
-        let slot_ref = unsafe { &*(&*slot as *const core::sync::atomic::AtomicUsize) };
+        let slot_ref = unsafe { &*(&*slot as *const AtomicUsize) };
         self.gate.enter_writer(slot_ref)
     }
 
@@ -1544,7 +1549,7 @@ impl SyncExpanseSet {
                         return OlcOutcome::Retry;
                     };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if unsafe { edge_ptr.read() } != edge {
+                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                         crate::occ::version_unlock(p_cell, old_v, false);
                         return OlcOutcome::Retry;
                     }
@@ -1621,7 +1626,7 @@ impl SyncExpanseSet {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if unsafe { edge_ptr.read() } != edge {
+                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                             crate::occ::version_unlock(p_cell, old_v, false);
                             return OlcOutcome::Retry;
                         }
@@ -1680,7 +1685,7 @@ impl SyncExpanseSet {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if unsafe { edge_ptr.read() } != edge {
+                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                             crate::occ::version_unlock(p_cell, old_v, false);
                             return OlcOutcome::Retry;
                         }
@@ -1926,7 +1931,7 @@ impl SyncExpanseSet {
                         return OlcOutcome::Retry;
                     };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if unsafe { edge_ptr.read() } != edge {
+                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                         crate::occ::version_unlock(p_cell, old_v, false);
                         return OlcOutcome::Retry;
                     }
@@ -1986,7 +1991,7 @@ impl SyncExpanseSet {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if unsafe { edge_ptr.read() } != edge {
+                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                             crate::occ::version_unlock(p_cell, old_v, false);
                             return OlcOutcome::Retry;
                         }
@@ -2490,7 +2495,7 @@ impl SyncExpanseMap {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if unsafe { edge_ptr.read() } != edge {
+                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                             crate::occ::version_unlock(p_cell, old_v, false);
                             return OlcOutcome::Retry;
                         }
@@ -2518,7 +2523,7 @@ impl SyncExpanseMap {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if unsafe { edge_ptr.read() } != edge {
+                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                             crate::occ::version_unlock(p_cell, old_v, false);
                             return OlcOutcome::Retry;
                         }
@@ -2583,7 +2588,7 @@ impl SyncExpanseMap {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if unsafe { edge_ptr.read() } != edge {
+                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                             crate::occ::version_unlock(p_cell, old_v, false);
                             return OlcOutcome::Retry;
                         }
@@ -2606,7 +2611,7 @@ impl SyncExpanseMap {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if unsafe { edge_ptr.read() } != edge {
+                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                             crate::occ::version_unlock(p_cell, old_v, false);
                             return OlcOutcome::Retry;
                         }
@@ -2651,7 +2656,7 @@ impl SyncExpanseMap {
                                 return OlcOutcome::Retry;
                             };
                             // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                            if unsafe { edge_ptr.read() } != edge {
+                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                                 crate::occ::version_unlock(p_cell, old_v, false);
                                 return OlcOutcome::Retry;
                             }
@@ -2673,7 +2678,7 @@ impl SyncExpanseMap {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if unsafe { edge_ptr.read() } != edge {
+                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                             crate::occ::version_unlock(p_cell, old_v, false);
                             return OlcOutcome::Retry;
                         }
@@ -2694,7 +2699,7 @@ impl SyncExpanseMap {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if unsafe { edge_ptr.read() } != edge {
+                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                             crate::occ::version_unlock(p_cell, old_v, false);
                             return OlcOutcome::Retry;
                         }
@@ -2959,7 +2964,7 @@ impl SyncExpanseMap {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if unsafe { edge_ptr.read() } != edge {
+                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                             crate::occ::version_unlock(p_cell, old_v, false);
                             return OlcOutcome::Retry;
                         }
@@ -3029,7 +3034,7 @@ impl SyncExpanseMap {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if unsafe { edge_ptr.read() } != edge {
+                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                             crate::occ::version_unlock(p_cell, old_v, false);
                             return OlcOutcome::Retry;
                         }
@@ -3075,7 +3080,7 @@ impl SyncExpanseMap {
                                 return OlcOutcome::Retry;
                             };
                             // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                            if unsafe { edge_ptr.read() } != edge {
+                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                                 crate::occ::version_unlock(p_cell, old_v, false);
                                 return OlcOutcome::Retry;
                             }
@@ -3116,7 +3121,7 @@ impl SyncExpanseMap {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if unsafe { edge_ptr.read() } != edge {
+                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                             crate::occ::version_unlock(p_cell, old_v, false);
                             return OlcOutcome::Retry;
                         }

@@ -245,6 +245,29 @@ On 32-bit targets the unsuffixed `expanse::SetCursor` / `MapCursor` re-export th
 cursor types, mirroring the `ExpanseSet` / `ExpanseMap` re-point, so downstream
 code names the same types on either width.
 
+### 3.6 Multi-Writer Optimistic Lock Coupling (Stage B, issue #568)
+
+Stage B replaces the single writer mutex with optimistic lock coupling (OLC) over per-node version words (`docs/ARCHITECTURE.md` §4.2), enabling concurrent writers on disjoint key expanses to progress in parallel:
+
+1. **Writer Gate & Epoch Pinning**:
+   - The writer enters via `WriterGate`, publishing its in-flight slot and executing a `SeqCst` fence to check whether an exclusive quiescence or root transition is underway (`gate.is_closed()`).
+   - Registers and pins the thread in the Epoch-Based Reclamation (EBR) `Collector`.
+2. **Optimistic Hand-Over-Hand Descent**:
+   - The writer descends the trie validating version words of branch nodes (`BranchL3`, `BranchL7`, `BranchB`, `BranchU`) hand-over-hand without acquiring write locks.
+   - If an odd version (active lock or obsolete) or version mismatch is observed, the writer restarts from the root.
+3. **Parent Version Try-Lock**:
+   - Before mutating the terminal leaf array (`LeafB1`, `Leaf1`..`Leaf7`) or immediate edge in place, the writer attempts an atomic CAS try-lock (`even → even + 1`, `Acquire`) on the parent branch's version word.
+   - On CAS failure, held locks are dropped in LIFO order and descent restarts.
+4. **Terminal Store & Unlock**:
+   - The key or value is written into the leaf array.
+   - The parent lock is released with a `Release` store (`locked_version + 1`), advancing the stable version counter to `old_v + 2`.
+5. **Bottom-Up Ancestor Census Bump**:
+   - To preserve invariant S7 (`pop0(e) + 1 == |keys under e|`), the writer walks upward through its recorded ancestor frames, taking a brief lock on each ancestor, updating `pop0`, and releasing.
+   - The atomic tree population (`Shared::tree_pop`) is updated via `fetch_add`/`fetch_sub`.
+6. **Bounded Restarts & Quiescent Fallback**:
+   - Retries are bounded to `MAX_RETRIES` (64).
+   - If retries are exhausted or `gate.is_closed()` is observed, the writer cleanly drops its in-flight guard and joins the serialized `write_root_covered` path behind `fallback_mutex`, guaranteeing starvation freedom.
+
 ---
 
 ## 4. Microarchitecture Acceleration (`x86-64-v3` vs `v1`)

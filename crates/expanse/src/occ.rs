@@ -33,7 +33,7 @@ use std::sync::Mutex;
 #[cfg(loom)]
 use loom::sync::Mutex;
 #[cfg(loom)]
-use loom::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering, fence};
+use loom::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering, fence};
 
 #[cfg(feature = "std")]
 use core::alloc::Layout;
