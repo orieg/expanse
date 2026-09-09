@@ -1,6 +1,6 @@
 [package]
 name = "expanse-trie"
-version = "0.6.0"
+version = "0.7.0"
 description = "Expanse: clean-room, pure-Rust Judy arrays (expanse-partitioned digital tries) for 64-bit and 32-bit targets"
 keywords = ["judy", "libjudy", "radix-trie", "trie", "sparse-array"]
 categories = ["data-structures", "no-std"]
