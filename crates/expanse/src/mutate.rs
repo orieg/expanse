@@ -3056,14 +3056,17 @@ pub(crate) unsafe fn free_subtree<const MAP: bool>(a: &NodeAlloc, edge: &mut Edg
 mod tests {
     use super::*;
     use core::ptr::NonNull;
+    #[cfg(debug_assertions)]
     use std::sync::Arc;
 
+    #[cfg(debug_assertions)]
     struct TestAllocGuard<'a> {
         alloc: &'a NodeAlloc,
         ptr: NonNull<u8>,
         size: usize,
     }
 
+    #[cfg(debug_assertions)]
     impl Drop for TestAllocGuard<'_> {
         fn drop(&mut self) {
             // SAFETY: ptr was allocated with size on alloc and is freed once on drop/unwind.

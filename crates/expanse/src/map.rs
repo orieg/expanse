@@ -78,6 +78,13 @@ pub struct ExpanseMap {
 // allocations; not `Sync`, shared access goes through `SyncExpanseMap`.
 unsafe impl Send for ExpanseMap {}
 
+// SAFETY: Scaffolding for Stage B multi-writer OLC (PR #815 engine prep).
+// The OlcEngine contract specifies the protocol invariants that the PR 5 engine
+// implementation fulfils; no multi-writer mutations are executed or bounded by
+// this marker trait yet.
+#[cfg(feature = "std")]
+unsafe impl crate::occ::OlcEngine for ExpanseMap {}
+
 /// Allocation size of a root leaf holding `pop` entries: a class-sized
 /// key area followed by a class-sized value area. Class-sizing (as the
 /// trie's linear leaves already do) means consecutive inserts and
