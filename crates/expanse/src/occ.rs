@@ -23,10 +23,10 @@
 //! Under `--cfg loom` the atomics and sync types swap to loom's, and the
 //! `loom_` tests model-check writer/reader/reclamation interleavings.
 
-#[cfg(not(loom))]
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering, fence};
 #[cfg(all(not(loom), feature = "std"))]
-use core::sync::atomic::{AtomicPtr, AtomicUsize};
+use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize};
+#[cfg(not(loom))]
+use core::sync::atomic::{AtomicU64, Ordering, fence};
 #[cfg(all(not(loom), feature = "std"))]
 use std::sync::Mutex;
 
@@ -536,23 +536,27 @@ pub(crate) unsafe fn version_unlock_if_ptr<const OCC: bool>(
 
 /// An RAII guard representing exclusive write access to a branch node `N`.
 ///
-/// An RAII guard representing exclusive write access to a branch node `N`.
-///
 /// Acquired via [`version_try_lock`]. On drop, automatically unlocks the node
 /// via [`version_unlock`] in LIFO order.
 ///
 /// - Defaults to `modified = true` (fail-closed): if a writer panics or returns
 ///   early without explicit cleanup, the version advances to invalidate readers.
 /// - If marked obsolete via [`mark_obsolete`](Self::mark_obsolete), or if dropped
-///   during panic unwinding, the node is poisoned as [`OBSOLETE`].
+///   during panic unwinding (`std::thread::panicking()`), the node is poisoned as
+///   [`OBSOLETE`]. Any reader traversing through this poisoned node will repeatedly
+///   fail validation until reaching `MAX_RETRIES`, falling back to the writer lock
+///   (which panics on poison), preventing silent reads of torn or corrupted state.
 /// - If unmodified, callers can explicitly call [`abort_unmodified`](Self::abort_unmodified)
-///   to restore the previous version.
+///   to restore the previous version (`old_v`). Restoring `old_v` is sound because
+///   no store occurred: readers that sampled `old_v` before the lock was held validate
+///   correctly, and readers that sampled while odd retry.
 ///
 /// # Invariant & Safety
 ///
 /// `NodeLock` strictly dereferences to raw `*mut N`, NEVER `&mut N`, ensuring
 /// that Stacked Borrows and Tree Borrows invariants are preserved while concurrent
 /// readers sample and load fields of `N`.
+#[cfg(feature = "std")]
 #[allow(dead_code)]
 pub(crate) struct NodeLock<'a, N> {
     ptr: *mut N,
@@ -562,6 +566,7 @@ pub(crate) struct NodeLock<'a, N> {
     obsolete: core::cell::Cell<bool>,
 }
 
+#[cfg(feature = "std")]
 #[allow(dead_code)]
 impl<'a, N> NodeLock<'a, N> {
     /// Attempts to lock `node` using its `VersionCell`.
@@ -653,6 +658,7 @@ impl<'a, N> NodeLock<'a, N> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<N> core::ops::Deref for NodeLock<'_, N> {
     type Target = *mut N;
 
@@ -662,6 +668,7 @@ impl<N> core::ops::Deref for NodeLock<'_, N> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<N> Drop for NodeLock<'_, N> {
     #[inline]
     fn drop(&mut self) {
@@ -677,12 +684,14 @@ impl<N> Drop for NodeLock<'_, N> {
 ///
 /// On drop or panic unwinding, automatically clears the in-flight writer status,
 /// preventing quiescence deadlocks.
+#[cfg(feature = "std")]
 #[allow(dead_code)]
 pub(crate) struct WriterGuard<'a> {
     gate: &'a WriterGate,
     in_flight: &'a AtomicUsize,
 }
 
+#[cfg(feature = "std")]
 #[allow(dead_code)]
 impl<'a> Drop for WriterGuard<'a> {
     #[inline]
@@ -698,12 +707,14 @@ impl<'a> Drop for WriterGuard<'a> {
 ///   whether `WriterGate` is closed.
 /// - Quiescence coordinators (reader fallback or `with_locked`) close `WriterGate`, execute
 ///   `fence(Ordering::SeqCst)`, and wait for all registered in-flight writer slots to drain to 0.
+#[cfg(feature = "std")]
 #[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) struct WriterGate {
     closed: AtomicBool,
 }
 
+#[cfg(feature = "std")]
 #[allow(dead_code)]
 impl WriterGate {
     /// Creates a fresh, open gate.
@@ -737,7 +748,6 @@ impl WriterGate {
     /// executes `fence(Ordering::SeqCst)`, and re-verifies that the gate is not closed.
     ///
     /// Returns `Some(WriterGuard)` if entry succeeded, or `None` if the gate is closed.
-    #[cfg(feature = "std")]
     #[inline]
     pub(crate) fn enter_writer<'a>(
         &'a self,
@@ -760,13 +770,13 @@ impl WriterGate {
     }
 
     /// Writer op exit: clears the in-flight status.
-    #[cfg(feature = "std")]
     #[inline]
     pub(crate) fn exit_writer(&self, in_flight: &AtomicUsize) {
         in_flight.store(0, Ordering::Release);
     }
 }
 
+#[cfg(feature = "std")]
 impl Default for WriterGate {
     fn default() -> Self {
         Self::new()
@@ -791,6 +801,7 @@ impl Default for WriterGate {
 ///    [`OBSOLETE`] before its incoming slot in the parent is rewritten.
 /// 5. **Bottom-Up Population Convergence (S7)**: Ancestor `pop0` counts must be updated
 ///    via isolated bottom-up locks conforming to Rule (a) and Rule (b).
+#[cfg(feature = "std")]
 #[allow(dead_code)]
 pub(crate) unsafe trait OlcEngine: Send {}
 
@@ -936,9 +947,6 @@ impl Collector {
     /// Queues an allocation for deferred freeing (writer side).
     pub fn retire(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
         crate::occ_stats::bump(crate::occ_stats::Stat::Retired);
-        // SeqCst fence pairs with `try_advance` to establish happens-before with
-        // concurrent advancers under multi-writer OLC (Stage B, S4).
-        fence(Ordering::SeqCst);
         let e = self.epoch.load(Ordering::Relaxed);
         self.bins[e % BINS]
             .lock()
@@ -1615,6 +1623,11 @@ mod loom_tests {
 
     /// S7: Two concurrent writers perform disjoint leaf inserts beneath common ancestor `A`,
     /// then execute bottom-up `pop0` bumps under `A`'s node lock. Final `pop0` equals initial `pop0 + 2`.
+    ///
+    /// NOTE: This model exercises lock-discipline convergence for `pop0` bumps using an `AtomicU64`
+    /// with relaxed load/store. In the production engine, `pop0` lives in a plain edge word whose
+    /// stores are synchronized by holding the containing node's `NodeLock` (via release-acquire pairing
+    /// on node version words).
     #[test]
     fn loom_multi_writer_pop0_convergence() {
         loom::model(|| {

@@ -641,16 +641,6 @@ pub(crate) struct InsertPath {
     pub pending_pop: usize,
 }
 
-/// A zero-sized type representing the absence of an [`InsertPath`].
-///
-/// In multi-writer OLC builds, caching raw pointers (`*mut Edge`) across operations
-/// in an `InsertPath` is unsound because concurrent reorganizations can invalidate
-/// or relocate ancestor edges. `NoPath` proves at compile time that no edge pointer
-/// is cached or bypassed.
-#[allow(dead_code)]
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct NoPath;
-
 impl InsertPath {
     pub const fn empty() -> Self {
         Self {
@@ -3066,14 +3056,17 @@ pub(crate) unsafe fn free_subtree<const MAP: bool>(a: &NodeAlloc, edge: &mut Edg
 mod tests {
     use super::*;
     use core::ptr::NonNull;
+    #[cfg(debug_assertions)]
     use std::sync::Arc;
 
+    #[cfg(debug_assertions)]
     struct TestAllocGuard<'a> {
         alloc: &'a NodeAlloc,
         ptr: NonNull<u8>,
         size: usize,
     }
 
+    #[cfg(debug_assertions)]
     impl Drop for TestAllocGuard<'_> {
         fn drop(&mut self) {
             // SAFETY: ptr was allocated with size on alloc and is freed once on drop/unwind.
