@@ -121,11 +121,9 @@ fn fallback_causes_account_for_every_fallback() {
     // fallbacks would invalidate the four structural shares Phase 0 reports,
     // rather than merely annotating them (Refs #568).
     let unknown = d(Stat::FallbackUnknownTag);
-    assert!(
-        unknown * 100 < fallbacks,
-        "unattributed fallbacks are {unknown} of {fallbacks} (>= 1%); the OLC \
-         walk's undecoded-tag hole is now large enough to distort the \
-         structural shares and must be closed before Phase 0 is interpreted"
+    assert_eq!(
+        unknown, 0,
+        "all tags must be accounted for; unknown fallbacks = {unknown}"
     );
 
     assert!(fallbacks > 0, "workload must exercise the fallback path");

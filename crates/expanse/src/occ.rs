@@ -490,6 +490,24 @@ pub(crate) fn version_try_lock(v: &VersionCell) -> Result<u32, u32> {
     v.compare_exchange(cur, cur + 1, Ordering::Acquire, Ordering::Relaxed)
 }
 
+/// Attempts to acquire an exclusive write lock on a node's version word, verifying
+/// that the current version matches `expected` (the OLC snapshot taken during descent).
+///
+/// This implements the canonical `lockVersionOrRestart` primitive (Leis et al., DaMoN 2016).
+/// It succeeds ONLY if `v == expected`. If another writer modified or locked the node in the
+/// meantime, the CAS fails, protecting against concurrent shifts and subarray reallocations.
+///
+/// Returns `Ok(expected)` on success, or `Err(current_version)` if the version changed,
+/// was odd, obsolete, or if CAS failed.
+#[allow(dead_code)]
+#[inline]
+pub(crate) fn version_try_lock_expect(v: &VersionCell, expected: u32) -> Result<u32, u32> {
+    if !expected.is_multiple_of(2) || (expected & OBSOLETE != 0) {
+        return Err(expected);
+    }
+    v.compare_exchange(expected, expected + 1, Ordering::Acquire, Ordering::Relaxed)
+}
+
 /// Marks an actively locked node as [`OBSOLETE`].
 ///
 /// Must be called while holding the lock (version is odd). Sets `OBSOLETE | 1`
@@ -1068,6 +1086,8 @@ unsafe impl Send for FreeListHead {}
 #[derive(Debug)]
 pub struct Collector {
     epoch: AtomicUsize,
+    advancing: AtomicBool,
+    op_count: AtomicUsize,
     readers: Mutex<Vec<Arc<Slot>>>,
     bins: [Mutex<Vec<Garbage>>; BINS],
     freelists: [Mutex<FreeListHead>; NUM_CLASSES],
@@ -1090,6 +1110,8 @@ impl Collector {
     pub fn new() -> Self {
         Self {
             epoch: AtomicUsize::new(0),
+            advancing: AtomicBool::new(false),
+            op_count: AtomicUsize::new(0),
             readers: Mutex::new(Vec::new()),
             bins: [
                 Mutex::new(Vec::new()),
@@ -1151,8 +1173,26 @@ impl Collector {
     /// Attempts one epoch advance: succeeds when every pinned reader has
     /// caught up to the current epoch, then frees the bin two epochs
     /// back. Writer-side, amortized (call once per mutation batch).
+    ///
+    /// Protected by an advancer try-lock (`advancing`) and CAS on `self.epoch`
+    /// to guarantee that concurrent callers cannot run simultaneously or roll the epoch backwards.
     pub fn try_advance(&self) {
         crate::occ_stats::bump(crate::occ_stats::Stat::AdvanceCalls);
+        if self
+            .advancing
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            return;
+        }
+        struct AdvancingGuard<'a>(&'a AtomicBool);
+        impl Drop for AdvancingGuard<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::Release);
+            }
+        }
+        let _guard = AdvancingGuard(&self.advancing);
+
         let e = self.epoch.load(Ordering::Relaxed);
         // Store-buffer pairing with `Reader::pin` (its slot store /
         // epoch load run against our epoch store / slot loads): the
@@ -1173,7 +1213,13 @@ impl Collector {
             }
         }
         crate::occ_stats::bump(crate::occ_stats::Stat::AdvanceOk);
-        self.epoch.store(e + 1, Ordering::SeqCst);
+        if self
+            .epoch
+            .compare_exchange(e, e + 1, Ordering::SeqCst, Ordering::Relaxed)
+            .is_err()
+        {
+            return;
+        }
         // Everything retired at epoch e - 1 predates every possible pin
         // in epochs e and e + 1: no live reader can hold it.
         let stale = core::mem::take(
@@ -1197,6 +1243,21 @@ impl Collector {
         self.retained_bytes
             .fetch_sub(freed_bytes, Ordering::Relaxed);
         crate::occ_stats::record_reclaim(freed_bytes);
+    }
+
+    /// Records one mutation operation and triggers `try_advance()` if `ADVANCE_EVERY` operations have elapsed.
+    #[inline]
+    pub fn tick_advance(&self) {
+        #[cfg(not(feature = "advance-never"))]
+        {
+            if self
+                .op_count
+                .fetch_add(1, Ordering::Relaxed)
+                .is_multiple_of(crate::sync::ADVANCE_EVERY as usize)
+            {
+                self.try_advance();
+            }
+        }
     }
 
     /// Total bytes currently queued across this collector's garbage bins.
@@ -1499,6 +1560,60 @@ mod tests {
         assert_eq!(cell.load(Ordering::Relaxed), OBSOLETE | 1);
         // Future try_lock fails due to OBSOLETE
         assert!(version_try_lock(&cell).is_err());
+    }
+
+    #[test]
+    fn version_try_lock_expect_semantics() {
+        let cell = VersionCell::new(4);
+
+        // 1. Success on matching even version: locks cell (4 -> 5)
+        assert_eq!(version_try_lock_expect(&cell, 4), Ok(4));
+        assert_eq!(cell.load(Ordering::Relaxed), 5);
+
+        // Unlock back to 6 (modified)
+        version_unlock(&cell, 4, true);
+        assert_eq!(cell.load(Ordering::Relaxed), 6);
+
+        // 2. Failure on stale snapshot (expected 4, but current is 6)
+        assert_eq!(version_try_lock_expect(&cell, 4), Err(6));
+        // Cell remains unlocked and unmodified
+        assert_eq!(cell.load(Ordering::Relaxed), 6);
+
+        // 3. Failure on odd snapshot (expected 5)
+        assert_eq!(version_try_lock_expect(&cell, 5), Err(5));
+
+        // 4. Failure on obsolete snapshot
+        assert_eq!(
+            version_try_lock_expect(&cell, 6 | OBSOLETE),
+            Err(6 | OBSOLETE)
+        );
+    }
+
+    #[test]
+    fn version_try_lock_expect_discriminates_stale_advancement() {
+        let cell = VersionCell::new(4);
+        let snapshot = 4;
+
+        // Simulate concurrent modification: node advances 4 -> 5 -> 6
+        cell.store(6, Ordering::Release);
+
+        // Under old un-anchored try_lock:
+        // Plain try_lock succeeds despite stale snapshot because 6 is even!
+        let old_behavior_lock = version_try_lock(&cell);
+        assert!(
+            old_behavior_lock.is_ok(),
+            "plain try_lock cannot detect stale snapshot"
+        );
+        version_unlock(&cell, 6, false); // restore to 6
+
+        // Under version_try_lock_expect with snapshot = 4:
+        // Must fail with Err(6) because the cell advanced past the snapshot!
+        let anchored_lock = version_try_lock_expect(&cell, snapshot);
+        assert_eq!(
+            anchored_lock,
+            Err(6),
+            "version_try_lock_expect MUST reject lock on stale snapshot"
+        );
     }
 
     #[test]
