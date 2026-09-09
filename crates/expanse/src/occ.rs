@@ -499,6 +499,7 @@ pub(crate) fn version_try_lock(v: &VersionCell) -> Result<u32, u32> {
 ///
 /// Returns `Ok(expected)` on success, or `Err(current_version)` if the version changed,
 /// was odd, obsolete, or if CAS failed.
+#[cfg_attr(not(feature = "std"), allow(dead_code))]
 #[inline]
 pub(crate) fn version_try_lock_expect(v: &VersionCell, expected: u32) -> Result<u32, u32> {
     if !expected.is_multiple_of(2) || (expected & OBSOLETE != 0) {
