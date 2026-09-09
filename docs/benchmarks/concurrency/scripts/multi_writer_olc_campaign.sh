@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# The #568 PR 3 measurement campaign, reference host only: the H3.2 counter
+# The multi-writer optimistic lock coupling (OLC) measurement campaign, reference host only: the P5.1 counter
 # cells at the head build, then two two-commit runs of each FFI suite's
 # concurrent arm (base and head builds interleaved per round —
 # scripts/bench_ab.py, docs/BENCHMARKING.md rule 18), under one host-wide lock
 # and one core pin, concurrent sweeps last (AGENTS.md §8.17). Read the
-# artifacts against ../METHODOLOGY.md §8 with scripts/pr3_gate.py; nothing
+# artifacts against ../METHODOLOGY.md §10 with scripts/multi_writer_olc_gate.py; nothing
 # here decides a verdict.
 #
 #   EXPANSE_BENCH_COMMIT=<head-sha> \
 #   EXPANSE_BENCH_BASE_TREE=<synced tree at the base commit> \
-#   EXPANSE_BENCH_BASE_COMMIT=<base-sha> \
-#     nohup docs/benchmarks/concurrency/scripts/pr3_campaign.sh > pr3.log 2>&1 &
+#   EXPANSE_BENCH_BASE_COMMIT=1edfa952 \
+#     nohup docs/benchmarks/concurrency/scripts/multi_writer_olc_campaign.sh > multi_writer_olc.log 2>&1 &
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
@@ -22,7 +22,7 @@ if ! mkdir "${BENCH_LOCK}" 2>/dev/null; then
   { cat "${BENCH_LOCK}/owner" 2>/dev/null || true; } >&2
   exit 75
 fi
-printf 'suite=concurrency-pr3 pid=%s start=%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${BENCH_LOCK}/owner"
+printf 'suite=concurrency-multi-writer-olc pid=%s start=%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${BENCH_LOCK}/owner"
 trap 'rm -rf "${BENCH_LOCK}"' EXIT
 
 # shellcheck source-path=SCRIPTDIR/../../../..
@@ -31,8 +31,9 @@ trap 'rm -rf "${BENCH_LOCK}"' EXIT
 # Both trees on the host are rsync'd, not checkouts: every commit is passed in.
 : "${EXPANSE_BENCH_COMMIT:?set EXPANSE_BENCH_COMMIT to the head commit this tree was synced from}"
 : "${EXPANSE_BENCH_BASE_TREE:?set EXPANSE_BENCH_BASE_TREE to the synced tree at the base commit}"
-: "${EXPANSE_BENCH_BASE_COMMIT:?set EXPANSE_BENCH_BASE_COMMIT to the base commit}"
+: "${EXPANSE_BENCH_BASE_COMMIT:=1edfa952}"
 export EXPANSE_BENCH_COMMIT
+export EXPANSE_BENCH_BASE_COMMIT
 export RUSTFLAGS="${RUSTFLAGS:-} -C target-cpu=haswell"
 # Every line reaches the log as it happens; a runner that dies mid-cell says why.
 export PYTHONUNBUFFERED=1
@@ -68,29 +69,28 @@ CARGO_TARGET_DIR="${BASE_TARGET}" cargo build --release --manifest-path "${BASE_
 BASE_HOT="${BASE_TARGET}/release/hot_concurrent"
 BASE_MT="${BASE_TARGET}/release/masstree_concurrent"
 
-stamp "2/5 H3.2 per-thread counters at the head build, into results/pr3/"
-python3 scripts/bench_counters.py --repeats 7 --no-c2c --out-dir "${MT}/results/pr3" \
-  --cell masstree_conc_map_w1_r0 --cell masstree_conc_map_w1_r8
-# No --skip-build: the driver builds the diagnostic binary into its own target
-# dir, which the c2c-capable cells need even with --no-c2c (the layout rows).
-python3 scripts/bench_counters.py --repeats 7 --no-c2c --out-dir "${HOT}/results/pr3" \
-  --cell hot_conc_set_w1_r0 --cell hot_conc_set_w1_r8 \
-  --cell hot_conc_map_w1_r0 --cell hot_conc_map_w1_r8
+stamp "2/5 P5.1 multi-writer per-thread counters at the head build, into results/multi_writer_olc/"
+python3 scripts/bench_counters.py --repeats 7 --no-c2c --out-dir "${MT}/results/multi_writer_olc" \
+  --cell masstree_conc_map_w4_r0
+python3 scripts/bench_counters.py --repeats 7 --no-c2c --out-dir "${HOT}/results/multi_writer_olc" \
+  --cell hot_conc_map_w4_r0 --cell hot_conc_map_w8_r0
 
 stamp "3/5 masstree two-commit sweep, run 1 then run 2"
+mkdir -p "${MT}/results/multi_writer_olc"
 python3 "${MT}/scripts/run_all.py" --ab-base-bin "${BASE_MT}" --ab-base-commit "${EXPANSE_BENCH_BASE_COMMIT}"
-mv "${MT}/results/baseline_concurrent_ab.json" "${MT}/results/baseline_concurrent_ab_run1.tmp.json"
+mv "${MT}/results/baseline_concurrent_ab.json" "${MT}/results/multi_writer_olc/baseline_concurrent_ab.json"
 python3 "${MT}/scripts/run_all.py" --ab-base-bin "${BASE_MT}" --ab-base-commit "${EXPANSE_BENCH_BASE_COMMIT}"
-mv "${MT}/results/baseline_concurrent_ab.json" "${MT}/results/baseline_concurrent_ab_run2.json"
-mv "${MT}/results/baseline_concurrent_ab_run1.tmp.json" "${MT}/results/baseline_concurrent_ab.json"
+mv "${MT}/results/baseline_concurrent_ab.json" "${MT}/results/multi_writer_olc/baseline_concurrent_ab_run2.json"
+git checkout -- "${MT}/results/baseline_concurrent_ab.json"
 
 stamp "4/5 HOT two-commit sweep, run 1 then run 2"
+mkdir -p "${HOT}/results/multi_writer_olc"
 python3 "${HOT}/scripts/run_all.py" --ab-base-bin "${BASE_HOT}" --ab-base-commit "${EXPANSE_BENCH_BASE_COMMIT}"
-mv "${HOT}/results/baseline_concurrent_ab.json" "${HOT}/results/baseline_concurrent_ab_run1.tmp.json"
+mv "${HOT}/results/baseline_concurrent_ab.json" "${HOT}/results/multi_writer_olc/baseline_concurrent_ab.json"
 python3 "${HOT}/scripts/run_all.py" --ab-base-bin "${BASE_HOT}" --ab-base-commit "${EXPANSE_BENCH_BASE_COMMIT}"
-mv "${HOT}/results/baseline_concurrent_ab.json" "${HOT}/results/baseline_concurrent_ab_run2.json"
-mv "${HOT}/results/baseline_concurrent_ab_run1.tmp.json" "${HOT}/results/baseline_concurrent_ab.json"
+mv "${HOT}/results/baseline_concurrent_ab.json" "${HOT}/results/multi_writer_olc/baseline_concurrent_ab_run2.json"
+git checkout -- "${HOT}/results/baseline_concurrent_ab.json"
 
-stamp "5/5 verdicts (read-only render; the committed README is regenerated by check_readme_tables.py --write)"
-python3 docs/benchmarks/concurrency/scripts/pr3_gate.py
+stamp "5/5 verdicts (read-only render)"
+python3 docs/benchmarks/concurrency/scripts/multi_writer_olc_gate.py
 stamp "done"

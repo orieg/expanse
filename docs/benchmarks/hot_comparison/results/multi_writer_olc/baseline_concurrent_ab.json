@@ -1,0 +1,5111 @@
+{
+  "provenance": {
+    "suite": "hot_comparison",
+    "issue": 692,
+    "commit": "c71fa4ba",
+    "hot_commit": "96bf6fb",
+    "cpu": "x86_64",
+    "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "powersave",
+      "scaling_governor_by_cpu": {
+        "0": "powersave",
+        "1": "powersave",
+        "2": "powersave",
+        "3": "powersave",
+        "4": "powersave",
+        "5": "powersave",
+        "6": "powersave",
+        "7": "powersave",
+        "8": "powersave",
+        "9": "powersave",
+        "10": "powersave",
+        "11": "powersave",
+        "12": "powersave",
+        "13": "powersave",
+        "14": "powersave",
+        "15": "powersave"
+      },
+      "scaling_governor_pin_set": "0-15",
+      "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+      "transparent_hugepage": "always [madvise] never",
+      "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35"
+    },
+    "estimators": {
+      "ratio": "mean(HOT rounds) / mean(Expanse rounds) \u2014 or Expanse / ROWEX for throughput \u2014 with a two-sample BCa 95% interval (scripts/bca_bootstrap.py); each of `base` and `head` is that reduction over its own rounds, the two builds having alternated round by round inside the cell (scripts/bench_ab.py)",
+      "columns": "per-arm columns are medians of the same rounds; the ratio column is not the quotient of the two median columns beside it",
+      "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+    },
+    "rustflags": "-C target-cpu=haswell -C target-cpu=haswell",
+    "cxx_flags": "-march=haswell -O3 -std=c++17 -DNDEBUG",
+    "core_pin": "0-15",
+    "loads": [
+      {
+        "label": "start",
+        "since": null,
+        "load1": 1.49,
+        "load5": 1.59,
+        "load15": 1.48,
+        "at": "2026-09-09T17:42:42Z",
+        "stat_busy_jiffies": 56058185,
+        "stat_total_jiffies": 6601515921,
+        "child_cpu_s": 31.936,
+        "monotonic_s": 2751358.023,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "cell:set:W1:R0",
+        "since": "start",
+        "load1": 1.49,
+        "load5": 1.59,
+        "load15": 1.48,
+        "at": "2026-09-09T17:42:42Z",
+        "stat_busy_jiffies": 56058185,
+        "stat_total_jiffies": 6601515924,
+        "child_cpu_s": 31.936,
+        "monotonic_s": 2751358.024,
+        "busy_cpus_since_prev": 0.0,
+        "own_busy_cpus_since_prev": 0.11,
+        "foreign_busy_cpus_since_prev": -0.11
+      },
+      {
+        "label": "cell:set:W2:R0",
+        "since": "cell:set:W1:R0",
+        "load1": 1.32,
+        "load5": 1.54,
+        "load15": 1.46,
+        "at": "2026-09-09T17:43:08Z",
+        "stat_busy_jiffies": 56060791,
+        "stat_total_jiffies": 6601578351,
+        "child_cpu_s": 57.91,
+        "monotonic_s": 2751384.043,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:set:W4:R0",
+        "since": "cell:set:W2:R0",
+        "load1": 1.39,
+        "load5": 1.54,
+        "load15": 1.46,
+        "at": "2026-09-09T17:43:36Z",
+        "stat_busy_jiffies": 56064868,
+        "stat_total_jiffies": 6601645900,
+        "child_cpu_s": 98.83,
+        "monotonic_s": 2751412.243,
+        "busy_cpus_since_prev": 1.45,
+        "own_busy_cpus_since_prev": 1.45,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:set:W8:R0",
+        "since": "cell:set:W4:R0",
+        "load1": 1.53,
+        "load5": 1.56,
+        "load15": 1.47,
+        "at": "2026-09-09T17:44:05Z",
+        "stat_busy_jiffies": 56070309,
+        "stat_total_jiffies": 6601715237,
+        "child_cpu_s": 154.715,
+        "monotonic_s": 2751441.394,
+        "busy_cpus_since_prev": 1.88,
+        "own_busy_cpus_since_prev": 1.92,
+        "foreign_busy_cpus_since_prev": -0.04
+      },
+      {
+        "label": "cell:set:W16:R0",
+        "since": "cell:set:W8:R0",
+        "load1": 2.26,
+        "load5": 1.73,
+        "load15": 1.53,
+        "at": "2026-09-09T17:44:35Z",
+        "stat_busy_jiffies": 56077256,
+        "stat_total_jiffies": 6601787745,
+        "child_cpu_s": 226.713,
+        "monotonic_s": 2751471.968,
+        "busy_cpus_since_prev": 2.3,
+        "own_busy_cpus_since_prev": 2.35,
+        "foreign_busy_cpus_since_prev": -0.05
+      },
+      {
+        "label": "cell:set:W0:R8",
+        "since": "cell:set:W16:R0",
+        "load1": 2.24,
+        "load5": 1.81,
+        "load15": 1.57,
+        "at": "2026-09-09T17:45:47Z",
+        "stat_busy_jiffies": 56092153,
+        "stat_total_jiffies": 6601956341,
+        "child_cpu_s": 382.055,
+        "monotonic_s": 2751543.304,
+        "busy_cpus_since_prev": 2.12,
+        "own_busy_cpus_since_prev": 2.18,
+        "foreign_busy_cpus_since_prev": -0.06
+      },
+      {
+        "label": "cell:set:W1:R8",
+        "since": "cell:set:W0:R8",
+        "load1": 2.41,
+        "load5": 1.87,
+        "load15": 1.59,
+        "at": "2026-09-09T17:46:03Z",
+        "stat_busy_jiffies": 56096380,
+        "stat_total_jiffies": 6601996125,
+        "child_cpu_s": 424.286,
+        "monotonic_s": 2751559.889,
+        "busy_cpus_since_prev": 2.55,
+        "own_busy_cpus_since_prev": 2.55,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:map:W1:R0",
+        "since": "cell:set:W1:R8",
+        "load1": 4.09,
+        "load5": 2.38,
+        "load15": 1.78,
+        "at": "2026-09-09T17:46:43Z",
+        "stat_busy_jiffies": 56120300,
+        "stat_total_jiffies": 6602090254,
+        "child_cpu_s": 663.305,
+        "monotonic_s": 2751599.121,
+        "busy_cpus_since_prev": 6.1,
+        "own_busy_cpus_since_prev": 6.09,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:map:W2:R0",
+        "since": "cell:map:W1:R0",
+        "load1": 2.87,
+        "load5": 2.25,
+        "load15": 1.75,
+        "at": "2026-09-09T17:47:14Z",
+        "stat_busy_jiffies": 56123433,
+        "stat_total_jiffies": 6602165225,
+        "child_cpu_s": 694.506,
+        "monotonic_s": 2751630.366,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:map:W4:R0",
+        "since": "cell:map:W2:R0",
+        "load1": 2.24,
+        "load5": 2.16,
+        "load15": 1.74,
+        "at": "2026-09-09T17:47:46Z",
+        "stat_busy_jiffies": 56128170,
+        "stat_total_jiffies": 6602241253,
+        "child_cpu_s": 741.942,
+        "monotonic_s": 2751662.099,
+        "busy_cpus_since_prev": 1.5,
+        "own_busy_cpus_since_prev": 1.49,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:map:W8:R0",
+        "since": "cell:map:W4:R0",
+        "load1": 2.55,
+        "load5": 2.24,
+        "load15": 1.78,
+        "at": "2026-09-09T17:48:17Z",
+        "stat_busy_jiffies": 56134375,
+        "stat_total_jiffies": 6602316335,
+        "child_cpu_s": 805.579,
+        "monotonic_s": 2751693.63,
+        "busy_cpus_since_prev": 1.98,
+        "own_busy_cpus_since_prev": 2.02,
+        "foreign_busy_cpus_since_prev": -0.04
+      },
+      {
+        "label": "cell:map:W16:R0",
+        "since": "cell:map:W8:R0",
+        "load1": 3.35,
+        "load5": 2.47,
+        "load15": 1.88,
+        "at": "2026-09-09T17:48:49Z",
+        "stat_busy_jiffies": 56141954,
+        "stat_total_jiffies": 6602392131,
+        "child_cpu_s": 883.691,
+        "monotonic_s": 2751725.542,
+        "busy_cpus_since_prev": 2.4,
+        "own_busy_cpus_since_prev": 2.45,
+        "foreign_busy_cpus_since_prev": -0.05
+      },
+      {
+        "label": "cell:map:W0:R8",
+        "since": "cell:map:W16:R0",
+        "load1": 3.33,
+        "load5": 2.67,
+        "load15": 1.99,
+        "at": "2026-09-09T17:49:52Z",
+        "stat_busy_jiffies": 56157324,
+        "stat_total_jiffies": 6602541152,
+        "child_cpu_s": 1042.358,
+        "monotonic_s": 2751788.47,
+        "busy_cpus_since_prev": 2.48,
+        "own_busy_cpus_since_prev": 2.52,
+        "foreign_busy_cpus_since_prev": -0.04
+      },
+      {
+        "label": "cell:map:W1:R8",
+        "since": "cell:map:W0:R8",
+        "load1": 3.23,
+        "load5": 2.68,
+        "load15": 2.0,
+        "at": "2026-09-09T17:50:10Z",
+        "stat_busy_jiffies": 56162761,
+        "stat_total_jiffies": 6602584970,
+        "child_cpu_s": 1096.619,
+        "monotonic_s": 2751806.734,
+        "busy_cpus_since_prev": 2.98,
+        "own_busy_cpus_since_prev": 2.97,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:set:W1:R8",
+        "since": "cell:map:W1:R8",
+        "load1": 5.36,
+        "load5": 3.32,
+        "load15": 2.25,
+        "at": "2026-09-09T17:50:55Z",
+        "stat_busy_jiffies": 56191414,
+        "stat_total_jiffies": 6602692441,
+        "child_cpu_s": 1382.942,
+        "monotonic_s": 2751851.529,
+        "busy_cpus_since_prev": 6.4,
+        "own_busy_cpus_since_prev": 6.39,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:map:W1:R8",
+        "since": "cell:set:W1:R8",
+        "load1": 5.65,
+        "load5": 3.41,
+        "load15": 2.29,
+        "at": "2026-09-09T17:51:00Z",
+        "stat_busy_jiffies": 56194487,
+        "stat_total_jiffies": 6602704205,
+        "child_cpu_s": 1413.65,
+        "monotonic_s": 2751856.431,
+        "busy_cpus_since_prev": 6.27,
+        "own_busy_cpus_since_prev": 6.26,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "after-ab",
+        "since": "cell:map:W1:R8",
+        "load1": 5.28,
+        "load5": 3.37,
+        "load15": 2.28,
+        "at": "2026-09-09T17:51:05Z",
+        "stat_busy_jiffies": 56197622,
+        "stat_total_jiffies": 6602715735,
+        "child_cpu_s": 1444.997,
+        "monotonic_s": 2751861.237,
+        "busy_cpus_since_prev": 6.53,
+        "own_busy_cpus_since_prev": 6.52,
+        "foreign_busy_cpus_since_prev": 0.01
+      }
+    ],
+    "quick": false,
+    "tbb_commit": "4c73c3b",
+    "pin_applied": "0-15",
+    "ab": {
+      "mode": "two-commit interleaved per round",
+      "base_commit": "1edfa952",
+      "head_commit": "c71fa4ba",
+      "base_binary_sha256": "888837ebf8079bfa358f28bef7678ce1f6be2e5a1d2390b48f8f35997aa85f96",
+      "rounds_per_build": 15,
+      "harness": "one harness, two engines: the head tree's harness sources built against each tree's engine, so only the engine differs between the two builds",
+      "order": "base first on even rounds, head first on odd rounds; each process runs one round at its offset so the harness's competitor-first alternation is continuous"
+    }
+  },
+  "throughput": [
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 1,
+      "readers": 0,
+      "keyspace_bits": 63,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "hot_rowex_set_63bit",
+        "arm": "set",
+        "writers": 1,
+        "readers": 0,
+        "keyspace_bits": 63,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 5.2549,
+        "expanse_writer_mops_median": 7.2128,
+        "writer_expanse_over_rowex": 1.3371,
+        "writer_ci_lower": 1.3126,
+        "writer_ci_upper": 1.3575,
+        "writer_verdict": "expanse"
+      },
+      "head": {
+        "workload_id": "hot_rowex_set_63bit",
+        "arm": "set",
+        "writers": 1,
+        "readers": 0,
+        "keyspace_bits": 63,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 5.2656,
+        "expanse_writer_mops_median": 4.3975,
+        "writer_expanse_over_rowex": 0.8301,
+        "writer_ci_lower": 0.8248,
+        "writer_ci_upper": 0.8348,
+        "writer_verdict": "rowex"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "rowex_writer_mops": 5.2371,
+          "expanse_writer_mops": 7.2453,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "rowex_writer_mops": 5.287,
+          "expanse_writer_mops": 6.7868,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "rowex_writer_mops": 5.2549,
+          "expanse_writer_mops": 7.2554,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "rowex_writer_mops": 5.3057,
+          "expanse_writer_mops": 6.7678,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "rowex_writer_mops": 5.2446,
+          "expanse_writer_mops": 7.2589,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "rowex_writer_mops": 5.2906,
+          "expanse_writer_mops": 6.7809,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "rowex_writer_mops": 5.2306,
+          "expanse_writer_mops": 7.242,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "rowex_writer_mops": 5.2955,
+          "expanse_writer_mops": 6.7632,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "rowex_writer_mops": 5.201,
+          "expanse_writer_mops": 7.2238,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "rowex_writer_mops": 5.2875,
+          "expanse_writer_mops": 6.8224,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "rowex_writer_mops": 5.2405,
+          "expanse_writer_mops": 7.2351,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "rowex_writer_mops": 5.296,
+          "expanse_writer_mops": 6.8115,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "rowex_writer_mops": 5.241,
+          "expanse_writer_mops": 7.2128,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "rowex_writer_mops": 5.2691,
+          "expanse_writer_mops": 6.7945,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "rowex_writer_mops": 5.1991,
+          "expanse_writer_mops": 7.2677,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "rowex_writer_mops": 5.2359,
+          "expanse_writer_mops": 4.3975,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "rowex_writer_mops": 5.3124,
+          "expanse_writer_mops": 4.3356,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "rowex_writer_mops": 5.2722,
+          "expanse_writer_mops": 4.433,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "rowex_writer_mops": 5.3004,
+          "expanse_writer_mops": 4.328,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "rowex_writer_mops": 5.2551,
+          "expanse_writer_mops": 4.4258,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "rowex_writer_mops": 5.3023,
+          "expanse_writer_mops": 4.3291,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "rowex_writer_mops": 5.228,
+          "expanse_writer_mops": 4.4161,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "rowex_writer_mops": 5.2704,
+          "expanse_writer_mops": 4.3237,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "rowex_writer_mops": 5.2599,
+          "expanse_writer_mops": 4.4311,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "rowex_writer_mops": 5.252,
+          "expanse_writer_mops": 4.3075,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "rowex_writer_mops": 5.2656,
+          "expanse_writer_mops": 4.4166,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "rowex_writer_mops": 5.3151,
+          "expanse_writer_mops": 4.3276,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "rowex_writer_mops": 5.2398,
+          "expanse_writer_mops": 4.4212,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "rowex_writer_mops": 5.288,
+          "expanse_writer_mops": 4.3347,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "rowex_writer_mops": 5.2642,
+          "expanse_writer_mops": 4.3982,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:set:W1:R0",
+        "wall_s": 26.019,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus": 1.0,
+        "foreign_busy_cpus": 0.0
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 2,
+      "readers": 0,
+      "keyspace_bits": 63,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "hot_rowex_set_63bit",
+        "arm": "set",
+        "writers": 2,
+        "readers": 0,
+        "keyspace_bits": 63,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 8.7708,
+        "expanse_writer_mops_median": 4.175,
+        "writer_expanse_over_rowex": 0.4646,
+        "writer_ci_lower": 0.4537,
+        "writer_ci_upper": 0.4734,
+        "writer_verdict": "rowex"
+      },
+      "head": {
+        "workload_id": "hot_rowex_set_63bit",
+        "arm": "set",
+        "writers": 2,
+        "readers": 0,
+        "keyspace_bits": 63,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 8.8924,
+        "expanse_writer_mops_median": 2.325,
+        "writer_expanse_over_rowex": 0.2586,
+        "writer_ci_lower": 0.254,
+        "writer_ci_upper": 0.2633,
+        "writer_verdict": "rowex"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "rowex_writer_mops": 8.7617,
+          "expanse_writer_mops": 4.2454,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "rowex_writer_mops": 9.3073,
+          "expanse_writer_mops": 4.0274,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "rowex_writer_mops": 8.7281,
+          "expanse_writer_mops": 4.2016,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "rowex_writer_mops": 9.3243,
+          "expanse_writer_mops": 4.0448,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "rowex_writer_mops": 8.7463,
+          "expanse_writer_mops": 4.1732,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "rowex_writer_mops": 9.3165,
+          "expanse_writer_mops": 4.175,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "rowex_writer_mops": 8.7538,
+          "expanse_writer_mops": 4.1923,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "rowex_writer_mops": 9.272,
+          "expanse_writer_mops": 4.0597,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "rowex_writer_mops": 8.7468,
+          "expanse_writer_mops": 4.2363,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "rowex_writer_mops": 8.7708,
+          "expanse_writer_mops": 3.8338,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "rowex_writer_mops": 8.6667,
+          "expanse_writer_mops": 4.3458,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "rowex_writer_mops": 9.2678,
+          "expanse_writer_mops": 4.2021,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "rowex_writer_mops": 8.7268,
+          "expanse_writer_mops": 4.3649,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "rowex_writer_mops": 9.0726,
+          "expanse_writer_mops": 4.1546,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "rowex_writer_mops": 8.7843,
+          "expanse_writer_mops": 4.1199,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "rowex_writer_mops": 8.7383,
+          "expanse_writer_mops": 2.3207,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "rowex_writer_mops": 9.3214,
+          "expanse_writer_mops": 2.4021,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "rowex_writer_mops": 8.7956,
+          "expanse_writer_mops": 2.4369,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "rowex_writer_mops": 9.3783,
+          "expanse_writer_mops": 2.3019,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "rowex_writer_mops": 8.8924,
+          "expanse_writer_mops": 2.325,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "rowex_writer_mops": 9.311,
+          "expanse_writer_mops": 2.3006,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "rowex_writer_mops": 8.7431,
+          "expanse_writer_mops": 2.3677,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "rowex_writer_mops": 9.3143,
+          "expanse_writer_mops": 2.3272,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "rowex_writer_mops": 8.8213,
+          "expanse_writer_mops": 2.3328,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "rowex_writer_mops": 9.2236,
+          "expanse_writer_mops": 2.3356,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "rowex_writer_mops": 8.7967,
+          "expanse_writer_mops": 2.2897,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "rowex_writer_mops": 9.3872,
+          "expanse_writer_mops": 2.2947,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "rowex_writer_mops": 8.841,
+          "expanse_writer_mops": 2.4254,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "rowex_writer_mops": 9.2031,
+          "expanse_writer_mops": 2.3106,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "rowex_writer_mops": 8.7838,
+          "expanse_writer_mops": 2.2823,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:set:W2:R0",
+        "wall_s": 28.2,
+        "busy_cpus_since_prev": 1.45,
+        "own_busy_cpus": 1.45,
+        "foreign_busy_cpus": 0.0
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 4,
+      "readers": 0,
+      "keyspace_bits": 63,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "hot_rowex_set_63bit",
+        "arm": "set",
+        "writers": 4,
+        "readers": 0,
+        "keyspace_bits": 63,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 15.1828,
+        "expanse_writer_mops_median": 3.1707,
+        "writer_expanse_over_rowex": 0.2066,
+        "writer_ci_lower": 0.2017,
+        "writer_ci_upper": 0.2118,
+        "writer_verdict": "rowex"
+      },
+      "head": {
+        "workload_id": "hot_rowex_set_63bit",
+        "arm": "set",
+        "writers": 4,
+        "readers": 0,
+        "keyspace_bits": 63,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 15.3276,
+        "expanse_writer_mops_median": 1.9885,
+        "writer_expanse_over_rowex": 0.129,
+        "writer_ci_lower": 0.1255,
+        "writer_ci_upper": 0.1332,
+        "writer_verdict": "rowex"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "rowex_writer_mops": 14.7441,
+          "expanse_writer_mops": 3.2092,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "rowex_writer_mops": 16.0279,
+          "expanse_writer_mops": 3.1339,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "rowex_writer_mops": 15.1828,
+          "expanse_writer_mops": 3.3445,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "rowex_writer_mops": 15.9399,
+          "expanse_writer_mops": 3.1481,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "rowex_writer_mops": 15.0616,
+          "expanse_writer_mops": 3.133,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "rowex_writer_mops": 15.8737,
+          "expanse_writer_mops": 3.1726,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "rowex_writer_mops": 15.1111,
+          "expanse_writer_mops": 3.3148,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "rowex_writer_mops": 16.0334,
+          "expanse_writer_mops": 3.1349,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "rowex_writer_mops": 14.8314,
+          "expanse_writer_mops": 3.2132,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "rowex_writer_mops": 16.0467,
+          "expanse_writer_mops": 3.0645,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "rowex_writer_mops": 14.8043,
+          "expanse_writer_mops": 3.2608,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "rowex_writer_mops": 16.1311,
+          "expanse_writer_mops": 3.0529,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "rowex_writer_mops": 14.2632,
+          "expanse_writer_mops": 3.1707,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "rowex_writer_mops": 16.1694,
+          "expanse_writer_mops": 3.0846,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "rowex_writer_mops": 15.0682,
+          "expanse_writer_mops": 3.347,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "rowex_writer_mops": 14.7121,
+          "expanse_writer_mops": 1.9987,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "rowex_writer_mops": 16.1598,
+          "expanse_writer_mops": 1.943,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "rowex_writer_mops": 13.6997,
+          "expanse_writer_mops": 1.9912,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "rowex_writer_mops": 16.1946,
+          "expanse_writer_mops": 1.9691,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "rowex_writer_mops": 14.6542,
+          "expanse_writer_mops": 2.0132,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "rowex_writer_mops": 16.0255,
+          "expanse_writer_mops": 1.9295,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "rowex_writer_mops": 14.8898,
+          "expanse_writer_mops": 2.0117,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "rowex_writer_mops": 16.112,
+          "expanse_writer_mops": 1.9635,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "rowex_writer_mops": 14.7822,
+          "expanse_writer_mops": 2.0014,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "rowex_writer_mops": 16.2412,
+          "expanse_writer_mops": 1.9511,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "rowex_writer_mops": 14.0888,
+          "expanse_writer_mops": 1.9885,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "rowex_writer_mops": 16.3339,
+          "expanse_writer_mops": 1.9571,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "rowex_writer_mops": 15.3276,
+          "expanse_writer_mops": 2.0148,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "rowex_writer_mops": 16.2481,
+          "expanse_writer_mops": 1.9552,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "rowex_writer_mops": 14.8365,
+          "expanse_writer_mops": 2.0241,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:set:W4:R0",
+        "wall_s": 29.151,
+        "busy_cpus_since_prev": 1.88,
+        "own_busy_cpus": 1.92,
+        "foreign_busy_cpus": -0.04
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 8,
+      "readers": 0,
+      "keyspace_bits": 63,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "hot_rowex_set_63bit",
+        "arm": "set",
+        "writers": 8,
+        "readers": 0,
+        "keyspace_bits": 63,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 25.3102,
+        "expanse_writer_mops_median": 2.5325,
+        "writer_expanse_over_rowex": 0.1004,
+        "writer_ci_lower": 0.0983,
+        "writer_ci_upper": 0.1029,
+        "writer_verdict": "rowex"
+      },
+      "head": {
+        "workload_id": "hot_rowex_set_63bit",
+        "arm": "set",
+        "writers": 8,
+        "readers": 0,
+        "keyspace_bits": 63,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 24.9805,
+        "expanse_writer_mops_median": 1.7899,
+        "writer_expanse_over_rowex": 0.0717,
+        "writer_ci_lower": 0.0696,
+        "writer_ci_upper": 0.0744,
+        "writer_verdict": "rowex"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "rowex_writer_mops": 23.8468,
+          "expanse_writer_mops": 2.6812,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "rowex_writer_mops": 26.284,
+          "expanse_writer_mops": 2.5639,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "rowex_writer_mops": 25.3102,
+          "expanse_writer_mops": 2.6005,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "rowex_writer_mops": 26.3954,
+          "expanse_writer_mops": 2.4951,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "rowex_writer_mops": 24.639,
+          "expanse_writer_mops": 2.4756,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "rowex_writer_mops": 26.5411,
+          "expanse_writer_mops": 2.6171,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "rowex_writer_mops": 24.8178,
+          "expanse_writer_mops": 2.4761,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "rowex_writer_mops": 26.5317,
+          "expanse_writer_mops": 2.5302,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "rowex_writer_mops": 24.772,
+          "expanse_writer_mops": 2.6586,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "rowex_writer_mops": 26.5296,
+          "expanse_writer_mops": 2.4594,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "rowex_writer_mops": 25.302,
+          "expanse_writer_mops": 2.6649,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "rowex_writer_mops": 26.5138,
+          "expanse_writer_mops": 2.5183,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "rowex_writer_mops": 25.3516,
+          "expanse_writer_mops": 2.5973,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "rowex_writer_mops": 24.0498,
+          "expanse_writer_mops": 2.5325,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "rowex_writer_mops": 25.2196,
+          "expanse_writer_mops": 2.5099,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "rowex_writer_mops": 21.7329,
+          "expanse_writer_mops": 1.8273,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "rowex_writer_mops": 23.8629,
+          "expanse_writer_mops": 1.7899,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "rowex_writer_mops": 23.6359,
+          "expanse_writer_mops": 1.8306,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "rowex_writer_mops": 26.3306,
+          "expanse_writer_mops": 1.7232,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "rowex_writer_mops": 24.9805,
+          "expanse_writer_mops": 1.7949,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "rowex_writer_mops": 26.389,
+          "expanse_writer_mops": 1.733,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "rowex_writer_mops": 25.5005,
+          "expanse_writer_mops": 1.8297,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "rowex_writer_mops": 25.2064,
+          "expanse_writer_mops": 1.7481,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "rowex_writer_mops": 22.3918,
+          "expanse_writer_mops": 1.8388,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "rowex_writer_mops": 23.9629,
+          "expanse_writer_mops": 1.7526,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "rowex_writer_mops": 25.5067,
+          "expanse_writer_mops": 1.6548,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "rowex_writer_mops": 26.5824,
+          "expanse_writer_mops": 1.7313,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "rowex_writer_mops": 23.8028,
+          "expanse_writer_mops": 1.8523,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "rowex_writer_mops": 26.6663,
+          "expanse_writer_mops": 1.8067,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "rowex_writer_mops": 24.7662,
+          "expanse_writer_mops": 1.7276,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:set:W8:R0",
+        "wall_s": 30.574,
+        "busy_cpus_since_prev": 2.3,
+        "own_busy_cpus": 2.35,
+        "foreign_busy_cpus": -0.05
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 16,
+      "readers": 0,
+      "keyspace_bits": 63,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "hot_rowex_set_63bit",
+        "arm": "set",
+        "writers": 16,
+        "readers": 0,
+        "keyspace_bits": 63,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 33.9727,
+        "expanse_writer_mops_median": 2.4012,
+        "writer_expanse_over_rowex": 0.0705,
+        "writer_ci_lower": 0.0689,
+        "writer_ci_upper": 0.0726,
+        "writer_verdict": "rowex"
+      },
+      "head": {
+        "workload_id": "hot_rowex_set_63bit",
+        "arm": "set",
+        "writers": 16,
+        "readers": 0,
+        "keyspace_bits": 63,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 34.3877,
+        "expanse_writer_mops_median": 0.3309,
+        "writer_expanse_over_rowex": 0.0095,
+        "writer_ci_lower": 0.0091,
+        "writer_ci_upper": 0.0099,
+        "writer_verdict": "rowex"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "rowex_writer_mops": 33.6841,
+          "expanse_writer_mops": 2.4171,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "rowex_writer_mops": 29.8558,
+          "expanse_writer_mops": 2.4012,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "rowex_writer_mops": 33.7704,
+          "expanse_writer_mops": 2.4146,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "rowex_writer_mops": 35.2575,
+          "expanse_writer_mops": 2.3429,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "rowex_writer_mops": 33.9193,
+          "expanse_writer_mops": 2.494,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "rowex_writer_mops": 35.1494,
+          "expanse_writer_mops": 2.3971,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "rowex_writer_mops": 33.9062,
+          "expanse_writer_mops": 2.4389,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "rowex_writer_mops": 36.063,
+          "expanse_writer_mops": 2.2944,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "rowex_writer_mops": 34.5238,
+          "expanse_writer_mops": 2.4077,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "rowex_writer_mops": 35.0194,
+          "expanse_writer_mops": 2.384,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "rowex_writer_mops": 32.1143,
+          "expanse_writer_mops": 2.4781,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "rowex_writer_mops": 35.5396,
+          "expanse_writer_mops": 2.385,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "rowex_writer_mops": 32.6119,
+          "expanse_writer_mops": 2.3891,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "rowex_writer_mops": 35.5286,
+          "expanse_writer_mops": 2.3171,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "rowex_writer_mops": 33.9727,
+          "expanse_writer_mops": 2.4345,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "rowex_writer_mops": 28.9817,
+          "expanse_writer_mops": 0.3365,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "rowex_writer_mops": 34.7101,
+          "expanse_writer_mops": 0.295,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "rowex_writer_mops": 34.6832,
+          "expanse_writer_mops": 0.339,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "rowex_writer_mops": 34.7703,
+          "expanse_writer_mops": 0.3034,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "rowex_writer_mops": 34.0344,
+          "expanse_writer_mops": 0.3426,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "rowex_writer_mops": 34.9507,
+          "expanse_writer_mops": 0.299,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "rowex_writer_mops": 33.0162,
+          "expanse_writer_mops": 0.3309,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "rowex_writer_mops": 34.6916,
+          "expanse_writer_mops": 0.2984,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "rowex_writer_mops": 34.4262,
+          "expanse_writer_mops": 0.3399,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "rowex_writer_mops": 34.8882,
+          "expanse_writer_mops": 0.2934,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "rowex_writer_mops": 34.2686,
+          "expanse_writer_mops": 0.3427,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "rowex_writer_mops": 34.3877,
+          "expanse_writer_mops": 0.303,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "rowex_writer_mops": 34.3349,
+          "expanse_writer_mops": 0.337,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "rowex_writer_mops": 34.2915,
+          "expanse_writer_mops": 0.2948,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "rowex_writer_mops": 29.1684,
+          "expanse_writer_mops": 0.3386,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:set:W16:R0",
+        "wall_s": 71.336,
+        "busy_cpus_since_prev": 2.12,
+        "own_busy_cpus": 2.18,
+        "foreign_busy_cpus": -0.06
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 0,
+      "readers": 8,
+      "keyspace_bits": 63,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "hot_rowex_set_63bit",
+        "arm": "set",
+        "writers": 0,
+        "readers": 8,
+        "keyspace_bits": 63,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_reader_mops_median": 125.5554,
+        "expanse_reader_mops_median": 146.2334,
+        "reader_expanse_over_rowex": 1.1609,
+        "reader_ci_lower": 1.1172,
+        "reader_ci_upper": 1.1808,
+        "reader_verdict": "expanse"
+      },
+      "head": {
+        "workload_id": "hot_rowex_set_63bit",
+        "arm": "set",
+        "writers": 0,
+        "readers": 8,
+        "keyspace_bits": 63,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_reader_mops_median": 126.5472,
+        "expanse_reader_mops_median": 146.3519,
+        "reader_expanse_over_rowex": 1.1696,
+        "reader_ci_lower": 1.1543,
+        "reader_ci_upper": 1.2311,
+        "reader_verdict": "expanse"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.0984,
+          "expanse_reader_mops": 146.2636
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 125.9093,
+          "expanse_reader_mops": 145.955
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 125.7929,
+          "expanse_reader_mops": 146.7733
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 124.8142,
+          "expanse_reader_mops": 145.4823
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 123.2208,
+          "expanse_reader_mops": 146.334
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.2113,
+          "expanse_reader_mops": 146.1866
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 125.1042,
+          "expanse_reader_mops": 122.4234
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 114.023,
+          "expanse_reader_mops": 144.8605
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 123.7522,
+          "expanse_reader_mops": 146.3451
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.033,
+          "expanse_reader_mops": 145.8975
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 124.9521,
+          "expanse_reader_mops": 146.7795
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.1257,
+          "expanse_reader_mops": 146.6149
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 125.5554,
+          "expanse_reader_mops": 146.0768
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.1393,
+          "expanse_reader_mops": 146.6715
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 124.6375,
+          "expanse_reader_mops": 146.2334
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.5895,
+          "expanse_reader_mops": 146.5011
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.0406,
+          "expanse_reader_mops": 146.1014
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.8092,
+          "expanse_reader_mops": 145.1888
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 127.3616,
+          "expanse_reader_mops": 145.9414
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.5251,
+          "expanse_reader_mops": 146.3942
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.8662,
+          "expanse_reader_mops": 147.1031
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.6376,
+          "expanse_reader_mops": 146.044
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 103.1802,
+          "expanse_reader_mops": 145.9314
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.5879,
+          "expanse_reader_mops": 146.3297
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 127.1474,
+          "expanse_reader_mops": 146.3813
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.4955,
+          "expanse_reader_mops": 146.4946
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.5349,
+          "expanse_reader_mops": 146.7907
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.4887,
+          "expanse_reader_mops": 146.3519
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.2285,
+          "expanse_reader_mops": 146.6884
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 126.5472,
+          "expanse_reader_mops": 145.9107
+        }
+      ],
+      "load": {
+        "since": "cell:set:W0:R8",
+        "wall_s": 16.585,
+        "busy_cpus_since_prev": 2.55,
+        "own_busy_cpus": 2.55,
+        "foreign_busy_cpus": 0.0
+      },
+      "pillar": "C2"
+    },
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 1,
+      "readers": 8,
+      "keyspace_bits": 63,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "hot_rowex_set_63bit",
+        "arm": "set",
+        "writers": 1,
+        "readers": 8,
+        "keyspace_bits": 63,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 3.4143,
+        "expanse_writer_mops_median": 2.28,
+        "writer_expanse_over_rowex": 0.6499,
+        "writer_ci_lower": 0.6023,
+        "writer_ci_upper": 0.6836,
+        "writer_verdict": "rowex",
+        "rowex_reader_mops_median": 108.9208,
+        "expanse_reader_mops_median": 76.7098,
+        "reader_expanse_over_rowex": 0.7024,
+        "reader_ci_lower": 0.6698,
+        "reader_ci_upper": 0.7138,
+        "reader_verdict": "rowex"
+      },
+      "head": {
+        "workload_id": "hot_rowex_set_63bit",
+        "arm": "set",
+        "writers": 1,
+        "readers": 8,
+        "keyspace_bits": 63,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 3.4345,
+        "expanse_writer_mops_median": 1.6907,
+        "writer_expanse_over_rowex": 0.4907,
+        "writer_ci_lower": 0.4585,
+        "writer_ci_upper": 0.5044,
+        "writer_verdict": "rowex",
+        "rowex_reader_mops_median": 110.5128,
+        "expanse_reader_mops_median": 84.7055,
+        "reader_expanse_over_rowex": 0.7663,
+        "reader_ci_lower": 0.7593,
+        "reader_ci_upper": 0.7732,
+        "reader_verdict": "rowex"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "rowex_writer_mops": 3.4013,
+          "expanse_writer_mops": 2.1165,
+          "rowex_reader_mops": 108.9208,
+          "expanse_reader_mops": 77.0186
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "rowex_writer_mops": 4.4198,
+          "expanse_writer_mops": 2.2502,
+          "rowex_reader_mops": 104.3009,
+          "expanse_reader_mops": 75.9598
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "rowex_writer_mops": 3.3835,
+          "expanse_writer_mops": 2.1601,
+          "rowex_reader_mops": 108.9251,
+          "expanse_reader_mops": 76.2888
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "rowex_writer_mops": 3.3754,
+          "expanse_writer_mops": 2.28,
+          "rowex_reader_mops": 108.0929,
+          "expanse_reader_mops": 76.4722
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "rowex_writer_mops": 3.4101,
+          "expanse_writer_mops": 2.3904,
+          "rowex_reader_mops": 109.1813,
+          "expanse_reader_mops": 77.8509
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "rowex_writer_mops": 3.4293,
+          "expanse_writer_mops": 2.3182,
+          "rowex_reader_mops": 108.8642,
+          "expanse_reader_mops": 77.2328
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "rowex_writer_mops": 3.4378,
+          "expanse_writer_mops": 2.7819,
+          "rowex_reader_mops": 109.4103,
+          "expanse_reader_mops": 62.9007
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "rowex_writer_mops": 3.4143,
+          "expanse_writer_mops": 2.2447,
+          "rowex_reader_mops": 109.1054,
+          "expanse_reader_mops": 75.8074
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "rowex_writer_mops": 3.4328,
+          "expanse_writer_mops": 2.3993,
+          "rowex_reader_mops": 109.7451,
+          "expanse_reader_mops": 78.723
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "rowex_writer_mops": 3.4046,
+          "expanse_writer_mops": 2.262,
+          "rowex_reader_mops": 109.1041,
+          "expanse_reader_mops": 76.3426
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "rowex_writer_mops": 3.4042,
+          "expanse_writer_mops": 2.3113,
+          "rowex_reader_mops": 108.6753,
+          "expanse_reader_mops": 77.9034
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "rowex_writer_mops": 3.4086,
+          "expanse_writer_mops": 2.232,
+          "rowex_reader_mops": 105.2004,
+          "expanse_reader_mops": 76.7098
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "rowex_writer_mops": 4.5221,
+          "expanse_writer_mops": 2.3753,
+          "rowex_reader_mops": 105.3517,
+          "expanse_reader_mops": 77.5219
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "rowex_writer_mops": 3.4337,
+          "expanse_writer_mops": 2.2939,
+          "rowex_reader_mops": 109.0032,
+          "expanse_reader_mops": 77.391
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "rowex_writer_mops": 3.4292,
+          "expanse_writer_mops": 2.2283,
+          "rowex_reader_mops": 108.7254,
+          "expanse_reader_mops": 75.619
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "rowex_writer_mops": 3.3863,
+          "expanse_writer_mops": 1.6337,
+          "rowex_reader_mops": 111.1389,
+          "expanse_reader_mops": 81.3416
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "rowex_writer_mops": 3.4289,
+          "expanse_writer_mops": 1.6907,
+          "rowex_reader_mops": 110.3828,
+          "expanse_reader_mops": 85.3784
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "rowex_writer_mops": 3.415,
+          "expanse_writer_mops": 1.7628,
+          "rowex_reader_mops": 110.5128,
+          "expanse_reader_mops": 84.0137
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "rowex_writer_mops": 3.4405,
+          "expanse_writer_mops": 1.6613,
+          "rowex_reader_mops": 110.403,
+          "expanse_reader_mops": 85.0918
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "rowex_writer_mops": 3.4162,
+          "expanse_writer_mops": 1.7909,
+          "rowex_reader_mops": 111.0428,
+          "expanse_reader_mops": 84.4754
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "rowex_writer_mops": 3.4172,
+          "expanse_writer_mops": 1.6829,
+          "rowex_reader_mops": 110.2856,
+          "expanse_reader_mops": 85.5752
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "rowex_writer_mops": 4.5367,
+          "expanse_writer_mops": 1.7764,
+          "rowex_reader_mops": 105.6376,
+          "expanse_reader_mops": 84.7055
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "rowex_writer_mops": 3.3981,
+          "expanse_writer_mops": 1.684,
+          "rowex_reader_mops": 110.8506,
+          "expanse_reader_mops": 85.2001
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "rowex_writer_mops": 3.4432,
+          "expanse_writer_mops": 1.752,
+          "rowex_reader_mops": 111.2316,
+          "expanse_reader_mops": 83.6397
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "rowex_writer_mops": 3.4497,
+          "expanse_writer_mops": 1.6808,
+          "rowex_reader_mops": 109.5632,
+          "expanse_reader_mops": 85.4874
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "rowex_writer_mops": 3.439,
+          "expanse_writer_mops": 1.7555,
+          "rowex_reader_mops": 110.8414,
+          "expanse_reader_mops": 84.6797
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "rowex_writer_mops": 3.4346,
+          "expanse_writer_mops": 1.6797,
+          "rowex_reader_mops": 110.2618,
+          "expanse_reader_mops": 85.5476
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "rowex_writer_mops": 3.4261,
+          "expanse_writer_mops": 1.7808,
+          "rowex_reader_mops": 110.0537,
+          "expanse_reader_mops": 83.8234
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "rowex_writer_mops": 3.4345,
+          "expanse_writer_mops": 1.6626,
+          "rowex_reader_mops": 110.6959,
+          "expanse_reader_mops": 83.329
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "rowex_writer_mops": 3.4584,
+          "expanse_writer_mops": 1.7793,
+          "rowex_reader_mops": 110.955,
+          "expanse_reader_mops": 85.101
+        }
+      ],
+      "load": {
+        "since": "cell:set:W1:R8",
+        "wall_s": 39.232,
+        "busy_cpus_since_prev": 6.1,
+        "own_busy_cpus": 6.09,
+        "foreign_busy_cpus": 0.01
+      },
+      "pillar": "C2"
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 1,
+      "readers": 0,
+      "keyspace_bits": 64,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "hot_rowex_map_64bit",
+        "arm": "map",
+        "writers": 1,
+        "readers": 0,
+        "keyspace_bits": 64,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 3.264,
+        "expanse_writer_mops_median": 5.0906,
+        "writer_expanse_over_rowex": 1.6129,
+        "writer_ci_lower": 1.58,
+        "writer_ci_upper": 1.6498,
+        "writer_verdict": "expanse"
+      },
+      "head": {
+        "workload_id": "hot_rowex_map_64bit",
+        "arm": "map",
+        "writers": 1,
+        "readers": 0,
+        "keyspace_bits": 64,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 3.2336,
+        "expanse_writer_mops_median": 3.6465,
+        "writer_expanse_over_rowex": 1.1461,
+        "writer_ci_lower": 1.1228,
+        "writer_ci_upper": 1.1713,
+        "writer_verdict": "expanse"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "rowex_writer_mops": 3.264,
+          "expanse_writer_mops": 5.0791,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "rowex_writer_mops": 3.2907,
+          "expanse_writer_mops": 5.5372,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "rowex_writer_mops": 3.2616,
+          "expanse_writer_mops": 5.0668,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "rowex_writer_mops": 3.2961,
+          "expanse_writer_mops": 5.5258,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "rowex_writer_mops": 3.2576,
+          "expanse_writer_mops": 5.0753,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "rowex_writer_mops": 3.2936,
+          "expanse_writer_mops": 5.4986,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "rowex_writer_mops": 3.2543,
+          "expanse_writer_mops": 5.074,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "rowex_writer_mops": 3.3026,
+          "expanse_writer_mops": 5.494,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "rowex_writer_mops": 3.2562,
+          "expanse_writer_mops": 5.0803,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "rowex_writer_mops": 3.3,
+          "expanse_writer_mops": 5.5062,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "rowex_writer_mops": 3.2505,
+          "expanse_writer_mops": 5.0829,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "rowex_writer_mops": 3.3043,
+          "expanse_writer_mops": 5.5317,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "rowex_writer_mops": 3.2591,
+          "expanse_writer_mops": 5.0906,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "rowex_writer_mops": 3.2917,
+          "expanse_writer_mops": 5.5447,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "rowex_writer_mops": 3.2577,
+          "expanse_writer_mops": 5.0708,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "rowex_writer_mops": 3.2244,
+          "expanse_writer_mops": 3.641,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "rowex_writer_mops": 3.3588,
+          "expanse_writer_mops": 3.9209,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "rowex_writer_mops": 3.2175,
+          "expanse_writer_mops": 3.6393,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "rowex_writer_mops": 3.3651,
+          "expanse_writer_mops": 3.903,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "rowex_writer_mops": 3.2189,
+          "expanse_writer_mops": 3.629,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "rowex_writer_mops": 3.3615,
+          "expanse_writer_mops": 3.9119,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "rowex_writer_mops": 3.2336,
+          "expanse_writer_mops": 3.6441,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "rowex_writer_mops": 3.3336,
+          "expanse_writer_mops": 3.9022,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "rowex_writer_mops": 3.2203,
+          "expanse_writer_mops": 3.6465,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "rowex_writer_mops": 3.3679,
+          "expanse_writer_mops": 3.9124,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "rowex_writer_mops": 3.2141,
+          "expanse_writer_mops": 3.6352,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "rowex_writer_mops": 3.3627,
+          "expanse_writer_mops": 3.9137,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "rowex_writer_mops": 3.2253,
+          "expanse_writer_mops": 3.6443,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "rowex_writer_mops": 3.3595,
+          "expanse_writer_mops": 3.9313,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "rowex_writer_mops": 3.2262,
+          "expanse_writer_mops": 3.618,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:map:W1:R0",
+        "wall_s": 31.245,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus": 1.0,
+        "foreign_busy_cpus": 0.0
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 2,
+      "readers": 0,
+      "keyspace_bits": 64,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "hot_rowex_map_64bit",
+        "arm": "map",
+        "writers": 2,
+        "readers": 0,
+        "keyspace_bits": 64,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 5.5238,
+        "expanse_writer_mops_median": 3.2701,
+        "writer_expanse_over_rowex": 0.6034,
+        "writer_ci_lower": 0.5944,
+        "writer_ci_upper": 0.6135,
+        "writer_verdict": "rowex"
+      },
+      "head": {
+        "workload_id": "hot_rowex_map_64bit",
+        "arm": "map",
+        "writers": 2,
+        "readers": 0,
+        "keyspace_bits": 64,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 5.4834,
+        "expanse_writer_mops_median": 2.2951,
+        "writer_expanse_over_rowex": 0.4175,
+        "writer_ci_lower": 0.413,
+        "writer_ci_upper": 0.4231,
+        "writer_verdict": "rowex"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "rowex_writer_mops": 5.5082,
+          "expanse_writer_mops": 3.2067,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "rowex_writer_mops": 5.5677,
+          "expanse_writer_mops": 3.4778,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "rowex_writer_mops": 5.5238,
+          "expanse_writer_mops": 3.2605,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "rowex_writer_mops": 5.5818,
+          "expanse_writer_mops": 3.4458,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "rowex_writer_mops": 5.513,
+          "expanse_writer_mops": 3.2621,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "rowex_writer_mops": 5.5553,
+          "expanse_writer_mops": 3.4649,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "rowex_writer_mops": 5.5144,
+          "expanse_writer_mops": 3.2701,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "rowex_writer_mops": 5.5515,
+          "expanse_writer_mops": 3.4512,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "rowex_writer_mops": 5.5047,
+          "expanse_writer_mops": 3.2281,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "rowex_writer_mops": 5.6124,
+          "expanse_writer_mops": 3.4881,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "rowex_writer_mops": 5.5237,
+          "expanse_writer_mops": 3.2638,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "rowex_writer_mops": 5.5944,
+          "expanse_writer_mops": 3.4264,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "rowex_writer_mops": 5.5194,
+          "expanse_writer_mops": 3.2577,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "rowex_writer_mops": 5.5889,
+          "expanse_writer_mops": 3.4063,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "rowex_writer_mops": 5.4864,
+          "expanse_writer_mops": 3.2565,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "rowex_writer_mops": 5.5134,
+          "expanse_writer_mops": 2.2206,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "rowex_writer_mops": 5.6398,
+          "expanse_writer_mops": 2.3268,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "rowex_writer_mops": 5.4781,
+          "expanse_writer_mops": 2.2951,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "rowex_writer_mops": 5.531,
+          "expanse_writer_mops": 2.2817,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "rowex_writer_mops": 5.4583,
+          "expanse_writer_mops": 2.2737,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "rowex_writer_mops": 5.5624,
+          "expanse_writer_mops": 2.4069,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "rowex_writer_mops": 5.469,
+          "expanse_writer_mops": 2.2666,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "rowex_writer_mops": 5.5798,
+          "expanse_writer_mops": 2.2717,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "rowex_writer_mops": 5.4834,
+          "expanse_writer_mops": 2.3857,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "rowex_writer_mops": 5.5768,
+          "expanse_writer_mops": 2.2976,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "rowex_writer_mops": 5.4771,
+          "expanse_writer_mops": 2.3154,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "rowex_writer_mops": 5.4809,
+          "expanse_writer_mops": 2.2677,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "rowex_writer_mops": 5.4311,
+          "expanse_writer_mops": 2.2991,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "rowex_writer_mops": 5.5151,
+          "expanse_writer_mops": 2.2534,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "rowex_writer_mops": 5.4718,
+          "expanse_writer_mops": 2.3497,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:map:W2:R0",
+        "wall_s": 31.733,
+        "busy_cpus_since_prev": 1.5,
+        "own_busy_cpus": 1.49,
+        "foreign_busy_cpus": 0.01
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 4,
+      "readers": 0,
+      "keyspace_bits": 64,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "hot_rowex_map_64bit",
+        "arm": "map",
+        "writers": 4,
+        "readers": 0,
+        "keyspace_bits": 64,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 9.7223,
+        "expanse_writer_mops_median": 2.7304,
+        "writer_expanse_over_rowex": 0.2864,
+        "writer_ci_lower": 0.2814,
+        "writer_ci_upper": 0.292,
+        "writer_verdict": "rowex"
+      },
+      "head": {
+        "workload_id": "hot_rowex_map_64bit",
+        "arm": "map",
+        "writers": 4,
+        "readers": 0,
+        "keyspace_bits": 64,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 9.7064,
+        "expanse_writer_mops_median": 1.9525,
+        "writer_expanse_over_rowex": 0.204,
+        "writer_ci_lower": 0.2012,
+        "writer_ci_upper": 0.2071,
+        "writer_verdict": "rowex"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "rowex_writer_mops": 9.7483,
+          "expanse_writer_mops": 2.8107,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "rowex_writer_mops": 9.9378,
+          "expanse_writer_mops": 2.7304,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "rowex_writer_mops": 9.7702,
+          "expanse_writer_mops": 2.7863,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "rowex_writer_mops": 9.9175,
+          "expanse_writer_mops": 2.7057,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "rowex_writer_mops": 9.3316,
+          "expanse_writer_mops": 2.7822,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "rowex_writer_mops": 9.7223,
+          "expanse_writer_mops": 2.8965,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "rowex_writer_mops": 9.2414,
+          "expanse_writer_mops": 2.6238,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "rowex_writer_mops": 9.591,
+          "expanse_writer_mops": 2.8033,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "rowex_writer_mops": 9.344,
+          "expanse_writer_mops": 2.6898,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "rowex_writer_mops": 9.8075,
+          "expanse_writer_mops": 2.7266,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "rowex_writer_mops": 9.0857,
+          "expanse_writer_mops": 2.6985,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "rowex_writer_mops": 9.6605,
+          "expanse_writer_mops": 2.7185,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "rowex_writer_mops": 9.4177,
+          "expanse_writer_mops": 2.6785,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "rowex_writer_mops": 9.8213,
+          "expanse_writer_mops": 2.856,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "rowex_writer_mops": 9.7285,
+          "expanse_writer_mops": 2.7756,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "rowex_writer_mops": 9.7135,
+          "expanse_writer_mops": 1.9501,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "rowex_writer_mops": 9.9086,
+          "expanse_writer_mops": 1.9663,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "rowex_writer_mops": 9.3585,
+          "expanse_writer_mops": 1.9336,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "rowex_writer_mops": 9.7875,
+          "expanse_writer_mops": 1.9964,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "rowex_writer_mops": 9.3885,
+          "expanse_writer_mops": 1.9316,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "rowex_writer_mops": 9.5545,
+          "expanse_writer_mops": 1.9795,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "rowex_writer_mops": 9.7064,
+          "expanse_writer_mops": 1.9519,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "rowex_writer_mops": 9.9263,
+          "expanse_writer_mops": 1.9937,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "rowex_writer_mops": 9.3166,
+          "expanse_writer_mops": 1.9325,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "rowex_writer_mops": 9.8849,
+          "expanse_writer_mops": 2.0254,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "rowex_writer_mops": 9.2506,
+          "expanse_writer_mops": 1.9346,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "rowex_writer_mops": 9.9076,
+          "expanse_writer_mops": 1.9932,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "rowex_writer_mops": 9.3502,
+          "expanse_writer_mops": 1.939,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "rowex_writer_mops": 9.821,
+          "expanse_writer_mops": 1.9876,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "rowex_writer_mops": 9.5753,
+          "expanse_writer_mops": 1.9525,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:map:W4:R0",
+        "wall_s": 31.531,
+        "busy_cpus_since_prev": 1.98,
+        "own_busy_cpus": 2.02,
+        "foreign_busy_cpus": -0.04
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 8,
+      "readers": 0,
+      "keyspace_bits": 64,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "hot_rowex_map_64bit",
+        "arm": "map",
+        "writers": 8,
+        "readers": 0,
+        "keyspace_bits": 64,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 16.8957,
+        "expanse_writer_mops_median": 2.393,
+        "writer_expanse_over_rowex": 0.1427,
+        "writer_ci_lower": 0.1397,
+        "writer_ci_upper": 0.1461,
+        "writer_verdict": "rowex"
+      },
+      "head": {
+        "workload_id": "hot_rowex_map_64bit",
+        "arm": "map",
+        "writers": 8,
+        "readers": 0,
+        "keyspace_bits": 64,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 16.4595,
+        "expanse_writer_mops_median": 1.8252,
+        "writer_expanse_over_rowex": 0.1094,
+        "writer_ci_lower": 0.1057,
+        "writer_ci_upper": 0.1121,
+        "writer_verdict": "rowex"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "rowex_writer_mops": 17.0578,
+          "expanse_writer_mops": 2.2519,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "rowex_writer_mops": 15.8251,
+          "expanse_writer_mops": 2.4171,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "rowex_writer_mops": 15.8246,
+          "expanse_writer_mops": 2.3948,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "rowex_writer_mops": 16.7863,
+          "expanse_writer_mops": 2.3948,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "rowex_writer_mops": 17.0126,
+          "expanse_writer_mops": 2.3566,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "rowex_writer_mops": 17.1503,
+          "expanse_writer_mops": 2.349,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "rowex_writer_mops": 16.9982,
+          "expanse_writer_mops": 2.3182,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "rowex_writer_mops": 17.0874,
+          "expanse_writer_mops": 2.4792,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "rowex_writer_mops": 16.8957,
+          "expanse_writer_mops": 2.2562,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "rowex_writer_mops": 15.9645,
+          "expanse_writer_mops": 2.4722,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "rowex_writer_mops": 16.7085,
+          "expanse_writer_mops": 2.393,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "rowex_writer_mops": 16.9752,
+          "expanse_writer_mops": 2.486,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "rowex_writer_mops": 15.4699,
+          "expanse_writer_mops": 2.4097,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "rowex_writer_mops": 17.2895,
+          "expanse_writer_mops": 2.305,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "rowex_writer_mops": 16.422,
+          "expanse_writer_mops": 2.3061,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "rowex_writer_mops": 15.1145,
+          "expanse_writer_mops": 1.8403,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "rowex_writer_mops": 16.4595,
+          "expanse_writer_mops": 1.8342,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "rowex_writer_mops": 16.8174,
+          "expanse_writer_mops": 1.8452,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "rowex_writer_mops": 16.7292,
+          "expanse_writer_mops": 1.8252,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "rowex_writer_mops": 15.6381,
+          "expanse_writer_mops": 1.8203,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "rowex_writer_mops": 15.7887,
+          "expanse_writer_mops": 1.6191,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "rowex_writer_mops": 16.9676,
+          "expanse_writer_mops": 1.8336,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "rowex_writer_mops": 17.1826,
+          "expanse_writer_mops": 1.8413,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "rowex_writer_mops": 16.0133,
+          "expanse_writer_mops": 1.8205,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "rowex_writer_mops": 16.2655,
+          "expanse_writer_mops": 1.8252,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "rowex_writer_mops": 16.0069,
+          "expanse_writer_mops": 1.804,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "rowex_writer_mops": 17.145,
+          "expanse_writer_mops": 1.5917,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "rowex_writer_mops": 16.6817,
+          "expanse_writer_mops": 1.8179,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "rowex_writer_mops": 17.0941,
+          "expanse_writer_mops": 1.7103,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "rowex_writer_mops": 15.783,
+          "expanse_writer_mops": 1.84,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:map:W8:R0",
+        "wall_s": 31.912,
+        "busy_cpus_since_prev": 2.4,
+        "own_busy_cpus": 2.45,
+        "foreign_busy_cpus": -0.05
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 16,
+      "readers": 0,
+      "keyspace_bits": 64,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "hot_rowex_map_64bit",
+        "arm": "map",
+        "writers": 16,
+        "readers": 0,
+        "keyspace_bits": 64,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 24.0957,
+        "expanse_writer_mops_median": 2.083,
+        "writer_expanse_over_rowex": 0.0825,
+        "writer_ci_lower": 0.0726,
+        "writer_ci_upper": 0.0905,
+        "writer_verdict": "rowex"
+      },
+      "head": {
+        "workload_id": "hot_rowex_map_64bit",
+        "arm": "map",
+        "writers": 16,
+        "readers": 0,
+        "keyspace_bits": 64,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 23.7332,
+        "expanse_writer_mops_median": 0.4031,
+        "writer_expanse_over_rowex": 0.0185,
+        "writer_ci_lower": 0.017,
+        "writer_ci_upper": 0.0207,
+        "writer_verdict": "rowex"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "rowex_writer_mops": 22.0139,
+          "expanse_writer_mops": 2.1299,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "rowex_writer_mops": 24.5754,
+          "expanse_writer_mops": 1.4612,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "rowex_writer_mops": 24.1107,
+          "expanse_writer_mops": 2.1436,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "rowex_writer_mops": 15.9818,
+          "expanse_writer_mops": 2.2602,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "rowex_writer_mops": 20.8197,
+          "expanse_writer_mops": 1.1586,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "rowex_writer_mops": 24.8415,
+          "expanse_writer_mops": 2.2738,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "rowex_writer_mops": 25.0083,
+          "expanse_writer_mops": 1.639,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "rowex_writer_mops": 24.9191,
+          "expanse_writer_mops": 2.0646,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "rowex_writer_mops": 23.6916,
+          "expanse_writer_mops": 1.8096,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "rowex_writer_mops": 23.9925,
+          "expanse_writer_mops": 2.0803,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "rowex_writer_mops": 24.0044,
+          "expanse_writer_mops": 2.1699,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "rowex_writer_mops": 24.0957,
+          "expanse_writer_mops": 1.2441,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "rowex_writer_mops": 24.6374,
+          "expanse_writer_mops": 2.083,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "rowex_writer_mops": 23.7984,
+          "expanse_writer_mops": 2.1457,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "rowex_writer_mops": 24.4473,
+          "expanse_writer_mops": 2.2814,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "rowex_writer_mops": 22.1607,
+          "expanse_writer_mops": 0.4047,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "rowex_writer_mops": 24.4749,
+          "expanse_writer_mops": 0.4031,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "rowex_writer_mops": 24.4167,
+          "expanse_writer_mops": 0.3884,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "rowex_writer_mops": 16.6916,
+          "expanse_writer_mops": 0.3546,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "rowex_writer_mops": 23.192,
+          "expanse_writer_mops": 0.473,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "rowex_writer_mops": 23.7146,
+          "expanse_writer_mops": 0.3728,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "rowex_writer_mops": 23.7332,
+          "expanse_writer_mops": 0.4665,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "rowex_writer_mops": 17.1538,
+          "expanse_writer_mops": 0.3659,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "rowex_writer_mops": 24.8437,
+          "expanse_writer_mops": 0.531,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "rowex_writer_mops": 24.4155,
+          "expanse_writer_mops": 0.3577,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "rowex_writer_mops": 24.8136,
+          "expanse_writer_mops": 0.5311,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "rowex_writer_mops": 17.2967,
+          "expanse_writer_mops": 0.3742,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "rowex_writer_mops": 23.9371,
+          "expanse_writer_mops": 0.4141,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "rowex_writer_mops": 23.4224,
+          "expanse_writer_mops": 0.381,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "rowex_writer_mops": 24.1487,
+          "expanse_writer_mops": 0.4527,
+          "rowex_reader_mops": null,
+          "expanse_reader_mops": null
+        }
+      ],
+      "load": {
+        "since": "cell:map:W16:R0",
+        "wall_s": 62.928,
+        "busy_cpus_since_prev": 2.48,
+        "own_busy_cpus": 2.52,
+        "foreign_busy_cpus": -0.04
+      },
+      "pillar": "C1"
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 0,
+      "readers": 8,
+      "keyspace_bits": 64,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "hot_rowex_map_64bit",
+        "arm": "map",
+        "writers": 0,
+        "readers": 8,
+        "keyspace_bits": 64,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_reader_mops_median": 75.6064,
+        "expanse_reader_mops_median": 130.821,
+        "reader_expanse_over_rowex": 1.8385,
+        "reader_ci_lower": 1.7793,
+        "reader_ci_upper": 1.9084,
+        "reader_verdict": "expanse"
+      },
+      "head": {
+        "workload_id": "hot_rowex_map_64bit",
+        "arm": "map",
+        "writers": 0,
+        "readers": 8,
+        "keyspace_bits": 64,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_reader_mops_median": 75.8351,
+        "expanse_reader_mops_median": 130.1006,
+        "reader_expanse_over_rowex": 1.7795,
+        "reader_ci_lower": 1.7298,
+        "reader_ci_upper": 1.8371,
+        "reader_verdict": "expanse"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 74.7389,
+          "expanse_reader_mops": 130.5292
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 75.8745,
+          "expanse_reader_mops": 142.2259
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 75.5067,
+          "expanse_reader_mops": 129.6219
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 75.8047,
+          "expanse_reader_mops": 141.5211
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 74.4269,
+          "expanse_reader_mops": 130.7035
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 75.8088,
+          "expanse_reader_mops": 144.5893
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 75.6312,
+          "expanse_reader_mops": 120.9293
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 75.8242,
+          "expanse_reader_mops": 144.6273
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 68.7288,
+          "expanse_reader_mops": 130.2159
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 71.4282,
+          "expanse_reader_mops": 143.9491
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 66.8209,
+          "expanse_reader_mops": 130.3103
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 75.8392,
+          "expanse_reader_mops": 144.4023
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 71.0169,
+          "expanse_reader_mops": 130.3941
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 75.6064,
+          "expanse_reader_mops": 143.8566
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 75.8211,
+          "expanse_reader_mops": 130.821
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 75.9271,
+          "expanse_reader_mops": 130.2824
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 76.4597,
+          "expanse_reader_mops": 119.7024
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 76.1338,
+          "expanse_reader_mops": 129.6031
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 76.5203,
+          "expanse_reader_mops": 143.0668
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 75.9991,
+          "expanse_reader_mops": 129.0376
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 75.0638,
+          "expanse_reader_mops": 143.4363
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 75.4514,
+          "expanse_reader_mops": 129.6452
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 76.107,
+          "expanse_reader_mops": 142.9343
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 75.5616,
+          "expanse_reader_mops": 130.1006
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 75.8351,
+          "expanse_reader_mops": 142.8939
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 68.8014,
+          "expanse_reader_mops": 129.433
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 75.7682,
+          "expanse_reader_mops": 143.0623
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 75.5495,
+          "expanse_reader_mops": 129.1652
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 75.627,
+          "expanse_reader_mops": 140.2731
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "rowex_writer_mops": null,
+          "expanse_writer_mops": null,
+          "rowex_reader_mops": 76.0758,
+          "expanse_reader_mops": 129.7336
+        }
+      ],
+      "load": {
+        "since": "cell:map:W0:R8",
+        "wall_s": 18.264,
+        "busy_cpus_since_prev": 2.98,
+        "own_busy_cpus": 2.97,
+        "foreign_busy_cpus": 0.01
+      },
+      "pillar": "C2"
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 1,
+      "readers": 8,
+      "keyspace_bits": 64,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 15,
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "base": {
+        "workload_id": "hot_rowex_map_64bit",
+        "arm": "map",
+        "writers": 1,
+        "readers": 8,
+        "keyspace_bits": 64,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 2.2943,
+        "expanse_writer_mops_median": 2.0651,
+        "writer_expanse_over_rowex": 0.9145,
+        "writer_ci_lower": 0.8762,
+        "writer_ci_upper": 0.9797,
+        "writer_verdict": "rowex",
+        "rowex_reader_mops_median": 58.8647,
+        "expanse_reader_mops_median": 83.4201,
+        "reader_expanse_over_rowex": 1.3945,
+        "reader_ci_lower": 1.3456,
+        "reader_ci_upper": 1.4177,
+        "reader_verdict": "expanse"
+      },
+      "head": {
+        "workload_id": "hot_rowex_map_64bit",
+        "arm": "map",
+        "writers": 1,
+        "readers": 8,
+        "keyspace_bits": 64,
+        "prefill": 1048576,
+        "fresh_keys": 1048576,
+        "rounds": 15,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15",
+        "rowex_writer_mops_median": 2.2784,
+        "expanse_writer_mops_median": 1.6454,
+        "writer_expanse_over_rowex": 0.6988,
+        "writer_ci_lower": 0.6582,
+        "writer_ci_upper": 0.7391,
+        "writer_verdict": "rowex",
+        "rowex_reader_mops_median": 58.627,
+        "expanse_reader_mops_median": 85.0887,
+        "reader_expanse_over_rowex": 1.4535,
+        "reader_ci_lower": 1.4199,
+        "reader_ci_upper": 1.471,
+        "reader_verdict": "expanse"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "build": "base",
+          "rowex_writer_mops": 2.2895,
+          "expanse_writer_mops": 2.0911,
+          "rowex_reader_mops": 58.5866,
+          "expanse_reader_mops": 83.6959
+        },
+        {
+          "round": 1,
+          "build": "base",
+          "rowex_writer_mops": 2.2852,
+          "expanse_writer_mops": 2.0384,
+          "rowex_reader_mops": 58.9968,
+          "expanse_reader_mops": 83.6583
+        },
+        {
+          "round": 2,
+          "build": "base",
+          "rowex_writer_mops": 2.2781,
+          "expanse_writer_mops": 2.0899,
+          "rowex_reader_mops": 58.9731,
+          "expanse_reader_mops": 84.0698
+        },
+        {
+          "round": 3,
+          "build": "base",
+          "rowex_writer_mops": 2.3072,
+          "expanse_writer_mops": 2.6302,
+          "rowex_reader_mops": 59.1262,
+          "expanse_reader_mops": 73.3117
+        },
+        {
+          "round": 4,
+          "build": "base",
+          "rowex_writer_mops": 2.2943,
+          "expanse_writer_mops": 2.0675,
+          "rowex_reader_mops": 58.8647,
+          "expanse_reader_mops": 83.9189
+        },
+        {
+          "round": 5,
+          "build": "base",
+          "rowex_writer_mops": 2.2934,
+          "expanse_writer_mops": 2.0013,
+          "rowex_reader_mops": 58.7266,
+          "expanse_reader_mops": 82.6084
+        },
+        {
+          "round": 6,
+          "build": "base",
+          "rowex_writer_mops": 2.2872,
+          "expanse_writer_mops": 2.0651,
+          "rowex_reader_mops": 58.7171,
+          "expanse_reader_mops": 83.1144
+        },
+        {
+          "round": 7,
+          "build": "base",
+          "rowex_writer_mops": 2.2987,
+          "expanse_writer_mops": 2.0009,
+          "rowex_reader_mops": 58.8834,
+          "expanse_reader_mops": 82.4843
+        },
+        {
+          "round": 8,
+          "build": "base",
+          "rowex_writer_mops": 2.2959,
+          "expanse_writer_mops": 2.0629,
+          "rowex_reader_mops": 58.6927,
+          "expanse_reader_mops": 83.4201
+        },
+        {
+          "round": 9,
+          "build": "base",
+          "rowex_writer_mops": 2.2952,
+          "expanse_writer_mops": 2.6404,
+          "rowex_reader_mops": 58.9986,
+          "expanse_reader_mops": 72.9823
+        },
+        {
+          "round": 10,
+          "build": "base",
+          "rowex_writer_mops": 2.2987,
+          "expanse_writer_mops": 2.069,
+          "rowex_reader_mops": 58.9823,
+          "expanse_reader_mops": 84.2737
+        },
+        {
+          "round": 11,
+          "build": "base",
+          "rowex_writer_mops": 2.2933,
+          "expanse_writer_mops": 2.0353,
+          "rowex_reader_mops": 58.8554,
+          "expanse_reader_mops": 83.4857
+        },
+        {
+          "round": 12,
+          "build": "base",
+          "rowex_writer_mops": 2.2871,
+          "expanse_writer_mops": 1.9721,
+          "rowex_reader_mops": 58.8226,
+          "expanse_reader_mops": 83.023
+        },
+        {
+          "round": 13,
+          "build": "base",
+          "rowex_writer_mops": 2.299,
+          "expanse_writer_mops": 2.0185,
+          "rowex_reader_mops": 59.0417,
+          "expanse_reader_mops": 82.573
+        },
+        {
+          "round": 14,
+          "build": "base",
+          "rowex_writer_mops": 2.7425,
+          "expanse_writer_mops": 2.0849,
+          "rowex_reader_mops": 57.9343,
+          "expanse_reader_mops": 83.5746
+        },
+        {
+          "round": 0,
+          "build": "head",
+          "rowex_writer_mops": 2.2728,
+          "expanse_writer_mops": 1.6454,
+          "rowex_reader_mops": 58.6295,
+          "expanse_reader_mops": 85.2547
+        },
+        {
+          "round": 1,
+          "build": "head",
+          "rowex_writer_mops": 2.2691,
+          "expanse_writer_mops": 1.6282,
+          "rowex_reader_mops": 58.627,
+          "expanse_reader_mops": 84.5246
+        },
+        {
+          "round": 2,
+          "build": "head",
+          "rowex_writer_mops": 2.7776,
+          "expanse_writer_mops": 1.6236,
+          "rowex_reader_mops": 56.0943,
+          "expanse_reader_mops": 84.4786
+        },
+        {
+          "round": 3,
+          "build": "head",
+          "rowex_writer_mops": 2.7559,
+          "expanse_writer_mops": 1.6279,
+          "rowex_reader_mops": 59.0766,
+          "expanse_reader_mops": 85.0887
+        },
+        {
+          "round": 4,
+          "build": "head",
+          "rowex_writer_mops": 2.8102,
+          "expanse_writer_mops": 1.7261,
+          "rowex_reader_mops": 56.1943,
+          "expanse_reader_mops": 86.0072
+        },
+        {
+          "round": 5,
+          "build": "head",
+          "rowex_writer_mops": 2.2777,
+          "expanse_writer_mops": 1.6308,
+          "rowex_reader_mops": 58.726,
+          "expanse_reader_mops": 84.3085
+        },
+        {
+          "round": 6,
+          "build": "head",
+          "rowex_writer_mops": 2.2644,
+          "expanse_writer_mops": 1.632,
+          "rowex_reader_mops": 58.6471,
+          "expanse_reader_mops": 85.0877
+        },
+        {
+          "round": 7,
+          "build": "head",
+          "rowex_writer_mops": 2.2786,
+          "expanse_writer_mops": 1.5808,
+          "rowex_reader_mops": 58.4471,
+          "expanse_reader_mops": 84.875
+        },
+        {
+          "round": 8,
+          "build": "head",
+          "rowex_writer_mops": 2.2839,
+          "expanse_writer_mops": 1.7229,
+          "rowex_reader_mops": 58.7951,
+          "expanse_reader_mops": 86.0683
+        },
+        {
+          "round": 9,
+          "build": "head",
+          "rowex_writer_mops": 2.2589,
+          "expanse_writer_mops": 2.0598,
+          "rowex_reader_mops": 58.4805,
+          "expanse_reader_mops": 76.049
+        },
+        {
+          "round": 10,
+          "build": "head",
+          "rowex_writer_mops": 2.2754,
+          "expanse_writer_mops": 1.7074,
+          "rowex_reader_mops": 58.7254,
+          "expanse_reader_mops": 85.3333
+        },
+        {
+          "round": 11,
+          "build": "head",
+          "rowex_writer_mops": 2.2784,
+          "expanse_writer_mops": 1.5916,
+          "rowex_reader_mops": 58.9442,
+          "expanse_reader_mops": 85.9481
+        },
+        {
+          "round": 12,
+          "build": "head",
+          "rowex_writer_mops": 2.282,
+          "expanse_writer_mops": 1.7225,
+          "rowex_reader_mops": 58.6214,
+          "expanse_reader_mops": 86.1766
+        },
+        {
+          "round": 13,
+          "build": "head",
+          "rowex_writer_mops": 2.7956,
+          "expanse_writer_mops": 1.6547,
+          "rowex_reader_mops": 56.7244,
+          "expanse_reader_mops": 85.738
+        },
+        {
+          "round": 14,
+          "build": "head",
+          "rowex_writer_mops": 2.277,
+          "expanse_writer_mops": 1.7135,
+          "rowex_reader_mops": 58.4814,
+          "expanse_reader_mops": 84.2762
+        }
+      ],
+      "load": {
+        "since": "cell:map:W1:R8",
+        "wall_s": 44.795,
+        "busy_cpus_since_prev": 6.4,
+        "own_busy_cpus": 6.39,
+        "foreign_busy_cpus": 0.01
+      },
+      "pillar": "C2"
+    }
+  ],
+  "health": [
+    {
+      "workload_id": "hot_rowex_set_63bit",
+      "arm": "set",
+      "writers": 1,
+      "readers": 8,
+      "rounds": 5,
+      "restart_share": {
+        "median": 0.068911,
+        "min": 0.061654,
+        "max": 0.138915
+      },
+      "fallback_share": {
+        "median": 1e-06,
+        "min": 1e-06,
+        "max": 1e-06
+      },
+      "read_ops": {
+        "median": 51764408,
+        "min": 51045437,
+        "max": 53345559
+      },
+      "read_attempts": {
+        "median": 55558548,
+        "min": 54806630,
+        "max": 61951595
+      },
+      "read_fallbacks": {
+        "median": 32,
+        "min": 27,
+        "max": 54
+      },
+      "sample_spins": {
+        "median": 12986,
+        "min": 5218,
+        "max": 14927
+      },
+      "write_ops": {
+        "median": 1883243,
+        "min": 1883242,
+        "max": 1883244
+      },
+      "locked_reads": {
+        "median": 32,
+        "min": 27,
+        "max": 54
+      },
+      "handoffs": {
+        "median": 1,
+        "min": 1,
+        "max": 1
+      },
+      "retired": {
+        "median": 553718,
+        "min": 553718,
+        "max": 553718
+      },
+      "freed_raw": {
+        "median": 9078,
+        "min": 9078,
+        "max": 9078
+      },
+      "sample_spin_cycles": {
+        "median": 1504386,
+        "min": 646581,
+        "max": 1708337
+      },
+      "branch_replacements": {
+        "median": 35778,
+        "min": 35778,
+        "max": 35778
+      },
+      "deep_cascades": {
+        "median": 17889,
+        "min": 17889,
+        "max": 17889
+      },
+      "root_rewrites": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "cycles_hz": {
+        "median": 2419154266,
+        "min": 2419154266,
+        "max": 2419154266
+      },
+      "reader_elapsed_s": {
+        "median": 0.6315,
+        "min": 0.6296,
+        "max": 0.6885
+      },
+      "writer_elapsed_s": {
+        "median": 0.6315,
+        "min": 0.6295,
+        "max": 0.6884
+      },
+      "lock_restarts": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "lock_spins": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "lock_hold_cycles": {
+        "median": 63943266,
+        "min": 62441469,
+        "max": 80900920
+      },
+      "lock_fallbacks": {
+        "median": 834667,
+        "min": 834666,
+        "max": 834668
+      },
+      "locked_share": {
+        "median": 6.268924683708752e-07,
+        "min": 5.215939106267766e-07,
+        "max": 1.0295968874599695e-06
+      },
+      "unconditional_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "handoffs_per_write": {
+        "median": 5.309989204791947e-07,
+        "min": 5.309986385194908e-07,
+        "max": 5.30999202439198e-07
+      },
+      "replacements_per_write": {
+        "median": 0.018998079376904627,
+        "min": 0.018998069288950342,
+        "max": 0.018998089464869625
+      },
+      "deep_cascade_share": {
+        "median": 0.009499039688452313,
+        "min": 0.009499034644475171,
+        "max": 0.009499044732434812
+      },
+      "root_rewrite_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "spin_time_share": {
+        "median": 0.00011511177021926134,
+        "min": 5.3064572358554695e-05,
+        "max": 0.0001397805167553998
+      },
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rounds_raw": [
+        {
+          "round": 0,
+          "restart_share": 0.068627,
+          "fallback_share": 1e-06,
+          "read_ops": 51045437,
+          "read_attempts": 54806630,
+          "read_fallbacks": 32,
+          "sample_spins": 5218,
+          "write_ops": 1883243,
+          "locked_reads": 32,
+          "handoffs": 1,
+          "retired": 553718,
+          "freed_raw": 9078,
+          "sample_spin_cycles": 646581,
+          "branch_replacements": 35778,
+          "deep_cascades": 17889,
+          "root_rewrites": 0,
+          "cycles_hz": 2419154266,
+          "reader_elapsed_s": 0.6296,
+          "writer_elapsed_s": 0.6295,
+          "lock_restarts": 0,
+          "lock_spins": 0,
+          "lock_hold_cycles": 62441469,
+          "lock_fallbacks": 834667
+        },
+        {
+          "round": 1,
+          "restart_share": 0.111912,
+          "fallback_share": 1e-06,
+          "read_ops": 52447711,
+          "read_attempts": 59056912,
+          "read_fallbacks": 54,
+          "sample_spins": 10345,
+          "write_ops": 1883243,
+          "locked_reads": 54,
+          "handoffs": 1,
+          "retired": 553718,
+          "freed_raw": 9078,
+          "sample_spin_cycles": 1254293,
+          "branch_replacements": 35778,
+          "deep_cascades": 17889,
+          "root_rewrites": 0,
+          "cycles_hz": 2419154266,
+          "reader_elapsed_s": 0.6712,
+          "writer_elapsed_s": 0.6712,
+          "lock_restarts": 0,
+          "lock_spins": 0,
+          "lock_hold_cycles": 71052447,
+          "lock_fallbacks": 834667
+        },
+        {
+          "round": 2,
+          "restart_share": 0.061654,
+          "fallback_share": 1e-06,
+          "read_ops": 51764408,
+          "read_attempts": 55165585,
+          "read_fallbacks": 27,
+          "sample_spins": 13162,
+          "write_ops": 1883242,
+          "locked_reads": 27,
+          "handoffs": 1,
+          "retired": 553718,
+          "freed_raw": 9078,
+          "sample_spin_cycles": 1504386,
+          "branch_replacements": 35778,
+          "deep_cascades": 17889,
+          "root_rewrites": 0,
+          "cycles_hz": 2419154266,
+          "reader_elapsed_s": 0.6301,
+          "writer_elapsed_s": 0.63,
+          "lock_restarts": 0,
+          "lock_spins": 0,
+          "lock_hold_cycles": 63943266,
+          "lock_fallbacks": 834666
+        },
+        {
+          "round": 3,
+          "restart_share": 0.138915,
+          "fallback_share": 1e-06,
+          "read_ops": 53345559,
+          "read_attempts": 61951595,
+          "read_fallbacks": 53,
+          "sample_spins": 12986,
+          "write_ops": 1883244,
+          "locked_reads": 53,
+          "handoffs": 1,
+          "retired": 553718,
+          "freed_raw": 9078,
+          "sample_spin_cycles": 1533830,
+          "branch_replacements": 35778,
+          "deep_cascades": 17889,
+          "root_rewrites": 0,
+          "cycles_hz": 2419154266,
+          "reader_elapsed_s": 0.6885,
+          "writer_elapsed_s": 0.6884,
+          "lock_restarts": 0,
+          "lock_spins": 0,
+          "lock_hold_cycles": 80900920,
+          "lock_fallbacks": 834668
+        },
+        {
+          "round": 4,
+          "restart_share": 0.068911,
+          "fallback_share": 1e-06,
+          "read_ops": 51729969,
+          "read_attempts": 55558548,
+          "read_fallbacks": 32,
+          "sample_spins": 14927,
+          "write_ops": 1883242,
+          "locked_reads": 32,
+          "handoffs": 1,
+          "retired": 553718,
+          "freed_raw": 9078,
+          "sample_spin_cycles": 1708337,
+          "branch_replacements": 35778,
+          "deep_cascades": 17889,
+          "root_rewrites": 0,
+          "cycles_hz": 2419154266,
+          "reader_elapsed_s": 0.6315,
+          "writer_elapsed_s": 0.6315,
+          "lock_restarts": 0,
+          "lock_spins": 0,
+          "lock_hold_cycles": 62706489,
+          "lock_fallbacks": 834666
+        }
+      ],
+      "starvation_flag": false,
+      "load": {
+        "since": "cell:set:W1:R8",
+        "wall_s": 4.902,
+        "busy_cpus_since_prev": 6.27,
+        "own_busy_cpus": 6.26,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "workload_id": "hot_rowex_map_64bit",
+      "arm": "map",
+      "writers": 1,
+      "readers": 8,
+      "rounds": 5,
+      "restart_share": {
+        "median": 0.095783,
+        "min": 0.089079,
+        "max": 0.102214
+      },
+      "fallback_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "read_ops": {
+        "median": 55495538,
+        "min": 54863272,
+        "max": 56484180
+      },
+      "read_attempts": {
+        "median": 61290866,
+        "min": 60228335,
+        "max": 62467481
+      },
+      "read_fallbacks": {
+        "median": 11,
+        "min": 1,
+        "max": 26
+      },
+      "sample_spins": {
+        "median": 1647,
+        "min": 1569,
+        "max": 1876
+      },
+      "write_ops": {
+        "median": 1408836,
+        "min": 1408835,
+        "max": 1408841
+      },
+      "locked_reads": {
+        "median": 11,
+        "min": 1,
+        "max": 26
+      },
+      "handoffs": {
+        "median": 1,
+        "min": 1,
+        "max": 1
+      },
+      "retired": {
+        "median": 729312,
+        "min": 729312,
+        "max": 729312
+      },
+      "freed_raw": {
+        "median": 204112,
+        "min": 204110,
+        "max": 204113
+      },
+      "sample_spin_cycles": {
+        "median": 207369,
+        "min": 194600,
+        "max": 225578
+      },
+      "branch_replacements": {
+        "median": 59558,
+        "min": 59558,
+        "max": 59558
+      },
+      "deep_cascades": {
+        "median": 29779,
+        "min": 29779,
+        "max": 29779
+      },
+      "root_rewrites": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "cycles_hz": {
+        "median": 2419152941,
+        "min": 2419152941,
+        "max": 2419152941
+      },
+      "reader_elapsed_s": {
+        "median": 0.6657,
+        "min": 0.6629,
+        "max": 0.6821
+      },
+      "writer_elapsed_s": {
+        "median": 0.6657,
+        "min": 0.6628,
+        "max": 0.6818
+      },
+      "lock_restarts": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "lock_spins": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "lock_hold_cycles": {
+        "median": 150468144,
+        "min": 146787182,
+        "max": 153874904
+      },
+      "lock_fallbacks": {
+        "median": 360260,
+        "min": 360259,
+        "max": 360265
+      },
+      "locked_share": {
+        "median": 1.9809280925443503e-07,
+        "min": 1.8019466718207148e-08,
+        "max": 4.725032374649707e-07
+      },
+      "unconditional_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "handoffs_per_write": {
+        "median": 7.098058255183712e-07,
+        "min": 7.098033064057619e-07,
+        "max": 7.098063293430388e-07
+      },
+      "replacements_per_write": {
+        "median": 0.04227461535622315,
+        "min": 0.042274465322914366,
+        "max": 0.0422746453630127
+      },
+      "deep_cascade_share": {
+        "median": 0.021137307678111575,
+        "min": 0.021137232661457183,
+        "max": 0.02113732268150635
+      },
+      "root_rewrite_share": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "spin_time_share": {
+        "median": 1.6141848711403355e-05,
+        "min": 1.5104660429721456e-05,
+        "max": 1.7088163062787143e-05
+      },
+      "cpus_allowed": "0-15",
+      "pin_applied": "0-15",
+      "rounds_raw": [
+        {
+          "round": 0,
+          "restart_share": 0.095783,
+          "fallback_share": 0.0,
+          "read_ops": 56484180,
+          "read_attempts": 62467481,
+          "read_fallbacks": 11,
+          "sample_spins": 1876,
+          "write_ops": 1408836,
+          "locked_reads": 11,
+          "handoffs": 1,
+          "retired": 729312,
+          "freed_raw": 204112,
+          "sample_spin_cycles": 225578,
+          "branch_replacements": 59558,
+          "deep_cascades": 29779,
+          "root_rewrites": 0,
+          "cycles_hz": 2419152941,
+          "reader_elapsed_s": 0.6821,
+          "writer_elapsed_s": 0.6818,
+          "lock_restarts": 0,
+          "lock_spins": 0,
+          "lock_hold_cycles": 153874904,
+          "lock_fallbacks": 360260
+        },
+        {
+          "round": 1,
+          "restart_share": 0.101977,
+          "fallback_share": 0.0,
+          "read_ops": 55495538,
+          "read_attempts": 61797484,
+          "read_fallbacks": 1,
+          "sample_spins": 1647,
+          "write_ops": 1408835,
+          "locked_reads": 1,
+          "handoffs": 1,
+          "retired": 729312,
+          "freed_raw": 204113,
+          "sample_spin_cycles": 219817,
+          "branch_replacements": 59558,
+          "deep_cascades": 29779,
+          "root_rewrites": 0,
+          "cycles_hz": 2419152941,
+          "reader_elapsed_s": 0.6684,
+          "writer_elapsed_s": 0.6684,
+          "lock_restarts": 0,
+          "lock_spins": 0,
+          "lock_hold_cycles": 151596437,
+          "lock_fallbacks": 360259
+        },
+        {
+          "round": 2,
+          "restart_share": 0.102214,
+          "fallback_share": 0.0,
+          "read_ops": 55026078,
+          "read_attempts": 61290866,
+          "read_fallbacks": 26,
+          "sample_spins": 1569,
+          "write_ops": 1408841,
+          "locked_reads": 26,
+          "handoffs": 1,
+          "retired": 729312,
+          "freed_raw": 204110,
+          "sample_spin_cycles": 194600,
+          "branch_replacements": 59558,
+          "deep_cascades": 29779,
+          "root_rewrites": 0,
+          "cycles_hz": 2419152941,
+          "reader_elapsed_s": 0.6657,
+          "writer_elapsed_s": 0.6657,
+          "lock_restarts": 0,
+          "lock_spins": 0,
+          "lock_hold_cycles": 146787182,
+          "lock_fallbacks": 360265
+        },
+        {
+          "round": 3,
+          "restart_share": 0.092774,
+          "fallback_share": 0.0,
+          "read_ops": 55529527,
+          "read_attempts": 61208060,
+          "read_fallbacks": 11,
+          "sample_spins": 1581,
+          "write_ops": 1408835,
+          "locked_reads": 11,
+          "handoffs": 1,
+          "retired": 729312,
+          "freed_raw": 204113,
+          "sample_spin_cycles": 196018,
+          "branch_replacements": 59558,
+          "deep_cascades": 29779,
+          "root_rewrites": 0,
+          "cycles_hz": 2419152941,
+          "reader_elapsed_s": 0.6629,
+          "writer_elapsed_s": 0.6628,
+          "lock_restarts": 0,
+          "lock_spins": 0,
+          "lock_hold_cycles": 149469780,
+          "lock_fallbacks": 360259
+        },
+        {
+          "round": 4,
+          "restart_share": 0.089079,
+          "fallback_share": 0.0,
+          "read_ops": 54863272,
+          "read_attempts": 60228335,
+          "read_fallbacks": 11,
+          "sample_spins": 1648,
+          "write_ops": 1408838,
+          "locked_reads": 11,
+          "handoffs": 1,
+          "retired": 729312,
+          "freed_raw": 204111,
+          "sample_spin_cycles": 207369,
+          "branch_replacements": 59558,
+          "deep_cascades": 29779,
+          "root_rewrites": 0,
+          "cycles_hz": 2419152941,
+          "reader_elapsed_s": 0.6638,
+          "writer_elapsed_s": 0.6637,
+          "lock_restarts": 0,
+          "lock_spins": 0,
+          "lock_hold_cycles": 150468144,
+          "lock_fallbacks": 360262
+        }
+      ],
+      "starvation_flag": false,
+      "load": {
+        "since": "cell:map:W1:R8",
+        "wall_s": 4.806,
+        "busy_cpus_since_prev": 6.53,
+        "own_busy_cpus": 6.52,
+        "foreign_busy_cpus": 0.01
+      }
+    }
+  ]
+}

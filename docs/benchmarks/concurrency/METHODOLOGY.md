@@ -273,18 +273,18 @@ from a checkout.
 # base tree (the branch's parent commit) built once; its two harness binaries
 # are the `--ab-base-bin` of each suite
 EXPANSE_BENCH_COMMIT=<head-sha> EXPANSE_BENCH_BASE_TREE=<path> EXPANSE_BENCH_BASE_COMMIT=<base-sha> \
-  nohup docs/benchmarks/concurrency/scripts/pr3_campaign.sh > pr3.log 2>&1 &
+  nohup docs/benchmarks/concurrency/scripts/fine_grained_brackets_campaign.sh > fine_grained_brackets.log 2>&1 &
 ```
 
 The base binaries are the head tree's harness sources built against the base
 tree's engine — one harness, two engines — so the interleaving flags exist in
 both and only the engine differs. The campaign takes the host lock and the
 P-core pin once, then in this order: the H3.2 counter cells at the head commit (`scripts/bench_counters.py`
-into `results/pr3/` of each suite, so the Step 0 counter artifacts they are
+into `results/fine_grained_brackets/` of each suite, so the Step 0 counter artifacts they are
 read against stay in place), then two two-commit runs of each FFI suite's
 concurrent arm (`results/baseline_concurrent_ab.json` and `_ab_run2.json`:
 C1 W ∈ {1, 2, 4, 8, 16}, C2 W ∈ {0, 1} at R = 8, and the head-only health
-cell at W = 1 R = 8). `scripts/pr3_gate.py` reads the six artifacts against
+cell at W = 1 R = 8). `scripts/fine_grained_brackets_gate.py` reads the six artifacts against
 §8.2 and §8.4 and `scripts/tables.py` renders its verdicts into
 [`README.md`](README.md) §8; nothing in the table is typed.
 
@@ -365,7 +365,9 @@ beside it as the second bar.
 
 The same two-commit runners as §8 (`--ab-base-bin` / `--ab-base-commit`
 against `10cd755d`), two runs per suite, one host lock, concurrent sweeps
-last (§8.17). New counters PR 5 adds and this section relies on:
+last (§8.17), executed via `docs/benchmarks/concurrency/scripts/multi_writer_olc_campaign.sh`
+and evaluated by `scripts/multi_writer_olc_gate.py` (with `results/multi_writer_olc/`).
+New counters PR 5 adds and this section relies on:
 `Stat::LockRestarts`, `Stat::LockSpins`, `Stat::LockHoldCycles` (sharded per
 thread like the #804 counters). New `bench_counters.py` cells: writer-thread
 `l2_rqsts.rfo_miss` at C1 W ∈ {4, 8} on the map arm (the P5.1 mechanism

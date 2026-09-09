@@ -352,9 +352,9 @@ def ablations_str() -> list[str]:
 
 
 def main() -> int:
-    import pr3_gate  # the §8 verdicts, beside this file
+    import fine_grained_brackets_gate  # the §8 fine-grained write brackets verdicts, beside this file
 
-    blocks = [line_transfer(), d1(), d2(), spread(), ablations(), ablations_str(), pr3_gate.render()]
+    blocks = [line_transfer(), d1(), d2(), spread(), ablations(), ablations_str(), fine_grained_brackets_gate.render()]
     print("\n\n".join("\n".join(b) for b in blocks))
     return 0
 

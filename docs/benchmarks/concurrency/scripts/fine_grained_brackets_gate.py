@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The #568 PR 3 gate, read against METHODOLOGY.md §8 — never typed.
+"""Fine-grained write brackets gate, read against METHODOLOGY.md §8 — never typed.
 
 Inputs, per FFI suite (`docs/benchmarks/<suite>/results/`):
 
@@ -9,7 +9,7 @@ Inputs, per FFI suite (`docs/benchmarks/<suite>/results/`):
 - `baseline_concurrent_ab.json` and `baseline_concurrent_ab_run2.json`: two
   two-commit runs (`scripts/bench_ab.py`), each cell carrying a `base` and a
   `head` reduction.
-- `pr3/counters_<cell>.json`: the head build's per-thread counters at the
+- `fine_grained_brackets/counters_<cell>.json`: the head build's per-thread counters at the
   H3.2 cells (`scripts/bench_counters.py --out-dir`).
 
 `evaluate(load)` takes a loader `load(suite, filename) -> dict | None` so the
@@ -18,7 +18,7 @@ prints. Verdict labels are §8.2's: `PASS`, `BOUNDARY_RESULT`, `REFUTED`; a
 cell whose base half does not reproduce the committed union is `VOID` (§8.4)
 and is never read further.
 
-Self-test: `python3 docs/benchmarks/concurrency/scripts/pr3_gate.py --self-test`.
+Self-test: `python3 docs/benchmarks/concurrency/scripts/fine_grained_brackets_gate.py --self-test`.
 """
 from __future__ import annotations
 
@@ -126,7 +126,7 @@ def evaluate(load) -> dict:
                     row["verdict"] = "BOUNDARY_RESULT (both runs improved; union crosses the threshold)"
         out["h31"].append(row)
 
-        c = load(suite, f"pr3/counters_{ccell}.json")
+        c = load(suite, f"fine_grained_brackets/counters_{ccell}.json")
         ev = ((c or {}).get("roles", {}).get("writer", {}).get("events", {}) or {}).get("l2_rqsts.rfo_miss")
         step0 = load(suite, f"counters_{ccell}.json")
         ev0 = ((step0 or {}).get("roles", {}).get("writer", {}).get("events", {}) or {}).get("l2_rqsts.rfo_miss")
@@ -223,10 +223,10 @@ def _verdict(v: str) -> str:
 
 def render(load=default_load) -> list[str]:
     r = evaluate(load)
-    out = ["## 8. PR 3 gate — the single-writer bracket re-scope (METHODOLOGY §8)", "",
+    out = ["## 8. Fine-grained write brackets gate (METHODOLOGY §8)", "",
            "Read against §8.2; every number is the runner's own estimator over the two-commit "
            "artifacts (`results/baseline_concurrent_ab*.json` of each FFI suite) and the head "
-           "build's counters (`results/pr3/`). A cell whose base half falls outside the "
+           "build's counters (`results/fine_grained_brackets/`). A cell whose base half falls outside the "
            "committed `a1982ff2` union is `VOID` (§8.4) and decides nothing.", "",
            "**H3.1 — reader ns per probe at C2 W = 1 R = 8** (gate: head union-upper below "
            f"{H31_FACTOR:.1f} × the baseline union-lower):", "",
@@ -330,7 +330,7 @@ def _self_test() -> int:
                 return ab_pair[0]
             if name == "baseline_concurrent_ab_run2.json":
                 return ab_pair[1]
-            if name == "pr3/counters_masstree_conc_map_w1_r8.json" and rfo is not None:
+            if name == "fine_grained_brackets/counters_masstree_conc_map_w1_r8.json" and rfo is not None:
                 return {"roles": {"writer": {"events": {"l2_rqsts.rfo_miss": {
                     "per_op_mean": rfo, "ci_lower": rfo - 0.1, "ci_upper": rfo + 0.1}}}}}
             return None
@@ -385,7 +385,7 @@ def _self_test() -> int:
                                    for l in render(str_loader)))
     r = evaluate(lambda s, n: None)
     check("str cell pending without artifacts", all(x["verdict"] == "pending" for x in r["str_c2"]))
-    print("pr3_gate self-test:", "ok" if fails == 0 else f"{fails} failure(s)")
+    print("fine_grained_brackets_gate self-test:", "ok" if fails == 0 else f"{fails} failure(s)")
     return 1 if fails else 0
 
 

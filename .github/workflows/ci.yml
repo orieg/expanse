@@ -1251,9 +1251,14 @@ jobs:
 
       - name: Exclude workspace from Windows Defender
         shell: pwsh
+        continue-on-error: true
         run: |
-          Add-MpPreference -ExclusionPath "${{ github.workspace }}"
-          Add-MpPreference -ExclusionPath "${{ runner.temp }}"
+          try {
+            Add-MpPreference -ExclusionPath "${{ github.workspace }}" -ErrorAction Stop
+            Add-MpPreference -ExclusionPath "${{ runner.temp }}" -ErrorAction Stop
+          } catch {
+            Write-Host "Windows Defender exclusions skipped: $($_.Exception.Message)"
+          }
 
       - name: Build php-judy against expanse.dll and run its suite
         uses: php/php-windows-builder/extension@v1

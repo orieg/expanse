@@ -1082,6 +1082,28 @@ unsafe fn bump_edge_pop0(edge: *mut Edge, slot_level: u8, delta: i64) {
 }
 
 #[cfg(feature = "std")]
+#[inline(always)]
+fn version_try_lock_timed(cell: &crate::occ::VersionCell) -> Result<(u32, u64), u32> {
+    #[cfg(feature = "occ-stats")]
+    let t0 = crate::occ_stats::cycles_now();
+    #[cfg(not(feature = "occ-stats"))]
+    let t0 = 0;
+    let old_v = crate::occ::version_try_lock(cell)?;
+    Ok((old_v, t0))
+}
+
+#[cfg(feature = "std")]
+#[inline(always)]
+fn version_unlock_timed(cell: &crate::occ::VersionCell, old_v: u32, modified: bool, _t0: u64) {
+    crate::occ::version_unlock(cell, old_v, modified);
+    #[cfg(feature = "occ-stats")]
+    crate::occ_stats::bump_by(
+        crate::occ_stats::Stat::LockHoldCycles,
+        crate::occ_stats::cycles_now().wrapping_sub(_t0),
+    );
+}
+
+#[cfg(feature = "std")]
 #[inline]
 unsafe fn bump_ancestor_pop0(
     node: *mut u8,
@@ -1104,8 +1126,8 @@ unsafe fn bump_ancestor_pop0(
     // SAFETY: caller guarantees node is an EBR-live branch node.
     let cell = unsafe { crate::occ::version_cell(vp) };
     loop {
-        match crate::occ::version_try_lock(cell) {
-            Ok(old_v) => {
+        match version_try_lock_timed(cell) {
+            Ok((old_v, lock_t0)) => {
                 // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                 unsafe {
                     match edge_type {
@@ -1137,11 +1159,16 @@ unsafe fn bump_ancestor_pop0(
                         }
                         _ => {}
                     }
-                    crate::occ::version_unlock(cell, old_v, true);
+                    version_unlock_timed(cell, old_v, true, lock_t0);
                 }
                 break;
             }
             Err(cur) => {
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockSpins);
+                debug_assert!(
+                    (cur & crate::occ::OBSOLETE) == 0,
+                    "ancestor node became obsolete during bump_ancestor_pop0: structural restructuring must re-descend"
+                );
                 if (cur & crate::occ::OBSOLETE) != 0 {
                     break;
                 }
@@ -1187,6 +1214,7 @@ impl SyncExpanseSet {
         #[cfg(feature = "std")]
         {
             if !self.shared.inner_ref().root_is_tree() {
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 return self.shared.write_root_covered(|s| s.insert(key));
             }
 
@@ -1211,6 +1239,7 @@ impl SyncExpanseSet {
                         return ins;
                     }
                     OlcOutcome::Retry => {
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
                         core::hint::spin_loop();
                         #[cfg(loom)]
                         loom::thread::yield_now();
@@ -1221,6 +1250,7 @@ impl SyncExpanseSet {
                 }
             }
             crate::occ_stats::op_end();
+            crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
             drop(_guard);
             drop(_pin);
             drop(reader);
@@ -1237,6 +1267,7 @@ impl SyncExpanseSet {
         #[cfg(feature = "std")]
         {
             if !self.shared.inner_ref().root_is_tree() {
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 return self.shared.write_root_covered(|s| s.remove(key));
             }
 
@@ -1261,6 +1292,7 @@ impl SyncExpanseSet {
                         return rem;
                     }
                     OlcOutcome::Retry => {
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
                         core::hint::spin_loop();
                         #[cfg(loom)]
                         loom::thread::yield_now();
@@ -1271,6 +1303,7 @@ impl SyncExpanseSet {
                 }
             }
             crate::occ_stats::op_end();
+            crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
             drop(_guard);
             drop(_pin);
             drop(reader);
@@ -1373,8 +1406,8 @@ impl SyncExpanseSet {
                     let cap = if is_l3 { BRANCH_L3_CAP } else { BRANCH_L7_CAP };
                     if num < cap {
                         // SAFETY: version cell is within an EBR-live node allocation.
-                        let Ok(old_v) =
-                            (unsafe { crate::occ::version_try_lock(crate::occ::version_cell(vp)) })
+                        let Ok((old_v, lock_t0)) =
+                            (unsafe { version_try_lock_timed(crate::occ::version_cell(vp)) })
                         else {
                             return OlcOutcome::Retry;
                         };
@@ -1389,10 +1422,11 @@ impl SyncExpanseSet {
                         if cur_num >= cap {
                             // SAFETY: version cell is within an EBR-live node allocation.
                             unsafe {
-                                crate::occ::version_unlock(
+                                version_unlock_timed(
                                     crate::occ::version_cell(vp),
                                     old_v,
                                     false,
+                                    lock_t0,
                                 );
                             }
                             return OlcOutcome::Retry;
@@ -1424,7 +1458,12 @@ impl SyncExpanseSet {
                                 (*b).hdr.num += 1;
                                 (*b).hdr.add_presence(d);
                             }
-                            crate::occ::version_unlock(crate::occ::version_cell(vp), old_v, true);
+                            version_unlock_timed(
+                                crate::occ::version_cell(vp),
+                                old_v,
+                                true,
+                                lock_t0,
+                            );
                             for i in (0..anc_depth).rev() {
                                 let a = &ancestors[i];
                                 bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
@@ -1542,26 +1581,26 @@ impl SyncExpanseSet {
                     if pop0 >= 254 {
                         return OlcOutcome::Fallback;
                     }
-                    let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                    let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
                         return OlcOutcome::Retry;
                     };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                     if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
-                        crate::occ::version_unlock(p_cell, old_v, false);
+                        version_unlock_timed(p_cell, old_v, false, lock_t0);
                         return OlcOutcome::Retry;
                     }
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     unsafe {
                         if (*node).bitmap.set(d) {
                             (*edge_ptr).set_pop0(1, (pop0 + 1) as u64);
-                            crate::occ::version_unlock(p_cell, old_v, true);
+                            version_unlock_timed(p_cell, old_v, true, lock_t0);
                             for i in (0..anc_depth.saturating_sub(1)).rev() {
                                 let a = &ancestors[i];
                                 bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
                             }
                             return OlcOutcome::Done(true);
                         } else {
-                            crate::occ::version_unlock(p_cell, old_v, false);
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Done(false);
                         }
                     }
@@ -1619,12 +1658,12 @@ impl SyncExpanseSet {
                         crate::mutate::LEAF_CAP
                     };
                     if pop < cap && crate::leaf::cap_class(pop + 1) == crate::leaf::cap_class(pop) {
-                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                         if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
-                            crate::occ::version_unlock(p_cell, old_v, false);
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
@@ -1636,7 +1675,7 @@ impl SyncExpanseSet {
                             );
                             crate::mutate::write_packed(keys_ptr, at, kb, k);
                             (*edge_ptr).set_pop0(kb as u8, pop as u64);
-                            crate::occ::version_unlock(p_cell, old_v, true);
+                            version_unlock_timed(p_cell, old_v, true, lock_t0);
                             for i in (0..anc_depth.saturating_sub(1)).rev() {
                                 let a = &ancestors[i];
                                 bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
@@ -1678,12 +1717,12 @@ impl SyncExpanseSet {
                         return OlcOutcome::Done(false);
                     }
                     if n == 1 && crate::types::ImmedType::max_count(kb) >= 2 {
-                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                         if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
-                            crate::occ::version_unlock(p_cell, old_v, false);
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
                         // SAFETY: pointer and index are within bounds of valid leaf/immediate allocation.
@@ -1710,7 +1749,7 @@ impl SyncExpanseSet {
                             (*edge_ptr).set_imm_bytes(w0);
                             (*edge_ptr).set_aux_bytes(aux);
                             (*edge_ptr).set_tag(new_im.as_u8());
-                            crate::occ::version_unlock(p_cell, old_v, true);
+                            version_unlock_timed(p_cell, old_v, true, lock_t0);
                             for i in (0..anc_depth.saturating_sub(1)).rev() {
                                 let a = &ancestors[i];
                                 bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
@@ -1924,19 +1963,19 @@ impl SyncExpanseSet {
                     if pop0 == 0 || pop0 <= 32 {
                         return OlcOutcome::Fallback;
                     }
-                    let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                    let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
                         return OlcOutcome::Retry;
                     };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                     if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
-                        crate::occ::version_unlock(p_cell, old_v, false);
+                        version_unlock_timed(p_cell, old_v, false, lock_t0);
                         return OlcOutcome::Retry;
                     }
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     unsafe {
                         (*node).bitmap.clear(d);
                         (*edge_ptr).set_pop0(1, (pop0 - 1) as u64);
-                        crate::occ::version_unlock(p_cell, old_v, true);
+                        version_unlock_timed(p_cell, old_v, true, lock_t0);
                         for i in (0..anc_depth.saturating_sub(1)).rev() {
                             let a = &ancestors[i];
                             bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, -1);
@@ -1984,12 +2023,12 @@ impl SyncExpanseSet {
                         return OlcOutcome::Done(false);
                     };
                     if pop > 2 && crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop) {
-                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                         if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
-                            crate::occ::version_unlock(p_cell, old_v, false);
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
@@ -2000,7 +2039,7 @@ impl SyncExpanseSet {
                                 (pop - 1 - pos) * kb,
                             );
                             (*edge_ptr).set_pop0(kb as u8, (pop - 2) as u64);
-                            crate::occ::version_unlock(p_cell, old_v, true);
+                            version_unlock_timed(p_cell, old_v, true, lock_t0);
                             for i in (0..anc_depth.saturating_sub(1)).rev() {
                                 let a = &ancestors[i];
                                 bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, -1);
@@ -2127,6 +2166,7 @@ impl SyncExpanseMap {
         #[cfg(feature = "std")]
         {
             if !self.shared.inner_ref().root_is_tree() {
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 return self.shared.write_root_covered(|m| m.insert(key, val));
             }
 
@@ -2151,6 +2191,7 @@ impl SyncExpanseMap {
                         return prev;
                     }
                     OlcOutcome::Retry => {
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
                         core::hint::spin_loop();
                         #[cfg(loom)]
                         loom::thread::yield_now();
@@ -2161,6 +2202,7 @@ impl SyncExpanseMap {
                 }
             }
             crate::occ_stats::op_end();
+            crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
             drop(_guard);
             drop(_pin);
             drop(reader);
@@ -2179,6 +2221,7 @@ impl SyncExpanseMap {
         #[cfg(feature = "std")]
         {
             if !self.shared.inner_ref().root_is_tree() {
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 return self.shared.write_root_covered(|m| m.remove(key));
             }
 
@@ -2203,6 +2246,7 @@ impl SyncExpanseMap {
                         return prev;
                     }
                     OlcOutcome::Retry => {
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
                         core::hint::spin_loop();
                         #[cfg(loom)]
                         loom::thread::yield_now();
@@ -2213,6 +2257,7 @@ impl SyncExpanseMap {
                 }
             }
             crate::occ_stats::op_end();
+            crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
             drop(_guard);
             drop(_pin);
             drop(reader);
@@ -2318,8 +2363,8 @@ impl SyncExpanseMap {
                     let cap = if is_l3 { BRANCH_L3_CAP } else { BRANCH_L7_CAP };
                     if num < cap {
                         // SAFETY: version cell is within an EBR-live node allocation.
-                        let Ok(old_v) =
-                            crate::occ::version_try_lock(unsafe { crate::occ::version_cell(vp) })
+                        let Ok((old_v, lock_t0)) =
+                            version_try_lock_timed(unsafe { crate::occ::version_cell(vp) })
                         else {
                             return OlcOutcome::Retry;
                         };
@@ -2333,10 +2378,11 @@ impl SyncExpanseMap {
                         };
                         if cur_num >= cap {
                             // SAFETY: version cell is within an EBR-live node allocation.
-                            crate::occ::version_unlock(
+                            version_unlock_timed(
                                 unsafe { crate::occ::version_cell(vp) },
                                 old_v,
                                 false,
+                                lock_t0,
                             );
                             return OlcOutcome::Retry;
                         }
@@ -2370,7 +2416,12 @@ impl SyncExpanseMap {
                                 (*b).hdr.num += 1;
                                 (*b).hdr.add_presence(d);
                             }
-                            crate::occ::version_unlock(crate::occ::version_cell(vp), old_v, true);
+                            version_unlock_timed(
+                                crate::occ::version_cell(vp),
+                                old_v,
+                                true,
+                                lock_t0,
+                            );
                             for i in (0..anc_depth).rev() {
                                 let a = &ancestors[i];
                                 bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
@@ -2488,12 +2539,12 @@ impl SyncExpanseMap {
                         if !crate::occ::node_validate(p_cell, parent.version_snap) {
                             return OlcOutcome::Retry;
                         }
-                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                         if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
-                            crate::occ::version_unlock(p_cell, old_v, false);
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
@@ -2501,7 +2552,7 @@ impl SyncExpanseMap {
                             let slot = (*node).values[sub].add(rank);
                             let old = slot.read();
                             slot.write(val);
-                            crate::occ::version_unlock(p_cell, old_v, true);
+                            version_unlock_timed(p_cell, old_v, true, lock_t0);
                             return OlcOutcome::Done(Some(old));
                         }
                     }
@@ -2516,12 +2567,12 @@ impl SyncExpanseMap {
                     if old_n > 0
                         && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n)
                     {
-                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                         if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
-                            crate::occ::version_unlock(p_cell, old_v, false);
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
@@ -2531,7 +2582,7 @@ impl SyncExpanseMap {
                             arr.add(rank).write(val);
                             (*node).bitmap.set(d);
                             (*edge_ptr).set_pop0(1, (pop0 + 1) as u64);
-                            crate::occ::version_unlock(p_cell, old_v, true);
+                            version_unlock_timed(p_cell, old_v, true, lock_t0);
                             for i in (0..anc_depth.saturating_sub(1)).rev() {
                                 let a = &ancestors[i];
                                 bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
@@ -2581,12 +2632,12 @@ impl SyncExpanseMap {
                         }
                     }
                     if let Some(pos) = found {
-                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                         if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
-                            crate::occ::version_unlock(p_cell, old_v, false);
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
@@ -2594,7 +2645,7 @@ impl SyncExpanseMap {
                             let slot = base.cast::<u64>().add(pos);
                             let old = slot.read();
                             slot.write(val);
-                            crate::occ::version_unlock(p_cell, old_v, true);
+                            version_unlock_timed(p_cell, old_v, true, lock_t0);
                             return OlcOutcome::Done(Some(old));
                         }
                     }
@@ -2604,19 +2655,19 @@ impl SyncExpanseMap {
                         crate::mutate::LEAF_CAP
                     };
                     if pop < cap && crate::leaf::cap_class(pop + 1) == crate::leaf::cap_class(pop) {
-                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                         if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
-                            crate::occ::version_unlock(p_cell, old_v, false);
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                         unsafe {
                             crate::leaf::map_insert_at(base, kb as u8, pop, at, k, val);
                             (*edge_ptr).set_pop0(kb as u8, pop as u64);
-                            crate::occ::version_unlock(p_cell, old_v, true);
+                            version_unlock_timed(p_cell, old_v, true, lock_t0);
                             for i in (0..anc_depth.saturating_sub(1)).rev() {
                                 let a = &ancestors[i];
                                 bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
@@ -2649,19 +2700,19 @@ impl SyncExpanseMap {
                         };
                         let existing_k = edge.aux_word() & mask;
                         if existing_k == k {
-                            let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                            let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
                                 return OlcOutcome::Retry;
                             };
                             // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                             if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
-                                crate::occ::version_unlock(p_cell, old_v, false);
+                                version_unlock_timed(p_cell, old_v, false, lock_t0);
                                 return OlcOutcome::Retry;
                             }
                             // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                             unsafe {
                                 let old = (*edge_ptr).word0();
                                 (*edge_ptr).set_imm_bytes(val.to_le_bytes());
-                                crate::occ::version_unlock(p_cell, old_v, true);
+                                version_unlock_timed(p_cell, old_v, true, lock_t0);
                                 return OlcOutcome::Done(Some(old));
                             }
                         }
@@ -2671,12 +2722,12 @@ impl SyncExpanseMap {
                     let pos =
                         (unsafe { crate::leaf::locate(edge.aux_bytes().as_ptr(), n, kb, k) }).ok();
                     if let Some(p) = pos {
-                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                         if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
-                            crate::occ::version_unlock(p_cell, old_v, false);
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
@@ -2685,19 +2736,19 @@ impl SyncExpanseMap {
                             let slot = vals.add(p);
                             let old = slot.read();
                             slot.write(val);
-                            crate::occ::version_unlock(p_cell, old_v, true);
+                            version_unlock_timed(p_cell, old_v, true, lock_t0);
                             return OlcOutcome::Done(Some(old));
                         }
                     }
                     if n < crate::mutate::map_immed_max(kb)
                         && crate::leaf::cap_class(n + 1) == crate::leaf::cap_class(n)
                     {
-                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                         if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
-                            crate::occ::version_unlock(p_cell, old_v, false);
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
                         // SAFETY: pointer and index are within bounds of valid leaf/immediate allocation.
@@ -2705,7 +2756,7 @@ impl SyncExpanseMap {
                             crate::leaf::locate(edge.aux_bytes().as_ptr(), n, kb, k)
                         } {
                             Ok(_) => {
-                                crate::occ::version_unlock(p_cell, old_v, false);
+                                version_unlock_timed(p_cell, old_v, false, lock_t0);
                                 return OlcOutcome::Retry;
                             }
                             Err(p) => p,
@@ -2733,7 +2784,7 @@ impl SyncExpanseMap {
                                 ImmedType::new(kb, (n + 1) as u8).expect("immediate capacity");
                             (*edge_ptr).set_aux_bytes(new_aux);
                             (*edge_ptr).set_tag(new_im.as_u8());
-                            crate::occ::version_unlock(p_cell, old_v, true);
+                            version_unlock_timed(p_cell, old_v, true, lock_t0);
                             for i in (0..anc_depth.saturating_sub(1)).rev() {
                                 let a = &ancestors[i];
                                 bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
@@ -2957,12 +3008,12 @@ impl SyncExpanseMap {
                     if old_n > 1
                         && crate::leaf::cap_class(old_n - 1) == crate::leaf::cap_class(old_n)
                     {
-                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                         if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
-                            crate::occ::version_unlock(p_cell, old_v, false);
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
@@ -2972,7 +3023,7 @@ impl SyncExpanseMap {
                             core::ptr::copy(arr.add(rank + 1), arr.add(rank), old_n - 1 - rank);
                             (*node).bitmap.clear(d);
                             (*edge_ptr).set_pop0(1, (pop0 - 1) as u64);
-                            crate::occ::version_unlock(p_cell, old_v, true);
+                            version_unlock_timed(p_cell, old_v, true, lock_t0);
                             for i in (0..anc_depth.saturating_sub(1)).rev() {
                                 let a = &ancestors[i];
                                 bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, -1);
@@ -3027,12 +3078,12 @@ impl SyncExpanseMap {
                         && crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop)
                         && pop > crate::mutate::map_immed_max(kb as u8)
                     {
-                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                         if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
-                            crate::occ::version_unlock(p_cell, old_v, false);
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
@@ -3040,7 +3091,7 @@ impl SyncExpanseMap {
                             let old = base.cast::<u64>().add(pos).read();
                             crate::leaf::map_remove_at(base, kb as u8, pop, pos);
                             (*edge_ptr).set_pop0(kb as u8, (pop - 2) as u64);
-                            crate::occ::version_unlock(p_cell, old_v, true);
+                            version_unlock_timed(p_cell, old_v, true, lock_t0);
                             for i in (0..anc_depth.saturating_sub(1)).rev() {
                                 let a = &ancestors[i];
                                 bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, -1);
@@ -3073,19 +3124,19 @@ impl SyncExpanseMap {
                         };
                         let existing_k = edge.aux_word() & mask;
                         if existing_k == k {
-                            let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                            let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
                                 return OlcOutcome::Retry;
                             };
                             // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                             if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
-                                crate::occ::version_unlock(p_cell, old_v, false);
+                                version_unlock_timed(p_cell, old_v, false, lock_t0);
                                 return OlcOutcome::Retry;
                             }
                             // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                             unsafe {
                                 let old = (*edge_ptr).word0();
                                 (*edge_ptr) = Edge::NULL;
-                                crate::occ::version_unlock(p_cell, old_v, true);
+                                version_unlock_timed(p_cell, old_v, true, lock_t0);
                                 for i in (0..anc_depth.saturating_sub(1)).rev() {
                                     let a = &ancestors[i];
                                     bump_ancestor_pop0(
@@ -3114,12 +3165,12 @@ impl SyncExpanseMap {
                         return OlcOutcome::Done(None);
                     };
                     if n > 2 && crate::leaf::cap_class(n - 1) == crate::leaf::cap_class(n) {
-                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                         if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
-                            crate::occ::version_unlock(p_cell, old_v, false);
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
@@ -3136,7 +3187,7 @@ impl SyncExpanseMap {
                                 ImmedType::new(kb, (n - 1) as u8).expect("immediate capacity");
                             (*edge_ptr).set_aux_bytes(new_aux);
                             (*edge_ptr).set_tag(new_im.as_u8());
-                            crate::occ::version_unlock(p_cell, old_v, true);
+                            version_unlock_timed(p_cell, old_v, true, lock_t0);
                             for i in (0..anc_depth.saturating_sub(1)).rev() {
                                 let a = &ancestors[i];
                                 bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, -1);
@@ -5852,6 +5903,35 @@ mod obsolete_tests {
             value,
             Some(!probe),
             "the reader must restart, not read the shifted slot"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "occ-stats")]
+    fn stage_b_olc_stats_tracked() {
+        crate::occ_stats::reset();
+        let set = SyncExpanseSet::new();
+        // Fallback bumped when inserting into empty/immediate root.
+        set.insert(42);
+        let snap0 = crate::occ_stats::snapshot();
+        assert!(snap0[crate::occ_stats::Stat::LockFallbacks as usize] >= 1);
+
+        // Prefill map so root becomes a tree with leaves.
+        let map = SyncExpanseMap::new();
+        for k in 0..500u64 {
+            map.insert(k * 100, k);
+        }
+        let before_hold =
+            crate::occ_stats::snapshot()[crate::occ_stats::Stat::LockHoldCycles as usize];
+        // Updating existing keys in-place under OLC locks the leaf/parent.
+        for k in 0..500u64 {
+            map.insert(k * 100, k + 1);
+        }
+        let after_hold =
+            crate::occ_stats::snapshot()[crate::occ_stats::Stat::LockHoldCycles as usize];
+        assert!(
+            after_hold > before_hold,
+            "LockHoldCycles must advance under OLC node locks (before {before_hold}, after {after_hold})"
         );
     }
 }

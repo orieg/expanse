@@ -269,6 +269,9 @@ CELLS = [
     _conc("masstree_conc_map_w1_r0", 568, "masstree_comparison",
           "masstree_concurrent", ["map", "1", "0"], ["masstree"],
           "one writer alone — the writer's uncontended per-insert cost"),
+    _conc("masstree_conc_map_w4_r0", 568, "masstree_comparison",
+          "masstree_concurrent", ["map", "4", "0"], ["masstree"],
+          "four writers, map arm"),
     _conc("masstree_conc_map_w0_r8", 568, "masstree_comparison",
           "masstree_concurrent", ["map", "0", "8"], ["masstree"],
           "eight readers, no writer — the reader-side control for the C2 coherence columns"),
@@ -303,6 +306,12 @@ CELLS = [
     _conc("hot_conc_map_w1_r0", 568, "hot_comparison",
           "hot_concurrent", ["map", "1", "0"], ["rowex"],
           "one writer alone, map arm"),
+    _conc("hot_conc_map_w4_r0", 568, "hot_comparison",
+          "hot_concurrent", ["map", "4", "0"], ["rowex"],
+          "four writers, map arm"),
+    _conc("hot_conc_map_w8_r0", 568, "hot_comparison",
+          "hot_concurrent", ["map", "8", "0"], ["rowex"],
+          "eight writers, map arm"),
 ]
 
 BY_NAME = {c.name: c for c in CELLS}
@@ -988,9 +997,9 @@ def _self_test() -> int:
     if len(BY_NAME) != len(CELLS):
         failures.append("two cells share a name")
     # The gate names four cells from #724/#725/#730 plus the HOT lookup cell,
-    # and #568 adds thirteen per-thread cells (ten attribution cells and three
-    # readers-alone controls).
-    for issue, want in ((724, 2), (725, 3), (730, 2), (737, 1), (568, 13)):
+    # and #568 adds sixteen per-thread cells (ten attribution cells, three
+    # readers-alone controls, and three PR 5 multi-writer mechanism cells).
+    for issue, want in ((724, 2), (725, 3), (730, 2), (737, 1), (568, 16)):
         got = sum(1 for c in CELLS if c.issue == issue)
         if got != want:
             failures.append(f"expected {want} cell(s) for #{issue}, found {got}")
