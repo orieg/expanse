@@ -1635,6 +1635,7 @@ millions rather than collapsing to zero, but closing the write-mixed gap needs
 multi-writer support — sharding or per-node write locks — not finer validation
 (`docs/ARCHITECTURE.md` §6). Single-threaded trees skip the version brackets
 entirely (`NodeAlloc::occ_enabled`), so the classic engine pays nothing.
+Multi-writer optimistic lock coupling (Stage B, #568 plan PR 5) is pre-registered in `docs/benchmarks/concurrency/METHODOLOGY.md` §10, against the merged single-writer engine's two-commit artifacts; the protocol is `docs/ARCHITECTURE.md` §4.2 and the bounds `scripts/olc_bounds.py`.
 
 ### Cortex-M7 on-target
 
