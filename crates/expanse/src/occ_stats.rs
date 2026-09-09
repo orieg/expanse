@@ -104,10 +104,18 @@ pub enum Stat {
     /// change, a root-leaf reallocation, or a rewrite of the top edge.
     /// Each one is a write the tree-level bracket must cover (#568).
     RootRewrites = 16,
+    /// Lock restarts during multi-writer OLC mutations (#568).
+    LockRestarts = 17,
+    /// Spins waiting to acquire per-node version locks (#568).
+    LockSpins = 18,
+    /// Cycle-counter ticks spent holding per-node version locks (#568).
+    LockHoldCycles = 19,
+    /// Mutations falling back to the serialized root-covered lock (#568).
+    LockFallbacks = 20,
 }
 
 /// Number of distinct counters.
-pub const NUM_STATS: usize = 17;
+pub const NUM_STATS: usize = 21;
 
 /// Human-readable counter names, indexed by [`Stat`].
 pub const NAMES: [&str; NUM_STATS] = [
@@ -128,6 +136,10 @@ pub const NAMES: [&str; NUM_STATS] = [
     "branch_replacements",
     "deep_cascades",
     "root_rewrites",
+    "lock_restarts",
+    "lock_spins",
+    "lock_hold_cycles",
+    "lock_fallbacks",
 ];
 
 /// Counters that are gauges (add / subtract / high-water), kept global.
@@ -402,9 +414,13 @@ mod tests {
     #[test]
     fn names_cover_every_stat() {
         assert_eq!(NAMES.len(), NUM_STATS);
-        assert_eq!(Stat::RootRewrites as usize + 1, NUM_STATS);
+        assert_eq!(Stat::LockFallbacks as usize + 1, NUM_STATS);
         assert_eq!(NAMES[Stat::SampleSpinCycles as usize], "sample_spin_cycles");
         assert_eq!(NAMES[Stat::DeepCascades as usize], "deep_cascades");
+        assert_eq!(NAMES[Stat::LockRestarts as usize], "lock_restarts");
+        assert_eq!(NAMES[Stat::LockSpins as usize], "lock_spins");
+        assert_eq!(NAMES[Stat::LockHoldCycles as usize], "lock_hold_cycles");
+        assert_eq!(NAMES[Stat::LockFallbacks as usize], "lock_fallbacks");
     }
 
     #[test]

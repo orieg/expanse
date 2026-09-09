@@ -771,6 +771,7 @@ fn main() {
                  \"restart_share\":{restart_share:.6},\"fallback_share\":{fallback_share:.6},\
                  \"handoffs\":{},\"retired\":{},\"freed_raw\":{},\"sample_spin_cycles\":{},\
                  \"branch_replacements\":{},\"deep_cascades\":{},\"root_rewrites\":{},\
+                 \"lock_restarts\":{},\"lock_spins\":{},\"lock_hold_cycles\":{},\"lock_fallbacks\":{},\
                  \"cycles_hz\":{cycles_hz},\"reader_elapsed_s\":{},\"writer_elapsed_s\":{},\
                  \"cpus_allowed\":\"{cpus}\",\"pin_applied\":\"{pin}\"}}",
                 arm.workload_id(),
@@ -785,6 +786,10 @@ fn main() {
                 s("branch_replacements"),
                 s("deep_cascades"),
                 s("root_rewrites"),
+                s("lock_restarts"),
+                s("lock_spins"),
+                s("lock_hold_cycles"),
+                s("lock_fallbacks"),
                 // Barrier release to last-reader join / last-writer join:
                 // one duration per role, not a per-thread mean.
                 json_secs(r.reader_elapsed),
