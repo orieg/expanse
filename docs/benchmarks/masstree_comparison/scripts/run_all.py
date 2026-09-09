@@ -94,6 +94,7 @@ HEALTH_RAW = (
     "sample_spins", "write_ops", "locked_reads",
     "handoffs", "retired", "freed_raw", "sample_spin_cycles", "branch_replacements",
     "deep_cascades", "root_rewrites", "cycles_hz", "reader_elapsed_s", "writer_elapsed_s",
+    "lock_restarts", "lock_spins", "lock_hold_cycles", "lock_fallbacks",
 )
 # The shares derived from those counters per round, then summarised as median
 # with range like the counters themselves. Each is a ratio of two counters from
@@ -563,6 +564,7 @@ def _health_row(round_: int, **over) -> dict:
         "sample_spin_cycles": 3_000_000_000, "branch_replacements": 400,
         "deep_cascades": 20, "root_rewrites": 2, "cycles_hz": 3_000_000_000,
         "reader_elapsed_s": 0.5, "writer_elapsed_s": 0.4,
+        "lock_restarts": 0, "lock_spins": 0, "lock_hold_cycles": 0, "lock_fallbacks": 0,
         "restart_share": 50 / 1050, "fallback_share": 0.01,
         "cpus_allowed": "0-15", "pin_applied": "0-15",
     }
