@@ -816,7 +816,7 @@ impl<T: SharedTree> Shared<T> {
                 writers.push(Arc::clone(&slot));
             }
         }
-        // SAFETY: slot is allocated in a static Arc and outlives the thread.
+        // SAFETY: slot is allocated in a thread-local Arc and remains pinned for the duration of enter_writer.
         let slot_ref = unsafe { &*(&*slot as *const AtomicUsize) };
         self.gate.enter_writer(slot_ref)
     }
