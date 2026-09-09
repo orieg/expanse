@@ -288,3 +288,101 @@ cell at W = 1 R = 8). `scripts/pr3_gate.py` reads the six artifacts against
 §8.2 and §8.4 and `scripts/tables.py` renders its verdicts into
 [`README.md`](README.md) §8; nothing in the table is typed.
 
+## 10. Pre-registration for #568 PR 5 — multi-writer optimistic lock coupling (appended 2026-09-09, locked before any engine code)
+
+Written after #809 merged (`10cd755d`) and before PR 5 exists. The protocol
+is `docs/ARCHITECTURE.md` §4.2; the bound functions are `scripts/olc_bounds.py`,
+which reads every measured input from a committed artifact at run time.
+Nothing below is rewritten in place once PR 5's cells run (§8.7); a
+threshold that turns out wrong is relabelled `INTERMEDIATE` and re-run
+(§8.19).
+
+### 10.1 What the merged engine measures, which PR 5 is gated against
+
+The two-commit sweeps of #809 (`results/baseline_concurrent_ab{,_run2}.json`
+of both FFI suites) are the baseline: the *head halves* at `10cd755d`,
+base and head interleaved round by round, two runs. The writer-only C1
+cells, M inserts/s, the union of the two runs' medians:
+
+| suite | arm | W = 1 | W = 2 | W = 4 | W = 8 | W = 16 |
+|---|---|--:|--:|--:|--:|--:|
+| hot_comparison | set | [7.19, 7.24] | [4.11, 4.16] | [3.17, 3.21] | [2.55, 2.57] | [2.35, 2.40] |
+| hot_comparison | map | [5.09, 5.09] | [3.32, 3.36] | [2.72, 2.73] | [2.34, 2.35] | [1.69, 2.12] |
+| masstree_comparison | map | [5.43, 5.44] | [3.44, 3.47] | [2.75, 2.76] | [2.33, 2.40] | [2.23, 2.23] |
+| masstree_comparison | str | [3.87, 3.88] | [2.38, 2.39] | [2.23, 2.25] | [1.93, 2.04] | [0.48, 0.48] |
+
+Two facts about that baseline PR 5 has to carry. First, the merged engine's
+writers *fall* with W on every arm — one mutex, and the brief brackets'
+version stores are the next writer's misses (a hypothesis; the C1 W ∈ {4, 8}
+writer-thread `l2_rqsts.rfo_miss` cell is registered below to test it).
+Second, on three of four arms the merged engine's C1 cells are below the
+pre-#809 base halves (up to −25% at HOT set W = 8, README §8); PR 5's gate
+is stated against the merged engine, and the pre-#809 levels are named
+beside it as the second bar.
+
+### 10.2 Predictions, each with its refuter
+
+- **P5.1 — writers scale on disjoint expanses.** On every FFI C1 arm and every
+  W ∈ {2, 4, 8, 16}, the aggregate insert rate's union-lower over two
+  two-commit runs (head halves, PR 5 against `10cd755d`) is above the W = 1
+  union-upper of the same run pair. **REFUTED** if any arm at any W ≥ 2 has
+  a union-upper below its own W = 1 union-lower (writers still fall).
+  `BOUNDARY_RESULT` where the unions overlap. The string arm is published
+  but not a gate cell: its writer holds the tree word for the whole
+  operation (#730).
+- **P5.2 — the pre-#809 levels are recovered.** At W ∈ {4, 8}, the PR 5 head
+  half's union-lower is above the *base* halves of #809's sweeps (HOT set
+  [4.05, 4.09] and [3.41, 3.63]; HOT map [3.18, 3.25] and [2.74, 2.75];
+  Masstree map [3.22, 3.34] and [2.62, 2.75]). **REFUTED** on an arm whose
+  union-upper stays below that; then Stage B recovered nothing the brief
+  brackets cost, and that is published as the finding.
+- **P5.3 — restarts stay bounded.** `Stat::LockRestarts ÷ write_ops` at each
+  W is below `olc_bounds.restart_ceiling(W, t_hold, t_op, safety_factor = 2.0)`
+  with `t_hold` the *measured* median lock hold from the health build's
+  `Stat::LockHoldCycles ÷ cycles_hz` on the same head and `t_op` from the
+  head's own W = 1 cell. The ceiling is instantiated from those two
+  measurements before the W ≥ 2 cells are read, and the instantiated
+  numbers are written into README §9 beside the verdict; with the
+  hypothesis hold of 15 ns and the merged W = 1 rate the shape is 0.18 /
+  0.58 / 1.61 / 5.10 restarts per operation at W = 2 / 4 / 8 / 16
+  (`python3 scripts/olc_bounds.py`). **REFUTED** at any W above the
+  instantiated ceiling. The safety factor 2.0 is a choice, fixed here.
+- **P5.4 — the contended-line bound holds.** The FFI arms' W = 16 rate is at
+  or below `olc_bounds.contended_rmw_ceiling(k = 1, t_line, t_hold)` with
+  the measured `t_line` (33.37 ns, the artifact's median cell) and the
+  measured `t_hold`; the `core_concurrency` shape (`rng % 2M`, k = 5) is
+  predicted *not* to clear its own W = 1 and is published as a losing cell,
+  not gated. **REFUTED** if an FFI arm exceeds the bound (then `k = 1` is
+  wrong for that shape and the bound is re-derived, not the gate).
+- **Controls, predicted unchanged:** every single-threaded Callgrind arm at
+  0.00% (the `sync_*` reader arms included); the C2 W = 1 R = 8 reader cells
+  inside their #809 head-half unions (97–104 ns per probe, README §8); the
+  reader fallback rate `locked_reads ÷ read_ops` at W = 16 below 1% — that
+  cell is measured *before* `MAX_RETRIES` is fixed for PR 5, and the
+  chosen value is written here as an amendment, dated, never as a rewrite.
+
+### 10.3 Instruments
+
+The same two-commit runners as §8 (`--ab-base-bin` / `--ab-base-commit`
+against `10cd755d`), two runs per suite, one host lock, concurrent sweeps
+last (§8.17). New counters PR 5 adds and this section relies on:
+`Stat::LockRestarts`, `Stat::LockSpins`, `Stat::LockHoldCycles` (sharded per
+thread like the #804 counters). New `bench_counters.py` cells: writer-thread
+`l2_rqsts.rfo_miss` at C1 W ∈ {4, 8} on the map arm (the P5.1 mechanism
+test, run at `10cd755d` first as the baseline), and the W = 16 fallback
+cell. `benches/concurrency.rs` is not an instrument here until it has a
+barrier start, an elapsed-from-barrier divisor, at least 15 windows with
+BCa intervals and the `bench_pin.apply` call.
+
+### 10.4 What voids a cell
+
+§6 applies. In addition: a P5.3 verdict read before `t_hold` is measured is
+void; a P5.1 or P5.2 verdict whose base half sits outside the `10cd755d`
+union of §10.1 is `VOID` the way §8.4 voids a cell.
+
+### 10.5 Explicitly not predicted
+
+The `sync_*` writer arms' instruction counts (they carry the lock protocol
+and will move); the string arm's writers at any W; the SMT-paired W = 16
+cells' relation to W = 8 beyond "not below"; wall clock on any host but the
+reference host.

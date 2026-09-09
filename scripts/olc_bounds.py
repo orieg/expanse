@@ -1,179 +1,138 @@
 #!/usr/bin/env python3
-"""
-scripts/olc_bounds.py — Mathematical bounds and contention ceilings for
-Stage B multi-writer Optimistic Lock Coupling (OLC) on Expanse (issue #568).
+"""Contention bounds for Stage B multi-writer optimistic lock coupling (#568, plan PR 4).
 
-Implements Rule 12 / GEMINI.md §1.3 (Math-first validation in committed Python
-with reference-pinned unit tests) for PR 4 (Stage B design gate).
+The bound functions live here, unit-tested against pinned reference values,
+so the pre-registration in `docs/benchmarks/concurrency/METHODOLOGY.md` §10
+invokes them rather than restating arithmetic (AGENTS.md §8.8 commit 1,
+§8.14). Every empirical input is read from a committed artifact at run time
+and named with its estimator; the one input no artifact carries — the hold
+time of a per-node lock — is a stated hypothesis, and every conclusion that
+depends on it says so.
 
-Primary sources:
-  1. Leis, V., Scheibner, F., Kemper, A., & Neumann, T. (2016). The ART of
-     Practical Synchronization. In Proceedings of the 12th International
-     Workshop on Data Management on New Hardware (DaMoN '16).
-     DOI: 10.1145/2933349.2933352.
-  2. Gunther, N. J. (2007). Guerrilla Capacity Planning: A Metric Approach to
-     Designing and Managing Systems. Springer. Chapter 6: Universal Scalability
-     Law (USL).
-  3. Hennessy, J. L., & Patterson, D. A. (2017). Computer Architecture:
-     A Quantitative Approach (6th ed.), Morgan Kaufmann. §5.2 (Multiprocessor
-     Cache Coherence and Invalidation Latencies).
-  4. orieg/expanse line-transfer calibration:
-     docs/benchmarks/concurrency/results/line_transfer.json (commit a1982ff2,
-     12th Gen Intel Core i9-12900F reference host).
+Sources:
+  Leis, Scheibner, Kemper & Neumann, "The ART of Practical Synchronization",
+    DaMoN 2016 (optimistic lock coupling; restart on a failed upgrade).
+  Hennessy & Patterson, Computer Architecture: A Quantitative Approach,
+    6th ed., §5.2 (a line an RMW bounces between cores costs one transfer
+    per acquisition).
+  `docs/benchmarks/concurrency/results/line_transfer.json` (the reference
+    host's pairwise line-transfer matrix, #568 PR 0) and the two FFI suites'
+    `results/baseline_concurrent_ab*.json` (the two-commit sweeps of #568
+    PR 3, head halves at the merged engine).
+
+Usage:
+    python3 scripts/olc_bounds.py             # the bounds, then the unit tests
+    python3 scripts/olc_bounds.py --self-test # the unit tests only
 """
 
 from __future__ import annotations
 
+import json
 import math
+import statistics
+import sys
 import unittest
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+LINE_TRANSFER = REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "line_transfer.json"
+AB_ARTIFACTS = {
+    "hot_comparison": [REPO_ROOT / "docs" / "benchmarks" / "hot_comparison" / "results" / f
+                       for f in ("baseline_concurrent_ab.json", "baseline_concurrent_ab_run2.json")],
+    "masstree_comparison": [REPO_ROOT / "docs" / "benchmarks" / "masstree_comparison" / "results" / f
+                            for f in ("baseline_concurrent_ab.json", "baseline_concurrent_ab_run2.json")],
+}
 
 # ---------------------------------------------------------------------------
-# 1. Pinned Reference Constants from Empirical Harnesses & Hardware Profile
+# Hypotheses: inputs no artifact measures. Each is a parameter of the bound
+# functions below, never a hidden constant; METHODOLOGY §10 says which counter
+# instantiates it before PR 5's cells run.
 # ---------------------------------------------------------------------------
 
-# Measured pairwise cache line transfer latencies (docs/benchmarks/concurrency/results/line_transfer.json)
-T_LINE_SPIN_MEDIAN_NS = 33.48571428571429
-T_LINE_SPIN_MIN_NS = 19.797142857142855  # SMT sibling pairs
-T_LINE_SPIN_MAX_NS = 36.129999999999995  # Distant physical core pairs
-T_LINE_PAUSE_CALIBRATION_NS = 34.07       # Single pause calibration on ref host
+# Hold time of one per-node lock (hypothesis): a brief in-place leaf or slot
+# store, and a structural rebuild that allocates and publishes a node. The
+# sync_* Callgrind arms give instructions per whole operation (about 750–2,150
+# on the merged engine), not the nanoseconds a lock is held; these two values
+# are the shape of the argument, to be replaced by the measured hold before
+# the gate is evaluated.
+T_HOLD_LEAF_HYPOTHESIS_NS = 15.0
+T_HOLD_CASCADE_HYPOTHESIS_NS = 50.0
 
-# Single-writer baseline throughput (reference host, 64-bit integer map inserts)
-# Commit 64f8a3af: ~5.7 M inserts/s at W=1 -> ~175.44 ns per insert operation
-W1_BASELINE_INSERTS_PER_SEC = 5_700_000.0
-W1_BASELINE_OP_LATENCY_NS = 1_000_000_000.0 / W1_BASELINE_INSERTS_PER_SEC  # ~175.44 ns
-
-# Node lock hold time approximations (derived from Callgrind instruction counts:
-# sync_map_insert ~862 instructions total; brief parent/leaf lock hold ~15-50 ns)
-T_HOLD_LEAF_MUTATION_NS = 15.0      # Brief leaf slot/in-place update
-T_HOLD_BRANCH_CASCADE_NS = 50.0     # Structural branch expansion/realloc
+# Lines a writer must own per insert, per workload shape (from the plan's
+# reading of the engine: the FFI cells insert uniform 64-bit keys in disjoint
+# slices, so writers meet only at the root word; `core_concurrency`'s
+# `rng % 2M` keys share bytes 7..3, so every insert walks one chain to level
+# 3 — about five shared lines).
+K_LINES = {"ffi_disjoint": 1, "core_shared_prefix": 5}
 
 
 # ---------------------------------------------------------------------------
-# 2. Analytical Contention & Scalability Bounds
+# Measured inputs, read from the artifacts
+# ---------------------------------------------------------------------------
+
+def line_transfer_ns(path: Path = LINE_TRANSFER) -> dict[str, float]:
+    """The reference host's one-way line transfer, spinning, between physical
+    P-cores: the median over the pairwise cells of each cell's mean (the
+    artifact's own estimator, BCa over 7 repeats per cell), plus the min and
+    max cell so a reader sees the spread (SMT siblings are the min)."""
+    d = json.loads(path.read_text())
+    cells = [c for c in d["cells"] if c.get("mode") == "spin" and c.get("cpu_b") is not None]
+    if not cells:
+        raise ValueError(f"{path}: no spinning pair cells")
+    means = [c["ns_per_transfer"]["mean"] for c in cells]
+    return {"median": statistics.median(means), "min": min(means), "max": max(means), "cells": len(cells)}
+
+
+def w1_insert_rate(suite: str, arm: str, paths: dict[str, list[Path]] = AB_ARTIFACTS) -> dict[str, float]:
+    """The merged engine's single-writer insert rate on one FFI arm: the union
+    over the two two-commit runs of the head half's C1 W=1 median (M inserts/s),
+    which is the level a multi-writer ceiling has to clear."""
+    vals = []
+    for p in paths[suite]:
+        d = json.loads(p.read_text())
+        for r in d["throughput"]:
+            if r["arm"] == arm and r["writers"] == 1 and r["readers"] == 0:
+                vals.append(r["head"]["expanse_writer_mops_median"])
+    if len(vals) != 2:
+        raise ValueError(f"{suite}/{arm}: expected the C1 W=1 cell in both runs, found {len(vals)}")
+    return {"union_lower": min(vals), "union_upper": max(vals)}
+
+
+# ---------------------------------------------------------------------------
+# Bounds
 # ---------------------------------------------------------------------------
 
 def contended_rmw_ceiling(k: int, t_line_ns: float, t_hold_ns: float) -> float:
-    """Calculates the asymptotic throughput ceiling (ops/second) imposed by k contended
-    RMWs/critical sections on shared cache lines.
-
-    Reference:
-      Gunther (2007) USL serialization bottleneck; Hennessy & Patterson (2017) §5.2.
-      In any parallel system with W workers, if each transaction requires serialization
-      over k shared-line transfers of duration t_line_ns plus critical section hold
-      t_hold_ns, the maximum service rate of that bottleneck is:
-          X_max = 1 / (k * t_line + t_hold)
-    """
+    """Aggregate ceiling, in ops/s, when every operation must own `k` shared
+    lines (one transfer each, Hennessy & Patterson §5.2) and then hold a lock
+    for `t_hold_ns`: 1 / (k·t_line + t_hold). Independent of the writer count —
+    it is the service rate of the serial part, the term the writers queue on."""
     if k < 1:
-        raise ValueError(f"k (contended lines) must be >= 1, got {k}")
+        raise ValueError(f"k must be >= 1, got {k}")
     if t_line_ns <= 0.0:
         raise ValueError(f"t_line_ns must be positive, got {t_line_ns}")
     if t_hold_ns < 0.0:
         raise ValueError(f"t_hold_ns cannot be negative, got {t_hold_ns}")
-
-    t_crit_seconds = (k * t_line_ns + t_hold_ns) * 1e-9
-    return 1.0 / t_crit_seconds
+    return 1.0 / ((k * t_line_ns + t_hold_ns) * 1e-9)
 
 
-def derive_usl_sigma(t_crit_ns: float, t0_ns: float) -> float:
-    """Derives Gunther's USL contention parameter sigma directly from the ratio of
-    critical section serialization latency to total single-threaded operation latency.
-
-    Reference:
-      Gunther, N. J. (2007). Guerrilla Capacity Planning, Springer. §6.3.
-      sigma = T_crit / T_0 represents the fraction of time spent in serial bottlenecks.
-    """
-    if t_crit_ns < 0.0:
-        raise ValueError(f"t_crit_ns cannot be negative, got {t_crit_ns}")
-    if t0_ns <= 0.0:
-        raise ValueError(f"t0_ns must be positive, got {t0_ns}")
-    sigma = t_crit_ns / t0_ns
-    return min(1.0, sigma)
-
-
-def usl_throughput(
-    w: int,
-    t0_ns: float = W1_BASELINE_OP_LATENCY_NS,
-    sigma: float = 0.0,
-    kappa: float = 0.0,
-) -> float:
-    """Calculates aggregate system throughput across W workers using Gunther's
-    Universal Scalability Law (USL).
-
-    Reference:
-      Gunther, N. J. (2007). Guerrilla Capacity Planning, Springer.
-      X(W) = (W * X(1)) / (1 + sigma * (W - 1) + kappa * W * (W - 1))
-      where sigma represents contention/serialization share, and kappa represents
-      cross-talk / coherence coherency penalty.
-    """
-    if w < 1:
-        raise ValueError(f"w (workers) must be >= 1, got {w}")
-    if t0_ns <= 0.0:
-        raise ValueError(f"t0_ns must be positive, got {t0_ns}")
-    if sigma < 0.0 or sigma > 1.0:
-        raise ValueError(f"sigma must be in [0.0, 1.0], got {sigma}")
-    if kappa < 0.0:
-        raise ValueError(f"kappa cannot be negative, got {kappa}")
-
-    x1 = 1e9 / t0_ns
-    denom = 1.0 + sigma * (w - 1) + kappa * w * (w - 1)
-    return (w * x1) / denom
-
-
-def shape_contention_bound(shape: str, t_line_ns: float = T_LINE_SPIN_MEDIAN_NS) -> dict[str, float | bool]:
-    """Evaluates the theoretical scaling headroom for specific benchmark workloads:
-      - 'ffi_disjoint': Uniform 64-bit keys split into disjoint slices (OLC best case:
-        writers access disjoint branches, contending primarily on root word k=1).
-      - 'core_shared_prefix': rng % 2M (bytes 7..3 constant; every insert shares a chain
-        to level 3, contending on k=5 shared ancestor lines).
-
-    Returns a dictionary with parameters, ceiling in M ops/s, and a boolean indicating
-    whether the shape can clear the W=1 single-writer baseline (5.7 M ops/s).
-    """
-    if shape == "ffi_disjoint":
-        k = 1
-        t_hold = T_HOLD_LEAF_MUTATION_NS
-    elif shape == "core_shared_prefix":
-        k = 5
-        t_hold = T_HOLD_BRANCH_CASCADE_NS
-    else:
-        raise ValueError(f"Unknown shape '{shape}'. Valid shapes: 'ffi_disjoint', 'core_shared_prefix'")
-
-    ceiling_ops = contended_rmw_ceiling(k=k, t_line_ns=t_line_ns, t_hold_ns=t_hold)
-    ceiling_mops = ceiling_ops / 1e6
-    clears_w1 = ceiling_ops > W1_BASELINE_INSERTS_PER_SEC
-
-    return {
-        "k": k,
-        "t_line_ns": t_line_ns,
-        "t_hold_ns": t_hold,
-        "ceiling_mops": ceiling_mops,
-        "clears_w1": clears_w1,
-    }
-
-
-def allocator_counter_ceiling(t_line_ns: float = T_LINE_SPIN_MEDIAN_NS) -> float:
-    """Calculates the theoretical allocation ceiling (allocs/second) when all concurrent
-    writers contend on a single shared NodeAlloc counter cache line (cost 4).
-
-    Reference:
-      Hennessy & Patterson §5.2. An atomic RMW (fetch_add/sub) bouncing a cache line
-      among W cores cannot complete faster than one line transfer per allocation:
-          Alloc_max = 1 / t_line
-    """
+def allocator_counter_ceiling(t_line_ns: float) -> float:
+    """Allocations per second when every writer's allocation does one RMW on
+    one shared counter line: one transfer per allocation, 1 / t_line. Binds
+    only if allocations per insert are known; the merged engine allocates on a
+    fraction of inserts (leaf and branch rebuilds), so this is the ceiling on
+    the allocating inserts, not on inserts."""
     if t_line_ns <= 0.0:
         raise ValueError(f"t_line_ns must be positive, got {t_line_ns}")
     return 1e9 / t_line_ns
 
 
-def restart_storm_probability(w: int, t_hold_ns: float, t_op_ns: float) -> float:
-    """Calculates the probability that at least one other writer attempts to acquire
-    a node lock while it is held by an active writer.
-
-    Reference:
-      Leis et al. (DaMoN '16) §3.2 (Optimistic Lock Coupling).
-      Assuming independent Poisson or uniform arrival across W-1 competing threads:
-          P_collision = 1 - (1 - (t_hold / t_op))^(W - 1)
-    """
+def collision_probability(w: int, t_hold_ns: float, t_op_ns: float) -> float:
+    """Probability that at least one of the other W−1 writers holds the lock a
+    writer needs at the moment it asks, with each writer holding for
+    t_hold of every t_op and arrivals independent: 1 − (1 − t_hold/t_op)^(W−1).
+    Leis et al. restart on a failed upgrade, so this is the restart
+    probability per acquisition on a shared node."""
     if w < 1:
         raise ValueError(f"w must be >= 1, got {w}")
     if t_hold_ns < 0.0:
@@ -182,144 +141,116 @@ def restart_storm_probability(w: int, t_hold_ns: float, t_op_ns: float) -> float
         raise ValueError(f"t_op_ns must be positive, got {t_op_ns}")
     if t_hold_ns >= t_op_ns:
         return 1.0
-
-    p_free = 1.0 - (t_hold_ns / t_op_ns)
-    return 1.0 - math.pow(p_free, w - 1)
+    return 1.0 - math.pow(1.0 - t_hold_ns / t_op_ns, w - 1)
 
 
 def expected_restarts_per_op(w: int, t_hold_ns: float, t_op_ns: float) -> float:
-    """Calculates the expected number of CAS restart retries per operation under contention.
-
-    Reference:
-      Geometric retry distribution under contention probability P:
-          E[Restarts] = P / (1 - P)
-      Diverges as P -> 1.0 (restart storm threshold).
-    """
-    p = restart_storm_probability(w=w, t_hold_ns=t_hold_ns, t_op_ns=t_op_ns)
-    if p >= 0.999999:
-        return float("inf")
+    """Restarts per operation when every collision restarts and retries are
+    independent: geometric, p / (1 − p). Diverges as p → 1 (a restart storm)."""
+    p = collision_probability(w, t_hold_ns, t_op_ns)
+    if p >= 0.999_999:
+        return math.inf
     return p / (1.0 - p)
 
 
-def restart_ratio_ceiling(
-    w: int,
-    t_hold_ns: float = T_HOLD_LEAF_MUTATION_NS,
-    t_op_ns: float = W1_BASELINE_OP_LATENCY_NS,
-    safety_factor: float = 2.0,
-) -> float:
-    """Calculates the pre-registered ceiling for Stat::LockRestarts / write_ops at W writers,
-    used to gate PR 5 health cells against livelock and restart storms.
-    """
+def restart_ceiling(w: int, t_hold_ns: float, t_op_ns: float, safety_factor: float = 2.0) -> float:
+    """The ceiling METHODOLOGY §10 registers for `Stat::LockRestarts ÷ write_ops`
+    at W writers: the expected restarts per operation times a safety factor.
+    The factor is a pre-registration choice, not a derivation; it is written
+    down there before the cells run."""
     if safety_factor <= 0.0:
         raise ValueError(f"safety_factor must be positive, got {safety_factor}")
+    return expected_restarts_per_op(w, t_hold_ns, t_op_ns) * safety_factor
 
-    e_restarts = expected_restarts_per_op(w=w, t_hold_ns=t_hold_ns, t_op_ns=t_op_ns)
-    return e_restarts * safety_factor
+
+def shape_bound(shape: str, t_line_ns: float, t_hold_ns: float) -> dict[str, float]:
+    """The ceiling for one workload shape (its `k` from `K_LINES`)."""
+    if shape not in K_LINES:
+        raise ValueError(f"unknown shape {shape!r}; known: {', '.join(K_LINES)}")
+    k = K_LINES[shape]
+    ceiling = contended_rmw_ceiling(k, t_line_ns, t_hold_ns)
+    return {"k": k, "t_line_ns": t_line_ns, "t_hold_ns": t_hold_ns, "ceiling_mops": ceiling / 1e6}
 
 
 # ---------------------------------------------------------------------------
-# 3. Unit Tests & Reference Invariants (Rule 12 / GEMINI.md §1.3)
+# Unit tests: reference values pinned by hand-checkable arithmetic, plus the
+# artifact readers against the committed files.
 # ---------------------------------------------------------------------------
 
 class TestOlcBounds(unittest.TestCase):
     def test_contended_rmw_ceiling_reference_values(self):
-        # Case 1: k=1, t_line=33.486 ns, t_hold=15 ns (total crit = 48.486 ns)
-        # Expected: 1e9 / 48.485714... = ~20,624,630 ops/s = ~20.62 M ops/s
-        ceil1 = contended_rmw_ceiling(1, T_LINE_SPIN_MEDIAN_NS, 15.0)
-        self.assertAlmostEqual(ceil1 / 1e6, 20.6246, places=3)
-
-        # Case 2: k=5, t_line=33.486 ns, t_hold=50 ns (total crit = 217.428 ns)
-        # Expected: 1e9 / 217.42857... = ~4,599,211 ops/s = ~4.60 M ops/s
-        ceil5 = contended_rmw_ceiling(5, T_LINE_SPIN_MEDIAN_NS, 50.0)
-        self.assertAlmostEqual(ceil5 / 1e6, 4.5992, places=3)
-
-    def test_shape_contention_bound_conclusions(self):
-        # FFI disjoint shape has k=1, clearing W=1 (20.62 M > 5.7 M)
-        res_ffi = shape_contention_bound("ffi_disjoint")
-        self.assertTrue(res_ffi["clears_w1"])
-        self.assertGreater(float(res_ffi["ceiling_mops"]), 5.7)
-
-        # Shared-prefix shape has k=5, failing to clear W=1 (4.60 M < 5.7 M)
-        res_shared = shape_contention_bound("core_shared_prefix")
-        self.assertFalse(res_shared["clears_w1"])
-        self.assertLess(float(res_shared["ceiling_mops"]), 5.7)
+        # 1 / (1 × 30 ns + 20 ns) = 20 M ops/s exactly.
+        self.assertAlmostEqual(contended_rmw_ceiling(1, 30.0, 20.0) / 1e6, 20.0, places=9)
+        # 1 / (5 × 30 ns + 50 ns) = 5 M ops/s exactly.
+        self.assertAlmostEqual(contended_rmw_ceiling(5, 30.0, 50.0) / 1e6, 5.0, places=9)
 
     def test_allocator_counter_ceiling(self):
-        # When all writers contend on one cache line, alloc ceiling is ~29.86 M allocs/s
-        alloc_ceil = allocator_counter_ceiling(T_LINE_SPIN_MEDIAN_NS)
-        self.assertAlmostEqual(alloc_ceil / 1e6, 29.8635, places=3)
+        self.assertAlmostEqual(allocator_counter_ceiling(40.0) / 1e6, 25.0, places=9)
 
-    def test_derive_usl_sigma(self):
-        # T_crit = 17.544 ns, T0 = 175.44 ns -> sigma = 0.10
-        sigma1 = derive_usl_sigma(17.544, 175.44)
-        self.assertAlmostEqual(sigma1, 0.10, places=3)
+    def test_collision_and_restarts(self):
+        self.assertEqual(collision_probability(1, 15.0, 175.0), 0.0)
+        self.assertEqual(expected_restarts_per_op(1, 15.0, 175.0), 0.0)
+        # W=2, hold 1/4 of the op: p = 1 − 3/4 = 0.25, restarts = 1/3.
+        self.assertAlmostEqual(collision_probability(2, 25.0, 100.0), 0.25, places=9)
+        self.assertAlmostEqual(expected_restarts_per_op(2, 25.0, 100.0), 1.0 / 3.0, places=9)
+        # Hold ≥ op: certain collision, a storm.
+        self.assertEqual(collision_probability(3, 100.0, 100.0), 1.0)
+        self.assertTrue(math.isinf(expected_restarts_per_op(3, 100.0, 100.0)))
+        self.assertAlmostEqual(restart_ceiling(2, 25.0, 100.0, safety_factor=2.0), 2.0 / 3.0, places=9)
 
-        # T_crit exceeding T0 clamps to 1.0
-        sigma_clamped = derive_usl_sigma(200.0, 100.0)
-        self.assertEqual(sigma_clamped, 1.0)
+    def test_shape_bound_uses_k(self):
+        a = shape_bound("ffi_disjoint", 30.0, 20.0)
+        b = shape_bound("core_shared_prefix", 30.0, 50.0)
+        self.assertEqual((a["k"], b["k"]), (1, 5))
+        self.assertAlmostEqual(a["ceiling_mops"], 20.0, places=9)
+        self.assertAlmostEqual(b["ceiling_mops"], 5.0, places=9)
 
-    def test_usl_throughput(self):
-        # At w=1, throughput is exactly 1 / t0
-        w1_ops = usl_throughput(w=1, t0_ns=W1_BASELINE_OP_LATENCY_NS, sigma=0.05)
-        self.assertAlmostEqual(w1_ops, W1_BASELINE_INSERTS_PER_SEC, delta=1.0)
-
-        # With sigma=0.05 and no kappa, at w=8 throughput scales but sublinearly:
-        # denom = 1 + 0.05 * 7 = 1.35; w * X1 / 1.35 = 8 * 5.7M / 1.35 = 33.78M
-        w8_ops = usl_throughput(w=8, t0_ns=W1_BASELINE_OP_LATENCY_NS, sigma=0.05)
-        self.assertAlmostEqual(w8_ops / 1e6, 33.7777, places=3)
-
-    def test_restart_probability_and_storms(self):
-        # At w=1, collision probability is strictly 0.0
-        p1 = restart_storm_probability(w=1, t_hold_ns=15.0, t_op_ns=175.44)
-        self.assertEqual(p1, 0.0)
-        self.assertEqual(expected_restarts_per_op(w=1, t_hold_ns=15.0, t_op_ns=175.44), 0.0)
-
-        # At w=16 on disjoint slices (t_hold=15 ns, t_op=175.44 ns):
-        # ratio = 15/175.44 = 0.085500456; 1 - (1 - 0.085500456)^15 = 1 - 0.261674 = 0.738326
-        p16_disjoint = restart_storm_probability(w=16, t_hold_ns=15.0, t_op_ns=175.44)
-        self.assertAlmostEqual(p16_disjoint, 0.7383, places=3)
-        e16_disjoint = expected_restarts_per_op(w=16, t_hold_ns=15.0, t_op_ns=175.44)
-        # E = 0.738326 / (1 - 0.738326) = 2.8215 restarts per op
-        self.assertAlmostEqual(e16_disjoint, 2.822, delta=0.01)
-
-        # At w=16 on shared prefix (t_hold=50 ns, t_op=175.44 ns):
-        # ratio = 50/175.44 = 0.285; 1 - (1 - 0.285)^15 = 1 - 0.0063 = 0.9937
-        p16_shared = restart_storm_probability(w=16, t_hold_ns=50.0, t_op_ns=175.44)
-        self.assertGreater(p16_shared, 0.99)
-        e16_shared = expected_restarts_per_op(w=16, t_hold_ns=50.0, t_op_ns=175.44)
-        # Expected restarts exceed 100 per op -> catastrophic restart storm
-        self.assertGreater(e16_shared, 100.0)
-
-    def test_invalid_arguments_raise_value_error(self):
+    def test_invalid_arguments_raise(self):
+        for bad in ((0, 30.0, 15.0), (1, 0.0, 15.0), (1, 30.0, -1.0)):
+            with self.assertRaises(ValueError):
+                contended_rmw_ceiling(*bad)
         with self.assertRaises(ValueError):
-            contended_rmw_ceiling(0, 33.0, 15.0)
+            collision_probability(0, 15.0, 100.0)
         with self.assertRaises(ValueError):
-            contended_rmw_ceiling(1, -5.0, 15.0)
+            shape_bound("nonexistent", 30.0, 15.0)
         with self.assertRaises(ValueError):
-            contended_rmw_ceiling(1, 33.0, -1.0)
-        with self.assertRaises(ValueError):
-            usl_throughput(0)
-        with self.assertRaises(ValueError):
-            usl_throughput(1, sigma=-0.1)
-        with self.assertRaises(ValueError):
-            shape_contention_bound("nonexistent")
+            restart_ceiling(2, 25.0, 100.0, safety_factor=0.0)
+
+    def test_artifact_readers(self):
+        lt = line_transfer_ns()
+        self.assertGreater(lt["cells"], 0)
+        self.assertLess(lt["min"], lt["median"])
+        self.assertLessEqual(lt["median"], lt["max"])
+        for suite, arm in (("hot_comparison", "set"), ("hot_comparison", "map"), ("masstree_comparison", "map")):
+            u = w1_insert_rate(suite, arm)
+            self.assertLessEqual(u["union_lower"], u["union_upper"])
+            self.assertGreater(u["union_lower"], 0.0)
+
+
+def report() -> None:
+    lt = line_transfer_ns()
+    t_line = lt["median"]
+    print("Stage B contention bounds (#568 plan PR 4) — inputs from the committed artifacts")
+    print(f"  t_line (spinning, P-core pairs, median of {lt['cells']} cell means): {t_line:.2f} ns "
+          f"[cells span {lt['min']:.2f}–{lt['max']:.2f}]")
+    for suite, arm in (("hot_comparison", "set"), ("hot_comparison", "map"), ("masstree_comparison", "map")):
+        u = w1_insert_rate(suite, arm)
+        print(f"  W=1 insert rate, merged engine, {suite}/{arm}: [{u['union_lower']:.2f}, {u['union_upper']:.2f}] M/s")
+    print("  t_hold: HYPOTHESIS — no artifact measures a lock hold; the values below are the argument's shape")
+    print()
+    for shape, t_hold in (("ffi_disjoint", T_HOLD_LEAF_HYPOTHESIS_NS), ("core_shared_prefix", T_HOLD_CASCADE_HYPOTHESIS_NS)):
+        r = shape_bound(shape, t_line, t_hold)
+        print(f"  {shape}: k = {r['k']}, t_hold = {t_hold:.0f} ns (hypothesis) -> ceiling {r['ceiling_mops']:.2f} M ops/s")
+    print(f"  allocator counter line: {allocator_counter_ceiling(t_line) / 1e6:.2f} M allocs/s on the allocating inserts")
+    for w in (2, 4, 8, 16):
+        r = restart_ceiling(w, T_HOLD_LEAF_HYPOTHESIS_NS, 1e9 / 5.4e6)
+        print(f"  restart ceiling at W={w} (t_hold hypothesis 15 ns, t_op from 5.4 M/s, safety 2x): {r:.2f} restarts/op")
+    print()
 
 
 if __name__ == "__main__":
-    print("=== Expanse OLC Contention & Scalability Bounds (Issue #568 PR 4) ===")
-    print()
-    for shape in ("ffi_disjoint", "core_shared_prefix"):
-        res = shape_contention_bound(shape)
-        verdict = "PASS (clears W=1)" if res["clears_w1"] else "FAIL (cannot clear W=1 without per-writer partitioning)"
-        print(f"Workload Shape: {shape}")
-        print(f"  Contended lines (k):           {res['k']}")
-        print(f"  Line transfer latency (t_line): {res['t_line_ns']:.2f} ns")
-        print(f"  Critical hold latency (t_hold): {res['t_hold_ns']:.2f} ns")
-        print(f"  Throughput ceiling:            {res['ceiling_mops']:.2f} M ops/s")
-        print(f"  Evaluation vs W=1 (5.7 M/s):   {verdict}")
-        print()
-
-    print(f"NodeAlloc Shared Counter Line Contention Ceiling: {allocator_counter_ceiling() / 1e6:.2f} M allocs/s")
-    print(f"W=16 Disjoint Restarts Ceiling (2x safety):        {restart_ratio_ceiling(w=16, t_hold_ns=15.0):.2f} restarts/op")
-    print()
-    unittest.main()
+    if "--self-test" in sys.argv:
+        sys.argv = [sys.argv[0]]
+        unittest.main()
+    report()
+    unittest.main(argv=[sys.argv[0]])
