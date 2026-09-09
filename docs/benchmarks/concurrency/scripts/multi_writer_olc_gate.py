@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""The #568 PR 5 gate, read against METHODOLOGY.md §10 — never typed.
+"""Multi-writer optimistic lock coupling (OLC) gate, read against METHODOLOGY.md §10 — never typed.
 
 Inputs, per FFI suite (`docs/benchmarks/<suite>/results/`):
 
-- `baseline_concurrent_ab.json` and `baseline_concurrent_ab_run2.json`: two
+- `multi_writer_olc/baseline_concurrent_ab.json` and `_run2.json`: two
   two-commit runs (`scripts/bench_ab.py`) against baseline `1edfa952`, each
   cell carrying a `base` and a `head` reduction.
-- `pr5/counters_<cell>.json`: the head build's per-thread counters at the
+- `multi_writer_olc/counters_<cell>.json`: the head build's per-thread counters at the
   P5.1 multi-writer cells (`scripts/bench_counters.py --out-dir`).
 - `line_transfer.json`: the reference host's cache-line transfer matrix.
 
@@ -17,7 +17,7 @@ Predictions evaluated:
 - P5.4: Contended-line bound holds at W=16.
 - Controls: C2 readers inside baseline union, reader fallback < 1%.
 
-Self-test: `python3 docs/benchmarks/concurrency/scripts/pr5_gate.py --self-test`.
+Self-test: `python3 docs/benchmarks/concurrency/scripts/multi_writer_olc_gate.py --self-test`.
 """
 from __future__ import annotations
 
@@ -115,8 +115,8 @@ def evaluate(load=default_load) -> dict:
     for suite in ("hot_comparison", "masstree_comparison"):
         arts[suite] = {
             "ab_pair": [
-                load(suite, "pr5/baseline_concurrent_ab.json") or load(suite, "baseline_concurrent_ab.json"),
-                load(suite, "pr5/baseline_concurrent_ab_run2.json") or load(suite, "baseline_concurrent_ab_run2.json"),
+                load(suite, "multi_writer_olc/baseline_concurrent_ab.json") or load(suite, "baseline_concurrent_ab.json"),
+                load(suite, "multi_writer_olc/baseline_concurrent_ab_run2.json") or load(suite, "baseline_concurrent_ab_run2.json"),
             ],
         }
 
@@ -309,7 +309,7 @@ def _verdict(v: str) -> str:
 def render(load=default_load) -> list[str]:
     r = evaluate(load)
     out = [
-        "## 9. PR 5 gate — Stage B multi-writer OLC (METHODOLOGY §10)",
+        "## 9. Multi-writer OLC gate (METHODOLOGY §10)",
         "",
         "Read against §10.2; every number is evaluated over two two-commit runs "
         "against baseline `1edfa952` and the head build's counters.",
@@ -418,7 +418,7 @@ def _self_test() -> int:
     check("P5.1 passes on scaling mock", all(x["verdict"] == "PASS" for x in r_mock["p51"] if x["is_gate"]))
     check("P5.2 passes when rate clears targets", all(x["verdict"] == "PASS" for x in r_mock["p52"]))
 
-    print("pr5_gate self-test:", "ok" if fails == 0 else f"{fails} failure(s)")
+    print("multi_writer_olc_gate self-test:", "ok" if fails == 0 else f"{fails} failure(s)")
     return 1 if fails else 0
 
 

@@ -1,1 +1,0 @@
-stage_b_multi_writer_campaign.sh

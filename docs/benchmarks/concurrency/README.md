@@ -165,9 +165,9 @@ pinned core, effective clock per counter cell — all in the artifacts, none
 retyped here. A cell voided under METHODOLOGY §6 is listed in this section
 with its reason, never silently dropped (AGENTS.md §8.1).
 
-## 8. PR 3 gate — the single-writer bracket re-scope (METHODOLOGY §8)
+## 8. Fine-grained write brackets gate (METHODOLOGY §8)
 
-Read against §8.2; every number is the runner's own estimator over the two-commit artifacts (`results/baseline_concurrent_ab*.json` of each FFI suite) and the head build's counters (`results/pr3/`). A cell whose base half falls outside the committed `a1982ff2` union is `VOID` (§8.4) and decides nothing.
+Read against §8.2; every number is the runner's own estimator over the two-commit artifacts (`results/baseline_concurrent_ab*.json` of each FFI suite) and the head build's counters (`results/fine_grained_brackets/`). A cell whose base half falls outside the committed `a1982ff2` union is `VOID` (§8.4) and decides nothing.
 
 **H3.1 — reader ns per probe at C2 W = 1 R = 8** (gate: head union-upper below 0.5 × the baseline union-lower):
 
