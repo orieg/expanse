@@ -590,6 +590,15 @@ const _: () = {
     assert!(offset_of!(LeafBitmapL, values) == 32);
 };
 
+impl PartialEq for Edge {
+    #[inline(always)]
+    fn eq(&self, other: &Self) -> bool {
+        self.word0() == other.word0() && self.aux_word() == other.aux_word()
+    }
+}
+
+impl Eq for Edge {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

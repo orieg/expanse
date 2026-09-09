@@ -24,7 +24,7 @@
 //! `loom_` tests model-check writer/reader/reclamation interleavings.
 
 #[cfg(all(not(loom), feature = "std"))]
-use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize};
+use core::sync::atomic::{AtomicBool, AtomicUsize};
 #[cfg(not(loom))]
 use core::sync::atomic::{AtomicU64, Ordering, fence};
 #[cfg(all(not(loom), feature = "std"))]
@@ -79,6 +79,35 @@ impl SeqVersion {
         let v = self.0.load(Ordering::Relaxed);
         debug_assert!(v % 2 == 1, "end without begin");
         self.0.store(v + 1, Ordering::Release);
+    }
+
+    /// Attempts to acquire an exclusive write lock on the tree version (even → odd).
+    ///
+    /// Returns `Ok(old_even_version)` on success, or `Err(current_version)` if locked or changed.
+    #[inline]
+    pub fn try_lock(&self) -> Result<u64, u64> {
+        let cur = self.0.load(Ordering::Relaxed);
+        if !cur.is_multiple_of(2) {
+            return Err(cur);
+        }
+        self.0
+            .compare_exchange_weak(cur, cur + 1, Ordering::Acquire, Ordering::Relaxed)
+    }
+
+    /// Releases the exclusive write lock on the tree version.
+    ///
+    /// If `modified` is true, advances to `old_v + 2` (`Release`).
+    /// If `modified` is false, restores `old_v` so readers do not needlessly retry.
+    #[inline]
+    pub fn unlock(&self, old_v: u64, modified: bool) {
+        let cur = self.0.load(Ordering::Relaxed);
+        debug_assert!(cur % 2 == 1, "unlock without lock");
+        let next = if modified {
+            old_v.wrapping_add(2)
+        } else {
+            old_v
+        };
+        self.0.store(next, Ordering::Release);
     }
 
     /// Reader: samples the version, spinning past in-progress (odd)
@@ -680,6 +709,149 @@ impl<N> Drop for NodeLock<'_, N> {
     }
 }
 
+/// A descriptor of an acquired lock along a root-to-leaf path.
+#[cfg(feature = "std")]
+#[derive(Debug)]
+pub(crate) enum LockedTarget<'a> {
+    Tree(&'a SeqVersion, u64, bool),
+    Node(&'a VersionCell, u32, bool, bool),
+}
+
+/// A bounded lock set tracking locks acquired top-down along a root-to-leaf path.
+///
+/// Upholds Invariants S6 (Acyclicity) and S8 (Acquire/Release pairing):
+/// - Locks are acquired strictly top-down along the path.
+/// - If any acquisition fails, all previously held locks in the set are dropped
+///   in reverse (LIFO) order, restoring their unmodified versions, and returning `Err`.
+/// - On drop or [`Self::unlock_all`], held locks are released in LIFO order.
+///   Modified nodes advance by 2 (`old_v + 2`), unmodified nodes restore `old_v`,
+///   and obsolete nodes preserve [`OBSOLETE`].
+#[cfg(feature = "std")]
+#[allow(dead_code)]
+#[derive(Debug)]
+pub(crate) struct LockSet<'a> {
+    entries: [Option<LockedTarget<'a>>; 4],
+    len: usize,
+}
+
+#[cfg(feature = "std")]
+#[allow(dead_code)]
+impl<'a> LockSet<'a> {
+    /// Creates an empty lock set.
+    #[must_use]
+    pub(crate) const fn new() -> Self {
+        Self {
+            entries: [None, None, None, None],
+            len: 0,
+        }
+    }
+
+    /// Number of locks currently held.
+    #[inline(always)]
+    pub(crate) fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Whether any locks are currently held.
+    #[inline(always)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Attempts to lock the tree-level version word and records it on success.
+    ///
+    /// On failure, drops all currently held locks in LIFO order (unmodified)
+    /// and returns `Err(current_v)`.
+    pub(crate) fn try_lock_tree(&mut self, v: &'a SeqVersion) -> Result<usize, u64> {
+        debug_assert!(self.len < self.entries.len(), "lock set capacity exceeded");
+        match v.try_lock() {
+            Ok(old_v) => {
+                let idx = self.len;
+                self.entries[idx] = Some(LockedTarget::Tree(v, old_v, false));
+                self.len += 1;
+                Ok(idx)
+            }
+            Err(cur) => {
+                self.unlock_all();
+                Err(cur)
+            }
+        }
+    }
+
+    /// Attempts to lock a node's version word and records it on success.
+    ///
+    /// On failure, drops all currently held locks in LIFO order (unmodified)
+    /// and returns `Err(current_v)`.
+    pub(crate) fn try_lock_node(&mut self, cell: &'a VersionCell) -> Result<usize, u32> {
+        debug_assert!(self.len < self.entries.len(), "lock set capacity exceeded");
+        match version_try_lock(cell) {
+            Ok(old_v) => {
+                let idx = self.len;
+                self.entries[idx] = Some(LockedTarget::Node(cell, old_v, false, false));
+                self.len += 1;
+                Ok(idx)
+            }
+            Err(cur) => {
+                self.unlock_all();
+                Err(cur)
+            }
+        }
+    }
+
+    /// Marks the lock at `idx` as modified.
+    #[inline]
+    pub(crate) fn mark_modified(&mut self, idx: usize) {
+        debug_assert!(idx < self.len);
+        match &mut self.entries[idx] {
+            Some(LockedTarget::Tree(_, _, modified)) => *modified = true,
+            Some(LockedTarget::Node(_, _, modified, _)) => *modified = true,
+            None => unreachable!(),
+        }
+    }
+
+    /// Marks the lock at `idx` as obsolete.
+    #[inline]
+    pub(crate) fn mark_obsolete(&mut self, idx: usize) {
+        debug_assert!(idx < self.len);
+        match &mut self.entries[idx] {
+            Some(LockedTarget::Node(cell, _, modified, obsolete)) => {
+                *modified = true;
+                *obsolete = true;
+                version_obsolete_locked(cell);
+            }
+            _ => panic!("cannot mark tree word obsolete"),
+        }
+    }
+
+    /// Releases all held locks in LIFO order.
+    pub(crate) fn unlock_all(&mut self) {
+        while self.len > 0 {
+            self.len -= 1;
+            if let Some(target) = self.entries[self.len].take() {
+                match target {
+                    LockedTarget::Tree(v, old_v, modified) => {
+                        v.unlock(old_v, modified);
+                    }
+                    LockedTarget::Node(cell, old_v, modified, obsolete) => {
+                        if obsolete || std::thread::panicking() {
+                            version_obsolete_locked(cell);
+                        } else {
+                            version_unlock(cell, old_v, modified);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl Drop for LockSet<'_> {
+    fn drop(&mut self) {
+        self.unlock_all();
+    }
+}
+
 /// An RAII guard representing an active writer operation within [`WriterGate`].
 ///
 /// On drop or panic unwinding, automatically clears the in-flight writer status,
@@ -707,11 +879,15 @@ impl<'a> Drop for WriterGuard<'a> {
 ///   whether `WriterGate` is closed.
 /// - Quiescence coordinators (reader fallback or `with_locked`) close `WriterGate`, execute
 ///   `fence(Ordering::SeqCst)`, and wait for all registered in-flight writer slots to drain to 0.
+#[cfg(all(not(loom), feature = "std"))]
+static NEXT_GATE_ID: AtomicU64 = AtomicU64::new(1);
+
 #[cfg(feature = "std")]
 #[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) struct WriterGate {
     closed: AtomicBool,
+    id: u64,
 }
 
 #[cfg(feature = "std")]
@@ -720,9 +896,20 @@ impl WriterGate {
     /// Creates a fresh, open gate.
     #[must_use]
     pub(crate) fn new() -> Self {
+        #[cfg(not(loom))]
+        let id = NEXT_GATE_ID.fetch_add(1, Ordering::Relaxed);
+        #[cfg(loom)]
+        let id = 1;
         Self {
             closed: AtomicBool::new(false),
+            id,
         }
+    }
+
+    /// Unique instance identifier for this gate.
+    #[inline(always)]
+    pub(crate) fn id(&self) -> u64 {
+        self.id
     }
 
     /// Returns whether the gate is closed (quiescence in progress).
@@ -864,6 +1051,14 @@ unsafe impl Send for Garbage {}
 #[cfg(feature = "std")]
 use crate::alloc::{CLASS_SPECS, FreeBlock, NUM_CLASSES, class_for};
 
+#[cfg(feature = "std")]
+#[derive(Debug)]
+struct FreeListHead(*mut FreeBlock);
+
+#[cfg(feature = "std")]
+// SAFETY: Access to the raw pointer in FreeListHead is synchronized by a Mutex.
+unsafe impl Send for FreeListHead {}
+
 /// Epoch-based reclamation for one tree: readers pin the current epoch
 /// around each walk; retired allocations wait two epoch advances before
 /// they are freed, so a pinned reader can never observe freed memory.
@@ -873,7 +1068,7 @@ pub struct Collector {
     epoch: AtomicUsize,
     readers: Mutex<Vec<Arc<Slot>>>,
     bins: [Mutex<Vec<Garbage>>; BINS],
-    freelists: [AtomicPtr<FreeBlock>; NUM_CLASSES],
+    freelists: [Mutex<FreeListHead>; NUM_CLASSES],
     retained_bytes: AtomicUsize,
     #[cfg(test)]
     registrations: core::sync::atomic::AtomicU64,
@@ -899,7 +1094,7 @@ impl Collector {
                 Mutex::new(Vec::new()),
                 Mutex::new(Vec::new()),
             ],
-            freelists: core::array::from_fn(|_| AtomicPtr::new(core::ptr::null_mut())),
+            freelists: core::array::from_fn(|_| Mutex::new(FreeListHead(core::ptr::null_mut()))),
             retained_bytes: AtomicUsize::new(0),
             #[cfg(test)]
             registrations: core::sync::atomic::AtomicU64::new(0),
@@ -909,23 +1104,18 @@ impl Collector {
     /// Pops a reclaimed block from this collector's size-class freelist.
     #[inline(always)]
     pub(crate) fn pop_freelist(&self, class: usize) -> *mut u8 {
-        loop {
-            let head = self.freelists[class].load(Ordering::Acquire);
-            if head.is_null() {
-                return core::ptr::null_mut();
-            }
-            // SAFETY: head is a valid FreeBlock in this size class.
-            let next = unsafe { (*head).next };
-            if self.freelists[class]
-                .compare_exchange_weak(head, next, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                let bytes = CLASS_SPECS[class].0;
-                // SAFETY: zero out the reused memory before returning.
-                unsafe { core::ptr::write_bytes(head.cast::<u8>(), 0, bytes) };
-                return head.cast::<u8>();
-            }
+        let mut head = self.freelists[class].lock().expect("freelist poisoned");
+        let block = head.0;
+        if block.is_null() {
+            return core::ptr::null_mut();
         }
+        // SAFETY: block points to a valid FreeBlock in this size class.
+        head.0 = unsafe { (*block).next };
+        drop(head);
+        let bytes = CLASS_SPECS[class].0;
+        // SAFETY: zero out the reused memory before returning.
+        unsafe { core::ptr::write_bytes(block.cast::<u8>(), 0, bytes) };
+        block.cast::<u8>()
     }
 
     /// Registers a reader; the returned handle pins/unpins cheaply.
@@ -994,17 +1184,10 @@ impl Collector {
             freed_bytes += g.bytes;
             if let Some(class) = class_for(g.bytes, g.align) {
                 let block = g.ptr.as_ptr().cast::<FreeBlock>();
-                loop {
-                    let head = self.freelists[class].load(Ordering::Relaxed);
-                    // SAFETY: block points to a valid allocation of at least size_of::<FreeBlock>().
-                    unsafe { (*block).next = head };
-                    if self.freelists[class]
-                        .compare_exchange_weak(head, block, Ordering::Release, Ordering::Relaxed)
-                        .is_ok()
-                    {
-                        break;
-                    }
-                }
+                let mut head = self.freelists[class].lock().expect("freelist poisoned");
+                // SAFETY: block points to a valid allocation of at least size_of::<FreeBlock>().
+                unsafe { (*block).next = head.0 };
+                head.0 = block;
             } else {
                 free_raw(g.ptr, g.bytes, g.align);
             }
@@ -1075,7 +1258,7 @@ impl Drop for Collector {
         // Last owner: no readers remain by definition.
         self.drain();
         for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
-            let mut cur = self.freelists[class].load(Ordering::Relaxed);
+            let mut cur = self.freelists[class].lock().expect("freelist poisoned").0;
             let layout = Layout::from_size_align(bytes, align).expect("valid node layout");
             while !cur.is_null() {
                 // SAFETY: cur was allocated with `layout`.
@@ -1345,6 +1528,54 @@ mod tests {
             assert_eq!(in_flight.load(Ordering::Relaxed), 1);
         }
         assert_eq!(in_flight.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn lock_set_normal_and_abort_protocol() {
+        let v_tree = SeqVersion::new();
+        let v1 = VersionCell::new(0);
+        let v2 = VersionCell::new(0);
+
+        // 1. Normal acquisition and modified release
+        {
+            let mut ls = LockSet::new();
+            let t_idx = ls.try_lock_tree(&v_tree).expect("lock tree");
+            let n1_idx = ls.try_lock_node(&v1).expect("lock v1");
+            let _n2_idx = ls.try_lock_node(&v2).expect("lock v2");
+
+            ls.mark_modified(t_idx);
+            ls.mark_modified(n1_idx);
+            // n2 remains unmodified
+            assert_eq!(ls.len(), 3);
+            ls.unlock_all();
+        }
+        // Tree advanced to 2
+        assert_eq!(v_tree.0.load(Ordering::Relaxed), 2);
+        // v1 advanced to 2 (modified)
+        assert_eq!(v1.load(Ordering::Relaxed), 2);
+        // v2 remained at 0 (unmodified restore)
+        assert_eq!(v2.load(Ordering::Relaxed), 0);
+
+        // 2. Abort on second lock acquisition drops previous locks unmodified
+        {
+            let mut ls = LockSet::new();
+            let _t_idx = ls.try_lock_tree(&v_tree).expect("lock tree");
+            let _n1_idx = ls.try_lock_node(&v1).expect("lock v1");
+
+            // Lock v2 externally so try_lock_node fails
+            let _ext = version_try_lock(&v2).expect("external lock");
+
+            // try_lock_node on v2 must fail and unlock v_tree and v1 unmodified
+            assert!(ls.try_lock_node(&v2).is_err());
+            assert_eq!(ls.len(), 0);
+
+            // Unlock external lock
+            version_unlock(&v2, 0, false);
+        }
+        // Tree restored to 2 (unmodified)
+        assert_eq!(v_tree.0.load(Ordering::Relaxed), 2);
+        // v1 restored to 2 (unmodified)
+        assert_eq!(v1.load(Ordering::Relaxed), 2);
     }
 }
 

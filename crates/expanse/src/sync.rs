@@ -46,7 +46,7 @@ use crate::occ::{Collector, Pin, Reader, SeqVersion};
 use crate::set::ExpanseSet;
 use crate::slot::{SlotTag, ValueSlot};
 use crate::strmap::{ExpanseStrMap, NulFreeStr};
-use crate::types::{EdgeTag, EdgeType, Key, digit};
+use crate::types::{BRANCH_L3_CAP, BRANCH_L7_CAP, EdgeTag, EdgeType, ImmedType, Key, digit};
 use core::cell::UnsafeCell;
 use std::hash::{BuildHasher, RandomState};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -127,6 +127,7 @@ impl Cover<'_> {
             Cover::Tree(v, s) => v.validate(*s),
             // SAFETY: the node whose version this is stays EBR-live for
             // the duration of the reader's pin.
+            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
             Cover::Node(p, s) => unsafe {
                 crate::occ::node_validate(crate::occ::version_cell(*p), *s)
             },
@@ -177,6 +178,7 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                 let mid = (lo + hi) / 2;
                 // SAFETY: `mid < pop` and the allocation is EBR-live;
                 // the loaded value is validated before use.
+                // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                 let k = unsafe { keys.add(mid).read() };
                 chk!();
                 if k < key {
@@ -199,6 +201,7 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
             }
             // SAFETY: the value area begins at the shared class-based
             // offset; `lo < pop` so the slot is in bounds.
+            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
             let v = unsafe {
                 ptr.add(crate::map::leaf_values_offset(pop))
                     .cast::<u64>()
@@ -238,6 +241,7 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                     };
                     // SAFETY: live version field (EBR).
                     let Some(nsnap) =
+                        // SAFETY: version cell is within an EBR-live node allocation.
                         (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
                     else {
                         return Err(Retry);
@@ -286,6 +290,7 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                     };
                     // SAFETY: `slot < num <= capacity`; in-bounds read of
                     // the EBR-live node, validated just below.
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     edge = unsafe { edges_base.add(slot).read() };
                     // SAFETY: live version field (EBR).
                     if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
@@ -301,6 +306,7 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                     let vp: *const u32 = unsafe { &raw const (*node).version };
                     // SAFETY: live version field (EBR).
                     let Some(nsnap) =
+                        // SAFETY: version cell is within an EBR-live node allocation.
                         (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
                     else {
                         return Err(Retry);
@@ -356,6 +362,7 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                     // SAFETY: bitmap/subarray pair validated consistent
                     // just above → the subarray holds at least `rank + 1`
                     // EBR-live edges.
+                    // SAFETY: pointer arithmetic and destination buffer bounds are valid under locked parent.
                     edge = unsafe { sub.add(rank).read() };
                     // The edge copy itself must also be covered: re-check
                     // before the next iteration dereferences it.
@@ -373,6 +380,7 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                     let vp: *const u32 = unsafe { &raw const (*node).version };
                     // SAFETY: live version field (EBR).
                     let Some(nsnap) =
+                        // SAFETY: version cell is within an EBR-live node allocation.
                         (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
                     else {
                         return Err(Retry);
@@ -399,6 +407,7 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                         // SAFETY: EBR-live LeafBitmapL; loads validated
                         // (against the parent's cover) before the value
                         // subarray is dereferenced.
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                         let (bit, rank, vals) = unsafe {
                             (
                                 (*node).bitmap.test(d),
@@ -449,6 +458,7 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                     };
                     // SAFETY: EBR-live leaf of (validated) `pop` keys;
                     // the slot is validated before the value read.
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     let found = unsafe { leaf::search(keys, pop, kb, key) };
                     chk!();
                     let Some(slot) = found else {
@@ -507,6 +517,7 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                 }
                 // SAFETY: multi-key map immediates store an EBR-live
                 // array of `n` values in word 0 (validated tag + count).
+                // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                 let v = unsafe { edge.node_ptr().cast::<u64>().add(slot).read() };
                 chk!();
                 return Ok(Some(v));
@@ -565,6 +576,12 @@ pub(crate) trait SharedTree {
 
     /// Total entries currently stored.
     fn tree_pop(&self) -> u64;
+
+    /// Sets tree population when synchronizing from concurrent writes.
+    fn set_tree_pop(&mut self, _pop: u64) {}
+
+    /// Resets internal path cursors to ensure stale node pointers are not reused.
+    fn clear_path(&self) {}
 }
 
 impl SharedTree for ExpanseMap {
@@ -576,6 +593,14 @@ impl SharedTree for ExpanseMap {
     fn tree_pop(&self) -> u64 {
         self.len()
     }
+
+    fn set_tree_pop(&mut self, pop: u64) {
+        ExpanseMap::set_tree_pop(self, pop);
+    }
+
+    fn clear_path(&self) {
+        ExpanseMap::clear_path(self);
+    }
 }
 
 impl SharedTree for ExpanseSet {
@@ -586,6 +611,14 @@ impl SharedTree for ExpanseSet {
 
     fn tree_pop(&self) -> u64 {
         self.len()
+    }
+
+    fn set_tree_pop(&mut self, pop: u64) {
+        ExpanseSet::set_tree_pop(self, pop);
+    }
+
+    fn clear_path(&self) {
+        ExpanseSet::clear_path(self);
     }
 }
 
@@ -659,6 +692,12 @@ struct Shared<T> {
     tree_pop: core::sync::atomic::AtomicU64,
     collector: Arc<Collector>,
     write: Line<Mutex<()>>,
+    #[cfg(feature = "std")]
+    gate: Line<crate::occ::WriterGate>,
+    #[cfg(feature = "std")]
+    fallback_mutex: Mutex<()>,
+    #[cfg(feature = "std")]
+    writers: Mutex<Vec<Arc<core::sync::atomic::AtomicUsize>>>,
     /// Token of the thread that last held `write`, for the `Handoffs`
     /// counter. Read and written only under the lock — no coherence traffic
     /// beyond the line it shares (which [`layout_report`] names). Diagnostic
@@ -705,6 +744,12 @@ impl<T: SharedTree> Shared<T> {
             tree_pop: core::sync::atomic::AtomicU64::new(initial_pop),
             collector,
             write: line(Mutex::new(())),
+            #[cfg(feature = "std")]
+            gate: line(crate::occ::WriterGate::new()),
+            #[cfg(feature = "std")]
+            fallback_mutex: Mutex::new(()),
+            #[cfg(feature = "std")]
+            writers: Mutex::new(Vec::new()),
             #[cfg(feature = "occ-stats")]
             last_holder: UnsafeCell::new(0),
             advance_tick: UnsafeCell::new(0),
@@ -712,6 +757,7 @@ impl<T: SharedTree> Shared<T> {
         // SAFETY: the word and the tree live in this one heap block, which
         // the wrapper owns and never opens; `inner` drops before `version`
         // (field order) and nothing hands the tree out.
+        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
         unsafe {
             shared
                 .inner_ref()
@@ -721,7 +767,7 @@ impl<T: SharedTree> Shared<T> {
     }
 }
 
-impl<T> Shared<T> {
+impl<T: SharedTree> Shared<T> {
     /// The tree-level version word.
     #[inline(always)]
     fn version(&self) -> &SeqVersion {
@@ -733,7 +779,74 @@ impl<T> Shared<T> {
     fn inner_ref(&self) -> &T {
         // SAFETY: a shared borrow of the engine; callers use it only where
         // no writer can be running (construction).
+        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
         unsafe { &*self.inner.get() }
+    }
+
+    #[cfg(feature = "std")]
+    pub(crate) fn enter_writer(&self) -> Option<crate::occ::WriterGuard<'_>> {
+        use std::cell::RefCell;
+        std::thread_local! {
+            static REGISTERED: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+            static SLOT: Arc<core::sync::atomic::AtomicUsize> = Arc::new(core::sync::atomic::AtomicUsize::new(0));
+        }
+        let slot = SLOT.with(Arc::clone);
+        let key = self.gate.id();
+        let needs_reg = REGISTERED.with(|reg| {
+            let mut r = reg.borrow_mut();
+            if r.contains(&key) {
+                false
+            } else {
+                if r.len() >= 128 {
+                    r.remove(0);
+                }
+                r.push(key);
+                true
+            }
+        });
+        if needs_reg {
+            let mut writers = self.writers.lock().expect("writers poisoned");
+            if !writers.iter().any(|s| Arc::ptr_eq(s, &slot)) {
+                writers.push(Arc::clone(&slot));
+            }
+        }
+        // SAFETY: slot is allocated in a static Arc and outlives the thread.
+        let slot_ref = unsafe { &*(&*slot as *const core::sync::atomic::AtomicUsize) };
+        self.gate.enter_writer(slot_ref)
+    }
+
+    #[cfg(feature = "std")]
+    pub(crate) fn quiesce_writers(&self) {
+        self.gate.close();
+        let slots = {
+            let writers = self.writers.lock().expect("writers poisoned");
+            writers.clone()
+        };
+        for slot in &slots {
+            while slot.load(core::sync::atomic::Ordering::Relaxed) != 0 {
+                core::hint::spin_loop();
+                #[cfg(loom)]
+                loom::thread::yield_now();
+            }
+        }
+    }
+
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    pub(crate) fn reopen_gate(&self) {
+        self.gate.open();
+    }
+
+    #[cfg(feature = "std")]
+    pub(crate) fn enter_writer_blocking(&self) -> crate::occ::WriterGuard<'_> {
+        loop {
+            if let Some(guard) = self.enter_writer() {
+                return guard;
+            }
+            core::hint::spin_loop();
+            #[cfg(loom)]
+            loom::thread::yield_now();
+        }
     }
 
     /// Runs one mutation under the writer lock and version bracket, and
@@ -744,6 +857,10 @@ impl<T> Shared<T> {
     /// and the lock is already held.
     fn write<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
         crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+        #[cfg(feature = "std")]
+        let _fallback = self.fallback_mutex.lock().expect("fallback mutex poisoned");
+        #[cfg(feature = "std")]
+        self.quiesce_writers();
         let _g = self.write.lock().expect("writer lock poisoned");
         #[cfg(feature = "occ-stats")]
         {
@@ -762,7 +879,12 @@ impl<T> Shared<T> {
         crate::alloc::bracket_stack::enter(self.tree_cover_addr());
         crate::occ_stats::op_begin();
         // SAFETY: the writer mutex makes this the only mutable borrow.
-        let r = f(unsafe { &mut *self.inner.get() });
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.set_tree_pop(self.tree_pop.load(core::sync::atomic::Ordering::Relaxed));
+        let r = f(inner);
+        inner.clear_path();
+        self.tree_pop
+            .store(inner.tree_pop(), core::sync::atomic::Ordering::Relaxed);
         crate::occ_stats::op_end();
         #[cfg(debug_assertions)]
         crate::alloc::bracket_stack::leave(self.tree_cover_addr());
@@ -777,6 +899,9 @@ impl<T> Shared<T> {
                 self.collector.try_advance();
             }
         }
+        drop(_g);
+        #[cfg(feature = "std")]
+        self.reopen_gate();
         r
     }
 
@@ -795,6 +920,10 @@ impl<T> Shared<T> {
         T: RootState,
     {
         crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+        #[cfg(feature = "std")]
+        let _fallback = self.fallback_mutex.lock().expect("fallback mutex poisoned");
+        #[cfg(feature = "std")]
+        self.quiesce_writers();
         let _g = self.write.lock().expect("writer lock poisoned");
         #[cfg(feature = "occ-stats")]
         {
@@ -811,6 +940,7 @@ impl<T> Shared<T> {
         crate::occ_stats::op_begin();
         // SAFETY: the writer mutex makes this the only mutable borrow.
         let inner = unsafe { &mut *self.inner.get() };
+        inner.set_tree_pop(self.tree_pop.load(core::sync::atomic::Ordering::Relaxed));
         // Read under the lock: the root state is the writer's to change.
         let r = if inner.root_is_tree() {
             f(inner)
@@ -824,6 +954,9 @@ impl<T> Shared<T> {
             self.version().end();
             r
         };
+        inner.clear_path();
+        self.tree_pop
+            .store(inner.tree_pop(), core::sync::atomic::Ordering::Relaxed);
         crate::occ_stats::op_end();
         #[cfg(not(feature = "advance-never"))]
         {
@@ -835,6 +968,9 @@ impl<T> Shared<T> {
                 self.collector.try_advance();
             }
         }
+        drop(_g);
+        #[cfg(feature = "std")]
+        self.reopen_gate();
         r
     }
 
@@ -851,9 +987,21 @@ impl<T> Shared<T> {
         // `len` / `mem_used` paths alike. Counting at this chokepoint rather
         // than at each caller is what stops the instrument drifting.
         crate::occ_stats::bump(crate::occ_stats::Stat::LockedReads);
+        #[cfg(feature = "std")]
+        let _fallback = self.fallback_mutex.lock().expect("fallback mutex poisoned");
+        #[cfg(feature = "std")]
+        self.quiesce_writers();
         let _g: MutexGuard<'_, ()> = self.write.lock().expect("writer lock poisoned");
-        // SAFETY: the writer mutex excludes all mutation.
-        f(unsafe { &*self.inner.get() })
+        // SAFETY: the writer mutex and WriterGate quiescence exclude all mutation.
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.clear_path();
+        inner.set_tree_pop(self.tree_pop.load(core::sync::atomic::Ordering::Relaxed));
+        let res = f(inner);
+        inner.clear_path();
+        drop(_g);
+        #[cfg(feature = "std")]
+        self.reopen_gate();
+        res
     }
 
     /// Validated population read: samples the version, copies the root
@@ -885,6 +1033,124 @@ impl<T> Shared<T> {
     }
 }
 
+#[cfg(feature = "std")]
+enum OlcOutcome<T> {
+    Done(T),
+    Retry,
+    Fallback,
+}
+
+#[cfg(feature = "std")]
+#[derive(Clone, Copy)]
+struct AncestorFrame {
+    node: *mut u8,
+    edge_type: EdgeType,
+    version_ptr: *const u32,
+    version_snap: u32,
+    child_level: u8,
+    digit: u8,
+}
+
+#[cfg(feature = "std")]
+#[inline(always)]
+unsafe fn bump_edge_pop0(edge: *mut Edge, slot_level: u8, delta: i64) {
+    // SAFETY: caller guarantees edge is an aligned, live pointer to an Edge inside a locked node.
+    let tag = match unsafe { (*edge).tag() } {
+        Some(t) => t,
+        None => return,
+    };
+    let pop0_level = match tag {
+        EdgeTag::Structural(EdgeType::Null) | EdgeTag::Immed(_) => return,
+        EdgeTag::Structural(t) if t.leaf_key_bytes().is_some() => {
+            t.leaf_key_bytes().expect("leaf tag")
+        }
+        EdgeTag::Structural(EdgeType::LeafB1) => 1,
+        EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7 | EdgeType::BranchB)) => {
+            // SAFETY: edge is a valid structural branch edge.
+            unsafe { crate::mutate::branch_form_level(&*edge, t, slot_level) }
+        }
+        EdgeTag::Structural(_) => slot_level,
+    };
+    if pop0_level <= 7 {
+        // SAFETY: pop0_level is bounded and edge is live.
+        unsafe {
+            crate::mutate::bump_pop0(edge, pop0_level, delta);
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+#[inline]
+unsafe fn bump_ancestor_pop0(
+    node: *mut u8,
+    edge_type: EdgeType,
+    child_level: u8,
+    d: u8,
+    delta: i64,
+) {
+    let vp: *const u32 = match edge_type {
+        // SAFETY: node pointer is EBR-live and validated by parent version check.
+        EdgeType::BranchL3 => unsafe { &raw const (*node.cast::<BranchL3>()).hdr.version },
+        // SAFETY: node pointer is EBR-live and validated by parent version check.
+        EdgeType::BranchL7 => unsafe { &raw const (*node.cast::<BranchL7>()).hdr.version },
+        // SAFETY: node pointer is EBR-live and validated by parent version check.
+        EdgeType::BranchB => unsafe { &raw const (*node.cast::<BranchB>()).version },
+        // SAFETY: node pointer is EBR-live and validated by parent version check.
+        EdgeType::BranchU => unsafe { &raw const (*node.cast::<BranchU>()).version },
+        _ => return,
+    };
+    // SAFETY: caller guarantees node is an EBR-live branch node.
+    let cell = unsafe { crate::occ::version_cell(vp) };
+    loop {
+        match crate::occ::version_try_lock(cell) {
+            Ok(old_v) => {
+                // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                unsafe {
+                    match edge_type {
+                        EdgeType::BranchL3 => {
+                            let b = node.cast::<BranchL3>();
+                            if let Some(slot) = (*b).hdr.find(d) {
+                                bump_edge_pop0(&raw mut (*b).edges[slot], child_level, delta);
+                            }
+                        }
+                        EdgeType::BranchL7 => {
+                            let b = node.cast::<BranchL7>();
+                            if let Some(slot) = (*b).hdr.find(d) {
+                                bump_edge_pop0(&raw mut (*b).edges[slot], child_level, delta);
+                            }
+                        }
+                        EdgeType::BranchB => {
+                            let b = node.cast::<BranchB>();
+                            if (*b).bitmap.test(d) {
+                                let rank = (*b).bitmap.subexpanse_rank(d) as usize;
+                                let sub = (*b).subarrays[(d >> 5) as usize];
+                                if !sub.is_null() {
+                                    bump_edge_pop0(sub.add(rank), child_level, delta);
+                                }
+                            }
+                        }
+                        EdgeType::BranchU => {
+                            let b = node.cast::<BranchU>();
+                            bump_edge_pop0(&raw mut (*b).edges[d as usize], child_level, delta);
+                        }
+                        _ => {}
+                    }
+                    crate::occ::version_unlock(cell, old_v, true);
+                }
+                break;
+            }
+            Err(cur) => {
+                if (cur & crate::occ::OBSOLETE) != 0 {
+                    break;
+                }
+                core::hint::spin_loop();
+                #[cfg(loom)]
+                loom::thread::yield_now();
+            }
+        }
+    }
+}
+
 /// A set shareable across threads: one writer at a time (internally
 /// serialized), validated optimistic readers. See the module docs for the
 /// protocol and its trade-offs.
@@ -912,31 +1178,840 @@ impl SyncExpanseSet {
         Self { shared }
     }
 
-    /// Inserts `key`; returns `true` if it was absent. Serializes with
-    /// other writers.
+    /// Inserts `key`; returns `true` if it was absent. Uses multi-writer
+    /// optimistic lock coupling (Stage B) when the root is a tree, falling
+    /// back to the serialized writer lock for root-state transitions.
     pub fn insert(&self, key: Key) -> bool {
-        self.shared.write_root_covered(|s| {
-            let ins = s.insert(key);
-            if ins {
-                self.shared
-                    .tree_pop
-                    .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        #[cfg(feature = "std")]
+        {
+            if !self.shared.inner_ref().root_is_tree() {
+                return self.shared.write_root_covered(|s| s.insert(key));
             }
-            ins
-        })
+
+            let _guard = self.shared.enter_writer_blocking();
+            let reader = self.shared.collector.register();
+            let _pin = reader.pin();
+            crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+            crate::occ_stats::op_begin();
+
+            for _ in 0..MAX_RETRIES {
+                if self.shared.gate.is_closed() {
+                    break;
+                }
+                match self.olc_insert_set(key) {
+                    OlcOutcome::Done(ins) => {
+                        if ins {
+                            self.shared
+                                .tree_pop
+                                .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                        }
+                        crate::occ_stats::op_end();
+                        return ins;
+                    }
+                    OlcOutcome::Retry => {
+                        core::hint::spin_loop();
+                        #[cfg(loom)]
+                        loom::thread::yield_now();
+                    }
+                    OlcOutcome::Fallback => {
+                        break;
+                    }
+                }
+            }
+            crate::occ_stats::op_end();
+            drop(_guard);
+            drop(_pin);
+            drop(reader);
+            self.shared.write_root_covered(|s| s.insert(key))
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            self.shared.write_root_covered(|s| s.insert(key))
+        }
     }
 
     /// Removes `key`; returns `true` if it was present.
     pub fn remove(&self, key: Key) -> bool {
-        self.shared.write_root_covered(|s| {
-            let rem = s.remove(key);
-            if rem {
-                self.shared
-                    .tree_pop
-                    .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+        #[cfg(feature = "std")]
+        {
+            if !self.shared.inner_ref().root_is_tree() {
+                return self.shared.write_root_covered(|s| s.remove(key));
             }
-            rem
-        })
+
+            let _guard = self.shared.enter_writer_blocking();
+            let reader = self.shared.collector.register();
+            let _pin = reader.pin();
+            crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+            crate::occ_stats::op_begin();
+
+            for _ in 0..MAX_RETRIES {
+                if self.shared.gate.is_closed() {
+                    break;
+                }
+                match self.olc_remove_set(key) {
+                    OlcOutcome::Done(rem) => {
+                        if rem {
+                            self.shared
+                                .tree_pop
+                                .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+                        }
+                        crate::occ_stats::op_end();
+                        return rem;
+                    }
+                    OlcOutcome::Retry => {
+                        core::hint::spin_loop();
+                        #[cfg(loom)]
+                        loom::thread::yield_now();
+                    }
+                    OlcOutcome::Fallback => {
+                        break;
+                    }
+                }
+            }
+            crate::occ_stats::op_end();
+            drop(_guard);
+            drop(_pin);
+            drop(reader);
+            self.shared.write_root_covered(|s| s.remove(key))
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            self.shared.write_root_covered(|s| s.remove(key))
+        }
+    }
+
+    #[cfg(feature = "std")]
+    fn olc_insert_set(&self, key: Key) -> OlcOutcome<bool> {
+        let v_snap = self.shared.version().sample();
+        if (v_snap & 1) != 0 {
+            return OlcOutcome::Retry;
+        }
+        // SAFETY: top_ptr obtained without taking &mut on inner.
+        let top_ptr = unsafe { (*self.shared.inner.get()).root_top_ptr() };
+        if top_ptr.is_null() {
+            return OlcOutcome::Fallback;
+        }
+        let mut ancestors: [AncestorFrame; 8] = [AncestorFrame {
+            node: core::ptr::null_mut(),
+            edge_type: EdgeType::Null,
+            version_ptr: core::ptr::null(),
+            version_snap: 0,
+            child_level: 0,
+            digit: 0,
+        }; 8];
+        let mut anc_depth = 0;
+        // SAFETY: top_ptr points to the root edge under verified EBR-live snapshot.
+        let mut edge = unsafe { top_ptr.read() };
+        let mut edge_ptr = top_ptr;
+        let mut level = 8u8;
+
+        loop {
+            let tag = edge.tag().expect("valid edge tag");
+            match tag {
+                EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+                    let is_l3 = matches!(t, EdgeType::BranchL3);
+                    let node = edge.node_ptr();
+                    let vp = if is_l3 {
+                        // SAFETY: node pointer is EBR-live and validated by parent version check.
+                        unsafe { &raw const (*node.cast::<BranchL3>()).hdr.version }
+                    } else {
+                        // SAFETY: node pointer is EBR-live and validated by parent version check.
+                        unsafe { &raw const (*node.cast::<BranchL7>()).hdr.version }
+                    };
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let Some(nsnap) =
+                        (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
+                    else {
+                        return OlcOutcome::Retry;
+                    };
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let (bl, num, digits) = unsafe {
+                        if is_l3 {
+                            let b = node.cast::<BranchL3>();
+                            ((*b).hdr.level, (*b).hdr.num as usize, (*b).hdr.digits)
+                        } else {
+                            let b = node.cast::<BranchL7>();
+                            ((*b).hdr.level, (*b).hdr.num as usize, (*b).hdr.digits)
+                        }
+                    };
+                    if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
+                        return OlcOutcome::Retry;
+                    }
+                    if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
+                        return OlcOutcome::Fallback;
+                    }
+                    let d = digit(key, bl);
+                    let slot_opt = digits[..num].iter().position(|&x| x == d);
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
+                        return OlcOutcome::Retry;
+                    }
+                    if let Some(slot) = slot_opt {
+                        ancestors[anc_depth] = AncestorFrame {
+                            node,
+                            edge_type: t,
+                            version_ptr: vp,
+                            version_snap: nsnap,
+                            child_level: bl - 1,
+                            digit: d,
+                        };
+                        anc_depth += 1;
+                        edge_ptr = if is_l3 {
+                            // SAFETY: node pointer is EBR-live and validated by parent version check.
+                            unsafe { &raw mut (*node.cast::<BranchL3>()).edges[slot] }
+                        } else {
+                            // SAFETY: node pointer is EBR-live and validated by parent version check.
+                            unsafe { &raw mut (*node.cast::<BranchL7>()).edges[slot] }
+                        };
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        edge = unsafe { edge_ptr.read() };
+                        level = bl - 1;
+                        continue;
+                    }
+                    let cap = if is_l3 { BRANCH_L3_CAP } else { BRANCH_L7_CAP };
+                    if num < cap {
+                        // SAFETY: version cell is within an EBR-live node allocation.
+                        let Ok(old_v) =
+                            (unsafe { crate::occ::version_try_lock(crate::occ::version_cell(vp)) })
+                        else {
+                            return OlcOutcome::Retry;
+                        };
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        let cur_num = unsafe {
+                            if is_l3 {
+                                (*node.cast::<BranchL3>()).hdr.num as usize
+                            } else {
+                                (*node.cast::<BranchL7>()).hdr.num as usize
+                            }
+                        };
+                        if cur_num >= cap {
+                            // SAFETY: version cell is within an EBR-live node allocation.
+                            unsafe {
+                                crate::occ::version_unlock(
+                                    crate::occ::version_cell(vp),
+                                    old_v,
+                                    false,
+                                );
+                            }
+                            return OlcOutcome::Retry;
+                        }
+                        let new_edge =
+                            Edge::new_immed_single_set(bl - 1, crate::mutate::key_low(key, bl - 1));
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        unsafe {
+                            if is_l3 {
+                                let b = node.cast::<BranchL3>();
+                                let slot = crate::mutate::linear_insert_slot_l3(
+                                    &mut (*b).hdr.digits,
+                                    &mut (*b).edges,
+                                    cur_num,
+                                    d,
+                                );
+                                (*b).edges[slot] = new_edge;
+                                (*b).hdr.num += 1;
+                                (*b).hdr.add_presence(d);
+                            } else {
+                                let b = node.cast::<BranchL7>();
+                                let slot = crate::mutate::linear_insert_slot(
+                                    &mut (*b).hdr.digits,
+                                    &mut (*b).edges,
+                                    cur_num,
+                                    d,
+                                );
+                                (*b).edges[slot] = new_edge;
+                                (*b).hdr.num += 1;
+                                (*b).hdr.add_presence(d);
+                            }
+                            crate::occ::version_unlock(crate::occ::version_cell(vp), old_v, true);
+                            for i in (0..anc_depth).rev() {
+                                let a = &ancestors[i];
+                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
+                            }
+                        }
+                        return OlcOutcome::Done(true);
+                    }
+                    return OlcOutcome::Fallback;
+                }
+
+                EdgeTag::Structural(EdgeType::BranchB) => {
+                    let node = edge.node_ptr().cast::<BranchB>();
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let vp = unsafe { &raw const (*node).version };
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let Some(nsnap) =
+                        (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
+                    else {
+                        return OlcOutcome::Retry;
+                    };
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let (bl, bit, rank, sub) = unsafe {
+                        let bl = (*node).level;
+                        if !(2..=level).contains(&bl) {
+                            return OlcOutcome::Retry;
+                        }
+                        let d = digit(key, bl);
+                        (
+                            bl,
+                            (*node).bitmap.test(d),
+                            (*node).bitmap.subexpanse_rank(d) as usize,
+                            (*node).subarrays[(d >> 5) as usize],
+                        )
+                    };
+                    if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
+                        return OlcOutcome::Fallback;
+                    }
+                    if !bit || sub.is_null() {
+                        return OlcOutcome::Fallback;
+                    }
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
+                        return OlcOutcome::Retry;
+                    }
+                    ancestors[anc_depth] = AncestorFrame {
+                        node: node.cast(),
+                        edge_type: EdgeType::BranchB,
+                        version_ptr: vp,
+                        version_snap: nsnap,
+                        child_level: bl - 1,
+                        digit: digit(key, bl),
+                    };
+                    anc_depth += 1;
+                    // SAFETY: pointer arithmetic and destination buffer bounds are valid under locked parent.
+                    edge_ptr = unsafe { sub.add(rank) };
+                    // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                    edge = unsafe { edge_ptr.read() };
+                    level = bl - 1;
+                    continue;
+                }
+
+                EdgeTag::Structural(EdgeType::BranchU) => {
+                    let node = edge.node_ptr().cast::<BranchU>();
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let vp = unsafe { &raw const (*node).version };
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let Some(nsnap) =
+                        (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
+                    else {
+                        return OlcOutcome::Retry;
+                    };
+                    let d = digit(key, level);
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
+                        return OlcOutcome::Retry;
+                    }
+                    ancestors[anc_depth] = AncestorFrame {
+                        node: node.cast(),
+                        edge_type: EdgeType::BranchU,
+                        version_ptr: vp,
+                        version_snap: nsnap,
+                        child_level: level - 1,
+                        digit: d,
+                    };
+                    anc_depth += 1;
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    edge_ptr = unsafe { &raw mut (*node).edges[d as usize] };
+                    // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                    edge = unsafe { edge_ptr.read() };
+                    level -= 1;
+                    continue;
+                }
+
+                EdgeTag::Structural(EdgeType::LeafB1) => {
+                    if anc_depth == 0 {
+                        return OlcOutcome::Fallback;
+                    }
+                    if level > 1 && !crate::get::decode_matches(&edge, key, 1, level) {
+                        return OlcOutcome::Fallback;
+                    }
+                    let parent = ancestors[anc_depth - 1];
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
+                    let node = edge.node_ptr().cast::<LeafBitmap1>();
+                    let d = (key & 0xFF) as u8;
+                    // SAFETY: node is an EBR-live bitmap node and parent is validated/locked.
+                    let bit = unsafe { (*node).bitmap.test(d) };
+                    if bit {
+                        if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                            return OlcOutcome::Retry;
+                        }
+                        return OlcOutcome::Done(false);
+                    }
+                    let pop0 = edge.pop0(1) as usize;
+                    if pop0 >= 254 {
+                        return OlcOutcome::Fallback;
+                    }
+                    let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                        return OlcOutcome::Retry;
+                    };
+                    // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                    if unsafe { edge_ptr.read() } != edge {
+                        crate::occ::version_unlock(p_cell, old_v, false);
+                        return OlcOutcome::Retry;
+                    }
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    unsafe {
+                        if (*node).bitmap.set(d) {
+                            (*edge_ptr).set_pop0(1, (pop0 + 1) as u64);
+                            crate::occ::version_unlock(p_cell, old_v, true);
+                            for i in (0..anc_depth.saturating_sub(1)).rev() {
+                                let a = &ancestors[i];
+                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
+                            }
+                            return OlcOutcome::Done(true);
+                        } else {
+                            crate::occ::version_unlock(p_cell, old_v, false);
+                            return OlcOutcome::Done(false);
+                        }
+                    }
+                }
+
+                EdgeTag::Structural(EdgeType::FullExpanse) => {
+                    return OlcOutcome::Done(false);
+                }
+
+                EdgeTag::Structural(
+                    t @ (EdgeType::Leaf1
+                    | EdgeType::Leaf2
+                    | EdgeType::Leaf3
+                    | EdgeType::Leaf4
+                    | EdgeType::Leaf5
+                    | EdgeType::Leaf6
+                    | EdgeType::Leaf7),
+                ) => {
+                    if anc_depth == 0 {
+                        return OlcOutcome::Fallback;
+                    }
+                    let parent = ancestors[anc_depth - 1];
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
+                    let kb = t.leaf_key_bytes().expect("leaf tag") as usize;
+                    let pop = edge.pop0(kb as u8) as usize + 1;
+                    if kb < level as usize
+                        && !crate::get::decode_matches(&edge, key, kb as u8, level)
+                    {
+                        return OlcOutcome::Fallback;
+                    }
+                    let k = crate::mutate::key_low(key, kb as u8);
+                    let keys_ptr = edge.node_ptr();
+                    let mut found = false;
+                    let mut at = pop;
+                    for i in 0..pop {
+                        // SAFETY: pointer and index are within bounds of valid leaf/immediate allocation.
+                        let existing = unsafe { crate::mutate::read_packed(keys_ptr, i, kb) };
+                        if existing == k {
+                            found = true;
+                            break;
+                        } else if existing > k && at == pop {
+                            at = i;
+                        }
+                    }
+                    if found {
+                        if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                            return OlcOutcome::Retry;
+                        }
+                        return OlcOutcome::Done(false);
+                    }
+                    let cap = if kb == 1 {
+                        crate::mutate::LEAF1_CAP
+                    } else {
+                        crate::mutate::LEAF_CAP
+                    };
+                    if pop < cap && crate::leaf::cap_class(pop + 1) == crate::leaf::cap_class(pop) {
+                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                            return OlcOutcome::Retry;
+                        };
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        if unsafe { edge_ptr.read() } != edge {
+                            crate::occ::version_unlock(p_cell, old_v, false);
+                            return OlcOutcome::Retry;
+                        }
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        unsafe {
+                            core::ptr::copy(
+                                keys_ptr.add(at * kb),
+                                keys_ptr.add((at + 1) * kb),
+                                (pop - at) * kb,
+                            );
+                            crate::mutate::write_packed(keys_ptr, at, kb, k);
+                            (*edge_ptr).set_pop0(kb as u8, pop as u64);
+                            crate::occ::version_unlock(p_cell, old_v, true);
+                            for i in (0..anc_depth.saturating_sub(1)).rev() {
+                                let a = &ancestors[i];
+                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
+                            }
+                        }
+                        return OlcOutcome::Done(true);
+                    }
+                    return OlcOutcome::Fallback;
+                }
+
+                EdgeTag::Immed(im) => {
+                    if anc_depth == 0 {
+                        return OlcOutcome::Fallback;
+                    }
+                    let kb = im.key_bytes();
+                    if level > kb && !crate::get::decode_matches(&edge, key, kb, level) {
+                        return OlcOutcome::Fallback;
+                    }
+                    let parent = ancestors[anc_depth - 1];
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
+                    let k = crate::mutate::key_low(key, kb);
+                    let n = im.key_count() as usize;
+                    let kb_usize = kb as usize;
+                    let payload = edge.imm_payload();
+                    let mut found = false;
+                    for i in 0..n {
+                        // SAFETY: pointer and index are within bounds of valid leaf/immediate allocation.
+                        if unsafe { crate::mutate::read_packed(payload.as_ptr(), i, kb_usize) } == k
+                        {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if found {
+                        if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                            return OlcOutcome::Retry;
+                        }
+                        return OlcOutcome::Done(false);
+                    }
+                    if n == 1 && crate::types::ImmedType::max_count(kb) >= 2 {
+                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                            return OlcOutcome::Retry;
+                        };
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        if unsafe { edge_ptr.read() } != edge {
+                            crate::occ::version_unlock(p_cell, old_v, false);
+                            return OlcOutcome::Retry;
+                        }
+                        // SAFETY: pointer and index are within bounds of valid leaf/immediate allocation.
+                        let existing_k =
+                            unsafe { crate::mutate::read_packed(payload.as_ptr(), 0, kb_usize) };
+                        let (k0, k1) = if k < existing_k {
+                            (k, existing_k)
+                        } else {
+                            (existing_k, k)
+                        };
+                        let mut new_payload = [0u8; 16];
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        unsafe {
+                            crate::mutate::write_packed(new_payload.as_mut_ptr(), 0, kb_usize, k0);
+                            crate::mutate::write_packed(new_payload.as_mut_ptr(), 1, kb_usize, k1);
+                        }
+                        let mut w0 = [0u8; 8];
+                        w0.copy_from_slice(&new_payload[..8]);
+                        let mut aux = [0u8; 7];
+                        aux.copy_from_slice(&new_payload[8..15]);
+                        let new_im = crate::types::ImmedType::new(kb, 2).expect("capacity");
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        unsafe {
+                            (*edge_ptr).set_imm_bytes(w0);
+                            (*edge_ptr).set_aux_bytes(aux);
+                            (*edge_ptr).set_tag(new_im.as_u8());
+                            crate::occ::version_unlock(p_cell, old_v, true);
+                            for i in (0..anc_depth.saturating_sub(1)).rev() {
+                                let a = &ancestors[i];
+                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
+                            }
+                        }
+                        return OlcOutcome::Done(true);
+                    }
+                    return OlcOutcome::Fallback;
+                }
+
+                _ => return OlcOutcome::Fallback,
+            }
+        }
+    }
+
+    #[cfg(feature = "std")]
+    fn olc_remove_set(&self, key: Key) -> OlcOutcome<bool> {
+        let v_snap = self.shared.version().sample();
+        if (v_snap & 1) != 0 {
+            return OlcOutcome::Retry;
+        }
+        // SAFETY: top_ptr obtained without taking &mut on inner.
+        let top_ptr = unsafe { (*self.shared.inner.get()).root_top_ptr() };
+        if top_ptr.is_null() {
+            return OlcOutcome::Fallback;
+        }
+        let mut ancestors: [AncestorFrame; 8] = [AncestorFrame {
+            node: core::ptr::null_mut(),
+            edge_type: EdgeType::Null,
+            version_ptr: core::ptr::null(),
+            version_snap: 0,
+            child_level: 0,
+            digit: 0,
+        }; 8];
+        let mut anc_depth = 0;
+        // SAFETY: top_ptr points to the root edge under verified EBR-live snapshot.
+        let mut edge = unsafe { top_ptr.read() };
+        let mut edge_ptr = top_ptr;
+        let mut level = 8u8;
+
+        loop {
+            let tag = edge.tag().expect("valid edge tag");
+            match tag {
+                EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+                    let is_l3 = matches!(t, EdgeType::BranchL3);
+                    let node = edge.node_ptr();
+                    let vp = if is_l3 {
+                        // SAFETY: node pointer is EBR-live and validated by parent version check.
+                        unsafe { &raw const (*node.cast::<BranchL3>()).hdr.version }
+                    } else {
+                        // SAFETY: node pointer is EBR-live and validated by parent version check.
+                        unsafe { &raw const (*node.cast::<BranchL7>()).hdr.version }
+                    };
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let Some(nsnap) =
+                        (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
+                    else {
+                        return OlcOutcome::Retry;
+                    };
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let (bl, num, digits) = unsafe {
+                        if is_l3 {
+                            let b = node.cast::<BranchL3>();
+                            ((*b).hdr.level, (*b).hdr.num as usize, (*b).hdr.digits)
+                        } else {
+                            let b = node.cast::<BranchL7>();
+                            ((*b).hdr.level, (*b).hdr.num as usize, (*b).hdr.digits)
+                        }
+                    };
+                    if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
+                        return OlcOutcome::Retry;
+                    }
+                    if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
+                        return OlcOutcome::Done(false);
+                    }
+                    let d = digit(key, bl);
+                    let slot_opt = digits[..num].iter().position(|&x| x == d);
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
+                        return OlcOutcome::Retry;
+                    }
+                    if let Some(slot) = slot_opt {
+                        ancestors[anc_depth] = AncestorFrame {
+                            node,
+                            edge_type: t,
+                            version_ptr: vp,
+                            version_snap: nsnap,
+                            child_level: bl - 1,
+                            digit: d,
+                        };
+                        anc_depth += 1;
+                        edge_ptr = if is_l3 {
+                            // SAFETY: node pointer is EBR-live and validated by parent version check.
+                            unsafe { &raw mut (*node.cast::<BranchL3>()).edges[slot] }
+                        } else {
+                            // SAFETY: node pointer is EBR-live and validated by parent version check.
+                            unsafe { &raw mut (*node.cast::<BranchL7>()).edges[slot] }
+                        };
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        edge = unsafe { edge_ptr.read() };
+                        level = bl - 1;
+                        continue;
+                    }
+                    return OlcOutcome::Done(false);
+                }
+
+                EdgeTag::Structural(EdgeType::BranchB) => {
+                    let node = edge.node_ptr().cast::<BranchB>();
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let vp = unsafe { &raw const (*node).version };
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let Some(nsnap) =
+                        (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
+                    else {
+                        return OlcOutcome::Retry;
+                    };
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let (bl, bit, rank, sub) = unsafe {
+                        let bl = (*node).level;
+                        if !(2..=level).contains(&bl) {
+                            return OlcOutcome::Retry;
+                        }
+                        let d = digit(key, bl);
+                        (
+                            bl,
+                            (*node).bitmap.test(d),
+                            (*node).bitmap.subexpanse_rank(d) as usize,
+                            (*node).subarrays[(d >> 5) as usize],
+                        )
+                    };
+                    if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
+                        return OlcOutcome::Done(false);
+                    }
+                    if !bit || sub.is_null() {
+                        return OlcOutcome::Done(false);
+                    }
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
+                        return OlcOutcome::Retry;
+                    }
+                    ancestors[anc_depth] = AncestorFrame {
+                        node: node.cast(),
+                        edge_type: EdgeType::BranchB,
+                        version_ptr: vp,
+                        version_snap: nsnap,
+                        child_level: bl - 1,
+                        digit: digit(key, bl),
+                    };
+                    anc_depth += 1;
+                    // SAFETY: pointer arithmetic and destination buffer bounds are valid under locked parent.
+                    edge_ptr = unsafe { sub.add(rank) };
+                    // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                    edge = unsafe { edge_ptr.read() };
+                    level = bl - 1;
+                    continue;
+                }
+
+                EdgeTag::Structural(EdgeType::BranchU) => {
+                    let node = edge.node_ptr().cast::<BranchU>();
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let vp = unsafe { &raw const (*node).version };
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let Some(nsnap) =
+                        (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
+                    else {
+                        return OlcOutcome::Retry;
+                    };
+                    let d = digit(key, level);
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
+                        return OlcOutcome::Retry;
+                    }
+                    ancestors[anc_depth] = AncestorFrame {
+                        node: node.cast(),
+                        edge_type: EdgeType::BranchU,
+                        version_ptr: vp,
+                        version_snap: nsnap,
+                        child_level: level - 1,
+                        digit: d,
+                    };
+                    anc_depth += 1;
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    edge_ptr = unsafe { &raw mut (*node).edges[d as usize] };
+                    // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                    edge = unsafe { edge_ptr.read() };
+                    level -= 1;
+                    continue;
+                }
+
+                EdgeTag::Structural(EdgeType::LeafB1) => {
+                    if anc_depth == 0 {
+                        return OlcOutcome::Fallback;
+                    }
+                    if level > 1 && !crate::get::decode_matches(&edge, key, 1, level) {
+                        return OlcOutcome::Fallback;
+                    }
+                    let parent = ancestors[anc_depth - 1];
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
+                    let node = edge.node_ptr().cast::<LeafBitmap1>();
+                    let d = (key & 0xFF) as u8;
+                    // SAFETY: node is an EBR-live bitmap node and parent is validated/locked.
+                    let bit = unsafe { (*node).bitmap.test(d) };
+                    if !bit {
+                        if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                            return OlcOutcome::Retry;
+                        }
+                        return OlcOutcome::Done(false);
+                    }
+                    let pop0 = edge.pop0(1) as usize;
+                    if pop0 == 0 || pop0 <= 32 {
+                        return OlcOutcome::Fallback;
+                    }
+                    let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                        return OlcOutcome::Retry;
+                    };
+                    // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                    if unsafe { edge_ptr.read() } != edge {
+                        crate::occ::version_unlock(p_cell, old_v, false);
+                        return OlcOutcome::Retry;
+                    }
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    unsafe {
+                        (*node).bitmap.clear(d);
+                        (*edge_ptr).set_pop0(1, (pop0 - 1) as u64);
+                        crate::occ::version_unlock(p_cell, old_v, true);
+                        for i in (0..anc_depth.saturating_sub(1)).rev() {
+                            let a = &ancestors[i];
+                            bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, -1);
+                        }
+                        return OlcOutcome::Done(true);
+                    }
+                }
+
+                EdgeTag::Structural(
+                    t @ (EdgeType::Leaf1
+                    | EdgeType::Leaf2
+                    | EdgeType::Leaf3
+                    | EdgeType::Leaf4
+                    | EdgeType::Leaf5
+                    | EdgeType::Leaf6
+                    | EdgeType::Leaf7),
+                ) => {
+                    if anc_depth == 0 {
+                        return OlcOutcome::Fallback;
+                    }
+                    let parent = ancestors[anc_depth - 1];
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
+                    let kb = t.leaf_key_bytes().expect("leaf tag") as usize;
+                    let pop = edge.pop0(kb as u8) as usize + 1;
+                    if kb < level as usize
+                        && !crate::get::decode_matches(&edge, key, kb as u8, level)
+                    {
+                        return OlcOutcome::Fallback;
+                    }
+                    let k = crate::mutate::key_low(key, kb as u8);
+                    let keys_ptr = edge.node_ptr();
+                    let mut found = None;
+                    for i in 0..pop {
+                        // SAFETY: pointer and index are within bounds of valid leaf/immediate allocation.
+                        if unsafe { crate::mutate::read_packed(keys_ptr, i, kb) } == k {
+                            found = Some(i);
+                            break;
+                        }
+                    }
+                    let Some(pos) = found else {
+                        if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                            return OlcOutcome::Retry;
+                        }
+                        return OlcOutcome::Done(false);
+                    };
+                    if pop > 2 && crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop) {
+                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                            return OlcOutcome::Retry;
+                        };
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        if unsafe { edge_ptr.read() } != edge {
+                            crate::occ::version_unlock(p_cell, old_v, false);
+                            return OlcOutcome::Retry;
+                        }
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        unsafe {
+                            core::ptr::copy(
+                                keys_ptr.add((pos + 1) * kb),
+                                keys_ptr.add(pos * kb),
+                                (pop - 1 - pos) * kb,
+                            );
+                            (*edge_ptr).set_pop0(kb as u8, (pop - 2) as u64);
+                            crate::occ::version_unlock(p_cell, old_v, true);
+                            for i in (0..anc_depth.saturating_sub(1)).rev() {
+                                let a = &ancestors[i];
+                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, -1);
+                            }
+                        }
+                        return OlcOutcome::Done(true);
+                    }
+                    return OlcOutcome::Fallback;
+                }
+
+                _ => return OlcOutcome::Fallback,
+            }
+        }
     }
 
     /// Removes every key from the set.
@@ -1004,6 +2079,7 @@ impl SetReader<'_> {
             let snap = shared.version().sample();
             // SAFETY: pinned + freshly sampled version; the walk
             // validates every load (see `walk_validated`).
+            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
             let root = unsafe { (*shared.inner.get()).occ_root().0 };
             // SAFETY: same pin + snapshot contract as the line above.
             let walked = unsafe { walk_validated::<false>(root, key, shared.version(), snap) };
@@ -1042,30 +2118,1036 @@ impl SyncExpanseMap {
         Self { shared }
     }
 
-    /// Inserts `key → val`; returns the replaced value, if any.
+    /// Inserts `key → val`; returns the replaced value, if any. Uses
+    /// multi-writer optimistic lock coupling (Stage B) when the root is a
+    /// tree, falling back to the serialized writer lock for root-state transitions.
     pub fn insert(&self, key: Key, val: u64) -> Option<u64> {
-        self.shared.write_root_covered(|m| {
-            let prev = m.insert(key, val);
-            if prev.is_none() {
-                self.shared
-                    .tree_pop
-                    .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        #[cfg(feature = "std")]
+        {
+            if !self.shared.inner_ref().root_is_tree() {
+                return self.shared.write_root_covered(|m| m.insert(key, val));
             }
-            prev
-        })
+
+            let _guard = self.shared.enter_writer_blocking();
+            let reader = self.shared.collector.register();
+            let _pin = reader.pin();
+            crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+            crate::occ_stats::op_begin();
+
+            for _ in 0..MAX_RETRIES {
+                if self.shared.gate.is_closed() {
+                    break;
+                }
+                match self.olc_insert_map(key, val) {
+                    OlcOutcome::Done(prev) => {
+                        if prev.is_none() {
+                            self.shared
+                                .tree_pop
+                                .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                        }
+                        crate::occ_stats::op_end();
+                        return prev;
+                    }
+                    OlcOutcome::Retry => {
+                        core::hint::spin_loop();
+                        #[cfg(loom)]
+                        loom::thread::yield_now();
+                    }
+                    OlcOutcome::Fallback => {
+                        break;
+                    }
+                }
+            }
+            crate::occ_stats::op_end();
+            drop(_guard);
+            drop(_pin);
+            drop(reader);
+            self.shared.write_root_covered(|m| m.insert(key, val))
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            self.shared.write_root_covered(|m| m.insert(key, val))
+        }
     }
 
-    /// Removes `key`; returns its value, if present.
+    /// Removes `key`; returns its value, if present. Uses multi-writer
+    /// optimistic lock coupling (Stage B) when the root is a tree, falling
+    /// back to the serialized writer lock for root-state transitions.
     pub fn remove(&self, key: Key) -> Option<u64> {
-        self.shared.write_root_covered(|m| {
-            let prev = m.remove(key);
-            if prev.is_some() {
-                self.shared
-                    .tree_pop
-                    .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+        #[cfg(feature = "std")]
+        {
+            if !self.shared.inner_ref().root_is_tree() {
+                return self.shared.write_root_covered(|m| m.remove(key));
             }
-            prev
-        })
+
+            let _guard = self.shared.enter_writer_blocking();
+            let reader = self.shared.collector.register();
+            let _pin = reader.pin();
+            crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+            crate::occ_stats::op_begin();
+
+            for _ in 0..MAX_RETRIES {
+                if self.shared.gate.is_closed() {
+                    break;
+                }
+                match self.olc_remove_map(key) {
+                    OlcOutcome::Done(prev) => {
+                        if prev.is_some() {
+                            self.shared
+                                .tree_pop
+                                .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+                        }
+                        crate::occ_stats::op_end();
+                        return prev;
+                    }
+                    OlcOutcome::Retry => {
+                        core::hint::spin_loop();
+                        #[cfg(loom)]
+                        loom::thread::yield_now();
+                    }
+                    OlcOutcome::Fallback => {
+                        break;
+                    }
+                }
+            }
+            crate::occ_stats::op_end();
+            drop(_guard);
+            drop(_pin);
+            drop(reader);
+            self.shared.write_root_covered(|m| m.remove(key))
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            self.shared.write_root_covered(|m| m.remove(key))
+        }
+    }
+
+    #[cfg(feature = "std")]
+    fn olc_insert_map(&self, key: Key, val: u64) -> OlcOutcome<Option<u64>> {
+        let v_snap = self.shared.version().sample();
+        if (v_snap & 1) != 0 {
+            return OlcOutcome::Retry;
+        }
+        // SAFETY: top_ptr obtained without taking &mut on inner.
+        let top_ptr = unsafe { (*self.shared.inner.get()).root_top_ptr() };
+        if top_ptr.is_null() {
+            return OlcOutcome::Fallback;
+        }
+        let mut ancestors: [AncestorFrame; 8] = [AncestorFrame {
+            node: core::ptr::null_mut(),
+            edge_type: EdgeType::Null,
+            version_ptr: core::ptr::null(),
+            version_snap: 0,
+            child_level: 0,
+            digit: 0,
+        }; 8];
+        let mut anc_depth = 0;
+        // SAFETY: top_ptr points to the root edge under verified EBR-live snapshot.
+        let mut edge = unsafe { top_ptr.read() };
+        let mut edge_ptr = top_ptr;
+        let mut level = 8u8;
+
+        loop {
+            let tag = edge.tag().expect("valid edge tag");
+            match tag {
+                EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+                    let is_l3 = matches!(t, EdgeType::BranchL3);
+                    let node = edge.node_ptr();
+                    let vp = if is_l3 {
+                        // SAFETY: node pointer is EBR-live and validated by parent version check.
+                        unsafe { &raw const (*node.cast::<BranchL3>()).hdr.version }
+                    } else {
+                        // SAFETY: node pointer is EBR-live and validated by parent version check.
+                        unsafe { &raw const (*node.cast::<BranchL7>()).hdr.version }
+                    };
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let Some(nsnap) =
+                        (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
+                    else {
+                        return OlcOutcome::Retry;
+                    };
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let (bl, num, slot_opt) = unsafe {
+                        if is_l3 {
+                            let b = node.cast::<BranchL3>();
+                            let bl = (*b).hdr.level;
+                            let num = (*b).hdr.num as usize;
+                            (bl, num, (*b).hdr.find(digit(key, bl)))
+                        } else {
+                            let b = node.cast::<BranchL7>();
+                            let bl = (*b).hdr.level;
+                            let num = (*b).hdr.num as usize;
+                            (bl, num, (*b).hdr.find(digit(key, bl)))
+                        }
+                    };
+                    if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
+                        return OlcOutcome::Retry;
+                    }
+                    if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
+                        return OlcOutcome::Fallback;
+                    }
+                    let d = digit(key, bl);
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
+                        return OlcOutcome::Retry;
+                    }
+                    if let Some(slot) = slot_opt {
+                        ancestors[anc_depth] = AncestorFrame {
+                            node,
+                            edge_type: t,
+                            version_ptr: vp,
+                            version_snap: nsnap,
+                            child_level: bl - 1,
+                            digit: d,
+                        };
+                        anc_depth += 1;
+                        edge_ptr = if is_l3 {
+                            // SAFETY: node pointer is EBR-live and validated by parent version check.
+                            unsafe { &raw mut (*node.cast::<BranchL3>()).edges[slot] }
+                        } else {
+                            // SAFETY: node pointer is EBR-live and validated by parent version check.
+                            unsafe { &raw mut (*node.cast::<BranchL7>()).edges[slot] }
+                        };
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        edge = unsafe { edge_ptr.read() };
+                        level = bl - 1;
+                        continue;
+                    }
+                    let cap = if is_l3 { BRANCH_L3_CAP } else { BRANCH_L7_CAP };
+                    if num < cap {
+                        // SAFETY: version cell is within an EBR-live node allocation.
+                        let Ok(old_v) =
+                            crate::occ::version_try_lock(unsafe { crate::occ::version_cell(vp) })
+                        else {
+                            return OlcOutcome::Retry;
+                        };
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        let cur_num = unsafe {
+                            if is_l3 {
+                                (*node.cast::<BranchL3>()).hdr.num as usize
+                            } else {
+                                (*node.cast::<BranchL7>()).hdr.num as usize
+                            }
+                        };
+                        if cur_num >= cap {
+                            // SAFETY: version cell is within an EBR-live node allocation.
+                            crate::occ::version_unlock(
+                                unsafe { crate::occ::version_cell(vp) },
+                                old_v,
+                                false,
+                            );
+                            return OlcOutcome::Retry;
+                        }
+                        let new_edge = Edge::new_immed_single_map(
+                            bl - 1,
+                            crate::mutate::key_low(key, bl - 1),
+                            val,
+                        );
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        unsafe {
+                            if is_l3 {
+                                let b = node.cast::<BranchL3>();
+                                let slot = crate::mutate::linear_insert_slot_l3(
+                                    &mut (*b).hdr.digits,
+                                    &mut (*b).edges,
+                                    cur_num,
+                                    d,
+                                );
+                                (*b).edges[slot] = new_edge;
+                                (*b).hdr.num += 1;
+                                (*b).hdr.add_presence(d);
+                            } else {
+                                let b = node.cast::<BranchL7>();
+                                let slot = crate::mutate::linear_insert_slot(
+                                    &mut (*b).hdr.digits,
+                                    &mut (*b).edges,
+                                    cur_num,
+                                    d,
+                                );
+                                (*b).edges[slot] = new_edge;
+                                (*b).hdr.num += 1;
+                                (*b).hdr.add_presence(d);
+                            }
+                            crate::occ::version_unlock(crate::occ::version_cell(vp), old_v, true);
+                            for i in (0..anc_depth).rev() {
+                                let a = &ancestors[i];
+                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
+                            }
+                        }
+                        return OlcOutcome::Done(None);
+                    }
+                    return OlcOutcome::Fallback;
+                }
+
+                EdgeTag::Structural(EdgeType::BranchB) => {
+                    let node = edge.node_ptr().cast::<BranchB>();
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let vp = unsafe { &raw const (*node).version };
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let Some(nsnap) =
+                        (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
+                    else {
+                        return OlcOutcome::Retry;
+                    };
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let (bl, bit, rank, sub) = unsafe {
+                        let bl = (*node).level;
+                        if !(2..=level).contains(&bl) {
+                            return OlcOutcome::Retry;
+                        }
+                        let d = digit(key, bl);
+                        (
+                            bl,
+                            (*node).bitmap.test(d),
+                            (*node).bitmap.subexpanse_rank(d) as usize,
+                            (*node).subarrays[(d >> 5) as usize],
+                        )
+                    };
+                    if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
+                        return OlcOutcome::Fallback;
+                    }
+                    if !bit || sub.is_null() {
+                        return OlcOutcome::Fallback;
+                    }
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
+                        return OlcOutcome::Retry;
+                    }
+                    ancestors[anc_depth] = AncestorFrame {
+                        node: node.cast(),
+                        edge_type: EdgeType::BranchB,
+                        version_ptr: vp,
+                        version_snap: nsnap,
+                        child_level: bl - 1,
+                        digit: digit(key, bl),
+                    };
+                    anc_depth += 1;
+                    // SAFETY: pointer arithmetic and destination buffer bounds are valid under locked parent.
+                    edge_ptr = unsafe { sub.add(rank) };
+                    // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                    edge = unsafe { edge_ptr.read() };
+                    level = bl - 1;
+                    continue;
+                }
+
+                EdgeTag::Structural(EdgeType::BranchU) => {
+                    let node = edge.node_ptr().cast::<BranchU>();
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let vp = unsafe { &raw const (*node).version };
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let Some(nsnap) =
+                        (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
+                    else {
+                        return OlcOutcome::Retry;
+                    };
+                    let d = digit(key, level);
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
+                        return OlcOutcome::Retry;
+                    }
+                    ancestors[anc_depth] = AncestorFrame {
+                        node: node.cast(),
+                        edge_type: EdgeType::BranchU,
+                        version_ptr: vp,
+                        version_snap: nsnap,
+                        child_level: level - 1,
+                        digit: d,
+                    };
+                    anc_depth += 1;
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    edge_ptr = unsafe { &raw mut (*node).edges[d as usize] };
+                    // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                    edge = unsafe { edge_ptr.read() };
+                    level -= 1;
+                    continue;
+                }
+
+                EdgeTag::Structural(EdgeType::LeafB1) => {
+                    if anc_depth == 0 {
+                        return OlcOutcome::Fallback;
+                    }
+                    if level > 1 && !crate::get::decode_matches(&edge, key, 1, level) {
+                        return OlcOutcome::Fallback;
+                    }
+                    let parent = ancestors[anc_depth - 1];
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
+                    let node = edge.node_ptr().cast::<LeafBitmapL>();
+                    let d = (key & 0xFF) as u8;
+                    let sub = (d >> 5) as usize;
+                    // SAFETY: node is an EBR-live bitmap node and parent is validated/locked.
+                    let tested = unsafe { (*node).bitmap.test_and_subexpanse_rank_with_sub(d) };
+                    if let Some((_, rank)) = tested {
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        let vals = unsafe { (*node).values[sub] };
+                        if vals.is_null() {
+                            return OlcOutcome::Retry;
+                        }
+                        if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                            return OlcOutcome::Retry;
+                        }
+                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                            return OlcOutcome::Retry;
+                        };
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        if unsafe { edge_ptr.read() } != edge {
+                            crate::occ::version_unlock(p_cell, old_v, false);
+                            return OlcOutcome::Retry;
+                        }
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        unsafe {
+                            let slot = (*node).values[sub].add(rank);
+                            let old = slot.read();
+                            slot.write(val);
+                            crate::occ::version_unlock(p_cell, old_v, true);
+                            return OlcOutcome::Done(Some(old));
+                        }
+                    }
+                    // SAFETY: node is an EBR-live bitmap node and parent is validated/locked.
+                    let old_n = unsafe { (*node).bitmap.subexpanse_count(sub) as usize };
+                    // SAFETY: node is an EBR-live bitmap node and parent is validated/locked.
+                    let rank = unsafe { (*node).bitmap.subexpanse_rank(d) as usize };
+                    let pop0 = edge.pop0(1) as usize;
+                    if pop0 >= 254 {
+                        return OlcOutcome::Fallback;
+                    }
+                    if old_n > 0
+                        && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n)
+                    {
+                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                            return OlcOutcome::Retry;
+                        };
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        if unsafe { edge_ptr.read() } != edge {
+                            crate::occ::version_unlock(p_cell, old_v, false);
+                            return OlcOutcome::Retry;
+                        }
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        unsafe {
+                            let arr = (*node).values[sub];
+                            core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
+                            arr.add(rank).write(val);
+                            (*node).bitmap.set(d);
+                            (*edge_ptr).set_pop0(1, (pop0 + 1) as u64);
+                            crate::occ::version_unlock(p_cell, old_v, true);
+                            for i in (0..anc_depth.saturating_sub(1)).rev() {
+                                let a = &ancestors[i];
+                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
+                            }
+                        }
+                        return OlcOutcome::Done(None);
+                    }
+                    return OlcOutcome::Fallback;
+                }
+
+                EdgeTag::Structural(
+                    t @ (EdgeType::Leaf1
+                    | EdgeType::Leaf2
+                    | EdgeType::Leaf3
+                    | EdgeType::Leaf4
+                    | EdgeType::Leaf5
+                    | EdgeType::Leaf6
+                    | EdgeType::Leaf7),
+                ) => {
+                    if anc_depth == 0 {
+                        return OlcOutcome::Fallback;
+                    }
+                    let parent = ancestors[anc_depth - 1];
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
+                    let kb = t.leaf_key_bytes().expect("leaf tag") as usize;
+                    let pop = edge.pop0(kb as u8) as usize + 1;
+                    if kb < level as usize
+                        && !crate::get::decode_matches(&edge, key, kb as u8, level)
+                    {
+                        return OlcOutcome::Fallback;
+                    }
+                    let k = crate::mutate::key_low(key, kb as u8);
+                    let base = edge.node_ptr();
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(pop)) };
+                    let mut found = None;
+                    let mut at = pop;
+                    for i in 0..pop {
+                        // SAFETY: pointer and index are within bounds of valid leaf/immediate allocation.
+                        let existing = unsafe { crate::mutate::read_packed(keys_ptr, i, kb) };
+                        if existing == k {
+                            found = Some(i);
+                            break;
+                        } else if existing > k && at == pop {
+                            at = i;
+                        }
+                    }
+                    if let Some(pos) = found {
+                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                            return OlcOutcome::Retry;
+                        };
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        if unsafe { edge_ptr.read() } != edge {
+                            crate::occ::version_unlock(p_cell, old_v, false);
+                            return OlcOutcome::Retry;
+                        }
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        unsafe {
+                            let slot = base.cast::<u64>().add(pos);
+                            let old = slot.read();
+                            slot.write(val);
+                            crate::occ::version_unlock(p_cell, old_v, true);
+                            return OlcOutcome::Done(Some(old));
+                        }
+                    }
+                    let cap = if kb == 1 {
+                        crate::mutate::LEAF1_CAP
+                    } else {
+                        crate::mutate::LEAF_CAP
+                    };
+                    if pop < cap && crate::leaf::cap_class(pop + 1) == crate::leaf::cap_class(pop) {
+                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                            return OlcOutcome::Retry;
+                        };
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        if unsafe { edge_ptr.read() } != edge {
+                            crate::occ::version_unlock(p_cell, old_v, false);
+                            return OlcOutcome::Retry;
+                        }
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        unsafe {
+                            crate::leaf::map_insert_at(base, kb as u8, pop, at, k, val);
+                            (*edge_ptr).set_pop0(kb as u8, pop as u64);
+                            crate::occ::version_unlock(p_cell, old_v, true);
+                            for i in (0..anc_depth.saturating_sub(1)).rev() {
+                                let a = &ancestors[i];
+                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
+                            }
+                        }
+                        return OlcOutcome::Done(None);
+                    }
+                    return OlcOutcome::Fallback;
+                }
+
+                EdgeTag::Immed(im) => {
+                    if anc_depth == 0 {
+                        return OlcOutcome::Fallback;
+                    }
+                    let parent = ancestors[anc_depth - 1];
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
+                    let kb = im.key_bytes();
+                    if level > kb && !crate::get::decode_matches(&edge, key, kb, level) {
+                        return OlcOutcome::Fallback;
+                    }
+                    let k = crate::mutate::key_low(key, kb);
+                    let n = im.key_count() as usize;
+                    let kb_usize = kb as usize;
+                    if n == 1 {
+                        let mask = if kb >= 8 {
+                            u64::MAX
+                        } else {
+                            (1u64 << (kb * 8)) - 1
+                        };
+                        let existing_k = edge.aux_word() & mask;
+                        if existing_k == k {
+                            let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                                return OlcOutcome::Retry;
+                            };
+                            // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                            if unsafe { edge_ptr.read() } != edge {
+                                crate::occ::version_unlock(p_cell, old_v, false);
+                                return OlcOutcome::Retry;
+                            }
+                            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                            unsafe {
+                                let old = (*edge_ptr).word0();
+                                (*edge_ptr).set_imm_bytes(val.to_le_bytes());
+                                crate::occ::version_unlock(p_cell, old_v, true);
+                                return OlcOutcome::Done(Some(old));
+                            }
+                        }
+                        return OlcOutcome::Fallback;
+                    }
+                    // SAFETY: aux_bytes slice is within immediate edge descriptor.
+                    let pos =
+                        (unsafe { crate::leaf::locate(edge.aux_bytes().as_ptr(), n, kb, k) }).ok();
+                    if let Some(p) = pos {
+                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                            return OlcOutcome::Retry;
+                        };
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        if unsafe { edge_ptr.read() } != edge {
+                            crate::occ::version_unlock(p_cell, old_v, false);
+                            return OlcOutcome::Retry;
+                        }
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        unsafe {
+                            let vals = edge.node_ptr().cast::<u64>();
+                            let slot = vals.add(p);
+                            let old = slot.read();
+                            slot.write(val);
+                            crate::occ::version_unlock(p_cell, old_v, true);
+                            return OlcOutcome::Done(Some(old));
+                        }
+                    }
+                    if n < crate::mutate::map_immed_max(kb)
+                        && crate::leaf::cap_class(n + 1) == crate::leaf::cap_class(n)
+                    {
+                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                            return OlcOutcome::Retry;
+                        };
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        if unsafe { edge_ptr.read() } != edge {
+                            crate::occ::version_unlock(p_cell, old_v, false);
+                            return OlcOutcome::Retry;
+                        }
+                        // SAFETY: pointer and index are within bounds of valid leaf/immediate allocation.
+                        let ins_pos = match unsafe {
+                            crate::leaf::locate(edge.aux_bytes().as_ptr(), n, kb, k)
+                        } {
+                            Ok(_) => {
+                                crate::occ::version_unlock(p_cell, old_v, false);
+                                return OlcOutcome::Retry;
+                            }
+                            Err(p) => p,
+                        };
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        unsafe {
+                            let old_vals = edge.node_ptr().cast::<u64>();
+                            if ins_pos < n {
+                                core::ptr::copy(
+                                    old_vals.add(ins_pos),
+                                    old_vals.add(ins_pos + 1),
+                                    n - ins_pos,
+                                );
+                            }
+                            old_vals.add(ins_pos).write(val);
+                            let mut new_aux = *(*edge_ptr).aux_bytes();
+                            if ins_pos < n {
+                                new_aux.copy_within(
+                                    ins_pos * kb_usize..n * kb_usize,
+                                    (ins_pos + 1) * kb_usize,
+                                );
+                            }
+                            crate::mutate::write_packed(new_aux.as_mut_ptr(), ins_pos, kb_usize, k);
+                            let new_im =
+                                ImmedType::new(kb, (n + 1) as u8).expect("immediate capacity");
+                            (*edge_ptr).set_aux_bytes(new_aux);
+                            (*edge_ptr).set_tag(new_im.as_u8());
+                            crate::occ::version_unlock(p_cell, old_v, true);
+                            for i in (0..anc_depth.saturating_sub(1)).rev() {
+                                let a = &ancestors[i];
+                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
+                            }
+                        }
+                        return OlcOutcome::Done(None);
+                    }
+                    return OlcOutcome::Fallback;
+                }
+
+                _ => return OlcOutcome::Fallback,
+            }
+        }
+    }
+
+    #[cfg(feature = "std")]
+    fn olc_remove_map(&self, key: Key) -> OlcOutcome<Option<u64>> {
+        let v_snap = self.shared.version().sample();
+        if (v_snap & 1) != 0 {
+            return OlcOutcome::Retry;
+        }
+        // SAFETY: top_ptr obtained without taking &mut on inner.
+        let top_ptr = unsafe { (*self.shared.inner.get()).root_top_ptr() };
+        if top_ptr.is_null() {
+            return OlcOutcome::Fallback;
+        }
+        let mut ancestors: [AncestorFrame; 8] = [AncestorFrame {
+            node: core::ptr::null_mut(),
+            edge_type: EdgeType::Null,
+            version_ptr: core::ptr::null(),
+            version_snap: 0,
+            child_level: 0,
+            digit: 0,
+        }; 8];
+        let mut anc_depth = 0;
+        // SAFETY: top_ptr points to the root edge under verified EBR-live snapshot.
+        let mut edge = unsafe { top_ptr.read() };
+        let mut edge_ptr = top_ptr;
+        let mut level = 8u8;
+
+        loop {
+            let tag = edge.tag().expect("valid edge tag");
+            match tag {
+                EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+                    let is_l3 = matches!(t, EdgeType::BranchL3);
+                    let node = edge.node_ptr();
+                    let vp = if is_l3 {
+                        // SAFETY: node pointer is EBR-live and validated by parent version check.
+                        unsafe { &raw const (*node.cast::<BranchL3>()).hdr.version }
+                    } else {
+                        // SAFETY: node pointer is EBR-live and validated by parent version check.
+                        unsafe { &raw const (*node.cast::<BranchL7>()).hdr.version }
+                    };
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let Some(nsnap) =
+                        (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
+                    else {
+                        return OlcOutcome::Retry;
+                    };
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let (bl, num, slot_opt) = unsafe {
+                        if is_l3 {
+                            let b = node.cast::<BranchL3>();
+                            let bl = (*b).hdr.level;
+                            let num = (*b).hdr.num as usize;
+                            (bl, num, (*b).hdr.find(digit(key, bl)))
+                        } else {
+                            let b = node.cast::<BranchL7>();
+                            let bl = (*b).hdr.level;
+                            let num = (*b).hdr.num as usize;
+                            (bl, num, (*b).hdr.find(digit(key, bl)))
+                        }
+                    };
+                    if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
+                        return OlcOutcome::Retry;
+                    }
+                    if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
+                        return OlcOutcome::Done(None);
+                    }
+                    let d = digit(key, bl);
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
+                        return OlcOutcome::Retry;
+                    }
+                    if let Some(slot) = slot_opt {
+                        ancestors[anc_depth] = AncestorFrame {
+                            node,
+                            edge_type: t,
+                            version_ptr: vp,
+                            version_snap: nsnap,
+                            child_level: bl - 1,
+                            digit: d,
+                        };
+                        anc_depth += 1;
+                        edge_ptr = if is_l3 {
+                            // SAFETY: node pointer is EBR-live and validated by parent version check.
+                            unsafe { &raw mut (*node.cast::<BranchL3>()).edges[slot] }
+                        } else {
+                            // SAFETY: node pointer is EBR-live and validated by parent version check.
+                            unsafe { &raw mut (*node.cast::<BranchL7>()).edges[slot] }
+                        };
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        edge = unsafe { edge_ptr.read() };
+                        level = bl - 1;
+                        continue;
+                    }
+                    return OlcOutcome::Done(None);
+                }
+
+                EdgeTag::Structural(EdgeType::BranchB) => {
+                    let node = edge.node_ptr().cast::<BranchB>();
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let vp = unsafe { &raw const (*node).version };
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let Some(nsnap) =
+                        (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
+                    else {
+                        return OlcOutcome::Retry;
+                    };
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let (bl, bit, rank, sub) = unsafe {
+                        let bl = (*node).level;
+                        if !(2..=level).contains(&bl) {
+                            return OlcOutcome::Retry;
+                        }
+                        let d = digit(key, bl);
+                        (
+                            bl,
+                            (*node).bitmap.test(d),
+                            (*node).bitmap.subexpanse_rank(d) as usize,
+                            (*node).subarrays[(d >> 5) as usize],
+                        )
+                    };
+                    if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
+                        return OlcOutcome::Done(None);
+                    }
+                    if !bit || sub.is_null() {
+                        return OlcOutcome::Done(None);
+                    }
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
+                        return OlcOutcome::Retry;
+                    }
+                    ancestors[anc_depth] = AncestorFrame {
+                        node: node.cast(),
+                        edge_type: EdgeType::BranchB,
+                        version_ptr: vp,
+                        version_snap: nsnap,
+                        child_level: bl - 1,
+                        digit: digit(key, bl),
+                    };
+                    anc_depth += 1;
+                    // SAFETY: pointer arithmetic and destination buffer bounds are valid under locked parent.
+                    edge_ptr = unsafe { sub.add(rank) };
+                    // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                    edge = unsafe { edge_ptr.read() };
+                    level = bl - 1;
+                    continue;
+                }
+
+                EdgeTag::Structural(EdgeType::BranchU) => {
+                    let node = edge.node_ptr().cast::<BranchU>();
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let vp = unsafe { &raw const (*node).version };
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let Some(nsnap) =
+                        (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
+                    else {
+                        return OlcOutcome::Retry;
+                    };
+                    let d = digit(key, level);
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
+                        return OlcOutcome::Retry;
+                    }
+                    ancestors[anc_depth] = AncestorFrame {
+                        node: node.cast(),
+                        edge_type: EdgeType::BranchU,
+                        version_ptr: vp,
+                        version_snap: nsnap,
+                        child_level: level - 1,
+                        digit: d,
+                    };
+                    anc_depth += 1;
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    edge_ptr = unsafe { &raw mut (*node).edges[d as usize] };
+                    // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                    edge = unsafe { edge_ptr.read() };
+                    level -= 1;
+                    continue;
+                }
+
+                EdgeTag::Structural(EdgeType::LeafB1) => {
+                    if anc_depth == 0 {
+                        return OlcOutcome::Fallback;
+                    }
+                    if level > 1 && !crate::get::decode_matches(&edge, key, 1, level) {
+                        return OlcOutcome::Fallback;
+                    }
+                    let parent = ancestors[anc_depth - 1];
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
+                    let node = edge.node_ptr().cast::<LeafBitmapL>();
+                    let d = (key & 0xFF) as u8;
+                    let sub = (d >> 5) as usize;
+                    // SAFETY: node is an EBR-live bitmap node and parent is validated/locked.
+                    let Some((_, rank)) =
+                        (unsafe { (*node).bitmap.test_and_subexpanse_rank_with_sub(d) })
+                    else {
+                        if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                            return OlcOutcome::Retry;
+                        }
+                        return OlcOutcome::Done(None);
+                    };
+                    let pop0 = edge.pop0(1) as usize;
+                    if pop0 == 0 || pop0 <= 32 {
+                        return OlcOutcome::Fallback;
+                    }
+                    // SAFETY: node is an EBR-live bitmap node and parent is validated/locked.
+                    let old_n = unsafe { (*node).bitmap.subexpanse_count(sub) as usize };
+                    if old_n > 1
+                        && crate::leaf::cap_class(old_n - 1) == crate::leaf::cap_class(old_n)
+                    {
+                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                            return OlcOutcome::Retry;
+                        };
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        if unsafe { edge_ptr.read() } != edge {
+                            crate::occ::version_unlock(p_cell, old_v, false);
+                            return OlcOutcome::Retry;
+                        }
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        unsafe {
+                            let arr = (*node).values[sub];
+                            let old = arr.add(rank).read();
+                            core::ptr::copy(arr.add(rank + 1), arr.add(rank), old_n - 1 - rank);
+                            (*node).bitmap.clear(d);
+                            (*edge_ptr).set_pop0(1, (pop0 - 1) as u64);
+                            crate::occ::version_unlock(p_cell, old_v, true);
+                            for i in (0..anc_depth.saturating_sub(1)).rev() {
+                                let a = &ancestors[i];
+                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, -1);
+                            }
+                            return OlcOutcome::Done(Some(old));
+                        }
+                    }
+                    return OlcOutcome::Fallback;
+                }
+
+                EdgeTag::Structural(
+                    t @ (EdgeType::Leaf1
+                    | EdgeType::Leaf2
+                    | EdgeType::Leaf3
+                    | EdgeType::Leaf4
+                    | EdgeType::Leaf5
+                    | EdgeType::Leaf6
+                    | EdgeType::Leaf7),
+                ) => {
+                    if anc_depth == 0 {
+                        return OlcOutcome::Fallback;
+                    }
+                    let parent = ancestors[anc_depth - 1];
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
+                    let kb = t.leaf_key_bytes().expect("leaf tag") as usize;
+                    let pop = edge.pop0(kb as u8) as usize + 1;
+                    if kb < level as usize
+                        && !crate::get::decode_matches(&edge, key, kb as u8, level)
+                    {
+                        return OlcOutcome::Fallback;
+                    }
+                    let k = crate::mutate::key_low(key, kb as u8);
+                    let base = edge.node_ptr();
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(pop)) };
+                    let mut found = None;
+                    for i in 0..pop {
+                        // SAFETY: pointer and index are within bounds of valid leaf/immediate allocation.
+                        if unsafe { crate::mutate::read_packed(keys_ptr, i, kb) } == k {
+                            found = Some(i);
+                            break;
+                        }
+                    }
+                    let Some(pos) = found else {
+                        if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                            return OlcOutcome::Retry;
+                        }
+                        return OlcOutcome::Done(None);
+                    };
+                    if pop > 2
+                        && crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop)
+                        && pop > crate::mutate::map_immed_max(kb as u8)
+                    {
+                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                            return OlcOutcome::Retry;
+                        };
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        if unsafe { edge_ptr.read() } != edge {
+                            crate::occ::version_unlock(p_cell, old_v, false);
+                            return OlcOutcome::Retry;
+                        }
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        unsafe {
+                            let old = base.cast::<u64>().add(pos).read();
+                            crate::leaf::map_remove_at(base, kb as u8, pop, pos);
+                            (*edge_ptr).set_pop0(kb as u8, (pop - 2) as u64);
+                            crate::occ::version_unlock(p_cell, old_v, true);
+                            for i in (0..anc_depth.saturating_sub(1)).rev() {
+                                let a = &ancestors[i];
+                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, -1);
+                            }
+                            return OlcOutcome::Done(Some(old));
+                        }
+                    }
+                    return OlcOutcome::Fallback;
+                }
+
+                EdgeTag::Immed(im) => {
+                    if anc_depth == 0 {
+                        return OlcOutcome::Fallback;
+                    }
+                    let parent = ancestors[anc_depth - 1];
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
+                    let kb = im.key_bytes();
+                    if level > kb && !crate::get::decode_matches(&edge, key, kb, level) {
+                        return OlcOutcome::Fallback;
+                    }
+                    let k = crate::mutate::key_low(key, kb);
+                    let n = im.key_count() as usize;
+                    let kb_usize = kb as usize;
+                    if n == 1 {
+                        let mask = if kb >= 8 {
+                            u64::MAX
+                        } else {
+                            (1u64 << (kb * 8)) - 1
+                        };
+                        let existing_k = edge.aux_word() & mask;
+                        if existing_k == k {
+                            let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                                return OlcOutcome::Retry;
+                            };
+                            // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                            if unsafe { edge_ptr.read() } != edge {
+                                crate::occ::version_unlock(p_cell, old_v, false);
+                                return OlcOutcome::Retry;
+                            }
+                            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                            unsafe {
+                                let old = (*edge_ptr).word0();
+                                (*edge_ptr) = Edge::NULL;
+                                crate::occ::version_unlock(p_cell, old_v, true);
+                                for i in (0..anc_depth.saturating_sub(1)).rev() {
+                                    let a = &ancestors[i];
+                                    bump_ancestor_pop0(
+                                        a.node,
+                                        a.edge_type,
+                                        a.child_level,
+                                        a.digit,
+                                        -1,
+                                    );
+                                }
+                                return OlcOutcome::Done(Some(old));
+                            }
+                        }
+                        if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                            return OlcOutcome::Retry;
+                        }
+                        return OlcOutcome::Done(None);
+                    }
+                    // SAFETY: aux_bytes slice is within immediate edge descriptor.
+                    let pos =
+                        (unsafe { crate::leaf::locate(edge.aux_bytes().as_ptr(), n, kb, k) }).ok();
+                    let Some(p) = pos else {
+                        if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                            return OlcOutcome::Retry;
+                        }
+                        return OlcOutcome::Done(None);
+                    };
+                    if n > 2 && crate::leaf::cap_class(n - 1) == crate::leaf::cap_class(n) {
+                        let Ok(old_v) = crate::occ::version_try_lock(p_cell) else {
+                            return OlcOutcome::Retry;
+                        };
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        if unsafe { edge_ptr.read() } != edge {
+                            crate::occ::version_unlock(p_cell, old_v, false);
+                            return OlcOutcome::Retry;
+                        }
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        unsafe {
+                            let vals = edge.node_ptr().cast::<u64>();
+                            let old = vals.add(p).read();
+                            if p + 1 < n {
+                                core::ptr::copy(vals.add(p + 1), vals.add(p), n - 1 - p);
+                            }
+                            let mut new_aux = *(*edge_ptr).aux_bytes();
+                            new_aux.copy_within((p + 1) * kb_usize..n * kb_usize, p * kb_usize);
+                            new_aux[((n - 1) * kb_usize)..].fill(0);
+                            let new_im =
+                                ImmedType::new(kb, (n - 1) as u8).expect("immediate capacity");
+                            (*edge_ptr).set_aux_bytes(new_aux);
+                            (*edge_ptr).set_tag(new_im.as_u8());
+                            crate::occ::version_unlock(p_cell, old_v, true);
+                            for i in (0..anc_depth.saturating_sub(1)).rev() {
+                                let a = &ancestors[i];
+                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, -1);
+                            }
+                            return OlcOutcome::Done(Some(old));
+                        }
+                    }
+                    return OlcOutcome::Fallback;
+                }
+
+                _ => return OlcOutcome::Fallback,
+            }
+        }
     }
 
     /// Removes every key-value pair from the map.
@@ -1160,6 +3242,7 @@ fn map_get_with(map: &SyncExpanseMap, reader: &Reader, key: Key) -> Option<u64> 
         let snap = shared.version().sample();
         // SAFETY: pinned + freshly sampled version; the walk validates every
         // load (see `walk_validated`).
+        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
         let root = unsafe { (*shared.inner.get()).occ_root().0 };
         // SAFETY: same pin + snapshot contract as the line above.
         let walked = unsafe { walk_validated::<true>(root, key, shared.version(), snap) };
@@ -1488,6 +3571,7 @@ impl BlobReader<'_> {
             let snap = shared.version().sample();
             // SAFETY: pinned + freshly sampled version; the walk validates
             // every load (see `walk_validated`).
+            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
             let root = unsafe { (*shared.inner.get()).index().occ_root().0 };
             // SAFETY: same pin + snapshot contract as the line above.
             let walked = unsafe { walk_validated::<true>(root, key, shared.version(), snap) };
@@ -1563,6 +3647,7 @@ impl BlobReadGuard<'_> {
             let snap = shared.version().sample();
             // SAFETY: the guard's pin predates this sample; the walk
             // validates every load (see `walk_validated`).
+            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
             let root = unsafe { (*shared.inner.get()).index().occ_root().0 };
             // SAFETY: same pin + snapshot contract as the line above.
             let Ok(found) = (unsafe { walk_validated::<true>(root, key, shared.version(), snap) })
@@ -1607,10 +3692,12 @@ impl BlobReadGuard<'_> {
             // SAFETY: single atomic load of the published table pointer; the
             // racy `&` borrow of the arena struct is confined to that load
             // (documented module-level seqlock caveat).
+            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
             let table = unsafe { (*shared.inner.get()).arena().reader_table() };
             // SAFETY: the guard's pin predates the table load, so the table
             // and every chunk it references are EBR-live.
             let resolved =
+                // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                 unsafe { crate::blobmap::resolve_meta_in_table(table, slot.arena_meta_locator()) };
             match resolved {
                 Some((ptr, len)) => {
@@ -1623,6 +3710,7 @@ impl BlobReadGuard<'_> {
                         // byte-stable for the guard's lifetime.
                         // SAFETY: in-bounds of an EBR-live chunk (see
                         // `resolve_meta_in_table`), immutable while pinned.
+                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                         let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
                         return Some((SyncBlobView::Arena(bytes), meta));
                     }
@@ -1782,9 +3870,11 @@ impl SyncExpanseStrMap {
         while let Some((key, slot)) = cursor {
             // SAFETY: `key` came out of a `StrMap` walk, so it is already in
             // the NUL-free domain by construction.
+            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
             let k = unsafe { NulFreeStr::new_unchecked(&key) };
             // SAFETY: the slot is valid until `src`'s next mutation; only
             // navigation happens between here and the next hop.
+            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
             let v = unsafe { *slot.as_ptr() };
             map.insert(k, v);
             cursor = src.next_after(k);
@@ -1903,6 +3993,7 @@ impl StrReader<'_> {
             // SAFETY: pinned + freshly sampled version; every hop of the
             // cascade validates its loads (see `ExpanseStrMap::get_validated`).
             let attempt =
+                // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                 unsafe { (*shared.inner.get()).get_validated(key, shared.version(), snap) };
             if let Ok(r) = attempt {
                 return r;
@@ -2095,6 +4186,7 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
             // SAFETY: pinned + freshly sampled version; every load is
             // validated (see `ExpanseBytesMap::get_validated`).
             let attempt =
+                // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                 unsafe { (*shared.inner.get()).get_validated(key, shared.version(), snap) };
             if let Ok(r) = attempt {
                 return r;
@@ -2121,6 +4213,7 @@ mod tests {
         alloc.defer_to(Arc::new(crate::occ::Collector::new()));
         // SAFETY: the caller declared `word` before the tree, so it drops
         // after it.
+        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
         unsafe { alloc.bind_tree_word(core::ptr::from_ref(word)) };
         alloc.cover_root();
     }
@@ -3453,6 +5546,17 @@ pub fn layout_report() -> Vec<(&'static str, &'static str, usize)> {
                 "collector",
                 core::mem::offset_of!(Shared<T>, collector),
             ),
+            (wrapper, "gate", core::mem::offset_of!(Shared<T>, gate)),
+            (
+                wrapper,
+                "fallback_mutex",
+                core::mem::offset_of!(Shared<T>, fallback_mutex),
+            ),
+            (
+                wrapper,
+                "writers",
+                core::mem::offset_of!(Shared<T>, writers),
+            ),
             (
                 wrapper,
                 "last_holder",
@@ -3475,9 +5579,9 @@ pub fn layout_report() -> Vec<(&'static str, &'static str, usize)> {
     out
 }
 
-/// Rows per wrapper in [`layout_report`]: the seven fields and the size row.
+/// Rows per wrapper in [`layout_report`]: the ten fields and the size row.
 #[cfg(feature = "occ-stats")]
-const LAYOUT_ROWS: usize = 8;
+const LAYOUT_ROWS: usize = 11;
 
 #[cfg(all(test, feature = "occ-stats"))]
 mod diagnostics_tests {
@@ -3544,12 +5648,15 @@ mod diagnostics_tests {
 
     #[test]
     fn layout_report_names_every_field_of_every_wrapper() {
-        const FIELDS: [&str; 7] = [
+        const FIELDS: [&str; 10] = [
             "inner",
             "version",
             "tree_pop",
             "write",
             "collector",
+            "gate",
+            "fallback_mutex",
+            "writers",
             "last_holder",
             "advance_tick",
         ];
