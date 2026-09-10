@@ -1304,12 +1304,51 @@ unsafe fn bump_ancestor_pop0(
     }
 }
 
+/// Attempts a re-descent makes before it gives up.
+///
+/// The loop restarts whenever the path it sampled moved under it, so it has no
+/// progress guarantee of its own: it terminates because structural mutation is
+/// rare, not because the algorithm bounds it. That is fine today — every
+/// obsoleting path still runs under `write_root_covered`, which quiesces — and
+/// it stops being fine on the day #568's Phase 4 makes structural mutation
+/// concurrent, which is the day this function starts being exercised. An
+/// unbounded retry there is a livelock, and a livelock in a `pop0` bump would
+/// hang a writer that has already published its key.
+///
+/// Bounding it converts that into a *counted* failure
+/// ([`crate::occ_stats::Stat::PopRedescendAbandoned`]) whose residual is a
+/// drifted branch `pop0` — the same residual the pre-#821 silent `break` left,
+/// but visible instead of silent, and loud in debug.
+///
+/// The budget is generous because exhausting it is a correctness event, not a
+/// latency one: a re-descent is at most 8 levels, so 64 attempts is ~512 node
+/// samples, still trivial beside the serialized path it avoids.
+#[cfg(feature = "std")]
+const REDESCEND_MAX_ATTEMPTS: u32 = 64;
+
 /// Re-descends from `top_ptr` to find the active node covering `key` and bumps all
 /// not-yet-bumped edges on the current path per `ARCHITECTURE.md` §4.2 rule (a).
+///
+/// Bounded by [`REDESCEND_MAX_ATTEMPTS`]; see its docs for what exhaustion means.
 #[cfg(feature = "std")]
 unsafe fn redescend_and_bump(top_ptr: *mut Edge, key: Key, mut stop_level: u8, delta: i64) {
+    crate::occ_stats::bump(crate::occ_stats::Stat::PopRedescends);
     let mut spins = 0u32;
+    let mut attempts = 0u32;
     'outer: loop {
+        attempts += 1;
+        if attempts > REDESCEND_MAX_ATTEMPTS {
+            // Fail loud in debug, counted in release (AGENTS.md §8.1): never a
+            // silent drop, which is the defect this function exists to remove.
+            crate::occ_stats::bump(crate::occ_stats::Stat::PopRedescendAbandoned);
+            debug_assert!(
+                false,
+                "pop0 re-descent exhausted {REDESCEND_MAX_ATTEMPTS} attempts; \
+                 a branch pop0 is now drifted from its subtree and only \
+                 validate() will see it"
+            );
+            return;
+        }
         if top_ptr.is_null() {
             return;
         }
@@ -6394,6 +6433,58 @@ pub(crate) mod test_hooks {
 /// node's frozen version (#568 plan PR 1).
 #[cfg(all(test, not(miri)))]
 mod obsolete_tests {
+    /// The re-descent's budget is a correctness backstop, so the counter that
+    /// reports exhausting it must be zero on a workload that concurrently
+    /// inserts and removes hard enough to obsolete ancestors.
+    ///
+    /// This is the falsifier for `REDESCEND_MAX_ATTEMPTS` being large enough:
+    /// if the bound is ever tightened past what real contention needs, this
+    /// goes red rather than silently drifting a `pop0` (#568).
+    #[test]
+    #[cfg(feature = "occ-stats")]
+    fn redescent_never_abandons_under_contention() {
+        use std::sync::Arc;
+        let before = crate::occ_stats::snapshot();
+        let set = Arc::new(SyncExpanseSet::new());
+        // Churn: writers insert and remove overlapping ranges so branch forms
+        // are promoted and demoted underneath each other.
+        let hs: Vec<_> = (0..4u64)
+            .map(|t| {
+                let s = Arc::clone(&set);
+                std::thread::spawn(move || {
+                    let mut k = 0x9E37_79B9_7F4A_7C15u64 ^ (t << 32);
+                    for i in 0..20_000u64 {
+                        k = k.wrapping_mul(6364136223846793005).wrapping_add(1);
+                        let key = (k >> 1) % 40_000;
+                        if i % 3 == 2 {
+                            s.remove(key);
+                        } else {
+                            s.insert(key);
+                        }
+                    }
+                })
+            })
+            .collect();
+        for h in hs {
+            h.join().unwrap();
+        }
+        let after = crate::occ_stats::snapshot();
+        let entered = after[crate::occ_stats::Stat::PopRedescends as usize]
+            - before[crate::occ_stats::Stat::PopRedescends as usize];
+        std::eprintln!("PROBE redescends_entered={entered}");
+        let abandoned = after[crate::occ_stats::Stat::PopRedescendAbandoned as usize]
+            - before[crate::occ_stats::Stat::PopRedescendAbandoned as usize];
+        assert_eq!(
+            abandoned, 0,
+            "a re-descent exhausted its budget: {abandoned} branch pop0 value(s) \
+             are drifted. Either contention outgrew REDESCEND_MAX_ATTEMPTS or the \
+             re-descent is not converging"
+        );
+        // The census is the independent check that no delta was lost by any
+        // route, budget or otherwise.
+        set.with_locked(ExpanseSet::validate);
+    }
+
     use super::*;
     use crate::node::BranchL3;
     use crate::types::{EdgeTag, EdgeType};

@@ -148,10 +148,20 @@ pub enum Stat {
     /// a hole and the structural shares are measured against the wrong
     /// denominator (#568).
     FallbackUnknownTag = 27,
+    /// Ancestor `pop0` re-descents entered — a bump met an obsolete ancestor
+    /// and restarted from the root per `ARCHITECTURE.md` §4.2 rule (a). Rare
+    /// while structural mutation still quiesces; the rate is what says whether
+    /// that stays true once it does not (#568).
+    PopRedescends = 28,
+    /// Re-descents that exhausted their attempt budget without applying the
+    /// delta. **Every one is a branch `pop0` left drifted from its subtree**,
+    /// detectable only by `validate()`. Expected 0; a non-zero value is a
+    /// correctness signal, not a performance one (#568).
+    PopRedescendAbandoned = 29,
 }
 
 /// Number of distinct counters.
-pub const NUM_STATS: usize = 28;
+pub const NUM_STATS: usize = 30;
 
 /// Human-readable counter names, indexed by [`Stat`].
 pub const NAMES: [&str; NUM_STATS] = [
@@ -183,6 +193,8 @@ pub const NAMES: [&str; NUM_STATS] = [
     "fallback_root_growth",
     "fallback_contention",
     "fallback_unknown_tag",
+    "pop_redescends",
+    "pop_redescend_abandoned",
 ];
 
 /// Counters that are gauges (add / subtract / high-water), kept global.
@@ -457,7 +469,7 @@ mod tests {
     #[test]
     fn names_cover_every_stat() {
         assert_eq!(NAMES.len(), NUM_STATS);
-        assert_eq!(Stat::FallbackUnknownTag as usize + 1, NUM_STATS);
+        assert_eq!(Stat::PopRedescendAbandoned as usize + 1, NUM_STATS);
         assert_eq!(NAMES[Stat::SampleSpinCycles as usize], "sample_spin_cycles");
         assert_eq!(NAMES[Stat::DeepCascades as usize], "deep_cascades");
         assert_eq!(NAMES[Stat::LockRestarts as usize], "lock_restarts");
@@ -493,6 +505,8 @@ mod tests {
         assert_eq!(Stat::FallbackRootGrowth as usize, 25);
         assert_eq!(Stat::FallbackContention as usize, 26);
         assert_eq!(Stat::FallbackUnknownTag as usize, 27);
+        assert_eq!(Stat::PopRedescends as usize, 28);
+        assert_eq!(Stat::PopRedescendAbandoned as usize, 29);
     }
 
     #[test]
