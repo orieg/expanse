@@ -58,12 +58,26 @@ AB_ARTIFACTS = {
 T_HOLD_LEAF_HYPOTHESIS_NS = 15.0
 T_HOLD_CASCADE_HYPOTHESIS_NS = 50.0
 
-# Lines a writer must own per insert, per workload shape (from the plan's
-# reading of the engine: the FFI cells insert uniform 64-bit keys in disjoint
-# slices, so writers meet only at the root word; `core_concurrency`'s
-# `rng % 2M` keys share bytes 7..3, so every insert walks one chain to level
-# 3 — about five shared lines).
-K_LINES = {"ffi_disjoint": 1, "core_shared_prefix": 5}
+# Lines a writer must own per insert, per workload shape:
+# - `ffi_disjoint` / `ffi_disjoint_padded`: Phase 1.5A under `feature = "lock-padded"`.
+#   Ancestor branch pop0 bumping is omitted, `tree_pop` and the writer gate are
+#   sharded across line-padded slots. Disjoint key slices touch 0 shared cache lines (k = 0).
+# - `ffi_disjoint_default`: Phase 1.5A default build (`Line<X> = X`). The 64 atomic
+#   slots pack 8 per 64-byte line, yielding an 8x reduction in false-sharing probability,
+#   bounded by at most 1 shared line (k = 1).
+# - `baseline_measured`: Pre-1.5A measured baseline on reference host (`b49835ad`
+#   `masstree_conc_map_w4_r0`: `l2_rqsts.rfo_miss` = 12.208 [11.864, 12.441],
+#   `xsnp_hitm` = 9.196 [8.952, 9.375]). Every insert locked the root node's version
+#   word and contended on global words, transferring 9-12 cache lines per insert (k = 10).
+# - `core_shared_prefix`: `core_concurrency`'s `rng % 2M` keys share bytes 7..3,
+#   so every insert walks one chain to level 3 — about five shared lines (k = 5).
+K_LINES = {
+    "ffi_disjoint": 0,
+    "ffi_disjoint_padded": 0,
+    "ffi_disjoint_default": 1,
+    "baseline_measured": 10,
+    "core_shared_prefix": 5,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -106,14 +120,20 @@ def contended_rmw_ceiling(k: int, t_line_ns: float, t_hold_ns: float) -> float:
     """Aggregate ceiling, in ops/s, when every operation must own `k` shared
     lines (one transfer each, Hennessy & Patterson §5.2) and then hold a lock
     for `t_hold_ns`: 1 / (k·t_line + t_hold). Independent of the writer count —
-    it is the service rate of the serial part, the term the writers queue on."""
-    if k < 1:
-        raise ValueError(f"k must be >= 1, got {k}")
+    it is the service rate of the serial part, the term the writers queue on.
+
+    When k = 0 (zero write-shared lines on disjoint expanses under lock-padded),
+    the transfer term vanishes and the ceiling is bound solely by 1 / t_hold."""
+    if k < 0:
+        raise ValueError(f"k must be >= 0, got {k}")
     if t_line_ns <= 0.0:
         raise ValueError(f"t_line_ns must be positive, got {t_line_ns}")
     if t_hold_ns < 0.0:
         raise ValueError(f"t_hold_ns cannot be negative, got {t_hold_ns}")
-    return 1.0 / ((k * t_line_ns + t_hold_ns) * 1e-9)
+    denom = (k * t_line_ns + t_hold_ns) * 1e-9
+    if denom <= 0.0:
+        raise ValueError("Sum of line transfer and lock hold times must be positive")
+    return 1.0 / denom
 
 
 def allocator_counter_ceiling(t_line_ns: float) -> float:
@@ -183,6 +203,10 @@ class TestOlcBounds(unittest.TestCase):
         self.assertAlmostEqual(contended_rmw_ceiling(1, 30.0, 20.0) / 1e6, 20.0, places=9)
         # 1 / (5 × 30 ns + 50 ns) = 5 M ops/s exactly.
         self.assertAlmostEqual(contended_rmw_ceiling(5, 30.0, 50.0) / 1e6, 5.0, places=9)
+        # k = 0: 1 / (0 × 30 ns + 15 ns) = 1e9 / 15 ≈ 66.67 M ops/s.
+        self.assertAlmostEqual(contended_rmw_ceiling(0, 30.0, 15.0) / 1e6, 1000.0 / 15.0, places=9)
+        # k = 10: 1 / (10 × 33.37 ns + 15 ns) = 1e9 / 348.7 ≈ 2.868 M ops/s.
+        self.assertAlmostEqual(contended_rmw_ceiling(10, 33.37, 15.0) / 1e6, 1000.0 / 348.7, places=9)
 
     def test_allocator_counter_ceiling(self):
         self.assertAlmostEqual(allocator_counter_ceiling(40.0) / 1e6, 25.0, places=9)
@@ -199,14 +223,18 @@ class TestOlcBounds(unittest.TestCase):
         self.assertAlmostEqual(restart_ceiling(2, 25.0, 100.0, safety_factor=2.0), 2.0 / 3.0, places=9)
 
     def test_shape_bound_uses_k(self):
-        a = shape_bound("ffi_disjoint", 30.0, 20.0)
-        b = shape_bound("core_shared_prefix", 30.0, 50.0)
-        self.assertEqual((a["k"], b["k"]), (1, 5))
-        self.assertAlmostEqual(a["ceiling_mops"], 20.0, places=9)
-        self.assertAlmostEqual(b["ceiling_mops"], 5.0, places=9)
+        p = shape_bound("ffi_disjoint_padded", 30.0, 20.0)
+        d = shape_bound("ffi_disjoint_default", 30.0, 20.0)
+        b = shape_bound("baseline_measured", 30.0, 20.0)
+        c = shape_bound("core_shared_prefix", 30.0, 50.0)
+        self.assertEqual((p["k"], d["k"], b["k"], c["k"]), (0, 1, 10, 5))
+        self.assertAlmostEqual(p["ceiling_mops"], 50.0, places=9)
+        self.assertAlmostEqual(d["ceiling_mops"], 20.0, places=9)
+        self.assertAlmostEqual(b["ceiling_mops"], 1000.0 / 320.0, places=9)
+        self.assertAlmostEqual(c["ceiling_mops"], 5.0, places=9)
 
     def test_invalid_arguments_raise(self):
-        for bad in ((0, 30.0, 15.0), (1, 0.0, 15.0), (1, 30.0, -1.0)):
+        for bad in ((-1, 30.0, 15.0), (0, 30.0, 0.0), (1, 0.0, 15.0), (1, 30.0, -1.0)):
             with self.assertRaises(ValueError):
                 contended_rmw_ceiling(*bad)
         with self.assertRaises(ValueError):
@@ -238,7 +266,12 @@ def report() -> None:
         print(f"  W=1 insert rate, merged engine, {suite}/{arm}: [{u['union_lower']:.2f}, {u['union_upper']:.2f}] M/s")
     print("  t_hold: HYPOTHESIS — no artifact measures a lock hold; the values below are the argument's shape")
     print()
-    for shape, t_hold in (("ffi_disjoint", T_HOLD_LEAF_HYPOTHESIS_NS), ("core_shared_prefix", T_HOLD_CASCADE_HYPOTHESIS_NS)):
+    for shape, t_hold in (
+        ("ffi_disjoint_padded", T_HOLD_LEAF_HYPOTHESIS_NS),
+        ("ffi_disjoint_default", T_HOLD_LEAF_HYPOTHESIS_NS),
+        ("baseline_measured", T_HOLD_LEAF_HYPOTHESIS_NS),
+        ("core_shared_prefix", T_HOLD_CASCADE_HYPOTHESIS_NS),
+    ):
         r = shape_bound(shape, t_line, t_hold)
         print(f"  {shape}: k = {r['k']}, t_hold = {t_hold:.0f} ns (hypothesis) -> ceiling {r['ceiling_mops']:.2f} M ops/s")
     print(f"  allocator counter line: {allocator_counter_ceiling(t_line) / 1e6:.2f} M allocs/s on the allocating inserts")
