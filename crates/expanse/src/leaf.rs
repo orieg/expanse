@@ -19,18 +19,27 @@
 
 use crate::types::Key;
 
-/// Slot-capacity class: leaf and subarray allocations are sized in
-/// multiples of four slots, so runs of consecutive inserts and deletes
-/// shift in place instead of reallocating (they reallocate only when the
-/// population crosses a class boundary). Allocation sizes stay derivable
-/// from the current population alone — `free` needs no stored capacity.
+/// Slot-capacity class: leaf and subarray allocations follow a tail-coarsened
+/// schedule: populations of 1 or 2 stay exact, populations 3..=16 round to
+/// multiples of 4 slots (4, 8, 12, 16), and mature populations 17..=32 round
+/// in steps of 8 slots (24, 32). This halves mature-leaf reallocation
+/// boundaries while staying strictly within the 1M random memory budget gate
+/// (< 9.0 B/key set, < 18.0 B/key map). Allocation sizes stay derivable from
+/// the current population alone — `free` needs no stored capacity.
 #[inline]
 #[must_use]
 pub const fn cap_class(pop: usize) -> usize {
-    // Tiny populations stay exact — wide-key map leaves of one or two
-    // entries are common under random keys, and rounding them to four
-    // slots measurably regressed bytes/key.
-    if pop <= 2 { pop } else { (pop + 3) & !3 }
+    if pop <= 2 {
+        pop
+    } else if pop <= 16 {
+        (pop + 3) & !3
+    } else if pop <= 24 {
+        24
+    } else if pop <= 32 {
+        32
+    } else {
+        (pop + 3) & !3
+    }
 }
 
 /// Allocation size of a set-flavor leaf.
@@ -765,21 +774,35 @@ mod tests {
 
     #[test]
     fn sizes_and_offsets() {
-        // Class-based sizing: allocations round the population up to a
-        // multiple of four slots.
+        // Class-based sizing: populations of 1 or 2 stay exact; populations
+        // 3..=16 round to multiples of 4 (4, 8, 12, 16); populations 17..=32
+        // round in steps of 8 (24, 32).
+        assert_eq!(cap_class(0), 0);
         assert_eq!(cap_class(1), 1);
         assert_eq!(cap_class(2), 2);
         assert_eq!(cap_class(3), 4);
         assert_eq!(cap_class(4), 4);
         assert_eq!(cap_class(5), 8);
-        assert_eq!(cap_class(25), 28);
-        assert_eq!(size_set(1, 25), 28);
+        assert_eq!(cap_class(8), 8);
+        assert_eq!(cap_class(9), 12);
+        assert_eq!(cap_class(12), 12);
+        assert_eq!(cap_class(13), 16);
+        assert_eq!(cap_class(16), 16);
+        assert_eq!(cap_class(17), 24);
+        assert_eq!(cap_class(20), 24);
+        assert_eq!(cap_class(24), 24);
+        assert_eq!(cap_class(25), 32);
+        assert_eq!(cap_class(28), 32);
+        assert_eq!(cap_class(32), 32);
+        assert_eq!(size_set(1, 25), 32);
         assert_eq!(size_set(7, 2), 14);
-        assert_eq!(size_map(1, 25), 8 * 28 + 28);
+        assert_eq!(size_map(1, 25), 8 * 32 + 32);
         assert_eq!(size_map(7, 2), 8 * 2 + 7 * 2);
         assert_eq!(map_keys_offset(3), 32);
         assert_eq!(map_keys_offset(4), 32);
         assert_eq!(map_keys_offset(5), 64);
+        assert_eq!(map_keys_offset(17), 192);
+        assert_eq!(map_keys_offset(25), 256);
     }
 
     #[test]

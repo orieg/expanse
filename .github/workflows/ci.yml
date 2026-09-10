@@ -2157,11 +2157,14 @@ jobs:
       # over the 0.5% floor). A missing baseline entry is a hard failure, not
       # a green run (§8.1).
       - name: Fuel counts, wasm32 (32-bit engine) vs committed baseline
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: python3 scripts/wasm_fuel.py --build wasm32 --check-baseline results/baseline_wasm_fuel.json --json wasm_fuel_wasm32.json --markdown wasm_fuel_wasm32.md
 
       - name: Fuel counts, wasm64 (64-bit engine) vs committed baseline
         env:
           WASM_FUEL_NIGHTLY: nightly-2026-09-03
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: python3 scripts/wasm_fuel.py --build wasm64 --check-baseline results/baseline_wasm_fuel.json --json wasm_fuel_wasm64.json --markdown wasm_fuel_wasm64.md
 
       - name: Publish tables to the job summary

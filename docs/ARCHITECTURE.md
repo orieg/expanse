@@ -111,13 +111,13 @@ Occupancy across expanses is Poisson-distributed with mean $\lambda$ and $\sigma
 
 | $\lambda$ | $\lambda / \text{LEAF\_CAP}$ | `ExpanseSet` B/key | cells ($N$ @ keyspace bits) |
 |---:|---:|---|---|
-| 1.53 | 5% | 14.78 | 100k @64 |
+| 1.53 | 5% | 14.85 | 100k @64 |
 | 3.05 | 10% | 12.59 · 12.60 | 200k @64 · 100k @63 |
 | 6.10 | 19% | 10.41 · 10.41 · 10.42 | 400k @64 · 200k @63 · 100k @62 |
 | 9.16 | 29% | 9.17 | 600k @64 |
 | 12.21 | 38% | 8.41 · 8.42 · 8.42 | 800k @64 · 400k @63 · 200k @62 |
 | 13.73 | 43% | 8.13 | 900k @64 |
-| 15.26 | 48% | **7.92** | 1M @64 — the committed `bytes/key` cell and the `memory-budget` calibration point |
+| 15.26 | 48% | **8.21** | 1M @64 — the committed `bytes/key` cell and the `memory-budget` calibration point |
 | 16.78 | 52% | 7.76 | 1.1M @64 |
 | 18.31 | 57% | 7.64 · 7.64 | 1.2M @64 · 600k @63 |
 | 19.84 | 62% | **7.59** | 1.3M @64 — the trough |
@@ -695,7 +695,7 @@ Both bitmap branches and bitmap map-leaves partition those 256 values into **eig
 
 The 32-bit bitmap leaf `LeafBitmap1_32` (`crates/expanse/src/node32.rs:170`) stores its 256-bit mask as `[u64; 4]` plus a `u16` population and a level byte. Its declared fields total 36 bytes but `#[repr(C, align(32))]` rounds the type to 64 bytes, and 64 is the figure the engine's own accounting and conversion threshold use (`crates/expanse/src/trie32.rs:93`, `crates/expanse/src/trie32.rs:247`).
 
-**Subarray allocation sizing.** A subexpanse's packed array is allocated at `cap_class(pop)` slots, not `pop` slots — the live entries occupy `[0, pop)` and the trailing spare slots hold filler, so a growth or shrink that stays inside a capacity class shifts in place instead of reallocating. On 64-bit that is the value-subarray sizing in `sub_vals_size` (`crates/expanse/src/mutate_map.rs`); on 32-bit, `BranchB32Data::subarrays` and `LeafBitmapL32Data::subarrays` are `Box<[Edge32]>` / `Box<[u32]>` sized the same way by `subarray_insert` / `subarray_remove` (`crates/expanse/src/trie32.rs`), with `cap_class` at `crates/expanse/src/trie32.rs:60` pinned to the 64-bit schedule. `cap_class(pop) = pop` for `pop ≤ 2` and `(pop + 3) & !3` above, so the spare is at most three slots: ≤24 bytes per subexpanse for 8-byte `Edge32` children, ≤12 for 4-byte values.
+**Subarray allocation sizing.** A subexpanse's packed array is allocated at `cap_class(pop)` slots, not `pop` slots — the live entries occupy `[0, pop)` and the trailing spare slots hold filler, so a growth or shrink that stays inside a capacity class shifts in place instead of reallocating. On 64-bit that is the value-subarray sizing in `sub_vals_size` (`crates/expanse/src/mutate_map.rs`); on 32-bit, `BranchB32Data::subarrays` and `LeafBitmapL32Data::subarrays` are `Box<[Edge32]>` / `Box<[u32]>` sized the same way by `subarray_insert` / `subarray_remove` (`crates/expanse/src/trie32.rs`), with `cap_class` at `crates/expanse/src/trie32.rs:60` pinned to the 64-bit schedule. `cap_class(pop)` is exact for `pop ≤ 2`, rounds in 4-slot steps for `pop ≤ 16` (4, 8, 12, 16), and coarsens to 8-slot steps in the mature tail (24, 32), halving mature boundary crossings while keeping memory within gate ceilings.
 
 The consequence for readers is that a subarray's **length is its allocation size, never its population**. Population comes from the node's own bitmap popcount (bitmap leaves) or `pop_counts[sub]` (bitmap branches); every slot access is by a bitmap-derived rank, which is `< pop` by construction, so the spare slots are unreachable through any ordinary path. They are nonetheless always initialised (`0` for a value, `Edge32::null()` for a child) because an optimistic reader racing an in-place shift may load one before the version seal rejects its result.
 

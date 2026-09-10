@@ -1446,7 +1446,7 @@ here; how the runner is stood up and triggered is an operations concern.
 | sequential (set) | 0.32 | 0.07 | **0.07** | full-expanse + bitmap-leaf compression |
 | clustered 256-run (set) | 0.38 | 0.37 | **0.36** | was 1.34 before leaf-targeted narrow pointers — a 3.7× improvement |
 | clustered 4096-run (set) | 0.32 | 0.12 | **0.12** | was 0.64 / 0.20 / 0.19 before **branch-targeted** narrow pointers (divergence-level branch placement + `split_skip`) |
-| random (set) | 13.50 | 14.78 | 7.92 | not part of the dense/clustered target. **Density-dependent** — the only row that is: λ = N / 2¹⁶ = 0.02 · 1.53 · **15.26** (48% of `LEAF_CAP`); see below |
+| random (set) | 13.50 | 14.85 | 8.21 | not part of the dense/clustered target. **Density-dependent** — the only row that is: λ = N / 2¹⁶ = 0.02 · 1.53 · **15.26** (48% of `LEAF_CAP`); see below |
 | sparse `i << 40` (set) | 16.83 | 16.32 | **16.31** | one 16-byte edge per isolated key — the structural floor, not a chain cost (immediates absorb the remainders) |
 
 Map-flavor figures run ~8 B/key above the set figures (the stored value word). The `< 9.5 B/key dense+clustered` architecture target is **met** on the distributions it names.
