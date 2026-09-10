@@ -498,6 +498,9 @@ def sweep_ab(env: dict, prov: dict, base_bin: Path) -> dict:
             c["pillar"] = "C2"
             throughput.append(c)
     for arm in CONCURRENT_ARMS:
+        print(f"\n  H protocol health at the head build — {arm} arm (write scaling, R=0)")
+        for w in CONCURRENT_WRITE_SCALING:
+            health.append(attributed("health", arm, w, 0))
         print(f"\n  H protocol health at the head build — {arm} arm W=1 R={CONCURRENT_MIXED_READERS}")
         health.append(attributed("health", arm, 1, CONCURRENT_MIXED_READERS))
     return {"throughput": throughput, "health": health}

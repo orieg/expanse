@@ -271,30 +271,30 @@ Read against §10.2; every number is evaluated over two two-commit runs against 
 | `masstree_comparison` | `map` | 4 | [3.22, 3.34] | 1.95 / 1.95 | [1.95, 1.95] | **`REFUTED (below pre-#809 base halves)`** |
 | `masstree_comparison` | `map` | 8 | [2.62, 2.75] | 1.79 / 1.79 | [1.79, 1.79] | **`REFUTED (below pre-#809 base halves)`** |
 
-**P5.3 — Restarts stay bounded** (safety factor 2.0; instantiated with t_hold = 34.2 ns):
+**P5.3 — Restarts stay bounded** (safety factor 2.0; per-arm measured t_hold from health rows):
 
-| suite | arm | W | t_op (ns) | ceiling (restarts/op) | observed, run 1 / 2 | verdict |
-|---|---|--:|--:|--:|--:|---|
-| `hot_comparison` | `set` | 2 | 227.5 | 0.354 | pending | pending |
-| `hot_comparison` | `set` | 4 | 227.5 | 1.261 | pending | pending |
-| `hot_comparison` | `set` | 8 | 227.5 | 4.257 | pending | pending |
-| `hot_comparison` | `set` | 16 | 227.5 | 21.037 | pending | pending |
-| `hot_comparison` | `map` | 2 | 274.2 | 0.285 | pending | pending |
-| `hot_comparison` | `map` | 4 | 274.2 | 0.983 | pending | pending |
-| `hot_comparison` | `map` | 8 | 274.2 | 3.082 | pending | pending |
-| `hot_comparison` | `map` | 16 | 274.2 | 12.752 | pending | pending |
-| `masstree_comparison` | `map` | 2 | 262.5 | 0.300 | pending | pending |
-| `masstree_comparison` | `map` | 4 | 262.5 | 1.040 | pending | pending |
-| `masstree_comparison` | `map` | 8 | 262.5 | 3.314 | pending | pending |
-| `masstree_comparison` | `map` | 16 | 262.5 | 14.236 | pending | pending |
+| suite | arm | W | t_hold (ns) | t_op (ns) | ceiling (restarts/op) | observed, run 1 / 2 | verdict |
+|---|---|--:|--:|--:|--:|--:|---|
+| `hot_comparison` | `set` | 2 | 14.0 | 227.5 | 0.131 | pending | pending |
+| `hot_comparison` | `set` | 4 | 14.0 | 227.5 | 0.419 | pending | pending |
+| `hot_comparison` | `set` | 8 | 14.0 | 227.5 | 1.118 | pending | pending |
+| `hot_comparison` | `set` | 16 | 14.0 | 227.5 | 3.178 | pending | pending |
+| `hot_comparison` | `map` | 2 | 45.0 | 274.2 | 0.393 | pending | pending |
+| `hot_comparison` | `map` | 4 | 45.0 | 274.2 | 1.424 | pending | pending |
+| `hot_comparison` | `map` | 8 | 45.0 | 274.2 | 5.013 | pending | pending |
+| `hot_comparison` | `map` | 16 | 45.0 | 274.2 | 27.418 | pending | pending |
+| `masstree_comparison` | `map` | 2 | 43.6 | 262.5 | 0.399 | pending | pending |
+| `masstree_comparison` | `map` | 4 | 43.6 | 262.5 | 1.450 | pending | pending |
+| `masstree_comparison` | `map` | 8 | 43.6 | 262.5 | 5.139 | pending | pending |
+| `masstree_comparison` | `map` | 16 | 43.6 | 262.5 | 28.567 | pending | pending |
 
-**P5.4 — Contended-line bound at W = 16** (ceiling = 1 / (t_line + t_hold); t_line = 33.4 ns, t_hold = 34.2 ns):
+**P5.4 — Contended-line bound at W = 16** (ceiling = 1 / (k·t_line + t_hold); k = 2, t_line = 33.4 ns, per-arm t_hold):
 
-| suite | arm | ceiling (M/s) | head union (M/s) | verdict |
-|---|---|--:|--:|---|
-| `hot_comparison` | `set` | 14.80 | [0.32, 0.33] | `PASS (at or below contended-line ceiling)` |
-| `hot_comparison` | `map` | 14.80 | [0.38, 0.40] | `PASS (at or below contended-line ceiling)` |
-| `masstree_comparison` | `map` | 14.80 | [0.35, 0.35] | `PASS (at or below contended-line ceiling)` |
+| suite | arm | t_hold (ns) | ceiling (M/s) | head union (M/s) | verdict |
+|---|---|--:|--:|--:|---|
+| `hot_comparison` | `set` | 14.0 | 12.39 | [0.32, 0.33] | `PASS (at or below contended-line ceiling)` |
+| `hot_comparison` | `map` | 45.0 | 8.95 | [0.38, 0.40] | `PASS (at or below contended-line ceiling)` |
+| `masstree_comparison` | `map` | 43.6 | 9.06 | [0.35, 0.35] | `PASS (at or below contended-line ceiling)` |
 
 **Controls — C2 readers alongside writers at W = 1 R = 8** (predicted inside [97, 104] ns; lower is faster):
 

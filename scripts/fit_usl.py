@@ -3,7 +3,7 @@
 scripts/fit_usl.py — Gunther's Universal Scalability Law (USL) Model Fitting.
 
 Fits Gunther's Universal Scalability Law (USL) to multi-writer throughput scaling
-measurements per Issue #568 and proposal_a_localized_structural_olc_plan.md §5.1:
+measurements per Issue #568 and master_plan_updated.md §5.1 / Phase 1.5B:
 
     X(N) = (gamma * N) / (1 + alpha * (N - 1) + beta * N * (N - 1))
 
@@ -13,16 +13,18 @@ where:
   - alpha: contention parameter (Amdahl's law serialization fraction, 0 <= alpha <= 1)
   - beta: coherency / crosstalk parameter (pairwise communication penalty, beta >= 0)
 
-Derived quantities & Phase 3 gates (master plan §5.1):
+Calibrated Phase 1.5B gates (master plan §5.2):
   - Contention ceiling: alpha <= 0.15 with BCa 95% CI
-  - Retrograde point: N_max = sqrt((1 - alpha) / beta) >= 16 (for beta > 0)
+  - Coherency crosstalk ceiling: beta <= 0.0033 with BCa 95% CI
+  - Physical core domain: fit on physical P-cores only (N <= 8) to eliminate SMT and E-core distortion
   - Goodness of fit: R^2 >= 0.95, NRMSE <= 5.0%
   - Inadmissible fits (alpha > 1 or non-convergent): evaluated as REFUTED
 
 Usage:
-    python3 scripts/fit_usl.py --self-test        # Run reference-pinned unit tests
-    python3 scripts/fit_usl.py                    # Fit against committed concurrency artifacts
-    python3 scripts/fit_usl.py --artifact <path>  # Fit against a specific JSON benchmark artifact
+    python3 scripts/fit_usl.py --self-test            # Run reference-pinned unit tests
+    python3 scripts/fit_usl.py                        # Fit against committed concurrency artifacts
+    python3 scripts/fit_usl.py --max-n 8              # Fit on physical P-cores (N <= 8)
+    python3 scripts/fit_usl.py --artifact <path>      # Fit against a specific JSON benchmark artifact
 """
 
 from __future__ import annotations
@@ -198,14 +200,32 @@ def fit_usl(
     n_vals: Sequence[float],
     x_vals: Sequence[float],
     use_nlls: bool = True,
+    max_n: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Fits Gunther's USL model and evaluates all Master Plan §5.1 criteria.
+    """Fits Gunther's USL model and evaluates all Master Plan §5.1 / Phase 1.5B criteria.
+
+    Args:
+        n_vals: Concurrency levels.
+        x_vals: Measured throughput values (same length as n_vals).
+        use_nlls: Whether to refine parameters using non-linear least squares.
+        max_n: Optional upper bound on concurrency (e.g. 8.0 for physical P-cores).
 
     Returns:
         Dictionary containing parameters (gamma, alpha, beta), derived metrics (n_max,
         peak_throughput), goodness-of-fit metrics (r_squared, nrmse), individual gate
         verdicts, and overall verdict ('PASS' or 'FAIL_*' / 'REFUTED_*').
     """
+    if max_n is not None:
+        filtered = [(n, x) for n, x in zip(n_vals, x_vals) if n <= max_n]
+        if len(filtered) < 3:
+            return {
+                "verdict": "REFUTED_inadmissible",
+                "admissible": False,
+                "error": f"Need >= 3 data points with N <= {max_n}, got {len(filtered)}",
+            }
+        n_vals = [p[0] for p in filtered]
+        x_vals = [p[1] for p in filtered]
+
     try:
         gamma_ols, alpha_ols, beta_ols = fit_usl_ols(n_vals, x_vals)
     except Exception as err:
@@ -249,10 +269,13 @@ def fit_usl(
     n_max = usl_n_max(alpha, beta)
     peak = usl_peak_throughput(gamma, alpha, beta)
 
-    # Master Plan §5.1 Gates
+    # Master Plan §5.1 / Phase 1.5B Calibrated Gates
     admissible = (0.0 <= alpha <= 1.0) and (beta >= 0.0) and (gamma > 0.0)
     alpha_pass = alpha <= 0.15
-    n_max_pass = n_max >= 16.0
+    beta_pass = beta <= 0.0033
+    # When restricted to physical cores (max_n <= 8), the coherency bound
+    # beta <= 0.0033 replaces unconstrained N_max extrapolation beyond the measured domain.
+    n_max_pass = True if (max_n is not None and max_n <= 8.0) else (n_max >= 16.0)
     r_squared_pass = gof["r_squared"] >= 0.95
     nrmse_pass = gof["nrmse"] <= 0.05
 
@@ -262,6 +285,8 @@ def fit_usl(
         verdict = "FAIL_fit_quality"
     elif not alpha_pass:
         verdict = "FAIL_contention_ceiling"
+    elif not beta_pass:
+        verdict = "FAIL_coherency_crosstalk"
     elif not n_max_pass:
         verdict = "FAIL_retrograde_point"
     else:
@@ -280,6 +305,7 @@ def fit_usl(
         "nrmse": gof["nrmse"],
         "gates": {
             "alpha_under_ceiling": alpha_pass,
+            "beta_under_ceiling": beta_pass,
             "n_max_above_floor": n_max_pass,
             "r_squared_above_floor": r_squared_pass,
             "nrmse_under_ceiling": nrmse_pass,
@@ -293,10 +319,18 @@ def fit_usl_with_bootstrap(
     confidence: float = 0.95,
     num_resamples: int = 2000,
     seed: int = 42,
+    max_n: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Fits USL model and computes 95% BCa confidence interval for contention parameter alpha."""
+    """Fits USL model and computes 95% BCa confidence intervals for contention (alpha) and coherency (beta)."""
     if len(n_vals) != len(x_replicates_per_n):
         raise ValueError("n_vals and x_replicates_per_n length mismatch")
+
+    if max_n is not None:
+        filtered = [(n, reps) for n, reps in zip(n_vals, x_replicates_per_n) if n <= max_n]
+        if len(filtered) < 3:
+            raise ValueError(f"Need >= 3 concurrency levels with N <= {max_n}, got {len(filtered)}")
+        n_vals = [p[0] for p in filtered]
+        x_replicates_per_n = [p[1] for p in filtered]
 
     k = len(n_vals)
     round_counts = [len(reps) for reps in x_replicates_per_n]
@@ -304,53 +338,95 @@ def fit_usl_with_bootstrap(
         raise ValueError(f"Each concurrency level needs >= 3 rounds for bootstrap, got {round_counts}")
 
     means = [sum(reps) / len(reps) for reps in x_replicates_per_n]
-    point_fit = fit_usl(n_vals, means)
+    point_fit = fit_usl(n_vals, means, max_n=max_n)
     alpha_hat = point_fit["alpha"]
+    beta_hat = point_fit["beta"]
 
     rng = random.Random(seed)
     boot_alphas: List[float] = []
+    boot_betas: List[float] = []
     for _ in range(num_resamples):
         resampled_means = []
         for reps, rc in zip(x_replicates_per_n, round_counts):
             s = [reps[rng.randint(0, rc - 1)] for _ in range(rc)]
             resampled_means.append(sum(s) / rc)
-        b_fit = fit_usl(n_vals, resampled_means, use_nlls=False)
+        b_fit = fit_usl(n_vals, resampled_means, use_nlls=False, max_n=max_n)
         if b_fit.get("admissible", False):
             boot_alphas.append(b_fit["alpha"])
+            boot_betas.append(b_fit["beta"])
 
     if len(boot_alphas) < num_resamples // 2:
         raise ValueError("Too many inadmissible bootstrap fits during resampling")
 
     jackknife_alphas: List[float] = []
+    jackknife_betas: List[float] = []
     for i in range(k):
         reps = x_replicates_per_n[i]
         rc = len(reps)
         for j in range(rc):
             jk_means = list(means)
             jk_means[i] = sum(reps[m] for m in range(rc) if m != j) / (rc - 1)
-            jk_fit = fit_usl(n_vals, jk_means, use_nlls=False)
+            jk_fit = fit_usl(n_vals, jk_means, use_nlls=False, max_n=max_n)
             if jk_fit.get("admissible", False):
                 jackknife_alphas.append(jk_fit["alpha"])
+                jackknife_betas.append(jk_fit["beta"])
 
+    # Alpha BCa CI
     if _bca_from_distribution is not None and len(jackknife_alphas) > 0:
-        ci_lower, ci_upper = _bca_from_distribution(alpha_hat, boot_alphas, jackknife_alphas, confidence)
+        try:
+            alpha_ci_lower, alpha_ci_upper = _bca_from_distribution(alpha_hat, boot_alphas, jackknife_alphas, confidence)
+        except Exception:
+            boot_alphas_sorted = sorted(boot_alphas)
+            idx_low = int((1.0 - confidence) / 2.0 * len(boot_alphas_sorted))
+            idx_high = int((1.0 + confidence) / 2.0 * len(boot_alphas_sorted))
+            alpha_ci_lower = boot_alphas_sorted[idx_low]
+            alpha_ci_upper = boot_alphas_sorted[min(idx_high, len(boot_alphas_sorted) - 1)]
     else:
-        boot_alphas.sort()
-        idx_low = int((1.0 - confidence) / 2.0 * len(boot_alphas))
-        idx_high = int((1.0 + confidence) / 2.0 * len(boot_alphas))
-        ci_lower = boot_alphas[idx_low]
-        ci_upper = boot_alphas[min(idx_high, len(boot_alphas) - 1)]
+        boot_alphas_sorted = sorted(boot_alphas)
+        idx_low = int((1.0 - confidence) / 2.0 * len(boot_alphas_sorted))
+        idx_high = int((1.0 + confidence) / 2.0 * len(boot_alphas_sorted))
+        alpha_ci_lower = boot_alphas_sorted[idx_low]
+        alpha_ci_upper = boot_alphas_sorted[min(idx_high, len(boot_alphas_sorted) - 1)]
 
-    alpha_ci_pass = ci_upper <= 0.15
+    # Beta BCa CI
+    if _bca_from_distribution is not None and len(jackknife_betas) > 0:
+        try:
+            beta_ci_lower, beta_ci_upper = _bca_from_distribution(beta_hat, boot_betas, jackknife_betas, confidence)
+        except Exception:
+            boot_betas_sorted = sorted(boot_betas)
+            idx_low = int((1.0 - confidence) / 2.0 * len(boot_betas_sorted))
+            idx_high = int((1.0 + confidence) / 2.0 * len(boot_betas_sorted))
+            beta_ci_lower = boot_betas_sorted[idx_low]
+            beta_ci_upper = boot_betas_sorted[min(idx_high, len(boot_betas_sorted) - 1)]
+    else:
+        boot_betas_sorted = sorted(boot_betas)
+        idx_low = int((1.0 - confidence) / 2.0 * len(boot_betas_sorted))
+        idx_high = int((1.0 + confidence) / 2.0 * len(boot_betas_sorted))
+        beta_ci_lower = boot_betas_sorted[idx_low]
+        beta_ci_upper = boot_betas_sorted[min(idx_high, len(boot_betas_sorted) - 1)]
+
+    alpha_ci_pass = alpha_ci_upper <= 0.15
+    beta_ci_pass = beta_ci_upper <= 0.0033
+
     point_fit["alpha_ci"] = {
         "point_estimate": alpha_hat,
-        "ci_lower": ci_lower,
-        "ci_upper": ci_upper,
+        "ci_lower": alpha_ci_lower,
+        "ci_upper": alpha_ci_upper,
         "confidence": confidence,
         "passes_ceiling": alpha_ci_pass,
     }
+    point_fit["beta_ci"] = {
+        "point_estimate": beta_hat,
+        "ci_lower": beta_ci_lower,
+        "ci_upper": beta_ci_upper,
+        "confidence": confidence,
+        "passes_ceiling": beta_ci_pass,
+    }
+
     if not alpha_ci_pass and point_fit["verdict"] == "PASS":
         point_fit["verdict"] = "FAIL_contention_ci_overlaps_floor"
+    if not beta_ci_pass and point_fit["verdict"] == "PASS":
+        point_fit["verdict"] = "FAIL_coherency_ci_overlaps_ceiling"
 
     return point_fit
 
@@ -384,6 +460,8 @@ class TestUniversalScalabilityLaw(unittest.TestCase):
         self.assertAlmostEqual(fit["beta"], true_beta, places=5)
         self.assertAlmostEqual(fit["r_squared"], 1.0, places=5)
         self.assertLess(fit["nrmse"], 1e-4)
+        self.assertTrue(fit["gates"]["alpha_under_ceiling"])
+        self.assertTrue(fit["gates"]["beta_under_ceiling"])
         self.assertGreaterEqual(fit["n_max"], 16.0)
 
     def test_contention_failure_detected(self):
@@ -393,12 +471,21 @@ class TestUniversalScalabilityLaw(unittest.TestCase):
         self.assertEqual(fit["verdict"], "FAIL_contention_ceiling")
         self.assertFalse(fit["gates"]["alpha_under_ceiling"])
 
-    def test_retrograde_failure_detected(self):
-        n_vals = [1.0, 2.0, 4.0, 8.0, 16.0]
-        x_vals = [usl_throughput(ni, 1000.0, 0.05, 0.02) for ni in n_vals]
+    def test_coherency_failure_detected(self):
+        n_vals = [1.0, 2.0, 4.0, 8.0]
+        x_vals = [usl_throughput(ni, 1000.0, 0.05, 0.005) for ni in n_vals]
         fit = fit_usl(n_vals, x_vals)
-        self.assertEqual(fit["verdict"], "FAIL_retrograde_point")
-        self.assertFalse(fit["gates"]["n_max_above_floor"])
+        self.assertEqual(fit["verdict"], "FAIL_coherency_crosstalk")
+        self.assertFalse(fit["gates"]["beta_under_ceiling"])
+
+    def test_physical_core_filtering(self):
+        true_gamma, true_alpha, true_beta = 2000.0, 0.04, 0.001
+        n_vals = [1.0, 2.0, 4.0, 8.0, 16.0, 32.0]
+        x_vals = [usl_throughput(ni, true_gamma, true_alpha, true_beta) for ni in n_vals]
+        fit = fit_usl(n_vals, x_vals, max_n=8.0)
+        self.assertEqual(fit["verdict"], "PASS")
+        self.assertTrue(fit["gates"]["alpha_under_ceiling"])
+        self.assertTrue(fit["gates"]["beta_under_ceiling"])
 
     def test_invalid_parameters_raise(self):
         with self.assertRaises(ValueError):
@@ -421,21 +508,33 @@ class TestUniversalScalabilityLaw(unittest.TestCase):
 
         fit = fit_usl_with_bootstrap(n_vals, reps, num_resamples=500, seed=42)
         self.assertIn("alpha_ci", fit)
-        ci = fit["alpha_ci"]
-        self.assertLess(ci["ci_lower"], ci["ci_upper"])
-        self.assertLess(ci["ci_upper"], 0.15)
-        self.assertTrue(ci["passes_ceiling"])
+        ci_alpha = fit["alpha_ci"]
+        self.assertLess(ci_alpha["ci_lower"], ci_alpha["ci_upper"])
+        self.assertLess(ci_alpha["ci_upper"], 0.15)
+        self.assertTrue(ci_alpha["passes_ceiling"])
+
+        self.assertIn("beta_ci", fit)
+        ci_beta = fit["beta_ci"]
+        self.assertLessEqual(ci_beta["ci_lower"], ci_beta["ci_upper"])
+        self.assertLessEqual(ci_beta["ci_upper"], 0.0033)
+        self.assertTrue(ci_beta["passes_ceiling"])
+
         self.assertEqual(fit["verdict"], "PASS")
 
 
-def evaluate_artifact(path: Path) -> None:
+def evaluate_artifact(path: Path, max_n: Optional[float] = None) -> None:
     data = json.loads(path.read_text())
-    print(f"=== Universal Scalability Law (USL) Fit: {path.name} ===")
+    title_suffix = f" (N <= {max_n})" if max_n is not None else ""
+    print(f"=== Universal Scalability Law (USL) Fit: {path.name}{title_suffix} ===")
     for arm in ("set", "map"):
         cells = [t for t in data.get("throughput", []) if t.get("arm") == arm and t.get("readers") == 0]
         if not cells:
             continue
         cells.sort(key=lambda c: c.get("writers", 0))
+        if max_n is not None:
+            cells = [c for c in cells if float(c.get("writers", 0)) <= max_n]
+        if len(cells) < 3:
+            continue
         n_vals = [float(c["writers"]) for c in cells]
 
         for build in ("base", "head"):
@@ -450,9 +549,9 @@ def evaluate_artifact(path: Path) -> None:
                 reps.append(round_samples)
 
             if all(len(r) >= 3 for r in reps):
-                fit = fit_usl_with_bootstrap(n_vals, reps, num_resamples=1000)
+                fit = fit_usl_with_bootstrap(n_vals, reps, num_resamples=1000, max_n=max_n)
             else:
-                fit = fit_usl(n_vals, x_vals)
+                fit = fit_usl(n_vals, x_vals, max_n=max_n)
 
             print(f"\nArm: {arm} | Build: {build} | Concurrency: {n_vals}")
             print(f"  Throughput (M ops/s): {x_vals}")
@@ -462,7 +561,10 @@ def evaluate_artifact(path: Path) -> None:
             if "alpha_ci" in fit:
                 ci = fit["alpha_ci"]
                 print(f"    alpha BCa 95% CI: [{ci['ci_lower']:.6f}, {ci['ci_upper']:.6f}] (passes: {ci['passes_ceiling']})")
-            print(f"  beta (coher):  {fit['beta']:.6f}")
+            print(f"  beta (coher):  {fit['beta']:.6f} (ceiling <= 0.0033: {fit['gates']['beta_under_ceiling']})")
+            if "beta_ci" in fit:
+                ci = fit["beta_ci"]
+                print(f"    beta BCa 95% CI:  [{ci['ci_lower']:.6f}, {ci['ci_upper']:.6f}] (passes: {ci['passes_ceiling']})")
             n_max_str = "inf" if math.isinf(fit['n_max']) else f"{fit['n_max']:.2f}"
             print(f"  N_max (peak):  {n_max_str} (floor >= 16: {fit['gates']['n_max_above_floor']})")
             print(f"  Goodness of Fit: R^2 = {fit['r_squared']:.4f} (>= 0.95: {fit['gates']['r_squared_above_floor']}), "
@@ -473,6 +575,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Fit Gunther's USL model to scalability benchmarks.")
     parser.add_argument("--self-test", action="store_true", help="Run self-test unit tests")
     parser.add_argument("--artifact", type=str, help="Path to JSON benchmark artifact to fit")
+    parser.add_argument("--max-n", type=float, default=None, help="Maximum concurrency N to include in fit (e.g. 8 for physical P-cores)")
     args = parser.parse_args()
 
     if args.self_test:
@@ -481,13 +584,13 @@ def main() -> None:
         return
 
     if args.artifact:
-        evaluate_artifact(Path(args.artifact))
+        evaluate_artifact(Path(args.artifact), max_n=args.max_n)
         return
 
     # Default report on committed baseline artifact
     default_artifact = REPO_ROOT / "docs" / "benchmarks" / "hot_comparison" / "results" / "multi_writer_olc" / "baseline_concurrent_ab.json"
     if default_artifact.exists():
-        evaluate_artifact(default_artifact)
+        evaluate_artifact(default_artifact, max_n=args.max_n)
     else:
         suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestUniversalScalabilityLaw)
         runner = unittest.TextTestRunner(verbosity=2)
