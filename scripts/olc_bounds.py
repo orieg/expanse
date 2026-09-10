@@ -42,6 +42,12 @@ AB_ARTIFACTS = {
     "masstree_comparison": [REPO_ROOT / "docs" / "benchmarks" / "masstree_comparison" / "results" / f
                             for f in ("baseline_concurrent_ab.json", "baseline_concurrent_ab_run2.json")],
 }
+OLC_ARTIFACTS = {
+    "hot_comparison": [REPO_ROOT / "docs" / "benchmarks" / "hot_comparison" / "results" / "multi_writer_olc" / f
+                       for f in ("baseline_concurrent_ab.json", "baseline_concurrent_ab_run2.json")],
+    "masstree_comparison": [REPO_ROOT / "docs" / "benchmarks" / "masstree_comparison" / "results" / "multi_writer_olc" / f
+                            for f in ("baseline_concurrent_ab.json", "baseline_concurrent_ab_run2.json")],
+}
 
 # ---------------------------------------------------------------------------
 # Hypotheses: inputs no artifact measures. Each is a parameter of the bound
@@ -49,22 +55,23 @@ AB_ARTIFACTS = {
 # instantiates it before PR 5's cells run.
 # ---------------------------------------------------------------------------
 
-# Hold time of one per-node lock (hypothesis): a brief in-place leaf or slot
-# store, and a structural rebuild that allocates and publishes a node. The
-# sync_* Callgrind arms give instructions per whole operation (about 750–2,150
-# on the merged engine), not the nanoseconds a lock is held; these two values
-# are the shape of the argument, to be replaced by the measured hold before
-# the gate is evaluated.
+# Hold time of one per-node lock: leaf and branch rebuilds.
+# Where measured health rows exist (HOT set ≈ 14.0 ns, HOT map ≈ 44.2–45.8 ns,
+# Masstree map ≈ 42.6–44.6 ns), lock_hold_ns() is used.
+# T_HOLD_CASCADE_HYPOTHESIS_NS remains a hypothesis for deep multi-level cascades.
 T_HOLD_LEAF_HYPOTHESIS_NS = 15.0
 T_HOLD_CASCADE_HYPOTHESIS_NS = 50.0
 
 # Lines a writer must own per insert, per workload shape:
 # - `ffi_disjoint` / `ffi_disjoint_padded`: Phase 1.5A under `feature = "lock-padded"`.
-#   Ancestor branch pop0 bumping is omitted, `tree_pop` and the writer gate are
-#   sharded across line-padded slots. Disjoint key slices touch 0 shared cache lines (k = 0).
-# - `ffi_disjoint_default`: Phase 1.5A default build (`Line<X> = X`). The 64 atomic
-#   slots pack 8 per 64-byte line, yielding an 8x reduction in false-sharing probability,
-#   bounded by at most 1 shared line (k = 1).
+#   The mark_digit read-before-write guard means zero write-shared lines on the trie
+#   in steady state (one read-shared line; one RFO per digit per fold epoch).
+#   However, Collector::op_count is still RMW'd by every writer on every insert (occ.rs:1314);
+#   wrapping it in Line<AtomicUsize> prevents false sharing with neighboring struct fields
+#   but retains 1 true-shared cache line across writers (k = 1).
+# - `ffi_disjoint_default`: Phase 1.5A default build (`Line<X> = X`).
+#   In addition to Collector::op_count, the 64 atomic slots pack 8 per 64-byte line,
+#   introducing residual false sharing across concurrent writer slots, bounded by k = 2.
 # - `baseline_measured`: Pre-1.5A measured baseline on reference host (`b49835ad`
 #   `masstree_conc_map_w4_r0`: `l2_rqsts.rfo_miss` = 12.208 [11.864, 12.441],
 #   `xsnp_hitm` = 9.196 [8.952, 9.375]). Every insert locked the root node's version
@@ -72,9 +79,9 @@ T_HOLD_CASCADE_HYPOTHESIS_NS = 50.0
 # - `core_shared_prefix`: `core_concurrency`'s `rng % 2M` keys share bytes 7..3,
 #   so every insert walks one chain to level 3 — about five shared lines (k = 5).
 K_LINES = {
-    "ffi_disjoint": 0,
-    "ffi_disjoint_padded": 0,
-    "ffi_disjoint_default": 1,
+    "ffi_disjoint": 1,
+    "ffi_disjoint_padded": 1,
+    "ffi_disjoint_default": 2,
     "baseline_measured": 10,
     "core_shared_prefix": 5,
 }
@@ -112,6 +119,27 @@ def w1_insert_rate(suite: str, arm: str, paths: dict[str, list[Path]] = AB_ARTIF
     return {"union_lower": min(vals), "union_upper": max(vals)}
 
 
+def lock_hold_ns(suite: str, arm: str, paths: dict[str, list[Path]] = OLC_ARTIFACTS) -> dict[str, float]:
+    """The measured lock holding time per write op (in nanoseconds) extracted
+    from the health rows of the committed baseline artifacts:
+    (lock_hold_cycles / cycles_hz * 1e9) / write_ops.
+    Measured on the reference host: HOT set ≈ 14.0 ns, HOT map ≈ 44.2–45.8 ns,
+    Masstree map ≈ 42.6–44.6 ns."""
+    vals = []
+    for p in paths[suite]:
+        d = json.loads(p.read_text())
+        for h in d.get("health", []):
+            if h.get("arm") == arm:
+                lhc = h.get("lock_hold_cycles", {}).get("median", 0)
+                hz = h.get("cycles_hz", {}).get("median", 1)
+                w_ops = h.get("write_ops", {}).get("median", 0)
+                if w_ops > 0 and hz > 0:
+                    vals.append(float((lhc / hz * 1e9) / w_ops))
+    if not vals:
+        raise ValueError(f"{suite}/{arm}: lock hold health rows not found in artifacts")
+    return {"median": statistics.median(vals), "min": min(vals), "max": max(vals), "runs": len(vals)}
+
+
 # ---------------------------------------------------------------------------
 # Bounds
 # ---------------------------------------------------------------------------
@@ -120,12 +148,9 @@ def contended_rmw_ceiling(k: int, t_line_ns: float, t_hold_ns: float) -> float:
     """Aggregate ceiling, in ops/s, when every operation must own `k` shared
     lines (one transfer each, Hennessy & Patterson §5.2) and then hold a lock
     for `t_hold_ns`: 1 / (k·t_line + t_hold). Independent of the writer count —
-    it is the service rate of the serial part, the term the writers queue on.
-
-    When k = 0 (zero write-shared lines on disjoint expanses under lock-padded),
-    the transfer term vanishes and the ceiling is bound solely by 1 / t_hold."""
-    if k < 0:
-        raise ValueError(f"k must be >= 0, got {k}")
+    it is the service rate of the serial part, the term the writers queue on."""
+    if k < 1:
+        raise ValueError(f"k must be >= 1, got {k}")
     if t_line_ns <= 0.0:
         raise ValueError(f"t_line_ns must be positive, got {t_line_ns}")
     if t_hold_ns < 0.0:
@@ -203,10 +228,10 @@ class TestOlcBounds(unittest.TestCase):
         self.assertAlmostEqual(contended_rmw_ceiling(1, 30.0, 20.0) / 1e6, 20.0, places=9)
         # 1 / (5 × 30 ns + 50 ns) = 5 M ops/s exactly.
         self.assertAlmostEqual(contended_rmw_ceiling(5, 30.0, 50.0) / 1e6, 5.0, places=9)
-        # k = 0: 1 / (0 × 30 ns + 15 ns) = 1e9 / 15 ≈ 66.67 M ops/s.
-        self.assertAlmostEqual(contended_rmw_ceiling(0, 30.0, 15.0) / 1e6, 1000.0 / 15.0, places=9)
-        # k = 10: 1 / (10 × 33.37 ns + 15 ns) = 1e9 / 348.7 ≈ 2.868 M ops/s.
-        self.assertAlmostEqual(contended_rmw_ceiling(10, 33.37, 15.0) / 1e6, 1000.0 / 348.7, places=9)
+        # k = 1, measured t_line = 33.37 ns, set t_hold = 14.04 ns: 1 / 47.41 ns ≈ 21.09 M ops/s.
+        self.assertAlmostEqual(contended_rmw_ceiling(1, 33.37, 14.04) / 1e6, 1000.0 / 47.41, places=9)
+        # k = 10, measured t_line = 33.37 ns, set t_hold = 14.04 ns: 1 / 347.74 ns ≈ 2.876 M ops/s.
+        self.assertAlmostEqual(contended_rmw_ceiling(10, 33.37, 14.04) / 1e6, 1000.0 / 347.74, places=9)
 
     def test_allocator_counter_ceiling(self):
         self.assertAlmostEqual(allocator_counter_ceiling(40.0) / 1e6, 25.0, places=9)
@@ -227,14 +252,14 @@ class TestOlcBounds(unittest.TestCase):
         d = shape_bound("ffi_disjoint_default", 30.0, 20.0)
         b = shape_bound("baseline_measured", 30.0, 20.0)
         c = shape_bound("core_shared_prefix", 30.0, 50.0)
-        self.assertEqual((p["k"], d["k"], b["k"], c["k"]), (0, 1, 10, 5))
-        self.assertAlmostEqual(p["ceiling_mops"], 50.0, places=9)
-        self.assertAlmostEqual(d["ceiling_mops"], 20.0, places=9)
+        self.assertEqual((p["k"], d["k"], b["k"], c["k"]), (1, 2, 10, 5))
+        self.assertAlmostEqual(p["ceiling_mops"], 20.0, places=9)
+        self.assertAlmostEqual(d["ceiling_mops"], 12.5, places=9)
         self.assertAlmostEqual(b["ceiling_mops"], 1000.0 / 320.0, places=9)
         self.assertAlmostEqual(c["ceiling_mops"], 5.0, places=9)
 
     def test_invalid_arguments_raise(self):
-        for bad in ((-1, 30.0, 15.0), (0, 30.0, 0.0), (1, 0.0, 15.0), (1, 30.0, -1.0)):
+        for bad in ((0, 30.0, 15.0), (-1, 30.0, 15.0), (1, 0.0, 15.0), (1, 30.0, -1.0)):
             with self.assertRaises(ValueError):
                 contended_rmw_ceiling(*bad)
         with self.assertRaises(ValueError):
@@ -253,6 +278,10 @@ class TestOlcBounds(unittest.TestCase):
             u = w1_insert_rate(suite, arm)
             self.assertLessEqual(u["union_lower"], u["union_upper"])
             self.assertGreater(u["union_lower"], 0.0)
+            lh = lock_hold_ns(suite, arm)
+            self.assertGreater(lh["median"], 0.0)
+            self.assertLessEqual(lh["min"], lh["median"])
+            self.assertLessEqual(lh["median"], lh["max"])
 
 
 def report() -> None:
@@ -261,23 +290,29 @@ def report() -> None:
     print("Stage B contention bounds (#568 plan PR 4) — inputs from the committed artifacts")
     print(f"  t_line (spinning, P-core pairs, median of {lt['cells']} cell means): {t_line:.2f} ns "
           f"[cells span {lt['min']:.2f}–{lt['max']:.2f}]")
+    holds = {}
     for suite, arm in (("hot_comparison", "set"), ("hot_comparison", "map"), ("masstree_comparison", "map")):
         u = w1_insert_rate(suite, arm)
-        print(f"  W=1 insert rate, merged engine, {suite}/{arm}: [{u['union_lower']:.2f}, {u['union_upper']:.2f}] M/s")
-    print("  t_hold: HYPOTHESIS — no artifact measures a lock hold; the values below are the argument's shape")
+        lh = lock_hold_ns(suite, arm)
+        holds[(suite, arm)] = lh["median"]
+        print(f"  W=1 insert rate, merged engine, {suite}/{arm}: [{u['union_lower']:.2f}, {u['union_upper']:.2f}] M/s "
+              f"(measured t_hold: {lh['median']:.1f} ns [span {lh['min']:.1f}–{lh['max']:.1f}])")
     print()
-    for shape, t_hold in (
-        ("ffi_disjoint_padded", T_HOLD_LEAF_HYPOTHESIS_NS),
-        ("ffi_disjoint_default", T_HOLD_LEAF_HYPOTHESIS_NS),
-        ("baseline_measured", T_HOLD_LEAF_HYPOTHESIS_NS),
-        ("core_shared_prefix", T_HOLD_CASCADE_HYPOTHESIS_NS),
-    ):
-        r = shape_bound(shape, t_line, t_hold)
-        print(f"  {shape}: k = {r['k']}, t_hold = {t_hold:.0f} ns (hypothesis) -> ceiling {r['ceiling_mops']:.2f} M ops/s")
+    print("Contention ceilings by workload shape (evaluated against measured t_line = 33.37 ns):")
+    t_hold_set = holds[("hot_comparison", "set")]
+    t_hold_map = holds[("hot_comparison", "map")]
+    for shape in ("ffi_disjoint_padded", "ffi_disjoint_default", "baseline_measured"):
+        k = K_LINES[shape]
+        c_set = contended_rmw_ceiling(k, t_line, t_hold_set) / 1e6
+        c_map = contended_rmw_ceiling(k, t_line, t_hold_map) / 1e6
+        print(f"  {shape}: k = {k} -> ceiling {c_set:.2f} M ops/s (set, t_hold={t_hold_set:.1f} ns) | "
+              f"{c_map:.2f} M ops/s (map, t_hold={t_hold_map:.1f} ns)")
+    c_prefix = contended_rmw_ceiling(K_LINES["core_shared_prefix"], t_line, T_HOLD_CASCADE_HYPOTHESIS_NS) / 1e6
+    print(f"  core_shared_prefix: k = {K_LINES['core_shared_prefix']}, t_hold = {T_HOLD_CASCADE_HYPOTHESIS_NS:.0f} ns (hypothesis) -> ceiling {c_prefix:.2f} M ops/s")
     print(f"  allocator counter line: {allocator_counter_ceiling(t_line) / 1e6:.2f} M allocs/s on the allocating inserts")
     for w in (2, 4, 8, 16):
-        r = restart_ceiling(w, T_HOLD_LEAF_HYPOTHESIS_NS, 1e9 / 5.4e6)
-        print(f"  restart ceiling at W={w} (t_hold hypothesis 15 ns, t_op from 5.4 M/s, safety 2x): {r:.2f} restarts/op")
+        r = restart_ceiling(w, t_hold_set, 1e9 / 5.4e6)
+        print(f"  restart ceiling at W={w} (measured set t_hold {t_hold_set:.1f} ns, t_op from 5.4 M/s, safety 2x): {r:.2f} restarts/op")
     print()
 
 
