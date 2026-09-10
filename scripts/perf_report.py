@@ -569,6 +569,38 @@ def override_citation(reason: str) -> str | None:
     return match.group(0) if match else None
 
 
+def override_names_arms(reason: str, regressed: list[str]) -> list[str]:
+    """The regressed arms an override reason does **not** name.
+
+    AGENTS.md §6: an `allow-regression:` reason "must name the arms it
+    approves". A citation locates the measurement; naming the arms is what
+    bounds the approval to them. Without it one line silently approves every
+    regression in the run, including ones nobody looked at — the override
+    stops being a decision about specific numbers and becomes a blanket
+    disarm.
+
+    #822 is the shape this exists to catch: `allow-regression: zero-sharing
+    per-writer coordination under feature lock-padded (refs CI run …)`. It
+    carries a resolvable citation, so `override_citation` admitted it — but it
+    names no arm, states no number, and the run it cites is a *failure* at a
+    superseded head. Had the final run regressed, that line would have turned
+    the gate green over arms it never mentioned.
+
+    An arm is named if its benchmark id appears in the reason, in whole or as
+    its bench-name tail (`instructions::cost::sync_map_insert/random` is named
+    by "sync_map_insert"), so a reason may use the short form a human writes.
+    """
+    unnamed: list[str] = []
+    haystack = reason.lower()
+    for name in regressed:
+        tail = name.rsplit("::", 1)[-1]
+        stem = tail.split("/", 1)[0]
+        if tail.lower() in haystack or stem.lower() in haystack:
+            continue
+        unnamed.append(name)
+    return unnamed
+
+
 def load_shapes_by_stem() -> dict[str, dict[str, str]] | None:
     """`{harness file stem -> workload shape}`, or None if unavailable.
 
@@ -1326,7 +1358,35 @@ def check_regressions(
 
     messages = []
     if allowed:
+        # §6: the reason must name the arms it approves. A citation says where
+        # the measurement is; the arm names say which regressions this line is
+        # a decision about. Approving arms it never mentions is a blanket
+        # disarm, so an override that names none of them is void the same way
+        # an unsourced one is (#822).
+        unnamed = (
+            override_names_arms(allow_reason, [r[0] for r in regressions]) if allow_reason else []
+        )
+        if unnamed and len(unnamed) == len(regressions):
+            messages.append(
+                f"> [!CAUTION]\n"
+                f"> **Regression override is void — names no regressed arm**: {len(regressions)} "
+                f"benchmark(s) regressed > {noise_floor}% (worst: {worst:+.2f}%, threshold: "
+                f"{max_regression_pct}%).\n"
+                f"> An `allow-regression:` line is present and carries a citation, but its reason "
+                f"names none of the arms below, so it approves nothing in particular "
+                f"(AGENTS.md \u00a76). The regression stands unapproved.\n"
+                f"> Reason as given: {allow_reason}\n>"
+            )
+            for name, d_ins, ins, b_ins in sorted(regressions, key=lambda x: -x[1]):
+                messages.append(f"> - `{name}`: {fmt_delta(d_ins, is_bold=False)} ({ins:,} vs {b_ins:,})")
+            return True, messages
         messages.append(f"> [!NOTE]\n> **Performance regression override acknowledged**: {allow_reason or 'Approved'}\n>")
+        if unnamed:
+            messages.append(
+                "> [!WARNING]\n> The reason does not name "
+                + ", ".join(f"`{u}`" for u in sorted(unnamed))
+                + " — the override is scoped to the arms it names (AGENTS.md \u00a76).\n>"
+            )
         for name, d_ins, ins, b_ins in sorted(regressions, key=lambda x: -x[1]):
             messages.append(f"> - `{name}`: {fmt_delta(d_ins, is_bold=False)} ({ins:,} vs {b_ins:,})")
         return False, messages
@@ -1860,6 +1920,51 @@ def self_test() -> int:
     # A bare SHA names a revision, not a measurement of it.
     assert override_citation("measured at commit 4c4e852") is None
 
+    # 4c. An override must name the arms it approves (#822, AGENTS.md §6).
+    # The motivating line verbatim: it carries a resolvable citation, so
+    # `override_citation` admits it, but it names no arm — and the run it
+    # cites is a failure at a superseded head.
+    pr822 = (
+        "zero-sharing per-writer coordination under feature lock-padded "
+        "(refs CI run https://github.com/orieg/expanse/actions/runs/34490311084)"
+    )
+    assert override_citation(pr822) is not None, "the #822 line is sourced; that is not the defect"
+    assert override_names_arms(
+        pr822, ["instructions::cost::sync_map_insert/random", "instructions::cost::sync_set_insert/random"]
+    ) == [
+        "instructions::cost::sync_map_insert/random",
+        "instructions::cost::sync_set_insert/random",
+    ], "the #822 reason names no regressed arm"
+
+    # A reason naming an arm by its short bench name covers it.
+    assert override_names_arms("sync_map_insert pays for the OLC bracket, run https://x/1",
+                               ["instructions::cost::sync_map_insert/random"]) == []
+    # ... and does not thereby cover a different arm.
+    assert override_names_arms("sync_map_insert only, run https://x/1",
+                               ["instructions::cost::sync_map_insert/random",
+                                "instructions::cost::sync_set_insert/random"]) == [
+        "instructions::cost::sync_set_insert/random"
+    ]
+
+    # An override that names none of the regressed arms leaves the gate armed,
+    # even though it is sourced.
+    named_none_head = {"instructions::cost::sync_map_insert/random": {"Instructions": 140}}
+    named_none_base = {"instructions::cost::sync_map_insert/random": {"Instructions": 100}}
+    violated, msgs = check_regressions(
+        named_none_head, named_none_base, allowed=True, allow_reason=pr822
+    )
+    assert violated, "a sourced override naming no arm must not approve the regression"
+    assert any("names no regressed arm" in m for m in msgs), msgs
+
+    # Naming the arm approves it.
+    violated, msgs = check_regressions(
+        named_none_head,
+        named_none_base,
+        allowed=True,
+        allow_reason="sync_map_insert pays the bracket, run https://github.com/orieg/expanse/actions/runs/1",
+    )
+    assert not violated, msgs
+
     # An unsourced override leaves the gate armed and says why.
     regressed_head = {"map_get/random": {"Instructions": 1_480_000}}
     regressed_base = {"map_get/random": {"Instructions": 1_000_000}}
@@ -1869,12 +1974,14 @@ def self_test() -> int:
     assert failed is True
     assert "Regression override is void" in "\n".join(msgs)
     assert "45.6% faster, trust me" in "\n".join(msgs)
-    # A cited override still approves.
+    # A cited override that names the arm still approves. The arm name is not
+    # decoration: before #822's follow-up this fixture read "TLB win, run …",
+    # which names nothing and now correctly leaves the gate armed.
     failed, msgs = check_regressions(
         regressed_head,
         regressed_base,
         allowed=True,
-        allow_reason="TLB win, run https://github.com/orieg/expanse/actions/runs/1",
+        allow_reason="map_get TLB win, run https://github.com/orieg/expanse/actions/runs/1",
     )
     assert failed is False
     assert "override acknowledged" in "\n".join(msgs)
