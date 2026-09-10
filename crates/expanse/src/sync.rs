@@ -532,10 +532,11 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
 }
 
 /// A field on its own cache line when the `lock-padded` diagnostic feature is
-/// on; the bare field otherwise. It wraps `Shared`'s writer mutex and tree
-/// version word, so the feature measures what padding the mutex away from
-/// the wrapper's other writer-private words costs (the version already
-/// heads the struct on the readers' line in either configuration).
+/// on; the bare field otherwise. It wraps `Shared`'s writer mutex, writer gate,
+/// tree population counter and tree version word, so the feature measures what
+/// padding these shared/writer words away from each other and from the wrapper's
+/// other writer-private words costs (the version already heads the struct on the
+/// readers' line in either configuration).
 /// [`layout_report`] says where each field landed.
 #[cfg(feature = "lock-padded")]
 #[derive(Debug)]
@@ -694,7 +695,7 @@ impl RootState for ExpanseSet {
 struct Shared<T> {
     version: Line<SeqVersion>,
     inner: UnsafeCell<T>,
-    tree_pop: core::sync::atomic::AtomicU64,
+    tree_pop: Line<core::sync::atomic::AtomicU64>,
     collector: Arc<Collector>,
     write: Line<Mutex<()>>,
     #[cfg(feature = "std")]
@@ -755,7 +756,7 @@ impl<T: SharedTree> Shared<T> {
         let shared = Box::new(Self {
             version: line(SeqVersion::new()),
             inner: UnsafeCell::new(inner),
-            tree_pop: core::sync::atomic::AtomicU64::new(initial_pop),
+            tree_pop: line(core::sync::atomic::AtomicU64::new(initial_pop)),
             collector,
             write: line(Mutex::new(())),
             #[cfg(feature = "std")]
@@ -6016,6 +6017,7 @@ mod diagnostics_tests {
             }
             #[cfg(feature = "lock-padded")]
             {
+                assert_eq!(off("tree_pop") % 64, 0, "{wrapper}: tree_pop line-aligned");
                 assert_eq!(off("write") % 64, 0, "{wrapper}: write line-aligned");
             }
         }

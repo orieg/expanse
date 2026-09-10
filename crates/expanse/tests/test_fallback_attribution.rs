@@ -101,11 +101,96 @@ fn fallback_causes_account_for_every_fallback() {
     // Every fallback carries exactly one cause, so the shares are checkable
     // instead of residual (AGENTS.md §8.1).
     let summed: u64 = CAUSES.iter().map(|&s| d(s)).sum();
+    eprintln!("Attribution breakdown for 20k map inserts:");
+    for &c in &CAUSES {
+        eprintln!(
+            "  {:30}: {:6} ({:.2}%)",
+            format!("{:?}", c),
+            d(c),
+            (d(c) as f64 / fallbacks as f64) * 100.0
+        );
+    }
+    eprintln!(
+        "  Total fallbacks: {} / {} inserts ({:.2}%)",
+        fallbacks,
+        inserts,
+        (fallbacks as f64 / inserts as f64) * 100.0
+    );
+
+    // Also run for SyncExpanseSet
+    let set = expanse_trie::sync::SyncExpanseSet::new();
+    let mut sk = 0x9E37_79B9_7F4A_7C15;
+    for _ in 0..1_000 {
+        set.insert(next(&mut sk));
+    }
+    let s_before = occ_stats::snapshot();
+    for _ in 0..20_000 {
+        set.insert(next(&mut sk));
+    }
+    let s_after = occ_stats::snapshot();
+    let sd = |s: Stat| s_after[s as usize] - s_before[s as usize];
+    let s_inserts = sd(Stat::Inserts);
+    let s_fallbacks = sd(Stat::LockFallbacks);
+    eprintln!("Attribution breakdown for 20k set inserts:");
+    for &c in &CAUSES {
+        eprintln!(
+            "  {:30}: {:6} ({:.2}%)",
+            format!("{:?}", c),
+            sd(c),
+            (sd(c) as f64 / s_fallbacks as f64) * 100.0
+        );
+    }
+    eprintln!(
+        "  Total fallbacks: {} / {} inserts ({:.2}%)",
+        s_fallbacks,
+        s_inserts,
+        (s_fallbacks as f64 / s_inserts as f64) * 100.0
+    );
+
+    let s_summed: u64 = CAUSES.iter().map(|&s| sd(s)).sum();
+    assert_eq!(
+        s_summed,
+        s_fallbacks,
+        "set fallback causes must sum to s_fallbacks; unattributed = {}",
+        s_fallbacks as i64 - s_summed as i64
+    );
+
     assert_eq!(
         summed,
         fallbacks,
         "fallback causes must sum to lock_fallbacks; unattributed = {}",
         fallbacks as i64 - summed as i64
+    );
+
+    // Pin the dominance of FallbackBranchSplit over FallbackCapExpansion (F4 / §8.9.1).
+    // BranchSplit accounts for 68-81% of fallbacks on both structures, at least 3x
+    // greater than leaf capacity expansion (~16%). This pins the composition so that
+    // any silent shift is immediately detected.
+    assert!(
+        d(Stat::FallbackBranchSplit) > d(Stat::FallbackCapExpansion) * 3,
+        "map: BranchSplit ({}) must exceed CapExpansion ({}) by at least 3x",
+        d(Stat::FallbackBranchSplit),
+        d(Stat::FallbackCapExpansion)
+    );
+    assert!(
+        sd(Stat::FallbackBranchSplit) > sd(Stat::FallbackCapExpansion) * 3,
+        "set: BranchSplit ({}) must exceed CapExpansion ({}) by at least 3x",
+        sd(Stat::FallbackBranchSplit),
+        sd(Stat::FallbackCapExpansion)
+    );
+
+    // A single-threaded test workload experiences zero lock contention (F3).
+    // Under W >= 2 concurrent writers, the gate-closure feedback loop in
+    // sync.rs makes contention non-zero by design.
+    assert_eq!(
+        d(Stat::FallbackContention),
+        0,
+        "single-threaded map test workload must have zero contention fallbacks"
+    );
+    assert_eq!(
+        sd(Stat::FallbackContention),
+        0,
+        "single-threaded set test workload must have zero contention fallbacks"
     );
 
     // The OLC walk does *not* decode every tag it can meet, and this counter
@@ -135,4 +220,5 @@ fn fallback_causes_account_for_every_fallback() {
 
     assert!(fallbacks > 0, "workload must exercise the fallback path");
     assert_eq!(map.len(), 21_000);
+    assert_eq!(set.len(), 21_000);
 }
