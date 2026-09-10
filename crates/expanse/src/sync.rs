@@ -1216,6 +1216,13 @@ fn version_unlock_timed(cell: &crate::occ::VersionCell, old_v: u32, modified: bo
 }
 
 #[cfg(feature = "std")]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+enum BumpStatus {
+    Ok,
+    Obsolete,
+}
+
+#[cfg(feature = "std")]
 #[inline]
 unsafe fn bump_ancestor_pop0(
     node: *mut u8,
@@ -1223,7 +1230,7 @@ unsafe fn bump_ancestor_pop0(
     child_level: u8,
     d: u8,
     delta: i64,
-) {
+) -> BumpStatus {
     let vp: *const u32 = match edge_type {
         // SAFETY: node pointer is EBR-live and validated by parent version check.
         EdgeType::BranchL3 => unsafe { &raw const (*node.cast::<BranchL3>()).hdr.version },
@@ -1233,13 +1240,14 @@ unsafe fn bump_ancestor_pop0(
         EdgeType::BranchB => unsafe { &raw const (*node.cast::<BranchB>()).version },
         // SAFETY: node pointer is EBR-live and validated by parent version check.
         EdgeType::BranchU => unsafe { &raw const (*node.cast::<BranchU>()).version },
-        _ => return,
+        _ => return BumpStatus::Ok,
     };
     // SAFETY: caller guarantees node is an EBR-live branch node.
     let cell = unsafe { crate::occ::version_cell(vp) };
     loop {
         match version_try_lock_timed(cell) {
             Ok((old_v, lock_t0)) => {
+                let mut found = false;
                 // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                 unsafe {
                     match edge_type {
@@ -1247,12 +1255,14 @@ unsafe fn bump_ancestor_pop0(
                             let b = node.cast::<BranchL3>();
                             if let Some(slot) = (*b).hdr.find(d) {
                                 bump_edge_pop0(&raw mut (*b).edges[slot], child_level, delta);
+                                found = true;
                             }
                         }
                         EdgeType::BranchL7 => {
                             let b = node.cast::<BranchL7>();
                             if let Some(slot) = (*b).hdr.find(d) {
                                 bump_edge_pop0(&raw mut (*b).edges[slot], child_level, delta);
+                                found = true;
                             }
                         }
                         EdgeType::BranchB => {
@@ -1262,32 +1272,331 @@ unsafe fn bump_ancestor_pop0(
                                 let sub = (*b).subarrays[(d >> 5) as usize];
                                 if !sub.is_null() {
                                     bump_edge_pop0(sub.add(rank), child_level, delta);
+                                    found = true;
                                 }
                             }
                         }
                         EdgeType::BranchU => {
                             let b = node.cast::<BranchU>();
                             bump_edge_pop0(&raw mut (*b).edges[d as usize], child_level, delta);
+                            found = true;
                         }
                         _ => {}
                     }
-                    version_unlock_timed(cell, old_v, true, lock_t0);
+                    version_unlock_timed(cell, old_v, found, lock_t0);
                 }
-                break;
+                if found {
+                    return BumpStatus::Ok;
+                } else {
+                    return BumpStatus::Obsolete;
+                }
             }
             Err(cur) => {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockSpins);
-                debug_assert!(
-                    (cur & crate::occ::OBSOLETE) == 0,
-                    "ancestor node became obsolete during bump_ancestor_pop0: structural restructuring must re-descend"
-                );
                 if (cur & crate::occ::OBSOLETE) != 0 {
-                    break;
+                    return BumpStatus::Obsolete;
                 }
                 core::hint::spin_loop();
                 #[cfg(loom)]
                 loom::thread::yield_now();
             }
+        }
+    }
+}
+
+/// Re-descends from `top_ptr` to find the active node covering `key` and bumps all
+/// not-yet-bumped edges on the current path per `ARCHITECTURE.md` §4.2 rule (a).
+#[cfg(feature = "std")]
+unsafe fn redescend_and_bump(top_ptr: *mut Edge, key: Key, mut stop_level: u8, delta: i64) {
+    let mut spins = 0u32;
+    'outer: loop {
+        if top_ptr.is_null() {
+            return;
+        }
+        // SAFETY: top_ptr points to an EBR-live root edge under the OLC protocol.
+        let mut edge = unsafe { top_ptr.read() };
+        let mut level = 8u8;
+        let mut fresh = [AncestorFrame {
+            node: core::ptr::null_mut(),
+            edge_type: EdgeType::BranchL3,
+            version_ptr: core::ptr::null(),
+            version_snap: 0,
+            child_level: 0,
+            digit: 0,
+        }; 8];
+        let mut fresh_depth = 0usize;
+
+        'descend: loop {
+            let Some(tag) = edge.tag() else {
+                spins = spins.wrapping_add(1);
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockSpins);
+                if spins > 32 {
+                    core::hint::spin_loop();
+                }
+                #[cfg(loom)]
+                loom::thread::yield_now();
+                continue 'outer;
+            };
+
+            match tag {
+                EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+                    let is_l3 = matches!(t, EdgeType::BranchL3);
+                    let node = edge.node_ptr();
+                    let vp = if is_l3 {
+                        // SAFETY: node pointer is EBR-live and validated by parent version check.
+                        unsafe { &raw const (*node.cast::<BranchL3>()).hdr.version }
+                    } else {
+                        // SAFETY: node pointer is EBR-live and validated by parent version check.
+                        unsafe { &raw const (*node.cast::<BranchL7>()).hdr.version }
+                    };
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let Some(nsnap) =
+                        (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
+                    else {
+                        spins = spins.wrapping_add(1);
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockSpins);
+                        if spins > 32 {
+                            core::hint::spin_loop();
+                        }
+                        #[cfg(loom)]
+                        loom::thread::yield_now();
+                        continue 'outer;
+                    };
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let (bl, num, digits) = unsafe {
+                        if is_l3 {
+                            let b = node.cast::<BranchL3>();
+                            ((*b).hdr.level, (*b).hdr.num as usize, (*b).hdr.digits)
+                        } else {
+                            let b = node.cast::<BranchL7>();
+                            ((*b).hdr.level, (*b).hdr.num as usize, (*b).hdr.digits)
+                        }
+                    };
+                    if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
+                        spins = spins.wrapping_add(1);
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockSpins);
+                        continue 'outer;
+                    }
+                    if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
+                        spins = spins.wrapping_add(1);
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockSpins);
+                        continue 'outer;
+                    }
+                    let d = digit(key, bl);
+                    let slot_opt = digits[..num].iter().position(|&x| x == d);
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
+                        spins = spins.wrapping_add(1);
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockSpins);
+                        continue 'outer;
+                    }
+                    let Some(slot) = slot_opt else {
+                        break 'descend;
+                    };
+                    let child_level = bl - 1;
+                    if child_level >= stop_level {
+                        if fresh_depth < 8 {
+                            fresh[fresh_depth] = AncestorFrame {
+                                node,
+                                edge_type: t,
+                                version_ptr: vp,
+                                version_snap: nsnap,
+                                child_level,
+                                digit: d,
+                            };
+                            fresh_depth += 1;
+                        }
+                        if child_level == stop_level {
+                            break 'descend;
+                        }
+                    } else {
+                        break 'descend;
+                    }
+                    let edge_ptr = if is_l3 {
+                        // SAFETY: node is EBR-live and slot < num <= 3.
+                        unsafe { &raw mut (*node.cast::<BranchL3>()).edges[slot] }
+                    } else {
+                        // SAFETY: node is EBR-live and slot < num <= 7.
+                        unsafe { &raw mut (*node.cast::<BranchL7>()).edges[slot] }
+                    };
+                    // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node.
+                    edge = unsafe { edge_ptr.read() };
+                    level = bl - 1;
+                }
+
+                EdgeTag::Structural(EdgeType::BranchB) => {
+                    let node = edge.node_ptr().cast::<BranchB>();
+                    // SAFETY: node pointer is EBR-live and validated by parent version check.
+                    let vp = unsafe { &raw const (*node).version };
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let Some(nsnap) =
+                        (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
+                    else {
+                        spins = spins.wrapping_add(1);
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockSpins);
+                        if spins > 32 {
+                            core::hint::spin_loop();
+                        }
+                        #[cfg(loom)]
+                        loom::thread::yield_now();
+                        continue 'outer;
+                    };
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let (bl, bit, rank, sub) = unsafe {
+                        let b = &*node;
+                        let bl = b.level;
+                        let d = digit(key, bl);
+                        (
+                            bl,
+                            b.bitmap.test(d),
+                            b.bitmap.subexpanse_rank(d) as usize,
+                            b.subarrays[(d >> 5) as usize],
+                        )
+                    };
+                    if !(2..=level).contains(&bl) {
+                        spins = spins.wrapping_add(1);
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockSpins);
+                        continue 'outer;
+                    }
+                    if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
+                        spins = spins.wrapping_add(1);
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockSpins);
+                        continue 'outer;
+                    }
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
+                        spins = spins.wrapping_add(1);
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockSpins);
+                        continue 'outer;
+                    }
+                    if !bit || sub.is_null() {
+                        break 'descend;
+                    }
+                    let d = digit(key, bl);
+                    let child_level = bl - 1;
+                    if child_level >= stop_level {
+                        if fresh_depth < 8 {
+                            fresh[fresh_depth] = AncestorFrame {
+                                node: node.cast::<u8>(),
+                                edge_type: EdgeType::BranchB,
+                                version_ptr: vp,
+                                version_snap: nsnap,
+                                child_level,
+                                digit: d,
+                            };
+                            fresh_depth += 1;
+                        }
+                        if child_level == stop_level {
+                            break 'descend;
+                        }
+                    } else {
+                        break 'descend;
+                    }
+                    // SAFETY: sub is non-null and rank is bounded by bitmap subexpanse count (<= 32).
+                    let edge_ptr = unsafe { sub.add(rank) };
+                    // SAFETY: edge_ptr points to an EBR-live edge inside a validated BranchB subarray.
+                    edge = unsafe { edge_ptr.read() };
+                    level = bl - 1;
+                }
+
+                EdgeTag::Structural(EdgeType::BranchU) => {
+                    let node = edge.node_ptr().cast::<BranchU>();
+                    // SAFETY: node pointer is EBR-live and validated by parent version check.
+                    let vp = unsafe { &raw const (*node).version };
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    let Some(nsnap) =
+                        (unsafe { crate::occ::node_sample(crate::occ::version_cell(vp)) })
+                    else {
+                        spins = spins.wrapping_add(1);
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockSpins);
+                        if spins > 32 {
+                            core::hint::spin_loop();
+                        }
+                        #[cfg(loom)]
+                        loom::thread::yield_now();
+                        continue 'outer;
+                    };
+                    let d = digit(key, level);
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
+                        spins = spins.wrapping_add(1);
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockSpins);
+                        continue 'outer;
+                    }
+                    let child_level = level - 1;
+                    if child_level >= stop_level {
+                        if fresh_depth < 8 {
+                            fresh[fresh_depth] = AncestorFrame {
+                                node: node.cast::<u8>(),
+                                edge_type: EdgeType::BranchU,
+                                version_ptr: vp,
+                                version_snap: nsnap,
+                                child_level,
+                                digit: d,
+                            };
+                            fresh_depth += 1;
+                        }
+                        if child_level == stop_level {
+                            break 'descend;
+                        }
+                    } else {
+                        break 'descend;
+                    }
+                    // SAFETY: d is a valid byte (0..=255) and BranchU has 256 edges.
+                    let edge_ptr = unsafe { &raw mut (*node).edges[d as usize] };
+                    // SAFETY: edge_ptr points to an EBR-live edge inside a validated BranchU.
+                    edge = unsafe { edge_ptr.read() };
+                    level -= 1;
+                }
+
+                _ => {
+                    // Reached a leaf, immediate, or null; no more branch ancestors exist.
+                    break 'descend;
+                }
+            }
+        }
+
+        // Bump collected fresh ancestors bottom-up:
+        for j in (0..fresh_depth).rev() {
+            let a = &fresh[j];
+            // SAFETY: a.node and a.edge_type were sampled and verified live.
+            let status =
+                unsafe { bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, delta) };
+            if status == BumpStatus::Obsolete {
+                // Encountered obsolete node during bump; advance stop_level to its child_level
+                // and re-descend. Any nodes below j were already bumped.
+                stop_level = a.child_level;
+                continue 'outer;
+            }
+        }
+
+        return;
+    }
+}
+
+/// Bumps ancestor edge `pop0` counts bottom-up. If any ancestor is obsolete,
+/// drops the attempt and re-descends from root per `ARCHITECTURE.md` §4.2 rule (a).
+#[cfg(feature = "std")]
+#[inline]
+unsafe fn bump_ancestor_chain(
+    top_ptr: *mut Edge,
+    key: Key,
+    ancestors: &[AncestorFrame],
+    delta: i64,
+) {
+    for i in (0..ancestors.len()).rev() {
+        let a = &ancestors[i];
+        // SAFETY: caller guarantees ancestors slice contains live frames.
+        let status =
+            unsafe { bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, delta) };
+        if status == BumpStatus::Obsolete {
+            // Per ARCHITECTURE.md §4.2 rule (a), drop the attempt on the obsolete node
+            // and re-descend from root to bump all not-yet-bumped edges down to a.child_level.
+            // SAFETY: top_ptr points to the root edge under EBR-live tree.
+            unsafe {
+                redescend_and_bump(top_ptr, key, a.child_level, delta);
+            }
+            break;
         }
     }
 }
@@ -1591,10 +1900,7 @@ impl SyncExpanseSet {
                                 true,
                                 lock_t0,
                             );
-                            for i in (0..anc_depth).rev() {
-                                let a = &ancestors[i];
-                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
-                            }
+                            bump_ancestor_chain(top_ptr, key, &ancestors[..anc_depth], 1);
                         }
                         return OlcOutcome::Done(true);
                     }
@@ -1723,10 +2029,12 @@ impl SyncExpanseSet {
                         if (*node).bitmap.set(d) {
                             (*edge_ptr).set_pop0(1, (pop0 + 1) as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            for i in (0..anc_depth.saturating_sub(1)).rev() {
-                                let a = &ancestors[i];
-                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
-                            }
+                            bump_ancestor_chain(
+                                top_ptr,
+                                key,
+                                &ancestors[..anc_depth.saturating_sub(1)],
+                                1,
+                            );
                             return OlcOutcome::Done(true);
                         } else {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
@@ -1815,10 +2123,12 @@ impl SyncExpanseSet {
                             crate::mutate::write_packed(keys_ptr, at, kb, k);
                             (*edge_ptr).set_pop0(kb as u8, pop as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            for i in (0..anc_depth.saturating_sub(1)).rev() {
-                                let a = &ancestors[i];
-                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
-                            }
+                            bump_ancestor_chain(
+                                top_ptr,
+                                key,
+                                &ancestors[..anc_depth.saturating_sub(1)],
+                                1,
+                            );
                         }
                         return OlcOutcome::Done(true);
                     }
@@ -1891,10 +2201,12 @@ impl SyncExpanseSet {
                             (*edge_ptr).set_aux_bytes(aux);
                             (*edge_ptr).set_tag(new_im.as_u8());
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            for i in (0..anc_depth.saturating_sub(1)).rev() {
-                                let a = &ancestors[i];
-                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
-                            }
+                            bump_ancestor_chain(
+                                top_ptr,
+                                key,
+                                &ancestors[..anc_depth.saturating_sub(1)],
+                                1,
+                            );
                         }
                         return OlcOutcome::Done(true);
                     }
@@ -2120,10 +2432,12 @@ impl SyncExpanseSet {
                         (*node).bitmap.clear(d);
                         (*edge_ptr).set_pop0(1, (pop0 - 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        for i in (0..anc_depth.saturating_sub(1)).rev() {
-                            let a = &ancestors[i];
-                            bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, -1);
-                        }
+                        bump_ancestor_chain(
+                            top_ptr,
+                            key,
+                            &ancestors[..anc_depth.saturating_sub(1)],
+                            -1,
+                        );
                         return OlcOutcome::Done(true);
                     }
                 }
@@ -2186,10 +2500,12 @@ impl SyncExpanseSet {
                             );
                             (*edge_ptr).set_pop0(kb as u8, (pop - 2) as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            for i in (0..anc_depth.saturating_sub(1)).rev() {
-                                let a = &ancestors[i];
-                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, -1);
-                            }
+                            bump_ancestor_chain(
+                                top_ptr,
+                                key,
+                                &ancestors[..anc_depth.saturating_sub(1)],
+                                -1,
+                            );
                         }
                         return OlcOutcome::Done(true);
                     }
@@ -2597,10 +2913,7 @@ impl SyncExpanseMap {
                                 true,
                                 lock_t0,
                             );
-                            for i in (0..anc_depth).rev() {
-                                let a = &ancestors[i];
-                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
-                            }
+                            bump_ancestor_chain(top_ptr, key, &ancestors[..anc_depth], 1);
                         }
                         return OlcOutcome::Done(None);
                     }
@@ -2762,10 +3075,12 @@ impl SyncExpanseMap {
                             (*node).bitmap.set(d);
                             (*edge_ptr).set_pop0(1, (pop0 + 1) as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            for i in (0..anc_depth.saturating_sub(1)).rev() {
-                                let a = &ancestors[i];
-                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
-                            }
+                            bump_ancestor_chain(
+                                top_ptr,
+                                key,
+                                &ancestors[..anc_depth.saturating_sub(1)],
+                                1,
+                            );
                         }
                         return OlcOutcome::Done(None);
                     }
@@ -2851,10 +3166,12 @@ impl SyncExpanseMap {
                             crate::leaf::map_insert_at(base, kb as u8, pop, at, k, val);
                             (*edge_ptr).set_pop0(kb as u8, pop as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            for i in (0..anc_depth.saturating_sub(1)).rev() {
-                                let a = &ancestors[i];
-                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
-                            }
+                            bump_ancestor_chain(
+                                top_ptr,
+                                key,
+                                &ancestors[..anc_depth.saturating_sub(1)],
+                                1,
+                            );
                         }
                         return OlcOutcome::Done(None);
                     }
@@ -2974,10 +3291,12 @@ impl SyncExpanseMap {
                             (*edge_ptr).set_aux_bytes(new_aux);
                             (*edge_ptr).set_tag(new_im.as_u8());
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            for i in (0..anc_depth.saturating_sub(1)).rev() {
-                                let a = &ancestors[i];
-                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, 1);
-                            }
+                            bump_ancestor_chain(
+                                top_ptr,
+                                key,
+                                &ancestors[..anc_depth.saturating_sub(1)],
+                                1,
+                            );
                         }
                         return OlcOutcome::Done(None);
                     }
@@ -3220,10 +3539,12 @@ impl SyncExpanseMap {
                             (*node).bitmap.clear(d);
                             (*edge_ptr).set_pop0(1, (pop0 - 1) as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            for i in (0..anc_depth.saturating_sub(1)).rev() {
-                                let a = &ancestors[i];
-                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, -1);
-                            }
+                            bump_ancestor_chain(
+                                top_ptr,
+                                key,
+                                &ancestors[..anc_depth.saturating_sub(1)],
+                                -1,
+                            );
                             return OlcOutcome::Done(Some(old));
                         }
                     }
@@ -3290,10 +3611,12 @@ impl SyncExpanseMap {
                             crate::leaf::map_remove_at(base, kb as u8, pop, pos);
                             (*edge_ptr).set_pop0(kb as u8, (pop - 2) as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            for i in (0..anc_depth.saturating_sub(1)).rev() {
-                                let a = &ancestors[i];
-                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, -1);
-                            }
+                            bump_ancestor_chain(
+                                top_ptr,
+                                key,
+                                &ancestors[..anc_depth.saturating_sub(1)],
+                                -1,
+                            );
                             return OlcOutcome::Done(Some(old));
                         }
                     }
@@ -3337,16 +3660,12 @@ impl SyncExpanseMap {
                                 let old = (*edge_ptr).word0();
                                 (*edge_ptr) = Edge::NULL;
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
-                                for i in (0..anc_depth.saturating_sub(1)).rev() {
-                                    let a = &ancestors[i];
-                                    bump_ancestor_pop0(
-                                        a.node,
-                                        a.edge_type,
-                                        a.child_level,
-                                        a.digit,
-                                        -1,
-                                    );
-                                }
+                                bump_ancestor_chain(
+                                    top_ptr,
+                                    key,
+                                    &ancestors[..anc_depth.saturating_sub(1)],
+                                    -1,
+                                );
                                 return OlcOutcome::Done(Some(old));
                             }
                         }
@@ -3390,10 +3709,12 @@ impl SyncExpanseMap {
                             (*edge_ptr).set_aux_bytes(new_aux);
                             (*edge_ptr).set_tag(new_im.as_u8());
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            for i in (0..anc_depth.saturating_sub(1)).rev() {
-                                let a = &ancestors[i];
-                                bump_ancestor_pop0(a.node, a.edge_type, a.child_level, a.digit, -1);
-                            }
+                            bump_ancestor_chain(
+                                top_ptr,
+                                key,
+                                &ancestors[..anc_depth.saturating_sub(1)],
+                                -1,
+                            );
                             return OlcOutcome::Done(Some(old));
                         }
                     }
@@ -6189,6 +6510,81 @@ mod obsolete_tests {
         assert!(
             after_hold > before_hold,
             "LockHoldCycles must advance under OLC node locks (before {before_hold}, after {after_hold})"
+        );
+    }
+
+    #[test]
+    fn obsolete_ancestor_redescent_recovers_and_updates_pop0() {
+        // Construct a populated SyncExpanseSet with enough keys to build branch structure.
+        let set = SyncExpanseSet::new();
+        // Insert keys sharing prefix to build a branch hierarchy with leaves.
+        for i in 1..=50u64 {
+            set.insert((1 << 56) | (i << 16) | 1);
+        }
+        assert_eq!(set.len(), 50);
+
+        // SAFETY: top_ptr obtained without taking &mut on inner.
+        let top_ptr = unsafe { (*set.shared.inner.get()).root_top_ptr() };
+        assert!(!top_ptr.is_null());
+        // SAFETY: top_ptr is an EBR-live root edge pointer.
+        let root_edge = unsafe { top_ptr.read() };
+        assert!(matches!(
+            root_edge.tag(),
+            Some(EdgeTag::Structural(
+                EdgeType::BranchL3 | EdgeType::BranchL7 | EdgeType::BranchB
+            ))
+        ));
+
+        let root_node = root_edge.node_ptr();
+        let target_key = (1 << 56) | (10 << 16) | 1;
+
+        // Test the obsolete handling:
+        // Create an ancestor frame pointing to a simulated obsolete branch node.
+        let mut dummy_branch = BranchL3::new(8);
+        dummy_branch.hdr.num = 1;
+        dummy_branch.hdr.digits[0] = digit(target_key, 8);
+        // Mark dummy branch as obsolete.
+        dummy_branch.hdr.version = crate::occ::OBSOLETE;
+        dummy_branch.edges[0] = Edge::NULL;
+
+        let frame = AncestorFrame {
+            node: (&raw mut dummy_branch).cast::<u8>(),
+            edge_type: EdgeType::BranchL3,
+            version_ptr: &raw const dummy_branch.hdr.version,
+            version_snap: 0,
+            child_level: 7,
+            digit: digit(target_key, 8),
+        };
+
+        // Before bumping, record the pop0 of the real branch edge in root_node for digit(1 << 56, 8) = 1.
+        let d = digit(target_key, 8);
+        // SAFETY: root_node is an EBR-live BranchL3 pointer validated by root_edge tag check.
+        let old_pop0 = unsafe {
+            let b = root_node.cast::<BranchL3>();
+            let slot = (*b).hdr.find(d).expect("digit present in root branch");
+            (*b).edges[slot].pop0(7)
+        };
+
+        // Call bump_ancestor_chain with the obsolete frame.
+        // Under the old code: panics on debug_assert! or silently drops the bump.
+        // Under the new code: detects obsolete, drops attempt, re-descends from top_ptr to root_node,
+        // and bumps root_node's edge pop0 by 1.
+        // SAFETY: top_ptr points to the root edge of the active tree.
+        unsafe {
+            bump_ancestor_chain(top_ptr, target_key, &[frame], 1);
+        }
+
+        // SAFETY: root_node is an EBR-live BranchL3 pointer.
+        let new_pop0 = unsafe {
+            let b = root_node.cast::<BranchL3>();
+            let slot = (*b).hdr.find(d).expect("digit present in root branch");
+            (*b).edges[slot].pop0(7)
+        };
+
+        assert_eq!(
+            new_pop0,
+            old_pop0 + 1,
+            "re-descent must find the active root branch node and bump its edge pop0 by 1"
         );
     }
 }
