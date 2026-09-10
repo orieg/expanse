@@ -157,8 +157,11 @@ pub(crate) unsafe fn lower_bound_fixed<const KB: usize>(
 ) -> usize {
     // Every vectorized branch below must satisfy: cap_class(pop) * KB >=
     // the kernel's fixed load width (see `simd_gates_within_cap_class`).
-    // cap_class rounds to multiples of FOUR, so pop 9..=12 only guarantees
-    // 12 slots — gating those into the 16-byte kernel read out of bounds.
+    // cap_class rounds to multiples of FOUR over the range these gates cover
+    // (3..=16), so pop 9..=12 only guarantees 12 slots — gating those into the
+    // 16-byte kernel read out of bounds. Above 16 the ladder coarsens to
+    // {24, 32} (#826), which only ever *raises* the slot count a population is
+    // guaranteed, so every bound below stays satisfied by construction.
     if KB == 1 && (13..=16).contains(&pop) {
         // SAFETY: cap_class(pop >= 13) is 16, so keys holds at least 16 bytes.
         unsafe { crate::bits::lower_bound_16_u8(keys, pop, needle as u8) }
