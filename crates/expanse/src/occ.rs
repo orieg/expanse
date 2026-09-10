@@ -881,6 +881,16 @@ impl Drop for LockSet<'_> {
 pub(crate) struct WriterGuard<'a> {
     gate: &'a WriterGate,
     in_flight: &'a AtomicUsize,
+    slot_id: usize,
+}
+
+#[cfg(feature = "std")]
+#[allow(dead_code)]
+impl<'a> WriterGuard<'a> {
+    #[inline(always)]
+    pub(crate) fn slot_id(&self) -> usize {
+        self.slot_id
+    }
 }
 
 #[cfg(feature = "std")]
@@ -959,6 +969,7 @@ impl WriterGate {
     pub(crate) fn enter_writer<'a>(
         &'a self,
         in_flight: &'a AtomicUsize,
+        slot_id: usize,
     ) -> Option<WriterGuard<'a>> {
         if self.is_closed() {
             return None;
@@ -972,6 +983,7 @@ impl WriterGate {
             Some(WriterGuard {
                 gate: self,
                 in_flight,
+                slot_id,
             })
         }
     }
@@ -1079,16 +1091,55 @@ struct FreeListHead(*mut FreeBlock);
 // SAFETY: Access to the raw pointer in FreeListHead is synchronized by a Mutex.
 unsafe impl Send for FreeListHead {}
 
+#[cfg(feature = "lock-padded")]
+#[derive(Debug)]
+#[repr(align(64))]
+#[allow(dead_code)]
+pub(crate) struct Line<X>(pub(crate) X);
+
+#[cfg(feature = "lock-padded")]
+impl<X> core::ops::Deref for Line<X> {
+    type Target = X;
+    fn deref(&self) -> &X {
+        &self.0
+    }
+}
+
+#[cfg(feature = "lock-padded")]
+impl<X> From<X> for Line<X> {
+    fn from(x: X) -> Self {
+        Self(x)
+    }
+}
+
+#[cfg(not(feature = "lock-padded"))]
+#[allow(dead_code)]
+pub(crate) type Line<X> = X;
+
+#[cfg(feature = "lock-padded")]
+#[inline]
+#[allow(dead_code)]
+pub(crate) fn line<X>(x: X) -> Line<X> {
+    Line(x)
+}
+
+#[cfg(not(feature = "lock-padded"))]
+#[inline]
+#[allow(dead_code)]
+pub(crate) fn line<X>(x: X) -> Line<X> {
+    x
+}
+
 /// Epoch-based reclamation for one tree: readers pin the current epoch
 /// around each walk; retired allocations wait two epoch advances before
 /// they are freed, so a pinned reader can never observe freed memory.
 #[cfg(feature = "std")]
 #[derive(Debug)]
 pub struct Collector {
-    epoch: AtomicUsize,
+    epoch: Line<AtomicUsize>,
     advancing: AtomicBool,
     pub(crate) alive: AtomicBool,
-    op_count: AtomicUsize,
+    op_count: Line<AtomicUsize>,
     readers: Mutex<Vec<Arc<Slot>>>,
     bins: [Mutex<Vec<Garbage>>; BINS],
     freelists: [Mutex<FreeListHead>; NUM_CLASSES],
@@ -1110,10 +1161,10 @@ impl Collector {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            epoch: AtomicUsize::new(0),
+            epoch: line(AtomicUsize::new(0)),
             advancing: AtomicBool::new(false),
             alive: AtomicBool::new(true),
-            op_count: AtomicUsize::new(0),
+            op_count: line(AtomicUsize::new(0)),
             readers: Mutex::new(Vec::new()),
             bins: [
                 Mutex::new(Vec::new()),
@@ -1641,7 +1692,7 @@ mod tests {
 
         // Normal entry when open
         {
-            let guard = gate.enter_writer(&in_flight);
+            let guard = gate.enter_writer(&in_flight, 0);
             assert!(guard.is_some());
             assert_eq!(in_flight.load(Ordering::Relaxed), 1);
         }
@@ -1651,13 +1702,13 @@ mod tests {
         gate.close();
         assert!(gate.is_closed());
         // Entry fails when closed
-        assert!(gate.enter_writer(&in_flight).is_none());
+        assert!(gate.enter_writer(&in_flight, 0).is_none());
         assert_eq!(in_flight.load(Ordering::Relaxed), 0);
 
         gate.open();
         assert!(!gate.is_closed());
         {
-            let guard = gate.enter_writer(&in_flight);
+            let guard = gate.enter_writer(&in_flight, 0);
             assert!(guard.is_some());
             assert_eq!(in_flight.load(Ordering::Relaxed), 1);
         }
