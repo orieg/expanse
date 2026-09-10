@@ -116,6 +116,11 @@ fn fallback_causes_account_for_every_fallback() {
     // reason no structural counter names. Maps do build such terminals
     // (`mutate_map.rs:1636`, `:2298`).
     //
+    // Note: On this specific insert-only map workload, `unknown` may measure 0,
+    // but readers must not take `unknown == 0` as proof the OLC walk is fully
+    // complete: `FullExpanse` remains undecoded in `olc_remove_set`, `olc_insert_map`,
+    // and `olc_remove_map`.
+    //
     // The share is small here, and the point of the bound is that it stays
     // small: an unexplained bucket that grows into a material fraction of
     // fallbacks would invalidate the four structural shares Phase 0 reports,

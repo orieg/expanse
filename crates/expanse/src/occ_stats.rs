@@ -127,7 +127,9 @@ pub enum Stat {
     /// Fallbacks taken because a linear leaf crossed a [`crate::leaf::cap_class`]
     /// boundary and had to be reallocated (#568).
     FallbackCapExpansion = 22,
-    /// Fallbacks taken to convert an immediate slot into a heap leaf (#568).
+    /// Fallbacks taken for an immediate-slot transition: an immediate slot
+    /// running out of packed capacity to become a heap leaf, or an empty
+    /// branch slot populating as an immediate (#568).
     FallbackImmediateConversion = 23,
     /// Fallbacks taken for a branch structural mutation — linear branch
     /// expansion, bitmap allocation, or a prefix split (#568).

@@ -729,6 +729,9 @@ unsafe impl<T: Send> Sync for Shared<T> {}
 
 impl<T> Drop for Shared<T> {
     fn drop(&mut self) {
+        self.collector
+            .alive
+            .store(false, core::sync::atomic::Ordering::Release);
         self.collector.drain();
     }
 }
@@ -874,14 +877,19 @@ impl<T: SharedTree> Shared<T> {
         let key = Arc::as_ptr(&self.collector) as usize;
         WRITER_READERS.with(|cell| {
             let mut vec = cell.borrow_mut();
-            // Prune dead collectors whose Shared tree has been dropped (M4).
-            vec.retain(|(_, r)| !r.is_orphan());
             let idx = if let Some(pos) = vec.iter().position(|(k, _)| *k == key) {
-                // True LRU: promote accessed entry to the back (MRU) (M5).
-                let item = vec.remove(pos);
-                vec.push(item);
-                vec.len() - 1
+                // True LRU on hit: promote accessed entry to the back (MRU) if not already there.
+                // Does NOT run `retain` on fast-path hits (N2).
+                if pos < vec.len() - 1 {
+                    let item = vec.remove(pos);
+                    vec.push(item);
+                    vec.len() - 1
+                } else {
+                    pos
+                }
             } else {
+                // Cache miss: prune dead collectors whose Shared tree has been dropped (M4/N1).
+                vec.retain(|(_, r)| !r.is_orphan());
                 if vec.len() >= 16 {
                     vec.remove(0); // Evict LRU entry
                 }
@@ -1097,7 +1105,7 @@ enum FallbackCause {
     /// crossed its own population threshold, and had to be reallocated.
     CapExpansion,
     /// An immediate slot ran out of packed capacity and must become a heap
-    /// leaf.
+    /// leaf, or an empty branch slot must become an immediate (#568).
     ImmediateConversion,
     /// A branch structural mutation: a full linear branch, a new digit in a
     /// bitmap subexpanse, or a prefix split from a failed skip decode.
@@ -1727,6 +1735,10 @@ impl SyncExpanseSet {
                 }
 
                 EdgeTag::Structural(EdgeType::FullExpanse) => {
+                    // Linearizability: A FullExpanse node contains all 256 keys in its
+                    // subexpanse, so `key` is guaranteed to already be present. Because
+                    // this terminal was observed at a valid point in time under this
+                    // descent, the insert linearizes at this instant as a no-op returning false.
                     return OlcOutcome::Done(false);
                 }
 
@@ -5758,6 +5770,44 @@ mod tests {
             retained_after_drop < retained_held,
             "retained garbage must drop after releasing guard: before {retained_held}, after {retained_after_drop}"
         );
+    }
+
+    #[test]
+    fn multi_writer_orphan_reader_pruning() {
+        let map = Box::new(SyncExpanseMap::new());
+        let col = Arc::clone(&map.shared.collector);
+        let reader = col.register();
+        assert!(!reader.is_orphan());
+
+        // Multiple reader handles simulating multiple worker thread TLS caches.
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let r = col.register();
+                std::thread::spawn(move || {
+                    {
+                        let _pin = r.pin();
+                    }
+                    r
+                })
+            })
+            .collect();
+        let readers: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        // Strong count is > 1 because multiple threads held handles.
+        assert!(!reader.is_orphan());
+        for r in &readers {
+            assert!(!r.is_orphan());
+        }
+
+        // Drop the owning tree:
+        drop(map);
+
+        // Under N1 (liveness flag), dropping the tree immediately marks all readers as orphan,
+        // even though multiple thread-local handles still hold Arc<Collector> (strong_count > 1).
+        assert!(reader.is_orphan());
+        for r in &readers {
+            assert!(r.is_orphan());
+        }
     }
 }
 

@@ -1087,6 +1087,7 @@ unsafe impl Send for FreeListHead {}
 pub struct Collector {
     epoch: AtomicUsize,
     advancing: AtomicBool,
+    pub(crate) alive: AtomicBool,
     op_count: AtomicUsize,
     readers: Mutex<Vec<Arc<Slot>>>,
     bins: [Mutex<Vec<Garbage>>; BINS],
@@ -1111,6 +1112,7 @@ impl Collector {
         Self {
             epoch: AtomicUsize::new(0),
             advancing: AtomicBool::new(false),
+            alive: AtomicBool::new(true),
             op_count: AtomicUsize::new(0),
             readers: Mutex::new(Vec::new()),
             bins: [
@@ -1364,11 +1366,10 @@ pub struct Reader {
 
 #[cfg(feature = "std")]
 impl Reader {
-    /// Returns true if this reader handle is the sole owner of the underlying collector
-    /// (the owning tree has been dropped).
+    /// Returns true if this reader handle's collector has been marked dead by the owning tree.
     #[inline]
     pub(crate) fn is_orphan(&self) -> bool {
-        Arc::strong_count(&self.collector) <= 1
+        !self.collector.alive.load(Ordering::Acquire)
     }
     /// Pins the current epoch for the duration of the returned guard:
     /// nothing retired from here on is freed while the guard lives.
@@ -2099,41 +2100,51 @@ mod loom_tests {
         });
     }
 
-    /// S4: Writer 1 retires an allocation; Writer 2 advances the epoch; Reader remains pinned at epoch 0.
-    /// The epoch cannot advance past Reader's pin (at most to epoch 1), so retired blocks remain safe.
+    /// S4: Writer 1 unlinks and retires an allocation; Writer 2 advances the epoch;
+    /// Reader runs concurrently and pins. If Reader pinned at epoch >= 1 and observed the node while linked,
+    /// the retired node must never be reclaimed while Reader remains pinned.
+    /// Red when the `SeqCst` fence before the retire-side epoch load is removed.
     #[test]
     fn loom_multi_writer_ebr_safety() {
         loom::model(|| {
             let c = Arc::new(Collector::new());
             let reader = c.register();
-            let pin = reader.pin();
+            let root = Arc::new(AtomicBool::new(true));
 
-            let cw1 = Arc::clone(&c);
+            let (cw1, rw1) = (Arc::clone(&c), Arc::clone(&root));
             let w1 = loom::thread::spawn(move || {
                 let layout = Layout::from_size_align(64, 16).unwrap();
                 // SAFETY: nonzero test allocation.
                 let ptr = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
+                rw1.store(false, Ordering::Release);
                 cw1.retire(ptr, 64, 16);
             });
 
             let cw2 = Arc::clone(&c);
             let w2 = loom::thread::spawn(move || {
                 cw2.try_advance();
+                cw2.try_advance();
             });
+
+            // Reader runs concurrently with w1 and w2:
+            let pin = reader.pin();
+            let linked = root.load(Ordering::Acquire);
+            let pinned_epoch = reader.slot.load(Ordering::Relaxed);
 
             w1.join().unwrap();
             w2.join().unwrap();
 
-            let now = c.epoch.load(Ordering::SeqCst);
-            assert!(now <= 1, "epoch advanced twice past a live pin: now {now}");
-            assert_eq!(
-                c.retained_bytes(),
-                64,
-                "retired block reclaimed while reader remained pinned"
-            );
+            if linked && pinned_epoch > 0 {
+                assert_eq!(
+                    c.retained_bytes(),
+                    64,
+                    "retired block reclaimed while reader remained pinned"
+                );
+            }
 
             drop(pin);
             drop(reader);
+            c.try_advance();
             c.try_advance();
             c.try_advance();
             assert_eq!(
