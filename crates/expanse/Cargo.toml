@@ -23,11 +23,11 @@ std = []
 # writer-lock fallbacks, epoch advances). Off by default and compiled
 # out entirely — never enable it for a published benchmark.
 occ-stats = []
-# Diagnostic-only: put the writer mutex and the version word on their own
-# cache lines, to measure what their sharing costs. Two extra lines per
-# structure; never the default. Applies to the 64-bit `sync` wrappers only —
-# `sync32` is single-writer, has no writer mutex, and already pads its
-# version word.
+# Diagnostic-only: put the writer mutex, writer gate, tree population counter
+# and the version word on their own cache lines, to measure what their sharing
+# costs. Extra lines per structure; never the default. Applies to the 64-bit
+# `sync` wrappers only — `sync32` is single-writer, has no writer mutex, and
+# already pads its version word.
 lock-padded = []
 # Diagnostic-only: epoch-advance interval variants, to measure what the advance
 # scan costs the write path. `advance-never` is sound only for workloads that

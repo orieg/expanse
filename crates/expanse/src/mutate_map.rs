@@ -965,7 +965,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         (existing_k, old_val, k, val, 1)
                     };
                     if map_immed_max(kb) >= 2 {
-                        let vals = a.alloc_bytes(16).cast::<u64>();
+                        let vals = a.alloc_bytes(map_immed_val_size(2)).cast::<u64>();
                         // SAFETY: populate 2-entry array and install into edge; ancestors valid.
                         unsafe {
                             vals.as_ptr().write(slot0_v);
@@ -1203,7 +1203,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                         (existing_k, old_val, k, val, 1)
                     };
                     if map_immed_max(kb) >= 2 {
-                        let vals = a.alloc_bytes(16).cast::<u64>();
+                        let vals = a.alloc_bytes(map_immed_val_size(2)).cast::<u64>();
                         // SAFETY: fresh 2-slot value array.
                         unsafe {
                             vals.as_ptr().write(slot0_v);

@@ -101,6 +101,52 @@ fn fallback_causes_account_for_every_fallback() {
     // Every fallback carries exactly one cause, so the shares are checkable
     // instead of residual (AGENTS.md §8.1).
     let summed: u64 = CAUSES.iter().map(|&s| d(s)).sum();
+    eprintln!("Attribution breakdown for 20k map inserts:");
+    for &c in &CAUSES {
+        eprintln!(
+            "  {:30}: {:6} ({:.2}%)",
+            format!("{:?}", c),
+            d(c),
+            (d(c) as f64 / fallbacks as f64) * 100.0
+        );
+    }
+    eprintln!(
+        "  Total fallbacks: {} / {} inserts ({:.2}%)",
+        fallbacks,
+        inserts,
+        (fallbacks as f64 / inserts as f64) * 100.0
+    );
+
+    // Also run for SyncExpanseSet
+    let set = expanse_trie::sync::SyncExpanseSet::new();
+    let mut sk = 0x9E37_79B9_7F4A_7C15;
+    for _ in 0..1_000 {
+        set.insert(next(&mut sk));
+    }
+    let s_before = occ_stats::snapshot();
+    for _ in 0..20_000 {
+        set.insert(next(&mut sk));
+    }
+    let s_after = occ_stats::snapshot();
+    let sd = |s: Stat| s_after[s as usize] - s_before[s as usize];
+    let s_inserts = sd(Stat::Inserts);
+    let s_fallbacks = sd(Stat::LockFallbacks);
+    eprintln!("Attribution breakdown for 20k set inserts:");
+    for &c in &CAUSES {
+        eprintln!(
+            "  {:30}: {:6} ({:.2}%)",
+            format!("{:?}", c),
+            sd(c),
+            (sd(c) as f64 / s_fallbacks as f64) * 100.0
+        );
+    }
+    eprintln!(
+        "  Total fallbacks: {} / {} inserts ({:.2}%)",
+        s_fallbacks,
+        s_inserts,
+        (s_fallbacks as f64 / s_inserts as f64) * 100.0
+    );
+
     assert_eq!(
         summed,
         fallbacks,

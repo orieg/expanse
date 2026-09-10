@@ -917,7 +917,10 @@ impl MapCore {
                 // SAFETY: fresh allocation: key slot then value slot.
                 unsafe {
                     ptr.as_ptr().cast::<u64>().write(key);
-                    ptr.as_ptr().cast::<u64>().add(1).write(val);
+                    ptr.as_ptr()
+                        .add(leaf_values_offset(1))
+                        .cast::<u64>()
+                        .write(val);
                 }
                 self.root = Root::Leaf { ptr, pop: 1 };
                 None
