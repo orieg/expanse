@@ -1132,6 +1132,13 @@ impl ExpanseBlobMap {
         &self.arena
     }
 
+    #[inline(always)]
+    #[cfg(feature = "std")]
+    pub(crate) unsafe fn root_top_ptr(&self) -> *mut crate::node::Edge {
+        // SAFETY: forwarded contract from ExpanseMap::root_top_ptr.
+        unsafe { self.index.root_top_ptr() }
+    }
+
     // No `arena_mut`. The index stores flat arena offsets, so handing out
     // `&mut BlobArena` is a licence to change one half of a two-part invariant
     // whose other half the holder cannot see (#763). Every mutation reachable

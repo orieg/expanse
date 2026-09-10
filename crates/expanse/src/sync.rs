@@ -41,12 +41,15 @@ use crate::blobmap::{ArenaError, CompactionStats, ExpanseBlobMap};
 use crate::bytesmap::ExpanseBytesMap;
 use crate::leaf;
 use crate::map::ExpanseMap;
+use crate::mutate::{branch_form_level, pow256};
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL};
 use crate::occ::{Collector, Pin, Reader, SeqVersion};
 use crate::set::ExpanseSet;
 use crate::slot::{SlotTag, ValueSlot};
 use crate::strmap::{ExpanseStrMap, NulFreeStr};
-use crate::types::{BRANCH_L3_CAP, BRANCH_L7_CAP, EdgeTag, EdgeType, ImmedType, Key, digit};
+use crate::types::{
+    BRANCH_FANOUT, BRANCH_L3_CAP, BRANCH_L7_CAP, EdgeTag, EdgeType, ImmedType, Key, digit,
+};
 use core::cell::UnsafeCell;
 use std::hash::{BuildHasher, RandomState};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -537,39 +540,7 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
 /// padding these shared/writer words away from each other and from the wrapper's
 /// other writer-private words costs (the version already heads the struct on the
 /// readers' line in either configuration).
-/// [`layout_report`] says where each field landed.
-#[cfg(feature = "lock-padded")]
-#[derive(Debug)]
-#[repr(align(64))]
-pub(crate) struct Line<X>(X);
-#[cfg(feature = "lock-padded")]
-impl<X> core::ops::Deref for Line<X> {
-    type Target = X;
-    fn deref(&self) -> &X {
-        &self.0
-    }
-}
-#[cfg(feature = "lock-padded")]
-impl<X> From<X> for Line<X> {
-    fn from(x: X) -> Self {
-        Self(x)
-    }
-}
-/// See the `lock-padded` twin: the bare field.
-#[cfg(not(feature = "lock-padded"))]
-pub(crate) type Line<X> = X;
-/// Wraps a field for [`Line`] whichever way the feature resolves.
-#[cfg(feature = "lock-padded")]
-#[inline]
-fn line<X>(x: X) -> Line<X> {
-    Line(x)
-}
-/// See the `lock-padded` twin: the bare field.
-#[cfg(not(feature = "lock-padded"))]
-#[inline]
-fn line<X>(x: X) -> Line<X> {
-    x
-}
+pub(crate) use crate::occ::{Line, line};
 
 /// What every wrapped engine offers `Shared`: a way to bind the tree-level
 /// version word to its allocator(s) once the wrapper is boxed (#568 PR 3).
@@ -588,6 +559,11 @@ pub(crate) trait SharedTree {
 
     /// Resets internal path cursors to ensure stale node pointers are not reused.
     fn clear_path(&self) {}
+
+    /// Raw pointer to root top Edge, or null for engines without a top Edge.
+    unsafe fn root_top_ptr(&self) -> *mut Edge {
+        core::ptr::null_mut()
+    }
 }
 
 impl SharedTree for ExpanseMap {
@@ -607,6 +583,11 @@ impl SharedTree for ExpanseMap {
     fn clear_path(&self) {
         ExpanseMap::clear_path(self);
     }
+
+    unsafe fn root_top_ptr(&self) -> *mut Edge {
+        // SAFETY: forwarded contract.
+        unsafe { self.root_top_ptr() }
+    }
 }
 
 impl SharedTree for ExpanseSet {
@@ -625,6 +606,11 @@ impl SharedTree for ExpanseSet {
 
     fn clear_path(&self) {
         ExpanseSet::clear_path(self);
+    }
+
+    unsafe fn root_top_ptr(&self) -> *mut Edge {
+        // SAFETY: forwarded contract.
+        unsafe { self.root_top_ptr() }
     }
 }
 
@@ -658,6 +644,606 @@ impl SharedTree for ExpanseBlobMap {
 
     fn tree_pop(&self) -> u64 {
         self.len()
+    }
+
+    unsafe fn root_top_ptr(&self) -> *mut Edge {
+        // SAFETY: forwarded contract.
+        unsafe { self.root_top_ptr() }
+    }
+}
+
+/// A small integer naming the calling thread, for slot allocation and the `Handoffs` counter.
+/// Allocated once per thread from a global counter; 0 is never issued.
+fn thread_token() -> u64 {
+    use core::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    std::thread_local! {
+        static TOKEN: u64 = NEXT.fetch_add(1, Ordering::Relaxed);
+    }
+    TOKEN.with(|t| *t)
+}
+
+/// Maximum number of concurrent writer slots tracked for sharded tree population
+/// and gate quiescence.
+pub(crate) const MAX_WRITER_SLOTS: usize = 64;
+
+/// A sharded tree population counter that eliminates false sharing and write contention
+/// across concurrent writers.
+///
+/// Writers update their own shard (`shards[slot]`) with deltas (+1 / -1).
+/// Under `feature = "lock-padded"`, each slot is aligned to 64 bytes, providing true
+/// zero write-shared cache lines ($k = 0$). In the default build, `Line<X>` is an unpadded
+/// alias, packing 8 atomic slots per 64-byte cache line (an 8× reduction in false sharing).
+/// Reads (`load()`) sum the base counter and all shard deltas. At serialization
+/// boundaries (`flush_and_set()`), shards are cleared and folded back into `base`.
+pub(crate) struct ShardedTreePop {
+    base: Line<core::sync::atomic::AtomicU64>,
+    shards: [Line<core::sync::atomic::AtomicI64>; MAX_WRITER_SLOTS],
+}
+
+impl ShardedTreePop {
+    pub(crate) fn new(initial: u64) -> Self {
+        Self {
+            base: line(core::sync::atomic::AtomicU64::new(initial)),
+            shards: core::array::from_fn(|_| line(core::sync::atomic::AtomicI64::new(0))),
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn add(&self, slot: usize, delta: i64) {
+        let idx = if slot < MAX_WRITER_SLOTS { slot } else { 0 };
+        self.shards[idx].fetch_add(delta, core::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn load(&self) -> u64 {
+        let base = self.base.load(core::sync::atomic::Ordering::Relaxed) as i64;
+        let mut sum: i64 = base;
+        for s in &self.shards {
+            sum = sum.saturating_add(s.load(core::sync::atomic::Ordering::Relaxed));
+        }
+        if sum < 0 { 0 } else { sum as u64 }
+    }
+
+    #[inline(always)]
+    pub(crate) fn add_base(&self, delta: i64) {
+        if delta > 0 {
+            self.base
+                .fetch_add(delta as u64, core::sync::atomic::Ordering::Relaxed);
+        } else if delta < 0 {
+            self.base
+                .fetch_sub((-delta) as u64, core::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn flush_and_set(&self, pop: u64) {
+        self.base.store(pop, core::sync::atomic::Ordering::Relaxed);
+        for s in &self.shards {
+            s.store(0, core::sync::atomic::Ordering::Relaxed);
+        }
+    }
+}
+
+/// Fixed-size table of line-padded atomic slots tracking in-flight writers for a tree.
+///
+/// Eliminates heap allocation and mutex acquisition during `quiesce_writers`.
+/// Tracks up to 64 dedicated writer slots. When the active writer thread count exceeds
+/// 64, threads hash-shard across the 64 slots via `(thread_token() as usize) % MAX_WRITER_SLOTS`.
+pub(crate) struct WriterTable {
+    pub(crate) slots: [Line<AtomicUsize>; MAX_WRITER_SLOTS],
+    pub(crate) allocated: core::sync::atomic::AtomicU64,
+}
+
+impl WriterTable {
+    pub(crate) fn new() -> Self {
+        Self {
+            slots: core::array::from_fn(|_| line(AtomicUsize::new(0))),
+            allocated: core::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    pub(crate) fn allocate_slot(&self) -> usize {
+        let mut curr = self.allocated.load(core::sync::atomic::Ordering::Relaxed);
+        loop {
+            let trailing = (!curr).trailing_zeros() as usize;
+            if trailing < MAX_WRITER_SLOTS {
+                let next = curr | (1u64 << trailing);
+                match self.allocated.compare_exchange_weak(
+                    curr,
+                    next,
+                    core::sync::atomic::Ordering::AcqRel,
+                    core::sync::atomic::Ordering::Relaxed,
+                ) {
+                    Ok(_) => return trailing,
+                    Err(actual) => curr = actual,
+                }
+            } else {
+                return (thread_token() as usize) % MAX_WRITER_SLOTS;
+            }
+        }
+    }
+}
+
+/// Tracks dirty subtrees at level 8 using a 256-bit bitmask (8 x 32-bit atomic words).
+///
+/// Under OLC concurrent mutations, writers update leaf `pop0` counts directly under the
+/// held parent lock, but omit updates to ancestor branch `pop0` counts to eliminate
+/// cross-writer root contention. Instead, the top-level digit `d = digit(key, 8)` is
+/// marked dirty in this bitmask.
+///
+/// On-demand analytical queries (`with_locked`, `count_below`, `count_range`, `by_count`,
+/// `validate`) check this bitmask:
+/// - If all 8 words are 0 (clean): 0 node accesses, returning immediately in ~1 ns.
+/// - If non-zero: only subtrees whose digits are set in the bitmask are folded;
+///   clean subtrees read their exact stored `child.pop0(7) + 1` in O(1).
+pub(crate) struct DirtyDigits([core::sync::atomic::AtomicU32; 8]);
+
+impl DirtyDigits {
+    pub const fn new() -> Self {
+        Self([
+            core::sync::atomic::AtomicU32::new(0),
+            core::sync::atomic::AtomicU32::new(0),
+            core::sync::atomic::AtomicU32::new(0),
+            core::sync::atomic::AtomicU32::new(0),
+            core::sync::atomic::AtomicU32::new(0),
+            core::sync::atomic::AtomicU32::new(0),
+            core::sync::atomic::AtomicU32::new(0),
+            core::sync::atomic::AtomicU32::new(0),
+        ])
+    }
+
+    #[inline(always)]
+    pub fn mark_digit(&self, d: u8) {
+        let word_idx = (d >> 5) as usize;
+        let bit = 1u32 << (d & 31);
+        if (self.0[word_idx].load(core::sync::atomic::Ordering::Relaxed) & bit) == 0 {
+            self.0[word_idx].fetch_or(bit, core::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    #[inline(always)]
+    pub fn is_dirty(&self) -> bool {
+        for word in &self.0 {
+            if word.load(core::sync::atomic::Ordering::Relaxed) != 0 {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[inline(always)]
+    #[cfg(test)]
+    pub fn is_digit_dirty(&self, d: u8) -> bool {
+        let word_idx = (d / 32) as usize;
+        let bit = 1u32 << (d % 32);
+        (self.0[word_idx].load(core::sync::atomic::Ordering::Relaxed) & bit) != 0
+    }
+
+    /// Atomically takes the dirty mask snapshot, clearing all words to 0.
+    /// Returns true if any digit was dirty.
+    pub fn take(&self, mask: &mut [u32; 8]) -> bool {
+        let mut any = false;
+        for (i, word) in mask.iter_mut().enumerate() {
+            let val = self.0[i].swap(0, core::sync::atomic::Ordering::Relaxed);
+            *word = val;
+            if val != 0 {
+                any = true;
+            }
+        }
+        any
+    }
+}
+
+/// Lazily computes and updates branch `pop0` counts across the subtree rooted at `edge`.
+///
+/// Under OLC concurrent mutations, writers update leaf `pop0` counts directly under the
+/// held parent lock, but omit updates to ancestor branch `pop0` counts to eliminate
+/// cross-writer root contention. At quiesce points (`read_locked` and `write_root_covered`),
+/// this function traverses branch nodes and restores exact `pop0` invariants for all branch edges.
+///
+/// Returns the total population of the subtree under `edge`.
+///
+/// # Safety
+///
+/// Must be called under quiescence / exclusive writer lock so no concurrent mutations or reads
+/// race with the updates. `edge` must be non-null and point to an EBR-live `Edge`.
+pub(crate) unsafe fn fold_branch_pop0(edge: *mut Edge, level: u8) -> u64 {
+    if edge.is_null() {
+        return 0;
+    }
+    // SAFETY: edge is checked non-null and caller guarantees it is EBR-live and exclusive.
+    let tag = match unsafe { (*edge).tag() } {
+        Some(t) => t,
+        None => return 0,
+    };
+
+    match tag {
+        EdgeTag::Structural(EdgeType::Null) => 0,
+        EdgeTag::Immed(im) => im.key_count() as u64,
+        EdgeTag::Structural(
+            t @ (EdgeType::Leaf1
+            | EdgeType::Leaf2
+            | EdgeType::Leaf3
+            | EdgeType::Leaf4
+            | EdgeType::Leaf5
+            | EdgeType::Leaf6
+            | EdgeType::Leaf7),
+        ) => {
+            let kb = t.leaf_key_bytes().unwrap_or(level);
+            // SAFETY: leaf pop0 is exact and maintained under the parent branch lock.
+            unsafe { (*edge).pop0(kb) + 1 }
+        }
+        EdgeTag::Structural(EdgeType::LeafB1) => {
+            // SAFETY: LeafB1 pop0 is exact and maintained under the parent branch lock.
+            unsafe { (*edge).pop0(1) + 1 }
+        }
+        EdgeTag::Structural(EdgeType::FullExpanse) => pow256(level),
+        EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+            let is_l3 = matches!(t, EdgeType::BranchL3);
+            // SAFETY: caller guarantees edge is an EBR-live branch.
+            let bl = unsafe { branch_form_level(&*edge, t, level) };
+            // SAFETY: edge is guaranteed live by caller.
+            let ptr = unsafe { (*edge).node_ptr() };
+            if ptr.is_null() {
+                return 0;
+            }
+            let (num, edges_ptr): (usize, *mut Edge) = if is_l3 {
+                let b = ptr.cast::<BranchL3>();
+                // SAFETY: ptr points to an EBR-live BranchL3.
+                unsafe { ((*b).hdr.num as usize, (*b).edges.as_mut_ptr()) }
+            } else {
+                let b = ptr.cast::<BranchL7>();
+                // SAFETY: ptr points to an EBR-live BranchL7.
+                unsafe { ((*b).hdr.num as usize, (*b).edges.as_mut_ptr()) }
+            };
+            let mut pop = 0u64;
+            for i in 0..num {
+                // SAFETY: i < num <= capacity of branch.
+                let child_ptr = unsafe { edges_ptr.add(i) };
+                // SAFETY: child_ptr points to an Edge within the branch's allocated edges array.
+                let is_null = unsafe { (*child_ptr).is_null() };
+                if !is_null {
+                    // SAFETY: child_ptr is non-null and valid for recursive fold.
+                    pop += unsafe { fold_branch_pop0(child_ptr, bl - 1) };
+                }
+            }
+            if (1..=7).contains(&bl) {
+                // SAFETY: bl in 1..=7; edge aux word has pop0 field for bl.
+                unsafe { (*edge).set_pop0(bl, pop.saturating_sub(1)) };
+            }
+            pop
+        }
+        EdgeTag::Structural(EdgeType::BranchB) => {
+            // SAFETY: caller guarantees edge is an EBR-live branch.
+            let bl = unsafe { branch_form_level(&*edge, EdgeType::BranchB, level) };
+            // SAFETY: edge is guaranteed live by caller.
+            let ptr = unsafe { (*edge).node_ptr() };
+            if ptr.is_null() {
+                return 0;
+            }
+            let b = ptr.cast::<BranchB>();
+            let mut pop = 0u64;
+            for sub in 0..8usize {
+                // SAFETY: ptr points to an EBR-live BranchB.
+                let (expected, sub_ptr) =
+                    unsafe { ((*b).pop_counts[sub] as usize, (*b).subarrays[sub]) };
+                if expected > 0 && !sub_ptr.is_null() {
+                    for i in 0..expected {
+                        // SAFETY: i < expected within subarray.
+                        let child_ptr = unsafe { sub_ptr.add(i) };
+                        // SAFETY: child_ptr points to an Edge within the subarray.
+                        let is_null = unsafe { (*child_ptr).is_null() };
+                        if !is_null {
+                            // SAFETY: child_ptr is non-null and valid for recursive fold.
+                            pop += unsafe { fold_branch_pop0(child_ptr, bl - 1) };
+                        }
+                    }
+                }
+            }
+            if (1..=7).contains(&bl) {
+                // SAFETY: bl in 1..=7; edge aux word has pop0 field for bl.
+                unsafe { (*edge).set_pop0(bl, pop.saturating_sub(1)) };
+            }
+            pop
+        }
+        EdgeTag::Structural(EdgeType::BranchU) => {
+            // SAFETY: caller guarantees edge is an EBR-live branch.
+            let bl = unsafe { branch_form_level(&*edge, EdgeType::BranchU, level) };
+            // SAFETY: edge is guaranteed live by caller.
+            let ptr = unsafe { (*edge).node_ptr() };
+            if ptr.is_null() {
+                return 0;
+            }
+            let b = ptr.cast::<BranchU>();
+            let mut pop = 0u64;
+            for i in 0..BRANCH_FANOUT {
+                // SAFETY: ptr points to an EBR-live BranchU; edges has 256 elements.
+                let child_ptr = unsafe { (*b).edges.as_mut_ptr().add(i) };
+                // SAFETY: child_ptr points to an Edge within the BranchU edges array.
+                let is_null = unsafe { (*child_ptr).is_null() };
+                if !is_null {
+                    // SAFETY: child_ptr is non-null and valid for recursive fold.
+                    pop += unsafe { fold_branch_pop0(child_ptr, bl - 1) };
+                }
+            }
+            if (1..=7).contains(&bl) {
+                // SAFETY: bl in 1..=7; edge aux word has pop0 field for bl.
+                unsafe { (*edge).set_pop0(bl, pop.saturating_sub(1)) };
+            }
+            pop
+        }
+    }
+}
+
+/// Returns the exact population of an edge without recursive folding.
+///
+/// For leaf, immediate, null, and full-expanse edges, the population is read directly.
+/// For branch edges at level <= 7 that were not modified, their stored `pop0` is exact.
+#[inline(always)]
+unsafe fn edge_pop0_exact(edge: *mut Edge, level: u8) -> u64 {
+    if edge.is_null() {
+        return 0;
+    }
+    // SAFETY: edge checked non-null and points to EBR-live Edge.
+    let tag = match unsafe { (*edge).tag() } {
+        Some(t) => t,
+        None => return 0,
+    };
+    match tag {
+        EdgeTag::Structural(EdgeType::Null) => 0,
+        EdgeTag::Immed(im) => im.key_count() as u64,
+        EdgeTag::Structural(
+            t @ (EdgeType::Leaf1
+            | EdgeType::Leaf2
+            | EdgeType::Leaf3
+            | EdgeType::Leaf4
+            | EdgeType::Leaf5
+            | EdgeType::Leaf6
+            | EdgeType::Leaf7),
+        ) => {
+            let kb = t.leaf_key_bytes().unwrap_or(level);
+            // SAFETY: leaf pop0 is exact and maintained under the parent branch lock.
+            unsafe { (*edge).pop0(kb) + 1 }
+        }
+        EdgeTag::Structural(EdgeType::LeafB1) => {
+            // SAFETY: LeafB1 pop0 is exact and maintained under the parent branch lock.
+            unsafe { (*edge).pop0(1) + 1 }
+        }
+        EdgeTag::Structural(EdgeType::FullExpanse) => pow256(level),
+        EdgeTag::Structural(
+            t @ (EdgeType::BranchL3 | EdgeType::BranchL7 | EdgeType::BranchB | EdgeType::BranchU),
+        ) => {
+            // SAFETY: caller guarantees edge is an EBR-live branch.
+            let bl = unsafe { branch_form_level(&*edge, t, level) };
+            if (1..=7).contains(&bl) {
+                // SAFETY: clean branch edge at level <= 7 carries exact pop0 in aux word.
+                unsafe { (*edge).pop0(bl) + 1 }
+            } else {
+                // SAFETY: root-level or out-of-range branch falls back to recursive fold.
+                unsafe { fold_branch_pop0(edge, bl) }
+            }
+        }
+    }
+}
+
+/// Lazily computes and updates branch `pop0` counts across subtrees whose digits
+/// are marked in `mask`.
+///
+/// At level 8, child subtrees whose digits have clean bits in `mask` are read
+/// in O(1) via `edge_pop0_exact` without recursion. Only child subtrees whose digits
+/// have set bits in `mask` are recursively folded.
+///
+/// Returns the total population of the subtree under `edge`.
+///
+/// # Safety
+///
+/// Must be called under quiescence / exclusive writer lock so no concurrent mutations or reads
+/// race with the updates. `edge` must be non-null and point to an EBR-live `Edge`.
+pub(crate) unsafe fn fold_branch_pop0_selective(
+    edge: *mut Edge,
+    level: u8,
+    mask: &[u32; 8],
+) -> u64 {
+    if edge.is_null() {
+        return 0;
+    }
+    // SAFETY: edge is checked non-null and caller guarantees it is EBR-live and exclusive.
+    let tag = match unsafe { (*edge).tag() } {
+        Some(t) => t,
+        None => return 0,
+    };
+
+    match tag {
+        EdgeTag::Structural(EdgeType::Null) => 0,
+        EdgeTag::Immed(im) => im.key_count() as u64,
+        EdgeTag::Structural(
+            t @ (EdgeType::Leaf1
+            | EdgeType::Leaf2
+            | EdgeType::Leaf3
+            | EdgeType::Leaf4
+            | EdgeType::Leaf5
+            | EdgeType::Leaf6
+            | EdgeType::Leaf7),
+        ) => {
+            let kb = t.leaf_key_bytes().unwrap_or(level);
+            // SAFETY: leaf pop0 is exact and maintained under the parent branch lock.
+            unsafe { (*edge).pop0(kb) + 1 }
+        }
+        EdgeTag::Structural(EdgeType::LeafB1) => {
+            // SAFETY: LeafB1 pop0 is exact and maintained under the parent branch lock.
+            unsafe { (*edge).pop0(1) + 1 }
+        }
+        EdgeTag::Structural(EdgeType::FullExpanse) => pow256(level),
+        EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+            let is_l3 = matches!(t, EdgeType::BranchL3);
+            // SAFETY: caller guarantees edge is an EBR-live branch.
+            let bl = unsafe { branch_form_level(&*edge, t, level) };
+            // SAFETY: edge is guaranteed live by caller.
+            let ptr = unsafe { (*edge).node_ptr() };
+            if ptr.is_null() {
+                return 0;
+            }
+            let (num, digits, edges_ptr): (usize, [u8; 8], *mut Edge) = if is_l3 {
+                let b = ptr.cast::<BranchL3>();
+                // SAFETY: ptr points to an EBR-live BranchL3.
+                unsafe {
+                    (
+                        (*b).hdr.num as usize,
+                        (*b).hdr.digits,
+                        (*b).edges.as_mut_ptr(),
+                    )
+                }
+            } else {
+                let b = ptr.cast::<BranchL7>();
+                // SAFETY: ptr points to an EBR-live BranchL7.
+                unsafe {
+                    (
+                        (*b).hdr.num as usize,
+                        (*b).hdr.digits,
+                        (*b).edges.as_mut_ptr(),
+                    )
+                }
+            };
+            let mut pop = 0u64;
+            for (i, &d) in digits.iter().enumerate().take(num) {
+                // SAFETY: i < num <= capacity of branch.
+                let child_ptr = unsafe { edges_ptr.add(i) };
+                // SAFETY: child_ptr points to an Edge within the branch's allocated edges array.
+                let is_null = unsafe { (*child_ptr).is_null() };
+                if !is_null {
+                    let is_dirty = if bl == 8 {
+                        (mask[(d / 32) as usize] & (1u32 << (d % 32))) != 0
+                    } else {
+                        true
+                    };
+                    if is_dirty {
+                        // SAFETY: child_ptr is non-null and valid for recursive fold.
+                        pop += unsafe { fold_branch_pop0(child_ptr, bl - 1) };
+                    } else {
+                        // SAFETY: child_ptr is clean; read exact pop0 without recursion.
+                        pop += unsafe { edge_pop0_exact(child_ptr, bl - 1) };
+                    }
+                }
+            }
+            if (1..=7).contains(&bl) {
+                // SAFETY: bl in 1..=7; edge aux word has pop0 field for bl.
+                unsafe { (*edge).set_pop0(bl, pop.saturating_sub(1)) };
+            }
+            pop
+        }
+        EdgeTag::Structural(EdgeType::BranchB) => {
+            // SAFETY: caller guarantees edge is an EBR-live branch.
+            let bl = unsafe { branch_form_level(&*edge, EdgeType::BranchB, level) };
+            // SAFETY: edge is guaranteed live by caller.
+            let ptr = unsafe { (*edge).node_ptr() };
+            if ptr.is_null() {
+                return 0;
+            }
+            let b = ptr.cast::<BranchB>();
+            let mut pop = 0u64;
+            for (sub, &sub_mask) in mask.iter().enumerate() {
+                // SAFETY: ptr points to an EBR-live BranchB.
+                let (expected, sub_ptr) =
+                    unsafe { ((*b).pop_counts[sub] as usize, (*b).subarrays[sub]) };
+                if expected > 0 && !sub_ptr.is_null() {
+                    if bl == 8 && sub_mask == 0 {
+                        // Entire 32-digit subexpanse is clean: read exact counts without recursion.
+                        for i in 0..expected {
+                            // SAFETY: i < expected within subarray.
+                            let child_ptr = unsafe { sub_ptr.add(i) };
+                            // SAFETY: child_ptr points to an Edge within subarray.
+                            let is_null = unsafe { (*child_ptr).is_null() };
+                            if !is_null {
+                                // SAFETY: child_ptr is clean; read exact pop0 without recursion.
+                                pop += unsafe { edge_pop0_exact(child_ptr, bl - 1) };
+                            }
+                        }
+                    } else if bl == 8 {
+                        // Subexpanse has dirty digits: identify child digits from bitmap.
+                        // SAFETY: ptr points to an EBR-live BranchB.
+                        let sub_bitmap =
+                            unsafe { ((*b).bitmap.words[sub / 2] >> ((sub % 2) * 32)) as u32 };
+                        let mut bits = sub_bitmap;
+                        let mut edge_idx = 0usize;
+                        while bits != 0 {
+                            let trailing = bits.trailing_zeros();
+                            let digit_bit = 1u32 << trailing;
+                            let is_dirty = (sub_mask & digit_bit) != 0;
+                            if edge_idx < expected {
+                                // SAFETY: edge_idx < expected within subarray.
+                                let child_ptr = unsafe { sub_ptr.add(edge_idx) };
+                                // SAFETY: child_ptr points to an Edge within subarray.
+                                let is_null = unsafe { (*child_ptr).is_null() };
+                                if !is_null {
+                                    if is_dirty {
+                                        // SAFETY: child_ptr is non-null and dirty; recursive fold needed.
+                                        pop += unsafe { fold_branch_pop0(child_ptr, bl - 1) };
+                                    } else {
+                                        // SAFETY: child_ptr is clean; read exact pop0 without recursion.
+                                        pop += unsafe { edge_pop0_exact(child_ptr, bl - 1) };
+                                    }
+                                }
+                            }
+                            edge_idx += 1;
+                            bits &= bits - 1;
+                        }
+                    } else {
+                        // bl < 8: fold all children in subarray.
+                        for i in 0..expected {
+                            // SAFETY: i < expected within subarray.
+                            let child_ptr = unsafe { sub_ptr.add(i) };
+                            // SAFETY: child_ptr points to an Edge within subarray.
+                            let is_null = unsafe { (*child_ptr).is_null() };
+                            if !is_null {
+                                // SAFETY: child_ptr is non-null and valid for recursive fold.
+                                pop += unsafe { fold_branch_pop0(child_ptr, bl - 1) };
+                            }
+                        }
+                    }
+                }
+            }
+            if (1..=7).contains(&bl) {
+                // SAFETY: bl in 1..=7; edge aux word has pop0 field for bl.
+                unsafe { (*edge).set_pop0(bl, pop.saturating_sub(1)) };
+            }
+            pop
+        }
+        EdgeTag::Structural(EdgeType::BranchU) => {
+            // SAFETY: caller guarantees edge is an EBR-live branch.
+            let bl = unsafe { branch_form_level(&*edge, EdgeType::BranchU, level) };
+            // SAFETY: edge is guaranteed live by caller.
+            let ptr = unsafe { (*edge).node_ptr() };
+            if ptr.is_null() {
+                return 0;
+            }
+            let b = ptr.cast::<BranchU>();
+            let mut pop = 0u64;
+            for i in 0..BRANCH_FANOUT {
+                // SAFETY: ptr points to an EBR-live BranchU; edges has 256 elements.
+                let child_ptr = unsafe { (*b).edges.as_mut_ptr().add(i) };
+                // SAFETY: child_ptr points to an Edge within the BranchU edges array.
+                let is_null = unsafe { (*child_ptr).is_null() };
+                if !is_null {
+                    let d = i as u8;
+                    let is_dirty = if bl == 8 {
+                        (mask[(d / 32) as usize] & (1u32 << (d % 32))) != 0
+                    } else {
+                        true
+                    };
+                    if is_dirty {
+                        // SAFETY: child_ptr is non-null and valid for recursive fold.
+                        pop += unsafe { fold_branch_pop0(child_ptr, bl - 1) };
+                    } else {
+                        // SAFETY: child_ptr is clean; read exact pop0 without recursion.
+                        pop += unsafe { edge_pop0_exact(child_ptr, bl - 1) };
+                    }
+                }
+            }
+            if (1..=7).contains(&bl) {
+                // SAFETY: bl in 1..=7; edge aux word has pop0 field for bl.
+                unsafe { (*edge).set_pop0(bl, pop.saturating_sub(1)) };
+            }
+            pop
+        }
     }
 }
 
@@ -695,15 +1281,16 @@ impl RootState for ExpanseSet {
 struct Shared<T> {
     version: Line<SeqVersion>,
     inner: UnsafeCell<T>,
-    tree_pop: Line<core::sync::atomic::AtomicU64>,
-    collector: Arc<Collector>,
+    tree_pop: Line<ShardedTreePop>,
     write: Line<Mutex<()>>,
+    collector: Arc<Collector>,
+    dirty_digits: DirtyDigits,
     #[cfg(feature = "std")]
     gate: Line<crate::occ::WriterGate>,
     #[cfg(feature = "std")]
     fallback_mutex: Mutex<()>,
     #[cfg(feature = "std")]
-    writers: Mutex<Vec<Arc<AtomicUsize>>>,
+    writers: Line<WriterTable>,
     /// Token of the thread that last held `write`, for the `Handoffs`
     /// counter. Read and written only under the lock — no coherence traffic
     /// beyond the line it shares (which [`layout_report`] names). Diagnostic
@@ -756,15 +1343,16 @@ impl<T: SharedTree> Shared<T> {
         let shared = Box::new(Self {
             version: line(SeqVersion::new()),
             inner: UnsafeCell::new(inner),
-            tree_pop: line(core::sync::atomic::AtomicU64::new(initial_pop)),
-            collector,
+            tree_pop: line(ShardedTreePop::new(initial_pop)),
             write: line(Mutex::new(())),
+            collector,
+            dirty_digits: DirtyDigits::new(),
             #[cfg(feature = "std")]
             gate: line(crate::occ::WriterGate::new()),
             #[cfg(feature = "std")]
             fallback_mutex: Mutex::new(()),
             #[cfg(feature = "std")]
-            writers: Mutex::new(Vec::new()),
+            writers: line(WriterTable::new()),
             #[cfg(feature = "occ-stats")]
             last_holder: UnsafeCell::new(0),
             advance_tick: UnsafeCell::new(0),
@@ -798,49 +1386,64 @@ impl<T: SharedTree> Shared<T> {
         unsafe { &*self.inner.get() }
     }
 
+    #[inline(always)]
+    pub(crate) fn mark_dirty_digit(&self, d: u8) {
+        self.dirty_digits.mark_digit(d);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn ensure_branch_pop0(&self) {
+        if !self.dirty_digits.is_dirty() {
+            return;
+        }
+        self.with_locked(|_| {});
+    }
+
     #[cfg(feature = "std")]
     pub(crate) fn enter_writer(&self) -> Option<crate::occ::WriterGuard<'_>> {
+        use std::cell::Cell;
         use std::cell::RefCell;
         std::thread_local! {
-            static REGISTERED: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
-            static SLOT: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
+            static LAST_KEY: Cell<u64> = const { Cell::new(0) };
+            static LAST_SLOT: Cell<usize> = const { Cell::new(usize::MAX) };
+            static CACHED_SLOTS: RefCell<Vec<(u64, usize)>> = const { RefCell::new(Vec::new()) };
         }
-        let slot = SLOT.with(Arc::clone);
         let key = self.gate.id();
-        let needs_reg = REGISTERED.with(|reg| {
-            let mut r = reg.borrow_mut();
-            if r.contains(&key) {
-                false
-            } else {
-                if r.len() >= 128 {
-                    r.remove(0);
+        let slot_id = if LAST_KEY.get() == key && LAST_SLOT.get() != usize::MAX {
+            LAST_SLOT.get()
+        } else {
+            let s = CACHED_SLOTS.with(|cell| {
+                let mut vec = cell.borrow_mut();
+                if let Some((_, slot)) = vec.iter().find(|(k, _)| *k == key) {
+                    *slot
+                } else {
+                    if vec.len() >= 128 {
+                        vec.remove(0);
+                    }
+                    let slot = self.writers.allocate_slot();
+                    vec.push((key, slot));
+                    slot
                 }
-                r.push(key);
-                true
-            }
-        });
-        if needs_reg {
-            let mut writers = self.writers.lock().expect("writers poisoned");
-            writers.retain(|s| Arc::strong_count(s) > 1);
-            if !writers.iter().any(|s| Arc::ptr_eq(s, &slot)) {
-                writers.push(Arc::clone(&slot));
-            }
-        }
-        // SAFETY: slot is allocated in a thread-local Arc and remains pinned for the duration of enter_writer.
-        let slot_ref = unsafe { &*(&*slot as *const AtomicUsize) };
-        self.gate.enter_writer(slot_ref)
+            });
+            LAST_KEY.set(key);
+            LAST_SLOT.set(s);
+            s
+        };
+        self.gate
+            .enter_writer(&self.writers.slots[slot_id], slot_id)
     }
 
     #[cfg(feature = "std")]
     pub(crate) fn quiesce_writers(&self) {
         self.gate.close();
-        let slots = {
-            let mut writers = self.writers.lock().expect("writers poisoned");
-            writers.retain(|s| Arc::strong_count(s) > 1);
-            writers.clone()
-        };
-        for slot in &slots {
-            while slot.load(core::sync::atomic::Ordering::Relaxed) != 0 {
+        let mut mask = self
+            .writers
+            .allocated
+            .load(core::sync::atomic::Ordering::Acquire);
+        while mask != 0 {
+            let slot_id = mask.trailing_zeros() as usize;
+            mask &= mask - 1;
+            while self.writers.slots[slot_id].load(core::sync::atomic::Ordering::Relaxed) != 0 {
                 core::hint::spin_loop();
                 #[cfg(loom)]
                 loom::thread::yield_now();
@@ -930,11 +1533,16 @@ impl<T: SharedTree> Shared<T> {
         crate::occ_stats::op_begin();
         // SAFETY: the writer mutex makes this the only mutable borrow.
         let inner = unsafe { &mut *self.inner.get() };
-        inner.set_tree_pop(self.tree_pop.load(core::sync::atomic::Ordering::Relaxed));
+        let pop_before = inner.tree_pop();
         let r = f(inner);
         inner.clear_path();
-        self.tree_pop
-            .store(inner.tree_pop(), core::sync::atomic::Ordering::Relaxed);
+        let pop_after = inner.tree_pop();
+        let delta = pop_after as i64 - pop_before as i64;
+        if pop_after == 0 && pop_before > 0 {
+            self.tree_pop.flush_and_set(0);
+        } else if delta != 0 {
+            self.tree_pop.add_base(delta);
+        }
         crate::occ_stats::op_end();
         #[cfg(debug_assertions)]
         crate::alloc::bracket_stack::leave(self.tree_cover_addr());
@@ -987,7 +1595,7 @@ impl<T: SharedTree> Shared<T> {
         crate::occ_stats::op_begin();
         // SAFETY: the writer mutex makes this the only mutable borrow.
         let inner = unsafe { &mut *self.inner.get() };
-        inner.set_tree_pop(self.tree_pop.load(core::sync::atomic::Ordering::Relaxed));
+        let pop_before = inner.tree_pop();
         // Read under the lock: the root state is the writer's to change.
         let r = if inner.root_is_tree() {
             f(inner)
@@ -1002,8 +1610,13 @@ impl<T: SharedTree> Shared<T> {
             r
         };
         inner.clear_path();
-        self.tree_pop
-            .store(inner.tree_pop(), core::sync::atomic::Ordering::Relaxed);
+        let pop_after = inner.tree_pop();
+        let delta = pop_after as i64 - pop_before as i64;
+        if pop_after == 0 && pop_before > 0 {
+            self.tree_pop.flush_and_set(0);
+        } else if delta != 0 {
+            self.tree_pop.add_base(delta);
+        }
         crate::occ_stats::op_end();
         #[cfg(not(feature = "advance-never"))]
         {
@@ -1044,7 +1657,46 @@ impl<T: SharedTree> Shared<T> {
         // acceleration path cursors (`inner.clear_path()`) does not alias any concurrent access.
         let inner = unsafe { &mut *self.inner.get() };
         inner.clear_path();
-        inner.set_tree_pop(self.tree_pop.load(core::sync::atomic::Ordering::Relaxed));
+        let res = f(inner);
+        inner.clear_path();
+        drop(_g);
+        #[cfg(feature = "std")]
+        self.reopen_gate();
+        res
+    }
+
+    /// Consistent read under the writer lock with on-demand branch `pop0` synchronization.
+    ///
+    /// The escape hatch to the full single-threaded read API (`count_below`, `count_range`,
+    /// `by_count`, `validate`, set algebra). If any OLC mutations dirtied subtrees,
+    /// selectively folds only those dirty subtrees before calling `f`.
+    fn with_locked<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        crate::occ_stats::bump(crate::occ_stats::Stat::LockedReads);
+        #[cfg(feature = "std")]
+        let _fallback = self.fallback_mutex.lock().expect("fallback mutex poisoned");
+        #[cfg(feature = "std")]
+        self.quiesce_writers();
+        let _g: MutexGuard<'_, ()> = self.write.lock().expect("writer lock poisoned");
+        // SAFETY: the writer mutex and WriterGate quiescence exclude all concurrent
+        // readers and writers, so creating a temporary unique reference to flush
+        // acceleration path cursors (`inner.clear_path()`) does not alias any concurrent access.
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.clear_path();
+        let mut mask = [0u32; 8];
+        if self.dirty_digits.take(&mut mask) {
+            // SAFETY: Writers are quiesced and write lock is held; root_top_ptr is safe to access and mutate.
+            let top_ptr = unsafe { inner.root_top_ptr() };
+            if !top_ptr.is_null() {
+                // SAFETY: root top pointer is non-null and points to an EBR-live root Edge.
+                let folded = unsafe { fold_branch_pop0_selective(top_ptr, 8, &mask) };
+                inner.set_tree_pop(folded);
+                self.tree_pop.flush_and_set(folded);
+            }
+        } else {
+            let pop = self.tree_pop.load();
+            inner.set_tree_pop(pop);
+            self.tree_pop.flush_and_set(pop);
+        }
         let res = f(inner);
         inner.clear_path();
         drop(_g);
@@ -1061,7 +1713,7 @@ impl<T: SharedTree> Shared<T> {
     fn validated_len(
         &self,
         root_of: impl Fn(&T) -> RootSnapshot,
-        locked: impl FnOnce(&T) -> u64,
+        _locked: impl FnOnce(&T) -> u64,
     ) -> u64 {
         for _ in 0..MAX_RETRIES {
             let snap = self.version().sample();
@@ -1071,14 +1723,16 @@ impl<T: SharedTree> Shared<T> {
                 return match root {
                     RootSnapshot::Empty => 0,
                     RootSnapshot::Leaf { pop, .. } => pop as u64,
-                    RootSnapshot::Tree { .. } => {
-                        self.tree_pop.load(core::sync::atomic::Ordering::Relaxed)
-                    }
+                    RootSnapshot::Tree { .. } => self.tree_pop.load(),
                 };
             }
         }
         crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
-        self.read_locked(locked)
+        self.read_locked(|inner| match root_of(inner) {
+            RootSnapshot::Empty => 0,
+            RootSnapshot::Leaf { pop, .. } => pop as u64,
+            RootSnapshot::Tree { .. } => self.tree_pop.load(),
+        })
     }
 }
 
@@ -1217,6 +1871,7 @@ fn version_unlock_timed(cell: &crate::occ::VersionCell, old_v: u32, modified: bo
 
 #[cfg(feature = "std")]
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[allow(dead_code)]
 enum BumpStatus {
     Ok,
     Obsolete,
@@ -1224,6 +1879,7 @@ enum BumpStatus {
 
 #[cfg(feature = "std")]
 #[inline]
+#[allow(dead_code)]
 unsafe fn bump_ancestor_pop0(
     node: *mut u8,
     edge_type: EdgeType,
@@ -1324,6 +1980,7 @@ unsafe fn bump_ancestor_pop0(
 /// latency one: a re-descent is at most 8 levels, so 64 attempts is ~512 node
 /// samples, still trivial beside the serialized path it avoids.
 #[cfg(feature = "std")]
+#[allow(dead_code)]
 const REDESCEND_MAX_ATTEMPTS: u32 = 64;
 
 /// Re-descends from `top_ptr` to find the active node covering `key` and bumps all
@@ -1331,6 +1988,7 @@ const REDESCEND_MAX_ATTEMPTS: u32 = 64;
 ///
 /// Bounded by [`REDESCEND_MAX_ATTEMPTS`]; see its docs for what exhaustion means.
 #[cfg(feature = "std")]
+#[allow(dead_code)]
 unsafe fn redescend_and_bump(top_ptr: *mut Edge, key: Key, mut stop_level: u8, delta: i64) {
     crate::occ_stats::bump(crate::occ_stats::Stat::PopRedescends);
     let mut spins = 0u32;
@@ -1617,6 +2275,7 @@ unsafe fn redescend_and_bump(top_ptr: *mut Edge, key: Key, mut stop_level: u8, d
 /// drops the attempt and re-descends from root per `ARCHITECTURE.md` §4.2 rule (a).
 #[cfg(feature = "std")]
 #[inline]
+#[allow(dead_code)]
 unsafe fn bump_ancestor_chain(
     top_ptr: *mut Edge,
     key: Key,
@@ -1693,9 +2352,7 @@ impl SyncExpanseSet {
                     match self.olc_insert_set(key) {
                         OlcOutcome::Done(ins) => {
                             if ins {
-                                self.shared
-                                    .tree_pop
-                                    .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                                self.shared.tree_pop.add(_guard.slot_id(), 1);
                             }
                             self.shared.collector.tick_advance();
                             crate::occ_stats::op_end();
@@ -1753,9 +2410,7 @@ impl SyncExpanseSet {
                     match self.olc_remove_set(key) {
                         OlcOutcome::Done(rem) => {
                             if rem {
-                                self.shared
-                                    .tree_pop
-                                    .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+                                self.shared.tree_pop.add(_guard.slot_id(), -1);
                             }
                             self.shared.collector.tick_advance();
                             crate::occ_stats::op_end();
@@ -1939,7 +2594,7 @@ impl SyncExpanseSet {
                                 true,
                                 lock_t0,
                             );
-                            bump_ancestor_chain(top_ptr, key, &ancestors[..anc_depth], 1);
+                            self.shared.mark_dirty_digit(digit(key, 8));
                         }
                         return OlcOutcome::Done(true);
                     }
@@ -2068,12 +2723,7 @@ impl SyncExpanseSet {
                         if (*node).bitmap.set(d) {
                             (*edge_ptr).set_pop0(1, (pop0 + 1) as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            bump_ancestor_chain(
-                                top_ptr,
-                                key,
-                                &ancestors[..anc_depth.saturating_sub(1)],
-                                1,
-                            );
+                            self.shared.mark_dirty_digit(digit(key, 8));
                             return OlcOutcome::Done(true);
                         } else {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
@@ -2162,12 +2812,7 @@ impl SyncExpanseSet {
                             crate::mutate::write_packed(keys_ptr, at, kb, k);
                             (*edge_ptr).set_pop0(kb as u8, pop as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            bump_ancestor_chain(
-                                top_ptr,
-                                key,
-                                &ancestors[..anc_depth.saturating_sub(1)],
-                                1,
-                            );
+                            self.shared.mark_dirty_digit(digit(key, 8));
                         }
                         return OlcOutcome::Done(true);
                     }
@@ -2240,12 +2885,7 @@ impl SyncExpanseSet {
                             (*edge_ptr).set_aux_bytes(aux);
                             (*edge_ptr).set_tag(new_im.as_u8());
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            bump_ancestor_chain(
-                                top_ptr,
-                                key,
-                                &ancestors[..anc_depth.saturating_sub(1)],
-                                1,
-                            );
+                            self.shared.mark_dirty_digit(digit(key, 8));
                         }
                         return OlcOutcome::Done(true);
                     }
@@ -2471,12 +3111,7 @@ impl SyncExpanseSet {
                         (*node).bitmap.clear(d);
                         (*edge_ptr).set_pop0(1, (pop0 - 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        bump_ancestor_chain(
-                            top_ptr,
-                            key,
-                            &ancestors[..anc_depth.saturating_sub(1)],
-                            -1,
-                        );
+                        self.shared.mark_dirty_digit(digit(key, 8));
                         return OlcOutcome::Done(true);
                     }
                 }
@@ -2539,12 +3174,7 @@ impl SyncExpanseSet {
                             );
                             (*edge_ptr).set_pop0(kb as u8, (pop - 2) as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            bump_ancestor_chain(
-                                top_ptr,
-                                key,
-                                &ancestors[..anc_depth.saturating_sub(1)],
-                                -1,
-                            );
+                            self.shared.mark_dirty_digit(digit(key, 8));
                         }
                         return OlcOutcome::Done(true);
                     }
@@ -2573,9 +3203,7 @@ impl SyncExpanseSet {
     pub fn clear(&self) {
         self.shared.write_root_covered(|s| {
             s.clear();
-            self.shared
-                .tree_pop
-                .store(0, core::sync::atomic::Ordering::Relaxed);
+            self.shared.tree_pop.flush_and_set(0);
         });
     }
 
@@ -2612,7 +3240,7 @@ impl SyncExpanseSet {
     /// hatch to the full single-threaded read API (iteration, ranges,
     /// `count_range`, …).
     pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseSet) -> R) -> R {
-        self.shared.read_locked(f)
+        self.shared.with_locked(f)
     }
 }
 
@@ -2699,9 +3327,7 @@ impl SyncExpanseMap {
                     match self.olc_insert_map(key, val) {
                         OlcOutcome::Done(prev) => {
                             if prev.is_none() {
-                                self.shared
-                                    .tree_pop
-                                    .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                                self.shared.tree_pop.add(_guard.slot_id(), 1);
                             }
                             self.shared.collector.tick_advance();
                             crate::occ_stats::op_end();
@@ -2761,9 +3387,7 @@ impl SyncExpanseMap {
                     match self.olc_remove_map(key) {
                         OlcOutcome::Done(prev) => {
                             if prev.is_some() {
-                                self.shared
-                                    .tree_pop
-                                    .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+                                self.shared.tree_pop.add(_guard.slot_id(), -1);
                             }
                             self.shared.collector.tick_advance();
                             crate::occ_stats::op_end();
@@ -2952,7 +3576,7 @@ impl SyncExpanseMap {
                                 true,
                                 lock_t0,
                             );
-                            bump_ancestor_chain(top_ptr, key, &ancestors[..anc_depth], 1);
+                            self.shared.mark_dirty_digit(digit(key, 8));
                         }
                         return OlcOutcome::Done(None);
                     }
@@ -3114,12 +3738,7 @@ impl SyncExpanseMap {
                             (*node).bitmap.set(d);
                             (*edge_ptr).set_pop0(1, (pop0 + 1) as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            bump_ancestor_chain(
-                                top_ptr,
-                                key,
-                                &ancestors[..anc_depth.saturating_sub(1)],
-                                1,
-                            );
+                            self.shared.mark_dirty_digit(digit(key, 8));
                         }
                         return OlcOutcome::Done(None);
                     }
@@ -3205,12 +3824,7 @@ impl SyncExpanseMap {
                             crate::leaf::map_insert_at(base, kb as u8, pop, at, k, val);
                             (*edge_ptr).set_pop0(kb as u8, pop as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            bump_ancestor_chain(
-                                top_ptr,
-                                key,
-                                &ancestors[..anc_depth.saturating_sub(1)],
-                                1,
-                            );
+                            self.shared.mark_dirty_digit(digit(key, 8));
                         }
                         return OlcOutcome::Done(None);
                     }
@@ -3330,12 +3944,7 @@ impl SyncExpanseMap {
                             (*edge_ptr).set_aux_bytes(new_aux);
                             (*edge_ptr).set_tag(new_im.as_u8());
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            bump_ancestor_chain(
-                                top_ptr,
-                                key,
-                                &ancestors[..anc_depth.saturating_sub(1)],
-                                1,
-                            );
+                            self.shared.mark_dirty_digit(digit(key, 8));
                         }
                         return OlcOutcome::Done(None);
                     }
@@ -3578,12 +4187,7 @@ impl SyncExpanseMap {
                             (*node).bitmap.clear(d);
                             (*edge_ptr).set_pop0(1, (pop0 - 1) as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            bump_ancestor_chain(
-                                top_ptr,
-                                key,
-                                &ancestors[..anc_depth.saturating_sub(1)],
-                                -1,
-                            );
+                            self.shared.mark_dirty_digit(digit(key, 8));
                             return OlcOutcome::Done(Some(old));
                         }
                     }
@@ -3650,12 +4254,7 @@ impl SyncExpanseMap {
                             crate::leaf::map_remove_at(base, kb as u8, pop, pos);
                             (*edge_ptr).set_pop0(kb as u8, (pop - 2) as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            bump_ancestor_chain(
-                                top_ptr,
-                                key,
-                                &ancestors[..anc_depth.saturating_sub(1)],
-                                -1,
-                            );
+                            self.shared.mark_dirty_digit(digit(key, 8));
                             return OlcOutcome::Done(Some(old));
                         }
                     }
@@ -3699,12 +4298,7 @@ impl SyncExpanseMap {
                                 let old = (*edge_ptr).word0();
                                 (*edge_ptr) = Edge::NULL;
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
-                                bump_ancestor_chain(
-                                    top_ptr,
-                                    key,
-                                    &ancestors[..anc_depth.saturating_sub(1)],
-                                    -1,
-                                );
+                                self.shared.mark_dirty_digit(digit(key, 8));
                                 return OlcOutcome::Done(Some(old));
                             }
                         }
@@ -3748,12 +4342,7 @@ impl SyncExpanseMap {
                             (*edge_ptr).set_aux_bytes(new_aux);
                             (*edge_ptr).set_tag(new_im.as_u8());
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            bump_ancestor_chain(
-                                top_ptr,
-                                key,
-                                &ancestors[..anc_depth.saturating_sub(1)],
-                                -1,
-                            );
+                            self.shared.mark_dirty_digit(digit(key, 8));
                             return OlcOutcome::Done(Some(old));
                         }
                     }
@@ -3782,9 +4371,7 @@ impl SyncExpanseMap {
     pub fn clear(&self) {
         self.shared.write_root_covered(|m| {
             m.clear();
-            self.shared
-                .tree_pop
-                .store(0, core::sync::atomic::Ordering::Relaxed);
+            self.shared.tree_pop.flush_and_set(0);
         });
     }
 
@@ -3847,7 +4434,7 @@ impl SyncExpanseMap {
     /// Runs `f` over the tree with all writers excluded — the escape
     /// hatch to the full single-threaded read API.
     pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseMap) -> R) -> R {
-        self.shared.read_locked(f)
+        self.shared.with_locked(f)
     }
 }
 
@@ -4009,29 +4596,12 @@ impl SyncExpanseBlobMap {
     /// ignore `hot_meta`).
     pub fn insert(&self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
         crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
-        self.shared.write(|m| {
-            let old = m.len();
-            let r = m.insert(key, data, hot_meta);
-            if r.is_ok() && m.len() > old {
-                self.shared
-                    .tree_pop
-                    .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-            }
-            r
-        })
+        self.shared.write(|m| m.insert(key, data, hot_meta))
     }
 
     /// Removes `key`; returns `true` if it was present.
     pub fn remove(&self, key: Key) -> bool {
-        self.shared.write(|m| {
-            let r = m.remove(key);
-            if r {
-                self.shared
-                    .tree_pop
-                    .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
-            }
-            r
-        })
+        self.shared.write(|m| m.remove(key))
     }
 
     /// Runs arena garbage collection and compaction. Dead chunks are retired
@@ -4043,12 +4613,7 @@ impl SyncExpanseBlobMap {
 
     /// Removes every entry and retires all arena chunks.
     pub fn clear(&self) {
-        self.shared.write(|m| {
-            m.clear();
-            self.shared
-                .tree_pop
-                .store(0, core::sync::atomic::Ordering::Relaxed);
-        });
+        self.shared.write(|m| m.clear());
     }
 
     /// Registers a reader handle for this thread's lookups.
@@ -4110,7 +4675,7 @@ impl SyncExpanseBlobMap {
     /// the full single-threaded read API (`scan_filtered`, iteration over
     /// [`ExpanseBlobMap::index`], persistence, …).
     pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseBlobMap) -> R) -> R {
-        self.shared.read_locked(f)
+        self.shared.with_locked(f)
     }
 }
 
@@ -4581,7 +5146,7 @@ impl SyncExpanseStrMap {
     /// Runs `f` over the map with all writers excluded — the escape hatch
     /// to the single-threaded `&self` read API.
     pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseStrMap) -> R) -> R {
-        self.shared.read_locked(f)
+        self.shared.with_locked(f)
     }
 
     /// Runs `f` with exclusive access under the writer lock and version
@@ -4761,7 +5326,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
     /// Runs `f` over the map with all writers excluded — the escape
     /// hatch to the single-threaded `&self` read API ([`ExpanseBytesMap::for_each`], …).
     pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseBytesMap<S>) -> R) -> R {
-        self.shared.read_locked(f)
+        self.shared.with_locked(f)
     }
 
     /// Runs `f` with exclusive access under the writer lock and version
@@ -6172,18 +6737,6 @@ mod tests {
     }
 }
 
-/// A small integer naming the calling thread, for the `Handoffs` counter.
-/// Allocated once per thread from a global counter; 0 is never issued.
-#[cfg(feature = "occ-stats")]
-fn thread_token() -> u64 {
-    use core::sync::atomic::{AtomicU64, Ordering};
-    static NEXT: AtomicU64 = AtomicU64::new(1);
-    std::thread_local! {
-        static TOKEN: u64 = NEXT.fetch_add(1, Ordering::Relaxed);
-    }
-    TOKEN.with(|t| *t)
-}
-
 /// Byte offsets of every `Shared` field, for a benchmark that wants to know
 /// which of them share a cache line before attributing a cost to line
 /// sharing. One row per (wrapper, field): the wrapper's type name, the field
@@ -6214,6 +6767,11 @@ pub fn layout_report() -> Vec<(&'static str, &'static str, usize)> {
                 wrapper,
                 "collector",
                 core::mem::offset_of!(Shared<T>, collector),
+            ),
+            (
+                wrapper,
+                "dirty_digits",
+                core::mem::offset_of!(Shared<T>, dirty_digits),
             ),
             (wrapper, "gate", core::mem::offset_of!(Shared<T>, gate)),
             (
@@ -6248,9 +6806,9 @@ pub fn layout_report() -> Vec<(&'static str, &'static str, usize)> {
     out
 }
 
-/// Rows per wrapper in [`layout_report`]: the ten fields and the size row.
+/// Rows per wrapper in [`layout_report`]: the eleven fields and the size row.
 #[cfg(feature = "occ-stats")]
-const LAYOUT_ROWS: usize = 11;
+const LAYOUT_ROWS: usize = 12;
 
 #[cfg(all(test, feature = "occ-stats"))]
 mod diagnostics_tests {
@@ -6266,21 +6824,21 @@ mod diagnostics_tests {
         // concurrently, so only lower bounds are sound here; an "exactly zero
         // for one thread" assertion is not.)
         const ROUNDS: u64 = 200;
-        let m = std::sync::Arc::new(SyncExpanseMap::new());
+        let m = std::sync::Arc::new(SyncExpanseBytesMap::new());
         let (to_b, from_a) = std::sync::mpsc::channel::<u64>();
         let (to_a, from_b) = std::sync::mpsc::channel::<u64>();
         let before = snapshot()[Stat::Handoffs as usize];
         let mb = std::sync::Arc::clone(&m);
         let b = std::thread::spawn(move || {
             for k in from_a {
-                mb.insert(1_000_000 + k, k);
+                mb.insert(&k.to_le_bytes(), k);
                 if to_a.send(k).is_err() {
                     break;
                 }
             }
         });
         for k in 0..ROUNDS {
-            m.insert(k, k);
+            m.insert(&(1_000_000 + k).to_le_bytes(), k);
             to_b.send(k).unwrap();
             from_b.recv().unwrap();
         }
@@ -6317,12 +6875,13 @@ mod diagnostics_tests {
 
     #[test]
     fn layout_report_names_every_field_of_every_wrapper() {
-        const FIELDS: [&str; 10] = [
+        const FIELDS: [&str; 11] = [
             "inner",
             "version",
             "tree_pop",
             "write",
             "collector",
+            "dirty_digits",
             "gate",
             "fallback_mutex",
             "writers",
@@ -6470,10 +7029,10 @@ mod obsolete_tests {
         }
         let after = crate::occ_stats::snapshot();
         let entered = after[crate::occ_stats::Stat::PopRedescends as usize]
-            - before[crate::occ_stats::Stat::PopRedescends as usize];
+            .saturating_sub(before[crate::occ_stats::Stat::PopRedescends as usize]);
         std::eprintln!("PROBE redescends_entered={entered}");
         let abandoned = after[crate::occ_stats::Stat::PopRedescendAbandoned as usize]
-            - before[crate::occ_stats::Stat::PopRedescendAbandoned as usize];
+            .saturating_sub(before[crate::occ_stats::Stat::PopRedescendAbandoned as usize]);
         assert_eq!(
             abandoned, 0,
             "a re-descent exhausted its budget: {abandoned} branch pop0 value(s) \
@@ -6677,5 +7236,138 @@ mod obsolete_tests {
             old_pop0 + 1,
             "re-descent must find the active root branch node and bump its edge pop0 by 1"
         );
+    }
+
+    #[test]
+    fn set_lazy_branch_pop0_fold_and_sharded_tree_pop_invariant() {
+        let set = std::sync::Arc::new(SyncExpanseSet::new());
+        for i in 0..1000u64 {
+            set.insert((i << 16) | 1);
+        }
+        assert_eq!(set.len(), 1000);
+
+        let threads: Vec<_> = (0..8u64)
+            .map(|t| {
+                let s = std::sync::Arc::clone(&set);
+                std::thread::spawn(move || {
+                    for i in 0..1000u64 {
+                        let key = ((t + 1) << 56) | (i << 16) | 1;
+                        s.insert(key);
+                    }
+                })
+            })
+            .collect();
+        for h in threads {
+            h.join().unwrap();
+        }
+
+        assert_eq!(set.len(), 9000);
+        set.with_locked(ExpanseSet::validate);
+    }
+
+    #[test]
+    fn map_lazy_branch_pop0_fold_and_sharded_tree_pop_invariant() {
+        let map = std::sync::Arc::new(SyncExpanseMap::new());
+        for i in 0..1000u64 {
+            map.insert((i << 16) | 1, i);
+        }
+        assert_eq!(map.len(), 1000);
+
+        let threads: Vec<_> = (0..8u64)
+            .map(|t| {
+                let m = std::sync::Arc::clone(&map);
+                std::thread::spawn(move || {
+                    for i in 0..1000u64 {
+                        let key = ((t + 1) << 56) | (i << 16) | 1;
+                        m.insert(key, i);
+                    }
+                })
+            })
+            .collect();
+        for h in threads {
+            h.join().unwrap();
+        }
+
+        assert_eq!(map.len(), 9000);
+        map.with_locked(ExpanseMap::validate);
+    }
+
+    #[test]
+    fn lazy_fold_restores_branch_pop0_after_olc_inserts() {
+        let set = SyncExpanseSet::new();
+        // Insert enough keys to grow into a multi-level tree with a bitmap leaf
+        let prefix = 0x1234_5678_9ABC_DE00u64;
+        for d in 0..40u64 {
+            set.insert(prefix | d);
+        }
+        for i in 1..20u64 {
+            set.insert((i << 56) | 1);
+        }
+        set.with_locked(ExpanseSet::validate);
+        assert!(!set.shared.dirty_digits.is_dirty());
+
+        // Insert key into the existing LeafBitmap1: executes Site 2 directly under OLC!
+        assert!(set.insert(prefix | 41));
+        // Under OLC, ancestor branches were not bumped and dirty digit is set for prefix digit!
+        let d = digit(prefix | 41, 8);
+        assert!(set.shared.dirty_digits.is_digit_dirty(d));
+        assert!(set.shared.dirty_digits.is_dirty());
+
+        // Common non-analytical paths (len, contains, read_locked) MUST NOT fold or clear dirty digits
+        assert_eq!(set.len(), 60);
+        assert!(set.contains(prefix | 41));
+        set.shared.read_locked(|s| assert!(s.contains(prefix | 41)));
+        assert!(set.shared.dirty_digits.is_digit_dirty(d));
+
+        // Analytical queries (count_below, count_range, by_count via with_locked) trigger on-demand selective fold
+        let rank = set.with_locked(|s| s.count_below(prefix | 41));
+        assert!(rank > 0);
+        assert!(!set.shared.dirty_digits.is_dirty());
+
+        // Validation under with_locked passes
+        set.with_locked(ExpanseSet::validate);
+        assert!(!set.shared.dirty_digits.is_dirty());
+    }
+
+    #[test]
+    fn selective_fold_filters_clean_subtrees() {
+        let set = SyncExpanseSet::new();
+        // Insert into two separate subtrees under digit 0x10 and digit 0x20
+        let p1 = 0x1000_0000_0000_0000u64;
+        let p2 = 0x2000_0000_0000_0000u64;
+        for i in 0..50u64 {
+            set.insert(p1 | (i << 16) | 1);
+            set.insert(p2 | (i << 16) | 1);
+        }
+        set.with_locked(ExpanseSet::validate);
+        assert!(!set.shared.dirty_digits.is_dirty());
+
+        // Mark only digit 0x10 dirty via mark_digit
+        set.shared.dirty_digits.mark_digit(0x10);
+        assert!(set.shared.dirty_digits.is_digit_dirty(0x10));
+        assert!(!set.shared.dirty_digits.is_digit_dirty(0x20));
+
+        // Ensure fold restores pop0 and clears dirty mask
+        set.with_locked(ExpanseSet::validate);
+        assert!(!set.shared.dirty_digits.is_dirty());
+    }
+
+    #[test]
+    fn rank_and_select_queries_exact_after_concurrent_olc() {
+        let set = SyncExpanseSet::new();
+        let map = SyncExpanseMap::new();
+        for i in 0..100u64 {
+            set.insert(i * 10);
+            map.insert(i * 10, i);
+        }
+        // Check count_below, count_range, by_count on SyncExpanseSet via with_locked
+        assert_eq!(set.with_locked(|s| s.count_below(55)), 6);
+        assert_eq!(set.with_locked(|s| s.count_range(10..=50)), 5);
+        assert_eq!(set.with_locked(|s| s.by_count(5)), Some(50));
+
+        // Check count_below, count_range, by_count on SyncExpanseMap via with_locked
+        assert_eq!(map.with_locked(|m| m.count_below(55)), 6);
+        assert_eq!(map.with_locked(|m| m.count_range(10..=50)), 5);
+        assert_eq!(map.with_locked(|m| m.by_count(5)), Some((50, 5)));
     }
 }
