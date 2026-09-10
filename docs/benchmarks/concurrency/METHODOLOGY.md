@@ -348,12 +348,13 @@ beside it as the second bar.
   (`python3 scripts/olc_bounds.py`). **REFUTED** at any W above the
   instantiated ceiling. The safety factor 2.0 is a choice, fixed here.
 - **P5.4 — the contended-line bound holds.** The FFI arms' W = 16 rate is at
-  or below `olc_bounds.contended_rmw_ceiling(k = 1, t_line, t_hold)` with
-  the measured `t_line` (33.37 ns, the artifact's median cell) and the
-  measured `t_hold`; the `core_concurrency` shape (`rng % 2M`, k = 5) is
+  or below `olc_bounds.contended_rmw_ceiling(k, t_line, t_hold)` with
+  the measured `t_line` (33.37 ns, the artifact's median cell), the
+  measured `t_hold`, and $k$ determined by the build configuration ($k = 2$
+  for the default build `ffi_disjoint_default`; $k = 1$ under `lock-padded`
+  `ffi_disjoint_padded`); the `core_concurrency` shape (`rng % 2M`, k = 5) is
   predicted *not* to clear its own W = 1 and is published as a losing cell,
-  not gated. **REFUTED** if an FFI arm exceeds the bound (then `k = 1` is
-  wrong for that shape and the bound is re-derived, not the gate).
+  not gated. **REFUTED** if an FFI arm exceeds the bound.
 - **Controls, predicted unchanged:** every single-threaded Callgrind arm at
   0.00% (the `sync_*` reader arms included); the C2 W = 1 R = 8 reader cells
   inside their #809 head-half unions (97–104 ns per probe, README §8); the
@@ -394,3 +395,4 @@ reference host.
 1. **Base ref update to `b49835ad`**: Section 10.2 pre-registered comparison against `10cd755d`, while campaign automation had temporarily defaulted to `1edfa952`. Across two runs against `1edfa952`, 7 of 20 base halves fell outside §10.1's registered union — notably Masstree map W=1 (5.53 / 5.52 M/s versus registered [5.43, 5.44] M/s), which voided the cell under §10.4.
 2. **Canonical Phase 1.5A evaluation**: The authoritative question Phase 1.5A (#568) evaluates is whether the full zero-sharing and lazy rollup sequence (#818, #819, #821, #822) recovered write scaling compared to the mature pre-1.5A OLC baseline. The baseline is therefore fixed as `b49835ad` (the immediate predecessor of #818), and the head build is `f9efa260` (landed in #822) or current `main`.
 3. **Contention health cells ($W \ge 2$)**: The two-commit sweep script (`run_all.py`) is updated to record health rows for $W \in \{1, 2, 4, 8, 16\}, R = 0$ in addition to the $W = 1, R = 8$ mixed-reader row. Previously committed health cells were restricted to $W = 1$, where `Stat::LockRestarts` and `Stat::LockSpins` were 0 by construction. Measuring health across all $W$ provides the empirical restart counts required for P5.3 evaluation against the instantiated restart ceilings, and directly measures the fallback share and spin time under concurrent write pressure.
+4. **Build configuration and $k$ selection for P5.4**: The default engine build (`Cargo.toml` `default = ["std"]`) runs without `feature = "lock-padded"`. Per `scripts/olc_bounds.py`, residual false sharing across the 64 atomic writer slots packs 8 per cache line, so the default build shape is `ffi_disjoint_default` with $k = 2$ ($12.39\text{ M ops/s}$ for set, $8.95\text{ M ops/s}$ for HOT map, $9.06\text{ M ops/s}$ for Masstree map). The gate script selects $k = 2$ for the default build, and selects $k = 1$ (`ffi_disjoint_padded`) only when the `lock-padded` feature is enabled. P5.4 tests whether the observed W = 16 throughput stays at or below this ceiling.

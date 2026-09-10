@@ -90,7 +90,7 @@ def union(vals: list) -> tuple[float, float] | None:
     return (min(vals), max(vals)) if vals else None
 
 
-def evaluate(load=default_load) -> dict:
+def evaluate(load=default_load, k_lines: int | None = None) -> dict:
     out = {
         "p51": [],
         "p52": [],
@@ -130,6 +130,36 @@ def evaluate(load=default_load) -> dict:
         if base_commit:
             break
     out["base_commit"] = base_commit or "b49835ad"
+
+    def cell_k_lines(arts: dict) -> int:
+        """Selects k (shared cache lines per insert) for P5.4 based on the build configuration.
+        Defaults to olc_bounds.K_LINES["ffi_disjoint_default"] (2) for the default build,
+        or olc_bounds.K_LINES["ffi_disjoint_padded"] (1) if lock-padded is enabled."""
+        import os
+        env_k = os.environ.get("EXPANSE_BENCH_K_LINES")
+        if env_k is not None:
+            try:
+                return int(env_k)
+            except ValueError:
+                pass
+        if os.environ.get("EXPANSE_LOCK_PADDED") in ("1", "true", "yes") or \
+           os.environ.get("EXPANSE_BENCH_LOCK_PADDED") in ("1", "true", "yes"):
+            return olc_bounds.K_LINES["ffi_disjoint_padded"]
+        for suite in ("hot_comparison", "masstree_comparison"):
+            for art in (arts.get(suite, {}).get("ab_pair") or []):
+                if not art:
+                    continue
+                prov = art.get("provenance") or {}
+                rustflags = str(prov.get("rustflags", ""))
+                feat = str(prov.get("features", ""))
+                variant = str(art.get("variant", ""))
+                if "lock-padded" in rustflags or "lock-padded" in feat or "lock-padded" in variant:
+                    return olc_bounds.K_LINES["ffi_disjoint_padded"]
+        return olc_bounds.K_LINES["ffi_disjoint_default"]
+
+    if k_lines is None:
+        k_lines = cell_k_lines(arts)
+    out["k_lines"] = k_lines
 
     def cell_t_hold_ns(suite: str, arm: str) -> float:
         """Discovers measured t_hold_ns for a (suite, arm) cell from loaded health artifacts,
@@ -257,7 +287,7 @@ def evaluate(load=default_load) -> dict:
     t_line_ns = out["t_line_ns"]
     for suite, arm in GATE_ARMS:
         arm_t_hold_ns = cell_t_hold_ns(suite, arm)
-        bound_ops = olc_bounds.contended_rmw_ceiling(1, t_line_ns, arm_t_hold_ns)
+        bound_ops = olc_bounds.contended_rmw_ceiling(k_lines, t_line_ns, arm_t_hold_ns)
         bound_mops = bound_ops / 1e6
         a = arts[suite]
         ab = a["ab_pair"]
@@ -267,6 +297,7 @@ def evaluate(load=default_load) -> dict:
             "suite": suite,
             "arm": arm,
             "writers": 16,
+            "k_lines": k_lines,
             "t_line_ns": t_line_ns,
             "t_hold_ns": arm_t_hold_ns,
             "ceiling_mops": bound_mops,
@@ -331,9 +362,10 @@ def _verdict(v: str) -> str:
     return v
 
 
-def render(load=default_load) -> list[str]:
-    r = evaluate(load)
+def render(load=default_load, k_lines: int | None = None) -> list[str]:
+    r = evaluate(load, k_lines=k_lines)
     base_commit = r.get("base_commit", "b49835ad")
+    k_val = r.get("k_lines", 2)
     out = [
         "## 9. Multi-writer OLC gate (METHODOLOGY §10)",
         "",
@@ -381,7 +413,7 @@ def render(load=default_load) -> list[str]:
 
     out += [
         "",
-        f"**P5.4 — Contended-line bound at W = 16** (ceiling = 1 / (t_line + t_hold); t_line = {_f(r['t_line_ns'], 1)} ns, per-arm t_hold):",
+        f"**P5.4 — Contended-line bound at W = 16** (ceiling = 1 / (k·t_line + t_hold); k = {k_val}, t_line = {_f(r['t_line_ns'], 1)} ns, per-arm t_hold):",
         "",
         "| suite | arm | t_hold (ns) | ceiling (M/s) | head union (M/s) | verdict |",
         "|---|---|--:|--:|--:|---|",
@@ -425,17 +457,25 @@ def _self_test() -> int:
     check("P5.4 pending without artifacts", all(x["verdict"] == "pending" for x in r["p54"]))
     check("P5.3 carries per-arm t_hold_ns", all(x["t_hold_ns"] > 0 for x in r["p53"]))
     check("P5.4 carries per-arm t_hold_ns", all(x["t_hold_ns"] > 0 for x in r["p54"]))
+    check("P5.4 carries k_lines", all(x["k_lines"] == 2 for x in r["p54"]))
     lines = render(lambda s, n: None)
     check("render is section 9", lines[0].startswith("## 9."))
 
-    # Reference value check against committed artifacts
+    # Reference value check against committed artifacts (default k=2)
     r_def = evaluate()
     set_row = next(x for x in r_def["p54"] if x["suite"] == "hot_comparison" and x["arm"] == "set")
     map_row = next(x for x in r_def["p54"] if x["suite"] == "hot_comparison" and x["arm"] == "map")
     check("set t_hold is ~14.0 ns", 13.9 <= set_row["t_hold_ns"] <= 14.1)
     check("map t_hold is ~45.0 ns", 44.0 <= map_row["t_hold_ns"] <= 46.0)
-    check("set P5.4 ceiling is ~21.1 M/s", 21.0 <= set_row["ceiling_mops"] <= 21.2)
-    check("map P5.4 ceiling is ~12.8 M/s", 12.6 <= map_row["ceiling_mops"] <= 12.9)
+    check("set P5.4 default ceiling is ~12.4 M/s (k=2)", 12.3 <= set_row["ceiling_mops"] <= 12.5)
+    check("map P5.4 default ceiling is ~8.95 M/s (k=2)", 8.9 <= map_row["ceiling_mops"] <= 9.1)
+
+    # Reference value check with padded k=1 override
+    r_pad = evaluate(k_lines=1)
+    set_pad = next(x for x in r_pad["p54"] if x["suite"] == "hot_comparison" and x["arm"] == "set")
+    map_pad = next(x for x in r_pad["p54"] if x["suite"] == "hot_comparison" and x["arm"] == "map")
+    check("set P5.4 padded ceiling is ~21.1 M/s (k=1)", 21.0 <= set_pad["ceiling_mops"] <= 21.2)
+    check("map P5.4 padded ceiling is ~12.8 M/s (k=1)", 12.6 <= map_pad["ceiling_mops"] <= 12.9)
 
     # Synthetic fixture test for PASS verdicts
     def mock_loader(suite, name):
@@ -463,4 +503,9 @@ def _self_test() -> int:
 if __name__ == "__main__":
     if "--self-test" in sys.argv:
         sys.exit(_self_test())
-    print("\n".join(render()))
+    k_arg = None
+    if "--k-lines" in sys.argv:
+        idx = sys.argv.index("--k-lines")
+        if idx + 1 < len(sys.argv):
+            k_arg = int(sys.argv[idx + 1])
+    print("\n".join(render(k_lines=k_arg)))

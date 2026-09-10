@@ -288,13 +288,13 @@ Read against §10.2; every number is evaluated over two two-commit runs against 
 | `masstree_comparison` | `map` | 8 | 43.6 | 262.5 | 5.139 | pending | pending |
 | `masstree_comparison` | `map` | 16 | 43.6 | 262.5 | 28.567 | pending | pending |
 
-**P5.4 — Contended-line bound at W = 16** (ceiling = 1 / (t_line + t_hold); t_line = 33.4 ns, per-arm t_hold):
+**P5.4 — Contended-line bound at W = 16** (ceiling = 1 / (k·t_line + t_hold); k = 2, t_line = 33.4 ns, per-arm t_hold):
 
 | suite | arm | t_hold (ns) | ceiling (M/s) | head union (M/s) | verdict |
 |---|---|--:|--:|--:|---|
-| `hot_comparison` | `set` | 14.0 | 21.12 | [0.32, 0.33] | `PASS (at or below contended-line ceiling)` |
-| `hot_comparison` | `map` | 45.0 | 12.76 | [0.38, 0.40] | `PASS (at or below contended-line ceiling)` |
-| `masstree_comparison` | `map` | 43.6 | 12.99 | [0.35, 0.35] | `PASS (at or below contended-line ceiling)` |
+| `hot_comparison` | `set` | 14.0 | 12.39 | [0.32, 0.33] | `PASS (at or below contended-line ceiling)` |
+| `hot_comparison` | `map` | 45.0 | 8.95 | [0.38, 0.40] | `PASS (at or below contended-line ceiling)` |
+| `masstree_comparison` | `map` | 43.6 | 9.06 | [0.35, 0.35] | `PASS (at or below contended-line ceiling)` |
 
 **Controls — C2 readers alongside writers at W = 1 R = 8** (predicted inside [97, 104] ns; lower is faster):
 
