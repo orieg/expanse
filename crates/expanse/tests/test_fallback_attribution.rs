@@ -179,16 +179,18 @@ fn fallback_causes_account_for_every_fallback() {
         sd(Stat::FallbackCapExpansion)
     );
 
-    // Single-writer benchmark workloads experience zero lock contention (F3).
+    // A single-threaded test workload experiences zero lock contention (F3).
+    // Under W >= 2 concurrent writers, the gate-closure feedback loop in
+    // sync.rs makes contention non-zero by design.
     assert_eq!(
         d(Stat::FallbackContention),
         0,
-        "map workload under W=1 must have zero contention fallbacks"
+        "single-threaded map test workload must have zero contention fallbacks"
     );
     assert_eq!(
         sd(Stat::FallbackContention),
         0,
-        "set workload under W=1 must have zero contention fallbacks"
+        "single-threaded set test workload must have zero contention fallbacks"
     );
 
     // The OLC walk does *not* decode every tag it can meet, and this counter
