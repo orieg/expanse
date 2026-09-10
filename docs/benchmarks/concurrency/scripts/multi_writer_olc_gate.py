@@ -120,20 +120,27 @@ def evaluate(load=default_load) -> dict:
             ],
         }
 
-    # First discover measured t_hold_ns from health artifacts if present
-    hold_measurements = []
-    for suite in ("hot_comparison", "masstree_comparison"):
-        for art in arts[suite]["ab_pair"]:
+    def cell_t_hold_ns(suite: str, arm: str) -> float:
+        """Discovers measured t_hold_ns for a (suite, arm) cell from loaded health artifacts,
+        falling back to olc_bounds.lock_hold_ns(suite, arm) and then T_HOLD_LEAF_HYPOTHESIS_NS."""
+        vals = []
+        for art in arts.get(suite, {}).get("ab_pair", []):
             for h in (art or {}).get("health", []):
-                w_ops = (h.get("write_ops") or {}).get("median")
-                hz = (h.get("cycles_hz") or {}).get("median")
-                cycles = (h.get("lock_hold_cycles") or {}).get("median")
-                if w_ops and hz and cycles and w_ops > 0 and hz > 0:
-                    hold_measurements.append((cycles / w_ops) / hz * 1e9)
-    if hold_measurements:
-        out["t_hold_ns"] = sum(hold_measurements) / len(hold_measurements)
-    else:
-        out["t_hold_ns"] = olc_bounds.T_HOLD_LEAF_HYPOTHESIS_NS  # 15.0 ns hypothesis
+                if h.get("arm") == arm:
+                    w_ops = (h.get("write_ops") or {}).get("median")
+                    hz = (h.get("cycles_hz") or {}).get("median")
+                    cycles = (h.get("lock_hold_cycles") or {}).get("median")
+                    if w_ops and hz and cycles and w_ops > 0 and hz > 0:
+                        vals.append((cycles / w_ops) / hz * 1e9)
+        if vals:
+            import statistics
+            return float(statistics.median(vals))
+        try:
+            return float(olc_bounds.lock_hold_ns(suite, arm)["median"])
+        except Exception:
+            return float(olc_bounds.T_HOLD_LEAF_HYPOTHESIS_NS)
+
+    out["t_hold_ns"] = {f"{s}/{a}": cell_t_hold_ns(s, a) for s, a in GATE_ARMS}
 
     # P5.1: Writers scale on disjoint expanses
     for suite, arm in GATE_ARMS + PUBLISHED_ARMS:
@@ -199,6 +206,7 @@ def evaluate(load=default_load) -> dict:
 
     # P5.3: Restarts stay bounded
     for suite, arm in GATE_ARMS:
+        arm_t_hold_ns = cell_t_hold_ns(suite, arm)
         a = arts[suite]
         ab = a["ab_pair"]
         w1_heads = [writer_mops((_cell(x, "throughput", arm, 1, 0) or {}).get("head")) for x in ab]
@@ -207,7 +215,7 @@ def evaluate(load=default_load) -> dict:
         t_op_ns = (1e3 / w1_med) if w1_med and w1_med > 0 else 180.0
 
         for w in C1_WRITERS:
-            ceiling = olc_bounds.restart_ceiling(w, out["t_hold_ns"], t_op_ns, safety_factor=2.0)
+            ceiling = olc_bounds.restart_ceiling(w, arm_t_hold_ns, t_op_ns, safety_factor=2.0)
             restarts_observed = []
             for art in ab:
                 h = _cell(art, "health", arm, w, 0)
@@ -220,7 +228,7 @@ def evaluate(load=default_load) -> dict:
                 "suite": suite,
                 "arm": arm,
                 "writers": w,
-                "t_hold_ns": out["t_hold_ns"],
+                "t_hold_ns": arm_t_hold_ns,
                 "t_op_ns": t_op_ns,
                 "ceiling": ceiling,
                 "restarts_per_op": restarts_observed,
@@ -236,10 +244,10 @@ def evaluate(load=default_load) -> dict:
 
     # P5.4: Contended-line bound at W=16
     t_line_ns = out["t_line_ns"]
-    t_hold_ns = out["t_hold_ns"]
-    bound_ops = olc_bounds.contended_rmw_ceiling(1, t_line_ns, t_hold_ns)
-    bound_mops = bound_ops / 1e6
     for suite, arm in GATE_ARMS:
+        arm_t_hold_ns = cell_t_hold_ns(suite, arm)
+        bound_ops = olc_bounds.contended_rmw_ceiling(1, t_line_ns, arm_t_hold_ns)
+        bound_mops = bound_ops / 1e6
         a = arts[suite]
         ab = a["ab_pair"]
         w16_heads = [writer_mops((_cell(x, "throughput", arm, 16, 0) or {}).get("head")) for x in ab]
@@ -249,7 +257,7 @@ def evaluate(load=default_load) -> dict:
             "arm": arm,
             "writers": 16,
             "t_line_ns": t_line_ns,
-            "t_hold_ns": t_hold_ns,
+            "t_hold_ns": arm_t_hold_ns,
             "ceiling_mops": bound_mops,
             "head_union": w16_u,
             "verdict": "pending",
@@ -347,28 +355,28 @@ def render(load=default_load) -> list[str]:
 
     out += [
         "",
-        f"**P5.3 — Restarts stay bounded** (safety factor 2.0; instantiated with t_hold = {_f(r['t_hold_ns'], 1)} ns):",
+        "**P5.3 — Restarts stay bounded** (safety factor 2.0; per-arm measured t_hold from health rows):",
         "",
-        "| suite | arm | W | t_op (ns) | ceiling (restarts/op) | observed, run 1 / 2 | verdict |",
-        "|---|---|--:|--:|--:|--:|---|",
+        "| suite | arm | W | t_hold (ns) | t_op (ns) | ceiling (restarts/op) | observed, run 1 / 2 | verdict |",
+        "|---|---|--:|--:|--:|--:|--:|---|",
     ]
     for row in r["p53"]:
         obs = _pair(row["restarts_per_op"], 3) if row["restarts_per_op"] else "pending"
         out.append(
-            f"| `{row['suite']}` | `{row['arm']}` | {row['writers']} | {_f(row['t_op_ns'], 1)} | "
-            f"{_f(row['ceiling'], 3)} | {obs} | {_verdict(row['verdict'])} |"
+            f"| `{row['suite']}` | `{row['arm']}` | {row['writers']} | {_f(row['t_hold_ns'], 1)} | "
+            f"{_f(row['t_op_ns'], 1)} | {_f(row['ceiling'], 3)} | {obs} | {_verdict(row['verdict'])} |"
         )
 
     out += [
         "",
-        f"**P5.4 — Contended-line bound at W = 16** (ceiling = 1 / (t_line + t_hold); t_line = {_f(r['t_line_ns'], 1)} ns, t_hold = {_f(r['t_hold_ns'], 1)} ns):",
+        f"**P5.4 — Contended-line bound at W = 16** (ceiling = 1 / (t_line + t_hold); t_line = {_f(r['t_line_ns'], 1)} ns, per-arm t_hold):",
         "",
-        "| suite | arm | ceiling (M/s) | head union (M/s) | verdict |",
-        "|---|---|--:|--:|---|",
+        "| suite | arm | t_hold (ns) | ceiling (M/s) | head union (M/s) | verdict |",
+        "|---|---|--:|--:|--:|---|",
     ]
     for row in r["p54"]:
         out.append(
-            f"| `{row['suite']}` | `{row['arm']}` | {_f(row['ceiling_mops'], 2)} | "
+            f"| `{row['suite']}` | `{row['arm']}` | {_f(row['t_hold_ns'], 1)} | {_f(row['ceiling_mops'], 2)} | "
             f"{_u(row['head_union'])} | {_verdict(row['verdict'])} |"
         )
 
@@ -403,8 +411,19 @@ def _self_test() -> int:
     check("P5.2 pending without artifacts", all(x["verdict"] == "pending" for x in r["p52"]))
     check("P5.3 pending without artifacts", all(x["verdict"] == "pending" for x in r["p53"]))
     check("P5.4 pending without artifacts", all(x["verdict"] == "pending" for x in r["p54"]))
+    check("P5.3 carries per-arm t_hold_ns", all(x["t_hold_ns"] > 0 for x in r["p53"]))
+    check("P5.4 carries per-arm t_hold_ns", all(x["t_hold_ns"] > 0 for x in r["p54"]))
     lines = render(lambda s, n: None)
     check("render is section 9", lines[0].startswith("## 9."))
+
+    # Reference value check against committed artifacts
+    r_def = evaluate()
+    set_row = next(x for x in r_def["p54"] if x["suite"] == "hot_comparison" and x["arm"] == "set")
+    map_row = next(x for x in r_def["p54"] if x["suite"] == "hot_comparison" and x["arm"] == "map")
+    check("set t_hold is ~14.0 ns", 13.9 <= set_row["t_hold_ns"] <= 14.1)
+    check("map t_hold is ~45.0 ns", 44.0 <= map_row["t_hold_ns"] <= 46.0)
+    check("set P5.4 ceiling is ~21.1 M/s", 21.0 <= set_row["ceiling_mops"] <= 21.2)
+    check("map P5.4 ceiling is ~12.8 M/s", 12.6 <= map_row["ceiling_mops"] <= 12.9)
 
     # Synthetic fixture test for PASS verdicts
     def mock_loader(suite, name):
