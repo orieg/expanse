@@ -704,6 +704,17 @@ impl ShardedTreePop {
         if sum < 0 { 0 } else { sum as u64 }
     }
 
+    #[inline(always)]
+    pub(crate) fn add_base(&self, delta: i64) {
+        if delta > 0 {
+            self.base
+                .fetch_add(delta as u64, core::sync::atomic::Ordering::Relaxed);
+        } else if delta < 0 {
+            self.base
+                .fetch_sub((-delta) as u64, core::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
     pub(crate) fn flush_and_set(&self, pop: u64) {
         self.base.store(pop, core::sync::atomic::Ordering::Relaxed);
         for s in &self.shards {
@@ -1504,10 +1515,16 @@ impl<T: SharedTree> Shared<T> {
         crate::occ_stats::op_begin();
         // SAFETY: the writer mutex makes this the only mutable borrow.
         let inner = unsafe { &mut *self.inner.get() };
-        inner.set_tree_pop(self.tree_pop.load());
+        let pop_before = inner.tree_pop();
         let r = f(inner);
         inner.clear_path();
-        self.tree_pop.flush_and_set(inner.tree_pop());
+        let pop_after = inner.tree_pop();
+        let delta = pop_after as i64 - pop_before as i64;
+        if pop_after == 0 && pop_before > 0 {
+            self.tree_pop.flush_and_set(0);
+        } else if delta != 0 {
+            self.tree_pop.add_base(delta);
+        }
         crate::occ_stats::op_end();
         #[cfg(debug_assertions)]
         crate::alloc::bracket_stack::leave(self.tree_cover_addr());
@@ -1560,7 +1577,7 @@ impl<T: SharedTree> Shared<T> {
         crate::occ_stats::op_begin();
         // SAFETY: the writer mutex makes this the only mutable borrow.
         let inner = unsafe { &mut *self.inner.get() };
-        inner.set_tree_pop(self.tree_pop.load());
+        let pop_before = inner.tree_pop();
         // Read under the lock: the root state is the writer's to change.
         let r = if inner.root_is_tree() {
             f(inner)
@@ -1575,7 +1592,13 @@ impl<T: SharedTree> Shared<T> {
             r
         };
         inner.clear_path();
-        self.tree_pop.flush_and_set(inner.tree_pop());
+        let pop_after = inner.tree_pop();
+        let delta = pop_after as i64 - pop_before as i64;
+        if pop_after == 0 && pop_before > 0 {
+            self.tree_pop.flush_and_set(0);
+        } else if delta != 0 {
+            self.tree_pop.add_base(delta);
+        }
         crate::occ_stats::op_end();
         #[cfg(not(feature = "advance-never"))]
         {
@@ -1616,7 +1639,6 @@ impl<T: SharedTree> Shared<T> {
         // acceleration path cursors (`inner.clear_path()`) does not alias any concurrent access.
         let inner = unsafe { &mut *self.inner.get() };
         inner.clear_path();
-        inner.set_tree_pop(self.tree_pop.load());
         let res = f(inner);
         inner.clear_path();
         drop(_g);
@@ -1652,8 +1674,11 @@ impl<T: SharedTree> Shared<T> {
                 inner.set_tree_pop(folded);
                 self.tree_pop.flush_and_set(folded);
             }
+        } else {
+            let pop = self.tree_pop.load();
+            inner.set_tree_pop(pop);
+            self.tree_pop.flush_and_set(pop);
         }
-        inner.set_tree_pop(self.tree_pop.load());
         let res = f(inner);
         inner.clear_path();
         drop(_g);
@@ -1670,7 +1695,7 @@ impl<T: SharedTree> Shared<T> {
     fn validated_len(
         &self,
         root_of: impl Fn(&T) -> RootSnapshot,
-        locked: impl FnOnce(&T) -> u64,
+        _locked: impl FnOnce(&T) -> u64,
     ) -> u64 {
         for _ in 0..MAX_RETRIES {
             let snap = self.version().sample();
@@ -1685,7 +1710,11 @@ impl<T: SharedTree> Shared<T> {
             }
         }
         crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
-        self.read_locked(locked)
+        self.read_locked(|inner| match root_of(inner) {
+            RootSnapshot::Empty => 0,
+            RootSnapshot::Leaf { pop, .. } => pop as u64,
+            RootSnapshot::Tree { .. } => self.tree_pop.load(),
+        })
     }
 }
 
@@ -3195,24 +3224,6 @@ impl SyncExpanseSet {
     pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseSet) -> R) -> R {
         self.shared.with_locked(f)
     }
-
-    /// Number of keys strictly below `key` (rank).
-    #[must_use]
-    pub fn count_below(&self, key: Key) -> u64 {
-        self.with_locked(|s| s.count_below(key))
-    }
-
-    /// Number of keys in the inclusive range.
-    #[must_use]
-    pub fn count_range(&self, range: core::ops::RangeInclusive<u64>) -> u64 {
-        self.with_locked(|s| s.count_range(range))
-    }
-
-    /// The key with `n` keys below it — 0-based select.
-    #[must_use]
-    pub fn by_count(&self, n: u64) -> Option<u64> {
-        self.with_locked(|s| s.by_count(n))
-    }
 }
 
 /// A per-thread reader handle for [`SyncExpanseSet`].
@@ -4407,24 +4418,6 @@ impl SyncExpanseMap {
     pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseMap) -> R) -> R {
         self.shared.with_locked(f)
     }
-
-    /// Number of keys strictly below `key` (rank).
-    #[must_use]
-    pub fn count_below(&self, key: Key) -> u64 {
-        self.with_locked(|m| m.count_below(key))
-    }
-
-    /// Number of keys in the inclusive range.
-    #[must_use]
-    pub fn count_range(&self, range: core::ops::RangeInclusive<u64>) -> u64 {
-        self.with_locked(|m| m.count_range(range))
-    }
-
-    /// The entry with `n` keys below it — 0-based select.
-    #[must_use]
-    pub fn by_count(&self, n: u64) -> Option<(u64, u64)> {
-        self.with_locked(|m| m.by_count(n))
-    }
 }
 
 /// A per-thread reader handle for [`SyncExpanseMap`].
@@ -4585,25 +4578,12 @@ impl SyncExpanseBlobMap {
     /// ignore `hot_meta`).
     pub fn insert(&self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
         crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
-        self.shared.write(|m| {
-            let old = m.len();
-            let r = m.insert(key, data, hot_meta);
-            if r.is_ok() && m.len() > old {
-                self.shared.tree_pop.add(0, 1);
-            }
-            r
-        })
+        self.shared.write(|m| m.insert(key, data, hot_meta))
     }
 
     /// Removes `key`; returns `true` if it was present.
     pub fn remove(&self, key: Key) -> bool {
-        self.shared.write(|m| {
-            let r = m.remove(key);
-            if r {
-                self.shared.tree_pop.add(0, -1);
-            }
-            r
-        })
+        self.shared.write(|m| m.remove(key))
     }
 
     /// Runs arena garbage collection and compaction. Dead chunks are retired
@@ -4615,10 +4595,7 @@ impl SyncExpanseBlobMap {
 
     /// Removes every entry and retires all arena chunks.
     pub fn clear(&self) {
-        self.shared.write(|m| {
-            m.clear();
-            self.shared.tree_pop.flush_and_set(0);
-        });
+        self.shared.write(|m| m.clear());
     }
 
     /// Registers a reader handle for this thread's lookups.
@@ -7324,8 +7301,8 @@ mod obsolete_tests {
         set.shared.read_locked(|s| assert!(s.contains(prefix | 41)));
         assert!(set.shared.dirty_digits.is_digit_dirty(d));
 
-        // Analytical queries (count_below, count_range, by_count) trigger on-demand selective fold
-        let rank = set.count_below(prefix | 41);
+        // Analytical queries (count_below, count_range, by_count via with_locked) trigger on-demand selective fold
+        let rank = set.with_locked(|s| s.count_below(prefix | 41));
         assert!(rank > 0);
         assert!(!set.shared.dirty_digits.is_dirty());
 
@@ -7365,14 +7342,14 @@ mod obsolete_tests {
             set.insert(i * 10);
             map.insert(i * 10, i);
         }
-        // Check count_below, count_range, by_count on SyncExpanseSet
-        assert_eq!(set.count_below(55), 6);
-        assert_eq!(set.count_range(10..=50), 5);
-        assert_eq!(set.by_count(5), Some(50));
+        // Check count_below, count_range, by_count on SyncExpanseSet via with_locked
+        assert_eq!(set.with_locked(|s| s.count_below(55)), 6);
+        assert_eq!(set.with_locked(|s| s.count_range(10..=50)), 5);
+        assert_eq!(set.with_locked(|s| s.by_count(5)), Some(50));
 
-        // Check count_below, count_range, by_count on SyncExpanseMap
-        assert_eq!(map.count_below(55), 6);
-        assert_eq!(map.count_range(10..=50), 5);
-        assert_eq!(map.by_count(5), Some((50, 5)));
+        // Check count_below, count_range, by_count on SyncExpanseMap via with_locked
+        assert_eq!(map.with_locked(|m| m.count_below(55)), 6);
+        assert_eq!(map.with_locked(|m| m.count_range(10..=50)), 5);
+        assert_eq!(map.with_locked(|m| m.by_count(5)), Some((50, 5)));
     }
 }
