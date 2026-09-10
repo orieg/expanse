@@ -129,6 +129,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "writer_scaling",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Expanse-native multi-writer scaling sweep W in {1, 2, 4, 8} on physical cores; no third-party link.",
+      "suite": "concurrency"
+    },
+    {
       "name": "point_lookup_counters",
       "available": true,
       "kind": "counters",

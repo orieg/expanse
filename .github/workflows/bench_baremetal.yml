@@ -33,6 +33,7 @@ on:
           - comparative
           - ycsb
           - concurrency
+          - writer_scaling
           - point_lookup_counters
           - search_instructions
           - smoke_instructions
@@ -893,6 +894,11 @@ jobs:
                 EXPANSE_BENCH_THREADS="1,4,16" EXPANSE_BENCH_WORKLOADS="100,50" \
                   cargo bench --bench concurrency -p expanse-trie | tee concurrency.txt
                 ;;
+              "writer_scaling")
+                # Expanse-native multi-writer scaling sweep (Phase 1.5D, Refs #568)
+                python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
+                  --out docs/benchmarks/concurrency/results/writer_scaling.json | tee writer_scaling.txt
+                ;;
               "all")
                 if [ -f base-instructions.txt ]; then
                   cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
@@ -1213,6 +1219,10 @@ jobs:
                 echo '```text'
                 cat concurrency.txt
                 echo '```'
+              elif [ -f writer_scaling.txt ]; then
+                echo '```text'
+                cat writer_scaling.txt
+                echo '```'
               elif [ -f bench-output.txt ]; then
                 # Wall-clock output from a manifest-declared generic suite.
                 echo '```text'
@@ -1245,6 +1255,10 @@ jobs:
             elif [ -f concurrency.txt ]; then
               echo '```text' >> "$GITHUB_STEP_SUMMARY"
               cat concurrency.txt >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+            elif [ -f writer_scaling.txt ]; then
+              echo '```text' >> "$GITHUB_STEP_SUMMARY"
+              cat writer_scaling.txt >> "$GITHUB_STEP_SUMMARY"
               echo '```' >> "$GITHUB_STEP_SUMMARY"
             elif [ -f bench-output.txt ]; then
               echo '```text' >> "$GITHUB_STEP_SUMMARY"
@@ -1332,6 +1346,7 @@ jobs:
           name: suite-tables-${{ needs.resolve.outputs.suite }}-${{ github.run_id }}
           path: |
             concurrency.txt
+            writer_scaling.txt
             ycsb.txt
             comparative.txt
             bytes-per-key.txt
