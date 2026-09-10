@@ -45,6 +45,19 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+try:
+    from perf_report import override_citation, override_names_arms, parse_allow_regression
+except ImportError:
+    def parse_allow_regression(pr_body: str) -> Optional[str]:
+        return None
+    def override_citation(reason: str) -> Optional[str]:
+        return None
+    def override_names_arms(reason: str, regressed: List[str]) -> List[str]:
+        return regressed
+
 CRATE = "expanse-wasm-fuel"
 MODULE_NAME = "expanse_wasm_fuel.wasm"
 TARGETS = {
@@ -219,7 +232,14 @@ def index_arms(result: Dict[str, Any]) -> Dict[str, int]:
     return {a["name"]: int(a["fuel"]) for a in result.get("arms", [])}
 
 
-def compare(current: Dict[str, Any], baseline: Dict[str, Any], max_regression_pct: float) -> Tuple[bool, List[str], List[Tuple[str, int, int, float]]]:
+def compare(
+    current: Dict[str, Any],
+    baseline: Dict[str, Any],
+    max_regression_pct: float,
+    allowed: bool = False,
+    allow_reason: Optional[str] = None,
+    void_reason: Optional[str] = None,
+) -> Tuple[bool, List[str], List[Tuple[str, int, int, float]]]:
     """Returns (failed, messages, rows[name, base, cur, delta_pct])."""
     cur, base = index_arms(current), index_arms(baseline)
     rows: List[Tuple[str, int, int, float]] = []
@@ -238,12 +258,31 @@ def compare(current: Dict[str, Any], baseline: Dict[str, Any], max_regression_pc
     if missing:
         msgs.append(f"{len(missing)} baseline arm(s) absent from this run: {missing} — coverage loss, not a pass")
     worst = max((d for _, d in regressed), default=0.0)
-    failed = bool(missing) or worst > max_regression_pct or len(regressed) >= 2
+    regression_failed = worst > max_regression_pct or len(regressed) >= 2
+    failed = bool(missing) or regression_failed
     if regressed:
         msgs.append(
             f"{len(regressed)} arm(s) regressed > {NOISE_FLOOR_PCT}% (worst: {worst:+.2f}%, single-worst threshold {max_regression_pct}%, two-arm rule):"
         )
         msgs += [f"  - {n}: {d:+.2f}%" for n, d in sorted(regressed, key=lambda x: -x[1])]
+    if regression_failed:
+        if allowed and allow_reason:
+            unnamed = override_names_arms(allow_reason, [r[0] for r in regressed])
+            if unnamed and len(unnamed) == len(regressed):
+                msgs.append(
+                    f"Regression override is void — names no regressed arm (AGENTS.md §6): {allow_reason}"
+                )
+            else:
+                msgs.append(f"Performance regression override acknowledged: {allow_reason}")
+                if unnamed:
+                    msgs.append(
+                        f"Warning: override reason does not name: {', '.join(unnamed)} — override is scoped to the arms it names (AGENTS.md §6)"
+                    )
+                failed = bool(missing)
+        elif void_reason:
+            msgs.append(
+                f"Regression override is void — no resolvable citation (AGENTS.md §6, §8.7): {void_reason}"
+            )
     if baseline.get("target") != current.get("target"):
         msgs.append(f"baseline target {baseline.get('target')} differs from this run's {current.get('target')}")
         failed = True
@@ -336,6 +375,47 @@ def self_test() -> None:
     r = {"target": "wasm32-unknown-unknown", "wasmtime": "x", "rustc": "y", "commit": "z", "pop": 10, "arms": [{"name": "a/x", "fuel": 900, "per_op": 90.0}], "mem_used_bytes_per_key": {"map/x": 1.0}}
     _, _, rows = compare(r, base, MAX_REGRESSION_PCT)
     assert "🟢" in markdown(r, rows)
+    # allow-regression override tests (§6, #824):
+    base_override = {
+        "target": "wasm32-unknown-unknown",
+        "arms": [{"name": n, "fuel": 1000} for n in ("fuel_arm_a/x", "fuel_arm_b/x", "fuel_arm_c/x")],
+    }
+    # two arms +1% with valid override naming the arms: pass
+    f, msgs, _ = compare(
+        {"target": "wasm32-unknown-unknown", "arms": [{"name": "fuel_arm_a/x", "fuel": 1010}, {"name": "fuel_arm_b/x", "fuel": 1010}, {"name": "fuel_arm_c/x", "fuel": 1000}]},
+        base_override,
+        MAX_REGRESSION_PCT,
+        allowed=True,
+        allow_reason="approved trade on fuel_arm_a and fuel_arm_b (https://github.com/orieg/expanse/actions/runs/12345678901)",
+    )
+    assert not f and any("override acknowledged" in m for m in msgs), "valid override naming arms must pass"
+    # two arms +1% with override naming NONE of the regressed arms: fail (void)
+    f, msgs, _ = compare(
+        {"target": "wasm32-unknown-unknown", "arms": [{"name": "fuel_arm_a/x", "fuel": 1010}, {"name": "fuel_arm_b/x", "fuel": 1010}, {"name": "fuel_arm_c/x", "fuel": 1000}]},
+        base_override,
+        MAX_REGRESSION_PCT,
+        allowed=True,
+        allow_reason="approved trade on other_arm (https://github.com/orieg/expanse/actions/runs/12345678901)",
+    )
+    assert f and any("names no regressed arm" in m for m in msgs), "override naming no regressed arm must fail"
+    # two arms +1% with void override (no citation): fail
+    f, msgs, _ = compare(
+        {"target": "wasm32-unknown-unknown", "arms": [{"name": "fuel_arm_a/x", "fuel": 1010}, {"name": "fuel_arm_b/x", "fuel": 1010}, {"name": "fuel_arm_c/x", "fuel": 1000}]},
+        base_override,
+        MAX_REGRESSION_PCT,
+        allowed=False,
+        void_reason="no citation provided here",
+    )
+    assert f and any("no resolvable citation" in m for m in msgs), "override with no citation must fail"
+    # missing arm cannot be waived by allow-regression
+    f, _, _ = compare(
+        {"target": "wasm32-unknown-unknown", "arms": [{"name": "fuel_arm_a/x", "fuel": 900}, {"name": "fuel_arm_b/x", "fuel": 900}]},
+        base_override,
+        MAX_REGRESSION_PCT,
+        allowed=True,
+        allow_reason="approved trade on fuel_arm_a and fuel_arm_b (https://github.com/orieg/expanse/actions/runs/12345678901)",
+    )
+    assert f, "coverage loss cannot be waived by override"
     print("wasm_fuel.py --self-test: all checks passed")
 
 
@@ -351,6 +431,9 @@ def main() -> None:
     ap.add_argument("--save-baseline", type=Path)
     ap.add_argument("--check-baseline", type=Path)
     ap.add_argument("--max-regression", type=float, default=MAX_REGRESSION_PCT)
+    ap.add_argument("--allow-regression", action="store_true", help="override/approve intentional regressions")
+    ap.add_argument("--allow-regression-reason", help="reason for approving regression")
+    ap.add_argument("--pr-body-file", type=Path, help="file containing PR body to parse allow-regression from")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
 
@@ -371,7 +454,30 @@ def main() -> None:
     failed = False
     if args.check_baseline:
         baseline = load_baseline(args.check_baseline, target)
-        failed, msgs, rows = compare(result, baseline, args.max_regression)
+        allowed = args.allow_regression
+        allow_reason = args.allow_regression_reason
+        void_reason: Optional[str] = None
+        pr_body: Optional[str] = None
+        if args.pr_body_file and args.pr_body_file.exists():
+            pr_body = args.pr_body_file.read_text(encoding="utf-8")
+        elif "PR_BODY" in os.environ:
+            pr_body = os.environ["PR_BODY"]
+        if pr_body:
+            reason = parse_allow_regression(pr_body)
+            if reason:
+                if override_citation(reason):
+                    allowed = True
+                    allow_reason = reason
+                else:
+                    void_reason = reason
+        failed, msgs, rows = compare(
+            result,
+            baseline,
+            args.max_regression,
+            allowed=allowed,
+            allow_reason=allow_reason,
+            void_reason=void_reason,
+        )
         for m in msgs:
             print(("::error::" if failed else "::notice::") + m if os.environ.get("GITHUB_ACTIONS") else m)
     md = markdown(result, rows)
