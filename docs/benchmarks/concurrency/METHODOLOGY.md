@@ -388,3 +388,9 @@ The `sync_*` writer arms' instruction counts (they carry the lock protocol
 and will move); the string arm's writers at any W; the SMT-paired W = 16
 cells' relation to W = 8 beyond "not below"; wall clock on any host but the
 reference host.
+
+### 10.6 Dated amendment (2026-09-10) — base ref reconciliation, canonical sequence comparison, and contention health measurement
+
+1. **Base ref update to `b49835ad`**: Section 10.2 pre-registered comparison against `10cd755d`, while campaign automation had temporarily defaulted to `1edfa952`. Across two runs against `1edfa952`, 7 of 20 base halves fell outside §10.1's registered union — notably Masstree map W=1 (5.53 / 5.52 M/s versus registered [5.43, 5.44] M/s), which voided the cell under §10.4.
+2. **Canonical Phase 1.5A evaluation**: The authoritative question Phase 1.5A (#568) evaluates is whether the full zero-sharing and lazy rollup sequence (#818, #819, #821, #822) recovered write scaling compared to the mature pre-1.5A OLC baseline. The baseline is therefore fixed as `b49835ad` (the immediate predecessor of #818), and the head build is `f9efa260` (landed in #822) or current `main`.
+3. **Contention health cells ($W \ge 2$)**: The two-commit sweep script (`run_all.py`) is updated to record health rows for $W \in \{1, 2, 4, 8, 16\}, R = 0$ in addition to the $W = 1, R = 8$ mixed-reader row. Previously committed health cells were restricted to $W = 1$, where `Stat::LockRestarts` and `Stat::LockSpins` were 0 by construction. Measuring health across all $W$ provides the empirical restart counts required for P5.3 evaluation against the instantiated restart ceilings, and directly measures the fallback share and spin time under concurrent write pressure.

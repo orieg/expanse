@@ -9,7 +9,7 @@
 #
 #   EXPANSE_BENCH_COMMIT=<head-sha> \
 #   EXPANSE_BENCH_BASE_TREE=<synced tree at the base commit> \
-#   EXPANSE_BENCH_BASE_COMMIT=1edfa952 \
+#   EXPANSE_BENCH_BASE_COMMIT=b49835ad \
 #     nohup docs/benchmarks/concurrency/scripts/multi_writer_olc_campaign.sh > multi_writer_olc.log 2>&1 &
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,9 +29,10 @@ trap 'rm -rf "${BENCH_LOCK}"' EXIT
 . "${REPO_ROOT}/scripts/bench_pin.sh"
 
 # Both trees on the host are rsync'd, not checkouts: every commit is passed in.
+# Per METHODOLOGY §10.6, base commit is mature pre-1.5A OLC baseline b49835ad.
 : "${EXPANSE_BENCH_COMMIT:?set EXPANSE_BENCH_COMMIT to the head commit this tree was synced from}"
 : "${EXPANSE_BENCH_BASE_TREE:?set EXPANSE_BENCH_BASE_TREE to the synced tree at the base commit}"
-: "${EXPANSE_BENCH_BASE_COMMIT:=1edfa952}"
+: "${EXPANSE_BENCH_BASE_COMMIT:=b49835ad}"
 export EXPANSE_BENCH_COMMIT
 export EXPANSE_BENCH_BASE_COMMIT
 export RUSTFLAGS="${RUSTFLAGS:-} -C target-cpu=haswell"

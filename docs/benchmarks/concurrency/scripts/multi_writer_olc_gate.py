@@ -120,6 +120,17 @@ def evaluate(load=default_load) -> dict:
             ],
         }
 
+    base_commit = None
+    for suite in ("hot_comparison", "masstree_comparison"):
+        for art in arts.get(suite, {}).get("ab_pair", []):
+            if art:
+                base_commit = ((art.get("provenance") or {}).get("ab") or {}).get("base_commit")
+                if base_commit:
+                    break
+        if base_commit:
+            break
+    out["base_commit"] = base_commit or "b49835ad"
+
     def cell_t_hold_ns(suite: str, arm: str) -> float:
         """Discovers measured t_hold_ns for a (suite, arm) cell from loaded health artifacts,
         falling back to olc_bounds.lock_hold_ns(suite, arm) and then T_HOLD_LEAF_HYPOTHESIS_NS."""
@@ -322,11 +333,12 @@ def _verdict(v: str) -> str:
 
 def render(load=default_load) -> list[str]:
     r = evaluate(load)
+    base_commit = r.get("base_commit", "b49835ad")
     out = [
         "## 9. Multi-writer OLC gate (METHODOLOGY §10)",
         "",
         "Read against §10.2; every number is evaluated over two two-commit runs "
-        "against baseline `1edfa952` and the head build's counters.",
+        f"against baseline `{base_commit}` and the head build's counters.",
         "",
         "**P5.1 — Writers scale on disjoint expanses** (gate: head union-lower at W ≥ 2 above W = 1 union-upper; M inserts/s):",
         "",
