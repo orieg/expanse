@@ -138,6 +138,12 @@ def expanse_cap_class(pop: int) -> int:
     """Class-sized allocation slots for root leaf per leaf.rs cap_class."""
     if pop <= 2:
         return pop
+    elif pop <= 16:
+        return (pop + 3) & ~3
+    elif pop <= 24:
+        return 24
+    elif pop <= 32:
+        return 32
     return (pop + 3) & ~3
 
 

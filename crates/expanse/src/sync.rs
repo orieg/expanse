@@ -7059,7 +7059,7 @@ mod obsolete_tests {
         let map = SyncExpanseMap::new();
         // Seventeen 1-byte keys under each of three level-2 digits: a full
         // BranchL3 at level 2 whose children are linear leaves of 17 keys
-        // (class 20, so an 18th shifts in place). 51 keys > ROOT_LEAF_CAP.
+        // (class 24, so an 18th shifts in place). 51 keys > ROOT_LEAF_CAP.
         for d in [0x10u64, 0x20, 0x30] {
             for i in 0..17u64 {
                 let k = (d << 8) | (1 + 2 * i);

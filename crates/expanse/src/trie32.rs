@@ -51,14 +51,24 @@ use crate::types32::{
 // Sizing
 // ---------------------------------------------------------------------------
 
-/// Slot-capacity class: linear-leaf allocations are sized in multiples of
-/// four slots (populations of one or two stay exact), so the allocation
-/// size stays derivable from the population alone. Mirrors the 64-bit
-/// `leaf::cap_class`.
+/// Slot-capacity class: linear-leaf allocations follow a tail-coarsened schedule
+/// (exact for 1 or 2, multiples of 4 for 3..=16, steps of 8 for 17..=32: 24, 32),
+/// so the allocation size stays derivable from the population alone.
+/// Mirrors the 64-bit `leaf::cap_class`.
 #[inline]
 #[must_use]
 pub(crate) const fn cap_class(pop: usize) -> usize {
-    if pop <= 2 { pop } else { (pop + 3) & !3 }
+    if pop <= 2 {
+        pop
+    } else if pop <= 16 {
+        (pop + 3) & !3
+    } else if pop <= 24 {
+        24
+    } else if pop <= 32 {
+        32
+    } else {
+        (pop + 3) & !3
+    }
 }
 
 /// Allocation size of a set-flavour linear leaf (`key_bytes` per key).
@@ -4372,7 +4382,17 @@ mod tests {
         assert_eq!(cap_class(3), 4);
         assert_eq!(cap_class(4), 4);
         assert_eq!(cap_class(5), 8);
-        assert_eq!(cap_class(25), 28);
+        assert_eq!(cap_class(8), 8);
+        assert_eq!(cap_class(9), 12);
+        assert_eq!(cap_class(12), 12);
+        assert_eq!(cap_class(13), 16);
+        assert_eq!(cap_class(16), 16);
+        assert_eq!(cap_class(17), 24);
+        assert_eq!(cap_class(20), 24);
+        assert_eq!(cap_class(24), 24);
+        assert_eq!(cap_class(25), 32);
+        assert_eq!(cap_class(28), 32);
+        assert_eq!(cap_class(32), 32);
     }
 
     #[test]

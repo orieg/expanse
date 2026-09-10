@@ -257,7 +257,7 @@
   },
   "sync32_health": {
     "meta": {
-      "source": "docs/BENCHMARKING.md, section 'Concurrent read scaling' -> SyncExpanseMap32 arm (#573); harvested from the run's suite-tables-concurrency artifact by scripts/generate_asset_svgs.py contributors — every value below is a counter of that run, none is typed by hand",
+      "source": "docs/BENCHMARKING.md, section 'Concurrent read scaling' -> SyncExpanseMap32 arm (#573); harvested from the run's suite-tables-concurrency artifact by scripts/generate_asset_svgs.py contributors \u2014 every value below is a counter of that run, none is typed by hand",
       "host": "reference host -- Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8",
       "run": "33577621860",
       "ref": "077aac51",
@@ -402,8 +402,8 @@
   },
   "density_sweep": {
     "meta": {
-      "source": "crates/expanse/examples/keyspace_density.rs --json; the mechanism is docs/ARCHITECTURE.md §3.5 and the original sweep docs/benchmarks/hot_comparison/METHODOLOGY.md §9.4",
-      "instrument": "mem_used() deterministic byte accounting — host-independent; no wall clock",
+      "source": "crates/expanse/examples/keyspace_density.rs --json; the mechanism is docs/ARCHITECTURE.md \u00a73.5 and the original sweep docs/benchmarks/hot_comparison/METHODOLOGY.md \u00a79.4",
+      "instrument": "mem_used() deterministic byte accounting \u2014 host-independent; no wall clock",
       "generator": "XorShift64(0x0DDB_1A5E_5EED_0001), each draw masked to the keyspace width; same seed at every width",
       "lambda": "N / 2^(bits - 48): mean population of a 2-byte-prefix expanse once the top two key bytes saturate",
       "leaf_cap": 32,
@@ -411,7 +411,7 @@
       "commit": "86daaddf",
       "workload_id": "example_keyspace_density",
       "census": "ExpanseStats per flavor at three cells; node_bytes is the per-form byte attribution and its total equals mem_used; branch_depth_histogram[6] counts cascaded 2-byte expanses, [5] cascaded sub-expanses below them",
-      "seed_sensitivity": "the census cells re-drawn under a second XorShift64 seed; the delta is generator variance at fixed λ"
+      "seed_sensitivity": "the census cells re-drawn under a second XorShift64 seed; the delta is generator variance at fixed \u03bb"
     },
     "cells": [
       {
@@ -419,8 +419,8 @@
         "bits": 64,
         "lambda": 1.5259,
         "lambda_over_leaf_cap": 0.0477,
-        "set_bpk": 14.78,
-        "map_bpk": 24.62,
+        "set_bpk": 14.85,
+        "map_bpk": 24.69,
         "distinct_keys": 100000
       },
       {
@@ -456,7 +456,7 @@
         "lambda": 6.1035,
         "lambda_over_leaf_cap": 0.1907,
         "set_bpk": 10.41,
-        "map_bpk": 20.3,
+        "map_bpk": 20.31,
         "distinct_keys": 200000
       },
       {
@@ -464,8 +464,8 @@
         "bits": 62,
         "lambda": 12.207,
         "lambda_over_leaf_cap": 0.3815,
-        "set_bpk": 8.42,
-        "map_bpk": 17.41,
+        "set_bpk": 8.56,
+        "map_bpk": 17.82,
         "distinct_keys": 200000
       },
       {
@@ -482,8 +482,8 @@
         "bits": 63,
         "lambda": 12.207,
         "lambda_over_leaf_cap": 0.3815,
-        "set_bpk": 8.42,
-        "map_bpk": 17.4,
+        "set_bpk": 8.55,
+        "map_bpk": 17.8,
         "distinct_keys": 400000
       },
       {
@@ -491,8 +491,8 @@
         "bits": 62,
         "lambda": 24.4141,
         "lambda_over_leaf_cap": 0.7629,
-        "set_bpk": 8.47,
-        "map_bpk": 16.46,
+        "set_bpk": 8.77,
+        "map_bpk": 17.34,
         "distinct_keys": 400000
       },
       {
@@ -500,8 +500,8 @@
         "bits": 64,
         "lambda": 9.1553,
         "lambda_over_leaf_cap": 0.2861,
-        "set_bpk": 9.17,
-        "map_bpk": 18.47,
+        "set_bpk": 9.19,
+        "map_bpk": 18.53,
         "distinct_keys": 600000
       },
       {
@@ -509,8 +509,8 @@
         "bits": 63,
         "lambda": 18.3105,
         "lambda_over_leaf_cap": 0.5722,
-        "set_bpk": 7.64,
-        "map_bpk": 16.28,
+        "set_bpk": 8.01,
+        "map_bpk": 17.39,
         "distinct_keys": 600000
       },
       {
@@ -518,8 +518,8 @@
         "bits": 62,
         "lambda": 36.6211,
         "lambda_over_leaf_cap": 1.1444,
-        "set_bpk": 19.25,
-        "map_bpk": 22.77,
+        "set_bpk": 19.28,
+        "map_bpk": 22.87,
         "distinct_keys": 600000
       },
       {
@@ -527,8 +527,8 @@
         "bits": 64,
         "lambda": 12.207,
         "lambda_over_leaf_cap": 0.3815,
-        "set_bpk": 8.41,
-        "map_bpk": 17.39,
+        "set_bpk": 8.54,
+        "map_bpk": 17.79,
         "distinct_keys": 800000
       },
       {
@@ -536,8 +536,8 @@
         "bits": 63,
         "lambda": 24.4141,
         "lambda_over_leaf_cap": 0.7629,
-        "set_bpk": 8.49,
-        "map_bpk": 16.46,
+        "set_bpk": 8.79,
+        "map_bpk": 17.35,
         "distinct_keys": 800000
       },
       {
@@ -554,8 +554,8 @@
         "bits": 64,
         "lambda": 13.7329,
         "lambda_over_leaf_cap": 0.4292,
-        "set_bpk": 8.13,
-        "map_bpk": 17,
+        "set_bpk": 8.35,
+        "map_bpk": 17.65,
         "distinct_keys": 900000
       },
       {
@@ -563,8 +563,8 @@
         "bits": 63,
         "lambda": 27.4658,
         "lambda_over_leaf_cap": 0.8583,
-        "set_bpk": 10.53,
-        "map_bpk": 17.6,
+        "set_bpk": 10.75,
+        "map_bpk": 18.24,
         "distinct_keys": 900000
       },
       {
@@ -581,8 +581,8 @@
         "bits": 64,
         "lambda": 15.2588,
         "lambda_over_leaf_cap": 0.4768,
-        "set_bpk": 7.92,
-        "map_bpk": 16.7,
+        "set_bpk": 8.21,
+        "map_bpk": 17.58,
         "distinct_keys": 1000000
       },
       {
@@ -590,8 +590,8 @@
         "bits": 63,
         "lambda": 30.5176,
         "lambda_over_leaf_cap": 0.9537,
-        "set_bpk": 13.6,
-        "map_bpk": 19.38,
+        "set_bpk": 13.74,
+        "map_bpk": 19.79,
         "distinct_keys": 1000000
       },
       {
@@ -608,8 +608,8 @@
         "bits": 64,
         "lambda": 18.3105,
         "lambda_over_leaf_cap": 0.5722,
-        "set_bpk": 7.64,
-        "map_bpk": 16.28,
+        "set_bpk": 8.01,
+        "map_bpk": 17.38,
         "distinct_keys": 1200000
       },
       {
@@ -617,8 +617,8 @@
         "bits": 63,
         "lambda": 36.6211,
         "lambda_over_leaf_cap": 1.1444,
-        "set_bpk": 19.3,
-        "map_bpk": 22.8,
+        "set_bpk": 19.33,
+        "map_bpk": 22.89,
         "distinct_keys": 1200000
       },
       {
@@ -626,8 +626,8 @@
         "bits": 62,
         "lambda": 73.2422,
         "lambda_over_leaf_cap": 2.2888,
-        "set_bpk": 18.5,
-        "map_bpk": 22.62,
+        "set_bpk": 18.51,
+        "map_bpk": 22.63,
         "distinct_keys": 1200000
       },
       {
@@ -635,8 +635,8 @@
         "bits": 64,
         "lambda": 30.5176,
         "lambda_over_leaf_cap": 0.9537,
-        "set_bpk": 13.6,
-        "map_bpk": 19.38,
+        "set_bpk": 13.74,
+        "map_bpk": 19.78,
         "distinct_keys": 2000000
       },
       {
@@ -653,8 +653,8 @@
         "bits": 62,
         "lambda": 122.0703,
         "lambda_over_leaf_cap": 3.8147,
-        "set_bpk": 15.58,
-        "map_bpk": 21.93,
+        "set_bpk": 15.81,
+        "map_bpk": 22.16,
         "distinct_keys": 2000000
       },
       {
@@ -662,8 +662,8 @@
         "bits": 64,
         "lambda": 16.7847,
         "lambda_over_leaf_cap": 0.5245,
-        "set_bpk": 7.76,
-        "map_bpk": 16.46,
+        "set_bpk": 8.1,
+        "map_bpk": 17.5,
         "distinct_keys": 1100000
       },
       {
@@ -671,8 +671,8 @@
         "bits": 64,
         "lambda": 19.8364,
         "lambda_over_leaf_cap": 0.6199,
-        "set_bpk": 7.59,
-        "map_bpk": 16.15,
+        "set_bpk": 7.96,
+        "map_bpk": 17.26,
         "distinct_keys": 1300000
       },
       {
@@ -680,8 +680,8 @@
         "bits": 64,
         "lambda": 21.3623,
         "lambda_over_leaf_cap": 0.6676,
-        "set_bpk": 7.66,
-        "map_bpk": 16.11,
+        "set_bpk": 8.01,
+        "map_bpk": 17.17,
         "distinct_keys": 1400000
       },
       {
@@ -689,8 +689,8 @@
         "bits": 64,
         "lambda": 24.4141,
         "lambda_over_leaf_cap": 0.7629,
-        "set_bpk": 8.46,
-        "map_bpk": 16.44,
+        "set_bpk": 8.75,
+        "map_bpk": 17.32,
         "distinct_keys": 1600000
       },
       {
@@ -698,8 +698,8 @@
         "bits": 64,
         "lambda": 27.4658,
         "lambda_over_leaf_cap": 0.8583,
-        "set_bpk": 10.51,
-        "map_bpk": 17.58,
+        "set_bpk": 10.72,
+        "map_bpk": 18.23,
         "distinct_keys": 1800000
       },
       {
@@ -707,8 +707,8 @@
         "bits": 64,
         "lambda": 33.5693,
         "lambda_over_leaf_cap": 1.049,
-        "set_bpk": 16.83,
-        "map_bpk": 21.31,
+        "set_bpk": 16.9,
+        "map_bpk": 21.52,
         "distinct_keys": 2200000
       },
       {
@@ -716,8 +716,8 @@
         "bits": 64,
         "lambda": 36.6211,
         "lambda_over_leaf_cap": 1.1444,
-        "set_bpk": 19.26,
-        "map_bpk": 22.77,
+        "set_bpk": 19.29,
+        "map_bpk": 22.87,
         "distinct_keys": 2400000
       },
       {
@@ -725,8 +725,8 @@
         "bits": 64,
         "lambda": 39.6729,
         "lambda_over_leaf_cap": 1.2398,
-        "set_bpk": 20.67,
-        "map_bpk": 23.64,
+        "set_bpk": 20.68,
+        "map_bpk": 23.68,
         "distinct_keys": 2600000
       },
       {
@@ -734,8 +734,8 @@
         "bits": 63,
         "lambda": 27,
         "lambda_over_leaf_cap": 0.8438,
-        "set_bpk": 10.12,
-        "map_bpk": 17.36,
+        "set_bpk": 10.35,
+        "map_bpk": 18.04,
         "distinct_keys": 884736
       },
       {
@@ -743,8 +743,8 @@
         "bits": 63,
         "lambda": 40,
         "lambda_over_leaf_cap": 1.25,
-        "set_bpk": 20.79,
-        "map_bpk": 23.71,
+        "set_bpk": 20.8,
+        "map_bpk": 23.74,
         "distinct_keys": 1310720
       },
       {
@@ -761,8 +761,8 @@
         "bits": 58,
         "lambda": 1953.125,
         "lambda_over_leaf_cap": 61.0352,
-        "set_bpk": 8.8,
-        "map_bpk": 18.51,
+        "set_bpk": 8.81,
+        "map_bpk": 18.52,
         "distinct_keys": 2000000
       },
       {
@@ -770,8 +770,8 @@
         "bits": 57,
         "lambda": 3906.25,
         "lambda_over_leaf_cap": 122.0703,
-        "set_bpk": 6.89,
-        "map_bpk": 15.68,
+        "set_bpk": 7.18,
+        "map_bpk": 16.56,
         "distinct_keys": 2000000
       },
       {
@@ -779,8 +779,8 @@
         "bits": 56,
         "lambda": 4687.5,
         "lambda_over_leaf_cap": 146.4844,
-        "set_bpk": 6.71,
-        "map_bpk": 15.35,
+        "set_bpk": 7.08,
+        "map_bpk": 16.47,
         "distinct_keys": 1200000
       },
       {
@@ -788,8 +788,8 @@
         "bits": 56,
         "lambda": 6640.625,
         "lambda_over_leaf_cap": 207.5195,
-        "set_bpk": 8.44,
-        "map_bpk": 16.03,
+        "set_bpk": 8.7,
+        "map_bpk": 16.81,
         "distinct_keys": 1700000
       },
       {
@@ -797,8 +797,8 @@
         "bits": 56,
         "lambda": 7812.5,
         "lambda_over_leaf_cap": 244.1406,
-        "set_bpk": 12.98,
-        "map_bpk": 18.74,
+        "set_bpk": 13.11,
+        "map_bpk": 19.15,
         "distinct_keys": 2000000
       },
       {
@@ -806,8 +806,8 @@
         "bits": 56,
         "lambda": 10546.875,
         "lambda_over_leaf_cap": 329.5898,
-        "set_bpk": 20.98,
-        "map_bpk": 23.76,
+        "set_bpk": 20.99,
+        "map_bpk": 23.78,
         "distinct_keys": 2700000
       },
       {
@@ -889,8 +889,8 @@
         "bits": 64,
         "lambda": 15.2588,
         "distinct_keys": 1000000,
-        "mem_used": 7920416,
-        "bytes_per_key": 7.9204,
+        "mem_used": 8212432,
+        "bytes_per_key": 8.2124,
         "node_counts": {
           "immed": 226,
           "leaf_linear": 65526,
@@ -903,13 +903,13 @@
         },
         "node_bytes": {
           "immed_values": 0,
-          "leaf_linear": 6845840,
+          "leaf_linear": 7137856,
           "leaf_bitmap": 0,
           "branch_l3": 0,
           "branch_l7": 0,
           "branch_b": 5456,
           "branch_u": 1069120,
-          "total": 7920416
+          "total": 8212432
         },
         "depth_histogram": [
           0,
@@ -1081,8 +1081,8 @@
         "bits": 64,
         "lambda": 15.2588,
         "distinct_keys": 1000000,
-        "mem_used": 16703520,
-        "bytes_per_key": 16.7035,
+        "mem_used": 17579568,
+        "bytes_per_key": 17.5796,
         "node_counts": {
           "immed": 211,
           "leaf_linear": 65541,
@@ -1095,13 +1095,13 @@
         },
         "node_bytes": {
           "immed_values": 0,
-          "leaf_linear": 15628944,
+          "leaf_linear": 16504992,
           "leaf_bitmap": 0,
           "branch_l3": 0,
           "branch_l7": 0,
           "branch_b": 5456,
           "branch_u": 1069120,
-          "total": 16703520
+          "total": 17579568
         },
         "depth_histogram": [
           0,
@@ -1273,8 +1273,8 @@
         "bits": 64,
         "lambda": 30.5176,
         "distinct_keys": 2000000,
-        "mem_used": 27204112,
-        "bytes_per_key": 13.6021,
+        "mem_used": 27472512,
+        "bytes_per_key": 13.7363,
         "node_counts": {
           "immed": 780905,
           "leaf_linear": 42639,
@@ -1287,13 +1287,13 @@
         },
         "node_bytes": {
           "immed_values": 0,
-          "leaf_linear": 7465376,
+          "leaf_linear": 7733776,
           "leaf_bitmap": 0,
           "branch_l3": 0,
           "branch_l7": 0,
           "branch_b": 18669616,
           "branch_u": 1069120,
-          "total": 27204112
+          "total": 27472512
         },
         "depth_histogram": [
           0,
@@ -1449,8 +1449,8 @@
         "bits": 64,
         "lambda": 30.5176,
         "distinct_keys": 2000000,
-        "mem_used": 38751440,
-        "bytes_per_key": 19.3757,
+        "mem_used": 39556640,
+        "bytes_per_key": 19.7783,
         "node_counts": {
           "immed": 727745,
           "leaf_linear": 95799,
@@ -1463,13 +1463,13 @@
         },
         "node_bytes": {
           "immed_values": 0,
-          "leaf_linear": 19012704,
+          "leaf_linear": 19817904,
           "leaf_bitmap": 0,
           "branch_l3": 0,
           "branch_l7": 0,
           "branch_b": 18669616,
           "branch_u": 1069120,
-          "total": 38751440
+          "total": 39556640
         },
         "depth_histogram": [
           0,
@@ -1625,8 +1625,8 @@
         "bits": 62,
         "lambda": 48.8281,
         "distinct_keys": 800000,
-        "mem_used": 16813440,
-        "bytes_per_key": 21.0168,
+        "mem_used": 16813600,
+        "bytes_per_key": 21.017,
         "node_counts": {
           "immed": 724745,
           "leaf_linear": 315,
@@ -1639,13 +1639,13 @@
         },
         "node_bytes": {
           "immed_values": 0,
-          "leaf_linear": 28560,
+          "leaf_linear": 28656,
           "leaf_bitmap": 0,
           "branch_l3": 0,
           "branch_l7": 0,
-          "branch_b": 16518640,
+          "branch_b": 16518704,
           "branch_u": 266240,
-          "total": 16813440
+          "total": 16813600
         },
         "depth_histogram": [
           0,
@@ -1745,8 +1745,8 @@
         "bits": 62,
         "lambda": 48.8281,
         "distinct_keys": 800000,
-        "mem_used": 19117856,
-        "bytes_per_key": 23.8973,
+        "mem_used": 19118208,
+        "bytes_per_key": 23.8978,
         "node_counts": {
           "immed": 657851,
           "leaf_linear": 67209,
@@ -1759,13 +1759,13 @@
         },
         "node_bytes": {
           "immed_values": 0,
-          "leaf_linear": 2332976,
+          "leaf_linear": 2333264,
           "leaf_bitmap": 0,
           "branch_l3": 0,
           "branch_l7": 0,
-          "branch_b": 16518640,
+          "branch_b": 16518704,
           "branch_u": 266240,
-          "total": 19117856
+          "total": 19118208
         },
         "depth_histogram": [
           0,
@@ -1865,8 +1865,8 @@
         "bits": 58,
         "lambda": 1953.125,
         "distinct_keys": 2000000,
-        "mem_used": 17604544,
-        "bytes_per_key": 8.8023,
+        "mem_used": 17613904,
+        "bytes_per_key": 8.807,
         "node_counts": {
           "immed": 13993,
           "leaf_linear": 248034,
@@ -1879,13 +1879,13 @@
         },
         "node_bytes": {
           "immed_values": 0,
-          "leaf_linear": 13327936,
+          "leaf_linear": 13337296,
           "leaf_bitmap": 0,
           "branch_l3": 0,
           "branch_l7": 128,
           "branch_b": 0,
           "branch_u": 4276480,
-          "total": 17604544
+          "total": 17613904
         },
         "depth_histogram": [
           0,
@@ -2025,8 +2025,8 @@
         "bits": 58,
         "lambda": 1953.125,
         "distinct_keys": 2000000,
-        "mem_used": 37019616,
-        "bytes_per_key": 18.5098,
+        "mem_used": 37047696,
+        "bytes_per_key": 18.5238,
         "node_counts": {
           "immed": 980,
           "leaf_linear": 261047,
@@ -2039,13 +2039,13 @@
         },
         "node_bytes": {
           "immed_values": 0,
-          "leaf_linear": 32743008,
+          "leaf_linear": 32771088,
           "leaf_bitmap": 0,
           "branch_l3": 0,
           "branch_l7": 128,
           "branch_b": 0,
           "branch_u": 4276480,
-          "total": 37019616
+          "total": 37047696
         },
         "depth_histogram": [
           0,
@@ -2185,8 +2185,8 @@
         "bits": 57,
         "lambda": 3906.25,
         "distinct_keys": 2000000,
-        "mem_used": 13783856,
-        "bytes_per_key": 6.8919,
+        "mem_used": 14369888,
+        "bytes_per_key": 7.1849,
         "node_counts": {
           "immed": 147,
           "leaf_linear": 131048,
@@ -2199,13 +2199,13 @@
         },
         "node_bytes": {
           "immed_values": 0,
-          "leaf_linear": 11642336,
+          "leaf_linear": 12228368,
           "leaf_bitmap": 0,
           "branch_l3": 64,
           "branch_l7": 0,
           "branch_b": 3216,
           "branch_u": 2138240,
-          "total": 13783856
+          "total": 14369888
         },
         "depth_histogram": [
           0,
@@ -2377,8 +2377,8 @@
         "bits": 57,
         "lambda": 3906.25,
         "distinct_keys": 2000000,
-        "mem_used": 31361536,
-        "bytes_per_key": 15.6808,
+        "mem_used": 33119632,
+        "bytes_per_key": 16.5598,
         "node_counts": {
           "immed": 118,
           "leaf_linear": 131077,
@@ -2391,13 +2391,13 @@
         },
         "node_bytes": {
           "immed_values": 0,
-          "leaf_linear": 29220016,
+          "leaf_linear": 30978112,
           "leaf_bitmap": 0,
           "branch_l3": 64,
           "branch_l7": 0,
           "branch_b": 3216,
           "branch_u": 2138240,
-          "total": 31361536
+          "total": 33119632
         },
         "depth_histogram": [
           0,
@@ -2569,8 +2569,8 @@
         "bits": 56,
         "lambda": 4687.5,
         "distinct_keys": 1200000,
-        "mem_used": 8046912,
-        "bytes_per_key": 6.7058,
+        "mem_used": 8495200,
+        "bytes_per_key": 7.0793,
         "node_counts": {
           "immed": 2614,
           "leaf_linear": 65454,
@@ -2583,13 +2583,13 @@
         },
         "node_bytes": {
           "immed_values": 0,
-          "leaf_linear": 6914352,
+          "leaf_linear": 7362640,
           "leaf_bitmap": 0,
           "branch_l3": 64,
           "branch_l7": 0,
           "branch_b": 63376,
           "branch_u": 1069120,
-          "total": 8046912
+          "total": 8495200
         },
         "depth_histogram": [
           0,
@@ -2761,8 +2761,8 @@
         "bits": 56,
         "lambda": 4687.5,
         "distinct_keys": 1200000,
-        "mem_used": 18418624,
-        "bytes_per_key": 15.3489,
+        "mem_used": 19763488,
+        "bytes_per_key": 16.4696,
         "node_counts": {
           "immed": 2451,
           "leaf_linear": 65617,
@@ -2775,13 +2775,13 @@
         },
         "node_bytes": {
           "immed_values": 0,
-          "leaf_linear": 17286064,
+          "leaf_linear": 18630928,
           "leaf_bitmap": 0,
           "branch_l3": 64,
           "branch_l7": 0,
           "branch_b": 63376,
           "branch_u": 1069120,
-          "total": 18418624
+          "total": 19763488
         },
         "depth_histogram": [
           0,
@@ -2953,8 +2953,8 @@
         "bits": 56,
         "lambda": 6640.625,
         "distinct_keys": 1700000,
-        "mem_used": 14352912,
-        "bytes_per_key": 8.4429,
+        "mem_used": 14792656,
+        "bytes_per_key": 8.7016,
         "node_counts": {
           "immed": 216563,
           "leaf_linear": 58981,
@@ -2967,13 +2967,13 @@
         },
         "node_bytes": {
           "immed_values": 0,
-          "leaf_linear": 8074880,
+          "leaf_linear": 8514624,
           "leaf_bitmap": 0,
           "branch_l3": 64,
           "branch_l7": 0,
           "branch_b": 5208848,
           "branch_u": 1069120,
-          "total": 14352912
+          "total": 14792656
         },
         "depth_histogram": [
           0,
@@ -3133,8 +3133,8 @@
         "bits": 56,
         "lambda": 6640.625,
         "distinct_keys": 1700000,
-        "mem_used": 27251280,
-        "bytes_per_key": 16.0302,
+        "mem_used": 28570512,
+        "bytes_per_key": 16.8062,
         "node_counts": {
           "immed": 202232,
           "leaf_linear": 73312,
@@ -3147,13 +3147,13 @@
         },
         "node_bytes": {
           "immed_values": 0,
-          "leaf_linear": 20973248,
+          "leaf_linear": 22292480,
           "leaf_bitmap": 0,
           "branch_l3": 64,
           "branch_l7": 0,
           "branch_b": 5208848,
           "branch_u": 1069120,
-          "total": 27251280
+          "total": 28570512
         },
         "depth_histogram": [
           0,
@@ -3313,8 +3313,8 @@
         "bits": 56,
         "lambda": 7812.5,
         "distinct_keys": 2000000,
-        "mem_used": 25953632,
-        "bytes_per_key": 12.9768,
+        "mem_used": 26223168,
+        "bytes_per_key": 13.1116,
         "node_counts": {
           "immed": 777909,
           "leaf_linear": 42718,
@@ -3327,13 +3327,13 @@
         },
         "node_bytes": {
           "immed_values": 0,
-          "leaf_linear": 6262128,
+          "leaf_linear": 6531664,
           "leaf_bitmap": 0,
           "branch_l3": 64,
           "branch_l7": 0,
           "branch_b": 18622320,
           "branch_u": 1069120,
-          "total": 25953632
+          "total": 26223168
         },
         "depth_histogram": [
           0,
@@ -3477,8 +3477,8 @@
         "bits": 56,
         "lambda": 7812.5,
         "distinct_keys": 2000000,
-        "mem_used": 37489152,
-        "bytes_per_key": 18.7446,
+        "mem_used": 38297760,
+        "bytes_per_key": 19.1489,
         "node_counts": {
           "immed": 724851,
           "leaf_linear": 95776,
@@ -3491,13 +3491,13 @@
         },
         "node_bytes": {
           "immed_values": 0,
-          "leaf_linear": 17797648,
+          "leaf_linear": 18606256,
           "leaf_bitmap": 0,
           "branch_l3": 64,
           "branch_l7": 0,
           "branch_b": 18622320,
           "branch_u": 1069120,
-          "total": 37489152
+          "total": 38297760
         },
         "depth_histogram": [
           0,
@@ -3641,8 +3641,8 @@
         "bits": 56,
         "lambda": 10546.875,
         "distinct_keys": 2700000,
-        "mem_used": 56657984,
-        "bytes_per_key": 20.9844,
+        "mem_used": 56675264,
+        "bytes_per_key": 20.9908,
         "node_counts": {
           "immed": 2339446,
           "leaf_linear": 5841,
@@ -3655,13 +3655,13 @@
         },
         "node_bytes": {
           "immed_values": 0,
-          "leaf_linear": 856592,
+          "leaf_linear": 873872,
           "leaf_bitmap": 0,
           "branch_l3": 64,
           "branch_l7": 0,
           "branch_b": 54732208,
           "branch_u": 1069120,
-          "total": 56657984
+          "total": 56675264
         },
         "depth_histogram": [
           0,
@@ -3789,8 +3789,8 @@
         "bits": 56,
         "lambda": 10546.875,
         "distinct_keys": 2700000,
-        "mem_used": 64145536,
-        "bytes_per_key": 23.7576,
+        "mem_used": 64197376,
+        "bytes_per_key": 23.7768,
         "node_counts": {
           "immed": 2152890,
           "leaf_linear": 192397,
@@ -3803,13 +3803,13 @@
         },
         "node_bytes": {
           "immed_values": 0,
-          "leaf_linear": 8344144,
+          "leaf_linear": 8395984,
           "leaf_bitmap": 0,
           "branch_l3": 64,
           "branch_l7": 0,
           "branch_b": 54732208,
           "branch_u": 1069120,
-          "total": 64145536
+          "total": 64197376
         },
         "depth_histogram": [
           0,
@@ -3937,8 +3937,8 @@
         "bits": 55,
         "lambda": 15625,
         "distinct_keys": 2000000,
-        "mem_used": 39313904,
-        "bytes_per_key": 19.657,
+        "mem_used": 39315312,
+        "bytes_per_key": 19.6577,
         "node_counts": {
           "immed": 1778541,
           "leaf_linear": 924,
@@ -3955,9 +3955,9 @@
           "leaf_bitmap": 0,
           "branch_l3": 64,
           "branch_l7": 0,
-          "branch_b": 38765872,
+          "branch_b": 38767280,
           "branch_u": 532480,
-          "total": 39313904
+          "total": 39315312
         },
         "depth_histogram": [
           0,
@@ -4025,8 +4025,8 @@
         "bits": 55,
         "lambda": 15625,
         "distinct_keys": 2000000,
-        "mem_used": 46074128,
-        "bytes_per_key": 23.0371,
+        "mem_used": 46075536,
+        "bytes_per_key": 23.0378,
         "node_counts": {
           "immed": 1575681,
           "leaf_linear": 203784,
@@ -4043,9 +4043,9 @@
           "leaf_bitmap": 0,
           "branch_l3": 64,
           "branch_l7": 0,
-          "branch_b": 38765872,
+          "branch_b": 38767280,
           "branch_u": 532480,
-          "total": 46074128
+          "total": 46075536
         },
         "depth_histogram": [
           0,
@@ -4115,11 +4115,11 @@
         "lambda": 15.2588,
         "seed_a": "0xddb1a5e5eed0001",
         "seed_b": "0x5eedb0b5c0ffee02",
-        "set_bpk_a": 7.92,
-        "map_bpk_a": 16.7,
+        "set_bpk_a": 8.21,
+        "map_bpk_a": 17.58,
         "distinct_keys_a": 1000000,
-        "set_bpk_b": 7.92,
-        "map_bpk_b": 16.7,
+        "set_bpk_b": 8.21,
+        "map_bpk_b": 17.58,
         "distinct_keys_b": 1000000
       },
       {
@@ -4128,11 +4128,11 @@
         "lambda": 30.5176,
         "seed_a": "0xddb1a5e5eed0001",
         "seed_b": "0x5eedb0b5c0ffee02",
-        "set_bpk_a": 13.6,
-        "map_bpk_a": 19.38,
+        "set_bpk_a": 13.74,
+        "map_bpk_a": 19.78,
         "distinct_keys_a": 2000000,
-        "set_bpk_b": 13.58,
-        "map_bpk_b": 19.37,
+        "set_bpk_b": 13.71,
+        "map_bpk_b": 19.77,
         "distinct_keys_b": 2000000
       },
       {
@@ -4154,7 +4154,7 @@
         "what": "the same sweep with LEAF_CAP changed from 32 to 48 by a build-time patch of crates/expanse/src/types.rs (`pub const LEAF_CAP: usize = 48;`), nothing else changed; a control, not a shipped configuration",
         "leaf_cap": 48,
         "commit": "86daaddf+LEAF_CAP=48",
-        "instrument": "mem_used() deterministic byte accounting — host-independent; no wall clock",
+        "instrument": "mem_used() deterministic byte accounting \u2014 host-independent; no wall clock",
         "generator": "XorShift64(0x0DDB_1A5E_5EED_0001), each draw masked to the keyspace width; same seed at every width",
         "workload_id": "example_keyspace_density"
       },
