@@ -147,11 +147,48 @@ fn fallback_causes_account_for_every_fallback() {
         (s_fallbacks as f64 / s_inserts as f64) * 100.0
     );
 
+    let s_summed: u64 = CAUSES.iter().map(|&s| sd(s)).sum();
+    assert_eq!(
+        s_summed,
+        s_fallbacks,
+        "set fallback causes must sum to s_fallbacks; unattributed = {}",
+        s_fallbacks as i64 - s_summed as i64
+    );
+
     assert_eq!(
         summed,
         fallbacks,
         "fallback causes must sum to lock_fallbacks; unattributed = {}",
         fallbacks as i64 - summed as i64
+    );
+
+    // Pin the dominance of FallbackBranchSplit over FallbackCapExpansion (F4 / §8.9.1).
+    // BranchSplit accounts for 68-81% of fallbacks on both structures, at least 3x
+    // greater than leaf capacity expansion (~16%). This pins the composition so that
+    // any silent shift is immediately detected.
+    assert!(
+        d(Stat::FallbackBranchSplit) > d(Stat::FallbackCapExpansion) * 3,
+        "map: BranchSplit ({}) must exceed CapExpansion ({}) by at least 3x",
+        d(Stat::FallbackBranchSplit),
+        d(Stat::FallbackCapExpansion)
+    );
+    assert!(
+        sd(Stat::FallbackBranchSplit) > sd(Stat::FallbackCapExpansion) * 3,
+        "set: BranchSplit ({}) must exceed CapExpansion ({}) by at least 3x",
+        sd(Stat::FallbackBranchSplit),
+        sd(Stat::FallbackCapExpansion)
+    );
+
+    // Single-writer benchmark workloads experience zero lock contention (F3).
+    assert_eq!(
+        d(Stat::FallbackContention),
+        0,
+        "map workload under W=1 must have zero contention fallbacks"
+    );
+    assert_eq!(
+        sd(Stat::FallbackContention),
+        0,
+        "set workload under W=1 must have zero contention fallbacks"
     );
 
     // The OLC walk does *not* decode every tag it can meet, and this counter
@@ -181,4 +218,5 @@ fn fallback_causes_account_for_every_fallback() {
 
     assert!(fallbacks > 0, "workload must exercise the fallback path");
     assert_eq!(map.len(), 21_000);
+    assert_eq!(set.len(), 21_000);
 }
