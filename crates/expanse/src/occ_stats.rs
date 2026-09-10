@@ -112,10 +112,46 @@ pub enum Stat {
     LockHoldCycles = 19,
     /// Mutations falling back to the serialized root-covered lock (#568).
     LockFallbacks = 20,
+    /// Logical insert operations attempted — one per public `insert` call,
+    /// counted once whether the operation completes on the OLC path or
+    /// falls back. [`Stat::WriteOps`] cannot serve this role: it is bumped
+    /// on the OLC attempt *and* again inside `write_root_covered` when the
+    /// fallback is taken, so `write_ops = inserts + lock_fallbacks` and any
+    /// per-insert rate computed against it is understated. `WriteOps` keeps
+    /// its meaning — it is the published denominator of `handoffs_per_write`,
+    /// `replacements_per_write`, `deep_cascade_share` and
+    /// `root_rewrite_share`, and rebasing it would make every committed
+    /// artifact non-comparable (AGENTS.md §8.18). Divide by this instead
+    /// for a per-insert share (#568).
+    Inserts = 21,
+    /// Fallbacks taken because a linear leaf crossed a [`crate::leaf::cap_class`]
+    /// boundary and had to be reallocated (#568).
+    FallbackCapExpansion = 22,
+    /// Fallbacks taken for an immediate-slot transition: an immediate slot
+    /// running out of packed capacity to become a heap leaf, or an empty
+    /// branch slot populating as an immediate (#568).
+    FallbackImmediateConversion = 23,
+    /// Fallbacks taken for a branch structural mutation — linear branch
+    /// expansion, bitmap allocation, or a prefix split (#568).
+    FallbackBranchSplit = 24,
+    /// Fallbacks taken for a root-state transition — empty root to leaf, or
+    /// root leaf to root branch (#568).
+    FallbackRootGrowth = 25,
+    /// Fallbacks taken for *contention*, not structure: the retry budget was
+    /// exhausted, or [`crate::occ::WriterGate`] closed under a quiescing
+    /// peer. These are the fallbacks a leaf-sizing or node-layout change
+    /// cannot remove, so keeping them in their own bucket is what makes the
+    /// four structural shares above falsifiable rather than residual (#568).
+    FallbackContention = 26,
+    /// Fallbacks taken because the descent met an edge tag the OLC path does
+    /// not decode. Expected to be ~0; a non-zero share means the OLC walk has
+    /// a hole and the structural shares are measured against the wrong
+    /// denominator (#568).
+    FallbackUnknownTag = 27,
 }
 
 /// Number of distinct counters.
-pub const NUM_STATS: usize = 21;
+pub const NUM_STATS: usize = 28;
 
 /// Human-readable counter names, indexed by [`Stat`].
 pub const NAMES: [&str; NUM_STATS] = [
@@ -140,6 +176,13 @@ pub const NAMES: [&str; NUM_STATS] = [
     "lock_spins",
     "lock_hold_cycles",
     "lock_fallbacks",
+    "inserts",
+    "fallback_cap_expansion",
+    "fallback_immediate_conversion",
+    "fallback_branch_split",
+    "fallback_root_growth",
+    "fallback_contention",
+    "fallback_unknown_tag",
 ];
 
 /// Counters that are gauges (add / subtract / high-water), kept global.
@@ -414,13 +457,42 @@ mod tests {
     #[test]
     fn names_cover_every_stat() {
         assert_eq!(NAMES.len(), NUM_STATS);
-        assert_eq!(Stat::LockFallbacks as usize + 1, NUM_STATS);
+        assert_eq!(Stat::FallbackUnknownTag as usize + 1, NUM_STATS);
         assert_eq!(NAMES[Stat::SampleSpinCycles as usize], "sample_spin_cycles");
         assert_eq!(NAMES[Stat::DeepCascades as usize], "deep_cascades");
         assert_eq!(NAMES[Stat::LockRestarts as usize], "lock_restarts");
         assert_eq!(NAMES[Stat::LockSpins as usize], "lock_spins");
         assert_eq!(NAMES[Stat::LockHoldCycles as usize], "lock_hold_cycles");
         assert_eq!(NAMES[Stat::LockFallbacks as usize], "lock_fallbacks");
+        assert_eq!(NAMES[Stat::Inserts as usize], "inserts");
+        assert_eq!(
+            NAMES[Stat::FallbackCapExpansion as usize],
+            "fallback_cap_expansion"
+        );
+        assert_eq!(
+            NAMES[Stat::FallbackRootGrowth as usize],
+            "fallback_root_growth"
+        );
+    }
+
+    /// The discriminants are an unwritten contract: `snapshot()` is indexed
+    /// by `Stat::X as usize` and the health rows ship counters by index, so
+    /// renumbering an existing variant silently rebases every consumer.
+    /// New counters append; this pins the prefix (AGENTS.md §8.18).
+    #[test]
+    fn existing_discriminants_are_stable() {
+        assert_eq!(Stat::ReadOps as usize, 0);
+        assert_eq!(Stat::WriteOps as usize, 3);
+        assert_eq!(Stat::BranchReplacements as usize, 14);
+        assert_eq!(Stat::LockFallbacks as usize, 20);
+        // Appended for #568 Phase 0.
+        assert_eq!(Stat::Inserts as usize, 21);
+        assert_eq!(Stat::FallbackCapExpansion as usize, 22);
+        assert_eq!(Stat::FallbackImmediateConversion as usize, 23);
+        assert_eq!(Stat::FallbackBranchSplit as usize, 24);
+        assert_eq!(Stat::FallbackRootGrowth as usize, 25);
+        assert_eq!(Stat::FallbackContention as usize, 26);
+        assert_eq!(Stat::FallbackUnknownTag as usize, 27);
     }
 
     #[test]

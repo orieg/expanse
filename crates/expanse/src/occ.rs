@@ -490,6 +490,24 @@ pub(crate) fn version_try_lock(v: &VersionCell) -> Result<u32, u32> {
     v.compare_exchange(cur, cur + 1, Ordering::Acquire, Ordering::Relaxed)
 }
 
+/// Attempts to acquire an exclusive write lock on a node's version word, verifying
+/// that the current version matches `expected` (the OLC snapshot taken during descent).
+///
+/// This implements the canonical `lockVersionOrRestart` primitive (Leis et al., DaMoN 2016).
+/// It succeeds ONLY if `v == expected`. If another writer modified or locked the node in the
+/// meantime, the CAS fails, protecting against concurrent shifts and subarray reallocations.
+///
+/// Returns `Ok(expected)` on success, or `Err(current_version)` if the version changed,
+/// was odd, obsolete, or if CAS failed.
+#[cfg_attr(not(feature = "std"), allow(dead_code))]
+#[inline]
+pub(crate) fn version_try_lock_expect(v: &VersionCell, expected: u32) -> Result<u32, u32> {
+    if !expected.is_multiple_of(2) || (expected & OBSOLETE != 0) {
+        return Err(expected);
+    }
+    v.compare_exchange(expected, expected + 1, Ordering::Acquire, Ordering::Relaxed)
+}
+
 /// Marks an actively locked node as [`OBSOLETE`].
 ///
 /// Must be called while holding the lock (version is odd). Sets `OBSOLETE | 1`
@@ -1068,6 +1086,9 @@ unsafe impl Send for FreeListHead {}
 #[derive(Debug)]
 pub struct Collector {
     epoch: AtomicUsize,
+    advancing: AtomicBool,
+    pub(crate) alive: AtomicBool,
+    op_count: AtomicUsize,
     readers: Mutex<Vec<Arc<Slot>>>,
     bins: [Mutex<Vec<Garbage>>; BINS],
     freelists: [Mutex<FreeListHead>; NUM_CLASSES],
@@ -1090,6 +1111,9 @@ impl Collector {
     pub fn new() -> Self {
         Self {
             epoch: AtomicUsize::new(0),
+            advancing: AtomicBool::new(false),
+            alive: AtomicBool::new(true),
+            op_count: AtomicUsize::new(0),
             readers: Mutex::new(Vec::new()),
             bins: [
                 Mutex::new(Vec::new()),
@@ -1139,6 +1163,10 @@ impl Collector {
     /// Queues an allocation for deferred freeing (writer side).
     pub fn retire(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
         crate::occ_stats::bump(crate::occ_stats::Stat::Retired);
+        // S4 store-buffer pairing with `try_advance` / `Reader::pin` (ARCHITECTURE.md §4.2):
+        // the retire-side epoch load is preceded by a SeqCst fence, ensuring that a retirer
+        // has a happens-before with an advance and readers pinned at the next epoch.
+        fence(Ordering::SeqCst);
         let e = self.epoch.load(Ordering::Relaxed);
         self.bins[e % BINS]
             .lock()
@@ -1151,8 +1179,26 @@ impl Collector {
     /// Attempts one epoch advance: succeeds when every pinned reader has
     /// caught up to the current epoch, then frees the bin two epochs
     /// back. Writer-side, amortized (call once per mutation batch).
+    ///
+    /// Protected by an advancer try-lock (`advancing`) and CAS on `self.epoch`
+    /// to guarantee that concurrent callers cannot run simultaneously or roll the epoch backwards.
     pub fn try_advance(&self) {
         crate::occ_stats::bump(crate::occ_stats::Stat::AdvanceCalls);
+        if self
+            .advancing
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            return;
+        }
+        struct AdvancingGuard<'a>(&'a AtomicBool);
+        impl Drop for AdvancingGuard<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::Release);
+            }
+        }
+        let _guard = AdvancingGuard(&self.advancing);
+
         let e = self.epoch.load(Ordering::Relaxed);
         // Store-buffer pairing with `Reader::pin` (its slot store /
         // epoch load run against our epoch store / slot loads): the
@@ -1172,8 +1218,14 @@ impl Collector {
                 }
             }
         }
+        if self
+            .epoch
+            .compare_exchange(e, e + 1, Ordering::SeqCst, Ordering::Relaxed)
+            .is_err()
+        {
+            return;
+        }
         crate::occ_stats::bump(crate::occ_stats::Stat::AdvanceOk);
-        self.epoch.store(e + 1, Ordering::SeqCst);
         // Everything retired at epoch e - 1 predates every possible pin
         // in epochs e and e + 1: no live reader can hold it.
         let stale = core::mem::take(
@@ -1187,8 +1239,11 @@ impl Collector {
             if let Some(class) = class_for(g.bytes, g.align) {
                 let block = g.ptr.as_ptr().cast::<FreeBlock>();
                 let mut head = self.freelists[class].lock().expect("freelist poisoned");
-                // SAFETY: block points to a valid allocation of at least size_of::<FreeBlock>().
-                unsafe { (*block).next = head.0 };
+                // SAFETY: block was retired by a well-aligned allocation
+                // matching this size class, and grace period elapsed.
+                unsafe {
+                    (*block).next = head.0;
+                }
                 head.0 = block;
             } else {
                 free_raw(g.ptr, g.bytes, g.align);
@@ -1197,6 +1252,21 @@ impl Collector {
         self.retained_bytes
             .fetch_sub(freed_bytes, Ordering::Relaxed);
         crate::occ_stats::record_reclaim(freed_bytes);
+    }
+
+    /// Records one mutation operation and triggers `try_advance()` if `ADVANCE_EVERY` operations have elapsed.
+    #[inline]
+    pub(crate) fn tick_advance(&self) {
+        #[cfg(not(feature = "advance-never"))]
+        {
+            if self
+                .op_count
+                .fetch_add(1, Ordering::Relaxed)
+                .is_multiple_of(crate::sync::ADVANCE_EVERY as usize)
+            {
+                self.try_advance();
+            }
+        }
     }
 
     /// Total bytes currently queued across this collector's garbage bins.
@@ -1236,9 +1306,9 @@ impl Collector {
         self.epoch.load(Ordering::Relaxed)
     }
 
-    /// Frees everything still queued. Only sound once no reader can be
-    /// pinned (the owning wrapper calls this on drop, when exclusive
-    /// ownership proves that).
+    /// Frees everything still queued in garbage bins and size-class freelists.
+    /// Only sound once no reader can be pinned (the owning wrapper calls this
+    /// on drop, when exclusive ownership proves that).
     pub(crate) fn drain(&self) {
         for bin in &self.bins {
             let stale = core::mem::take(&mut *bin.lock().expect("garbage bin poisoned"));
@@ -1251,16 +1321,11 @@ impl Collector {
                 .fetch_sub(freed_bytes, Ordering::Relaxed);
             crate::occ_stats::record_reclaim(freed_bytes);
         }
-    }
-}
-
-#[cfg(feature = "std")]
-impl Drop for Collector {
-    fn drop(&mut self) {
-        // Last owner: no readers remain by definition.
-        self.drain();
         for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
-            let mut cur = self.freelists[class].lock().expect("freelist poisoned").0;
+            let mut head = self.freelists[class].lock().expect("freelist poisoned");
+            let mut cur = head.0;
+            head.0 = core::ptr::null_mut();
+            drop(head);
             let layout = Layout::from_size_align(bytes, align).expect("valid node layout");
             while !cur.is_null() {
                 // SAFETY: cur was allocated with `layout`.
@@ -1270,6 +1335,14 @@ impl Drop for Collector {
                 cur = next;
             }
         }
+    }
+}
+
+#[cfg(feature = "std")]
+impl Drop for Collector {
+    fn drop(&mut self) {
+        // Frees queued garbage bins and size-class freelists.
+        self.drain();
     }
 }
 
@@ -1287,12 +1360,17 @@ fn free_raw(ptr: NonNull<u8>, bytes: usize, align: usize) {
 /// `Sync` — one per reading thread.
 #[cfg(feature = "std")]
 pub struct Reader {
-    collector: Arc<Collector>,
+    pub(crate) collector: Arc<Collector>,
     slot: Arc<Slot>,
 }
 
 #[cfg(feature = "std")]
 impl Reader {
+    /// Returns true if this reader handle's collector has been marked dead by the owning tree.
+    #[inline]
+    pub(crate) fn is_orphan(&self) -> bool {
+        !self.collector.alive.load(Ordering::Acquire)
+    }
     /// Pins the current epoch for the duration of the returned guard:
     /// nothing retired from here on is freed while the guard lives.
     ///
@@ -1499,6 +1577,60 @@ mod tests {
         assert_eq!(cell.load(Ordering::Relaxed), OBSOLETE | 1);
         // Future try_lock fails due to OBSOLETE
         assert!(version_try_lock(&cell).is_err());
+    }
+
+    #[test]
+    fn version_try_lock_expect_semantics() {
+        let cell = VersionCell::new(4);
+
+        // 1. Success on matching even version: locks cell (4 -> 5)
+        assert_eq!(version_try_lock_expect(&cell, 4), Ok(4));
+        assert_eq!(cell.load(Ordering::Relaxed), 5);
+
+        // Unlock back to 6 (modified)
+        version_unlock(&cell, 4, true);
+        assert_eq!(cell.load(Ordering::Relaxed), 6);
+
+        // 2. Failure on stale snapshot (expected 4, but current is 6)
+        assert_eq!(version_try_lock_expect(&cell, 4), Err(6));
+        // Cell remains unlocked and unmodified
+        assert_eq!(cell.load(Ordering::Relaxed), 6);
+
+        // 3. Failure on odd snapshot (expected 5)
+        assert_eq!(version_try_lock_expect(&cell, 5), Err(5));
+
+        // 4. Failure on obsolete snapshot
+        assert_eq!(
+            version_try_lock_expect(&cell, 6 | OBSOLETE),
+            Err(6 | OBSOLETE)
+        );
+    }
+
+    #[test]
+    fn version_try_lock_expect_discriminates_stale_advancement() {
+        let cell = VersionCell::new(4);
+        let snapshot = 4;
+
+        // Simulate concurrent modification: node advances 4 -> 5 -> 6
+        cell.store(6, Ordering::Release);
+
+        // Under old un-anchored try_lock:
+        // Plain try_lock succeeds despite stale snapshot because 6 is even!
+        let old_behavior_lock = version_try_lock(&cell);
+        assert!(
+            old_behavior_lock.is_ok(),
+            "plain try_lock cannot detect stale snapshot"
+        );
+        version_unlock(&cell, 6, false); // restore to 6
+
+        // Under version_try_lock_expect with snapshot = 4:
+        // Must fail with Err(6) because the cell advanced past the snapshot!
+        let anchored_lock = version_try_lock_expect(&cell, snapshot);
+        assert_eq!(
+            anchored_lock,
+            Err(6),
+            "version_try_lock_expect MUST reject lock on stale snapshot"
+        );
     }
 
     #[test]
@@ -1968,41 +2100,51 @@ mod loom_tests {
         });
     }
 
-    /// S4: Writer 1 retires an allocation; Writer 2 advances the epoch; Reader remains pinned at epoch 0.
-    /// The epoch cannot advance past Reader's pin (at most to epoch 1), so retired blocks remain safe.
+    /// S4: Writer 1 unlinks and retires an allocation; Writer 2 advances the epoch;
+    /// Reader runs concurrently and pins. If Reader pinned at epoch >= 1 and observed the node while linked,
+    /// the retired node must never be reclaimed while Reader remains pinned.
+    /// Red when the `SeqCst` fence before the retire-side epoch load is removed.
     #[test]
     fn loom_multi_writer_ebr_safety() {
         loom::model(|| {
             let c = Arc::new(Collector::new());
             let reader = c.register();
-            let pin = reader.pin();
+            let root = Arc::new(AtomicBool::new(true));
 
-            let cw1 = Arc::clone(&c);
+            let (cw1, rw1) = (Arc::clone(&c), Arc::clone(&root));
             let w1 = loom::thread::spawn(move || {
                 let layout = Layout::from_size_align(64, 16).unwrap();
                 // SAFETY: nonzero test allocation.
                 let ptr = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
+                rw1.store(false, Ordering::Release);
                 cw1.retire(ptr, 64, 16);
             });
 
             let cw2 = Arc::clone(&c);
             let w2 = loom::thread::spawn(move || {
                 cw2.try_advance();
+                cw2.try_advance();
             });
+
+            // Reader runs concurrently with w1 and w2:
+            let pin = reader.pin();
+            let linked = root.load(Ordering::Acquire);
+            let pinned_epoch = reader.slot.load(Ordering::Relaxed);
 
             w1.join().unwrap();
             w2.join().unwrap();
 
-            let now = c.epoch.load(Ordering::SeqCst);
-            assert!(now <= 1, "epoch advanced twice past a live pin: now {now}");
-            assert_eq!(
-                c.retained_bytes(),
-                64,
-                "retired block reclaimed while reader remained pinned"
-            );
+            if linked && pinned_epoch > 0 {
+                assert_eq!(
+                    c.retained_bytes(),
+                    64,
+                    "retired block reclaimed while reader remained pinned"
+                );
+            }
 
             drop(pin);
             drop(reader);
+            c.try_advance();
             c.try_advance();
             c.try_advance();
             assert_eq!(

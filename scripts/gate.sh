@@ -98,6 +98,7 @@ python3 scripts/masstree_envelope.py
 python3 scripts/set_algebra_bounds.py
 python3 scripts/set_domain_bounds.py
 python3 scripts/olc_bounds.py --self-test
+python3 scripts/fit_usl.py --self-test
 
 # Verifying the documented example output needs libexpanse built; the CI
 # man-examples job always runs it. Locally it is opt-in, so `gate.sh` stays

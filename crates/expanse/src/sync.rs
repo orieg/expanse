@@ -104,11 +104,11 @@ const MAX_RETRIES: usize = 64;
 /// 16-thread mix reached ~85% of the total available gain by 32, with
 /// 1024 adding only a few more points for 32x the retained garbage.
 #[cfg(not(any(feature = "advance-every-4096", feature = "advance-never")))]
-const ADVANCE_EVERY: u64 = 32;
+pub(crate) const ADVANCE_EVERY: u64 = 32;
 /// Diagnostic: a long advance interval, to measure what the epoch-advance
 /// scan costs the critical section (compare against the default).
 #[cfg(all(feature = "advance-every-4096", not(feature = "advance-never")))]
-const ADVANCE_EVERY: u64 = 4096;
+pub(crate) const ADVANCE_EVERY: u64 = 4096;
 // `advance-never` (diagnostic): the write path never attempts an epoch advance,
 // so there is no interval constant at all. Only sound for a workload that retires
 // nothing (pure overwrites); with retirements the bins grow without bound.
@@ -727,6 +727,15 @@ unsafe impl<T: Send> Send for Shared<T> {}
 // SAFETY: as above.
 unsafe impl<T: Send> Sync for Shared<T> {}
 
+impl<T> Drop for Shared<T> {
+    fn drop(&mut self) {
+        self.collector
+            .alive
+            .store(false, core::sync::atomic::Ordering::Release);
+        self.collector.drain();
+    }
+}
+
 impl<T: SharedTree> Shared<T> {
     /// Wraps `inner`, handing every allocation source `attach` names over to
     /// a fresh epoch collector (deferred reclamation).
@@ -854,6 +863,43 @@ impl<T: SharedTree> Shared<T> {
             #[cfg(loom)]
             loom::thread::yield_now();
         }
+    }
+
+    /// Executes `f` while holding a thread-local EBR reader pin registered with this
+    /// tree's collector. Hoists `Collector::register()` so subsequent mutations on this
+    /// thread take zero mutexes and perform zero heap allocations.
+    #[cfg(feature = "std")]
+    pub(crate) fn with_writer_pin<R>(&self, f: impl FnOnce() -> R) -> R {
+        use std::cell::RefCell;
+        std::thread_local! {
+            static WRITER_READERS: RefCell<Vec<(usize, crate::occ::Reader)>> = const { RefCell::new(Vec::new()) };
+        }
+        let key = Arc::as_ptr(&self.collector) as usize;
+        WRITER_READERS.with(|cell| {
+            let mut vec = cell.borrow_mut();
+            let idx = if let Some(pos) = vec.iter().position(|(k, _)| *k == key) {
+                // True LRU on hit: promote accessed entry to the back (MRU) if not already there.
+                // Does NOT run `retain` on fast-path hits (N2).
+                if pos < vec.len() - 1 {
+                    let item = vec.remove(pos);
+                    vec.push(item);
+                    vec.len() - 1
+                } else {
+                    pos
+                }
+            } else {
+                // Cache miss: prune dead collectors whose Shared tree has been dropped (M4/N1).
+                vec.retain(|(_, r)| !r.is_orphan());
+                if vec.len() >= 16 {
+                    vec.remove(0); // Evict LRU entry
+                }
+                let r = self.collector.register();
+                vec.push((key, r));
+                vec.len() - 1
+            };
+            let _pin = vec[idx].1.pin();
+            f()
+        })
     }
 
     /// Runs one mutation under the writer lock and version bracket, and
@@ -1039,7 +1085,58 @@ impl<T: SharedTree> Shared<T> {
 enum OlcOutcome<T> {
     Done(T),
     Retry,
-    Fallback,
+    Fallback(FallbackCause),
+}
+
+/// Why an OLC mutation gave up and took the serialized root-covered path.
+///
+/// Phase 0 of #568 exists to measure this composition rather than assume it:
+/// the plan's premise is that linear-leaf capacity expansion dominates, and
+/// the committed artifacts already argue against it (the set and map arms
+/// differ 2.3x in fallback share on identical key counts, and the map arm
+/// retires ~2 blocks per fallback, which is a cascade rather than one leaf
+/// growth). Every `OlcOutcome::Fallback` carries one of these, so the shares
+/// sum to `Stat::LockFallbacks` and an attribution that does not add up is
+/// visible instead of residual (AGENTS.md 8.1).
+#[cfg(feature = "std")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FallbackCause {
+    /// A linear leaf crossed a `leaf::cap_class` boundary, or a bitmap leaf
+    /// crossed its own population threshold, and had to be reallocated.
+    CapExpansion,
+    /// An immediate slot ran out of packed capacity and must become a heap
+    /// leaf, or an empty branch slot must become an immediate (#568).
+    ImmediateConversion,
+    /// A branch structural mutation: a full linear branch, a new digit in a
+    /// bitmap subexpanse, or a prefix split from a failed skip decode.
+    BranchSplit,
+    /// A root-state transition, or a terminal directly below the root whose
+    /// mutation is itself a root-state write (`anc_depth == 0`).
+    RootGrowth,
+    /// Contention, not structure: the retry budget was exhausted or the
+    /// writer gate closed under a quiescing peer. Not removable by any
+    /// leaf-sizing or node-layout change.
+    Contention,
+    /// The descent met an edge tag the OLC path does not decode. Expected
+    /// ~0; a non-zero share means the walk has a hole.
+    UnknownTag,
+}
+
+#[cfg(feature = "std")]
+impl FallbackCause {
+    /// The counter this cause bumps.
+    #[inline]
+    fn stat(self) -> crate::occ_stats::Stat {
+        use crate::occ_stats::Stat;
+        match self {
+            Self::CapExpansion => Stat::FallbackCapExpansion,
+            Self::ImmediateConversion => Stat::FallbackImmediateConversion,
+            Self::BranchSplit => Stat::FallbackBranchSplit,
+            Self::RootGrowth => Stat::FallbackRootGrowth,
+            Self::Contention => Stat::FallbackContention,
+            Self::UnknownTag => Stat::FallbackUnknownTag,
+        }
+    }
 }
 
 #[cfg(feature = "std")]
@@ -1089,6 +1186,20 @@ fn version_try_lock_timed(cell: &crate::occ::VersionCell) -> Result<(u32, u64), 
     #[cfg(not(feature = "occ-stats"))]
     let t0 = 0;
     let old_v = crate::occ::version_try_lock(cell)?;
+    Ok((old_v, t0))
+}
+
+#[cfg(feature = "std")]
+#[inline(always)]
+fn version_try_lock_expect_timed(
+    cell: &crate::occ::VersionCell,
+    expected: u32,
+) -> Result<(u32, u64), u32> {
+    #[cfg(feature = "occ-stats")]
+    let t0 = crate::occ_stats::cycles_now();
+    #[cfg(not(feature = "occ-stats"))]
+    let t0 = 0;
+    let old_v = crate::occ::version_try_lock_expect(cell, expected)?;
     Ok((old_v, t0))
 }
 
@@ -1211,50 +1322,58 @@ impl SyncExpanseSet {
     /// optimistic lock coupling (Stage B) when the root is a tree, falling
     /// back to the serialized writer lock for root-state transitions.
     pub fn insert(&self, key: Key) -> bool {
+        crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
         #[cfg(feature = "std")]
         {
             if !self.shared.inner_ref().root_is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
                 return self.shared.write_root_covered(|s| s.insert(key));
             }
 
             let _guard = self.shared.enter_writer_blocking();
-            let reader = self.shared.collector.register();
-            let _pin = reader.pin();
-            crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
-            crate::occ_stats::op_begin();
+            let res = self.shared.with_writer_pin(|| {
+                crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+                crate::occ_stats::op_begin();
 
-            for _ in 0..MAX_RETRIES {
-                if self.shared.gate.is_closed() {
-                    break;
-                }
-                match self.olc_insert_set(key) {
-                    OlcOutcome::Done(ins) => {
-                        if ins {
-                            self.shared
-                                .tree_pop
-                                .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-                        }
-                        crate::occ_stats::op_end();
-                        return ins;
-                    }
-                    OlcOutcome::Retry => {
-                        crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
-                        core::hint::spin_loop();
-                        #[cfg(loom)]
-                        loom::thread::yield_now();
-                    }
-                    OlcOutcome::Fallback => {
+                let mut cause = FallbackCause::Contention;
+                for _ in 0..MAX_RETRIES {
+                    if self.shared.gate.is_closed() {
                         break;
                     }
+                    match self.olc_insert_set(key) {
+                        OlcOutcome::Done(ins) => {
+                            if ins {
+                                self.shared
+                                    .tree_pop
+                                    .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                            }
+                            self.shared.collector.tick_advance();
+                            crate::occ_stats::op_end();
+                            return Ok(ins);
+                        }
+                        OlcOutcome::Retry => {
+                            crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                            core::hint::spin_loop();
+                            #[cfg(loom)]
+                            loom::thread::yield_now();
+                        }
+                        OlcOutcome::Fallback(c) => {
+                            cause = c;
+                            break;
+                        }
+                    }
                 }
-            }
-            crate::occ_stats::op_end();
-            crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::op_end();
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(cause.stat());
+                Err(cause)
+            });
             drop(_guard);
-            drop(_pin);
-            drop(reader);
-            self.shared.write_root_covered(|s| s.insert(key))
+            match res {
+                Ok(ins) => ins,
+                Err(_) => self.shared.write_root_covered(|s| s.insert(key)),
+            }
         }
         #[cfg(not(feature = "std"))]
         {
@@ -1268,46 +1387,53 @@ impl SyncExpanseSet {
         {
             if !self.shared.inner_ref().root_is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
                 return self.shared.write_root_covered(|s| s.remove(key));
             }
 
             let _guard = self.shared.enter_writer_blocking();
-            let reader = self.shared.collector.register();
-            let _pin = reader.pin();
-            crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
-            crate::occ_stats::op_begin();
+            let res = self.shared.with_writer_pin(|| {
+                crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+                crate::occ_stats::op_begin();
 
-            for _ in 0..MAX_RETRIES {
-                if self.shared.gate.is_closed() {
-                    break;
-                }
-                match self.olc_remove_set(key) {
-                    OlcOutcome::Done(rem) => {
-                        if rem {
-                            self.shared
-                                .tree_pop
-                                .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
-                        }
-                        crate::occ_stats::op_end();
-                        return rem;
-                    }
-                    OlcOutcome::Retry => {
-                        crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
-                        core::hint::spin_loop();
-                        #[cfg(loom)]
-                        loom::thread::yield_now();
-                    }
-                    OlcOutcome::Fallback => {
+                let mut cause = FallbackCause::Contention;
+                for _ in 0..MAX_RETRIES {
+                    if self.shared.gate.is_closed() {
                         break;
                     }
+                    match self.olc_remove_set(key) {
+                        OlcOutcome::Done(rem) => {
+                            if rem {
+                                self.shared
+                                    .tree_pop
+                                    .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+                            }
+                            self.shared.collector.tick_advance();
+                            crate::occ_stats::op_end();
+                            return Ok(rem);
+                        }
+                        OlcOutcome::Retry => {
+                            crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                            core::hint::spin_loop();
+                            #[cfg(loom)]
+                            loom::thread::yield_now();
+                        }
+                        OlcOutcome::Fallback(c) => {
+                            cause = c;
+                            break;
+                        }
+                    }
                 }
-            }
-            crate::occ_stats::op_end();
-            crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::op_end();
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(cause.stat());
+                Err(cause)
+            });
             drop(_guard);
-            drop(_pin);
-            drop(reader);
-            self.shared.write_root_covered(|s| s.remove(key))
+            match res {
+                Ok(rem) => rem,
+                Err(_) => self.shared.write_root_covered(|s| s.remove(key)),
+            }
         }
         #[cfg(not(feature = "std"))]
         {
@@ -1324,7 +1450,7 @@ impl SyncExpanseSet {
         // SAFETY: top_ptr obtained without taking &mut on inner.
         let top_ptr = unsafe { (*self.shared.inner.get()).root_top_ptr() };
         if top_ptr.is_null() {
-            return OlcOutcome::Fallback;
+            return OlcOutcome::Fallback(FallbackCause::RootGrowth);
         }
         let mut ancestors: [AncestorFrame; 8] = [AncestorFrame {
             node: core::ptr::null_mut(),
@@ -1373,7 +1499,7 @@ impl SyncExpanseSet {
                         return OlcOutcome::Retry;
                     }
                     if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                     }
                     let d = digit(key, bl);
                     let slot_opt = digits[..num].iter().position(|&x| x == d);
@@ -1406,9 +1532,9 @@ impl SyncExpanseSet {
                     let cap = if is_l3 { BRANCH_L3_CAP } else { BRANCH_L7_CAP };
                     if num < cap {
                         // SAFETY: version cell is within an EBR-live node allocation.
-                        let Ok((old_v, lock_t0)) =
-                            (unsafe { version_try_lock_timed(crate::occ::version_cell(vp)) })
-                        else {
+                        let Ok((old_v, lock_t0)) = (unsafe {
+                            version_try_lock_expect_timed(crate::occ::version_cell(vp), nsnap)
+                        }) else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
@@ -1471,7 +1597,7 @@ impl SyncExpanseSet {
                         }
                         return OlcOutcome::Done(true);
                     }
-                    return OlcOutcome::Fallback;
+                    return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                 }
 
                 EdgeTag::Structural(EdgeType::BranchB) => {
@@ -1499,10 +1625,10 @@ impl SyncExpanseSet {
                         )
                     };
                     if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                     }
                     if !bit || sub.is_null() {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                     }
                     // SAFETY: version cell is within an EBR-live node allocation.
                     if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
@@ -1559,10 +1685,10 @@ impl SyncExpanseSet {
 
                 EdgeTag::Structural(EdgeType::LeafB1) => {
                     if anc_depth == 0 {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                     }
                     if level > 1 && !crate::get::decode_matches(&edge, key, 1, level) {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                     }
                     let parent = ancestors[anc_depth - 1];
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -1579,9 +1705,11 @@ impl SyncExpanseSet {
                     }
                     let pop0 = edge.pop0(1) as usize;
                     if pop0 >= 254 {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::CapExpansion);
                     }
-                    let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
+                    let Ok((old_v, lock_t0)) =
+                        version_try_lock_expect_timed(p_cell, parent.version_snap)
+                    else {
                         return OlcOutcome::Retry;
                     };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
@@ -1607,7 +1735,15 @@ impl SyncExpanseSet {
                 }
 
                 EdgeTag::Structural(EdgeType::FullExpanse) => {
+                    // Linearizability: A FullExpanse node contains all 256 keys in its
+                    // subexpanse, so `key` is guaranteed to already be present. Because
+                    // this terminal was observed at a valid point in time under this
+                    // descent, the insert linearizes at this instant as a no-op returning false.
                     return OlcOutcome::Done(false);
+                }
+
+                EdgeTag::Structural(EdgeType::Null) => {
+                    return OlcOutcome::Fallback(FallbackCause::ImmediateConversion);
                 }
 
                 EdgeTag::Structural(
@@ -1620,7 +1756,7 @@ impl SyncExpanseSet {
                     | EdgeType::Leaf7),
                 ) => {
                     if anc_depth == 0 {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                     }
                     let parent = ancestors[anc_depth - 1];
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -1630,7 +1766,7 @@ impl SyncExpanseSet {
                     if kb < level as usize
                         && !crate::get::decode_matches(&edge, key, kb as u8, level)
                     {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                     }
                     let k = crate::mutate::key_low(key, kb as u8);
                     let keys_ptr = edge.node_ptr();
@@ -1658,7 +1794,9 @@ impl SyncExpanseSet {
                         crate::mutate::LEAF_CAP
                     };
                     if pop < cap && crate::leaf::cap_class(pop + 1) == crate::leaf::cap_class(pop) {
-                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
+                        let Ok((old_v, lock_t0)) =
+                            version_try_lock_expect_timed(p_cell, parent.version_snap)
+                        else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
@@ -1683,16 +1821,16 @@ impl SyncExpanseSet {
                         }
                         return OlcOutcome::Done(true);
                     }
-                    return OlcOutcome::Fallback;
+                    return OlcOutcome::Fallback(FallbackCause::CapExpansion);
                 }
 
                 EdgeTag::Immed(im) => {
                     if anc_depth == 0 {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                     }
                     let kb = im.key_bytes();
                     if level > kb && !crate::get::decode_matches(&edge, key, kb, level) {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                     }
                     let parent = ancestors[anc_depth - 1];
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -1717,7 +1855,9 @@ impl SyncExpanseSet {
                         return OlcOutcome::Done(false);
                     }
                     if n == 1 && crate::types::ImmedType::max_count(kb) >= 2 {
-                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
+                        let Ok((old_v, lock_t0)) =
+                            version_try_lock_expect_timed(p_cell, parent.version_snap)
+                        else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
@@ -1757,10 +1897,11 @@ impl SyncExpanseSet {
                         }
                         return OlcOutcome::Done(true);
                     }
-                    return OlcOutcome::Fallback;
+                    return OlcOutcome::Fallback(FallbackCause::ImmediateConversion);
                 }
 
-                _ => return OlcOutcome::Fallback,
+                #[allow(unreachable_patterns)]
+                _ => return OlcOutcome::Fallback(FallbackCause::UnknownTag),
             }
         }
     }
@@ -1774,7 +1915,7 @@ impl SyncExpanseSet {
         // SAFETY: top_ptr obtained without taking &mut on inner.
         let top_ptr = unsafe { (*self.shared.inner.get()).root_top_ptr() };
         if top_ptr.is_null() {
-            return OlcOutcome::Fallback;
+            return OlcOutcome::Fallback(FallbackCause::RootGrowth);
         }
         let mut ancestors: [AncestorFrame; 8] = [AncestorFrame {
             node: core::ptr::null_mut(),
@@ -1941,10 +2082,10 @@ impl SyncExpanseSet {
 
                 EdgeTag::Structural(EdgeType::LeafB1) => {
                     if anc_depth == 0 {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                     }
                     if level > 1 && !crate::get::decode_matches(&edge, key, 1, level) {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                     }
                     let parent = ancestors[anc_depth - 1];
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -1961,9 +2102,11 @@ impl SyncExpanseSet {
                     }
                     let pop0 = edge.pop0(1) as usize;
                     if pop0 == 0 || pop0 <= 32 {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::CapExpansion);
                     }
-                    let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
+                    let Ok((old_v, lock_t0)) =
+                        version_try_lock_expect_timed(p_cell, parent.version_snap)
+                    else {
                         return OlcOutcome::Retry;
                     };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
@@ -1994,7 +2137,7 @@ impl SyncExpanseSet {
                     | EdgeType::Leaf7),
                 ) => {
                     if anc_depth == 0 {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                     }
                     let parent = ancestors[anc_depth - 1];
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -2004,7 +2147,7 @@ impl SyncExpanseSet {
                     if kb < level as usize
                         && !crate::get::decode_matches(&edge, key, kb as u8, level)
                     {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                     }
                     let k = crate::mutate::key_low(key, kb as u8);
                     let keys_ptr = edge.node_ptr();
@@ -2023,7 +2166,9 @@ impl SyncExpanseSet {
                         return OlcOutcome::Done(false);
                     };
                     if pop > 2 && crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop) {
-                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
+                        let Ok((old_v, lock_t0)) =
+                            version_try_lock_expect_timed(p_cell, parent.version_snap)
+                        else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
@@ -2047,10 +2192,23 @@ impl SyncExpanseSet {
                         }
                         return OlcOutcome::Done(true);
                     }
-                    return OlcOutcome::Fallback;
+                    return OlcOutcome::Fallback(FallbackCause::CapExpansion);
                 }
 
-                _ => return OlcOutcome::Fallback,
+                EdgeTag::Structural(EdgeType::Null) => {
+                    if anc_depth > 0 {
+                        let parent = ancestors[anc_depth - 1];
+                        // SAFETY: version cell is within an EBR-live node allocation.
+                        let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
+                        if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                            return OlcOutcome::Retry;
+                        }
+                    }
+                    return OlcOutcome::Done(false);
+                }
+
+                #[allow(unreachable_patterns)]
+                _ => return OlcOutcome::Fallback(FallbackCause::UnknownTag),
             }
         }
     }
@@ -2163,50 +2321,58 @@ impl SyncExpanseMap {
     /// multi-writer optimistic lock coupling (Stage B) when the root is a
     /// tree, falling back to the serialized writer lock for root-state transitions.
     pub fn insert(&self, key: Key, val: u64) -> Option<u64> {
+        crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
         #[cfg(feature = "std")]
         {
             if !self.shared.inner_ref().root_is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
                 return self.shared.write_root_covered(|m| m.insert(key, val));
             }
 
             let _guard = self.shared.enter_writer_blocking();
-            let reader = self.shared.collector.register();
-            let _pin = reader.pin();
-            crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
-            crate::occ_stats::op_begin();
+            let res = self.shared.with_writer_pin(|| {
+                crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+                crate::occ_stats::op_begin();
 
-            for _ in 0..MAX_RETRIES {
-                if self.shared.gate.is_closed() {
-                    break;
-                }
-                match self.olc_insert_map(key, val) {
-                    OlcOutcome::Done(prev) => {
-                        if prev.is_none() {
-                            self.shared
-                                .tree_pop
-                                .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-                        }
-                        crate::occ_stats::op_end();
-                        return prev;
-                    }
-                    OlcOutcome::Retry => {
-                        crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
-                        core::hint::spin_loop();
-                        #[cfg(loom)]
-                        loom::thread::yield_now();
-                    }
-                    OlcOutcome::Fallback => {
+                let mut cause = FallbackCause::Contention;
+                for _ in 0..MAX_RETRIES {
+                    if self.shared.gate.is_closed() {
                         break;
                     }
+                    match self.olc_insert_map(key, val) {
+                        OlcOutcome::Done(prev) => {
+                            if prev.is_none() {
+                                self.shared
+                                    .tree_pop
+                                    .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                            }
+                            self.shared.collector.tick_advance();
+                            crate::occ_stats::op_end();
+                            return Ok(prev);
+                        }
+                        OlcOutcome::Retry => {
+                            crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                            core::hint::spin_loop();
+                            #[cfg(loom)]
+                            loom::thread::yield_now();
+                        }
+                        OlcOutcome::Fallback(c) => {
+                            cause = c;
+                            break;
+                        }
+                    }
                 }
-            }
-            crate::occ_stats::op_end();
-            crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::op_end();
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(cause.stat());
+                Err(cause)
+            });
             drop(_guard);
-            drop(_pin);
-            drop(reader);
-            self.shared.write_root_covered(|m| m.insert(key, val))
+            match res {
+                Ok(prev) => prev,
+                Err(_) => self.shared.write_root_covered(|m| m.insert(key, val)),
+            }
         }
         #[cfg(not(feature = "std"))]
         {
@@ -2222,46 +2388,53 @@ impl SyncExpanseMap {
         {
             if !self.shared.inner_ref().root_is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
                 return self.shared.write_root_covered(|m| m.remove(key));
             }
 
             let _guard = self.shared.enter_writer_blocking();
-            let reader = self.shared.collector.register();
-            let _pin = reader.pin();
-            crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
-            crate::occ_stats::op_begin();
+            let res = self.shared.with_writer_pin(|| {
+                crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+                crate::occ_stats::op_begin();
 
-            for _ in 0..MAX_RETRIES {
-                if self.shared.gate.is_closed() {
-                    break;
-                }
-                match self.olc_remove_map(key) {
-                    OlcOutcome::Done(prev) => {
-                        if prev.is_some() {
-                            self.shared
-                                .tree_pop
-                                .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
-                        }
-                        crate::occ_stats::op_end();
-                        return prev;
-                    }
-                    OlcOutcome::Retry => {
-                        crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
-                        core::hint::spin_loop();
-                        #[cfg(loom)]
-                        loom::thread::yield_now();
-                    }
-                    OlcOutcome::Fallback => {
+                let mut cause = FallbackCause::Contention;
+                for _ in 0..MAX_RETRIES {
+                    if self.shared.gate.is_closed() {
                         break;
                     }
+                    match self.olc_remove_map(key) {
+                        OlcOutcome::Done(prev) => {
+                            if prev.is_some() {
+                                self.shared
+                                    .tree_pop
+                                    .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+                            }
+                            self.shared.collector.tick_advance();
+                            crate::occ_stats::op_end();
+                            return Ok(prev);
+                        }
+                        OlcOutcome::Retry => {
+                            crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                            core::hint::spin_loop();
+                            #[cfg(loom)]
+                            loom::thread::yield_now();
+                        }
+                        OlcOutcome::Fallback(c) => {
+                            cause = c;
+                            break;
+                        }
+                    }
                 }
-            }
-            crate::occ_stats::op_end();
-            crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::op_end();
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(cause.stat());
+                Err(cause)
+            });
             drop(_guard);
-            drop(_pin);
-            drop(reader);
-            self.shared.write_root_covered(|m| m.remove(key))
+            match res {
+                Ok(prev) => prev,
+                Err(_) => self.shared.write_root_covered(|m| m.remove(key)),
+            }
         }
         #[cfg(not(feature = "std"))]
         {
@@ -2278,7 +2451,7 @@ impl SyncExpanseMap {
         // SAFETY: top_ptr obtained without taking &mut on inner.
         let top_ptr = unsafe { (*self.shared.inner.get()).root_top_ptr() };
         if top_ptr.is_null() {
-            return OlcOutcome::Fallback;
+            return OlcOutcome::Fallback(FallbackCause::RootGrowth);
         }
         let mut ancestors: [AncestorFrame; 8] = [AncestorFrame {
             node: core::ptr::null_mut(),
@@ -2331,7 +2504,7 @@ impl SyncExpanseMap {
                         return OlcOutcome::Retry;
                     }
                     if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                     }
                     let d = digit(key, bl);
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -2363,9 +2536,10 @@ impl SyncExpanseMap {
                     let cap = if is_l3 { BRANCH_L3_CAP } else { BRANCH_L7_CAP };
                     if num < cap {
                         // SAFETY: version cell is within an EBR-live node allocation.
-                        let Ok((old_v, lock_t0)) =
-                            version_try_lock_timed(unsafe { crate::occ::version_cell(vp) })
-                        else {
+                        let Ok((old_v, lock_t0)) = version_try_lock_expect_timed(
+                            unsafe { crate::occ::version_cell(vp) },
+                            nsnap,
+                        ) else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
@@ -2429,7 +2603,7 @@ impl SyncExpanseMap {
                         }
                         return OlcOutcome::Done(None);
                     }
-                    return OlcOutcome::Fallback;
+                    return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                 }
 
                 EdgeTag::Structural(EdgeType::BranchB) => {
@@ -2457,10 +2631,10 @@ impl SyncExpanseMap {
                         )
                     };
                     if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                     }
                     if !bit || sub.is_null() {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                     }
                     // SAFETY: version cell is within an EBR-live node allocation.
                     if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
@@ -2517,10 +2691,10 @@ impl SyncExpanseMap {
 
                 EdgeTag::Structural(EdgeType::LeafB1) => {
                     if anc_depth == 0 {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                     }
                     if level > 1 && !crate::get::decode_matches(&edge, key, 1, level) {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                     }
                     let parent = ancestors[anc_depth - 1];
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -2539,7 +2713,9 @@ impl SyncExpanseMap {
                         if !crate::occ::node_validate(p_cell, parent.version_snap) {
                             return OlcOutcome::Retry;
                         }
-                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
+                        let Ok((old_v, lock_t0)) =
+                            version_try_lock_expect_timed(p_cell, parent.version_snap)
+                        else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
@@ -2562,12 +2738,14 @@ impl SyncExpanseMap {
                     let rank = unsafe { (*node).bitmap.subexpanse_rank(d) as usize };
                     let pop0 = edge.pop0(1) as usize;
                     if pop0 >= 254 {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::CapExpansion);
                     }
                     if old_n > 0
                         && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n)
                     {
-                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
+                        let Ok((old_v, lock_t0)) =
+                            version_try_lock_expect_timed(p_cell, parent.version_snap)
+                        else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
@@ -2590,7 +2768,7 @@ impl SyncExpanseMap {
                         }
                         return OlcOutcome::Done(None);
                     }
-                    return OlcOutcome::Fallback;
+                    return OlcOutcome::Fallback(FallbackCause::CapExpansion);
                 }
 
                 EdgeTag::Structural(
@@ -2603,7 +2781,7 @@ impl SyncExpanseMap {
                     | EdgeType::Leaf7),
                 ) => {
                     if anc_depth == 0 {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                     }
                     let parent = ancestors[anc_depth - 1];
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -2613,7 +2791,7 @@ impl SyncExpanseMap {
                     if kb < level as usize
                         && !crate::get::decode_matches(&edge, key, kb as u8, level)
                     {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                     }
                     let k = crate::mutate::key_low(key, kb as u8);
                     let base = edge.node_ptr();
@@ -2632,7 +2810,9 @@ impl SyncExpanseMap {
                         }
                     }
                     if let Some(pos) = found {
-                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
+                        let Ok((old_v, lock_t0)) =
+                            version_try_lock_expect_timed(p_cell, parent.version_snap)
+                        else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
@@ -2655,7 +2835,9 @@ impl SyncExpanseMap {
                         crate::mutate::LEAF_CAP
                     };
                     if pop < cap && crate::leaf::cap_class(pop + 1) == crate::leaf::cap_class(pop) {
-                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
+                        let Ok((old_v, lock_t0)) =
+                            version_try_lock_expect_timed(p_cell, parent.version_snap)
+                        else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
@@ -2675,19 +2857,19 @@ impl SyncExpanseMap {
                         }
                         return OlcOutcome::Done(None);
                     }
-                    return OlcOutcome::Fallback;
+                    return OlcOutcome::Fallback(FallbackCause::CapExpansion);
                 }
 
                 EdgeTag::Immed(im) => {
                     if anc_depth == 0 {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                     }
                     let parent = ancestors[anc_depth - 1];
                     // SAFETY: version cell is within an EBR-live node allocation.
                     let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
                     let kb = im.key_bytes();
                     if level > kb && !crate::get::decode_matches(&edge, key, kb, level) {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                     }
                     let k = crate::mutate::key_low(key, kb);
                     let n = im.key_count() as usize;
@@ -2700,7 +2882,9 @@ impl SyncExpanseMap {
                         };
                         let existing_k = edge.aux_word() & mask;
                         if existing_k == k {
-                            let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
+                            let Ok((old_v, lock_t0)) =
+                                version_try_lock_expect_timed(p_cell, parent.version_snap)
+                            else {
                                 return OlcOutcome::Retry;
                             };
                             // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
@@ -2716,13 +2900,15 @@ impl SyncExpanseMap {
                                 return OlcOutcome::Done(Some(old));
                             }
                         }
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::ImmediateConversion);
                     }
                     // SAFETY: aux_bytes slice is within immediate edge descriptor.
                     let pos =
                         (unsafe { crate::leaf::locate(edge.aux_bytes().as_ptr(), n, kb, k) }).ok();
                     if let Some(p) = pos {
-                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
+                        let Ok((old_v, lock_t0)) =
+                            version_try_lock_expect_timed(p_cell, parent.version_snap)
+                        else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
@@ -2743,7 +2929,9 @@ impl SyncExpanseMap {
                     if n < crate::mutate::map_immed_max(kb)
                         && crate::leaf::cap_class(n + 1) == crate::leaf::cap_class(n)
                     {
-                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
+                        let Ok((old_v, lock_t0)) =
+                            version_try_lock_expect_timed(p_cell, parent.version_snap)
+                        else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
@@ -2792,10 +2980,15 @@ impl SyncExpanseMap {
                         }
                         return OlcOutcome::Done(None);
                     }
-                    return OlcOutcome::Fallback;
+                    return OlcOutcome::Fallback(FallbackCause::ImmediateConversion);
                 }
 
-                _ => return OlcOutcome::Fallback,
+                EdgeTag::Structural(EdgeType::Null) => {
+                    return OlcOutcome::Fallback(FallbackCause::ImmediateConversion);
+                }
+
+                #[allow(unreachable_patterns)]
+                _ => return OlcOutcome::Fallback(FallbackCause::UnknownTag),
             }
         }
     }
@@ -2809,7 +3002,7 @@ impl SyncExpanseMap {
         // SAFETY: top_ptr obtained without taking &mut on inner.
         let top_ptr = unsafe { (*self.shared.inner.get()).root_top_ptr() };
         if top_ptr.is_null() {
-            return OlcOutcome::Fallback;
+            return OlcOutcome::Fallback(FallbackCause::RootGrowth);
         }
         let mut ancestors: [AncestorFrame; 8] = [AncestorFrame {
             node: core::ptr::null_mut(),
@@ -2979,10 +3172,10 @@ impl SyncExpanseMap {
 
                 EdgeTag::Structural(EdgeType::LeafB1) => {
                     if anc_depth == 0 {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                     }
                     if level > 1 && !crate::get::decode_matches(&edge, key, 1, level) {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                     }
                     let parent = ancestors[anc_depth - 1];
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -3001,14 +3194,16 @@ impl SyncExpanseMap {
                     };
                     let pop0 = edge.pop0(1) as usize;
                     if pop0 == 0 || pop0 <= 32 {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::CapExpansion);
                     }
                     // SAFETY: node is an EBR-live bitmap node and parent is validated/locked.
                     let old_n = unsafe { (*node).bitmap.subexpanse_count(sub) as usize };
                     if old_n > 1
                         && crate::leaf::cap_class(old_n - 1) == crate::leaf::cap_class(old_n)
                     {
-                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
+                        let Ok((old_v, lock_t0)) =
+                            version_try_lock_expect_timed(p_cell, parent.version_snap)
+                        else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
@@ -3031,7 +3226,7 @@ impl SyncExpanseMap {
                             return OlcOutcome::Done(Some(old));
                         }
                     }
-                    return OlcOutcome::Fallback;
+                    return OlcOutcome::Fallback(FallbackCause::CapExpansion);
                 }
 
                 EdgeTag::Structural(
@@ -3044,7 +3239,7 @@ impl SyncExpanseMap {
                     | EdgeType::Leaf7),
                 ) => {
                     if anc_depth == 0 {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                     }
                     let parent = ancestors[anc_depth - 1];
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -3054,7 +3249,7 @@ impl SyncExpanseMap {
                     if kb < level as usize
                         && !crate::get::decode_matches(&edge, key, kb as u8, level)
                     {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                     }
                     let k = crate::mutate::key_low(key, kb as u8);
                     let base = edge.node_ptr();
@@ -3078,7 +3273,9 @@ impl SyncExpanseMap {
                         && crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop)
                         && pop > crate::mutate::map_immed_max(kb as u8)
                     {
-                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
+                        let Ok((old_v, lock_t0)) =
+                            version_try_lock_expect_timed(p_cell, parent.version_snap)
+                        else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
@@ -3099,19 +3296,19 @@ impl SyncExpanseMap {
                             return OlcOutcome::Done(Some(old));
                         }
                     }
-                    return OlcOutcome::Fallback;
+                    return OlcOutcome::Fallback(FallbackCause::CapExpansion);
                 }
 
                 EdgeTag::Immed(im) => {
                     if anc_depth == 0 {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                     }
                     let parent = ancestors[anc_depth - 1];
                     // SAFETY: version cell is within an EBR-live node allocation.
                     let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
                     let kb = im.key_bytes();
                     if level > kb && !crate::get::decode_matches(&edge, key, kb, level) {
-                        return OlcOutcome::Fallback;
+                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
                     }
                     let k = crate::mutate::key_low(key, kb);
                     let n = im.key_count() as usize;
@@ -3124,7 +3321,9 @@ impl SyncExpanseMap {
                         };
                         let existing_k = edge.aux_word() & mask;
                         if existing_k == k {
-                            let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
+                            let Ok((old_v, lock_t0)) =
+                                version_try_lock_expect_timed(p_cell, parent.version_snap)
+                            else {
                                 return OlcOutcome::Retry;
                             };
                             // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
@@ -3165,7 +3364,9 @@ impl SyncExpanseMap {
                         return OlcOutcome::Done(None);
                     };
                     if n > 2 && crate::leaf::cap_class(n - 1) == crate::leaf::cap_class(n) {
-                        let Ok((old_v, lock_t0)) = version_try_lock_timed(p_cell) else {
+                        let Ok((old_v, lock_t0)) =
+                            version_try_lock_expect_timed(p_cell, parent.version_snap)
+                        else {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
@@ -3195,10 +3396,23 @@ impl SyncExpanseMap {
                             return OlcOutcome::Done(Some(old));
                         }
                     }
-                    return OlcOutcome::Fallback;
+                    return OlcOutcome::Fallback(FallbackCause::ImmediateConversion);
                 }
 
-                _ => return OlcOutcome::Fallback,
+                EdgeTag::Structural(EdgeType::Null) => {
+                    if anc_depth > 0 {
+                        let parent = ancestors[anc_depth - 1];
+                        // SAFETY: version cell is within an EBR-live node allocation.
+                        let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
+                        if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                            return OlcOutcome::Retry;
+                        }
+                    }
+                    return OlcOutcome::Done(None);
+                }
+
+                #[allow(unreachable_patterns)]
+                _ => return OlcOutcome::Fallback(FallbackCause::UnknownTag),
             }
         }
     }
@@ -3433,6 +3647,7 @@ impl SyncExpanseBlobMap {
     /// writers. Semantics as [`ExpanseBlobMap::insert`] (inline payloads
     /// ignore `hot_meta`).
     pub fn insert(&self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
+        crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
         self.shared.write(|m| {
             let old = m.len();
             let r = m.insert(key, data, hot_meta);
@@ -3940,6 +4155,7 @@ impl SyncExpanseStrMap {
     /// Inserts `key → val`; returns the replaced value, if any. Serializes
     /// with other writers. Keys are NUL-free byte strings.
     pub fn insert(&self, key: &NulFreeStr, val: u64) -> Option<u64> {
+        crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
         self.shared.write(|m| m.insert(key, val))
     }
 
@@ -4114,6 +4330,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
     /// Inserts `key → val`; returns the replaced value, if any.
     /// Serializes with other writers.
     pub fn insert(&self, key: &[u8], val: u64) -> Option<u64> {
+        crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
         self.shared.write(|m| m.insert(key, val))
     }
 
@@ -5554,6 +5771,44 @@ mod tests {
             "retained garbage must drop after releasing guard: before {retained_held}, after {retained_after_drop}"
         );
     }
+
+    #[test]
+    fn multi_writer_orphan_reader_pruning() {
+        let map = Box::new(SyncExpanseMap::new());
+        let col = Arc::clone(&map.shared.collector);
+        let reader = col.register();
+        assert!(!reader.is_orphan());
+
+        // Multiple reader handles simulating multiple worker thread TLS caches.
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let r = col.register();
+                std::thread::spawn(move || {
+                    {
+                        let _pin = r.pin();
+                    }
+                    r
+                })
+            })
+            .collect();
+        let readers: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        // Strong count is > 1 because multiple threads held handles.
+        assert!(!reader.is_orphan());
+        for r in &readers {
+            assert!(!r.is_orphan());
+        }
+
+        // Drop the owning tree:
+        drop(map);
+
+        // Under N1 (liveness flag), dropping the tree immediately marks all readers as orphan,
+        // even though multiple thread-local handles still hold Arc<Collector> (strong_count > 1).
+        assert!(reader.is_orphan());
+        for r in &readers {
+            assert!(r.is_orphan());
+        }
+    }
 }
 
 /// A small integer naming the calling thread, for the `Handoffs` counter.
@@ -5908,7 +6163,7 @@ mod obsolete_tests {
 
     #[test]
     #[cfg(feature = "occ-stats")]
-    fn stage_b_olc_stats_tracked() {
+    fn olc_stats_tracked() {
         crate::occ_stats::reset();
         let set = SyncExpanseSet::new();
         // Fallback bumped when inserting into empty/immediate root.

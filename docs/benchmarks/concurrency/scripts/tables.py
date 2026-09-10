@@ -9,6 +9,10 @@ Sections emitted, in README order:
   (throughput + health cells) and their `counters_<cell>.json`
 - `4. Attribution — D2` from the same
 - `5. The counter's own spread (P0.4)` from the H cells of both runs
+- `6. Ablations — padding the writer lock` from `results/ablations.json`
+- `6b. The string wrapper's reader mode` from `results/ablations_str.json`
+- `8. Fine-grained write brackets gate` via `fine_grained_brackets_gate.py`
+- `9. Multi-writer OLC gate` via `multi_writer_olc_gate.py`
 
 A missing artifact renders the section's rows as `pending` citing the open
 tracking issue, so the README is correct before the run exists and
@@ -353,8 +357,18 @@ def ablations_str() -> list[str]:
 
 def main() -> int:
     import fine_grained_brackets_gate  # the §8 fine-grained write brackets verdicts, beside this file
+    import multi_writer_olc_gate  # the §9 multi-writer OLC verdicts, beside this file
 
-    blocks = [line_transfer(), d1(), d2(), spread(), ablations(), ablations_str(), fine_grained_brackets_gate.render()]
+    blocks = [
+        line_transfer(),
+        d1(),
+        d2(),
+        spread(),
+        ablations(),
+        ablations_str(),
+        fine_grained_brackets_gate.render(),
+        multi_writer_olc_gate.render(),
+    ]
     print("\n\n".join("\n".join(b) for b in blocks))
     return 0
 
