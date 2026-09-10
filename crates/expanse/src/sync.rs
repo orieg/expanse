@@ -793,9 +793,11 @@ impl DirtyDigits {
 
     #[inline(always)]
     pub fn mark_digit(&self, d: u8) {
-        let word_idx = (d / 32) as usize;
-        let bit = 1u32 << (d % 32);
-        self.0[word_idx].fetch_or(bit, core::sync::atomic::Ordering::Relaxed);
+        let word_idx = (d >> 5) as usize;
+        let bit = 1u32 << (d & 31);
+        if (self.0[word_idx].load(core::sync::atomic::Ordering::Relaxed) & bit) == 0 {
+            self.0[word_idx].fetch_or(bit, core::sync::atomic::Ordering::Relaxed);
+        }
     }
 
     #[inline(always)]
@@ -1399,24 +1401,34 @@ impl<T: SharedTree> Shared<T> {
 
     #[cfg(feature = "std")]
     pub(crate) fn enter_writer(&self) -> Option<crate::occ::WriterGuard<'_>> {
+        use std::cell::Cell;
         use std::cell::RefCell;
         std::thread_local! {
+            static LAST_KEY: Cell<u64> = const { Cell::new(0) };
+            static LAST_SLOT: Cell<usize> = const { Cell::new(usize::MAX) };
             static CACHED_SLOTS: RefCell<Vec<(u64, usize)>> = const { RefCell::new(Vec::new()) };
         }
         let key = self.gate.id();
-        let slot_id = CACHED_SLOTS.with(|cell| {
-            let mut vec = cell.borrow_mut();
-            if let Some((_, slot)) = vec.iter().find(|(k, _)| *k == key) {
-                *slot
-            } else {
-                if vec.len() >= 128 {
-                    vec.remove(0);
+        let slot_id = if LAST_KEY.get() == key && LAST_SLOT.get() != usize::MAX {
+            LAST_SLOT.get()
+        } else {
+            let s = CACHED_SLOTS.with(|cell| {
+                let mut vec = cell.borrow_mut();
+                if let Some((_, slot)) = vec.iter().find(|(k, _)| *k == key) {
+                    *slot
+                } else {
+                    if vec.len() >= 128 {
+                        vec.remove(0);
+                    }
+                    let slot = self.writers.allocate_slot();
+                    vec.push((key, slot));
+                    slot
                 }
-                let slot = self.writers.allocate_slot();
-                vec.push((key, slot));
-                slot
-            }
-        });
+            });
+            LAST_KEY.set(key);
+            LAST_SLOT.set(s);
+            s
+        };
         self.gate
             .enter_writer(&self.writers.slots[slot_id], slot_id)
     }
@@ -1424,8 +1436,14 @@ impl<T: SharedTree> Shared<T> {
     #[cfg(feature = "std")]
     pub(crate) fn quiesce_writers(&self) {
         self.gate.close();
-        for slot in &self.writers.slots {
-            while slot.load(core::sync::atomic::Ordering::Relaxed) != 0 {
+        let mut mask = self
+            .writers
+            .allocated
+            .load(core::sync::atomic::Ordering::Acquire);
+        while mask != 0 {
+            let slot_id = mask.trailing_zeros() as usize;
+            mask &= mask - 1;
+            while self.writers.slots[slot_id].load(core::sync::atomic::Ordering::Relaxed) != 0 {
                 core::hint::spin_loop();
                 #[cfg(loom)]
                 loom::thread::yield_now();
