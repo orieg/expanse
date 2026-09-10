@@ -49,7 +49,12 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 try:
-    from perf_report import override_citation, override_names_arms, parse_allow_regression
+    from perf_report import (
+        check_citation_freshness,
+        override_citation,
+        override_names_arms,
+        parse_allow_regression,
+    )
 except ImportError:
     def parse_allow_regression(pr_body: str) -> Optional[str]:
         return None
@@ -57,6 +62,8 @@ except ImportError:
         return None
     def override_names_arms(reason: str, regressed: List[str]) -> List[str]:
         return regressed
+    def check_citation_freshness(reason: str, **kwargs: object) -> tuple:
+        return [], [f"{reason[:40]}… (perf_report.py unavailable)"]
 
 CRATE = "expanse-wasm-fuel"
 MODULE_NAME = "expanse_wasm_fuel.wasm"
@@ -466,8 +473,26 @@ def main() -> None:
             reason = parse_allow_regression(pr_body)
             if reason:
                 if override_citation(reason):
-                    allowed = True
-                    allow_reason = reason
+                    # AGENTS.md §6: a citation must resolve to a measurement of
+                    # the code under review, not merely resolve (#822, #827).
+                    # No base ref reaches this job, so artifact freshness
+                    # degrades to a notice while run freshness still decides.
+                    problems, unverified = check_citation_freshness(
+                        reason,
+                        pr_head=os.environ.get("PR_HEAD_SHA"),
+                        base_ref=None,
+                    )
+                    for item in unverified:
+                        print(
+                            "::notice::allow-regression citation not verified — "
+                            f"{item}; freshness check skipped for it",
+                            file=sys.stderr,
+                        )
+                    if problems:
+                        void_reason = reason + " [citation: " + "; ".join(problems) + "]"
+                    else:
+                        allowed = True
+                        allow_reason = reason
                 else:
                     void_reason = reason
         failed, msgs, rows = compare(
