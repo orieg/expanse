@@ -2741,6 +2741,33 @@ impl SyncExpanseSet {
                 }
 
                 EdgeTag::Structural(EdgeType::Null) => {
+                    if anc_depth > 0 && ancestors[anc_depth - 1].edge_type == EdgeType::BranchU {
+                        let parent = ancestors[anc_depth - 1];
+                        // SAFETY: version cell is within an EBR-live BranchU node allocation.
+                        let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
+                        let Ok((old_v, lock_t0)) =
+                            version_try_lock_expect_timed(p_cell, parent.version_snap)
+                        else {
+                            return OlcOutcome::Retry;
+                        };
+                        // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                        debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
+                        // Double-check invariant: ensure edge is still null under the locked parent.
+                        // SAFETY: edge_ptr points to an edge inside the locked, EBR-live BranchU node.
+                        if unsafe { !(*edge_ptr).is_null() } {
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
+                            return OlcOutcome::Retry;
+                        }
+                        let new_edge =
+                            Edge::new_immed_single_set(level, crate::mutate::key_low(key, level));
+                        // SAFETY: edge_ptr is within the locked BranchU node; writing new_edge is bracketed by the parent version lock.
+                        unsafe {
+                            *edge_ptr = new_edge;
+                        }
+                        version_unlock_timed(p_cell, old_v, true, lock_t0);
+                        self.shared.mark_dirty_digit(digit(key, 8));
+                        return OlcOutcome::Done(true);
+                    }
                     return OlcOutcome::Fallback(FallbackCause::ImmediateConversion);
                 }
 
@@ -3952,6 +3979,36 @@ impl SyncExpanseMap {
                 }
 
                 EdgeTag::Structural(EdgeType::Null) => {
+                    if anc_depth > 0 && ancestors[anc_depth - 1].edge_type == EdgeType::BranchU {
+                        let parent = ancestors[anc_depth - 1];
+                        // SAFETY: version cell is within an EBR-live BranchU node allocation.
+                        let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
+                        let Ok((old_v, lock_t0)) =
+                            version_try_lock_expect_timed(p_cell, parent.version_snap)
+                        else {
+                            return OlcOutcome::Retry;
+                        };
+                        // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                        debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
+                        // Double-check invariant: ensure edge is still null under the locked parent.
+                        // SAFETY: edge_ptr points to an edge inside the locked, EBR-live BranchU node.
+                        if unsafe { !(*edge_ptr).is_null() } {
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
+                            return OlcOutcome::Retry;
+                        }
+                        let new_edge = Edge::new_immed_single_map(
+                            level,
+                            crate::mutate::key_low(key, level),
+                            val,
+                        );
+                        // SAFETY: edge_ptr is within the locked BranchU node; writing new_edge is bracketed by the parent version lock.
+                        unsafe {
+                            *edge_ptr = new_edge;
+                        }
+                        version_unlock_timed(p_cell, old_v, true, lock_t0);
+                        self.shared.mark_dirty_digit(digit(key, 8));
+                        return OlcOutcome::Done(None);
+                    }
                     return OlcOutcome::Fallback(FallbackCause::ImmediateConversion);
                 }
 
@@ -7369,5 +7426,134 @@ mod obsolete_tests {
         assert_eq!(map.with_locked(|m| m.count_below(55)), 6);
         assert_eq!(map.with_locked(|m| m.count_range(10..=50)), 5);
         assert_eq!(map.with_locked(|m| m.by_count(5)), Some((50, 5)));
+    }
+
+    /// Asserts that insertion into an unoccupied null slot of a BranchU succeeds
+    /// via OLC in-place and records zero `FallbackImmediateConversion` increments
+    /// specifically on this null-slot insertion path. (Immediate-to-leaf conversions elsewhere
+    /// legitimately fall back to serialization until subsequent Phase 4 variants.)
+    #[test]
+    fn branch_u_null_slot_set_insert_succeeds_without_fallback() {
+        let set = SyncExpanseSet::new();
+        // Prefill to ensure root is a multi-level tree with a BranchU node.
+        // Prefix ensures keys share levels 8..=3; byte 2 (d << 8) provides 200 distinct digits (> 192).
+        let prefix = 0x4200_0000_0000_0000u64;
+        for i in 1..=5u64 {
+            set.insert((i << 56) | 1);
+        }
+        for d in 0..200u64 {
+            set.insert(prefix | (d << 8) | 1);
+        }
+        // Validate tree structure and ensure a BranchU exists.
+        let stats = set.with_locked(|s| s.stats());
+        assert!(
+            stats.node_counts.branch_u > 0,
+            "prefill must create at least one BranchU node"
+        );
+
+        #[cfg(feature = "occ-stats")]
+        let before = crate::occ_stats::snapshot();
+
+        // Insert into an empty slot (digit 220) of the BranchU.
+        let new_key = prefix | (220 << 8) | 1;
+        assert!(set.insert(new_key));
+
+        #[cfg(feature = "occ-stats")]
+        {
+            let after = crate::occ_stats::snapshot();
+            let imm_fallbacks = after[crate::occ_stats::Stat::FallbackImmediateConversion as usize]
+                - before[crate::occ_stats::Stat::FallbackImmediateConversion as usize];
+            assert_eq!(
+                imm_fallbacks, 0,
+                "BranchU null-slot insertion path must succeed via OLC without FallbackImmediateConversion"
+            );
+        }
+
+        assert!(set.contains(new_key));
+        assert_eq!(set.len(), 5 + 200 + 1);
+        set.with_locked(ExpanseSet::validate);
+    }
+
+    /// Asserts that insertion into an unoccupied null slot of a BranchU succeeds
+    /// via OLC in-place and records zero `FallbackImmediateConversion` increments
+    /// specifically on this null-slot insertion path. (Immediate-to-leaf conversions elsewhere
+    /// legitimately fall back to serialization until subsequent Phase 4 variants.)
+    #[test]
+    fn branch_u_null_slot_map_insert_succeeds_without_fallback() {
+        let map = SyncExpanseMap::new();
+        let prefix = 0x4200_0000_0000_0000u64;
+        for i in 1..=5u64 {
+            map.insert((i << 56) | 1, i);
+        }
+        for d in 0..200u64 {
+            map.insert(prefix | (d << 8) | 1, d);
+        }
+        let stats = map.with_locked(|m| m.stats());
+        assert!(
+            stats.node_counts.branch_u > 0,
+            "prefill must create at least one BranchU node"
+        );
+
+        #[cfg(feature = "occ-stats")]
+        let before = crate::occ_stats::snapshot();
+
+        // Insert into an empty slot (digit 220) of the BranchU.
+        let new_key = prefix | (220 << 8) | 1;
+        assert_eq!(map.insert(new_key, 9999), None);
+
+        #[cfg(feature = "occ-stats")]
+        {
+            let after = crate::occ_stats::snapshot();
+            let imm_fallbacks = after[crate::occ_stats::Stat::FallbackImmediateConversion as usize]
+                - before[crate::occ_stats::Stat::FallbackImmediateConversion as usize];
+            assert_eq!(
+                imm_fallbacks, 0,
+                "BranchU null-slot insertion path must succeed via OLC without FallbackImmediateConversion"
+            );
+        }
+
+        assert_eq!(map.get(new_key), Some(9999));
+        assert_eq!(map.len(), 5 + 200 + 1);
+        map.with_locked(ExpanseMap::validate);
+    }
+
+    #[test]
+    fn branch_u_null_slot_concurrent_multi_writer() {
+        let map = std::sync::Arc::new(SyncExpanseMap::new());
+        let prefix = 0x4200_0000_0000_0000u64;
+        for i in 1..=5u64 {
+            map.insert((i << 56) | 1, i);
+        }
+        for d in 0..200u64 {
+            map.insert(prefix | (d << 8) | 1, d);
+        }
+        let stats = map.with_locked(|m| m.stats());
+        assert!(stats.node_counts.branch_u > 0);
+
+        // 4 concurrent threads each inserting into 10 distinct empty slots in the BranchU
+        let threads: Vec<_> = (0..4u64)
+            .map(|t| {
+                let m = std::sync::Arc::clone(&map);
+                std::thread::spawn(move || {
+                    let base = 200 + t * 10;
+                    for d in base..base + 10 {
+                        let key = prefix | (d << 8) | 1;
+                        let prev = m.insert(key, d * 100);
+                        assert_eq!(prev, None);
+                    }
+                })
+            })
+            .collect();
+
+        for h in threads {
+            h.join().unwrap();
+        }
+
+        assert_eq!(map.len(), 5 + 200 + 40);
+        for d in 200..240u64 {
+            let key = prefix | (d << 8) | 1;
+            assert_eq!(map.get(key), Some(d * 100));
+        }
+        map.with_locked(ExpanseMap::validate);
     }
 }
