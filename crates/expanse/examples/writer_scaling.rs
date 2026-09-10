@@ -8,9 +8,21 @@
 //! population parameters (2^20 prefill, 2^20 fresh inserts) to ensure 1:1
 //! comparability with historical baselines.
 //!
-//! Run:
+//! ## Two builds, never one (AGENTS.md §6)
+//!
+//! Throughput comes from the default build (`--role throughput`, refuses to run if
+//! `occ-stats` is enabled). Fallback counters come from the diagnostic build
+//! (`--role counters`, requires `--features occ-stats` and refuses to run without it).
+//! The roles cannot share a binary because counter instrumentation perturbs timing.
+//!
+//! Run (throughput — default build, no occ-stats):
 //! ```text
-//! cargo run --release -p expanse-trie --features occ-stats --example writer_scaling -- [--arm <map|set|str|all>] [--writers <1,2,4,8>] [--rounds <N>]
+//! cargo run --release -p expanse-trie --example writer_scaling -- [--role throughput] [--arm <map|set|str|all>] [--writers <1,2,4,8>] [--rounds <N>]
+//! ```
+//!
+//! Run (counters — occ-stats build only):
+//! ```text
+//! cargo run --release -p expanse-trie --features occ-stats --example writer_scaling -- --role counters [--arm <map|set|str|all>] [--writers <1,2,4,8>] [--rounds <N>]
 //! ```
 //!
 //! # Workload shape
@@ -21,14 +33,14 @@
 //! | `group` | 5 |
 //! | `emits` | `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`, `concurrency_writer_str` |
 //! | `population` | prefill 2^20 keys (1M), plus 2^20 fresh keys inserted concurrently by W writers |
-//! | `insertion_order` | generator draw order — prefill and fresh-key stream both draw from XorShift64 |
+//! | `insertion_order` | sorted — prefill ascending, matching expanse-hot-bench; fresh stream in generator draw order |
 //! | `probes_and_reuse` | none — pure writer scaling (R = 0), insert-only |
 //! | `hit_rate` | n/a — no read probes |
 //! | `miss_gen_method` | same-generator rejection sampling against prefill |
 //! | `value_dereference` | map arms check stored values against key-derived expectation |
 //! | `measured_region` | barrier release to last-writer join; prefill and teardown outside |
 //! | `arm_symmetry` | symmetric across thread counts; W in {1, 2, 4, 8} on physical P-cores |
-//! | `statistics` | per-round throughput ops/sec emitted raw, median and BCa 95% CI across rounds |
+//! | `statistics` | throughput ops/sec emitted raw, paired bootstrap BCa 95% CI for C(N); lock fallbacks from occ-stats counters pass |
 //! | `verdict` | pending measurement |
 
 use std::collections::HashSet;
@@ -194,7 +206,12 @@ impl WriterStrWorkload {
     }
 }
 
-fn run_map_cell(workload: &WriterWorkload, writers: usize, round: usize) -> (f64, u64, u64) {
+fn run_map_cell(
+    workload: &WriterWorkload,
+    writers: usize,
+    round: usize,
+    is_counters: bool,
+) -> (f64, u64, u64) {
     let map = SyncExpanseMap::new();
     for &k in &workload.prefill {
         map.insert(k, value_of(k));
@@ -203,7 +220,9 @@ fn run_map_cell(workload: &WriterWorkload, writers: usize, round: usize) -> (f64
     let per = workload.fresh_keys.len() / writers.max(1);
     let barrier = Barrier::new(writers + 1);
 
-    occ_stats::reset();
+    if is_counters {
+        occ_stats::reset();
+    }
 
     let start = std::thread::scope(|s| {
         for w in 0..writers {
@@ -228,8 +247,16 @@ fn run_map_cell(workload: &WriterWorkload, writers: usize, round: usize) -> (f64
         Instant::now()
     });
 
-    let elapsed = start.elapsed().as_secs_f64();
-    let lock_fallbacks = occ_stats::snapshot()[Stat::LockFallbacks as usize];
+    let elapsed = if is_counters {
+        0.0
+    } else {
+        start.elapsed().as_secs_f64()
+    };
+    let lock_fallbacks = if is_counters {
+        occ_stats::snapshot()[Stat::LockFallbacks as usize]
+    } else {
+        0
+    };
     let final_pop = map.len();
 
     // Verify samples
@@ -246,7 +273,12 @@ fn run_map_cell(workload: &WriterWorkload, writers: usize, round: usize) -> (f64
     (elapsed, final_pop, lock_fallbacks)
 }
 
-fn run_set_cell(workload: &WriterWorkload, writers: usize, round: usize) -> (f64, u64, u64) {
+fn run_set_cell(
+    workload: &WriterWorkload,
+    writers: usize,
+    round: usize,
+    is_counters: bool,
+) -> (f64, u64, u64) {
     let set = SyncExpanseSet::new();
     for &k in &workload.prefill {
         set.insert(k);
@@ -255,7 +287,9 @@ fn run_set_cell(workload: &WriterWorkload, writers: usize, round: usize) -> (f64
     let per = workload.fresh_keys.len() / writers.max(1);
     let barrier = Barrier::new(writers + 1);
 
-    occ_stats::reset();
+    if is_counters {
+        occ_stats::reset();
+    }
 
     let start = std::thread::scope(|s| {
         for w in 0..writers {
@@ -280,8 +314,16 @@ fn run_set_cell(workload: &WriterWorkload, writers: usize, round: usize) -> (f64
         Instant::now()
     });
 
-    let elapsed = start.elapsed().as_secs_f64();
-    let lock_fallbacks = occ_stats::snapshot()[Stat::LockFallbacks as usize];
+    let elapsed = if is_counters {
+        0.0
+    } else {
+        start.elapsed().as_secs_f64()
+    };
+    let lock_fallbacks = if is_counters {
+        occ_stats::snapshot()[Stat::LockFallbacks as usize]
+    } else {
+        0
+    };
     let final_pop = set.len();
 
     // Verify samples
@@ -296,7 +338,12 @@ fn run_set_cell(workload: &WriterWorkload, writers: usize, round: usize) -> (f64
     (elapsed, final_pop, lock_fallbacks)
 }
 
-fn run_str_cell(workload: &WriterStrWorkload, writers: usize, round: usize) -> (f64, u64, u64) {
+fn run_str_cell(
+    workload: &WriterStrWorkload,
+    writers: usize,
+    round: usize,
+    is_counters: bool,
+) -> (f64, u64, u64) {
     let map = SyncExpanseStrMap::new();
     for k in &workload.prefill {
         let nk = NulFreeStr::new(k).expect("alnum bytes are NUL-free");
@@ -306,7 +353,9 @@ fn run_str_cell(workload: &WriterStrWorkload, writers: usize, round: usize) -> (
     let per = workload.fresh_keys.len() / writers.max(1);
     let barrier = Barrier::new(writers + 1);
 
-    occ_stats::reset();
+    if is_counters {
+        occ_stats::reset();
+    }
 
     let start = std::thread::scope(|s| {
         for w in 0..writers {
@@ -332,8 +381,16 @@ fn run_str_cell(workload: &WriterStrWorkload, writers: usize, round: usize) -> (
         Instant::now()
     });
 
-    let elapsed = start.elapsed().as_secs_f64();
-    let lock_fallbacks = occ_stats::snapshot()[Stat::LockFallbacks as usize];
+    let elapsed = if is_counters {
+        0.0
+    } else {
+        start.elapsed().as_secs_f64()
+    };
+    let lock_fallbacks = if is_counters {
+        occ_stats::snapshot()[Stat::LockFallbacks as usize]
+    } else {
+        0
+    };
     let final_pop = map.len();
 
     // Verify samples
@@ -351,59 +408,130 @@ fn run_str_cell(workload: &WriterStrWorkload, writers: usize, round: usize) -> (
     (elapsed, final_pop, lock_fallbacks)
 }
 
-fn self_test() -> Result<(), String> {
+fn self_test(role_opt: Option<&str>) -> Result<(), String> {
     eprintln!("running writer_scaling self-test...");
     let n0 = 1024;
     let m = 1024;
+
+    let is_counters = match role_opt {
+        Some("counters") => {
+            if !occ_stats::enabled() {
+                return Err(
+                    "build/role mismatch: occ-stats is OFF but role is 'counters' (AGENTS.md §6 / two builds, never one)".into()
+                );
+            }
+            true
+        }
+        Some("throughput") => {
+            if occ_stats::enabled() {
+                return Err(
+                    "build/role mismatch: occ-stats is ON but role is 'throughput' (AGENTS.md §6 / two builds, never one)".into()
+                );
+            }
+            false
+        }
+        _ => occ_stats::enabled(),
+    };
+
     let wl_map = WriterWorkload::generate(n0, m, 64);
     assert_eq!(wl_map.prefill.len(), n0);
     assert_eq!(wl_map.fresh_keys.len(), m);
 
-    let (el_map, pop_map, fb_map) = run_map_cell(&wl_map, 2, 0);
+    let (el_map, pop_map, fb_map) = run_map_cell(&wl_map, 2, 0, is_counters);
     if pop_map != (n0 + m) as u64 {
         return Err(format!("map expected pop {}, got {pop_map}", n0 + m));
     }
-    if el_map <= 0.0 {
-        return Err(format!("invalid map elapsed {el_map}"));
+    if is_counters {
+        if fb_map == 0 {
+            return Err(format!(
+                "counters test: expected fb_map > 0 at quick scale, got {fb_map}"
+            ));
+        }
+    } else if el_map <= 0.0 {
+        return Err(format!("throughput test: invalid map elapsed {el_map}"));
     }
-    let _ = fb_map;
 
     let wl_set = WriterWorkload::generate(n0, m, 63);
-    let (el_set, pop_set, fb_set) = run_set_cell(&wl_set, 2, 0);
+    let (el_set, pop_set, fb_set) = run_set_cell(&wl_set, 2, 0, is_counters);
     if pop_set != (n0 + m) as u64 {
         return Err(format!("set expected pop {}, got {pop_set}", n0 + m));
     }
-    if el_set <= 0.0 {
-        return Err(format!("invalid set elapsed {el_set}"));
+    if is_counters {
+        if fb_set == 0 {
+            return Err(format!(
+                "counters test: expected fb_set > 0 at quick scale, got {fb_set}"
+            ));
+        }
+    } else if el_set <= 0.0 {
+        return Err(format!("throughput test: invalid set elapsed {el_set}"));
     }
-    let _ = fb_set;
 
     let wl_str = WriterStrWorkload::generate(n0, m);
-    let (el_str, pop_str, fb_str) = run_str_cell(&wl_str, 2, 0);
+    let (el_str, pop_str, fb_str) = run_str_cell(&wl_str, 2, 0, is_counters);
     if pop_str != (n0 + m) as u64 {
         return Err(format!("str expected pop {}, got {pop_str}", n0 + m));
     }
-    if el_str <= 0.0 {
-        return Err(format!("invalid str elapsed {el_str}"));
-    }
-    // str arm must have 0 lock fallbacks by construction
-    if fb_str != 0 {
-        return Err(format!("str expected 0 lock fallbacks, got {fb_str}"));
+    if is_counters {
+        // str arm is the alpha=1 coarse-mutex reference curve: 0 lock fallbacks by construction
+        if fb_str != 0 {
+            return Err(format!("counters test: expected fb_str == 0, got {fb_str}"));
+        }
+    } else if el_str <= 0.0 {
+        return Err(format!("throughput test: invalid str elapsed {el_str}"));
     }
 
-    eprintln!("writer_scaling self-test PASSED");
+    let mode_str = if is_counters {
+        "counters"
+    } else {
+        "throughput"
+    };
+    eprintln!("writer_scaling {mode_str} self-test PASSED");
     Ok(())
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    let role_opt = args
+        .iter()
+        .position(|a| a == "--role")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| s.as_str());
+
     if args.iter().any(|a| a == "--self-test") {
-        if let Err(e) = self_test() {
+        if let Err(e) = self_test(role_opt) {
             eprintln!("self-test failed: {e}");
             std::process::exit(1);
         }
         return;
     }
+
+    let role_arg = role_opt.unwrap_or("throughput");
+    let is_counters = match role_arg {
+        "counters" => {
+            if !occ_stats::enabled() {
+                eprintln!(
+                    "build/role mismatch: occ-stats is OFF but role is 'counters' — \
+                     counter extraction requires --features occ-stats (AGENTS.md §6 / two builds, never one)"
+                );
+                std::process::exit(1);
+            }
+            true
+        }
+        "throughput" => {
+            if occ_stats::enabled() {
+                eprintln!(
+                    "build/role mismatch: occ-stats is ON but role is 'throughput' — \
+                     throughput must come from the default build only (AGENTS.md §6 / two builds, never one)"
+                );
+                std::process::exit(1);
+            }
+            false
+        }
+        other => {
+            eprintln!("unknown role: {other} (expected 'throughput' or 'counters')");
+            std::process::exit(1);
+        }
+    };
 
     let arm_arg = args
         .iter()
@@ -426,6 +554,18 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(7);
 
+    let round_opt: Option<usize> = args
+        .iter()
+        .position(|a| a == "--round")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|s| s.parse().ok());
+
+    let (round_start, round_end) = if let Some(r) = round_opt {
+        (r, r + 1)
+    } else {
+        (0, rounds)
+    };
+
     let is_quick = args.iter().any(|a| a == "--quick");
     let (n0, m) = if is_quick {
         (4096, 4096)
@@ -442,22 +582,33 @@ fn main() {
     let run_set = arm_arg == "set" || arm_arg == "all" || arm_arg == "both";
     let run_str = arm_arg == "str" || arm_arg == "all";
 
+    // Interleaved execution across writer counts within each round:
     if run_map {
         eprintln!("generating map 64-bit workload (prefill={n0}, fresh={m})...");
         let wl = WriterWorkload::generate(n0, m, 64);
-        for &w in &writers_list {
-            for round in 0..rounds {
-                let (elapsed_s, final_pop, fallbacks) = run_map_cell(&wl, w, round);
+        let bits = wl.keyspace_bits;
+        for round in round_start..round_end {
+            for &w in &writers_list {
+                let (elapsed_s, final_pop, fallbacks) = run_map_cell(&wl, w, round, is_counters);
                 let write_ops = m;
-                let writer_mops = (write_ops as f64) / elapsed_s / 1e6;
-                let bits = wl.keyspace_bits;
-                println!(
-                    "{{\"workload_id\":\"concurrency_writer_map_64bit\",\"role\":\"counters\",\
-                     \"arm\":\"expanse\",\"cell\":\"map_w{w}_r0\",\"keyspace_bits\":{bits},\
-                     \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
-                     \"round\":{round},\"write_ops\":{write_ops},\"writer_elapsed_s\":{elapsed_s:.6},\
-                     \"writer_mops\":{writer_mops:.4},\"lock_fallbacks\":{fallbacks},\"population_after\":{final_pop}}}"
-                );
+                if is_counters {
+                    println!(
+                        "{{\"workload_id\":\"concurrency_writer_map_64bit\",\"role\":\"counters\",\
+                         \"arm\":\"expanse\",\"cell\":\"map_w{w}_r0\",\"keyspace_bits\":{bits},\
+                         \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
+                         \"round\":{round},\"write_ops\":{write_ops},\
+                         \"lock_fallbacks\":{fallbacks},\"population_after\":{final_pop}}}"
+                    );
+                } else {
+                    let writer_mops = (write_ops as f64) / elapsed_s / 1e6;
+                    println!(
+                        "{{\"workload_id\":\"concurrency_writer_map_64bit\",\"role\":\"throughput\",\
+                         \"arm\":\"expanse\",\"cell\":\"map_w{w}_r0\",\"keyspace_bits\":{bits},\
+                         \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
+                         \"round\":{round},\"write_ops\":{write_ops},\"writer_elapsed_s\":{elapsed_s:.6},\
+                         \"writer_mops\":{writer_mops:.4},\"population_after\":{final_pop}}}"
+                    );
+                }
             }
         }
     }
@@ -465,19 +616,29 @@ fn main() {
     if run_set {
         eprintln!("generating set 63-bit workload (prefill={n0}, fresh={m})...");
         let wl = WriterWorkload::generate(n0, m, 63);
-        for &w in &writers_list {
-            for round in 0..rounds {
-                let (elapsed_s, final_pop, fallbacks) = run_set_cell(&wl, w, round);
+        let bits = wl.keyspace_bits;
+        for round in round_start..round_end {
+            for &w in &writers_list {
+                let (elapsed_s, final_pop, fallbacks) = run_set_cell(&wl, w, round, is_counters);
                 let write_ops = m;
-                let writer_mops = (write_ops as f64) / elapsed_s / 1e6;
-                let bits = wl.keyspace_bits;
-                println!(
-                    "{{\"workload_id\":\"concurrency_writer_set_63bit\",\"role\":\"counters\",\
-                     \"arm\":\"expanse\",\"cell\":\"set_w{w}_r0\",\"keyspace_bits\":{bits},\
-                     \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
-                     \"round\":{round},\"write_ops\":{write_ops},\"writer_elapsed_s\":{elapsed_s:.6},\
-                     \"writer_mops\":{writer_mops:.4},\"lock_fallbacks\":{fallbacks},\"population_after\":{final_pop}}}"
-                );
+                if is_counters {
+                    println!(
+                        "{{\"workload_id\":\"concurrency_writer_set_63bit\",\"role\":\"counters\",\
+                         \"arm\":\"expanse\",\"cell\":\"set_w{w}_r0\",\"keyspace_bits\":{bits},\
+                         \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
+                         \"round\":{round},\"write_ops\":{write_ops},\
+                         \"lock_fallbacks\":{fallbacks},\"population_after\":{final_pop}}}"
+                    );
+                } else {
+                    let writer_mops = (write_ops as f64) / elapsed_s / 1e6;
+                    println!(
+                        "{{\"workload_id\":\"concurrency_writer_set_63bit\",\"role\":\"throughput\",\
+                         \"arm\":\"expanse\",\"cell\":\"set_w{w}_r0\",\"keyspace_bits\":{bits},\
+                         \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
+                         \"round\":{round},\"write_ops\":{write_ops},\"writer_elapsed_s\":{elapsed_s:.6},\
+                         \"writer_mops\":{writer_mops:.4},\"population_after\":{final_pop}}}"
+                    );
+                }
             }
         }
     }
@@ -485,18 +646,28 @@ fn main() {
     if run_str {
         eprintln!("generating str workload (prefill={n0}, fresh={m})...");
         let wl = WriterStrWorkload::generate(n0, m);
-        for &w in &writers_list {
-            for round in 0..rounds {
-                let (elapsed_s, final_pop, fallbacks) = run_str_cell(&wl, w, round);
+        for round in round_start..round_end {
+            for &w in &writers_list {
+                let (elapsed_s, final_pop, fallbacks) = run_str_cell(&wl, w, round, is_counters);
                 let write_ops = m;
-                let writer_mops = (write_ops as f64) / elapsed_s / 1e6;
-                println!(
-                    "{{\"workload_id\":\"concurrency_writer_str\",\"role\":\"counters\",\
-                     \"arm\":\"expanse\",\"cell\":\"str_w{w}_r0\",\"dist\":\"short\",\
-                     \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
-                     \"round\":{round},\"write_ops\":{write_ops},\"writer_elapsed_s\":{elapsed_s:.6},\
-                     \"writer_mops\":{writer_mops:.4},\"lock_fallbacks\":{fallbacks},\"population_after\":{final_pop}}}"
-                );
+                if is_counters {
+                    println!(
+                        "{{\"workload_id\":\"concurrency_writer_str\",\"role\":\"counters\",\
+                         \"arm\":\"expanse\",\"cell\":\"str_w{w}_r0\",\"dist\":\"short\",\
+                         \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
+                         \"round\":{round},\"write_ops\":{write_ops},\
+                         \"lock_fallbacks\":{fallbacks},\"population_after\":{final_pop}}}"
+                    );
+                } else {
+                    let writer_mops = (write_ops as f64) / elapsed_s / 1e6;
+                    println!(
+                        "{{\"workload_id\":\"concurrency_writer_str\",\"role\":\"throughput\",\
+                         \"arm\":\"expanse\",\"cell\":\"str_w{w}_r0\",\"dist\":\"short\",\
+                         \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
+                         \"round\":{round},\"write_ops\":{write_ops},\"writer_elapsed_s\":{elapsed_s:.6},\
+                         \"writer_mops\":{writer_mops:.4},\"population_after\":{final_pop}}}"
+                    );
+                }
             }
         }
     }
