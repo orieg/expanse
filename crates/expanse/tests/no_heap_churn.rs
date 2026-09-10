@@ -162,8 +162,10 @@ fn small_arrays_do_not_allocate_per_insert() {
             map.insert(k * 7, k);
         }
     });
-    // Class-sized growth: 1, 2, 4, 8, 12, 16, 20, 24, 28, 32 slots — an
-    // allocation only when the class changes, not once per insert.
+    // Class-sized growth: 1, 2, 4, 8, 12, 16, 24, 32 slots — an allocation
+    // only when the class changes, not once per insert. The tail coarsened
+    // in #826 (classes 20 and 28 collapsed), so this crosses fewer classes
+    // than it used to, never more.
     assert!(n <= 12, "30 inserts into a small map allocated {n} times");
     assert_eq!(map.len(), 30);
     for k in 0..30u64 {
