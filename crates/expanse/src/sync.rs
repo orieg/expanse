@@ -7428,6 +7428,10 @@ mod obsolete_tests {
         assert_eq!(map.with_locked(|m| m.by_count(5)), Some((50, 5)));
     }
 
+    /// Asserts that insertion into an unoccupied null slot of a BranchU succeeds
+    /// via OLC in-place and records zero `FallbackImmediateConversion` increments
+    /// specifically on this null-slot insertion path. (Immediate-to-leaf conversions elsewhere
+    /// legitimately fall back to serialization until subsequent Phase 4 variants.)
     #[test]
     fn branch_u_null_slot_set_insert_succeeds_without_fallback() {
         let set = SyncExpanseSet::new();
@@ -7461,7 +7465,7 @@ mod obsolete_tests {
                 - before[crate::occ_stats::Stat::FallbackImmediateConversion as usize];
             assert_eq!(
                 imm_fallbacks, 0,
-                "BranchU null-slot insertion must succeed via OLC without ImmediateConversion fallback"
+                "BranchU null-slot insertion path must succeed via OLC without FallbackImmediateConversion"
             );
         }
 
@@ -7470,6 +7474,10 @@ mod obsolete_tests {
         set.with_locked(ExpanseSet::validate);
     }
 
+    /// Asserts that insertion into an unoccupied null slot of a BranchU succeeds
+    /// via OLC in-place and records zero `FallbackImmediateConversion` increments
+    /// specifically on this null-slot insertion path. (Immediate-to-leaf conversions elsewhere
+    /// legitimately fall back to serialization until subsequent Phase 4 variants.)
     #[test]
     fn branch_u_null_slot_map_insert_succeeds_without_fallback() {
         let map = SyncExpanseMap::new();
@@ -7500,7 +7508,7 @@ mod obsolete_tests {
                 - before[crate::occ_stats::Stat::FallbackImmediateConversion as usize];
             assert_eq!(
                 imm_fallbacks, 0,
-                "BranchU null-slot insertion must succeed via OLC without ImmediateConversion fallback"
+                "BranchU null-slot insertion path must succeed via OLC without FallbackImmediateConversion"
             );
         }
 
