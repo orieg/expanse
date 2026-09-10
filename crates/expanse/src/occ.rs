@@ -2101,7 +2101,7 @@ mod loom_tests {
             );
             let w1 = loom::thread::spawn(move || {
                 for _ in 0..2 {
-                    if let Some(_guard) = g1.enter_writer(&if1) {
+                    if let Some(_guard) = g1.enter_writer(&if1, 0) {
                         if q1.load(Ordering::Relaxed) {
                             sq1.fetch_add(1, Ordering::SeqCst);
                         }
@@ -2119,7 +2119,7 @@ mod loom_tests {
             );
             let w2 = loom::thread::spawn(move || {
                 for _ in 0..2 {
-                    if let Some(_guard) = g2.enter_writer(&if2) {
+                    if let Some(_guard) = g2.enter_writer(&if2, 1) {
                         if q2.load(Ordering::Relaxed) {
                             sq2.fetch_add(1, Ordering::SeqCst);
                         }
