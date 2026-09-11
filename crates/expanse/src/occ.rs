@@ -1228,7 +1228,8 @@ pub(crate) fn writer_slot() -> usize {
                 } else {
                     static NEXT_THREAD: core::sync::atomic::AtomicUsize =
                         core::sync::atomic::AtomicUsize::new(0);
-                    let slot = NEXT_THREAD.fetch_add(1, core::sync::atomic::Ordering::Relaxed) % MAX_WRITER_SLOTS;
+                    let slot = NEXT_THREAD.fetch_add(1, core::sync::atomic::Ordering::Relaxed)
+                        % MAX_WRITER_SLOTS;
                     f.set(Some(slot));
                     slot
                 }
