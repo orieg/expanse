@@ -35,6 +35,7 @@ on:
           - concurrency
           - writer_scaling
           - writer_scaling_diagnostic
+          - writer_scaling_padded
           - point_lookup_counters
           - search_instructions
           - smoke_instructions
@@ -919,7 +920,14 @@ jobs:
                 # Expanse multi-writer scaling diagnostic suite with PMU and c2c passes (Refs #568)
                 python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
                   --diagnostic \
+                  ${BENCH_VARIANTS:+--variants "$BENCH_VARIANTS"} \
                   --out docs/benchmarks/concurrency/results/diagnostic_writer_scaling.json | tee writer_scaling.txt
+                ;;
+              "writer_scaling_padded")
+                # Expanse multi-writer scaling with lock-padded comparison (Hypothesis B, Refs #568)
+                python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
+                  --compare lock-padded \
+                  --out docs/benchmarks/concurrency/results/padded_writer_scaling.json | tee writer_scaling.txt
                 ;;
               "all")
                 if [ -f base-instructions.txt ]; then
@@ -1371,6 +1379,7 @@ jobs:
             writer_scaling.txt
             docs/benchmarks/concurrency/results/baseline_writer_scaling.json
             docs/benchmarks/concurrency/results/diagnostic_writer_scaling.json
+            docs/benchmarks/concurrency/results/padded_writer_scaling.json
             ycsb.txt
             comparative.txt
             bytes-per-key.txt

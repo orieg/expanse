@@ -67,6 +67,9 @@ COMMITTED_RESULTS_PATH = (
 DIAGNOSTIC_RESULTS_PATH = (
     REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "diagnostic_writer_scaling.json"
 )
+PADDED_RESULTS_PATH = (
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "padded_writer_scaling.json"
+)
 
 
 def get_throughput_target(features: str | None = None) -> Path:
@@ -76,10 +79,18 @@ def get_throughput_target(features: str | None = None) -> Path:
     return THROUGHPUT_TARGET
 
 
+def get_counters_target(features: str | None = None) -> Path:
+    if features:
+        slug = features.replace(",", "_").replace(" ", "_").replace("-", "_")
+        return REPO_ROOT / "target" / f"occ-stats-{slug}"
+    return COUNTERS_TARGET
+
+
 def get_binaries(features: str | None = None) -> tuple[Path, Path]:
     tp_target = get_throughput_target(features)
+    cnt_target = get_counters_target(features)
     throughput_bin = tp_target / "release" / "examples" / "writer_scaling"
-    counters_bin = COUNTERS_TARGET / "release" / "examples" / "writer_scaling"
+    counters_bin = cnt_target / "release" / "examples" / "writer_scaling"
     return throughput_bin, counters_bin
 
 
@@ -133,10 +144,12 @@ def build_binaries(features: str | None = None, verbose: bool = True) -> tuple[P
     if verbose:
         _print_binary_info("throughput", throughput_bin)
 
+    cnt_target = get_counters_target(features)
+    cnt_features = f"occ-stats,{features}" if features else "occ-stats"
     if verbose:
-        print("building diagnostic counters binary (--features occ-stats) ...")
+        print(f"building diagnostic counters binary (--features {cnt_features}) ...")
     cnt_env = dict(os.environ)
-    cnt_env["CARGO_TARGET_DIR"] = str(COUNTERS_TARGET)
+    cnt_env["CARGO_TARGET_DIR"] = str(cnt_target)
     subprocess.run(
         [
             "cargo",
@@ -145,7 +158,7 @@ def build_binaries(features: str | None = None, verbose: bool = True) -> tuple[P
             "-p",
             "expanse-trie",
             "--features",
-            "occ-stats",
+            cnt_features,
             "--example",
             "writer_scaling",
         ],
@@ -543,7 +556,8 @@ def run_comparison(
     bin_default: Path,
     bin_variant: Path,
     variant_name: str,
-    counters_bin: Path,
+    counters_bin_default: Path,
+    counters_bin_variant: Path | None,
     arm: str,
     writers_list: list[int],
     rounds: int,
@@ -589,18 +603,27 @@ def run_comparison(
     load_def = end_cell(start_snap_def)
     load_var = end_cell(start_snap_var)
 
-    print(f"  [Pass 2/2] Diagnostic counters — {arm} arm across W ∈ {writers_list} (occ-stats build)")
-    c_rows = run_pass(counters_bin, "counters", arm, writers_list, rounds=rounds, quick=quick)
+    print(f"  [Pass 2/2] Diagnostic counters (default) — {arm} arm across W ∈ {writers_list} (occ-stats build)")
+    c_rows_def = run_pass(counters_bin_default, "counters", arm, writers_list, rounds=rounds, quick=quick)
+
+    c_rows_var: list[dict[str, Any]] = []
+    if counters_bin_variant is not None:
+        print(
+            f"  [Pass 2/2] Diagnostic counters ({variant_name}) — {arm} arm across W ∈ {writers_list} (occ-stats,{variant_name} build)"
+        )
+        c_rows_var = run_pass(counters_bin_variant, "counters", arm, writers_list, rounds=rounds, quick=quick)
 
     tp_target_def = bin_default.parent.parent
     tp_target_var = bin_variant.parent.parent
 
     cells_default = summarize_arm(
-        arm, writers_list, rounds, all_t_rows_default, c_rows, load_def, throughput_target=tp_target_def
+        arm, writers_list, rounds, all_t_rows_default, c_rows_def, load_def, throughput_target=tp_target_def
     )
     cells_variant = summarize_arm(
-        arm, writers_list, rounds, all_t_rows_variant, [], load_var, throughput_target=tp_target_var
+        arm, writers_list, rounds, all_t_rows_variant, c_rows_var, load_var, throughput_target=tp_target_var
     )
+    for c in cells_variant:
+        c["variant"] = variant_name
 
     # Compute paired C_variant(w) / C_default(w) per round
     t_by_round_w_def: dict[tuple[int, int], float] = {
@@ -1081,6 +1104,7 @@ def self_test() -> int:
         throughput_bin,
         "self_test",
         counters_bin,
+        counters_bin,
         "set",
         [1, 2],
         3,
@@ -1089,6 +1113,9 @@ def self_test() -> int:
     )
     assert len(cells_def) == 2
     assert len(cells_var) == 2
+    assert len(cells_def[0]["counters_raw"]) == 3
+    assert len(cells_var[0]["counters_raw"]) == 3
+    assert cells_var[0]["variant"] == "self_test"
     assert "per_writer" in comp_stats
     assert "2" in comp_stats["per_writer"]
     w2_comp = comp_stats["per_writer"]["2"]
@@ -1096,6 +1123,23 @@ def self_test() -> int:
     assert len(w2_comp["paired_ratios_raw"]) == 3
     # Self-comparison ratio should be approximately 1.0
     assert 0.5 <= w2_comp["ratio_c_variant_over_c_default_mean"] <= 1.5
+
+    # Also test with counters_bin_variant=None (empty variant counters)
+    cells_def_none, cells_var_none, _ = run_comparison(
+        throughput_bin,
+        throughput_bin,
+        "self_test_none",
+        counters_bin,
+        None,
+        "set",
+        [1, 2],
+        3,
+        prov,
+        quick=True,
+    )
+    assert len(cells_def_none[0]["counters_raw"]) == 3
+    assert len(cells_var_none[0]["counters_raw"]) == 0
+    assert cells_var_none[0]["variant"] == "self_test_none"
 
     # 7. Test PMU pass and c2c pass fail-loud on non-Linux / missing perf (AGENTS.md §8.1)
     eprintln("Testing PMU and c2c passes (fail-loud validation)...")
@@ -1250,7 +1294,13 @@ def main() -> int:
     parser.add_argument(
         "--compare-padded",
         action="store_true",
-        help="Alias for --compare lock-padded",
+        help="Shorthand for --compare lock-padded (Hypothesis B)",
+    )
+    parser.add_argument(
+        "--variants",
+        metavar="VARIANTS",
+        default=None,
+        help="Comma-separated feature variants to compare against default (or via BENCH_VARIANTS env var)",
     )
     parser.add_argument(
         "--pmu",
@@ -1293,8 +1343,18 @@ def main() -> int:
         if not args.out:
             args.out = str(DIAGNOSTIC_RESULTS_PATH)
 
+    variant_list: list[str] = []
+    if args.variants:
+        variant_list.extend(v.strip() for v in args.variants.split(",") if v.strip())
+    elif os.environ.get("BENCH_VARIANTS"):
+        variant_list.extend(v.strip() for v in os.environ["BENCH_VARIANTS"].split(",") if v.strip())
+
     if args.compare_padded:
-        args.compare = "lock-padded"
+        if "lock-padded" not in variant_list:
+            variant_list.append("lock-padded")
+    elif args.compare:
+        if args.compare not in variant_list:
+            variant_list.append(args.compare)
 
     if args.rounds < 3:
         sys.stderr.write("error: --rounds must be >= 3 for BCa bootstrap confidence intervals\n")
@@ -1315,7 +1375,12 @@ def main() -> int:
     if args.quick and args.out:
         out_path = Path(args.out).resolve()
         if (
-            out_path in (COMMITTED_RESULTS_PATH.resolve(), DIAGNOSTIC_RESULTS_PATH.resolve())
+            out_path
+            in (
+                COMMITTED_RESULTS_PATH.resolve(),
+                DIAGNOSTIC_RESULTS_PATH.resolve(),
+                PADDED_RESULTS_PATH.resolve(),
+            )
             and not args.force_quick_out
         ):
             sys.stderr.write(
@@ -1336,33 +1401,41 @@ def main() -> int:
     variant_cells: list[dict[str, Any]] = []
     comparison_results: list[dict[str, Any]] = []
 
-    if args.compare:
-        bin_default, counters_bin = build_binaries(features=None, verbose=True)
-        bin_variant, _ = build_binaries(features=args.compare, verbose=True)
+    if variant_list:
+        bin_default, cnt_default = build_binaries(features=None, verbose=True)
 
+        ratio_desc = (
+            f"Expanse {variant_list[0]} throughput over default baseline C_variant(W) / C_default(W)"
+            if len(variant_list) == 1
+            else f"Expanse variants ({', '.join(variant_list)}) throughput over default baseline C_variant(W) / C_default(W)"
+        )
         prov = new_provenance(
             suite="concurrency",
             issue=568,
-            ratio=f"Expanse {args.compare} throughput over default baseline C_variant(W) / C_default(W)",
+            ratio=ratio_desc,
             repo_root=REPO_ROOT,
             core_pin=core_pin,
         )
 
-        for arm in arms:
-            cells_d, cells_v, comp_stats = run_comparison(
-                bin_default,
-                bin_variant,
-                args.compare,
-                counters_bin,
-                arm,
-                writers_list,
-                args.rounds,
-                prov,
-                quick=args.quick,
-            )
-            throughput_cells.extend(cells_d)
-            variant_cells.extend(cells_v)
-            comparison_results.append(comp_stats)
+        for var in variant_list:
+            bin_variant, cnt_variant = build_binaries(features=var, verbose=True)
+            for arm in arms:
+                cells_d, cells_v, comp_stats = run_comparison(
+                    bin_default,
+                    bin_variant,
+                    var,
+                    cnt_default,
+                    cnt_variant,
+                    arm,
+                    writers_list,
+                    args.rounds,
+                    prov,
+                    quick=args.quick,
+                )
+                if not any(c.get("arm") == arm for c in throughput_cells):
+                    throughput_cells.extend(cells_d)
+                variant_cells.extend(cells_v)
+                comparison_results.append(comp_stats)
     else:
         throughput_bin, counters_bin = build_binaries(features=args.features, verbose=True)
 
@@ -1459,7 +1532,7 @@ def main() -> int:
                         f"| tsc_hz: {cell.get('tsc_hz', 0)}"
                     )
 
-    primary_tp_bin = bin_default if args.compare else throughput_bin
+    primary_tp_bin = bin_default if variant_list else throughput_bin
     pmu_results = None
     if args.pmu:
         pmu_results = run_pmu_pass(
@@ -1471,19 +1544,29 @@ def main() -> int:
         )
 
     c2c_results = None
+    c2c_error = None
     if args.c2c:
-        c2c_results = run_c2c_pass(
-            primary_tp_bin,
-            arm="set",
-            writers=2,
-            quick=args.quick,
-        )
+        try:
+            c2c_results = run_c2c_pass(
+                primary_tp_bin,
+                arm="set",
+                writers=2,
+                quick=args.quick,
+            )
+        except RuntimeError as exc:
+            c2c_error = str(exc)
+            c2c_results = {
+                "arm": "set",
+                "writers": 2,
+                "error": c2c_error,
+                "verdict": "FAILED",
+            }
 
     artifact: dict[str, Any] = {
         "provenance": prov,
         "throughput": throughput_cells,
     }
-    if args.compare:
+    if variant_list:
         artifact["throughput_variant"] = variant_cells
         artifact["comparison"] = comparison_results
     if pmu_results is not None:
@@ -1496,6 +1579,10 @@ def main() -> int:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(artifact, indent=2) + "\n")
         print(f"\nWrote artifact to {args.out}")
+
+    if c2c_error is not None:
+        sys.stderr.write(f"perf c2c failed: {c2c_error} (AGENTS.md §8.1)\n")
+        return 1
 
     return 0
 
