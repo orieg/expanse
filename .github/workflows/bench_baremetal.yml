@@ -1196,25 +1196,21 @@ jobs:
             fi
           done
 
-          # The report is output of the code under test, so a fixed heredoc
-          # delimiter would let it end the value early and write further
-          # variables into GITHUB_ENV for the steps that post with the
-          # workflow token. A random delimiter cannot appear in it.
-          DELIM="BENCH_REPORT_$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+          # The report is output of the code under test. It goes to a file
+          # the publish step reads, never into GITHUB_ENV: content written
+          # there can set variables for the later steps that post with the
+          # workflow token. RUNNER_TEMP is per job and emptied at its start,
+          # so the file is absent whenever this step produced no report.
+          REPORT_FILE="$RUNNER_TEMP/bench-report.md"
           if [ -f baremetal-report.md ]; then
             if [ -f system-load.md ]; then
               cat system-load.md >> baremetal-report.md
             fi
-            echo "BENCH_REPORT<<$DELIM" >> $GITHUB_ENV
-            cat baremetal-report.md >> $GITHUB_ENV
-            echo "$DELIM" >> $GITHUB_ENV
+            cp baremetal-report.md "$REPORT_FILE"
             cat baremetal-report.md >> "$GITHUB_STEP_SUMMARY"
           else
-            # The whole heredoc body is redirected into GITHUB_ENV as a
-            # group; the previous form only redirected the delimiters,
-            # leaving the report content on stdout and the comment empty.
+            # The whole report body is redirected into the file as a group.
             {
-              echo "BENCH_REPORT<<$DELIM"
               # head-to-head.md carries the comparative tables and, when the
               # suite has criterion arms, the BCa interval table appended above.
               # Emitted once here so every suite shape reaches the comment with
@@ -1252,8 +1248,7 @@ jobs:
               if [ -f system-load.md ]; then
                 cat system-load.md
               fi
-              echo "$DELIM"
-            } >> $GITHUB_ENV
+            } > "$REPORT_FILE"
 
             echo "## Bare-Metal Benchmark Results ($SUITE)" >> "$GITHUB_STEP_SUMMARY"
             if [ -f head-vs-stock.txt ]; then
@@ -1449,9 +1444,12 @@ jobs:
             const outcome = process.env.BENCH_OUTCOME || 'skipped';
             const reason = process.env.FAIL_REASON || '';
             const cancelled = outcome === 'cancelled' || process.env.JOB_STATUS === 'cancelled';
-            // BENCH_REPORT reaches this step through GITHUB_ENV, written by the
-            // benchmark step; it is absent whenever that step produced nothing.
-            const report = (process.env.BENCH_REPORT || '').trim();
+            // The benchmark step writes its report to a file in RUNNER_TEMP,
+            // never to GITHUB_ENV; the file is absent whenever that step
+            // produced nothing.
+            const fs = require('fs');
+            const reportPath = require('path').join(process.env.RUNNER_TEMP || '', 'bench-report.md');
+            const report = (fs.existsSync(reportPath) ? fs.readFileSync(reportPath, 'utf8') : '').trim();
 
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
