@@ -407,7 +407,7 @@ def writer_scaling() -> list[str]:
     out += ["", "**Step 4.0 counters** — from the separate `occ-stats` build, summed over the eight rounds:", "",
             "| arm | W | contention / insert | gate-closed share of contention | retry-exhausted | restarts / insert "
             "| gate-blocked entries / insert | gate-wait cycles / insert | drain cycles / fallback "
-            "| branch_split: subarray · linear · prefix · remove |",
+            "| branch_split: subarray · linear · prefix · remove · upgrade |",
             "|---|--:|--:|--:|--:|--:|--:|--:|--:|---|"]
     for arm in ("map", "set"):
         cells = sorted((c for c in need(art, "throughput", where) if c["arm"] == arm),
@@ -422,7 +422,7 @@ def writer_scaling() -> list[str]:
             bs_total = sum(bs.values())
             split = " · ".join(
                 f"{bs[k] / bs_total * 100:.1f}%" if bs_total else "—"
-                for k in ("subarray", "linear", "prefix", "remove"))
+                for k in ("subarray", "linear", "prefix", "remove", "upgrade"))
             out.append(
                 f"| `{arm}` | {w} | {need(c, 'fallback_causes_per_insert', at)['contention'] * 100:.2f}% | {share} "
                 f"| {cont['retry_exhausted']:,} | {need(c, 'lock_restarts_per_insert', at):.4f} "

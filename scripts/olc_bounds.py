@@ -50,6 +50,16 @@ OLC_ARTIFACTS = {
 }
 BASELINE_WRITER_SCALING = REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "baseline_writer_scaling.json"
 
+# The W=1 per-insert fallback causes the Phase 4D prediction was derived from:
+# `baseline_writer_scaling.json` as #839 committed it (engine ff3e0e06, CI run
+# 34562877044), before #840 landed. That file has since been replaced by sweeps
+# of the post-4D engine, so the inputs are frozen here: deriving the prediction
+# from the live file would evaluate it against its own outcome (§8.7).
+PRE_4D_W1_CAUSES: dict[str, dict[str, float]] = {
+    "set": {"cap_expansion": 0.019883, "immediate_conversion": 0.015281, "branch_split": 0.751745},
+    "map": {"cap_expansion": 0.133741, "immediate_conversion": 0.01374, "branch_split": 0.097611},
+}
+
 # ---------------------------------------------------------------------------
 # Hypotheses: inputs no artifact measures. Each is a parameter of the bound
 # functions below, never a hidden constant; METHODOLOGY §10 says which counter
@@ -222,15 +232,15 @@ def phase4d_predicted_fallback_rate(
     arm: str,
     branchb_up: int = 192,
     leaf_cap: int = 32,
-    artifact_path: Path = BASELINE_WRITER_SCALING,
+    artifact_path: Path | None = None,
 ) -> tuple[float, float]:
     """Predicted per-insert fallback rate interval [lower, upper] after Phase 4D
     concurrent BranchB subarray insertion on the W=1 uniform random workload.
 
     Sources:
       Leis, Scheibner, Kemper & Neumann, DaMoN 2016 §3 (optimistic lock coupling).
-      `docs/benchmarks/concurrency/results/baseline_writer_scaling.json` W=1 measured
-      fallback cause partitions (Refs #568, #839).
+      The pre-4D W=1 fallback cause partitions in `PRE_4D_W1_CAUSES` (Refs #568,
+      #839); pass `artifact_path` to derive from another artifact's W=1 row.
 
     Derivation (§8.14):
       At W=1, all fallbacks are deterministic structural transitions.
@@ -261,14 +271,17 @@ def phase4d_predicted_fallback_rate(
     k0 = leaf_cap + 1
     if branchb_up + 1 <= k0:
         raise ValueError(f"branchb_up + 1 ({branchb_up + 1}) must be > k0 ({k0})")
-    d = json.loads(artifact_path.read_text())
-    row = next(
-        (r for r in d.get("throughput", []) if r.get("arm") == arm and r.get("writers") == 1),
-        None,
-    )
-    if not row:
-        raise ValueError(f"{artifact_path}: no W=1 throughput row found for arm '{arm}'")
-    per_ins = row["fallback_causes_per_insert"]
+    if artifact_path is None:
+        per_ins = PRE_4D_W1_CAUSES[arm]
+    else:
+        d = json.loads(artifact_path.read_text())
+        row = next(
+            (r for r in d.get("throughput", []) if r.get("arm") == arm and r.get("writers") == 1),
+            None,
+        )
+        if not row:
+            raise ValueError(f"{artifact_path}: no W=1 throughput row found for arm '{arm}'")
+        per_ins = row["fallback_causes_per_insert"]
     f_bs = per_ins["branch_split"]
     f_ce = per_ins["cap_expansion"]
     f_ic = per_ins["immediate_conversion"]
@@ -357,6 +370,18 @@ class TestOlcBounds(unittest.TestCase):
         self.assertAlmostEqual(map_lo * 100, 14.75, delta=0.01)
         self.assertAlmostEqual(map_hi * 100, 14.81, delta=0.01)
         self.assertLess(map_lo, map_hi)
+
+        # The artifact path reads a W=1 row the same way: an artifact carrying
+        # the frozen inputs reproduces the frozen prediction.
+        import tempfile
+        rows = [{"arm": arm, "writers": 1, "fallback_causes_per_insert": causes}
+                for arm, causes in PRE_4D_W1_CAUSES.items()]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "pre4d.json"
+            path.write_text(json.dumps({"throughput": rows}))
+            for arm in ("set", "map"):
+                self.assertEqual(phase4d_predicted_fallback_rate(arm, artifact_path=path),
+                                 phase4d_predicted_fallback_rate(arm))
 
         with self.assertRaises(ValueError):
             phase4d_predicted_fallback_rate("str")
