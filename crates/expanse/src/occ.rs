@@ -84,6 +84,9 @@ impl SeqVersion {
     /// Attempts to acquire an exclusive write lock on the tree version (even → odd).
     ///
     /// Returns `Ok(old_even_version)` on success, or `Err(current_version)` if locked or changed.
+    ///
+    /// The CAS is strong: this is a single attempt, not a retry loop, so a
+    /// spurious weak-CAS failure would report an uncontended word as held.
     #[inline]
     #[allow(dead_code)]
     pub(crate) fn try_lock(&self) -> Result<u64, u64> {
@@ -92,7 +95,7 @@ impl SeqVersion {
             return Err(cur);
         }
         self.0
-            .compare_exchange_weak(cur, cur + 1, Ordering::Acquire, Ordering::Relaxed)
+            .compare_exchange(cur, cur + 1, Ordering::Acquire, Ordering::Relaxed)
     }
 
     /// Releases the exclusive write lock on the tree version.
@@ -473,7 +476,8 @@ pub(crate) fn version_end(v: &VersionCell) {
 ///
 /// Follows the OLC protocol specified in `docs/ARCHITECTURE.md` §4.2:
 /// If `v` is even and not [`OBSOLETE`], attempts to transition `even -> even + 1`
-/// using `compare_exchange_weak`.
+/// using a strong `compare_exchange` (a single attempt, so a spurious weak-CAS
+/// failure would misreport an unlocked node as held).
 ///
 /// On success, executes an acquire fence to ensure subsequent node reads and writes
 /// do not reorder prior to lock acquisition.
