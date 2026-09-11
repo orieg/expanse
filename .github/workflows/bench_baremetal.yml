@@ -1347,6 +1347,7 @@ jobs:
           path: |
             concurrency.txt
             writer_scaling.txt
+            docs/benchmarks/concurrency/results/writer_scaling.json
             ycsb.txt
             comparative.txt
             bytes-per-key.txt

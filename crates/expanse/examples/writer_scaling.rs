@@ -40,7 +40,7 @@
 //! | `value_dereference` | map arms check stored values against key-derived expectation |
 //! | `measured_region` | barrier release to last-writer join; prefill and teardown outside |
 //! | `arm_symmetry` | symmetric across thread counts; W in {1, 2, 4, 8} on physical P-cores |
-//! | `statistics` | throughput ops/sec emitted raw, paired bootstrap BCa 95% CI for C(N); lock fallbacks from occ-stats counters pass |
+//! | `statistics` | throughput ops/sec emitted raw, paired bootstrap BCa 95% CI for C(N); lock fallbacks and their six causes (partition-checked per row) from the occ-stats counters pass |
 //! | `verdict` | pending measurement |
 
 use std::collections::HashSet;
@@ -50,6 +50,76 @@ use std::time::Instant;
 use expanse_trie::occ_stats::{self, Stat};
 use expanse_trie::strmap::NulFreeStr;
 use expanse_trie::sync::{SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap};
+
+/// The six fallback causes. They partition `Stat::LockFallbacks` exactly —
+/// every fallback carries one cause (`tests/test_fallback_attribution.rs`) —
+/// which is what lets a cell say *which* Phase 4 rung its fallbacks need
+/// rather than only how many there were (#568).
+const CAUSES: [(Stat, &str); 6] = [
+    (Stat::FallbackCapExpansion, "cap_expansion"),
+    (Stat::FallbackImmediateConversion, "immediate_conversion"),
+    (Stat::FallbackBranchSplit, "branch_split"),
+    (Stat::FallbackRootGrowth, "root_growth"),
+    (Stat::FallbackContention, "contention"),
+    (Stat::FallbackUnknownTag, "unknown_tag"),
+];
+
+/// One round's diagnostic counters. All zero on the throughput build, which
+/// never reads them.
+#[derive(Clone, Copy, Default)]
+struct Counters {
+    lock_fallbacks: u64,
+    inserts: u64,
+    causes: [u64; 6],
+}
+
+impl Counters {
+    fn read(is_counters: bool) -> Self {
+        if !is_counters {
+            return Self::default();
+        }
+        let snap = occ_stats::snapshot();
+        let mut causes = [0u64; 6];
+        for (slot, &(stat, _)) in causes.iter_mut().zip(CAUSES.iter()) {
+            *slot = snap[stat as usize];
+        }
+        Self {
+            lock_fallbacks: snap[Stat::LockFallbacks as usize],
+            inserts: snap[Stat::Inserts as usize],
+            causes,
+        }
+    }
+
+    fn causes_json(&self) -> String {
+        let fields: Vec<String> = CAUSES
+            .iter()
+            .zip(self.causes)
+            .map(|(&(_, name), v)| format!("\"{name}\":{v}"))
+            .collect();
+        format!("{{{}}}", fields.join(","))
+    }
+
+    /// The two exact identities a counters row must satisfy: one `Inserts`
+    /// bump per public insert, and causes summing to fallbacks. Both are
+    /// deterministic, so a violation is a broken instrument, never noise.
+    fn check(&self, expected_inserts: u64, cell: &str) -> Result<(), String> {
+        if self.inserts != expected_inserts {
+            return Err(format!(
+                "{cell}: Stat::Inserts = {}, expected {expected_inserts} (one per public insert)",
+                self.inserts
+            ));
+        }
+        let summed: u64 = self.causes.iter().sum();
+        if summed != self.lock_fallbacks {
+            return Err(format!(
+                "{cell}: fallback causes sum to {summed}, lock_fallbacks = {}; unattributed = {}",
+                self.lock_fallbacks,
+                self.lock_fallbacks as i128 - summed as i128
+            ));
+        }
+        Ok(())
+    }
+}
 
 /// Prefill population (2^20 keys = 1,048,576).
 pub const N_PREFILL: usize = 1 << 20;
@@ -211,7 +281,7 @@ fn run_map_cell(
     writers: usize,
     round: usize,
     is_counters: bool,
-) -> (f64, u64, u64) {
+) -> (f64, u64, Counters) {
     let map = SyncExpanseMap::new();
     for &k in &workload.prefill {
         map.insert(k, value_of(k));
@@ -252,11 +322,7 @@ fn run_map_cell(
     } else {
         start.elapsed().as_secs_f64()
     };
-    let lock_fallbacks = if is_counters {
-        occ_stats::snapshot()[Stat::LockFallbacks as usize]
-    } else {
-        0
-    };
+    let counters = Counters::read(is_counters);
     let final_pop = map.len();
 
     // Verify samples
@@ -270,7 +336,7 @@ fn run_map_cell(
         );
     }
 
-    (elapsed, final_pop, lock_fallbacks)
+    (elapsed, final_pop, counters)
 }
 
 fn run_set_cell(
@@ -278,7 +344,7 @@ fn run_set_cell(
     writers: usize,
     round: usize,
     is_counters: bool,
-) -> (f64, u64, u64) {
+) -> (f64, u64, Counters) {
     let set = SyncExpanseSet::new();
     for &k in &workload.prefill {
         set.insert(k);
@@ -319,11 +385,7 @@ fn run_set_cell(
     } else {
         start.elapsed().as_secs_f64()
     };
-    let lock_fallbacks = if is_counters {
-        occ_stats::snapshot()[Stat::LockFallbacks as usize]
-    } else {
-        0
-    };
+    let counters = Counters::read(is_counters);
     let final_pop = set.len();
 
     // Verify samples
@@ -335,7 +397,7 @@ fn run_set_cell(
         );
     }
 
-    (elapsed, final_pop, lock_fallbacks)
+    (elapsed, final_pop, counters)
 }
 
 fn run_str_cell(
@@ -343,7 +405,7 @@ fn run_str_cell(
     writers: usize,
     round: usize,
     is_counters: bool,
-) -> (f64, u64, u64) {
+) -> (f64, u64, Counters) {
     let map = SyncExpanseStrMap::new();
     for k in &workload.prefill {
         let nk = NulFreeStr::new(k).expect("alnum bytes are NUL-free");
@@ -386,11 +448,7 @@ fn run_str_cell(
     } else {
         start.elapsed().as_secs_f64()
     };
-    let lock_fallbacks = if is_counters {
-        occ_stats::snapshot()[Stat::LockFallbacks as usize]
-    } else {
-        0
-    };
+    let counters = Counters::read(is_counters);
     let final_pop = map.len();
 
     // Verify samples
@@ -405,7 +463,7 @@ fn run_str_cell(
         );
     }
 
-    (elapsed, final_pop, lock_fallbacks)
+    (elapsed, final_pop, counters)
 }
 
 fn self_test(role_opt: Option<&str>) -> Result<(), String> {
@@ -433,6 +491,34 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
         _ => occ_stats::enabled(),
     };
 
+    // Every cause the engine defines must be read here, or a fallback it
+    // attributes to that cause would go unreported and the partition check
+    // below could only catch it at a scale where that cause happens to fire.
+    // Checked against the engine's own counter names, so a cause added later
+    // fails this test at any population.
+    for (idx, name) in occ_stats::NAMES.iter().enumerate() {
+        if let Some(cause) = name.strip_prefix("fallback_") {
+            let covered = CAUSES
+                .iter()
+                .any(|&(stat, label)| stat as usize == idx && label == cause);
+            if !covered {
+                return Err(format!(
+                    "occ_stats defines fallback cause `{name}` (index {idx}) that CAUSES does not read"
+                ));
+            }
+        }
+    }
+    let engine_causes = occ_stats::NAMES
+        .iter()
+        .filter(|n| n.starts_with("fallback_"))
+        .count();
+    if engine_causes != CAUSES.len() {
+        return Err(format!(
+            "CAUSES reads {} causes, occ_stats defines {engine_causes}",
+            CAUSES.len()
+        ));
+    }
+
     let wl_map = WriterWorkload::generate(n0, m, 64);
     assert_eq!(wl_map.prefill.len(), n0);
     assert_eq!(wl_map.fresh_keys.len(), m);
@@ -442,11 +528,13 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
         return Err(format!("map expected pop {}, got {pop_map}", n0 + m));
     }
     if is_counters {
-        if fb_map == 0 {
+        if fb_map.lock_fallbacks == 0 {
             return Err(format!(
-                "counters test: expected fb_map > 0 at quick scale, got {fb_map}"
+                "counters test: expected fb_map > 0 at quick scale, got {}",
+                fb_map.lock_fallbacks
             ));
         }
+        fb_map.check(m as u64, "self-test map")?;
     } else if el_map <= 0.0 {
         return Err(format!("throughput test: invalid map elapsed {el_map}"));
     }
@@ -457,11 +545,13 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
         return Err(format!("set expected pop {}, got {pop_set}", n0 + m));
     }
     if is_counters {
-        if fb_set == 0 {
+        if fb_set.lock_fallbacks == 0 {
             return Err(format!(
-                "counters test: expected fb_set > 0 at quick scale, got {fb_set}"
+                "counters test: expected fb_set > 0 at quick scale, got {}",
+                fb_set.lock_fallbacks
             ));
         }
+        fb_set.check(m as u64, "self-test set")?;
     } else if el_set <= 0.0 {
         return Err(format!("throughput test: invalid set elapsed {el_set}"));
     }
@@ -473,9 +563,13 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
     }
     if is_counters {
         // str arm is the alpha=1 coarse-mutex reference curve: 0 lock fallbacks by construction
-        if fb_str != 0 {
-            return Err(format!("counters test: expected fb_str == 0, got {fb_str}"));
+        if fb_str.lock_fallbacks != 0 {
+            return Err(format!(
+                "counters test: expected fb_str == 0, got {}",
+                fb_str.lock_fallbacks
+            ));
         }
+        fb_str.check(m as u64, "self-test str")?;
     } else if el_str <= 0.0 {
         return Err(format!("throughput test: invalid str elapsed {el_str}"));
     }
@@ -663,15 +757,23 @@ fn main() {
         for round in round_start..round_end {
             let round_writers = williams_order(&writers_list, round);
             for (pos, &w) in round_writers.iter().enumerate() {
-                let (elapsed_s, final_pop, fallbacks) = run_map_cell(&wl, w, round, is_counters);
+                let (elapsed_s, final_pop, counters) = run_map_cell(&wl, w, round, is_counters);
                 let write_ops = m;
                 if is_counters {
+                    if let Err(e) = counters.check(m as u64, &format!("map_w{w}_r0 round {round}"))
+                    {
+                        eprintln!("counter identity violated: {e}");
+                        std::process::exit(1);
+                    }
                     println!(
                         "{{\"workload_id\":\"concurrency_writer_map_64bit\",\"role\":\"counters\",\
                          \"arm\":\"expanse\",\"cell\":\"map_w{w}_r0\",\"keyspace_bits\":{bits},\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
                          \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\
-                         \"lock_fallbacks\":{fallbacks},\"population_after\":{final_pop}}}"
+                         \"lock_fallbacks\":{fb},\"inserts\":{ins},\"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
+                        fb = counters.lock_fallbacks,
+                        ins = counters.inserts,
+                        causes = counters.causes_json(),
                     );
                 } else {
                     let writer_mops = (write_ops as f64) / elapsed_s / 1e6;
@@ -694,15 +796,23 @@ fn main() {
         for round in round_start..round_end {
             let round_writers = williams_order(&writers_list, round);
             for (pos, &w) in round_writers.iter().enumerate() {
-                let (elapsed_s, final_pop, fallbacks) = run_set_cell(&wl, w, round, is_counters);
+                let (elapsed_s, final_pop, counters) = run_set_cell(&wl, w, round, is_counters);
                 let write_ops = m;
                 if is_counters {
+                    if let Err(e) = counters.check(m as u64, &format!("set_w{w}_r0 round {round}"))
+                    {
+                        eprintln!("counter identity violated: {e}");
+                        std::process::exit(1);
+                    }
                     println!(
                         "{{\"workload_id\":\"concurrency_writer_set_63bit\",\"role\":\"counters\",\
                          \"arm\":\"expanse\",\"cell\":\"set_w{w}_r0\",\"keyspace_bits\":{bits},\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
                          \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\
-                         \"lock_fallbacks\":{fallbacks},\"population_after\":{final_pop}}}"
+                         \"lock_fallbacks\":{fb},\"inserts\":{ins},\"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
+                        fb = counters.lock_fallbacks,
+                        ins = counters.inserts,
+                        causes = counters.causes_json(),
                     );
                 } else {
                     let writer_mops = (write_ops as f64) / elapsed_s / 1e6;
@@ -724,15 +834,23 @@ fn main() {
         for round in round_start..round_end {
             let round_writers = williams_order(&writers_list, round);
             for (pos, &w) in round_writers.iter().enumerate() {
-                let (elapsed_s, final_pop, fallbacks) = run_str_cell(&wl, w, round, is_counters);
+                let (elapsed_s, final_pop, counters) = run_str_cell(&wl, w, round, is_counters);
                 let write_ops = m;
                 if is_counters {
+                    if let Err(e) = counters.check(m as u64, &format!("str_w{w}_r0 round {round}"))
+                    {
+                        eprintln!("counter identity violated: {e}");
+                        std::process::exit(1);
+                    }
                     println!(
                         "{{\"workload_id\":\"concurrency_writer_str\",\"role\":\"counters\",\
                          \"arm\":\"expanse\",\"cell\":\"str_w{w}_r0\",\"dist\":\"short\",\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
                          \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\
-                         \"lock_fallbacks\":{fallbacks},\"population_after\":{final_pop}}}"
+                         \"lock_fallbacks\":{fb},\"inserts\":{ins},\"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
+                        fb = counters.lock_fallbacks,
+                        ins = counters.inserts,
+                        causes = counters.causes_json(),
                     );
                 } else {
                     let writer_mops = (write_ops as f64) / elapsed_s / 1e6;
