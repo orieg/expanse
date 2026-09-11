@@ -123,6 +123,7 @@ if [ "$MIRI" -eq 1 ]; then
   # CASes spuriously, so a single-attempt try-lock must use a strong CAS.
   cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types:: \
     blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots map::tests::occ_engine_single_thread_under_miri map::tests::slot_calls_on_a_warm_insert_path set::tests::occ_engine_single_thread_under_miri occ::tests::
+  cargo miri test -p expanse-trie --lib --features ablation-striped-epoch -- occ::tests::test_striped_epoch_single_thread_under_miri
 else
   step "6/6 Miri — skipped (pass --miri for the Tier-1 filter; CI runs it on every PR)"
 fi

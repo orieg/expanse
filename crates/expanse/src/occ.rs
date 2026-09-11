@@ -1131,8 +1131,13 @@ pub(crate) fn line<X>(x: X) -> Line<X> {
 
 /// Maximum number of concurrent writer slots tracked for sharded state,
 /// tree population, gate quiescence, and epoch bin striping.
+/// Under Loom, scaled to 2 to model cross-stripe interleavings within Loom's coroutine stack.
 #[allow(dead_code)]
+#[cfg(not(loom))]
 pub(crate) const MAX_WRITER_SLOTS: usize = 64;
+#[allow(dead_code)]
+#[cfg(loom)]
+pub(crate) const MAX_WRITER_SLOTS: usize = 2;
 
 #[cfg(feature = "ablation-striped-epoch")]
 #[derive(Debug)]
@@ -1185,9 +1190,55 @@ pub(crate) fn writer_slot() -> usize {
     })
 }
 
+#[cfg(all(
+    feature = "std",
+    loom,
+    any(feature = "ablation-sharded-alloc", feature = "ablation-striped-epoch")
+))]
+loom::thread_local! {
+    static CURRENT_WRITER_SLOT: core::cell::Cell<usize> = core::cell::Cell::new(usize::MAX);
+    static LOOM_FALLBACK_SLOT: core::cell::Cell<Option<usize>> = core::cell::Cell::new(None);
+}
+
+#[cfg(all(
+    feature = "std",
+    loom,
+    any(feature = "ablation-sharded-alloc", feature = "ablation-striped-epoch")
+))]
+#[inline]
+pub(crate) fn set_writer_slot(slot: usize) {
+    CURRENT_WRITER_SLOT.with(|s| s.set(slot));
+}
+
+#[cfg(all(
+    feature = "std",
+    loom,
+    any(feature = "ablation-sharded-alloc", feature = "ablation-striped-epoch")
+))]
+#[allow(dead_code)]
+pub(crate) fn writer_slot() -> usize {
+    CURRENT_WRITER_SLOT.with(|s| {
+        let v = s.get();
+        if v < MAX_WRITER_SLOTS {
+            v
+        } else {
+            LOOM_FALLBACK_SLOT.with(|f| {
+                if let Some(slot) = f.get() {
+                    slot
+                } else {
+                    static NEXT_THREAD: core::sync::atomic::AtomicUsize =
+                        core::sync::atomic::AtomicUsize::new(0);
+                    let slot = NEXT_THREAD.fetch_add(1, core::sync::atomic::Ordering::Relaxed) % MAX_WRITER_SLOTS;
+                    f.set(Some(slot));
+                    slot
+                }
+            })
+        }
+    })
+}
+
 #[cfg(not(all(
     feature = "std",
-    not(loom),
     any(feature = "ablation-sharded-alloc", feature = "ablation-striped-epoch")
 )))]
 #[inline(always)]
@@ -1196,7 +1247,6 @@ pub(crate) fn set_writer_slot(_slot: usize) {}
 
 #[cfg(not(all(
     feature = "std",
-    not(loom),
     any(feature = "ablation-sharded-alloc", feature = "ablation-striped-epoch")
 )))]
 #[inline(always)]
@@ -1976,6 +2026,12 @@ mod tests {
     }
 }
 
+/// Residual coverage (AGENTS.md §5):
+/// Loom exhaustively model-checks small thread/slot configurations (slots 0 and 1 across
+/// 2 concurrent writer threads and 1 reclaimer thread) over all scheduling and memory order
+/// permutations. The full 64-stripe scale (`MAX_WRITER_SLOTS = 64`) and allocator interactions
+/// are verified by Tier-1 Miri (`test_striped_epoch_single_thread_under_miri`), AddressSanitizer
+/// (`ASan`), and multi-threaded stress testing in `tests/test_concurrency_ablations.rs`.
 #[cfg(all(test, loom))]
 mod loom_tests {
     use super::*;
@@ -2415,6 +2471,54 @@ mod loom_tests {
                 0,
                 "retired block not reclaimed after reader unpinned"
             );
+            c.drain();
+        });
+    }
+
+    /// Model-checks cross-stripe interleavings under the striped epoch ablation:
+    /// writer 1 retires to slot 0 and writer 2 retires to slot 1 while reader is pinned.
+    /// Epoch advance cannot free either allocation until reader unpins, and subsequent
+    /// advance drains across all stripe slots.
+    #[test]
+    #[cfg(feature = "ablation-striped-epoch")]
+    fn loom_striped_epoch_cross_stripe_interleaving() {
+        loom::model(|| {
+            let c = Arc::new(Collector::new());
+            let reader = c.register();
+
+            let c1 = Arc::clone(&c);
+            let w1 = loom::thread::spawn(move || {
+                set_writer_slot(0);
+                let layout = Layout::from_size_align(64, 16).unwrap();
+                // SAFETY: nonzero test allocation.
+                let ptr = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
+                c1.retire(ptr, 64, 16);
+            });
+
+            let c2 = Arc::clone(&c);
+            let w2 = loom::thread::spawn(move || {
+                set_writer_slot(1);
+                let layout = Layout::from_size_align(64, 16).unwrap();
+                // SAFETY: nonzero test allocation.
+                let ptr = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
+                c2.retire(ptr, 64, 16);
+            });
+
+            let pin = reader.pin();
+            w1.join().unwrap();
+            w2.join().unwrap();
+
+            assert_eq!(c.retained_bytes(), 128);
+
+            c.try_advance();
+            assert_eq!(c.retained_bytes(), 128);
+
+            drop(pin);
+            drop(reader);
+
+            c.try_advance();
+            c.try_advance();
+            assert_eq!(c.retained_bytes(), 0);
             c.drain();
         });
     }
