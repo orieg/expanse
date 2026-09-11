@@ -194,6 +194,25 @@ cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: typ
   2. Perform the §2.3 fail-then-pass demonstration by deleting the guarded assertion and confirming the test fails.
   3. Inspect the backtrace to ensure the panic originated at the intended site, not at an upstream pre-existing guard.
 
+### Structural Attribution & Decision-Point Invariant Pinning (§2.3)
+When introducing fine-grained metric attribution, split counters, or state-based fallback classifications:
+1. **Pin the Decision Point, Not Just the Mapping Helper**:
+   - Unit-testing a pure classification function (e.g. `fn contention_stat(closed: bool) -> Stat`) only tests table translation.
+   - Testing that a loop invokes `bump(contention_stat(closed))` only tests the terminal exit point.
+   - If the state variable (`closed`) is updated at an internal decision site (`if condition { closed = true; }`), **the attribution decision point itself is unpinned** if deleting that assignment leaves the test suite green.
+2. **Structural Test Requirements for Decision Points**:
+   When runtime instrumentation cannot easily intercept intermediate loop states without adding overhead:
+   - Use an `include_str!` structural test that scans production code (excluding unit test modules) to assert:
+     a. **Condition pairing**: Each occurrence of `if <condition>` is followed within a tightly bounded line window ($\le 4$ lines) by the state mutation (`flag = value;`).
+     b. **Exclusivity**: The state mutation (`flag = value;`) occurs *nowhere else* in the source file.
+     c. **Call-site count**: The classification helper is called at exactly the expected number of exit sites.
+3. **Decision-Point Mutation for §2.3 Fail-Then-Pass**:
+   - The §2.3 fail-then-pass demonstration MUST break the attribution decision point (e.g. delete one of the `flag = value;` assignments or invert the condition) and observe a deterministic test failure. Breaking only the pure mapping function is insufficient.
+4. **Partition Sum Identity Signposting**:
+   - Exact sum identities ($\sum \text{subsets} == \text{primary\_counter}$) prove accounting completeness and absence of double-counting, but mathematically cannot detect a mislabeled category.
+   - PR descriptions and documentation must explicitly signpost whether per-site category assignments are verified by runtime discriminators or by code review.
+
+
 ### String-Gated Inverted Assertions for Negative Controls & Canary Tests
 - When adding inverted exit-code checks or canary tests in CI (e.g. verifying that a canary test fails under a sanitizer or validator):
   1. **Never rely solely on a non-zero exit code** (`if cargo test ...; then exit 1; fi` or `! cargo test`). Build failures, compilation errors, toolchain issues, or unrelated harness crashes also exit non-zero and will cause a broken canary to "pass" CI indefinitely.
