@@ -354,3 +354,117 @@ fn test_modern_capi_set_navigation() {
         expanse_set_free(set);
     }
 }
+
+/// Drives one JudyL-shaped handle through a slot-API fill that leaves the
+/// insert-path cache warm on a tree root: blocks 0 and 1 in full, then a
+/// bitmap terminal (32 even digits of block 2, then its odd digits) and a
+/// linear terminal (digits 0x10..=0xA0 of block 3). A fill into the block
+/// the cache holds is served from its level-1 terminal wherever that has
+/// spare capacity, and so is a lookup inside the last block written; a key
+/// of another block, probed while the cache is warm, must not be. The
+/// `expanse-trie` twin is `map::tests::slot_calls_on_a_warm_insert_path`,
+/// which asserts the cache state directly. `select` (0-based rank to
+/// key) descends by the terminal edges' populations, which the cached
+/// inserts maintain.
+fn drive_warm_slot_calls(
+    ins: impl Fn(u64) -> *mut u64,
+    get: impl Fn(u64) -> *mut u64,
+    select: impl Fn(u64) -> Option<u64>,
+) {
+    let val = |k: u64| k.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    // SAFETY: every slot is used before the handle's next mutation.
+    let fill = |k: u64| unsafe {
+        let slot = ins(k);
+        assert!(!slot.is_null());
+        assert_eq!(*slot, 0, "fresh slot for {k:#x}");
+        *slot = val(k);
+    };
+    // SAFETY: as above.
+    let read = |k: u64| unsafe { get(k).as_ref().copied() };
+    let mut keys: Vec<u64> = (0..0x200).collect();
+    keys.extend((0x200..0x240).step_by(2));
+    keys.extend((0x201..0x240).step_by(2));
+    for &k in &keys {
+        fill(k);
+    }
+    // Cache on block 2's bitmap terminal.
+    assert_eq!(read(0x210), Some(val(0x210)));
+    assert_eq!(read(0x2F0), None);
+    assert_eq!(
+        read(0x110),
+        Some(val(0x110)),
+        "block 1 served from the block-2 cache"
+    );
+    // SAFETY: as above.
+    unsafe { assert_eq!(*ins(0x23F), val(0x23F), "ins on a present key keeps it") };
+    assert_eq!(select(0x23F), Some(0x23F));
+    assert_eq!(select(0x240), None);
+
+    let tail: Vec<u64> = (0x310..=0x3A0).step_by(0x10).collect();
+    for &k in &tail {
+        fill(k);
+    }
+    keys.extend(&tail);
+    // Cache on block 3's linear terminal.
+    assert_eq!(read(0x330), Some(val(0x330)));
+    assert_eq!(read(0x335), None);
+    assert_eq!(
+        read(0x230),
+        Some(val(0x230)),
+        "block 2 served from the block-3 cache"
+    );
+    // SAFETY: as above.
+    unsafe { assert_eq!(*ins(0x3A0), val(0x3A0), "ins on the last key keeps it") };
+
+    keys.sort_unstable();
+    for (rank, &k) in keys.iter().enumerate() {
+        assert_eq!(read(k), Some(val(k)), "value of {k:#x}");
+        assert_eq!(select(rank as u64), Some(k), "select({rank})");
+    }
+    assert_eq!(select(keys.len() as u64), None);
+}
+
+#[test]
+fn test_map_slot_calls_on_a_warm_insert_path() {
+    use expanse::modern::{expanse_map_by_count, expanse_map_ins_slot, expanse_map_slot};
+    use expanse::{JudyLByCount, JudyLGet};
+
+    // Legacy: `*JudyLIns(&a, k) = v`, the classic JudyL fill.
+    let mut jl: *mut c_void = core::ptr::null_mut();
+    let pjl = &raw mut jl;
+    let mut jerr = JError {
+        je_errno: 0,
+        je_err_id: 0,
+        je_reserved: [0; 4],
+    };
+    let pj = &raw mut jerr;
+    // SAFETY: `pjl` addresses the live array word throughout the drive.
+    unsafe {
+        drive_warm_slot_calls(
+            |k| JudyLIns(pjl, k as Word, pj).cast(),
+            |k| JudyLGet(*pjl, k as Word, pj).cast(),
+            |n| {
+                // JudyLByCount is 1-based.
+                let mut k: Word = 0;
+                let slot = JudyLByCount(*pjl, (n + 1) as Word, &raw mut k, pj);
+                (!slot.is_null()).then_some(k as u64)
+            },
+        );
+        JudyLFreeArray(pjl, pj);
+    }
+
+    // Modern: the same drive through `expanse_map_ins_slot`.
+    // SAFETY: `m` is a live handle until the free below.
+    unsafe {
+        let m = expanse_map_new();
+        drive_warm_slot_calls(
+            |k| expanse_map_ins_slot(m, k),
+            |k| expanse_map_slot(m, k),
+            |n| {
+                let mut k = 0;
+                expanse_map_by_count(m, n, &raw mut k, core::ptr::null_mut()).then_some(k)
+            },
+        );
+        expanse_map_free(m);
+    }
+}
