@@ -6,7 +6,7 @@ P-cores for map (64-bit), set (63-bit), and str arms.
 
 Two builds, never one (AGENTS.md §6 / hot_concurrent.rs:36-42):
 - Pass 1 (throughput): uninstrumented release build, interleaved across W within each round,
-  rotating the starting writer index each round to mitigate ordering effects.
+  using a seeded per-round permutation to eliminate position and carryover ordering effects.
   Emits elapsed_s and writer_mops. Refuses to run if occ-stats is enabled.
 - Pass 2 (counters): diagnostic build (--features occ-stats), captures exact lock_fallbacks
   and write_ops across all rounds. Refuses to emit elapsed_s or writer_mops.
@@ -64,7 +64,12 @@ def _print_binary_info(label: str, path: Path) -> None:
         mtime_iso = datetime.datetime.fromtimestamp(
             stat.st_mtime, tz=datetime.timezone.utc
         ).strftime("%Y-%m-%d %H:%M:%SZ")
-        print(f"  {label} binary: {path} (mtime: {mtime_iso}, size: {stat.st_size} bytes)")
+        rel_path = (
+            path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path.name
+        )
+        print(
+            f"  {label} binary: {rel_path} (mtime: {mtime_iso}, size: {stat.st_size} bytes)"
+        )
     else:
         print(f"  {label} binary: {path} (does not exist)")
 
@@ -188,6 +193,8 @@ def summarize_arm(
     M1: Paired bootstrap C(N) across interleaved rounds.
     M2: Macro-mean as headline point estimate alongside BCa 95% CI (AGENTS.md §8.4).
     B1: Separate throughput (uninstrumented) and counters (occ-stats) provenance.
+    AGENTS.md §7: Zero machine/home paths leaked in emitted fields.
+    AGENTS.md §8.1: Fail-closed assertions on measurement invariants.
     """
     # Index throughput by (round, writers)
     t_by_round_w: dict[tuple[int, int], float] = {}
@@ -209,9 +216,10 @@ def summarize_arm(
 
         # 1. Throughput statistics: mean is headline (AGENTS.md §8.4), median auxiliary
         mops_samples = [t_by_round_w[(round_idx, w)] for round_idx in range(rounds)]
-        assert (
-            len(mops_samples) >= 3
-        ), f"Need at least 3 rounds for BCa bootstrap CI (AGENTS.md §8.1, §8.4), got {len(mops_samples)}"
+        if len(mops_samples) < 3:
+            raise ValueError(
+                f"Need at least 3 rounds for BCa bootstrap CI (AGENTS.md §8.1, §8.4), got {len(mops_samples)}"
+            )
         mean_mops, ci_lower, ci_upper = bca_bootstrap_ci(mops_samples, confidence=0.95)
         median_mops = sorted(mops_samples)[len(mops_samples) // 2]
 
@@ -225,18 +233,19 @@ def summarize_arm(
             paired_ratios: list[float] = []
             for round_idx in range(rounds):
                 t1 = t_by_round_w.get((round_idx, 1))
-                assert (
-                    t1 is not None and t1 > 0.0
-                ), f"Missing or non-positive W=1 throughput for round {round_idx} (got {t1})"
+                if t1 is None or t1 <= 0.0:
+                    raise ValueError(
+                        f"Missing or non-positive W=1 throughput for round {round_idx} (got {t1})"
+                    )
                 tw = t_by_round_w.get((round_idx, w))
-                assert (
-                    tw is not None
-                ), f"Missing W={w} throughput for round {round_idx}"
+                if tw is None:
+                    raise ValueError(f"Missing W={w} throughput for round {round_idx}")
                 paired_ratios.append(tw / t1)
 
-            assert (
-                len(paired_ratios) >= 3
-            ), f"Need at least 3 paired ratios for BCa bootstrap CI (AGENTS.md §8.1, §8.4), got {len(paired_ratios)}"
+            if len(paired_ratios) < 3:
+                raise ValueError(
+                    f"Need at least 3 paired ratios for BCa bootstrap CI (AGENTS.md §8.1, §8.4), got {len(paired_ratios)}"
+                )
             cn_mean, cn_ci_lower, cn_ci_upper = bca_bootstrap_ci(
                 paired_ratios, confidence=0.95
             )
@@ -253,6 +262,9 @@ def summarize_arm(
         total_fallbacks = sum(fallbacks_samples)
         total_ops = sum(int(r.get("write_ops", 0)) for r in c_rows_w)
         fallback_rate = (total_fallbacks / total_ops) if total_ops > 0 else 0.0
+
+        tp_rel = THROUGHPUT_TARGET.relative_to(REPO_ROOT)
+        cnt_rel = COUNTERS_TARGET.relative_to(REPO_ROOT)
 
         cell: dict[str, Any] = {
             "workload_id": first_t["workload_id"],
@@ -275,12 +287,13 @@ def summarize_arm(
             "lock_fallbacks_median": median_fallbacks,
             "fallback_rate": round(fallback_rate, 6),
             "build_provenance": {
-                "throughput": f"{THROUGHPUT_TARGET}/release/examples/writer_scaling (uninstrumented)",
-                "counters": f"{COUNTERS_TARGET}/release/examples/writer_scaling (--features occ-stats)",
+                "throughput": f"{tp_rel}/release/examples/writer_scaling (uninstrumented)",
+                "counters": f"{cnt_rel}/release/examples/writer_scaling (--features occ-stats)",
             },
             "rounds_raw": [
                 {
                     "round": r["round"],
+                    "position": r.get("position", 0),
                     "writer_mops": r["writer_mops"],
                     "writer_elapsed_s": r["writer_elapsed_s"],
                     "write_ops": r["write_ops"],
@@ -290,6 +303,7 @@ def summarize_arm(
             "counters_raw": [
                 {
                     "round": r["round"],
+                    "position": r.get("position", 0),
                     "write_ops": r["write_ops"],
                     "lock_fallbacks": r["lock_fallbacks"],
                 }
@@ -408,11 +422,26 @@ def self_test() -> int:
     assert cell_w1["scaling_factor_c_n"] == 1.0
     assert cell_w1["writer_ci_lower"] <= cell_w1["expanse_writer_mops_mean"] <= cell_w1["writer_ci_upper"]
     assert len(cell_w1["counters_raw"]) == 3, f"Expected 3 counters_raw entries, got {len(cell_w1['counters_raw'])}"
+    assert "position" in cell_w1["rounds_raw"][0]
+    assert "position" in cell_w1["counters_raw"][0]
 
     assert cell_w2["writers"] == 2
     assert cell_w2["scaling_factor_c_n_ci_lower"] <= cell_w2["scaling_factor_c_n"] <= cell_w2["scaling_factor_c_n_ci_upper"]
     assert cell_w2["lock_fallbacks"] > 0
     assert len(cell_w2["counters_raw"]) == 3, f"Expected 3 counters_raw entries, got {len(cell_w2['counters_raw'])}"
+    assert "position" in cell_w2["rounds_raw"][0]
+    assert "position" in cell_w2["counters_raw"][0]
+
+    # 6. Privacy check: ensure no absolute repo root or home paths leaked into cells (AGENTS.md §7)
+    repo_root_str = str(REPO_ROOT)
+    for c in cells:
+        c_json = json.dumps(c)
+        assert (
+            repo_root_str not in c_json
+        ), f"Absolute repo root path leaked into cell JSON (AGENTS.md §7): {c_json}"
+        assert (
+            "/home/" not in c_json
+        ), f"Home directory path leaked into cell JSON (AGENTS.md §7): {c_json}"
 
     eprintln("writer_scaling.py self-test PASSED\n")
     return 0
@@ -422,7 +451,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=str, help="Output path for JSON artifact")
     parser.add_argument(
-        "--rounds", type=int, default=7, help="Rounds per cell (default: 7, minimum: 3)"
+        "--rounds", type=int, default=8, help="Rounds per cell (default: 8, minimum: 3)"
     )
     parser.add_argument(
         "--arm",

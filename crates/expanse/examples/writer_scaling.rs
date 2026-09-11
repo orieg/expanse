@@ -489,6 +489,25 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
     Ok(())
 }
 
+fn permute_writers(writers: &[usize], round: usize) -> Vec<usize> {
+    let mut perm = writers.to_vec();
+    if perm.len() <= 1 {
+        return perm;
+    }
+    let mut state = 0x9E37_79B9_7F4A_7C15u64
+        .wrapping_add((round as u64).wrapping_mul(0xBF58_476D_1CE4_E5B9u64));
+    for i in (1..perm.len()).rev() {
+        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        let rand_val = z ^ (z >> 31);
+        let j = (rand_val as usize) % (i + 1);
+        perm.swap(i, j);
+    }
+    perm
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let role_opt = args
@@ -552,7 +571,7 @@ fn main() {
         .position(|a| a == "--rounds")
         .and_then(|i| args.get(i + 1))
         .and_then(|s| s.parse().ok())
-        .unwrap_or(7);
+        .unwrap_or(8);
 
     let round_opt: Option<usize> = args
         .iter()
@@ -582,17 +601,15 @@ fn main() {
     let run_set = arm_arg == "set" || arm_arg == "all" || arm_arg == "both";
     let run_str = arm_arg == "str" || arm_arg == "all";
 
-    // Interleaved execution across writer counts within each round, rotating
-    // the starting writer index each round to mitigate ordering effects:
-    let n_w = writers_list.len().max(1);
-
+    // Interleaved execution across writer counts within each round, using a seeded
+    // per-round permutation to eliminate position and carryover ordering effects:
     if run_map {
         eprintln!("generating map 64-bit workload (prefill={n0}, fresh={m})...");
         let wl = WriterWorkload::generate(n0, m, 64);
         let bits = wl.keyspace_bits;
         for round in round_start..round_end {
-            for offset in 0..writers_list.len() {
-                let w = writers_list[(round + offset) % n_w];
+            let round_writers = permute_writers(&writers_list, round);
+            for (pos, &w) in round_writers.iter().enumerate() {
                 let (elapsed_s, final_pop, fallbacks) = run_map_cell(&wl, w, round, is_counters);
                 let write_ops = m;
                 if is_counters {
@@ -600,7 +617,7 @@ fn main() {
                         "{{\"workload_id\":\"concurrency_writer_map_64bit\",\"role\":\"counters\",\
                          \"arm\":\"expanse\",\"cell\":\"map_w{w}_r0\",\"keyspace_bits\":{bits},\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
-                         \"round\":{round},\"write_ops\":{write_ops},\
+                         \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\
                          \"lock_fallbacks\":{fallbacks},\"population_after\":{final_pop}}}"
                     );
                 } else {
@@ -609,7 +626,7 @@ fn main() {
                         "{{\"workload_id\":\"concurrency_writer_map_64bit\",\"role\":\"throughput\",\
                          \"arm\":\"expanse\",\"cell\":\"map_w{w}_r0\",\"keyspace_bits\":{bits},\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
-                         \"round\":{round},\"write_ops\":{write_ops},\"writer_elapsed_s\":{elapsed_s:.6},\
+                         \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\"writer_elapsed_s\":{elapsed_s:.6},\
                          \"writer_mops\":{writer_mops:.4},\"population_after\":{final_pop}}}"
                     );
                 }
@@ -622,8 +639,8 @@ fn main() {
         let wl = WriterWorkload::generate(n0, m, 63);
         let bits = wl.keyspace_bits;
         for round in round_start..round_end {
-            for offset in 0..writers_list.len() {
-                let w = writers_list[(round + offset) % n_w];
+            let round_writers = permute_writers(&writers_list, round);
+            for (pos, &w) in round_writers.iter().enumerate() {
                 let (elapsed_s, final_pop, fallbacks) = run_set_cell(&wl, w, round, is_counters);
                 let write_ops = m;
                 if is_counters {
@@ -631,7 +648,7 @@ fn main() {
                         "{{\"workload_id\":\"concurrency_writer_set_63bit\",\"role\":\"counters\",\
                          \"arm\":\"expanse\",\"cell\":\"set_w{w}_r0\",\"keyspace_bits\":{bits},\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
-                         \"round\":{round},\"write_ops\":{write_ops},\
+                         \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\
                          \"lock_fallbacks\":{fallbacks},\"population_after\":{final_pop}}}"
                     );
                 } else {
@@ -640,7 +657,7 @@ fn main() {
                         "{{\"workload_id\":\"concurrency_writer_set_63bit\",\"role\":\"throughput\",\
                          \"arm\":\"expanse\",\"cell\":\"set_w{w}_r0\",\"keyspace_bits\":{bits},\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
-                         \"round\":{round},\"write_ops\":{write_ops},\"writer_elapsed_s\":{elapsed_s:.6},\
+                         \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\"writer_elapsed_s\":{elapsed_s:.6},\
                          \"writer_mops\":{writer_mops:.4},\"population_after\":{final_pop}}}"
                     );
                 }
@@ -652,8 +669,8 @@ fn main() {
         eprintln!("generating str workload (prefill={n0}, fresh={m})...");
         let wl = WriterStrWorkload::generate(n0, m);
         for round in round_start..round_end {
-            for offset in 0..writers_list.len() {
-                let w = writers_list[(round + offset) % n_w];
+            let round_writers = permute_writers(&writers_list, round);
+            for (pos, &w) in round_writers.iter().enumerate() {
                 let (elapsed_s, final_pop, fallbacks) = run_str_cell(&wl, w, round, is_counters);
                 let write_ops = m;
                 if is_counters {
@@ -661,7 +678,7 @@ fn main() {
                         "{{\"workload_id\":\"concurrency_writer_str\",\"role\":\"counters\",\
                          \"arm\":\"expanse\",\"cell\":\"str_w{w}_r0\",\"dist\":\"short\",\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
-                         \"round\":{round},\"write_ops\":{write_ops},\
+                         \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\
                          \"lock_fallbacks\":{fallbacks},\"population_after\":{final_pop}}}"
                     );
                 } else {
@@ -670,7 +687,7 @@ fn main() {
                         "{{\"workload_id\":\"concurrency_writer_str\",\"role\":\"throughput\",\
                          \"arm\":\"expanse\",\"cell\":\"str_w{w}_r0\",\"dist\":\"short\",\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
-                         \"round\":{round},\"write_ops\":{write_ops},\"writer_elapsed_s\":{elapsed_s:.6},\
+                         \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\"writer_elapsed_s\":{elapsed_s:.6},\
                          \"writer_mops\":{writer_mops:.4},\"population_after\":{final_pop}}}"
                     );
                 }
