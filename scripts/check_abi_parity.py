@@ -719,7 +719,7 @@ def parse_allow_symbol_shrink(pr_body: str) -> Optional[str]:
 
     for match in pattern.finditer(pr_body):
         reason = match.group(1).strip()
-        reason = re.sub(r"(?:-->|`)+\s*$", "", reason).strip()
+        reason = re.sub(r"(?:--!?>|`)+\s*$", "", reason).strip()
         if not reason:
             continue
         lower = reason.lower()
@@ -812,6 +812,9 @@ def self_test() -> int:
     # 1. Override parser tests
     assert parse_allow_symbol_shrink("allow-symbol-shrink: deprecated v1 symbols") == "deprecated v1 symbols"
     assert parse_allow_symbol_shrink("<!-- allow-symbol-shrink: removed legacy sync helpers -->") == "removed legacy sync helpers"
+    # `--!>` also closes an HTML comment; left on the reason it let a placeholder through.
+    assert parse_allow_symbol_shrink("<!-- allow-symbol-shrink: removed legacy sync helpers --!>") == "removed legacy sync helpers"
+    assert parse_allow_symbol_shrink("<!-- allow-symbol-shrink: TODO --!>") is None
     assert parse_allow_symbol_shrink("  allow-symbol-shrink: indented reason") == "indented reason"
     assert parse_allow_symbol_shrink("allow-symbol-shrink: <reason>") is None
     assert parse_allow_symbol_shrink("allow-symbol-shrink: TODO") is None

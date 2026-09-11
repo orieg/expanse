@@ -536,7 +536,7 @@ def parse_allow_regression(pr_body: str) -> str | None:
     ):
         reason = match.group(1).strip()
         # Strip trailing HTML-comment close / stray backticks from inline quoting.
-        reason = re.sub(r"(?:-->|`)+\s*$", "", reason).strip()
+        reason = re.sub(r"(?:--!?>|`)+\s*$", "", reason).strip()
         if reason and not reason.lower().startswith("<reason>"):
             return reason
     return None
@@ -2334,6 +2334,8 @@ def self_test() -> int:
     # 4. allow-regression: strict form only.
     assert parse_allow_regression("allow-regression: intentional SIMD trade-off") == "intentional SIMD trade-off"
     assert parse_allow_regression("<!-- allow-regression: hardening cost -->") == "hardening cost"
+    # `--!>` also closes an HTML comment; stripping only `-->` left it on the reason.
+    assert parse_allow_regression("<!-- allow-regression: hardening cost --!>") == "hardening cost"
     assert parse_allow_regression("we may need allow-regression at some point") is None
     assert parse_allow_regression("add `allow-regression: <reason>` to the PR body.") is None
     assert parse_allow_regression("allow-regression:") is None
