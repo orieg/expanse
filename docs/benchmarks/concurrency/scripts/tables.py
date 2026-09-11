@@ -399,6 +399,36 @@ def writer_scaling() -> list[str]:
             c_str = "1.00 (by definition)" if w == 1 else f"{cn:.2f} [{cn_lo:.2f}, {cn_hi:.2f}]"
             out.append(f"| `{arm}` | {w} | {mean:.2f} [{lo:.2f}, {hi:.2f}] | {c_str} | {verdict} | "
                        f"{need(c, 'fallback_rate', at) * 100:.2f}% | {per_ins['contention'] * 100:.2f}% | {causes} |")
+
+    # Step 4.0 counters (#837): how contention splits, what arriving writers pay
+    # at a closed gate, and which branch mutation the branch_split bucket holds.
+    # The cycle columns stay in cycles: the artifact carries no cycle rate, and
+    # the counters build is untimed, so no share of wall time can be derived.
+    out += ["", "**Step 4.0 counters** — from the separate `occ-stats` build, summed over the eight rounds:", "",
+            "| arm | W | contention / insert | gate-closed share of contention | retry-exhausted | restarts / insert "
+            "| gate-blocked entries / insert | gate-wait cycles / insert | drain cycles / fallback "
+            "| branch_split: subarray · linear · prefix · remove |",
+            "|---|--:|--:|--:|--:|--:|--:|--:|--:|---|"]
+    for arm in ("map", "set"):
+        cells = sorted((c for c in need(art, "throughput", where) if c["arm"] == arm),
+                       key=lambda c: c["writers"])
+        for c in cells:
+            w = c["writers"]
+            at = f"{where} {arm} W={w}"
+            cont = need(c, "contention_subsets_total", at)
+            total = cont["gate_closed"] + cont["retry_exhausted"]
+            share = f"{cont['gate_closed'] / total * 100:.1f}%" if total else "—"
+            bs = need(c, "branch_split_subsets_total", at)
+            bs_total = sum(bs.values())
+            split = " · ".join(
+                f"{bs[k] / bs_total * 100:.1f}%" if bs_total else "—"
+                for k in ("subarray", "linear", "prefix", "remove"))
+            out.append(
+                f"| `{arm}` | {w} | {need(c, 'fallback_causes_per_insert', at)['contention'] * 100:.2f}% | {share} "
+                f"| {cont['retry_exhausted']:,} | {need(c, 'lock_restarts_per_insert', at):.4f} "
+                f"| {need(c, 'gate_blocked_entries_per_insert', at) * 100:.1f}% "
+                f"| {need(c, 'gate_wait_cycles_per_insert', at):,.0f} "
+                f"| {need(c, 'quiesce_drain_cycles_per_fallback', at):,.0f} | {split} |")
     return out
 
 
