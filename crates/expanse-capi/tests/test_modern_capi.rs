@@ -372,10 +372,9 @@ fn drive_warm_slot_calls(
     select: impl Fn(u64) -> Option<u64>,
 ) {
     let val = |k: u64| k.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
-    // SAFETY: every slot is used before the handle's next mutation.
-    let fill = |k: u64| unsafe {
-        let slot = ins(k);
-        assert!(!slot.is_null());
+    let fill = |k: u64| {
+        // SAFETY: every slot is used before the handle's next mutation.
+        let slot = unsafe { ins(k).as_mut() }.unwrap_or_else(|| panic!("null slot for {k:#x}"));
         assert_eq!(*slot, 0, "fresh slot for {k:#x}");
         *slot = val(k);
     };
@@ -395,8 +394,10 @@ fn drive_warm_slot_calls(
         Some(val(0x110)),
         "block 1 served from the block-2 cache"
     );
-    // SAFETY: as above.
-    unsafe { assert_eq!(*ins(0x23F), val(0x23F), "ins on a present key keeps it") };
+    // SAFETY: as above. `as_ref` turns a null slot into a failed assertion
+    // rather than a dereference.
+    let kept = unsafe { ins(0x23F).as_ref() }.copied();
+    assert_eq!(kept, Some(val(0x23F)), "ins on a present key keeps it");
     assert_eq!(select(0x23F), Some(0x23F));
     assert_eq!(select(0x240), None);
 
@@ -414,7 +415,8 @@ fn drive_warm_slot_calls(
         "block 2 served from the block-3 cache"
     );
     // SAFETY: as above.
-    unsafe { assert_eq!(*ins(0x3A0), val(0x3A0), "ins on the last key keeps it") };
+    let kept = unsafe { ins(0x3A0).as_ref() }.copied();
+    assert_eq!(kept, Some(val(0x3A0)), "ins on the last key keeps it");
 
     keys.sort_unstable();
     for (rank, &k) in keys.iter().enumerate() {
@@ -429,24 +431,27 @@ fn test_map_slot_calls_on_a_warm_insert_path() {
     use expanse::modern::{expanse_map_by_count, expanse_map_ins_slot, expanse_map_slot};
     use expanse::{JudyLByCount, JudyLGet};
 
-    // Legacy: `*JudyLIns(&a, k) = v`, the classic JudyL fill.
-    let mut jl: *mut c_void = core::ptr::null_mut();
-    let pjl = &raw mut jl;
+    // Legacy: `*JudyLIns(&a, k) = v`, the classic JudyL fill. The array word
+    // lives in a `Cell`: `as_ptr` is the `PPvoid_t` JudyLIns writes through,
+    // and `get` reads the current root without dereferencing a raw pointer.
+    let jl = core::cell::Cell::new(core::ptr::null_mut::<c_void>());
+    let pjl = jl.as_ptr();
     let mut jerr = JError {
         je_errno: 0,
         je_err_id: 0,
         je_reserved: [0; 4],
     };
     let pj = &raw mut jerr;
-    // SAFETY: `pjl` addresses the live array word throughout the drive.
+    // SAFETY: `pjl` is `jl`'s interior pointer, valid while `jl` lives, and
+    // no reference into the cell is held across these calls.
     unsafe {
         drive_warm_slot_calls(
             |k| JudyLIns(pjl, k as Word, pj).cast(),
-            |k| JudyLGet(*pjl, k as Word, pj).cast(),
+            |k| JudyLGet(jl.get(), k as Word, pj).cast(),
             |n| {
                 // JudyLByCount is 1-based.
                 let mut k: Word = 0;
-                let slot = JudyLByCount(*pjl, (n + 1) as Word, &raw mut k, pj);
+                let slot = JudyLByCount(jl.get(), (n + 1) as Word, &raw mut k, pj);
                 (!slot.is_null()).then_some(k as u64)
             },
         );
