@@ -984,6 +984,7 @@ impl WriterGate {
             in_flight.store(0, Ordering::Relaxed);
             None
         } else {
+            set_writer_slot(slot_id);
             Some(WriterGuard {
                 gate: self,
                 in_flight,
@@ -1127,6 +1128,60 @@ pub(crate) fn line<X>(x: X) -> Line<X> {
     Line(x)
 }
 
+/// Maximum number of concurrent writer slots tracked for sharded state,
+/// tree population, gate quiescence, and epoch bin striping.
+#[allow(dead_code)]
+pub(crate) const MAX_WRITER_SLOTS: usize = 64;
+
+#[cfg(feature = "ablation-striped-epoch")]
+#[derive(Debug)]
+#[repr(align(64))]
+struct PaddedBin(Mutex<Vec<Garbage>>);
+
+#[cfg(feature = "ablation-striped-epoch")]
+#[derive(Debug)]
+#[repr(align(64))]
+struct PaddedRetained(AtomicUsize);
+
+#[cfg(all(feature = "std", not(loom)))]
+pub(crate) fn set_writer_slot(slot: usize) {
+    std::thread_local! {
+        static SLOT: core::cell::Cell<usize> = const { core::cell::Cell::new(usize::MAX) };
+    }
+    SLOT.with(|s| s.set(slot));
+}
+
+#[cfg(all(feature = "std", not(loom)))]
+#[allow(dead_code)]
+pub(crate) fn writer_slot() -> usize {
+    std::thread_local! {
+        static SLOT: core::cell::Cell<usize> = const { core::cell::Cell::new(usize::MAX) };
+    }
+    SLOT.with(|s| {
+        let v = s.get();
+        if v < MAX_WRITER_SLOTS {
+            v
+        } else {
+            use core::sync::atomic::{AtomicUsize, Ordering};
+            static NEXT_THREAD: AtomicUsize = AtomicUsize::new(0);
+            std::thread_local! {
+                static FALLBACK: usize = NEXT_THREAD.fetch_add(1, Ordering::Relaxed) % MAX_WRITER_SLOTS;
+            }
+            FALLBACK.with(|f| *f)
+        }
+    })
+}
+
+#[cfg(any(not(feature = "std"), loom))]
+#[allow(dead_code)]
+pub(crate) fn set_writer_slot(_slot: usize) {}
+
+#[cfg(any(not(feature = "std"), loom))]
+#[allow(dead_code)]
+pub(crate) fn writer_slot() -> usize {
+    0
+}
+
 #[cfg(not(feature = "lock-padded"))]
 #[inline]
 #[allow(dead_code)]
@@ -1145,9 +1200,15 @@ pub struct Collector {
     pub(crate) alive: AtomicBool,
     op_count: Line<AtomicUsize>,
     readers: Mutex<Vec<Arc<Slot>>>,
+    #[cfg(not(feature = "ablation-striped-epoch"))]
     bins: [Mutex<Vec<Garbage>>; BINS],
+    #[cfg(feature = "ablation-striped-epoch")]
+    bins: [[PaddedBin; MAX_WRITER_SLOTS]; BINS],
     freelists: [Mutex<FreeListHead>; NUM_CLASSES],
+    #[cfg(not(feature = "ablation-striped-epoch"))]
     retained_bytes: AtomicUsize,
+    #[cfg(feature = "ablation-striped-epoch")]
+    retained_bytes: [PaddedRetained; MAX_WRITER_SLOTS],
     #[cfg(test)]
     registrations: core::sync::atomic::AtomicU64,
 }
@@ -1170,13 +1231,21 @@ impl Collector {
             alive: AtomicBool::new(true),
             op_count: line(AtomicUsize::new(0)),
             readers: Mutex::new(Vec::new()),
+            #[cfg(not(feature = "ablation-striped-epoch"))]
             bins: [
                 Mutex::new(Vec::new()),
                 Mutex::new(Vec::new()),
                 Mutex::new(Vec::new()),
             ],
+            #[cfg(feature = "ablation-striped-epoch")]
+            bins: core::array::from_fn(|_| {
+                core::array::from_fn(|_| PaddedBin(Mutex::new(Vec::new())))
+            }),
             freelists: core::array::from_fn(|_| Mutex::new(FreeListHead(core::ptr::null_mut()))),
+            #[cfg(not(feature = "ablation-striped-epoch"))]
             retained_bytes: AtomicUsize::new(0),
+            #[cfg(feature = "ablation-striped-epoch")]
+            retained_bytes: core::array::from_fn(|_| PaddedRetained(AtomicUsize::new(0))),
             #[cfg(test)]
             registrations: core::sync::atomic::AtomicU64::new(0),
         }
@@ -1223,11 +1292,26 @@ impl Collector {
         // has a happens-before with an advance and readers pinned at the next epoch.
         fence(Ordering::SeqCst);
         let e = self.epoch.load(Ordering::Relaxed);
-        self.bins[e % BINS]
-            .lock()
-            .expect("garbage bin poisoned")
-            .push(Garbage { ptr, bytes, align });
-        self.retained_bytes.fetch_add(bytes, Ordering::Relaxed);
+        #[cfg(not(feature = "ablation-striped-epoch"))]
+        {
+            self.bins[e % BINS]
+                .lock()
+                .expect("garbage bin poisoned")
+                .push(Garbage { ptr, bytes, align });
+            self.retained_bytes.fetch_add(bytes, Ordering::Relaxed);
+        }
+        #[cfg(feature = "ablation-striped-epoch")]
+        {
+            let slot = writer_slot();
+            self.bins[e % BINS][slot]
+                .0
+                .lock()
+                .expect("garbage bin poisoned")
+                .push(Garbage { ptr, bytes, align });
+            self.retained_bytes[slot]
+                .0
+                .fetch_add(bytes, Ordering::Relaxed);
+        }
         crate::occ_stats::record_retire(bytes);
     }
 
@@ -1283,30 +1367,69 @@ impl Collector {
         crate::occ_stats::bump(crate::occ_stats::Stat::AdvanceOk);
         // Everything retired at epoch e - 1 predates every possible pin
         // in epochs e and e + 1: no live reader can hold it.
-        let stale = core::mem::take(
-            &mut *self.bins[(e + BINS - 1) % BINS]
-                .lock()
-                .expect("garbage bin poisoned"),
-        );
-        let mut freed_bytes = 0;
-        for g in stale {
-            freed_bytes += g.bytes;
-            if let Some(class) = class_for(g.bytes, g.align) {
-                let block = g.ptr.as_ptr().cast::<FreeBlock>();
-                let mut head = self.freelists[class].lock().expect("freelist poisoned");
-                // SAFETY: block was retired by a well-aligned allocation
-                // matching this size class, and grace period elapsed.
-                unsafe {
-                    (*block).next = head.0;
+        #[cfg(not(feature = "ablation-striped-epoch"))]
+        {
+            let stale = core::mem::take(
+                &mut *self.bins[(e + BINS - 1) % BINS]
+                    .lock()
+                    .expect("garbage bin poisoned"),
+            );
+            let mut freed_bytes = 0;
+            for g in stale {
+                freed_bytes += g.bytes;
+                if let Some(class) = class_for(g.bytes, g.align) {
+                    let block = g.ptr.as_ptr().cast::<FreeBlock>();
+                    let mut head = self.freelists[class].lock().expect("freelist poisoned");
+                    // SAFETY: block was retired by a well-aligned allocation
+                    // matching this size class, and grace period elapsed.
+                    unsafe {
+                        (*block).next = head.0;
+                    }
+                    head.0 = block;
+                } else {
+                    free_raw(g.ptr, g.bytes, g.align);
                 }
-                head.0 = block;
-            } else {
-                free_raw(g.ptr, g.bytes, g.align);
+            }
+            self.retained_bytes
+                .fetch_sub(freed_bytes, Ordering::Relaxed);
+            crate::occ_stats::record_reclaim(freed_bytes);
+        }
+        #[cfg(feature = "ablation-striped-epoch")]
+        {
+            let stale_bin = (e + BINS - 1) % BINS;
+            for slot in 0..MAX_WRITER_SLOTS {
+                let stale = {
+                    let mut guard = self.bins[stale_bin][slot]
+                        .0
+                        .lock()
+                        .expect("garbage bin poisoned");
+                    if guard.is_empty() {
+                        continue;
+                    }
+                    core::mem::take(&mut *guard)
+                };
+                let mut freed_bytes = 0;
+                for g in stale {
+                    freed_bytes += g.bytes;
+                    if let Some(class) = class_for(g.bytes, g.align) {
+                        let block = g.ptr.as_ptr().cast::<FreeBlock>();
+                        let mut head = self.freelists[class].lock().expect("freelist poisoned");
+                        // SAFETY: block was retired by a well-aligned allocation
+                        // matching this size class, and grace period elapsed.
+                        unsafe {
+                            (*block).next = head.0;
+                        }
+                        head.0 = block;
+                    } else {
+                        free_raw(g.ptr, g.bytes, g.align);
+                    }
+                }
+                self.retained_bytes[slot]
+                    .0
+                    .fetch_sub(freed_bytes, Ordering::Relaxed);
+                crate::occ_stats::record_reclaim(freed_bytes);
             }
         }
-        self.retained_bytes
-            .fetch_sub(freed_bytes, Ordering::Relaxed);
-        crate::occ_stats::record_reclaim(freed_bytes);
     }
 
     /// Records one mutation operation and triggers `try_advance()` if `ADVANCE_EVERY` operations have elapsed.
@@ -1331,7 +1454,18 @@ impl Collector {
     /// blocks transition to collector size-class freelists for reuse).
     #[must_use]
     pub fn retained_bytes(&self) -> usize {
-        self.retained_bytes.load(Ordering::Relaxed)
+        #[cfg(not(feature = "ablation-striped-epoch"))]
+        {
+            self.retained_bytes.load(Ordering::Relaxed)
+        }
+        #[cfg(feature = "ablation-striped-epoch")]
+        {
+            let mut sum: usize = 0;
+            for s in &self.retained_bytes {
+                sum += s.0.load(Ordering::Relaxed);
+            }
+            sum
+        }
     }
 
     /// Number of registered reader slots. Test-only observability: the #554
@@ -1365,16 +1499,42 @@ impl Collector {
     /// Only sound once no reader can be pinned (the owning wrapper calls this
     /// on drop, when exclusive ownership proves that).
     pub(crate) fn drain(&self) {
-        for bin in &self.bins {
-            let stale = core::mem::take(&mut *bin.lock().expect("garbage bin poisoned"));
-            let mut freed_bytes = 0;
-            for g in stale {
-                freed_bytes += g.bytes;
-                free_raw(g.ptr, g.bytes, g.align);
+        #[cfg(not(feature = "ablation-striped-epoch"))]
+        {
+            for bin in &self.bins {
+                let stale = core::mem::take(&mut *bin.lock().expect("garbage bin poisoned"));
+                let mut freed_bytes = 0;
+                for g in stale {
+                    freed_bytes += g.bytes;
+                    free_raw(g.ptr, g.bytes, g.align);
+                }
+                self.retained_bytes
+                    .fetch_sub(freed_bytes, Ordering::Relaxed);
+                crate::occ_stats::record_reclaim(freed_bytes);
             }
-            self.retained_bytes
-                .fetch_sub(freed_bytes, Ordering::Relaxed);
-            crate::occ_stats::record_reclaim(freed_bytes);
+        }
+        #[cfg(feature = "ablation-striped-epoch")]
+        {
+            for b in 0..BINS {
+                for slot in 0..MAX_WRITER_SLOTS {
+                    let stale = {
+                        let mut guard = self.bins[b][slot].0.lock().expect("garbage bin poisoned");
+                        if guard.is_empty() {
+                            continue;
+                        }
+                        core::mem::take(&mut *guard)
+                    };
+                    let mut freed_bytes = 0;
+                    for g in stale {
+                        freed_bytes += g.bytes;
+                        free_raw(g.ptr, g.bytes, g.align);
+                    }
+                    self.retained_bytes[slot]
+                        .0
+                        .fetch_sub(freed_bytes, Ordering::Relaxed);
+                    crate::occ_stats::record_reclaim(freed_bytes);
+                }
+            }
         }
         for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
             let mut head = self.freelists[class].lock().expect("freelist poisoned");

@@ -187,6 +187,29 @@ pub(crate) const fn accounted_size(bytes: usize, align: usize) -> usize {
     (bytes + (align - 1)) & !(align - 1)
 }
 
+#[cfg(feature = "ablation-sharded-alloc")]
+pub(crate) const NUM_ALLOC_SHARDS: usize = crate::occ::MAX_WRITER_SLOTS;
+
+#[cfg(feature = "ablation-sharded-alloc")]
+#[derive(Debug)]
+#[repr(align(64))]
+pub(crate) struct AllocShard {
+    pub(crate) bytes_in_use: core::sync::atomic::AtomicIsize,
+    pub(crate) live_allocs: core::sync::atomic::AtomicIsize,
+    pub(crate) total_allocs: AtomicUsize,
+}
+
+#[cfg(feature = "ablation-sharded-alloc")]
+impl AllocShard {
+    pub(crate) fn new() -> Self {
+        Self {
+            bytes_in_use: core::sync::atomic::AtomicIsize::new(0),
+            live_allocs: core::sync::atomic::AtomicIsize::new(0),
+            total_allocs: AtomicUsize::new(0),
+        }
+    }
+}
+
 /// Allocation handle owned by a tree: hands out zeroed memory — at
 /// `align_of::<T>()` via [`Self::alloc_node`], at [`RAW_ALIGN`] via
 /// [`Self::alloc_bytes`] — and keeps byte-exact accounting.
@@ -196,8 +219,12 @@ pub(crate) const fn accounted_size(bytes: usize, align: usize) -> usize {
 /// counters order nothing — the OCC read protocol carries the fences.
 #[derive(Debug)]
 pub struct NodeAlloc {
+    #[cfg(not(feature = "ablation-sharded-alloc"))]
     bytes_in_use: AtomicUsize,
+    #[cfg(not(feature = "ablation-sharded-alloc"))]
     live_allocs: AtomicUsize,
+    #[cfg(feature = "ablation-sharded-alloc")]
+    shards: [AllocShard; NUM_ALLOC_SHARDS],
     /// Phase 7: when set, frees are retired to the collector instead of
     /// released — concurrent readers may still hold the pointers.
     #[cfg(feature = "std")]
@@ -219,6 +246,7 @@ pub struct NodeAlloc {
     /// separate the engine's own node/leaf allocations from incidental
     /// scratch allocations elsewhere in a code path — see
     /// `tests/no_heap_churn.rs`.
+    #[cfg(not(feature = "ablation-sharded-alloc"))]
     total_allocs: AtomicUsize,
     freelists: [AtomicPtr<FreeBlock>; NUM_CLASSES],
     slab_pages: AtomicPtr<SlabPage>,
@@ -227,14 +255,19 @@ pub struct NodeAlloc {
 impl Default for NodeAlloc {
     fn default() -> Self {
         Self {
+            #[cfg(not(feature = "ablation-sharded-alloc"))]
             bytes_in_use: AtomicUsize::new(0),
+            #[cfg(not(feature = "ablation-sharded-alloc"))]
             live_allocs: AtomicUsize::new(0),
+            #[cfg(feature = "ablation-sharded-alloc")]
+            shards: core::array::from_fn(|_| AllocShard::new()),
             #[cfg(feature = "std")]
             deferred: OnceLock::new(),
             #[cfg(feature = "std")]
             engine_covers_root: core::sync::atomic::AtomicBool::new(false),
             #[cfg(feature = "std")]
             tree_word: AtomicPtr::new(core::ptr::null_mut()),
+            #[cfg(not(feature = "ablation-sharded-alloc"))]
             total_allocs: AtomicUsize::new(0),
             freelists: [const { AtomicPtr::new(core::ptr::null_mut()) }; NUM_CLASSES],
             slab_pages: AtomicPtr::new(core::ptr::null_mut()),
@@ -281,13 +314,35 @@ impl NodeAlloc {
     /// Bytes currently allocated through this handle.
     #[must_use]
     pub fn bytes_in_use(&self) -> usize {
-        self.bytes_in_use.load(Ordering::Relaxed)
+        #[cfg(not(feature = "ablation-sharded-alloc"))]
+        {
+            self.bytes_in_use.load(Ordering::Relaxed)
+        }
+        #[cfg(feature = "ablation-sharded-alloc")]
+        {
+            let mut sum: isize = 0;
+            for s in &self.shards {
+                sum = sum.saturating_add(s.bytes_in_use.load(Ordering::Relaxed));
+            }
+            if sum < 0 { 0 } else { sum as usize }
+        }
     }
 
     /// Number of live allocations (diagnostics / leak assertions in tests).
     #[must_use]
     pub fn live_allocs(&self) -> usize {
-        self.live_allocs.load(Ordering::Relaxed)
+        #[cfg(not(feature = "ablation-sharded-alloc"))]
+        {
+            self.live_allocs.load(Ordering::Relaxed)
+        }
+        #[cfg(feature = "ablation-sharded-alloc")]
+        {
+            let mut sum: isize = 0;
+            for s in &self.shards {
+                sum = sum.saturating_add(s.live_allocs.load(Ordering::Relaxed));
+            }
+            if sum < 0 { 0 } else { sum as usize }
+        }
     }
 
     /// Cumulative allocations made through this handle since it was
@@ -296,7 +351,18 @@ impl NodeAlloc {
     /// the same code path.
     #[must_use]
     pub fn total_allocs(&self) -> usize {
-        self.total_allocs.load(Ordering::Relaxed)
+        #[cfg(not(feature = "ablation-sharded-alloc"))]
+        {
+            self.total_allocs.load(Ordering::Relaxed)
+        }
+        #[cfg(feature = "ablation-sharded-alloc")]
+        {
+            let mut sum: usize = 0;
+            for s in &self.shards {
+                sum = sum.saturating_add(s.total_allocs.load(Ordering::Relaxed));
+            }
+            sum
+        }
     }
 
     #[inline(always)]
@@ -318,10 +384,26 @@ impl NodeAlloc {
     #[inline(always)]
     fn alloc_raw(&self, bytes: usize, align: usize) -> NonNull<u8> {
         let accounted_size = accounted_size(bytes, align);
-        self.bytes_in_use
-            .fetch_add(accounted_size, Ordering::Relaxed);
-        self.live_allocs.fetch_add(1, Ordering::Relaxed);
-        self.total_allocs.fetch_add(1, Ordering::Relaxed);
+        #[cfg(not(feature = "ablation-sharded-alloc"))]
+        {
+            self.bytes_in_use
+                .fetch_add(accounted_size, Ordering::Relaxed);
+            self.live_allocs.fetch_add(1, Ordering::Relaxed);
+            self.total_allocs.fetch_add(1, Ordering::Relaxed);
+        }
+        #[cfg(feature = "ablation-sharded-alloc")]
+        {
+            let slot = crate::occ::writer_slot();
+            self.shards[slot]
+                .bytes_in_use
+                .fetch_add(accounted_size as isize, Ordering::Relaxed);
+            self.shards[slot]
+                .live_allocs
+                .fetch_add(1, Ordering::Relaxed);
+            self.shards[slot]
+                .total_allocs
+                .fetch_add(1, Ordering::Relaxed);
+        }
 
         if let Some(class) = class_for(bytes, align) {
             let head = self.freelists[class].load(Ordering::Relaxed);
@@ -415,9 +497,22 @@ impl NodeAlloc {
     #[inline(always)]
     unsafe fn free_raw(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
         let accounted_size = accounted_size(bytes, align);
-        self.bytes_in_use
-            .fetch_sub(accounted_size, Ordering::Relaxed);
-        self.live_allocs.fetch_sub(1, Ordering::Relaxed);
+        #[cfg(not(feature = "ablation-sharded-alloc"))]
+        {
+            self.bytes_in_use
+                .fetch_sub(accounted_size, Ordering::Relaxed);
+            self.live_allocs.fetch_sub(1, Ordering::Relaxed);
+        }
+        #[cfg(feature = "ablation-sharded-alloc")]
+        {
+            let slot = crate::occ::writer_slot();
+            self.shards[slot]
+                .bytes_in_use
+                .fetch_sub(accounted_size as isize, Ordering::Relaxed);
+            self.shards[slot]
+                .live_allocs
+                .fetch_sub(1, Ordering::Relaxed);
+        }
 
         #[cfg(feature = "std")]
         if let Some(c) = self.deferred.get() {

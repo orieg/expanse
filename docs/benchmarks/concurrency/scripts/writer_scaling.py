@@ -1315,6 +1315,16 @@ def main() -> int:
         help="Comma-separated feature variants to compare against default (or via BENCH_VARIANTS env var)",
     )
     parser.add_argument(
+        "--compare-ablation-alloc",
+        action="store_true",
+        help="Alias for --compare ablation-sharded-alloc (Hypothesis D Arm a)",
+    )
+    parser.add_argument(
+        "--compare-ablation-epoch",
+        action="store_true",
+        help="Alias for --compare ablation-striped-epoch (Hypothesis D Arm b)",
+    )
+    parser.add_argument(
         "--pmu",
         action="store_true",
         help="Run separate hardware PMU pass via perf stat on set W=1 vs W=2",
@@ -1364,6 +1374,12 @@ def main() -> int:
     if args.compare_padded:
         if "lock-padded" not in variant_list:
             variant_list.append("lock-padded")
+    elif args.compare_ablation_alloc:
+        if "ablation-sharded-alloc" not in variant_list:
+            variant_list.append("ablation-sharded-alloc")
+    elif args.compare_ablation_epoch:
+        if "ablation-striped-epoch" not in variant_list:
+            variant_list.append("ablation-striped-epoch")
     elif args.compare:
         if args.compare not in variant_list:
             variant_list.append(args.compare)

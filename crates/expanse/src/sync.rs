@@ -665,7 +665,7 @@ fn thread_token() -> u64 {
 
 /// Maximum number of concurrent writer slots tracked for sharded tree population
 /// and gate quiescence.
-pub(crate) const MAX_WRITER_SLOTS: usize = 64;
+pub(crate) const MAX_WRITER_SLOTS: usize = crate::occ::MAX_WRITER_SLOTS;
 
 /// A sharded tree population counter that eliminates false sharing and write contention
 /// across concurrent writers.
