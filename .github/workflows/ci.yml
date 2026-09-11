@@ -2162,23 +2162,37 @@ jobs:
         run: python3 scripts/wasm_fuel.py --self-test
 
       # Every export is run twice on fresh instances and must agree to the
-      # unit; the gate mirrors perf_report.py (single-worst > 5%, or >= 2 arms
-      # over the 0.5% floor). A missing baseline entry is a hard failure, not
-      # a green run (§8.1).
-      - name: Fuel counts, wasm32 (32-bit engine) vs committed baseline
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python3 scripts/wasm_fuel.py --build wasm32 --check-baseline results/baseline_wasm_fuel.json --json wasm_fuel_wasm32.json --markdown wasm_fuel_wasm32.md
+      # unit. Measuring and gating are separate steps on purpose: a failure of
+      # a measurement step is a build or runtime failure, a failure of the
+      # guard is a regression — and perf_report.py's citation check tells a
+      # tripped guard from a crash by exactly that step conclusion, so a PR can
+      # cite the run that measured its regression (AGENTS.md §6).
+      - name: Fuel counts, wasm32 (32-bit engine)
+        run: python3 scripts/wasm_fuel.py --build wasm32 --json wasm_fuel_wasm32.json --markdown wasm_fuel_wasm32.md
 
-      - name: Fuel counts, wasm64 (64-bit engine) vs committed baseline
+      - name: Fuel counts, wasm64 (64-bit engine)
         env:
           WASM_FUEL_NIGHTLY: nightly-2026-09-03
+        run: python3 scripts/wasm_fuel.py --build wasm64 --json wasm_fuel_wasm64.json --markdown wasm_fuel_wasm64.md
+
+      # The gate mirrors perf_report.py (single-worst > 5%, or >= 2 arms over
+      # the 0.5% floor). A missing baseline entry is a hard failure, not a
+      # green run (§8.1). Both targets are gated before the step exits, so a
+      # wasm32 regression does not hide a wasm64 one.
+      - name: Fuel regression guard vs committed baseline
+        env:
           PR_BODY: ${{ github.event.pull_request.body }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python3 scripts/wasm_fuel.py --build wasm64 --check-baseline results/baseline_wasm_fuel.json --json wasm_fuel_wasm64.json --markdown wasm_fuel_wasm64.md
+        shell: bash
+        run: |
+          status=0
+          for t in wasm32 wasm64; do
+            python3 scripts/wasm_fuel.py --result "wasm_fuel_$t.json" \
+              --check-baseline results/baseline_wasm_fuel.json \
+              --markdown "wasm_fuel_$t.md" || status=1
+          done
+          exit "$status"
 
       - name: Publish tables to the job summary
         if: always()

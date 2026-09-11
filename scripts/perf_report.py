@@ -613,8 +613,9 @@ def override_names_arms(reason: str, regressed: list[str]) -> list[str]:
 # Three merged overrides motivate this, one per shape:
 #
 #   #822  cited run 34490311084 — conclusion `failure`, head 2cf974a9, which
-#         the branch's later force-push rewrote away. The run holds no passing
-#         regression report and measured a commit that is not in the history.
+#         the branch's later force-push rewrote away. Its Callgrind job failed
+#         at the guard with every benchmark step green, so the run does hold a
+#         report — of a commit that is not in the history.
 #   #827  cited run 34528753689 — conclusion `cancelled`, head dfc5f456, again
 #         rewritten away by a rebase. Its Callgrind job reports "regression
 #         guard did not run — missing benchmark output", so the +1.35% and
@@ -635,12 +636,18 @@ def override_names_arms(reason: str, regressed: list[str]) -> list[str]:
 # first and it would not. An override rests on every source it names.
 
 # Terminal conclusions that carry no usable measurement. A run that was
-# cancelled or failed may have skipped the very job whose numbers are quoted —
-# which is exactly what happened on #827.
+# cancelled, timed out or never started may have skipped the very job whose
+# numbers are quoted — which is exactly what happened on #827.
+#
+# `failure` is not among them. A PR with a real regression concludes `failure`
+# *because* its guard tripped on numbers it measured, and CI reads the PR body
+# from the event payload, so no run can cite itself: the regressing run is the
+# only run that measures the regression. A `failure` run is admitted when its
+# measurement jobs show the numbers exist (`measurement_problem`) — #841 had to
+# commit a copy of its own run's counts to cite them before this distinction.
 DEAD_CONCLUSIONS = frozenset(
     {
         "cancelled",
-        "failure",
         "timed_out",
         "action_required",
         "startup_failure",
@@ -648,6 +655,38 @@ DEAD_CONCLUSIONS = frozenset(
         "skipped",
     }
 )
+
+# The conclusion a run reaches when a regression guard trips. It is decided
+# per job, never per run: the same conclusion also covers a benchmark that
+# crashed before the guard could read anything.
+GUARD_TRIP_CONCLUSION = "failure"
+
+# `ci.yml` jobs that produce gated numbers, and the one step in each that
+# gates them. Every step before the guard produces the numbers; the guard reads
+# them, renders the report and fails the job when a regression trips. So a job
+# that failed *at* its guard with every earlier step green holds a report, and
+# one that failed earlier never reached it. The self-test pins these names
+# against `ci.yml`, and pins that no earlier step in the job runs the gate — a
+# step that both measured and gated would make a trip and a crash look alike.
+MEASUREMENT_JOBS: dict[str, str] = {
+    "Perf / Callgrind Deterministic Instructions": "Generate Report and Enforce Regression Guard",
+    "Perf / Callgrind Fast Smoke (Ubuntu)": "Generate Report and Enforce Regression Guard",
+    "Core / AArch64 Linux Tests & Callgrind (Neoverse N2)": (
+        "Generate AArch64 Report and Enforce Regression Guard"
+    ),
+    "Perf / WebAssembly Fuel (wasm32 + wasm64, deterministic)": (
+        "Fuel regression guard vs committed baseline"
+    ),
+}
+
+# Step conclusions under which a pre-guard step left its output behind. A step
+# is `skipped` either because its `if:` was false (the merge-base pass on a
+# push) or because an earlier step failed — and that earlier failure is itself
+# visible, so `skipped` alone never hides a crash.
+PRODUCED_STEP_CONCLUSIONS = frozenset({"success", "skipped"})
+
+# Guard-step conclusions under which the guard ran to completion on the numbers.
+RAN_GUARD_CONCLUSIONS = frozenset({"success", "failure"})
 
 # `<sha>...<pr_head>` compare statuses under which the run's commit is reachable
 # from the PR head. `diverged` means the cited commit was rewritten away;
@@ -716,6 +755,140 @@ def gh_run_lookup(repo: str, run_id: str) -> dict[str, Any] | None:
     return _gh_json(f"repos/{repo}/actions/runs/{run_id}")
 
 
+def gh_run_jobs(repo: str, run_id: str) -> list[dict[str, Any]] | None:
+    """Every job of a run's latest attempt, with its steps, or None.
+
+    None when any page is unavailable or the pages do not add up to the run's
+    `total_count`: a partial job list could omit the very job that crashed, so
+    it is "could not check", never a list to decide on.
+    """
+    jobs: list[dict[str, Any]] = []
+    for page in range(1, 11):
+        body = _gh_json(f"repos/{repo}/actions/runs/{run_id}/jobs?per_page=100&page={page}")
+        if body is None:
+            return None
+        batch = body.get("jobs")
+        total = body.get("total_count")
+        if not isinstance(batch, list) or not isinstance(total, int):
+            return None
+        jobs.extend(j for j in batch if isinstance(j, dict))
+        if len(jobs) >= total or not batch:
+            return jobs if len(jobs) == total else None
+    return None
+
+
+def measurement_problem(jobs: list[dict[str, Any]]) -> str | None:
+    """Why a `failure` run holds no usable measurement, or None if it does.
+
+    Decided from the jobs listed in `MEASUREMENT_JOBS`. A measurement job that
+    the path filter skipped measured nothing and is ignored; every one that
+    started must have reached its guard, and at least one must have started.
+    A run whose only failures are elsewhere (a lint job) still holds its
+    numbers and is admitted here — the reachability check that follows is what
+    ties them to the code under review.
+
+    Residual: a guard step also fails when its head parse is empty, which
+    follows a benchmark that exited 0 having printed nothing parseable. The
+    step conclusions cannot tell that from a regression trip; only the job log
+    can.
+    """
+    started = 0
+    for job in jobs:
+        name = str(job.get("name") or "")
+        guard = MEASUREMENT_JOBS.get(name)
+        if guard is None:
+            continue
+        conclusion = str(job.get("conclusion") or "").lower()
+        if conclusion == "skipped":
+            continue
+        started += 1
+        if conclusion == "success":
+            continue
+        if conclusion != GUARD_TRIP_CONCLUSION:
+            return f"job `{name}` concluded `{conclusion or 'none'}` — it never reached its report"
+        steps = sorted(
+            (s for s in job.get("steps") or [] if isinstance(s, dict)),
+            key=lambda s: int(s.get("number") or 0),
+        )
+        if not any(s.get("name") == guard for s in steps):
+            return f"job `{name}` has no `{guard}` step — its report cannot be located"
+        for step in steps:
+            step_conclusion = str(step.get("conclusion") or "").lower()
+            if step.get("name") == guard:
+                if step_conclusion not in RAN_GUARD_CONCLUSIONS:
+                    return (
+                        f"job `{name}`'s regression guard concluded "
+                        f"`{step_conclusion or 'none'}` — it never read the numbers"
+                    )
+                break
+            if step_conclusion not in PRODUCED_STEP_CONCLUSIONS:
+                return (
+                    f"job `{name}` step `{step.get('name')}` concluded "
+                    f"`{step_conclusion or 'none'}` before the regression guard ran — "
+                    "the numbers it would report were never produced"
+                )
+    if not started:
+        return "no measurement job ran in it — it holds no gated numbers"
+    return None
+
+
+# The flags that make a step a regression gate: `perf_report.py` and
+# `wasm_fuel.py` fail their step on a regression only with these.
+GATE_FLAGS = ("--fail-on-regression", "--check-baseline")
+
+
+def measurement_jobs_drift(ci_text: str) -> list[str]:
+    """Where `ci.yml` no longer matches the layout `measurement_problem` reads.
+
+    Each job in `MEASUREMENT_JOBS` must exist under its display name, carry
+    its guard step, run a gate flag in that step, and run none in any step
+    before it. The last is what makes a step conclusion evidence: a step that
+    measured *and* gated fails the same way on a regression and on a crash.
+    """
+    blocks: list[list[str]] = []
+    for line in ci_text.splitlines():
+        if re.match(r"^  [A-Za-z0-9_-]+:\s*$", line):
+            blocks.append([])
+        elif blocks:
+            blocks[-1].append(line)
+    named: dict[str, list[str]] = {}
+    for body in blocks:
+        for line in body:
+            m = re.match(r"^    name:\s*(.+?)\s*$", line)
+            if m:
+                named[m.group(1).strip("'\"")] = body
+                break
+
+    drift: list[str] = []
+    for job_name, guard in MEASUREMENT_JOBS.items():
+        body = named.get(job_name)
+        if body is None:
+            drift.append(f"job `{job_name}` not found in ci.yml")
+            continue
+        steps: list[tuple[str | None, str]] = []
+        for line in body:
+            if line.startswith("      - "):
+                m = re.match(r"^      - name:\s*(.+?)\s*$", line)
+                steps.append((m.group(1).strip("'\"") if m else None, line + "\n"))
+            elif steps and not line.lstrip().startswith("#"):
+                steps[-1] = (steps[-1][0], steps[-1][1] + line + "\n")
+        names = [n for n, _ in steps]
+        if guard not in names:
+            drift.append(f"job `{job_name}` has no `{guard}` step")
+            continue
+        at = names.index(guard)
+        for name, text in steps[:at]:
+            if any(flag in text for flag in GATE_FLAGS):
+                where = f"step `{name}`" if name else "an unnamed step"
+                drift.append(
+                    f"job `{job_name}` runs the gate before `{guard}` (in {where}) — "
+                    "a failure there cannot be told from a crash"
+                )
+        if not any(flag in steps[at][1] for flag in GATE_FLAGS):
+            drift.append(f"job `{job_name}`'s `{guard}` step runs no gate ({', '.join(GATE_FLAGS)})")
+    return drift
+
+
 def gh_ancestry(repo: str, sha: str, pr_head: str) -> str | None:
     """GitHub's compare status for `<sha>...<pr_head>`, or None if unavailable.
 
@@ -768,6 +941,7 @@ def check_citation_freshness(
     pr_head: str | None,
     base_ref: str | None,
     run_lookup: Any = gh_run_lookup,
+    jobs_lookup: Any = gh_run_jobs,
     ancestry: Any = gh_ancestry,
     tracked: Any = git_tracked,
     commit_time: Any = git_commit_time,
@@ -778,6 +952,10 @@ def check_citation_freshness(
     does: the gate stays armed and says which citation failed and why.
     `unverified` names citations the available instruments could not decide —
     reported as a notice, never as a pass (§8.1, §8.11.5).
+
+    A cited run that concluded `failure` is admitted only when its measurement
+    jobs reached their guards (`measurement_problem`): a tripped guard read
+    real numbers, a crashed benchmark left none.
     """
     problems: list[str] = []
     unverified: list[str] = []
@@ -806,6 +984,20 @@ def check_citation_freshness(
                     "complete may have skipped the job whose numbers are quoted"
                 )
                 continue
+            if conclusion == GUARD_TRIP_CONCLUSION:
+                # A tripped guard and a crashed benchmark both conclude
+                # `failure`; only the jobs tell them apart.
+                jobs = jobs_lookup(repo, run_id)
+                if jobs is None:
+                    unverified.append(
+                        f"run {run_id} (concluded `failure`; its jobs could not be read "
+                        "to tell a tripped guard from a crashed benchmark)"
+                    )
+                    continue
+                missing = measurement_problem(jobs)
+                if missing:
+                    problems.append(f"run {run_id} concluded `failure` and {missing}")
+                    continue
             head_sha = str(body.get("head_sha") or "")
             if not pr_head or not head_sha:
                 unverified.append(f"run {run_id} (no head revision to compare against)")
@@ -2230,28 +2422,268 @@ def self_test() -> int:
     ART_826 = "docs/benchmarks/concurrency/results/fallback_maturity.json"
     HEAD = "1839df01"
 
-    def fresh(reason, *, runs, ancestries, tracked_paths=(ART_826,), times=None):
+    def fresh(reason, *, runs, ancestries, tracked_paths=(ART_826,), times=None, jobs=None):
         return check_citation_freshness(
             reason,
             pr_head=HEAD,
             base_ref="origin/main",
             run_lookup=lambda repo, rid: runs.get(rid),
+            jobs_lookup=lambda repo, rid: (jobs or {}).get(rid),
             ancestry=lambda repo, sha, head: ancestries.get(sha),
             tracked=lambda p: p in tracked_paths,
             commit_time=lambda rng, *paths: (times or {}).get(paths[0] if not rng else "CODE"),
         )
 
+    # Job fixtures carry the step names of the real jobs, in order, as the
+    # `actions/runs/{id}/jobs` API lists them; `overrides` sets the conclusion
+    # of named steps, and every other step up to the guard is `success`.
+    X86 = "Perf / Callgrind Deterministic Instructions"
+    X86_STEPS = (
+        "Set up job",
+        "Run actions/checkout@v7",
+        "Run dtolnay/rust-toolchain@stable",
+        "Run Swatinem/rust-cache@v2",
+        "Install valgrind and stock libjudy",
+        "Install iai-callgrind-runner",
+        "Build libexpanse.so for the same-shape arm",
+        "Instruction and cache-miss counts (merge base)",
+        "Instruction and cache-miss counts (this branch, baseline)",
+        "Instruction and cache-miss counts (this branch, x86-64-v3 modern)",
+        "bytes/key table (64-bit)",
+        "bytes/key table (32-bit embedded)",
+        "libexpanse vs stock libjudy (instructions)",
+        "Search suite instruction counts (search_instructions)",
+        "Head-to-Head Comparative Benchmark (Expanse vs hashbrown vs BTreeMap)",
+        "Generate Report and Enforce Regression Guard",
+        "Post or Update Benchmark PR Comment",
+        "Complete job",
+    )
+    WASM = "Perf / WebAssembly Fuel (wasm32 + wasm64, deterministic)"
+    WASM_STEPS = (
+        "Set up job",
+        "Run actions/checkout@v7",
+        "Install wasmtime (pinned to the baseline's version)",
+        "Driver self-test (fail-then-pass pins of the gate policy)",
+        "Fuel counts, wasm32 (32-bit engine)",
+        "Fuel counts, wasm64 (64-bit engine)",
+        "Fuel regression guard vs committed baseline",
+        "Publish tables to the job summary",
+        "Complete job",
+    )
+
+    def job(name, steps, conclusion, **overrides):
+        return {
+            "name": name,
+            "conclusion": conclusion,
+            "steps": [
+                {"number": i, "name": s, "conclusion": overrides.get(s, "success")}
+                for i, s in enumerate(steps, start=1)
+            ],
+        }
+
+    def other(name, conclusion):
+        return {"name": name, "conclusion": conclusion, "steps": []}
+
+    def broke(name, steps, at, how, guard):
+        # Step `at` ends `how`; the steps after it are skipped, except the
+        # guard, which is `if: always()` and fails on the output that is missing.
+        after = steps[steps.index(at) + 1 :]
+        overrides = {s: "skipped" for s in after if s not in (guard, "Complete job")}
+        overrides[at] = how
+        overrides[guard] = "failure"
+        return job(name, steps, "cancelled" if how == "cancelled" else "failure", **overrides)
+
+    GUARD = "Generate Report and Enforce Regression Guard"
+    tripped_x86 = job(
+        X86, X86_STEPS, "failure",
+        **{GUARD: "failure", "Post or Update Benchmark PR Comment": "skipped"},
+    )
+    rollup_failed = other("CI Gate / All Checks Passed", "failure")
+
     # #822 verbatim: conclusion `failure` at a head the force-push rewrote away.
+    # Its Callgrind job failed at the guard with every benchmark step green, as
+    # did docs-lint — so the run holds a report, and what voids the line is that
+    # the report is of a commit that is no longer in the history.
+    run_822 = {"34490311084": {"conclusion": "failure", "head_sha": "2cf974a9"}}
+    jobs_822 = {
+        "34490311084": [
+            other("Docs / Hygiene (time estimates, PII, provenance)", "failure"),
+            tripped_x86,
+            job(WASM, WASM_STEPS, "success"),
+            rollup_failed,
+        ]
+    }
     problems, unverified = fresh(
-        pr822,
-        runs={"34490311084": {"conclusion": "failure", "head_sha": "2cf974a9"}},
-        ancestries={"2cf974a9": "diverged"},
+        pr822, runs=run_822, ancestries={"2cf974a9": "diverged"}, jobs=jobs_822
     )
     assert not unverified, unverified
-    assert len(problems) == 1 and "concluded `failure`" in problems[0], problems
+    assert len(problems) == 1 and "is `diverged`" in problems[0], problems
+
+    # #841, the defect this admits: a real regression trips the guard, so the
+    # run that measured it concludes `failure`, and CI reads the body from the
+    # event payload, so no run can cite itself. #841 committed a copy of run
+    # 34579106296's counts to have anything to cite. Its line verbatim, with the
+    # run URL in place of that artifact path — the citation it could not make.
+    RUN_841 = "https://github.com/orieg/expanse/actions/runs/34579106296"
+    pr841 = (
+        "sync_map_remove +37.03% (66,727,059 vs 48,695,311) and sync_map_churn +0.60% "
+        "(158,426,509 vs 157,476,428) are the covered fallback the BranchU guard sends an "
+        "immediate's last-key removal to under a compressed parent, replacing the in-place "
+        "store that left a null child in a packed subarray; counts in " + RUN_841
+    )
+    run_841 = {"34579106296": {"conclusion": "failure", "head_sha": "2804a495"}}
+    jobs_841 = {"34579106296": [tripped_x86, job(WASM, WASM_STEPS, "success"), rollup_failed]}
+    problems, unverified = fresh(
+        pr841, runs=run_841, ancestries={"2804a495": "ahead"}, jobs=jobs_841
+    )
+    assert not problems and not unverified, (problems, unverified)
+
+    # ...and the pre-fix rule, which voided every `failure`, would have voided
+    # it: the admission rests on reading the jobs, not on the conclusion. With
+    # the jobs unreadable it is undecidable — a notice, never a pass (§8.11.5).
+    problems, unverified = fresh(pr841, runs=run_841, ancestries={"2804a495": "ahead"}, jobs={})
+    assert not problems, problems
+    assert len(unverified) == 1 and "tell a tripped guard from a crashed benchmark" in unverified[0], unverified
+
+    # A benchmark step that failed never produced the numbers the guard would
+    # read. The guard still runs (`if: always()`) and fails on the missing
+    # output — the same step conclusion as a trip — so the earlier step decides.
+    crashed_x86 = broke(
+        X86, X86_STEPS, "Instruction and cache-miss counts (this branch, baseline)", "failure", GUARD
+    )
+    problems, _ = fresh(
+        pr841,
+        runs=run_841,
+        ancestries={"2804a495": "ahead"},
+        jobs={"34579106296": [crashed_x86, rollup_failed]},
+    )
+    assert len(problems) == 1, problems
+    assert "(this branch, baseline)` concluded `failure` before the regression guard ran" in problems[0], problems
+
+    # #827's Callgrind job shape — a benchmark step `cancelled`, the guard
+    # failing on missing output — stays void inside a `failure` run too.
+    cancelled_x86 = broke(
+        X86, X86_STEPS, "Instruction and cache-miss counts (this branch, x86-64-v3 modern)",
+        "cancelled", GUARD,
+    )
+    problems, _ = fresh(
+        pr841,
+        runs=run_841,
+        ancestries={"2804a495": "ahead"},
+        jobs={"34579106296": [cancelled_x86, rollup_failed]},
+    )
+    assert len(problems) == 1 and "concluded `cancelled` — it never reached its report" in problems[0], problems
+
+    # A guard that did not run to completion never read the numbers, even with
+    # every benchmark step green.
+    problems, _ = fresh(
+        pr841, runs=run_841, ancestries={"2804a495": "ahead"},
+        jobs={"34579106296": [job(X86, X86_STEPS, "failure", **{GUARD: "cancelled"})]},
+    )
+    assert len(problems) == 1 and "regression guard concluded `cancelled`" in problems[0], problems
+
+    # A measurement job whose only failed step comes after the guard still
+    # holds its report: the guard ran to completion on the numbers.
+    late_x86 = job(X86, X86_STEPS, "failure", **{"Post or Update Benchmark PR Comment": "failure"})
+    problems, _ = fresh(
+        pr841, runs=run_841, ancestries={"2804a495": "ahead"},
+        jobs={"34579106296": [late_x86, rollup_failed]},
+    )
+    assert not problems, problems
+
+    # Every measurement job that started must have reached its guard, not one
+    # of them: a line may quote numbers from either, and the reason does not say
+    # which job a figure came from.
+    problems, _ = fresh(
+        pr841, runs=run_841, ancestries={"2804a495": "ahead"},
+        jobs={"34579106296": [tripped_x86, crashed_x86 | {"name": "Perf / Callgrind Fast Smoke (Ubuntu)"}]},
+    )
+    assert len(problems) == 1 and "Fast Smoke" in problems[0], problems
+
+    # A `failure` run in which no measurement job ran holds no gated numbers:
+    # the path filter skipped them, and the failure is somewhere else.
+    problems, _ = fresh(
+        pr841, runs=run_841, ancestries={"2804a495": "ahead"},
+        jobs={"34579106296": [other(X86, "skipped"), other(WASM, "skipped"), rollup_failed]},
+    )
+    assert len(problems) == 1 and "no measurement job ran" in problems[0], problems
+
+    # A guard step the job does not have cannot have run. This is #827's
+    # wasm-fuel shape: the job measured and gated in one step, so a failure of
+    # that step was a trip or a crash with nothing to tell them apart. The job
+    # now measures in two steps and gates in a third (pinned against ci.yml
+    # below); a run from before the split stays void.
+    unsplit_wasm = {
+        "name": WASM,
+        "conclusion": "failure",
+        "steps": [
+            {"number": 1, "name": "Set up job", "conclusion": "success"},
+            {"number": 9, "name": "Fuel counts, wasm32 (32-bit engine) vs committed baseline", "conclusion": "failure"},
+            {"number": 10, "name": "Fuel counts, wasm64 (64-bit engine) vs committed baseline", "conclusion": "skipped"},
+        ],
+    }
+    problems, _ = fresh(
+        pr841, runs=run_841, ancestries={"2804a495": "ahead"},
+        jobs={"34579106296": [tripped_x86, unsplit_wasm]},
+    )
+    assert len(problems) == 1 and "has no `Fuel regression guard vs committed baseline` step" in problems[0], problems
+
+    # After the split, a fuel regression trips the guard with both measurement
+    # steps green, and the run holds the fuel numbers.
+    tripped_wasm = job(WASM, WASM_STEPS, "failure", **{"Fuel regression guard vs committed baseline": "failure"})
+    problems, _ = fresh(
+        pr841, runs=run_841, ancestries={"2804a495": "ahead"},
+        jobs={"34579106296": [job(X86, X86_STEPS, "success"), tripped_wasm]},
+    )
+    assert not problems, problems
+    # The fuel guard is not `if: always()`: after a failed measurement it is
+    # skipped rather than failed, and the earlier step still decides.
+    crashed_wasm = job(
+        WASM, WASM_STEPS, "failure",
+        **{
+            "Fuel counts, wasm64 (64-bit engine)": "failure",
+            "Fuel regression guard vs committed baseline": "skipped",
+        },
+    )
+    problems, _ = fresh(
+        pr841, runs=run_841, ancestries={"2804a495": "ahead"},
+        jobs={"34579106296": [job(X86, X86_STEPS, "success"), crashed_wasm]},
+    )
+    assert len(problems) == 1 and "wasm64 (64-bit engine)` concluded `failure`" in problems[0], problems
+
+    # An admitted `failure` run is still held to reachability: the measurement
+    # exists, but of which code is a separate question.
+    problems, _ = fresh(
+        pr841, runs=run_841, ancestries={"2804a495": "diverged"}, jobs=jobs_841
+    )
+    assert len(problems) == 1 and "is `diverged`" in problems[0], problems
+
+    # The job and step names are pinned against ci.yml, and so is the layout
+    # the rule depends on: the gate runs in the guard step and in no step
+    # before it. The pre-split wasm-fuel job — measurement and gate in one step
+    # — is the layout that fails.
+    ci_text = (Path(__file__).resolve().parent.parent / ".github/workflows/ci.yml").read_text(
+        encoding="utf-8"
+    )
+    drift = measurement_jobs_drift(ci_text)
+    assert drift == [], drift
+    unsplit_ci = (
+        "jobs:\n"
+        "  wasm-fuel:\n"
+        f"    name: {WASM}\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@v7\n"
+        "      - name: Fuel counts, wasm32 (32-bit engine) vs committed baseline\n"
+        "        run: python3 scripts/wasm_fuel.py --build wasm32 --check-baseline b.json\n"
+        "      - name: Fuel regression guard vs committed baseline\n"
+        "        run: python3 scripts/wasm_fuel.py --result r.json --check-baseline b.json\n"
+    )
+    drift = measurement_jobs_drift(unsplit_ci)
+    assert any("runs the gate before" in d and WASM in d for d in drift), drift
+    assert any(X86 in d and "not found" in d for d in drift), drift
 
     # #827 verbatim: conclusion `cancelled`; its Callgrind job never ran, so the
-    # +1.35% / +0.85% it quotes appear nowhere in it. Both figures werein the
+    # +1.35% / +0.85% it quotes appear nowhere in it. Both figures were in the
     # post-rebase run — the defect is the citation, not the numbers.
     pr827 = (
         "Phase 4A BranchU null-slot OLC in-place trade (15.05 pp fallback reduction in "
