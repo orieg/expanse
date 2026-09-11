@@ -742,8 +742,11 @@ impl ShardedTreePop {
 /// Fixed-size table of line-padded atomic slots tracking in-flight writers for a tree.
 ///
 /// Eliminates heap allocation and mutex acquisition during `quiesce_writers`.
-/// Tracks up to 64 dedicated writer slots. When the active writer thread count exceeds
-/// 64, threads hash-shard across the 64 slots via `(thread_token() as usize) % MAX_WRITER_SLOTS`.
+/// Tracks up to 64 dedicated writer slots. A slot is never freed, so once 64
+/// threads have written the tree, later threads hash-shard across the 64 slots
+/// via `(thread_token() as usize) % MAX_WRITER_SLOTS` and two live writers can
+/// share one. Each slot's word therefore counts its in-flight writers
+/// (`WriterGate::enter_writer`), and the drain waits for the count to reach zero.
 pub(crate) struct WriterTable {
     pub(crate) slots: [Line<AtomicUsize>; MAX_WRITER_SLOTS],
     pub(crate) allocated: core::sync::atomic::AtomicU64,
@@ -1462,11 +1465,7 @@ impl<T: SharedTree> Shared<T> {
         while mask != 0 {
             let slot_id = mask.trailing_zeros() as usize;
             mask &= mask - 1;
-            while self.writers.slots[slot_id].load(core::sync::atomic::Ordering::Relaxed) != 0 {
-                core::hint::spin_loop();
-                #[cfg(loom)]
-                loom::thread::yield_now();
-            }
+            crate::occ::WriterGate::wait_drained(&self.writers.slots[slot_id]);
         }
         #[cfg(feature = "occ-stats")]
         crate::occ_stats::bump_by(
@@ -7369,6 +7368,122 @@ mod tests {
         for r in &readers {
             assert!(r.is_orphan());
         }
+    }
+
+    /// A tree's writer table never frees a slot, so after `MAX_WRITER_SLOTS`
+    /// threads have written it every later writer hashes onto a taken slot,
+    /// and two live writers can publish through one in-flight word. When one
+    /// of them exits, quiescence must still wait for the other.
+    #[test]
+    fn quiesce_waits_for_a_writer_sharing_an_exhausted_slot() {
+        use core::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+
+        // `'static`, so a failed assertion fails the test instead of
+        // blocking on a scoped thread that still holds a guard.
+        struct Flags {
+            release_x: AtomicBool,
+            release_y: AtomicBool,
+            drained: AtomicBool,
+        }
+        /// Releases both held writers however the test exits.
+        struct ReleaseOnDrop(&'static Flags);
+        impl Drop for ReleaseOnDrop {
+            fn drop(&mut self) {
+                self.0.release_x.store(true, Ordering::Release);
+                self.0.release_y.store(true, Ordering::Release);
+            }
+        }
+        fn hold(release: &AtomicBool) {
+            while !release.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+        }
+
+        let set: &'static SyncExpanseSet = Box::leak(Box::new(SyncExpanseSet::new()));
+        let shared: &'static Shared<ExpanseSet> = &set.shared;
+        let flags: &'static Flags = Box::leak(Box::new(Flags {
+            release_x: AtomicBool::new(false),
+            release_y: AtomicBool::new(false),
+            drained: AtomicBool::new(false),
+        }));
+        let _release = ReleaseOnDrop(flags);
+
+        // Thread churn: each short-lived writer allocates a slot for good.
+        for _ in 0..MAX_WRITER_SLOTS {
+            std::thread::spawn(move || drop(shared.enter_writer().expect("gate is open")))
+                .join()
+                .unwrap();
+        }
+        assert_eq!(
+            shared.writers.allocated.load(Ordering::Relaxed),
+            u64::MAX,
+            "precondition: every writer slot is allocated"
+        );
+
+        // X takes a hashed slot k and holds its guard.
+        let (tx, rx) = mpsc::channel();
+        let x = std::thread::spawn(move || {
+            let g = shared.enter_writer().expect("gate is open");
+            tx.send(g.slot_id()).unwrap();
+            hold(&flags.release_x);
+            drop(g);
+        });
+        let k = rx.recv().unwrap();
+
+        // Y: the first fresh thread hashed onto k, holding its guard. Thread
+        // tokens are issued in sequence, so a run of fresh threads covers
+        // every residue; the bound only turns a surprise into a failure.
+        let mut y = None;
+        for _ in 0..64 * MAX_WRITER_SLOTS {
+            let (tx, rx) = mpsc::channel();
+            let h = std::thread::spawn(move || {
+                let g = shared.enter_writer().expect("gate is open");
+                let shares = g.slot_id() == k;
+                tx.send(shares).unwrap();
+                if shares {
+                    hold(&flags.release_y);
+                }
+                drop(g);
+            });
+            if rx.recv().unwrap() {
+                y = Some(h);
+                break;
+            }
+            h.join().unwrap();
+        }
+        let y = y.expect("no fresh writer thread hashed onto the held slot");
+
+        // X exits while Y is still in flight on the same word.
+        flags.release_x.store(true, Ordering::Release);
+        x.join().unwrap();
+        assert_ne!(
+            shared.writers.slots[k].load(Ordering::Relaxed),
+            0,
+            "slot {k} reads drained while a writer sharing it is in flight"
+        );
+
+        // The drain itself: it cannot finish while Y holds its guard, and
+        // must finish once Y exits.
+        let q = std::thread::spawn(move || {
+            shared.quiesce_writers();
+            flags.drained.store(true, Ordering::Release);
+        });
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(
+            !flags.drained.load(Ordering::Acquire),
+            "quiesce_writers returned while a writer was in flight"
+        );
+        flags.release_y.store(true, Ordering::Release);
+        y.join().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !flags.drained.load(Ordering::Acquire) {
+            assert!(Instant::now() < deadline, "quiesce_writers did not drain");
+            std::thread::yield_now();
+        }
+        q.join().unwrap();
+        shared.reopen_gate();
     }
 }
 
