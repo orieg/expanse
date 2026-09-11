@@ -48,6 +48,7 @@ OLC_ARTIFACTS = {
     "masstree_comparison": [REPO_ROOT / "docs" / "benchmarks" / "masstree_comparison" / "results" / "multi_writer_olc" / f
                             for f in ("baseline_concurrent_ab.json", "baseline_concurrent_ab_run2.json")],
 }
+BASELINE_WRITER_SCALING = REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "baseline_writer_scaling.json"
 
 # ---------------------------------------------------------------------------
 # Hypotheses: inputs no artifact measures. Each is a parameter of the bound
@@ -217,6 +218,67 @@ def shape_bound(shape: str, t_line_ns: float, t_hold_ns: float) -> dict[str, flo
     return {"k": k, "t_line_ns": t_line_ns, "t_hold_ns": t_hold_ns, "ceiling_mops": ceiling / 1e6}
 
 
+def phase4d_predicted_fallback_rate(
+    arm: str,
+    branchb_up: int = 192,
+    leaf_cap: int = 32,
+    artifact_path: Path = BASELINE_WRITER_SCALING,
+) -> tuple[float, float]:
+    """Predicted per-insert fallback rate interval [lower, upper] after Phase 4D
+    concurrent BranchB subarray insertion on the W=1 uniform random workload.
+
+    Sources:
+      Leis, Scheibner, Kemper & Neumann, DaMoN 2016 §3 (optimistic lock coupling).
+      `docs/benchmarks/concurrency/results/baseline_writer_scaling.json` W=1 measured
+      fallback cause partitions (Refs #568, #839).
+
+    Derivation (§8.14):
+      At W=1, all fallbacks are deterministic structural transitions.
+      Phase 4D handles subarray allocation and in-place expansion concurrently
+      under the node's local version lock without global lock fallback.
+      The only BranchB subarray-site insertion that remains as a fallback is the
+      upgrade to BranchU when population exceeds BRANCHB_UP.
+      A BranchB born from a leaf split already holds k0 <= LEAF_CAP + 1 digits,
+      so the node accommodates at least (BRANCHB_UP + 1 - k0) subsequent subarray
+      insertions before upgrading.
+      Thus at most 1 / (BRANCHB_UP + 1 - (leaf_cap + 1)) of all subarray insertions
+      trigger this upgrade (e.g. 1 / (193 - 33) = 1 / 160).
+
+      Residual lower bound (zero upgrades):
+        residual_lower = cap_expansion + immediate_conversion
+      Residual upper bound (maximum upgrade rate):
+        residual_upper = cap_expansion + immediate_conversion + branch_split / (BRANCHB_UP + 1 - (leaf_cap + 1))
+
+    Returns:
+      (residual_lower, residual_upper) as per-insert fallback rates.
+    """
+    if arm not in ("set", "map"):
+        raise ValueError(f"arm must be 'set' or 'map', got '{arm}'")
+    if branchb_up < 1:
+        raise ValueError(f"branchb_up must be >= 1, got {branchb_up}")
+    if leaf_cap < 1:
+        raise ValueError(f"leaf_cap must be >= 1, got {leaf_cap}")
+    k0 = leaf_cap + 1
+    if branchb_up + 1 <= k0:
+        raise ValueError(f"branchb_up + 1 ({branchb_up + 1}) must be > k0 ({k0})")
+    d = json.loads(artifact_path.read_text())
+    row = next(
+        (r for r in d.get("throughput", []) if r.get("arm") == arm and r.get("writers") == 1),
+        None,
+    )
+    if not row:
+        raise ValueError(f"{artifact_path}: no W=1 throughput row found for arm '{arm}'")
+    per_ins = row["fallback_causes_per_insert"]
+    f_bs = per_ins["branch_split"]
+    f_ce = per_ins["cap_expansion"]
+    f_ic = per_ins["immediate_conversion"]
+
+    res_lower = f_ce + f_ic
+    max_upgrade_fraction = 1.0 / (branchb_up + 1 - k0)
+    res_upper = res_lower + f_bs * max_upgrade_fraction
+    return (res_lower, res_upper)
+
+
 # ---------------------------------------------------------------------------
 # Unit tests: reference values pinned by hand-checkable arithmetic, plus the
 # artifact readers against the committed files.
@@ -282,6 +344,28 @@ class TestOlcBounds(unittest.TestCase):
             self.assertGreater(lh["median"], 0.0)
             self.assertLessEqual(lh["min"], lh["median"])
             self.assertLessEqual(lh["median"], lh["max"])
+
+    def test_phase4d_predicted_fallback_rate(self):
+        set_lo, set_hi = phase4d_predicted_fallback_rate("set")
+        # set: 78.69% -> 3.52–3.99%
+        self.assertAlmostEqual(set_lo * 100, 3.52, delta=0.01)
+        self.assertAlmostEqual(set_hi * 100, 3.99, delta=0.01)
+        self.assertLess(set_lo, set_hi)
+
+        map_lo, map_hi = phase4d_predicted_fallback_rate("map")
+        # map: 24.51% -> 14.75–14.81%
+        self.assertAlmostEqual(map_lo * 100, 14.75, delta=0.01)
+        self.assertAlmostEqual(map_hi * 100, 14.81, delta=0.01)
+        self.assertLess(map_lo, map_hi)
+
+        with self.assertRaises(ValueError):
+            phase4d_predicted_fallback_rate("str")
+        with self.assertRaises(ValueError):
+            phase4d_predicted_fallback_rate("set", branchb_up=0)
+        with self.assertRaises(ValueError):
+            phase4d_predicted_fallback_rate("set", leaf_cap=0)
+        with self.assertRaises(ValueError):
+            phase4d_predicted_fallback_rate("set", branchb_up=10, leaf_cap=20)
 
 
 def report() -> None:

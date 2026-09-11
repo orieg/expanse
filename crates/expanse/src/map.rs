@@ -1911,6 +1911,12 @@ impl ExpanseMap {
         self.core.is_empty()
     }
 
+    #[inline(always)]
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    pub(crate) fn alloc(&self) -> &NodeAlloc {
+        &self.alloc
+    }
+
     /// Heap bytes currently used by the map's nodes and leaves.
     #[must_use]
     pub fn mem_used(&self) -> usize {

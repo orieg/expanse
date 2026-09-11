@@ -194,7 +194,8 @@ fn fallback_causes_account_for_every_fallback() {
     let bs_partition_map = d(Stat::BranchSplitSubarray)
         + d(Stat::BranchSplitLinear)
         + d(Stat::BranchSplitPrefix)
-        + d(Stat::BranchSplitRemove);
+        + d(Stat::BranchSplitRemove)
+        + d(Stat::BranchSplitUpgrade);
     assert_eq!(
         bs_partition_map,
         d(Stat::FallbackBranchSplit),
@@ -203,7 +204,8 @@ fn fallback_causes_account_for_every_fallback() {
     let bs_partition_set = sd(Stat::BranchSplitSubarray)
         + sd(Stat::BranchSplitLinear)
         + sd(Stat::BranchSplitPrefix)
-        + sd(Stat::BranchSplitRemove);
+        + sd(Stat::BranchSplitRemove)
+        + sd(Stat::BranchSplitUpgrade);
     assert_eq!(
         bs_partition_set,
         sd(Stat::FallbackBranchSplit),
@@ -214,21 +216,17 @@ fn fallback_causes_account_for_every_fallback() {
     assert_eq!(d(Stat::BranchSplitRemove), 0);
     assert_eq!(sd(Stat::BranchSplitRemove), 0);
 
-    // Pin the dominance of FallbackBranchSplit over FallbackCapExpansion (F4 / §8.9.1).
-    // BranchSplit accounts for 68-81% of fallbacks on both structures, at least 3x
-    // greater than leaf capacity expansion (~16%). This pins the composition so that
-    // any silent shift is immediately detected.
-    assert!(
-        d(Stat::FallbackBranchSplit) > d(Stat::FallbackCapExpansion) * 3,
-        "map: BranchSplit ({}) must exceed CapExpansion ({}) by at least 3x",
-        d(Stat::FallbackBranchSplit),
-        d(Stat::FallbackCapExpansion)
+    // Phase 4D: BranchB subarray growth is concurrent, eliminating Subarray
+    // fallbacks (the dominant branch split cause). BranchSplitSubarray is exactly 0.
+    assert_eq!(
+        d(Stat::BranchSplitSubarray),
+        0,
+        "map: BranchSplitSubarray must be 0 after Phase 4D"
     );
-    assert!(
-        sd(Stat::FallbackBranchSplit) > sd(Stat::FallbackCapExpansion) * 3,
-        "set: BranchSplit ({}) must exceed CapExpansion ({}) by at least 3x",
-        sd(Stat::FallbackBranchSplit),
-        sd(Stat::FallbackCapExpansion)
+    assert_eq!(
+        sd(Stat::BranchSplitSubarray),
+        0,
+        "set: BranchSplitSubarray must be 0 after Phase 4D"
     );
 
     // A single-threaded test workload experiences zero lock contention (F3).
