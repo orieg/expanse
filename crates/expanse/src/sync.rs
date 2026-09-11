@@ -4499,6 +4499,9 @@ impl SyncExpanseMap {
                         };
                         let existing_k = edge.aux_word() & mask;
                         if existing_k == k {
+                            if parent.edge_type != EdgeType::BranchU {
+                                return branch_split(BranchSplitKind::Remove);
+                            }
                             let Ok((old_v, lock_t0)) =
                                 version_try_lock_expect_timed(p_cell, parent.version_snap)
                             else {
@@ -7724,6 +7727,43 @@ mod obsolete_tests {
             let key = prefix | (d << 8) | 1;
             assert_eq!(map.get(key), Some(d * 100));
         }
+        map.with_locked(ExpanseMap::validate);
+    }
+
+    #[test]
+    fn remove_single_key_immediate_under_branch_b_parent_falls_back_cleanly() {
+        let map = SyncExpanseMap::new();
+        let prefix = 0x4200_0000_0000_0000u64;
+        for i in 1..=5u64 {
+            map.insert((i << 56) | 1, i);
+        }
+        for d in 0..40u64 {
+            map.insert(prefix | (d << 8) | 1, d);
+        }
+        let stats = map.with_locked(|m| m.stats());
+        assert!(stats.node_counts.branch_b > 0, "must create a BranchB node");
+        assert_eq!(
+            stats.node_counts.branch_u, 0,
+            "must not yet be a BranchU node"
+        );
+
+        #[cfg(feature = "occ-stats")]
+        let before = crate::occ_stats::snapshot();
+
+        let removed = map.remove(prefix | (10u64 << 8) | 1);
+        assert_eq!(removed, Some(10));
+
+        #[cfg(feature = "occ-stats")]
+        {
+            let after = crate::occ_stats::snapshot();
+            let d_remove = after[crate::occ_stats::Stat::BranchSplitRemove as usize]
+                - before[crate::occ_stats::Stat::BranchSplitRemove as usize];
+            assert_eq!(
+                d_remove, 1,
+                "removing immediate under BranchB parent must attribute fallback to BranchSplitRemove"
+            );
+        }
+
         map.with_locked(ExpanseMap::validate);
     }
 }
