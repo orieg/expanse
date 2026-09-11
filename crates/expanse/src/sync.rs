@@ -704,6 +704,22 @@ impl ShardedTreePop {
         if sum < 0 { 0 } else { sum as u64 }
     }
 
+    /// The exact population at a quiesce point, summing only the shards of
+    /// the writer slots set in `allocated`. A writer adds to its shard only
+    /// through a slot the writer table allocated, and the table never frees a
+    /// slot, so every other shard holds zero.
+    #[cfg(feature = "std")]
+    pub(crate) fn load_slots(&self, allocated: u64) -> u64 {
+        let mut sum = self.base.load(core::sync::atomic::Ordering::Relaxed) as i64;
+        let mut mask = allocated;
+        while mask != 0 {
+            let slot = mask.trailing_zeros() as usize;
+            mask &= mask - 1;
+            sum = sum.saturating_add(self.shards[slot].load(core::sync::atomic::Ordering::Relaxed));
+        }
+        if sum < 0 { 0 } else { sum as u64 }
+    }
+
     #[inline(always)]
     pub(crate) fn add_base(&self, delta: i64) {
         if delta > 0 {
@@ -1599,7 +1615,27 @@ impl<T: SharedTree> Shared<T> {
     /// root-state changes a remove can make (to empty, or a condense back to
     /// a root leaf) bracket themselves. The unshared path pays nothing for
     /// this: the decision is one branch here, on the shared path only.
+    #[inline(always)]
     fn write_root_covered<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
+    where
+        T: RootState,
+    {
+        self.write_root_covered_with::<false, R>(f)
+    }
+
+    /// [`Self::write_root_covered`] for a removal, which first re-syncs the
+    /// engine's population field from the sharded counter. A removal decides
+    /// from that field whether to condense back to a root leaf, and
+    /// `condense` sizes the leaf from it, so it must be exact.
+    #[inline(always)]
+    fn remove_root_covered<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
+    where
+        T: RootState,
+    {
+        self.write_root_covered_with::<true, R>(f)
+    }
+
+    fn write_root_covered_with<const EXACT_POP: bool, R>(&self, f: impl FnOnce(&mut T) -> R) -> R
     where
         T: RootState,
     {
@@ -1624,6 +1660,24 @@ impl<T: SharedTree> Shared<T> {
         crate::occ_stats::op_begin();
         // SAFETY: the writer mutex makes this the only mutable borrow.
         let inner = unsafe { &mut *self.inner.get() };
+        // Optimistic writers move only the sharded counter, so the engine's
+        // own population field is stale until re-synced. A removal trusts
+        // that field — the condense trigger and the root leaf `condense`
+        // rebuilds are both sized from it — so it must hold the true
+        // population. Writers are quiesced here, which makes the sharded sum
+        // exact. An insert only adds to the field and `pop_before` carries
+        // the delta, so it skips the sum.
+        if EXACT_POP {
+            #[cfg(feature = "std")]
+            let pop = self.tree_pop.load_slots(
+                self.writers
+                    .allocated
+                    .load(core::sync::atomic::Ordering::Acquire),
+            );
+            #[cfg(not(feature = "std"))]
+            let pop = self.tree_pop.load();
+            inner.set_tree_pop(pop);
+        }
         let pop_before = inner.tree_pop();
         // Read under the lock: the root state is the writer's to change.
         let r = if inner.root_is_tree() {
@@ -2485,7 +2539,7 @@ impl SyncExpanseSet {
             if !self.shared.inner_ref().root_is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
-                return self.shared.write_root_covered(|s| s.remove(key));
+                return self.shared.remove_root_covered(|s| s.remove(key));
             }
 
             let _guard = self.shared.enter_writer_blocking();
@@ -2537,12 +2591,12 @@ impl SyncExpanseSet {
             drop(_guard);
             match res {
                 Ok(rem) => rem,
-                Err(_) => self.shared.write_root_covered(|s| s.remove(key)),
+                Err(_) => self.shared.remove_root_covered(|s| s.remove(key)),
             }
         }
         #[cfg(not(feature = "std"))]
         {
-            self.shared.write_root_covered(|s| s.remove(key))
+            self.shared.remove_root_covered(|s| s.remove(key))
         }
     }
 
@@ -3528,7 +3582,7 @@ impl SyncExpanseMap {
             if !self.shared.inner_ref().root_is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
-                return self.shared.write_root_covered(|m| m.remove(key));
+                return self.shared.remove_root_covered(|m| m.remove(key));
             }
 
             let _guard = self.shared.enter_writer_blocking();
@@ -3580,12 +3634,12 @@ impl SyncExpanseMap {
             drop(_guard);
             match res {
                 Ok(prev) => prev,
-                Err(_) => self.shared.write_root_covered(|m| m.remove(key)),
+                Err(_) => self.shared.remove_root_covered(|m| m.remove(key)),
             }
         }
         #[cfg(not(feature = "std"))]
         {
-            self.shared.write_root_covered(|m| m.remove(key))
+            self.shared.remove_root_covered(|m| m.remove(key))
         }
     }
 
@@ -4499,6 +4553,9 @@ impl SyncExpanseMap {
                         };
                         let existing_k = edge.aux_word() & mask;
                         if existing_k == k {
+                            if parent.edge_type != EdgeType::BranchU {
+                                return branch_split(BranchSplitKind::Remove);
+                            }
                             let Ok((old_v, lock_t0)) =
                                 version_try_lock_expect_timed(p_cell, parent.version_snap)
                             else {
@@ -7725,5 +7782,195 @@ mod obsolete_tests {
             assert_eq!(map.get(key), Some(d * 100));
         }
         map.with_locked(ExpanseMap::validate);
+    }
+
+    #[test]
+    fn remove_single_key_immediate_under_branch_b_parent_falls_back_cleanly() {
+        let map = SyncExpanseMap::new();
+        let prefix = 0x4200_0000_0000_0000u64;
+        for i in 1..=5u64 {
+            map.insert((i << 56) | 1, i);
+        }
+        for d in 0..40u64 {
+            map.insert(prefix | (d << 8) | 1, d);
+        }
+        let stats = map.with_locked(|m| m.stats());
+        assert!(stats.node_counts.branch_b > 0, "must create a BranchB node");
+        assert_eq!(
+            stats.node_counts.branch_u, 0,
+            "must not yet be a BranchU node"
+        );
+
+        let removed = map.remove(prefix | (10u64 << 8) | 1);
+        assert_eq!(removed, Some(10));
+
+        map.with_locked(ExpanseMap::validate);
+    }
+
+    /// Control for the guard above: under an uncompressed parent a NULL slot is
+    /// an absent child, so the in-place removal stays valid.
+    #[test]
+    fn olc_remove_map_single_key_under_uncompressed_branch_stays_valid() {
+        let map = SyncExpanseMap::new();
+        let prefix = 0x4200_0000_0000_0000u64;
+        for i in 1..=5u64 {
+            map.insert((i << 56) | 1, i);
+        }
+        for d in 0..220u64 {
+            map.insert(prefix | (d << 8) | 1, d);
+        }
+        let stats = map.with_locked(|m| m.stats());
+        assert!(
+            stats.node_counts.branch_u > 0,
+            "fixture must build a BranchU"
+        );
+
+        for d in [2u64, 100, 219] {
+            assert_eq!(map.remove(prefix | (d << 8) | 1), Some(d));
+            assert_eq!(map.get(prefix | (d << 8) | 1), None);
+        }
+        assert_eq!(map.len(), 5 + 220 - 3);
+        map.with_locked(ExpanseMap::validate);
+    }
+
+    /// The set's removal has no in-place slot-emptying path; pin that the same
+    /// bitmap-branch fixture stays valid so a future one cannot reintroduce the
+    /// map's defect on the set.
+    #[test]
+    fn olc_remove_set_single_key_under_bitmap_branch_keeps_node_valid() {
+        let set = SyncExpanseSet::new();
+        let prefix = 0x4200_0000_0000_0000u64;
+        for i in 1..=5u64 {
+            set.insert((i << 56) | 1);
+        }
+        for d in 0..40u64 {
+            set.insert(prefix | (d << 8) | 1);
+        }
+        let stats = set.with_locked(|s| s.stats());
+        assert!(
+            stats.node_counts.branch_b > 0,
+            "fixture must build a BranchB"
+        );
+
+        for d in [2u64, 17, 39] {
+            assert!(set.remove(prefix | (d << 8) | 1));
+            assert!(!set.contains(prefix | (d << 8) | 1));
+            set.with_locked(ExpanseSet::validate);
+        }
+        assert_eq!(set.len(), 5 + 40 - 3);
+    }
+
+    /// A fallback mutation must see the tree's true population. Optimistic
+    /// writers move only the sharded counter, and `condense` sizes the root leaf
+    /// it rebuilds from the engine's own field; if that field is stale, a
+    /// fallback remove that shrinks the tree below the root-leaf threshold
+    /// writes more keys than the leaf holds. The workload is the
+    /// `sync_map_remove` instruction arm's: insert a random population, then
+    /// remove all of it in shuffled order.
+    #[test]
+    fn fallback_remove_condenses_with_the_true_population() {
+        let mut x = 0x0DDB_1A5E_5EED_0001u64;
+        let mut next = move || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x
+        };
+        let keys: Vec<u64> = (0..50_000).map(|_| next()).collect();
+        let map = SyncExpanseMap::new();
+        for &k in &keys {
+            map.insert(k, !k);
+        }
+        let mut probes = keys.clone();
+        let mut y = 0x9E37_79B9u64;
+        for i in (1..probes.len()).rev() {
+            y ^= y << 13;
+            y ^= y >> 7;
+            y ^= y << 17;
+            probes.swap(i, (y % (i as u64 + 1)) as usize);
+        }
+        for &k in &probes {
+            assert_eq!(
+                map.remove(k),
+                Some(!k),
+                "present key {k:#x} must be removed"
+            );
+        }
+        assert_eq!(map.len(), 0);
+        map.with_locked(ExpanseMap::validate);
+    }
+
+    /// The population a remove fallback re-syncs is summed over the writer
+    /// slots in use. Several writers insert, each through its own slot, and
+    /// exit; one thread then removes everything, so the true population is
+    /// spread across shards of slots whose writers are gone.
+    #[test]
+    fn fallback_remove_condenses_after_multi_writer_inserts() {
+        let mut x = 0x0DDB_1A5E_5EED_0002u64;
+        let keys: Vec<u64> = (0..40_000)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x
+            })
+            .collect();
+        let map = std::sync::Arc::new(SyncExpanseMap::new());
+        let handles: Vec<_> = keys
+            .chunks(10_000)
+            .map(|chunk| {
+                let map = std::sync::Arc::clone(&map);
+                let chunk = chunk.to_vec();
+                std::thread::spawn(move || {
+                    for k in chunk {
+                        map.insert(k, !k);
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().expect("writer panicked");
+        }
+        assert_eq!(map.len(), keys.len() as u64);
+        for &k in keys.iter().rev() {
+            assert_eq!(
+                map.remove(k),
+                Some(!k),
+                "present key {k:#x} must be removed"
+            );
+        }
+        assert_eq!(map.len(), 0);
+        map.with_locked(ExpanseMap::validate);
+    }
+
+    /// The set twin of the test above: the set's removal condenses the same
+    /// way, from its own population field.
+    #[test]
+    fn fallback_remove_condenses_with_the_true_population_set() {
+        let mut x = 0x0DDB_1A5E_5EED_0001u64;
+        let mut next = move || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x
+        };
+        let keys: Vec<u64> = (0..50_000).map(|_| next()).collect();
+        let set = SyncExpanseSet::new();
+        for &k in &keys {
+            set.insert(k);
+        }
+        let mut probes = keys.clone();
+        let mut y = 0x9E37_79B9u64;
+        for i in (1..probes.len()).rev() {
+            y ^= y << 13;
+            y ^= y >> 7;
+            y ^= y << 17;
+            probes.swap(i, (y % (i as u64 + 1)) as usize);
+        }
+        for &k in &probes {
+            assert!(set.remove(k), "present key {k:#x} must be removed");
+        }
+        assert_eq!(set.len(), 0);
+        set.with_locked(ExpanseSet::validate);
     }
 }
