@@ -6,7 +6,7 @@ P-cores for map (64-bit), set (63-bit), and str arms.
 
 Two builds, never one (AGENTS.md §6 / hot_concurrent.rs:36-42):
 - Pass 1 (throughput): uninstrumented release build, interleaved across W within each round,
-  using a seeded per-round permutation to eliminate position and carryover ordering effects.
+  balancing position and first-order carryover across rounds (Williams design).
   Emits elapsed_s and writer_mops. Refuses to run if occ-stats is enabled.
 - Pass 2 (counters): diagnostic build (--features occ-stats), captures exact lock_fallbacks
   and write_ops across all rounds. Refuses to emit elapsed_s or writer_mops.
@@ -59,19 +59,19 @@ def get_binaries() -> tuple[Path, Path]:
 
 
 def _print_binary_info(label: str, path: Path) -> None:
+    rel_path = (
+        path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path.name
+    )
     if path.exists():
         stat = path.stat()
         mtime_iso = datetime.datetime.fromtimestamp(
             stat.st_mtime, tz=datetime.timezone.utc
         ).strftime("%Y-%m-%d %H:%M:%SZ")
-        rel_path = (
-            path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path.name
-        )
         print(
             f"  {label} binary: {rel_path} (mtime: {mtime_iso}, size: {stat.st_size} bytes)"
         )
     else:
-        print(f"  {label} binary: {path} (does not exist)")
+        print(f"  {label} binary: {rel_path} (does not exist)")
 
 
 def build_binaries(verbose: bool = True) -> tuple[Path, Path]:
@@ -293,7 +293,7 @@ def summarize_arm(
             "rounds_raw": [
                 {
                     "round": r["round"],
-                    "position": r.get("position", 0),
+                    "position": r["position"],
                     "writer_mops": r["writer_mops"],
                     "writer_elapsed_s": r["writer_elapsed_s"],
                     "write_ops": r["write_ops"],
@@ -303,7 +303,7 @@ def summarize_arm(
             "counters_raw": [
                 {
                     "round": r["round"],
-                    "position": r.get("position", 0),
+                    "position": r["position"],
                     "write_ops": r["write_ops"],
                     "lock_fallbacks": r["lock_fallbacks"],
                 }
@@ -443,6 +443,49 @@ def self_test() -> int:
             "/home/" not in c_json
         ), f"Home directory path leaked into cell JSON (AGENTS.md §7): {c_json}"
 
+    # 7. Williams square balance property check (count positions and pairs over 1 full cycle)
+    t_rows_bal = run_pass(
+        throughput_bin, "throughput", "map", [1, 2, 4, 8], 4, quick=True
+    )
+    writers_bal = [1, 2, 4, 8]
+    n_w = len(writers_bal)
+    pos_counts: dict[int, list[int]] = {w: [0] * n_w for w in writers_bal}
+    pair_counts: dict[int, dict[int, int]] = {
+        w1: {w2: 0 for w2 in writers_bal if w2 != w1} for w1 in writers_bal
+    }
+
+    by_round: dict[int, list[dict[str, Any]]] = {}
+    for r in t_rows_bal:
+        by_round.setdefault(r["round"], []).append(r)
+
+    for round_idx in range(4):
+        round_rows = sorted(by_round[round_idx], key=lambda x: x["position"])
+        assert len(round_rows) == n_w
+        for pos, r in enumerate(round_rows):
+            assert r["position"] == pos
+            w = r["writers"]
+            pos_counts[w][pos] += 1
+            if pos > 0:
+                prev_w = round_rows[pos - 1]["writers"]
+                pair_counts[prev_w][w] += 1
+
+    # Over 1 full cycle of 4 rounds:
+    # 1. Every treatment appears in every position exactly once:
+    for w in writers_bal:
+        for pos in range(n_w):
+            assert pos_counts[w][pos] == 1, (
+                f"Williams balance error: W={w} appeared in position {pos} "
+                f"{pos_counts[w][pos]} times (expected 1)"
+            )
+    # 2. Every ordered pair of distinct treatments appears as an immediate sequence exactly once:
+    for w1 in writers_bal:
+        for w2 in writers_bal:
+            if w1 != w2:
+                assert pair_counts[w1][w2] == 1, (
+                    f"Williams carryover balance error: pair ({w1}, {w2}) "
+                    f"appeared {pair_counts[w1][w2]} times (expected 1)"
+                )
+
     eprintln("writer_scaling.py self-test PASSED\n")
     return 0
 
@@ -494,6 +537,13 @@ def main() -> int:
     if 1 not in writers_list:
         sys.stderr.write("error: --writers must include 1 to compute single-writer baseline C(N)\n")
         return 1
+
+    n_w = len(writers_list)
+    if n_w % 2 != 0 or args.rounds % n_w != 0:
+        sys.stderr.write(
+            f"notice: Williams square balance requires even writer count and rounds multiple of len(writers); "
+            f"got len(writers)={n_w}, rounds={args.rounds} — position/carryover balance will be incomplete\n"
+        )
 
     if args.quick and args.out:
         out_path = Path(args.out).resolve()

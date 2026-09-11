@@ -485,27 +485,72 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
     } else {
         "throughput"
     };
+
+    // Verify Williams square design balance properties directly:
+    let test_writers = [1, 2, 4, 8];
+    let n = test_writers.len();
+    let mut pos_counts = vec![vec![0usize; n]; n];
+    let mut pair_counts = vec![vec![0usize; n]; n];
+    for r in 0..n {
+        let order = williams_order(&test_writers, r);
+        if order.len() != n {
+            return Err(format!(
+                "williams_order returned len {}, expected {n}",
+                order.len()
+            ));
+        }
+        for (pos, &w) in order.iter().enumerate() {
+            let widx = test_writers.iter().position(|&x| x == w).unwrap();
+            pos_counts[widx][pos] += 1;
+            if pos > 0 {
+                let prev_w = order[pos - 1];
+                let prev_idx = test_writers.iter().position(|&x| x == prev_w).unwrap();
+                pair_counts[prev_idx][widx] += 1;
+            }
+        }
+    }
+    for (widx, &w) in test_writers.iter().enumerate() {
+        for (pos, &cnt) in pos_counts[widx].iter().enumerate() {
+            if cnt != 1 {
+                return Err(format!(
+                    "Williams square imbalance: W={w} appeared in pos {pos} {cnt} times (expected 1)"
+                ));
+            }
+        }
+    }
+    for i in 0..n {
+        for j in 0..n {
+            if i != j && pair_counts[i][j] != 1 {
+                return Err(format!(
+                    "Williams square carryover imbalance: pair ({}, {}) appeared {} times (expected 1)",
+                    test_writers[i], test_writers[j], pair_counts[i][j]
+                ));
+            }
+        }
+    }
+
     eprintln!("writer_scaling {mode_str} self-test PASSED");
     Ok(())
 }
 
-fn permute_writers(writers: &[usize], round: usize) -> Vec<usize> {
-    let mut perm = writers.to_vec();
-    if perm.len() <= 1 {
-        return perm;
+fn williams_order(writers: &[usize], round: usize) -> Vec<usize> {
+    let n = writers.len();
+    if n <= 1 {
+        return writers.to_vec();
     }
-    let mut state = 0x9E37_79B9_7F4A_7C15u64
-        .wrapping_add((round as u64).wrapping_mul(0xBF58_476D_1CE4_E5B9u64));
-    for i in (1..perm.len()).rev() {
-        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        let rand_val = z ^ (z >> 31);
-        let j = (rand_val as usize) % (i + 1);
-        perm.swap(i, j);
+    // First row 0, 1, n-1, 2, n-2, ...; row r adds r mod n.
+    let mut first = Vec::with_capacity(n);
+    first.push(0);
+    let (mut lo, mut hi) = (1, n - 1);
+    while first.len() < n {
+        first.push(lo);
+        lo += 1;
+        if first.len() < n {
+            first.push(hi);
+            hi -= 1;
+        }
     }
-    perm
+    first.iter().map(|&i| writers[(i + round) % n]).collect()
 }
 
 fn main() {
@@ -597,18 +642,26 @@ fn main() {
         .filter_map(|s| s.trim().parse().ok())
         .collect();
 
+    let n_w = writers_list.len();
+    if !n_w.is_multiple_of(2) || !rounds.is_multiple_of(n_w) {
+        eprintln!(
+            "notice: Williams square balance requires even writer count and rounds multiple of len(writers); \
+             got len(writers)={n_w}, rounds={rounds} — position/carryover balance will be incomplete"
+        );
+    }
+
     let run_map = arm_arg == "map" || arm_arg == "all" || arm_arg == "both";
     let run_set = arm_arg == "set" || arm_arg == "all" || arm_arg == "both";
     let run_str = arm_arg == "str" || arm_arg == "all";
 
-    // Interleaved execution across writer counts within each round, using a seeded
-    // per-round permutation to eliminate position and carryover ordering effects:
+    // Interleaved execution across writer counts within each round, balancing
+    // position and first-order carryover across rounds (Williams design):
     if run_map {
         eprintln!("generating map 64-bit workload (prefill={n0}, fresh={m})...");
         let wl = WriterWorkload::generate(n0, m, 64);
         let bits = wl.keyspace_bits;
         for round in round_start..round_end {
-            let round_writers = permute_writers(&writers_list, round);
+            let round_writers = williams_order(&writers_list, round);
             for (pos, &w) in round_writers.iter().enumerate() {
                 let (elapsed_s, final_pop, fallbacks) = run_map_cell(&wl, w, round, is_counters);
                 let write_ops = m;
@@ -639,7 +692,7 @@ fn main() {
         let wl = WriterWorkload::generate(n0, m, 63);
         let bits = wl.keyspace_bits;
         for round in round_start..round_end {
-            let round_writers = permute_writers(&writers_list, round);
+            let round_writers = williams_order(&writers_list, round);
             for (pos, &w) in round_writers.iter().enumerate() {
                 let (elapsed_s, final_pop, fallbacks) = run_set_cell(&wl, w, round, is_counters);
                 let write_ops = m;
@@ -669,7 +722,7 @@ fn main() {
         eprintln!("generating str workload (prefill={n0}, fresh={m})...");
         let wl = WriterStrWorkload::generate(n0, m);
         for round in round_start..round_end {
-            let round_writers = permute_writers(&writers_list, round);
+            let round_writers = williams_order(&writers_list, round);
             for (pos, &w) in round_writers.iter().enumerate() {
                 let (elapsed_s, final_pop, fallbacks) = run_str_cell(&wl, w, round, is_counters);
                 let write_ops = m;
