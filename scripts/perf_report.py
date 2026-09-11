@@ -83,8 +83,29 @@ BENCH_N_MAP: Dict[str, int] = {
     "sync_map_churn": 50_000,
     "sync_map_remove": 50_000,
     "set32_insert": 10_000,
+    "map32_insert": 10_000,
     "map32_remove": 2_000,
     "set32_remove": 2_000,
+    # 32-bit ordered walks over the 2,000-key `keys32` maps and sets.
+    "map32_iterate": 2_000,
+    "set32_iterate": 2_000,
+    # The range arms walk `0..=Key32::MAX / 2`: every sequential and clustered
+    # key lies below it, but the uniform-random keys span all 32 bits and
+    # 1,007 of the 2,000 do (replicating `keys32("random")`).
+    "map32_range": 2_000,
+    "map32_for_each_range": 2_000,
+    "set32_range": 2_000,
+    "map32_range/random": 1_007,
+    "map32_for_each_range/random": 1_007,
+    "set32_range/random": 1_007,
+    # String maps: one pass over `str_keys` (POP = 50,000); churn counts one
+    # per key, as `map_churn` does.
+    "strmap_insert": 50_000,
+    "strmap_get": 50_000,
+    "strmap_churn": 50_000,
+    "bytesmap_insert": 50_000,
+    "bytesmap_get": 50_000,
+    "bytesmap_churn": 50_000,
     # C ABI vs Stock Judy
     "judyl_insert": 50_000,
     "judyl_get": 50_000,
@@ -122,12 +143,25 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "judyl_get",
             "judy1_test",
             "judysl_get",
+            "strmap_get",
+            "bytesmap_get",
         },
     ),
     (
         "range_scans",
         "#### ⚡ Range Scans & Ordered Traversal",
-        {"map_range", "set_range", "map_iterate", "map_nav", "blobmap32_scan"},
+        {
+            "map_range",
+            "set_range",
+            "map_iterate",
+            "map_nav",
+            "blobmap32_scan",
+            "map32_iterate",
+            "map32_range",
+            "map32_for_each_range",
+            "set32_iterate",
+            "set32_range",
+        },
     ),
     (
         "mutations",
@@ -149,6 +183,11 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "judy1_set",
             "judyl_churn",
             "judysl_insert",
+            "map32_insert",
+            "strmap_insert",
+            "strmap_churn",
+            "bytesmap_insert",
+            "bytesmap_churn",
         },
     ),
 ]
@@ -536,7 +575,7 @@ def parse_allow_regression(pr_body: str) -> str | None:
     ):
         reason = match.group(1).strip()
         # Strip trailing HTML-comment close / stray backticks from inline quoting.
-        reason = re.sub(r"(?:-->|`)+\s*$", "", reason).strip()
+        reason = re.sub(r"(?:--!?>|`)+\s*$", "", reason).strip()
         if reason and not reason.lower().startswith("<reason>"):
             return reason
     return None
@@ -1318,14 +1357,16 @@ def get_bench_n(bench_name: str, is_smoke: bool = False) -> int:
     base_name = bench_name.split("/")[0]
     if is_smoke and clean_name in SMOKE_BENCH_N_MAP:
         return SMOKE_BENCH_N_MAP[clean_name]
+    # A per-distribution entry (`map32_range/random`) wins over its arm's.
+    if bench_name in BENCH_N_MAP:
+        return BENCH_N_MAP[bench_name]
     if clean_name in BENCH_N_MAP:
         return BENCH_N_MAP[clean_name]
     if base_name in BENCH_N_MAP:
         return BENCH_N_MAP[base_name]
-    if bench_name in BENCH_N_MAP:
-        return BENCH_N_MAP[bench_name]
-    # Attempt to extract explicit numeric key count from suffix (e.g. 'foo_10k')
-    match = re.search(r"(\d+k|\d+m|\d+)", bench_name.lower())
+    # An explicit count suffix on the arm name ('foo_10k'), anchored to the end:
+    # an unanchored digit search read N = 32 out of `map32_range`.
+    match = re.search(r"_(\d+[km]?)$", base_name.lower())
     if match:
         val_str = match.group(1)
         if val_str.endswith("m"):
@@ -2334,6 +2375,8 @@ def self_test() -> int:
     # 4. allow-regression: strict form only.
     assert parse_allow_regression("allow-regression: intentional SIMD trade-off") == "intentional SIMD trade-off"
     assert parse_allow_regression("<!-- allow-regression: hardening cost -->") == "hardening cost"
+    # `--!>` also closes an HTML comment; stripping only `-->` left it on the reason.
+    assert parse_allow_regression("<!-- allow-regression: hardening cost --!>") == "hardening cost"
     assert parse_allow_regression("we may need allow-regression at some point") is None
     assert parse_allow_regression("add `allow-regression: <reason>` to the PR body.") is None
     assert parse_allow_regression("allow-regression:") is None
@@ -3061,7 +3104,9 @@ def self_test() -> int:
     # A group the named categories already split keeps its leftovers in
     # "Other & General" — `instructions::cost` must not become a section.
     mixed, mixed_origins = parse_full(
-        SELF_TEST_HEAD + 'instructions::cost::strmap_get routes:"routes"\n'
+        # An arm no named category claims (`strmap_get` served here until it
+        # was categorized, so the fixture uses a name nothing will ever claim).
+        SELF_TEST_HEAD + 'instructions::cost::uncategorized_probe routes:"routes"\n'
         "  Instructions:              9000|9000            (No change)\n"
         "  Estimated Cycles:         18000|18000           (No change)\n"
     )

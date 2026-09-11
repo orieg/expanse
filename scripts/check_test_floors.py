@@ -63,7 +63,7 @@ def parse_allow_test_shrink(pr_body: str) -> Optional[str]:
 
     for match in pattern.finditer(pr_body):
         reason = match.group(1).strip()
-        reason = re.sub(r"(?:-->|`)+\s*$", "", reason).strip()
+        reason = re.sub(r"(?:--!?>|`)+\s*$", "", reason).strip()
         if not reason:
             continue
         lower = reason.lower()
@@ -251,6 +251,9 @@ test_blobmap_compact: test
     # 2. Override parser tests
     assert parse_allow_test_shrink("allow-test-shrink: merged duplicate tests") == "merged duplicate tests"
     assert parse_allow_test_shrink("<!-- allow-test-shrink: refactored test matrix -->") == "refactored test matrix"
+    # `--!>` also closes an HTML comment; left on the reason it let a placeholder through.
+    assert parse_allow_test_shrink("<!-- allow-test-shrink: refactored test matrix --!>") == "refactored test matrix"
+    assert parse_allow_test_shrink("<!-- allow-test-shrink: TODO --!>") is None
     assert parse_allow_test_shrink("  allow-test-shrink: indented reason") == "indented reason"
     assert parse_allow_test_shrink("allow-test-shrink: <reason>") is None
     assert parse_allow_test_shrink("allow-test-shrink: TODO") is None

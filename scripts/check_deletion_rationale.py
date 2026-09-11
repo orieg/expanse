@@ -54,7 +54,7 @@ def parse_deletion_rationale(pr_body: str) -> Optional[str]:
     for match in pattern.finditer(pr_body):
         reason = match.group(1).strip()
         # Strip trailing HTML comment closers, backticks, or trailing punctuation
-        reason = re.sub(r"(?:-->|`)+\s*$", "", reason).strip()
+        reason = re.sub(r"(?:--!?>|`)+\s*$", "", reason).strip()
         if not reason:
             continue
 
@@ -201,6 +201,9 @@ def self_test() -> int:
     # 2. HTML comments
     assert parse_deletion_rationale("<!-- removes: cleaned up stale test files -->") == "cleaned up stale test files"
     assert parse_deletion_rationale("<!-- deletes: dead code -->") == "dead code"
+    # `--!>` also closes an HTML comment; left on the reason it let a placeholder through.
+    assert parse_deletion_rationale("<!-- deletes: dead code --!>") == "dead code"
+    assert parse_deletion_rationale("<!-- removes: TODO --!>") is None
 
     # 3. Indented lines
     assert parse_deletion_rationale("  removes: indented directive") == "indented directive"

@@ -107,6 +107,7 @@ jobs:
             # them -- but must not run Miri, ASan, fuzz or Callgrind.
             tooling:
               - 'scripts/**'
+              - 'tests/test_perf_report.py'
               - '.github/workflows/**'
               - '.github/bench-suites.json'
               - '.github/superseded-figures.json'
@@ -322,6 +323,11 @@ jobs:
       - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / pin exposure / warmup ramp / bench pin / docs hygiene / ecosystem theme / bench suites / bench shapes / man pages / abi parity / deletions / test floors / miri shards)
         run: |
           python3 scripts/perf_report.py --self-test
+          # Unit tests for perf_report.py, including that every Callgrind arm
+          # in the harnesses has a category and an explicit N, and that the
+          # displayed memory ceilings are the ones examples/bytes_per_key.rs
+          # enforces. Plain python3: the file runs its own test_* functions.
+          python3 tests/test_perf_report.py
           python3 scripts/bench_report.py --self-test
           python3 scripts/bench_baseline.py --self-test
           # perf_counters.py needs a PMU to collect anything, but its CSV
