@@ -14,12 +14,13 @@
 //! "N% of reads took the writer mutex" is a fact about the protocol
 //! regardless of what else the machine was doing.
 //!
-//! The one exception is [`Stat::SampleSpinCycles`], which accumulates the
-//! host's cycle counter across every spin in `SeqVersion::sample`. A spin
-//! *count* cannot say how long a reader waited on an open bracket; the
-//! cycle total can, once the counter's rate is known ([`cycles_hz`]).
-//! It is a duration, so it is host-dependent like any other timing, and
-//! it is published only as a share of the reader's own elapsed time.
+//! The exceptions are the cycle-accumulating counters ([`Stat::SampleSpinCycles`],
+//! [`Stat::GateWaitCycles`], [`Stat::QuiesceDrainCycles`]), which accumulate
+//! the host's cycle counter across spins in `SeqVersion::sample`, `enter_writer_blocking`,
+//! and `quiesce_writers`. A spin or call *count* cannot say how long a reader or writer
+//! waited; the cycle total can, once the counter's rate is known ([`cycles_hz`]).
+//! They are durations, so they are host-dependent like any other timing, and
+//! are published only as shares of elapsed time or per-fallback rates.
 //!
 //! ## Sharded per thread
 //!

@@ -7,12 +7,11 @@
 #![cfg(all(feature = "occ-stats", feature = "std", target_pointer_width = "64"))]
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use expanse_trie::occ_stats::{self, Stat};
-use expanse_trie::sync::{SyncExpanseMap, SyncExpanseSet};
+use expanse_trie::sync::{self, SyncExpanseMap, SyncExpanseSet};
 
 #[test]
 fn structural_no_raw_fallback_branch_split_in_sync_rs() {
@@ -48,6 +47,65 @@ fn structural_no_raw_fallback_branch_split_in_sync_rs() {
 }
 
 #[test]
+fn contention_stat_mapping_unit_invariants() {
+    assert_eq!(
+        sync::contention_stat(true),
+        Stat::ContentionGateClosed,
+        "closed=true must map to Stat::ContentionGateClosed"
+    );
+    assert_eq!(
+        sync::contention_stat(false),
+        Stat::ContentionRetryExhausted,
+        "closed=false must map to Stat::ContentionRetryExhausted"
+    );
+}
+
+#[test]
+fn structural_contention_stat_routing_in_sync_rs() {
+    let sync_src = include_str!("../src/sync.rs");
+    let lines: Vec<&str> = sync_src.lines().collect();
+
+    let mut direct_uses = Vec::new();
+    let mut call_sites = 0;
+
+    let test_mod_idx = lines
+        .iter()
+        .position(|l| l.contains("mod tests"))
+        .unwrap_or(lines.len());
+    for (idx, line) in lines[..test_mod_idx].iter().enumerate() {
+        let trimmed = line.trim();
+        // Ignore comments
+        if trimmed.starts_with("//") {
+            continue;
+        }
+        if (trimmed.contains("Stat::ContentionGateClosed")
+            || trimmed.contains("Stat::ContentionRetryExhausted"))
+            && !lines[..idx]
+                .iter()
+                .rev()
+                .take(15)
+                .any(|l| l.contains("fn contention_stat"))
+        {
+            direct_uses.push((idx + 1, trimmed.to_string()));
+        }
+        if trimmed.contains("contention_stat(closed)") {
+            call_sites += 1;
+        }
+    }
+
+    assert!(
+        direct_uses.is_empty(),
+        "Found direct use of ContentionGateClosed / ContentionRetryExhausted outside fn contention_stat: {:?}",
+        direct_uses
+    );
+    assert_eq!(
+        call_sites, 4,
+        "Expected exactly 4 write loop call sites for contention_stat(closed), found {}",
+        call_sites
+    );
+}
+
+#[test]
 fn gate_blocked_entries_and_wait_cycles_measured() {
     // 1. SyncExpanseMap test
     let map = Arc::new(SyncExpanseMap::new());
@@ -62,19 +120,27 @@ fn gate_blocked_entries_and_wait_cycles_measured() {
 
     let before = occ_stats::snapshot();
     let m = Arc::clone(&map);
-    let entered = Arc::new(AtomicBool::new(false));
-    let entered_clone = Arc::clone(&entered);
 
     let handle = thread::spawn(move || {
-        entered_clone.store(true, Ordering::Release);
         m.insert(999_999_999, 42);
     });
 
-    // Spin until spawned thread has entered and reached the closed gate
-    while !entered.load(Ordering::Acquire) {
+    // Poll until writer thread has reached enter_writer_blocking and incremented GateBlockedEntries.
+    // Removes any dependency on thread scheduling timing (AGENTS.md §2.1.5).
+    let timeout = Duration::from_secs(5);
+    let start = Instant::now();
+    while occ_stats::snapshot()[Stat::GateBlockedEntries as usize]
+        == before[Stat::GateBlockedEntries as usize]
+    {
+        if start.elapsed() > timeout {
+            map.__test_reopen_gate();
+            handle.join().ok();
+            panic!(
+                "map: timed out after 5s waiting for writer thread to increment GateBlockedEntries in enter_writer_blocking"
+            );
+        }
         thread::yield_now();
     }
-    thread::sleep(Duration::from_millis(15));
 
     // Reopen gate to unblock writer
     map.__test_reopen_gate();
@@ -108,18 +174,24 @@ fn gate_blocked_entries_and_wait_cycles_measured() {
 
     let s_before = occ_stats::snapshot();
     let s = Arc::clone(&set);
-    let s_entered = Arc::new(AtomicBool::new(false));
-    let s_entered_clone = Arc::clone(&s_entered);
 
     let s_handle = thread::spawn(move || {
-        s_entered_clone.store(true, Ordering::Release);
         s.insert(999_999_999);
     });
 
-    while !s_entered.load(Ordering::Acquire) {
+    let s_start = Instant::now();
+    while occ_stats::snapshot()[Stat::GateBlockedEntries as usize]
+        == s_before[Stat::GateBlockedEntries as usize]
+    {
+        if s_start.elapsed() > timeout {
+            set.__test_reopen_gate();
+            s_handle.join().ok();
+            panic!(
+                "set: timed out after 5s waiting for writer thread to increment GateBlockedEntries in enter_writer_blocking"
+            );
+        }
         thread::yield_now();
     }
-    thread::sleep(Duration::from_millis(15));
 
     set.__test_reopen_gate();
     s_handle.join().expect("writer thread panicked");

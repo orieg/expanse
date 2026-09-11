@@ -1467,23 +1467,33 @@ impl<T: SharedTree> Shared<T> {
 
     #[cfg(feature = "std")]
     pub(crate) fn enter_writer_blocking(&self) -> crate::occ::WriterGuard<'_> {
-        if let Some(guard) = self.enter_writer() {
-            return guard;
-        }
-        crate::occ_stats::bump(crate::occ_stats::Stat::GateBlockedEntries);
-        #[cfg(feature = "occ-stats")]
-        let start = crate::occ_stats::cycles_now();
+        #[cfg(not(feature = "occ-stats"))]
         loop {
+            if let Some(guard) = self.enter_writer() {
+                return guard;
+            }
             core::hint::spin_loop();
             #[cfg(loom)]
             loom::thread::yield_now();
+        }
+        #[cfg(feature = "occ-stats")]
+        {
             if let Some(guard) = self.enter_writer() {
-                #[cfg(feature = "occ-stats")]
-                crate::occ_stats::bump_by(
-                    crate::occ_stats::Stat::GateWaitCycles,
-                    crate::occ_stats::cycles_now().wrapping_sub(start),
-                );
                 return guard;
+            }
+            crate::occ_stats::bump(crate::occ_stats::Stat::GateBlockedEntries);
+            let start = crate::occ_stats::cycles_now();
+            loop {
+                core::hint::spin_loop();
+                #[cfg(loom)]
+                loom::thread::yield_now();
+                if let Some(guard) = self.enter_writer() {
+                    crate::occ_stats::bump_by(
+                        crate::occ_stats::Stat::GateWaitCycles,
+                        crate::occ_stats::cycles_now().wrapping_sub(start),
+                    );
+                    return guard;
+                }
             }
         }
     }
@@ -1851,6 +1861,18 @@ fn branch_split<T>(_kind: BranchSplitKind) -> OlcOutcome<T> {
     #[cfg(feature = "occ-stats")]
     crate::occ_stats::bump(_kind.stat());
     OlcOutcome::Fallback(FallbackCause::BranchSplit)
+}
+
+/// Maps contention fallback cause to its exact sub-cause statistic (#568).
+#[cfg(all(feature = "occ-stats", feature = "std"))]
+#[inline(always)]
+#[doc(hidden)]
+pub fn contention_stat(closed: bool) -> crate::occ_stats::Stat {
+    if closed {
+        crate::occ_stats::Stat::ContentionGateClosed
+    } else {
+        crate::occ_stats::Stat::ContentionRetryExhausted
+    }
 }
 
 #[cfg(feature = "std")]
@@ -2404,10 +2426,14 @@ impl SyncExpanseSet {
                 crate::occ_stats::op_begin();
 
                 let mut cause = FallbackCause::Contention;
+                #[cfg(feature = "occ-stats")]
                 let mut closed = false;
                 for _ in 0..MAX_RETRIES {
                     if self.shared.gate.is_closed() {
-                        closed = true;
+                        #[cfg(feature = "occ-stats")]
+                        {
+                            closed = true;
+                        }
                         break;
                     }
                     match self.olc_insert_set(key) {
@@ -2434,12 +2460,9 @@ impl SyncExpanseSet {
                 crate::occ_stats::op_end();
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(cause.stat());
+                #[cfg(feature = "occ-stats")]
                 if cause == FallbackCause::Contention {
-                    if closed {
-                        crate::occ_stats::bump(crate::occ_stats::Stat::ContentionGateClosed);
-                    } else {
-                        crate::occ_stats::bump(crate::occ_stats::Stat::ContentionRetryExhausted);
-                    }
+                    crate::occ_stats::bump(contention_stat(closed));
                 }
                 Err(cause)
             });
@@ -2471,10 +2494,14 @@ impl SyncExpanseSet {
                 crate::occ_stats::op_begin();
 
                 let mut cause = FallbackCause::Contention;
+                #[cfg(feature = "occ-stats")]
                 let mut closed = false;
                 for _ in 0..MAX_RETRIES {
                     if self.shared.gate.is_closed() {
-                        closed = true;
+                        #[cfg(feature = "occ-stats")]
+                        {
+                            closed = true;
+                        }
                         break;
                     }
                     match self.olc_remove_set(key) {
@@ -2501,12 +2528,9 @@ impl SyncExpanseSet {
                 crate::occ_stats::op_end();
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(cause.stat());
+                #[cfg(feature = "occ-stats")]
                 if cause == FallbackCause::Contention {
-                    if closed {
-                        crate::occ_stats::bump(crate::occ_stats::Stat::ContentionGateClosed);
-                    } else {
-                        crate::occ_stats::bump(crate::occ_stats::Stat::ContentionRetryExhausted);
-                    }
+                    crate::occ_stats::bump(contention_stat(closed));
                 }
                 Err(cause)
             });
@@ -2522,12 +2546,19 @@ impl SyncExpanseSet {
         }
     }
 
+    /// Test-only hook: closes writer gate directly without draining active writers (#568).
+    ///
+    /// # Warning
+    /// Closes the gate without going through `quiesce_writers()`. Any arriving
+    /// or retrying writer will block until [`Self::__test_reopen_gate`] is called.
+    /// This can wedge all concurrent writers and is strictly for test harnesses.
     #[cfg(all(feature = "occ-stats", feature = "std"))]
     #[doc(hidden)]
     pub fn __test_close_gate(&self) {
         self.shared.gate.close();
     }
 
+    /// Test-only hook: reopens writer gate closed by [`Self::__test_close_gate`].
     #[cfg(all(feature = "occ-stats", feature = "std"))]
     #[doc(hidden)]
     pub fn __test_reopen_gate(&self) {
@@ -3436,10 +3467,14 @@ impl SyncExpanseMap {
                 crate::occ_stats::op_begin();
 
                 let mut cause = FallbackCause::Contention;
+                #[cfg(feature = "occ-stats")]
                 let mut closed = false;
                 for _ in 0..MAX_RETRIES {
                     if self.shared.gate.is_closed() {
-                        closed = true;
+                        #[cfg(feature = "occ-stats")]
+                        {
+                            closed = true;
+                        }
                         break;
                     }
                     match self.olc_insert_map(key, val) {
@@ -3466,12 +3501,9 @@ impl SyncExpanseMap {
                 crate::occ_stats::op_end();
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(cause.stat());
+                #[cfg(feature = "occ-stats")]
                 if cause == FallbackCause::Contention {
-                    if closed {
-                        crate::occ_stats::bump(crate::occ_stats::Stat::ContentionGateClosed);
-                    } else {
-                        crate::occ_stats::bump(crate::occ_stats::Stat::ContentionRetryExhausted);
-                    }
+                    crate::occ_stats::bump(contention_stat(closed));
                 }
                 Err(cause)
             });
@@ -3505,10 +3537,14 @@ impl SyncExpanseMap {
                 crate::occ_stats::op_begin();
 
                 let mut cause = FallbackCause::Contention;
+                #[cfg(feature = "occ-stats")]
                 let mut closed = false;
                 for _ in 0..MAX_RETRIES {
                     if self.shared.gate.is_closed() {
-                        closed = true;
+                        #[cfg(feature = "occ-stats")]
+                        {
+                            closed = true;
+                        }
                         break;
                     }
                     match self.olc_remove_map(key) {
@@ -3535,12 +3571,9 @@ impl SyncExpanseMap {
                 crate::occ_stats::op_end();
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(cause.stat());
+                #[cfg(feature = "occ-stats")]
                 if cause == FallbackCause::Contention {
-                    if closed {
-                        crate::occ_stats::bump(crate::occ_stats::Stat::ContentionGateClosed);
-                    } else {
-                        crate::occ_stats::bump(crate::occ_stats::Stat::ContentionRetryExhausted);
-                    }
+                    crate::occ_stats::bump(contention_stat(closed));
                 }
                 Err(cause)
             });
@@ -3556,12 +3589,19 @@ impl SyncExpanseMap {
         }
     }
 
+    /// Test-only hook: closes writer gate directly without draining active writers (#568).
+    ///
+    /// # Warning
+    /// Closes the gate without going through `quiesce_writers()`. Any arriving
+    /// or retrying writer will block until [`Self::__test_reopen_gate`] is called.
+    /// This can wedge all concurrent writers and is strictly for test harnesses.
     #[cfg(all(feature = "occ-stats", feature = "std"))]
     #[doc(hidden)]
     pub fn __test_close_gate(&self) {
         self.shared.gate.close();
     }
 
+    /// Test-only hook: reopens writer gate closed by [`Self::__test_close_gate`].
     #[cfg(all(feature = "occ-stats", feature = "std"))]
     #[doc(hidden)]
     pub fn __test_reopen_gate(&self) {
@@ -5594,6 +5634,17 @@ mod tests {
     /// are in-domain; a NUL in one is a bug in the test, so panicking is right.
     fn tk<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> &NulFreeStr {
         NulFreeStr::new(bytes.as_ref()).expect("test key contains a NUL")
+    }
+
+    #[test]
+    #[cfg(feature = "occ-stats")]
+    fn test_contention_stat_mapping() {
+        use crate::occ_stats::Stat;
+        assert_eq!(super::contention_stat(true), Stat::ContentionGateClosed);
+        assert_eq!(
+            super::contention_stat(false),
+            Stat::ContentionRetryExhausted
+        );
     }
 
     /// A `DetachedMapReader` must give the same answers as the owned reader
