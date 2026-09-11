@@ -67,6 +67,9 @@ fn structural_contention_stat_routing_in_sync_rs() {
 
     let mut direct_uses = Vec::new();
     let mut call_sites = 0;
+    let mut gate_closed_checks = 0;
+    let mut closed_true_assignments = 0;
+    let mut paired_closed_assignments = 0;
 
     let test_mod_idx = lines
         .iter()
@@ -91,6 +94,20 @@ fn structural_contention_stat_routing_in_sync_rs() {
         if trimmed.contains("contention_stat(closed)") {
             call_sites += 1;
         }
+        if trimmed.contains("closed = true") {
+            closed_true_assignments += 1;
+        }
+        if trimmed.contains("if self.shared.gate.is_closed() {") {
+            gate_closed_checks += 1;
+            // Each `if self.shared.gate.is_closed() {` must be followed within ~4 lines by `closed = true;`
+            let window_end = (idx + 5).min(test_mod_idx);
+            let has_closed_assignment = lines[idx + 1..window_end]
+                .iter()
+                .any(|l| l.trim().contains("closed = true"));
+            if has_closed_assignment {
+                paired_closed_assignments += 1;
+            }
+        }
     }
 
     assert!(
@@ -102,6 +119,21 @@ fn structural_contention_stat_routing_in_sync_rs() {
         call_sites, 4,
         "Expected exactly 4 write loop call sites for contention_stat(closed), found {}",
         call_sites
+    );
+    assert_eq!(
+        gate_closed_checks, 4,
+        "Expected exactly 4 'if self.shared.gate.is_closed() {{' checks in write loops, found {}",
+        gate_closed_checks
+    );
+    assert_eq!(
+        paired_closed_assignments, 4,
+        "Expected exactly 4 'closed = true;' assignments within 4 lines of 'is_closed()', found {}",
+        paired_closed_assignments
+    );
+    assert_eq!(
+        closed_true_assignments, 4,
+        "Expected 'closed = true' to occur nowhere else (exactly 4 total assignments), found {}",
+        closed_true_assignments
     );
 }
 
