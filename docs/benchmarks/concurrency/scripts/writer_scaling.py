@@ -19,7 +19,7 @@ Computes:
 - str arm as the alpha=1 coarse-mutex reference curve (0 lock fallbacks by construction)
 
 Usage:
-    python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --out docs/benchmarks/concurrency/results/writer_scaling.json
+    python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --out docs/benchmarks/concurrency/results/baseline_writer_scaling.json
     python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --self-test
 """
 
@@ -60,7 +60,7 @@ CAUSE_NAMES = (
 )
 
 COMMITTED_RESULTS_PATH = (
-    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "writer_scaling.json"
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "baseline_writer_scaling.json"
 )
 
 

@@ -120,7 +120,7 @@ NO_ROUNDS = {
 SUITES = (
     "art_comparison", "hot_comparison", "hashbrown_comparison",
     "redis_zset_engine", "search_inverted_index", "masstree_comparison",
-    "rocksdb_memtable",
+    "rocksdb_memtable", "concurrency",
 )
 
 # Keys under which an artifact holds its cells.

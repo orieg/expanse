@@ -1,0 +1,2952 @@
+{
+  "provenance": {
+    "suite": "concurrency",
+    "issue": 568,
+    "commit": "dde0ac0b",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "powersave",
+      "scaling_governor_by_cpu": {
+        "0": "powersave",
+        "1": "powersave",
+        "2": "powersave",
+        "3": "powersave",
+        "4": "powersave",
+        "5": "powersave",
+        "6": "powersave",
+        "7": "powersave",
+        "8": "powersave",
+        "9": "powersave",
+        "10": "powersave",
+        "11": "powersave",
+        "12": "powersave",
+        "13": "powersave",
+        "14": "powersave",
+        "15": "powersave"
+      },
+      "scaling_governor_pin_set": "0-15",
+      "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+      "transparent_hugepage": "always [madvise] never",
+      "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35"
+    },
+    "estimators": {
+      "ratio": "Expanse throughput over single-writer baseline C(N) = Mops(W) / Mops(1)",
+      "columns": "per-arm columns are medians of the same rounds; the ratio column is not the quotient of the two median columns beside it",
+      "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+    },
+    "core_pin": "0-15",
+    "loads": [
+      {
+        "label": "start",
+        "since": null,
+        "load1": 2.66,
+        "load5": 0.7,
+        "load15": 0.26,
+        "at": "2026-09-11T02:28:50Z",
+        "stat_busy_jiffies": 56644022,
+        "stat_total_jiffies": 6884583927,
+        "child_cpu_s": 163.878,
+        "monotonic_s": 2869326.856,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "arm:map:writers",
+        "since": "start",
+        "load1": 2.66,
+        "load5": 0.7,
+        "load15": 0.26,
+        "at": "2026-09-11T02:28:50Z",
+        "stat_busy_jiffies": 56644022,
+        "stat_total_jiffies": 6884583928,
+        "child_cpu_s": 163.878,
+        "monotonic_s": 2869326.857,
+        "busy_cpus_since_prev": 0.0,
+        "own_busy_cpus_since_prev": 0.76,
+        "foreign_busy_cpus_since_prev": -0.76
+      },
+      {
+        "label": "arm:set:writers",
+        "since": "arm:map:writers",
+        "load1": 2.54,
+        "load5": 0.86,
+        "load15": 0.32,
+        "at": "2026-09-11T02:29:18Z",
+        "stat_busy_jiffies": 56649686,
+        "stat_total_jiffies": 6884648884,
+        "child_cpu_s": 221.346,
+        "monotonic_s": 2869354.064,
+        "busy_cpus_since_prev": 2.09,
+        "own_busy_cpus_since_prev": 2.11,
+        "foreign_busy_cpus_since_prev": -0.02
+      },
+      {
+        "label": "arm:str:writers",
+        "since": "arm:set:writers",
+        "load1": 2.63,
+        "load5": 1.05,
+        "load15": 0.4,
+        "at": "2026-09-11T02:29:50Z",
+        "stat_busy_jiffies": 56656604,
+        "stat_total_jiffies": 6884724995,
+        "child_cpu_s": 293.18,
+        "monotonic_s": 2869386.153,
+        "busy_cpus_since_prev": 2.18,
+        "own_busy_cpus_since_prev": 2.24,
+        "foreign_busy_cpus_since_prev": -0.06
+      }
+    ]
+  },
+  "throughput": [
+    {
+      "workload_id": "concurrency_writer_map_64bit",
+      "arm": "map",
+      "writers": 1,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 8,
+      "expanse_writer_mops_mean": 4.9704,
+      "writer_ci_lower": 4.8731,
+      "writer_ci_upper": 5.1256,
+      "expanse_writer_mops_median": 4.8971,
+      "scaling_factor_c_n": 1.0,
+      "scaling_factor_c_n_mean": 1.0,
+      "scaling_factor_c_n_ci_lower": 1.0,
+      "scaling_factor_c_n_ci_upper": 1.0,
+      "scaling_factor_c_n_median": 1.0,
+      "lock_fallbacks": 256998,
+      "lock_fallbacks_median": 256998,
+      "fallback_rate": 0.245092,
+      "fallback_causes_total": {
+        "cap_expansion": 1121904,
+        "immediate_conversion": 115256,
+        "branch_split": 818824,
+        "root_growth": 0,
+        "contention": 0,
+        "unknown_tag": 0
+      },
+      "fallback_cause_share": {
+        "cap_expansion": 0.545677,
+        "immediate_conversion": 0.056059,
+        "branch_split": 0.398264,
+        "root_growth": 0.0,
+        "contention": 0.0,
+        "unknown_tag": 0.0
+      },
+      "fallback_causes_per_insert": {
+        "cap_expansion": 0.133741,
+        "immediate_conversion": 0.01374,
+        "branch_split": 0.097611,
+        "root_growth": 0.0,
+        "contention": 0.0,
+        "unknown_tag": 0.0
+      },
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling (uninstrumented)",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 0,
+          "writer_mops": 4.8971,
+          "writer_elapsed_s": 0.214123,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "position": 2,
+          "writer_mops": 5.3069,
+          "writer_elapsed_s": 0.197587,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "position": 3,
+          "writer_mops": 4.7966,
+          "writer_elapsed_s": 0.21861,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "position": 1,
+          "writer_mops": 4.881,
+          "writer_elapsed_s": 0.214826,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "position": 0,
+          "writer_mops": 5.2025,
+          "writer_elapsed_s": 0.201553,
+          "write_ops": 1048576
+        },
+        {
+          "round": 5,
+          "position": 2,
+          "writer_mops": 4.9348,
+          "writer_elapsed_s": 0.212485,
+          "write_ops": 1048576
+        },
+        {
+          "round": 6,
+          "position": 3,
+          "writer_mops": 4.8661,
+          "writer_elapsed_s": 0.215486,
+          "write_ops": 1048576
+        },
+        {
+          "round": 7,
+          "position": 1,
+          "writer_mops": 4.8783,
+          "writer_elapsed_s": 0.214947,
+          "write_ops": 1048576
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 256998,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 140238,
+            "immediate_conversion": 14407,
+            "branch_split": 102353,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 1,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 256998,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 140238,
+            "immediate_conversion": 14407,
+            "branch_split": 102353,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 2,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 256998,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 140238,
+            "immediate_conversion": 14407,
+            "branch_split": 102353,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 3,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 256998,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 140238,
+            "immediate_conversion": 14407,
+            "branch_split": 102353,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 4,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 256998,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 140238,
+            "immediate_conversion": 14407,
+            "branch_split": 102353,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 5,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 256998,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 140238,
+            "immediate_conversion": 14407,
+            "branch_split": 102353,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 6,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 256998,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 140238,
+            "immediate_conversion": 14407,
+            "branch_split": 102353,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 7,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 256998,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 140238,
+            "immediate_conversion": 14407,
+            "branch_split": 102353,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        }
+      ],
+      "load": {
+        "since": "arm:map:writers",
+        "wall_s": 12.761,
+        "busy_cpus_since_prev": 2.14,
+        "own_busy_cpus": 2.16,
+        "foreign_busy_cpus": -0.02
+      },
+      "keyspace_bits": 64
+    },
+    {
+      "workload_id": "concurrency_writer_map_64bit",
+      "arm": "map",
+      "writers": 2,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 8,
+      "expanse_writer_mops_mean": 4.1604,
+      "writer_ci_lower": 4.0594,
+      "writer_ci_upper": 4.272,
+      "expanse_writer_mops_median": 4.1894,
+      "scaling_factor_c_n": 0.8383,
+      "scaling_factor_c_n_mean": 0.8383,
+      "scaling_factor_c_n_ci_lower": 0.8033,
+      "scaling_factor_c_n_ci_upper": 0.8698,
+      "scaling_factor_c_n_median": 0.851,
+      "lock_fallbacks": 309815,
+      "lock_fallbacks_median": 309815,
+      "fallback_rate": 0.291917,
+      "fallback_causes_total": {
+        "cap_expansion": 1050965,
+        "immediate_conversion": 102887,
+        "branch_split": 739782,
+        "root_growth": 0,
+        "contention": 555147,
+        "unknown_tag": 0
+      },
+      "fallback_cause_share": {
+        "cap_expansion": 0.429179,
+        "immediate_conversion": 0.042016,
+        "branch_split": 0.302102,
+        "root_growth": 0.0,
+        "contention": 0.226703,
+        "unknown_tag": 0.0
+      },
+      "fallback_causes_per_insert": {
+        "cap_expansion": 0.125285,
+        "immediate_conversion": 0.012265,
+        "branch_split": 0.088189,
+        "root_growth": 0.0,
+        "contention": 0.066179,
+        "unknown_tag": 0.0
+      },
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling (uninstrumented)",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 1,
+          "writer_mops": 3.9953,
+          "writer_elapsed_s": 0.262451,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "position": 0,
+          "writer_mops": 4.1374,
+          "writer_elapsed_s": 0.253439,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "position": 2,
+          "writer_mops": 4.0228,
+          "writer_elapsed_s": 0.260658,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "position": 3,
+          "writer_mops": 4.1894,
+          "writer_elapsed_s": 0.250291,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "position": 1,
+          "writer_mops": 3.9645,
+          "writer_elapsed_s": 0.264495,
+          "write_ops": 1048576
+        },
+        {
+          "round": 5,
+          "position": 0,
+          "writer_mops": 4.1996,
+          "writer_elapsed_s": 0.249687,
+          "write_ops": 1048576
+        },
+        {
+          "round": 6,
+          "position": 2,
+          "writer_mops": 4.3638,
+          "writer_elapsed_s": 0.240292,
+          "write_ops": 1048576
+        },
+        {
+          "round": 7,
+          "position": 3,
+          "writer_mops": 4.4103,
+          "writer_elapsed_s": 0.237757,
+          "write_ops": 1048576
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 311658,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 130333,
+            "immediate_conversion": 12601,
+            "branch_split": 90488,
+            "root_growth": 0,
+            "contention": 78236,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 1,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 312652,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 130087,
+            "immediate_conversion": 12576,
+            "branch_split": 90520,
+            "root_growth": 0,
+            "contention": 79469,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 2,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 293730,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 133827,
+            "immediate_conversion": 13604,
+            "branch_split": 97810,
+            "root_growth": 0,
+            "contention": 48489,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 3,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 308704,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 131105,
+            "immediate_conversion": 12634,
+            "branch_split": 90882,
+            "root_growth": 0,
+            "contention": 74083,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 4,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 310936,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 130404,
+            "immediate_conversion": 12540,
+            "branch_split": 90323,
+            "root_growth": 0,
+            "contention": 77669,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 5,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 297337,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 133068,
+            "immediate_conversion": 13559,
+            "branch_split": 97480,
+            "root_growth": 0,
+            "contention": 53230,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 6,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 309815,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 130617,
+            "immediate_conversion": 12702,
+            "branch_split": 90868,
+            "root_growth": 0,
+            "contention": 75628,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 7,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 303949,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 131524,
+            "immediate_conversion": 12671,
+            "branch_split": 91411,
+            "root_growth": 0,
+            "contention": 68343,
+            "unknown_tag": 0
+          }
+        }
+      ],
+      "load": {
+        "since": "arm:map:writers",
+        "wall_s": 12.761,
+        "busy_cpus_since_prev": 2.14,
+        "own_busy_cpus": 2.16,
+        "foreign_busy_cpus": -0.02
+      },
+      "keyspace_bits": 64
+    },
+    {
+      "workload_id": "concurrency_writer_map_64bit",
+      "arm": "map",
+      "writers": 4,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 8,
+      "expanse_writer_mops_mean": 3.2653,
+      "writer_ci_lower": 3.1774,
+      "writer_ci_upper": 3.3647,
+      "expanse_writer_mops_median": 3.2068,
+      "scaling_factor_c_n": 0.6578,
+      "scaling_factor_c_n_mean": 0.6578,
+      "scaling_factor_c_n_ci_lower": 0.6348,
+      "scaling_factor_c_n_ci_upper": 0.6876,
+      "scaling_factor_c_n_median": 0.6529,
+      "lock_fallbacks": 373994,
+      "lock_fallbacks_median": 373994,
+      "fallback_rate": 0.350798,
+      "fallback_causes_total": {
+        "cap_expansion": 964676,
+        "immediate_conversion": 100413,
+        "branch_split": 705441,
+        "root_growth": 0,
+        "contention": 1172180,
+        "unknown_tag": 0
+      },
+      "fallback_cause_share": {
+        "cap_expansion": 0.327819,
+        "immediate_conversion": 0.034123,
+        "branch_split": 0.239725,
+        "root_growth": 0.0,
+        "contention": 0.398334,
+        "unknown_tag": 0.0
+      },
+      "fallback_causes_per_insert": {
+        "cap_expansion": 0.114998,
+        "immediate_conversion": 0.01197,
+        "branch_split": 0.084095,
+        "root_growth": 0.0,
+        "contention": 0.139735,
+        "unknown_tag": 0.0
+      },
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling (uninstrumented)",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 3,
+          "writer_mops": 3.2068,
+          "writer_elapsed_s": 0.326981,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "position": 1,
+          "writer_mops": 3.1933,
+          "writer_elapsed_s": 0.328367,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "position": 0,
+          "writer_mops": 3.4768,
+          "writer_elapsed_s": 0.301596,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "position": 2,
+          "writer_mops": 3.1449,
+          "writer_elapsed_s": 0.333417,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "position": 3,
+          "writer_mops": 3.3676,
+          "writer_elapsed_s": 0.311375,
+          "write_ops": 1048576
+        },
+        {
+          "round": 5,
+          "position": 1,
+          "writer_mops": 3.0868,
+          "writer_elapsed_s": 0.339692,
+          "write_ops": 1048576
+        },
+        {
+          "round": 6,
+          "position": 0,
+          "writer_mops": 3.4609,
+          "writer_elapsed_s": 0.302976,
+          "write_ops": 1048576
+        },
+        {
+          "round": 7,
+          "position": 2,
+          "writer_mops": 3.1851,
+          "writer_elapsed_s": 0.329209,
+          "write_ops": 1048576
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 373994,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 119674,
+            "immediate_conversion": 12630,
+            "branch_split": 88228,
+            "root_growth": 0,
+            "contention": 153462,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 1,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 351276,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 123306,
+            "immediate_conversion": 12859,
+            "branch_split": 90561,
+            "root_growth": 0,
+            "contention": 124550,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 2,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 371263,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 119902,
+            "immediate_conversion": 12448,
+            "branch_split": 87490,
+            "root_growth": 0,
+            "contention": 151423,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 3,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 369516,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 120137,
+            "immediate_conversion": 12590,
+            "branch_split": 88198,
+            "root_growth": 0,
+            "contention": 148591,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 4,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 379728,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 118567,
+            "immediate_conversion": 11850,
+            "branch_split": 83481,
+            "root_growth": 0,
+            "contention": 165830,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 5,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 340643,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 125536,
+            "immediate_conversion": 13081,
+            "branch_split": 92105,
+            "root_growth": 0,
+            "contention": 109921,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 6,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 376309,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 119186,
+            "immediate_conversion": 12639,
+            "branch_split": 88912,
+            "root_growth": 0,
+            "contention": 155572,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 7,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 379981,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 118368,
+            "immediate_conversion": 12316,
+            "branch_split": 86466,
+            "root_growth": 0,
+            "contention": 162831,
+            "unknown_tag": 0
+          }
+        }
+      ],
+      "load": {
+        "since": "arm:map:writers",
+        "wall_s": 12.761,
+        "busy_cpus_since_prev": 2.14,
+        "own_busy_cpus": 2.16,
+        "foreign_busy_cpus": -0.02
+      },
+      "keyspace_bits": 64
+    },
+    {
+      "workload_id": "concurrency_writer_map_64bit",
+      "arm": "map",
+      "writers": 8,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 8,
+      "expanse_writer_mops_mean": 3.1025,
+      "writer_ci_lower": 3.0511,
+      "writer_ci_upper": 3.1452,
+      "expanse_writer_mops_median": 3.1194,
+      "scaling_factor_c_n": 0.625,
+      "scaling_factor_c_n_mean": 0.625,
+      "scaling_factor_c_n_ci_lower": 0.598,
+      "scaling_factor_c_n_ci_upper": 0.6383,
+      "scaling_factor_c_n_median": 0.6398,
+      "lock_fallbacks": 340591,
+      "lock_fallbacks_median": 340591,
+      "fallback_rate": 0.32493,
+      "fallback_causes_total": {
+        "cap_expansion": 1004307,
+        "immediate_conversion": 103436,
+        "branch_split": 730369,
+        "root_growth": 0,
+        "contention": 887600,
+        "unknown_tag": 0
+      },
+      "fallback_cause_share": {
+        "cap_expansion": 0.368457,
+        "immediate_conversion": 0.037948,
+        "branch_split": 0.267955,
+        "root_growth": 0.0,
+        "contention": 0.32564,
+        "unknown_tag": 0.0
+      },
+      "fallback_causes_per_insert": {
+        "cap_expansion": 0.119723,
+        "immediate_conversion": 0.012331,
+        "branch_split": 0.087067,
+        "root_growth": 0.0,
+        "contention": 0.10581,
+        "unknown_tag": 0.0
+      },
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling (uninstrumented)",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 2,
+          "writer_mops": 3.0697,
+          "writer_elapsed_s": 0.341594,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "position": 3,
+          "writer_mops": 2.9988,
+          "writer_elapsed_s": 0.349667,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "position": 1,
+          "writer_mops": 3.1194,
+          "writer_elapsed_s": 0.336146,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "position": 0,
+          "writer_mops": 3.1482,
+          "writer_elapsed_s": 0.333074,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "position": 2,
+          "writer_mops": 3.1898,
+          "writer_elapsed_s": 0.328724,
+          "write_ops": 1048576
+        },
+        {
+          "round": 5,
+          "position": 3,
+          "writer_mops": 3.1679,
+          "writer_elapsed_s": 0.331003,
+          "write_ops": 1048576
+        },
+        {
+          "round": 6,
+          "position": 1,
+          "writer_mops": 3.1131,
+          "writer_elapsed_s": 0.336829,
+          "write_ops": 1048576
+        },
+        {
+          "round": 7,
+          "position": 0,
+          "writer_mops": 3.0131,
+          "writer_elapsed_s": 0.348009,
+          "write_ops": 1048576
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 339059,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 125846,
+            "immediate_conversion": 13068,
+            "branch_split": 91709,
+            "root_growth": 0,
+            "contention": 108436,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 1,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 341758,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 125183,
+            "immediate_conversion": 12821,
+            "branch_split": 90914,
+            "root_growth": 0,
+            "contention": 112840,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 2,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 342754,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 125217,
+            "immediate_conversion": 12869,
+            "branch_split": 90629,
+            "root_growth": 0,
+            "contention": 114039,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 3,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 339402,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 126031,
+            "immediate_conversion": 13078,
+            "branch_split": 92663,
+            "root_growth": 0,
+            "contention": 107630,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 4,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 339794,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 125725,
+            "immediate_conversion": 12771,
+            "branch_split": 90810,
+            "root_growth": 0,
+            "contention": 110488,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 5,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 340591,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 125558,
+            "immediate_conversion": 12996,
+            "branch_split": 91081,
+            "root_growth": 0,
+            "contention": 110956,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 6,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 343347,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 124898,
+            "immediate_conversion": 12858,
+            "branch_split": 90791,
+            "root_growth": 0,
+            "contention": 114800,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 7,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 339007,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 125849,
+            "immediate_conversion": 12975,
+            "branch_split": 91772,
+            "root_growth": 0,
+            "contention": 108411,
+            "unknown_tag": 0
+          }
+        }
+      ],
+      "load": {
+        "since": "arm:map:writers",
+        "wall_s": 12.761,
+        "busy_cpus_since_prev": 2.14,
+        "own_busy_cpus": 2.16,
+        "foreign_busy_cpus": -0.02
+      },
+      "keyspace_bits": 64
+    },
+    {
+      "workload_id": "concurrency_writer_set_63bit",
+      "arm": "set",
+      "writers": 1,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 8,
+      "expanse_writer_mops_mean": 5.8879,
+      "writer_ci_lower": 5.3248,
+      "writer_ci_upper": 6.1027,
+      "expanse_writer_mops_median": 6.154,
+      "scaling_factor_c_n": 1.0,
+      "scaling_factor_c_n_mean": 1.0,
+      "scaling_factor_c_n_ci_lower": 1.0,
+      "scaling_factor_c_n_ci_upper": 1.0,
+      "scaling_factor_c_n_median": 1.0,
+      "lock_fallbacks": 825134,
+      "lock_fallbacks_median": 825134,
+      "fallback_rate": 0.786909,
+      "fallback_causes_total": {
+        "cap_expansion": 166792,
+        "immediate_conversion": 128184,
+        "branch_split": 6306096,
+        "root_growth": 0,
+        "contention": 0,
+        "unknown_tag": 0
+      },
+      "fallback_cause_share": {
+        "cap_expansion": 0.025267,
+        "immediate_conversion": 0.019419,
+        "branch_split": 0.955314,
+        "root_growth": 0.0,
+        "contention": 0.0,
+        "unknown_tag": 0.0
+      },
+      "fallback_causes_per_insert": {
+        "cap_expansion": 0.019883,
+        "immediate_conversion": 0.015281,
+        "branch_split": 0.751745,
+        "root_growth": 0.0,
+        "contention": 0.0,
+        "unknown_tag": 0.0
+      },
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling (uninstrumented)",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 0,
+          "writer_mops": 5.8903,
+          "writer_elapsed_s": 0.178016,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "position": 2,
+          "writer_mops": 6.2222,
+          "writer_elapsed_s": 0.168522,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "position": 3,
+          "writer_mops": 5.9868,
+          "writer_elapsed_s": 0.175148,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "position": 1,
+          "writer_mops": 6.1802,
+          "writer_elapsed_s": 0.169666,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "position": 0,
+          "writer_mops": 4.7029,
+          "writer_elapsed_s": 0.222965,
+          "write_ops": 1048576
+        },
+        {
+          "round": 5,
+          "position": 2,
+          "writer_mops": 6.1828,
+          "writer_elapsed_s": 0.169595,
+          "write_ops": 1048576
+        },
+        {
+          "round": 6,
+          "position": 3,
+          "writer_mops": 5.7843,
+          "writer_elapsed_s": 0.181281,
+          "write_ops": 1048576
+        },
+        {
+          "round": 7,
+          "position": 1,
+          "writer_mops": 6.154,
+          "writer_elapsed_s": 0.170389,
+          "write_ops": 1048576
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 825134,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 20849,
+            "immediate_conversion": 16023,
+            "branch_split": 788262,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 1,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 825134,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 20849,
+            "immediate_conversion": 16023,
+            "branch_split": 788262,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 2,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 825134,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 20849,
+            "immediate_conversion": 16023,
+            "branch_split": 788262,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 3,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 825134,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 20849,
+            "immediate_conversion": 16023,
+            "branch_split": 788262,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 4,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 825134,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 20849,
+            "immediate_conversion": 16023,
+            "branch_split": 788262,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 5,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 825134,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 20849,
+            "immediate_conversion": 16023,
+            "branch_split": 788262,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 6,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 825134,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 20849,
+            "immediate_conversion": 16023,
+            "branch_split": 788262,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 7,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 825134,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 20849,
+            "immediate_conversion": 16023,
+            "branch_split": 788262,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        }
+      ],
+      "load": {
+        "since": "arm:set:writers",
+        "wall_s": 15.264,
+        "busy_cpus_since_prev": 2.26,
+        "own_busy_cpus": 2.33,
+        "foreign_busy_cpus": -0.07
+      },
+      "keyspace_bits": 63
+    },
+    {
+      "workload_id": "concurrency_writer_set_63bit",
+      "arm": "set",
+      "writers": 2,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 8,
+      "expanse_writer_mops_mean": 3.1769,
+      "writer_ci_lower": 3.0516,
+      "writer_ci_upper": 3.2477,
+      "expanse_writer_mops_median": 3.2235,
+      "scaling_factor_c_n": 0.5418,
+      "scaling_factor_c_n_mean": 0.5418,
+      "scaling_factor_c_n_ci_lower": 0.5269,
+      "scaling_factor_c_n_ci_upper": 0.5726,
+      "scaling_factor_c_n_median": 0.5367,
+      "lock_fallbacks": 892860,
+      "lock_fallbacks_median": 892860,
+      "fallback_rate": 0.8515,
+      "fallback_causes_total": {
+        "cap_expansion": 125091,
+        "immediate_conversion": 84767,
+        "branch_split": 4255205,
+        "root_growth": 0,
+        "contention": 2677836,
+        "unknown_tag": 0
+      },
+      "fallback_cause_share": {
+        "cap_expansion": 0.017513,
+        "immediate_conversion": 0.011867,
+        "branch_split": 0.595725,
+        "root_growth": 0.0,
+        "contention": 0.374895,
+        "unknown_tag": 0.0
+      },
+      "fallback_causes_per_insert": {
+        "cap_expansion": 0.014912,
+        "immediate_conversion": 0.010105,
+        "branch_split": 0.50726,
+        "root_growth": 0.0,
+        "contention": 0.319223,
+        "unknown_tag": 0.0
+      },
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling (uninstrumented)",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 1,
+          "writer_mops": 3.1612,
+          "writer_elapsed_s": 0.3317,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "position": 0,
+          "writer_mops": 3.3567,
+          "writer_elapsed_s": 0.312384,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "position": 2,
+          "writer_mops": 3.139,
+          "writer_elapsed_s": 0.334053,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "position": 3,
+          "writer_mops": 3.125,
+          "writer_elapsed_s": 0.33554,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "position": 1,
+          "writer_mops": 2.8775,
+          "writer_elapsed_s": 0.364402,
+          "write_ops": 1048576
+        },
+        {
+          "round": 5,
+          "position": 0,
+          "writer_mops": 3.2772,
+          "writer_elapsed_s": 0.319963,
+          "write_ops": 1048576
+        },
+        {
+          "round": 6,
+          "position": 2,
+          "writer_mops": 3.2235,
+          "writer_elapsed_s": 0.325296,
+          "write_ops": 1048576
+        },
+        {
+          "round": 7,
+          "position": 3,
+          "writer_mops": 3.2549,
+          "writer_elapsed_s": 0.322152,
+          "write_ops": 1048576
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 886342,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 16649,
+            "immediate_conversion": 10891,
+            "branch_split": 549764,
+            "root_growth": 0,
+            "contention": 309038,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 1,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 892434,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 15593,
+            "immediate_conversion": 10698,
+            "branch_split": 534761,
+            "root_growth": 0,
+            "contention": 331382,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 2,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 892573,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 15812,
+            "immediate_conversion": 10543,
+            "branch_split": 531212,
+            "root_growth": 0,
+            "contention": 335006,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 3,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 892626,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 15579,
+            "immediate_conversion": 10666,
+            "branch_split": 533178,
+            "root_growth": 0,
+            "contention": 333203,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 4,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 895056,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 15381,
+            "immediate_conversion": 10493,
+            "branch_split": 523721,
+            "root_growth": 0,
+            "contention": 345461,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 5,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 895477,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 15328,
+            "immediate_conversion": 10397,
+            "branch_split": 523624,
+            "root_growth": 0,
+            "contention": 346128,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 6,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 895531,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 15279,
+            "immediate_conversion": 10460,
+            "branch_split": 524655,
+            "root_growth": 0,
+            "contention": 345137,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 7,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 892860,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 15470,
+            "immediate_conversion": 10619,
+            "branch_split": 534290,
+            "root_growth": 0,
+            "contention": 332481,
+            "unknown_tag": 0
+          }
+        }
+      ],
+      "load": {
+        "since": "arm:set:writers",
+        "wall_s": 15.264,
+        "busy_cpus_since_prev": 2.26,
+        "own_busy_cpus": 2.33,
+        "foreign_busy_cpus": -0.07
+      },
+      "keyspace_bits": 63
+    },
+    {
+      "workload_id": "concurrency_writer_set_63bit",
+      "arm": "set",
+      "writers": 4,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 8,
+      "expanse_writer_mops_mean": 2.7346,
+      "writer_ci_lower": 2.7045,
+      "writer_ci_upper": 2.7688,
+      "expanse_writer_mops_median": 2.7295,
+      "scaling_factor_c_n": 0.4684,
+      "scaling_factor_c_n_mean": 0.4684,
+      "scaling_factor_c_n_ci_lower": 0.4459,
+      "scaling_factor_c_n_ci_upper": 0.5283,
+      "scaling_factor_c_n_median": 0.4527,
+      "lock_fallbacks": 859806,
+      "lock_fallbacks_median": 859806,
+      "fallback_rate": 0.81969,
+      "fallback_causes_total": {
+        "cap_expansion": 142510,
+        "immediate_conversion": 107592,
+        "branch_split": 5311337,
+        "root_growth": 0,
+        "contention": 1314623,
+        "unknown_tag": 0
+      },
+      "fallback_cause_share": {
+        "cap_expansion": 0.020726,
+        "immediate_conversion": 0.015647,
+        "branch_split": 0.772439,
+        "root_growth": 0.0,
+        "contention": 0.191188,
+        "unknown_tag": 0.0
+      },
+      "fallback_causes_per_insert": {
+        "cap_expansion": 0.016989,
+        "immediate_conversion": 0.012826,
+        "branch_split": 0.633161,
+        "root_growth": 0.0,
+        "contention": 0.156715,
+        "unknown_tag": 0.0
+      },
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling (uninstrumented)",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 3,
+          "writer_mops": 2.7642,
+          "writer_elapsed_s": 0.379337,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "position": 1,
+          "writer_mops": 2.7168,
+          "writer_elapsed_s": 0.385958,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "position": 0,
+          "writer_mops": 2.6981,
+          "writer_elapsed_s": 0.388638,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "position": 2,
+          "writer_mops": 2.6611,
+          "writer_elapsed_s": 0.394032,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "position": 3,
+          "writer_mops": 2.8031,
+          "writer_elapsed_s": 0.37408,
+          "write_ops": 1048576
+        },
+        {
+          "round": 5,
+          "position": 1,
+          "writer_mops": 2.7991,
+          "writer_elapsed_s": 0.374605,
+          "write_ops": 1048576
+        },
+        {
+          "round": 6,
+          "position": 0,
+          "writer_mops": 2.7295,
+          "writer_elapsed_s": 0.384168,
+          "write_ops": 1048576
+        },
+        {
+          "round": 7,
+          "position": 2,
+          "writer_mops": 2.7049,
+          "writer_elapsed_s": 0.387652,
+          "write_ops": 1048576
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 861413,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 17654,
+            "immediate_conversion": 13348,
+            "branch_split": 656738,
+            "root_growth": 0,
+            "contention": 173673,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 1,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 858633,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 17884,
+            "immediate_conversion": 13528,
+            "branch_split": 667872,
+            "root_growth": 0,
+            "contention": 159349,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 2,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 861452,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 17643,
+            "immediate_conversion": 13252,
+            "branch_split": 657422,
+            "root_growth": 0,
+            "contention": 173135,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 3,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 855676,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 18181,
+            "immediate_conversion": 13784,
+            "branch_split": 677778,
+            "root_growth": 0,
+            "contention": 145933,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 4,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 859806,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 17823,
+            "immediate_conversion": 13401,
+            "branch_split": 661279,
+            "root_growth": 0,
+            "contention": 167303,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 5,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 857296,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 18020,
+            "immediate_conversion": 13597,
+            "branch_split": 672543,
+            "root_growth": 0,
+            "contention": 153136,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 6,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 863050,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 17508,
+            "immediate_conversion": 13158,
+            "branch_split": 650316,
+            "root_growth": 0,
+            "contention": 182068,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 7,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 858736,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 17797,
+            "immediate_conversion": 13524,
+            "branch_split": 667389,
+            "root_growth": 0,
+            "contention": 160026,
+            "unknown_tag": 0
+          }
+        }
+      ],
+      "load": {
+        "since": "arm:set:writers",
+        "wall_s": 15.264,
+        "busy_cpus_since_prev": 2.26,
+        "own_busy_cpus": 2.33,
+        "foreign_busy_cpus": -0.07
+      },
+      "keyspace_bits": 63
+    },
+    {
+      "workload_id": "concurrency_writer_set_63bit",
+      "arm": "set",
+      "writers": 8,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 8,
+      "expanse_writer_mops_mean": 2.3779,
+      "writer_ci_lower": 2.3425,
+      "writer_ci_upper": 2.3992,
+      "expanse_writer_mops_median": 2.3948,
+      "scaling_factor_c_n": 0.4065,
+      "scaling_factor_c_n_mean": 0.4065,
+      "scaling_factor_c_n_ci_lower": 0.3918,
+      "scaling_factor_c_n_ci_upper": 0.4461,
+      "scaling_factor_c_n_median": 0.3935,
+      "lock_fallbacks": 857902,
+      "lock_fallbacks_median": 857902,
+      "fallback_rate": 0.818783,
+      "fallback_causes_total": {
+        "cap_expansion": 144714,
+        "immediate_conversion": 107628,
+        "branch_split": 5320546,
+        "root_growth": 0,
+        "contention": 1295560,
+        "unknown_tag": 0
+      },
+      "fallback_cause_share": {
+        "cap_expansion": 0.021069,
+        "immediate_conversion": 0.01567,
+        "branch_split": 0.774636,
+        "root_growth": 0.0,
+        "contention": 0.188625,
+        "unknown_tag": 0.0
+      },
+      "fallback_causes_per_insert": {
+        "cap_expansion": 0.017251,
+        "immediate_conversion": 0.01283,
+        "branch_split": 0.634259,
+        "root_growth": 0.0,
+        "contention": 0.154443,
+        "unknown_tag": 0.0
+      },
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling (uninstrumented)",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 2,
+          "writer_mops": 2.318,
+          "writer_elapsed_s": 0.452353,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "position": 3,
+          "writer_mops": 2.4046,
+          "writer_elapsed_s": 0.436077,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "position": 1,
+          "writer_mops": 2.4026,
+          "writer_elapsed_s": 0.436441,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "position": 0,
+          "writer_mops": 2.3939,
+          "writer_elapsed_s": 0.438014,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "position": 2,
+          "writer_mops": 2.3042,
+          "writer_elapsed_s": 0.455069,
+          "write_ops": 1048576
+        },
+        {
+          "round": 5,
+          "position": 3,
+          "writer_mops": 2.3901,
+          "writer_elapsed_s": 0.438725,
+          "write_ops": 1048576
+        },
+        {
+          "round": 6,
+          "position": 1,
+          "writer_mops": 2.4151,
+          "writer_elapsed_s": 0.434177,
+          "write_ops": 1048576
+        },
+        {
+          "round": 7,
+          "position": 0,
+          "writer_mops": 2.3948,
+          "writer_elapsed_s": 0.437854,
+          "write_ops": 1048576
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 857902,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 18134,
+            "immediate_conversion": 13483,
+            "branch_split": 667473,
+            "root_growth": 0,
+            "contention": 158812,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 1,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 859002,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 18096,
+            "immediate_conversion": 13419,
+            "branch_split": 663298,
+            "root_growth": 0,
+            "contention": 164189,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 2,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 857886,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 18114,
+            "immediate_conversion": 13502,
+            "branch_split": 668421,
+            "root_growth": 0,
+            "contention": 157849,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 3,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 860321,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 17913,
+            "immediate_conversion": 13332,
+            "branch_split": 658535,
+            "root_growth": 0,
+            "contention": 170541,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 4,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 857884,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 18191,
+            "immediate_conversion": 13410,
+            "branch_split": 666543,
+            "root_growth": 0,
+            "contention": 159740,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 5,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 857057,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 18247,
+            "immediate_conversion": 13576,
+            "branch_split": 669669,
+            "root_growth": 0,
+            "contention": 155565,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 6,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 860502,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 17907,
+            "immediate_conversion": 13307,
+            "branch_split": 658382,
+            "root_growth": 0,
+            "contention": 170906,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 7,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 857894,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 18112,
+            "immediate_conversion": 13599,
+            "branch_split": 668225,
+            "root_growth": 0,
+            "contention": 157958,
+            "unknown_tag": 0
+          }
+        }
+      ],
+      "load": {
+        "since": "arm:set:writers",
+        "wall_s": 15.264,
+        "busy_cpus_since_prev": 2.26,
+        "own_busy_cpus": 2.33,
+        "foreign_busy_cpus": -0.07
+      },
+      "keyspace_bits": 63
+    },
+    {
+      "workload_id": "concurrency_writer_str",
+      "arm": "str",
+      "writers": 1,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 8,
+      "expanse_writer_mops_mean": 3.4664,
+      "writer_ci_lower": 3.3105,
+      "writer_ci_upper": 3.6793,
+      "expanse_writer_mops_median": 3.5602,
+      "scaling_factor_c_n": 1.0,
+      "scaling_factor_c_n_mean": 1.0,
+      "scaling_factor_c_n_ci_lower": 1.0,
+      "scaling_factor_c_n_ci_upper": 1.0,
+      "scaling_factor_c_n_median": 1.0,
+      "lock_fallbacks": 0,
+      "lock_fallbacks_median": 0,
+      "fallback_rate": 0.0,
+      "fallback_causes_total": {
+        "cap_expansion": 0,
+        "immediate_conversion": 0,
+        "branch_split": 0,
+        "root_growth": 0,
+        "contention": 0,
+        "unknown_tag": 0
+      },
+      "fallback_cause_share": {
+        "cap_expansion": 0.0,
+        "immediate_conversion": 0.0,
+        "branch_split": 0.0,
+        "root_growth": 0.0,
+        "contention": 0.0,
+        "unknown_tag": 0.0
+      },
+      "fallback_causes_per_insert": {
+        "cap_expansion": 0.0,
+        "immediate_conversion": 0.0,
+        "branch_split": 0.0,
+        "root_growth": 0.0,
+        "contention": 0.0,
+        "unknown_tag": 0.0
+      },
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling (uninstrumented)",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 0,
+          "writer_mops": 4.0251,
+          "writer_elapsed_s": 0.260512,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "position": 2,
+          "writer_mops": 3.5602,
+          "writer_elapsed_s": 0.294531,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "position": 3,
+          "writer_mops": 3.6596,
+          "writer_elapsed_s": 0.286524,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "position": 1,
+          "writer_mops": 3.2375,
+          "writer_elapsed_s": 0.323881,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "position": 0,
+          "writer_mops": 3.1763,
+          "writer_elapsed_s": 0.330129,
+          "write_ops": 1048576
+        },
+        {
+          "round": 5,
+          "position": 2,
+          "writer_mops": 3.2509,
+          "writer_elapsed_s": 0.322554,
+          "write_ops": 1048576
+        },
+        {
+          "round": 6,
+          "position": 3,
+          "writer_mops": 3.2141,
+          "writer_elapsed_s": 0.326243,
+          "write_ops": 1048576
+        },
+        {
+          "round": 7,
+          "position": 1,
+          "writer_mops": 3.6075,
+          "writer_elapsed_s": 0.290666,
+          "write_ops": 1048576
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 1,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 2,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 3,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 4,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 5,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 6,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 7,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        }
+      ],
+      "load": {
+        "since": "arm:str:writers",
+        "wall_s": 37.187,
+        "busy_cpus_since_prev": 1.25,
+        "own_busy_cpus": 1.28,
+        "foreign_busy_cpus": -0.03
+      },
+      "dist": "short"
+    },
+    {
+      "workload_id": "concurrency_writer_str",
+      "arm": "str",
+      "writers": 2,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 8,
+      "expanse_writer_mops_mean": 2.4287,
+      "writer_ci_lower": 2.333,
+      "writer_ci_upper": 2.5596,
+      "expanse_writer_mops_median": 2.3999,
+      "scaling_factor_c_n": 0.7042,
+      "scaling_factor_c_n_mean": 0.7042,
+      "scaling_factor_c_n_ci_lower": 0.6494,
+      "scaling_factor_c_n_ci_upper": 0.7353,
+      "scaling_factor_c_n_median": 0.7387,
+      "lock_fallbacks": 0,
+      "lock_fallbacks_median": 0,
+      "fallback_rate": 0.0,
+      "fallback_causes_total": {
+        "cap_expansion": 0,
+        "immediate_conversion": 0,
+        "branch_split": 0,
+        "root_growth": 0,
+        "contention": 0,
+        "unknown_tag": 0
+      },
+      "fallback_cause_share": {
+        "cap_expansion": 0.0,
+        "immediate_conversion": 0.0,
+        "branch_split": 0.0,
+        "root_growth": 0.0,
+        "contention": 0.0,
+        "unknown_tag": 0.0
+      },
+      "fallback_causes_per_insert": {
+        "cap_expansion": 0.0,
+        "immediate_conversion": 0.0,
+        "branch_split": 0.0,
+        "root_growth": 0.0,
+        "contention": 0.0,
+        "unknown_tag": 0.0
+      },
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling (uninstrumented)",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 1,
+          "writer_mops": 2.3397,
+          "writer_elapsed_s": 0.448162,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "position": 0,
+          "writer_mops": 2.6983,
+          "writer_elapsed_s": 0.388607,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "position": 2,
+          "writer_mops": 2.3468,
+          "writer_elapsed_s": 0.446805,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "position": 3,
+          "writer_mops": 2.3999,
+          "writer_elapsed_s": 0.436934,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "position": 1,
+          "writer_mops": 2.4336,
+          "writer_elapsed_s": 0.430882,
+          "write_ops": 1048576
+        },
+        {
+          "round": 5,
+          "position": 0,
+          "writer_mops": 2.202,
+          "writer_elapsed_s": 0.476194,
+          "write_ops": 1048576
+        },
+        {
+          "round": 6,
+          "position": 2,
+          "writer_mops": 2.3445,
+          "writer_elapsed_s": 0.447257,
+          "write_ops": 1048576
+        },
+        {
+          "round": 7,
+          "position": 3,
+          "writer_mops": 2.6647,
+          "writer_elapsed_s": 0.393502,
+          "write_ops": 1048576
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 1,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 2,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 3,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 4,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 5,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 6,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 7,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        }
+      ],
+      "load": {
+        "since": "arm:str:writers",
+        "wall_s": 37.187,
+        "busy_cpus_since_prev": 1.25,
+        "own_busy_cpus": 1.28,
+        "foreign_busy_cpus": -0.03
+      },
+      "dist": "short"
+    },
+    {
+      "workload_id": "concurrency_writer_str",
+      "arm": "str",
+      "writers": 4,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 8,
+      "expanse_writer_mops_mean": 2.0812,
+      "writer_ci_lower": 2.0275,
+      "writer_ci_upper": 2.1486,
+      "expanse_writer_mops_median": 2.0343,
+      "scaling_factor_c_n": 0.6038,
+      "scaling_factor_c_n_mean": 0.6038,
+      "scaling_factor_c_n_ci_lower": 0.5738,
+      "scaling_factor_c_n_ci_upper": 0.6418,
+      "scaling_factor_c_n_median": 0.6144,
+      "lock_fallbacks": 0,
+      "lock_fallbacks_median": 0,
+      "fallback_rate": 0.0,
+      "fallback_causes_total": {
+        "cap_expansion": 0,
+        "immediate_conversion": 0,
+        "branch_split": 0,
+        "root_growth": 0,
+        "contention": 0,
+        "unknown_tag": 0
+      },
+      "fallback_cause_share": {
+        "cap_expansion": 0.0,
+        "immediate_conversion": 0.0,
+        "branch_split": 0.0,
+        "root_growth": 0.0,
+        "contention": 0.0,
+        "unknown_tag": 0.0
+      },
+      "fallback_causes_per_insert": {
+        "cap_expansion": 0.0,
+        "immediate_conversion": 0.0,
+        "branch_split": 0.0,
+        "root_growth": 0.0,
+        "contention": 0.0,
+        "unknown_tag": 0.0
+      },
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling (uninstrumented)",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 3,
+          "writer_mops": 2.1313,
+          "writer_elapsed_s": 0.491998,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "position": 1,
+          "writer_mops": 2.0324,
+          "writer_elapsed_s": 0.51592,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "position": 0,
+          "writer_mops": 2.183,
+          "writer_elapsed_s": 0.480327,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "position": 2,
+          "writer_mops": 2.0254,
+          "writer_elapsed_s": 0.517705,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "position": 3,
+          "writer_mops": 2.0343,
+          "writer_elapsed_s": 0.51544,
+          "write_ops": 1048576
+        },
+        {
+          "round": 5,
+          "position": 1,
+          "writer_mops": 1.9973,
+          "writer_elapsed_s": 0.524995,
+          "write_ops": 1048576
+        },
+        {
+          "round": 6,
+          "position": 0,
+          "writer_mops": 2.2405,
+          "writer_elapsed_s": 0.468004,
+          "write_ops": 1048576
+        },
+        {
+          "round": 7,
+          "position": 2,
+          "writer_mops": 2.005,
+          "writer_elapsed_s": 0.522981,
+          "write_ops": 1048576
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 1,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 2,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 3,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 4,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 5,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 6,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 7,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        }
+      ],
+      "load": {
+        "since": "arm:str:writers",
+        "wall_s": 37.187,
+        "busy_cpus_since_prev": 1.25,
+        "own_busy_cpus": 1.28,
+        "foreign_busy_cpus": -0.03
+      },
+      "dist": "short"
+    },
+    {
+      "workload_id": "concurrency_writer_str",
+      "arm": "str",
+      "writers": 8,
+      "readers": 0,
+      "prefill": 1048576,
+      "fresh_keys": 1048576,
+      "rounds": 8,
+      "expanse_writer_mops_mean": 1.5479,
+      "writer_ci_lower": 1.0787,
+      "writer_ci_upper": 1.7552,
+      "expanse_writer_mops_median": 1.7683,
+      "scaling_factor_c_n": 0.4492,
+      "scaling_factor_c_n_mean": 0.4492,
+      "scaling_factor_c_n_ci_lower": 0.3064,
+      "scaling_factor_c_n_ci_upper": 0.5072,
+      "scaling_factor_c_n_median": 0.4731,
+      "lock_fallbacks": 0,
+      "lock_fallbacks_median": 0,
+      "fallback_rate": 0.0,
+      "fallback_causes_total": {
+        "cap_expansion": 0,
+        "immediate_conversion": 0,
+        "branch_split": 0,
+        "root_growth": 0,
+        "contention": 0,
+        "unknown_tag": 0
+      },
+      "fallback_cause_share": {
+        "cap_expansion": 0.0,
+        "immediate_conversion": 0.0,
+        "branch_split": 0.0,
+        "root_growth": 0.0,
+        "contention": 0.0,
+        "unknown_tag": 0.0
+      },
+      "fallback_causes_per_insert": {
+        "cap_expansion": 0.0,
+        "immediate_conversion": 0.0,
+        "branch_split": 0.0,
+        "root_growth": 0.0,
+        "contention": 0.0,
+        "unknown_tag": 0.0
+      },
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling (uninstrumented)",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 2,
+          "writer_mops": 1.8812,
+          "writer_elapsed_s": 0.557411,
+          "write_ops": 1048576
+        },
+        {
+          "round": 1,
+          "position": 3,
+          "writer_mops": 1.5253,
+          "writer_elapsed_s": 0.68744,
+          "write_ops": 1048576
+        },
+        {
+          "round": 2,
+          "position": 1,
+          "writer_mops": 1.9801,
+          "writer_elapsed_s": 0.529545,
+          "write_ops": 1048576
+        },
+        {
+          "round": 3,
+          "position": 0,
+          "writer_mops": 1.4669,
+          "writer_elapsed_s": 0.714843,
+          "write_ops": 1048576
+        },
+        {
+          "round": 4,
+          "position": 2,
+          "writer_mops": 1.5027,
+          "writer_elapsed_s": 0.697781,
+          "write_ops": 1048576
+        },
+        {
+          "round": 5,
+          "position": 3,
+          "writer_mops": 1.7683,
+          "writer_elapsed_s": 0.592989,
+          "write_ops": 1048576
+        },
+        {
+          "round": 6,
+          "position": 1,
+          "writer_mops": 1.7708,
+          "writer_elapsed_s": 0.592164,
+          "write_ops": 1048576
+        },
+        {
+          "round": 7,
+          "position": 0,
+          "writer_mops": 0.488,
+          "writer_elapsed_s": 2.148712,
+          "write_ops": 1048576
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 1,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 2,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 3,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 4,
+          "position": 2,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 5,
+          "position": 3,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 6,
+          "position": 1,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        },
+        {
+          "round": 7,
+          "position": 0,
+          "write_ops": 1048576,
+          "lock_fallbacks": 0,
+          "inserts": 1048576,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          }
+        }
+      ],
+      "load": {
+        "since": "arm:str:writers",
+        "wall_s": 37.187,
+        "busy_cpus_since_prev": 1.25,
+        "own_busy_cpus": 1.28,
+        "foreign_busy_cpus": -0.03
+      },
+      "dist": "short"
+    }
+  ]
+}
