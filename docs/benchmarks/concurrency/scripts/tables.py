@@ -13,6 +13,7 @@ Sections emitted, in README order:
 - `6b. The string wrapper's reader mode` from `results/ablations_str.json`
 - `8. Fine-grained write brackets gate` via `fine_grained_brackets_gate.py`
 - `9. Multi-writer OLC gate` via `multi_writer_olc_gate.py`
+- `10. Writer scaling` from `results/baseline_writer_scaling.json`
 
 A missing artifact renders the section's rows as `pending` citing the open
 tracking issue, so the README is correct before the run exists and
@@ -355,6 +356,52 @@ def ablations_str() -> list[str]:
     return out
 
 
+# ---- 10. native writer-scaling sweep (Phase 1.5D) -------------------------
+# Verdict per cell, fixed before the first sweep ran: a W >= 2 cell scales iff
+# the paired-BCa lower bound of C(W) clears 1.0 (AGENTS.md section 8.4); an
+# interval straddling 1.0 is a BOUNDARY_RESULT; an interval wholly below 1.0 is
+# RETROGRADE. `str` holds the writer mutex for the whole operation, so it is
+# the alpha = 1 reference curve and never a gate cell.
+def writer_scaling() -> list[str]:
+    out = ["## 10. Writer scaling — the native Phase 1.5D sweep (`results/baseline_writer_scaling.json`)", "",
+           "| arm | W | Expanse inserts M/s [BCa 95%] | C(W) [paired BCa 95%] | verdict | fallbacks / insert | contention / insert | largest causes (share of fallbacks) |",
+           "|---|--:|---|---|---|--:|--:|---|"]
+    art = load(SUITE / "results" / "baseline_writer_scaling.json")
+    if art is None:
+        out.append(f"| — | — | {PENDING} | pending | pending | pending | pending | pending |")
+        return out
+    where = "baseline_writer_scaling.json"
+    for arm in ("map", "set", "str"):
+        cells = sorted((c for c in need(art, "throughput", where) if c["arm"] == arm),
+                       key=lambda c: c["writers"])
+        for c in cells:
+            w = c["writers"]
+            at = f"{where} {arm} W={w}"
+            mean = need(c, "expanse_writer_mops_mean", at)
+            lo, hi = need(c, "writer_ci_lower", at), need(c, "writer_ci_upper", at)
+            cn = need(c, "scaling_factor_c_n", at)
+            cn_lo, cn_hi = need(c, "scaling_factor_c_n_ci_lower", at), need(c, "scaling_factor_c_n_ci_upper", at)
+            if w == 1:
+                verdict = "baseline"
+            elif arm == "str":
+                verdict = "reference, not gated"
+            elif cn_lo >= 1.0:
+                verdict = "`SCALES`"
+            elif cn_hi >= 1.0:
+                verdict = "`BOUNDARY_RESULT`"
+            else:
+                verdict = "`RETROGRADE`"
+            shares = need(c, "fallback_cause_share", at)
+            per_ins = need(c, "fallback_causes_per_insert", at)
+            top = sorted(((k, v) for k, v in shares.items() if v > 0), key=lambda kv: -kv[1])
+            listed = ", ".join(f"{k} {v * 100:.1f}%" for k, v in top[:3])
+            causes = listed or ("none — no OLC path" if arm == "str" else "none")
+            c_str = "1.00 (by definition)" if w == 1 else f"{cn:.2f} [{cn_lo:.2f}, {cn_hi:.2f}]"
+            out.append(f"| `{arm}` | {w} | {mean:.2f} [{lo:.2f}, {hi:.2f}] | {c_str} | {verdict} | "
+                       f"{need(c, 'fallback_rate', at) * 100:.2f}% | {per_ins['contention'] * 100:.2f}% | {causes} |")
+    return out
+
+
 def main() -> int:
     import fine_grained_brackets_gate  # the §8 fine-grained write brackets verdicts, beside this file
     import multi_writer_olc_gate  # the §9 multi-writer OLC verdicts, beside this file
@@ -368,6 +415,7 @@ def main() -> int:
         ablations_str(),
         fine_grained_brackets_gate.render(),
         multi_writer_olc_gate.render(),
+        writer_scaling(),
     ]
     print("\n\n".join("\n".join(b) for b in blocks))
     return 0

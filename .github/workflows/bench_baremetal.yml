@@ -897,7 +897,7 @@ jobs:
               "writer_scaling")
                 # Expanse-native multi-writer scaling sweep (Phase 1.5D, Refs #568)
                 python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
-                  --out docs/benchmarks/concurrency/results/writer_scaling.json | tee writer_scaling.txt
+                  --out docs/benchmarks/concurrency/results/baseline_writer_scaling.json | tee writer_scaling.txt
                 ;;
               "all")
                 if [ -f base-instructions.txt ]; then
@@ -1347,7 +1347,7 @@ jobs:
           path: |
             concurrency.txt
             writer_scaling.txt
-            docs/benchmarks/concurrency/results/writer_scaling.json
+            docs/benchmarks/concurrency/results/baseline_writer_scaling.json
             ycsb.txt
             comparative.txt
             bytes-per-key.txt

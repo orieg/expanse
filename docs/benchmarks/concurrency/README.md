@@ -303,3 +303,75 @@ Read against §10.2; every number is evaluated over two two-commit runs against 
 | `hot_comparison` | `set` | [97.0, 104.0] | 94.4 / 95.0 | **`MOVED (faster: 94.4 / 95.0 ns vs [97.0, 104.0] ns)`** |
 | `hot_comparison` | `map` | [97.0, 104.0] | 94.0 / 94.3 | **`MOVED (faster: 94.0 / 94.3 ns vs [97.0, 104.0] ns)`** |
 | `masstree_comparison` | `map` | [97.0, 104.0] | 93.7 / 93.4 | **`MOVED (faster: 93.7 / 93.4 ns vs [97.0, 104.0] ns)`** |
+
+## 10. Writer scaling — the native Phase 1.5D sweep (`results/baseline_writer_scaling.json`)
+
+The Expanse-native writer sweep (`crates/expanse/examples/writer_scaling.rs`,
+driven by `scripts/writer_scaling.py`, dispatched as `/benchmark writer_scaling`):
+W ∈ {1, 2, 4, 8} writers and no readers, a sorted 2^20-key prefill and 2^20
+fresh keys per round, eight rounds per cell. Throughput comes from the
+uninstrumented build; fallback counts and their six causes come from a
+separate `occ-stats` build, because the counters are never enabled for a
+published timing. W is interleaved inside each round in a Williams-square
+order, and C(W) is the per-round ratio T(W) / T(1) with a paired BCa 95%
+interval. The verdict column follows a rule fixed before the first sweep
+ran: a cell scales only if C(W)'s lower bound clears 1.0. `str` holds the
+writer mutex for the whole insert, so it is the α = 1 reference curve and is
+never a gate cell (workload: concurrency_writer_scaling).
+
+- **Every OLC cell is `RETROGRADE`.** On `map` and `set` the upper bound of
+  C(W) sits below 1.0 at every W: adding writers lowers aggregate insert
+  throughput. An earlier run at `623d651b` — the same engine; only the
+  counters and the artifact upload changed since — moved every cell the same
+  way: `map` 0.83 [0.81, 0.87], 0.68 [0.66, 0.71], 0.63 [0.61, 0.65] and
+  `set` 0.53 [0.52, 0.54], 0.45 [0.43, 0.46], 0.39 [0.39, 0.40] at W = 2, 4, 8
+  *(measured: reference host, `623d651b`, CI run
+  [34551890611](https://github.com/orieg/expanse/actions/runs/34551890611); that
+  run uploaded its table but not its JSON)*.
+- **Contention fallbacks appear only with a second writer.** They are 0 at
+  W = 1 on both arms. On `map` they carry the whole rise in the fallback
+  rate: structural fallbacks stay at 21.1–24.5% of inserts across W, while
+  contention adds 6.62%, 13.97% and 10.58% of inserts at W = 2, 4, 8. On
+  `set` the total stays near 80% and contention displaces structural causes
+  instead — 31.92% of inserts at W = 2. The counter covers both an exhausted
+  retry budget and a closed `WriterGate`, and does not tell them apart.
+- **The immediate-slot transition — Phase 4B's target — is 1.0–1.5% of
+  inserts** on both arms at every W. At W = 1, `map`'s fallbacks are leaf
+  capacity expansion (54.6%) and branch structural mutation (39.8%); `set`'s
+  are branch structural mutation (95.5%).
+- **The Phase 1.5B USL gate is not evaluable on this curve.** At N = 2,
+  C(N) = N / (1 + α(N − 1) + βN(N − 1)) falls below 1 only if α + 2β > 1, so
+  on a curve retrograde from W = 2 the fitted α sits at its upper bound of 1
+  and β absorbs the remainder; its ceiling measures nothing here.
+- **Caveat on the W = 8 cells.** The `0-15` pin covers 16 logical CPUs on 8
+  physical cores, and nothing forces one writer per core, so two writers can
+  share SMT siblings. `str`'s W = 8 interval, [0.31, 0.51], is wide and
+  skewed below its median; the cause is unmeasured.
+
+This run does not decide P5.1–P5.4: they are pre-registered on the
+two-commit FFI harnesses (METHODOLOGY §10.3), so a reading from this
+instrument is `INTERMEDIATE`. Nor is it a before/after claim against the
+curves measured before Phase 1.5A: those came from a different harness in a
+different run, which rule 18 does not admit.
+
+*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads,
+Ubuntu 22.04 / kernel 6.8, P-core pin `0-15`, governor `powersave`; engine
+and harness at `dde0ac0b`; CI run
+[34554671912](https://github.com/orieg/expanse/actions/runs/34554671912),
+`workflow_dispatch`, suite `writer_scaling`, which took the host lock;
+foreign busy CPUs −0.07 to −0.02 per arm)*
+
+| arm | W | Expanse inserts M/s [BCa 95%] | C(W) [paired BCa 95%] | verdict | fallbacks / insert | contention / insert | largest causes (share of fallbacks) |
+|---|--:|---|---|---|--:|--:|---|
+| `map` | 1 | 4.97 [4.87, 5.13] | 1.00 (by definition) | baseline | 24.51% | 0.00% | cap_expansion 54.6%, branch_split 39.8%, immediate_conversion 5.6% |
+| `map` | 2 | 4.16 [4.06, 4.27] | 0.84 [0.80, 0.87] | `RETROGRADE` | 29.19% | 6.62% | cap_expansion 42.9%, branch_split 30.2%, contention 22.7% |
+| `map` | 4 | 3.27 [3.18, 3.36] | 0.66 [0.63, 0.69] | `RETROGRADE` | 35.08% | 13.97% | contention 39.8%, cap_expansion 32.8%, branch_split 24.0% |
+| `map` | 8 | 3.10 [3.05, 3.15] | 0.62 [0.60, 0.64] | `RETROGRADE` | 32.49% | 10.58% | cap_expansion 36.8%, contention 32.6%, branch_split 26.8% |
+| `set` | 1 | 5.89 [5.32, 6.10] | 1.00 (by definition) | baseline | 78.69% | 0.00% | branch_split 95.5%, cap_expansion 2.5%, immediate_conversion 1.9% |
+| `set` | 2 | 3.18 [3.05, 3.25] | 0.54 [0.53, 0.57] | `RETROGRADE` | 85.15% | 31.92% | branch_split 59.6%, contention 37.5%, cap_expansion 1.8% |
+| `set` | 4 | 2.73 [2.70, 2.77] | 0.47 [0.45, 0.53] | `RETROGRADE` | 81.97% | 15.67% | branch_split 77.2%, contention 19.1%, cap_expansion 2.1% |
+| `set` | 8 | 2.38 [2.34, 2.40] | 0.41 [0.39, 0.45] | `RETROGRADE` | 81.88% | 15.44% | branch_split 77.5%, contention 18.9%, cap_expansion 2.1% |
+| `str` | 1 | 3.47 [3.31, 3.68] | 1.00 (by definition) | baseline | 0.00% | 0.00% | none — no OLC path |
+| `str` | 2 | 2.43 [2.33, 2.56] | 0.70 [0.65, 0.74] | reference, not gated | 0.00% | 0.00% | none — no OLC path |
+| `str` | 4 | 2.08 [2.03, 2.15] | 0.60 [0.57, 0.64] | reference, not gated | 0.00% | 0.00% | none — no OLC path |
+| `str` | 8 | 1.55 [1.08, 1.76] | 0.45 [0.31, 0.51] | reference, not gated | 0.00% | 0.00% | none — no OLC path |
