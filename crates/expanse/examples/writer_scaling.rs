@@ -83,6 +83,8 @@ struct Counters {
     branch_split_prefix: u64,
     branch_split_remove: u64,
     branch_split_upgrade: u64,
+    retired: u64,
+    total_allocs: u64,
 }
 
 impl Counters {
@@ -111,6 +113,8 @@ impl Counters {
             branch_split_prefix: snap[Stat::BranchSplitPrefix as usize],
             branch_split_remove: snap[Stat::BranchSplitRemove as usize],
             branch_split_upgrade: snap[Stat::BranchSplitUpgrade as usize],
+            retired: snap[Stat::Retired as usize],
+            total_allocs: 0,
         }
     }
 
@@ -131,7 +135,8 @@ impl Counters {
              \"quiesce_calls\":{q_calls},\"quiesce_drain_cycles\":{q_drain},\
              \"branch_split_subarray\":{bs_sub},\"branch_split_linear\":{bs_lin},\
              \"branch_split_prefix\":{bs_pfx},\"branch_split_remove\":{bs_rem},\
-             \"branch_split_upgrade\":{bs_upg}",
+             \"branch_split_upgrade\":{bs_upg},\
+             \"retired\":{retired},\"total_allocs\":{total_allocs}",
             restarts = self.lock_restarts,
             c_closed = self.contention_gate_closed,
             c_exhausted = self.contention_retry_exhausted,
@@ -144,6 +149,8 @@ impl Counters {
             bs_pfx = self.branch_split_prefix,
             bs_rem = self.branch_split_remove,
             bs_upg = self.branch_split_upgrade,
+            retired = self.retired,
+            total_allocs = self.total_allocs,
         )
     }
 
@@ -370,6 +377,12 @@ fn run_map_cell(
     let per = workload.fresh_keys.len() / writers.max(1);
     let barrier = Barrier::new(writers + 1);
 
+    let allocs_before = if is_counters {
+        map.with_locked(|inner| inner.total_node_allocs() as u64)
+    } else {
+        0
+    };
+
     if is_counters {
         occ_stats::reset();
     }
@@ -402,7 +415,12 @@ fn run_map_cell(
     } else {
         start.elapsed().as_secs_f64()
     };
-    let counters = Counters::read(is_counters);
+    let mut counters = Counters::read(is_counters);
+    if is_counters {
+        counters.total_allocs = map
+            .with_locked(|inner| inner.total_node_allocs() as u64)
+            .saturating_sub(allocs_before);
+    }
     let final_pop = map.len();
 
     // Verify samples
@@ -432,6 +450,12 @@ fn run_set_cell(
 
     let per = workload.fresh_keys.len() / writers.max(1);
     let barrier = Barrier::new(writers + 1);
+
+    let allocs_before = if is_counters {
+        set.with_locked(|inner| inner.total_node_allocs() as u64)
+    } else {
+        0
+    };
 
     if is_counters {
         occ_stats::reset();
@@ -465,7 +489,12 @@ fn run_set_cell(
     } else {
         start.elapsed().as_secs_f64()
     };
-    let counters = Counters::read(is_counters);
+    let mut counters = Counters::read(is_counters);
+    if is_counters {
+        counters.total_allocs = set
+            .with_locked(|inner| inner.total_node_allocs() as u64)
+            .saturating_sub(allocs_before);
+    }
     let final_pop = set.len();
 
     // Verify samples
@@ -614,6 +643,9 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
                 fb_map.lock_fallbacks
             ));
         }
+        if fb_map.total_allocs == 0 {
+            return Err("counters test: expected fb_map.total_allocs > 0".into());
+        }
         fb_map.check(m as u64, "self-test map")?;
     } else if el_map <= 0.0 {
         return Err(format!("throughput test: invalid map elapsed {el_map}"));
@@ -630,6 +662,9 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
                 "counters test: expected fb_set > 0 at quick scale, got {}",
                 fb_set.lock_fallbacks
             ));
+        }
+        if fb_set.total_allocs == 0 {
+            return Err("counters test: expected fb_set.total_allocs > 0".into());
         }
         fb_set.check(m as u64, "self-test set")?;
     } else if el_set <= 0.0 {
@@ -828,6 +863,8 @@ fn main() {
     let run_set = arm_arg == "set" || arm_arg == "all" || arm_arg == "both";
     let run_str = arm_arg == "str" || arm_arg == "all";
 
+    let tsc_hz = occ_stats::cycles_hz(std::time::Duration::from_millis(200));
+
     // Interleaved execution across writer counts within each round, balancing
     // position and first-order carryover across rounds (Williams design):
     if run_map {
@@ -849,7 +886,7 @@ fn main() {
                         "{{\"workload_id\":\"concurrency_writer_map_64bit\",\"role\":\"counters\",\
                          \"arm\":\"expanse\",\"cell\":\"map_w{w}_r0\",\"keyspace_bits\":{bits},\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
-                         \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\
+                         \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\"tsc_hz\":{tsc_hz},\
                          \"lock_fallbacks\":{fb},\"inserts\":{ins},{extra},\"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
                         fb = counters.lock_fallbacks,
                         ins = counters.inserts,
@@ -863,7 +900,7 @@ fn main() {
                          \"arm\":\"expanse\",\"cell\":\"map_w{w}_r0\",\"keyspace_bits\":{bits},\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
                          \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\"writer_elapsed_s\":{elapsed_s:.6},\
-                         \"writer_mops\":{writer_mops:.4},\"population_after\":{final_pop}}}"
+                         \"writer_mops\":{writer_mops:.4},\"tsc_hz\":{tsc_hz},\"population_after\":{final_pop}}}"
                     );
                 }
             }
@@ -889,7 +926,7 @@ fn main() {
                         "{{\"workload_id\":\"concurrency_writer_set_63bit\",\"role\":\"counters\",\
                          \"arm\":\"expanse\",\"cell\":\"set_w{w}_r0\",\"keyspace_bits\":{bits},\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
-                         \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\
+                         \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\"tsc_hz\":{tsc_hz},\
                          \"lock_fallbacks\":{fb},\"inserts\":{ins},{extra},\"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
                         fb = counters.lock_fallbacks,
                         ins = counters.inserts,
@@ -903,7 +940,7 @@ fn main() {
                          \"arm\":\"expanse\",\"cell\":\"set_w{w}_r0\",\"keyspace_bits\":{bits},\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
                          \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\"writer_elapsed_s\":{elapsed_s:.6},\
-                         \"writer_mops\":{writer_mops:.4},\"population_after\":{final_pop}}}"
+                         \"writer_mops\":{writer_mops:.4},\"tsc_hz\":{tsc_hz},\"population_after\":{final_pop}}}"
                     );
                 }
             }
@@ -928,7 +965,7 @@ fn main() {
                         "{{\"workload_id\":\"concurrency_writer_str\",\"role\":\"counters\",\
                          \"arm\":\"expanse\",\"cell\":\"str_w{w}_r0\",\"dist\":\"short\",\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
-                         \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\
+                         \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\"tsc_hz\":{tsc_hz},\
                          \"lock_fallbacks\":{fb},\"inserts\":{ins},{extra},\"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
                         fb = counters.lock_fallbacks,
                         ins = counters.inserts,
@@ -942,7 +979,7 @@ fn main() {
                          \"arm\":\"expanse\",\"cell\":\"str_w{w}_r0\",\"dist\":\"short\",\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
                          \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\"writer_elapsed_s\":{elapsed_s:.6},\
-                         \"writer_mops\":{writer_mops:.4},\"population_after\":{final_pop}}}"
+                         \"writer_mops\":{writer_mops:.4},\"tsc_hz\":{tsc_hz},\"population_after\":{final_pop}}}"
                     );
                 }
             }
