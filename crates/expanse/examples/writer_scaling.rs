@@ -71,6 +71,17 @@ struct Counters {
     lock_fallbacks: u64,
     inserts: u64,
     causes: [u64; 6],
+    lock_restarts: u64,
+    contention_gate_closed: u64,
+    contention_retry_exhausted: u64,
+    gate_blocked_entries: u64,
+    gate_wait_cycles: u64,
+    quiesce_calls: u64,
+    quiesce_drain_cycles: u64,
+    branch_split_subarray: u64,
+    branch_split_linear: u64,
+    branch_split_prefix: u64,
+    branch_split_remove: u64,
 }
 
 impl Counters {
@@ -87,6 +98,17 @@ impl Counters {
             lock_fallbacks: snap[Stat::LockFallbacks as usize],
             inserts: snap[Stat::Inserts as usize],
             causes,
+            lock_restarts: snap[Stat::LockRestarts as usize],
+            contention_gate_closed: snap[Stat::ContentionGateClosed as usize],
+            contention_retry_exhausted: snap[Stat::ContentionRetryExhausted as usize],
+            gate_blocked_entries: snap[Stat::GateBlockedEntries as usize],
+            gate_wait_cycles: snap[Stat::GateWaitCycles as usize],
+            quiesce_calls: snap[Stat::QuiesceCalls as usize],
+            quiesce_drain_cycles: snap[Stat::QuiesceDrainCycles as usize],
+            branch_split_subarray: snap[Stat::BranchSplitSubarray as usize],
+            branch_split_linear: snap[Stat::BranchSplitLinear as usize],
+            branch_split_prefix: snap[Stat::BranchSplitPrefix as usize],
+            branch_split_remove: snap[Stat::BranchSplitRemove as usize],
         }
     }
 
@@ -99,9 +121,32 @@ impl Counters {
         format!("{{{}}}", fields.join(","))
     }
 
-    /// The two exact identities a counters row must satisfy: one `Inserts`
-    /// bump per public insert, and causes summing to fallbacks. Both are
-    /// deterministic, so a violation is a broken instrument, never noise.
+    fn extra_counters_json(&self) -> String {
+        format!(
+            "\"lock_restarts\":{restarts},\
+             \"contention_gate_closed\":{c_closed},\"contention_retry_exhausted\":{c_exhausted},\
+             \"gate_blocked_entries\":{g_blocked},\"gate_wait_cycles\":{g_wait},\
+             \"quiesce_calls\":{q_calls},\"quiesce_drain_cycles\":{q_drain},\
+             \"branch_split_subarray\":{bs_sub},\"branch_split_linear\":{bs_lin},\
+             \"branch_split_prefix\":{bs_pfx},\"branch_split_remove\":{bs_rem}",
+            restarts = self.lock_restarts,
+            c_closed = self.contention_gate_closed,
+            c_exhausted = self.contention_retry_exhausted,
+            g_blocked = self.gate_blocked_entries,
+            g_wait = self.gate_wait_cycles,
+            q_calls = self.quiesce_calls,
+            q_drain = self.quiesce_drain_cycles,
+            bs_sub = self.branch_split_subarray,
+            bs_lin = self.branch_split_linear,
+            bs_pfx = self.branch_split_prefix,
+            bs_rem = self.branch_split_remove,
+        )
+    }
+
+    /// The exact identities a counters row must satisfy: one `Inserts`
+    /// bump per public insert, causes summing to fallbacks, exact contention
+    /// partition, exact branch split partition, and quiesce calls equal to
+    /// fallbacks in an insert-only workload.
     fn check(&self, expected_inserts: u64, cell: &str) -> Result<(), String> {
         if self.inserts != expected_inserts {
             return Err(format!(
@@ -115,6 +160,35 @@ impl Counters {
                 "{cell}: fallback causes sum to {summed}, lock_fallbacks = {}; unattributed = {}",
                 self.lock_fallbacks,
                 self.lock_fallbacks as i128 - summed as i128
+            ));
+        }
+        if self.quiesce_calls != self.lock_fallbacks {
+            return Err(format!(
+                "{cell}: quiesce_calls = {}, lock_fallbacks = {}",
+                self.quiesce_calls, self.lock_fallbacks
+            ));
+        }
+        let contention = self.causes[4]; // Stat::FallbackContention
+        let contention_sub = self.contention_gate_closed + self.contention_retry_exhausted;
+        if contention_sub != contention {
+            return Err(format!(
+                "{cell}: contention subsets sum to {contention_sub} (closed={}, exhausted={}), but contention = {}",
+                self.contention_gate_closed, self.contention_retry_exhausted, contention
+            ));
+        }
+        let branch_split = self.causes[2]; // Stat::FallbackBranchSplit
+        let branch_sub = self.branch_split_subarray
+            + self.branch_split_linear
+            + self.branch_split_prefix
+            + self.branch_split_remove;
+        if branch_sub != branch_split {
+            return Err(format!(
+                "{cell}: branch split subsets sum to {branch_sub} (subarray={}, linear={}, prefix={}, remove={}), but branch_split = {}",
+                self.branch_split_subarray,
+                self.branch_split_linear,
+                self.branch_split_prefix,
+                self.branch_split_remove,
+                branch_split
             ));
         }
         Ok(())
@@ -770,9 +844,10 @@ fn main() {
                          \"arm\":\"expanse\",\"cell\":\"map_w{w}_r0\",\"keyspace_bits\":{bits},\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
                          \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\
-                         \"lock_fallbacks\":{fb},\"inserts\":{ins},\"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
+                         \"lock_fallbacks\":{fb},\"inserts\":{ins},{extra},\"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
                         fb = counters.lock_fallbacks,
                         ins = counters.inserts,
+                        extra = counters.extra_counters_json(),
                         causes = counters.causes_json(),
                     );
                 } else {
@@ -809,9 +884,10 @@ fn main() {
                          \"arm\":\"expanse\",\"cell\":\"set_w{w}_r0\",\"keyspace_bits\":{bits},\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
                          \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\
-                         \"lock_fallbacks\":{fb},\"inserts\":{ins},\"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
+                         \"lock_fallbacks\":{fb},\"inserts\":{ins},{extra},\"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
                         fb = counters.lock_fallbacks,
                         ins = counters.inserts,
+                        extra = counters.extra_counters_json(),
                         causes = counters.causes_json(),
                     );
                 } else {
@@ -847,9 +923,10 @@ fn main() {
                          \"arm\":\"expanse\",\"cell\":\"str_w{w}_r0\",\"dist\":\"short\",\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
                          \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\
-                         \"lock_fallbacks\":{fb},\"inserts\":{ins},\"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
+                         \"lock_fallbacks\":{fb},\"inserts\":{ins},{extra},\"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
                         fb = counters.lock_fallbacks,
                         ins = counters.inserts,
+                        extra = counters.extra_counters_json(),
                         causes = counters.causes_json(),
                     );
                 } else {

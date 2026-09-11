@@ -293,6 +293,32 @@ def summarize_arm(
                     f"{arm} W={w} round {r['round']}: Stat::Inserts = {r['inserts']}, "
                     f"harness inserted {r['write_ops']}"
                 )
+            # Invariant 1: QuiesceCalls == LockFallbacks (on insert-only sweeps)
+            if int(r.get("quiesce_calls", 0)) != int(r["lock_fallbacks"]):
+                raise ValueError(
+                    f"{arm} W={w} round {r['round']}: quiesce_calls ({r.get('quiesce_calls')}) != "
+                    f"lock_fallbacks ({r['lock_fallbacks']})"
+                )
+            # Invariant 2: Contention exact partition
+            c_closed = int(r.get("contention_gate_closed", 0))
+            c_exhausted = int(r.get("contention_retry_exhausted", 0))
+            if c_closed + c_exhausted != int(causes["contention"]):
+                raise ValueError(
+                    f"{arm} W={w} round {r['round']}: contention_gate_closed ({c_closed}) + "
+                    f"contention_retry_exhausted ({c_exhausted}) = {c_closed + c_exhausted} != "
+                    f"causes['contention'] ({causes['contention']})"
+                )
+            # Invariant 3: BranchSplit exact partition
+            bs_sub = int(r.get("branch_split_subarray", 0))
+            bs_lin = int(r.get("branch_split_linear", 0))
+            bs_pfx = int(r.get("branch_split_prefix", 0))
+            bs_rem = int(r.get("branch_split_remove", 0))
+            bs_sum = bs_sub + bs_lin + bs_pfx + bs_rem
+            if bs_sum != int(causes["branch_split"]):
+                raise ValueError(
+                    f"{arm} W={w} round {r['round']}: branch_split partition ({bs_sub} + {bs_lin} + "
+                    f"{bs_pfx} + {bs_rem} = {bs_sum}) != causes['branch_split'] ({causes['branch_split']})"
+                )
             for name in CAUSE_NAMES:
                 cause_totals[name] += int(causes[name])
         # Shares of fallbacks say which Phase 4 rung a cell needs; per-insert
@@ -304,6 +330,73 @@ def summarize_arm(
         cause_per_insert = {
             name: (round(v / total_ops, 6) if total_ops > 0 else 0.0)
             for name, v in cause_totals.items()
+        }
+
+        total_restarts = sum(int(r.get("lock_restarts", 0)) for r in c_rows_w)
+        total_c_closed = sum(int(r.get("contention_gate_closed", 0)) for r in c_rows_w)
+        total_c_exhausted = sum(int(r.get("contention_retry_exhausted", 0)) for r in c_rows_w)
+        total_g_blocked = sum(int(r.get("gate_blocked_entries", 0)) for r in c_rows_w)
+        total_g_wait = sum(int(r.get("gate_wait_cycles", 0)) for r in c_rows_w)
+        total_q_calls = sum(int(r.get("quiesce_calls", 0)) for r in c_rows_w)
+        total_q_drain = sum(int(r.get("quiesce_drain_cycles", 0)) for r in c_rows_w)
+        total_bs_sub = sum(int(r.get("branch_split_subarray", 0)) for r in c_rows_w)
+        total_bs_lin = sum(int(r.get("branch_split_linear", 0)) for r in c_rows_w)
+        total_bs_pfx = sum(int(r.get("branch_split_prefix", 0)) for r in c_rows_w)
+        total_bs_rem = sum(int(r.get("branch_split_remove", 0)) for r in c_rows_w)
+
+        restarts_per_insert = round(total_restarts / total_ops, 6) if total_ops > 0 else 0.0
+        gate_blocked_entries_per_insert = (
+            round(total_g_blocked / total_ops, 6) if total_ops > 0 else 0.0
+        )
+        gate_wait_cycles_per_insert = (
+            round(total_g_wait / total_ops, 6) if total_ops > 0 else 0.0
+        )
+        quiesce_drain_cycles_per_fallback = (
+            round(total_q_drain / total_fallbacks, 6) if total_fallbacks > 0 else 0.0
+        )
+        contention_subset_totals = {
+            "gate_closed": total_c_closed,
+            "retry_exhausted": total_c_exhausted,
+        }
+        contention_subset_share = {
+            "gate_closed": (
+                round(total_c_closed / cause_totals["contention"], 6)
+                if cause_totals["contention"] > 0
+                else 0.0
+            ),
+            "retry_exhausted": (
+                round(total_c_exhausted / cause_totals["contention"], 6)
+                if cause_totals["contention"] > 0
+                else 0.0
+            ),
+        }
+        branch_split_subset_totals = {
+            "subarray": total_bs_sub,
+            "linear": total_bs_lin,
+            "prefix": total_bs_pfx,
+            "remove": total_bs_rem,
+        }
+        branch_split_subset_share = {
+            "subarray": (
+                round(total_bs_sub / cause_totals["branch_split"], 6)
+                if cause_totals["branch_split"] > 0
+                else 0.0
+            ),
+            "linear": (
+                round(total_bs_lin / cause_totals["branch_split"], 6)
+                if cause_totals["branch_split"] > 0
+                else 0.0
+            ),
+            "prefix": (
+                round(total_bs_pfx / cause_totals["branch_split"], 6)
+                if cause_totals["branch_split"] > 0
+                else 0.0
+            ),
+            "remove": (
+                round(total_bs_rem / cause_totals["branch_split"], 6)
+                if cause_totals["branch_split"] > 0
+                else 0.0
+            ),
         }
 
         tp_rel = THROUGHPUT_TARGET.relative_to(REPO_ROOT)
@@ -332,6 +425,14 @@ def summarize_arm(
             "fallback_causes_total": cause_totals,
             "fallback_cause_share": cause_share,
             "fallback_causes_per_insert": cause_per_insert,
+            "contention_subsets_total": contention_subset_totals,
+            "contention_subset_share": contention_subset_share,
+            "branch_split_subsets_total": branch_split_subset_totals,
+            "branch_split_subset_share": branch_split_subset_share,
+            "gate_blocked_entries_per_insert": gate_blocked_entries_per_insert,
+            "gate_wait_cycles_per_insert": gate_wait_cycles_per_insert,
+            "quiesce_drain_cycles_per_fallback": quiesce_drain_cycles_per_fallback,
+            "lock_restarts_per_insert": restarts_per_insert,
             "build_provenance": {
                 "throughput": f"{tp_rel}/release/examples/writer_scaling (uninstrumented)",
                 "counters": f"{cnt_rel}/release/examples/writer_scaling (--features occ-stats)",
@@ -353,6 +454,17 @@ def summarize_arm(
                     "write_ops": r["write_ops"],
                     "lock_fallbacks": r["lock_fallbacks"],
                     "inserts": r["inserts"],
+                    "lock_restarts": r["lock_restarts"],
+                    "contention_gate_closed": r["contention_gate_closed"],
+                    "contention_retry_exhausted": r["contention_retry_exhausted"],
+                    "gate_blocked_entries": r["gate_blocked_entries"],
+                    "gate_wait_cycles": r["gate_wait_cycles"],
+                    "quiesce_calls": r["quiesce_calls"],
+                    "quiesce_drain_cycles": r["quiesce_drain_cycles"],
+                    "branch_split_subarray": r["branch_split_subarray"],
+                    "branch_split_linear": r["branch_split_linear"],
+                    "branch_split_prefix": r["branch_split_prefix"],
+                    "branch_split_remove": r["branch_split_remove"],
                     "fallback_causes": r["fallback_causes"],
                 }
                 for r in c_rows_w
@@ -484,6 +596,18 @@ def self_test() -> int:
             assert set(r["fallback_causes"]) == set(CAUSE_NAMES), r
             assert sum(r["fallback_causes"].values()) == r["lock_fallbacks"], r
             assert r["inserts"] == r["write_ops"], r
+            assert r["quiesce_calls"] == r["lock_fallbacks"], r
+            assert (
+                r["contention_gate_closed"] + r["contention_retry_exhausted"]
+                == r["fallback_causes"]["contention"]
+            ), r
+            assert (
+                r["branch_split_subarray"]
+                + r["branch_split_linear"]
+                + r["branch_split_prefix"]
+                + r["branch_split_remove"]
+                == r["fallback_causes"]["branch_split"]
+            ), r
     assert abs(sum(cell_w2["fallback_cause_share"].values()) - 1.0) < 1e-3, cell_w2["fallback_cause_share"]
     # A row whose causes do not sum to its fallbacks is refused, not averaged.
     broken = [dict(r) for r in c_rows_map]
@@ -494,6 +618,36 @@ def self_test() -> int:
         assert "causes sum to" in str(exc), exc
     else:
         raise AssertionError("summarize_arm accepted a row whose causes do not sum to lock_fallbacks")
+
+    # Negative control: quiesce_calls mismatch
+    broken_q = [dict(r) for r in c_rows_map]
+    broken_q[0]["quiesce_calls"] = int(broken_q[0]["quiesce_calls"]) + 1
+    try:
+        summarize_arm("map", [1, 2], 3, t_rows_map, broken_q, load)
+    except ValueError as exc:
+        assert "quiesce_calls" in str(exc), exc
+    else:
+        raise AssertionError("summarize_arm accepted a row with quiesce_calls mismatch")
+
+    # Negative control: contention partition mismatch
+    broken_c = [dict(r) for r in c_rows_map]
+    broken_c[0]["contention_gate_closed"] = int(broken_c[0]["contention_gate_closed"]) + 1
+    try:
+        summarize_arm("map", [1, 2], 3, t_rows_map, broken_c, load)
+    except ValueError as exc:
+        assert "contention_gate_closed" in str(exc), exc
+    else:
+        raise AssertionError("summarize_arm accepted broken contention partition")
+
+    # Negative control: branch_split partition mismatch
+    broken_bs = [dict(r) for r in c_rows_map]
+    broken_bs[0]["branch_split_subarray"] = int(broken_bs[0]["branch_split_subarray"]) + 1
+    try:
+        summarize_arm("map", [1, 2], 3, t_rows_map, broken_bs, load)
+    except ValueError as exc:
+        assert "branch_split partition" in str(exc), exc
+    else:
+        raise AssertionError("summarize_arm accepted broken branch_split partition")
 
     # 6. Privacy check: ensure no absolute repo root or home paths leaked into cells (AGENTS.md §7)
     repo_root_str = str(REPO_ROOT)
@@ -683,6 +837,30 @@ def main() -> int:
                     for name in CAUSE_NAMES
                 )
                 print(f"        causes (share of fallbacks): {shares}")
+                c_tot = cell["fallback_causes_total"]["contention"]
+                if c_tot > 0:
+                    c_sh = cell["contention_subset_share"]
+                    print(
+                        f"        contention breakdown: gate_closed {c_sh['gate_closed']*100:5.2f}% "
+                        f"| retry_exhausted {c_sh['retry_exhausted']*100:5.2f}%"
+                    )
+                bs_tot = cell["fallback_causes_total"]["branch_split"]
+                if bs_tot > 0:
+                    bs_sh = cell["branch_split_subset_share"]
+                    print(
+                        f"        branch_split breakdown: subarray {bs_sh['subarray']*100:5.2f}% "
+                        f"| linear {bs_sh['linear']*100:5.2f}% | prefix {bs_sh['prefix']*100:5.2f}% "
+                        f"| remove {bs_sh['remove']*100:5.2f}%"
+                    )
+                if (
+                    cell["gate_blocked_entries_per_insert"] > 0
+                    or cell["quiesce_drain_cycles_per_fallback"] > 0
+                ):
+                    print(
+                        f"        gate/drain: blocked/insert {cell['gate_blocked_entries_per_insert']:.6f} "
+                        f"| wait_cyc/insert {cell['gate_wait_cycles_per_insert']:.1f} "
+                        f"| drain_cyc/fb {cell['quiesce_drain_cycles_per_fallback']:.1f}"
+                    )
 
     artifact = {
         "provenance": prov,

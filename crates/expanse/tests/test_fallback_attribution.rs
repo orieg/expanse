@@ -162,6 +162,58 @@ fn fallback_causes_account_for_every_fallback() {
         fallbacks as i64 - summed as i64
     );
 
+    // Exact identity 1: QuiesceCalls == LockFallbacks on insert-only sweeps
+    assert_eq!(
+        d(Stat::QuiesceCalls),
+        fallbacks,
+        "map: QuiesceCalls ({}) must equal LockFallbacks ({}) on insert-only workload",
+        d(Stat::QuiesceCalls),
+        fallbacks
+    );
+    assert_eq!(
+        sd(Stat::QuiesceCalls),
+        s_fallbacks,
+        "set: QuiesceCalls ({}) must equal LockFallbacks ({}) on insert-only workload",
+        sd(Stat::QuiesceCalls),
+        s_fallbacks
+    );
+
+    // Exact identity 2: Contention partition
+    assert_eq!(
+        d(Stat::ContentionGateClosed) + d(Stat::ContentionRetryExhausted),
+        d(Stat::FallbackContention),
+        "map: Contention subsets must sum to FallbackContention"
+    );
+    assert_eq!(
+        sd(Stat::ContentionGateClosed) + sd(Stat::ContentionRetryExhausted),
+        sd(Stat::FallbackContention),
+        "set: Contention subsets must sum to FallbackContention"
+    );
+
+    // Exact identity 3: BranchSplit partition
+    let bs_partition_map = d(Stat::BranchSplitSubarray)
+        + d(Stat::BranchSplitLinear)
+        + d(Stat::BranchSplitPrefix)
+        + d(Stat::BranchSplitRemove);
+    assert_eq!(
+        bs_partition_map,
+        d(Stat::FallbackBranchSplit),
+        "map: BranchSplit subsets must sum to FallbackBranchSplit"
+    );
+    let bs_partition_set = sd(Stat::BranchSplitSubarray)
+        + sd(Stat::BranchSplitLinear)
+        + sd(Stat::BranchSplitPrefix)
+        + sd(Stat::BranchSplitRemove);
+    assert_eq!(
+        bs_partition_set,
+        sd(Stat::FallbackBranchSplit),
+        "set: BranchSplit subsets must sum to FallbackBranchSplit"
+    );
+
+    // Remove partition must be 0 on insert-only workloads
+    assert_eq!(d(Stat::BranchSplitRemove), 0);
+    assert_eq!(sd(Stat::BranchSplitRemove), 0);
+
     // Pin the dominance of FallbackBranchSplit over FallbackCapExpansion (F4 / §8.9.1).
     // BranchSplit accounts for 68-81% of fallbacks on both structures, at least 3x
     // greater than leaf capacity expansion (~16%). This pins the composition so that
@@ -188,9 +240,49 @@ fn fallback_causes_account_for_every_fallback() {
         "single-threaded map test workload must have zero contention fallbacks"
     );
     assert_eq!(
+        d(Stat::ContentionGateClosed),
+        0,
+        "single-threaded map test workload must have zero gate-closed contention"
+    );
+    assert_eq!(
+        d(Stat::ContentionRetryExhausted),
+        0,
+        "single-threaded map test workload must have zero retry-exhausted contention"
+    );
+    assert_eq!(
+        d(Stat::GateBlockedEntries),
+        0,
+        "single-threaded map test workload must have zero gate blocked entries"
+    );
+    assert_eq!(
+        d(Stat::GateWaitCycles),
+        0,
+        "single-threaded map test workload must have zero gate wait cycles"
+    );
+    assert_eq!(
         sd(Stat::FallbackContention),
         0,
         "single-threaded set test workload must have zero contention fallbacks"
+    );
+    assert_eq!(
+        sd(Stat::ContentionGateClosed),
+        0,
+        "single-threaded set test workload must have zero gate-closed contention"
+    );
+    assert_eq!(
+        sd(Stat::ContentionRetryExhausted),
+        0,
+        "single-threaded set test workload must have zero retry-exhausted contention"
+    );
+    assert_eq!(
+        sd(Stat::GateBlockedEntries),
+        0,
+        "single-threaded set test workload must have zero gate blocked entries"
+    );
+    assert_eq!(
+        sd(Stat::GateWaitCycles),
+        0,
+        "single-threaded set test workload must have zero gate wait cycles"
     );
 
     // The OLC walk does *not* decode every tag it can meet, and this counter

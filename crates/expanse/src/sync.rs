@@ -1435,6 +1435,9 @@ impl<T: SharedTree> Shared<T> {
 
     #[cfg(feature = "std")]
     pub(crate) fn quiesce_writers(&self) {
+        crate::occ_stats::bump(crate::occ_stats::Stat::QuiesceCalls);
+        #[cfg(feature = "occ-stats")]
+        let start = crate::occ_stats::cycles_now();
         self.gate.close();
         let mut mask = self
             .writers
@@ -1449,6 +1452,11 @@ impl<T: SharedTree> Shared<T> {
                 loom::thread::yield_now();
             }
         }
+        #[cfg(feature = "occ-stats")]
+        crate::occ_stats::bump_by(
+            crate::occ_stats::Stat::QuiesceDrainCycles,
+            crate::occ_stats::cycles_now().wrapping_sub(start),
+        );
     }
 
     #[cfg(feature = "std")]
@@ -1459,6 +1467,7 @@ impl<T: SharedTree> Shared<T> {
 
     #[cfg(feature = "std")]
     pub(crate) fn enter_writer_blocking(&self) -> crate::occ::WriterGuard<'_> {
+        #[cfg(not(feature = "occ-stats"))]
         loop {
             if let Some(guard) = self.enter_writer() {
                 return guard;
@@ -1466,6 +1475,26 @@ impl<T: SharedTree> Shared<T> {
             core::hint::spin_loop();
             #[cfg(loom)]
             loom::thread::yield_now();
+        }
+        #[cfg(feature = "occ-stats")]
+        {
+            if let Some(guard) = self.enter_writer() {
+                return guard;
+            }
+            crate::occ_stats::bump(crate::occ_stats::Stat::GateBlockedEntries);
+            let start = crate::occ_stats::cycles_now();
+            loop {
+                core::hint::spin_loop();
+                #[cfg(loom)]
+                loom::thread::yield_now();
+                if let Some(guard) = self.enter_writer() {
+                    crate::occ_stats::bump_by(
+                        crate::occ_stats::Stat::GateWaitCycles,
+                        crate::occ_stats::cycles_now().wrapping_sub(start),
+                    );
+                    return guard;
+                }
+            }
         }
     }
 
@@ -1791,6 +1820,58 @@ impl FallbackCause {
             Self::Contention => Stat::FallbackContention,
             Self::UnknownTag => Stat::FallbackUnknownTag,
         }
+    }
+}
+
+/// Structural sub-classification for branch mutations falling back to the serialized lock (#568).
+#[cfg(feature = "std")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BranchSplitKind {
+    /// Bitmap subexpanse bit missing or subarray pointer is null (Phase 4D).
+    Subarray,
+    /// Linear branch capacity overflow (`num > 3/7` or no free slot, Phase 4E).
+    Linear,
+    /// Edge prefix mismatch during descent (Phase 4E).
+    Prefix,
+    /// Remove path shrink or node condensation.
+    Remove,
+}
+
+#[cfg(all(feature = "std", feature = "occ-stats"))]
+impl BranchSplitKind {
+    #[inline(always)]
+    pub(crate) const fn stat(self) -> crate::occ_stats::Stat {
+        match self {
+            Self::Subarray => crate::occ_stats::Stat::BranchSplitSubarray,
+            Self::Linear => crate::occ_stats::Stat::BranchSplitLinear,
+            Self::Prefix => crate::occ_stats::Stat::BranchSplitPrefix,
+            Self::Remove => crate::occ_stats::Stat::BranchSplitRemove,
+        }
+    }
+}
+
+/// Central routing helper for all branch split fallbacks.
+///
+/// Ensures every branch split fallback attributes its sub-cause consistently and
+/// satisfies the structural invariant that no raw `Fallback(FallbackCause::BranchSplit)`
+/// exists outside this helper.
+#[cfg(feature = "std")]
+#[inline(always)]
+fn branch_split<T>(_kind: BranchSplitKind) -> OlcOutcome<T> {
+    #[cfg(feature = "occ-stats")]
+    crate::occ_stats::bump(_kind.stat());
+    OlcOutcome::Fallback(FallbackCause::BranchSplit)
+}
+
+/// Maps contention fallback cause to its exact sub-cause statistic (#568).
+#[cfg(all(feature = "occ-stats", feature = "std"))]
+#[inline(always)]
+#[doc(hidden)]
+pub fn contention_stat(closed: bool) -> crate::occ_stats::Stat {
+    if closed {
+        crate::occ_stats::Stat::ContentionGateClosed
+    } else {
+        crate::occ_stats::Stat::ContentionRetryExhausted
     }
 }
 
@@ -2345,8 +2426,14 @@ impl SyncExpanseSet {
                 crate::occ_stats::op_begin();
 
                 let mut cause = FallbackCause::Contention;
+                #[cfg(feature = "occ-stats")]
+                let mut closed = false;
                 for _ in 0..MAX_RETRIES {
                     if self.shared.gate.is_closed() {
+                        #[cfg(feature = "occ-stats")]
+                        {
+                            closed = true;
+                        }
                         break;
                     }
                     match self.olc_insert_set(key) {
@@ -2373,6 +2460,10 @@ impl SyncExpanseSet {
                 crate::occ_stats::op_end();
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(cause.stat());
+                #[cfg(feature = "occ-stats")]
+                if cause == FallbackCause::Contention {
+                    crate::occ_stats::bump(contention_stat(closed));
+                }
                 Err(cause)
             });
             drop(_guard);
@@ -2403,8 +2494,14 @@ impl SyncExpanseSet {
                 crate::occ_stats::op_begin();
 
                 let mut cause = FallbackCause::Contention;
+                #[cfg(feature = "occ-stats")]
+                let mut closed = false;
                 for _ in 0..MAX_RETRIES {
                     if self.shared.gate.is_closed() {
+                        #[cfg(feature = "occ-stats")]
+                        {
+                            closed = true;
+                        }
                         break;
                     }
                     match self.olc_remove_set(key) {
@@ -2431,6 +2528,10 @@ impl SyncExpanseSet {
                 crate::occ_stats::op_end();
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(cause.stat());
+                #[cfg(feature = "occ-stats")]
+                if cause == FallbackCause::Contention {
+                    crate::occ_stats::bump(contention_stat(closed));
+                }
                 Err(cause)
             });
             drop(_guard);
@@ -2443,6 +2544,25 @@ impl SyncExpanseSet {
         {
             self.shared.write_root_covered(|s| s.remove(key))
         }
+    }
+
+    /// Test-only hook: closes writer gate directly without draining active writers (#568).
+    ///
+    /// # Warning
+    /// Closes the gate without going through `quiesce_writers()`. Any arriving
+    /// or retrying writer will block until [`Self::__test_reopen_gate`] is called.
+    /// This can wedge all concurrent writers and is strictly for test harnesses.
+    #[cfg(all(feature = "occ-stats", feature = "std"))]
+    #[doc(hidden)]
+    pub fn __test_close_gate(&self) {
+        self.shared.gate.close();
+    }
+
+    /// Test-only hook: reopens writer gate closed by [`Self::__test_close_gate`].
+    #[cfg(all(feature = "occ-stats", feature = "std"))]
+    #[doc(hidden)]
+    pub fn __test_reopen_gate(&self) {
+        self.shared.reopen_gate();
     }
 
     #[cfg(feature = "std")]
@@ -2503,7 +2623,7 @@ impl SyncExpanseSet {
                         return OlcOutcome::Retry;
                     }
                     if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
-                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                        return branch_split(BranchSplitKind::Prefix);
                     }
                     let d = digit(key, bl);
                     let slot_opt = digits[..num].iter().position(|&x| x == d);
@@ -2598,7 +2718,7 @@ impl SyncExpanseSet {
                         }
                         return OlcOutcome::Done(true);
                     }
-                    return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                    return branch_split(BranchSplitKind::Linear);
                 }
 
                 EdgeTag::Structural(EdgeType::BranchB) => {
@@ -2626,10 +2746,10 @@ impl SyncExpanseSet {
                         )
                     };
                     if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
-                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                        return branch_split(BranchSplitKind::Prefix);
                     }
                     if !bit || sub.is_null() {
-                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                        return branch_split(BranchSplitKind::Subarray);
                     }
                     // SAFETY: version cell is within an EBR-live node allocation.
                     if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
@@ -2689,7 +2809,7 @@ impl SyncExpanseSet {
                         return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                     }
                     if level > 1 && !crate::get::decode_matches(&edge, key, 1, level) {
-                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                        return branch_split(BranchSplitKind::Prefix);
                     }
                     let parent = ancestors[anc_depth - 1];
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -2791,7 +2911,7 @@ impl SyncExpanseSet {
                     if kb < level as usize
                         && !crate::get::decode_matches(&edge, key, kb as u8, level)
                     {
-                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                        return branch_split(BranchSplitKind::Prefix);
                     }
                     let k = crate::mutate::key_low(key, kb as u8);
                     let keys_ptr = edge.node_ptr();
@@ -2852,7 +2972,7 @@ impl SyncExpanseSet {
                     }
                     let kb = im.key_bytes();
                     if level > kb && !crate::get::decode_matches(&edge, key, kb, level) {
-                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                        return branch_split(BranchSplitKind::Prefix);
                     }
                     let parent = ancestors[anc_depth - 1];
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -3104,7 +3224,7 @@ impl SyncExpanseSet {
                         return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                     }
                     if level > 1 && !crate::get::decode_matches(&edge, key, 1, level) {
-                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                        return branch_split(BranchSplitKind::Remove);
                     }
                     let parent = ancestors[anc_depth - 1];
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -3163,7 +3283,7 @@ impl SyncExpanseSet {
                     if kb < level as usize
                         && !crate::get::decode_matches(&edge, key, kb as u8, level)
                     {
-                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                        return branch_split(BranchSplitKind::Remove);
                     }
                     let k = crate::mutate::key_low(key, kb as u8);
                     let keys_ptr = edge.node_ptr();
@@ -3347,8 +3467,14 @@ impl SyncExpanseMap {
                 crate::occ_stats::op_begin();
 
                 let mut cause = FallbackCause::Contention;
+                #[cfg(feature = "occ-stats")]
+                let mut closed = false;
                 for _ in 0..MAX_RETRIES {
                     if self.shared.gate.is_closed() {
+                        #[cfg(feature = "occ-stats")]
+                        {
+                            closed = true;
+                        }
                         break;
                     }
                     match self.olc_insert_map(key, val) {
@@ -3375,6 +3501,10 @@ impl SyncExpanseMap {
                 crate::occ_stats::op_end();
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(cause.stat());
+                #[cfg(feature = "occ-stats")]
+                if cause == FallbackCause::Contention {
+                    crate::occ_stats::bump(contention_stat(closed));
+                }
                 Err(cause)
             });
             drop(_guard);
@@ -3407,8 +3537,14 @@ impl SyncExpanseMap {
                 crate::occ_stats::op_begin();
 
                 let mut cause = FallbackCause::Contention;
+                #[cfg(feature = "occ-stats")]
+                let mut closed = false;
                 for _ in 0..MAX_RETRIES {
                     if self.shared.gate.is_closed() {
+                        #[cfg(feature = "occ-stats")]
+                        {
+                            closed = true;
+                        }
                         break;
                     }
                     match self.olc_remove_map(key) {
@@ -3435,6 +3571,10 @@ impl SyncExpanseMap {
                 crate::occ_stats::op_end();
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(cause.stat());
+                #[cfg(feature = "occ-stats")]
+                if cause == FallbackCause::Contention {
+                    crate::occ_stats::bump(contention_stat(closed));
+                }
                 Err(cause)
             });
             drop(_guard);
@@ -3447,6 +3587,25 @@ impl SyncExpanseMap {
         {
             self.shared.write_root_covered(|m| m.remove(key))
         }
+    }
+
+    /// Test-only hook: closes writer gate directly without draining active writers (#568).
+    ///
+    /// # Warning
+    /// Closes the gate without going through `quiesce_writers()`. Any arriving
+    /// or retrying writer will block until [`Self::__test_reopen_gate`] is called.
+    /// This can wedge all concurrent writers and is strictly for test harnesses.
+    #[cfg(all(feature = "occ-stats", feature = "std"))]
+    #[doc(hidden)]
+    pub fn __test_close_gate(&self) {
+        self.shared.gate.close();
+    }
+
+    /// Test-only hook: reopens writer gate closed by [`Self::__test_close_gate`].
+    #[cfg(all(feature = "occ-stats", feature = "std"))]
+    #[doc(hidden)]
+    pub fn __test_reopen_gate(&self) {
+        self.shared.reopen_gate();
     }
 
     #[cfg(feature = "std")]
@@ -3511,7 +3670,7 @@ impl SyncExpanseMap {
                         return OlcOutcome::Retry;
                     }
                     if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
-                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                        return branch_split(BranchSplitKind::Prefix);
                     }
                     let d = digit(key, bl);
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -3607,7 +3766,7 @@ impl SyncExpanseMap {
                         }
                         return OlcOutcome::Done(None);
                     }
-                    return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                    return branch_split(BranchSplitKind::Linear);
                 }
 
                 EdgeTag::Structural(EdgeType::BranchB) => {
@@ -3635,10 +3794,10 @@ impl SyncExpanseMap {
                         )
                     };
                     if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
-                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                        return branch_split(BranchSplitKind::Prefix);
                     }
                     if !bit || sub.is_null() {
-                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                        return branch_split(BranchSplitKind::Subarray);
                     }
                     // SAFETY: version cell is within an EBR-live node allocation.
                     if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
@@ -3698,7 +3857,7 @@ impl SyncExpanseMap {
                         return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                     }
                     if level > 1 && !crate::get::decode_matches(&edge, key, 1, level) {
-                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                        return branch_split(BranchSplitKind::Prefix);
                     }
                     let parent = ancestors[anc_depth - 1];
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -3792,7 +3951,7 @@ impl SyncExpanseMap {
                     if kb < level as usize
                         && !crate::get::decode_matches(&edge, key, kb as u8, level)
                     {
-                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                        return branch_split(BranchSplitKind::Prefix);
                     }
                     let k = crate::mutate::key_low(key, kb as u8);
                     let base = edge.node_ptr();
@@ -3867,7 +4026,7 @@ impl SyncExpanseMap {
                     let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
                     let kb = im.key_bytes();
                     if level > kb && !crate::get::decode_matches(&edge, key, kb, level) {
-                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                        return branch_split(BranchSplitKind::Prefix);
                     }
                     let k = crate::mutate::key_low(key, kb);
                     let n = im.key_count() as usize;
@@ -4200,7 +4359,7 @@ impl SyncExpanseMap {
                         return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                     }
                     if level > 1 && !crate::get::decode_matches(&edge, key, 1, level) {
-                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                        return branch_split(BranchSplitKind::Remove);
                     }
                     let parent = ancestors[anc_depth - 1];
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -4271,7 +4430,7 @@ impl SyncExpanseMap {
                     if kb < level as usize
                         && !crate::get::decode_matches(&edge, key, kb as u8, level)
                     {
-                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                        return branch_split(BranchSplitKind::Remove);
                     }
                     let k = crate::mutate::key_low(key, kb as u8);
                     let base = edge.node_ptr();
@@ -4327,7 +4486,7 @@ impl SyncExpanseMap {
                     let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
                     let kb = im.key_bytes();
                     if level > kb && !crate::get::decode_matches(&edge, key, kb, level) {
-                        return OlcOutcome::Fallback(FallbackCause::BranchSplit);
+                        return branch_split(BranchSplitKind::Remove);
                     }
                     let k = crate::mutate::key_low(key, kb);
                     let n = im.key_count() as usize;
@@ -5475,6 +5634,17 @@ mod tests {
     /// are in-domain; a NUL in one is a bug in the test, so panicking is right.
     fn tk<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> &NulFreeStr {
         NulFreeStr::new(bytes.as_ref()).expect("test key contains a NUL")
+    }
+
+    #[test]
+    #[cfg(feature = "occ-stats")]
+    fn test_contention_stat_mapping() {
+        use crate::occ_stats::Stat;
+        assert_eq!(super::contention_stat(true), Stat::ContentionGateClosed);
+        assert_eq!(
+            super::contention_stat(false),
+            Stat::ContentionRetryExhausted
+        );
     }
 
     /// A `DetachedMapReader` must give the same answers as the owned reader
