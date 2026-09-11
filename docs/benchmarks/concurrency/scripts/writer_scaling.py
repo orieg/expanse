@@ -29,6 +29,8 @@ import argparse
 import datetime
 import json
 import os
+import platform
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -62,11 +64,33 @@ CAUSE_NAMES = (
 COMMITTED_RESULTS_PATH = (
     REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "baseline_writer_scaling.json"
 )
+DIAGNOSTIC_RESULTS_PATH = (
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "diagnostic_writer_scaling.json"
+)
+PADDED_RESULTS_PATH = (
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "padded_writer_scaling.json"
+)
 
 
-def get_binaries() -> tuple[Path, Path]:
-    throughput_bin = THROUGHPUT_TARGET / "release" / "examples" / "writer_scaling"
-    counters_bin = COUNTERS_TARGET / "release" / "examples" / "writer_scaling"
+def get_throughput_target(features: str | None = None) -> Path:
+    if features:
+        slug = features.replace(",", "_").replace(" ", "_").replace("-", "_")
+        return REPO_ROOT / "target" / f"throughput-{slug}"
+    return THROUGHPUT_TARGET
+
+
+def get_counters_target(features: str | None = None) -> Path:
+    if features:
+        slug = features.replace(",", "_").replace(" ", "_").replace("-", "_")
+        return REPO_ROOT / "target" / f"occ-stats-{slug}"
+    return COUNTERS_TARGET
+
+
+def get_binaries(features: str | None = None) -> tuple[Path, Path]:
+    tp_target = get_throughput_target(features)
+    cnt_target = get_counters_target(features)
+    throughput_bin = tp_target / "release" / "examples" / "writer_scaling"
+    counters_bin = cnt_target / "release" / "examples" / "writer_scaling"
     return throughput_bin, counters_bin
 
 
@@ -86,29 +110,33 @@ def _print_binary_info(label: str, path: Path) -> None:
         print(f"  {label} binary: {rel_path} (does not exist)")
 
 
-def build_binaries(verbose: bool = True) -> tuple[Path, Path]:
+def build_binaries(features: str | None = None, verbose: bool = True) -> tuple[Path, Path]:
     """Two builds, never one (AGENTS.md §6 / hot_concurrent.rs:36-42).
 
-    Throughput comes from uninstrumented build (refuses occ-stats).
+    Throughput comes from uninstrumented or targeted feature build (refuses occ-stats).
     Counters come from diagnostic build (--features occ-stats, refuses timing).
     Both builds use explicit, isolated target dirs so neither overwrites the other
     nor depends on external CARGO_TARGET_DIR environment settings.
     """
-    throughput_bin, counters_bin = get_binaries()
+    throughput_bin, counters_bin = get_binaries(features)
+    tp_target = get_throughput_target(features)
+    feat_msg = f" (--features {features})" if features else " (default features, uninstrumented)"
     if verbose:
-        print("building throughput binary (default features, uninstrumented) ...")
+        print(f"building throughput binary{feat_msg} ...")
     tp_env = dict(os.environ)
-    tp_env["CARGO_TARGET_DIR"] = str(THROUGHPUT_TARGET)
+    tp_env["CARGO_TARGET_DIR"] = str(tp_target)
+    cmd = [
+        "cargo",
+        "build",
+        "--release",
+        "-p",
+        "expanse-trie",
+    ]
+    if features:
+        cmd.extend(["--features", features])
+    cmd.extend(["--example", "writer_scaling"])
     subprocess.run(
-        [
-            "cargo",
-            "build",
-            "--release",
-            "-p",
-            "expanse-trie",
-            "--example",
-            "writer_scaling",
-        ],
+        cmd,
         cwd=str(REPO_ROOT),
         env=tp_env,
         check=True,
@@ -116,10 +144,12 @@ def build_binaries(verbose: bool = True) -> tuple[Path, Path]:
     if verbose:
         _print_binary_info("throughput", throughput_bin)
 
+    cnt_target = get_counters_target(features)
+    cnt_features = f"occ-stats,{features}" if features else "occ-stats"
     if verbose:
-        print("building diagnostic counters binary (--features occ-stats) ...")
+        print(f"building diagnostic counters binary (--features {cnt_features}) ...")
     cnt_env = dict(os.environ)
-    cnt_env["CARGO_TARGET_DIR"] = str(COUNTERS_TARGET)
+    cnt_env["CARGO_TARGET_DIR"] = str(cnt_target)
     subprocess.run(
         [
             "cargo",
@@ -128,7 +158,7 @@ def build_binaries(verbose: bool = True) -> tuple[Path, Path]:
             "-p",
             "expanse-trie",
             "--features",
-            "occ-stats",
+            cnt_features,
             "--example",
             "writer_scaling",
         ],
@@ -148,6 +178,7 @@ def run_pass(
     arm: str,
     writers: list[int],
     rounds: int,
+    round_opt: int | None = None,
     quick: bool = False,
 ) -> list[dict[str, Any]]:
     cmd = [
@@ -158,9 +189,11 @@ def run_pass(
         arm,
         "--writers",
         ",".join(str(w) for w in writers),
-        "--rounds",
-        str(rounds),
     ]
+    if round_opt is not None:
+        cmd.extend(["--round", str(round_opt)])
+    else:
+        cmd.extend(["--rounds", str(rounds)])
     if quick:
         cmd.append("--quick")
 
@@ -182,7 +215,7 @@ def run_pass(
             except json.JSONDecodeError:
                 continue
 
-    expected_count = len(writers) * rounds
+    expected_count = len(writers) * (1 if round_opt is not None else rounds)
     if len(rows) != expected_count:
         sys.stderr.write(
             f"Expected {expected_count} rows for role={role} arm={arm}, got {len(rows)}\n"
@@ -199,6 +232,7 @@ def summarize_arm(
     throughput_rows: list[dict[str, Any]],
     counters_rows: list[dict[str, Any]],
     load_attribution: dict[str, Any],
+    throughput_target: Path = THROUGHPUT_TARGET,
 ) -> list[dict[str, Any]]:
     """Summarize cells for an arm across all writer counts.
 
@@ -407,7 +441,22 @@ def summarize_arm(
             ),
         }
 
-        tp_rel = THROUGHPUT_TARGET.relative_to(REPO_ROOT)
+        total_retired = sum(int(r.get("retired", 0)) for r in c_rows_w)
+        retired_per_insert = round(total_retired / total_ops, 6) if total_ops > 0 else 0.0
+        has_allocs = any(r.get("total_allocs") is not None for r in c_rows_w)
+        if has_allocs:
+            total_node_allocs = sum(
+                int(r.get("total_allocs", 0)) for r in c_rows_w if r.get("total_allocs") is not None
+            )
+            total_allocs_per_insert = (
+                round(total_node_allocs / total_ops, 6) if total_ops > 0 else 0.0
+            )
+        else:
+            total_node_allocs = None
+            total_allocs_per_insert = None
+        tsc_hz = int(first_t.get("tsc_hz", 0))
+
+        tp_rel = throughput_target.relative_to(REPO_ROOT)
         cnt_rel = COUNTERS_TARGET.relative_to(REPO_ROOT)
 
         cell: dict[str, Any] = {
@@ -418,6 +467,7 @@ def summarize_arm(
             "prefill": first_t["prefill"],
             "fresh_keys": first_t["fresh_keys"],
             "rounds": rounds,
+            "tsc_hz": tsc_hz,
             "expanse_writer_mops_mean": round(mean_mops, 4),
             "writer_ci_lower": round(ci_lower, 4),
             "writer_ci_upper": round(ci_upper, 4),
@@ -441,9 +491,17 @@ def summarize_arm(
             "gate_wait_cycles_per_insert": gate_wait_cycles_per_insert,
             "quiesce_drain_cycles_per_fallback": quiesce_drain_cycles_per_fallback,
             "lock_restarts_per_insert": restarts_per_insert,
+            "total_retired": total_retired,
+            "retired_per_insert": retired_per_insert,
+            "total_allocs": total_node_allocs,
+            "total_allocs_per_insert": total_allocs_per_insert,
             "build_provenance": {
-                "throughput": f"{tp_rel}/release/examples/writer_scaling (uninstrumented)",
-                "counters": f"{cnt_rel}/release/examples/writer_scaling (--features occ-stats)",
+                "throughput": f"{tp_rel}/release/examples/writer_scaling",
+                "counters": (
+                    f"{cnt_rel}/release/examples/writer_scaling (--features occ-stats)"
+                    if c_rows_w
+                    else None
+                ),
             },
             "rounds_raw": [
                 {
@@ -452,6 +510,7 @@ def summarize_arm(
                     "writer_mops": r["writer_mops"],
                     "writer_elapsed_s": r["writer_elapsed_s"],
                     "write_ops": r["write_ops"],
+                    "tsc_hz": r.get("tsc_hz", 0),
                 }
                 for r in t_rows_w
             ],
@@ -474,6 +533,9 @@ def summarize_arm(
                     "branch_split_prefix": r["branch_split_prefix"],
                     "branch_split_remove": r["branch_split_remove"],
                     "branch_split_upgrade": r.get("branch_split_upgrade", 0),
+                    "retired": r.get("retired", 0),
+                    "total_allocs": r.get("total_allocs"),
+                    "tsc_hz": r.get("tsc_hz", 0),
                     "fallback_causes": r["fallback_causes"],
                 }
                 for r in c_rows_w
@@ -488,6 +550,409 @@ def summarize_arm(
         cells.append(cell)
 
     return cells
+
+
+def run_comparison(
+    bin_default: Path,
+    bin_variant: Path,
+    variant_name: str,
+    counters_bin_default: Path,
+    counters_bin_variant: Path | None,
+    arm: str,
+    writers_list: list[int],
+    rounds: int,
+    prov: dict[str, Any],
+    quick: bool = False,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    """Runs interleaved (build × W) execution within each round.
+
+    Within each round r, default and variant builds are alternated to eliminate
+    thermal drift and host load confounding between builds (Williams design).
+    Computes paired bootstrap BCa 95% CI on C_variant(w) / C_default(w).
+    """
+    print(f"\n========================================================================")
+    print(f" Interleaved (build × W) Execution: default vs {variant_name}")
+    print(f" Arm: {arm} | Writers: {writers_list} | Rounds: {rounds}")
+    print(f"========================================================================")
+
+    all_t_rows_default: list[dict[str, Any]] = []
+    all_t_rows_variant: list[dict[str, Any]] = []
+
+    start_snap_def = begin_cell(prov, f"arm:{arm}:default")
+    start_snap_var = begin_cell(prov, f"arm:{arm}:{variant_name}")
+
+    for round_idx in range(rounds):
+        # Alternate order within round to balance first-runner order bias
+        if round_idx % 2 == 0:
+            rows_d = run_pass(
+                bin_default, "throughput", arm, writers_list, rounds=rounds, round_opt=round_idx, quick=quick
+            )
+            rows_v = run_pass(
+                bin_variant, "throughput", arm, writers_list, rounds=rounds, round_opt=round_idx, quick=quick
+            )
+        else:
+            rows_v = run_pass(
+                bin_variant, "throughput", arm, writers_list, rounds=rounds, round_opt=round_idx, quick=quick
+            )
+            rows_d = run_pass(
+                bin_default, "throughput", arm, writers_list, rounds=rounds, round_opt=round_idx, quick=quick
+            )
+        all_t_rows_default.extend(rows_d)
+        all_t_rows_variant.extend(rows_v)
+
+    load_def = end_cell(start_snap_def)
+    load_var = end_cell(start_snap_var)
+
+    print(f"  [Pass 2/2] Diagnostic counters (default) — {arm} arm across W ∈ {writers_list} (occ-stats build)")
+    c_rows_def = run_pass(counters_bin_default, "counters", arm, writers_list, rounds=rounds, quick=quick)
+
+    c_rows_var: list[dict[str, Any]] = []
+    if counters_bin_variant is not None:
+        print(
+            f"  [Pass 2/2] Diagnostic counters ({variant_name}) — {arm} arm across W ∈ {writers_list} (occ-stats,{variant_name} build)"
+        )
+        c_rows_var = run_pass(counters_bin_variant, "counters", arm, writers_list, rounds=rounds, quick=quick)
+
+    tp_target_def = bin_default.parent.parent
+    tp_target_var = bin_variant.parent.parent
+
+    cells_default = summarize_arm(
+        arm, writers_list, rounds, all_t_rows_default, c_rows_def, load_def, throughput_target=tp_target_def
+    )
+    cells_variant = summarize_arm(
+        arm, writers_list, rounds, all_t_rows_variant, c_rows_var, load_var, throughput_target=tp_target_var
+    )
+    for c in cells_variant:
+        c["variant"] = variant_name
+
+    # Compute paired C_variant(w) / C_default(w) per round
+    t_by_round_w_def: dict[tuple[int, int], float] = {
+        (int(r["round"]), int(r["writers"])): float(r["writer_mops"])
+        for r in all_t_rows_default
+    }
+    t_by_round_w_var: dict[tuple[int, int], float] = {
+        (int(r["round"]), int(r["writers"])): float(r["writer_mops"])
+        for r in all_t_rows_variant
+    }
+
+    comparison_stats: dict[str, Any] = {
+        "arm": arm,
+        "variant_name": variant_name,
+        "rounds": rounds,
+        "per_writer": {},
+    }
+
+    for w in writers_list:
+        if w == 1:
+            # Skip W=1: by definition C(1) == 1.0, so the ratio is identically 1.0,
+            # bca_bootstrap_ci returns (1,1,1), and testing C(1) > 1.0 is not a concurrency decision.
+            continue
+
+        paired_ratios: list[float] = []
+        for r in range(rounds):
+            t1_d = t_by_round_w_def[(r, 1)]
+            tw_d = t_by_round_w_def[(r, w)]
+            if t1_d <= 0:
+                raise RuntimeError(f"Round {r} W=1 default throughput <= 0 ({t1_d}) (AGENTS.md §8.1)")
+            c_d = tw_d / t1_d
+            if c_d <= 0:
+                raise RuntimeError(f"Round {r} W={w} default scaling C(W) <= 0 ({c_d}) (AGENTS.md §8.1)")
+
+            t1_v = t_by_round_w_var[(r, 1)]
+            tw_v = t_by_round_w_var[(r, w)]
+            if t1_v <= 0:
+                raise RuntimeError(f"Round {r} W=1 variant throughput <= 0 ({t1_v}) (AGENTS.md §8.1)")
+            c_v = tw_v / t1_v
+
+            paired_ratios.append(c_v / c_d)
+
+        mean_ratio, ci_lower, ci_upper = bca_bootstrap_ci(paired_ratios, confidence=0.95)
+        median_ratio = sorted(paired_ratios)[len(paired_ratios) // 2]
+        # Verdict decision rule (§8.4, §8.20):
+        # A single run cannot CONFIRM; confirmation requires a second independent run across two committed artifacts.
+        # CI_lower > 1.0 -> SINGLE_RUN_PASS (candidate confirmed pending run 2)
+        # CI_upper < 1.0 -> REJECTED
+        # CI spans 1.0   -> INCONCLUSIVE (data cannot reject or confirm)
+        if ci_lower > 1.0:
+            verdict = "SINGLE_RUN_PASS"
+        elif ci_upper < 1.0:
+            verdict = "REJECTED"
+        else:
+            verdict = "INCONCLUSIVE"
+
+        stat_entry = {
+            "w": w,
+            "ratio_c_variant_over_c_default_mean": round(mean_ratio, 4),
+            "ratio_ci_lower": round(ci_lower, 4),
+            "ratio_ci_upper": round(ci_upper, 4),
+            "ratio_median": round(median_ratio, 4),
+            "verdict": verdict,
+            "paired_ratios_raw": [round(x, 6) for x in paired_ratios],
+        }
+        comparison_stats["per_writer"][str(w)] = stat_entry
+
+        print(
+            f"  [Comparison W={w:<2}] Ratio C_{variant_name}({w}) / C_default({w}): "
+            f"Mean {mean_ratio:.4f} [{ci_lower:.4f}, {ci_upper:.4f}] | "
+            f"Verdict: {verdict}"
+        )
+
+    return cells_default, cells_variant, comparison_stats
+
+
+def probe_pmu_events() -> list[str]:
+    events: list[str] = []
+    proc = subprocess.run(["perf", "list"], capture_output=True, text=True, check=False)
+    out = proc.stdout if proc.returncode == 0 else ""
+
+    if "cpu_core/cycles/" in out:
+        events.append("cpu_core/cycles/")
+    elif "cycles" in out:
+        events.append("cycles")
+
+    if "cpu_core/ref-cycles/" in out:
+        events.append("cpu_core/ref-cycles/")
+    elif "ref-cycles" in out:
+        events.append("ref-cycles")
+
+    snoop_candidates = [
+        "cpu_core/mem_load_l3_hit_retired.xsnp_fwd/",
+        "mem_load_l3_hit_retired.xsnp_fwd",
+        "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/",
+        "mem_load_l3_hit_retired.xsnp_hitm",
+        "mem_load_retired.fb_hit",
+    ]
+    for cand in snoop_candidates:
+        if cand in out:
+            events.append(cand)
+            break
+
+    return events
+
+
+def parse_perf_stat_csv(stderr_text: str) -> dict[str, int]:
+    result: dict[str, int] = {}
+    for line in stderr_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(",")
+        if len(parts) >= 3:
+            raw_val = parts[0].strip()
+            if raw_val in ("<not counted>", "<not supported>"):
+                continue
+            try:
+                count = int(raw_val)
+            except ValueError:
+                continue
+            event_name = parts[2].strip()
+            result[event_name] = count
+    return result
+
+
+def run_pmu_pass(
+    binary: Path,
+    arm: str = "set",
+    writers: list[int] | None = None,
+    rounds: int = 8,
+    quick: bool = False,
+) -> dict[str, Any]:
+    if platform.system() != "Linux":
+        raise RuntimeError(
+            f"--pmu requested but host reports {platform.system()} (Linux required per AGENTS.md §8.1)"
+        )
+    if shutil.which("perf") is None:
+        raise RuntimeError(
+            "--pmu requested but 'perf' binary not found on PATH (AGENTS.md §8.1)"
+        )
+
+    if writers is None:
+        writers = [1, 2]
+
+    events = probe_pmu_events()
+    if not events:
+        raise RuntimeError(
+            "--pmu requested but no target PMU events found via 'perf list' (AGENTS.md §8.1)"
+        )
+
+    print(f"\n========================================================================")
+    print(f" Hardware PMU Counter Pass (perf stat across {rounds} rounds via FIFO control)")
+    print(f" Events: {', '.join(events)} | Arm: {arm} | Writers: {writers}")
+    print(f"========================================================================")
+
+    event_arg = ",".join(events)
+    round_data: dict[int, dict[int, dict[str, int]]] = {}
+
+    for r in range(rounds):
+        round_data[r] = {}
+        for w in writers:
+            with tempfile.TemporaryDirectory(prefix=f"perf_fifo_r{r}_w{w}_") as fifo_dir:
+                ctl_fifo = os.path.join(fifo_dir, "ctl.fifo")
+                ack_fifo = os.path.join(fifo_dir, "ack.fifo")
+                os.mkfifo(ctl_fifo)
+                os.mkfifo(ack_fifo)
+
+                cmd = [
+                    "perf",
+                    "stat",
+                    "--delay=-1",
+                    f"--control=fifo:{ctl_fifo},{ack_fifo}",
+                    "-x,",
+                    "-e",
+                    event_arg,
+                    "--",
+                    str(binary),
+                    "--role",
+                    "throughput",
+                    "--arm",
+                    arm,
+                    "--writers",
+                    str(w),
+                    "--rounds",
+                    "1",
+                    "--round",
+                    str(r),
+                    "--perf-ctl-fifo",
+                    ctl_fifo,
+                    "--perf-ack-fifo",
+                    ack_fifo,
+                ]
+                if quick:
+                    cmd.append("--quick")
+
+                proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                if proc.returncode != 0:
+                    raise RuntimeError(
+                        f"--pmu round {r} W={w} failed (exit {proc.returncode}): {proc.stderr} (AGENTS.md §8.1)"
+                    )
+                counts = parse_perf_stat_csv(proc.stderr)
+                round_data[r][w] = counts
+
+    cyc_key = next((k for k in events if "cycles" in k and "ref" not in k), None)
+    ref_key = next((k for k in events if "ref" in k), None)
+
+    droop_samples: list[float] = []
+    if cyc_key and ref_key and 1 in writers and 2 in writers:
+        for r in range(rounds):
+            w1_counts = round_data.get(r, {}).get(1, {})
+            w2_counts = round_data.get(r, {}).get(2, {})
+            c1, r1 = w1_counts.get(cyc_key, 0), w1_counts.get(ref_key, 0)
+            c2, r2 = w2_counts.get(cyc_key, 0), w2_counts.get(ref_key, 0)
+            if r1 > 0 and r2 > 0:
+                f1 = c1 / r1
+                f2 = c2 / r2
+                droop_samples.append(1.0 - (f2 / f1))
+
+    droop_summary: dict[str, Any] = {
+        "rounds_preregistered": rounds,
+        "n_measured": len(droop_samples),
+    }
+    if len(droop_samples) >= 3:
+        mean_d, ci_lo, ci_hi = bca_bootstrap_ci(droop_samples, confidence=0.95)
+        # Verdict decision rule (§8.4 / §8.20):
+        # A single run cannot CONFIRM; confirmation requires a second independent run across two committed artifacts.
+        # CI_lower > 0.05 -> SINGLE_RUN_PASS (candidate droop confirmed pending run 2)
+        # CI_upper < 0.05 -> REJECTED
+        # CI spans 0.05   -> INCONCLUSIVE (data cannot reject or confirm)
+        if ci_lo > 0.05:
+            verdict = "SINGLE_RUN_PASS"
+        elif ci_hi < 0.05:
+            verdict = "REJECTED"
+        else:
+            verdict = "INCONCLUSIVE"
+        droop_summary.update({
+            "droop_mean": round(mean_d, 4),
+            "droop_ci_lower": round(ci_lo, 4),
+            "droop_ci_upper": round(ci_hi, 4),
+            "verdict": verdict,
+        })
+        print(
+            f"  [Hypothesis A (Frequency Droop)] Mean drop: {mean_d * 100:.2f}% "
+            f"[{ci_lo * 100:.2f}%, {ci_hi * 100:.2f}%] | Verdict: {verdict}"
+        )
+
+    return {
+        "arm": arm,
+        "events": events,
+        "rounds_preregistered": rounds,
+        "n_measured": len(droop_samples),
+        "frequency_droop": droop_summary,
+        "raw_counts": round_data,
+    }
+
+
+def run_c2c_pass(
+    binary: Path,
+    arm: str = "set",
+    writers: int = 2,
+    quick: bool = False,
+    out_dir: Path | None = None,
+) -> dict[str, Any]:
+    if platform.system() != "Linux":
+        raise RuntimeError(
+            f"--c2c requested but host reports {platform.system()} (Linux required per AGENTS.md §8.1)"
+        )
+    if shutil.which("perf") is None:
+        raise RuntimeError(
+            "--c2c requested but 'perf' binary not found on PATH (AGENTS.md §8.1)"
+        )
+
+    if out_dir is None:
+        out_dir = REPO_ROOT / "target" / "c2c"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    c2c_data = out_dir / f"perf_c2c_{arm}_w{writers}.data"
+
+    cmd_record = [
+        "perf",
+        "c2c",
+        "record",
+        "-F",
+        "60000",
+        "-o",
+        str(c2c_data),
+        "--",
+        str(binary),
+        "--role",
+        "throughput",
+        "--arm",
+        arm,
+        "--writers",
+        str(writers),
+        "--rounds",
+        "1",
+    ]
+    if quick:
+        cmd_record.append("--quick")
+
+    print(f"\n========================================================================")
+    print(f" Hardware perf c2c Cache Contention Recording ({arm} W={writers})")
+    print(f" Output: {c2c_data.relative_to(REPO_ROOT)}")
+    print(f"========================================================================")
+
+    proc = subprocess.run(cmd_record, check=False)
+    if proc.returncode != 0:
+        raise RuntimeError(f"--c2c record failed (exit {proc.returncode}) (AGENTS.md §8.1)")
+
+    cmd_report = ["perf", "c2c", "report", "--stdio", "-i", str(c2c_data)]
+    proc_rep = subprocess.run(cmd_report, capture_output=True, text=True, check=False)
+    if proc_rep.returncode != 0:
+        raise RuntimeError(
+            f"--c2c report failed (exit {proc_rep.returncode}): {proc_rep.stderr} (AGENTS.md §8.1)"
+        )
+    report_text = proc_rep.stdout
+    report_file = out_dir / f"c2c_report_{arm}_w{writers}.txt"
+    report_file.write_text(report_text)
+    print(f"  [c2c Pass] Wrote c2c report to {report_file.relative_to(REPO_ROOT)}")
+
+    summary_lines = report_text.splitlines()[:20]
+
+    return {
+        "arm": arm,
+        "writers": writers,
+        "report_path": str(report_file.relative_to(REPO_ROOT)),
+        "data_path": str(c2c_data.relative_to(REPO_ROOT)),
+        "summary": "\n".join(summary_lines),
+    }
 
 
 def self_test() -> int:
@@ -582,6 +1047,12 @@ def self_test() -> int:
     assert len(w2_str_fbs) == 3
     assert all(fb == 0 for fb in w2_str_fbs), f"Expected str W=2 lock_fallbacks == 0, got {w2_str_fbs}"
 
+    cells_str = summarize_arm("str", [1, 2], 3, t_rows_map, c_rows_str, load)
+    assert cells_str[0]["total_allocs"] is None
+    assert cells_str[0]["total_allocs_per_insert"] is None
+    assert cells_str[1]["total_allocs"] is None
+    assert cells_str[1]["total_allocs_per_insert"] is None
+
     # 5. Reduction test
     cells = summarize_arm("map", [1, 2], 3, t_rows_map, c_rows_map, load)
     assert len(cells) == 2
@@ -600,6 +1071,12 @@ def self_test() -> int:
     assert len(cell_w2["counters_raw"]) == 3, f"Expected 3 counters_raw entries, got {len(cell_w2['counters_raw'])}"
     assert "position" in cell_w2["rounds_raw"][0]
     assert "position" in cell_w2["counters_raw"][0]
+    assert "tsc_hz" in cell_w1["rounds_raw"][0]
+    assert cell_w1["tsc_hz"] > 0
+    assert "retired" in cell_w2["counters_raw"][0]
+    assert "total_allocs" in cell_w2["counters_raw"][0]
+    assert cell_w2["total_allocs"] > 0
+    assert cell_w2["total_allocs_per_insert"] > 0
     for c in cells:
         for r in c["counters_raw"]:
             assert set(r["fallback_causes"]) == set(CAUSE_NAMES), r
@@ -619,6 +1096,83 @@ def self_test() -> int:
                 == r["fallback_causes"]["branch_split"]
             ), r
     assert abs(sum(cell_w2["fallback_cause_share"].values()) - 1.0) < 1e-3, cell_w2["fallback_cause_share"]
+
+    # 6. Test comparison runner with self-comparison on quick scale
+    eprintln("Testing run_comparison (interleaved build x W execution)...")
+    cells_def, cells_var, comp_stats = run_comparison(
+        throughput_bin,
+        throughput_bin,
+        "self_test",
+        counters_bin,
+        counters_bin,
+        "set",
+        [1, 2],
+        3,
+        prov,
+        quick=True,
+    )
+    assert len(cells_def) == 2
+    assert len(cells_var) == 2
+    assert len(cells_def[0]["counters_raw"]) == 3
+    assert len(cells_var[0]["counters_raw"]) == 3
+    assert cells_var[0]["variant"] == "self_test"
+    assert "per_writer" in comp_stats
+    assert "2" in comp_stats["per_writer"]
+    w2_comp = comp_stats["per_writer"]["2"]
+    assert w2_comp["verdict"] in ("SINGLE_RUN_PASS", "REJECTED", "INCONCLUSIVE")
+    assert len(w2_comp["paired_ratios_raw"]) == 3
+    # The ratio is a wall-clock point estimate, so its magnitude is not asserted
+    # (AGENTS.md §8.4): a self-comparison on a contended host can land anywhere.
+    # What is asserted is the arithmetic and the decision rule over whatever
+    # was measured.
+    raw = w2_comp["paired_ratios_raw"]
+    assert all(0 < x < float("inf") for x in raw), raw
+    assert abs(w2_comp["ratio_c_variant_over_c_default_mean"] - sum(raw) / len(raw)) < 1e-3, w2_comp
+    if w2_comp["ratio_ci_lower"] > 1.0:
+        expected_verdict = "SINGLE_RUN_PASS"
+    elif w2_comp["ratio_ci_upper"] < 1.0:
+        expected_verdict = "REJECTED"
+    else:
+        expected_verdict = "INCONCLUSIVE"
+    assert w2_comp["verdict"] == expected_verdict, w2_comp
+
+    # Also test with counters_bin_variant=None (empty variant counters)
+    cells_def_none, cells_var_none, _ = run_comparison(
+        throughput_bin,
+        throughput_bin,
+        "self_test_none",
+        counters_bin,
+        None,
+        "set",
+        [1, 2],
+        3,
+        prov,
+        quick=True,
+    )
+    assert len(cells_def_none[0]["counters_raw"]) == 3
+    assert len(cells_var_none[0]["counters_raw"]) == 0
+    assert cells_var_none[0]["variant"] == "self_test_none"
+
+    # 7. Test PMU pass and c2c pass fail-loud on non-Linux / missing perf (AGENTS.md §8.1)
+    eprintln("Testing PMU and c2c passes (fail-loud validation)...")
+    if platform.system() != "Linux" or shutil.which("perf") is None:
+        try:
+            run_pmu_pass(throughput_bin, arm="set", writers=[1, 2], rounds=3, quick=True)
+            assert False, "Expected run_pmu_pass to raise RuntimeError on non-Linux/missing perf"
+        except RuntimeError as exc:
+            assert "AGENTS.md §8.1" in str(exc)
+
+        try:
+            run_c2c_pass(throughput_bin, arm="set", writers=2, quick=True)
+            assert False, "Expected run_c2c_pass to raise RuntimeError on non-Linux/missing perf"
+        except RuntimeError as exc:
+            assert "AGENTS.md §8.1" in str(exc)
+    else:
+        pmu_res = run_pmu_pass(throughput_bin, arm="set", writers=[1, 2], rounds=3, quick=True)
+        assert isinstance(pmu_res, dict)
+        c2c_res = run_c2c_pass(throughput_bin, arm="set", writers=2, quick=True)
+        assert isinstance(c2c_res, dict)
+
     # A row whose causes do not sum to its fallbacks is refused, not averaged.
     broken = [dict(r) for r in c_rows_map]
     broken[0]["lock_fallbacks"] = int(broken[0]["lock_fallbacks"]) + 1
@@ -659,7 +1213,7 @@ def self_test() -> int:
     else:
         raise AssertionError("summarize_arm accepted broken branch_split partition")
 
-    # 6. Privacy check: ensure no absolute repo root or home paths leaked into cells (AGENTS.md §7)
+    # 8. Privacy check: ensure no absolute repo root or home paths leaked into cells (AGENTS.md §7)
     repo_root_str = str(REPO_ROOT)
     for c in cells:
         c_json = json.dumps(c)
@@ -670,7 +1224,7 @@ def self_test() -> int:
             "/home/" not in c_json
         ), f"Home directory path leaked into cell JSON (AGENTS.md §7): {c_json}"
 
-    # 7. Williams square balance property check (count positions and pairs over 1 full cycle)
+    # 9. Williams square balance property check (count positions and pairs over 1 full cycle)
     t_rows_bal = run_pass(
         throughput_bin, "throughput", "map", [1, 2, 4, 8], 4, quick=True
     )
@@ -737,6 +1291,45 @@ def main() -> int:
         help="Comma-separated list of writer counts (default: 1,2,4,8, must include 1)",
     )
     parser.add_argument(
+        "--features",
+        type=str,
+        default=None,
+        help="Cargo features for single-build throughput pass (e.g. lock-padded)",
+    )
+    parser.add_argument(
+        "--compare",
+        type=str,
+        default=None,
+        metavar="FEATURE",
+        help="Compare default build vs feature build with interleaved (build × W) rounds",
+    )
+    parser.add_argument(
+        "--compare-padded",
+        action="store_true",
+        help="Shorthand for --compare lock-padded (Hypothesis B)",
+    )
+    parser.add_argument(
+        "--variants",
+        metavar="VARIANTS",
+        default=None,
+        help="Comma-separated feature variants to compare against default (or via BENCH_VARIANTS env var)",
+    )
+    parser.add_argument(
+        "--pmu",
+        action="store_true",
+        help="Run separate hardware PMU pass via perf stat on set W=1 vs W=2",
+    )
+    parser.add_argument(
+        "--c2c",
+        action="store_true",
+        help="Run separate perf c2c cacheline contention pass on set W=2",
+    )
+    parser.add_argument(
+        "--diagnostic",
+        action="store_true",
+        help="Run diagnostic suite (enables --pmu and --c2c, default output to diagnostic_writer_scaling.json)",
+    )
+    parser.add_argument(
         "--quick",
         action="store_true",
         help="Quick mode with reduced population for fast smoke testing",
@@ -756,6 +1349,25 @@ def main() -> int:
     if args.self_test:
         return self_test()
 
+    if args.diagnostic:
+        args.pmu = True
+        args.c2c = True
+        if not args.out:
+            args.out = str(DIAGNOSTIC_RESULTS_PATH)
+
+    variant_list: list[str] = []
+    if args.variants:
+        variant_list.extend(v.strip() for v in args.variants.split(",") if v.strip())
+    elif os.environ.get("BENCH_VARIANTS"):
+        variant_list.extend(v.strip() for v in os.environ["BENCH_VARIANTS"].split(",") if v.strip())
+
+    if args.compare_padded:
+        if "lock-padded" not in variant_list:
+            variant_list.append("lock-padded")
+    elif args.compare:
+        if args.compare not in variant_list:
+            variant_list.append(args.compare)
+
     if args.rounds < 3:
         sys.stderr.write("error: --rounds must be >= 3 for BCa bootstrap confidence intervals\n")
         return 1
@@ -774,114 +1386,215 @@ def main() -> int:
 
     if args.quick and args.out:
         out_path = Path(args.out).resolve()
-        if out_path == COMMITTED_RESULTS_PATH.resolve() and not args.force_quick_out:
+        if (
+            out_path
+            in (
+                COMMITTED_RESULTS_PATH.resolve(),
+                DIAGNOSTIC_RESULTS_PATH.resolve(),
+                PADDED_RESULTS_PATH.resolve(),
+            )
+            and not args.force_quick_out
+        ):
             sys.stderr.write(
                 "error: --quick output cannot overwrite committed results path "
-                f"{COMMITTED_RESULTS_PATH} without --force-quick-out\n"
+                f"{out_path} without --force-quick-out\n"
             )
             return 1
 
     # Apply core pin before any measurement
     core_pin = bench_pin.apply("writer_scaling.py")
 
-    # Build both binaries up front into their isolated target dirs
-    throughput_bin, counters_bin = build_binaries(verbose=True)
-
     if args.arm in ("all", "both"):
         arms = ["map", "set", "str"] if args.arm == "all" else ["map", "set"]
     else:
         arms = [args.arm]
 
-    prov = new_provenance(
-        suite="concurrency",
-        issue=568,
-        ratio="Expanse throughput over single-writer baseline C(N) = Mops(W) / Mops(1)",
-        repo_root=REPO_ROOT,
-        core_pin=core_pin,
-    )
-
     throughput_cells: list[dict[str, Any]] = []
+    variant_cells: list[dict[str, Any]] = []
+    comparison_results: list[dict[str, Any]] = []
 
-    print("========================================================================")
-    print(" Expanse-Native Multi-Writer Scaling Sweep (Phase 1.5D, Refs #568)")
-    print(f" Arms: {', '.join(arms)} | Writers: {writers_list} | Rounds: {args.rounds}")
-    print(f" Pin: {core_pin}")
-    print("========================================================================")
+    if variant_list:
+        bin_default, cnt_default = build_binaries(features=None, verbose=True)
 
-    for arm in arms:
-        cell_label = f"arm:{arm}:writers"
-        start_snap = begin_cell(prov, cell_label)
+        ratio_desc = (
+            f"Expanse {variant_list[0]} throughput over default baseline C_variant(W) / C_default(W)"
+            if len(variant_list) == 1
+            else f"Expanse variants ({', '.join(variant_list)}) throughput over default baseline C_variant(W) / C_default(W)"
+        )
+        prov = new_provenance(
+            suite="concurrency",
+            issue=568,
+            ratio=ratio_desc,
+            repo_root=REPO_ROOT,
+            core_pin=core_pin,
+        )
 
-        # Pass 1: throughput (uninstrumented binary, interleaved across W)
-        print(f"\n  [Pass 1/2] Throughput — {arm} arm across W ∈ {writers_list} (uninstrumented build)")
-        t_rows = run_pass(throughput_bin, "throughput", arm, writers_list, args.rounds, quick=args.quick)
-
-        # End load snapshot immediately after timed Pass 1 so Pass 2 does not dilute load window
-        load = end_cell(start_snap)
-
-        # Pass 2: counters (diagnostic occ-stats binary, across all rounds)
-        print(f"  [Pass 2/2] Diagnostic counters — {arm} arm across W ∈ {writers_list} (occ-stats build)")
-        c_rows = run_pass(counters_bin, "counters", arm, writers_list, args.rounds, quick=args.quick)
-
-        cells = summarize_arm(arm, writers_list, args.rounds, t_rows, c_rows, load)
-        for cell in cells:
-            w = cell["writers"]
-            throughput_cells.append(cell)
-            foreign_str = (
-                f"{load['foreign_busy_cpus']:>5.2f}"
-                if load.get("foreign_busy_cpus") is not None
-                else "  n/a"
-            )
-            print(
-                f"[{arm:>3}] W={w:<2} | Mean: {cell['expanse_writer_mops_mean']:>6.2f} Mops/s "
-                f"[{cell['writer_ci_lower']:>6.2f}, {cell['writer_ci_upper']:>6.2f}] "
-                f"| Median: {cell['expanse_writer_mops_median']:>6.2f} "
-                f"| C(N) = {cell['scaling_factor_c_n']:>5.2f}x "
-                f"[{cell['scaling_factor_c_n_ci_lower']:>5.2f}, {cell['scaling_factor_c_n_ci_upper']:>5.2f}] "
-                f"| Fallbacks: {cell['lock_fallbacks']:>7} ({cell['fallback_rate']*100:>5.2f}%) "
-                f"| Foreign CPUs: {foreign_str}"
-            )
-            if cell["fallback_causes_total"] and sum(cell["fallback_causes_total"].values()) > 0:
-                shares = "  ".join(
-                    f"{name} {cell['fallback_cause_share'][name] * 100:5.2f}%"
-                    for name in CAUSE_NAMES
+        for var in variant_list:
+            bin_variant, cnt_variant = build_binaries(features=var, verbose=True)
+            for arm in arms:
+                cells_d, cells_v, comp_stats = run_comparison(
+                    bin_default,
+                    bin_variant,
+                    var,
+                    cnt_default,
+                    cnt_variant,
+                    arm,
+                    writers_list,
+                    args.rounds,
+                    prov,
+                    quick=args.quick,
                 )
-                print(f"        causes (share of fallbacks): {shares}")
-                c_tot = cell["fallback_causes_total"]["contention"]
-                if c_tot > 0:
-                    c_sh = cell["contention_subset_share"]
-                    print(
-                        f"        contention breakdown: gate_closed {c_sh['gate_closed']*100:5.2f}% "
-                        f"| retry_exhausted {c_sh['retry_exhausted']*100:5.2f}%"
+                if not any(c.get("arm") == arm for c in throughput_cells):
+                    throughput_cells.extend(cells_d)
+                variant_cells.extend(cells_v)
+                comparison_results.append(comp_stats)
+    else:
+        throughput_bin, counters_bin = build_binaries(features=args.features, verbose=True)
+
+        prov = new_provenance(
+            suite="concurrency",
+            issue=568,
+            ratio="Expanse throughput over single-writer baseline C(N) = Mops(W) / Mops(1)",
+            repo_root=REPO_ROOT,
+            core_pin=core_pin,
+        )
+
+        feat_label = f" ({args.features})" if args.features else ""
+        print("========================================================================")
+        print(f" Expanse-Native Multi-Writer Scaling Sweep (Phase 1.5D, Refs #568){feat_label}")
+        print(f" Arms: {', '.join(arms)} | Writers: {writers_list} | Rounds: {args.rounds}")
+        print(f" Pin: {core_pin}")
+        print("========================================================================")
+
+        tp_target = get_throughput_target(args.features)
+
+        for arm in arms:
+            cell_label = f"arm:{arm}:writers"
+            start_snap = begin_cell(prov, cell_label)
+
+            # Pass 1: throughput (uninstrumented binary, interleaved across W)
+            print(f"\n  [Pass 1/2] Throughput — {arm} arm across W ∈ {writers_list}")
+            t_rows = run_pass(throughput_bin, "throughput", arm, writers_list, args.rounds, quick=args.quick)
+
+            # End load snapshot immediately after timed Pass 1 so Pass 2 does not dilute load window
+            load = end_cell(start_snap)
+
+            # Pass 2: counters (diagnostic occ-stats binary, across all rounds)
+            print(f"  [Pass 2/2] Diagnostic counters — {arm} arm across W ∈ {writers_list} (occ-stats build)")
+            c_rows = run_pass(counters_bin, "counters", arm, writers_list, args.rounds, quick=args.quick)
+
+            cells = summarize_arm(
+                arm, writers_list, args.rounds, t_rows, c_rows, load, throughput_target=tp_target
+            )
+            for cell in cells:
+                w = cell["writers"]
+                throughput_cells.append(cell)
+                foreign_str = (
+                    f"{load['foreign_busy_cpus']:>5.2f}"
+                    if load.get("foreign_busy_cpus") is not None
+                    else "  n/a"
+                )
+                print(
+                    f"[{arm:>3}] W={w:<2} | Mean: {cell['expanse_writer_mops_mean']:>6.2f} Mops/s "
+                    f"[{cell['writer_ci_lower']:>6.2f}, {cell['writer_ci_upper']:>6.2f}] "
+                    f"| Median: {cell['expanse_writer_mops_median']:>6.2f} "
+                    f"| C(N) = {cell['scaling_factor_c_n']:>5.2f}x "
+                    f"[{cell['scaling_factor_c_n_ci_lower']:>5.2f}, {cell['scaling_factor_c_n_ci_upper']:>5.2f}] "
+                    f"| Fallbacks: {cell['lock_fallbacks']:>7} ({cell['fallback_rate']*100:>5.2f}%) "
+                    f"| Foreign CPUs: {foreign_str}"
+                )
+                if cell["fallback_causes_total"] and sum(cell["fallback_causes_total"].values()) > 0:
+                    shares = "  ".join(
+                        f"{name} {cell['fallback_cause_share'][name] * 100:5.2f}%"
+                        for name in CAUSE_NAMES
                     )
-                bs_tot = cell["fallback_causes_total"]["branch_split"]
-                if bs_tot > 0:
-                    bs_sh = cell["branch_split_subset_share"]
+                    print(f"        causes (share of fallbacks): {shares}")
+                    c_tot = cell["fallback_causes_total"]["contention"]
+                    if c_tot > 0:
+                        c_sh = cell["contention_subset_share"]
+                        print(
+                            f"        contention breakdown: gate_closed {c_sh['gate_closed']*100:5.2f}% "
+                            f"| retry_exhausted {c_sh['retry_exhausted']*100:5.2f}%"
+                        )
+                    bs_tot = cell["fallback_causes_total"]["branch_split"]
+                    if bs_tot > 0:
+                        bs_sh = cell["branch_split_subset_share"]
+                        print(
+                            f"        branch_split breakdown: subarray {bs_sh['subarray']*100:5.2f}% "
+                            f"| linear {bs_sh['linear']*100:5.2f}% | prefix {bs_sh['prefix']*100:5.2f}% "
+                            f"| remove {bs_sh['remove']*100:5.2f}% | upgrade {bs_sh['upgrade']*100:5.2f}%"
+                        )
+                    if (
+                        cell["gate_blocked_entries_per_insert"] > 0
+                        or cell["quiesce_drain_cycles_per_fallback"] > 0
+                    ):
+                        print(
+                            f"        gate/drain: blocked/insert {cell['gate_blocked_entries_per_insert']:.6f} "
+                            f"| wait_cyc/insert {cell['gate_wait_cycles_per_insert']:.1f} "
+                            f"| drain_cyc/fb {cell['quiesce_drain_cycles_per_fallback']:.1f}"
+                        )
+                alloc_val = cell.get("total_allocs_per_insert")
+                retired_val = cell.get("retired_per_insert", 0)
+                if (alloc_val is not None and alloc_val > 0) or (retired_val is not None and retired_val > 0):
+                    alloc_str = f"{alloc_val:.4f}" if alloc_val is not None else "null"
+                    ret_str = f"{retired_val:.4f}" if retired_val is not None else "0.0000"
                     print(
-                        f"        branch_split breakdown: subarray {bs_sh['subarray']*100:5.2f}% "
-                        f"| linear {bs_sh['linear']*100:5.2f}% | prefix {bs_sh['prefix']*100:5.2f}% "
-                        f"| remove {bs_sh['remove']*100:5.2f}% | upgrade {bs_sh['upgrade']*100:5.2f}%"
-                    )
-                if (
-                    cell["gate_blocked_entries_per_insert"] > 0
-                    or cell["quiesce_drain_cycles_per_fallback"] > 0
-                ):
-                    print(
-                        f"        gate/drain: blocked/insert {cell['gate_blocked_entries_per_insert']:.6f} "
-                        f"| wait_cyc/insert {cell['gate_wait_cycles_per_insert']:.1f} "
-                        f"| drain_cyc/fb {cell['quiesce_drain_cycles_per_fallback']:.1f}"
+                        f"        allocs/retires: allocs/insert {alloc_str} "
+                        f"| retired/insert {ret_str} "
+                        f"| tsc_hz: {cell.get('tsc_hz', 0)}"
                     )
 
-    artifact = {
+    primary_tp_bin = bin_default if variant_list else throughput_bin
+    pmu_results = None
+    if args.pmu:
+        pmu_results = run_pmu_pass(
+            primary_tp_bin,
+            arm="set",
+            writers=[1, 2],
+            rounds=max(args.rounds, 8),
+            quick=args.quick,
+        )
+
+    c2c_results = None
+    c2c_error = None
+    if args.c2c:
+        try:
+            c2c_results = run_c2c_pass(
+                primary_tp_bin,
+                arm="set",
+                writers=2,
+                quick=args.quick,
+            )
+        except RuntimeError as exc:
+            c2c_error = str(exc)
+            c2c_results = {
+                "arm": "set",
+                "writers": 2,
+                "error": c2c_error,
+                "verdict": "FAILED",
+            }
+
+    artifact: dict[str, Any] = {
         "provenance": prov,
         "throughput": throughput_cells,
     }
+    if variant_list:
+        artifact["throughput_variant"] = variant_cells
+        artifact["comparison"] = comparison_results
+    if pmu_results is not None:
+        artifact["pmu"] = pmu_results
+    if c2c_results is not None:
+        artifact["c2c"] = c2c_results
 
     if args.out:
         out_path = Path(args.out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(artifact, indent=2) + "\n")
         print(f"\nWrote artifact to {args.out}")
+
+    if c2c_error is not None:
+        sys.stderr.write(f"perf c2c failed: {c2c_error} (AGENTS.md §8.1)\n")
+        return 1
 
     return 0
 

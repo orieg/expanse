@@ -145,6 +145,8 @@ The suites below are declared once, in [`.github/bench-suites.json`](../.github/
 | `ycsb` | wall-clock | YCSB core workloads on the 64-bit map. |
 | `concurrency` | wall-clock | `Sync*` wall-clock scaling instrument on a reduced thread/workload sweep; report-only, never gating. |
 | `writer_scaling` | wall-clock | Expanse-native multi-writer scaling sweep W in {1, 2, 4, 8} on physical cores; no third-party link. |
+| `writer_scaling_diagnostic` | `perf stat` | Expanse multi-writer scaling diagnostic suite with hardware PMU frequency droop and perf c2c cache contention passes (Phase 1.5D, Refs #568); outputs diagnostic_writer_scaling.json. |
+| `writer_scaling_padded` | wall-clock | Expanse multi-writer scaling with lock-padded comparison (Hypothesis B, Refs #568); outputs padded_writer_scaling.json. |
 | `point_lookup_counters` | `perf stat` | Hardware performance counters (`perf stat`) over the random point-lookup path — `probe` minus `build`, with a BCa 95% interval per counter. Diagnostic only: it gates nothing, and it is the instrument the Callgrind `Ir` gate structurally cannot be. |
 | `search_instructions` | Callgrind | Callgrind instruction counters for the inverted-index search kernels, dual-pass against the base ref. |
 | `smoke_instructions` | Callgrind | Scaled-down Callgrind smoke counters, dual-pass against the base ref. The same instrument as the `callgrind-smoke` CI job, on the reference host. |
