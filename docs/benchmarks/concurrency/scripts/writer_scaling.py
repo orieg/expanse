@@ -1121,8 +1121,20 @@ def self_test() -> int:
     w2_comp = comp_stats["per_writer"]["2"]
     assert w2_comp["verdict"] in ("SINGLE_RUN_PASS", "REJECTED", "INCONCLUSIVE")
     assert len(w2_comp["paired_ratios_raw"]) == 3
-    # Self-comparison ratio should be approximately 1.0
-    assert 0.5 <= w2_comp["ratio_c_variant_over_c_default_mean"] <= 1.5
+    # The ratio is a wall-clock point estimate, so its magnitude is not asserted
+    # (AGENTS.md §8.4): a self-comparison on a contended host can land anywhere.
+    # What is asserted is the arithmetic and the decision rule over whatever
+    # was measured.
+    raw = w2_comp["paired_ratios_raw"]
+    assert all(0 < x < float("inf") for x in raw), raw
+    assert abs(w2_comp["ratio_c_variant_over_c_default_mean"] - sum(raw) / len(raw)) < 1e-3, w2_comp
+    if w2_comp["ratio_ci_lower"] > 1.0:
+        expected_verdict = "SINGLE_RUN_PASS"
+    elif w2_comp["ratio_ci_upper"] < 1.0:
+        expected_verdict = "REJECTED"
+    else:
+        expected_verdict = "INCONCLUSIVE"
+    assert w2_comp["verdict"] == expected_verdict, w2_comp
 
     # Also test with counters_bin_variant=None (empty variant counters)
     cells_def_none, cells_var_none, _ = run_comparison(
