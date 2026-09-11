@@ -7,6 +7,8 @@ Fatal (exit 1):
   * PII / local-infrastructure identifiers (AGENTS.md §7 "Privacy & Local
     Infrastructure"): home-directory paths, private LAN IPv4 addresses, and
     any hostname listed in the DOCS_HOSTNAME_DENYLIST environment variable;
+    home-directory paths also in committed JSON artifacts under docs/ and
+    results/;
   * unmeasured microarchitectural mechanism claims (AGENTS.md §8.9);
   * unpublished wall-clock intervals on continuous ratios (AGENTS.md §8.4);
   * superseded/retracted performance figures, strawman numbers, or refuted
@@ -60,11 +62,22 @@ TIME_ESTIMATE_EXEMPT = re.compile(
 )
 
 # --- fatal: PII / local infrastructure ---------------------------------------
-PII_PATTERNS = [
+HOME_DIR_PATTERNS = [
     ("home-directory path", re.compile(r"/Users/(?!<)[A-Za-z0-9_.-]+/")),
     ("home-directory path", re.compile(r"/home/(?!<|runner\b|\$)[A-Za-z0-9_.-]+/")),
+]
+PII_PATTERNS = HOME_DIR_PATTERNS + [
     ("private LAN IPv4", re.compile(r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b")),
 ]
+
+# Tracked JSON swept for superseded figures (the published datasets) and, more
+# widely, for home-directory paths (every committed artifact). Benchmark
+# drivers run on a self-hosted host whose checkout sits under a personal home
+# directory, so any absolute path a driver records -- a build target, a binary,
+# a working directory -- names that directory in a committed file; #830's
+# driver did exactly that, pinned in self_test().
+JSON_DATASET_PATHSPECS = ("docs/**/*.json", "docs/*.json")
+JSON_ARTIFACT_PATHSPECS = JSON_DATASET_PATHSPECS + ("results/*.json", "results/**/*.json")
 
 # --- fatal: personal agent-config references ---------------------------------
 #
@@ -574,20 +587,68 @@ def check_pending_cells(lines: list[tuple[int, str]], path_label: str = "") -> l
     return hits
 
 
+def tracked_json(root: Path, pathspecs: tuple[str, ...]) -> list[Path]:
+    """Tracked JSON files matching `pathspecs`, discovered rather than listed.
+
+    The superseded-figure sweep was two hardcoded paths, so a retracted figure
+    living in any other dataset went unswept -- bench_domain_algebra.json among
+    them, the dataset behind the chart whose retracted "3.12x" reached main. A
+    list that must be extended by hand is a list that will be out of date
+    (AGENTS.md 8.1), and the same shape of gap already had to be closed for SVGs.
+    """
+    tracked = subprocess.run(["git", "ls-files", "--", *pathspecs],
+                             cwd=root, capture_output=True, text=True, check=True).stdout.split()
+    return sorted({root / f for f in tracked if f.endswith(".json")})
+
+
+def check_json_home_paths(root: Path) -> list[tuple[str, str, str]]:
+    """Flag home-directory paths in committed JSON artifacts (AGENTS.md §7).
+
+    Walks the decoded document, keys included, so a JSON-escaped `\\/home\\/…`
+    cannot slip past a raw-text match. A file that does not parse is scanned as
+    raw text instead of being skipped: an unreadable artifact is not a clean one
+    (AGENTS.md 8.1). Returns (repo-relative path, location, label).
+    """
+    hits: list[tuple[str, str, str]] = []
+
+    def scan(rel: str, where: str, text: str) -> None:
+        for label, pat in HOME_DIR_PATTERNS:
+            if pat.search(text):
+                hits.append((rel, where, label))
+                return
+
+    def walk(rel: str, key_path: str, val: Any) -> None:
+        if isinstance(val, dict):
+            for k, v in val.items():
+                scan(rel, f"{key_path} (key {k!r})", str(k))
+                walk(rel, f"{key_path}.{k}", v)
+        elif isinstance(val, list):
+            for i, elem in enumerate(val):
+                walk(rel, f"{key_path}[{i}]", elem)
+        elif isinstance(val, str):
+            scan(rel, key_path, val)
+
+    for target in tracked_json(root, JSON_ARTIFACT_PATHSPECS):
+        if not target.is_file():
+            continue
+        rel = target.relative_to(root).as_posix()
+        text = target.read_text(encoding="utf-8", errors="replace")
+        try:
+            data = json.loads(text)
+        except ValueError:
+            for n, line in enumerate(text.splitlines(), 1):
+                scan(rel, f"line {n} (unparseable JSON, raw text)", line)
+            continue
+        walk(rel, "root", data)
+    return hits
+
+
 def check_json_datasets(root: Path, registry: list[dict[str, Any]]) -> list[tuple[str, str]]:
     """Assert JSON visualizer and asset data contain no superseded figures."""
     if not registry:
         return []
     # Every tracked JSON dataset under docs/, not a hand-maintained pair.
-    #
-    # This was two hardcoded paths, so a retracted figure living in any other
-    # dataset went unswept -- bench_domain_algebra.json among them, the dataset
-    # behind the chart whose retracted "3.12x" reached main. A list that must be
-    # extended by hand is a list that will be out of date (AGENTS.md 8.1), and
-    # the same shape of gap already had to be closed for SVGs.
-    tracked = subprocess.run(["git", "ls-files", "--", "docs/**/*.json", "docs/*.json"],
-                             cwd=root, capture_output=True, text=True, check=True).stdout.split()
-    json_targets = sorted({root / f for f in tracked if f.endswith(".json")})
+    json_targets = tracked_json(root, JSON_DATASET_PATHSPECS)
     skip_keys = {
         "provenance", "removed_for_lack_of_provenance", "retraction",
         "retraction_372", "meta", "description", "_comment"
@@ -864,6 +925,55 @@ def self_test() -> int:
             f"a retracted figure in a suite dataset must be flagged; got {hits!r}")
         assert not any("clean.json" in n for n in names), f"corrected dataset must pass; got {hits!r}"
 
+    # A home-directory path in a committed JSON artifact must be fatal
+    # (AGENTS.md 7). The probe is pinned verbatim (8.12.3): the absolute build
+    # target #830's driver first wrote into `build_provenance`, staged
+    # intent-to-add exactly as the probe that found the gap was, which the
+    # Markdown-only check reported as 0 fatal findings.
+    probe_rel = "docs/benchmarks/concurrency/results/_probe.json"
+    probe = '{"build_provenance":{"throughput":"/home/someuser/expanse/target/throughput/release/examples/writer_scaling"}}\n'
+    must_flag = {
+        probe_rel: probe,
+        "results/baseline_mac.json": json.dumps({"cwd": "/Users/someone/expanse"}) + "\n",
+        # JSON may escape '/', so a raw-text match alone would miss this one.
+        "results/baseline_escaped.json": '{"bin": "\\/home\\/someuser\\/bin\\/x"}\n',
+        "results/sub/key.json": json.dumps({"/home/someuser/expanse": 1}) + "\n",
+        "docs/broken.json": '{"bin": "/home/someuser/x", \n',
+    }
+    must_pass = {
+        "docs/runner.json": json.dumps({"bin": "/home/runner/work/expanse/expanse/target/x"}) + "\n",
+        "docs/placeholder.json": json.dumps({"a": "/home/<user>/expanse/", "b": "/home/$USER/x/",
+                                             "c": "/Users/<name>/x/"}) + "\n",
+        "results/relative.json": json.dumps({"bin": "target/throughput/release/examples/writer_scaling"}) + "\n",
+    }
+    with tempfile.TemporaryDirectory() as td:
+        fake = Path(td)
+        subprocess.run(["git", "init", "-q"], cwd=fake, check=True)
+        for rel, body in {**must_flag, **must_pass}.items():
+            (fake / rel).parent.mkdir(parents=True, exist_ok=True)
+            (fake / rel).write_text(body, encoding="utf-8")
+        subprocess.run(["git", "add", "-N", "--", *must_flag, *must_pass], cwd=fake, check=True)
+        flagged = {h[0] for h in check_json_home_paths(fake)}
+        assert flagged == set(must_flag), (
+            f"home-path sweep flagged {sorted(flagged)!r}, expected {sorted(must_flag)!r}")
+
+        # The call site, not just the helper: run the checker itself on the
+        # scratch repo with only the probe staged -- fatal with it, clean after.
+        for rel in [*must_flag][1:]:
+            subprocess.run(["git", "rm", "-q", "--cached", "--", rel], cwd=fake, check=True)
+            (fake / rel).unlink()
+        env = {k: v for k, v in os.environ.items() if k != "DOCS_HOSTNAME_DENYLIST"}
+        run = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--no-provenance"],
+                             cwd=fake, capture_output=True, text=True, env=env)
+        assert run.returncode == 1 and f"file={probe_rel}::home-directory path" in run.stdout, (
+            f"the #830 probe must fail the checker; exit {run.returncode}, output:\n{run.stdout}{run.stderr}")
+        subprocess.run(["git", "rm", "-q", "--cached", "--", probe_rel], cwd=fake, check=True)
+        (fake / probe_rel).unlink()
+        run = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--no-provenance"],
+                             cwd=fake, capture_output=True, text=True, env=env)
+        assert run.returncode == 0, (
+            f"runner/placeholder/relative paths must pass; exit {run.returncode}, output:\n{run.stdout}{run.stderr}")
+
     print("check_docs_hygiene.py --self-test: all checks passed")
     return 0
 
@@ -1048,6 +1158,14 @@ def main() -> int:
     json_errors = check_json_datasets(root, registry)
     for path_label, err in json_errors:
         print(f"::error file={path_label}::{err}")
+        fatal += 1
+
+    # Home-directory paths in committed JSON artifacts
+    for rel, where, label in check_json_home_paths(root):
+        print(
+            f"::error file={rel}::{label} at {where} — AGENTS.md §7 forbids PII / "
+            f"local-infrastructure identifiers in committed files; record a repo-relative path"
+        )
         fatal += 1
 
     if args.pr_body_file and os.path.exists(args.pr_body_file):
