@@ -7380,15 +7380,17 @@ mod tests {
         use std::sync::mpsc;
         use std::time::{Duration, Instant};
 
-        // `'static`, so a failed assertion fails the test instead of
-        // blocking on a scoped thread that still holds a guard.
+        // Unscoped threads over `Arc`s, so a failed assertion fails the test
+        // instead of blocking on a scoped thread that still holds a guard,
+        // and a passing run frees everything (the ASan job runs LSan).
+        #[derive(Default)]
         struct Flags {
             release_x: AtomicBool,
             release_y: AtomicBool,
             drained: AtomicBool,
         }
         /// Releases both held writers however the test exits.
-        struct ReleaseOnDrop(&'static Flags);
+        struct ReleaseOnDrop(Arc<Flags>);
         impl Drop for ReleaseOnDrop {
             fn drop(&mut self) {
                 self.0.release_x.store(true, Ordering::Release);
@@ -7401,33 +7403,30 @@ mod tests {
             }
         }
 
-        let set: &'static SyncExpanseSet = Box::leak(Box::new(SyncExpanseSet::new()));
-        let shared: &'static Shared<ExpanseSet> = &set.shared;
-        let flags: &'static Flags = Box::leak(Box::new(Flags {
-            release_x: AtomicBool::new(false),
-            release_y: AtomicBool::new(false),
-            drained: AtomicBool::new(false),
-        }));
-        let _release = ReleaseOnDrop(flags);
+        let set = Arc::new(SyncExpanseSet::new());
+        let flags = Arc::new(Flags::default());
+        let _release = ReleaseOnDrop(Arc::clone(&flags));
 
         // Thread churn: each short-lived writer allocates a slot for good.
         for _ in 0..MAX_WRITER_SLOTS {
-            std::thread::spawn(move || drop(shared.enter_writer().expect("gate is open")))
+            let s = Arc::clone(&set);
+            std::thread::spawn(move || drop(s.shared.enter_writer().expect("gate is open")))
                 .join()
                 .unwrap();
         }
         assert_eq!(
-            shared.writers.allocated.load(Ordering::Relaxed),
+            set.shared.writers.allocated.load(Ordering::Relaxed),
             u64::MAX,
             "precondition: every writer slot is allocated"
         );
 
         // X takes a hashed slot k and holds its guard.
         let (tx, rx) = mpsc::channel();
+        let (s, f) = (Arc::clone(&set), Arc::clone(&flags));
         let x = std::thread::spawn(move || {
-            let g = shared.enter_writer().expect("gate is open");
+            let g = s.shared.enter_writer().expect("gate is open");
             tx.send(g.slot_id()).unwrap();
-            hold(&flags.release_x);
+            hold(&f.release_x);
             drop(g);
         });
         let k = rx.recv().unwrap();
@@ -7438,12 +7437,13 @@ mod tests {
         let mut y = None;
         for _ in 0..64 * MAX_WRITER_SLOTS {
             let (tx, rx) = mpsc::channel();
+            let (s, f) = (Arc::clone(&set), Arc::clone(&flags));
             let h = std::thread::spawn(move || {
-                let g = shared.enter_writer().expect("gate is open");
+                let g = s.shared.enter_writer().expect("gate is open");
                 let shares = g.slot_id() == k;
                 tx.send(shares).unwrap();
                 if shares {
-                    hold(&flags.release_y);
+                    hold(&f.release_y);
                 }
                 drop(g);
             });
@@ -7459,16 +7459,17 @@ mod tests {
         flags.release_x.store(true, Ordering::Release);
         x.join().unwrap();
         assert_ne!(
-            shared.writers.slots[k].load(Ordering::Relaxed),
+            set.shared.writers.slots[k].load(Ordering::Relaxed),
             0,
             "slot {k} reads drained while a writer sharing it is in flight"
         );
 
         // The drain itself: it cannot finish while Y holds its guard, and
         // must finish once Y exits.
+        let (s, f) = (Arc::clone(&set), Arc::clone(&flags));
         let q = std::thread::spawn(move || {
-            shared.quiesce_writers();
-            flags.drained.store(true, Ordering::Release);
+            s.shared.quiesce_writers();
+            f.drained.store(true, Ordering::Release);
         });
         std::thread::sleep(Duration::from_millis(50));
         assert!(
@@ -7483,7 +7484,7 @@ mod tests {
             std::thread::yield_now();
         }
         q.join().unwrap();
-        shared.reopen_gate();
+        set.shared.reopen_gate();
     }
 }
 
