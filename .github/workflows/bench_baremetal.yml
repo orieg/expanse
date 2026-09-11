@@ -920,7 +920,6 @@ jobs:
                 # Expanse multi-writer scaling diagnostic suite with PMU and c2c passes (Refs #568)
                 python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
                   --diagnostic \
-                  ${BENCH_VARIANTS:+--variants "$BENCH_VARIANTS"} \
                   --out docs/benchmarks/concurrency/results/diagnostic_writer_scaling.json | tee writer_scaling.txt
                 ;;
               "writer_scaling_padded")
