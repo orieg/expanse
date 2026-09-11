@@ -185,7 +185,7 @@ PROPTEST_CASES=500 cargo test --test proptest_model
 cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types:: \
   blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred \
   strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots \
-  map::tests::occ_engine_single_thread_under_miri set::tests::occ_engine_single_thread_under_miri \
+  map::tests::occ_engine_single_thread_under_miri map::tests::slot_calls_on_a_warm_insert_path set::tests::occ_engine_single_thread_under_miri \
   occ::tests::
 ```
 

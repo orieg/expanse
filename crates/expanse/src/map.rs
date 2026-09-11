@@ -2302,6 +2302,155 @@ mod tests {
         assert!(crate::alloc::bracket_stack::open().is_empty());
     }
 
+    /// The insert-path cache on the slot entry points behind `JudyLGet` and
+    /// `JudyLIns`: `get_value_slot` and `ins_slot` on a tree root while
+    /// `insert` has left the cache on a level-1 terminal. A key of the
+    /// cached block (`key >> 8`) is served from that terminal without a
+    /// descent, so both terminal forms are driven — a bitmap leaf
+    /// (`path.leaf`) and a 1-byte linear leaf (`path.leaf1`) — with present
+    /// and absent keys, and a key of another block is probed while the
+    /// cache is warm, which must not be served from it. `pending_pop` moves
+    /// only on a warm insert, which pins the branch each `ins_slot` took.
+    /// Sized for Miri, which checks the cache's raw dereferences.
+    #[test]
+    fn slot_calls_on_a_warm_insert_path() {
+        fn slot_value(m: &mut ExpanseMap, key: u64) -> Option<u64> {
+            // SAFETY: the slot is read before the next mutation of `m`.
+            m.get_value_slot(key).map(|p| unsafe { *p.as_ptr() })
+        }
+        fn ins_slot_expect(m: &mut ExpanseMap, key: u64, expect: u64, val: u64) {
+            let slot = m.ins_slot(key);
+            // SAFETY: the slot is used before the next mutation of `m`.
+            unsafe {
+                assert_eq!(*slot.as_ptr(), expect, "ins_slot({key:#x}) value");
+                slot.as_ptr().write(val);
+            }
+        }
+        let val = |k: u64| k.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+        let mut m = ExpanseMap::new();
+        let mut model = BTreeMap::new();
+        // Blocks 0 and 1 in full: past ROOT_LEAF_CAP, so the root is a tree,
+        // and block 1 is a populated neighbour to probe.
+        for k in 0..0x200u64 {
+            m.insert(k, val(k));
+            model.insert(k, val(k));
+        }
+        assert!(
+            matches!(m.core.root, Root::Tree { .. }),
+            "root must be a tree"
+        );
+
+        // Bitmap terminal: 32 even digits of block 2, past LEAF1_CAP.
+        let b = 0x200u64;
+        for d in (0..0x40u64).step_by(2) {
+            m.insert(b | d, val(b | d));
+            model.insert(b | d, val(b | d));
+        }
+        let p = m.path_mut();
+        assert_eq!(p.prefix, b >> 8, "insert must leave the cache on block 2");
+        assert!(!p.leaf.is_null(), "block 2 must be cached as a bitmap leaf");
+        let pending = p.pending_pop;
+
+        assert_eq!(slot_value(&mut m, b | 0x10), Some(val(b | 0x10)));
+        assert_eq!(slot_value(&mut m, b | 0x11), None);
+        assert_eq!(
+            slot_value(&mut m, 0x110),
+            Some(val(0x110)),
+            "get_value_slot served block 1 from the block-2 cache"
+        );
+        // A present key keeps its value and adds nothing.
+        ins_slot_expect(&mut m, b | 0x3E, val(b | 0x3E), val(b | 0x3E));
+        assert_eq!(m.path_mut().prefix, b >> 8);
+        assert_eq!(m.path_mut().pending_pop, pending);
+        // Absent keys: 0x01 grows subexpanse 0 from 16 to 17 values (a new
+        // capacity class, so the subarray is reallocated), 0x03 from 17 to
+        // 18 (spare capacity, shifted in place), 0x80 fills the empty
+        // subexpanse 4 (a fresh subarray).
+        for (i, d) in [0x01u64, 0x03, 0x80].into_iter().enumerate() {
+            ins_slot_expect(&mut m, b | d, 0, val(b | d));
+            model.insert(b | d, val(b | d));
+            assert_eq!(
+                m.path_mut().pending_pop,
+                pending + i + 1,
+                "ins_slot({:#x}) left the warm branch",
+                b | d
+            );
+        }
+        assert_eq!(slot_value(&mut m, b | 0x80), Some(val(b | 0x80)));
+        ins_slot_expect(&mut m, 0x110, val(0x110), val(0x110));
+        assert_eq!(m.len(), model.len() as u64);
+        m.validate();
+
+        // Linear terminal: ten digits of block 3, within LEAF1_CAP.
+        let c = 0x300u64;
+        for d in (0x10..=0xA0u64).step_by(0x10) {
+            m.insert(c | d, val(c | d));
+            model.insert(c | d, val(c | d));
+        }
+        let p = m.path_mut();
+        assert_eq!(p.prefix, c >> 8, "insert must leave the cache on block 3");
+        assert!(
+            p.leaf.is_null() && !p.leaf1.is_null(),
+            "block 3 must be cached as a linear leaf"
+        );
+        assert_eq!(p.terminal_pop, 10);
+        let pending = p.pending_pop;
+
+        assert_eq!(slot_value(&mut m, c | 0x30), Some(val(c | 0x30)));
+        assert_eq!(slot_value(&mut m, c | 0x35), None);
+        assert_eq!(
+            slot_value(&mut m, 0x230),
+            Some(val(0x230)),
+            "get_value_slot served block 2 from the block-3 cache"
+        );
+        // The last key: its existing slot.
+        ins_slot_expect(&mut m, c | 0xA0, val(c | 0xA0), val(c | 0xA0));
+        assert_eq!(m.path_mut().pending_pop, pending);
+        // Past the last key with spare class capacity: appended in place,
+        // 10 -> 11 -> 12 keys, all in the 12-slot class.
+        for (i, d) in [0xB0u64, 0xC0].into_iter().enumerate() {
+            ins_slot_expect(&mut m, c | d, 0, val(c | d));
+            model.insert(c | d, val(c | d));
+            assert_eq!(
+                m.path_mut().pending_pop,
+                pending + i + 1,
+                "ins_slot({:#x}) left the warm branch",
+                c | d
+            );
+        }
+        assert_eq!(m.path_mut().terminal_pop, 12);
+        assert_eq!(slot_value(&mut m, c | 0xC0), Some(val(c | 0xC0)));
+        // Before a descent reads the terminal edge's population back.
+        m.validate();
+        // The fallbacks to a descent: 0xD0 needs the next class (12 -> 16),
+        // 0x05 and 0x20 sort below the last key.
+        for d in [0xD0u64, 0x05, 0x20] {
+            let expect = model.get(&(c | d)).copied().unwrap_or(0);
+            ins_slot_expect(&mut m, c | d, expect, val(c | d));
+            model.insert(c | d, val(c | d));
+            assert_eq!(
+                m.path_mut().pending_pop,
+                0,
+                "ins_slot({:#x}) must descend",
+                c | d
+            );
+        }
+        // A removal clears the cache; the slot calls descend again.
+        m.insert(c | 0xE0, val(c | 0xE0));
+        model.insert(c | 0xE0, val(c | 0xE0));
+        assert_eq!(m.path_mut().prefix, c >> 8);
+        assert_eq!(m.remove(c | 0x30), model.remove(&(c | 0x30)));
+        assert_eq!(m.path_mut().prefix, u64::MAX, "remove must clear the cache");
+        assert_eq!(slot_value(&mut m, c | 0x30), None);
+        assert_eq!(slot_value(&mut m, c | 0x40), Some(val(c | 0x40)));
+
+        assert_eq!(m.len(), model.len() as u64);
+        m.validate();
+        for (&k, &v) in &model {
+            assert_eq!(m.get(k), Some(v), "get {k:#x}");
+        }
+    }
+
     /// Regression for the fuzz crash `crash-7048e639` (ASan overflow):
     /// a 1-byte-remainder linear leaf with pop 9..=12 has a
     /// cap_class-derived key area of only 12 bytes, which the 16-byte
