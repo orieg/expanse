@@ -13,6 +13,8 @@ script refuses to produce a result (§8.1: no silent degradation).
     python3 scripts/wasm_fuel.py --build wasm64                # nightly, -Z build-std
     python3 scripts/wasm_fuel.py --module target/.../x.wasm --target wasm32
     python3 scripts/wasm_fuel.py --build wasm32 --check-baseline results/baseline_wasm_fuel.json
+    python3 scripts/wasm_fuel.py --build wasm32 --json r.json   # measure only
+    python3 scripts/wasm_fuel.py --result r.json --check-baseline results/baseline_wasm_fuel.json
     python3 scripts/wasm_fuel.py --build wasm32 --save-baseline results/baseline_wasm_fuel.json
     python3 scripts/wasm_fuel.py --self-test
 
@@ -336,6 +338,23 @@ def load_baseline(path: Path, target: str) -> Dict[str, Any]:
     return {}
 
 
+def load_result(path: Path) -> Tuple[str, Dict[str, Any]]:
+    """`(target, result)` from a file `--json` wrote, for gating in its own step.
+
+    CI measures in one step and gates in the next so that a failed step says
+    which of the two failed; `perf_report.py`'s citation check reads exactly
+    that to admit a run whose guard tripped (AGENTS.md §6).
+    """
+    if not path.exists():
+        fail(f"result {path} not found — the measurement step produced nothing to gate")
+    result = json.loads(path.read_text(encoding="utf-8"))
+    for short, triple in TARGETS.items():
+        if isinstance(result, dict) and result.get("target") == triple and result.get("arms"):
+            return short, result
+    fail(f"result {path} names no known target with arms ({sorted(TARGETS.values())})")
+    return "", {}
+
+
 def save_baseline(path: Path, result: Dict[str, Any]) -> None:
     entries: List[Dict[str, Any]] = []
     if path.exists():
@@ -423,6 +442,66 @@ def self_test() -> None:
         allow_reason="approved trade on fuel_arm_a and fuel_arm_b (https://github.com/orieg/expanse/actions/runs/12345678901)",
     )
     assert f, "coverage loss cannot be waived by override"
+
+    # The citation check this gate shares with perf_report.py admits a `failure`
+    # run only when every measurement job reached its guard. This job must be
+    # one of them: otherwise a run whose fuel build crashed while a Callgrind
+    # guard tripped would be admitted, and its line would approve fuel arms.
+    import perf_report
+
+    job = "Perf / WebAssembly Fuel (wasm32 + wasm64, deterministic)"
+    guard = perf_report.MEASUREMENT_JOBS.get(job)
+    assert guard == "Fuel regression guard vs committed baseline", guard
+    steps = ["Set up job", "Fuel counts, wasm32 (32-bit engine)", "Fuel counts, wasm64 (64-bit engine)", guard]
+
+    def fuel_job(**conclusions: str) -> Dict[str, Any]:
+        return {
+            "name": job,
+            "conclusion": "failure",
+            "steps": [
+                {"number": i, "name": s, "conclusion": conclusions.get(s, "success")}
+                for i, s in enumerate(steps, start=1)
+            ],
+        }
+
+    reason = "fuel_arm_a +1.00%, run https://github.com/orieg/expanse/actions/runs/12345678901"
+
+    def check(jobs: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
+        return perf_report.check_citation_freshness(
+            reason,
+            pr_head="abc",
+            base_ref=None,
+            run_lookup=lambda repo, rid: {"conclusion": "failure", "head_sha": "abc"},
+            jobs_lookup=lambda repo, rid: jobs,
+            ancestry=lambda repo, sha, head: "identical",
+        )
+
+    problems, _ = check([fuel_job(**{guard: "failure"})])
+    assert not problems, f"a tripped fuel guard read real numbers and must be citable: {problems}"
+    problems, _ = check([fuel_job(**{steps[2]: "failure", guard: "skipped"})])
+    assert problems and "wasm64" in problems[0], f"a failed fuel measurement holds no numbers: {problems}"
+
+    # `--result` gates a finished measurement; it reads back what `--json` wrote.
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        written = Path(tmp) / "r.json"
+        written.write_text(json.dumps(r) + "\n", encoding="utf-8")
+        target, loaded = load_result(written)
+        assert target == "wasm32" and loaded == r, (target, loaded)
+        foreign = Path(tmp) / "foreign.json"
+        foreign.write_text(json.dumps(dict(r, target="x86_64-unknown-linux-gnu")), encoding="utf-8")
+        import contextlib
+        import io
+
+        refused = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(refused):
+                load_result(foreign)
+        except SystemExit:
+            assert "names no known target" in refused.getvalue(), refused.getvalue()
+        else:
+            raise AssertionError("a result for an unknown target must not be gated")
     print("wasm_fuel.py --self-test: all checks passed")
 
 
@@ -431,6 +510,7 @@ def main() -> None:
     ap.add_argument("--build", choices=list(TARGETS), help="build the module for this target, then measure it")
     ap.add_argument("--module", type=Path, help="path to a prebuilt module (requires --target)")
     ap.add_argument("--target", choices=list(TARGETS), help="target of --module")
+    ap.add_argument("--result", type=Path, help="a result written by --json; gate it without measuring")
     ap.add_argument("--pop", type=int, default=DEFAULT_POP)
     ap.add_argument("--quick", action="store_true", help="random distribution only")
     ap.add_argument("--json", type=Path, help="write the full result here")
@@ -447,15 +527,20 @@ def main() -> None:
     if args.self_test:
         self_test()
         return
-    if args.build:
-        target = args.build
-        module = build_module(target)
-    elif args.module and args.target:
-        target, module = args.target, args.module
+    if args.result:
+        if args.build or args.module:
+            ap.error("--result gates a finished measurement; it takes no --build or --module")
+        target, result = load_result(args.result)
     else:
-        ap.error("give --build <target>, or --module PATH with --target")
-    dists = ["random"] if args.quick else list(DISTS)
-    result = run_suite(module, target, args.pop, dists)
+        if args.build:
+            target = args.build
+            module = build_module(target)
+        elif args.module and args.target:
+            target, module = args.target, args.module
+        else:
+            ap.error("give --build <target>, --module PATH with --target, or --result PATH")
+        dists = ["random"] if args.quick else list(DISTS)
+        result = run_suite(module, target, args.pop, dists)
 
     rows = None
     failed = False
