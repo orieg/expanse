@@ -83,6 +83,11 @@ struct Counters {
     branch_split_prefix: u64,
     branch_split_remove: u64,
     branch_split_upgrade: u64,
+    cap_expansion_class: u64,
+    cap_expansion_leaf_full: u64,
+    cap_expansion_bitmap_near_full: u64,
+    cap_expansion_map_bitmap_sub: u64,
+    cap_expansion_remove: u64,
     retired: u64,
     total_allocs: Option<u64>,
 }
@@ -174,6 +179,11 @@ impl Counters {
             branch_split_prefix: snap[Stat::BranchSplitPrefix as usize],
             branch_split_remove: snap[Stat::BranchSplitRemove as usize],
             branch_split_upgrade: snap[Stat::BranchSplitUpgrade as usize],
+            cap_expansion_class: snap[Stat::CapExpansionClass as usize],
+            cap_expansion_leaf_full: snap[Stat::CapExpansionLeafFull as usize],
+            cap_expansion_bitmap_near_full: snap[Stat::CapExpansionBitmapNearFull as usize],
+            cap_expansion_map_bitmap_sub: snap[Stat::CapExpansionMapBitmapSub as usize],
+            cap_expansion_remove: snap[Stat::CapExpansionRemove as usize],
             retired: snap[Stat::Retired as usize],
             total_allocs: None,
         }
@@ -201,6 +211,9 @@ impl Counters {
              \"branch_split_subarray\":{bs_sub},\"branch_split_linear\":{bs_lin},\
              \"branch_split_prefix\":{bs_pfx},\"branch_split_remove\":{bs_rem},\
              \"branch_split_upgrade\":{bs_upg},\
+             \"cap_expansion_class\":{ce_cls},\"cap_expansion_leaf_full\":{ce_full},\
+             \"cap_expansion_bitmap_near_full\":{ce_bm},\"cap_expansion_map_bitmap_sub\":{ce_sub},\
+             \"cap_expansion_remove\":{ce_rem},\
              \"retired\":{retired},\"total_allocs\":{total_allocs}",
             restarts = self.lock_restarts,
             c_closed = self.contention_gate_closed,
@@ -214,6 +227,11 @@ impl Counters {
             bs_pfx = self.branch_split_prefix,
             bs_rem = self.branch_split_remove,
             bs_upg = self.branch_split_upgrade,
+            ce_cls = self.cap_expansion_class,
+            ce_full = self.cap_expansion_leaf_full,
+            ce_bm = self.cap_expansion_bitmap_near_full,
+            ce_sub = self.cap_expansion_map_bitmap_sub,
+            ce_rem = self.cap_expansion_remove,
             retired = self.retired,
             total_allocs = total_allocs_str,
         )
@@ -267,6 +285,23 @@ impl Counters {
                 self.branch_split_remove,
                 self.branch_split_upgrade,
                 branch_split
+            ));
+        }
+        let cap_expansion = self.causes[0]; // Stat::FallbackCapExpansion
+        let cap_sub = self.cap_expansion_class
+            + self.cap_expansion_leaf_full
+            + self.cap_expansion_bitmap_near_full
+            + self.cap_expansion_map_bitmap_sub
+            + self.cap_expansion_remove;
+        if cap_sub != cap_expansion {
+            return Err(format!(
+                "{cell}: cap expansion subsets sum to {cap_sub} (class={}, leaf_full={}, bitmap_near_full={}, map_bitmap_sub={}, remove={}), but cap_expansion = {}",
+                self.cap_expansion_class,
+                self.cap_expansion_leaf_full,
+                self.cap_expansion_bitmap_near_full,
+                self.cap_expansion_map_bitmap_sub,
+                self.cap_expansion_remove,
+                cap_expansion
             ));
         }
         Ok(())
