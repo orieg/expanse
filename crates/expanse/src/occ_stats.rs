@@ -181,10 +181,20 @@ pub enum Stat {
     BranchSplitRemove = 39,
     /// Branch structural mutations due to bitmap subarray upgrade to BranchU (Phase 4D, #568).
     BranchSplitUpgrade = 40,
+    /// Linear leaf capacity class growth within linear leaf (Phase 4C, #568).
+    CapExpansionClass = 41,
+    /// Linear leaf full converting to LeafB1 or splitting to BranchL3+ (#568).
+    CapExpansionLeafFull = 42,
+    /// Bitmap leaf near-full converting to FullExpanse on set or near-full guard on map (#568).
+    CapExpansionBitmapNearFull = 43,
+    /// Growth of map bitmap-leaf values[sub] subarrays across capacity classes (Phase 4C, #568).
+    CapExpansionMapBitmapSub = 44,
+    /// Remove-side capacity adjustments (shrink/demote, #568).
+    CapExpansionRemove = 45,
 }
 
 /// Number of distinct counters.
-pub const NUM_STATS: usize = 41;
+pub const NUM_STATS: usize = 46;
 
 /// Human-readable counter names, indexed by [`Stat`].
 pub const NAMES: [&str; NUM_STATS] = [
@@ -229,6 +239,11 @@ pub const NAMES: [&str; NUM_STATS] = [
     "branch_split_prefix",
     "branch_split_remove",
     "branch_split_upgrade",
+    "cap_expansion_class",
+    "cap_expansion_leaf_full",
+    "cap_expansion_bitmap_near_full",
+    "cap_expansion_map_bitmap_sub",
+    "cap_expansion_remove",
 ];
 
 /// Counters that are gauges (add / subtract / high-water), kept global.
@@ -503,7 +518,7 @@ mod tests {
     #[test]
     fn names_cover_every_stat() {
         assert_eq!(NAMES.len(), NUM_STATS);
-        assert_eq!(Stat::BranchSplitUpgrade as usize + 1, NUM_STATS);
+        assert_eq!(Stat::CapExpansionRemove as usize + 1, NUM_STATS);
         assert_eq!(NAMES[Stat::SampleSpinCycles as usize], "sample_spin_cycles");
         assert_eq!(NAMES[Stat::DeepCascades as usize], "deep_cascades");
         assert_eq!(NAMES[Stat::LockRestarts as usize], "lock_restarts");
@@ -556,6 +571,26 @@ mod tests {
         assert_eq!(
             NAMES[Stat::BranchSplitUpgrade as usize],
             "branch_split_upgrade"
+        );
+        assert_eq!(
+            NAMES[Stat::CapExpansionClass as usize],
+            "cap_expansion_class"
+        );
+        assert_eq!(
+            NAMES[Stat::CapExpansionLeafFull as usize],
+            "cap_expansion_leaf_full"
+        );
+        assert_eq!(
+            NAMES[Stat::CapExpansionBitmapNearFull as usize],
+            "cap_expansion_bitmap_near_full"
+        );
+        assert_eq!(
+            NAMES[Stat::CapExpansionMapBitmapSub as usize],
+            "cap_expansion_map_bitmap_sub"
+        );
+        assert_eq!(
+            NAMES[Stat::CapExpansionRemove as usize],
+            "cap_expansion_remove"
         );
     }
 

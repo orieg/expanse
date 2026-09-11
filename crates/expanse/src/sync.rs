@@ -1920,6 +1920,64 @@ fn branch_split<T>(_kind: BranchSplitKind) -> OlcOutcome<T> {
     OlcOutcome::Fallback(FallbackCause::BranchSplit)
 }
 
+/// Structural sub-classification for leaf capacity mutations falling back to the serialized lock (#568).
+#[cfg(feature = "std")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CapExpansionKind {
+    /// Linear leaf capacity class growth within linear leaf (`pop < cap` and `cap_class(pop + 1) != cap_class(pop)`).
+    Class,
+    /// Linear leaf full (`pop >= cap`): level 1 converts to LeafB1 at 25, level >= 2 splits into BranchL3+ at 32.
+    LeafFull,
+    /// Bitmap leaf near-full (`pop0 >= 254`): set population 256 converts to FullExpanse, map near-full guard.
+    BitmapNearFull,
+    /// Growth of map bitmap-leaf `values[sub]` subarrays across capacity classes.
+    MapBitmapSub,
+    /// Remove-side capacity adjustments (shrink/demote).
+    Remove,
+}
+
+#[cfg(all(feature = "std", feature = "occ-stats"))]
+impl CapExpansionKind {
+    #[inline(always)]
+    pub(crate) const fn stat(self) -> crate::occ_stats::Stat {
+        match self {
+            Self::Class => crate::occ_stats::Stat::CapExpansionClass,
+            Self::LeafFull => crate::occ_stats::Stat::CapExpansionLeafFull,
+            Self::BitmapNearFull => crate::occ_stats::Stat::CapExpansionBitmapNearFull,
+            Self::MapBitmapSub => crate::occ_stats::Stat::CapExpansionMapBitmapSub,
+            Self::Remove => crate::occ_stats::Stat::CapExpansionRemove,
+        }
+    }
+}
+
+/// Pure helper classifying linear leaf capacity fallback into either intra-leaf class growth
+/// (`Class`) or full-leaf conversion/split (`LeafFull`).
+#[inline(always)]
+pub(crate) const fn classify_leaf_expansion(pop: usize, cap: usize) -> CapExpansionKind {
+    if pop >= cap {
+        CapExpansionKind::LeafFull
+    } else {
+        CapExpansionKind::Class
+    }
+}
+
+/// Central routing helper for all leaf capacity expansion fallbacks.
+///
+/// Ensures every capacity expansion fallback attributes its sub-cause consistently and
+/// satisfies the structural invariant that no raw `Fallback(FallbackCause::CapExpansion)`
+/// exists outside this helper.
+///
+/// Note: The granular sub-cause counter is incremented here; the parent aggregate
+/// counter (`Stat::FallbackCapExpansion`) is incremented at the driver loop exit
+/// site via `cause.stat()` alongside all other fallback causes.
+#[cfg(feature = "std")]
+#[inline(always)]
+fn cap_expansion<T>(_kind: CapExpansionKind) -> OlcOutcome<T> {
+    #[cfg(feature = "occ-stats")]
+    crate::occ_stats::bump(_kind.stat());
+    OlcOutcome::Fallback(FallbackCause::CapExpansion)
+}
+
 /// Maps contention fallback cause to its exact sub-cause statistic (#568).
 #[cfg(all(feature = "occ-stats", feature = "std"))]
 #[inline(always)]
@@ -3055,7 +3113,7 @@ impl SyncExpanseSet {
                     }
                     let pop0 = edge.pop0(1) as usize;
                     if pop0 >= 254 {
-                        return OlcOutcome::Fallback(FallbackCause::CapExpansion);
+                        return cap_expansion(CapExpansionKind::BitmapNearFull);
                     }
                     let Ok((old_v, lock_t0)) =
                         version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -3192,7 +3250,8 @@ impl SyncExpanseSet {
                         }
                         return OlcOutcome::Done(true);
                     }
-                    return OlcOutcome::Fallback(FallbackCause::CapExpansion);
+                    let kind = classify_leaf_expansion(pop, cap);
+                    return cap_expansion(kind);
                 }
 
                 EdgeTag::Immed(im) => {
@@ -3470,7 +3529,7 @@ impl SyncExpanseSet {
                     }
                     let pop0 = edge.pop0(1) as usize;
                     if pop0 == 0 || pop0 <= 32 {
-                        return OlcOutcome::Fallback(FallbackCause::CapExpansion);
+                        return cap_expansion(CapExpansionKind::Remove);
                     }
                     let Ok((old_v, lock_t0)) =
                         version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -3554,7 +3613,7 @@ impl SyncExpanseSet {
                         }
                         return OlcOutcome::Done(true);
                     }
-                    return OlcOutcome::Fallback(FallbackCause::CapExpansion);
+                    return cap_expansion(CapExpansionKind::Remove);
                 }
 
                 EdgeTag::Structural(EdgeType::Null) => {
@@ -4305,7 +4364,7 @@ impl SyncExpanseMap {
                     let rank = unsafe { (*node).bitmap.subexpanse_rank(d) as usize };
                     let pop0 = edge.pop0(1) as usize;
                     if pop0 >= 254 {
-                        return OlcOutcome::Fallback(FallbackCause::CapExpansion);
+                        return cap_expansion(CapExpansionKind::BitmapNearFull);
                     }
                     if old_n > 0
                         && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n)
@@ -4332,7 +4391,7 @@ impl SyncExpanseMap {
                         }
                         return OlcOutcome::Done(None);
                     }
-                    return OlcOutcome::Fallback(FallbackCause::CapExpansion);
+                    return cap_expansion(CapExpansionKind::MapBitmapSub);
                 }
 
                 EdgeTag::Structural(
@@ -4418,7 +4477,8 @@ impl SyncExpanseMap {
                         }
                         return OlcOutcome::Done(None);
                     }
-                    return OlcOutcome::Fallback(FallbackCause::CapExpansion);
+                    let kind = classify_leaf_expansion(pop, cap);
+                    return cap_expansion(kind);
                 }
 
                 EdgeTag::Immed(im) => {
@@ -4782,7 +4842,7 @@ impl SyncExpanseMap {
                     };
                     let pop0 = edge.pop0(1) as usize;
                     if pop0 == 0 || pop0 <= 32 {
-                        return OlcOutcome::Fallback(FallbackCause::CapExpansion);
+                        return cap_expansion(CapExpansionKind::Remove);
                     }
                     // SAFETY: node is an EBR-live bitmap node and parent is validated/locked.
                     let old_n = unsafe { (*node).bitmap.subexpanse_count(sub) as usize };
@@ -4811,7 +4871,7 @@ impl SyncExpanseMap {
                             return OlcOutcome::Done(Some(old));
                         }
                     }
-                    return OlcOutcome::Fallback(FallbackCause::CapExpansion);
+                    return cap_expansion(CapExpansionKind::Remove);
                 }
 
                 EdgeTag::Structural(
@@ -4878,7 +4938,7 @@ impl SyncExpanseMap {
                             return OlcOutcome::Done(Some(old));
                         }
                     }
-                    return OlcOutcome::Fallback(FallbackCause::CapExpansion);
+                    return cap_expansion(CapExpansionKind::Remove);
                 }
 
                 EdgeTag::Immed(im) => {
@@ -6052,6 +6112,48 @@ mod tests {
             super::contention_stat(false),
             Stat::ContentionRetryExhausted
         );
+    }
+
+    #[test]
+    #[cfg(feature = "occ-stats")]
+    fn test_cap_expansion_stat_mapping() {
+        use super::CapExpansionKind;
+        use crate::occ_stats::Stat;
+        assert_eq!(CapExpansionKind::Class.stat(), Stat::CapExpansionClass);
+        assert_eq!(
+            CapExpansionKind::LeafFull.stat(),
+            Stat::CapExpansionLeafFull
+        );
+        assert_eq!(
+            CapExpansionKind::BitmapNearFull.stat(),
+            Stat::CapExpansionBitmapNearFull
+        );
+        assert_eq!(
+            CapExpansionKind::MapBitmapSub.stat(),
+            Stat::CapExpansionMapBitmapSub
+        );
+        assert_eq!(CapExpansionKind::Remove.stat(), Stat::CapExpansionRemove);
+    }
+
+    #[test]
+    fn test_classify_leaf_expansion_boundaries() {
+        use super::{CapExpansionKind, classify_leaf_expansion};
+        assert_eq!(classify_leaf_expansion(0, 4), CapExpansionKind::Class);
+        assert_eq!(classify_leaf_expansion(3, 4), CapExpansionKind::Class);
+        assert_eq!(classify_leaf_expansion(4, 4), CapExpansionKind::LeafFull);
+        assert_eq!(classify_leaf_expansion(5, 4), CapExpansionKind::LeafFull);
+    }
+
+    #[test]
+    #[cfg(feature = "occ-stats")]
+    fn test_branch_split_stat_mapping() {
+        use super::BranchSplitKind;
+        use crate::occ_stats::Stat;
+        assert_eq!(BranchSplitKind::Subarray.stat(), Stat::BranchSplitSubarray);
+        assert_eq!(BranchSplitKind::Linear.stat(), Stat::BranchSplitLinear);
+        assert_eq!(BranchSplitKind::Prefix.stat(), Stat::BranchSplitPrefix);
+        assert_eq!(BranchSplitKind::Remove.stat(), Stat::BranchSplitRemove);
+        assert_eq!(BranchSplitKind::Upgrade.stat(), Stat::BranchSplitUpgrade);
     }
 
     /// A `DetachedMapReader` must give the same answers as the owned reader

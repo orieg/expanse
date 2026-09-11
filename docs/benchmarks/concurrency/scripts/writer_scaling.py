@@ -365,6 +365,18 @@ def summarize_arm(
                     f"{arm} W={w} round {r['round']}: branch_split partition ({bs_sub} + {bs_lin} + "
                     f"{bs_pfx} + {bs_rem} + {bs_upg} = {bs_sum}) != causes['branch_split'] ({causes['branch_split']})"
                 )
+            # Invariant 4: CapExpansion exact partition (#568)
+            ce_cls = int(r.get("cap_expansion_class", 0))
+            ce_full = int(r.get("cap_expansion_leaf_full", 0))
+            ce_bm = int(r.get("cap_expansion_bitmap_near_full", 0))
+            ce_sub = int(r.get("cap_expansion_map_bitmap_sub", 0))
+            ce_rem = int(r.get("cap_expansion_remove", 0))
+            ce_sum = ce_cls + ce_full + ce_bm + ce_sub + ce_rem
+            if ce_sum != int(causes["cap_expansion"]):
+                raise ValueError(
+                    f"{arm} W={w} round {r['round']}: cap_expansion partition ({ce_cls} + {ce_full} + "
+                    f"{ce_bm} + {ce_sub} + {ce_rem} = {ce_sum}) != causes['cap_expansion'] ({causes['cap_expansion']})"
+                )
             for name in CAUSE_NAMES:
                 cause_totals[name] += int(causes[name])
         # Shares of fallbacks say which Phase 4 rung a cell needs; per-insert
@@ -390,6 +402,11 @@ def summarize_arm(
         total_bs_pfx = sum(int(r.get("branch_split_prefix", 0)) for r in c_rows_w)
         total_bs_rem = sum(int(r.get("branch_split_remove", 0)) for r in c_rows_w)
         total_bs_upg = sum(int(r.get("branch_split_upgrade", 0)) for r in c_rows_w)
+        total_ce_cls = sum(int(r.get("cap_expansion_class", 0)) for r in c_rows_w)
+        total_ce_full = sum(int(r.get("cap_expansion_leaf_full", 0)) for r in c_rows_w)
+        total_ce_bm = sum(int(r.get("cap_expansion_bitmap_near_full", 0)) for r in c_rows_w)
+        total_ce_sub = sum(int(r.get("cap_expansion_map_bitmap_sub", 0)) for r in c_rows_w)
+        total_ce_rem = sum(int(r.get("cap_expansion_remove", 0)) for r in c_rows_w)
 
         restarts_per_insert = round(total_restarts / total_ops, 6) if total_ops > 0 else 0.0
         gate_blocked_entries_per_insert = (
@@ -451,6 +468,21 @@ def summarize_arm(
                 else 0.0
             ),
         }
+        cap_expansion_subset_totals = {
+            "class": total_ce_cls,
+            "leaf_full": total_ce_full,
+            "bitmap_near_full": total_ce_bm,
+            "map_bitmap_sub": total_ce_sub,
+            "remove": total_ce_rem,
+        }
+        cap_expansion_subset_share = {
+            k: (
+                round(v / cause_totals["cap_expansion"], 6)
+                if cause_totals["cap_expansion"] > 0
+                else 0.0
+            )
+            for k, v in cap_expansion_subset_totals.items()
+        }
 
         total_retired = sum(int(r.get("retired", 0)) for r in c_rows_w)
         retired_per_insert = round(total_retired / total_ops, 6) if total_ops > 0 else 0.0
@@ -498,6 +530,8 @@ def summarize_arm(
             "contention_subset_share": contention_subset_share,
             "branch_split_subsets_total": branch_split_subset_totals,
             "branch_split_subset_share": branch_split_subset_share,
+            "cap_expansion_subsets_total": cap_expansion_subset_totals,
+            "cap_expansion_subset_share": cap_expansion_subset_share,
             "gate_blocked_entries_per_insert": gate_blocked_entries_per_insert,
             "gate_wait_cycles_per_insert": gate_wait_cycles_per_insert,
             "quiesce_drain_cycles_per_fallback": quiesce_drain_cycles_per_fallback,
@@ -544,6 +578,11 @@ def summarize_arm(
                     "branch_split_prefix": r["branch_split_prefix"],
                     "branch_split_remove": r["branch_split_remove"],
                     "branch_split_upgrade": r.get("branch_split_upgrade", 0),
+                    "cap_expansion_class": r.get("cap_expansion_class", 0),
+                    "cap_expansion_leaf_full": r.get("cap_expansion_leaf_full", 0),
+                    "cap_expansion_bitmap_near_full": r.get("cap_expansion_bitmap_near_full", 0),
+                    "cap_expansion_map_bitmap_sub": r.get("cap_expansion_map_bitmap_sub", 0),
+                    "cap_expansion_remove": r.get("cap_expansion_remove", 0),
                     "retired": r.get("retired", 0),
                     "total_allocs": r.get("total_allocs"),
                     "tsc_hz": r.get("tsc_hz", 0),
@@ -1105,6 +1144,14 @@ def self_test() -> int:
                 + r["branch_split_remove"]
                 + r.get("branch_split_upgrade", 0)
                 == r["fallback_causes"]["branch_split"]
+            ), r
+            assert (
+                r.get("cap_expansion_class", 0)
+                + r.get("cap_expansion_leaf_full", 0)
+                + r.get("cap_expansion_bitmap_near_full", 0)
+                + r.get("cap_expansion_map_bitmap_sub", 0)
+                + r.get("cap_expansion_remove", 0)
+                == r["fallback_causes"]["cap_expansion"]
             ), r
     assert abs(sum(cell_w2["fallback_cause_share"].values()) - 1.0) < 1e-3, cell_w2["fallback_cause_share"]
 

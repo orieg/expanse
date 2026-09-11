@@ -216,6 +216,69 @@ fn fallback_causes_account_for_every_fallback() {
     assert_eq!(d(Stat::BranchSplitRemove), 0);
     assert_eq!(sd(Stat::BranchSplitRemove), 0);
 
+    // Exact identity 4: CapExpansion partition (#568)
+    let ce_partition_map = d(Stat::CapExpansionClass)
+        + d(Stat::CapExpansionLeafFull)
+        + d(Stat::CapExpansionBitmapNearFull)
+        + d(Stat::CapExpansionMapBitmapSub)
+        + d(Stat::CapExpansionRemove);
+    eprintln!(
+        "CapExpansion map breakdown: Class={}, LeafFull={}, BitmapNearFull={}, MapBitmapSub={}, Remove={}",
+        d(Stat::CapExpansionClass),
+        d(Stat::CapExpansionLeafFull),
+        d(Stat::CapExpansionBitmapNearFull),
+        d(Stat::CapExpansionMapBitmapSub),
+        d(Stat::CapExpansionRemove)
+    );
+    eprintln!(
+        "CapExpansion set breakdown: Class={}, LeafFull={}, BitmapNearFull={}, MapBitmapSub={}, Remove={}",
+        sd(Stat::CapExpansionClass),
+        sd(Stat::CapExpansionLeafFull),
+        sd(Stat::CapExpansionBitmapNearFull),
+        sd(Stat::CapExpansionMapBitmapSub),
+        sd(Stat::CapExpansionRemove)
+    );
+    assert_eq!(
+        ce_partition_map,
+        d(Stat::FallbackCapExpansion),
+        "map: CapExpansion subsets must sum to FallbackCapExpansion"
+    );
+    let ce_partition_set = sd(Stat::CapExpansionClass)
+        + sd(Stat::CapExpansionLeafFull)
+        + sd(Stat::CapExpansionBitmapNearFull)
+        + sd(Stat::CapExpansionMapBitmapSub)
+        + sd(Stat::CapExpansionRemove);
+    assert_eq!(
+        ce_partition_set,
+        sd(Stat::FallbackCapExpansion),
+        "set: CapExpansion subsets must sum to FallbackCapExpansion"
+    );
+
+    // Verify discrimination: both Class and LeafFull must be non-zero on both map and set workloads
+    assert!(
+        d(Stat::CapExpansionClass) > 0,
+        "map: CapExpansionClass must discriminate (> 0)"
+    );
+    assert!(
+        d(Stat::CapExpansionLeafFull) > 0,
+        "map: CapExpansionLeafFull must discriminate (> 0)"
+    );
+    assert!(
+        sd(Stat::CapExpansionClass) > 0,
+        "set: CapExpansionClass must discriminate (> 0)"
+    );
+    assert!(
+        sd(Stat::CapExpansionLeafFull) > 0,
+        "set: CapExpansionLeafFull must discriminate (> 0)"
+    );
+
+    // Remove partition must be 0 on insert-only workloads
+    assert_eq!(d(Stat::CapExpansionRemove), 0);
+    assert_eq!(sd(Stat::CapExpansionRemove), 0);
+
+    // MapBitmapSub is map-only: must be 0 on set
+    assert_eq!(sd(Stat::CapExpansionMapBitmapSub), 0);
+
     // Phase 4D: BranchB subarray growth is concurrent, eliminating Subarray
     // fallbacks (the dominant branch split cause). BranchSplitSubarray is exactly 0.
     assert_eq!(
@@ -311,4 +374,156 @@ fn fallback_causes_account_for_every_fallback() {
     assert!(fallbacks > 0, "workload must exercise the fallback path");
     assert_eq!(map.len(), 21_000);
     assert_eq!(set.len(), 21_000);
+
+    // Structural invariant: ensure no raw `OlcOutcome::Fallback(FallbackCause::CapExpansion)`
+    // exists in sync.rs outside `fn cap_expansion` (#568).
+    let sync_src = include_str!("../src/sync.rs");
+    let raw_pattern = "OlcOutcome::Fallback(FallbackCause::CapExpansion)";
+    let count = sync_src.matches(raw_pattern).count();
+    assert_eq!(
+        count, 1,
+        "only fn cap_expansion may return raw Fallback(FallbackCause::CapExpansion)"
+    );
+    assert_eq!(
+        sync_src.matches("cap_expansion(").count(),
+        10,
+        "cap_expansion must be called at exactly 10 exit sites in sync.rs (AGENTS.md §2.3)"
+    );
+    for kind in [
+        "CapExpansionKind::Class",
+        "CapExpansionKind::LeafFull",
+        "CapExpansionKind::BitmapNearFull",
+        "CapExpansionKind::MapBitmapSub",
+        "CapExpansionKind::Remove",
+    ] {
+        assert!(
+            sync_src.contains(kind),
+            "CapExpansionKind::{kind} must be used in sync.rs"
+        );
+    }
+
+    // Decision-point structural routing and classification helper (AGENTS.md §2.3):
+    let prod_sync = sync_src.split("mod tests {").next().expect("prod code");
+    let def_count = prod_sync.matches("fn classify_leaf_expansion").count();
+    let call_count = prod_sync.matches("classify_leaf_expansion(").count() - def_count;
+    assert_eq!(
+        def_count, 1,
+        "classify_leaf_expansion must be defined exactly once as a pure decision helper"
+    );
+    assert_eq!(
+        call_count, 2,
+        "classify_leaf_expansion must be called at exactly 2 decision points in prod code (set and map insert)"
+    );
+
+    // Targeted discrimination checks: verify all 5 `CapExpansion` sub-causes discriminate (> 0)
+    // under targeted workloads designed to trigger each respective engine transition across both
+    // map and set engines (Refs #568, AGENTS.md §2.3).
+
+    // 1. CapExpansionBitmapNearFull on SET:
+    // Inserting 256 keys (0..256) into a single level-1 leaf reaches pop0 >= 254 and triggers BitmapNearFull.
+    let targeted_set = expanse_trie::sync::SyncExpanseSet::new();
+    let s_before_bm = occ_stats::snapshot();
+    for k in 0..256u64 {
+        targeted_set.insert(k);
+    }
+    let s_after_bm = occ_stats::snapshot();
+    let bm_near_full_set = s_after_bm[Stat::CapExpansionBitmapNearFull as usize]
+        - s_before_bm[Stat::CapExpansionBitmapNearFull as usize];
+    assert!(
+        bm_near_full_set > 0,
+        "set: CapExpansionBitmapNearFull must discriminate (> 0) on dense level-1 leaf, got {bm_near_full_set}"
+    );
+
+    // 2. CapExpansionClass, CapExpansionLeafFull, and CapExpansionMapBitmapSub on MAP:
+    // A map root is only a tree when pop > ROOT_LEAF_CAP (31).
+    // Populate 32 keys in prefix 0x0100 and 26 keys in prefix 0x0000 (total 58 > 31).
+    // Child 0 (26 keys > LEAF1_CAP=25) converts to LeafB1 (sub-expanse 0).
+    let targeted_map = expanse_trie::sync::SyncExpanseMap::new();
+    for k in 0..32u64 {
+        targeted_map.insert(0x0100 + k, k);
+    }
+    let s_before_fill = occ_stats::snapshot();
+    for k in 0..26u64 {
+        targeted_map.insert(k, k * 10);
+    }
+    let s_after_fill = occ_stats::snapshot();
+    let class_cnt = s_after_fill[Stat::CapExpansionClass as usize]
+        - s_before_fill[Stat::CapExpansionClass as usize];
+    let leaf_full_cnt = s_after_fill[Stat::CapExpansionLeafFull as usize]
+        - s_before_fill[Stat::CapExpansionLeafFull as usize];
+    assert!(
+        class_cnt > 0,
+        "map: CapExpansionClass must discriminate (> 0) during leaf class growth, got {class_cnt}"
+    );
+    assert!(
+        leaf_full_cnt > 0,
+        "map: CapExpansionLeafFull must discriminate (> 0) when leaf reaches capacity, got {leaf_full_cnt}"
+    );
+
+    // MapBitmapSub:
+    // (a) Sub-expanse 1 empty insert: key 32 has old_n == 0, triggering MapBitmapSub.
+    let s_before_sub = occ_stats::snapshot();
+    targeted_map.insert(32, 320);
+    let s_after_sub = occ_stats::snapshot();
+    let map_sub_empty = s_after_sub[Stat::CapExpansionMapBitmapSub as usize]
+        - s_before_sub[Stat::CapExpansionMapBitmapSub as usize];
+    assert!(
+        map_sub_empty > 0,
+        "map: CapExpansionMapBitmapSub must discriminate (> 0) on empty subarray entry, got {map_sub_empty}"
+    );
+
+    // (b) Sub-expanse 1 populated growth: inserting key 33 has old_n == 1, growing class 1 -> 2.
+    let s_before_sub_grow = occ_stats::snapshot();
+    targeted_map.insert(33, 330);
+    let s_after_sub_grow = occ_stats::snapshot();
+    let map_sub_grow = s_after_sub_grow[Stat::CapExpansionMapBitmapSub as usize]
+        - s_before_sub_grow[Stat::CapExpansionMapBitmapSub as usize];
+    assert!(
+        map_sub_grow > 0,
+        "map: CapExpansionMapBitmapSub must discriminate (> 0) on populated subarray class growth, got {map_sub_grow}"
+    );
+
+    // 3. CapExpansionBitmapNearFull on MAP:
+    // Insert keys 26..256 into prefix 0x0000. Child 0 is LeafB1; as it reaches 254+ keys,
+    // keys 254 and 255 hit pop0 >= 254 (sync.rs:4357), triggering Map BitmapNearFull.
+    let s_before_map_bm = occ_stats::snapshot();
+    for k in 26..256u64 {
+        targeted_map.insert(k, k * 10);
+    }
+    let s_after_map_bm = occ_stats::snapshot();
+    let bm_near_full_map = s_after_map_bm[Stat::CapExpansionBitmapNearFull as usize]
+        - s_before_map_bm[Stat::CapExpansionBitmapNearFull as usize];
+    assert!(
+        bm_near_full_map > 0,
+        "map: CapExpansionBitmapNearFull must discriminate (> 0) on dense LeafB1 (pop0 >= 254), got {bm_near_full_map}"
+    );
+
+    // 4. CapExpansionRemove on MAP:
+    // Removals that shrink nodes or drop below threshold (pop0 <= 32).
+    let s_before_rem = occ_stats::snapshot();
+    for k in 0..25u64 {
+        targeted_map.remove(k);
+    }
+    let s_after_rem = occ_stats::snapshot();
+    let rem_map = s_after_rem[Stat::CapExpansionRemove as usize]
+        - s_before_rem[Stat::CapExpansionRemove as usize];
+    assert!(
+        rem_map > 0,
+        "map: CapExpansionRemove must discriminate (> 0) on removals, got {rem_map}"
+    );
+
+    // 5. CapExpansionRemove on SET:
+    // Removing keys from targeted_set (which has 256 keys in a LeafB1 child) triggers
+    // CapExpansionRemove when popping below threshold (pop0 <= 32) or linear leaf demotion.
+    let s_before_set_rem = occ_stats::snapshot();
+    for k in 0..250u64 {
+        targeted_set.remove(k);
+    }
+    let s_after_set_rem = occ_stats::snapshot();
+    let rem_set = s_after_set_rem[Stat::CapExpansionRemove as usize]
+        - s_before_set_rem[Stat::CapExpansionRemove as usize];
+    assert!(
+        rem_set > 0,
+        "set: CapExpansionRemove must discriminate (> 0) on removals, got {rem_set}"
+    );
 }

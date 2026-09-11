@@ -60,6 +60,40 @@ PRE_4D_W1_CAUSES: dict[str, dict[str, float]] = {
     "map": {"cap_expansion": 0.133741, "immediate_conversion": 0.01374, "branch_split": 0.097611},
 }
 
+# The W=1 per-insert fallback causes the Phase 4C prediction is derived from:
+# Measured on post-4D engine with granular CapExpansion subset partitioning (#568):
+# 1,048,576 fresh inserts per arm after 1,048,576 prefill.
+# set: cap_expansion=20849 (class=2960, leaf_full=17889, bm_near_full=0, sub=0, rem=0),
+#      immediate_conversion=16023, branch_split=0. Total fallbacks: 36872 (3.52%).
+# map: cap_expansion=140238 (class=110459, leaf_full=29779, bm_near_full=0, sub=0, rem=0),
+#      immediate_conversion=14407, branch_split=0. Total fallbacks: 154645 (14.75%).
+PRE_4C_W1_CAUSES: dict[str, dict[str, float]] = {
+    "set": {
+        "cap_expansion_class": 2960 / 1048576,
+        "cap_expansion_leaf_full": 17889 / 1048576,
+        "cap_expansion_bitmap_near_full": 0.0,
+        "cap_expansion_map_bitmap_sub": 0.0,
+        "cap_expansion_remove": 0.0,
+        "immediate_conversion": 16023 / 1048576,
+        "branch_split": 0.0,
+        "root_growth": 0.0,
+        "contention": 0.0,
+        "unknown_tag": 0.0,
+    },
+    "map": {
+        "cap_expansion_class": 110459 / 1048576,
+        "cap_expansion_leaf_full": 29779 / 1048576,
+        "cap_expansion_bitmap_near_full": 0.0,
+        "cap_expansion_map_bitmap_sub": 0.0,
+        "cap_expansion_remove": 0.0,
+        "immediate_conversion": 14407 / 1048576,
+        "branch_split": 0.0,
+        "root_growth": 0.0,
+        "contention": 0.0,
+        "unknown_tag": 0.0,
+    },
+}
+
 # ---------------------------------------------------------------------------
 # Hypotheses: inputs no artifact measures. Each is a parameter of the bound
 # functions below, never a hidden constant; METHODOLOGY §10 says which counter
@@ -292,6 +326,79 @@ def phase4d_predicted_fallback_rate(
     return (res_lower, res_upper)
 
 
+def phase4c_predicted_fallback_rate(
+    arm: str,
+    branchb_up: int = 192,
+    leaf_cap: int = 32,
+    artifact_path: Path | None = None,
+) -> tuple[float, float]:
+    """Predicted per-insert fallback rate interval [lower, upper] after Phase 4C
+    concurrent leaf capacity class expansion under parent expected-version coupling
+    on the W=1 uniform random workload.
+
+    Sources:
+      Leis, Scheibner, Kemper & Neumann, DaMoN 2016 §3 (optimistic lock coupling).
+      The pre-4C W=1 fallback cause partitions in `PRE_4C_W1_CAUSES` (Refs #568);
+      pass `artifact_path` to derive from another artifact's W=1 row.
+
+    Derivation (§8.14):
+      At W=1, all fallbacks are deterministic structural transitions.
+      Phase 4C eliminates insert-side capacity class growth within linear leaves
+      (`cap_expansion_class`) and map bitmap-leaf sub-expanses (`cap_expansion_map_bitmap_sub`)
+      by executing reallocations concurrently under parent expected-version coupling.
+      The capacity transitions that remain serialized are:
+      1. Linear leaf full (`cap_expansion_leaf_full`): level 1 converts to LeafB1 at 25,
+         level >= 2 splits into BranchL3+ at 32.
+      2. Bitmap leaf near-full (`cap_expansion_bitmap_near_full`): set converts to FullExpanse
+         at 256, map near-full guard at 254.
+      3. Immediate-to-leaf conversions (`immediate_conversion`).
+      4. Residual BranchB to BranchU upgrades bounded by Phase 4D's upgrade ceiling.
+
+      Residual lower bound (zero BranchU upgrades):
+        residual_lower = cap_expansion_leaf_full + cap_expansion_bitmap_near_full + immediate_conversion
+      Residual upper bound (maximum BranchU upgrade rate):
+        residual_upper = residual_lower + branch_split / (BRANCHB_UP + 1 - (leaf_cap + 1))
+
+    Returns:
+      (residual_lower, residual_upper) as per-insert fallback rates.
+    """
+    if arm not in ("set", "map"):
+        raise ValueError(f"arm must be 'set' or 'map', got '{arm}'")
+    if branchb_up < 1:
+        raise ValueError(f"branchb_up must be >= 1, got {branchb_up}")
+    if leaf_cap < 1:
+        raise ValueError(f"leaf_cap must be >= 1, got {leaf_cap}")
+    k0 = leaf_cap + 1
+    if branchb_up + 1 <= k0:
+        raise ValueError(f"branchb_up + 1 ({branchb_up + 1}) must be > k0 ({k0})")
+    if artifact_path is None:
+        causes = PRE_4C_W1_CAUSES[arm]
+        f_leaf_full = causes["cap_expansion_leaf_full"]
+        f_bm_near_full = causes["cap_expansion_bitmap_near_full"]
+        f_ic = causes["immediate_conversion"]
+        f_bs = causes["branch_split"]
+    else:
+        d = json.loads(artifact_path.read_text())
+        row = next(
+            (r for r in d.get("throughput", []) if r.get("arm") == arm and r.get("writers") == 1),
+            None,
+        )
+        if not row:
+            raise ValueError(f"{artifact_path}: no W=1 throughput row found for arm '{arm}'")
+        per_ins = row["fallback_causes_per_insert"]
+        total_ops = row.get("write_ops", 1048576)
+        ce_subsets = row.get("cap_expansion_subsets_total", {})
+        f_leaf_full = ce_subsets.get("leaf_full", 0) / total_ops
+        f_bm_near_full = ce_subsets.get("bitmap_near_full", 0) / total_ops
+        f_ic = per_ins["immediate_conversion"]
+        f_bs = per_ins.get("branch_split", 0.0)
+
+    res_lower = f_leaf_full + f_bm_near_full + f_ic
+    max_upgrade_fraction = 1.0 / (branchb_up + 1 - k0)
+    res_upper = res_lower + f_bs * max_upgrade_fraction
+    return (res_lower, res_upper)
+
+
 # ---------------------------------------------------------------------------
 # Unit tests: reference values pinned by hand-checkable arithmetic, plus the
 # artifact readers against the committed files.
@@ -392,6 +499,59 @@ class TestOlcBounds(unittest.TestCase):
         with self.assertRaises(ValueError):
             phase4d_predicted_fallback_rate("set", branchb_up=10, leaf_cap=20)
 
+    def test_phase4c_predicted_fallback_rate(self):
+        set_lo, set_hi = phase4c_predicted_fallback_rate("set")
+        # set: 3.52% -> 3.23% (lower bound with CapExpansionClass eliminated)
+        self.assertAlmostEqual(set_lo * 100, 3.234, delta=0.02)
+        self.assertAlmostEqual(set_hi * 100, 3.234, delta=0.02)
+        self.assertLessEqual(set_lo, set_hi)
+
+        map_lo, map_hi = phase4c_predicted_fallback_rate("map")
+        # map: 14.75% -> 4.21% (eliminating 10.53% of all inserts that were CapExpansionClass)
+        self.assertAlmostEqual(map_lo * 100, 4.214, delta=0.02)
+        self.assertAlmostEqual(map_hi * 100, 4.214, delta=0.02)
+        self.assertLessEqual(map_lo, map_hi)
+
+        # Artifact path reader test
+        import tempfile
+        rows = [
+            {
+                "arm": arm,
+                "writers": 1,
+                "write_ops": 1048576,
+                "fallback_causes_per_insert": {
+                    "immediate_conversion": causes["immediate_conversion"],
+                    "branch_split": causes["branch_split"],
+                },
+                "cap_expansion_subsets_total": {
+                    "class": int(causes["cap_expansion_class"] * 1048576),
+                    "leaf_full": int(causes["cap_expansion_leaf_full"] * 1048576),
+                    "bitmap_near_full": int(causes["cap_expansion_bitmap_near_full"] * 1048576),
+                    "map_bitmap_sub": int(causes["cap_expansion_map_bitmap_sub"] * 1048576),
+                    "remove": int(causes["cap_expansion_remove"] * 1048576),
+                },
+            }
+            for arm, causes in PRE_4C_W1_CAUSES.items()
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "pre4c.json"
+            path.write_text(json.dumps({"throughput": rows}))
+            for arm in ("set", "map"):
+                self.assertAlmostEqual(
+                    phase4c_predicted_fallback_rate(arm, artifact_path=path)[0],
+                    phase4c_predicted_fallback_rate(arm)[0],
+                    places=7,
+                )
+
+        with self.assertRaises(ValueError):
+            phase4c_predicted_fallback_rate("str")
+        with self.assertRaises(ValueError):
+            phase4c_predicted_fallback_rate("set", branchb_up=0)
+        with self.assertRaises(ValueError):
+            phase4c_predicted_fallback_rate("set", leaf_cap=0)
+        with self.assertRaises(ValueError):
+            phase4c_predicted_fallback_rate("set", branchb_up=10, leaf_cap=20)
+
 
 def report() -> None:
     lt = line_transfer_ns()
@@ -406,6 +566,13 @@ def report() -> None:
         holds[(suite, arm)] = lh["median"]
         print(f"  W=1 insert rate, merged engine, {suite}/{arm}: [{u['union_lower']:.2f}, {u['union_upper']:.2f}] M/s "
               f"(measured t_hold: {lh['median']:.1f} ns [span {lh['min']:.1f}–{lh['max']:.1f}])")
+    print()
+    print("Phase 4C Predicted Fallback Rates (W=1 uniform random, Refs #568):")
+    for arm in ("set", "map"):
+        c_lo, c_hi = phase4c_predicted_fallback_rate(arm)
+        d_lo, d_hi = phase4d_predicted_fallback_rate(arm)
+        print(f"  {arm}: post-4D {d_lo*100:.2f}% -> predicted post-4C [{c_lo*100:.2f}%, {c_hi*100:.2f}%] "
+              f"(eliminating CapExpansionClass: {PRE_4C_W1_CAUSES[arm]['cap_expansion_class']*100:.2f}%)")
     print()
     print("Contention ceilings by workload shape (evaluated against measured t_line = 33.37 ns):")
     t_hold_set = holds[("hot_comparison", "set")]
