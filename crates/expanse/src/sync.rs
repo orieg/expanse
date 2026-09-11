@@ -1599,7 +1599,27 @@ impl<T: SharedTree> Shared<T> {
     /// root-state changes a remove can make (to empty, or a condense back to
     /// a root leaf) bracket themselves. The unshared path pays nothing for
     /// this: the decision is one branch here, on the shared path only.
+    #[inline(always)]
     fn write_root_covered<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
+    where
+        T: RootState,
+    {
+        self.write_root_covered_with::<false, R>(f)
+    }
+
+    /// [`Self::write_root_covered`] for a removal, which first re-syncs the
+    /// engine's population field from the sharded counter. A removal decides
+    /// from that field whether to condense back to a root leaf, and
+    /// `condense` sizes the leaf from it, so it must be exact.
+    #[inline(always)]
+    fn remove_root_covered<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
+    where
+        T: RootState,
+    {
+        self.write_root_covered_with::<true, R>(f)
+    }
+
+    fn write_root_covered_with<const EXACT_POP: bool, R>(&self, f: impl FnOnce(&mut T) -> R) -> R
     where
         T: RootState,
     {
@@ -1625,11 +1645,15 @@ impl<T: SharedTree> Shared<T> {
         // SAFETY: the writer mutex makes this the only mutable borrow.
         let inner = unsafe { &mut *self.inner.get() };
         // Optimistic writers move only the sharded counter, so the engine's
-        // own population field is stale until re-synced. `f` can make a
-        // root-state transition that trusts that field — `condense` sizes the
-        // root leaf it rebuilds from it — so it must hold the true population.
-        // Writers are quiesced here, which makes the sharded sum exact.
-        inner.set_tree_pop(self.tree_pop.load());
+        // own population field is stale until re-synced. A removal trusts
+        // that field — the condense trigger and the root leaf `condense`
+        // rebuilds are both sized from it — so it must hold the true
+        // population. Writers are quiesced here, which makes the sharded sum
+        // exact. An insert only adds to the field and `pop_before` carries
+        // the delta, so it skips the sum.
+        if EXACT_POP {
+            inner.set_tree_pop(self.tree_pop.load());
+        }
         let pop_before = inner.tree_pop();
         // Read under the lock: the root state is the writer's to change.
         let r = if inner.root_is_tree() {
@@ -2491,7 +2515,7 @@ impl SyncExpanseSet {
             if !self.shared.inner_ref().root_is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
-                return self.shared.write_root_covered(|s| s.remove(key));
+                return self.shared.remove_root_covered(|s| s.remove(key));
             }
 
             let _guard = self.shared.enter_writer_blocking();
@@ -2543,12 +2567,12 @@ impl SyncExpanseSet {
             drop(_guard);
             match res {
                 Ok(rem) => rem,
-                Err(_) => self.shared.write_root_covered(|s| s.remove(key)),
+                Err(_) => self.shared.remove_root_covered(|s| s.remove(key)),
             }
         }
         #[cfg(not(feature = "std"))]
         {
-            self.shared.write_root_covered(|s| s.remove(key))
+            self.shared.remove_root_covered(|s| s.remove(key))
         }
     }
 
@@ -3534,7 +3558,7 @@ impl SyncExpanseMap {
             if !self.shared.inner_ref().root_is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
-                return self.shared.write_root_covered(|m| m.remove(key));
+                return self.shared.remove_root_covered(|m| m.remove(key));
             }
 
             let _guard = self.shared.enter_writer_blocking();
@@ -3586,12 +3610,12 @@ impl SyncExpanseMap {
             drop(_guard);
             match res {
                 Ok(prev) => prev,
-                Err(_) => self.shared.write_root_covered(|m| m.remove(key)),
+                Err(_) => self.shared.remove_root_covered(|m| m.remove(key)),
             }
         }
         #[cfg(not(feature = "std"))]
         {
-            self.shared.write_root_covered(|m| m.remove(key))
+            self.shared.remove_root_covered(|m| m.remove(key))
         }
     }
 
@@ -7850,5 +7874,36 @@ mod obsolete_tests {
         }
         assert_eq!(map.len(), 0);
         map.with_locked(ExpanseMap::validate);
+    }
+
+    /// The set twin of the test above: the set's removal condenses the same
+    /// way, from its own population field.
+    #[test]
+    fn fallback_remove_condenses_with_the_true_population_set() {
+        let mut x = 0x0DDB_1A5E_5EED_0001u64;
+        let mut next = move || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x
+        };
+        let keys: Vec<u64> = (0..50_000).map(|_| next()).collect();
+        let set = SyncExpanseSet::new();
+        for &k in &keys {
+            set.insert(k);
+        }
+        let mut probes = keys.clone();
+        let mut y = 0x9E37_79B9u64;
+        for i in (1..probes.len()).rev() {
+            y ^= y << 13;
+            y ^= y >> 7;
+            y ^= y << 17;
+            probes.swap(i, (y % (i as u64 + 1)) as usize);
+        }
+        for &k in &probes {
+            assert!(set.remove(k), "present key {k:#x} must be removed");
+        }
+        assert_eq!(set.len(), 0);
+        set.with_locked(ExpanseSet::validate);
     }
 }
