@@ -1624,6 +1624,12 @@ impl<T: SharedTree> Shared<T> {
         crate::occ_stats::op_begin();
         // SAFETY: the writer mutex makes this the only mutable borrow.
         let inner = unsafe { &mut *self.inner.get() };
+        // Optimistic writers move only the sharded counter, so the engine's
+        // own population field is stale until re-synced. `f` can make a
+        // root-state transition that trusts that field — `condense` sizes the
+        // root leaf it rebuilds from it — so it must hold the true population.
+        // Writers are quiesced here, which makes the sharded sum exact.
+        inner.set_tree_pop(self.tree_pop.load());
         let pop_before = inner.tree_pop();
         // Read under the lock: the root state is the writer's to change.
         let r = if inner.root_is_tree() {
@@ -7747,23 +7753,102 @@ mod obsolete_tests {
             "must not yet be a BranchU node"
         );
 
-        #[cfg(feature = "occ-stats")]
-        let before = crate::occ_stats::snapshot();
-
         let removed = map.remove(prefix | (10u64 << 8) | 1);
         assert_eq!(removed, Some(10));
 
-        #[cfg(feature = "occ-stats")]
-        {
-            let after = crate::occ_stats::snapshot();
-            let d_remove = after[crate::occ_stats::Stat::BranchSplitRemove as usize]
-                - before[crate::occ_stats::Stat::BranchSplitRemove as usize];
+        map.with_locked(ExpanseMap::validate);
+    }
+
+    /// Control for the guard above: under an uncompressed parent a NULL slot is
+    /// an absent child, so the in-place removal stays valid.
+    #[test]
+    fn olc_remove_map_single_key_under_uncompressed_branch_stays_valid() {
+        let map = SyncExpanseMap::new();
+        let prefix = 0x4200_0000_0000_0000u64;
+        for i in 1..=5u64 {
+            map.insert((i << 56) | 1, i);
+        }
+        for d in 0..220u64 {
+            map.insert(prefix | (d << 8) | 1, d);
+        }
+        let stats = map.with_locked(|m| m.stats());
+        assert!(
+            stats.node_counts.branch_u > 0,
+            "fixture must build a BranchU"
+        );
+
+        for d in [2u64, 100, 219] {
+            assert_eq!(map.remove(prefix | (d << 8) | 1), Some(d));
+            assert_eq!(map.get(prefix | (d << 8) | 1), None);
+        }
+        assert_eq!(map.len(), 5 + 220 - 3);
+        map.with_locked(ExpanseMap::validate);
+    }
+
+    /// The set's removal has no in-place slot-emptying path; pin that the same
+    /// bitmap-branch fixture stays valid so a future one cannot reintroduce the
+    /// map's defect on the set.
+    #[test]
+    fn olc_remove_set_single_key_under_bitmap_branch_keeps_node_valid() {
+        let set = SyncExpanseSet::new();
+        let prefix = 0x4200_0000_0000_0000u64;
+        for i in 1..=5u64 {
+            set.insert((i << 56) | 1);
+        }
+        for d in 0..40u64 {
+            set.insert(prefix | (d << 8) | 1);
+        }
+        let stats = set.with_locked(|s| s.stats());
+        assert!(
+            stats.node_counts.branch_b > 0,
+            "fixture must build a BranchB"
+        );
+
+        for d in [2u64, 17, 39] {
+            assert!(set.remove(prefix | (d << 8) | 1));
+            assert!(!set.contains(prefix | (d << 8) | 1));
+            set.with_locked(ExpanseSet::validate);
+        }
+        assert_eq!(set.len(), 5 + 40 - 3);
+    }
+
+    /// A fallback mutation must see the tree's true population. Optimistic
+    /// writers move only the sharded counter, and `condense` sizes the root leaf
+    /// it rebuilds from the engine's own field; if that field is stale, a
+    /// fallback remove that shrinks the tree below the root-leaf threshold
+    /// writes more keys than the leaf holds. The workload is the
+    /// `sync_map_remove` instruction arm's: insert a random population, then
+    /// remove all of it in shuffled order.
+    #[test]
+    fn fallback_remove_condenses_with_the_true_population() {
+        let mut x = 0x0DDB_1A5E_5EED_0001u64;
+        let mut next = move || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x
+        };
+        let keys: Vec<u64> = (0..50_000).map(|_| next()).collect();
+        let map = SyncExpanseMap::new();
+        for &k in &keys {
+            map.insert(k, !k);
+        }
+        let mut probes = keys.clone();
+        let mut y = 0x9E37_79B9u64;
+        for i in (1..probes.len()).rev() {
+            y ^= y << 13;
+            y ^= y >> 7;
+            y ^= y << 17;
+            probes.swap(i, (y % (i as u64 + 1)) as usize);
+        }
+        for &k in &probes {
             assert_eq!(
-                d_remove, 1,
-                "removing immediate under BranchB parent must attribute fallback to BranchSplitRemove"
+                map.remove(k),
+                Some(!k),
+                "present key {k:#x} must be removed"
             );
         }
-
+        assert_eq!(map.len(), 0);
         map.with_locked(ExpanseMap::validate);
     }
 }
