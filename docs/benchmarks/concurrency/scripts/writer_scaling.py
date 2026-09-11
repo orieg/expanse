@@ -47,6 +47,18 @@ from bench_provenance import (  # noqa: E402
 
 THROUGHPUT_TARGET = REPO_ROOT / "target" / "throughput"
 COUNTERS_TARGET = REPO_ROOT / "target" / "occ-stats"
+# The six fallback causes the harness emits per counters row. They partition
+# `lock_fallbacks` exactly; the harness refuses a row that breaks that, and the
+# driver re-checks it so a schema drift cannot pass through silently (§8.1).
+CAUSE_NAMES = (
+    "cap_expansion",
+    "immediate_conversion",
+    "branch_split",
+    "root_growth",
+    "contention",
+    "unknown_tag",
+)
+
 COMMITTED_RESULTS_PATH = (
     REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "writer_scaling.json"
 )
@@ -263,6 +275,37 @@ def summarize_arm(
         total_ops = sum(int(r.get("write_ops", 0)) for r in c_rows_w)
         fallback_rate = (total_fallbacks / total_ops) if total_ops > 0 else 0.0
 
+        cause_totals = {name: 0 for name in CAUSE_NAMES}
+        for r in c_rows_w:
+            causes = r.get("fallback_causes")
+            if not isinstance(causes, dict) or set(causes) != set(CAUSE_NAMES):
+                raise ValueError(
+                    f"{arm} W={w} round {r.get('round')}: fallback_causes must carry exactly "
+                    f"{CAUSE_NAMES}, got {causes!r}"
+                )
+            if sum(int(v) for v in causes.values()) != int(r["lock_fallbacks"]):
+                raise ValueError(
+                    f"{arm} W={w} round {r['round']}: causes sum to "
+                    f"{sum(int(v) for v in causes.values())}, lock_fallbacks = {r['lock_fallbacks']}"
+                )
+            if int(r["inserts"]) != int(r["write_ops"]):
+                raise ValueError(
+                    f"{arm} W={w} round {r['round']}: Stat::Inserts = {r['inserts']}, "
+                    f"harness inserted {r['write_ops']}"
+                )
+            for name in CAUSE_NAMES:
+                cause_totals[name] += int(causes[name])
+        # Shares of fallbacks say which Phase 4 rung a cell needs; per-insert
+        # rates say how much of the workload that rung would move.
+        cause_share = {
+            name: (round(v / total_fallbacks, 6) if total_fallbacks > 0 else 0.0)
+            for name, v in cause_totals.items()
+        }
+        cause_per_insert = {
+            name: (round(v / total_ops, 6) if total_ops > 0 else 0.0)
+            for name, v in cause_totals.items()
+        }
+
         tp_rel = THROUGHPUT_TARGET.relative_to(REPO_ROOT)
         cnt_rel = COUNTERS_TARGET.relative_to(REPO_ROOT)
 
@@ -286,6 +329,9 @@ def summarize_arm(
             "lock_fallbacks": median_fallbacks,
             "lock_fallbacks_median": median_fallbacks,
             "fallback_rate": round(fallback_rate, 6),
+            "fallback_causes_total": cause_totals,
+            "fallback_cause_share": cause_share,
+            "fallback_causes_per_insert": cause_per_insert,
             "build_provenance": {
                 "throughput": f"{tp_rel}/release/examples/writer_scaling (uninstrumented)",
                 "counters": f"{cnt_rel}/release/examples/writer_scaling (--features occ-stats)",
@@ -306,6 +352,8 @@ def summarize_arm(
                     "position": r["position"],
                     "write_ops": r["write_ops"],
                     "lock_fallbacks": r["lock_fallbacks"],
+                    "inserts": r["inserts"],
+                    "fallback_causes": r["fallback_causes"],
                 }
                 for r in c_rows_w
             ],
@@ -431,6 +479,21 @@ def self_test() -> int:
     assert len(cell_w2["counters_raw"]) == 3, f"Expected 3 counters_raw entries, got {len(cell_w2['counters_raw'])}"
     assert "position" in cell_w2["rounds_raw"][0]
     assert "position" in cell_w2["counters_raw"][0]
+    for c in cells:
+        for r in c["counters_raw"]:
+            assert set(r["fallback_causes"]) == set(CAUSE_NAMES), r
+            assert sum(r["fallback_causes"].values()) == r["lock_fallbacks"], r
+            assert r["inserts"] == r["write_ops"], r
+    assert abs(sum(cell_w2["fallback_cause_share"].values()) - 1.0) < 1e-3, cell_w2["fallback_cause_share"]
+    # A row whose causes do not sum to its fallbacks is refused, not averaged.
+    broken = [dict(r) for r in c_rows_map]
+    broken[0]["lock_fallbacks"] = int(broken[0]["lock_fallbacks"]) + 1
+    try:
+        summarize_arm("map", [1, 2], 3, t_rows_map, broken, load)
+    except ValueError as exc:
+        assert "causes sum to" in str(exc), exc
+    else:
+        raise AssertionError("summarize_arm accepted a row whose causes do not sum to lock_fallbacks")
 
     # 6. Privacy check: ensure no absolute repo root or home paths leaked into cells (AGENTS.md §7)
     repo_root_str = str(REPO_ROOT)
@@ -614,6 +677,12 @@ def main() -> int:
                 f"| Fallbacks: {cell['lock_fallbacks']:>7} ({cell['fallback_rate']*100:>5.2f}%) "
                 f"| Foreign CPUs: {foreign_str}"
             )
+            if cell["fallback_causes_total"] and sum(cell["fallback_causes_total"].values()) > 0:
+                shares = "  ".join(
+                    f"{name} {cell['fallback_cause_share'][name] * 100:5.2f}%"
+                    for name in CAUSE_NAMES
+                )
+                print(f"        causes (share of fallbacks): {shares}")
 
     artifact = {
         "provenance": prov,
