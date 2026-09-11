@@ -84,7 +84,68 @@ struct Counters {
     branch_split_remove: u64,
     branch_split_upgrade: u64,
     retired: u64,
-    total_allocs: u64,
+    total_allocs: Option<u64>,
+}
+
+struct PerfControl {
+    ctl_file: Option<std::fs::File>,
+    ack_path: Option<std::path::PathBuf>,
+}
+
+impl PerfControl {
+    fn new(ctl_arg: Option<&str>, ack_arg: Option<&str>) -> Self {
+        let ctl_path = ctl_arg.map(std::path::PathBuf::from).or_else(|| {
+            std::env::var("PERF_CTL_FIFO")
+                .ok()
+                .map(std::path::PathBuf::from)
+        });
+        let ack_path = ack_arg.map(std::path::PathBuf::from).or_else(|| {
+            std::env::var("PERF_ACK_FIFO")
+                .ok()
+                .map(std::path::PathBuf::from)
+        });
+
+        let ctl_file = ctl_path.map(|p| {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(&p)
+                .unwrap_or_else(|e| panic!("failed to open perf ctl fifo {}: {e}", p.display()))
+        });
+
+        Self { ctl_file, ack_path }
+    }
+
+    fn enable(&mut self) {
+        if let Some(ref mut file) = self.ctl_file {
+            use std::io::{Read, Write};
+            file.write_all(b"enable\n")
+                .expect("failed to write enable to perf ctl fifo");
+            file.flush().expect("failed to flush perf ctl fifo");
+            if let Some(ref ack_path) = self.ack_path {
+                let mut ack_file = std::fs::File::open(ack_path).unwrap_or_else(|e| {
+                    panic!("failed to open perf ack fifo {}: {e}", ack_path.display())
+                });
+                let mut buf = [0u8; 16];
+                let _ = ack_file.read(&mut buf);
+            }
+        }
+    }
+
+    fn disable(&mut self) {
+        if let Some(ref mut file) = self.ctl_file {
+            use std::io::{Read, Write};
+            file.write_all(b"disable\n")
+                .expect("failed to write disable to perf ctl fifo");
+            file.flush().expect("failed to flush perf ctl fifo");
+            if let Some(ref ack_path) = self.ack_path {
+                let mut ack_file = std::fs::File::open(ack_path).unwrap_or_else(|e| {
+                    panic!("failed to open perf ack fifo {}: {e}", ack_path.display())
+                });
+                let mut buf = [0u8; 16];
+                let _ = ack_file.read(&mut buf);
+            }
+        }
+    }
 }
 
 impl Counters {
@@ -114,7 +175,7 @@ impl Counters {
             branch_split_remove: snap[Stat::BranchSplitRemove as usize],
             branch_split_upgrade: snap[Stat::BranchSplitUpgrade as usize],
             retired: snap[Stat::Retired as usize],
-            total_allocs: 0,
+            total_allocs: None,
         }
     }
 
@@ -128,6 +189,10 @@ impl Counters {
     }
 
     fn extra_counters_json(&self) -> String {
+        let total_allocs_str = match self.total_allocs {
+            Some(v) => v.to_string(),
+            None => "null".to_string(),
+        };
         format!(
             "\"lock_restarts\":{restarts},\
              \"contention_gate_closed\":{c_closed},\"contention_retry_exhausted\":{c_exhausted},\
@@ -150,7 +215,7 @@ impl Counters {
             bs_rem = self.branch_split_remove,
             bs_upg = self.branch_split_upgrade,
             retired = self.retired,
-            total_allocs = self.total_allocs,
+            total_allocs = total_allocs_str,
         )
     }
 
@@ -368,6 +433,7 @@ fn run_map_cell(
     writers: usize,
     round: usize,
     is_counters: bool,
+    perf_ctl: &mut PerfControl,
 ) -> (f64, u64, Counters) {
     let map = SyncExpanseMap::new();
     for &k in &workload.prefill {
@@ -406,9 +472,11 @@ fn run_map_cell(
             });
         }
 
+        perf_ctl.enable();
         barrier.wait();
         Instant::now()
     });
+    perf_ctl.disable();
 
     let elapsed = if is_counters {
         0.0
@@ -417,9 +485,10 @@ fn run_map_cell(
     };
     let mut counters = Counters::read(is_counters);
     if is_counters {
-        counters.total_allocs = map
-            .with_locked(|inner| inner.total_node_allocs() as u64)
-            .saturating_sub(allocs_before);
+        counters.total_allocs = Some(
+            map.with_locked(|inner| inner.total_node_allocs() as u64)
+                .saturating_sub(allocs_before),
+        );
     }
     let final_pop = map.len();
 
@@ -442,6 +511,7 @@ fn run_set_cell(
     writers: usize,
     round: usize,
     is_counters: bool,
+    perf_ctl: &mut PerfControl,
 ) -> (f64, u64, Counters) {
     let set = SyncExpanseSet::new();
     for &k in &workload.prefill {
@@ -480,9 +550,11 @@ fn run_set_cell(
             });
         }
 
+        perf_ctl.enable();
         barrier.wait();
         Instant::now()
     });
+    perf_ctl.disable();
 
     let elapsed = if is_counters {
         0.0
@@ -491,9 +563,10 @@ fn run_set_cell(
     };
     let mut counters = Counters::read(is_counters);
     if is_counters {
-        counters.total_allocs = set
-            .with_locked(|inner| inner.total_node_allocs() as u64)
-            .saturating_sub(allocs_before);
+        counters.total_allocs = Some(
+            set.with_locked(|inner| inner.total_node_allocs() as u64)
+                .saturating_sub(allocs_before),
+        );
     }
     let final_pop = set.len();
 
@@ -514,6 +587,7 @@ fn run_str_cell(
     writers: usize,
     round: usize,
     is_counters: bool,
+    perf_ctl: &mut PerfControl,
 ) -> (f64, u64, Counters) {
     let map = SyncExpanseStrMap::new();
     for k in &workload.prefill {
@@ -548,9 +622,11 @@ fn run_str_cell(
             });
         }
 
+        perf_ctl.enable();
         barrier.wait();
         Instant::now()
     });
+    perf_ctl.disable();
 
     let elapsed = if is_counters {
         0.0
@@ -628,11 +704,12 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
         ));
     }
 
+    let mut dummy_ctl = PerfControl::new(None, None);
     let wl_map = WriterWorkload::generate(n0, m, 64);
     assert_eq!(wl_map.prefill.len(), n0);
     assert_eq!(wl_map.fresh_keys.len(), m);
 
-    let (el_map, pop_map, fb_map) = run_map_cell(&wl_map, 2, 0, is_counters);
+    let (el_map, pop_map, fb_map) = run_map_cell(&wl_map, 2, 0, is_counters, &mut dummy_ctl);
     if pop_map != (n0 + m) as u64 {
         return Err(format!("map expected pop {}, got {pop_map}", n0 + m));
     }
@@ -643,7 +720,7 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
                 fb_map.lock_fallbacks
             ));
         }
-        if fb_map.total_allocs == 0 {
+        if fb_map.total_allocs.unwrap_or(0) == 0 {
             return Err("counters test: expected fb_map.total_allocs > 0".into());
         }
         fb_map.check(m as u64, "self-test map")?;
@@ -652,7 +729,7 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
     }
 
     let wl_set = WriterWorkload::generate(n0, m, 63);
-    let (el_set, pop_set, fb_set) = run_set_cell(&wl_set, 2, 0, is_counters);
+    let (el_set, pop_set, fb_set) = run_set_cell(&wl_set, 2, 0, is_counters, &mut dummy_ctl);
     if pop_set != (n0 + m) as u64 {
         return Err(format!("set expected pop {}, got {pop_set}", n0 + m));
     }
@@ -663,7 +740,7 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
                 fb_set.lock_fallbacks
             ));
         }
-        if fb_set.total_allocs == 0 {
+        if fb_set.total_allocs.unwrap_or(0) == 0 {
             return Err("counters test: expected fb_set.total_allocs > 0".into());
         }
         fb_set.check(m as u64, "self-test set")?;
@@ -672,7 +749,7 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
     }
 
     let wl_str = WriterStrWorkload::generate(n0, m);
-    let (el_str, pop_str, fb_str) = run_str_cell(&wl_str, 2, 0, is_counters);
+    let (el_str, pop_str, fb_str) = run_str_cell(&wl_str, 2, 0, is_counters, &mut dummy_ctl);
     if pop_str != (n0 + m) as u64 {
         return Err(format!("str expected pop {}, got {pop_str}", n0 + m));
     }
@@ -683,6 +760,9 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
                 "counters test: expected fb_str == 0, got {}",
                 fb_str.lock_fallbacks
             ));
+        }
+        if fb_str.total_allocs.is_some() {
+            return Err("counters test: expected fb_str.total_allocs to be None (null)".into());
         }
         fb_str.check(m as u64, "self-test str")?;
     } else if el_str <= 0.0 {
@@ -865,6 +945,18 @@ fn main() {
 
     let tsc_hz = occ_stats::cycles_hz(std::time::Duration::from_millis(200));
 
+    let perf_ctl_fifo = args
+        .iter()
+        .position(|a| a == "--perf-ctl-fifo")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| s.as_str());
+    let perf_ack_fifo = args
+        .iter()
+        .position(|a| a == "--perf-ack-fifo")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| s.as_str());
+    let mut perf_ctl = PerfControl::new(perf_ctl_fifo, perf_ack_fifo);
+
     // Interleaved execution across writer counts within each round, balancing
     // position and first-order carryover across rounds (Williams design):
     if run_map {
@@ -874,7 +966,8 @@ fn main() {
         for round in round_start..round_end {
             let round_writers = williams_order(&writers_list, round);
             for (pos, &w) in round_writers.iter().enumerate() {
-                let (elapsed_s, final_pop, counters) = run_map_cell(&wl, w, round, is_counters);
+                let (elapsed_s, final_pop, counters) =
+                    run_map_cell(&wl, w, round, is_counters, &mut perf_ctl);
                 let write_ops = m;
                 if is_counters {
                     if let Err(e) = counters.check(m as u64, &format!("map_w{w}_r0 round {round}"))
@@ -914,7 +1007,8 @@ fn main() {
         for round in round_start..round_end {
             let round_writers = williams_order(&writers_list, round);
             for (pos, &w) in round_writers.iter().enumerate() {
-                let (elapsed_s, final_pop, counters) = run_set_cell(&wl, w, round, is_counters);
+                let (elapsed_s, final_pop, counters) =
+                    run_set_cell(&wl, w, round, is_counters, &mut perf_ctl);
                 let write_ops = m;
                 if is_counters {
                     if let Err(e) = counters.check(m as u64, &format!("set_w{w}_r0 round {round}"))
@@ -953,7 +1047,8 @@ fn main() {
         for round in round_start..round_end {
             let round_writers = williams_order(&writers_list, round);
             for (pos, &w) in round_writers.iter().enumerate() {
-                let (elapsed_s, final_pop, counters) = run_str_cell(&wl, w, round, is_counters);
+                let (elapsed_s, final_pop, counters) =
+                    run_str_cell(&wl, w, round, is_counters, &mut perf_ctl);
                 let write_ops = m;
                 if is_counters {
                     if let Err(e) = counters.check(m as u64, &format!("str_w{w}_r0 round {round}"))

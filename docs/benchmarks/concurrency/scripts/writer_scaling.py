@@ -64,6 +64,9 @@ CAUSE_NAMES = (
 COMMITTED_RESULTS_PATH = (
     REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "baseline_writer_scaling.json"
 )
+DIAGNOSTIC_RESULTS_PATH = (
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "diagnostic_writer_scaling.json"
+)
 
 
 def get_throughput_target(features: str | None = None) -> Path:
@@ -426,13 +429,18 @@ def summarize_arm(
         }
 
         total_retired = sum(int(r.get("retired", 0)) for r in c_rows_w)
-        total_node_allocs = sum(int(r.get("total_allocs", 0)) for r in c_rows_w)
-        retired_per_insert = (
-            round(total_retired / total_ops, 6) if total_ops > 0 else 0.0
-        )
-        total_allocs_per_insert = (
-            round(total_node_allocs / total_ops, 6) if total_ops > 0 else 0.0
-        )
+        retired_per_insert = round(total_retired / total_ops, 6) if total_ops > 0 else 0.0
+        has_allocs = any(r.get("total_allocs") is not None for r in c_rows_w)
+        if has_allocs:
+            total_node_allocs = sum(
+                int(r.get("total_allocs", 0)) for r in c_rows_w if r.get("total_allocs") is not None
+            )
+            total_allocs_per_insert = (
+                round(total_node_allocs / total_ops, 6) if total_ops > 0 else 0.0
+            )
+        else:
+            total_node_allocs = None
+            total_allocs_per_insert = None
         tsc_hz = int(first_t.get("tsc_hz", 0))
 
         tp_rel = throughput_target.relative_to(REPO_ROOT)
@@ -476,7 +484,11 @@ def summarize_arm(
             "total_allocs_per_insert": total_allocs_per_insert,
             "build_provenance": {
                 "throughput": f"{tp_rel}/release/examples/writer_scaling",
-                "counters": f"{cnt_rel}/release/examples/writer_scaling (--features occ-stats)",
+                "counters": (
+                    f"{cnt_rel}/release/examples/writer_scaling (--features occ-stats)"
+                    if c_rows_w
+                    else None
+                ),
             },
             "rounds_raw": [
                 {
@@ -509,7 +521,7 @@ def summarize_arm(
                     "branch_split_remove": r["branch_split_remove"],
                     "branch_split_upgrade": r.get("branch_split_upgrade", 0),
                     "retired": r.get("retired", 0),
-                    "total_allocs": r.get("total_allocs", 0),
+                    "total_allocs": r.get("total_allocs"),
                     "tsc_hz": r.get("tsc_hz", 0),
                     "fallback_causes": r["fallback_causes"],
                 }
@@ -587,7 +599,7 @@ def run_comparison(
         arm, writers_list, rounds, all_t_rows_default, c_rows, load_def, throughput_target=tp_target_def
     )
     cells_variant = summarize_arm(
-        arm, writers_list, rounds, all_t_rows_variant, c_rows, load_var, throughput_target=tp_target_var
+        arm, writers_list, rounds, all_t_rows_variant, [], load_var, throughput_target=tp_target_var
     )
 
     # Compute paired C_variant(w) / C_default(w) per round
@@ -608,21 +620,42 @@ def run_comparison(
     }
 
     for w in writers_list:
+        if w == 1:
+            # Skip W=1: by definition C(1) == 1.0, so the ratio is identically 1.0,
+            # bca_bootstrap_ci returns (1,1,1), and testing C(1) > 1.0 is not a concurrency decision.
+            continue
+
         paired_ratios: list[float] = []
         for r in range(rounds):
             t1_d = t_by_round_w_def[(r, 1)]
             tw_d = t_by_round_w_def[(r, w)]
+            if t1_d <= 0:
+                raise RuntimeError(f"Round {r} W=1 default throughput <= 0 ({t1_d}) (AGENTS.md §8.1)")
             c_d = tw_d / t1_d
+            if c_d <= 0:
+                raise RuntimeError(f"Round {r} W={w} default scaling C(W) <= 0 ({c_d}) (AGENTS.md §8.1)")
 
             t1_v = t_by_round_w_var[(r, 1)]
             tw_v = t_by_round_w_var[(r, w)]
+            if t1_v <= 0:
+                raise RuntimeError(f"Round {r} W=1 variant throughput <= 0 ({t1_v}) (AGENTS.md §8.1)")
             c_v = tw_v / t1_v
 
-            paired_ratios.append(c_v / c_d if c_d > 0 else 1.0)
+            paired_ratios.append(c_v / c_d)
 
         mean_ratio, ci_lower, ci_upper = bca_bootstrap_ci(paired_ratios, confidence=0.95)
         median_ratio = sorted(paired_ratios)[len(paired_ratios) // 2]
-        verdict = "CONFIRMED" if ci_lower > 1.0 else "REJECTED"
+        # Verdict decision rule (§8.4, §8.20):
+        # A single run cannot CONFIRM; confirmation requires a second independent run across two committed artifacts.
+        # CI_lower > 1.0 -> SINGLE_RUN_PASS (candidate confirmed pending run 2)
+        # CI_upper < 1.0 -> REJECTED
+        # CI spans 1.0   -> INCONCLUSIVE (data cannot reject or confirm)
+        if ci_lower > 1.0:
+            verdict = "SINGLE_RUN_PASS"
+        elif ci_upper < 1.0:
+            verdict = "REJECTED"
+        else:
+            verdict = "INCONCLUSIVE"
 
         stat_entry = {
             "w": w,
@@ -638,7 +671,7 @@ def run_comparison(
         print(
             f"  [Comparison W={w:<2}] Ratio C_{variant_name}({w}) / C_default({w}): "
             f"Mean {mean_ratio:.4f} [{ci_lower:.4f}, {ci_upper:.4f}] | "
-            f"Verdict (CI_lower > 1.0): {verdict}"
+            f"Verdict: {verdict}"
         )
 
     return cells_default, cells_variant, comparison_stats
@@ -700,24 +733,27 @@ def run_pmu_pass(
     writers: list[int] | None = None,
     rounds: int = 8,
     quick: bool = False,
-) -> dict[str, Any] | None:
+) -> dict[str, Any]:
     if platform.system() != "Linux":
-        print(f"  [PMU Pass] Skipping perf stat: host reports {platform.system()} (Linux required)")
-        return None
+        raise RuntimeError(
+            f"--pmu requested but host reports {platform.system()} (Linux required per AGENTS.md §8.1)"
+        )
     if shutil.which("perf") is None:
-        print("  [PMU Pass] Skipping perf stat: perf binary not found on PATH")
-        return None
+        raise RuntimeError(
+            "--pmu requested but 'perf' binary not found on PATH (AGENTS.md §8.1)"
+        )
 
     if writers is None:
         writers = [1, 2]
 
     events = probe_pmu_events()
     if not events:
-        print("  [PMU Pass] Skipping perf stat: no target PMU events found via perf list")
-        return None
+        raise RuntimeError(
+            "--pmu requested but no target PMU events found via 'perf list' (AGENTS.md §8.1)"
+        )
 
     print(f"\n========================================================================")
-    print(f" Hardware PMU Counter Pass (perf stat across {rounds} rounds)")
+    print(f" Hardware PMU Counter Pass (perf stat across {rounds} rounds via FIFO control)")
     print(f" Events: {', '.join(events)} | Arm: {arm} | Writers: {writers}")
     print(f"========================================================================")
 
@@ -727,34 +763,47 @@ def run_pmu_pass(
     for r in range(rounds):
         round_data[r] = {}
         for w in writers:
-            cmd = [
-                "perf",
-                "stat",
-                "-x,",
-                "-e",
-                event_arg,
-                "--",
-                str(binary),
-                "--role",
-                "throughput",
-                "--arm",
-                arm,
-                "--writers",
-                str(w),
-                "--rounds",
-                "1",
-                "--round",
-                str(r),
-            ]
-            if quick:
-                cmd.append("--quick")
+            with tempfile.TemporaryDirectory(prefix=f"perf_fifo_r{r}_w{w}_") as fifo_dir:
+                ctl_fifo = os.path.join(fifo_dir, "ctl.fifo")
+                ack_fifo = os.path.join(fifo_dir, "ack.fifo")
+                os.mkfifo(ctl_fifo)
+                os.mkfifo(ack_fifo)
 
-            proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-            if proc.returncode != 0:
-                print(f"  [PMU Pass] perf stat failed on round {r} W={w}: {proc.stderr}")
-                continue
-            counts = parse_perf_stat_csv(proc.stderr)
-            round_data[r][w] = counts
+                cmd = [
+                    "perf",
+                    "stat",
+                    "--delay=-1",
+                    f"--control=fifo:{ctl_fifo},{ack_fifo}",
+                    "-x,",
+                    "-e",
+                    event_arg,
+                    "--",
+                    str(binary),
+                    "--role",
+                    "throughput",
+                    "--arm",
+                    arm,
+                    "--writers",
+                    str(w),
+                    "--rounds",
+                    "1",
+                    "--round",
+                    str(r),
+                    "--perf-ctl-fifo",
+                    ctl_fifo,
+                    "--perf-ack-fifo",
+                    ack_fifo,
+                ]
+                if quick:
+                    cmd.append("--quick")
+
+                proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                if proc.returncode != 0:
+                    raise RuntimeError(
+                        f"--pmu round {r} W={w} failed (exit {proc.returncode}): {proc.stderr} (AGENTS.md §8.1)"
+                    )
+                counts = parse_perf_stat_csv(proc.stderr)
+                round_data[r][w] = counts
 
     cyc_key = next((k for k in events if "cycles" in k and "ref" not in k), None)
     ref_key = next((k for k in events if "ref" in k), None)
@@ -771,16 +820,29 @@ def run_pmu_pass(
                 f2 = c2 / r2
                 droop_samples.append(1.0 - (f2 / f1))
 
-    droop_summary = {}
+    droop_summary: dict[str, Any] = {
+        "rounds_preregistered": rounds,
+        "n_measured": len(droop_samples),
+    }
     if len(droop_samples) >= 3:
         mean_d, ci_lo, ci_hi = bca_bootstrap_ci(droop_samples, confidence=0.95)
-        verdict = "CONFIRMED" if ci_lo > 0.05 else "REJECTED"
-        droop_summary = {
+        # Verdict decision rule (§8.4 / §8.20):
+        # A single run cannot CONFIRM; confirmation requires a second independent run across two committed artifacts.
+        # CI_lower > 0.05 -> SINGLE_RUN_PASS (candidate droop confirmed pending run 2)
+        # CI_upper < 0.05 -> REJECTED
+        # CI spans 0.05   -> INCONCLUSIVE (data cannot reject or confirm)
+        if ci_lo > 0.05:
+            verdict = "SINGLE_RUN_PASS"
+        elif ci_hi < 0.05:
+            verdict = "REJECTED"
+        else:
+            verdict = "INCONCLUSIVE"
+        droop_summary.update({
             "droop_mean": round(mean_d, 4),
             "droop_ci_lower": round(ci_lo, 4),
             "droop_ci_upper": round(ci_hi, 4),
             "verdict": verdict,
-        }
+        })
         print(
             f"  [Hypothesis A (Frequency Droop)] Mean drop: {mean_d * 100:.2f}% "
             f"[{ci_lo * 100:.2f}%, {ci_hi * 100:.2f}%] | Verdict: {verdict}"
@@ -789,7 +851,8 @@ def run_pmu_pass(
     return {
         "arm": arm,
         "events": events,
-        "rounds": rounds,
+        "rounds_preregistered": rounds,
+        "n_measured": len(droop_samples),
         "frequency_droop": droop_summary,
         "raw_counts": round_data,
     }
@@ -801,13 +864,15 @@ def run_c2c_pass(
     writers: int = 2,
     quick: bool = False,
     out_dir: Path | None = None,
-) -> dict[str, Any] | None:
+) -> dict[str, Any]:
     if platform.system() != "Linux":
-        print(f"  [c2c Pass] Skipping perf c2c: host reports {platform.system()} (Linux required)")
-        return None
+        raise RuntimeError(
+            f"--c2c requested but host reports {platform.system()} (Linux required per AGENTS.md §8.1)"
+        )
     if shutil.which("perf") is None:
-        print("  [c2c Pass] Skipping perf c2c: perf binary not found on PATH")
-        return None
+        raise RuntimeError(
+            "--c2c requested but 'perf' binary not found on PATH (AGENTS.md §8.1)"
+        )
 
     if out_dir is None:
         out_dir = REPO_ROOT / "target" / "c2c"
@@ -843,11 +908,14 @@ def run_c2c_pass(
 
     proc = subprocess.run(cmd_record, check=False)
     if proc.returncode != 0:
-        print(f"  [c2c Pass] perf c2c record failed (exit {proc.returncode})")
-        return None
+        raise RuntimeError(f"--c2c record failed (exit {proc.returncode}) (AGENTS.md §8.1)")
 
     cmd_report = ["perf", "c2c", "report", "--stdio", "-i", str(c2c_data)]
     proc_rep = subprocess.run(cmd_report, capture_output=True, text=True, check=False)
+    if proc_rep.returncode != 0:
+        raise RuntimeError(
+            f"--c2c report failed (exit {proc_rep.returncode}): {proc_rep.stderr} (AGENTS.md §8.1)"
+        )
     report_text = proc_rep.stdout
     report_file = out_dir / f"c2c_report_{arm}_w{writers}.txt"
     report_file.write_text(report_text)
@@ -956,6 +1024,12 @@ def self_test() -> int:
     assert len(w2_str_fbs) == 3
     assert all(fb == 0 for fb in w2_str_fbs), f"Expected str W=2 lock_fallbacks == 0, got {w2_str_fbs}"
 
+    cells_str = summarize_arm("str", [1, 2], 3, t_rows_map, c_rows_str, load)
+    assert cells_str[0]["total_allocs"] is None
+    assert cells_str[0]["total_allocs_per_insert"] is None
+    assert cells_str[1]["total_allocs"] is None
+    assert cells_str[1]["total_allocs_per_insert"] is None
+
     # 5. Reduction test
     cells = summarize_arm("map", [1, 2], 3, t_rows_map, c_rows_map, load)
     assert len(cells) == 2
@@ -1018,17 +1092,30 @@ def self_test() -> int:
     assert "per_writer" in comp_stats
     assert "2" in comp_stats["per_writer"]
     w2_comp = comp_stats["per_writer"]["2"]
-    assert w2_comp["verdict"] in ("CONFIRMED", "REJECTED")
+    assert w2_comp["verdict"] in ("SINGLE_RUN_PASS", "REJECTED", "INCONCLUSIVE")
     assert len(w2_comp["paired_ratios_raw"]) == 3
     # Self-comparison ratio should be approximately 1.0
     assert 0.5 <= w2_comp["ratio_c_variant_over_c_default_mean"] <= 1.5
 
-    # 7. Test PMU pass and c2c pass graceful handling on host
-    eprintln("Testing PMU and c2c passes (graceful fallback check)...")
-    pmu_res = run_pmu_pass(throughput_bin, arm="set", writers=[1, 2], rounds=3, quick=True)
-    assert pmu_res is None or isinstance(pmu_res, dict)
-    c2c_res = run_c2c_pass(throughput_bin, arm="set", writers=2, quick=True)
-    assert c2c_res is None or isinstance(c2c_res, dict)
+    # 7. Test PMU pass and c2c pass fail-loud on non-Linux / missing perf (AGENTS.md §8.1)
+    eprintln("Testing PMU and c2c passes (fail-loud validation)...")
+    if platform.system() != "Linux" or shutil.which("perf") is None:
+        try:
+            run_pmu_pass(throughput_bin, arm="set", writers=[1, 2], rounds=3, quick=True)
+            assert False, "Expected run_pmu_pass to raise RuntimeError on non-Linux/missing perf"
+        except RuntimeError as exc:
+            assert "AGENTS.md §8.1" in str(exc)
+
+        try:
+            run_c2c_pass(throughput_bin, arm="set", writers=2, quick=True)
+            assert False, "Expected run_c2c_pass to raise RuntimeError on non-Linux/missing perf"
+        except RuntimeError as exc:
+            assert "AGENTS.md §8.1" in str(exc)
+    else:
+        pmu_res = run_pmu_pass(throughput_bin, arm="set", writers=[1, 2], rounds=3, quick=True)
+        assert isinstance(pmu_res, dict)
+        c2c_res = run_c2c_pass(throughput_bin, arm="set", writers=2, quick=True)
+        assert isinstance(c2c_res, dict)
 
     # A row whose causes do not sum to its fallbacks is refused, not averaged.
     broken = [dict(r) for r in c_rows_map]
@@ -1176,6 +1263,11 @@ def main() -> int:
         help="Run separate perf c2c cacheline contention pass on set W=2",
     )
     parser.add_argument(
+        "--diagnostic",
+        action="store_true",
+        help="Run diagnostic suite (enables --pmu and --c2c, default output to diagnostic_writer_scaling.json)",
+    )
+    parser.add_argument(
         "--quick",
         action="store_true",
         help="Quick mode with reduced population for fast smoke testing",
@@ -1194,6 +1286,12 @@ def main() -> int:
 
     if args.self_test:
         return self_test()
+
+    if args.diagnostic:
+        args.pmu = True
+        args.c2c = True
+        if not args.out:
+            args.out = str(DIAGNOSTIC_RESULTS_PATH)
 
     if args.compare_padded:
         args.compare = "lock-padded"
@@ -1216,10 +1314,13 @@ def main() -> int:
 
     if args.quick and args.out:
         out_path = Path(args.out).resolve()
-        if out_path == COMMITTED_RESULTS_PATH.resolve() and not args.force_quick_out:
+        if (
+            out_path in (COMMITTED_RESULTS_PATH.resolve(), DIAGNOSTIC_RESULTS_PATH.resolve())
+            and not args.force_quick_out
+        ):
             sys.stderr.write(
                 "error: --quick output cannot overwrite committed results path "
-                f"{COMMITTED_RESULTS_PATH} without --force-quick-out\n"
+                f"{out_path} without --force-quick-out\n"
             )
             return 1
 
@@ -1347,10 +1448,14 @@ def main() -> int:
                             f"| wait_cyc/insert {cell['gate_wait_cycles_per_insert']:.1f} "
                             f"| drain_cyc/fb {cell['quiesce_drain_cycles_per_fallback']:.1f}"
                         )
-                if cell.get("total_allocs_per_insert", 0) > 0 or cell.get("retired_per_insert", 0) > 0:
+                alloc_val = cell.get("total_allocs_per_insert")
+                retired_val = cell.get("retired_per_insert", 0)
+                if (alloc_val is not None and alloc_val > 0) or (retired_val is not None and retired_val > 0):
+                    alloc_str = f"{alloc_val:.4f}" if alloc_val is not None else "null"
+                    ret_str = f"{retired_val:.4f}" if retired_val is not None else "0.0000"
                     print(
-                        f"        allocs/retires: allocs/insert {cell['total_allocs_per_insert']:.4f} "
-                        f"| retired/insert {cell['retired_per_insert']:.4f} "
+                        f"        allocs/retires: allocs/insert {alloc_str} "
+                        f"| retired/insert {ret_str} "
                         f"| tsc_hz: {cell.get('tsc_hz', 0)}"
                     )
 

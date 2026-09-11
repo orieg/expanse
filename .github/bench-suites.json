@@ -137,6 +137,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "writer_scaling_diagnostic",
+      "available": true,
+      "kind": "counters",
+      "runner": "builtin",
+      "summary": "Expanse multi-writer scaling diagnostic suite with hardware PMU frequency droop and perf c2c cache contention passes (Phase 1.5D, Refs #568); outputs diagnostic_writer_scaling.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "point_lookup_counters",
       "available": true,
       "kind": "counters",
