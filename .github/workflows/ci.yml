@@ -510,6 +510,10 @@ jobs:
         shell: bash
         run: bash scripts/test_occ_stats.sh
 
+      - name: Test concurrency ablations
+        shell: bash
+        run: cargo test -p expanse-trie --features ablation-sharded-alloc,ablation-striped-epoch --test test_concurrency_ablations
+
       - name: Assert capi drop-in artifacts exist (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -1184,6 +1188,10 @@ jobs:
         run: cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie
         env:
           RUSTFLAGS: "-Zsanitizer=address"
+      - name: Run concurrency ablations under AddressSanitizer
+        run: cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --features ablation-sharded-alloc,ablation-striped-epoch --test test_concurrency_ablations
+        env:
+          RUSTFLAGS: "-Zsanitizer=address"
 
   php-judy-compat:
     name: Compat / PHP-Judy Extension (Linux)
@@ -1675,6 +1683,11 @@ jobs:
 
       - name: Loom model checks
         run: cargo test -p expanse-trie --release loom_
+        env:
+          RUSTFLAGS: --cfg loom
+
+      - name: Loom model checks with striped epoch ablation
+        run: cargo test -p expanse-trie --release --features ablation-striped-epoch loom_
         env:
           RUSTFLAGS: --cfg loom
 

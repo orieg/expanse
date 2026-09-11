@@ -984,6 +984,7 @@ impl WriterGate {
             in_flight.store(0, Ordering::Relaxed);
             None
         } else {
+            #[cfg(any(feature = "ablation-sharded-alloc", feature = "ablation-striped-epoch"))]
             set_writer_slot(slot_id);
             Some(WriterGuard {
                 gate: self,
@@ -1143,21 +1144,33 @@ struct PaddedBin(Mutex<Vec<Garbage>>);
 #[repr(align(64))]
 struct PaddedRetained(AtomicUsize);
 
-#[cfg(all(feature = "std", not(loom)))]
-pub(crate) fn set_writer_slot(slot: usize) {
-    std::thread_local! {
-        static SLOT: core::cell::Cell<usize> = const { core::cell::Cell::new(usize::MAX) };
-    }
-    SLOT.with(|s| s.set(slot));
+#[cfg(all(
+    feature = "std",
+    not(loom),
+    any(feature = "ablation-sharded-alloc", feature = "ablation-striped-epoch")
+))]
+std::thread_local! {
+    static CURRENT_WRITER_SLOT: core::cell::Cell<usize> = const { core::cell::Cell::new(usize::MAX) };
 }
 
-#[cfg(all(feature = "std", not(loom)))]
+#[cfg(all(
+    feature = "std",
+    not(loom),
+    any(feature = "ablation-sharded-alloc", feature = "ablation-striped-epoch")
+))]
+#[inline]
+pub(crate) fn set_writer_slot(slot: usize) {
+    CURRENT_WRITER_SLOT.with(|s| s.set(slot));
+}
+
+#[cfg(all(
+    feature = "std",
+    not(loom),
+    any(feature = "ablation-sharded-alloc", feature = "ablation-striped-epoch")
+))]
 #[allow(dead_code)]
 pub(crate) fn writer_slot() -> usize {
-    std::thread_local! {
-        static SLOT: core::cell::Cell<usize> = const { core::cell::Cell::new(usize::MAX) };
-    }
-    SLOT.with(|s| {
+    CURRENT_WRITER_SLOT.with(|s| {
         let v = s.get();
         if v < MAX_WRITER_SLOTS {
             v
@@ -1172,11 +1185,21 @@ pub(crate) fn writer_slot() -> usize {
     })
 }
 
-#[cfg(any(not(feature = "std"), loom))]
+#[cfg(not(all(
+    feature = "std",
+    not(loom),
+    any(feature = "ablation-sharded-alloc", feature = "ablation-striped-epoch")
+)))]
+#[inline(always)]
 #[allow(dead_code)]
 pub(crate) fn set_writer_slot(_slot: usize) {}
 
-#[cfg(any(not(feature = "std"), loom))]
+#[cfg(not(all(
+    feature = "std",
+    not(loom),
+    any(feature = "ablation-sharded-alloc", feature = "ablation-striped-epoch")
+)))]
+#[inline(always)]
 #[allow(dead_code)]
 pub(crate) fn writer_slot() -> usize {
     0
@@ -1925,6 +1948,31 @@ mod tests {
         assert_eq!(v_tree.0.load(Ordering::Relaxed), 2);
         // v1 restored to 2 (unmodified)
         assert_eq!(v1.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    #[cfg(feature = "ablation-striped-epoch")]
+    fn test_striped_epoch_single_thread_under_miri() {
+        let c = Arc::new(Collector::new());
+        let reader = c.register();
+        let pin = reader.pin();
+
+        let layout = std::alloc::Layout::from_size_align(64, 16).unwrap();
+        // SAFETY: non-zero test allocation
+        let ptr = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
+        c.retire(ptr, 64, 16);
+        assert_eq!(c.retained_bytes(), 64);
+
+        // Pinned reader prevents advance from freeing epoch e-1
+        c.try_advance();
+        c.try_advance();
+        assert_eq!(c.retained_bytes(), 64);
+
+        drop(pin);
+        c.try_advance();
+        c.try_advance();
+        assert_eq!(c.retained_bytes(), 0);
+        c.drain();
     }
 }
 

@@ -4,20 +4,30 @@
 //!
 //! Gated by `feature = "std"`.
 
-#![cfg(feature = "std")]
+#![cfg(all(
+    feature = "std",
+    any(feature = "ablation-sharded-alloc", feature = "ablation-striped-epoch")
+))]
 
+#[cfg(feature = "ablation-sharded-alloc")]
 use expanse_trie::alloc::NodeAlloc;
+#[cfg(feature = "ablation-striped-epoch")]
 use expanse_trie::occ::Collector;
+#[cfg(feature = "ablation-sharded-alloc")]
 use std::ptr::NonNull;
 use std::sync::Arc;
+#[cfg(feature = "ablation-striped-epoch")]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
+#[cfg(feature = "ablation-sharded-alloc")]
 struct SendPtr(NonNull<u8>);
 // SAFETY: SendPtr is a test-only wrapper transferring raw heap allocations across test threads.
+#[cfg(feature = "ablation-sharded-alloc")]
 unsafe impl Send for SendPtr {}
 
 #[test]
+#[cfg(feature = "ablation-sharded-alloc")]
 fn test_node_alloc_sharded_counters_cross_thread() {
     let alloc = Arc::new(NodeAlloc::new());
     let pop_threads = 4;
@@ -70,6 +80,7 @@ fn test_node_alloc_sharded_counters_cross_thread() {
 }
 
 #[test]
+#[cfg(feature = "ablation-striped-epoch")]
 fn test_striped_epoch_bins_multi_writer() {
     let collector = Arc::new(Collector::new());
     let num_writers = 4;
@@ -116,5 +127,30 @@ fn test_striped_epoch_bins_multi_writer() {
     }
 
     // All retired items have passed their grace period and been reclaimed
+    assert_eq!(collector.retained_bytes(), 0);
+}
+
+#[test]
+#[cfg(feature = "ablation-striped-epoch")]
+fn test_striped_epoch_single_thread_lifecycle() {
+    let collector = Arc::new(Collector::new());
+    let reader = collector.register();
+    let pin = reader.pin();
+
+    let layout = std::alloc::Layout::from_size_align(64, 16).unwrap();
+    // SAFETY: non-zero size (64) and valid alignment (16).
+    let raw = unsafe { std::alloc::alloc_zeroed(layout) };
+    let ptr = core::ptr::NonNull::new(raw).unwrap();
+    collector.retire(ptr, 64, 16);
+    assert_eq!(collector.retained_bytes(), 64);
+
+    // Advance attempts under pin must not reclaim the block
+    collector.try_advance();
+    collector.try_advance();
+    assert_eq!(collector.retained_bytes(), 64);
+
+    drop(pin);
+    collector.try_advance();
+    collector.try_advance();
     assert_eq!(collector.retained_bytes(), 0);
 }
