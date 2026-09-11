@@ -296,7 +296,7 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | Rule | Enforced by | Where |
 |---|---|---|
 | fmt · clippy `-D warnings` (carries `undocumented_unsafe_blocks`, `missing_docs`) | **CI** | `lint` job |
-| Workspace tests on 3 OSes, `PROPTEST_CASES=500` | **CI** | `test` job |
+| Workspace tests on 3 OSes, `PROPTEST_CASES=500`, plus every `occ-stats`-gated test (a binary that runs zero tests fails) | **CI** | `test` job → `scripts/test_occ_stats.sh`, also run by `scripts/gate.sh` |
 | MSRV floor builds | **CI** | `msrv` job |
 | Tier-1 Miri (UB, provenance, borrows) · ASan · loom · fuzz smoke | **CI** | `miri`, `test-asan`, `loom`, `fuzz-smoke` |
 | Node/edge layout invariants (§2.1 sizes, offsets, alignment) | **compile time** | `const _: () = { assert!(…) }` in `node.rs`, `types32.rs` |

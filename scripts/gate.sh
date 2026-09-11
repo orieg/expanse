@@ -47,11 +47,11 @@ if [ "$QUICK" -eq 0 ]; then
   [ "$WITH_BINDINGS" -eq 1 ] && EXCLUDE=()
   step "3/6 cargo test --workspace ${EXCLUDE[*]:-} (PROPTEST_CASES=$PROPTEST_CASES)"
   cargo test --workspace "${EXCLUDE[@]}"
-  # The `occ_stats` counters are compiled out by default, so the test that
-  # pins every Sync* reader family to them is empty in the run above. Same
-  # invocation as the CI `test` job's extra step.
-  echo "  + occ-stats counter wiring (feature is off in the default build)"
-  cargo test -p expanse-trie --features occ-stats --test test_occ_stats_readers
+  # The `occ_stats` counters are compiled out by default, so every test that
+  # reads them is absent from or empty in the run above. Same script as the CI
+  # `test` job's extra step.
+  echo "  + occ-stats tests (feature is off in the default build)"
+  bash scripts/test_occ_stats.sh
 else
   step "3/6 cargo test — skipped (--quick)"
 fi
