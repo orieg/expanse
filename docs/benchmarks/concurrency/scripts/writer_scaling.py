@@ -5,13 +5,14 @@ Runs `crates/expanse/examples/writer_scaling.rs` across W in {1, 2, 4, 8} on phy
 P-cores for map (64-bit), set (63-bit), and str arms.
 
 Two builds, never one (AGENTS.md §6 / hot_concurrent.rs:36-42):
-- Pass 1 (throughput): uninstrumented release build, interleaved across W within each round.
+- Pass 1 (throughput): uninstrumented release build, interleaved across W within each round,
+  rotating the starting writer index each round to mitigate ordering effects.
   Emits elapsed_s and writer_mops. Refuses to run if occ-stats is enabled.
 - Pass 2 (counters): diagnostic build (--features occ-stats), captures exact lock_fallbacks
-  and write_ops. Refuses to emit elapsed_s or writer_mops.
+  and write_ops across all rounds. Refuses to emit elapsed_s or writer_mops.
 
 Computes:
-- expanse_writer_mops_mean as headline point estimate with BCa 95% bootstrap CI (Rule 1.1)
+- expanse_writer_mops_mean as headline point estimate with BCa 95% bootstrap CI (AGENTS.md §8.4)
 - expanse_writer_mops_median as auxiliary field for historical continuity
 - scaling factor C(N) = T(W) / T(1) with paired bootstrap BCa 95% CI across interleaved rounds
 - lock fallbacks and fallback rate from the diagnostic occ-stats pass
@@ -25,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import subprocess
@@ -43,7 +45,7 @@ from bench_provenance import (  # noqa: E402
     new_provenance,
 )
 
-THROUGHPUT_TARGET = REPO_ROOT / "target"
+THROUGHPUT_TARGET = REPO_ROOT / "target" / "throughput"
 COUNTERS_TARGET = REPO_ROOT / "target" / "occ-stats"
 COMMITTED_RESULTS_PATH = (
     REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "writer_scaling.json"
@@ -56,15 +58,30 @@ def get_binaries() -> tuple[Path, Path]:
     return throughput_bin, counters_bin
 
 
+def _print_binary_info(label: str, path: Path) -> None:
+    if path.exists():
+        stat = path.stat()
+        mtime_iso = datetime.datetime.fromtimestamp(
+            stat.st_mtime, tz=datetime.timezone.utc
+        ).strftime("%Y-%m-%d %H:%M:%SZ")
+        print(f"  {label} binary: {path} (mtime: {mtime_iso}, size: {stat.st_size} bytes)")
+    else:
+        print(f"  {label} binary: {path} (does not exist)")
+
+
 def build_binaries(verbose: bool = True) -> tuple[Path, Path]:
     """Two builds, never one (AGENTS.md §6 / hot_concurrent.rs:36-42).
 
     Throughput comes from uninstrumented build (refuses occ-stats).
     Counters come from diagnostic build (--features occ-stats, refuses timing).
+    Both builds use explicit, isolated target dirs so neither overwrites the other
+    nor depends on external CARGO_TARGET_DIR environment settings.
     """
     throughput_bin, counters_bin = get_binaries()
     if verbose:
         print("building throughput binary (default features, uninstrumented) ...")
+    tp_env = dict(os.environ)
+    tp_env["CARGO_TARGET_DIR"] = str(THROUGHPUT_TARGET)
     subprocess.run(
         [
             "cargo",
@@ -76,13 +93,16 @@ def build_binaries(verbose: bool = True) -> tuple[Path, Path]:
             "writer_scaling",
         ],
         cwd=str(REPO_ROOT),
+        env=tp_env,
         check=True,
     )
+    if verbose:
+        _print_binary_info("throughput", throughput_bin)
 
     if verbose:
         print("building diagnostic counters binary (--features occ-stats) ...")
-    env = dict(os.environ)
-    env["CARGO_TARGET_DIR"] = str(COUNTERS_TARGET)
+    cnt_env = dict(os.environ)
+    cnt_env["CARGO_TARGET_DIR"] = str(COUNTERS_TARGET)
     subprocess.run(
         [
             "cargo",
@@ -96,9 +116,12 @@ def build_binaries(verbose: bool = True) -> tuple[Path, Path]:
             "writer_scaling",
         ],
         cwd=str(REPO_ROOT),
-        env=env,
+        env=cnt_env,
         check=True,
     )
+    if verbose:
+        _print_binary_info("counters", counters_bin)
+
     return throughput_bin, counters_bin
 
 
@@ -163,7 +186,7 @@ def summarize_arm(
     """Summarize cells for an arm across all writer counts.
 
     M1: Paired bootstrap C(N) across interleaved rounds.
-    M2: Macro-mean as headline point estimate alongside BCa 95% CI.
+    M2: Macro-mean as headline point estimate alongside BCa 95% CI (AGENTS.md §8.4).
     B1: Separate throughput (uninstrumented) and counters (occ-stats) provenance.
     """
     # Index throughput by (round, writers)
@@ -184,14 +207,12 @@ def summarize_arm(
         t_rows_w = [r for r in throughput_rows if int(r["writers"]) == w]
         first_t = t_rows_w[0]
 
-        # 1. Throughput statistics: mean is headline (Rule 1.1), median auxiliary
+        # 1. Throughput statistics: mean is headline (AGENTS.md §8.4), median auxiliary
         mops_samples = [t_by_round_w[(round_idx, w)] for round_idx in range(rounds)]
-        if len(mops_samples) >= 3:
-            mean_mops, ci_lower, ci_upper = bca_bootstrap_ci(mops_samples, confidence=0.95)
-        else:
-            mean_mops = sum(mops_samples) / len(mops_samples)
-            ci_lower = min(mops_samples)
-            ci_upper = max(mops_samples)
+        assert (
+            len(mops_samples) >= 3
+        ), f"Need at least 3 rounds for BCa bootstrap CI (AGENTS.md §8.1, §8.4), got {len(mops_samples)}"
+        mean_mops, ci_lower, ci_upper = bca_bootstrap_ci(mops_samples, confidence=0.95)
         median_mops = sorted(mops_samples)[len(mops_samples) // 2]
 
         # 2. Scaling factor C(N) via paired bootstrap across interleaved rounds
@@ -203,24 +224,25 @@ def summarize_arm(
         else:
             paired_ratios: list[float] = []
             for round_idx in range(rounds):
-                t1 = t_by_round_w.get((round_idx, 1), 0.0)
-                tw = t_by_round_w.get((round_idx, w), 0.0)
-                if t1 > 0.0:
-                    paired_ratios.append(tw / t1)
-                else:
-                    paired_ratios.append(0.0)
+                t1 = t_by_round_w.get((round_idx, 1))
+                assert (
+                    t1 is not None and t1 > 0.0
+                ), f"Missing or non-positive W=1 throughput for round {round_idx} (got {t1})"
+                tw = t_by_round_w.get((round_idx, w))
+                assert (
+                    tw is not None
+                ), f"Missing W={w} throughput for round {round_idx}"
+                paired_ratios.append(tw / t1)
 
-            if len(paired_ratios) >= 3:
-                cn_mean, cn_ci_lower, cn_ci_upper = bca_bootstrap_ci(
-                    paired_ratios, confidence=0.95
-                )
-            else:
-                cn_mean = sum(paired_ratios) / len(paired_ratios)
-                cn_ci_lower = min(paired_ratios)
-                cn_ci_upper = max(paired_ratios)
+            assert (
+                len(paired_ratios) >= 3
+            ), f"Need at least 3 paired ratios for BCa bootstrap CI (AGENTS.md §8.1, §8.4), got {len(paired_ratios)}"
+            cn_mean, cn_ci_lower, cn_ci_upper = bca_bootstrap_ci(
+                paired_ratios, confidence=0.95
+            )
             cn_median = sorted(paired_ratios)[len(paired_ratios) // 2]
 
-        # 3. Counters statistics (strictly from occ-stats diagnostic build)
+        # 3. Counters statistics (strictly from occ-stats diagnostic build across all rounds)
         c_rows_w = c_by_w.get(w, [])
         fallbacks_samples = [int(r.get("lock_fallbacks", 0)) for r in c_rows_w]
         median_fallbacks = (
@@ -253,8 +275,8 @@ def summarize_arm(
             "lock_fallbacks_median": median_fallbacks,
             "fallback_rate": round(fallback_rate, 6),
             "build_provenance": {
-                "throughput": "target/release/examples/writer_scaling (uninstrumented)",
-                "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)",
+                "throughput": f"{THROUGHPUT_TARGET}/release/examples/writer_scaling (uninstrumented)",
+                "counters": f"{COUNTERS_TARGET}/release/examples/writer_scaling (--features occ-stats)",
             },
             "rounds_raw": [
                 {
@@ -338,39 +360,46 @@ def self_test() -> int:
 
     # 4. Quick smoke test across map, set, and str
     eprintln("Testing quick runs across map, set, str...")
-    # Pass 1: throughput
-    t_rows_map = run_pass(throughput_bin, "throughput", "map", [1, 2], 3, quick=True)
-    assert len(t_rows_map) == 6, f"Expected 6 rows (2 writers * 3 rounds), got {len(t_rows_map)}"
-    assert all(r["role"] == "throughput" for r in t_rows_map)
-    assert all("writer_mops" in r and float(r["writer_mops"]) > 0 for r in t_rows_map)
-    assert all("writer_elapsed_s" in r and float(r["writer_elapsed_s"]) > 0 for r in t_rows_map)
-    assert all("lock_fallbacks" not in r for r in t_rows_map)
-
-    # Pass 2: counters (verifies Requirement 10 and B2 non-zero fallbacks)
-    c_rows_map = run_pass(counters_bin, "counters", "map", [1, 2], 1, quick=True)
-    assert len(c_rows_map) == 2
-    assert all(r["role"] == "counters" for r in c_rows_map)
-    w2_map_fb = [r["lock_fallbacks"] for r in c_rows_map if r["writers"] == 2][0]
-    assert w2_map_fb > 0, f"Expected map W=2 lock_fallbacks > 0, got {w2_map_fb}"
-
-    c_rows_set = run_pass(counters_bin, "counters", "set", [1, 2], 1, quick=True)
-    w2_set_fb = [r["lock_fallbacks"] for r in c_rows_set if r["writers"] == 2][0]
-    assert w2_set_fb > 0, f"Expected set W=2 lock_fallbacks > 0, got {w2_set_fb}"
-
-    # str arm is the alpha=1 coarse-mutex reference curve: 0 lock fallbacks by construction
-    c_rows_str = run_pass(counters_bin, "counters", "str", [1, 2], 1, quick=True)
-    w2_str_fb = [r["lock_fallbacks"] for r in c_rows_str if r["writers"] == 2][0]
-    assert w2_str_fb == 0, f"Expected str W=2 lock_fallbacks == 0 (alpha=1 reference curve), got {w2_str_fb}"
-
-    # 5. Reduction test
     prov = new_provenance(
         suite="concurrency",
         issue=568,
         ratio="Expanse throughput over single-writer baseline C(N) = Mops(W) / Mops(1)",
         repo_root=REPO_ROOT,
     )
+
+    # Pass 1: throughput (load snapshot covers Pass 1 only)
     start_snap = begin_cell(prov, "cell:map:W1:R0")
+    t_rows_map = run_pass(throughput_bin, "throughput", "map", [1, 2], 3, quick=True)
     load = end_cell(start_snap)
+
+    assert len(t_rows_map) == 6, f"Expected 6 rows (2 writers * 3 rounds), got {len(t_rows_map)}"
+    assert all(r["role"] == "throughput" for r in t_rows_map)
+    assert all("writer_mops" in r and float(r["writer_mops"]) > 0 for r in t_rows_map)
+    assert all("writer_elapsed_s" in r and float(r["writer_elapsed_s"]) > 0 for r in t_rows_map)
+    assert all("lock_fallbacks" not in r for r in t_rows_map)
+
+    # Pass 2: counters across all 3 rounds (verifies Requirement 10 and B2 non-zero fallbacks)
+    c_rows_map = run_pass(counters_bin, "counters", "map", [1, 2], 3, quick=True)
+    assert len(c_rows_map) == 6, f"Expected 6 counter rows, got {len(c_rows_map)}"
+    assert all(r["role"] == "counters" for r in c_rows_map)
+    w2_map_fbs = [r["lock_fallbacks"] for r in c_rows_map if r["writers"] == 2]
+    assert len(w2_map_fbs) == 3
+    assert all(fb > 0 for fb in w2_map_fbs), f"Expected map W=2 lock_fallbacks > 0, got {w2_map_fbs}"
+
+    c_rows_set = run_pass(counters_bin, "counters", "set", [1, 2], 3, quick=True)
+    assert len(c_rows_set) == 6
+    w2_set_fbs = [r["lock_fallbacks"] for r in c_rows_set if r["writers"] == 2]
+    assert len(w2_set_fbs) == 3
+    assert all(fb > 0 for fb in w2_set_fbs), f"Expected set W=2 lock_fallbacks > 0, got {w2_set_fbs}"
+
+    # str arm is the alpha=1 coarse-mutex reference curve: 0 lock fallbacks by construction
+    c_rows_str = run_pass(counters_bin, "counters", "str", [1, 2], 3, quick=True)
+    assert len(c_rows_str) == 6
+    w2_str_fbs = [r["lock_fallbacks"] for r in c_rows_str if r["writers"] == 2]
+    assert len(w2_str_fbs) == 3
+    assert all(fb == 0 for fb in w2_str_fbs), f"Expected str W=2 lock_fallbacks == 0, got {w2_str_fbs}"
+
+    # 5. Reduction test
     cells = summarize_arm("map", [1, 2], 3, t_rows_map, c_rows_map, load)
     assert len(cells) == 2
     cell_w1 = cells[0]
@@ -378,10 +407,12 @@ def self_test() -> int:
     assert cell_w1["writers"] == 1
     assert cell_w1["scaling_factor_c_n"] == 1.0
     assert cell_w1["writer_ci_lower"] <= cell_w1["expanse_writer_mops_mean"] <= cell_w1["writer_ci_upper"]
+    assert len(cell_w1["counters_raw"]) == 3, f"Expected 3 counters_raw entries, got {len(cell_w1['counters_raw'])}"
 
     assert cell_w2["writers"] == 2
     assert cell_w2["scaling_factor_c_n_ci_lower"] <= cell_w2["scaling_factor_c_n"] <= cell_w2["scaling_factor_c_n_ci_upper"]
     assert cell_w2["lock_fallbacks"] > 0
+    assert len(cell_w2["counters_raw"]) == 3, f"Expected 3 counters_raw entries, got {len(cell_w2['counters_raw'])}"
 
     eprintln("writer_scaling.py self-test PASSED\n")
     return 0
@@ -417,11 +448,6 @@ def main() -> int:
         help="Allow --quick to write to committed results path (normally forbidden)",
     )
     parser.add_argument(
-        "--skip-build",
-        action="store_true",
-        help="Skip cargo build step (use existing binaries)",
-    )
-    parser.add_argument(
         "--self-test",
         action="store_true",
         help="Run self-test and exit",
@@ -452,14 +478,8 @@ def main() -> int:
     # Apply core pin before any measurement
     core_pin = bench_pin.apply("writer_scaling.py")
 
-    # Build both binaries up front
-    if args.skip_build:
-        throughput_bin, counters_bin = get_binaries()
-        if not throughput_bin.exists() or not counters_bin.exists():
-            print("Binaries missing; building up front ...")
-            throughput_bin, counters_bin = build_binaries(verbose=True)
-    else:
-        throughput_bin, counters_bin = build_binaries(verbose=True)
+    # Build both binaries up front into their isolated target dirs
+    throughput_bin, counters_bin = build_binaries(verbose=True)
 
     if args.arm in ("all", "both"):
         arms = ["map", "set", "str"] if args.arm == "all" else ["map", "set"]
@@ -490,11 +510,12 @@ def main() -> int:
         print(f"\n  [Pass 1/2] Throughput — {arm} arm across W ∈ {writers_list} (uninstrumented build)")
         t_rows = run_pass(throughput_bin, "throughput", arm, writers_list, args.rounds, quick=args.quick)
 
-        # Pass 2: counters (diagnostic occ-stats binary)
-        print(f"  [Pass 2/2] Diagnostic counters — {arm} arm across W ∈ {writers_list} (occ-stats build)")
-        c_rows = run_pass(counters_bin, "counters", arm, writers_list, 1, quick=args.quick)
-
+        # End load snapshot immediately after timed Pass 1 so Pass 2 does not dilute load window
         load = end_cell(start_snap)
+
+        # Pass 2: counters (diagnostic occ-stats binary, across all rounds)
+        print(f"  [Pass 2/2] Diagnostic counters — {arm} arm across W ∈ {writers_list} (occ-stats build)")
+        c_rows = run_pass(counters_bin, "counters", arm, writers_list, args.rounds, quick=args.quick)
 
         cells = summarize_arm(arm, writers_list, args.rounds, t_rows, c_rows, load)
         for cell in cells:

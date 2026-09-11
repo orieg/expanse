@@ -582,13 +582,17 @@ fn main() {
     let run_set = arm_arg == "set" || arm_arg == "all" || arm_arg == "both";
     let run_str = arm_arg == "str" || arm_arg == "all";
 
-    // Interleaved execution across writer counts within each round:
+    // Interleaved execution across writer counts within each round, rotating
+    // the starting writer index each round to mitigate ordering effects:
+    let n_w = writers_list.len().max(1);
+
     if run_map {
         eprintln!("generating map 64-bit workload (prefill={n0}, fresh={m})...");
         let wl = WriterWorkload::generate(n0, m, 64);
         let bits = wl.keyspace_bits;
         for round in round_start..round_end {
-            for &w in &writers_list {
+            for offset in 0..writers_list.len() {
+                let w = writers_list[(round + offset) % n_w];
                 let (elapsed_s, final_pop, fallbacks) = run_map_cell(&wl, w, round, is_counters);
                 let write_ops = m;
                 if is_counters {
@@ -618,7 +622,8 @@ fn main() {
         let wl = WriterWorkload::generate(n0, m, 63);
         let bits = wl.keyspace_bits;
         for round in round_start..round_end {
-            for &w in &writers_list {
+            for offset in 0..writers_list.len() {
+                let w = writers_list[(round + offset) % n_w];
                 let (elapsed_s, final_pop, fallbacks) = run_set_cell(&wl, w, round, is_counters);
                 let write_ops = m;
                 if is_counters {
@@ -647,7 +652,8 @@ fn main() {
         eprintln!("generating str workload (prefill={n0}, fresh={m})...");
         let wl = WriterStrWorkload::generate(n0, m);
         for round in round_start..round_end {
-            for &w in &writers_list {
+            for offset in 0..writers_list.len() {
+                let w = writers_list[(round + offset) % n_w];
                 let (elapsed_s, final_pop, fallbacks) = run_str_cell(&wl, w, round, is_counters);
                 let write_ops = m;
                 if is_counters {
