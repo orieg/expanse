@@ -1216,6 +1216,12 @@ pub mod expanse_trie::occ_stats
 pub expanse_trie::occ_stats::Stat::AdvanceCalls = 4
 pub expanse_trie::occ_stats::Stat::AdvanceOk = 5
 pub expanse_trie::occ_stats::Stat::BranchReplacements = 14
+pub expanse_trie::occ_stats::Stat::BranchSplitLinear = 37
+pub expanse_trie::occ_stats::Stat::BranchSplitPrefix = 38
+pub expanse_trie::occ_stats::Stat::BranchSplitRemove = 39
+pub expanse_trie::occ_stats::Stat::BranchSplitSubarray = 36
+pub expanse_trie::occ_stats::Stat::ContentionGateClosed = 30
+pub expanse_trie::occ_stats::Stat::ContentionRetryExhausted = 31
 pub expanse_trie::occ_stats::Stat::DeepCascades = 15
 pub expanse_trie::occ_stats::Stat::FallbackBranchSplit = 24
 pub expanse_trie::occ_stats::Stat::FallbackCapExpansion = 22
@@ -1224,6 +1230,8 @@ pub expanse_trie::occ_stats::Stat::FallbackImmediateConversion = 23
 pub expanse_trie::occ_stats::Stat::FallbackRootGrowth = 25
 pub expanse_trie::occ_stats::Stat::FallbackUnknownTag = 27
 pub expanse_trie::occ_stats::Stat::FreedRaw = 12
+pub expanse_trie::occ_stats::Stat::GateBlockedEntries = 32
+pub expanse_trie::occ_stats::Stat::GateWaitCycles = 33
 pub expanse_trie::occ_stats::Stat::Handoffs = 10
 pub expanse_trie::occ_stats::Stat::Inserts = 21
 pub expanse_trie::occ_stats::Stat::LockFallbacks = 20
@@ -1233,6 +1241,8 @@ pub expanse_trie::occ_stats::Stat::LockSpins = 18
 pub expanse_trie::occ_stats::Stat::LockedReads = 9
 pub expanse_trie::occ_stats::Stat::PopRedescendAbandoned = 29
 pub expanse_trie::occ_stats::Stat::PopRedescends = 28
+pub expanse_trie::occ_stats::Stat::QuiesceCalls = 34
+pub expanse_trie::occ_stats::Stat::QuiesceDrainCycles = 35
 pub expanse_trie::occ_stats::Stat::ReadAttempts = 1
 pub expanse_trie::occ_stats::Stat::ReadFallbacks = 2
 pub expanse_trie::occ_stats::Stat::ReadOps = 0
@@ -1259,7 +1269,7 @@ impl core::marker::Unpin for expanse_trie::occ_stats::Stat
 impl core::marker::UnsafeUnpin for expanse_trie::occ_stats::Stat
 impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::occ_stats::Stat
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::occ_stats::Stat
-pub const expanse_trie::occ_stats::NAMES: [&str; 30]
+pub const expanse_trie::occ_stats::NAMES: [&str; 40]
 pub const expanse_trie::occ_stats::NUM_STATS: usize
 pub fn expanse_trie::occ_stats::bump(expanse_trie::occ_stats::Stat)
 pub fn expanse_trie::occ_stats::bump_by(expanse_trie::occ_stats::Stat, u64)
@@ -1275,7 +1285,7 @@ pub fn expanse_trie::occ_stats::record_retire(usize)
 pub fn expanse_trie::occ_stats::reset()
 pub fn expanse_trie::occ_stats::retained_bytes() -> u64
 pub fn expanse_trie::occ_stats::retained_hwm() -> u64
-pub fn expanse_trie::occ_stats::snapshot() -> [u64; 30]
+pub fn expanse_trie::occ_stats::snapshot() -> [u64; 40]
 pub mod expanse_trie::set
 pub struct expanse_trie::set::ExpanseSet
 impl expanse_trie::set::ExpanseSet

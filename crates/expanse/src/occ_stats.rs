@@ -14,12 +14,13 @@
 //! "N% of reads took the writer mutex" is a fact about the protocol
 //! regardless of what else the machine was doing.
 //!
-//! The one exception is [`Stat::SampleSpinCycles`], which accumulates the
-//! host's cycle counter across every spin in `SeqVersion::sample`. A spin
-//! *count* cannot say how long a reader waited on an open bracket; the
-//! cycle total can, once the counter's rate is known ([`cycles_hz`]).
-//! It is a duration, so it is host-dependent like any other timing, and
-//! it is published only as a share of the reader's own elapsed time.
+//! The exceptions are the cycle-accumulating counters ([`Stat::SampleSpinCycles`],
+//! [`Stat::GateWaitCycles`], [`Stat::QuiesceDrainCycles`]), which accumulate
+//! the host's cycle counter across spins in `SeqVersion::sample`, `enter_writer_blocking`,
+//! and `quiesce_writers`. A spin or call *count* cannot say how long a reader or writer
+//! waited; the cycle total can, once the counter's rate is known ([`cycles_hz`]).
+//! They are durations, so they are host-dependent like any other timing, and
+//! are published only as shares of elapsed time or per-fallback rates.
 //!
 //! ## Sharded per thread
 //!
@@ -158,10 +159,30 @@ pub enum Stat {
     /// detectable only by `validate()`. Expected 0; a non-zero value is a
     /// correctness signal, not a performance one (#568).
     PopRedescendAbandoned = 29,
+    /// Retrying writers in OLC mutation loop aborting because `WriterGate` closed (#568).
+    ContentionGateClosed = 30,
+    /// Retrying writers in OLC mutation loop exhausting `MAX_RETRIES` (#568).
+    ContentionRetryExhausted = 31,
+    /// Arriving writers finding `WriterGate` closed in `enter_writer_blocking` (#568).
+    GateBlockedEntries = 32,
+    /// Cycle-counter ticks spent spinning in `enter_writer_blocking` while gate is closed (#568).
+    GateWaitCycles = 33,
+    /// Invocations of `quiesce_writers` during serialized fallback (#568).
+    QuiesceCalls = 34,
+    /// Cycle-counter ticks spent in `quiesce_writers` waiting for in-flight writers to drain (#568).
+    QuiesceDrainCycles = 35,
+    /// Branch structural mutations due to bitmap subarray missing or null child (Phase 4D, #568).
+    BranchSplitSubarray = 36,
+    /// Branch structural mutations due to linear branch overflow (Phase 4E, #568).
+    BranchSplitLinear = 37,
+    /// Branch structural mutations due to edge prefix mismatch (Phase 4E, #568).
+    BranchSplitPrefix = 38,
+    /// Branch structural mutations on remove paths (shrink/condense, #568).
+    BranchSplitRemove = 39,
 }
 
 /// Number of distinct counters.
-pub const NUM_STATS: usize = 30;
+pub const NUM_STATS: usize = 40;
 
 /// Human-readable counter names, indexed by [`Stat`].
 pub const NAMES: [&str; NUM_STATS] = [
@@ -195,6 +216,16 @@ pub const NAMES: [&str; NUM_STATS] = [
     "fallback_unknown_tag",
     "pop_redescends",
     "pop_redescend_abandoned",
+    "contention_gate_closed",
+    "contention_retry_exhausted",
+    "gate_blocked_entries",
+    "gate_wait_cycles",
+    "quiesce_calls",
+    "quiesce_drain_cycles",
+    "branch_split_subarray",
+    "branch_split_linear",
+    "branch_split_prefix",
+    "branch_split_remove",
 ];
 
 /// Counters that are gauges (add / subtract / high-water), kept global.
@@ -469,7 +500,7 @@ mod tests {
     #[test]
     fn names_cover_every_stat() {
         assert_eq!(NAMES.len(), NUM_STATS);
-        assert_eq!(Stat::PopRedescendAbandoned as usize + 1, NUM_STATS);
+        assert_eq!(Stat::BranchSplitRemove as usize + 1, NUM_STATS);
         assert_eq!(NAMES[Stat::SampleSpinCycles as usize], "sample_spin_cycles");
         assert_eq!(NAMES[Stat::DeepCascades as usize], "deep_cascades");
         assert_eq!(NAMES[Stat::LockRestarts as usize], "lock_restarts");
@@ -484,6 +515,40 @@ mod tests {
         assert_eq!(
             NAMES[Stat::FallbackRootGrowth as usize],
             "fallback_root_growth"
+        );
+        assert_eq!(
+            NAMES[Stat::ContentionGateClosed as usize],
+            "contention_gate_closed"
+        );
+        assert_eq!(
+            NAMES[Stat::ContentionRetryExhausted as usize],
+            "contention_retry_exhausted"
+        );
+        assert_eq!(
+            NAMES[Stat::GateBlockedEntries as usize],
+            "gate_blocked_entries"
+        );
+        assert_eq!(NAMES[Stat::GateWaitCycles as usize], "gate_wait_cycles");
+        assert_eq!(NAMES[Stat::QuiesceCalls as usize], "quiesce_calls");
+        assert_eq!(
+            NAMES[Stat::QuiesceDrainCycles as usize],
+            "quiesce_drain_cycles"
+        );
+        assert_eq!(
+            NAMES[Stat::BranchSplitSubarray as usize],
+            "branch_split_subarray"
+        );
+        assert_eq!(
+            NAMES[Stat::BranchSplitLinear as usize],
+            "branch_split_linear"
+        );
+        assert_eq!(
+            NAMES[Stat::BranchSplitPrefix as usize],
+            "branch_split_prefix"
+        );
+        assert_eq!(
+            NAMES[Stat::BranchSplitRemove as usize],
+            "branch_split_remove"
         );
     }
 
@@ -507,6 +572,17 @@ mod tests {
         assert_eq!(Stat::FallbackUnknownTag as usize, 27);
         assert_eq!(Stat::PopRedescends as usize, 28);
         assert_eq!(Stat::PopRedescendAbandoned as usize, 29);
+        // Appended for #568 Step 4.0.
+        assert_eq!(Stat::ContentionGateClosed as usize, 30);
+        assert_eq!(Stat::ContentionRetryExhausted as usize, 31);
+        assert_eq!(Stat::GateBlockedEntries as usize, 32);
+        assert_eq!(Stat::GateWaitCycles as usize, 33);
+        assert_eq!(Stat::QuiesceCalls as usize, 34);
+        assert_eq!(Stat::QuiesceDrainCycles as usize, 35);
+        assert_eq!(Stat::BranchSplitSubarray as usize, 36);
+        assert_eq!(Stat::BranchSplitLinear as usize, 37);
+        assert_eq!(Stat::BranchSplitPrefix as usize, 38);
+        assert_eq!(Stat::BranchSplitRemove as usize, 39);
     }
 
     #[test]
