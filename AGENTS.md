@@ -292,7 +292,7 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | Nightly Miri shard census: every `expanse-trie` lib test in exactly one shard, every integration target in the matrix or `#![cfg(not(miri))]` | **CI** | `lint` job → `scripts/check_miri_shards.py` (module→shard map lives in the script; shards select by `--exact` name, never substring) |
 | Black-box parity vs stock `libjudy` | **CI** | `differential-oracle`, `php-judy-*` |
 | Doc↔code constant sync (visualizer) | **CI** | `tests/test_visualizer_sync.rs` |
-| No time estimates · no PII/home paths/LAN IPs in docs and PR body | **CI** | `docs-lint` job → `scripts/check_docs_hygiene.py` |
+| No time estimates · no PII/home paths/LAN IPs in docs and PR body · no home-directory paths in committed JSON artifacts (every tracked `.json` under `docs/` and `results/`, keys and values, `/home/runner/` and placeholders exempt) | **CI** | `docs-lint` job → `scripts/check_docs_hygiene.py`; the JSON sweep's motivating probe (#830's absolute `build_provenance` path) is pinned in `--self-test` |
 | No references to a maintainer's personal agent config (home-directory agent paths, personal methodology docs, personal playbooks) — cite the `AGENTS.md` section that states the rule instead | **CI** | `docs-lint` job → `scripts/check_docs_hygiene.py`; sweeps **every** tracked text file, not just Markdown; patterns and pinned cases live in the script and its `--self-test` |
 | Provenance tags on published numbers (§8.7) | **CI (advisory warning)** + review | `docs-lint` heuristic; reviewer confirms the artifact |
 | §6 review threshold (>0.1 % instructions) | **review** | `perf_report.py` renders it; a human decides |
