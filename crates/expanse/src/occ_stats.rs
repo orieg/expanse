@@ -179,10 +179,12 @@ pub enum Stat {
     BranchSplitPrefix = 38,
     /// Branch structural mutations on remove paths (shrink/condense, #568).
     BranchSplitRemove = 39,
+    /// Branch structural mutations due to bitmap subarray upgrade to BranchU (Phase 4D, #568).
+    BranchSplitUpgrade = 40,
 }
 
 /// Number of distinct counters.
-pub const NUM_STATS: usize = 40;
+pub const NUM_STATS: usize = 41;
 
 /// Human-readable counter names, indexed by [`Stat`].
 pub const NAMES: [&str; NUM_STATS] = [
@@ -226,6 +228,7 @@ pub const NAMES: [&str; NUM_STATS] = [
     "branch_split_linear",
     "branch_split_prefix",
     "branch_split_remove",
+    "branch_split_upgrade",
 ];
 
 /// Counters that are gauges (add / subtract / high-water), kept global.
@@ -500,7 +503,7 @@ mod tests {
     #[test]
     fn names_cover_every_stat() {
         assert_eq!(NAMES.len(), NUM_STATS);
-        assert_eq!(Stat::BranchSplitRemove as usize + 1, NUM_STATS);
+        assert_eq!(Stat::BranchSplitUpgrade as usize + 1, NUM_STATS);
         assert_eq!(NAMES[Stat::SampleSpinCycles as usize], "sample_spin_cycles");
         assert_eq!(NAMES[Stat::DeepCascades as usize], "deep_cascades");
         assert_eq!(NAMES[Stat::LockRestarts as usize], "lock_restarts");
@@ -550,6 +553,10 @@ mod tests {
             NAMES[Stat::BranchSplitRemove as usize],
             "branch_split_remove"
         );
+        assert_eq!(
+            NAMES[Stat::BranchSplitUpgrade as usize],
+            "branch_split_upgrade"
+        );
     }
 
     /// The discriminants are an unwritten contract: `snapshot()` is indexed
@@ -583,6 +590,8 @@ mod tests {
         assert_eq!(Stat::BranchSplitLinear as usize, 37);
         assert_eq!(Stat::BranchSplitPrefix as usize, 38);
         assert_eq!(Stat::BranchSplitRemove as usize, 39);
+        // Appended for #568 Phase 4D.
+        assert_eq!(Stat::BranchSplitUpgrade as usize, 40);
     }
 
     #[test]

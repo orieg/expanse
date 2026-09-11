@@ -326,6 +326,11 @@ impl NodeAlloc {
         if let Some(class) = class_for(bytes, align) {
             let head = self.freelists[class].load(Ordering::Relaxed);
             if !head.is_null() {
+                debug_assert!(
+                    !self.occ_enabled(),
+                    "alloc_raw popped per-tree freelist under OCC: per-tree freelists \
+                     are single-writer only; OCC allocations must use collector freelist"
+                );
                 // SAFETY: head points to a valid FreeBlock previously freed to this class.
                 let next = unsafe { (*head).next };
                 self.freelists[class].store(next, Ordering::Relaxed);
@@ -661,6 +666,13 @@ impl NodeAlloc {
              corruption). Rebuild the structure through a pre-deferred \
              allocator instead."
         );
+        for head in &self.freelists {
+            assert!(
+                head.load(Ordering::Relaxed).is_null(),
+                "defer_to on an allocator with active freelists: per-tree freelist pop \
+                 is unsynchronized across concurrent writers"
+            );
+        }
         let stored = self.deferred.get_or_init(|| Arc::clone(&collector));
         assert!(
             Arc::ptr_eq(stored, &collector),
@@ -1067,5 +1079,23 @@ mod tests {
         }
         assert_eq!(class_for_raw(376), None);
         assert_eq!(class_for_raw(1000), None);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    #[should_panic(expected = "defer_to on an allocator with active freelists")]
+    fn defer_to_rejects_non_empty_freelist() {
+        #[repr(C, align(64))]
+        struct BigNode([u8; 2048]);
+
+        let a = NodeAlloc::new();
+        // Allocate a 2048-byte node (class 5) which is > 256 bytes so it does
+        // not carve from slab pages (leaving slab_pages null).
+        let ptr = a.alloc_node(BigNode([0; 2048]));
+        // Free it before deferring: it populates a.freelists[5].
+        // SAFETY: ptr points to a valid allocation returned by alloc_node.
+        unsafe { a.free_node(ptr) };
+        let collector = std::sync::Arc::new(crate::occ::Collector::new());
+        a.defer_to(collector);
     }
 }

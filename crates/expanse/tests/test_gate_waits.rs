@@ -61,6 +61,43 @@ fn contention_stat_mapping_unit_invariants() {
 }
 
 #[test]
+fn branch_split_upgrade_structural_routing_in_sync_rs() {
+    let sync_src = include_str!("../src/sync.rs");
+    let lines: Vec<&str> = sync_src.lines().collect();
+
+    let mut upgrade_call_sites = 0;
+    let mut branchb_up_checks = 0;
+
+    let test_mod_idx = lines
+        .iter()
+        .position(|l| l.contains("mod tests"))
+        .unwrap_or(lines.len());
+    for line in &lines[..test_mod_idx] {
+        let trimmed = line.trim();
+        if trimmed.starts_with("//") {
+            continue;
+        }
+        if trimmed.contains("branch_split(BranchSplitKind::Upgrade)") {
+            upgrade_call_sites += 1;
+        }
+        if trimmed.contains("crate::mutate::BRANCHB_UP") {
+            branchb_up_checks += 1;
+        }
+    }
+
+    assert_eq!(
+        upgrade_call_sites, 4,
+        "Expected exactly 4 call sites for branch_split(BranchSplitKind::Upgrade) (pre-lock + under-lock for set & map), found {}",
+        upgrade_call_sites
+    );
+    assert_eq!(
+        branchb_up_checks, 4,
+        "Expected exactly 4 BRANCHB_UP checks guarding Upgrade fallback, found {}",
+        branchb_up_checks
+    );
+}
+
+#[test]
 fn structural_contention_stat_routing_in_sync_rs() {
     let sync_src = include_str!("../src/sync.rs");
     let lines: Vec<&str> = sync_src.lines().collect();

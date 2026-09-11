@@ -223,6 +223,12 @@ impl ExpanseSet {
         self.tree_pop = pop;
     }
 
+    #[inline(always)]
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    pub(crate) fn alloc(&self) -> &NodeAlloc {
+        &self.alloc
+    }
+
     /// Heap bytes currently used by the set's nodes and leaves.
     #[must_use]
     pub fn mem_used(&self) -> usize {

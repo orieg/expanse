@@ -313,11 +313,12 @@ def summarize_arm(
             bs_lin = int(r.get("branch_split_linear", 0))
             bs_pfx = int(r.get("branch_split_prefix", 0))
             bs_rem = int(r.get("branch_split_remove", 0))
-            bs_sum = bs_sub + bs_lin + bs_pfx + bs_rem
+            bs_upg = int(r.get("branch_split_upgrade", 0))
+            bs_sum = bs_sub + bs_lin + bs_pfx + bs_rem + bs_upg
             if bs_sum != int(causes["branch_split"]):
                 raise ValueError(
                     f"{arm} W={w} round {r['round']}: branch_split partition ({bs_sub} + {bs_lin} + "
-                    f"{bs_pfx} + {bs_rem} = {bs_sum}) != causes['branch_split'] ({causes['branch_split']})"
+                    f"{bs_pfx} + {bs_rem} + {bs_upg} = {bs_sum}) != causes['branch_split'] ({causes['branch_split']})"
                 )
             for name in CAUSE_NAMES:
                 cause_totals[name] += int(causes[name])
@@ -343,6 +344,7 @@ def summarize_arm(
         total_bs_lin = sum(int(r.get("branch_split_linear", 0)) for r in c_rows_w)
         total_bs_pfx = sum(int(r.get("branch_split_prefix", 0)) for r in c_rows_w)
         total_bs_rem = sum(int(r.get("branch_split_remove", 0)) for r in c_rows_w)
+        total_bs_upg = sum(int(r.get("branch_split_upgrade", 0)) for r in c_rows_w)
 
         restarts_per_insert = round(total_restarts / total_ops, 6) if total_ops > 0 else 0.0
         gate_blocked_entries_per_insert = (
@@ -375,6 +377,7 @@ def summarize_arm(
             "linear": total_bs_lin,
             "prefix": total_bs_pfx,
             "remove": total_bs_rem,
+            "upgrade": total_bs_upg,
         }
         branch_split_subset_share = {
             "subarray": (
@@ -394,6 +397,11 @@ def summarize_arm(
             ),
             "remove": (
                 round(total_bs_rem / cause_totals["branch_split"], 6)
+                if cause_totals["branch_split"] > 0
+                else 0.0
+            ),
+            "upgrade": (
+                round(total_bs_upg / cause_totals["branch_split"], 6)
                 if cause_totals["branch_split"] > 0
                 else 0.0
             ),
@@ -465,6 +473,7 @@ def summarize_arm(
                     "branch_split_linear": r["branch_split_linear"],
                     "branch_split_prefix": r["branch_split_prefix"],
                     "branch_split_remove": r["branch_split_remove"],
+                    "branch_split_upgrade": r.get("branch_split_upgrade", 0),
                     "fallback_causes": r["fallback_causes"],
                 }
                 for r in c_rows_w
@@ -606,6 +615,7 @@ def self_test() -> int:
                 + r["branch_split_linear"]
                 + r["branch_split_prefix"]
                 + r["branch_split_remove"]
+                + r.get("branch_split_upgrade", 0)
                 == r["fallback_causes"]["branch_split"]
             ), r
     assert abs(sum(cell_w2["fallback_cause_share"].values()) - 1.0) < 1e-3, cell_w2["fallback_cause_share"]
@@ -850,7 +860,7 @@ def main() -> int:
                     print(
                         f"        branch_split breakdown: subarray {bs_sh['subarray']*100:5.2f}% "
                         f"| linear {bs_sh['linear']*100:5.2f}% | prefix {bs_sh['prefix']*100:5.2f}% "
-                        f"| remove {bs_sh['remove']*100:5.2f}%"
+                        f"| remove {bs_sh['remove']*100:5.2f}% | upgrade {bs_sh['upgrade']*100:5.2f}%"
                     )
                 if (
                     cell["gate_blocked_entries_per_insert"] > 0

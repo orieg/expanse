@@ -82,6 +82,7 @@ struct Counters {
     branch_split_linear: u64,
     branch_split_prefix: u64,
     branch_split_remove: u64,
+    branch_split_upgrade: u64,
 }
 
 impl Counters {
@@ -109,6 +110,7 @@ impl Counters {
             branch_split_linear: snap[Stat::BranchSplitLinear as usize],
             branch_split_prefix: snap[Stat::BranchSplitPrefix as usize],
             branch_split_remove: snap[Stat::BranchSplitRemove as usize],
+            branch_split_upgrade: snap[Stat::BranchSplitUpgrade as usize],
         }
     }
 
@@ -128,7 +130,8 @@ impl Counters {
              \"gate_blocked_entries\":{g_blocked},\"gate_wait_cycles\":{g_wait},\
              \"quiesce_calls\":{q_calls},\"quiesce_drain_cycles\":{q_drain},\
              \"branch_split_subarray\":{bs_sub},\"branch_split_linear\":{bs_lin},\
-             \"branch_split_prefix\":{bs_pfx},\"branch_split_remove\":{bs_rem}",
+             \"branch_split_prefix\":{bs_pfx},\"branch_split_remove\":{bs_rem},\
+             \"branch_split_upgrade\":{bs_upg}",
             restarts = self.lock_restarts,
             c_closed = self.contention_gate_closed,
             c_exhausted = self.contention_retry_exhausted,
@@ -140,6 +143,7 @@ impl Counters {
             bs_lin = self.branch_split_linear,
             bs_pfx = self.branch_split_prefix,
             bs_rem = self.branch_split_remove,
+            bs_upg = self.branch_split_upgrade,
         )
     }
 
@@ -180,14 +184,16 @@ impl Counters {
         let branch_sub = self.branch_split_subarray
             + self.branch_split_linear
             + self.branch_split_prefix
-            + self.branch_split_remove;
+            + self.branch_split_remove
+            + self.branch_split_upgrade;
         if branch_sub != branch_split {
             return Err(format!(
-                "{cell}: branch split subsets sum to {branch_sub} (subarray={}, linear={}, prefix={}, remove={}), but branch_split = {}",
+                "{cell}: branch split subsets sum to {branch_sub} (subarray={}, linear={}, prefix={}, remove={}, upgrade={}), but branch_split = {}",
                 self.branch_split_subarray,
                 self.branch_split_linear,
                 self.branch_split_prefix,
                 self.branch_split_remove,
+                self.branch_split_upgrade,
                 branch_split
             ));
         }

@@ -409,3 +409,6 @@ foreign busy CPUs −0.05 to −0.03 per arm)*
 | `set` | 2 | 15.67% | 100.0% | 0 | 0.0000 | 16.8% | 131 | 207 | 100.0% · 0.0% · 0.0% · 0.0% |
 | `set` | 4 | 8.33% | 100.0% | 0 | 0.0000 | 20.1% | 173 | 155 | 100.0% · 0.0% · 0.0% · 0.0% |
 | `set` | 8 | 8.74% | 100.0% | 0 | 0.0000 | 23.5% | 212 | 166 | 100.0% · 0.0% · 0.0% · 0.0% |
+
+*(Attribution signposting: the structural test for `contention_stat` routing (Refs #838) pins the call-site assignment, not the runtime condition. The runtime condition is review-verified per AGENTS.md §5).*
+
