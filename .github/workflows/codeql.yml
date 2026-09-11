@@ -100,6 +100,8 @@ jobs:
           # than Maven for the classpath, and `bindings/java/build.gradle` pins
           # a JDK 22 toolchain the runner does not carry, so dependency
           # resolution fails and dependencies are guessed from package names.
+          # A traced build cannot use incremental (overlay) analysis, so Java
+          # always builds a full database; the action logs a warning saying so.
           modes = {
               "actions": "none", "c-cpp": "none", "csharp": "none",
               "go": "autobuild", "java-kotlin": "manual",
