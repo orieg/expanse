@@ -339,10 +339,17 @@ never a gate cell (workload: concurrency_writer_scaling).
   inserts** on both arms at every W. At W = 1, `map`'s fallbacks are leaf
   capacity expansion (54.6%) and branch structural mutation (39.8%); `set`'s
   are branch structural mutation (95.5%).
-- **The Phase 1.5B USL gate is not evaluable on this curve.** At N = 2,
-  C(N) = N / (1 + α(N − 1) + βN(N − 1)) falls below 1 only if α + 2β > 1, so
-  on a curve retrograde from W = 2 the fitted α sits at its upper bound of 1
-  and β absorbs the remainder; its ceiling measures nothing here.
+- **The Phase 1.5B USL gate is not evaluable on this curve.** On both arms
+  the curve falls and then flattens — C(W) steps by −0.16, −0.18, −0.04 on
+  `map` and −0.46, −0.07, −0.06 on `set` across W = 2, 4, 8 — and the
+  unconstrained linearised fit puts α above 1 (1.91 on `map`, 2.20 on `set`,
+  fitted on W ≤ 8). The bounded fit's α therefore sits at its upper bound of
+  1, and β is fitted conditional on that bound rather than jointly: neither
+  β nor its interval
+  bounds the coherency coefficient, and `scripts/fit_usl.py` reports both
+  intervals as unusable. A curve retrograde from W = 2 does not force this by
+  itself — C(2) < 1 needs only α + 2β > 1, and an exact USL curve with
+  α = β = 0.5 meets that and fits with α = 0.5.
 - **Caveat on the W = 8 cells.** The `0-15` pin covers 16 logical CPUs on 8
   physical cores, and nothing forces one writer per core, so two writers can
   share SMT siblings. `str`'s W = 8 interval, [0.31, 0.51], is wide and
