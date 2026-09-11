@@ -171,7 +171,9 @@ PROPTEST_CASES=500 cargo test --test proptest_model
 #    suite locally (it is slow and the nightly CI job is the authority).
 cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types:: \
   blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred \
-  strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots
+  strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots \
+  map::tests::occ_engine_single_thread_under_miri set::tests::occ_engine_single_thread_under_miri \
+  occ::tests::
 ```
 
 ### Benchmark Changes Require Direct Harness Execution
