@@ -320,95 +320,109 @@ lower bound clears 1.0. `str` holds the writer mutex for the whole insert, so
 it is the α = 1 reference curve and is never a gate cell
 (workload: concurrency_writer_scaling).
 
-- **Every OLC cell is `RETROGRADE`.** On `map` and `set` the upper bound of
-  C(W) sits below 1.0 at every W: adding writers lowers aggregate insert
-  throughput — `map` 0.85 [0.82, 0.87], 0.66 [0.65, 0.67], 0.62 [0.60, 0.63]
-  and `set` 0.53 [0.52, 0.54], 0.45 [0.45, 0.46], 0.40 [0.39, 0.40] at
-  W = 2, 4, 8. Two earlier runs on the same engine moved every cell the same
-  way *(measured: reference host; `623d651b`, CI run
-  [34551890611](https://github.com/orieg/expanse/actions/runs/34551890611), and
-  `dde0ac0b`, CI run
-  [34554671912](https://github.com/orieg/expanse/actions/runs/34554671912))*;
-  the default build's instruction counts are unchanged across all three.
+- **Phase 4D moved every `map` cell at W ≥ 2 and every `set` cell up, in
+  two runs.** Two runs on `72be2753` — the engine after #840 made `BranchB`
+  subarray growth concurrent; the only other engine change since, #841, is on
+  the remove path, which this insert-only sweep does not run — each separate
+  from the Step 4.0 sweep on
+  `ff3e0e06` *(CI run
+  [34562877044](https://github.com/orieg/expanse/actions/runs/34562877044))* on
+  the same cells in the same direction: throughput on every `map` cell at
+  W ≥ 2 and every `set` cell, and C(W) on every W ≥ 2 cell of both arms. The
+  two runs overlap each other on all twelve cells, and `map` W = 1 and every
+  `str` cell overlap all three. C(W) went from 0.85, 0.66, 0.62 to 0.93, 0.76,
+  0.70 on `map` and from 0.53, 0.45, 0.40 to 0.95, 0.91, 0.77 on `set` at
+  W = 2, 4, 8; `set` inserts at W = 4 went from 2.72 to 6.36 M/s.
+- **Every OLC cell is still `RETROGRADE`.** On `map` and `set` the upper bound
+  of C(W) sits below 1.0 at every W — `map` 0.93 [0.91, 0.96],
+  0.76 [0.73, 0.79], 0.70 [0.68, 0.73] and `set` 0.95 [0.94, 0.97],
+  0.91 [0.89, 0.93], 0.77 [0.76, 0.80] at W = 2, 4, 8.
+- **No branch fallback remains on this workload.** `branch_split` is 0 in every
+  cell, the `BranchB` → `BranchU` upgrade included. That is a property of
+  uniform random 64-bit keys: structured key distributions reach linear-branch
+  overflow and prefix splits, which Phase 4D does not make concurrent. At
+  W = 1 `map`'s fallbacks are leaf capacity expansion (13.37% of inserts) and
+  the immediate-slot transition (1.37%); `set`'s are the same two, at 1.99%
+  and 1.53%. That meets, at its lower end, the W = 1 rate #840 predicted from
+  the Step 4.0 sweep before either run (`scripts/olc_bounds.py`): 14.75–14.81%
+  of `map` inserts and 3.52–3.99% of `set` inserts, where the lower end is the
+  case in which no `BranchB` → `BranchU` upgrade fires. Both runs measured
+  14.75% and 3.52%.
 - **Contention fallbacks are writers that found the gate closed.** Every
   fallback runs `write_root_covered`, which closes the writer gate and waits
   for in-flight writers to drain. Contention fallbacks are 0 at W = 1 and are
-  gate closures at every W ≥ 2: one retry-exhausted fallback in the whole
-  `map` W = 2 cell, none anywhere else, with at most 0.0013 optimistic
-  restarts per insert. On `map` they carry the whole rise in the fallback
-  rate — structural fallbacks stay at 21.7–24.5% of inserts across W while
-  contention adds 5.39%, 12.32% and 9.93% at W = 2, 4, 8. On `set` the total
-  stays near 80% and contention displaces structural causes instead, 15.67%
-  of inserts at W = 2.
+  gate closures at every W ≥ 2: two retry-exhausted fallbacks in the whole
+  `map` W = 2 cell, none anywhere else, with at most 0.0014 optimistic
+  restarts per insert. On both arms they now carry the whole rise in the
+  fallback rate — structural fallbacks stay at 12.9–14.8% of `map` inserts
+  and 3.2–3.5% of `set` inserts across W, while contention adds 4.08%, 12.71%
+  and 10.19% on `map` and 0.79%, 5.50% and 8.69% on `set` at W = 2, 4, 8.
 - **Arriving writers wait at the closed gate, uncounted as fallbacks.** A
   writer that arrives while the gate is closed spins until it reopens:
-  16.7%, 33.7% and 35.6% of `map` inserts at W = 2, 4, 8, and 16.8%, 20.1%
-  and 23.5% of `set` inserts. The wait is published in cycles only — the
+  12.2%, 32.7% and 35.1% of `map` inserts at W = 2, 4, 8, and 3.3%, 14.1%
+  and 36.8% of `set` inserts. The wait is published in cycles only — the
   artifact carries no cycle rate and the counters build is untimed, so no
   share of wall time can be derived from it.
-- **Every branch fallback is a bitmap subarray growth, on this workload.** On
-  both arms at every W the `branch_split` cause is entirely the `BranchB`
-  subarray case — no linear-branch overflow, prefix split or remove. That is
-  a property of uniform random 64-bit keys, not a general share: structured
-  key distributions reach the other branch kinds. At W = 1 `map`'s fallbacks
-  are leaf capacity expansion (54.6%) and bitmap subarray growth (39.8%);
-  `set`'s are bitmap subarray growth (95.5%). The immediate-slot transition is
-  1.2–1.5% of inserts on both arms at every W.
-- **The Phase 1.5B USL gate is not evaluable on this curve.** On both arms
-  the curve falls and then flattens — C(W) steps by −0.15, −0.19, −0.04 on
-  `map` and −0.47, −0.08, −0.06 on `set` across W = 2, 4, 8 — and the
-  unconstrained linearised fit puts α above 1 (1.90 on `map`, 2.33 on `set`,
-  fitted on W ≤ 8). The bounded fit's α therefore sits at its upper bound of
-  1, and β is fitted conditional on that bound rather than jointly: neither
-  β nor its interval
-  bounds the coherency coefficient, and `scripts/fit_usl.py` reports both
-  intervals as unusable. A curve retrograde from W = 2 does not force this by
-  itself — C(2) < 1 needs only α + 2β > 1, and an exact USL curve with
-  α = β = 0.5 meets that and fits with α = 0.5.
+- **The Phase 1.5B USL gate is now evaluable on `set`, and fails it.** Fitted
+  on W ≤ 8, `set` gives α 0.989 [0.940, 1.000] and β 0.042 [0.038, 0.047]
+  at R² = 0.99 (the unconstrained linearised α is 0.93), and
+  `scripts/fit_usl.py` reports `FAIL_contention_ceiling`: both parameters
+  exceed their ceilings of 0.15 and 0.0033 by a wide margin. Four points fix
+  three parameters, so the fit is thin. On `map` the curve falls and then
+  flattens — C(W) steps by −0.07, −0.17, −0.06 across W = 2, 4, 8 — and the
+  unconstrained linearised fit puts α at 1.49, above 1. The bounded fit's α
+  therefore sits at its upper bound of 1, β is fitted conditional on that
+  bound rather than jointly, R² is 0.91, and the script reports `FAIL_fit_quality`
+  with both intervals unusable. A curve retrograde from W = 2 does not force
+  this by itself — C(2) < 1 needs only α + 2β > 1, and an exact USL curve
+  with α = β = 0.5 meets that and fits with α = 0.5.
 - **Caveat on the W = 8 cells.** The `0-15` pin covers 16 logical CPUs on 8
   physical cores, and nothing forces one writer per core, so two writers can
   share SMT siblings; the effect on the W = 8 cells is unmeasured.
 
 This run does not decide P5.1–P5.4: they are pre-registered on the
 two-commit FFI harnesses (METHODOLOGY §10.3), so a reading from this
-instrument is `INTERMEDIATE`. Nor is it a before/after claim against the
-curves measured before Phase 1.5A: those came from a different harness in a
-different run, which rule 18 does not admit.
+instrument is `INTERMEDIATE`. The comparison with `ff3e0e06` above is
+between runs of this instrument, confirmed by a second run (rule 18); the
+curves measured before Phase 1.5A came from a different harness in a
+different run and are not compared.
 
 *(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads,
 Ubuntu 22.04 / kernel 6.8, P-core pin `0-15`, governor `powersave`; engine
-and harness at `ff3e0e06`; CI run
-[34562877044](https://github.com/orieg/expanse/actions/runs/34562877044),
+and harness at `72be2753`; CI run
+[34610141909](https://github.com/orieg/expanse/actions/runs/34610141909),
 `workflow_dispatch`, suite `writer_scaling`, which took the host lock;
-foreign busy CPUs −0.05 to −0.03 per arm)*
+foreign busy CPUs −0.01 per arm; confirming run
+[34607486831](https://github.com/orieg/expanse/actions/runs/34607486831) on
+the same commit, foreign busy CPUs −0.02 to 0.00)*
 
 | arm | W | Expanse inserts M/s [BCa 95%] | C(W) [paired BCa 95%] | verdict | fallbacks / insert | contention / insert | largest causes (share of fallbacks) |
 |---|--:|---|---|---|--:|--:|---|
-| `map` | 1 | 4.96 [4.87, 5.06] | 1.00 (by definition) | baseline | 24.51% | 0.00% | cap_expansion 54.6%, branch_split 39.8%, immediate_conversion 5.6% |
-| `map` | 2 | 4.20 [4.07, 4.30] | 0.85 [0.82, 0.87] | `RETROGRADE` | 28.42% | 5.39% | cap_expansion 44.6%, branch_split 32.0%, contention 19.0% |
-| `map` | 4 | 3.25 [3.19, 3.32] | 0.66 [0.65, 0.67] | `RETROGRADE` | 33.98% | 12.32% | contention 36.2%, cap_expansion 34.5%, branch_split 25.7% |
-| `map` | 8 | 3.06 [3.01, 3.13] | 0.62 [0.60, 0.63] | `RETROGRADE` | 32.06% | 9.93% | cap_expansion 37.6%, contention 31.0%, branch_split 27.5% |
-| `set` | 1 | 6.03 [5.95, 6.12] | 1.00 (by definition) | baseline | 78.69% | 0.00% | branch_split 95.5%, cap_expansion 2.5%, immediate_conversion 1.9% |
-| `set` | 2 | 3.20 [3.14, 3.27] | 0.53 [0.52, 0.54] | `RETROGRADE` | 81.98% | 15.67% | branch_split 77.2%, contention 19.1%, cap_expansion 2.1% |
-| `set` | 4 | 2.72 [2.71, 2.76] | 0.45 [0.45, 0.46] | `RETROGRADE` | 80.52% | 8.33% | branch_split 85.7%, contention 10.3%, cap_expansion 2.3% |
-| `set` | 8 | 2.39 [2.37, 2.40] | 0.40 [0.39, 0.40] | `RETROGRADE` | 80.56% | 8.74% | branch_split 85.2%, contention 10.8%, cap_expansion 2.3% |
-| `str` | 1 | 3.50 [3.32, 3.74] | 1.00 (by definition) | baseline | 0.00% | 0.00% | none — no OLC path |
-| `str` | 2 | 2.40 [2.26, 2.63] | 0.69 [0.64, 0.79] | reference, not gated | 0.00% | 0.00% | none — no OLC path |
-| `str` | 4 | 2.03 [1.96, 2.22] | 0.58 [0.54, 0.60] | reference, not gated | 0.00% | 0.00% | none — no OLC path |
-| `str` | 8 | 1.70 [1.54, 1.88] | 0.49 [0.45, 0.53] | reference, not gated | 0.00% | 0.00% | none — no OLC path |
+| `map` | 1 | 4.89 [4.78, 5.02] | 1.00 (by definition) | baseline | 14.75% | 0.00% | cap_expansion 90.7%, immediate_conversion 9.3% |
+| `map` | 2 | 4.55 [4.40, 4.62] | 0.93 [0.91, 0.96] | `RETROGRADE` | 18.21% | 4.08% | cap_expansion 70.3%, contention 22.4%, immediate_conversion 7.3% |
+| `map` | 4 | 3.71 [3.63, 3.80] | 0.76 [0.73, 0.79] | `RETROGRADE` | 25.59% | 12.71% | contention 49.7%, cap_expansion 45.5%, immediate_conversion 4.8% |
+| `map` | 8 | 3.43 [3.36, 3.49] | 0.70 [0.68, 0.73] | `RETROGRADE` | 23.45% | 10.19% | cap_expansion 51.2%, contention 43.5%, immediate_conversion 5.4% |
+| `set` | 1 | 7.03 [6.90, 7.12] | 1.00 (by definition) | baseline | 3.52% | 0.00% | cap_expansion 56.5%, immediate_conversion 43.5% |
+| `set` | 2 | 6.69 [6.58, 6.77] | 0.95 [0.94, 0.97] | `RETROGRADE` | 4.27% | 0.79% | cap_expansion 45.9%, immediate_conversion 35.6%, contention 18.5% |
+| `set` | 4 | 6.36 [6.30, 6.42] | 0.91 [0.89, 0.93] | `RETROGRADE` | 8.77% | 5.50% | contention 62.7%, cap_expansion 20.7%, immediate_conversion 16.6% |
+| `set` | 8 | 5.43 [5.33, 5.48] | 0.77 [0.76, 0.80] | `RETROGRADE` | 11.91% | 8.69% | contention 73.0%, cap_expansion 15.3%, immediate_conversion 11.7% |
+| `str` | 1 | 3.57 [3.34, 3.79] | 1.00 (by definition) | baseline | 0.00% | 0.00% | none — no OLC path |
+| `str` | 2 | 2.28 [2.21, 2.40] | 0.64 [0.61, 0.67] | reference, not gated | 0.00% | 0.00% | none — no OLC path |
+| `str` | 4 | 2.05 [2.00, 2.11] | 0.58 [0.55, 0.62] | reference, not gated | 0.00% | 0.00% | none — no OLC path |
+| `str` | 8 | 1.66 [1.47, 1.81] | 0.47 [0.41, 0.54] | reference, not gated | 0.00% | 0.00% | none — no OLC path |
 
 **Step 4.0 counters** — from the separate `occ-stats` build, summed over the eight rounds:
 
-| arm | W | contention / insert | gate-closed share of contention | retry-exhausted | restarts / insert | gate-blocked entries / insert | gate-wait cycles / insert | drain cycles / fallback | branch_split: subarray · linear · prefix · remove |
+| arm | W | contention / insert | gate-closed share of contention | retry-exhausted | restarts / insert | gate-blocked entries / insert | gate-wait cycles / insert | drain cycles / fallback | branch_split: subarray · linear · prefix · remove · upgrade |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|---|
-| `map` | 1 | 0.00% | — | 0 | 0.0000 | 0.0% | 0 | 24 | 100.0% · 0.0% · 0.0% · 0.0% |
-| `map` | 2 | 5.39% | 100.0% | 1 | 0.0010 | 16.7% | 219 | 300 | 100.0% · 0.0% · 0.0% · 0.0% |
-| `map` | 4 | 12.32% | 100.0% | 0 | 0.0011 | 33.7% | 560 | 400 | 100.0% · 0.0% · 0.0% · 0.0% |
-| `map` | 8 | 9.93% | 100.0% | 0 | 0.0013 | 35.6% | 649 | 416 | 100.0% · 0.0% · 0.0% · 0.0% |
-| `set` | 1 | 0.00% | — | 0 | 0.0000 | 0.0% | 0 | 24 | 100.0% · 0.0% · 0.0% · 0.0% |
-| `set` | 2 | 15.67% | 100.0% | 0 | 0.0000 | 16.8% | 131 | 207 | 100.0% · 0.0% · 0.0% · 0.0% |
-| `set` | 4 | 8.33% | 100.0% | 0 | 0.0000 | 20.1% | 173 | 155 | 100.0% · 0.0% · 0.0% · 0.0% |
-| `set` | 8 | 8.74% | 100.0% | 0 | 0.0000 | 23.5% | 212 | 166 | 100.0% · 0.0% · 0.0% · 0.0% |
+| `map` | 1 | 0.00% | — | 0 | 0.0000 | 0.0% | 0 | 25 | — · — · — · — · — |
+| `map` | 2 | 4.08% | 100.0% | 2 | 0.0010 | 12.2% | 211 | 318 | — · — · — · — · — |
+| `map` | 4 | 12.71% | 100.0% | 0 | 0.0012 | 32.7% | 662 | 514 | — · — · — · — · — |
+| `map` | 8 | 10.19% | 100.0% | 0 | 0.0014 | 35.1% | 779 | 550 | — · — · — · — · — |
+| `set` | 1 | 0.00% | — | 0 | 0.0000 | 0.0% | 0 | 25 | — · — · — · — · — |
+| `set` | 2 | 0.79% | 100.0% | 0 | 0.0001 | 3.3% | 85 | 407 | — · — · — · — · — |
+| `set` | 4 | 5.50% | 100.0% | 0 | 0.0002 | 14.1% | 342 | 737 | — · — · — · — · — |
+| `set` | 8 | 8.69% | 100.0% | 0 | 0.0002 | 36.8% | 735 | 980 | — · — · — · — · — |
 
 *(Attribution signposting: the structural test for `contention_stat` routing (Refs #838) pins the call-site assignment, not the runtime condition. The runtime condition is review-verified per AGENTS.md §5).*
 
