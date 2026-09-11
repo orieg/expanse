@@ -36,6 +36,9 @@ on:
           - writer_scaling
           - writer_scaling_diagnostic
           - writer_scaling_padded
+          - writer_scaling_ablation_alloc
+          - writer_scaling_ablation_epoch
+          - writer_scaling_ablation_freelist
           - point_lookup_counters
           - search_instructions
           - smoke_instructions
@@ -928,6 +931,14 @@ jobs:
                   --compare lock-padded \
                   --out docs/benchmarks/concurrency/results/padded_writer_scaling.json | tee writer_scaling.txt
                 ;;
+              "writer_scaling_ablation_alloc" | "writer_scaling_ablation_epoch" | "writer_scaling_ablation_freelist")
+                # Hypothesis D arms (Refs #568, METHODOLOGY.md §11): default
+                # build vs one ablation feature, interleaved (build × W) rounds.
+                arm="${SUITE#writer_scaling_ablation_}"
+                python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
+                  "--compare-ablation-${arm}" \
+                  --out "docs/benchmarks/concurrency/results/ablation_${arm}_writer_scaling.json" | tee writer_scaling.txt
+                ;;
               "all")
                 if [ -f base-instructions.txt ]; then
                   cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
@@ -1379,6 +1390,9 @@ jobs:
             docs/benchmarks/concurrency/results/baseline_writer_scaling.json
             docs/benchmarks/concurrency/results/diagnostic_writer_scaling.json
             docs/benchmarks/concurrency/results/padded_writer_scaling.json
+            docs/benchmarks/concurrency/results/ablation_alloc_writer_scaling.json
+            docs/benchmarks/concurrency/results/ablation_epoch_writer_scaling.json
+            docs/benchmarks/concurrency/results/ablation_freelist_writer_scaling.json
             ycsb.txt
             comparative.txt
             bytes-per-key.txt

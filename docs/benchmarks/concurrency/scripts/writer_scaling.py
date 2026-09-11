@@ -70,6 +70,17 @@ DIAGNOSTIC_RESULTS_PATH = (
 PADDED_RESULTS_PATH = (
     REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "padded_writer_scaling.json"
 )
+# Hypothesis D arms (METHODOLOGY.md §11): each shorthand flag compares one
+# ablation feature against the default build.
+ABLATION_ARMS = {
+    "compare_ablation_alloc": "ablation-sharded-alloc",
+    "compare_ablation_epoch": "ablation-striped-epoch",
+    "compare_ablation_freelist": "ablation-striped-freelist",
+}
+ABLATION_RESULTS_PATHS = tuple(
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / f"ablation_{arm}_writer_scaling.json"
+    for arm in ("alloc", "epoch", "freelist")
+)
 
 
 def get_throughput_target(features: str | None = None) -> Path:
@@ -1296,23 +1307,41 @@ def main() -> int:
         default=None,
         help="Cargo features for single-build throughput pass (e.g. lock-padded)",
     )
-    parser.add_argument(
+    # One comparison selector per run: combining two would otherwise keep
+    # one and silently drop the rest.
+    comparison = parser.add_mutually_exclusive_group()
+    comparison.add_argument(
         "--compare",
         type=str,
         default=None,
         metavar="FEATURE",
         help="Compare default build vs feature build with interleaved (build × W) rounds",
     )
-    parser.add_argument(
+    comparison.add_argument(
         "--compare-padded",
         action="store_true",
         help="Shorthand for --compare lock-padded (Hypothesis B)",
     )
-    parser.add_argument(
+    comparison.add_argument(
         "--variants",
         metavar="VARIANTS",
         default=None,
         help="Comma-separated feature variants to compare against default (or via BENCH_VARIANTS env var)",
+    )
+    comparison.add_argument(
+        "--compare-ablation-alloc",
+        action="store_true",
+        help="Shorthand for --compare ablation-sharded-alloc (Hypothesis D arm a)",
+    )
+    comparison.add_argument(
+        "--compare-ablation-epoch",
+        action="store_true",
+        help="Shorthand for --compare ablation-striped-epoch (Hypothesis D arm b)",
+    )
+    comparison.add_argument(
+        "--compare-ablation-freelist",
+        action="store_true",
+        help="Shorthand for --compare ablation-striped-freelist (Hypothesis D arm c)",
     )
     parser.add_argument(
         "--pmu",
@@ -1358,15 +1387,14 @@ def main() -> int:
     variant_list: list[str] = []
     if args.variants:
         variant_list.extend(v.strip() for v in args.variants.split(",") if v.strip())
+    elif args.compare_padded:
+        variant_list.append("lock-padded")
+    elif args.compare:
+        variant_list.append(args.compare)
+    elif selected := [feature for flag, feature in ABLATION_ARMS.items() if getattr(args, flag)]:
+        variant_list.extend(selected)
     elif os.environ.get("BENCH_VARIANTS"):
         variant_list.extend(v.strip() for v in os.environ["BENCH_VARIANTS"].split(",") if v.strip())
-
-    if args.compare_padded:
-        if "lock-padded" not in variant_list:
-            variant_list.append("lock-padded")
-    elif args.compare:
-        if args.compare not in variant_list:
-            variant_list.append(args.compare)
 
     if args.rounds < 3:
         sys.stderr.write("error: --rounds must be >= 3 for BCa bootstrap confidence intervals\n")
@@ -1392,6 +1420,7 @@ def main() -> int:
                 COMMITTED_RESULTS_PATH.resolve(),
                 DIAGNOSTIC_RESULTS_PATH.resolve(),
                 PADDED_RESULTS_PATH.resolve(),
+                *(p.resolve() for p in ABLATION_RESULTS_PATHS),
             )
             and not args.force_quick_out
         ):

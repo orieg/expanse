@@ -1101,6 +1101,10 @@ struct Garbage {
     /// because the collector frees it later and elsewhere; a `dealloc`
     /// layout mismatch is UB, not a leak.
     align: usize,
+    /// Stripe of the writer that retired it (`ablation-striped-freelist`):
+    /// the reclaimed block goes back to that writer's freelists.
+    #[cfg(feature = "ablation-striped-freelist")]
+    slot: usize,
 }
 
 // SAFETY: a retired allocation is exclusively owned by the collector —
@@ -1151,6 +1155,147 @@ pub(crate) fn line<X>(x: X) -> Line<X> {
     Line(x)
 }
 
+/// Maximum number of concurrent writer slots tracked for sharded state,
+/// tree population, gate quiescence, and epoch bin striping.
+/// Under Loom, scaled to 2 to model cross-stripe interleavings within Loom's coroutine stack.
+#[allow(dead_code)]
+#[cfg(not(loom))]
+pub(crate) const MAX_WRITER_SLOTS: usize = 64;
+#[allow(dead_code)]
+#[cfg(loom)]
+pub(crate) const MAX_WRITER_SLOTS: usize = 2;
+
+/// One writer stripe of one epoch bin (`ablation-striped-epoch`).
+#[cfg(all(feature = "std", feature = "ablation-striped-epoch"))]
+#[derive(Debug)]
+#[repr(align(64))]
+struct PaddedBin {
+    garbage: Mutex<Vec<Garbage>>,
+    /// Set when garbage is pushed and cleared when it is taken, both under
+    /// `garbage`'s lock; read without it. It lets an advance skip empty
+    /// stripes with a load instead of a lock, since an advance runs on the
+    /// write path. It is a hint: a stale read only delays a stripe to the
+    /// bin's next drain, and nothing is freed on its strength.
+    nonempty: AtomicBool,
+}
+
+#[cfg(all(feature = "std", feature = "ablation-striped-epoch"))]
+impl PaddedBin {
+    fn new() -> Self {
+        Self {
+            garbage: Mutex::new(Vec::new()),
+            nonempty: AtomicBool::new(false),
+        }
+    }
+
+    /// Takes everything queued in this stripe.
+    fn take(&self) -> Vec<Garbage> {
+        let mut guard = self.garbage.lock().expect("garbage bin poisoned");
+        self.nonempty.store(false, Ordering::Relaxed);
+        core::mem::take(&mut *guard)
+    }
+}
+
+#[cfg(all(feature = "std", feature = "ablation-striped-epoch"))]
+#[derive(Debug)]
+#[repr(align(64))]
+struct PaddedRetained(AtomicUsize);
+
+/// One writer stripe's size-class freelists (`ablation-striped-freelist`).
+/// A stripe's classes share lines only with each other, never with another
+/// stripe's.
+#[cfg(all(feature = "std", feature = "ablation-striped-freelist"))]
+#[derive(Debug)]
+#[repr(align(64))]
+struct PaddedFreelists([Mutex<FreeListHead>; NUM_CLASSES]);
+
+// The stripe index the diagnostic ablations shard by. It is per thread, not
+// per `WriterGate` slot: it is assigned round-robin on a thread's first call,
+// so threads created in succession take distinct stripes until
+// `MAX_WRITER_SLOTS` of them exist. Two threads that share a stripe share its
+// lock or counter, which stays correct; only the ablation's separation is
+// lost. Under Loom an unset stripe is 0: a process-wide counter would hand
+// out different stripes on different model iterations, and a test that
+// wants distinct stripes sets them with `set_writer_slot`.
+#[cfg(all(
+    feature = "std",
+    not(loom),
+    any(
+        feature = "ablation-sharded-alloc",
+        feature = "ablation-striped-epoch",
+        feature = "ablation-striped-freelist"
+    )
+))]
+std::thread_local! {
+    static STRIPE: core::cell::Cell<usize> = const { core::cell::Cell::new(usize::MAX) };
+}
+
+#[cfg(all(
+    feature = "std",
+    loom,
+    any(
+        feature = "ablation-sharded-alloc",
+        feature = "ablation-striped-epoch",
+        feature = "ablation-striped-freelist"
+    )
+))]
+loom::thread_local! {
+    static STRIPE: core::cell::Cell<usize> = core::cell::Cell::new(usize::MAX);
+}
+
+/// The calling thread's ablation stripe, in `0..MAX_WRITER_SLOTS`.
+#[cfg(all(
+    feature = "std",
+    any(
+        feature = "ablation-sharded-alloc",
+        feature = "ablation-striped-epoch",
+        feature = "ablation-striped-freelist"
+    )
+))]
+#[inline]
+pub(crate) fn writer_slot() -> usize {
+    STRIPE.with(|s| {
+        let v = s.get();
+        if v < MAX_WRITER_SLOTS {
+            return v;
+        }
+        #[cfg(not(loom))]
+        let v = {
+            use core::sync::atomic::{AtomicUsize, Ordering};
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            NEXT.fetch_add(1, Ordering::Relaxed) % MAX_WRITER_SLOTS
+        };
+        #[cfg(loom)]
+        let v = 0;
+        s.set(v);
+        v
+    })
+}
+
+/// Pins the calling thread to `slot`, so a test can place work on a chosen
+/// stripe.
+#[cfg(all(
+    test,
+    feature = "std",
+    any(
+        feature = "ablation-sharded-alloc",
+        feature = "ablation-striped-epoch",
+        feature = "ablation-striped-freelist"
+    )
+))]
+pub(crate) fn set_writer_slot(slot: usize) {
+    assert!(slot < MAX_WRITER_SLOTS, "stripe {slot} out of range");
+    STRIPE.with(|s| s.set(slot));
+}
+
+// Without `std` there are no threads to separate, and the sharded
+// allocator accounting (the one ablation that builds there) uses shard 0.
+#[cfg(all(not(feature = "std"), feature = "ablation-sharded-alloc"))]
+#[inline(always)]
+pub(crate) fn writer_slot() -> usize {
+    0
+}
+
 #[cfg(not(feature = "lock-padded"))]
 #[inline]
 #[allow(dead_code)]
@@ -1169,9 +1314,18 @@ pub struct Collector {
     pub(crate) alive: AtomicBool,
     op_count: Line<AtomicUsize>,
     readers: Mutex<Vec<Arc<Slot>>>,
+    #[cfg(not(feature = "ablation-striped-epoch"))]
     bins: [Mutex<Vec<Garbage>>; BINS],
+    #[cfg(feature = "ablation-striped-epoch")]
+    bins: [[PaddedBin; MAX_WRITER_SLOTS]; BINS],
+    #[cfg(not(feature = "ablation-striped-freelist"))]
     freelists: [Mutex<FreeListHead>; NUM_CLASSES],
+    #[cfg(feature = "ablation-striped-freelist")]
+    freelists: [PaddedFreelists; MAX_WRITER_SLOTS],
+    #[cfg(not(feature = "ablation-striped-epoch"))]
     retained_bytes: AtomicUsize,
+    #[cfg(feature = "ablation-striped-epoch")]
+    retained_bytes: [PaddedRetained; MAX_WRITER_SLOTS],
     #[cfg(test)]
     registrations: core::sync::atomic::AtomicU64,
 }
@@ -1194,22 +1348,67 @@ impl Collector {
             alive: AtomicBool::new(true),
             op_count: line(AtomicUsize::new(0)),
             readers: Mutex::new(Vec::new()),
+            #[cfg(not(feature = "ablation-striped-epoch"))]
             bins: [
                 Mutex::new(Vec::new()),
                 Mutex::new(Vec::new()),
                 Mutex::new(Vec::new()),
             ],
+            #[cfg(feature = "ablation-striped-epoch")]
+            bins: core::array::from_fn(|_| core::array::from_fn(|_| PaddedBin::new())),
+            #[cfg(not(feature = "ablation-striped-freelist"))]
             freelists: core::array::from_fn(|_| Mutex::new(FreeListHead(core::ptr::null_mut()))),
+            #[cfg(feature = "ablation-striped-freelist")]
+            freelists: core::array::from_fn(|_| {
+                PaddedFreelists(core::array::from_fn(|_| {
+                    Mutex::new(FreeListHead(core::ptr::null_mut()))
+                }))
+            }),
+            #[cfg(not(feature = "ablation-striped-epoch"))]
             retained_bytes: AtomicUsize::new(0),
+            #[cfg(feature = "ablation-striped-epoch")]
+            retained_bytes: core::array::from_fn(|_| PaddedRetained(AtomicUsize::new(0))),
             #[cfg(test)]
             registrations: core::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    /// The freelist an allocation of `class` pops from: the one shared list,
+    /// or the calling writer's own under `ablation-striped-freelist`.
+    #[inline(always)]
+    fn alloc_freelist(&self, class: usize) -> &Mutex<FreeListHead> {
+        #[cfg(not(feature = "ablation-striped-freelist"))]
+        {
+            &self.freelists[class]
+        }
+        #[cfg(feature = "ablation-striped-freelist")]
+        {
+            &self.freelists[writer_slot()].0[class]
+        }
+    }
+
+    /// The freelist a reclaimed block of `class` is pushed to: the one shared
+    /// list, or the retiring writer's own under `ablation-striped-freelist`.
+    #[inline(always)]
+    fn reclaim_freelist(&self, class: usize, g: &Garbage) -> &Mutex<FreeListHead> {
+        #[cfg(not(feature = "ablation-striped-freelist"))]
+        {
+            let _ = g;
+            &self.freelists[class]
+        }
+        #[cfg(feature = "ablation-striped-freelist")]
+        {
+            &self.freelists[g.slot].0[class]
         }
     }
 
     /// Pops a reclaimed block from this collector's size-class freelist.
     #[inline(always)]
     pub(crate) fn pop_freelist(&self, class: usize) -> *mut u8 {
-        let mut head = self.freelists[class].lock().expect("freelist poisoned");
+        let mut head = self
+            .alloc_freelist(class)
+            .lock()
+            .expect("freelist poisoned");
         let block = head.0;
         if block.is_null() {
             return core::ptr::null_mut();
@@ -1247,11 +1446,35 @@ impl Collector {
         // has a happens-before with an advance and readers pinned at the next epoch.
         fence(Ordering::SeqCst);
         let e = self.epoch.load(Ordering::Relaxed);
-        self.bins[e % BINS]
-            .lock()
-            .expect("garbage bin poisoned")
-            .push(Garbage { ptr, bytes, align });
-        self.retained_bytes.fetch_add(bytes, Ordering::Relaxed);
+        let g = Garbage {
+            ptr,
+            bytes,
+            align,
+            #[cfg(feature = "ablation-striped-freelist")]
+            slot: writer_slot(),
+        };
+        #[cfg(not(feature = "ablation-striped-epoch"))]
+        {
+            self.bins[e % BINS]
+                .lock()
+                .expect("garbage bin poisoned")
+                .push(g);
+            self.retained_bytes.fetch_add(bytes, Ordering::Relaxed);
+        }
+        #[cfg(feature = "ablation-striped-epoch")]
+        {
+            let slot = writer_slot();
+            let stripe = &self.bins[e % BINS][slot];
+            let mut garbage = stripe.garbage.lock().expect("garbage bin poisoned");
+            // Counted before the push: an advance may take the block as soon
+            // as the lock drops, and its per-stripe subtraction must not come
+            // first, or the stripe's counter wraps.
+            self.retained_bytes[slot]
+                .0
+                .fetch_add(bytes, Ordering::Relaxed);
+            garbage.push(g);
+            stripe.nonempty.store(true, Ordering::Relaxed);
+        }
         crate::occ_stats::record_retire(bytes);
     }
 
@@ -1307,30 +1530,73 @@ impl Collector {
         crate::occ_stats::bump(crate::occ_stats::Stat::AdvanceOk);
         // Everything retired at epoch e - 1 predates every possible pin
         // in epochs e and e + 1: no live reader can hold it.
-        let stale = core::mem::take(
-            &mut *self.bins[(e + BINS - 1) % BINS]
-                .lock()
-                .expect("garbage bin poisoned"),
-        );
-        let mut freed_bytes = 0;
-        for g in stale {
-            freed_bytes += g.bytes;
-            if let Some(class) = class_for(g.bytes, g.align) {
-                let block = g.ptr.as_ptr().cast::<FreeBlock>();
-                let mut head = self.freelists[class].lock().expect("freelist poisoned");
-                // SAFETY: block was retired by a well-aligned allocation
-                // matching this size class, and grace period elapsed.
-                unsafe {
-                    (*block).next = head.0;
+        #[cfg(not(feature = "ablation-striped-epoch"))]
+        {
+            let stale = core::mem::take(
+                &mut *self.bins[(e + BINS - 1) % BINS]
+                    .lock()
+                    .expect("garbage bin poisoned"),
+            );
+            let mut freed_bytes = 0;
+            for g in stale {
+                freed_bytes += g.bytes;
+                if let Some(class) = class_for(g.bytes, g.align) {
+                    let block = g.ptr.as_ptr().cast::<FreeBlock>();
+                    let mut head = self
+                        .reclaim_freelist(class, &g)
+                        .lock()
+                        .expect("freelist poisoned");
+                    // SAFETY: block was retired by a well-aligned allocation
+                    // matching this size class, and grace period elapsed.
+                    unsafe {
+                        (*block).next = head.0;
+                    }
+                    head.0 = block;
+                } else {
+                    free_raw(g.ptr, g.bytes, g.align);
                 }
-                head.0 = block;
-            } else {
-                free_raw(g.ptr, g.bytes, g.align);
+            }
+            self.retained_bytes
+                .fetch_sub(freed_bytes, Ordering::Relaxed);
+            crate::occ_stats::record_reclaim(freed_bytes);
+        }
+        #[cfg(feature = "ablation-striped-epoch")]
+        {
+            let stale_bin = (e + BINS - 1) % BINS;
+            for slot in 0..MAX_WRITER_SLOTS {
+                let stripe = &self.bins[stale_bin][slot];
+                // A stripe whose flag reads clear is skipped without its
+                // lock; one being filled right now keeps its garbage until
+                // this bin's next drain.
+                if !stripe.nonempty.load(Ordering::Relaxed) {
+                    continue;
+                }
+                let stale = stripe.take();
+                let mut freed_bytes = 0;
+                for g in stale {
+                    freed_bytes += g.bytes;
+                    if let Some(class) = class_for(g.bytes, g.align) {
+                        let block = g.ptr.as_ptr().cast::<FreeBlock>();
+                        let mut head = self
+                            .reclaim_freelist(class, &g)
+                            .lock()
+                            .expect("freelist poisoned");
+                        // SAFETY: block was retired by a well-aligned allocation
+                        // matching this size class, and grace period elapsed.
+                        unsafe {
+                            (*block).next = head.0;
+                        }
+                        head.0 = block;
+                    } else {
+                        free_raw(g.ptr, g.bytes, g.align);
+                    }
+                }
+                self.retained_bytes[slot]
+                    .0
+                    .fetch_sub(freed_bytes, Ordering::Relaxed);
+                crate::occ_stats::record_reclaim(freed_bytes);
             }
         }
-        self.retained_bytes
-            .fetch_sub(freed_bytes, Ordering::Relaxed);
-        crate::occ_stats::record_reclaim(freed_bytes);
     }
 
     /// Records one mutation operation and triggers `try_advance()` if `ADVANCE_EVERY` operations have elapsed.
@@ -1355,7 +1621,18 @@ impl Collector {
     /// blocks transition to collector size-class freelists for reuse).
     #[must_use]
     pub fn retained_bytes(&self) -> usize {
-        self.retained_bytes.load(Ordering::Relaxed)
+        #[cfg(not(feature = "ablation-striped-epoch"))]
+        {
+            self.retained_bytes.load(Ordering::Relaxed)
+        }
+        #[cfg(feature = "ablation-striped-epoch")]
+        {
+            let mut sum: usize = 0;
+            for s in &self.retained_bytes {
+                sum += s.0.load(Ordering::Relaxed);
+            }
+            sum
+        }
     }
 
     /// Number of registered reader slots. Test-only observability: the #554
@@ -1389,29 +1666,60 @@ impl Collector {
     /// Only sound once no reader can be pinned (the owning wrapper calls this
     /// on drop, when exclusive ownership proves that).
     pub(crate) fn drain(&self) {
-        for bin in &self.bins {
-            let stale = core::mem::take(&mut *bin.lock().expect("garbage bin poisoned"));
-            let mut freed_bytes = 0;
-            for g in stale {
-                freed_bytes += g.bytes;
-                free_raw(g.ptr, g.bytes, g.align);
+        #[cfg(not(feature = "ablation-striped-epoch"))]
+        {
+            for bin in &self.bins {
+                let stale = core::mem::take(&mut *bin.lock().expect("garbage bin poisoned"));
+                let mut freed_bytes = 0;
+                for g in stale {
+                    freed_bytes += g.bytes;
+                    free_raw(g.ptr, g.bytes, g.align);
+                }
+                self.retained_bytes
+                    .fetch_sub(freed_bytes, Ordering::Relaxed);
+                crate::occ_stats::record_reclaim(freed_bytes);
             }
-            self.retained_bytes
-                .fetch_sub(freed_bytes, Ordering::Relaxed);
-            crate::occ_stats::record_reclaim(freed_bytes);
         }
-        for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
-            let mut head = self.freelists[class].lock().expect("freelist poisoned");
-            let mut cur = head.0;
-            head.0 = core::ptr::null_mut();
-            drop(head);
-            let layout = Layout::from_size_align(bytes, align).expect("valid node layout");
-            while !cur.is_null() {
-                // SAFETY: cur was allocated with `layout`.
-                let next = unsafe { (*cur).next };
-                // SAFETY: deallocating unreferenced freelist block with its original layout.
-                unsafe { dealloc(cur.cast::<u8>(), layout) };
-                cur = next;
+        #[cfg(feature = "ablation-striped-epoch")]
+        {
+            for b in 0..BINS {
+                for slot in 0..MAX_WRITER_SLOTS {
+                    // Every stripe, whatever its flag says: nothing may
+                    // outlive the collector.
+                    let stale = self.bins[b][slot].take();
+                    if stale.is_empty() {
+                        continue;
+                    }
+                    let mut freed_bytes = 0;
+                    for g in stale {
+                        freed_bytes += g.bytes;
+                        free_raw(g.ptr, g.bytes, g.align);
+                    }
+                    self.retained_bytes[slot]
+                        .0
+                        .fetch_sub(freed_bytes, Ordering::Relaxed);
+                    crate::occ_stats::record_reclaim(freed_bytes);
+                }
+            }
+        }
+        #[cfg(not(feature = "ablation-striped-freelist"))]
+        let rows = core::iter::once(&self.freelists);
+        #[cfg(feature = "ablation-striped-freelist")]
+        let rows = self.freelists.iter().map(|stripe| &stripe.0);
+        for row in rows {
+            for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
+                let mut head = row[class].lock().expect("freelist poisoned");
+                let mut cur = head.0;
+                head.0 = core::ptr::null_mut();
+                drop(head);
+                let layout = Layout::from_size_align(bytes, align).expect("valid node layout");
+                while !cur.is_null() {
+                    // SAFETY: cur was allocated with `layout`.
+                    let next = unsafe { (*cur).next };
+                    // SAFETY: deallocating unreferenced freelist block with its original layout.
+                    unsafe { dealloc(cur.cast::<u8>(), layout) };
+                    cur = next;
+                }
             }
         }
     }
@@ -1823,8 +2131,111 @@ mod tests {
         // v1 restored to 2 (unmodified)
         assert_eq!(v1.load(Ordering::Relaxed), 2);
     }
+
+    /// Retires one block on every stripe. Each lands in its own stripe, a
+    /// pin holds all of them, and the advances after the unpin reclaim all
+    /// of them: a retire that ignored the stripe, or an advance that skipped
+    /// one, leaves a stripe's bytes behind.
+    #[test]
+    #[cfg(feature = "ablation-striped-epoch")]
+    fn ablation_striped_epoch_reclaims_every_stripe() {
+        let c = Arc::new(Collector::new());
+        let reader = c.register();
+        let pin = reader.pin();
+        let layout = Layout::from_size_align(64, 16).unwrap();
+        for slot in 0..MAX_WRITER_SLOTS {
+            set_writer_slot(slot);
+            // SAFETY: non-zero size and a valid power-of-two alignment.
+            let ptr = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
+            c.retire(ptr, 64, 16);
+            assert_eq!(c.retained_bytes[slot].0.load(Ordering::Relaxed), 64);
+        }
+        let all = 64 * MAX_WRITER_SLOTS;
+        assert_eq!(c.retained_bytes(), all);
+
+        c.try_advance();
+        c.try_advance();
+        assert_eq!(
+            c.retained_bytes(),
+            all,
+            "a pinned reader must hold every stripe"
+        );
+
+        drop(pin);
+        c.try_advance();
+        c.try_advance();
+        assert_eq!(
+            c.retained_bytes(),
+            0,
+            "an advance must reclaim every stripe"
+        );
+    }
+
+    /// `drain` frees every stripe of every bin, not just the ones an advance
+    /// would reach.
+    #[test]
+    #[cfg(feature = "ablation-striped-epoch")]
+    fn ablation_striped_epoch_drain_empties_every_stripe() {
+        let c = Collector::new();
+        let layout = Layout::from_size_align(64, 16).unwrap();
+        for slot in 0..MAX_WRITER_SLOTS {
+            set_writer_slot(slot);
+            // SAFETY: non-zero size and a valid power-of-two alignment.
+            let ptr = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
+            c.retire(ptr, 64, 16);
+        }
+        assert_eq!(c.retained_bytes(), 64 * MAX_WRITER_SLOTS);
+        c.drain();
+        assert_eq!(c.retained_bytes(), 0);
+    }
+
+    /// A reclaimed block goes back to the freelist of the stripe that
+    /// retired it, and only an allocation on that stripe pops it.
+    #[test]
+    #[cfg(feature = "ablation-striped-freelist")]
+    fn ablation_striped_freelist_routes_by_stripe() {
+        let c = Collector::new();
+        let class = 1;
+        let (bytes, align) = CLASS_SPECS[class];
+        assert_eq!(class_for(bytes, align), Some(class));
+        let layout = Layout::from_size_align(bytes, align).unwrap();
+        let home = MAX_WRITER_SLOTS - 1;
+
+        set_writer_slot(home);
+        // SAFETY: non-zero size and a valid power-of-two alignment.
+        let ptr = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
+        c.retire(ptr, bytes, align);
+        // No reader is registered, so these advances reclaim the block.
+        for _ in 0..BINS {
+            c.try_advance();
+        }
+        assert_eq!(c.retained_bytes(), 0);
+
+        set_writer_slot(0);
+        assert!(
+            c.pop_freelist(class).is_null(),
+            "another stripe must not see the block"
+        );
+        set_writer_slot(home);
+        let got = c.pop_freelist(class);
+        assert_eq!(
+            got,
+            ptr.as_ptr(),
+            "the retiring stripe must get its block back"
+        );
+        // SAFETY: `got` was allocated with `layout` and the test now owns it.
+        unsafe { dealloc(got, layout) };
+    }
 }
 
+/// Residual coverage (AGENTS.md §5) of the striped-epoch ablation. Loom runs
+/// with `MAX_WRITER_SLOTS = 2` and checks two writers on stripes 0 and 1
+/// racing a third thread that advances the epoch: under a pin, and without
+/// one, so that a retire can land in the bin an advance is draining. What
+/// Loom does not reach — all 64 stripes, and the striped bins inside a real
+/// tree — is covered by the `ablation_` unit tests in `occ::tests` (also run
+/// under Miri) and by `tests/test_concurrency_ablations.rs` (also run under
+/// ASan), which are deterministic about stripes, not about schedules.
 #[cfg(all(test, loom))]
 mod loom_tests {
     use super::*;
@@ -2348,6 +2759,82 @@ mod loom_tests {
                 "retired block not reclaimed after reader unpinned"
             );
             c.drain();
+        });
+    }
+
+    /// Spawns a writer that retires one 64-byte block on `slot`.
+    #[cfg(feature = "ablation-striped-epoch")]
+    fn spawn_striped_retire(c: &Arc<Collector>, slot: usize) -> loom::thread::JoinHandle<()> {
+        let c = Arc::clone(c);
+        loom::thread::spawn(move || {
+            set_writer_slot(slot);
+            let layout = Layout::from_size_align(64, 16).unwrap();
+            // SAFETY: non-zero size and a valid power-of-two alignment.
+            let ptr = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
+            c.retire(ptr, 64, 16);
+        })
+    }
+
+    /// Two writers retire on stripes 0 and 1 while a third thread advances,
+    /// all under a reader pinned before any of them start. The pin allows
+    /// one advance at most, so whichever epoch each retire lands in, nothing
+    /// is reclaimed until the reader unpins; after it does, every stripe is.
+    #[test]
+    #[cfg(feature = "ablation-striped-epoch")]
+    fn loom_striped_epoch_pin_holds_across_concurrent_advance() {
+        loom::model(|| {
+            let c = Arc::new(Collector::new());
+            let reader = c.register();
+            let pin = reader.pin();
+
+            let w1 = spawn_striped_retire(&c, 0);
+            let w2 = spawn_striped_retire(&c, 1);
+            let ca = Arc::clone(&c);
+            let adv = loom::thread::spawn(move || {
+                ca.try_advance();
+                ca.try_advance();
+            });
+            w1.join().unwrap();
+            w2.join().unwrap();
+            adv.join().unwrap();
+            assert_eq!(c.retained_bytes(), 128, "reclaimed under a pin");
+
+            drop(pin);
+            drop(reader);
+            for _ in 0..BINS {
+                c.try_advance();
+            }
+            assert_eq!(c.retained_bytes(), 0);
+        });
+    }
+
+    /// No reader, so the concurrent thread's two advances both succeed, and
+    /// a writer that read epoch `e` can push into bin `e` while the second
+    /// advance is draining that bin's stripes. Every retired byte must be
+    /// reclaimed exactly once: a block lost from a stripe leaves the count
+    /// above zero, and one reclaimed twice wraps it.
+    #[test]
+    #[cfg(feature = "ablation-striped-epoch")]
+    fn loom_striped_epoch_retire_races_drain_of_its_bin() {
+        loom::model(|| {
+            let c = Arc::new(Collector::new());
+
+            let w1 = spawn_striped_retire(&c, 0);
+            let w2 = spawn_striped_retire(&c, 1);
+            let ca = Arc::clone(&c);
+            let adv = loom::thread::spawn(move || {
+                ca.try_advance();
+                ca.try_advance();
+            });
+            w1.join().unwrap();
+            w2.join().unwrap();
+            adv.join().unwrap();
+
+            // The epoch is at most 2; three more advances drain all three bins.
+            for _ in 0..BINS {
+                c.try_advance();
+            }
+            assert_eq!(c.retained_bytes(), 0);
         });
     }
 }

@@ -41,6 +41,18 @@ advance-never = []
 # Rust 1.89, so enabling it raises the effective MSRV above the declared
 # 1.88 floor. No library code is behind this feature.
 avx512 = []
+# Diagnostic-only: sharded allocator accounting counters (Hypothesis D Arm a),
+# to measure what atomic ping-ponging in `bytes_in_use`, `live_allocs`, and
+# `total_allocs` costs concurrent writer scaling.
+ablation-sharded-alloc = []
+# Diagnostic-only: striped epoch garbage bins and sharded retained bytes
+# (Hypothesis D Arm b), to measure what the epoch bin mutex and retained_bytes
+# sharing cost concurrent writer scaling.
+ablation-striped-epoch = []
+# Diagnostic-only: per-writer-stripe collector freelists (Hypothesis D Arm c),
+# to measure what the shared per-class freelist mutex, taken on every OCC
+# size-class allocation, costs concurrent writer scaling.
+ablation-striped-freelist = []
 
 [dependencies]
 

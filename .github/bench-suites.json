@@ -153,6 +153,30 @@
       "suite": "concurrency"
     },
     {
+      "name": "writer_scaling_ablation_alloc",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Expanse multi-writer scaling, default build vs sharded allocator accounting counters (Hypothesis D arm a, Refs #568); outputs ablation_alloc_writer_scaling.json.",
+      "suite": "concurrency"
+    },
+    {
+      "name": "writer_scaling_ablation_epoch",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Expanse multi-writer scaling, default build vs striped epoch garbage bins (Hypothesis D arm b, Refs #568); outputs ablation_epoch_writer_scaling.json.",
+      "suite": "concurrency"
+    },
+    {
+      "name": "writer_scaling_ablation_freelist",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Expanse multi-writer scaling, default build vs per-stripe collector freelists (Hypothesis D arm c, Refs #568); outputs ablation_freelist_writer_scaling.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "point_lookup_counters",
       "available": true,
       "kind": "counters",
