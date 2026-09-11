@@ -58,6 +58,8 @@ DIRECT_HARNESSES = {
         "runs benchmark cells under perf on the reference host",
     "docs/benchmarks/concurrency/scripts/ablations.py":
         "runs the #789 ablation builds on the concurrent cells (#568 Step 0)",
+    "docs/benchmarks/concurrency/scripts/writer_scaling.py":
+        "the Expanse-native writer scaling instrument for Phase 1.5D and multi-writer OLC gating (#568)",
 }
 
 # Directly-invoked scripts that time things but must NOT be pinned here, with
