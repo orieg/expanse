@@ -4,6 +4,10 @@
 //!
 //! Gated by `feature = "std"`.
 
+// Kept as its own attribute, and in this exact form: the nightly Miri shard
+// census (`scripts/check_miri_shards.py`) matches `^#!\[cfg\(not\(miri\)\)\]`
+// literally rather than parsing nested `cfg(all(..))`.
+#![cfg(not(miri))]
 #![cfg(all(
     feature = "std",
     any(feature = "ablation-sharded-alloc", feature = "ablation-striped-epoch")
