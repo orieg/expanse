@@ -103,7 +103,20 @@ When packing relative timestamps and entity indices into composite 32-bit words 
 2. **Explicit Epoch Rebasing**: An explicit epoch-rebase pass (or periodic memory window rebase) MUST be designed into the API contract to handle long-running execution beyond the bitfield limit without silent scan corruption or device loss.
 3. **Capacity Invariant Enforcement**: Constructors (`*_create(max_capacity)`) MUST assert or enforce that `max_capacity` does not exceed the index field's maximum representation ($2^{\text{idx\_bits}}$).
 
+### 2.6 Concurrent Memory Reclamation: Slot-Striped Epoch Bins over Buffering
+When reducing cross-writer contention on Epoch-Based Reclamation (EBR) garbage bins or allocation accounting:
+1. **Never Introduce Thread-Local Retire Buffers**:
+   - Buffering retired pointers in thread-local storage introduces severe concurrency hazards:
+     a. **S4 Store-Buffer Pairing Violation**: If writer A buffers garbage from epoch $e$, and writer B advances the epoch to $e+1$ and reclaims bin $e-1$, writer A's un-flushed buffer can hold pointers that bypass epoch boundaries unless complex cross-thread flush-before-advance protocols are introduced.
+     b. **Thread-Exit Leaks**: Pointers buffered in thread-locals leak memory if the worker thread terminates before an advance or flush.
+2. **Stripe Epoch Bins per Writer Slot**:
+   - Stripe garbage bins directly by writer slot: `bins[e % BINS][slot]`.
+   - Each writer tags and pushes garbage into its own dedicated slot bin at retire time (`self.bins[e % BINS][slot].lock()`), eliminating cross-writer mutex contention with zero buffering.
+   - Reclaimers drain all stripes across all slots when advancing epochs.
+   - Shard atomic accounting counters (`bytes_in_use`, `retained_bytes`) per writer slot to eliminate atomic ping-ponging.
+
 ---
+
 
 
 ## 3. Clean-Room Discipline (Strict & Non-Negotiable)
@@ -572,3 +585,32 @@ The reference host is quiet but not dedicated, and §8.4 gates on intervals take
 - **The unit of work is one gate moving from unmet to met**, never "a phase" and never "an epic". State the gate verbatim, its falsifier, and its blast radius before starting.
 - **Threshold, method and sample size are fixed before execution.** Changing any of them after seeing results forces an `INTERMEDIATE` relabel and fresh seeds, however well justified the new value is. This is the price of the change, not an argument against it: pay it and re-run, or keep the original threshold and report the result it gives.
 - A gate that is met by redefining it was never a gate. Where a threshold turns out to be wrong, say so in the issue, set the new one, and re-run from seeds — the sequence §8.8 already fixes for a spike applies to a single gate too.
+
+### 8.20 Multi-Writer Concurrency Diagnostics & Time Budget Attribution
+When diagnosing multi-writer scaling deficits ($C(W) < 1.0$) or attributing latency inflation:
+
+1. **Invariant TSC vs Core Clock Rate Hygiene (`rdtsc` ≠ Core Clock)**:
+   - Cycle counters (`rdtsc` / `cycles_now()`) read the x86 **Invariant TSC**, which ticks at a fixed nominal rate (`tsc_hz`), NOT the dynamic CPU core clock.
+   - Never convert TSC cycle ticks to wall-clock time using the CPU core clock or turbo frequency; doing so distorts wait times by up to $2\times$.
+   - Divide TSC ticks strictly by `tsc_hz` measured via `occ_stats::cycles_hz()`. Core operating frequency is an independent variable measured via PMU `cycles / ref-cycles`.
+
+2. **Concurrency-Specific Decision Statistics & Interleaved Execution**:
+   - An optimization is not a concurrency improvement if it merely improves single-threaded baseline speed.
+   - Concurrency hypotheses MUST be evaluated via the paired scaling factor ratio:
+     $$\text{BCa}_{\text{lower}}\left( \frac{C_{\text{variant}}(W)}{C_{\text{default}}(W)} \right) > 1.0 \quad \left(\text{or } \frac{T_{\text{variant}}(W)}{T_{\text{default}}(W)} > \frac{T_{\text{variant}}(1)}{T_{\text{default}}(1)}\right)$$
+     with $W \ge 2$ as the primary cell and $W=1$ as the control cell, across $\ge 2$ independent runs.
+   - **Interleaved Rounds**: Benchmark drivers MUST interleave builds within each round (`(build × W)` execution order) to eliminate thermal drift and enable paired BCa bootstrapping.
+   - **Frequency Droop Bootstrapping**: Measure PMU `cycles / ref-cycles` across $\ge 8$ rounds (one sample per round) so that frequency droop can be evaluated with a rigorous BCa 95% confidence interval lower bound.
+
+3. **Interventional Decisions vs Observational Profiling**:
+   - Profiling tools (`perf c2c`, PMU cache-miss events) are observational: they identify suspect lines or cache bouncing, but cannot establish causality.
+   - Falsifiable hypothesis decisions require **interventional diagnostic ablations** (e.g. sharding accounting counters, striping bins).
+   - **Scoped Rejection**: Rejection is strictly scoped to the exact mechanisms ablated. Untested paths (e.g. un-sharded freelist mutexes) must not be declared refuted; they belong on the unexplained-budget line.
+
+4. **Rigorous Time Budget Attribution & No-Residual Narrative**:
+   - Decompose elapsed per-insert time into: $t(W) = t_{\text{busy}}(W) + t_{\text{gate\_wait}}(W) + t_{\text{drain\_wait}}(W)$.
+   - Multiplicative factors (frequency droop) must be corrected *first* on busy time: $t_{\text{busy, corrected}} = t_{\text{busy}} \times \frac{f(W)}{f(1)}$.
+   - Attribution must use the **absolute busy work increase** as denominator: $\Delta t_{\text{busy}} = t_{\text{busy, corrected}}(W) - t(1)$.
+   - Direct measurement of fallback extra work: subtract wait times already deducted (e.g. `quiesce_drain_cycles`) from fallback ticks to prevent double-counting, and source baseline optimistic ticks directly from the $W=1$ control cell ($t(1) \times \text{tsc\_hz}$).
+   - **No Residual-by-Subtraction**: Never attribute an unexplained remainder to a hypothesis by subtracting measured shares from 100%. Any budget left over after direct measurement MUST be explicitly reported as **unexplained**.
+
