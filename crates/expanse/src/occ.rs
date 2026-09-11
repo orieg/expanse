@@ -968,6 +968,14 @@ impl WriterGate {
     /// Writer op entry: verifies the gate is open, publishes in-flight status,
     /// executes `fence(Ordering::SeqCst)`, and re-verifies that the gate is not closed.
     ///
+    /// `in_flight` counts the writers inside the slot rather than flagging
+    /// one: a tree's writer table hashes threads onto taken slots once all
+    /// `MAX_WRITER_SLOTS` are allocated, so two live writers can share a
+    /// word, and a store of 0 by either would drain it under the other.
+    /// The Dekker pairing with [`Self::close`] stays fence-to-fence, the
+    /// form loom models: it treats `SeqCst` accesses as `AcqRel` and
+    /// supports only `fence(SeqCst)`.
+    ///
     /// Returns `Some(WriterGuard)` if entry succeeded, or `None` if the gate is closed.
     #[inline]
     pub(crate) fn enter_writer<'a>(
@@ -978,10 +986,10 @@ impl WriterGate {
         if self.is_closed() {
             return None;
         }
-        in_flight.store(1, Ordering::Relaxed);
+        in_flight.fetch_add(1, Ordering::Relaxed);
         fence(Ordering::SeqCst);
         if self.is_closed() {
-            in_flight.store(0, Ordering::Relaxed);
+            in_flight.fetch_sub(1, Ordering::Relaxed);
             None
         } else {
             Some(WriterGuard {
@@ -992,10 +1000,26 @@ impl WriterGate {
         }
     }
 
-    /// Writer op exit: clears the in-flight status.
+    /// Writer op exit: withdraws this writer from the slot's in-flight count.
     #[inline]
     pub(crate) fn exit_writer(&self, in_flight: &AtomicUsize) {
-        in_flight.store(0, Ordering::Release);
+        in_flight.fetch_sub(1, Ordering::Release);
+    }
+
+    /// Spins until `in_flight` reads zero: the drain half of quiescence,
+    /// run on each allocated writer slot after [`Self::close`].
+    ///
+    /// The load is `Acquire`, pairing with the `Release` in
+    /// [`Self::exit_writer`]: the caller goes on to read, without taking any
+    /// lock the writer released, the nodes an optimistic writer stored to,
+    /// and this edge is what orders those stores before the reads.
+    #[inline]
+    pub(crate) fn wait_drained(in_flight: &AtomicUsize) {
+        while in_flight.load(Ordering::Acquire) != 0 {
+            core::hint::spin_loop();
+            #[cfg(loom)]
+            loom::thread::yield_now();
+        }
     }
 }
 
@@ -1719,6 +1743,39 @@ mod tests {
         assert_eq!(in_flight.load(Ordering::Relaxed), 0);
     }
 
+    /// Two writers publishing through one in-flight word, as they do once a
+    /// tree's writer table has allocated all its slots and hashes further
+    /// threads onto taken ones. Quiescence reads the word as drained when it
+    /// is zero, so neither one writer's exit nor another's back-out from a
+    /// closed gate may zero it while a guard is still held.
+    #[test]
+    fn writer_gate_shared_slot_stays_in_flight_until_last_exit() {
+        let gate = WriterGate::new();
+        let in_flight = AtomicUsize::new(0);
+
+        let a = gate.enter_writer(&in_flight, 7).expect("gate is open");
+        let b = gate.enter_writer(&in_flight, 7).expect("gate is open");
+        drop(a);
+        assert_ne!(
+            in_flight.load(Ordering::Relaxed),
+            0,
+            "the first exit drained a slot another writer still holds"
+        );
+        drop(b);
+        assert_eq!(in_flight.load(Ordering::Relaxed), 0);
+
+        let c = gate.enter_writer(&in_flight, 7).expect("gate is open");
+        gate.close();
+        assert!(gate.enter_writer(&in_flight, 7).is_none());
+        assert_ne!(
+            in_flight.load(Ordering::Relaxed),
+            0,
+            "a back-out from the closed gate drained a slot another writer still holds"
+        );
+        drop(c);
+        assert_eq!(in_flight.load(Ordering::Relaxed), 0);
+    }
+
     #[test]
     fn lock_set_normal_and_abort_protocol() {
         let v_tree = SeqVersion::new();
@@ -2152,6 +2209,89 @@ mod loom_tests {
 
             w1.join().unwrap();
             w2.join().unwrap();
+        });
+    }
+
+    /// A writer stores to data it owns while its guard is held; the
+    /// coordinator closes the gate, drains the writer's slot with the
+    /// production [`WriterGate::wait_drained`], then reads the data, as a
+    /// serialized fallback reads the nodes an optimistic writer just wrote.
+    /// The fallback takes no lock the writer released, so the drain is the
+    /// only edge that can order the two: loom reports a causality violation
+    /// on the cell unless the drain acquires the writer's exit.
+    #[test]
+    fn loom_quiesce_drain_acquires_writer_exit() {
+        loom::model(|| {
+            let gate = Arc::new(WriterGate::new());
+            let in_flight = Arc::new(AtomicUsize::new(0));
+            let data = Arc::new(loom::cell::UnsafeCell::new(0usize));
+
+            let (g, f, d) = (Arc::clone(&gate), Arc::clone(&in_flight), Arc::clone(&data));
+            let w = loom::thread::spawn(move || {
+                if let Some(_guard) = g.enter_writer(&f, 0) {
+                    // SAFETY: loom's cell checks this access; the gate
+                    // protocol is what the test puts under that check.
+                    d.with_mut(|p| unsafe { *p += 1 });
+                }
+            });
+
+            gate.close();
+            WriterGate::wait_drained(&in_flight);
+            // SAFETY: as above.
+            let seen = data.with(|p| unsafe { *p });
+            assert!(seen <= 1);
+            w.join().unwrap();
+            gate.open();
+        });
+    }
+
+    /// Two writers publish through ONE in-flight word, as they do once a
+    /// tree's writer table has allocated every slot and hashes later threads
+    /// onto taken ones (and as every writer does under loom, where the
+    /// per-thread slot cache is a `std::thread_local!` all loom threads
+    /// share). Each writes its own cell under its guard; the coordinator
+    /// closes, drains the shared word, and reads both. If one writer's exit
+    /// can drain the word while the other is still in flight, loom reports a
+    /// causality violation on that writer's cell.
+    #[test]
+    fn loom_shared_slot_quiescence() {
+        loom::model(|| {
+            let gate = Arc::new(WriterGate::new());
+            let in_flight = Arc::new(AtomicUsize::new(0));
+            let cells = Arc::new([
+                loom::cell::UnsafeCell::new(0usize),
+                loom::cell::UnsafeCell::new(0usize),
+            ]);
+
+            let writers: Vec<_> = (0..2)
+                .map(|i| {
+                    let (g, f, c) = (
+                        Arc::clone(&gate),
+                        Arc::clone(&in_flight),
+                        Arc::clone(&cells),
+                    );
+                    loom::thread::spawn(move || {
+                        if let Some(_guard) = g.enter_writer(&f, 0) {
+                            // SAFETY: loom's cell checks this access; the
+                            // gate protocol is what the test puts under it.
+                            c[i].with_mut(|p| unsafe { *p += 1 });
+                        }
+                    })
+                })
+                .collect();
+
+            gate.close();
+            WriterGate::wait_drained(&in_flight);
+            for c in cells.iter() {
+                // SAFETY: as above.
+                let seen = c.with(|p| unsafe { *p });
+                assert!(seen <= 1);
+            }
+            for w in writers {
+                w.join().unwrap();
+            }
+            assert_eq!(in_flight.load(Ordering::Relaxed), 0);
+            gate.open();
         });
     }
 
