@@ -704,6 +704,22 @@ impl ShardedTreePop {
         if sum < 0 { 0 } else { sum as u64 }
     }
 
+    /// The exact population at a quiesce point, summing only the shards of
+    /// the writer slots set in `allocated`. A writer adds to its shard only
+    /// through a slot the writer table allocated, and the table never frees a
+    /// slot, so every other shard holds zero.
+    #[cfg(feature = "std")]
+    pub(crate) fn load_slots(&self, allocated: u64) -> u64 {
+        let mut sum = self.base.load(core::sync::atomic::Ordering::Relaxed) as i64;
+        let mut mask = allocated;
+        while mask != 0 {
+            let slot = mask.trailing_zeros() as usize;
+            mask &= mask - 1;
+            sum = sum.saturating_add(self.shards[slot].load(core::sync::atomic::Ordering::Relaxed));
+        }
+        if sum < 0 { 0 } else { sum as u64 }
+    }
+
     #[inline(always)]
     pub(crate) fn add_base(&self, delta: i64) {
         if delta > 0 {
@@ -1652,7 +1668,15 @@ impl<T: SharedTree> Shared<T> {
         // exact. An insert only adds to the field and `pop_before` carries
         // the delta, so it skips the sum.
         if EXACT_POP {
-            inner.set_tree_pop(self.tree_pop.load());
+            #[cfg(feature = "std")]
+            let pop = self.tree_pop.load_slots(
+                self.writers
+                    .allocated
+                    .load(core::sync::atomic::Ordering::Acquire),
+            );
+            #[cfg(not(feature = "std"))]
+            let pop = self.tree_pop.load();
+            inner.set_tree_pop(pop);
         }
         let pop_before = inner.tree_pop();
         // Read under the lock: the root state is the writer's to change.
@@ -7866,6 +7890,49 @@ mod obsolete_tests {
             probes.swap(i, (y % (i as u64 + 1)) as usize);
         }
         for &k in &probes {
+            assert_eq!(
+                map.remove(k),
+                Some(!k),
+                "present key {k:#x} must be removed"
+            );
+        }
+        assert_eq!(map.len(), 0);
+        map.with_locked(ExpanseMap::validate);
+    }
+
+    /// The population a remove fallback re-syncs is summed over the writer
+    /// slots in use. Several writers insert, each through its own slot, and
+    /// exit; one thread then removes everything, so the true population is
+    /// spread across shards of slots whose writers are gone.
+    #[test]
+    fn fallback_remove_condenses_after_multi_writer_inserts() {
+        let mut x = 0x0DDB_1A5E_5EED_0002u64;
+        let keys: Vec<u64> = (0..40_000)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x
+            })
+            .collect();
+        let map = std::sync::Arc::new(SyncExpanseMap::new());
+        let handles: Vec<_> = keys
+            .chunks(10_000)
+            .map(|chunk| {
+                let map = std::sync::Arc::clone(&map);
+                let chunk = chunk.to_vec();
+                std::thread::spawn(move || {
+                    for k in chunk {
+                        map.insert(k, !k);
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().expect("writer panicked");
+        }
+        assert_eq!(map.len(), keys.len() as u64);
+        for &k in keys.iter().rev() {
             assert_eq!(
                 map.remove(k),
                 Some(!k),
