@@ -25,15 +25,23 @@ Usage:
     python3 scripts/fit_usl.py                        # Fit against committed concurrency artifacts
     python3 scripts/fit_usl.py --max-n 8              # Fit on physical P-cores (N <= 8)
     python3 scripts/fit_usl.py --artifact <path>      # Fit against a specific JSON benchmark artifact
+
+Artifacts: the two-commit A/B schema (hot_comparison/.../baseline_concurrent_ab.json, fitted
+per build) and the single-commit writer_scaling.py schema (concurrency/results/baseline_writer_scaling.json,
+fitted on its rounds_raw replicates) are detected per cell; anything else raises. The `str`
+arm is reported but never gated.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import math
 import random
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -522,53 +530,339 @@ class TestUniversalScalabilityLaw(unittest.TestCase):
         self.assertEqual(fit["verdict"], "PASS")
 
 
-def evaluate_artifact(path: Path, max_n: Optional[float] = None) -> None:
-    data = json.loads(path.read_text())
-    title_suffix = f" (N <= {max_n})" if max_n is not None else ""
-    print(f"=== Universal Scalability Law (USL) Fit: {path.name}{title_suffix} ===")
-    for arm in ("set", "map"):
-        cells = [t for t in data.get("throughput", []) if t.get("arm") == arm and t.get("readers") == 0]
+    def test_single_commit_artifact_loader(self):
+        arms = {"map": (6.0, 0.05, 0.001), "set": (7.0, 0.40, 0.001), "str": (3.0, 1.0, 0.0)}
+        data = _synthetic_single_commit_artifact(arms, writers=[1, 2, 4, 8, 16])
+        inputs = artifact_fit_inputs(data, max_n=8.0)
+        self.assertEqual(inputs["schema"], SCHEMA_SINGLE_COMMIT)
+        # `str` is excluded from the gate, and says so.
+        self.assertEqual([s["arm"] for s in inputs["series"]], ["set", "map"])
+        self.assertTrue(any("str" in n and "excluded" in n for n in inputs["notices"]))
+
+        by_arm = {s["arm"]: s for s in inputs["series"]}
+        map_cells = {c["writers"]: c for c in data["throughput"] if c["arm"] == "map"}
+        self.assertEqual(by_arm["map"]["build"], "commit 0123456789ab")
+        self.assertEqual(by_arm["map"]["n_vals"], [1.0, 2.0, 4.0, 8.0])
+        self.assertEqual(
+            by_arm["map"]["reps"],
+            [[r["writer_mops"] for r in map_cells[w]["rounds_raw"]] for w in (1, 2, 4, 8)],
+        )
+        self.assertEqual(
+            by_arm["map"]["x_vals"], [map_cells[w]["expanse_writer_mops_mean"] for w in (1, 2, 4, 8)]
+        )
+
+        # End to end through the file loader that raised KeyError on c["base"].
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "writer_scaling.json"
+            path.write_text(json.dumps(data))
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                results = evaluate_artifact(path, max_n=8.0)
+        self.assertIn("str", out.getvalue())
+        fits = {r["arm"]: r["fit"] for r in results}
+        # Same estimator and ceilings as the A/B path: the loader only supplies replicates.
+        direct = fit_usl_with_bootstrap(
+            by_arm["map"]["n_vals"], by_arm["map"]["reps"], num_resamples=1000, max_n=8.0
+        )
+        self.assertEqual(fits["map"]["alpha_ci"], direct["alpha_ci"])
+        self.assertEqual(fits["map"]["beta_ci"], direct["beta_ci"])
+        self.assertEqual(fits["map"]["verdict"], "PASS")
+        self.assertEqual(fits["set"]["verdict"], "FAIL_contention_ceiling")
+
+    def test_single_commit_artifact_rejects_malformed(self):
+        def fresh():
+            return _synthetic_single_commit_artifact({"map": (6.0, 0.05, 0.001)}, writers=[1, 2, 4, 8])
+
+        cases = {}
+        d = fresh(); del d["throughput"][1]["expanse_writer_mops_mean"]
+        cases["cell matching neither schema"] = d
+        d = fresh(); d["throughput"][1]["base"] = {}; d["throughput"][1]["head"] = {}
+        cases["mixed schemas"] = d
+        d = fresh(); cell = d["throughput"][2]; cell["rounds_raw"].pop()
+        # Keep the headline consistent with the remaining rows so only the count check can fire.
+        kept = [r["writer_mops"] for r in cell["rounds_raw"]]
+        cell["expanse_writer_mops_mean"] = round(sum(kept) / len(kept), 4)
+        cases["rounds_raw shorter than rounds"] = d
+        d = fresh(); d["throughput"][2]["expanse_writer_mops_mean"] += 0.01
+        cases["headline mean not from rounds_raw"] = d
+        d = fresh(); d["throughput"].append(dict(d["throughput"][3]))
+        cases["duplicate writer count"] = d
+        d = fresh(); d["throughput"][0]["arm"] = "hot"
+        cases["unrecognised arm"] = d
+        d = fresh()
+        for c in d["throughput"]:
+            c["arm"] = "str"
+        cases["no gate arm"] = d
+        d = fresh(); d["throughput"][0]["rounds_raw"][0]["writer_mops"] = 0.0
+        cases["non-positive replicate"] = d
+        for name, bad in cases.items():
+            with self.subTest(name), self.assertRaises(ValueError):
+                artifact_fit_inputs(bad)
+
+    def test_ab_artifact_loader_unchanged(self):
+        n_vals = [1, 2, 4, 8]
+        cells = []
+        for arm, gamma in (("set", 7.0), ("map", 5.0)):
+            for w in n_vals:
+                cell = {"arm": arm, "writers": w, "readers": 0, "rounds_raw": []}
+                for build, scale in (("base", 1.0), ("head", 0.8)):
+                    x = usl_throughput(float(w), gamma * scale, 0.05, 0.001)
+                    samples = [round(x * m, 4) for m in (0.99, 1.01, 0.995, 1.005)]
+                    cell[build] = {"expanse_writer_mops_median": sorted(samples)[2]}
+                    cell["rounds_raw"] += [
+                        {"round": i, "build": build, "expanse_writer_mops": v} for i, v in enumerate(samples)
+                    ]
+                # Rows the A/B loader always discarded: a null sample.
+                cell["rounds_raw"].append({"round": 4, "build": "base", "expanse_writer_mops": None})
+                cells.append(cell)
+            cells.append({"arm": arm, "writers": 0, "readers": 8, "base": {}, "head": {}, "rounds_raw": []})
+        data = {"throughput": cells}
+
+        inputs = artifact_fit_inputs(data)
+        self.assertEqual(inputs["schema"], SCHEMA_AB)
+        self.assertEqual(
+            [(s["arm"], s["build"]) for s in inputs["series"]],
+            [("set", "base"), ("set", "head"), ("map", "base"), ("map", "head")],
+        )
+        for s in inputs["series"]:
+            arm_cells = [c for c in cells if c["arm"] == s["arm"] and c["readers"] == 0]
+            self.assertEqual(s["n_vals"], [1.0, 2.0, 4.0, 8.0])
+            self.assertEqual(s["x_vals"], [c[s["build"]]["expanse_writer_mops_median"] for c in arm_cells])
+            self.assertEqual(
+                s["reps"],
+                [
+                    [r["expanse_writer_mops"] for r in c["rounds_raw"]
+                     if r["build"] == s["build"] and r["expanse_writer_mops"] is not None]
+                    for c in arm_cells
+                ],
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "baseline_concurrent_ab.json"
+            path.write_text(json.dumps(data))
+            with contextlib.redirect_stdout(io.StringIO()):
+                results = evaluate_artifact(path)
+        set_base = inputs["series"][0]
+        direct = fit_usl_with_bootstrap(set_base["n_vals"], set_base["reps"], num_resamples=1000)
+        self.assertEqual(results[0]["fit"]["alpha_ci"], direct["alpha_ci"])
+        self.assertEqual(results[0]["fit"]["beta_ci"], direct["beta_ci"])
+
+
+def _synthetic_single_commit_artifact(
+    arms: Dict[str, Tuple[float, float, float]], writers: Sequence[int]
+) -> Dict[str, Any]:
+    """A baseline_writer_scaling.json-shaped artifact whose replicates lie on a known USL curve.
+
+    The four multipliers average to exactly 1.0, so each cell's replicate mean is the
+    model value and the headline mean is its 4-decimal rounding, as writer_scaling.py emits.
+    """
+    multipliers = (0.99, 1.01, 0.995, 1.005)
+    cells = []
+    for arm, (gamma, alpha, beta) in arms.items():
+        for w in writers:
+            x = usl_throughput(float(w), gamma, alpha, beta)
+            samples = [x * m for m in multipliers]
+            cells.append({
+                "arm": arm,
+                "writers": w,
+                "readers": 0,
+                "rounds": len(samples),
+                "expanse_writer_mops_mean": round(sum(samples) / len(samples), 4),
+                "expanse_writer_mops_median": round(sorted(samples)[len(samples) // 2], 4),
+                "rounds_raw": [
+                    {"round": i, "position": i, "writer_mops": v, "writer_elapsed_s": 1.0, "write_ops": 1000}
+                    for i, v in enumerate(samples)
+                ],
+            })
+    return {"provenance": {"commit": "0123456789abcdef"}, "throughput": cells}
+
+
+# ---------------------------------------------------------------------------
+# Artifact Loading
+# ---------------------------------------------------------------------------
+
+# Arms the Phase 1.5B gate is evaluated on.
+GATE_ARMS = ("set", "map")
+# `str` is a reference curve, not a candidate: SyncExpanseStrMap::insert takes the
+# writer mutex, so its contention coefficient is 1 by construction.
+REFERENCE_ARMS = ("str",)
+
+# Two-commit A/B artifact (hot_comparison/results/multi_writer_olc/baseline_concurrent_ab.json):
+# each cell carries `base`/`head` sub-dicts and build-tagged `rounds_raw` rows.
+SCHEMA_AB = "ab"
+# Single-commit artifact (concurrency/results/baseline_writer_scaling.json): each cell carries a
+# top-level `expanse_writer_mops_mean` and untagged `rounds_raw[].writer_mops` rows.
+SCHEMA_SINGLE_COMMIT = "single_commit"
+
+# writer_scaling.py rounds the headline mean to 4 decimals.
+_MEAN_ROUNDING_TOL = 5e-5 + 1e-9
+
+
+def _cell_schema(cell: Dict[str, Any]) -> Optional[str]:
+    if isinstance(cell.get("base"), dict) and isinstance(cell.get("head"), dict):
+        return SCHEMA_AB
+    rounds = cell.get("rounds_raw")
+    if (
+        "expanse_writer_mops_mean" in cell
+        and isinstance(rounds, list)
+        and rounds
+        and all(isinstance(r, dict) and "writer_mops" in r for r in rounds)
+    ):
+        return SCHEMA_SINGLE_COMMIT
+    return None
+
+
+def _cell_label(cell: Dict[str, Any]) -> str:
+    return f"arm={cell.get('arm')!r} writers={cell.get('writers')!r} readers={cell.get('readers')!r}"
+
+
+def detect_schema(data: Any) -> str:
+    """Returns SCHEMA_AB or SCHEMA_SINGLE_COMMIT; raises ValueError on anything else (§8.1).
+
+    Every writer-only cell must name a known arm and match one schema, and all of them
+    must match the same one — a cell that is skipped instead is a silently dropped arm.
+    """
+    throughput = data.get("throughput") if isinstance(data, dict) else None
+    if not isinstance(throughput, list):
+        raise ValueError("unrecognised artifact schema: no `throughput` list")
+
+    writer_only = [c for c in throughput if isinstance(c, dict) and c.get("readers") == 0]
+    unknown = sorted({str(c.get("arm")) for c in writer_only} - set(GATE_ARMS + REFERENCE_ARMS))
+    if unknown:
+        raise ValueError(
+            f"unrecognised arm(s) {unknown}: expected gate arms {list(GATE_ARMS)} "
+            f"or reference arms {list(REFERENCE_ARMS)}"
+        )
+    gate_cells = [c for c in writer_only if c.get("arm") in GATE_ARMS]
+    if not gate_cells:
+        raise ValueError(f"no writer-only (readers == 0) cells for gate arms {list(GATE_ARMS)}")
+
+    schemas = {}
+    for c in gate_cells:
+        schema = _cell_schema(c)
+        if schema is None:
+            raise ValueError(
+                f"unrecognised cell schema ({_cell_label(c)}): expected `base`/`head` sub-dicts "
+                f"(A/B) or `expanse_writer_mops_mean` with `rounds_raw[].writer_mops` "
+                f"(single-commit); cell keys {sorted(c)}"
+            )
+        schemas.setdefault(schema, _cell_label(c))
+    if len(schemas) > 1:
+        raise ValueError(f"mixed cell schemas in one artifact: {schemas}")
+    return next(iter(schemas))
+
+
+def _single_commit_replicates(cell: Dict[str, Any]) -> List[float]:
+    reps = [float(r["writer_mops"]) for r in cell["rounds_raw"]]
+    label = _cell_label(cell)
+    if len(reps) < 3:
+        raise ValueError(f"{label}: {len(reps)} rounds_raw rows, the bootstrap needs >= 3")
+    if "rounds" in cell and len(reps) != int(cell["rounds"]):
+        raise ValueError(f"{label}: {len(reps)} rounds_raw rows but rounds = {cell['rounds']}")
+    if any(not math.isfinite(x) or x <= 0.0 for x in reps):
+        raise ValueError(f"{label}: non-positive or non-finite writer_mops in rounds_raw: {reps}")
+    mean = sum(reps) / len(reps)
+    headline = float(cell["expanse_writer_mops_mean"])
+    if abs(mean - headline) > _MEAN_ROUNDING_TOL:
+        raise ValueError(
+            f"{label}: rounds_raw mean {mean:.6f} != expanse_writer_mops_mean {headline} — "
+            f"the replicates are not the population the headline was computed from"
+        )
+    return reps
+
+
+def artifact_fit_inputs(data: Any, max_n: Optional[float] = None) -> Dict[str, Any]:
+    """Extracts per-arm USL fit inputs from an A/B or single-commit artifact.
+
+    Returns {"schema", "series", "notices"}; each series is
+    {"arm", "build", "n_vals", "x_vals", "reps"}. Arms that are absent or have fewer
+    than three concurrency levels produce a notice rather than disappearing.
+    """
+    schema = detect_schema(data)
+    throughput = data["throughput"]
+    notices: List[str] = []
+    series: List[Dict[str, Any]] = []
+
+    for arm in REFERENCE_ARMS:
+        if any(c.get("arm") == arm and c.get("readers") == 0 for c in throughput):
+            notices.append(
+                f"arm {arm}: excluded from the gate — coarse-mutex reference curve (alpha = 1 by construction)"
+            )
+
+    for arm in GATE_ARMS:
+        cells = [t for t in throughput if t.get("arm") == arm and t.get("readers") == 0]
         if not cells:
+            notices.append(f"arm {arm}: no writer-only cells in artifact — not evaluated")
             continue
         cells.sort(key=lambda c: c.get("writers", 0))
         if max_n is not None:
             cells = [c for c in cells if float(c.get("writers", 0)) <= max_n]
         if len(cells) < 3:
+            notices.append(
+                f"arm {arm}: {len(cells)} concurrency level(s) with N <= {max_n}, the fit needs >= 3 — not evaluated"
+            )
             continue
         n_vals = [float(c["writers"]) for c in cells]
 
-        for build in ("base", "head"):
-            x_vals = [float(c[build]["expanse_writer_mops_median"]) for c in cells]
-            reps = []
-            for c in cells:
-                round_samples = [
-                    float(r["expanse_writer_mops"])
-                    for r in c.get("rounds_raw", [])
-                    if r.get("build") == build and r.get("expanse_writer_mops") is not None
-                ]
-                reps.append(round_samples)
+        if schema == SCHEMA_AB:
+            for build in ("base", "head"):
+                x_vals = [float(c[build]["expanse_writer_mops_median"]) for c in cells]
+                reps = []
+                for c in cells:
+                    round_samples = [
+                        float(r["expanse_writer_mops"])
+                        for r in c.get("rounds_raw", [])
+                        if r.get("build") == build and r.get("expanse_writer_mops") is not None
+                    ]
+                    reps.append(round_samples)
+                series.append({"arm": arm, "build": build, "n_vals": n_vals, "x_vals": x_vals, "reps": reps})
+        else:
+            if len(set(n_vals)) != len(n_vals):
+                raise ValueError(f"arm {arm}: duplicate writer counts {n_vals}")
+            commit = (data.get("provenance") or {}).get("commit")
+            build = f"commit {commit[:12]}" if isinstance(commit, str) and commit else "single-commit"
+            reps = [_single_commit_replicates(c) for c in cells]
+            x_vals = [float(c["expanse_writer_mops_mean"]) for c in cells]
+            series.append({"arm": arm, "build": build, "n_vals": n_vals, "x_vals": x_vals, "reps": reps})
 
-            if all(len(r) >= 3 for r in reps):
-                fit = fit_usl_with_bootstrap(n_vals, reps, num_resamples=1000, max_n=max_n)
-            else:
-                fit = fit_usl(n_vals, x_vals, max_n=max_n)
+    return {"schema": schema, "series": series, "notices": notices}
 
-            print(f"\nArm: {arm} | Build: {build} | Concurrency: {n_vals}")
-            print(f"  Throughput (M ops/s): {x_vals}")
-            print(f"  Verdict:       {fit['verdict']}")
-            print(f"  gamma (W=1):   {fit['gamma']:.4f} M ops/s")
-            print(f"  alpha (cont):  {fit['alpha']:.6f} (ceiling <= 0.15: {fit['gates']['alpha_under_ceiling']})")
-            if "alpha_ci" in fit:
-                ci = fit["alpha_ci"]
-                print(f"    alpha BCa 95% CI: [{ci['ci_lower']:.6f}, {ci['ci_upper']:.6f}] (passes: {ci['passes_ceiling']})")
-            print(f"  beta (coher):  {fit['beta']:.6f} (ceiling <= 0.0033: {fit['gates']['beta_under_ceiling']})")
-            if "beta_ci" in fit:
-                ci = fit["beta_ci"]
-                print(f"    beta BCa 95% CI:  [{ci['ci_lower']:.6f}, {ci['ci_upper']:.6f}] (passes: {ci['passes_ceiling']})")
-            n_max_str = "inf" if math.isinf(fit['n_max']) else f"{fit['n_max']:.2f}"
-            print(f"  N_max (peak):  {n_max_str} (floor >= 16: {fit['gates']['n_max_above_floor']})")
-            print(f"  Goodness of Fit: R^2 = {fit['r_squared']:.4f} (>= 0.95: {fit['gates']['r_squared_above_floor']}), "
-                  f"NRMSE = {fit['nrmse']*100:.2f}% (<= 5%: {fit['gates']['nrmse_under_ceiling']})")
+
+def evaluate_artifact(path: Path, max_n: Optional[float] = None) -> List[Dict[str, Any]]:
+    data = json.loads(path.read_text())
+    inputs = artifact_fit_inputs(data, max_n=max_n)
+    title_suffix = f" (N <= {max_n})" if max_n is not None else ""
+    print(f"=== Universal Scalability Law (USL) Fit: {path.name}{title_suffix} ===")
+    for notice in inputs["notices"]:
+        print(f"notice: {notice}")
+
+    # The single-commit headline is the mean (writer_scaling.py); the A/B headline is the median.
+    x_label = "Throughput mean (M ops/s)" if inputs["schema"] == SCHEMA_SINGLE_COMMIT else "Throughput (M ops/s)"
+    results: List[Dict[str, Any]] = []
+    for s in inputs["series"]:
+        arm, build, n_vals, x_vals, reps = s["arm"], s["build"], s["n_vals"], s["x_vals"], s["reps"]
+        if all(len(r) >= 3 for r in reps):
+            fit = fit_usl_with_bootstrap(n_vals, reps, num_resamples=1000, max_n=max_n)
+        else:
+            fit = fit_usl(n_vals, x_vals, max_n=max_n)
+        results.append({"arm": arm, "build": build, "fit": fit})
+
+        print(f"\nArm: {arm} | Build: {build} | Concurrency: {n_vals}")
+        print(f"  {x_label}: {x_vals}")
+        print(f"  Verdict:       {fit['verdict']}")
+        print(f"  gamma (W=1):   {fit['gamma']:.4f} M ops/s")
+        print(f"  alpha (cont):  {fit['alpha']:.6f} (ceiling <= 0.15: {fit['gates']['alpha_under_ceiling']})")
+        if "alpha_ci" in fit:
+            ci = fit["alpha_ci"]
+            print(f"    alpha BCa 95% CI: [{ci['ci_lower']:.6f}, {ci['ci_upper']:.6f}] (passes: {ci['passes_ceiling']})")
+        print(f"  beta (coher):  {fit['beta']:.6f} (ceiling <= 0.0033: {fit['gates']['beta_under_ceiling']})")
+        if "beta_ci" in fit:
+            ci = fit["beta_ci"]
+            print(f"    beta BCa 95% CI:  [{ci['ci_lower']:.6f}, {ci['ci_upper']:.6f}] (passes: {ci['passes_ceiling']})")
+        n_max_str = "inf" if math.isinf(fit['n_max']) else f"{fit['n_max']:.2f}"
+        print(f"  N_max (peak):  {n_max_str} (floor >= 16: {fit['gates']['n_max_above_floor']})")
+        print(f"  Goodness of Fit: R^2 = {fit['r_squared']:.4f} (>= 0.95: {fit['gates']['r_squared_above_floor']}), "
+              f"NRMSE = {fit['nrmse']*100:.2f}% (<= 5%: {fit['gates']['nrmse_under_ceiling']})")
+    return results
 
 
 def main() -> None:
