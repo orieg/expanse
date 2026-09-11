@@ -510,9 +510,19 @@ jobs:
         shell: bash
         run: bash scripts/test_occ_stats.sh
 
+      # The Hypothesis D ablation features (METHODOLOGY.md §11): the stripe
+      # unit tests, then the real-thread integration tests. Separate
+      # invocations, since a positional filter applies to every selected
+      # binary (AGENTS.md §8.11.8); the grep fails a filter that matched none.
       - name: Test concurrency ablations
         shell: bash
-        run: cargo test -p expanse-trie --features ablation-sharded-alloc,ablation-striped-epoch --test test_concurrency_ablations
+        run: |
+          set -o pipefail
+          F=ablation-sharded-alloc,ablation-striped-epoch,ablation-striped-freelist
+          cargo test -p expanse-trie --lib --features "$F" -- ablation_ 2>&1 | tee ablation-unit.log
+          grep -Eq 'test result: ok\. [1-9][0-9]* passed' ablation-unit.log \
+            || { echo "::error::the ablation_ filter ran zero unit tests"; exit 1; }
+          cargo test -p expanse-trie --features "$F" --test test_concurrency_ablations
 
       - name: Assert capi drop-in artifacts exist (Windows)
         if: runner.os == 'Windows'
@@ -778,6 +788,11 @@ jobs:
 
       - name: Check RV32IMAC Core
         run: cargo check -p expanse-trie --no-default-features --target riscv32imac-unknown-none-elf
+
+      # The diagnostic ablation features are additive and public, so they
+      # must build wherever the crate does, `std` or not.
+      - name: Check RV32IMAC Core with the ablation features
+        run: cargo check -p expanse-trie --no-default-features --target riscv32imac-unknown-none-elf --features ablation-sharded-alloc,ablation-striped-epoch,ablation-striped-freelist
 
   test-rv32-zbb:
     name: Cross / RV32IMAC + Zbb Cross-Compile (Bare-Metal)
@@ -1170,9 +1185,12 @@ jobs:
       - name: Miri (core unsafe smoke — leaf, node, slot, 32-bit trie invariants, deferred-dispose round trips, the strmap cursor's raw path stack, the OCC lock and epoch primitives)
         run: |
           cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types:: blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots map::tests::occ_engine_single_thread_under_miri map::tests::slot_calls_on_a_warm_insert_path set::tests::occ_engine_single_thread_under_miri occ::tests::
-      - name: Miri (concurrency diagnostic ablations — striped epoch bin disposal)
+      - name: Miri (concurrency diagnostic ablations — per-stripe accounting, epoch bins and freelists)
         run: |
-          cargo miri test -p expanse-trie --lib --features ablation-striped-epoch -- occ::tests::test_striped_epoch_single_thread_under_miri
+          set -o pipefail
+          cargo miri test -p expanse-trie --lib --features ablation-sharded-alloc,ablation-striped-epoch,ablation-striped-freelist -- ablation_ 2>&1 | tee ablation-miri.log
+          grep -Eq 'test result: ok\. [1-9][0-9]* passed' ablation-miri.log \
+            || { echo "::error::the ablation_ filter ran zero tests under Miri"; exit 1; }
 
   test-asan:
     name: Safety / ASan Core Smoke (Ubuntu)
@@ -1192,7 +1210,7 @@ jobs:
         env:
           RUSTFLAGS: "-Zsanitizer=address"
       - name: Run concurrency ablations under AddressSanitizer
-        run: cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --features ablation-sharded-alloc,ablation-striped-epoch --test test_concurrency_ablations
+        run: cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --features ablation-sharded-alloc,ablation-striped-epoch,ablation-striped-freelist --test test_concurrency_ablations
         env:
           RUSTFLAGS: "-Zsanitizer=address"
 
@@ -1689,8 +1707,8 @@ jobs:
         env:
           RUSTFLAGS: --cfg loom
 
-      - name: Loom model checks with striped epoch ablation
-        run: cargo test -p expanse-trie --release --features ablation-striped-epoch loom_
+      - name: Loom model checks with the striped epoch and freelist ablations
+        run: cargo test -p expanse-trie --release --features ablation-striped-epoch,ablation-striped-freelist loom_
         env:
           RUSTFLAGS: --cfg loom
 

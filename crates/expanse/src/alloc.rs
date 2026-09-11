@@ -886,6 +886,39 @@ mod tests {
     use core_alloc::sync::Arc;
     use core_alloc::vec::Vec;
 
+    /// Each stripe's allocations are counted in that stripe's shard, a free
+    /// on another stripe is netted in the freeing stripe's shard, and the
+    /// totals still balance. A shard index that ignored the stripe would put
+    /// every count in one shard.
+    #[test]
+    #[cfg(all(feature = "std", feature = "ablation-sharded-alloc"))]
+    fn ablation_sharded_alloc_counts_per_stripe() {
+        let a = NodeAlloc::new();
+        let stripes = [0, 5, NUM_ALLOC_SHARDS - 1];
+        let mut ptrs = Vec::new();
+        for &s in &stripes {
+            crate::occ::set_writer_slot(s);
+            ptrs.push(a.alloc_bytes(32));
+            assert_eq!(a.shards[s].live_allocs.load(Ordering::Relaxed), 1);
+            assert_eq!(a.shards[s].total_allocs.load(Ordering::Relaxed), 1);
+        }
+        let per = (a.bytes_in_use() / stripes.len()) as isize;
+        for &s in &stripes {
+            assert_eq!(a.shards[s].bytes_in_use.load(Ordering::Relaxed), per);
+        }
+
+        crate::occ::set_writer_slot(1);
+        for p in ptrs {
+            // SAFETY: `p` came from `alloc_bytes(32)` on this handle.
+            unsafe { a.free_bytes(p, 32) };
+        }
+        let n = stripes.len() as isize;
+        assert_eq!(a.shards[1].live_allocs.load(Ordering::Relaxed), -n);
+        assert_eq!(a.live_allocs(), 0);
+        assert_eq!(a.bytes_in_use(), 0);
+        assert_eq!(a.total_allocs(), stripes.len());
+    }
+
     #[test]
     #[cfg(feature = "std")]
     #[cfg(debug_assertions)]

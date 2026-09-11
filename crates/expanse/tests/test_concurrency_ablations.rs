@@ -1,8 +1,12 @@
-//! Integration tests verifying concurrency ablation arms (Hypothesis D):
-//! - Arm (a): Sharded allocator accounting counters (`ablation-sharded-alloc`)
-//! - Arm (b): Striped epoch garbage bins and sharded retained bytes (`ablation-striped-epoch`)
+//! Integration tests for the concurrency ablation arms (Hypothesis D):
+//! - Arm (a): sharded allocator accounting counters (`ablation-sharded-alloc`)
+//! - Arm (b): striped epoch garbage bins and sharded retained bytes (`ablation-striped-epoch`)
+//! - Arm (c): per-stripe collector freelists (`ablation-striped-freelist`)
 //!
-//! Gated by `feature = "std"`.
+//! These check that each ablated build stays correct under real threads,
+//! and CI also runs them under ASan. Which stripe a thread lands on is
+//! pinned by the `ablation_` unit tests in `alloc::tests` and `occ::tests`,
+//! which can choose it.
 
 // Kept as its own attribute, and in this exact form: the nightly Miri shard
 // census (`scripts/check_miri_shards.py`) matches `^#!\[cfg\(not\(miri\)\)\]`
@@ -10,19 +14,86 @@
 #![cfg(not(miri))]
 #![cfg(all(
     feature = "std",
-    any(feature = "ablation-sharded-alloc", feature = "ablation-striped-epoch")
+    any(
+        feature = "ablation-sharded-alloc",
+        feature = "ablation-striped-epoch",
+        feature = "ablation-striped-freelist"
+    )
 ))]
 
 #[cfg(feature = "ablation-sharded-alloc")]
 use expanse_trie::alloc::NodeAlloc;
-#[cfg(feature = "ablation-striped-epoch")]
+#[cfg(any(
+    feature = "ablation-striped-epoch",
+    feature = "ablation-striped-freelist"
+))]
 use expanse_trie::occ::Collector;
+use expanse_trie::sync::SyncExpanseMap;
 #[cfg(feature = "ablation-sharded-alloc")]
 use std::ptr::NonNull;
 use std::sync::Arc;
-#[cfg(feature = "ablation-striped-epoch")]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
+
+/// Writers on disjoint key ranges insert and remove through the real
+/// concurrent map while a reader looks keys up, so node retirement, epoch
+/// advances and reclamation into the collector freelists all run with the
+/// enabled ablations in place (with `occ-stats` on, one run counted tens of
+/// thousands of covered fallbacks and retirements and thousands of advances).
+/// Afterwards every surviving key must be present with its value and every
+/// removed key absent.
+#[test]
+fn ablated_map_stays_correct_under_concurrent_writers() {
+    const WRITERS: u64 = 4;
+    const PER_WRITER: u64 = 20_000;
+    // Scatters each writer's keys across the keyspace, so inserts split and
+    // grow nodes and the covered fallback (the only path that advances the
+    // epoch) runs.
+    fn key(w: u64, i: u64) -> u64 {
+        (w * PER_WRITER + i).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+    }
+
+    let map = Arc::new(SyncExpanseMap::new());
+    let done = Arc::new(AtomicBool::new(false));
+    let reader = {
+        let (map, done) = (Arc::clone(&map), Arc::clone(&done));
+        thread::spawn(move || {
+            let mut i = 0u64;
+            while !done.load(Ordering::Relaxed) {
+                if let Some(v) = map.get(key(i % WRITERS, i % PER_WRITER)) {
+                    assert_eq!(v, i % PER_WRITER, "a reader saw a foreign value");
+                }
+                i = i.wrapping_add(7919);
+            }
+        })
+    };
+    let writers: Vec<_> = (0..WRITERS)
+        .map(|w| {
+            let map = Arc::clone(&map);
+            thread::spawn(move || {
+                for i in 0..PER_WRITER {
+                    map.insert(key(w, i), i);
+                }
+                for i in (0..PER_WRITER).step_by(2) {
+                    assert_eq!(map.remove(key(w, i)), Some(i));
+                }
+            })
+        })
+        .collect();
+    for h in writers {
+        h.join().unwrap();
+    }
+    done.store(true, Ordering::Relaxed);
+    reader.join().unwrap();
+
+    assert_eq!(map.len(), WRITERS * PER_WRITER / 2);
+    for w in 0..WRITERS {
+        for i in 0..PER_WRITER {
+            let want = if i % 2 == 1 { Some(i) } else { None };
+            assert_eq!(map.get(key(w, i)), want, "writer {w} key {i}");
+        }
+    }
+}
 
 #[cfg(feature = "ablation-sharded-alloc")]
 struct SendPtr(NonNull<u8>);
@@ -84,7 +155,10 @@ fn test_node_alloc_sharded_counters_cross_thread() {
 }
 
 #[test]
-#[cfg(feature = "ablation-striped-epoch")]
+#[cfg(any(
+    feature = "ablation-striped-epoch",
+    feature = "ablation-striped-freelist"
+))]
 fn test_striped_epoch_bins_multi_writer() {
     let collector = Arc::new(Collector::new());
     let num_writers = 4;
@@ -135,7 +209,10 @@ fn test_striped_epoch_bins_multi_writer() {
 }
 
 #[test]
-#[cfg(feature = "ablation-striped-epoch")]
+#[cfg(any(
+    feature = "ablation-striped-epoch",
+    feature = "ablation-striped-freelist"
+))]
 fn test_striped_epoch_single_thread_lifecycle() {
     let collector = Arc::new(Collector::new());
     let reader = collector.register();

@@ -49,6 +49,10 @@ ablation-sharded-alloc = []
 # (Hypothesis D Arm b), to measure what the epoch bin mutex and retained_bytes
 # sharing cost concurrent writer scaling.
 ablation-striped-epoch = []
+# Diagnostic-only: per-writer-stripe collector freelists (Hypothesis D Arm c),
+# to measure what the shared per-class freelist mutex, taken on every OCC
+# size-class allocation, costs concurrent writer scaling.
+ablation-striped-freelist = []
 
 [dependencies]
 

@@ -396,3 +396,63 @@ reference host.
 2. **Canonical Phase 1.5A evaluation**: The authoritative question Phase 1.5A (#568) evaluates is whether the full zero-sharing and lazy rollup sequence (#818, #819, #821, #822) recovered write scaling compared to the mature pre-1.5A OLC baseline. The baseline is therefore fixed as `b49835ad` (the immediate predecessor of #818), and the head build is `f9efa260` (landed in #822) or current `main`.
 3. **Contention health cells ($W \ge 2$)**: The two-commit sweep script (`run_all.py`) is updated to record health rows for $W \in \{1, 2, 4, 8, 16\}, R = 0$ in addition to the $W = 1, R = 8$ mixed-reader row. Previously committed health cells were restricted to $W = 1$, where `Stat::LockRestarts` and `Stat::LockSpins` were 0 by construction. Measuring health across all $W$ provides the empirical restart counts required for P5.3 evaluation against the instantiated restart ceilings, and directly measures the fallback share and spin time under concurrent write pressure.
 4. **Build configuration and $k$ selection for P5.4**: The default engine build (`Cargo.toml` `default = ["std"]`) runs without `feature = "lock-padded"`. Per `scripts/olc_bounds.py`, residual false sharing across the 64 atomic writer slots packs 8 per cache line, so the default build shape is `ffi_disjoint_default` with $k = 2$ ($12.39\text{ M ops/s}$ for set, $8.95\text{ M ops/s}$ for HOT map, $9.06\text{ M ops/s}$ for Masstree map). The gate script selects $k = 2$ for the default build, and selects $k = 1$ (`ffi_disjoint_padded`) only when the `lock-padded` feature is enabled. P5.4 tests whether the observed W = 16 throughput stays at or below this ceiling.
+
+## 11. Hypothesis D — shared allocator and reclamation state (appended 2026-09-11, locked before any ablation run)
+
+The question (#568): at W ≥ 2, is per-insert cost inflated by state that every
+writer of a tree shares in its allocator and its epoch collector? Each arm is a
+build feature that removes one sharing mechanism and changes nothing else; the
+default build compiles all three out.
+
+| Arm | Feature | Shared state it removes | Replaced by | Suite token |
+|---|---|---|---|---|
+| a | `ablation-sharded-alloc` | `NodeAlloc`'s `bytes_in_use`, `live_allocs` and `total_allocs`, updated by every allocation and free | one cache-line-aligned shard per stripe; the accessors sum the shards | `writer_scaling_ablation_alloc` |
+| b | `ablation-striped-epoch` | the collector's epoch bins (one mutex per bin, taken by every retire) and its `retained_bytes` counter | `bins[e % BINS][stripe]` and one `retained_bytes` per stripe; an advance takes each stripe of the stale bin whose non-empty flag is set | `writer_scaling_ablation_epoch` |
+| c | `ablation-striped-freelist` | the collector's per-class freelists (one mutex per class, taken by every size-class allocation under OCC in `Collector::pop_freelist`, and by every reclaim) | one set of class freelists per stripe; a reclaimed block goes back to the stripe that retired it | `writer_scaling_ablation_freelist` |
+
+**Stripe.** A thread's stripe is assigned round-robin on its first use
+(`occ::writer_slot`), so threads created in succession take distinct stripes
+until `MAX_WRITER_SLOTS` (64) of them exist. The sweep's W is at most 8.
+
+**Instrument and decision rule.** `writer_scaling.py --compare-ablation-<arm>`
+runs the default and the ablated build in interleaved (build × W) rounds and
+reports, per W ≥ 2, the paired ratio $C_{\text{variant}}(W) / C_{\text{default}}(W)$
+with its BCa 95% interval (AGENTS.md §8.20.2). W = 1 is the control. Per cell:
+`SINGLE_RUN_PASS` if the interval's lower bound exceeds 1.0, `REJECTED` if its
+upper bound is below 1.0, `INCONCLUSIVE` otherwise. A claim needs the same
+verdict on the same cells in two independent runs (`docs/BENCHMARKING.md`
+rule 18). Threshold, method and round count are fixed here; changing any of
+them after a run relabels that run `INTERMEDIATE` (AGENTS.md §8.19).
+
+**What a verdict can say (AGENTS.md §8.20.3).** A `REJECTED` arm rules out its
+own mechanism, at the cells tested, and nothing else. Shared state that no arm
+removes stays on the unexplained line: the system allocator behind a
+`pop_freelist` miss, the collector's reader registry (locked by every advance),
+its `epoch` and `op_count` words, and the tree-level writer state that
+Hypothesis B's `lock-padded` comparison addresses. The arms are not additive:
+removing one sharing point can move contention to another, so one arm's
+`SINGLE_RUN_PASS` does not show that its mechanism dominates, and the sum of
+the arms' effects is not a decomposition.
+
+**Confounds, stated before any run.**
+- Arm b changes the advance, which runs on the write path: every writer's
+  successful optimistic operation bumps the collector's `op_count` and every
+  `ADVANCE_EVERY` (32)th attempts one (`Collector::tick_advance`), as does
+  every 32nd covered write. The default build takes one bin lock per advance;
+  arm b reads one flag per stripe (`MAX_WRITER_SLOTS` loads, no lock) and
+  locks only the stripes that hold garbage. The extra loads are work the
+  default build does not do, and bias the arm against a pass.
+- Arm c changes where blocks are reused, not only which lock is taken: in the
+  default build a writer can reuse a block another writer retired, and under
+  arm c only its own. Where writers retire and allocate at different rates,
+  more allocations fall through to the system allocator. No counter records
+  `pop_freelist` hits, so this shift is unmeasured.
+- Arm a adds a thread-local read to every allocation and free; arms b and c add
+  one to every retire and, for c, every `pop_freelist`.
+
+**How often each arm's state is touched** is recorded by the counters pass of
+the same run (`total_allocs_per_insert`, and the `retired` counter), so a
+verdict can be read against the rate at which its mechanism is exercised.
+
+**Explicitly not predicted.** No direction or magnitude is predicted for any
+arm; this is an interventional diagnostic, and no run exists yet (#568).
