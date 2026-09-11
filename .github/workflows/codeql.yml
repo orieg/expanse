@@ -94,11 +94,17 @@ jobs:
         run: |
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json, os
-          # Build modes as default setup ran them: `go` is the one language
-          # it built (autobuild); every other language extracts without a build.
+          # `go` builds with autobuild and `java-kotlin` with the Maven build
+          # in the analyze job; every other language extracts without a build.
+          # Java is built because, without a build, CodeQL asks Gradle rather
+          # than Maven for the classpath, and `bindings/java/build.gradle` pins
+          # a JDK 22 toolchain the runner does not carry, so dependency
+          # resolution fails and dependencies are guessed from package names.
+          # A traced build cannot use incremental (overlay) analysis, so Java
+          # always builds a full database; the action logs a warning saying so.
           modes = {
               "actions": "none", "c-cpp": "none", "csharp": "none",
-              "go": "autobuild", "java-kotlin": "none",
+              "go": "autobuild", "java-kotlin": "manual",
               "javascript-typescript": "none", "python": "none",
               "ruby": "none", "rust": "none",
           }
@@ -127,10 +133,23 @@ jobs:
       matrix: ${{ fromJSON(needs.languages.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
+      # The JDK and build the Java binding ships with (`test-java`,
+      # `pack-java`, `release.yml`). A manual build analyses only what it
+      # compiles: `test-compile` covers `bindings/java`'s main and test
+      # sources, so Java added anywhere else needs its own build step here.
+      - name: Set up JDK 22
+        if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@v6
+        with:
+          java-version: '22'
+          distribution: 'temurin'
       - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
+      - name: Build the Java binding
+        if: matrix.language == 'java-kotlin'
+        run: mvn --batch-mode --no-transfer-progress -f bindings/java/pom.xml test-compile
       - uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
