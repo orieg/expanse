@@ -86,16 +86,35 @@ jobs:
               return;
             }
             const issue_number = context.payload.issue.number;
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: issue_number,
+            });
+            // The self-hosted runner executes the code it checks out, and the
+            // head SHA is read here, after the commenter's permission check. A
+            // fork's author could push between that comment and this read, and
+            // run code nobody reviewed on the host. Branches in this repository
+            // can only be pushed by collaborators with write access, who can
+            // already trigger a run, so only fork pull requests are refused. To
+            // benchmark one, push its head to a branch here, or dispatch the
+            // workflow with the reviewed SHA.
+            const here = `${context.repo.owner}/${context.repo.repo}`;
+            if (!pr.head.repo || pr.head.repo.full_name !== here) {
+              await github.rest.reactions.createForIssueComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: context.payload.comment.id,
+                content: 'confused',
+              });
+              core.setFailed('Refused: fork pull requests are not benchmarked on the self-hosted runner.');
+              return;
+            }
             await github.rest.reactions.createForIssueComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: context.payload.comment.id,
               content: 'rocket',
-            });
-            const { data: pr } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: issue_number,
             });
             // The head SHA, never the ref name: a branch that moves between
             // resolution and checkout would benchmark something nobody asked for.

@@ -1,0 +1,136 @@
+name: CodeQL
+
+# Advanced setup, replacing GitHub's default setup. Default setup cannot be
+# path-filtered: it analysed all nine languages on every push, a docs-only
+# commit included. Here a pull request analyses only the languages whose
+# files it changes, and pushes to `main`, the weekly schedule and a manual
+# dispatch analyse all of them, so a language a PR skips is still analysed on
+# `main`. The categories match default setup's (`/language:<lang>`), which
+# keeps existing alerts tracked across the switch.
+#
+# Not a required check: the ruleset requires only `CI Gate / All Checks
+# Passed`, so a pull request with no analysed language merges unblocked.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  languages:
+    name: CodeQL / Select Languages
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+      any: ${{ steps.pick.outputs.any }}
+    steps:
+      - uses: actions/checkout@v7
+        if: github.event_name == 'pull_request'
+      - uses: dorny/paths-filter@v4
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          # Extension-based, so a binding's language is analysed wherever its
+          # files live. A change to this workflow analyses everything.
+          filters: |
+            all:
+              - '.github/workflows/codeql.yml'
+            actions:
+              - '.github/workflows/**'
+              - '.github/actions/**'
+            c-cpp:
+              - '**/*.c'
+              - '**/*.cc'
+              - '**/*.cpp'
+              - '**/*.h'
+              - '**/*.hpp'
+            csharp:
+              - '**/*.cs'
+              - '**/*.csproj'
+            go:
+              - '**/*.go'
+              - '**/go.mod'
+            java-kotlin:
+              - '**/*.java'
+              - '**/*.kt'
+              - '**/pom.xml'
+            javascript-typescript:
+              - '**/*.js'
+              - '**/*.mjs'
+              - '**/*.cjs'
+              - '**/*.ts'
+              - '**/*.html'
+              - '**/package.json'
+            python:
+              - '**/*.py'
+            ruby:
+              - '**/*.rb'
+              - '**/*.gemspec'
+              - '**/Gemfile'
+            rust:
+              - '**/*.rs'
+              - '**/Cargo.toml'
+              - 'Cargo.lock'
+      - id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          # A JSON list of the filter names above that matched; never PR text.
+          CHANGES: ${{ steps.filter.outputs.changes }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          # Build modes as default setup ran them: `go` is the one language
+          # it built (autobuild); every other language extracts without a build.
+          modes = {
+              "actions": "none", "c-cpp": "none", "csharp": "none",
+              "go": "autobuild", "java-kotlin": "none",
+              "javascript-typescript": "none", "python": "none",
+              "ruby": "none", "rust": "none",
+          }
+          changed = json.loads(os.environ.get("CHANGES") or "[]")
+          if os.environ["EVENT"] != "pull_request" or "all" in changed:
+              picked = list(modes)
+          else:
+              picked = [lang for lang in modes if lang in changed]
+          include = [{"language": lang, "build-mode": modes[lang]} for lang in picked]
+          print("matrix=" + json.dumps({"include": include}))
+          print("any=" + ("true" if picked else "false"))
+          PY
+
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    needs: languages
+    if: needs.languages.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.languages.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"

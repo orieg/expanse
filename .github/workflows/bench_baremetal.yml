@@ -324,13 +324,28 @@ jobs:
               return;
             }
 
-            await react('rocket');
-
             const { data: pr } = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: issue_number,
             });
+            // The self-hosted runner executes the code it checks out, and the
+            // head SHA is read here, after the commenter's permission check. A
+            // fork's author could push between that comment and this read, and
+            // run code nobody reviewed on the host. Branches in this repository
+            // can only be pushed by collaborators with write access, who can
+            // already trigger a run, so only fork pull requests are refused. To
+            // benchmark one, push its head to a branch here, or dispatch the
+            // workflow with the reviewed SHA.
+            const here = `${context.repo.owner}/${context.repo.repo}`;
+            if (!pr.head.repo || pr.head.repo.full_name !== here) {
+              await react('confused');
+              core.setOutput('suite', '');
+              core.setFailed('Refused: fork pull requests are not benchmarked on the self-hosted runner.');
+              return;
+            }
+
+            await react('rocket');
             core.setOutput('ref', pr.head.sha);
             core.setOutput('base_ref', pr.base.sha);
             core.setOutput('pr_number', String(issue_number));
@@ -1181,20 +1196,25 @@ jobs:
             fi
           done
 
+          # The report is output of the code under test, so a fixed heredoc
+          # delimiter would let it end the value early and write further
+          # variables into GITHUB_ENV for the steps that post with the
+          # workflow token. A random delimiter cannot appear in it.
+          DELIM="BENCH_REPORT_$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
           if [ -f baremetal-report.md ]; then
             if [ -f system-load.md ]; then
               cat system-load.md >> baremetal-report.md
             fi
-            echo "BENCH_REPORT<<EOF" >> $GITHUB_ENV
+            echo "BENCH_REPORT<<$DELIM" >> $GITHUB_ENV
             cat baremetal-report.md >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
+            echo "$DELIM" >> $GITHUB_ENV
             cat baremetal-report.md >> "$GITHUB_STEP_SUMMARY"
           else
             # The whole heredoc body is redirected into GITHUB_ENV as a
             # group; the previous form only redirected the delimiters,
             # leaving the report content on stdout and the comment empty.
             {
-              echo "BENCH_REPORT<<EOF"
+              echo "BENCH_REPORT<<$DELIM"
               # head-to-head.md carries the comparative tables and, when the
               # suite has criterion arms, the BCa interval table appended above.
               # Emitted once here so every suite shape reaches the comment with
@@ -1232,7 +1252,7 @@ jobs:
               if [ -f system-load.md ]; then
                 cat system-load.md
               fi
-              echo "EOF"
+              echo "$DELIM"
             } >> $GITHUB_ENV
 
             echo "## Bare-Metal Benchmark Results ($SUITE)" >> "$GITHUB_STEP_SUMMARY"
