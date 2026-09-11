@@ -27,6 +27,7 @@ from perf_report import (
     format_ins_per_op,
     format_n,
     get_bench_n,
+    normalize_bench_name,
     parse,
     parse_bytes_32,
     parse_bytes_64,
@@ -158,15 +159,18 @@ sparse             1000000          16.31          16.31
 memory budget: all distributions within ceilings
 """
 
+# Captured from `cargo run --release -p expanse-trie --example bytes_per_key_32`;
+# each density line carries the guard it is checked against.
 SAMPLE_BYTES_32 = """
 ==========================================================================
 Expanse 32-Bit Trie — Real Measured Memory Density (mem_used)
 ==========================================================================
-1. Clustered sensor timestamps (N = 10000): 6736 bytes (0.6736 B/key)
-2. Sparse 29-bit CAN IDs (N = 500): 6304 bytes (12.6080 B/key)
-3. IPv4 subnet routing map (N = 2000): 18752 bytes (9.3760 B/key)
-4. Dense consecutive map (N = 10000): 52144 bytes (5.2144 B/key)
-5. OTA firmware inline checksums (N = 1000): 1000 live records
+1. Clustered sensor timestamps (N = 10000): 3152 bytes (0.3152 B/key, guard 1.00)
+2. Sparse 29-bit CAN IDs (N = 500): 4960 bytes (9.9200 B/key, guard 20.00)
+3. IPv4 subnet routing map (N = 2000): 16832 bytes (8.4160 B/key, guard 24.00)
+4. Dense consecutive map (N = 10000): 44240 bytes (4.4240 B/key, guard 12.00)
+5. Uniform-random 32-bit keys (N = 5000): 67100 bytes (13.4200 B/key, guard 20.00)
+6. OTA firmware inline checksums (N = 1000): 1000 live records
 
 All 32-bit memory-density regression guards held.
 """
@@ -246,6 +250,13 @@ def test_categorization_and_uncategorized_fallback():
     assert "custom_experimental_bench/test" in cat_dict["uncategorized"]
 
 
+def _enforced_bytes_64_budgets() -> dict[str, tuple[float, float]]:
+    """The `(dist, pop, set ceiling, map ceiling)` rows `bytes_per_key.rs` enforces."""
+    src = (REPO_ROOT / "crates" / "expanse" / "examples" / "bytes_per_key.rs").read_text(encoding="utf-8")
+    row = re.compile(r'\("([a-z-]+)",\s*1_000_000,\s*([0-9.]+),\s*([0-9.]+)\)')
+    return {m.group(1): (float(m.group(2)), float(m.group(3))) for m in row.finditer(src)}
+
+
 def test_parse_bytes_64():
     all_pass, rows = parse_bytes_64(SAMPLE_BYTES_64)
     assert all_pass is True
@@ -266,13 +277,26 @@ def test_parse_bytes_64():
     assert seq["set_bpk"] == "**0.07 B**"
     assert seq["map_bpk"] == "**8.56 B**"
     assert seq["status"] == "🟢 Pass"
-    assert seq["ceiling"] == "< 9.50 B"
 
     rand = next(r for r in rows if "Random" in r["dist"])
     assert rand["set_bpk"] == "**7.92 B**"
     assert rand["map_bpk"] == "**16.70 B**"
     assert rand["status"] == "🟢 Pass"
-    assert rand["ceiling"] == "< 28.00 B"
+
+    # The displayed ceilings must be the ones the `memory-budget` gate enforces:
+    # read them from `examples/bytes_per_key.rs`, so the two tables cannot drift.
+    enforced = _enforced_bytes_64_budgets()
+    assert len(enforced) == 5, enforced
+    labels = {
+        "sequential": "**Sequential**",
+        "clustered": "**Clustered**",
+        "clustered-wide": "**Clustered-Wide**",
+        "random": "**Random (Uniform)**",
+        "sparse": "**Sparse (High 24-bit)**",
+    }
+    for dist, (set_max, map_max) in enforced.items():
+        row = next(r for r in rows if r["dist"] == labels[dist])
+        assert row["ceiling"] == f"set ≤ {set_max:.2f} · map ≤ {map_max:.2f} B", (dist, row["ceiling"])
 
     # Test failure detection
     failing_text = SAMPLE_BYTES_64 + "\nMEMORY BUDGET EXCEEDED: random set 9.50 > 9.00 B/key"
@@ -283,21 +307,27 @@ def test_parse_bytes_64():
 def test_parse_bytes_32():
     all_pass, rows = parse_bytes_32(SAMPLE_BYTES_32)
     assert all_pass is True
-    assert len(rows) == 4
+    assert len(rows) == 5  # five density lines; the OTA line reports records, not bytes
 
-    sensor = next(r for r in rows if "Sensor" in r["workload"])
+    sensor = next(r for r in rows if "sensor" in r["workload"])
     assert sensor["pop"] == "10,000"
-    assert sensor["total_bytes"] == "6,736 B"
-    assert sensor["bpk"] == "**0.67 B**"
+    assert sensor["total_bytes"] == "3,152 B"
+    assert sensor["bpk"] == "**0.32 B**"
     assert sensor["status"] == "🟢 Pass"
-    assert sensor["ceiling"] == "< 1.50 B"
 
     routes = next(r for r in rows if "IPv4" in r["workload"])
     assert routes["pop"] == "2,000"
-    assert routes["total_bytes"] == "18,752 B"
-    assert routes["bpk"] == "**9.38 B**"
-    assert routes["status"] == "🟢 Pass"
-    assert routes["ceiling"] == "< 12.00 B"
+    assert routes["total_bytes"] == "16,832 B"
+    assert routes["bpk"] == "**8.42 B**"
+
+    # The ceiling is the guard printed on the same line, never a second copy.
+    guards = [float(g) for g in re.findall(r"guard ([0-9.]+)\)", SAMPLE_BYTES_32)]
+    assert [r["ceiling"] for r in rows] == [f"≤ {g:.2f} B" for g in guards]
+
+    # A line over its guard fails the table.
+    over = SAMPLE_BYTES_32.replace("(0.3152 B/key, guard 1.00)", "(1.3152 B/key, guard 1.00)")
+    assert over != SAMPLE_BYTES_32
+    assert parse_bytes_32(over)[0] is False
 
 
 def test_cache_simulation_table():
@@ -327,12 +357,42 @@ def test_check_regressions():
     assert len(msgs) > 0
     assert "Performance regression detected" in msgs[0]
 
-    # Test override
-    has_viol_ovr, msgs_ovr = check_regressions(
+    # An override that names no regressed arm is void (AGENTS.md §6).
+    has_viol_void, msgs_void = check_regressions(
         head_reg, base, max_regression_pct=5.0, allowed=True, allow_reason="Approved refactor"
+    )
+    assert has_viol_void is True
+    assert any("names no regressed arm" in m for m in msgs_void), msgs_void
+
+    # One that names it is acknowledged.
+    has_viol_ovr, msgs_ovr = check_regressions(
+        head_reg, base, max_regression_pct=5.0, allowed=True,
+        allow_reason="map_insert +9.89% approved refactor; see results/baseline_instructions.json",
     )
     assert has_viol_ovr is False
     assert "override acknowledged" in msgs_ovr[0]
+
+
+def _duplicate_fn_names(paths: list[Path]) -> int:
+    """How many `#[library_benchmark]` fns share a name with one in another harness."""
+    names: list[str] = []
+    for path in paths:
+        if path.exists():
+            names += re.findall(r"#\[library_benchmark\][^{]*?fn\s+([a-zA-Z0-9_]+)", path.read_text(encoding="utf-8"), re.S)
+    return len(names) - len(set(names))
+
+
+def test_bench_n_does_not_guess_from_arm_names():
+    # The motivating defect: an unanchored digit search took the width in
+    # `map32_range` as the operation count.
+    assert get_bench_n("map32_range") == 2_000
+    assert get_bench_n("map32_range/random") == 1_007  # per-distribution entry wins
+    assert get_bench_n("map32_range/sequential") == 2_000
+    assert get_bench_n("set32_iterate/clustered") == 2_000
+    assert get_bench_n("strmap_churn/routes") == 50_000
+    assert get_bench_n("not_a_bench32") == 1  # no explicit count suffix: no guess
+    assert get_bench_n("synthetic_10k") == 10_000
+    assert get_bench_n("synthetic_2m") == 2_000_000
 
 
 def test_rust_benchmark_sources_coverage():
@@ -344,7 +404,11 @@ def test_rust_benchmark_sources_coverage():
     ]
 
     discovered_benches = set()
-    fn_pattern = re.compile(r"#\[library_benchmark\]\s*(?:#\[bench::\w+[^\]]*\]\s*)*fn\s+([a-zA-Z0-9_]+)")
+    # One unambiguous alternative per attribute or `//` comment line, so a
+    # failed match cannot backtrack exponentially (CodeQL py/redos).
+    fn_pattern = re.compile(
+        r"#\[library_benchmark\]\s*(?:#\[bench::[^\]]*\]\s*|//[^\n]*\n\s*)*fn\s+([a-zA-Z0-9_]+)"
+    )
 
     for path in harness_files:
         if path.exists():
@@ -353,10 +417,20 @@ def test_rust_benchmark_sources_coverage():
                 fn_name = m.group(1)
                 discovered_benches.add(fn_name)
 
-    assert len(discovered_benches) > 0
+    # Every `#[library_benchmark]` in the harnesses is found, including one
+    # whose attributes are interleaved with `//` comment lines.
+    total_attrs = sum(
+        p.read_text(encoding="utf-8").count("#[library_benchmark]") for p in harness_files if p.exists()
+    )
+    assert len(discovered_benches) == total_attrs - _duplicate_fn_names(harness_files), (
+        len(discovered_benches), total_attrs
+    )
+    assert "judyl_get_expanse" in discovered_benches
 
     for bench in discovered_benches:
-        # Assert each benchmark has an explicit N operations mapping
+        # Each benchmark has an explicit N entry: a guessed N (the digit
+        # fallback once read 32 out of `map32_range`) is not a mapping.
+        assert normalize_bench_name(bench) in BENCH_N_MAP, f"Benchmark {bench} has no BENCH_N_MAP entry"
         n = get_bench_n(bench)
         assert n > 1, f"Benchmark {bench} has missing or unmapped N operations (got {n})"
 
@@ -405,7 +479,7 @@ def test_full_rendered_report_structure():
     assert "### 3. 💾 Memory Density Ledgers (Allocator Accounting)" in report
     assert "64-Bit Server Architecture (Bytes per Key)" in report
     assert "32-Bit Embedded Architecture (RV32 / ESP32 / Cortex-M)" in report
-    assert "< 9.50 B" in report
+    assert "set ≤ 0.10 · map ≤ 9.00 B" in report  # the enforced sequential ceiling
 
     # Check Cache Simulation
     assert "### 4. 🔬 Callgrind-Modeled Memory Hierarchy Simulation" in report
@@ -471,15 +545,20 @@ def test_bindings_status_default_and_custom():
 
 
 if __name__ == "__main__":
-    test_parse_callgrind_output()
-    test_bench_n_mapping_and_formatting()
-    test_categorization_and_uncategorized_fallback()
-    test_parse_bytes_64()
-    test_parse_bytes_32()
-    test_cache_simulation_table()
-    test_check_regressions()
-    test_rust_benchmark_sources_coverage()
-    test_chip_regression_logic_consistency()
-    test_bindings_status_default_and_custom()
-    test_full_rendered_report_structure()
-    print("All perf_report tests passed successfully!")
+    # Discovers every `test_*` function, so a new test cannot be left out of a
+    # hand-kept list, and fails on zero tests as well as on any failure.
+    import traceback
+
+    tests = [(name, fn) for name, fn in sorted(globals().items()) if name.startswith("test_") and callable(fn)]
+    if not tests:
+        sys.exit("test_perf_report.py: no tests found")
+    failed = []
+    for name, fn in tests:
+        try:
+            fn()
+        except Exception:  # noqa: BLE001 - report every failure, then exit non-zero
+            failed.append(name)
+            print(f"FAIL {name}")
+            traceback.print_exc()
+    print(f"test_perf_report.py: {len(tests) - len(failed)}/{len(tests)} passed")
+    sys.exit(1 if failed else 0)
