@@ -10,6 +10,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Least privilege for every job's GITHUB_TOKEN. This matches the repository's
+# read-only default, stated here so the workflow does not depend on that
+# setting. A job that needs more declares its own block, as
+# `instruction-counts` does to post its report.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUSTUP_MAX_RETRIES: "10"
