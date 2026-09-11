@@ -45,6 +45,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
@@ -204,6 +205,45 @@ def fit_usl_ols(n_vals: Sequence[float], x_vals: Sequence[float]) -> Tuple[float
     return gamma, alpha, beta
 
 
+# NLLS lands on a bound to within optimiser precision (alpha = 1 - 5e-15 on the
+# Phase 1.5D SWEEP), never exactly on it; one tolerance serves "at the bound"
+# and "zero-width interval" alike.
+_BOUND_TOL = 1e-9
+
+
+def alpha_at_bound(alpha: float) -> bool:
+    """True when alpha sits at its upper bound of 1, where beta is not identifiable."""
+    return alpha >= 1.0 - _BOUND_TOL
+
+
+def identifiability_notes(
+    n_vals: Sequence[float], x_vals: Sequence[float], alpha: float
+) -> List[str]:
+    """Flags curves on which the fitted beta does not measure coherency.
+
+    A retrograde curve alone is not the problem: an exact USL curve with
+    alpha=0.5, beta=0.5 has C(N) < 1 at every N > 1 and both estimators recover
+    it. The problem is a curve that falls and then levels off, which the
+    unconstrained fit can only express with alpha > 1. alpha is then clamped to
+    its bound of 1, and beta is whatever minimises the residual *given* that
+    clamp. It is conditional on an imposed constraint, not a joint estimate, so
+    neither beta nor its interval bounds the coherency coefficient.
+    """
+    notes: List[str] = []
+    x1 = [x for n, x in zip(n_vals, x_vals) if n == 1.0]
+    retrograde = bool(x1) and all(x < x1[0] for n, x in zip(n_vals, x_vals) if n > 1.0)
+    if retrograde:
+        c_n = ", ".join(f"C({n:g})={x / x1[0]:.3f}" for n, x in zip(n_vals, x_vals) if n > 1.0)
+        notes.append(f"C(N) < 1 for every measured N > 1 ({c_n}): the curve is retrograde from N=2")
+    if alpha_at_bound(alpha):
+        notes.append(
+            "beta is not identifiable: alpha pins to its bound of 1, so beta is fitted "
+            "conditional on that bound, not jointly; neither beta nor its interval "
+            "bounds the coherency coefficient"
+        )
+    return notes
+
+
 def fit_usl(
     n_vals: Sequence[float],
     x_vals: Sequence[float],
@@ -245,33 +285,41 @@ def fit_usl(
 
     gamma, alpha, beta = gamma_ols, alpha_ols, beta_ols
 
-    # Refine with non-linear least squares if scipy is available
+    # Refine with non-linear least squares if scipy is available. The estimator
+    # is "the lower-SSR of the OLS and NLLS candidates"; a non-convergent NLLS
+    # candidate is simply absent. `estimator` names which definition ran, so a
+    # bootstrap can be checked against the point fit it is reported beside.
+    estimator = "ols"
     if use_nlls:
         try:
             import numpy as np  # type: ignore
             from scipy.optimize import curve_fit  # type: ignore
+        except ImportError:
+            estimator = "ols (nlls requested; scipy not importable)"
+        else:
+            estimator = "min_ssr(ols, nlls)"
+            try:
+                def _usl_func(n_arr, g, a, b):
+                    n_arr = np.asarray(n_arr, dtype=float)
+                    return (g * n_arr) / (1.0 + a * (n_arr - 1.0) + b * n_arr * (n_arr - 1.0))
 
-            def _usl_func(n_arr, g, a, b):
-                n_arr = np.asarray(n_arr, dtype=float)
-                return (g * n_arr) / (1.0 + a * (n_arr - 1.0) + b * n_arr * (n_arr - 1.0))
+                p0 = [max(1e-6, gamma_ols), max(0.0, min(0.999, alpha_ols)), max(0.0, beta_ols)]
+                popt, _ = curve_fit(
+                    _usl_func,
+                    list(n_vals),
+                    list(x_vals),
+                    p0=p0,
+                    bounds=([1e-6, 0.0, 0.0], [np.inf, 1.0, np.inf]),
+                    maxfev=2000,
+                )
+                g_opt, a_opt, b_opt = float(popt[0]), float(popt[1]), float(popt[2])
 
-            p0 = [max(1e-6, gamma_ols), max(0.0, min(0.999, alpha_ols)), max(0.0, beta_ols)]
-            popt, _ = curve_fit(
-                _usl_func,
-                list(n_vals),
-                list(x_vals),
-                p0=p0,
-                bounds=([1e-6, 0.0, 0.0], [np.inf, 1.0, np.inf]),
-                maxfev=2000,
-            )
-            g_opt, a_opt, b_opt = float(popt[0]), float(popt[1]), float(popt[2])
-
-            fit_ols = usl_goodness_of_fit(n_vals, x_vals, gamma, alpha, beta)
-            fit_nlls = usl_goodness_of_fit(n_vals, x_vals, g_opt, a_opt, b_opt)
-            if fit_nlls["ss_res"] <= fit_ols["ss_res"]:
-                gamma, alpha, beta = g_opt, a_opt, b_opt
-        except Exception:
-            pass
+                fit_ols = usl_goodness_of_fit(n_vals, x_vals, gamma, alpha, beta)
+                fit_nlls = usl_goodness_of_fit(n_vals, x_vals, g_opt, a_opt, b_opt)
+                if fit_nlls["ss_res"] <= fit_ols["ss_res"]:
+                    gamma, alpha, beta = g_opt, a_opt, b_opt
+            except Exception:
+                pass
 
     gof = usl_goodness_of_fit(n_vals, x_vals, gamma, alpha, beta)
     n_max = usl_n_max(alpha, beta)
@@ -303,6 +351,8 @@ def fit_usl(
     return {
         "verdict": verdict,
         "admissible": admissible,
+        "estimator": estimator,
+        "notes": identifiability_notes(n_vals, x_vals, alpha),
         "gamma": gamma,
         "alpha": alpha,
         "beta": beta,
@@ -321,6 +371,46 @@ def fit_usl(
     }
 
 
+def _ci_bounds(
+    theta_hat: float,
+    boot_thetas: Sequence[float],
+    jackknife_thetas: Sequence[float],
+    confidence: float,
+) -> Tuple[float, float, str]:
+    """BCa bounds, or percentile bounds when BCa cannot be computed. Returns (lo, hi, method)."""
+    if _bca_from_distribution is not None and len(jackknife_thetas) > 0:
+        try:
+            lo, hi = _bca_from_distribution(theta_hat, list(boot_thetas), list(jackknife_thetas), confidence)
+            return lo, hi, "bca"
+        except Exception:
+            pass
+    ordered = sorted(boot_thetas)
+    idx_low = int((1.0 - confidence) / 2.0 * len(ordered))
+    idx_high = int((1.0 + confidence) / 2.0 * len(ordered))
+    return ordered[idx_low], ordered[min(idx_high, len(ordered) - 1)], "percentile"
+
+
+def interval_problems(point: float, lo: float, hi: float) -> List[str]:
+    """Reasons a bootstrap interval cannot be reported beside `point`; empty when usable.
+
+    Two failure shapes, both seen on the Phase 1.5D SWEEP (map arm, beta 0.101003
+    reported with CI [0.026496, 0.026496]):
+      - zero width: every replicate landed on one value (a parameter bound), or
+        the BCa bias correction saturated. When the point estimate lies outside
+        the whole bootstrap distribution, z0 pins at its clamp and both BCa
+        quantiles collapse onto the extreme replicate.
+      - excludes the point estimate: AGENTS.md §8.4 requires the point estimate
+        and the interval to share one definition, so the point is always enclosed.
+    """
+    tol = _BOUND_TOL * max(1.0, abs(point))
+    problems: List[str] = []
+    if hi - lo <= tol:
+        problems.append("zero_width")
+    if not (lo - tol <= point <= hi + tol):
+        problems.append("excludes_point_estimate")
+    return problems
+
+
 def fit_usl_with_bootstrap(
     n_vals: Sequence[float],
     x_replicates_per_n: Sequence[Sequence[float]],
@@ -328,8 +418,20 @@ def fit_usl_with_bootstrap(
     num_resamples: int = 2000,
     seed: int = 42,
     max_n: Optional[float] = None,
+    use_nlls: bool = True,
 ) -> Dict[str, Any]:
-    """Fits USL model and computes 95% BCa confidence intervals for contention (alpha) and coherency (beta)."""
+    """Fits USL model and computes 95% BCa confidence intervals for contention (alpha) and coherency (beta).
+
+    Every bootstrap resample and jackknife refit uses the same estimator as the
+    point fit (`use_nlls` is passed through to all three), so the interval
+    describes the estimator it is reported beside (AGENTS.md §8.4).
+
+    An interval that is zero-width or does not enclose its point estimate is
+    labelled unusable rather than reported (§8.1), as is the beta interval when
+    alpha pins to its bound of 1 (see `identifiability_notes`): `ci_lower` / `ci_upper` are
+    None, the rejected bounds are kept under `rejected_ci_*` for diagnosis, the
+    ceiling check reads False, and a PASS verdict becomes `FAIL_ci_unusable`.
+    """
     if len(n_vals) != len(x_replicates_per_n):
         raise ValueError("n_vals and x_replicates_per_n length mismatch")
 
@@ -346,7 +448,7 @@ def fit_usl_with_bootstrap(
         raise ValueError(f"Each concurrency level needs >= 3 rounds for bootstrap, got {round_counts}")
 
     means = [sum(reps) / len(reps) for reps in x_replicates_per_n]
-    point_fit = fit_usl(n_vals, means, max_n=max_n)
+    point_fit = fit_usl(n_vals, means, use_nlls=use_nlls, max_n=max_n)
     alpha_hat = point_fit["alpha"]
     beta_hat = point_fit["beta"]
 
@@ -358,7 +460,7 @@ def fit_usl_with_bootstrap(
         for reps, rc in zip(x_replicates_per_n, round_counts):
             s = [reps[rng.randint(0, rc - 1)] for _ in range(rc)]
             resampled_means.append(sum(s) / rc)
-        b_fit = fit_usl(n_vals, resampled_means, use_nlls=False, max_n=max_n)
+        b_fit = fit_usl(n_vals, resampled_means, use_nlls=use_nlls, max_n=max_n)
         if b_fit.get("admissible", False):
             boot_alphas.append(b_fit["alpha"])
             boot_betas.append(b_fit["beta"])
@@ -374,67 +476,44 @@ def fit_usl_with_bootstrap(
         for j in range(rc):
             jk_means = list(means)
             jk_means[i] = sum(reps[m] for m in range(rc) if m != j) / (rc - 1)
-            jk_fit = fit_usl(n_vals, jk_means, use_nlls=False, max_n=max_n)
+            jk_fit = fit_usl(n_vals, jk_means, use_nlls=use_nlls, max_n=max_n)
             if jk_fit.get("admissible", False):
                 jackknife_alphas.append(jk_fit["alpha"])
                 jackknife_betas.append(jk_fit["beta"])
 
-    # Alpha BCa CI
-    if _bca_from_distribution is not None and len(jackknife_alphas) > 0:
-        try:
-            alpha_ci_lower, alpha_ci_upper = _bca_from_distribution(alpha_hat, boot_alphas, jackknife_alphas, confidence)
-        except Exception:
-            boot_alphas_sorted = sorted(boot_alphas)
-            idx_low = int((1.0 - confidence) / 2.0 * len(boot_alphas_sorted))
-            idx_high = int((1.0 + confidence) / 2.0 * len(boot_alphas_sorted))
-            alpha_ci_lower = boot_alphas_sorted[idx_low]
-            alpha_ci_upper = boot_alphas_sorted[min(idx_high, len(boot_alphas_sorted) - 1)]
-    else:
-        boot_alphas_sorted = sorted(boot_alphas)
-        idx_low = int((1.0 - confidence) / 2.0 * len(boot_alphas_sorted))
-        idx_high = int((1.0 + confidence) / 2.0 * len(boot_alphas_sorted))
-        alpha_ci_lower = boot_alphas_sorted[idx_low]
-        alpha_ci_upper = boot_alphas_sorted[min(idx_high, len(boot_alphas_sorted) - 1)]
+    def _ci_entry(
+        point: float, boots: List[float], jacks: List[float], ceiling: float, extra: List[str]
+    ) -> Dict[str, Any]:
+        lo, hi, method = _ci_bounds(point, boots, jacks, confidence)
+        problems = interval_problems(point, lo, hi) + extra
+        entry: Dict[str, Any] = {
+            "point_estimate": point,
+            "confidence": confidence,
+            "method": method,
+            "estimator": point_fit["estimator"],
+            "usable": not problems,
+            "problems": problems,
+        }
+        if problems:
+            entry.update(ci_lower=None, ci_upper=None, rejected_ci_lower=lo, rejected_ci_upper=hi,
+                         passes_ceiling=False)
+        else:
+            entry.update(ci_lower=lo, ci_upper=hi, passes_ceiling=hi <= ceiling)
+        return entry
 
-    # Beta BCa CI
-    if _bca_from_distribution is not None and len(jackknife_betas) > 0:
-        try:
-            beta_ci_lower, beta_ci_upper = _bca_from_distribution(beta_hat, boot_betas, jackknife_betas, confidence)
-        except Exception:
-            boot_betas_sorted = sorted(boot_betas)
-            idx_low = int((1.0 - confidence) / 2.0 * len(boot_betas_sorted))
-            idx_high = int((1.0 + confidence) / 2.0 * len(boot_betas_sorted))
-            beta_ci_lower = boot_betas_sorted[idx_low]
-            beta_ci_upper = boot_betas_sorted[min(idx_high, len(boot_betas_sorted) - 1)]
-    else:
-        boot_betas_sorted = sorted(boot_betas)
-        idx_low = int((1.0 - confidence) / 2.0 * len(boot_betas_sorted))
-        idx_high = int((1.0 + confidence) / 2.0 * len(boot_betas_sorted))
-        beta_ci_lower = boot_betas_sorted[idx_low]
-        beta_ci_upper = boot_betas_sorted[min(idx_high, len(boot_betas_sorted) - 1)]
+    # With alpha clamped at 1, beta is fitted conditional on the clamp: its
+    # interval may be well-formed, but it does not bound the coherency coefficient.
+    beta_extra = ["not_identifiable_alpha_at_bound"] if alpha_at_bound(alpha_hat) else []
+    point_fit["alpha_ci"] = _ci_entry(alpha_hat, boot_alphas, jackknife_alphas, 0.15, [])
+    point_fit["beta_ci"] = _ci_entry(beta_hat, boot_betas, jackknife_betas, 0.0033, beta_extra)
 
-    alpha_ci_pass = alpha_ci_upper <= 0.15
-    beta_ci_pass = beta_ci_upper <= 0.0033
-
-    point_fit["alpha_ci"] = {
-        "point_estimate": alpha_hat,
-        "ci_lower": alpha_ci_lower,
-        "ci_upper": alpha_ci_upper,
-        "confidence": confidence,
-        "passes_ceiling": alpha_ci_pass,
-    }
-    point_fit["beta_ci"] = {
-        "point_estimate": beta_hat,
-        "ci_lower": beta_ci_lower,
-        "ci_upper": beta_ci_upper,
-        "confidence": confidence,
-        "passes_ceiling": beta_ci_pass,
-    }
-
-    if not alpha_ci_pass and point_fit["verdict"] == "PASS":
-        point_fit["verdict"] = "FAIL_contention_ci_overlaps_floor"
-    if not beta_ci_pass and point_fit["verdict"] == "PASS":
-        point_fit["verdict"] = "FAIL_coherency_ci_overlaps_ceiling"
+    if point_fit["verdict"] == "PASS":
+        if not (point_fit["alpha_ci"]["usable"] and point_fit["beta_ci"]["usable"]):
+            point_fit["verdict"] = "FAIL_ci_unusable"
+        elif not point_fit["alpha_ci"]["passes_ceiling"]:
+            point_fit["verdict"] = "FAIL_contention_ci_overlaps_floor"
+        elif not point_fit["beta_ci"]["passes_ceiling"]:
+            point_fit["verdict"] = "FAIL_coherency_ci_overlaps_ceiling"
 
     return point_fit
 
@@ -529,6 +608,101 @@ class TestUniversalScalabilityLaw(unittest.TestCase):
 
         self.assertEqual(fit["verdict"], "PASS")
 
+        # A well-conditioned curve keeps a non-degenerate interval that encloses
+        # its point estimate, from the point fit's own estimator.
+        for ci in (ci_alpha, ci_beta):
+            self.assertTrue(ci["usable"], ci)
+            self.assertEqual(ci["problems"], [])
+            self.assertLess(ci["ci_lower"], ci["ci_upper"])
+            self.assertLessEqual(ci["ci_lower"], ci["point_estimate"])
+            self.assertLessEqual(ci["point_estimate"], ci["ci_upper"])
+            self.assertEqual(ci["estimator"], fit["estimator"])
+        self.assertEqual(fit["notes"], [])
+
+    @staticmethod
+    def _retrograde_replicates() -> Tuple[List[float], List[List[float]]]:
+        """Synthetic curve shaped like the Phase 1.5D SWEEP map arm: it falls from
+        N=1 and then levels off, so C(N) < 1 at every N > 1 and alpha pins to 1."""
+        n_vals = [1.0, 2.0, 4.0, 8.0]
+        shape = [4.97, 4.16, 3.265, 3.103]
+        rng = random.Random(568)
+        return n_vals, [[m * (1.0 + rng.uniform(-0.04, 0.04)) for _ in range(8)] for m in shape]
+
+    def test_retrograde_interval_encloses_point_or_is_flagged(self):
+        n_vals, reps = self._retrograde_replicates()
+        fit = fit_usl_with_bootstrap(n_vals, reps, num_resamples=300, seed=42, max_n=8.0)
+
+        for name in ("alpha_ci", "beta_ci"):
+            ci = fit[name]
+            if ci["ci_lower"] is not None:
+                # Reported bounds must be an interval around their own point estimate.
+                self.assertLess(ci["ci_lower"], ci["ci_upper"], name)
+                self.assertLessEqual(ci["ci_lower"], ci["point_estimate"], name)
+                self.assertLessEqual(ci["point_estimate"], ci["ci_upper"], name)
+            else:
+                self.assertFalse(ci.get("usable", True), name)
+                self.assertTrue(ci["problems"], name)
+                self.assertIsNone(ci["ci_upper"], name)
+                self.assertFalse(ci["passes_ceiling"], name)
+
+        # An unusable interval never carries bounds, even rejected ones that happen
+        # to enclose the point (the alpha bounds here are 2e-14 wide).
+        for name in ("alpha_ci", "beta_ci"):
+            self.assertEqual(fit[name]["ci_lower"] is None, not fit[name]["usable"], name)
+            self.assertEqual(fit[name]["ci_upper"] is None, not fit[name]["usable"], name)
+
+        # On this curve both intervals are flagged, each for its own reason.
+        self.assertIn("zero_width", fit["alpha_ci"]["problems"])
+        self.assertIn("not_identifiable_alpha_at_bound", fit["beta_ci"]["problems"])
+        self.assertTrue(alpha_at_bound(fit["alpha"]))
+        self.assertNotEqual(fit["verdict"], "PASS")
+        self.assertTrue(any(n.startswith("C(N) < 1 for every measured N > 1") for n in fit["notes"]))
+        self.assertTrue(any(n.startswith("beta is not identifiable") for n in fit["notes"]))
+
+    def test_interval_problems_pins_sweep_figures(self):
+        # Verbatim from the Phase 1.5D SWEEP (run 34554671912, main dde0ac0b).
+        self.assertEqual(interval_problems(0.101003, 0.026496, 0.026496), ["zero_width", "excludes_point_estimate"])
+        self.assertEqual(interval_problems(0.343331, 0.047369, 0.047369), ["zero_width", "excludes_point_estimate"])
+        self.assertEqual(interval_problems(1.0, 1.0, 1.0), ["zero_width"])
+        self.assertEqual(interval_problems(0.5, 0.1, 0.3), ["excludes_point_estimate"])
+        self.assertEqual(interval_problems(0.2, 0.1, 0.3), [])
+
+    def test_bootstrap_refits_use_point_estimator(self):
+        # Pins the call sites: every refit must be passed the point fit's use_nlls.
+        n_vals, reps = self._retrograde_replicates()
+        module = sys.modules[__name__]
+        for use_nlls in (True, False):
+            with mock.patch.object(module, "fit_usl", wraps=module.fit_usl) as spy:
+                fit_usl_with_bootstrap(n_vals, reps, num_resamples=20, seed=1, use_nlls=use_nlls)
+            seen = {call.kwargs.get("use_nlls", True) for call in spy.call_args_list}
+            self.assertEqual(seen, {use_nlls})
+            self.assertEqual(spy.call_count, 1 + 20 + sum(len(r) for r in reps))
+
+    def test_unusable_interval_blocks_pass(self):
+        # A curve that PASSes must not keep PASS beside an interval that was rejected.
+        n_vals = [1.0, 2.0, 4.0, 8.0, 16.0]
+        rng = random.Random(1234)
+        reps = [[usl_throughput(ni, 2000.0, 0.06, 0.001) * (1.0 + rng.uniform(-0.02, 0.02)) for _ in range(5)]
+                for ni in n_vals]
+        module = sys.modules[__name__]
+        collapsed = lambda point, boots, jacks, conf: (point, point, "bca")  # noqa: E731
+        with mock.patch.object(module, "_ci_bounds", side_effect=collapsed):
+            fit = fit_usl_with_bootstrap(n_vals, reps, num_resamples=50, seed=42)
+        self.assertEqual(fit["alpha_ci"]["problems"], ["zero_width"])
+        self.assertIsNone(fit["alpha_ci"]["ci_upper"])
+        self.assertEqual(fit["verdict"], "FAIL_ci_unusable")
+
+    def test_identifiability_notes(self):
+        n_vals = [1.0, 2.0, 4.0, 8.0]
+        # Retrograde from N=2, yet exact USL data: alpha is recovered, so beta is identifiable.
+        exact = [usl_throughput(ni, 1.0, 0.5, 0.5) for ni in n_vals]
+        fit = fit_usl(n_vals, exact)
+        self.assertAlmostEqual(fit["alpha"], 0.5, places=6)
+        self.assertEqual(len(fit["notes"]), 1)
+        self.assertTrue(fit["notes"][0].startswith("C(N) < 1 for every measured N > 1"))
+        # A scaling curve carries no note.
+        scaling = [usl_throughput(ni, 1.0, 0.05, 0.001) for ni in n_vals]
+        self.assertEqual(fit_usl(n_vals, scaling)["notes"], [])
 
     def test_single_commit_artifact_loader(self):
         arms = {"map": (6.0, 0.05, 0.001), "set": (7.0, 0.40, 0.001), "str": (3.0, 1.0, 0.0)}
@@ -827,6 +1001,16 @@ def artifact_fit_inputs(data: Any, max_n: Optional[float] = None) -> Dict[str, A
     return {"schema": schema, "series": series, "notices": notices}
 
 
+def _format_ci(ci: Dict[str, Any]) -> str:
+    """One report line for an interval; an unusable one is never printed as bounds."""
+    method = {"bca": "BCa", "percentile": "percentile"}[ci["method"]]
+    label = f"{method} {ci['confidence'] * 100:g}% CI"
+    if not ci["usable"]:
+        return (f"{label}: ⚠️ UNUSABLE ({', '.join(ci['problems'])}); rejected bounds "
+                f"[{ci['rejected_ci_lower']:.6f}, {ci['rejected_ci_upper']:.6f}] are not reported")
+    return f"{label}: [{ci['ci_lower']:.6f}, {ci['ci_upper']:.6f}] (passes: {ci['passes_ceiling']})"
+
+
 def evaluate_artifact(path: Path, max_n: Optional[float] = None) -> List[Dict[str, Any]]:
     data = json.loads(path.read_text())
     inputs = artifact_fit_inputs(data, max_n=max_n)
@@ -852,16 +1036,17 @@ def evaluate_artifact(path: Path, max_n: Optional[float] = None) -> List[Dict[st
         print(f"  gamma (W=1):   {fit['gamma']:.4f} M ops/s")
         print(f"  alpha (cont):  {fit['alpha']:.6f} (ceiling <= 0.15: {fit['gates']['alpha_under_ceiling']})")
         if "alpha_ci" in fit:
-            ci = fit["alpha_ci"]
-            print(f"    alpha BCa 95% CI: [{ci['ci_lower']:.6f}, {ci['ci_upper']:.6f}] (passes: {ci['passes_ceiling']})")
+            print(f"    alpha {_format_ci(fit['alpha_ci'])}")
         print(f"  beta (coher):  {fit['beta']:.6f} (ceiling <= 0.0033: {fit['gates']['beta_under_ceiling']})")
         if "beta_ci" in fit:
-            ci = fit["beta_ci"]
-            print(f"    beta BCa 95% CI:  [{ci['ci_lower']:.6f}, {ci['ci_upper']:.6f}] (passes: {ci['passes_ceiling']})")
+            print(f"    beta  {_format_ci(fit['beta_ci'])}")
         n_max_str = "inf" if math.isinf(fit['n_max']) else f"{fit['n_max']:.2f}"
         print(f"  N_max (peak):  {n_max_str} (floor >= 16: {fit['gates']['n_max_above_floor']})")
         print(f"  Goodness of Fit: R^2 = {fit['r_squared']:.4f} (>= 0.95: {fit['gates']['r_squared_above_floor']}), "
               f"NRMSE = {fit['nrmse']*100:.2f}% (<= 5%: {fit['gates']['nrmse_under_ceiling']})")
+        print(f"  Estimator:     {fit['estimator']}")
+        for note in fit["notes"]:
+            print(f"  Note: {note}")
     return results
 
 
