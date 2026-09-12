@@ -329,6 +329,19 @@ it is the α = 1 reference curve and is never a gate cell
   non-retrograde multi-writer result on `map`). At W = 4, `map` throughput rose
   +36.4% from 3.71 to 5.06 M/s (`BOUNDARY_RESULT`, C(4) = 1.00 [0.97, 1.03]),
   and at W = 8 rose +32.9% from 3.43 to 4.56 M/s.
+- **A second run confirms it** (`docs/BENCHMARKING.md` rule 18), so the `SCALES`
+  cell and the direction of both deltas rest on two runs rather than one. Run 2
+  measured the same code: everything in `crates/` between `caa167e3` and
+  `83a9a3f0` is `#[cfg(debug_assertions)]`, test-module code, or one deleted
+  uncalled function, so the release binary is unchanged. `map` C(2) came back
+  1.02 [1.01, 1.05], clearing 1.0 again and overlapping run 1's interval;
+  `map` W = 4 and W = 8 came back at 5.14 and 4.64 M/s, on the same side of the
+  pre-Phase-4C 3.71 and 3.43 as run 1. `set` stayed retrograde at every W and
+  `str` kept its shape, its W = 8 interval widening as it does. Artifact:
+  `results/baseline_writer_scaling_run2.json` *(measured: reference host,
+  `83a9a3f0`, CI run
+  [34695501479](https://github.com/orieg/expanse/actions/runs/34695501479),
+  `workflow_dispatch`, suite `writer_scaling`; no foreign CPU between arms)*.
 - **`set` and higher-W cells remain bound by remaining structural fallbacks and gate convoying.**
   On `set`, `CapExpansionClass` was only 0.28% of operations, so fallbacks moved
   only 3.52% → 3.23% (matching the predicted 3.23% bound), while W = 2 throughput
@@ -403,7 +416,7 @@ Per [`METHODOLOGY.md`](METHODOLOGY.md) §11, the decision rule tests the paired 
 
 Arm (a) (`ablation-sharded-alloc`) replaces `NodeAlloc`'s `bytes_in_use`, `live_allocs`, and `total_allocs` with one cache-line-aligned shard per writer stripe, removing atomic counter read-modify-writes from every allocation and free.
 
-*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads, Ubuntu 22.04 / kernel 6.8, P-core pin `0-15`, governor `powersave`; engine and harness at `e0b287f2`; CI run [34666098169](https://github.com/orieg/expanse/actions/runs/34666098169), `workflow_dispatch`, suite `writer_scaling_ablation_alloc`)*
+*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads, Ubuntu 22.04 / kernel 6.8, P-core pin `0-15`, governor `powersave`; engine and harness at `e0b287f2` — **the pre-Phase-4C engine**, where `CapExpansionClass` was still 10.53% of `map` inserts; **one run**, so every verdict below is single-run and none is confirmed under `docs/BENCHMARKING.md` rule 18; CI run [34666098169](https://github.com/orieg/expanse/actions/runs/34666098169), `workflow_dispatch`, suite `writer_scaling_ablation_alloc`)*
 
 | arm | W | Mean paired ratio [BCa 95%] | Median paired ratio | Verdict |
 |---|--:|---|---|---|
@@ -423,7 +436,7 @@ Arm (a) (`ablation-sharded-alloc`) replaces `NodeAlloc`'s `bytes_in_use`, `live_
 
 Arm (b) (`ablation-striped-epoch`) stripes the epoch garbage bins per writer slot (`bins[e % BINS][slot]`) and shards `retained_bytes` per stripe, eliminating mutex contention during node retirements (4,353,700 retirements per 2^20 insert sweep on `set W=2`).
 
-*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads, Ubuntu 22.04 / kernel 6.8, P-core pin `0-15`, governor `powersave`; engine and harness at `4f94d0d1`; Run 1 CI run [34668207740](https://github.com/orieg/expanse/actions/runs/34668207740); confirming Run 2 CI run [34668540514](https://github.com/orieg/expanse/actions/runs/34668540514), `workflow_dispatch`, suite `writer_scaling_ablation_epoch`)*
+*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads, Ubuntu 22.04 / kernel 6.8, P-core pin `0-15`, governor `powersave`; engine and harness at `4f94d0d1` — **the pre-Phase-4C engine**, as for arm (a); Run 1 CI run [34668207740](https://github.com/orieg/expanse/actions/runs/34668207740); confirming Run 2 CI run [34668540514](https://github.com/orieg/expanse/actions/runs/34668540514), `workflow_dispatch`, suite `writer_scaling_ablation_epoch`)*
 
 | arm | W | Run 1 Mean paired ratio [BCa 95%] | Run 1 Verdict | Run 2 Mean paired ratio [BCa 95%] | Run 2 Verdict | Multi-Run Verdict |
 |---|--:|---|---|---|---|---|
@@ -439,9 +452,35 @@ Arm (b) (`ablation-striped-epoch`) stripes the epoch garbage bins per writer slo
 
 **Verdict on Arm (b)**: `INCONCLUSIVE` across the two independent runs. Run 1 achieved a statistically significant speedup on `set W=2` (+6.9% mean, +6.4% median throughput, 7/8 rounds faster, CI lower bound 1.0179 > 1.0). In Run 2, the median speedup remained strong (+7.4% median, +3.6% mean, 6/8 rounds faster), but round-level variance widened the BCa 95% CI to [0.9773, 1.0689], placing the lower bound below 1.0. Under `docs/BENCHMARKING.md` rule 18 and AGENTS.md §8.4, confirmation requires both runs to clear the lower-bound floor independently.
 
-### 11.3 Hypothesis D Synthesis & Roadmap Consequence
+### 11.3 Arm (c) — Per-Stripe Collector Freelists (`results/ablation_freelist_writer_scaling.json`, `results/ablation_freelist_writer_scaling_run2.json`)
 
-1. **Unexplained Budget Accounting**: Per [`METHODOLOGY.md`](METHODOLOGY.md) §11 and the Pre-Registered Unexplained Budget Rule, neither Arm (a) nor Arm (b) satisfies the two-run confirmation gate to account for the multi-writer saturation plateau. The untested per-class freelist mutex (`Collector::pop_freelist`) remains candidate on the unexplained line.
-2. **Serial Radix Trie Fallbacks Dominate**: PR #858 landed Phase 4C concurrent leaf capacity expansion, eliminating `CapExpansionClass` (0.00% across all arms) and reducing `map` fallbacks from 14.75% to 4.21%. Section 10 documents the resulting +36% throughput gain on `map` W = 4 and the achievement of C(2) = 1.03× (`SCALES`). The remaining structural fallback floor consists of `LeafFull` (2.8%) and `ImmediateConversion` (1.4%), which will be addressed in Phase 4B.
+Arm (c) (`ablation-striped-freelist`) gives each writer stripe its own set of per-class collector freelists, so `Collector::pop_freelist` — a mutex taken on every size-class allocation under OCC, and on every reclaim — is no longer shared across writers. A reclaimed block returns to the freelists of the stripe that retired it.
+
+This is the mechanism §11.1 and §11.2 left untested, and the one the earlier synthesis named as the remaining candidate on the unexplained line.
+
+*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads, Ubuntu 22.04 / kernel 6.8, P-core pin `0-15`, governor `powersave`; engine and harness at `83a9a3f0` — the post-Phase-4C engine, so these cells are not comparable with arms (a) and (b) above; Run 1 CI run [34695703673](https://github.com/orieg/expanse/actions/runs/34695703673); confirming Run 2 CI run [34696047387](https://github.com/orieg/expanse/actions/runs/34696047387), `workflow_dispatch`, suite `writer_scaling_ablation_freelist`)*
+
+| arm | W | Run 1 Mean paired ratio [BCa 95%] | Run 1 Verdict | Run 2 Mean paired ratio [BCa 95%] | Run 2 Verdict | Multi-Run Verdict |
+|---|--:|---|---|---|---|---|
+| `map` | 2 | 1.0041 [0.9624, 1.0386] | `INCONCLUSIVE` | 0.9924 [0.9622, 1.0148] | `INCONCLUSIVE` | `INCONCLUSIVE` |
+| `map` | 4 | 0.9999 [0.9540, 1.0274] | `INCONCLUSIVE` | 0.9981 [0.9653, 1.0258] | `INCONCLUSIVE` | `INCONCLUSIVE` |
+| `map` | 8 | 0.9713 [0.9524, 0.9856] | `REJECTED` | 0.9874 [0.9589, 1.0047] | `INCONCLUSIVE` | `INCONCLUSIVE` |
+| `set` | 2 | 0.9986 [0.9774, 1.0288] | `INCONCLUSIVE` | 1.0157 [0.9857, 1.0410] | `INCONCLUSIVE` | `INCONCLUSIVE` |
+| `set` | 4 | 1.0123 [0.9743, 1.0424] | `INCONCLUSIVE` | 1.0192 [0.9756, 1.0543] | `INCONCLUSIVE` | `INCONCLUSIVE` |
+| `set` | 8 | 0.9920 [0.9779, 1.0074] | `INCONCLUSIVE` | 1.0094 [0.9838, 1.0336] | `INCONCLUSIVE` | `INCONCLUSIVE` |
+| `str` | 2 | 1.0206 [0.9641, 1.0955] | `INCONCLUSIVE` | 0.9800 [0.9392, 1.0059] | `INCONCLUSIVE` | `INCONCLUSIVE` |
+| `str` | 4 | 0.9573 [0.9245, 1.0119] | `INCONCLUSIVE` | 0.9652 [0.9158, 1.0296] | `INCONCLUSIVE` | `INCONCLUSIVE` |
+| `str` | 8 | 0.9457 [0.7496, 1.2327] | `INCONCLUSIVE` | 0.9318 [0.7882, 1.0524] | `INCONCLUSIVE` | `INCONCLUSIVE` |
+
+**Verdict on Arm (c)**: `INCONCLUSIVE` at every cell across the two runs. No cell's interval clears 1.0 in either run. Run 1 put `map` W = 8 below the floor (`REJECTED`, upper bound 0.9856) and Run 2 did not reproduce it (0.9874 [0.9589, 1.0047]), which is what the second run is for: on one run that cell would have been published as the ablation measuring worse.
+
+Removing the shared freelist mutex therefore does not move multi-writer scaling on this workload. The arm also changes where blocks are reused — under it a writer reuses only what its own stripe retired, where the default build lets any writer reuse any retired block — and `METHODOLOGY.md` §11 registered that confound before the run; nothing here separates the two effects.
+
+### 11.4 Hypothesis D Synthesis & Roadmap Consequence
+
+1. **Hypothesis D is exhausted on its named mechanisms, and none of them explains the plateau.** §11 named three: the allocator's accounting counters, the epoch bins, and the per-class freelist mutex. All three have now been ablated, and not one produced an improvement that clears the floor and repeats — arm (a) measured worse (single run), arms (b) and (c) `INCONCLUSIVE` across two runs each. Under the Pre-Registered Unexplained Budget Rule ([`METHODOLOGY.md`](METHODOLOGY.md) §11), the multi-writer saturation plateau stays **unexplained**: it is not accounted for by shared allocator or reclamation state, and that is a result about the named mechanisms, not a measurement of whatever does account for it.
+2. **What the arms cannot rule out.** Each arm's rejection is scoped to the mechanism it ablated (AGENTS.md §8.20.3). Shared state no arm touched remains: the system allocator behind a `pop_freelist` miss, the collector's reader registry (locked by every advance), and its `epoch` and `op_count` words, which every successful optimistic operation bumps. Arms (a) and (b) also measured the pre-Phase-4C engine, where the fallback regime was different; their verdicts describe that engine.
+3. **The one mechanism with measured numbers is the gate convoy.** Section 10 measures arriving writers waiting at a closed `WriterGate` — 12.4% of `map` inserts at W = 4 and 27.1% at W = 8 — which is a different mechanism from anything Hypothesis D named, and is where the next arm belongs.
+4. **Serial radix trie fallbacks fell, and the gain is confirmed.** PR #858 landed Phase 4C concurrent leaf capacity expansion, eliminating `CapExpansionClass` (0.00% across all arms) and reducing `map` fallbacks from 14.75% to 4.21%. Section 10 documents the throughput gain and `map` C(2) `SCALES`, now confirmed by a second run. The remaining structural fallback floor is `LeafFull` (2.8%) and `ImmediateConversion` (1.4%), which Phase 4B addresses.
 
 
