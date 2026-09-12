@@ -56,7 +56,7 @@ def registered_str(cell: dict) -> str:
 
 
 def registered_conc(cell: dict, role: str) -> str:
-    w, r = cell["writers"], cell["readers"]
+    w, _r = cell["writers"], cell["readers"]
     if role == "writer":
         if w >= 16:
             return ""          # §6.4: SMT
@@ -163,7 +163,6 @@ def int_memory_tables(mem: dict) -> str:
 
 def str_latency_tables(lat: dict) -> str:
     cells = lat["cells"]
-    pops = sorted({c["population"] for c in cells})
     # Populations are post-dedup counts; group by the requested bucket.
     req = [1_000, 10_000, 100_000, 1_000_000]
     bucket = lambda n: min(req, key=lambda r: abs(r - n))  # noqa: E731
@@ -202,7 +201,6 @@ def str_latency_tables(lat: dict) -> str:
 
 def str_memory_tables(mem: dict) -> str:
     cells = mem["cells"]
-    pops = sorted({c["population"] for c in cells})
     req = [1_000, 2_000, 5_000, 10_000, 20_000, 50_000, 100_000, 125_000, 150_000, 200_000, 500_000, 1_000_000]
     bucket = lambda n: min(req, key=lambda r: abs(r - n))  # noqa: E731
     heads = sorted({bucket(c["population"]) for c in cells})

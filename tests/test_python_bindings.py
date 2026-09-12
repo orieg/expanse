@@ -8,7 +8,6 @@ Tests:
 5. SyncExpanseSet & SyncExpanseMap: multithreaded GIL-free concurrent reads and writes.
 """
 
-import concurrent.futures
 import threading
 import time
 import pytest

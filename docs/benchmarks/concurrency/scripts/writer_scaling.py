@@ -33,6 +33,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -395,7 +396,6 @@ def summarize_arm(
         total_c_exhausted = sum(int(r.get("contention_retry_exhausted", 0)) for r in c_rows_w)
         total_g_blocked = sum(int(r.get("gate_blocked_entries", 0)) for r in c_rows_w)
         total_g_wait = sum(int(r.get("gate_wait_cycles", 0)) for r in c_rows_w)
-        total_q_calls = sum(int(r.get("quiesce_calls", 0)) for r in c_rows_w)
         total_q_drain = sum(int(r.get("quiesce_drain_cycles", 0)) for r in c_rows_w)
         total_bs_sub = sum(int(r.get("branch_split_subarray", 0)) for r in c_rows_w)
         total_bs_lin = sum(int(r.get("branch_split_linear", 0)) for r in c_rows_w)
@@ -620,10 +620,10 @@ def run_comparison(
     thermal drift and host load confounding between builds (Williams design).
     Computes paired bootstrap BCa 95% CI on C_variant(w) / C_default(w).
     """
-    print(f"\n========================================================================")
+    print("\n========================================================================")
     print(f" Interleaved (build × W) Execution: default vs {variant_name}")
     print(f" Arm: {arm} | Writers: {writers_list} | Rounds: {rounds}")
-    print(f"========================================================================")
+    print("========================================================================")
 
     all_t_rows_default: list[dict[str, Any]] = []
     all_t_rows_variant: list[dict[str, Any]] = []
@@ -825,10 +825,10 @@ def run_pmu_pass(
             "--pmu requested but no target PMU events found via 'perf list' (AGENTS.md §8.1)"
         )
 
-    print(f"\n========================================================================")
+    print("\n========================================================================")
     print(f" Hardware PMU Counter Pass (perf stat across {rounds} rounds via FIFO control)")
     print(f" Events: {', '.join(events)} | Arm: {arm} | Writers: {writers}")
-    print(f"========================================================================")
+    print("========================================================================")
 
     event_arg = ",".join(events)
     round_data: dict[int, dict[int, dict[str, int]]] = {}
@@ -974,10 +974,10 @@ def run_c2c_pass(
     if quick:
         cmd_record.append("--quick")
 
-    print(f"\n========================================================================")
+    print("\n========================================================================")
     print(f" Hardware perf c2c Cache Contention Recording ({arm} W={writers})")
     print(f" Output: {c2c_data.relative_to(REPO_ROOT)}")
-    print(f"========================================================================")
+    print("========================================================================")
 
     proc = subprocess.run(cmd_record, check=False)
     if proc.returncode != 0:

@@ -455,6 +455,17 @@ jobs:
       # `docs/benchmarks/**` matches the `docs` filter, not `tooling` or
       # `rust-src`, so `lint` does not run on it and the check would fail open
       # on exactly the pull requests it exists for. `docs-lint` runs on every PR.
+      # Python lint for the repository's tooling. `F` (pyflakes) only, per
+      # `ruff.toml`: the family that catches defects rather than style. It runs
+      # here because `docs-lint` is the job that runs on every pull request and
+      # needs no Rust toolchain, and because the Python that gates this
+      # repository lives under both `scripts/` and `docs/benchmarks/**/scripts/`.
+      # Pinned so a new ruff release cannot turn a green branch red on its own.
+      - name: Python lint (ruff, pyflakes rules)
+        run: |
+          python3 -m pip install --quiet --disable-pip-version-check 'ruff==0.16.7'
+          python3 -m ruff check .
+
       - name: Generated benchmark tables match the suite READMEs
         run: |
           python3 scripts/check_readme_tables.py --self-test

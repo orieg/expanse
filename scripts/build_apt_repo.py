@@ -6,7 +6,6 @@ import gzip
 import hashlib
 import os
 import shutil
-import sys
 import io
 import subprocess
 import tarfile

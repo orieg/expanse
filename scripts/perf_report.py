@@ -27,7 +27,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # Matches headers like:
@@ -1189,7 +1189,6 @@ def render_workload_shapes(
 
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from check_bench_shapes import summarize_shape
     except Exception:
         return []
 

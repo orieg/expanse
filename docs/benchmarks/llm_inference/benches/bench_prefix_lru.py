@@ -123,7 +123,8 @@ def run_prefix_lru(block_counts: List[int]) -> Dict[str, dict]:
         # Rank-Threshold Eviction via count_below()
         cutoff_ts = monotonic_ts // 2
         t0 = time.perf_counter()
-        items_below = exp_table.count_below(cutoff_ts << 32)
+        # Timed: the call is the measurement, the count is not used.
+        _items_below = exp_table.count_below(cutoff_ts << 32)
         prune_keys = []
         cur = exp_table.first()
         while cur is not None and (cur[0] >> 32) < cutoff_ts and len(prune_keys) < 1000:

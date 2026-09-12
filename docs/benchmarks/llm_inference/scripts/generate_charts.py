@@ -54,7 +54,7 @@ def render_draft_quality_chart():
     height = top + len(workloads) * row_h + 24
 
     svg = svg_header(width=960, height=height, title="PILLAR A — REFERENCE-CONTINUATION ACCEPTANCE ALPHA")
-    svg += f"""
+    svg += """
   <text x="30" y="34" class="t-title">PILLAR A — REFERENCE-CONTINUATION ACCEPTANCE ALPHA</text>
   <text x="30" y="50" class="t-sub">Macro mean acceptance length &#945; &#183; tokens/step &#183; higher is better (vs HuggingFace Adaptive Lookup)</text>
   <g transform="translate(620, 24)">
@@ -210,7 +210,7 @@ def render_grammar_masks_chart():
     height = top + len(items) * row_h + 24
 
     svg = svg_header(width=960, height=height, title="PILLAR D — GRAMMAR-CONSTRAINED DECODING MASKS")
-    svg += f"""
+    svg += """
   <text x="30" y="34" class="t-title">PILLAR D — GRAMMAR-CONSTRAINED DECODING MASKS</text>
   <text x="30" y="50" class="t-sub">Live resident heap across 2,000 DFA states (128k vocab) &#183; MB &#183; lower is better</text>
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
@@ -273,7 +273,7 @@ def render_prefix_lru_chart():
     height = top + len(blocks) * row_h + 24
 
     svg = svg_header(width=960, height=height, title="PILLAR E (APPENDIX) — PREFIX-CACHE KV-BLOCK TABLE")
-    svg += f"""
+    svg += """
   <text x="30" y="34" class="t-title">PILLAR E (APPENDIX) — PREFIX-CACHE KV-BLOCK TABLE</text>
   <text x="30" y="50" class="t-sub">Total index memory footprint &#183; MB &#183; lower is better</text>
   <g transform="translate(620, 24)">

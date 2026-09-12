@@ -1,0 +1,18 @@
+# Python lint for the repository's tooling: the gate scripts under `scripts/`,
+# the per-suite benchmark drivers under `docs/benchmarks/**/scripts/`, and the
+# Python tests.
+#
+# `F` (pyflakes) only, deliberately. It is the rule family that catches defects
+# rather than style: an undefined name, an import that is not there, a value
+# computed and dropped. The motivating case is `F821` — `writer_scaling.py`
+# used `tempfile` without importing it, so the diagnostic suite's PMU pass
+# raised `NameError` the moment it ran on a host with `perf`, and no gate saw
+# it because no gate runs Python.
+#
+# Style rules (`E`, `W`, import order) are not enabled: they would churn every
+# file here without catching anything, and formatting is not gated for Python
+# in this repository.
+line-length = 120
+
+[lint]
+select = ["F"]

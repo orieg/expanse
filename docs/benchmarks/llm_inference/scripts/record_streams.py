@@ -105,7 +105,6 @@ def fetch_summarization() -> dict:
             summary_extract = sum_data.get("extract", "")
 
             # 2. Fetch full article extract via Action API
-            clean_title = topic.replace("%E2%80%93", "–").replace("_", " ")
             extract_url = f"https://en.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&titles={topic}&format=json"
             req = urllib.request.Request(extract_url, headers={"User-Agent": "ExpanseBenchmark/1.0 (https://github.com/orieg/expanse)"})
             with urllib.request.urlopen(req, timeout=15) as resp:

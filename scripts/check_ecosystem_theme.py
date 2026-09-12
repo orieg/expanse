@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import sys
 import unittest
 import urllib.error
@@ -376,7 +375,6 @@ class TestEcosystemThemeLinter(unittest.TestCase):
         self.assertTrue(len(errs) > 0)
 
         # In non-migrating set: must fail
-        site_list = [{"id": "test-repo", "name": "Test", "url": "https://example.invalid", "legacy_key": "test-key"}]
         # Mocking check_ecosystem behavior with custom site
         migrating_set = set()  # empty: test-repo is non-migrating
         self.assertNotIn("test-repo", migrating_set)

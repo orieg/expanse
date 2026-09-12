@@ -22,7 +22,6 @@ Self-test: `python3 docs/benchmarks/concurrency/scripts/multi_writer_olc_gate.py
 from __future__ import annotations
 
 import json
-import math
 import sys
 from pathlib import Path
 

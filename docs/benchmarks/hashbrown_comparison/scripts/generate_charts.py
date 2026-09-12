@@ -312,7 +312,7 @@ def generate_memory_chart():
     <text x="120" y="148" class="badge-win-text">&#10003; {ratio:.1f}x More Compact than Hashbrown</text>
 """
         else:
-            svg += f"""
+            svg += """
     <text x="0" y="148" class="t-note">Dynamic Radix tree allocates branch nodes per 8-bit digit.</text>
 """
 

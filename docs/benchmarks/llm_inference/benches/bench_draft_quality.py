@@ -20,7 +20,7 @@ import json
 import time
 import argparse
 from pathlib import Path
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict
 
 import numpy as np
 from scipy.stats import bootstrap
