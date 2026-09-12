@@ -13,6 +13,22 @@ on:
       pr_number:
         description: 'PR number to post results to'
         required: false
+      cpu_pin:
+        # Overrides the auto pin for one run. `bench_pin.sh` and
+        # `bench_pin.py` both read `EXPANSE_BENCH_PIN` and share one
+        # vocabulary: a CPU list pins to exactly that list on any host, `off`
+        # refuses to pin and says so, and unset keeps the auto behaviour (the
+        # kernel's `cpu_core` list on a hybrid host).
+        #
+        # The case this exists for: the reference host is an i9-12900F whose
+        # `cpu_core` list is `0-15` -- 8 physical P-cores with SMT, not 16
+        # cores. `writer_scaling.rs` spawns its writers with
+        # `std::thread::scope` and sets no per-thread affinity, so at W=8 the
+        # scheduler is free to co-schedule SMT siblings. Passing
+        # `0,2,4,6,8,10,12,14` gives one thread per physical core and
+        # separates a scaling plateau from sibling sharing.
+        description: 'EXPANSE_BENCH_PIN for this run (CPU list, or "off"). Empty = auto.'
+        required: false
       benchmark_suite:
         # Kept in lockstep with `.github/bench-suites.json` by
         # `scripts/check_bench_suites.py` (run it with `--write` to regenerate
@@ -583,6 +599,9 @@ jobs:
           BENCH_PACKAGE: ${{ needs.resolve.outputs.bench_package }}
           BENCH_TARGET: ${{ needs.resolve.outputs.bench_target }}
           BENCH_ENV: ${{ needs.resolve.outputs.bench_env }}
+          # Empty string leaves the auto pin in place; bench_pin treats an
+          # unset and an empty value identically.
+          EXPANSE_BENCH_PIN: ${{ inputs.cpu_pin }}
           # Anonymized CPU/kernel description derived in `sysinfo` (never a
           # hostname) plus this run's URL: the two provenance fields §8.7
           # requires on every published wall-clock number.
