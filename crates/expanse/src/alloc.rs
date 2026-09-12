@@ -621,6 +621,50 @@ impl NodeAlloc {
         unsafe { self.free_raw(ptr, bytes, RAW_ALIGN) };
     }
 
+    /// Frees an allocation made by [`Self::alloc_bytes`] that was **never published** to
+    /// the tree or exposed to any concurrent reader.
+    ///
+    /// Under concurrent OCC mode, this bypasses Epoch-Based Reclamation (EBR) retirement
+    /// and immediately recycles the block into the collector's size-class freelist, avoiding
+    /// garbage bin retention and epoch queue bloat during retry loops.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must come from `alloc_bytes(bytes)` on this handle with [`RAW_ALIGN`], must
+    /// NEVER have been published to any node/edge or visible to any reader, not yet freed,
+    /// and nothing may use it afterwards.
+    #[inline(always)]
+    pub unsafe fn free_bytes_unpublished(&self, ptr: NonNull<u8>, bytes: usize) {
+        #[cfg(feature = "std")]
+        if let Some(c) = self.deferred.get() {
+            let accounted_size = accounted_size(bytes, RAW_ALIGN);
+            #[cfg(not(feature = "ablation-sharded-alloc"))]
+            {
+                self.bytes_in_use
+                    .fetch_sub(accounted_size, Ordering::Relaxed);
+                self.live_allocs.fetch_sub(1, Ordering::Relaxed);
+            }
+            #[cfg(feature = "ablation-sharded-alloc")]
+            {
+                let slot = crate::occ::writer_slot();
+                self.shards[slot]
+                    .bytes_in_use
+                    .fetch_sub(accounted_size as isize, Ordering::Relaxed);
+                self.shards[slot]
+                    .live_allocs
+                    .fetch_sub(1, Ordering::Relaxed);
+            }
+
+            // SAFETY: ptr was never published and matches bytes/RAW_ALIGN contract.
+            unsafe { c.recycle_unpublished(ptr, bytes, RAW_ALIGN) };
+            return;
+        }
+
+        // Without deferred reclamation, unpublished frees are identical to ordinary frees.
+        // SAFETY: per this function's contract, layout matches original allocation.
+        unsafe { self.free_raw(ptr, bytes, RAW_ALIGN) };
+    }
+
     /// True once this tree is shared through a Phase 7 concurrent
     /// wrapper: the mutation engine then maintains per-node OCC versions
     /// (single-threaded trees skip those fences entirely).

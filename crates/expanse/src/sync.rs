@@ -1997,7 +1997,8 @@ fn branch_split<T>(_kind: BranchSplitKind) -> OlcOutcome<T> {
 #[cfg(feature = "std")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CapExpansionKind {
-    /// Linear leaf capacity class growth within linear leaf (`pop < cap` and `cap_class(pop + 1) != cap_class(pop)`).
+    /// Linear leaf capacity class growth within linear leaf (Phase 4C eliminated; kept for partition completeness).
+    #[allow(dead_code)]
     Class,
     /// Linear leaf full (`pop >= cap`): level 1 converts to LeafB1 at 25, level >= 2 splits into BranchL3+ at 32.
     LeafFull,
@@ -2026,6 +2027,7 @@ impl CapExpansionKind {
 
 /// Pure helper classifying linear leaf capacity fallback into either intra-leaf class growth
 /// (`Class`) or full-leaf conversion/split (`LeafFull`).
+#[allow(dead_code)]
 #[inline(always)]
 pub(crate) const fn classify_leaf_expansion(pop: usize, cap: usize) -> CapExpansionKind {
     if pop >= cap {
@@ -2971,7 +2973,7 @@ impl SyncExpanseSet {
                             if let Some(p) = pre_alloc {
                                 // SAFETY: pre_alloc was allocated above and never published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         p.cast(),
                                         crate::mutate::sub_edges_size(old_n + 1),
                                     );
@@ -2985,7 +2987,7 @@ impl SyncExpanseSet {
                             if let Some(p) = pre_alloc {
                                 // SAFETY: pre_alloc was allocated above and never published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         p.cast(),
                                         crate::mutate::sub_edges_size(old_n + 1),
                                     );
@@ -3009,7 +3011,7 @@ impl SyncExpanseSet {
                             if let Some(p) = pre_alloc {
                                 // SAFETY: pre_alloc was allocated above and never published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         p.cast(),
                                         crate::mutate::sub_edges_size(old_n + 1),
                                     );
@@ -3032,7 +3034,7 @@ impl SyncExpanseSet {
                             if let Some(p) = pre_alloc {
                                 // SAFETY: pre_alloc was allocated above and never published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         p.cast(),
                                         crate::mutate::sub_edges_size(old_n + 1),
                                     );
@@ -3311,6 +3313,11 @@ impl SyncExpanseSet {
                                 version_unlock_timed(p_cell, old_v, false, lock_t0);
                                 return OlcOutcome::Retry;
                             }
+                            // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                            debug_assert_eq!(
+                                p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1,
+                                1
+                            );
                             // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                             unsafe {
                                 core::ptr::copy(
@@ -3336,7 +3343,7 @@ impl SyncExpanseSet {
                             else {
                                 // SAFETY: new_buf was freshly allocated and not published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         core::ptr::NonNull::new_unchecked(new_buf),
                                         new_size,
                                     );
@@ -3348,7 +3355,7 @@ impl SyncExpanseSet {
                             if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                                 // SAFETY: new_buf was freshly allocated and not published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         core::ptr::NonNull::new_unchecked(new_buf),
                                         new_size,
                                     );
@@ -3357,6 +3364,11 @@ impl SyncExpanseSet {
                                 return OlcOutcome::Retry;
                             }
 
+                            // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                            debug_assert_eq!(
+                                p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1,
+                                1
+                            );
                             // SAFETY: parent is locked; new_buf is valid for new_size; keys_ptr is valid for old_size.
                             unsafe {
                                 crate::leaf::set_realloc_insert(
@@ -3377,8 +3389,7 @@ impl SyncExpanseSet {
                             return OlcOutcome::Done(true);
                         }
                     }
-                    let kind = classify_leaf_expansion(pop, cap);
-                    return cap_expansion(kind);
+                    return cap_expansion(CapExpansionKind::LeafFull);
                 }
 
                 EdgeTag::Immed(im) => {
@@ -4245,7 +4256,7 @@ impl SyncExpanseMap {
                             if let Some(p) = pre_alloc {
                                 // SAFETY: pre_alloc was allocated above and never published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         p.cast(),
                                         crate::mutate::sub_edges_size(old_n + 1),
                                     );
@@ -4259,7 +4270,7 @@ impl SyncExpanseMap {
                             if let Some(p) = pre_alloc {
                                 // SAFETY: pre_alloc was allocated above and never published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         p.cast(),
                                         crate::mutate::sub_edges_size(old_n + 1),
                                     );
@@ -4283,7 +4294,7 @@ impl SyncExpanseMap {
                             if let Some(p) = pre_alloc {
                                 // SAFETY: pre_alloc was allocated above and never published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         p.cast(),
                                         crate::mutate::sub_edges_size(old_n + 1),
                                     );
@@ -4306,7 +4317,7 @@ impl SyncExpanseMap {
                             if let Some(p) = pre_alloc {
                                 // SAFETY: pre_alloc was allocated above and never published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         p.cast(),
                                         crate::mutate::sub_edges_size(old_n + 1),
                                     );
@@ -4506,6 +4517,8 @@ impl SyncExpanseMap {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
+                        // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                        debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                         unsafe {
                             let arr = (*node).values[sub];
@@ -4528,7 +4541,7 @@ impl SyncExpanseMap {
                         else {
                             // SAFETY: new_vals was freshly allocated and not published.
                             unsafe {
-                                alloc.free_bytes(
+                                alloc.free_bytes_unpublished(
                                     core::ptr::NonNull::new_unchecked(new_vals.cast()),
                                     new_size,
                                 );
@@ -4540,7 +4553,7 @@ impl SyncExpanseMap {
                         if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                             // SAFETY: new_vals was freshly allocated and not published.
                             unsafe {
-                                alloc.free_bytes(
+                                alloc.free_bytes_unpublished(
                                     core::ptr::NonNull::new_unchecked(new_vals.cast()),
                                     new_size,
                                 );
@@ -4548,6 +4561,9 @@ impl SyncExpanseMap {
                             }
                             return OlcOutcome::Retry;
                         }
+
+                        // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                        debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
 
                         // SAFETY: parent is locked; node is valid LeafBitmapL; new_vals is valid for new_size.
                         unsafe {
@@ -4653,6 +4669,11 @@ impl SyncExpanseMap {
                                 version_unlock_timed(p_cell, old_v, false, lock_t0);
                                 return OlcOutcome::Retry;
                             }
+                            // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                            debug_assert_eq!(
+                                p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1,
+                                1
+                            );
                             // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                             unsafe {
                                 crate::leaf::map_insert_at(base, kb as u8, pop, at, k, val);
@@ -4673,7 +4694,7 @@ impl SyncExpanseMap {
                             else {
                                 // SAFETY: new_buf was freshly allocated and not published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         core::ptr::NonNull::new_unchecked(new_buf),
                                         new_size,
                                     );
@@ -4685,7 +4706,7 @@ impl SyncExpanseMap {
                             if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
                                 // SAFETY: new_buf was freshly allocated and not published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         core::ptr::NonNull::new_unchecked(new_buf),
                                         new_size,
                                     );
@@ -4694,6 +4715,11 @@ impl SyncExpanseMap {
                                 return OlcOutcome::Retry;
                             }
 
+                            // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                            debug_assert_eq!(
+                                p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1,
+                                1
+                            );
                             // SAFETY: parent is locked; new_buf is valid for new_size; base is valid for old_size.
                             unsafe {
                                 crate::leaf::map_realloc_insert(
@@ -4711,8 +4737,7 @@ impl SyncExpanseMap {
                             return OlcOutcome::Done(None);
                         }
                     }
-                    let kind = classify_leaf_expansion(pop, cap);
-                    return cap_expansion(kind);
+                    return cap_expansion(CapExpansionKind::LeafFull);
                 }
 
                 EdgeTag::Immed(im) => {
@@ -6391,9 +6416,11 @@ mod tests {
     }
 
     /// Verifies Phase 4C: concurrent leaf capacity class growth for both set and map
-    /// leaves and LeafB1 value subarrays under concurrent readers and writers.
+    /// leaves and LeafB1 value subarrays under concurrent readers and writers (W=4, R=2).
     #[test]
     fn test_concurrent_leaf_capacity_expansion() {
+        use std::sync::Barrier;
+
         let set = Arc::new(SyncExpanseSet::new());
         let map = Arc::new(SyncExpanseMap::new());
 
@@ -6403,45 +6430,74 @@ mod tests {
             map.insert((i << 16) | 1, i);
         }
 
-        // Spawn concurrent readers while writers cause leaf capacity class expansions
-        let set_clone = Arc::clone(&set);
-        let map_clone = Arc::clone(&map);
         let stop = Arc::new(AtomicBool::new(false));
-        let stop_clone = Arc::clone(&stop);
+        let num_readers = 2;
+        let num_writers = 4;
+        let barrier = Arc::new(Barrier::new(num_writers));
 
-        let reader_handle = std::thread::spawn(move || {
-            let s_reader = set_clone.reader();
-            let m_reader = map_clone.reader();
-            while !stop_clone.load(Ordering::Relaxed) {
-                for i in 0..64u64 {
-                    let k = (i << 16) | 1;
-                    assert!(s_reader.contains(k));
-                    assert_eq!(m_reader.get(k), Some(i));
+        // Spawn concurrent readers while writers cause leaf capacity class expansions
+        let mut reader_handles = Vec::with_capacity(num_readers);
+        for _ in 0..num_readers {
+            let set_clone = Arc::clone(&set);
+            let map_clone = Arc::clone(&map);
+            let stop_clone = Arc::clone(&stop);
+            reader_handles.push(std::thread::spawn(move || {
+                let s_reader = set_clone.reader();
+                let m_reader = map_clone.reader();
+                while !stop_clone.load(Ordering::Relaxed) {
+                    for i in 0..64u64 {
+                        let k = (i << 16) | 1;
+                        assert!(s_reader.contains(k));
+                        assert_eq!(m_reader.get(k), Some(i));
+                    }
                 }
-            }
-        });
+            }));
+        }
 
-        // Writers expand leaves across capacity classes (e.g. 1 -> 4 -> 8 -> 12 -> 16 -> 20)
-        for i in 0..64u64 {
-            for j in 2..20u64 {
-                let k = (i << 16) | j;
-                assert!(set.insert(k));
-                assert_eq!(map.insert(k, i * 100 + j), None);
-            }
+        // Spawn 4 concurrent writers colliding on the same 64 leaf prefixes,
+        // interleaving keys so they race on capacity class expansions.
+        let mut writer_handles = Vec::with_capacity(num_writers);
+        for w in 0..num_writers {
+            let set_clone = Arc::clone(&set);
+            let map_clone = Arc::clone(&map);
+            let b_clone = Arc::clone(&barrier);
+            writer_handles.push(std::thread::spawn(move || {
+                b_clone.wait();
+                // Each writer handles distinct values of j in [2..22) across all 64 leaf prefixes
+                for step in 0..5 {
+                    let j = 2 + (w as u64) + (step as u64) * (num_writers as u64);
+                    for i in 0..64u64 {
+                        let k = (i << 16) | j;
+                        assert!(set_clone.insert(k));
+                        assert_eq!(map_clone.insert(k, i * 1000 + j), None);
+                    }
+                }
+            }));
+        }
+
+        for h in writer_handles {
+            h.join().expect("writer joined cleanly");
         }
 
         stop.store(true, Ordering::Relaxed);
-        reader_handle.join().expect("reader joined cleanly");
+        for h in reader_handles {
+            h.join().expect("reader joined cleanly");
+        }
 
         // Verify all keys and values are present
         for i in 0..64u64 {
-            for j in 1..20u64 {
+            assert!(set.contains((i << 16) | 1));
+            assert_eq!(map.get((i << 16) | 1), Some(i));
+            for j in 2..22u64 {
                 let k = (i << 16) | j;
                 assert!(set.contains(k));
-                let expected = if j == 1 { i } else { i * 100 + j };
-                assert_eq!(map.get(k), Some(expected));
+                assert_eq!(map.get(k), Some(i * 1000 + j));
             }
         }
+
+        // Deep invariant validation (§2.3 / AGENTS.md)
+        set.with_locked(crate::set::ExpanseSet::validate);
+        map.with_locked(crate::map::ExpanseMap::validate);
     }
 
     /// A `DetachedMapReader` must give the same answers as the owned reader

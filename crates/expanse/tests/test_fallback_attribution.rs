@@ -384,6 +384,8 @@ fn fallback_causes_account_for_every_fallback() {
     assert!(fallbacks > 0, "workload must exercise the fallback path");
     assert_eq!(map.len(), 21_000);
     assert_eq!(set.len(), 21_000);
+    map.with_locked(expanse_trie::map::ExpanseMap::validate);
+    set.with_locked(expanse_trie::set::ExpanseSet::validate);
 
     // Structural invariant: ensure no raw `OlcOutcome::Fallback(FallbackCause::CapExpansion)`
     // exists in sync.rs outside `fn cap_expansion` (#568).
@@ -411,19 +413,6 @@ fn fallback_causes_account_for_every_fallback() {
             "CapExpansionKind::{kind} must be used in sync.rs"
         );
     }
-
-    // Decision-point structural routing and classification helper (AGENTS.md §2.3):
-    let prod_sync = sync_src.split("mod tests {").next().expect("prod code");
-    let def_count = prod_sync.matches("fn classify_leaf_expansion").count();
-    let call_count = prod_sync.matches("classify_leaf_expansion(").count() - def_count;
-    assert_eq!(
-        def_count, 1,
-        "classify_leaf_expansion must be defined exactly once as a pure decision helper"
-    );
-    assert_eq!(
-        call_count, 2,
-        "classify_leaf_expansion must be called at exactly 2 decision points in prod code (set and map insert)"
-    );
 
     // Targeted discrimination checks: verify all 5 `CapExpansion` sub-causes discriminate (> 0)
     // under targeted workloads designed to trigger each respective engine transition across both
@@ -537,4 +526,7 @@ fn fallback_causes_account_for_every_fallback() {
         rem_set > 0,
         "set: CapExpansionRemove must discriminate (> 0) on removals, got {rem_set}"
     );
+
+    targeted_set.with_locked(expanse_trie::set::ExpanseSet::validate);
+    targeted_map.with_locked(expanse_trie::map::ExpanseMap::validate);
 }
