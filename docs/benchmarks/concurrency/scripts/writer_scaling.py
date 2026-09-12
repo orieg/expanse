@@ -1051,6 +1051,43 @@ def run_c2c_pass(
     }
 
 
+def _assert_fallbacks_counted(arm: str, fallbacks: list) -> None:
+    """Assert what is deterministic about the fallback counter, and only that.
+
+    The previous form was `all(fb > 0 for fb in fallbacks)`: every round of a
+    three-round `--quick` run had to observe at least one lock fallback. Whether
+    two writer threads actually collide in a short run is timing, not an
+    invariant, and on a GitHub-hosted runner they frequently do not. The same
+    commit produced `[0, 1, 0]` and then `[0, 0, 0]` on consecutive runs of the
+    same job, so the assertion failed non-deterministically and took the rollup
+    gate with it. AGENTS.md section 8.4 is explicit that hard assertions belong on
+    deterministic invariants only.
+
+    What the check is actually for is the build/role distinction: that the
+    occ-stats binary reports `lock_fallbacks` and the default one does not. That
+    is deterministic and is asserted here and at the throughput pass above
+    (`all("lock_fallbacks" not in r ...)`), so the pair still fails closed if the
+    counter is not wired, mis-parsed, or emitted by the wrong build.
+
+    A zero count across every round is reported rather than asserted away: it
+    says the quick run saw no contention, which is information about the host,
+    not a defect in the instrument (section 8.1 -- a degradation that is visible
+    beats one that is silent).
+    """
+    if not fallbacks:
+        raise AssertionError(f"{arm} W=2: no counter rows at all")
+    for fb in fallbacks:
+        if not isinstance(fb, int) or isinstance(fb, bool) or fb < 0:
+            raise AssertionError(
+                f"{arm} W=2 lock_fallbacks must be a non-negative int on every round, "
+                f"got {fallbacks!r}")
+    if not any(fb > 0 for fb in fallbacks):
+        print(f"    note: {arm} W=2 observed no lock fallbacks in {len(fallbacks)} quick "
+              f"rounds ({fallbacks}) -- the writers did not collide on this host. The "
+              f"counter is present and parsed, which is what this pass verifies; "
+              f"contention itself is not an invariant of a short run.")
+
+
 def self_test() -> int:
     eprintln = sys.stderr.write
     eprintln("Running writer_scaling.py self-test...\n")
@@ -1128,13 +1165,13 @@ def self_test() -> int:
     assert all(r["role"] == "counters" for r in c_rows_map)
     w2_map_fbs = [r["lock_fallbacks"] for r in c_rows_map if r["writers"] == 2]
     assert len(w2_map_fbs) == 3
-    assert all(fb > 0 for fb in w2_map_fbs), f"Expected map W=2 lock_fallbacks > 0, got {w2_map_fbs}"
+    _assert_fallbacks_counted("map", w2_map_fbs)
 
     c_rows_set = run_pass(counters_bin, "counters", "set", [1, 2], 3, quick=True)
     assert len(c_rows_set) == 6
     w2_set_fbs = [r["lock_fallbacks"] for r in c_rows_set if r["writers"] == 2]
     assert len(w2_set_fbs) == 3
-    assert all(fb > 0 for fb in w2_set_fbs), f"Expected set W=2 lock_fallbacks > 0, got {w2_set_fbs}"
+    _assert_fallbacks_counted("set", w2_set_fbs)
 
     # str arm is the alpha=1 coarse-mutex reference curve: 0 lock fallbacks by construction
     c_rows_str = run_pass(counters_bin, "counters", "str", [1, 2], 3, quick=True)
@@ -1163,7 +1200,19 @@ def self_test() -> int:
 
     assert cell_w2["writers"] == 2
     assert cell_w2["scaling_factor_c_n_ci_lower"] <= cell_w2["scaling_factor_c_n"] <= cell_w2["scaling_factor_c_n_ci_upper"]
-    assert cell_w2["lock_fallbacks"] > 0
+    # Same reasoning as _assert_fallbacks_counted above, at the aggregated cell:
+    # whether two writers collided in a quick run is timing, not an invariant.
+    # What is deterministic is that the aggregated cell carries the counter as a
+    # non-negative integer, so a cell built from the wrong build or a mis-parsed
+    # row still fails closed.
+    assert isinstance(cell_w2["lock_fallbacks"], int) and not isinstance(cell_w2["lock_fallbacks"], bool), \
+        f"aggregated W=2 lock_fallbacks must be an int, got {cell_w2['lock_fallbacks']!r}"
+    assert cell_w2["lock_fallbacks"] >= 0, \
+        f"aggregated W=2 lock_fallbacks must be >= 0, got {cell_w2['lock_fallbacks']}"
+    if cell_w2["lock_fallbacks"] == 0:
+        print("    note: aggregated W=2 cell observed no lock fallbacks -- the writers did "
+              "not collide on this host; the counter is present and aggregated, which is "
+              "what this assertion verifies")
     assert len(cell_w2["counters_raw"]) == 3, f"Expected 3 counters_raw entries, got {len(cell_w2['counters_raw'])}"
     assert "position" in cell_w2["rounds_raw"][0]
     assert "position" in cell_w2["counters_raw"][0]
@@ -1199,7 +1248,19 @@ def self_test() -> int:
                 + r.get("cap_expansion_remove", 0)
                 == r["fallback_causes"]["cap_expansion"]
             ), r
-    assert abs(sum(cell_w2["fallback_cause_share"].values()) - 1.0) < 1e-3, cell_w2["fallback_cause_share"]
+    # The cause shares partition the fallbacks, so they sum to 1 -- but only when
+    # there are fallbacks to partition. With none, every share is correctly 0.0
+    # and summing to 1.0 would be the wrong assertion, not a passing one. Both
+    # branches are checked, so a degenerate cell still fails closed if its shares
+    # are anything other than exactly zero (AGENTS.md 8.9 principle 4: a sum
+    # identity proves accounting completeness, which is what is being tested
+    # here, not that contention occurred).
+    _shares = cell_w2["fallback_cause_share"]
+    if cell_w2["lock_fallbacks"] > 0:
+        assert abs(sum(_shares.values()) - 1.0) < 1e-3, _shares
+    else:
+        assert all(v == 0.0 for v in _shares.values()), \
+            f"no fallbacks, so every cause share must be exactly 0.0, got {_shares}"
 
     # 6. Test comparison runner with self-comparison on quick scale
     eprintln("Testing run_comparison (interleaved build x W execution)...")
