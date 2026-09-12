@@ -409,6 +409,84 @@ it is the α = 1 reference curve and is never a gate cell
   `write_root_covered` and close `WriterGate`, arriving writers convoy at the closed
   gate (12.4% of map inserts at W = 4, 27.1% at W = 8), setting the Amdahl ceiling
   that limits scaling past W = 2.
+- **Phase 4E eliminated the last structural fallback; both `map` and `set` now `SCALES` at every measured W, confirmed across two runs.**
+  PR #873 (`10ce2f9d`) made linear leaf full splits and branch conversions
+  concurrent under the parent version lock, removing `CapExpansionLeafFull` —
+  the last structural fallback cause. Two sweeps on the reference host
+  (`baseline_writer_scaling.json` is run 1,
+  `baseline_writer_scaling_phase4e_run2.json` run 2) *(measured: reference
+  host, `10ce2f9d`, CI runs
+  [34716895977](https://github.com/orieg/expanse/actions/runs/34716895977) and
+  [34717113862](https://github.com/orieg/expanse/actions/runs/34717113862),
+  `workflow_dispatch`, suite `writer_scaling`; no foreign CPU between arms)*
+  record **exactly zero
+  lock fallbacks on every cell of every arm** — an absolute count of 0 over 8
+  rounds of 2^20 inserts, not a rounded rate — against 4.21–11.67% at the
+  Phase 4C baseline (`caa167e3`). The Amdahl ceiling that `write_root_covered`
+  and `WriterGate` closure imposed is no longer present on this workload
+  (workload: concurrency_writer_scaling).
+
+  C(W) against the committed Phase 4C baseline, both runs. A cell `SCALES` only
+  if C(W)'s lower bound clears 1.0; every OLC gate cell clears it in **both**
+  runs, which is what rule 18 requires before a cross-run delta is claimed:
+
+  | arm | W | 4C baseline C(W) | run 1 | run 2 | verdict |
+  |---|--:|---|---|---|---|
+  | `map` | 2 | 1.033 [1.011, 1.051] | 1.155 [1.090, 1.199] | 1.171 [1.133, 1.198] | `SCALES` |
+  | `map` | 4 | 1.002 [0.971, 1.033] | 1.293 [1.237, 1.335] | 1.297 [1.257, 1.349] | `SCALES` |
+  | `map` | 8 | 0.904 [0.877, 0.927] | 1.221 [1.143, 1.306] | 1.238 [1.160, 1.327] | `SCALES` |
+  | `set` | 2 | 0.898 [0.879, 0.922] | 1.074 [1.043, 1.107] | 1.084 [1.033, 1.210] | `SCALES` |
+  | `set` | 4 | 0.943 [0.927, 0.963] | 1.175 [1.164, 1.192] | 1.182 [1.142, 1.315] | `SCALES` |
+  | `set` | 8 | 0.809 [0.793, 0.842] | 1.178 [1.149, 1.209] | 1.216 [1.168, 1.343] | `SCALES` |
+
+  `map` W = 8 and every `set` cell were `RETROGRADE` at the 4C baseline and
+  `map` W = 4 was `BOUNDARY_RESULT`; this is the first sweep in which no OLC
+  cell is either.
+
+  - **The `str` control says the two runs are comparable.**
+    `SyncExpanseStrMap` takes the writer mutex for the whole insert and #873
+    does not touch it, so it is the α = 1 reference curve. It measures
+    0.638 / 0.573 / 0.518 (run 1) and 0.649 / 0.561 / 0.494 (run 2) at
+    W = 2 / 4 / 8, against 0.649 / 0.571 / 0.510 at the 4C baseline — every cell
+    overlapping across all three. The OLC movement above is therefore not a host
+    or configuration shift.
+  - **W = 1 did not move, which is what bounds the claim.**
+    Single-writer throughput measured `map` 5.05 → 5.27 / 5.21 and `set`
+    6.80 → 6.72 / 6.65 M/s. The gain is in the scaling term, not the
+    single-threaded baseline — which is what a concurrency change should look
+    like (§8.20.2). A 3.1× single-writer speedup quoted from a developer-laptop
+    run during #873's review does **not** reproduce on this host and is not a
+    Phase 4E result.
+  - **What these runs do not attribute.** #873 landed six changes in one commit —
+    the `pop0` fold relocation, saturating `pop0` under OCC, `DirtyDigits`
+    cache-line padding, batched collector ticks, exponential retry backoff, and
+    optimistic pre-validation — and this sweep measures their sum. Per-mechanism
+    claims (for example that backoff is what reduced gate closures) are **not**
+    supported by these cells; isolating one needs an interleaved arm per
+    mechanism, the way §11 does for Hypothesis D. What is established is the
+    aggregate: fallbacks to zero and every gate cell `SCALES`.
+  - **The counter table's fallback-derived columns are undefined at this head.**
+    With zero fallbacks, the six-cause partition, the contention subset shares
+    and `drain cycles / fallback` are all ratios over zero. The `map` W = 4 row
+    showing `contention 100.0%`, a 50% gate-closed share and 1,009,934 drain
+    cycles per fallback is two absolute events and one drain divided by zero
+    fallbacks, not a rate — read it as "two events in 8 × 2^20 inserts".
+    Optimistic restarts remain real and still rise with W (`map` 0.0019 →
+    0.0045 → 0.0106 per insert): writers still retry, but no retry now exhausts
+    into a writer-lock fallback.
+  - **Branch `pop0` is lazy under OCC, and `validate` cannot observe its drift.**
+    OLC writers update leaf `pop0` under the held parent lock but skip ancestor
+    branch `pop0`, marking the top-level digit in `DirtyDigits` instead;
+    `bump_pop0_saturating` clamps at 0 so a skipped increment cannot underflow.
+    Analytical queries repair this by folding dirty subtrees — but `with_locked`
+    performs that fold **before** it runs the closure, so
+    `with_locked(ExpanseSet::validate)`, which is how the concurrent tests check
+    invariants, validates the *post-repair* tree. Both the fold and `validate`'s
+    check at `validate.rs:501` derive the population by recounting children, so
+    they agree by construction. The lazy contract is therefore review-verified,
+    not test-discriminated; a test that pins it has to observe `pop0` without
+    folding first.
+
 - **Contention fallbacks are writers that found the gate closed.**
   Every fallback runs `write_root_covered`, which closes the writer gate and waits
   for in-flight writers to drain. Contention fallbacks are 0 at W = 1 and are
@@ -437,31 +515,31 @@ foreign busy CPUs 0.00 per arm)*
 
 | arm | W | Expanse inserts M/s [BCa 95%] | C(W) [paired BCa 95%] | verdict | fallbacks / insert | contention / insert | largest causes (share of fallbacks) |
 |---|--:|---|---|---|--:|--:|---|
-| `map` | 1 | 5.05 [4.97, 5.21] | 1.00 (by definition) | baseline | 4.21% | 0.00% | cap_expansion 67.4%, immediate_conversion 32.6% |
-| `map` | 2 | 5.21 [5.12, 5.27] | 1.03 [1.01, 1.05] | `SCALES` | 4.45% | 0.27% | cap_expansion 63.5%, immediate_conversion 30.4%, contention 6.0% |
-| `map` | 4 | 5.06 [4.93, 5.19] | 1.00 [0.97, 1.03] | `BOUNDARY_RESULT` | 6.97% | 2.97% | contention 42.6%, cap_expansion 38.7%, immediate_conversion 18.8% |
-| `map` | 8 | 4.56 [4.44, 4.64] | 0.90 [0.88, 0.93] | `RETROGRADE` | 9.67% | 5.76% | contention 59.6%, cap_expansion 27.1%, immediate_conversion 13.3% |
-| `set` | 1 | 6.80 [6.65, 6.88] | 1.00 (by definition) | baseline | 3.23% | 0.00% | cap_expansion 52.8%, immediate_conversion 47.2% |
-| `set` | 2 | 6.10 [6.04, 6.16] | 0.90 [0.88, 0.92] | `RETROGRADE` | 4.21% | 1.02% | cap_expansion 39.7%, immediate_conversion 36.0%, contention 24.2% |
-| `set` | 4 | 6.41 [6.32, 6.56] | 0.94 [0.93, 0.96] | `RETROGRADE` | 7.17% | 4.11% | contention 57.3%, cap_expansion 22.2%, immediate_conversion 20.6% |
-| `set` | 8 | 5.49 [5.38, 5.57] | 0.81 [0.79, 0.84] | `RETROGRADE` | 11.67% | 8.72% | contention 74.7%, cap_expansion 13.4%, immediate_conversion 11.9% |
-| `str` | 1 | 3.63 [3.39, 3.86] | 1.00 (by definition) | baseline | 0.00% | 0.00% | none — no OLC path |
-| `str` | 2 | 2.34 [2.24, 2.53] | 0.65 [0.61, 0.69] | reference, not gated | 0.00% | 0.00% | none — no OLC path |
-| `str` | 4 | 2.05 [2.00, 2.10] | 0.57 [0.52, 0.62] | reference, not gated | 0.00% | 0.00% | none — no OLC path |
-| `str` | 8 | 1.84 [1.76, 1.94] | 0.51 [0.48, 0.55] | reference, not gated | 0.00% | 0.00% | none — no OLC path |
+| `map` | 1 | 5.27 [5.14, 5.42] | 1.00 (by definition) | baseline | 0.00% | 0.00% | none |
+| `map` | 2 | 6.08 [5.84, 6.28] | 1.15 [1.09, 1.20] | `SCALES` | 0.00% | 0.00% | none |
+| `map` | 4 | 6.80 [6.64, 6.96] | 1.29 [1.24, 1.33] | `SCALES` | 0.00% | 0.00% | contention 100.0% |
+| `map` | 8 | 6.42 [6.10, 6.74] | 1.22 [1.14, 1.31] | `SCALES` | 0.00% | 0.00% | none |
+| `set` | 1 | 6.72 [6.58, 6.81] | 1.00 (by definition) | baseline | 0.00% | 0.00% | none |
+| `set` | 2 | 7.21 [7.02, 7.35] | 1.07 [1.04, 1.11] | `SCALES` | 0.00% | 0.00% | none |
+| `set` | 4 | 7.90 [7.75, 8.02] | 1.18 [1.16, 1.19] | `SCALES` | 0.00% | 0.00% | none |
+| `set` | 8 | 7.91 [7.73, 8.07] | 1.18 [1.15, 1.21] | `SCALES` | 0.00% | 0.00% | none |
+| `str` | 1 | 3.67 [3.45, 3.85] | 1.00 (by definition) | baseline | 0.00% | 0.00% | none — no OLC path |
+| `str` | 2 | 2.33 [2.24, 2.45] | 0.64 [0.61, 0.66] | reference, not gated | 0.00% | 0.00% | none — no OLC path |
+| `str` | 4 | 2.09 [2.02, 2.16] | 0.57 [0.54, 0.62] | reference, not gated | 0.00% | 0.00% | none — no OLC path |
+| `str` | 8 | 1.89 [1.85, 2.00] | 0.52 [0.49, 0.55] | reference, not gated | 0.00% | 0.00% | none — no OLC path |
 
 **Step 4.0 counters** — from the separate `occ-stats` build, summed over the eight rounds:
 
 | arm | W | contention / insert | gate-closed share of contention | retry-exhausted | restarts / insert | gate-blocked entries / insert | gate-wait cycles / insert | drain cycles / fallback | branch_split: subarray · linear · prefix · remove · upgrade |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|---|
-| `map` | 1 | 0.00% | — | 0 | 0.0000 | 0.0% | 0 | 25 | — · — · — · — · — |
-| `map` | 2 | 0.27% | 100.0% | 1 | 0.0014 | 3.5% | 149 | 388 | — · — · — · — · — |
-| `map` | 4 | 2.97% | 100.0% | 2 | 0.0023 | 12.4% | 522 | 828 | — · — · — · — · — |
-| `map` | 8 | 5.76% | 100.0% | 1 | 0.0033 | 27.1% | 918 | 994 | — · — · — · — · — |
-| `set` | 1 | 0.00% | — | 0 | 0.0000 | 0.0% | 0 | 25 | — · — · — · — · — |
-| `set` | 2 | 1.02% | 100.0% | 0 | 0.0001 | 3.1% | 83 | 382 | — · — · — · — · — |
-| `set` | 4 | 4.11% | 100.0% | 0 | 0.0002 | 12.1% | 331 | 742 | — · — · — · — · — |
-| `set` | 8 | 8.72% | 100.0% | 0 | 0.0002 | 36.9% | 756 | 976 | — · — · — · — · — |
+| `map` | 1 | 0.00% | — | 0 | 0.0000 | 0.0% | 0 | 0 | — · — · — · — · — |
+| `map` | 2 | 0.00% | — | 0 | 0.0019 | 0.0% | 0 | 0 | — · — · — · — · — |
+| `map` | 4 | 0.00% | 50.0% | 1 | 0.0045 | 0.0% | 0 | 1,009,934 | — · — · — · — · — |
+| `map` | 8 | 0.00% | — | 0 | 0.0106 | 0.0% | 0 | 0 | — · — · — · — · — |
+| `set` | 1 | 0.00% | — | 0 | 0.0000 | 0.0% | 0 | 0 | — · — · — · — · — |
+| `set` | 2 | 0.00% | — | 0 | 0.0004 | 0.0% | 0 | 0 | — · — · — · — · — |
+| `set` | 4 | 0.00% | — | 0 | 0.0011 | 0.0% | 0 | 0 | — · — · — · — · — |
+| `set` | 8 | 0.00% | — | 0 | 0.0030 | 0.0% | 0 | 0 | — · — · — · — · — |
 
 *(Attribution signposting: the structural test for `contention_stat` routing (Refs #838) pins the call-site assignment, not the runtime condition. The runtime condition is review-verified per AGENTS.md §5).*
 
@@ -540,7 +618,7 @@ Removing the shared freelist mutex therefore does not move multi-writer scaling 
 1. **Hypothesis D is exhausted on its named mechanisms, and none of them explains the plateau.** §11 named three: the allocator's accounting counters, the epoch bins, and the per-class freelist mutex. All three have now been ablated, and not one produced an improvement that clears the floor and repeats — arm (a) measured worse (single run), arms (b) and (c) `INCONCLUSIVE` across two runs each. Under the Pre-Registered Unexplained Budget Rule ([`METHODOLOGY.md`](METHODOLOGY.md) §11), the multi-writer saturation plateau stays **unexplained**: it is not accounted for by shared allocator or reclamation state, and that is a result about the named mechanisms, not a measurement of whatever does account for it.
 2. **What the arms cannot rule out.** Each arm's rejection is scoped to the mechanism it ablated (AGENTS.md §8.20.3). Shared state no arm touched remains: the system allocator behind a `pop_freelist` miss, the collector's reader registry (locked by every advance), and its `epoch` and `op_count` words, which every successful optimistic operation bumps. Arms (a) and (b) also measured the pre-Phase-4C engine, where the fallback regime was different; their verdicts describe that engine.
 3. **The one mechanism with measured numbers is the gate convoy.** Section 10 measures arriving writers waiting at a closed `WriterGate` — 12.4% of `map` inserts at W = 4 and 27.1% at W = 8 — which is a different mechanism from anything Hypothesis D named, and is where the next arm belongs.
-4. **Serial radix trie fallbacks fell, and the gain is confirmed.** PR #858 landed Phase 4C concurrent leaf capacity expansion, eliminating `CapExpansionClass` (0.00% across all arms) and reducing `map` fallbacks from 14.75% to 4.21%. PR #863 landed Phase 4B, eliminating `FallbackImmediateConversion` (1.4% $\rightarrow$ 0.00%). PR #873 landed Phase 4E, eliminating `CapExpansionLeafFull` (1.7% set / 2.8% map $\rightarrow$ 0.00%), reducing insert structural fallbacks on uniform random workloads to **0.00%** and closing the structural fallback floor.
+4. **Serial radix trie fallbacks fell, and the gain is confirmed.** PR #858 landed Phase 4C concurrent leaf capacity expansion, eliminating `CapExpansionClass` (0.00% across all arms) and reducing `map` fallbacks from 14.75% to 4.21%. PR #863 landed Phase 4B, eliminating `FallbackImmediateConversion` (1.4% $\rightarrow$ 0.00%). PR #873 landed Phase 4E, eliminating `CapExpansionLeafFull` (1.7% set / 2.8% map $\rightarrow$ 0.00%), closing the structural fallback floor. The post-4E sweep measures the consequence: **exactly zero lock fallbacks on every cell of every arm**, and every OLC gate cell `SCALES` across two runs (§10).
 
 
 
