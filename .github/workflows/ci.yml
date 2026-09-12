@@ -124,6 +124,13 @@ jobs:
             # them -- but must not run Miri, ASan, fuzz or Callgrind.
             tooling:
               - 'scripts/**'
+              # Each comparative suite's driver lives beside its data rather than
+              # in scripts/ (docs/BENCHMARKING.md), and the `lint` job runs those
+              # drivers' --self-test. Without this glob a pull request touching
+              # only a suite driver matched NO filter: `lint` skipped, the
+              # driver's self-test never ran, and the change landed unexercised.
+              # #874's gate floor is what refused to let that pass silently.
+              - 'docs/benchmarks/**/scripts/**'
               - 'tests/test_perf_report.py'
               - '.github/workflows/**'
               - '.github/bench-suites.json'
