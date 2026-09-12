@@ -49,8 +49,9 @@ def _as_bool(value) -> bool:
     return str(value).strip().lower() == "true"
 
 
-def check_floor(jobs, statuses, outputs, *, is_pull_request=True) -> list[str]:
+def check_floor(jobs, statuses, outputs, *, is_pull_request=True, notices=None) -> list[str]:
     errs: list[str] = []
+    notices = notices if notices is not None else []
 
     dc = statuses.get("detect-changes")
     if dc is None:
@@ -70,12 +71,24 @@ def check_floor(jobs, statuses, outputs, *, is_pull_request=True) -> list[str]:
         k: _as_bool(v) for k, v in outputs.items() if k != "changed-jobs"
     }
 
-    # A totally empty filter evaluation is the signature failure this exists
-    # for. Called out separately so the error names the cause, not a symptom.
+    # An all-false filter evaluation was originally treated as the signature
+    # failure this check exists for. It is not: a docs-only PR legitimately
+    # matches no filter in this repo, because the dead `docs` filter was
+    # removed and `docs-lint` is unconditional by design. The heuristic could
+    # not tell that normal case from a broken evaluation, and as a hard error
+    # it blocked every docs-only PR.
+    #
+    # It is a notice now, not an error. The sound check is the per-job one
+    # below -- `skipped` iff the job's own `if:` is false under the observed
+    # outputs -- which catches a broken evaluation without guessing, because a
+    # filter that wrongly went false makes some job's skip inconsistent with
+    # it. Reporting rather than failing is what 8.11.5 asks for when a check
+    # cannot decide.
     if flags and not any(flags.values()) and not changed_jobs and is_pull_request:
-        errs.append(
-            "every filter output is false -- a pull request that matches no filter at all "
-            "is far more likely a broken filter evaluation than a real no-op diff"
+        notices.append(
+            "every filter output is false -- expected for a docs-only PR "
+            "(`docs-lint` is unconditional); flagged only so a genuinely broken "
+            "filter evaluation is visible in the log"
         )
 
     for name, body in jobs.items():
@@ -131,15 +144,28 @@ def self_test() -> int:
     ok_outputs = {"tooling": "true", "rust-src": "false"}
     check("consistent run passes", check_floor(jobs, ok_statuses, ok_outputs), [])
 
-    # the motivating defect, pinned: all-false outputs with everything skipped
-    all_skipped = {
+    # THE FALSE POSITIVE THIS PINS: a docs-only PR legitimately matches no
+    # filter (the dead `docs` filter was removed; `docs-lint` is
+    # unconditional). Treating all-false as an error blocked every docs-only
+    # PR in the repo. It must PASS, and emit a notice instead.
+    docs_only = {
         "detect-changes": {"result": "success"},
         "docs-lint": {"result": "success"},
         "lint": {"result": "skipped"},
         "miri": {"result": "skipped"},
     }
-    errs = check_floor(jobs, all_skipped, {"tooling": "false", "rust-src": "false"})
-    check("all-false filter evaluation is caught", len(errs) >= 1, True)
+    notes: list[str] = []
+    errs = check_floor(jobs, docs_only, {"tooling": "false", "rust-src": "false"},
+                       notices=notes)
+    check("docs-only PR passes the floor", errs, [])
+    check("docs-only PR still emits a notice", len(notes), 1)
+
+    # ...and the per-job check is what actually catches a broken evaluation:
+    # a filter that wrongly went false leaves some job's skip inconsistent.
+    broken = dict(docs_only)
+    broken["lint"] = {"result": "success"}   # ran, but `tooling` says false
+    errs = check_floor(jobs, broken, {"tooling": "false", "rust-src": "false"})
+    check("job that ran under a false gate is caught", len(errs) >= 1, True)
 
     # THE DEFECT THIS PINS (AGENTS.md 8.12.3): `changed-jobs` is read by
     # `contains(...)`, not `== 'true'`. Dropping it made every job that ran
@@ -218,9 +244,14 @@ def main() -> int:
         return 1
 
     _, jobs, _, _ = load_ci()
+    notices: list[str] = []
     errs = check_floor(
-        jobs, statuses, outputs, is_pull_request=(args.event_name == "pull_request")
+        jobs, statuses, outputs,
+        is_pull_request=(args.event_name == "pull_request"),
+        notices=notices,
     )
+    for n in notices:
+        print(f"::notice::{n}")
     if errs:
         for e in errs:
             print(f"::error::{e}")
