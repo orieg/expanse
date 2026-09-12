@@ -1442,6 +1442,7 @@ impl Collector {
     ///
     /// `ptr` must have been allocated by this collector's associated `TreeAlloc`, must NEVER have been
     /// published to any node/edge or seen by any reader, and must not be used afterwards.
+    #[allow(dead_code)]
     pub(crate) unsafe fn recycle_unpublished(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
         if let Some(class) = class_for(bytes, align) {
             let block = ptr.as_ptr().cast::<FreeBlock>();

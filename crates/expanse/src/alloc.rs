@@ -633,6 +633,7 @@ impl NodeAlloc {
     /// `ptr` must come from `alloc_bytes(bytes)` on this handle with [`RAW_ALIGN`], must
     /// NEVER have been published to any node/edge or visible to any reader, not yet freed,
     /// and nothing may use it afterwards.
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
     #[inline(always)]
     pub(crate) unsafe fn free_bytes_unpublished(&self, ptr: NonNull<u8>, bytes: usize) {
         #[cfg(feature = "std")]
