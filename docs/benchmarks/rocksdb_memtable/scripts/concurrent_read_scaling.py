@@ -131,8 +131,37 @@ def scaling_ratios(rows: list[dict], mode: str) -> dict:
     return out
 
 
+def preflight(bench: Path) -> None:
+    """Run one throwaway cell so a broken binary reports before the sweep.
+
+    The first attempt on the reference host died at cell 1 of 60 because the
+    binary could not load `libexpanse.so` -- recoverable, but only after the
+    build had been paid for, and the traceback named a `RuntimeError` about an
+    exit code rather than the loader. Check once, up front, and say what is
+    actually wrong (AGENTS.md 8.1).
+    """
+    cwd = str(Path(bench).resolve().parent.parent)
+    res = subprocess.run([str(bench), "--mode", "idle", "--readers", "1",
+                          "--window-seconds", "0.05"],
+                         capture_output=True, text=True, cwd=cwd)
+    if res.returncode == 0:
+        return
+    hint = ""
+    if "shared object" in res.stderr or "image not found" in res.stderr \
+            or "dyld" in res.stderr or res.returncode == 127:
+        hint = ("\nThe binary cannot load libexpanse. The Makefile links it against the "
+                "relative path ../../target/release/libexpanse.{so,dylib}, so it only "
+                "resolves when run from integrations/rocksdb/ -- this driver sets that as "
+                "the working directory. Check the release library exists: "
+                "cargo build --release -p expanse-capi")
+    raise RuntimeError(
+        f"preflight failed: {bench} exited {res.returncode} (cwd {cwd})\n"
+        f"stderr:\n{res.stderr}{hint}")
+
+
 def run_sweep(bench: Path, rounds: int, window_s: float, readers: tuple,
               modes: tuple, paced_rate: float, provenance: dict) -> list[dict]:
+    preflight(bench)
     rows: list[dict] = []
     # `new_provenance` already took the opening snapshot; a second one here
     # would leave two cells labelled `start` and make `since` ambiguous.
@@ -145,7 +174,21 @@ def run_sweep(bench: Path, rounds: int, window_s: float, readers: tuple,
                 cmd = [str(bench), "--mode", mode, "--readers", str(R),
                        "--round", str(rd), "--window-seconds", str(window_s),
                        "--paced-rate", str(paced_rate)]
-                res = subprocess.run(cmd, capture_output=True, text=True)
+                # Run from the integration directory, as `make -C
+                # integrations/rocksdb bench-concurrent` does. The Makefile links
+                # the binary against the RELATIVE path
+                # `../../target/release/libexpanse.so`, and because a cargo
+                # cdylib carries no SONAME the linker records that path verbatim
+                # as DT_NEEDED. A DT_NEEDED containing a slash is resolved
+                # against the process's working directory and ignores any rpath,
+                # so the binary only loads from inside integrations/rocksdb/.
+                # Invoking it by absolute path from the repo root failed with
+                # `cannot open shared object file` on Linux (run 34715695469);
+                # macOS resolved it anyway, which is why a local smoke passed.
+                # Setting cwd rather than relinking keeps the single-threaded
+                # bench's linkage -- and so its published cells -- untouched.
+                res = subprocess.run(cmd, capture_output=True, text=True,
+                                     cwd=str(Path(bench).resolve().parent.parent))
                 if res.returncode != 0:
                     raise RuntimeError(
                         f"{label}: {' '.join(cmd)} exited {res.returncode}\n"
