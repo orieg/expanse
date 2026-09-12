@@ -3052,6 +3052,123 @@ pub(crate) unsafe fn free_subtree<const MAP: bool>(a: &NodeAlloc, edge: &mut Edg
     *edge = Edge::NULL;
 }
 
+/// Frees an entire subtree that was **never published** to the tree or seen by any reader.
+///
+/// Under concurrent OCC mode, this recycles all allocated blocks directly to the freelists
+/// without going through EBR queues, preventing memory retention during speculative aborts.
+///
+/// # Safety
+///
+/// `edge` must represent an unpublished subtree created by this writer, not yet freed, and
+/// nothing may reference it afterwards.
+#[cfg(all(target_pointer_width = "64", feature = "std"))]
+pub(crate) unsafe fn free_subtree_unpublished<const MAP: bool>(a: &NodeAlloc, edge: &mut Edge) {
+    let Some(tag) = edge.tag() else { return };
+    // SAFETY: unpublished nodes created by this thread, freed exactly once,
+    // children freed before their parent node.
+    unsafe {
+        match tag {
+            EdgeTag::Structural(EdgeType::Null | EdgeType::FullExpanse) => {
+                debug_assert!(!(MAP && matches!(tag, EdgeTag::Structural(EdgeType::FullExpanse))));
+            }
+            EdgeTag::Immed(im) => {
+                // Multi-key map immediates own a class-sized value array in word 0.
+                if MAP && im.key_count() > 1 {
+                    a.free_bytes_unpublished(
+                        core::ptr::NonNull::new(edge.node_ptr()).unwrap(),
+                        crate::mutate_map::map_immed_val_size(im.key_count() as usize),
+                    );
+                }
+            }
+            EdgeTag::Structural(
+                t @ (EdgeType::Leaf1
+                | EdgeType::Leaf2
+                | EdgeType::Leaf3
+                | EdgeType::Leaf4
+                | EdgeType::Leaf5
+                | EdgeType::Leaf6
+                | EdgeType::Leaf7),
+            ) => {
+                let kb = t.leaf_key_bytes().expect("leaf tag");
+                let pop = edge.pop0(kb) as usize + 1;
+                let size = if MAP {
+                    leaf::size_map(kb, pop)
+                } else {
+                    leaf::size_set(kb, pop)
+                };
+                a.free_bytes_unpublished(core::ptr::NonNull::new(edge.node_ptr()).unwrap(), size);
+            }
+            EdgeTag::Structural(EdgeType::LeafB1) => {
+                if MAP {
+                    let node = &*edge.node_ptr().cast::<LeafBitmapL>();
+                    for sub in 0..8 {
+                        let n = node.bitmap.subexpanse_count(sub) as usize;
+                        if n > 0 {
+                            a.free_bytes_unpublished(
+                                core::ptr::NonNull::new(node.values[sub].cast()).unwrap(),
+                                sub_vals_size(n),
+                            );
+                        }
+                    }
+                    a.free_node_unpublished(
+                        core::ptr::NonNull::new(edge.node_ptr().cast::<LeafBitmapL>()).unwrap(),
+                    );
+                } else {
+                    a.free_node_unpublished(
+                        core::ptr::NonNull::new(edge.node_ptr().cast::<LeafBitmap1>()).unwrap(),
+                    );
+                }
+            }
+            EdgeTag::Structural(EdgeType::BranchL3) => {
+                let b = &mut *edge.node_ptr().cast::<BranchL3>();
+                for i in 0..b.hdr.num as usize {
+                    free_subtree_unpublished::<MAP>(a, &mut b.edges[i]);
+                }
+                a.free_node_unpublished(
+                    core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL3>()).unwrap(),
+                );
+            }
+            EdgeTag::Structural(EdgeType::BranchL7) => {
+                let b = &mut *edge.node_ptr().cast::<BranchL7>();
+                for i in 0..b.hdr.num as usize {
+                    free_subtree_unpublished::<MAP>(a, &mut b.edges[i]);
+                }
+                a.free_node_unpublished(
+                    core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL7>()).unwrap(),
+                );
+            }
+            EdgeTag::Structural(EdgeType::BranchB) => {
+                let b = &mut *edge.node_ptr().cast::<BranchB>();
+                for sub in 0..8 {
+                    let n = b.pop_counts[sub] as usize;
+                    for i in 0..n {
+                        free_subtree_unpublished::<MAP>(a, &mut *b.subarrays[sub].add(i));
+                    }
+                    if n > 0 {
+                        a.free_bytes_unpublished(
+                            core::ptr::NonNull::new(b.subarrays[sub].cast()).unwrap(),
+                            sub_edges_size(n),
+                        );
+                    }
+                }
+                a.free_node_unpublished(
+                    core::ptr::NonNull::new(edge.node_ptr().cast::<BranchB>()).unwrap(),
+                );
+            }
+            EdgeTag::Structural(EdgeType::BranchU) => {
+                let b = &mut *edge.node_ptr().cast::<BranchU>();
+                for child in &mut b.edges {
+                    free_subtree_unpublished::<MAP>(a, child);
+                }
+                a.free_node_unpublished(
+                    core::ptr::NonNull::new(edge.node_ptr().cast::<BranchU>()).unwrap(),
+                );
+            }
+        }
+    }
+    *edge = Edge::NULL;
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(debug_assertions)]

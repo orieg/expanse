@@ -472,11 +472,83 @@ def immediate_conversion_predicted_fallback_rate(
     return (res_lower, res_upper)
 
 
+def leaf_split_predicted_fallback_rate(
+    arm: str,
+    branchb_up: int = 192,
+    leaf_cap: int = 32,
+    artifact_path: Path | None = None,
+) -> tuple[float, float]:
+    """Predicted per-insert fallback rate interval [lower, upper] after
+    concurrent linear leaf split and branch conversion under parent expected-version
+    coupling on the W=1 uniform random workload.
+
+    Sources:
+      Leis, Scheibner, Kemper & Neumann, DaMoN 2016 §3 (optimistic lock coupling).
+      The pre-4C W=1 fallback cause partitions in `PRE_4C_W1_CAUSES` (Refs #568);
+      pass `artifact_path` to derive from another artifact's W=1 row.
+
+    Derivation (§8.14):
+      At W=1, all fallbacks are deterministic structural transitions.
+      Concurrent leaf capacity expansion eliminated insert-side capacity class growth
+      within linear leaves (`cap_expansion_class`) and map bitmap-leaf sub-expanses
+      (`cap_expansion_map_bitmap_sub`).
+      Concurrent immediate conversion eliminated insert-side immediate expansions and
+      immediate-to-leaf conversions (`immediate_conversion`).
+      Concurrent leaf split eliminates linear leaf full conversions to bitmap leaves and
+      branch cascades (`cap_expansion_leaf_full`).
+      The capacity transitions that remain serialized on insert are:
+      1. Bitmap leaf near-full (`cap_expansion_bitmap_near_full`): set converts to FullExpanse
+         at 256, map near-full guard at 254. On uniform random workloads, this is 0.000%.
+      2. Residual BranchB to BranchU upgrades bounded by Phase 4D's upgrade ceiling.
+
+      Residual lower bound (zero BranchU upgrades):
+        residual_lower = cap_expansion_bitmap_near_full
+      Residual upper bound (maximum BranchU upgrade rate):
+        residual_upper = residual_lower + branch_split / (BRANCHB_UP + 1 - (leaf_cap + 1))
+
+    Returns:
+      (residual_lower, residual_upper) as per-insert fallback rates.
+    """
+    if arm not in ("set", "map"):
+        raise ValueError(f"arm must be 'set' or 'map', got '{arm}'")
+    if branchb_up < 1:
+        raise ValueError(f"branchb_up must be >= 1, got {branchb_up}")
+    if leaf_cap < 1:
+        raise ValueError(f"leaf_cap must be >= 1, got {leaf_cap}")
+    k0 = leaf_cap + 1
+    if branchb_up + 1 <= k0:
+        raise ValueError(f"branchb_up + 1 ({branchb_up + 1}) must be > k0 ({k0})")
+    if artifact_path is None:
+        causes = PRE_4C_W1_CAUSES[arm]
+        f_bm_near_full = causes["cap_expansion_bitmap_near_full"]
+        f_bs = causes["branch_split"]
+    else:
+        d = json.loads(artifact_path.read_text())
+        row = next(
+            (r for r in d.get("throughput", []) if r.get("arm") == arm and r.get("writers") == 1),
+            None,
+        )
+        if not row:
+            raise ValueError(f"{artifact_path}: no W=1 throughput row found for arm '{arm}'")
+        per_ins = row["fallback_causes_per_insert"]
+        total_ops = row.get("write_ops", 1048576)
+        ce_subsets = row.get("cap_expansion_subsets_total", {})
+        f_bm_near_full = ce_subsets.get("bitmap_near_full", 0) / total_ops
+        f_bs = per_ins.get("branch_split", 0.0)
+
+    res_lower = f_bm_near_full
+    max_upgrade_fraction = 1.0 / (branchb_up + 1 - k0)
+    res_upper = res_lower + f_bs * max_upgrade_fraction
+    return (res_lower, res_upper)
+
+
 # Aliases for engine-condition naming discipline (AGENTS.md / GEMINI.md):
 # Concrete engine conditions instead of ephemeral plan identifiers.
 branch_upgrade_predicted_fallback_rate = phase4d_predicted_fallback_rate
 leaf_expansion_predicted_fallback_rate = phase4c_predicted_fallback_rate
 phase4b_predicted_fallback_rate = immediate_conversion_predicted_fallback_rate
+leaf_split_predicted_fallback_rate_alias = leaf_split_predicted_fallback_rate
+phase4e_predicted_fallback_rate = leaf_split_predicted_fallback_rate
 
 
 
@@ -687,6 +759,60 @@ class TestOlcBounds(unittest.TestCase):
         with self.assertRaises(ValueError):
             immediate_conversion_predicted_fallback_rate("set", branchb_up=10, leaf_cap=20)
 
+    def test_leaf_split_predicted_fallback_rate(self):
+        set_lo, set_hi = leaf_split_predicted_fallback_rate("set")
+        self.assertAlmostEqual(set_lo, 0.0, places=9)
+        self.assertAlmostEqual(set_hi, 0.0, places=9)
+        self.assertAlmostEqual(set_lo * 100, 0.0, places=5)
+
+        map_lo, map_hi = leaf_split_predicted_fallback_rate("map")
+        self.assertAlmostEqual(map_lo, 0.0, places=9)
+        self.assertAlmostEqual(map_hi, 0.0, places=9)
+        self.assertAlmostEqual(map_lo * 100, 0.0, places=5)
+
+        # Backward compatibility alias test
+        self.assertEqual(phase4e_predicted_fallback_rate("set"), (set_lo, set_hi))
+        self.assertEqual(phase4e_predicted_fallback_rate("map"), (map_lo, map_hi))
+
+        # Derivation from synthetic artifact
+        rows = [
+            {
+                "arm": arm,
+                "writers": 1,
+                "write_ops": 1048576,
+                "fallback_causes_per_insert": {
+                    "immediate_conversion": causes["immediate_conversion"],
+                    "branch_split": causes["branch_split"],
+                },
+                "cap_expansion_subsets_total": {
+                    "class": int(causes["cap_expansion_class"] * 1048576),
+                    "leaf_full": int(causes["cap_expansion_leaf_full"] * 1048576),
+                    "bitmap_near_full": int(causes["cap_expansion_bitmap_near_full"] * 1048576),
+                    "map_bitmap_sub": int(causes["cap_expansion_map_bitmap_sub"] * 1048576),
+                    "remove": int(causes["cap_expansion_remove"] * 1048576),
+                },
+            }
+            for arm, causes in PRE_4C_W1_CAUSES.items()
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "pre4c.json"
+            path.write_text(json.dumps({"throughput": rows}))
+            for arm in ("set", "map"):
+                self.assertAlmostEqual(
+                    leaf_split_predicted_fallback_rate(arm, artifact_path=path)[0],
+                    leaf_split_predicted_fallback_rate(arm)[0],
+                    places=7,
+                )
+
+        with self.assertRaises(ValueError):
+            leaf_split_predicted_fallback_rate("str")
+        with self.assertRaises(ValueError):
+            leaf_split_predicted_fallback_rate("set", branchb_up=0)
+        with self.assertRaises(ValueError):
+            leaf_split_predicted_fallback_rate("set", leaf_cap=0)
+        with self.assertRaises(ValueError):
+            leaf_split_predicted_fallback_rate("set", branchb_up=10, leaf_cap=20)
+
 
 def report() -> None:
     lt = line_transfer_ns()
@@ -715,6 +841,13 @@ def report() -> None:
         c_lo, c_hi = leaf_expansion_predicted_fallback_rate(arm)
         print(f"  {arm}: post-leaf-expansion {c_lo*100:.2f}% -> predicted post-immediate-conversion [{b_lo*100:.2f}%, {b_hi*100:.2f}%] "
               f"(eliminating ImmediateConversion: {PRE_4C_W1_CAUSES[arm]['immediate_conversion']*100:.2f}%)")
+    print()
+    print("Predicted Fallback Rates after Leaf Split (W=1 uniform random, Refs #568):")
+    for arm in ("set", "map"):
+        e_lo, e_hi = leaf_split_predicted_fallback_rate(arm)
+        b_lo, b_hi = immediate_conversion_predicted_fallback_rate(arm)
+        print(f"  {arm}: post-immediate-conversion {b_lo*100:.2f}% -> predicted post-leaf-split [{e_lo*100:.2f}%, {e_hi*100:.2f}%] "
+              f"(eliminating CapExpansionLeafFull: {PRE_4C_W1_CAUSES[arm]['cap_expansion_leaf_full']*100:.2f}%)")
     print()
     print("Contention ceilings by workload shape (evaluated against measured t_line = 33.37 ns):")
     t_hold_set = holds[("hot_comparison", "set")]

@@ -135,7 +135,7 @@ impl StackEntries32 {
 /// # Safety
 ///
 /// The edge must reference a live map leaf of `pop` entries.
-unsafe fn read_map_leaf(edge: &Edge, kb: u8, pop: usize) -> Vec<(u64, u64)> {
+pub(crate) unsafe fn read_map_leaf(edge: &Edge, kb: u8, pop: usize) -> Vec<(u64, u64)> {
     let base = edge.node_ptr();
     // One slot of headroom: every insert-path caller does a mid-buffer
     // `insert` right after materializing, which used to force a growth
@@ -158,7 +158,7 @@ unsafe fn read_map_leaf(edge: &Edge, kb: u8, pop: usize) -> Vec<(u64, u64)> {
 
 /// Allocates a `LeafBitmapL` from sorted level-1 entries and points
 /// `edge` at it (decode bytes, if any, are the caller's to restore).
-fn build_bitmap_leaf_map(a: &NodeAlloc, edge: &mut Edge, entries: &[(u64, u64)]) {
+pub(crate) fn build_bitmap_leaf_map(a: &NodeAlloc, edge: &mut Edge, entries: &[(u64, u64)]) {
     let ptr = a.alloc_node_zeroed::<LeafBitmapL>();
     // SAFETY: ptr is freshly allocated zeroed LeafBitmapL memory.
     unsafe {
