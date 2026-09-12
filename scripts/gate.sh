@@ -36,24 +36,31 @@ export PROPTEST_CASES="${PROPTEST_CASES:-500}"
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 
-# Python preflight. Step 4 runs the repository-consistency scripts, and some of
-# them import third-party modules: `numpy` (scripts/esp32_bench_harvest.py) and
-# `yaml` (scripts/check_ci_filters.py, scripts/check_gate_floor.py). Nothing in
-# the repo declares them and CI installs `pyyaml` ad hoc in the job that needs
-# it, so a developer machine without them got a bare
+# Python preflight. Step 4 runs the repository-consistency scripts, and one of
+# them imports a third-party module: `yaml` (scripts/check_ci_filters.py,
+# scripts/check_gate_floor.py). Nothing in the repo declares it and CI installs
+# `pyyaml` ad hoc in the job that needs it, so a developer machine without it
+# got a bare
 #
-#     ModuleNotFoundError: No module named 'numpy'
+#     ModuleNotFoundError: No module named 'yaml'
 #
 # thirty-odd scripts into step 4, after the whole cargo test suite had already
 # run. Check up front and name the fix instead (AGENTS.md section 8.1): a gate
 # that cannot run must say so before it spends the build, not halfway through.
+#
+# `numpy` was on this list for scripts/esp32_bench_harvest.py, which carried a
+# second BCa implementation written against it. That harvester now uses
+# scripts/bca_bootstrap.py -- pure stdlib, like every other §8.4 gate -- so
+# nothing step 4 runs needs numpy (#880). scripts/fit_usl.py imports it for the
+# optional NLLS refinement, inside a try/except that names `ols` as the
+# estimator when the import fails, so its --self-test passes without it.
 step "0/6 python preflight"
 # `import name:pip name` -- they differ for yaml, and a sed with \b to paper
 # over that is not portable (BSD sed has no word boundaries; AGENTS.md
 # section 8.11.1). Carry both names instead of deriving one from the other.
 _missing=""
 _pkgs=""
-for _pair in numpy:numpy yaml:pyyaml; do
+for _pair in yaml:pyyaml; do
   _mod="${_pair%%:*}"
   _pkg="${_pair##*:}"
   if ! python3 -c "import ${_mod}" >/dev/null 2>&1; then
@@ -65,10 +72,10 @@ if [ -n "${_missing}" ]; then
   echo "refusing to start: scripts/gate.sh step 4 imports${_missing}, which this python3 does not have." >&2
   echo "  python3: $(python3 -c 'import sys; print(sys.executable, sys.version.split()[0])' 2>/dev/null || echo unknown)" >&2
   echo "  install:  python3 -m pip install${_pkgs}" >&2
-  echo "  (CI installs pyyaml in the job that needs it; numpy is used by scripts/esp32_bench_harvest.py --self-test.)" >&2
+  echo "  (CI installs pyyaml in the job that needs it.)" >&2
   exit 1
 fi
-echo "  numpy, yaml present"
+echo "  yaml present"
 
 step "1/6 cargo fmt --all --check"
 cargo fmt --all --check

@@ -58,6 +58,21 @@ twins in `components/expanse/test/twin_containers.h`.
   the mean is reported for §8.4 continuity but is not the headline. An arm
   flagged `contaminated` (slowest repetition more than 2× its median) should
   not have its mean compared against anything.
+- **`ci_method` says how the interval was built, and the committed file predates
+  the current estimator.** Each cell carries `ci_method`: `bca` when both of
+  BCa's corrections survived the sample, `percentile` when they did not. All 17
+  `percentile` cells in the `bec51c48` artifact are the zero-spread case —
+  `ci_95_low`, `mean` and `ci_95_high` are equal in all 17, and `min`, `median`
+  and `max` are equal in the 15 that record them — where the interval is exactly
+  the point and every construction agrees. The interval now comes from
+  `scripts/bca_bootstrap.py`, the repository's one BCa implementation, which
+  reports that label; before #880 this harvester carried a second implementation
+  of the same estimator, written against numpy, which agreed with the shared one
+  to within bootstrap resampling noise but was not the same code. `esp32.json`
+  records no `rounds_raw`, so its intervals cannot be recomputed offline and
+  were not relabelled — the harvester and this artifact therefore disagree about
+  which implementation wrote the file until the next device harvest replaces it
+  wholesale (§8.7).
 - **Run-to-run drift is per arm, not global, and on some arms it is the whole
   signal.** The twin containers are byte-identical C across builds and still
   move between two flashes -- 0.07% at the median, up to ~20% on the smallest
