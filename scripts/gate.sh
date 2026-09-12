@@ -69,6 +69,8 @@ python3 scripts/bump_version.py --check
 python3 scripts/check_abi_parity.py
 python3 scripts/check_ecosystem_theme.py --local-only
 python3 scripts/check_ci_gate.py
+python3 scripts/check_ci_filters.py
+python3 scripts/check_ci_filters.py --self-test
 python3 scripts/check_bench_suites.py
 python3 scripts/check_bench_shapes.py
 python3 scripts/check_bench_pin.py

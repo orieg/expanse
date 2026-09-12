@@ -37,7 +37,6 @@ jobs:
       node: ${{ steps.filter.outputs.node }}
       dotnet: ${{ steps.filter.outputs.dotnet }}
       java: ${{ steps.filter.outputs.java }}
-      docs: ${{ steps.filter.outputs.docs }}
       ruby: ${{ steps.filter.outputs.ruby }}
       php: ${{ steps.filter.outputs.php }}
       wasm: ${{ steps.filter.outputs.wasm }}
@@ -88,6 +87,10 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain*'
+              # Injects `rustflags` into every cargo invocation on the
+              # macOS legs, so it is an input to every Rust action here for
+              # the same reason `rust-toolchain*` directly above is.
+              - '.cargo/config.toml'
               - '.github/actions/**'
               # Kept here deliberately, not by reflex (#412). An edit to this
               # file rewrites the build commands, flags, toolchains and `if:`
@@ -122,6 +125,26 @@ jobs:
               # it. Kept out of `rust-src`: troff edits compile nothing, and
               # gating the safety lane on them would undo #412.
               - 'man/**'
+              # `lint` runs check_bench_shapes.py, whose declared scope
+              # includes `crates/expanse-hot-bench/src/bin/` (AGENTS.md
+              # 8.12.1). The crate is excluded from `rust-src` because nothing
+              # compiles it; it belongs here because something checks it.
+              # Reaching `lint` without waking Miri/ASan/fuzz/Callgrind is the
+              # whole point of the split. A job that *builds* the crate is not
+              # added: its build.rs panics without the `third_party/hot`
+              # submodule, so compiling it is a separate decision with its own
+              # checkout cost.
+              - 'crates/expanse-hot-bench/**'
+              # The committed snapshot `public-api` diffs the live Rust surface
+              # against. Without this a PR that edits only the snapshot -- the
+              # `--write` regeneration a reviewer is meant to see -- skips the
+              # job that would compare it.
+              - '.github/public-api/**'
+              # Widening a TSan suppression can silence storage-level races
+              # (AGENTS.md 5). `lint` is where the repo's guard scripts run, so
+              # an edit here must at least reach them rather than only the
+              # post-merge nightly.
+              - '.github/tsan-suppressions.txt'
             # Narrow filter for visualizer dataset and visualizer HTML edits to
             # trigger workspace unit/integration tests (test_visualizer_sync.rs)
             # without triggering the expensive safety lane (Miri, ASan, fuzz).
@@ -134,14 +157,22 @@ jobs:
             # report scripts are executed by `instruction-counts` and
             # `callgrind-smoke`, so they gate those two jobs specifically
             # rather than justifying `scripts/**` -> everything.
-            # The multi-writer sweep instrument: the driver script and the
-            # harness binary it builds, runs and parses. `writer_scaling.py
-            # --self-test` exercises both ends of that contract, and building
-            # the harness is most of its cost, so it is gated on the two files
-            # that can break it rather than run on every pull request.
+            # The multi-writer sweep instrument: the driver script, the
+            # harness binary it builds, runs and parses, and the three
+            # `scripts/` modules the driver imports at run time.
+            # `writer_scaling.py --self-test` exercises both ends of that
+            # contract, and building the harness is most of its cost, so it is
+            # gated on the files that can break it rather than run on every
+            # pull request. The import edges are not visible to a reader of
+            # the driver's own directory, so they are named here: a signature
+            # change in any of the three breaks the instrument, and this is
+            # the only job that would catch it.
             concurrency-instrument:
               - 'docs/benchmarks/concurrency/scripts/writer_scaling.py'
               - 'crates/expanse/examples/writer_scaling.rs'
+              - 'scripts/bench_pin.py'
+              - 'scripts/bca_bootstrap.py'
+              - 'scripts/bench_provenance.py'
             perf-tooling:
               - 'scripts/perf_report.py'
               - 'scripts/bench_report.py'
@@ -175,18 +206,6 @@ jobs:
               - 'include/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
-            docs:
-              - 'docs/**'
-              - 'man/**'
-              - '*.md'
-              - 'components/**/*.md'
-              - 'scripts/**'
-              - 'website/**'
-              # The citation record is machine-checked by
-              # scripts/validate_citation.py; without these entries an edit
-              # to either file skips the job that validates it.
-              - 'CITATION.cff'
-              - '.zenodo.json'
             ruby:
               - 'bindings/ruby/**'
               - 'include/**'
@@ -279,6 +298,13 @@ jobs:
       - name: Verify CI Gate Completeness
         run: python3 scripts/check_ci_gate.py
 
+      - name: CI Path Filters Select The Right Jobs
+        # The golden change-set -> job-set table. `check_ci_gate.py`
+        # verifies the rollup wiring; this verifies that a filter still
+        # covers what its job consumes -- the half nothing checked, and
+        # the half #620 and #671 both broke.
+        run: python3 scripts/check_ci_filters.py
+
       # The nightly Miri lane is a shard matrix; this asserts every lib test
       # is in exactly one shard and every integration target is either listed
       # in the matrix or `#![cfg(not(miri))]`, so a new module or test file
@@ -356,6 +382,7 @@ jobs:
           python3 scripts/warmup_ramp.py --self-test
           python3 scripts/check_docs_hygiene.py --self-test
           python3 scripts/check_ci_gate.py --self-test
+          python3 scripts/check_ci_filters.py --self-test
           python3 scripts/check_ecosystem_theme.py --self-test
           python3 scripts/check_miri_shards.py --self-test
           python3 scripts/check_bench_suites.py --self-test
@@ -483,6 +510,21 @@ jobs:
         run: |
           python3 scripts/check_bench_provenance.py --self-test
           python3 scripts/check_bench_provenance.py
+
+      - name: Unrun Gate Self-Tests (bounds, ablations, suite drivers)
+        # These ship `--self-test` suites and were invoked by no workflow and
+        # by no line of `gate.sh` -- committed, self-testing, and never run.
+        # They are pure Python with no Rust toolchain dependency, so they
+        # belong in this unconditional job rather than behind a path filter.
+        run: |
+          python3 scripts/bench_ab.py --self-test
+          python3 scripts/line_transfer_matrix.py --self-test
+          python3 docs/benchmarks/concurrency/scripts/ablations.py --self-test
+          python3 docs/benchmarks/concurrency/scripts/multi_writer_olc_gate.py --self-test
+          python3 docs/benchmarks/concurrency/scripts/fine_grained_brackets_gate.py --self-test
+          python3 docs/benchmarks/hot_comparison/scripts/run_all.py --self-test
+          python3 docs/benchmarks/masstree_comparison/scripts/run_all.py --self-test
+          python3 docs/benchmarks/set_algebra/scripts/harvest_domain.py --self-test
 
       - name: Shared Runner Provenance Unit Tests
         working-directory: scripts
@@ -2548,11 +2590,16 @@ jobs:
           STATUSES='${{ toJson(needs) }}'
           FAILED=()
 
+          SKIPPED=()
+
           for job in $(echo "$STATUSES" | jq -r 'keys[]'); do
             result=$(echo "$STATUSES" | jq -r --arg j "$job" '.[$j].result')
             echo "  Job [$job]: $result"
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
               FAILED+=("$job")
+            fi
+            if [ "$result" = "skipped" ]; then
+              SKIPPED+=("$job")
             fi
           done
 
@@ -2561,5 +2608,13 @@ jobs:
             exit 1
           fi
 
-          echo "::notice::All applicable CI checks passed (or were cleanly skipped by path filters)."
+          # Name what did not run. The gate cannot tell "skipped because
+          # irrelevant" from "skipped because a filter is wrong", so it must
+          # not assert the former (AGENTS.md 8.1, and 8.11.5's rule that a
+          # bypassed check is reported by name). `check_gate_floor.py` is what
+          # actually checks the skip set against the filter outputs.
+          if [ ${#SKIPPED[@]} -gt 0 ]; then
+            echo "::notice::${#SKIPPED[@]} check(s) did not run (path-filtered): ${SKIPPED[*]}"
+          fi
+          echo "::notice::No required check failed; ${#SKIPPED[@]} skipped by path filters."
           exit 0
