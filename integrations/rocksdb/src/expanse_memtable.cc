@@ -884,6 +884,15 @@ size_t ExpanseMemTableRep::IteratorImpl::ScanBatch(
         return 0;
     }
 
+    // Recover the position before stepping off it, for the same reason Next()
+    // and Prev() do: the slot index alone does not survive a concurrent shift
+    // or split, and a batch that starts from a stale index extracts from
+    // wherever that index now points.
+    if (!RevalidatePosition()) {
+        valid_ = false;
+        return 0;
+    }
+
     InvalidateCache();
     size_t extracted = 0;
 
@@ -965,6 +974,15 @@ size_t ExpanseMemTableRep::IteratorImpl::ScanBatch(
             valid_ = true;
         }
     }
+
+    // Anchor the new position. ScanBatch advances the cursor exactly as Next()
+    // does, so it owes the same re-anchor: leaving the anchor on the entry the
+    // batch started from makes the next RevalidatePosition() see a version that
+    // no longer matches the leaf the cursor now sits in, and re-seek back to
+    // that starting entry. The documented `while (Valid()) ScanBatch(...)` loop
+    // then never advances -- it re-extracts the first batch forever (#769 added
+    // the anchor mechanism to Seek/Next/Prev but not here).
+    CaptureAnchor();
 
     return extracted;
 }
