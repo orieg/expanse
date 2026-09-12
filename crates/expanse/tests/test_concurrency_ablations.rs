@@ -32,6 +32,8 @@ use expanse_trie::sync::SyncExpanseMap;
 #[cfg(feature = "ablation-sharded-alloc")]
 use std::ptr::NonNull;
 use std::sync::Arc;
+#[cfg(feature = "ablation-sharded-alloc")]
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
@@ -101,21 +103,39 @@ struct SendPtr(NonNull<u8>);
 #[cfg(feature = "ablation-sharded-alloc")]
 unsafe impl Send for SendPtr {}
 
+/// Arm (a)'s property: the per-writer-slot counters sum to the exact totals
+/// when allocations and frees are spread across threads, and a thread frees
+/// blocks another thread allocated.
+///
+/// What this test may *not* do is call one bare `NodeAlloc` from two threads at
+/// once. Its size-class freelists and slab pages are single-writer — their
+/// updates are load/store pairs, not CAS (see `NodeAlloc::freelists`) — which
+/// is why every `Sync*` wrapper defers to the collector's locked freelists
+/// before carving anything, and why `defer_to` refuses an allocator that has
+/// already carved. The counters under test are ordinary atomics and are not
+/// part of that region, so `gate` serialises the allocator calls and nothing
+/// else: each thread still takes its own slot, so the shards this sums over
+/// are still populated by four different threads.
 #[test]
 #[cfg(feature = "ablation-sharded-alloc")]
 fn test_node_alloc_sharded_counters_cross_thread() {
     let alloc = Arc::new(NodeAlloc::new());
+    let gate = Arc::new(Mutex::new(()));
     let pop_threads = 4;
     let ops_per_thread = 500;
 
     let mut handles = Vec::new();
     for _ in 0..pop_threads {
         let a = Arc::clone(&alloc);
+        let g = Arc::clone(&gate);
         handles.push(thread::spawn(move || {
             let mut ptrs = Vec::new();
             for _ in 0..ops_per_thread {
                 // 32 bytes allocation (Leaf1 / raw byte size)
-                let p = a.alloc_bytes(32);
+                let p = {
+                    let _single_writer = g.lock().expect("gate poisoned");
+                    a.alloc_bytes(32)
+                };
                 ptrs.push(SendPtr(p));
             }
             ptrs
@@ -136,9 +156,11 @@ fn test_node_alloc_sharded_counters_cross_thread() {
     let mut free_handles = Vec::new();
     for chunk in all_ptrs.chunks(chunk_size) {
         let a = Arc::clone(&alloc);
+        let g = Arc::clone(&gate);
         let ptrs: Vec<SendPtr> = chunk.iter().map(|p| SendPtr(p.0)).collect();
         free_handles.push(thread::spawn(move || {
             for p in ptrs {
+                let _single_writer = g.lock().expect("gate poisoned");
                 // SAFETY: p.0 was allocated with alloc_bytes(32) above
                 unsafe { a.free_bytes(p.0, 32) };
             }

@@ -248,8 +248,24 @@ pub struct NodeAlloc {
     /// `tests/no_heap_churn.rs`.
     #[cfg(not(feature = "ablation-sharded-alloc"))]
     total_allocs: AtomicUsize,
+    /// Per-size-class free blocks, and the 4 KiB slab pages carved to
+    /// pre-populate them.
+    ///
+    /// **Single-writer, by design.** Every update to these two is a plain
+    /// load/store pair, never a CAS: a non-OCC tree is owned by one thread at
+    /// a time, and an OCC tree allocates through the collector's locked
+    /// freelists instead — which is what [`Self::defer_to`] asserts by
+    /// refusing an allocator that has already carved a slab or populated a
+    /// class. Two threads in here at once lose an update silently: a dropped
+    /// slab page leaks the whole page, and a dropped freelist link splices
+    /// blocks out of the list. [`Self::enter_bookkeeping`] turns that into a
+    /// panic in debug builds.
     freelists: [AtomicPtr<FreeBlock>; NUM_CLASSES],
+    /// See [`Self::freelists`] — same single-writer domain.
     slab_pages: AtomicPtr<SlabPage>,
+    /// Set while a thread is inside the single-writer region above.
+    #[cfg(debug_assertions)]
+    bookkeeping_busy: core::sync::atomic::AtomicBool,
 }
 
 impl Default for NodeAlloc {
@@ -271,7 +287,45 @@ impl Default for NodeAlloc {
             total_allocs: AtomicUsize::new(0),
             freelists: [const { AtomicPtr::new(core::ptr::null_mut()) }; NUM_CLASSES],
             slab_pages: AtomicPtr::new(core::ptr::null_mut()),
+            #[cfg(debug_assertions)]
+            bookkeeping_busy: core::sync::atomic::AtomicBool::new(false),
         }
+    }
+}
+
+/// Holds [`NodeAlloc`]'s single-writer bookkeeping region for its lifetime.
+#[cfg(debug_assertions)]
+struct BookkeepingGuard<'a>(&'a core::sync::atomic::AtomicBool);
+
+#[cfg(debug_assertions)]
+impl Drop for BookkeepingGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+#[cfg(debug_assertions)]
+impl NodeAlloc {
+    /// Claims the single-writer region documented on [`Self::freelists`],
+    /// panicking when another thread is already inside it.
+    ///
+    /// Compiled out entirely when `debug_assertions` is off, so the release
+    /// and benchmark builds carry neither the flag nor this exchange. It is a
+    /// detector, not a fix: it reports the caller that broke the invariant
+    /// instead of leaving a lost slab page to surface as a LeakSanitizer
+    /// report against whichever test the process happened to end on.
+    fn enter_bookkeeping(&self) -> BookkeepingGuard<'_> {
+        assert!(
+            self.bookkeeping_busy
+                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok(),
+            "two threads are inside one NodeAlloc's per-tree freelists at once. They are \
+             single-writer: their updates are load/store pairs, not CAS, so concurrent use \
+             drops slab pages and freelist links. Share a tree through a Sync* wrapper \
+             (which defers to the collector's locked freelists before carving anything), or \
+             give each thread its own NodeAlloc."
+        );
+        BookkeepingGuard(&self.bookkeeping_busy)
     }
 }
 
@@ -408,6 +462,8 @@ impl NodeAlloc {
         if let Some(class) = class_for(bytes, align) {
             let head = self.freelists[class].load(Ordering::Relaxed);
             if !head.is_null() {
+                #[cfg(debug_assertions)]
+                let _bookkeeping = self.enter_bookkeeping();
                 debug_assert!(
                     !self.occ_enabled(),
                     "alloc_raw popped per-tree freelist under OCC: per-tree freelists \
@@ -433,6 +489,8 @@ impl NodeAlloc {
             let mut raw: *mut u8 = core::ptr::null_mut();
 
             if raw.is_null() && bytes <= 256 && !self.occ_enabled() {
+                #[cfg(debug_assertions)]
+                let _bookkeeping = self.enter_bookkeeping();
                 // Pre-populate freelist from an intrusive 4KB slab page
                 const SLAB_PAGE_SIZE: usize = 4096;
                 let page_align = align.max(CACHE_LINE);
@@ -525,6 +583,8 @@ impl NodeAlloc {
         }
 
         if let Some(class) = class_for(bytes, align) {
+            #[cfg(debug_assertions)]
+            let _bookkeeping = self.enter_bookkeeping();
             let block = ptr.as_ptr().cast::<FreeBlock>();
             let head = self.freelists[class].load(Ordering::Relaxed);
             // SAFETY: block points to a valid allocation of at least size_of::<FreeBlock>().
@@ -880,6 +940,61 @@ pub(crate) mod bracket_stack {
 mod tests {
     use super::*;
     use crate::node::{BranchB, BranchL3, BranchU};
+
+    /// The guard itself: a second holder is rejected while the first lives,
+    /// and the region is free again once it drops. Single-threaded, so this
+    /// decides deterministically rather than on an interleaving.
+    #[test]
+    #[cfg(debug_assertions)]
+    fn bookkeeping_guard_admits_one_holder_at_a_time() {
+        let a = NodeAlloc::new();
+        {
+            let _first = a.enter_bookkeeping();
+            assert!(
+                a.bookkeeping_busy.load(Ordering::Relaxed),
+                "a held guard must mark the region busy"
+            );
+        }
+        assert!(
+            !a.bookkeeping_busy.load(Ordering::Relaxed),
+            "dropping the guard must release the region"
+        );
+        // Free again, so the guard is re-entrant across calls, not once-only.
+        let _second = a.enter_bookkeeping();
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic = "two threads are inside one NodeAlloc's per-tree freelists"]
+    fn bookkeeping_guard_rejects_a_second_holder() {
+        let a = NodeAlloc::new();
+        let _first = a.enter_bookkeeping();
+        let _second = a.enter_bookkeeping();
+    }
+
+    /// Pins the call sites, not just the helper: the three regions that mutate
+    /// the single-writer freelists and slab-page list each claim the guard.
+    /// Deleting one would leave both tests above green while restoring the
+    /// silent lost update, so this counts them in the source.
+    ///
+    /// The count is the invariant, not the number: it is the freelist pop, the
+    /// slab-page carve, and the freelist push. A fourth mutating region means
+    /// this number goes up *and* that region takes the guard.
+    #[test]
+    fn structural_every_freelist_mutation_claims_the_bookkeeping_guard() {
+        let src = include_str!("alloc.rs");
+        let body = src
+            .split_once("#[cfg(test)]\nmod tests {")
+            .map_or(src, |(before, _)| before);
+        let sites = body
+            .matches("let _bookkeeping = self.enter_bookkeeping();")
+            .count();
+        assert_eq!(
+            sites, 3,
+            "expected the freelist pop, the slab-page carve and the freelist push to claim \
+             the guard; found {sites} call sites in alloc.rs outside its test module"
+        );
+    }
     #[cfg(feature = "std")]
     use crate::occ::Collector;
     #[cfg(feature = "std")]
