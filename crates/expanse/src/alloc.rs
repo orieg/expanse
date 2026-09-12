@@ -634,7 +634,7 @@ impl NodeAlloc {
     /// NEVER have been published to any node/edge or visible to any reader, not yet freed,
     /// and nothing may use it afterwards.
     #[inline(always)]
-    pub unsafe fn free_bytes_unpublished(&self, ptr: NonNull<u8>, bytes: usize) {
+    pub(crate) unsafe fn free_bytes_unpublished(&self, ptr: NonNull<u8>, bytes: usize) {
         #[cfg(feature = "std")]
         if let Some(c) = self.deferred.get() {
             let accounted_size = accounted_size(bytes, RAW_ALIGN);
