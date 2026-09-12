@@ -209,14 +209,35 @@ int main(int argc, char** argv) {
 
     // Fresh keys for the writer: same generator, rejected on membership, so a
     // reader probing the pre-populated set never sees its hit rate drift.
+    // Size the writer's key supply from the cell's own parameters, not a fixed
+    // cap. A paced writer needs rate x window keys and must never run dry --
+    // running dry makes its achieved rate understate what it was offering, and
+    // the driver computes the duty cycle from the achieved rate. A 400,000 cap
+    // against 250,000/s over 2 s was short by 100,000 and failed the run
+    // (34718436485).
+    //
+    // A free-running writer cannot be covered this way: at the insert rate this
+    // host measures it would want millions of entries, hundreds of MB of arena,
+    // for a two-second window. So the free cell is allowed to exhaust its supply
+    // and stop early; it is reported and never gated (METHODOLOGY section 5.2),
+    // and the row carries writer_exhausted so that is visible rather than
+    // inferred from a low rate.
     std::vector<const char*> fresh;
-    if (mode != WriterMode::kIdle) {
-        const int kFreshCap = 400000;
-        fresh.reserve(kFreshCap);
-        for (int i = 0; i < kFreshCap; ++i) {
+    size_t fresh_target = 0;
+    if (mode == WriterMode::kPaced) {
+        // 25% head-room: sleep_until can overshoot slightly, and a writer that
+        // runs marginally ahead of schedule must not fall off the end.
+        fresh_target = static_cast<size_t>(paced_rate * window_s * 1.25) + 1024;
+    } else if (mode == WriterMode::kFree) {
+        fresh_target = 2000000;  // ~190 MB of arena; exhaustion here is expected
+    }
+    if (fresh_target > 0) {
+        fresh.reserve(fresh_target);
+        uint64_t seq = 2000000;
+        while (fresh.size() < fresh_target) {
             std::string cand = KeyAt(rng());
             if (std::binary_search(sorted_present.begin(), sorted_present.end(), cand)) continue;
-            fresh.push_back(EncodeEntry(arena, cand, 2000000 + i, val));
+            fresh.push_back(EncodeEntry(arena, cand, seq++, val));
         }
     }
 
@@ -240,7 +261,7 @@ int main(int argc, char** argv) {
         std::cout << "# rocksdb_memtable_concurrent_read_scaling\n";
         std::cout << "# population=" << kPopulation << " value_bytes=" << kValueSize
                   << " window_s=" << window_s << " paced_rate=" << paced_rate << "\n";
-        std::cout << "round,writer_mode,readers,read_ops,write_ops,elapsed_s,read_mops\n";
+        std::cout << "round,writer_mode,readers,read_ops,write_ops,elapsed_s,read_mops,writer_exhausted\n";
     }
 
     std::atomic<bool> go{false};
@@ -333,18 +354,32 @@ int main(int argc, char** argv) {
     const double mops =
         (elapsed_s > 0.0) ? (static_cast<double>(read_ops) / elapsed_s) / 1e6 : 0.0;
 
+    const bool exhausted = (mode != WriterMode::kIdle)
+                           && fresh_cursor.load(std::memory_order_relaxed) >= fresh.size();
     std::cout << round << "," << ModeName(mode) << "," << readers << "," << read_ops << ","
               << write_ops << "," << std::fixed << std::setprecision(6) << elapsed_s << ","
-              << std::setprecision(4) << mops << "\n";
+              << std::setprecision(4) << mops << "," << (exhausted ? 1 : 0) << "\n";
 
-    // A writer that exhausted its fresh-key supply stopped inserting before the
-    // window closed, so its achieved rate understates what it was offering and
-    // the cell's duty cycle is not the one the driver will compute. Say so
-    // rather than emit a quietly wrong row (AGENTS.md 8.1).
-    if (mode != WriterMode::kIdle && fresh_cursor.load(std::memory_order_relaxed) >= fresh.size()) {
-        std::cerr << "fresh-key supply exhausted after " << write_ops
-                  << " inserts; raise kFreshCap or shorten --window-seconds\n";
+    // A PACED writer that ran dry stopped inserting before the window closed, so
+    // its achieved rate understates what it was offering and the duty cycle the
+    // driver computes from it is wrong. That is a sizing bug in this harness, not
+    // a property of the system, so it is fatal (AGENTS.md 8.1).
+    //
+    // A FREE writer running dry is expected -- see the supply sizing above -- and
+    // is reported through writer_exhausted rather than failing the cell.
+    if (mode == WriterMode::kPaced && exhausted) {
+        std::cerr << "paced writer exhausted its key supply after " << write_ops
+                  << " inserts of " << fresh.size() << " (offered " << paced_rate
+                  << "/s over " << window_s << "s). The supply is sized from rate x window,"
+                  << " so this means the writer ran ahead of schedule: widen the head-room"
+                  << " in fresh_target.\n";
         return 1;
+    }
+    if (exhausted) {
+        std::cerr << "note: free writer exhausted its " << fresh.size()
+                  << "-key supply after " << write_ops
+                  << " inserts and stopped before the window closed; reported via"
+                  << " writer_exhausted (this cell is never gated)\n";
     }
     // Consume the sink so no reader loop is dead code (AGENTS.md 8.6).
     if (sink == 0xFFFFFFFFFFFFFFFFULL) {

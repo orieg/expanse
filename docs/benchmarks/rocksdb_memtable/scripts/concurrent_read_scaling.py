@@ -55,7 +55,8 @@ MODES = ("idle", "paced", "free")
 #: P-cores. R = 8 would put 9 runnable threads on 8 cores.
 READERS = (1, 2, 4, 7)
 PACED_RATE = 250000.0
-CSV_FIELDS = ("round", "writer_mode", "readers", "read_ops", "write_ops", "elapsed_s", "read_mops")
+CSV_FIELDS = ("round", "writer_mode", "readers", "read_ops", "write_ops", "elapsed_s",
+              "read_mops", "writer_exhausted")
 
 
 def parse_row(text: str) -> dict:
@@ -81,6 +82,11 @@ def parse_row(text: str) -> dict:
         "write_ops": int(out["write_ops"]),
         "elapsed_s": float(out["elapsed_s"]),
         "read_mops": float(out["read_mops"]),
+        # 1 when the writer ran out of pre-encoded keys and stopped before
+        # the window closed. Expected in the free cell, which is reported and
+        # never gated; the binary makes it fatal for a paced cell, where it
+        # would corrupt the duty cycle.
+        "writer_exhausted": int(out["writer_exhausted"]),
     }
 
 
@@ -247,16 +253,19 @@ def self_test() -> int:
 
     # --- CSV parsing ------------------------------------------------------
     good = ("# rocksdb_memtable_concurrent_read_scaling\n"
-            "round,writer_mode,readers,read_ops,write_ops,elapsed_s,read_mops\n"
-            "2,paced,4,123456,6789,2.001000,0.0617\n")
+            "round,writer_mode,readers,read_ops,write_ops,elapsed_s,read_mops,writer_exhausted\n"
+            "2,paced,4,123456,6789,2.001000,0.0617,0\n")
     row = parse_row(good)
+    check("writer_exhausted", row["writer_exhausted"], 0)
+    check("writer_exhausted parses 1",
+          parse_row(good.replace(",0.0617,0", ",0.0617,1"))["writer_exhausted"], 1)
     check("round", row["round"], 2)
     check("mode", row["writer_mode"], "paced")
     check("readers", row["readers"], 4)
     check("read_ops", row["read_ops"], 123456)
     check("write_ops", row["write_ops"], 6789)
     for name, text in (("no data row", "# only a comment\n"),
-                       ("two data rows", good + "3,idle,1,1,0,1.0,0.1\n"),
+                       ("two data rows", good + "3,idle,1,1,0,1.0,0.1,0\n"),
                        ("short row", "1,idle,2\n")):
         try:
             parse_row(text)
@@ -317,7 +326,7 @@ def self_test() -> int:
             for R in (1, 2):
                 rows.append({"round": rd, "writer_mode": mode, "readers": R,
                              "read_ops": 1000 * R, "write_ops": 0 if mode == "idle" else 500,
-                             "elapsed_s": 1.0, "read_mops": 0.1 * R,
+                             "elapsed_s": 1.0, "read_mops": 0.1 * R, "writer_exhausted": 0,
                              "cell": f"cell:{mode}:R{R}:round{rd}",
                              "load": {"since": "start", "wall_s": 1.0,
                                       "busy_cpus_since_prev": 1.5, "own_busy_cpus": 1.2,
@@ -420,6 +429,23 @@ def main() -> int:
                   f"committed artifact must (AGENTS.md 8.17). Run it on the reference host, "
                   f"or use --quick for a shape smoke under results/quick/.", file=sys.stderr)
             return 1
+
+    # Belt and braces: the binary already refuses a paced cell that ran dry,
+    # but an artifact is what gets read later, so the driver checks the field
+    # it records rather than trusting an exit code it no longer has.
+    bad = [r["cell"] for r in rows
+           if r["writer_mode"] == "paced" and r.get("writer_exhausted")]
+    if bad:
+        print(f"::error::{len(bad)} paced cell(s) exhausted the writer key supply "
+              f"(first: {bad[0]}). Their achieved rate understates the offered rate, so "
+              f"the duty cycle computed from it is wrong and they cannot be gated "
+              f"(METHODOLOGY section 5.2).", file=sys.stderr)
+        return 1
+    n_exh = sum(1 for r in rows
+                if r["writer_mode"] == "free" and r.get("writer_exhausted"))
+    if n_exh:
+        print(f"note: {n_exh} free cell(s) exhausted the key supply and stopped early. "
+              f"Expected on a fast host; those cells are reported, never gated.")
 
     art = build_artifact(rows, provenance, insert_ns, window_s, args.paced_rate)
     out.parent.mkdir(parents=True, exist_ok=True)
