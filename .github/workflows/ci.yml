@@ -407,6 +407,11 @@ jobs:
           # pre-registration input, so it has to be executable and checked
           # rather than narrated (AGENTS.md section 8.8 commit 1).
           python3 scripts/rocksdb_locate_bound.py --self-test
+          # The #802 concurrent-arm driver: its CSV parsing, its duty-cycle
+          # arithmetic, its PAIRED scaling ratio (an unpaired one smears the
+          # ratio under round-to-round drift) and the artifact shape the
+          # provenance gate reads are all checkable without the reference host.
+          python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py --self-test
 
       # bca_bootstrap.py is the estimator every wall-clock gate rests on; its
       # unit tests pin reference values and were not executed anywhere until

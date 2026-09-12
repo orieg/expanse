@@ -2,6 +2,34 @@
 // Use of this source code is governed by an MIT/Apache-2.0 style license.
 //
 // bench_memtable.cc — Microbenchmark comparing ExpanseMemTable against SkipList and VectorRep.
+//
+// # Workload shape
+//
+// | Property | Value |
+// |---|---|
+// | `workload_id` | `rocksdb_memtable_single_threaded` |
+// | `group` | 8 |
+// | `population` | 100,000 entries: 16-byte user key (`usr_` + 12 zero-padded digits of `rng() % 10^10`), 64-byte value, `mt19937_64` seed 1337. Each arm encodes its own copy into its own `Arena`, so no arm reads another's bytes |
+// | `insertion_order` | generator — inserted in the draw order of the suite PRNG; no sort and no shuffle is applied |
+// | `probes_and_reuse` | 50,000 probes drawn as `keys[rng() % N]`, so every probe names a key that IS in the structure. The same probe vector is reused by `readrandom` and `seekrandom`, and by all three arms |
+// | `hit_rate` | **~9% (measured 8.98%)**, not ~100% as "every probe names a present key" suggests. Entries carry `seq = 1000 + i` for i in [0, 100000), so sequence numbers run 1,000..100,999, while every `LookupKey` is built at snapshot 10,000. MVCC hides every entry newer than the query, so only the 9,001 keys with `1000 + i <= 10000` can be found — 9.001% of the population, and 8.98% of probes hit in practice. `readrandom` is therefore predominantly a miss-path measurement |
+// | `miss_gen_method` | n/a — no miss keys are generated. The ~91% of probes that miss are *present* keys made invisible by the snapshot above, which descends to the key's own leaf and fails on sequence rather than terminating early in a different expanse. That is a different shape from a key-space miss and is not the same thing AGENTS.md §8.6's miss-shape rule asks for |
+// | `value_dereference` | none — the `Get` callback takes `const char*` unnamed and only increments a counter, so no arm reads the stored value. The counter is printed, so the probe loop is not dead code, but the payload is never touched on any arm |
+// | `measured_region` | `chrono::high_resolution_clock` around each benchmark's probe or insert loop. Entry encoding, `LookupKey` construction and iterator construction are outside it. The three reps live to the end of `main`, so no destructor runs inside a timed window |
+// | `arm_symmetry` | identical `BenchBytewiseComparator`, identical probe and key streams, one `Arena` per arm. `ReferenceSkipListRep` models a variable-height `InlineSkipList` tower (8 B key pointer + `height` × 8 B, E[height] = 4/3) after the #372 strawman retraction; `ReferenceVectorRep` models an unindexed append vector. Single-threaded throughout: no arm is thread-safe and none is driven concurrently (see `bench_memtable_concurrent.cc` for the concurrent arm) |
+// | `statistics` | point estimates only, one invocation per run. The suite runner invokes this binary five times and `scripts/rocksdb_bench_harvest.py` turns the rounds into BCa 95% intervals and two-sample ratio intervals; this binary emits no interval |
+// | `verdict` | published in `docs/benchmarks/rocksdb_memtable/METHODOLOGY.md` §2, and **stale**: measured at `6cb64b45`, since when `Insert`, `Get`, `ScanBatch` and the iterator have all changed against a newer engine. Re-measurement is tracked in #868 |
+//
+// ## The hit rate is a property of the fixture, not a choice
+//
+// The ~9% above is not a declared design target that this table is recording;
+// it is what the seq/snapshot arithmetic produces, found by measuring the
+// callback count when this declaration was written (#802 extended
+// `scripts/check_bench_shapes.py` to the C++ harnesses, which is what forced
+// the declaration to exist at all). The published `readrandom` and `seekrandom`
+// ratios are symmetric across arms and so remain structurally sound as ratios
+// (§8.10), but they do not describe a hit-heavy point lookup. Changing the
+// fixture would change what the cells mean, so it is not done here.
 
 #include <algorithm>
 #include <chrono>
