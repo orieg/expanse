@@ -172,9 +172,15 @@ _OUTPUT_TERM = re.compile(
     r"needs\.detect-changes\.outputs\.([A-Za-z0-9_-]+)\s*==\s*'true'"
 )
 _PUSH_TERM = re.compile(r"github\.event_name\s*!=\s*'pull_request'")
+# `contains(needs.detect-changes.outputs.changed-jobs, '|<job-id>|')` -- the
+# per-job term that replaced `.github/workflows/ci.yml` sitting in `rust-src`.
+_JOBDIFF_TERM = re.compile(
+    r"contains\(\s*needs\.detect-changes\.outputs\.changed-jobs\s*,\s*'\|([A-Za-z0-9_-]+)\|'\s*\)"
+)
 
 
-def evaluate_if(expr: str, outputs: dict[str, bool], *, is_pull_request: bool = True):
+def evaluate_if(expr: str, outputs: dict[str, bool], *, is_pull_request: bool = True,
+                changed_jobs: str = ""):
     """Evaluate an `if:` expression. Returns (runs, unknown_terms)."""
     if expr is None:
         return True, []
@@ -193,6 +199,11 @@ def evaluate_if(expr: str, outputs: dict[str, bool], *, is_pull_request: bool = 
             continue
         if _PUSH_TERM.fullmatch(term):
             result = result or (not is_pull_request)
+            continue
+        m = _JOBDIFF_TERM.fullmatch(term)
+        if m:
+            # `changed_jobs` is the delimited string the workflow would see.
+            result = result or (f"|{m.group(1)}|" in (changed_jobs or ""))
             continue
         unknown.append(term)
     return result, unknown
@@ -223,6 +234,41 @@ def jobs_for_change(jobs, filters, changed):
     return running
 
 
+
+JOB_SNAPSHOT = REPO_ROOT / ".github" / "ci-jobs.txt"
+
+
+def check_job_snapshot(jobs) -> list[str]:
+    """The committed job list, checked the way `check_public_api.py` checks the
+    Rust surface.
+
+    Running the full matrix on a workflow edit proved the jobs that still exist
+    pass; it never proved a job was not *deleted*. This does, and it is why
+    `ci.yml` no longer needs to sit in `rust-src`. A deliberate change shows up
+    as a reviewable diff in `.github/ci-jobs.txt`.
+    """
+    if not JOB_SNAPSHOT.exists():
+        return [f"{JOB_SNAPSHOT} is missing -- regenerate it with --write-snapshot"]
+    recorded = [ln.strip() for ln in JOB_SNAPSHOT.read_text().splitlines() if ln.strip()]
+    live = sorted(jobs)
+    if recorded == live:
+        return []
+    errs = []
+    for gone in sorted(set(recorded) - set(live)):
+        errs.append(
+            f"job {gone!r} is in .github/ci-jobs.txt but no longer in ci.yml -- if the "
+            "removal is intended, regenerate the snapshot so a reviewer sees it"
+        )
+    for added in sorted(set(live) - set(recorded)):
+        errs.append(
+            f"job {added!r} is new in ci.yml and not in .github/ci-jobs.txt -- "
+            "regenerate the snapshot with --write-snapshot"
+        )
+    if not errs:
+        errs.append(".github/ci-jobs.txt is out of order -- regenerate it")
+    return errs
+
+
 # ---------------------------------------------------------------------------
 # Checks
 # ---------------------------------------------------------------------------
@@ -247,6 +293,8 @@ def check_outputs_consumed(jobs, declared_outputs) -> list[str]:
         if not expr:
             continue
         consumed.update(_OUTPUT_TERM.findall(str(expr)))
+        if _JOBDIFF_TERM.search(str(expr)):
+            consumed.add("changed-jobs")
     dead = sorted(set(declared_outputs) - consumed)
     return [
         f"detect-changes declares output {o!r} that no job's `if:` reads -- "
@@ -321,6 +369,27 @@ def self_test() -> int:
     runs, unk = evaluate_if("needs.detect-changes.outputs.nope == 'yes'", {})
     check("unrecognised term is reported", len(unk), 1)
 
+    # The ci.yml narrowing that replaced `.github/workflows/ci.yml` in
+    # `rust-src`. A workflow-only diff that touches one job's definition must
+    # run that job and not the other 42.
+    gate = ("needs.detect-changes.outputs.rust-src == 'true'"
+            " || needs.detect-changes.outputs.ci-workflow-all == 'true'"
+            " || contains(needs.detect-changes.outputs.changed-jobs, '|miri|')")
+    runs, _ = evaluate_if(gate, {"rust-src": False, "ci-workflow-all": False},
+                          changed_jobs="|miri|")
+    check("job whose definition changed runs", runs, True)
+    runs, _ = evaluate_if(gate, {"rust-src": False, "ci-workflow-all": False},
+                          changed_jobs="|lint|")
+    check("job whose definition did not change skips", runs, False)
+    # fail-closed path: the differ could not narrow, so everything runs
+    runs, _ = evaluate_if(gate, {"rust-src": False, "ci-workflow-all": True},
+                          changed_jobs="")
+    check("fail-closed runs everything", runs, True)
+    # `contains` is substring, so the delimiters are load-bearing
+    gate64 = ("contains(needs.detect-changes.outputs.changed-jobs, '|test-wasm|')")
+    runs, _ = evaluate_if(gate64, {}, changed_jobs="|test-wasm64|")
+    check("test-wasm64 does not trigger test-wasm", runs, False)
+
     # The motivating defect, pinned (AGENTS.md 8.12.3): a declared-but-unread
     # output must fail, or this gate is measuring the wrong invariant.
     synthetic_jobs = {"a": {"if": "needs.detect-changes.outputs.rust-src == 'true'"}}
@@ -342,12 +411,19 @@ def self_test() -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--self-test", action="store_true", help="run the gate's own unit cases")
+    ap.add_argument("--write-snapshot", action="store_true",
+                    help="regenerate .github/ci-jobs.txt from ci.yml")
     args = ap.parse_args()
     if args.self_test:
         return self_test()
 
     _, jobs, filters, declared_outputs = load_ci()
+    if args.write_snapshot:
+        JOB_SNAPSHOT.write_text("\n".join(sorted(jobs)) + "\n")
+        print(f"wrote {JOB_SNAPSHOT} ({len(jobs)} jobs)")
+        return 0
     errs = []
+    errs += check_job_snapshot(jobs)
     errs += check_if_shape(jobs)
     errs += check_outputs_consumed(jobs, declared_outputs)
     errs += check_golden_table(jobs, filters)
