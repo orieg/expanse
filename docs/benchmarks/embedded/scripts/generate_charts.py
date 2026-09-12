@@ -381,7 +381,7 @@ def render_on_device() -> int:
                 f'{shuf["sorted_array"]:,.0f}', "t-val-muted", "sorted", "memmove", False),
     )
     p3 = panel(
-        670, "Range Scan", f"per key walked &#183; ratio vs sorted array",
+        670, "Range Scan", "per key walked &#183; ratio vs sorted array",
         "&#9660; CPU cycles / key", agg_max, f"{agg_max:,.0f}", f"{agg_max / 2:,.0f}",
         bar_w(BAR_X4[0], BAR_W4, agg["expanse_memtable"], agg_max, "b-expanse",
               f'{agg["expanse_memtable"]:,.0f}',
@@ -503,7 +503,7 @@ def main() -> int:
               f'{mem["stdmap"]:.0f}', "t-val-muted", "std::map", "rb-tree", False),
     )
     p2 = panel(
-        350, "Telemetry Ingest", f"per event, incl. flush share &#183; measured &#183; lower is better",
+        350, "Telemetry Ingest", "per event, incl. flush share &#183; measured &#183; lower is better",
         "&#9660; ns / event", ing_max, f"{ing_max:g}", f"{ing_max / 2:g}",
         bar(BAR_X[0], ingest["expanse"], ing_max, "b-expanse",
             f'{ingest["expanse"]:.0f}', "t-val-accent", "Expanse", ing_cap, ing_win)
@@ -546,7 +546,7 @@ def main() -> int:
     )
     scaling_line = (
         "Expiry scaling: Expanse&#8217;s pass cost follows the stale count; the HashMap sweep "
-        f"follows the tracked count (~68 KiB flat table, L2-resident on this host)"
+        "follows the tracked count (~68 KiB flat table, L2-resident on this host)"
     )
     footer = (
         f'  <text x="30" y="262" class="t-chart-sub">Panel 1 derived by scripts/embedded_envelope.py; '

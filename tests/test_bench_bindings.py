@@ -15,7 +15,6 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from bench_bindings import (
     compare_against_baseline,
-    format_markdown_report,
     _extract_json_result,
     _parse_go_bench_output,
     DOTNET_JSON_MARKER,

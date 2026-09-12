@@ -7,7 +7,6 @@ import hashlib
 import os
 import shutil
 import subprocess
-import sys
 
 
 from site_theme import (

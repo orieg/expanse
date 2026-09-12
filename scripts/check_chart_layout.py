@@ -119,7 +119,7 @@ def check_svg(path: Path) -> list[str]:
 
         # --- rects (bars) escaping the card ---
         for rm in re.finditer(r'<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)"', body):
-            rx, ry, rw = float(rm.group(1)), float(rm.group(2)), float(rm.group(3))
+            rx, _ry, rw = float(rm.group(1)), float(rm.group(2)), float(rm.group(3))
             if rw == cw:
                 continue  # the card itself
             if rx + rw > cx + cw + OVERFLOW_SLACK:

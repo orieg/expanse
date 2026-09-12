@@ -5,7 +5,6 @@ import datetime
 import os
 import shutil
 import subprocess
-import sys
 from build_apt_repo import build_apt_repo
 from build_rpm_repo import build_rpm_repo
 from site_theme import (

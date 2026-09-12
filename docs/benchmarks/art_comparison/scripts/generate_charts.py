@@ -244,7 +244,7 @@ def generate_all() -> None:
                 elif r["range_k"] == 100:
                     rows.append((
                         f"{r['distribution'].replace('_', ' ').title()} (Range k=100)",
-                        f"Bounded range query (100 items)",
+                        "Bounded range query (100 items)",
                         r["expanse_ns_elem"],
                         r["blart_art_ns_elem"],
                         r["btree_ns_elem"],

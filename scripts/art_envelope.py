@@ -251,10 +251,10 @@ def test_bounds() -> None:
     assert EXPANSE_MEASURED_RANDOM_1M == 16.70
 
     # 6. Projected blart floors
-    blart_dense = projected_blart_dense_bpk()
-    blart_clustered = projected_blart_clustered_bpk()
-    blart_sparse = projected_blart_sparse_bpk()
-    blart_random = projected_blart_random_bpk()
+    _blart_dense = projected_blart_dense_bpk()
+    _blart_clustered = projected_blart_clustered_bpk()
+    _blart_sparse = projected_blart_sparse_bpk()
+    _blart_random = projected_blart_random_bpk()
 
     # 7. Small payload bounds (issue #663)
     assert projected_expanse_small_logical_bytes(1) == 16

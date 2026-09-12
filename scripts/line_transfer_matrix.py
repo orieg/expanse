@@ -27,7 +27,6 @@ from __future__ import annotations
 import argparse
 import itertools
 import json
-import os
 import platform
 import subprocess
 import sys

@@ -91,6 +91,15 @@ python3 scripts/check_bench_shapes.py --self-test
 python3 scripts/check_bench_pin.py --self-test
 python3 scripts/check_public_api.py --self-test
 python3 scripts/check_readme_tables.py --self-test
+
+# Python lint (ruff, pyflakes rules per ruff.toml). CI is the authority: the
+# `docs-lint` job installs a pinned ruff and runs the same check. Locally it is
+# advisory when ruff is absent, and says so rather than passing silently.
+if command -v ruff >/dev/null 2>&1; then
+  ruff check .
+else
+  echo "  (skipping ruff: not installed -- 'pip install ruff'; CI docs-lint runs it pinned)"
+fi
 python3 scripts/check_bench_provenance.py --self-test
 python3 scripts/check_man_pages.py --self-test
 python3 scripts/check_miri_shards.py --self-test

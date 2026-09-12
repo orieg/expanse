@@ -19,11 +19,8 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from perf_report import (
     BENCH_N_MAP,
-    CATEGORIES,
-    SMOKE_BENCH_N_MAP,
     categorize_benchmarks,
     check_regressions,
-    fmt_delta,
     format_ins_per_op,
     format_n,
     get_bench_n,
@@ -31,10 +28,8 @@ from perf_report import (
     parse,
     parse_bytes_32,
     parse_bytes_64,
-    pct,
     render,
     render_cache_simulation,
-    verdict,
 )
 
 

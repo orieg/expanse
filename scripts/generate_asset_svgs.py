@@ -549,8 +549,8 @@ def render_density(data: dict) -> None:
     svg = head(width, height, "ExpanseSet bytes per key across expanse occupancy")
     svg += (
         '  <text x="30" y="30" class="t-title">MEMORY DENSITY ACROSS EXPANSE OCCUPANCY &#183; UNIFORM RANDOM KEYS</text>\n'
-        f'  <text x="30" y="46" class="t-sub">ExpanseSet bytes/key against &#955; = N / 2^(w&#8722;48), the mean population of a 2-byte-prefix expanse &#183; '
-        f'log &#955; axis &#183; lower is better</text>\n'
+        '  <text x="30" y="46" class="t-sub">ExpanseSet bytes/key against &#955; = N / 2^(w&#8722;48), the mean population of a 2-byte-prefix expanse &#183; '
+        'log &#955; axis &#183; lower is better</text>\n'
         '  <line x1="30" y1="58" x2="930" y2="58" class="divider"/>\n'
     )
     # y grid and ticks
