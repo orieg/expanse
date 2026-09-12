@@ -1435,6 +1435,32 @@ impl Collector {
         block.cast::<u8>()
     }
 
+    /// Immediately recycles an unpublished allocation back into this collector's size-class freelist,
+    /// or frees it if outside size classes.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must have been allocated by this collector's associated `TreeAlloc`, must NEVER have been
+    /// published to any node/edge or seen by any reader, and must not be used afterwards.
+    #[allow(dead_code)]
+    pub(crate) unsafe fn recycle_unpublished(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
+        if let Some(class) = class_for(bytes, align) {
+            let block = ptr.as_ptr().cast::<FreeBlock>();
+            let mut head = self
+                .alloc_freelist(class)
+                .lock()
+                .expect("freelist poisoned");
+            // SAFETY: block was allocated matching this size class, was never published, and caller relinquishes ownership.
+            unsafe {
+                (*block).next = head.0;
+            }
+            head.0 = block;
+        } else {
+            // SAFETY: ptr was never published and matches layout contract.
+            free_raw(ptr, bytes, align);
+        }
+    }
+
     /// Registers a reader; the returned handle pins/unpins cheaply.
     #[must_use]
     pub fn register(self: &Arc<Self>) -> Reader {

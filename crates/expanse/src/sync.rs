@@ -1997,13 +1997,15 @@ fn branch_split<T>(_kind: BranchSplitKind) -> OlcOutcome<T> {
 #[cfg(feature = "std")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CapExpansionKind {
-    /// Linear leaf capacity class growth within linear leaf (`pop < cap` and `cap_class(pop + 1) != cap_class(pop)`).
+    /// Linear leaf capacity class growth within linear leaf (Phase 4C eliminated; kept for partition completeness).
+    #[allow(dead_code)]
     Class,
     /// Linear leaf full (`pop >= cap`): level 1 converts to LeafB1 at 25, level >= 2 splits into BranchL3+ at 32.
     LeafFull,
     /// Bitmap leaf near-full (`pop0 >= 254`): set population 256 converts to FullExpanse, map near-full guard.
     BitmapNearFull,
-    /// Growth of map bitmap-leaf `values[sub]` subarrays across capacity classes.
+    /// Growth of map bitmap-leaf `values[sub]` subarrays across capacity classes (Phase 4C eliminated; kept for partition completeness).
+    #[allow(dead_code)]
     MapBitmapSub,
     /// Remove-side capacity adjustments (shrink/demote).
     Remove,
@@ -2025,6 +2027,7 @@ impl CapExpansionKind {
 
 /// Pure helper classifying linear leaf capacity fallback into either intra-leaf class growth
 /// (`Class`) or full-leaf conversion/split (`LeafFull`).
+#[allow(dead_code)]
 #[inline(always)]
 pub(crate) const fn classify_leaf_expansion(pop: usize, cap: usize) -> CapExpansionKind {
     if pop >= cap {
@@ -2970,7 +2973,7 @@ impl SyncExpanseSet {
                             if let Some(p) = pre_alloc {
                                 // SAFETY: pre_alloc was allocated above and never published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         p.cast(),
                                         crate::mutate::sub_edges_size(old_n + 1),
                                     );
@@ -2984,7 +2987,7 @@ impl SyncExpanseSet {
                             if let Some(p) = pre_alloc {
                                 // SAFETY: pre_alloc was allocated above and never published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         p.cast(),
                                         crate::mutate::sub_edges_size(old_n + 1),
                                     );
@@ -3008,7 +3011,7 @@ impl SyncExpanseSet {
                             if let Some(p) = pre_alloc {
                                 // SAFETY: pre_alloc was allocated above and never published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         p.cast(),
                                         crate::mutate::sub_edges_size(old_n + 1),
                                     );
@@ -3031,7 +3034,7 @@ impl SyncExpanseSet {
                             if let Some(p) = pre_alloc {
                                 // SAFETY: pre_alloc was allocated above and never published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         p.cast(),
                                         crate::mutate::sub_edges_size(old_n + 1),
                                     );
@@ -3298,33 +3301,95 @@ impl SyncExpanseSet {
                     } else {
                         crate::mutate::LEAF_CAP
                     };
-                    if pop < cap && crate::leaf::cap_class(pop + 1) == crate::leaf::cap_class(pop) {
-                        let Ok((old_v, lock_t0)) =
-                            version_try_lock_expect_timed(p_cell, parent.version_snap)
-                        else {
-                            return OlcOutcome::Retry;
-                        };
-                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
-                            version_unlock_timed(p_cell, old_v, false, lock_t0);
-                            return OlcOutcome::Retry;
-                        }
-                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-                        unsafe {
-                            core::ptr::copy(
-                                keys_ptr.add(at * kb),
-                                keys_ptr.add((at + 1) * kb),
-                                (pop - at) * kb,
+                    if pop < cap {
+                        if crate::leaf::cap_class(pop + 1) == crate::leaf::cap_class(pop) {
+                            let Ok((old_v, lock_t0)) =
+                                version_try_lock_expect_timed(p_cell, parent.version_snap)
+                            else {
+                                return OlcOutcome::Retry;
+                            };
+                            // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                                version_unlock_timed(p_cell, old_v, false, lock_t0);
+                                return OlcOutcome::Retry;
+                            }
+                            // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                            debug_assert_eq!(
+                                p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1,
+                                1
                             );
-                            crate::mutate::write_packed(keys_ptr, at, kb, k);
-                            (*edge_ptr).set_pop0(kb as u8, pop as u64);
-                            version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            self.shared.mark_dirty_digit(digit(key, 8));
+                            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                            unsafe {
+                                core::ptr::copy(
+                                    keys_ptr.add(at * kb),
+                                    keys_ptr.add((at + 1) * kb),
+                                    (pop - at) * kb,
+                                );
+                                crate::mutate::write_packed(keys_ptr, at, kb, k);
+                                (*edge_ptr).set_pop0(kb as u8, pop as u64);
+                                version_unlock_timed(p_cell, old_v, true, lock_t0);
+                                self.shared.mark_dirty_digit(digit(key, 8));
+                            }
+                            return OlcOutcome::Done(true);
+                        } else {
+                            // Phase 4C: Concurrent linear leaf capacity class growth
+                            let old_size = crate::leaf::size_set(kb as u8, pop);
+                            let new_size = crate::leaf::size_set(kb as u8, pop + 1);
+                            let alloc = self.shared.inner_ref().alloc();
+                            let new_buf = alloc.alloc_bytes(new_size).as_ptr();
+
+                            let Ok((old_v, lock_t0)) =
+                                version_try_lock_expect_timed(p_cell, parent.version_snap)
+                            else {
+                                // SAFETY: new_buf was freshly allocated and not published.
+                                unsafe {
+                                    alloc.free_bytes_unpublished(
+                                        core::ptr::NonNull::new_unchecked(new_buf),
+                                        new_size,
+                                    );
+                                }
+                                return OlcOutcome::Retry;
+                            };
+
+                            // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                                // SAFETY: new_buf was freshly allocated and not published.
+                                unsafe {
+                                    alloc.free_bytes_unpublished(
+                                        core::ptr::NonNull::new_unchecked(new_buf),
+                                        new_size,
+                                    );
+                                    version_unlock_timed(p_cell, old_v, false, lock_t0);
+                                }
+                                return OlcOutcome::Retry;
+                            }
+
+                            // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                            debug_assert_eq!(
+                                p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1,
+                                1
+                            );
+                            // SAFETY: parent is locked; new_buf is valid for new_size; keys_ptr is valid for old_size.
+                            unsafe {
+                                crate::leaf::set_realloc_insert(
+                                    keys_ptr, new_buf, kb as u8, pop, at, k,
+                                );
+                                let saved_aux = *edge.aux_bytes();
+                                let mut new_edge = Edge::new_node(new_buf, edge.tag_byte());
+                                new_edge.set_aux_bytes(saved_aux);
+                                new_edge.set_pop0(kb as u8, pop as u64);
+                                edge_ptr.write(new_edge);
+                                version_unlock_timed(p_cell, old_v, true, lock_t0);
+                                alloc.free_bytes(
+                                    core::ptr::NonNull::new_unchecked(keys_ptr),
+                                    old_size,
+                                );
+                                self.shared.mark_dirty_digit(digit(key, 8));
+                            }
+                            return OlcOutcome::Done(true);
                         }
-                        return OlcOutcome::Done(true);
                     }
-                    let kind = classify_leaf_expansion(pop, cap);
-                    return cap_expansion(kind);
+                    return cap_expansion(CapExpansionKind::LeafFull);
                 }
 
                 EdgeTag::Immed(im) => {
@@ -4191,7 +4256,7 @@ impl SyncExpanseMap {
                             if let Some(p) = pre_alloc {
                                 // SAFETY: pre_alloc was allocated above and never published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         p.cast(),
                                         crate::mutate::sub_edges_size(old_n + 1),
                                     );
@@ -4205,7 +4270,7 @@ impl SyncExpanseMap {
                             if let Some(p) = pre_alloc {
                                 // SAFETY: pre_alloc was allocated above and never published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         p.cast(),
                                         crate::mutate::sub_edges_size(old_n + 1),
                                     );
@@ -4229,7 +4294,7 @@ impl SyncExpanseMap {
                             if let Some(p) = pre_alloc {
                                 // SAFETY: pre_alloc was allocated above and never published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         p.cast(),
                                         crate::mutate::sub_edges_size(old_n + 1),
                                     );
@@ -4252,7 +4317,7 @@ impl SyncExpanseMap {
                             if let Some(p) = pre_alloc {
                                 // SAFETY: pre_alloc was allocated above and never published.
                                 unsafe {
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_unpublished(
                                         p.cast(),
                                         crate::mutate::sub_edges_size(old_n + 1),
                                     );
@@ -4452,6 +4517,8 @@ impl SyncExpanseMap {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
+                        // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                        debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                         unsafe {
                             let arr = (*node).values[sub];
@@ -4463,8 +4530,68 @@ impl SyncExpanseMap {
                             self.shared.mark_dirty_digit(digit(key, 8));
                         }
                         return OlcOutcome::Done(None);
+                    } else {
+                        // Phase 4C: Concurrent LeafB1 values[sub] initial allocation (old_n == 0) or capacity class growth
+                        let new_size = crate::mutate::sub_vals_size(old_n + 1);
+                        let alloc = self.shared.inner_ref().alloc();
+                        let new_vals = alloc.alloc_bytes(new_size).as_ptr().cast::<u64>();
+
+                        let Ok((old_v, lock_t0)) =
+                            version_try_lock_expect_timed(p_cell, parent.version_snap)
+                        else {
+                            // SAFETY: new_vals was freshly allocated and not published.
+                            unsafe {
+                                alloc.free_bytes_unpublished(
+                                    core::ptr::NonNull::new_unchecked(new_vals.cast()),
+                                    new_size,
+                                );
+                            }
+                            return OlcOutcome::Retry;
+                        };
+
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                            // SAFETY: new_vals was freshly allocated and not published.
+                            unsafe {
+                                alloc.free_bytes_unpublished(
+                                    core::ptr::NonNull::new_unchecked(new_vals.cast()),
+                                    new_size,
+                                );
+                                version_unlock_timed(p_cell, old_v, false, lock_t0);
+                            }
+                            return OlcOutcome::Retry;
+                        }
+
+                        // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                        debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
+
+                        // SAFETY: parent is locked; node is valid LeafBitmapL; new_vals is valid for new_size.
+                        unsafe {
+                            let old_vals_to_free = if old_n > 0 {
+                                let old_arr = (*node).values[sub];
+                                new_vals.copy_from_nonoverlapping(old_arr, rank);
+                                new_vals
+                                    .add(rank + 1)
+                                    .copy_from_nonoverlapping(old_arr.add(rank), old_n - rank);
+                                Some(old_arr)
+                            } else {
+                                None
+                            };
+                            new_vals.add(rank).write(val);
+                            (*node).values[sub] = new_vals;
+                            (*node).bitmap.set(d);
+                            (*edge_ptr).set_pop0(1, (pop0 + 1) as u64);
+                            version_unlock_timed(p_cell, old_v, true, lock_t0);
+                            if let Some(old_arr) = old_vals_to_free {
+                                alloc.free_bytes(
+                                    core::ptr::NonNull::new_unchecked(old_arr.cast()),
+                                    crate::mutate::sub_vals_size(old_n),
+                                );
+                            }
+                            self.shared.mark_dirty_digit(digit(key, 8));
+                        }
+                        return OlcOutcome::Done(None);
                     }
-                    return cap_expansion(CapExpansionKind::MapBitmapSub);
                 }
 
                 EdgeTag::Structural(
@@ -4530,28 +4657,87 @@ impl SyncExpanseMap {
                     } else {
                         crate::mutate::LEAF_CAP
                     };
-                    if pop < cap && crate::leaf::cap_class(pop + 1) == crate::leaf::cap_class(pop) {
-                        let Ok((old_v, lock_t0)) =
-                            version_try_lock_expect_timed(p_cell, parent.version_snap)
-                        else {
-                            return OlcOutcome::Retry;
-                        };
-                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
-                            version_unlock_timed(p_cell, old_v, false, lock_t0);
-                            return OlcOutcome::Retry;
+                    if pop < cap {
+                        if crate::leaf::cap_class(pop + 1) == crate::leaf::cap_class(pop) {
+                            let Ok((old_v, lock_t0)) =
+                                version_try_lock_expect_timed(p_cell, parent.version_snap)
+                            else {
+                                return OlcOutcome::Retry;
+                            };
+                            // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                                version_unlock_timed(p_cell, old_v, false, lock_t0);
+                                return OlcOutcome::Retry;
+                            }
+                            // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                            debug_assert_eq!(
+                                p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1,
+                                1
+                            );
+                            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                            unsafe {
+                                crate::leaf::map_insert_at(base, kb as u8, pop, at, k, val);
+                                (*edge_ptr).set_pop0(kb as u8, pop as u64);
+                                version_unlock_timed(p_cell, old_v, true, lock_t0);
+                                self.shared.mark_dirty_digit(digit(key, 8));
+                            }
+                            return OlcOutcome::Done(None);
+                        } else {
+                            // Phase 4C: Concurrent linear leaf capacity class growth
+                            let old_size = crate::leaf::size_map(kb as u8, pop);
+                            let new_size = crate::leaf::size_map(kb as u8, pop + 1);
+                            let alloc = self.shared.inner_ref().alloc();
+                            let new_buf = alloc.alloc_bytes(new_size).as_ptr();
+
+                            let Ok((old_v, lock_t0)) =
+                                version_try_lock_expect_timed(p_cell, parent.version_snap)
+                            else {
+                                // SAFETY: new_buf was freshly allocated and not published.
+                                unsafe {
+                                    alloc.free_bytes_unpublished(
+                                        core::ptr::NonNull::new_unchecked(new_buf),
+                                        new_size,
+                                    );
+                                }
+                                return OlcOutcome::Retry;
+                            };
+
+                            // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                                // SAFETY: new_buf was freshly allocated and not published.
+                                unsafe {
+                                    alloc.free_bytes_unpublished(
+                                        core::ptr::NonNull::new_unchecked(new_buf),
+                                        new_size,
+                                    );
+                                    version_unlock_timed(p_cell, old_v, false, lock_t0);
+                                }
+                                return OlcOutcome::Retry;
+                            }
+
+                            // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                            debug_assert_eq!(
+                                p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1,
+                                1
+                            );
+                            // SAFETY: parent is locked; new_buf is valid for new_size; base is valid for old_size.
+                            unsafe {
+                                crate::leaf::map_realloc_insert(
+                                    base, new_buf, kb as u8, pop, at, k, val,
+                                );
+                                let saved_aux = *edge.aux_bytes();
+                                let mut new_edge = Edge::new_node(new_buf, edge.tag_byte());
+                                new_edge.set_aux_bytes(saved_aux);
+                                new_edge.set_pop0(kb as u8, pop as u64);
+                                edge_ptr.write(new_edge);
+                                version_unlock_timed(p_cell, old_v, true, lock_t0);
+                                alloc.free_bytes(core::ptr::NonNull::new_unchecked(base), old_size);
+                                self.shared.mark_dirty_digit(digit(key, 8));
+                            }
+                            return OlcOutcome::Done(None);
                         }
-                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-                        unsafe {
-                            crate::leaf::map_insert_at(base, kb as u8, pop, at, k, val);
-                            (*edge_ptr).set_pop0(kb as u8, pop as u64);
-                            version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            self.shared.mark_dirty_digit(digit(key, 8));
-                        }
-                        return OlcOutcome::Done(None);
                     }
-                    let kind = classify_leaf_expansion(pop, cap);
-                    return cap_expansion(kind);
+                    return cap_expansion(CapExpansionKind::LeafFull);
                 }
 
                 EdgeTag::Immed(im) => {
@@ -6227,6 +6413,91 @@ mod tests {
         assert_eq!(BranchSplitKind::Prefix.stat(), Stat::BranchSplitPrefix);
         assert_eq!(BranchSplitKind::Remove.stat(), Stat::BranchSplitRemove);
         assert_eq!(BranchSplitKind::Upgrade.stat(), Stat::BranchSplitUpgrade);
+    }
+
+    /// Verifies Phase 4C: concurrent leaf capacity class growth for both set and map
+    /// leaves and LeafB1 value subarrays under concurrent readers and writers (W=4, R=2).
+    #[test]
+    fn test_concurrent_leaf_capacity_expansion() {
+        use std::sync::Barrier;
+
+        let set = Arc::new(SyncExpanseSet::new());
+        let map = Arc::new(SyncExpanseMap::new());
+
+        // Prepopulate so root is a tree and leaves exist across branches
+        for i in 0..64u64 {
+            set.insert((i << 16) | 1);
+            map.insert((i << 16) | 1, i);
+        }
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let num_readers = 2;
+        let num_writers = 4;
+        let barrier = Arc::new(Barrier::new(num_writers));
+
+        // Spawn concurrent readers while writers cause leaf capacity class expansions
+        let mut reader_handles = Vec::with_capacity(num_readers);
+        for _ in 0..num_readers {
+            let set_clone = Arc::clone(&set);
+            let map_clone = Arc::clone(&map);
+            let stop_clone = Arc::clone(&stop);
+            reader_handles.push(std::thread::spawn(move || {
+                let s_reader = set_clone.reader();
+                let m_reader = map_clone.reader();
+                while !stop_clone.load(Ordering::Relaxed) {
+                    for i in 0..64u64 {
+                        let k = (i << 16) | 1;
+                        assert!(s_reader.contains(k));
+                        assert_eq!(m_reader.get(k), Some(i));
+                    }
+                }
+            }));
+        }
+
+        // Spawn 4 concurrent writers colliding on the same 64 leaf prefixes,
+        // interleaving keys so they race on capacity class expansions.
+        let mut writer_handles = Vec::with_capacity(num_writers);
+        for w in 0..num_writers {
+            let set_clone = Arc::clone(&set);
+            let map_clone = Arc::clone(&map);
+            let b_clone = Arc::clone(&barrier);
+            writer_handles.push(std::thread::spawn(move || {
+                b_clone.wait();
+                // Each writer handles distinct values of j in [2..22) across all 64 leaf prefixes
+                for step in 0..5 {
+                    let j = 2 + (w as u64) + (step as u64) * (num_writers as u64);
+                    for i in 0..64u64 {
+                        let k = (i << 16) | j;
+                        assert!(set_clone.insert(k));
+                        assert_eq!(map_clone.insert(k, i * 1000 + j), None);
+                    }
+                }
+            }));
+        }
+
+        for h in writer_handles {
+            h.join().expect("writer joined cleanly");
+        }
+
+        stop.store(true, Ordering::Relaxed);
+        for h in reader_handles {
+            h.join().expect("reader joined cleanly");
+        }
+
+        // Verify all keys and values are present
+        for i in 0..64u64 {
+            assert!(set.contains((i << 16) | 1));
+            assert_eq!(map.get((i << 16) | 1), Some(i));
+            for j in 2..22u64 {
+                let k = (i << 16) | j;
+                assert!(set.contains(k));
+                assert_eq!(map.get(k), Some(i * 1000 + j));
+            }
+        }
+
+        // Deep invariant validation (§2.3 / AGENTS.md)
+        set.with_locked(crate::set::ExpanseSet::validate);
+        map.with_locked(crate::map::ExpanseMap::validate);
     }
 
     /// A `DetachedMapReader` must give the same answers as the owned reader
