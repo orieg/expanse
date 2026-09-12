@@ -671,6 +671,73 @@ void TestBatchScanApi() {
     std::cout << "  -> PASSED" << std::endl;
 }
 
+// `while (it->Valid()) ScanBatch(...)` -- the loop `benches/bench_memtable.cc`
+// and any RocksDB caller drives a batch scan with.
+//
+// TestBatchScanApi above calls ScanBatch back to back and never calls Valid()
+// between the calls, which is the one shape that cannot see this defect:
+// Valid() is what runs RevalidatePosition(), and RevalidatePosition() is what
+// re-seeks. #769 gave Seek/Next/Prev/SeekToFirst/SeekToLast a CaptureAnchor()
+// and left ScanBatch without one, so the cursor advanced while the anchor did
+// not; the next Valid() found a leaf whose version no longer matched the
+// anchor and seeked back to the entry the batch had started from. The loop
+// re-extracted the first batch forever. It is capped here rather than trusted
+// to end, so the failure reports instead of hanging the suite.
+void TestBatchScanLoopTerminates() {
+    std::cout << "[RUN] TestBatchScanLoopTerminates" << std::endl;
+    TestBytewiseComparator cmp;
+    Arena arena;
+    // Leaf capacity 16 against 500 entries: the cursor must cross many leaves,
+    // which is what moves current_leaf_->version away from the anchor.
+    ExpanseMemTableRep memtable(cmp, &arena, nullptr, nullptr, 16);
+
+    const int total = 500;
+    std::vector<std::string> keys;
+    keys.reserve(total);
+    for (int i = 0; i < total; ++i) {
+        std::ostringstream ss;
+        ss << "loop_key_" << std::setw(5) << std::setfill('0') << i;
+        keys.push_back(ss.str());
+        const char* e = EncodeEntry(arena, keys.back(), 100 + i, kTypeValue, "val_" + keys.back());
+        memtable.Insert(const_cast<char*>(e));
+    }
+
+    std::unique_ptr<MemTableRep::Iterator> it(memtable.GetIterator());
+    auto* exp_it = dynamic_cast<ExpanseMemTableRep::IteratorImpl*>(it.get());
+    assert(exp_it != nullptr);
+    exp_it->SeekToFirst();
+
+    const size_t kBatch = 64;
+    std::vector<Slice> bk(kBatch), bv(kBatch);
+    // A terminating loop needs ceil(500/64) = 8 calls. The cap is an order of
+    // magnitude above that, so it trips only on a loop that does not advance.
+    const int kCallCap = 100;
+    int calls = 0;
+    long counted = 0;
+    std::vector<std::string> seen;
+    while (exp_it->Valid() && calls < kCallCap) {
+        size_t n = exp_it->ScanBatch(kBatch, bk.data(), bv.data());
+        calls++;
+        if (n == 0) break;
+        for (size_t i = 0; i < n; ++i) {
+            seen.emplace_back(bk[i].data(), bk[i].size() - 8);
+        }
+        counted += static_cast<long>(n);
+    }
+
+    assert(calls < kCallCap && "batch-scan loop did not terminate: ScanBatch advanced the cursor without re-anchoring");
+    assert(counted == total && "batch-scan loop counted the wrong number of entries");
+    assert(seen.size() == static_cast<size_t>(total));
+    // Every key exactly once, in order -- a cursor that snapped back would
+    // re-emit, which the count alone would catch only by overshooting.
+    for (int i = 0; i < total; ++i) {
+        assert(seen[i] == keys[i] && "batch scan emitted keys out of order or repeated one");
+    }
+    assert(!exp_it->Valid());
+
+    std::cout << "  -> PASSED (" << calls << " calls, " << counted << " entries)" << std::endl;
+}
+
 void TestIntrusiveLeafChainingAndPrefetch() {
     std::cout << "[RUN] TestIntrusiveLeafChainingAndPrefetch" << std::endl;
     TestBytewiseComparator cmp;
@@ -783,6 +850,7 @@ int main() {
     TestHighConcurrencyOptimisticReaders();
     TestLargeVolumeRandomOperations();
     TestBatchScanApi();
+    TestBatchScanLoopTerminates();
     TestIntrusiveLeafChainingAndPrefetch();
     TestFactory();
 
