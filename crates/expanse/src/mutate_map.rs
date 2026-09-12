@@ -18,11 +18,11 @@
 use crate::alloc::NodeAlloc;
 use crate::leaf;
 use crate::mutate::{
-    BRANCHB_UP, LEAF_CAP, LEAF1_CAP, LEAFB1_DOWN, branch_form_level, bump_pop0, decode_value,
-    divergence_level, downgrade_b_to_l7, downgrade_l7_to_l3, downgrade_u_to_b, free_branch_node,
-    key_low, linear_insert_slot, linear_insert_slot_l3, linear_remove_slot, map_immed_max,
-    read_packed, restore_decode, split_skip, sub_edges_size, sub_vals_size, upgrade_b_to_u,
-    upgrade_l3_to_l7, upgrade_l7_to_b, wrap_skip_level, write_decode, write_packed,
+    BRANCHB_UP, LEAF_CAP, LEAF1_CAP, LEAFB1_DOWN, branch_form_level, bump_pop0, bump_pop0_dispatch,
+    decode_value, divergence_level, downgrade_b_to_l7, downgrade_l7_to_l3, downgrade_u_to_b,
+    free_branch_node, key_low, linear_insert_slot, linear_insert_slot_l3, linear_remove_slot,
+    map_immed_max, read_packed, restore_decode, split_skip, sub_edges_size, sub_vals_size,
+    upgrade_b_to_u, upgrade_l3_to_l7, upgrade_l7_to_b, wrap_skip_level, write_decode, write_packed,
     write_packed_fixed,
 };
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmapL};
@@ -1955,8 +1955,6 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
     }
 }
 
-/// Removes `key` from the subtree at `edge`; returns its value if present.
-///
 /// `cover` is the version word of the node whose slot `edge` is (the tree
 /// word at the top): the same covering function as
 /// [`map_insert_with_path_occ`] — every store this frame makes to `*edge` or
@@ -2379,7 +2377,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                         cover.end_if::<OCC, NESTED>(a);
                         return Some(old);
                     }
-                    bump_pop0(edge, bl, -1);
+                    bump_pop0_dispatch::<OCC>(edge, bl, -1);
                     if !is_l3 && num < BRANCH_L3_CAP {
                         downgrade_l7_to_l3::<OCC>(a, edge);
                     }
@@ -2388,7 +2386,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
             } else {
                 cover.begin_if::<OCC, NESTED>(a);
                 // SAFETY: edge is a valid live edge.
-                unsafe { bump_pop0(edge, bl, -1) };
+                unsafe { bump_pop0_dispatch::<OCC>(edge, bl, -1) };
                 cover.end_if::<OCC, NESTED>(a);
             }
             Some(old)
@@ -2477,7 +2475,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                     return Some(old);
                 }
                 // SAFETY: edge is a valid live edge.
-                unsafe { bump_pop0(edge, bl, -1) };
+                unsafe { bump_pop0_dispatch::<OCC>(edge, bl, -1) };
                 if digits < BRANCH_L7_CAP {
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_b_to_l7::<OCC>(a, edge) };
@@ -2486,7 +2484,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
             } else {
                 cover.begin_if::<OCC, NESTED>(a);
                 // SAFETY: edge is a valid live edge.
-                unsafe { bump_pop0(edge, bl, -1) };
+                unsafe { bump_pop0_dispatch::<OCC>(edge, bl, -1) };
                 cover.end_if::<OCC, NESTED>(a);
             }
             Some(old)
@@ -2529,7 +2527,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                     return Some(old);
                 }
                 // SAFETY: edge is a valid live edge.
-                unsafe { bump_pop0(edge, level, -1) };
+                unsafe { bump_pop0_dispatch::<OCC>(edge, level, -1) };
                 if digits < BRANCHB_UP {
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_u_to_b::<OCC>(a, edge, level) };
@@ -2538,7 +2536,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
             } else {
                 cover.begin_if::<OCC, NESTED>(a);
                 // SAFETY: edge is a valid live edge.
-                unsafe { bump_pop0(edge, level, -1) };
+                unsafe { bump_pop0_dispatch::<OCC>(edge, level, -1) };
                 cover.end_if::<OCC, NESTED>(a);
             }
             Some(old)

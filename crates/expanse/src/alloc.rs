@@ -645,6 +645,15 @@ impl NodeAlloc {
     /// and immediately recycles the block into the collector's size-class freelist, avoiding
     /// garbage bin retention and epoch queue bloat during retry loops.
     ///
+    /// # Concurrency & AGENTS.md §2.6 Architectural Contract
+    /// AGENTS.md §2.6 categorically forbids thread-local *retire* buffers for published memory
+    /// because buffering garbage from epoch `e` while another writer advances to `e+1` creates
+    /// S4 store-buffer pairing violations and thread-exit leaks.
+    /// In contrast, `free_bytes_unpublished` operates exclusively on speculative, unshared
+    /// scratch memory allocated by the current writer that aborted prior to publication. Because
+    /// this memory was never reachable by any reader, it carries zero epoch-visibility hazard
+    /// and is returned immediately to the allocator freelist.
+    ///
     /// # Safety
     ///
     /// `ptr` must come from `alloc_bytes(bytes)` on this handle with [`RAW_ALIGN`], must
@@ -689,6 +698,12 @@ impl NodeAlloc {
     /// Under concurrent OCC mode, this bypasses Epoch-Based Reclamation (EBR) retirement
     /// and immediately recycles the block into the collector's size-class freelist, avoiding
     /// garbage bin retention and epoch queue bloat during retry loops.
+    ///
+    /// # Concurrency & AGENTS.md §2.6 Architectural Contract
+    /// AGENTS.md §2.6 categorically forbids thread-local *retire* buffers for published memory.
+    /// In contrast, `free_node_unpublished` operates exclusively on speculative, unshared
+    /// node memory that was never reachable by any concurrent reader. It carries zero epoch
+    /// or store-buffer hazard and is returned directly to the allocator freelist.
     ///
     /// # Safety
     ///

@@ -574,6 +574,37 @@ pub(crate) unsafe fn bump_pop0(edge: *mut Edge, level: u8, delta: i64) {
     }
 }
 
+/// Bump pop0 with saturation at 0 for OCC mode where branch pop0 is lazy and unmaintained.
+///
+/// # Safety
+/// `edge` must be a valid, live, aligned raw pointer to an `Edge`.
+#[inline(always)]
+pub(crate) unsafe fn bump_pop0_saturating(edge: *mut Edge, level: u8, delta: i64) {
+    if level <= 7 {
+        // SAFETY: caller guarantees edge is valid, live, and aligned.
+        unsafe {
+            let pop0 = (*edge).pop0(level) as i64;
+            let new_pop0 = (pop0 + delta).max(0) as u64;
+            (*edge).set_pop0(level, new_pop0);
+        }
+    }
+}
+
+/// Dispatch bump_pop0 according to OCC mode: saturating under OCC, unmodified on single-threaded fast path.
+///
+/// # Safety
+/// `edge` must be a valid, live, aligned raw pointer to an `Edge`.
+#[inline(always)]
+pub(crate) unsafe fn bump_pop0_dispatch<const OCC: bool>(edge: *mut Edge, level: u8, delta: i64) {
+    if OCC {
+        // SAFETY: caller guarantees edge is valid, live, and aligned.
+        unsafe { bump_pop0_saturating(edge, level, delta) };
+    } else {
+        // SAFETY: caller guarantees edge is valid, live, and aligned.
+        unsafe { bump_pop0(edge, level, delta) };
+    }
+}
+
 /// Inserts a new digit + null child into a linear branch header at its
 /// sorted position and returns the slot.
 pub(crate) fn linear_insert_slot(
@@ -2605,7 +2636,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                         cover.end_if::<OCC, NESTED>(a);
                         return true;
                     }
-                    bump_pop0(edge, bl, -1);
+                    bump_pop0_dispatch::<OCC>(edge, bl, -1);
                     if !is_l3 && num < BRANCH_L3_CAP {
                         // Hysteresis: L7 → L3 one index below the L3 capacity.
                         downgrade_l7_to_l3::<OCC>(a, edge);
@@ -2615,7 +2646,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
             } else {
                 cover.begin_if::<OCC, NESTED>(a);
                 // SAFETY: edge is a valid live edge.
-                unsafe { bump_pop0(edge, bl, -1) };
+                unsafe { bump_pop0_dispatch::<OCC>(edge, bl, -1) };
                 cover.end_if::<OCC, NESTED>(a);
             }
             true
@@ -2697,7 +2728,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                     return true;
                 }
                 // SAFETY: edge is a valid live edge.
-                unsafe { bump_pop0(edge, bl, -1) };
+                unsafe { bump_pop0_dispatch::<OCC>(edge, bl, -1) };
                 if digits < BRANCH_L7_CAP {
                     // Hysteresis: B → L7 one index below the L7 capacity.
                     // SAFETY: rebuild keeps the subtree owned.
@@ -2707,7 +2738,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
             } else {
                 cover.begin_if::<OCC, NESTED>(a);
                 // SAFETY: edge is a valid live edge.
-                unsafe { bump_pop0(edge, bl, -1) };
+                unsafe { bump_pop0_dispatch::<OCC>(edge, bl, -1) };
                 cover.end_if::<OCC, NESTED>(a);
             }
             true
@@ -2747,7 +2778,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                     return true;
                 }
                 // SAFETY: edge is a valid live edge.
-                unsafe { bump_pop0(edge, level, -1) };
+                unsafe { bump_pop0_dispatch::<OCC>(edge, level, -1) };
                 if digits < BRANCHB_UP {
                     // Hysteresis: U → B one index below the U threshold.
                     // SAFETY: rebuild keeps the subtree owned.
@@ -2757,7 +2788,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
             } else {
                 cover.begin_if::<OCC, NESTED>(a);
                 // SAFETY: edge is a valid live edge.
-                unsafe { bump_pop0(edge, level, -1) };
+                unsafe { bump_pop0_dispatch::<OCC>(edge, level, -1) };
                 cover.end_if::<OCC, NESTED>(a);
             }
             true

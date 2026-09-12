@@ -850,19 +850,29 @@ impl WriterTable {
 /// - If all 8 words are 0 (clean): 0 node accesses, returning immediately in ~1 ns.
 /// - If non-zero: only subtrees whose digits are set in the bitmask are folded;
 ///   clean subtrees read their exact stored `child.pop0(7) + 1` in O(1).
-pub(crate) struct DirtyDigits([core::sync::atomic::AtomicU32; 8]);
+#[derive(Debug)]
+#[repr(align(64))]
+pub(crate) struct PaddedAtomicU32(pub(crate) core::sync::atomic::AtomicU32);
+
+impl PaddedAtomicU32 {
+    pub const fn new(val: u32) -> Self {
+        Self(core::sync::atomic::AtomicU32::new(val))
+    }
+}
+
+pub(crate) struct DirtyDigits([PaddedAtomicU32; 8]);
 
 impl DirtyDigits {
     pub const fn new() -> Self {
         Self([
-            core::sync::atomic::AtomicU32::new(0),
-            core::sync::atomic::AtomicU32::new(0),
-            core::sync::atomic::AtomicU32::new(0),
-            core::sync::atomic::AtomicU32::new(0),
-            core::sync::atomic::AtomicU32::new(0),
-            core::sync::atomic::AtomicU32::new(0),
-            core::sync::atomic::AtomicU32::new(0),
-            core::sync::atomic::AtomicU32::new(0),
+            PaddedAtomicU32::new(0),
+            PaddedAtomicU32::new(0),
+            PaddedAtomicU32::new(0),
+            PaddedAtomicU32::new(0),
+            PaddedAtomicU32::new(0),
+            PaddedAtomicU32::new(0),
+            PaddedAtomicU32::new(0),
+            PaddedAtomicU32::new(0),
         ])
     }
 
@@ -870,15 +880,22 @@ impl DirtyDigits {
     pub fn mark_digit(&self, d: u8) {
         let word_idx = (d >> 5) as usize;
         let bit = 1u32 << (d & 31);
-        if (self.0[word_idx].load(core::sync::atomic::Ordering::Relaxed) & bit) == 0 {
-            self.0[word_idx].fetch_or(bit, core::sync::atomic::Ordering::Relaxed);
+        if (self.0[word_idx]
+            .0
+            .load(core::sync::atomic::Ordering::Relaxed)
+            & bit)
+            == 0
+        {
+            self.0[word_idx]
+                .0
+                .fetch_or(bit, core::sync::atomic::Ordering::Relaxed);
         }
     }
 
     #[inline(always)]
     pub fn is_dirty(&self) -> bool {
         for word in &self.0 {
-            if word.load(core::sync::atomic::Ordering::Relaxed) != 0 {
+            if word.0.load(core::sync::atomic::Ordering::Relaxed) != 0 {
                 return true;
             }
         }
@@ -890,7 +907,11 @@ impl DirtyDigits {
     pub fn is_digit_dirty(&self, d: u8) -> bool {
         let word_idx = (d / 32) as usize;
         let bit = 1u32 << (d % 32);
-        (self.0[word_idx].load(core::sync::atomic::Ordering::Relaxed) & bit) != 0
+        (self.0[word_idx]
+            .0
+            .load(core::sync::atomic::Ordering::Relaxed)
+            & bit)
+            != 0
     }
 
     /// Atomically takes the dirty mask snapshot, clearing all words to 0.
@@ -898,7 +919,7 @@ impl DirtyDigits {
     pub fn take(&self, mask: &mut [u32; 8]) -> bool {
         let mut any = false;
         for (i, word) in mask.iter_mut().enumerate() {
-            let val = self.0[i].swap(0, core::sync::atomic::Ordering::Relaxed);
+            let val = self.0[i].0.swap(0, core::sync::atomic::Ordering::Relaxed);
             *word = val;
             if val != 0 {
                 any = true;
@@ -1733,17 +1754,7 @@ impl<T: SharedTree> Shared<T> {
         // SAFETY: the writer mutex makes this the only mutable borrow.
         let inner = unsafe { &mut *self.inner.get() };
         inner.clear_path();
-        let mut mask = [0u32; 8];
-        if self.dirty_digits.take(&mut mask) {
-            // SAFETY: Writers are quiesced and write lock is held; root_top_ptr is safe to access and mutate.
-            let top_ptr = unsafe { inner.root_top_ptr() };
-            if !top_ptr.is_null() {
-                // SAFETY: root top pointer is non-null and points to an EBR-live root Edge.
-                let folded = unsafe { fold_branch_pop0_selective(top_ptr, 8, &mask) };
-                inner.set_tree_pop(folded);
-                self.tree_pop.flush_and_set(folded);
-            }
-        } else if EXACT_POP {
+        if EXACT_POP {
             #[cfg(feature = "std")]
             let pop = self.tree_pop.load_slots(
                 self.writers
@@ -2093,7 +2104,7 @@ unsafe fn bump_edge_pop0(edge: *mut Edge, slot_level: u8, delta: i64) {
     if pop0_level <= 7 {
         // SAFETY: pop0_level is bounded and edge is live.
         unsafe {
-            crate::mutate::bump_pop0(edge, pop0_level, delta);
+            crate::mutate::bump_pop0_saturating(edge, pop0_level, delta);
         }
     }
 }
@@ -2612,6 +2623,7 @@ impl SyncExpanseSet {
                 let mut cause = FallbackCause::Contention;
                 #[cfg(feature = "occ-stats")]
                 let mut closed = false;
+                let mut backoff = 1;
                 for _ in 0..MAX_RETRIES {
                     if self.shared.gate.is_closed() {
                         #[cfg(feature = "occ-stats")]
@@ -2631,7 +2643,12 @@ impl SyncExpanseSet {
                         }
                         OlcOutcome::Retry => {
                             crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
-                            core::hint::spin_loop();
+                            for _ in 0..backoff {
+                                core::hint::spin_loop();
+                            }
+                            if backoff < 64 {
+                                backoff <<= 1;
+                            }
                             #[cfg(loom)]
                             loom::thread::yield_now();
                         }
@@ -3326,6 +3343,10 @@ impl SyncExpanseSet {
                             return OlcOutcome::Done(true);
                         } else {
                             // Phase 4C: Concurrent linear leaf capacity class growth
+                            let p_snap = p_cell.load(core::sync::atomic::Ordering::Relaxed);
+                            if p_snap != parent.version_snap || (p_snap & 1) != 0 {
+                                return OlcOutcome::Retry;
+                            }
                             let old_size = crate::leaf::size_set(kb as u8, pop);
                             let new_size = crate::leaf::size_set(kb as u8, pop + 1);
                             let alloc = self.shared.inner_ref().alloc();
@@ -3384,6 +3405,10 @@ impl SyncExpanseSet {
                     }
 
                     // Phase 4E: Concurrent linear leaf full split & branch conversion
+                    let p_snap = p_cell.load(core::sync::atomic::Ordering::Relaxed);
+                    if p_snap != parent.version_snap || (p_snap & 1) != 0 {
+                        return OlcOutcome::Retry;
+                    }
                     let old_size = crate::leaf::size_set(kb as u8, pop);
                     let saved_aux = *edge.aux_bytes();
                     let alloc = self.shared.inner_ref().alloc();
@@ -4146,6 +4171,7 @@ impl SyncExpanseMap {
                 let mut cause = FallbackCause::Contention;
                 #[cfg(feature = "occ-stats")]
                 let mut closed = false;
+                let mut backoff = 1;
                 for _ in 0..MAX_RETRIES {
                     if self.shared.gate.is_closed() {
                         #[cfg(feature = "occ-stats")]
@@ -4165,7 +4191,12 @@ impl SyncExpanseMap {
                         }
                         OlcOutcome::Retry => {
                             crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
-                            core::hint::spin_loop();
+                            for _ in 0..backoff {
+                                core::hint::spin_loop();
+                            }
+                            if backoff < 64 {
+                                backoff <<= 1;
+                            }
                             #[cfg(loom)]
                             loom::thread::yield_now();
                         }
@@ -4935,6 +4966,10 @@ impl SyncExpanseMap {
                             return OlcOutcome::Done(None);
                         } else {
                             // Phase 4C: Concurrent linear leaf capacity class growth
+                            let p_snap = p_cell.load(core::sync::atomic::Ordering::Relaxed);
+                            if p_snap != parent.version_snap || (p_snap & 1) != 0 {
+                                return OlcOutcome::Retry;
+                            }
                             let old_size = crate::leaf::size_map(kb as u8, pop);
                             let new_size = crate::leaf::size_map(kb as u8, pop + 1);
                             let alloc = self.shared.inner_ref().alloc();
@@ -4990,6 +5025,10 @@ impl SyncExpanseMap {
                     }
 
                     // Phase 4E: Concurrent linear leaf full split & branch conversion
+                    let p_snap = p_cell.load(core::sync::atomic::Ordering::Relaxed);
+                    if p_snap != parent.version_snap || (p_snap & 1) != 0 {
+                        return OlcOutcome::Retry;
+                    }
                     let old_size = crate::leaf::size_map(kb as u8, pop);
                     let saved_aux = *edge.aux_bytes();
                     let alloc = self.shared.inner_ref().alloc();
@@ -5117,7 +5156,7 @@ impl SyncExpanseMap {
                             for &(k, v) in &entries {
                                 // SAFETY: tmp is an unshared subtree owned by this thread.
                                 let prev = unsafe {
-                                    crate::mutate_map::map_insert_with_path::<false, true, false>(
+                                    crate::mutate_map::map_insert_with_path::<true, true, false>(
                                         alloc, &mut tmp, k, v, level, &mut path, private,
                                     )
                                 };
