@@ -941,60 +941,6 @@ mod tests {
     use super::*;
     use crate::node::{BranchB, BranchL3, BranchU};
 
-    /// The guard itself: a second holder is rejected while the first lives,
-    /// and the region is free again once it drops. Single-threaded, so this
-    /// decides deterministically rather than on an interleaving.
-    #[test]
-    #[cfg(debug_assertions)]
-    fn bookkeeping_guard_admits_one_holder_at_a_time() {
-        let a = NodeAlloc::new();
-        {
-            let _first = a.enter_bookkeeping();
-            assert!(
-                a.bookkeeping_busy.load(Ordering::Relaxed),
-                "a held guard must mark the region busy"
-            );
-        }
-        assert!(
-            !a.bookkeeping_busy.load(Ordering::Relaxed),
-            "dropping the guard must release the region"
-        );
-        // Free again, so the guard is re-entrant across calls, not once-only.
-        let _second = a.enter_bookkeeping();
-    }
-
-    #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic = "two threads are inside one NodeAlloc's per-tree freelists"]
-    fn bookkeeping_guard_rejects_a_second_holder() {
-        let a = NodeAlloc::new();
-        let _first = a.enter_bookkeeping();
-        let _second = a.enter_bookkeeping();
-    }
-
-    /// Pins the call sites, not just the helper: the three regions that mutate
-    /// the single-writer freelists and slab-page list each claim the guard.
-    /// Deleting one would leave both tests above green while restoring the
-    /// silent lost update, so this counts them in the source.
-    ///
-    /// The count is the invariant, not the number: it is the freelist pop, the
-    /// slab-page carve, and the freelist push. A fourth mutating region means
-    /// this number goes up *and* that region takes the guard.
-    #[test]
-    fn structural_every_freelist_mutation_claims_the_bookkeeping_guard() {
-        let src = include_str!("alloc.rs");
-        let body = src
-            .split_once("#[cfg(test)]\nmod tests {")
-            .map_or(src, |(before, _)| before);
-        let sites = body
-            .matches("let _bookkeeping = self.enter_bookkeeping();")
-            .count();
-        assert_eq!(
-            sites, 3,
-            "expected the freelist pop, the slab-page carve and the freelist push to claim \
-             the guard; found {sites} call sites in alloc.rs outside its test module"
-        );
-    }
     #[cfg(feature = "std")]
     use crate::occ::Collector;
     #[cfg(feature = "std")]
@@ -1340,5 +1286,63 @@ mod tests {
         unsafe { a.free_node(ptr) };
         let collector = std::sync::Arc::new(crate::occ::Collector::new());
         a.defer_to(collector);
+    }
+
+    /// The guard itself: a second holder is rejected while the first lives, and
+    /// the region is free again once it drops. Single-threaded, so it decides
+    /// deterministically rather than on an interleaving.
+    #[test]
+    #[cfg(debug_assertions)]
+    fn bookkeeping_guard_admits_one_holder_at_a_time() {
+        let a = NodeAlloc::new();
+        {
+            let _first = a.enter_bookkeeping();
+            assert!(
+                a.bookkeeping_busy.load(Ordering::Relaxed),
+                "a held guard must mark the region busy"
+            );
+        }
+        assert!(
+            !a.bookkeeping_busy.load(Ordering::Relaxed),
+            "dropping the guard must release the region"
+        );
+        // Free again, so the guard is re-entrant across calls, not once-only.
+        let _second = a.enter_bookkeeping();
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic = "two threads are inside one NodeAlloc's per-tree freelists"]
+    fn bookkeeping_guard_rejects_a_second_holder() {
+        let a = NodeAlloc::new();
+        let _first = a.enter_bookkeeping();
+        let _second = a.enter_bookkeeping();
+    }
+
+    /// Pins the call sites, not just the helper: the three regions that mutate
+    /// the single-writer freelists and slab-page list each claim the guard.
+    /// Deleting one leaves both tests above green while restoring the silent
+    /// lost update, so this counts them in the source.
+    ///
+    /// The count is the invariant, not the number: it is the freelist pop, the
+    /// slab-page carve, and the freelist push. A fourth mutating region means
+    /// this number goes up *and* that region takes the guard.
+    ///
+    /// Scanned line by line, so a CRLF checkout counts the same as an LF one,
+    /// and the needle is assembled with `concat!` so this test cannot match its
+    /// own source text.
+    #[test]
+    fn structural_every_freelist_mutation_claims_the_bookkeeping_guard() {
+        let needle = concat!("let _bookkeeping = self.", "enter_bookkeeping();");
+        let sites = include_str!("alloc.rs")
+            .lines()
+            .take_while(|line| *line != "mod tests {")
+            .filter(|line| line.contains(needle))
+            .count();
+        assert_eq!(
+            sites, 3,
+            "expected the freelist pop, the slab-page carve and the freelist push to claim \
+             the guard; found {sites} call sites in alloc.rs above its test module"
+        );
     }
 }
