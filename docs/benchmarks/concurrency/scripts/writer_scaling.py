@@ -21,6 +21,12 @@ Computes:
 Usage:
     python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --out docs/benchmarks/concurrency/results/baseline_writer_scaling.json
     python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --self-test
+
+`--self-test` is run by the `writer-scaling-selftest` CI job, gated on the
+`concurrency-instrument` path filter: this file and the harness example it
+builds and parses. `scripts/gate.sh` does not run it, because that mirrors CI's
+`lint` and `test` jobs and this is neither -- run it by hand when changing
+either end of the contract.
 """
 
 from __future__ import annotations
