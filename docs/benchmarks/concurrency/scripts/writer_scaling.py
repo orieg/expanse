@@ -786,6 +786,29 @@ def probe_pmu_events() -> list[str]:
     return events
 
 
+def _resolve_event_key(
+    observed: "set[str] | frozenset[str]",
+    requested: list[str],
+    *,
+    want_ref: bool,
+) -> str | None:
+    """Pick the counts key for cycles (or ref-cycles) out of what perf reported.
+
+    `perf` may report an event under a PMU-qualified name that does not match
+    the string we asked for (`cycles` -> `cpu_core/cycles/`), so the request
+    list is not a reliable index into the counts. Match on the observed keys and
+    fall back to the request only when the observed set is empty.
+    """
+    def matches(k: str) -> bool:
+        has_ref = "ref" in k
+        return ("cycles" in k) and (has_ref if want_ref else not has_ref)
+
+    for key in sorted(observed):
+        if matches(key):
+            return key
+    return next((k for k in requested if matches(k)), None)
+
+
 def parse_perf_stat_csv(stderr_text: str) -> dict[str, int]:
     result: dict[str, int] = {}
     for line in stderr_text.splitlines():
@@ -954,8 +977,26 @@ def run_pmu_pass(
                 counts = parse_perf_stat_csv(proc.stderr)
                 round_data[r][w] = counts
 
-    cyc_key = next((k for k in events if "cycles" in k and "ref" not in k), None)
-    ref_key = next((k for k in events if "ref" in k), None)
+    # Resolve against the keys `perf` REPORTED, not the ones we asked for. On a
+    # hybrid host perf accepts a bare `cycles` and reports it back qualified as
+    # `cpu_core/cycles/`, so matching on the request silently finds nothing and
+    # the droop lands as `n_measured: 0` on every W while the raw counts sitting
+    # beside it are complete -- the exact silent-zero §8.1 forbids. Observed on
+    # run 34722607239: events `['cycles', 'cpu_core/ref-cycles/', ...]`, counts
+    # keyed `cpu_core/cycles/`, droop empty.
+    observed: set[str] = set()
+    for per_w in round_data.values():
+        for counts in per_w.values():
+            observed.update(counts)
+    cyc_key = _resolve_event_key(observed, events, want_ref=False)
+    ref_key = _resolve_event_key(observed, events, want_ref=True)
+    if observed and (cyc_key is None or ref_key is None):
+        raise RuntimeError(
+            "--pmu collected counts but could not resolve the cycles/ref-cycles keys "
+            f"from them (observed: {sorted(observed)}; requested: {events}). "
+            "Frequency droop cannot be computed and must not be reported as zero "
+            "samples (AGENTS.md §8.1)."
+        )
     droop_summary = frequency_droop_by_writers(round_data, cyc_key, ref_key, writers, rounds)
     for w, entry in sorted(droop_summary["by_writers"].items(), key=lambda kv: int(kv[0])):
         if "verdict" not in entry:
@@ -1255,12 +1296,20 @@ def self_test() -> int:
     # are anything other than exactly zero (AGENTS.md 8.9 principle 4: a sum
     # identity proves accounting completeness, which is what is being tested
     # here, not that contention occurred).
+    # `lock_fallbacks` is the MEDIAN across rounds; the share denominator is the
+    # SUM (`total_fallbacks`). Those disagree exactly when fallbacks are rare:
+    # seven rounds at 0 and one at 1 gives a median of 0 and a sum of 1, so the
+    # shares legitimately read `contention: 1.0` beside `lock_fallbacks: 0`.
+    # Phase 4E made that the common case rather than an impossible one, and the
+    # old branch -- keyed on the median -- then failed on a correct cell. Key
+    # the branch on the sum the shares were actually derived from.
     _shares = cell_w2["fallback_cause_share"]
-    if cell_w2["lock_fallbacks"] > 0:
-        assert abs(sum(_shares.values()) - 1.0) < 1e-3, _shares
+    _share_total = sum(cell_w2["fallback_causes_total"].values())
+    if _share_total > 0:
+        assert abs(sum(_shares.values()) - 1.0) < 1e-3, (_shares, _share_total)
     else:
         assert all(v == 0.0 for v in _shares.values()), \
-            f"no fallbacks, so every cause share must be exactly 0.0, got {_shares}"
+            f"no fallbacks in any round, so every cause share must be exactly 0.0, got {_shares}"
 
     # 6. Test comparison runner with self-comparison on quick scale
     eprintln("Testing run_comparison (interleaved build x W execution)...")
@@ -1364,6 +1413,34 @@ def self_test() -> int:
     # No event keys at all: the summary is empty rather than fabricated.
     d_none = frequency_droop_by_writers(rd, None, None, [1, 2, 4], 8)
     assert d_none["by_writers"] == {}, d_none
+
+    # THE DEFECT THIS PINS (AGENTS.md §8.12.3): on a hybrid host `perf` accepts
+    # a bare `cycles` and reports it back PMU-qualified as `cpu_core/cycles/`,
+    # so resolving the key against the REQUESTED event list finds nothing and
+    # every W lands as `n_measured: 0` while complete raw counts sit beside it.
+    # Observed on run 34722607239. Resolution must come from the reported keys.
+    hybrid_requested = ["cycles", "cpu_core/ref-cycles/", "mem_load_l3_hit_retired.xsnp_fwd"]
+    hybrid_observed = {
+        "cpu_core/cycles/",
+        "cpu_core/ref-cycles/",
+        "cpu_core/mem_load_l3_hit_retired.xsnp_fwd/",
+    }
+    h_cyc = _resolve_event_key(hybrid_observed, hybrid_requested, want_ref=False)
+    h_ref = _resolve_event_key(hybrid_observed, hybrid_requested, want_ref=True)
+    assert h_cyc == "cpu_core/cycles/", h_cyc
+    assert h_ref == "cpu_core/ref-cycles/", h_ref
+    # and the resolved keys actually yield samples off hybrid-shaped counts
+    rd_hybrid = {
+        r: {
+            1: {"cpu_core/cycles/": 2000 + r, "cpu_core/ref-cycles/": 1000},
+            4: {"cpu_core/cycles/": 1900 + r, "cpu_core/ref-cycles/": 1000},
+        }
+        for r in range(8)
+    }
+    d_hybrid = frequency_droop_by_writers(rd_hybrid, h_cyc, h_ref, [1, 4], 8)
+    assert d_hybrid["by_writers"]["4"]["n_measured"] == 8, d_hybrid
+    # the unqualified request alone must NOT resolve against hybrid counts
+    assert _resolve_event_key(set(), hybrid_requested, want_ref=False) == "cycles"
 
     # 7. Test PMU pass and c2c pass fail-loud on non-Linux / missing perf (AGENTS.md §8.1)
     eprintln("Testing PMU and c2c passes (fail-loud validation)...")
