@@ -257,7 +257,7 @@ Stage B replaces the single writer mutex with optimistic lock coupling (OLC) ove
    - If an odd version (active lock or obsolete) or version mismatch is observed, the writer restarts from the root.
 3. **Parent Version Try-Lock & Local Covering**:
    - For in-place slot insertion into an uncompressed branch (`BranchU`, Phase 4A, #827), the writer acquires the local node's version word (`even → even + 1`, `Acquire`) with zero ancestor locking.
-   - For terminal leaf mutations, `BranchB` subarray expansion (Phase 4D, #840), linear leaf capacity expansions (Phase 4C, #858), immediate expansions (Phase 4B, #863), or linear leaf splits (Phase 4E, #873), the writer acquires the direct parent branch's version word.
+   - For terminal leaf mutations, `BranchB` subarray expansion (Phase 4D, #840), linear leaf capacity expansions (Phase 4C, #858), immediate expansions (Phase 4B, #863), linear leaf splits (Phase 4E, #873), or remove-side capacity shrinks and demotions (Phase 4F, Refs #568), the writer acquires the direct parent branch's version word.
    - On CAS failure, prospective allocations are recycled immediately via `free_bytes_unpublished` / `free_node_unpublished` / `free_subtree_unpublished`, held locks are dropped in LIFO order, and descent restarts.
 4. **Terminal Mutation, Edge Swap & Unlock**:
    - **In-Place Mutation:** The key or value is written directly into the leaf, immediate edge, or branch array.
@@ -265,6 +265,7 @@ Stage B replaces the single writer mutex with optimistic lock coupling (OLC) ove
    - **Phase 4C (Leaf Capacity Expansion):** Reallocates the linear leaf buffer across capacity classes (`cap_class(pop + 1) != cap_class(pop)` for `pop < cap`) or `LeafB1` value subarray, copies and inserts elements, atomically writes the new edge to the parent, advances parent version (`version + 2`), and retires the old buffer via EBR.
    - **Phase 4B (Immediate Expansion & Conversion):** Reallocates linear leaf buffers or value arrays for immediate-to-leaf conversions, updates the parent edge, advances parent version (`version + 2`), and retires superseded buffers via EBR.
    - **Phase 4E (Leaf Full Split & Branch Conversion):** Splits full linear leaves into `LeafB1` (level 1) or `BranchL3+` cascades (level $\ge 2$), populates private temporary subtrees with accurate pop0 tracking, atomically updates the parent edge, advances parent version (`version + 2`), and retires the old linear leaf via EBR.
+   - **Phase 4F (Remove-Side Capacity Shrink & Demotion):** Reallocates linear leaf buffers across capacity classes on shrink (`cap_class(pop - 1) != cap_class(pop)`), demotes leaves to immediate descriptors or inlines $2 \rightarrow 1$ map immediates, updates the parent edge, advances parent version (`version + 2`), and retires superseded buffers via EBR.
    - **Speculative Abort Recycling (`free_bytes_unpublished`):** If CAS try-lock or edge validation fails, prospective buffers that were never published to any reader are returned directly to the allocator size-class freelist without entering EBR queues.
 5. **Zero-Sharing Common Write Path & Lazy Census Rollup (#822)**:
    - Disjoint writers touch *only the parent branch version lock*, zero ancestor branch cache lines, and zero root cache lines on the common path ($k = 0$).
@@ -272,7 +273,7 @@ Stage B replaces the single writer mutex with optimistic lock coupling (OLC) ove
    - Ancestor branch edge `pop0` words are rolled up recursively (`fold_branch_pop0`) lazily at quiescence points (`read_locked`, `write_root_covered`), eliminating multi-writer ancestor lock ping-ponging.
 6. **Bounded Restarts & Quiescent Fallback**:
    - Retries are bounded to `MAX_RETRIES` (64).
-   - If retries are exhausted, or an unhandled structural conversion occurs (e.g. `BitmapNearFull`, root transitions, or removal demotions), or `gate.is_closed()` is observed, the writer cleanly drops its in-flight guard and joins the serialized `write_root_covered` path behind `fallback_mutex`, guaranteeing starvation freedom.
+   - If retries are exhausted, or an unhandled structural conversion occurs (e.g. `BitmapNearFull`, root transitions, or branch collapse under non-BranchU parents), or `gate.is_closed()` is observed, the writer cleanly drops its in-flight guard and joins the serialized `write_root_covered` path behind `fallback_mutex`, guaranteeing starvation freedom.
 
 ---
 
