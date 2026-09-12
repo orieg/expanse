@@ -61,11 +61,18 @@ def check_floor(jobs, statuses, outputs, *, is_pull_request=True) -> list[str]:
             "every filter output below is unreliable"
         )
 
-    flags = {k: _as_bool(v) for k, v in outputs.items()}
+    # `changed-jobs` is a delimited id list, not a boolean, and it is read by
+    # `contains(...)` rather than `== 'true'`. It must be threaded through to
+    # the evaluator or every job that ran *because its own definition changed*
+    # looks like a job that ran with a false gate.
+    changed_jobs = str(outputs.get("changed-jobs") or "")
+    flags = {
+        k: _as_bool(v) for k, v in outputs.items() if k != "changed-jobs"
+    }
 
     # A totally empty filter evaluation is the signature failure this exists
     # for. Called out separately so the error names the cause, not a symptom.
-    if flags and not any(flags.values()) and is_pull_request:
+    if flags and not any(flags.values()) and not changed_jobs and is_pull_request:
         errs.append(
             "every filter output is false -- a pull request that matches no filter at all "
             "is far more likely a broken filter evaluation than a real no-op diff"
@@ -81,7 +88,9 @@ def check_floor(jobs, statuses, outputs, *, is_pull_request=True) -> list[str]:
                 errs.append(f"{name!r} is unconditional but was skipped")
             continue
         should_run, unknown = evaluate_if(
-            body.get("if"), flags, is_pull_request=is_pull_request
+            body.get("if"), flags,
+            is_pull_request=is_pull_request,
+            changed_jobs=changed_jobs,
         )
         if unknown:
             errs.append(f"{name!r}: `if:` term not understood, cannot verify: {unknown!r}")
@@ -131,6 +140,27 @@ def self_test() -> int:
     }
     errs = check_floor(jobs, all_skipped, {"tooling": "false", "rust-src": "false"})
     check("all-false filter evaluation is caught", len(errs) >= 1, True)
+
+    # THE DEFECT THIS PINS (AGENTS.md 8.12.3): `changed-jobs` is read by
+    # `contains(...)`, not `== 'true'`. Dropping it made every job that ran
+    # because its own definition changed look like a job that ran with a false
+    # gate -- 36 false inconsistencies on the PR that introduced this check.
+    jobdiff_jobs = {
+        "detect-changes": {},
+        "miri": {"if": "needs.detect-changes.outputs.rust-src == 'true'"
+                       " || contains(needs.detect-changes.outputs.changed-jobs, '|miri|')"},
+    }
+    jd_statuses = {
+        "detect-changes": {"result": "success"},
+        "miri": {"result": "success"},
+    }
+    jd_outputs = {"rust-src": "false", "changed-jobs": "|miri|"}
+    check("job run via changed-jobs is consistent",
+          check_floor(jobdiff_jobs, jd_statuses, jd_outputs), [])
+    # and the converse: it skipped although changed-jobs named it
+    jd_skipped = dict(jd_statuses, miri={"result": "skipped"})
+    check("skipped despite changed-jobs is caught",
+          len(check_floor(jobdiff_jobs, jd_skipped, jd_outputs)) >= 1, True)
 
     # a job skipped while its own gate says run
     bad = dict(ok_statuses)
