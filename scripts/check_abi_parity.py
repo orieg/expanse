@@ -913,7 +913,7 @@ def self_test() -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="libexpanse C ABI Symbol Parity Linter")
-    parser.add_argument("--check", action="store_true", default=True, help="Validate 100% parity and exit non-zero on mismatch")
+    parser.add_argument("--check", action="store_true", default=True, help="Validate 100%% parity and exit non-zero on mismatch")
     parser.add_argument("-v", "--verbose", action="store_true", help="Show verbose per-symbol coverage matrix")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     parser.add_argument("--markdown", action="store_true", help="Output markdown table for documentation")

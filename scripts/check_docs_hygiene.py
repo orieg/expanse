@@ -31,6 +31,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -889,6 +890,89 @@ def self_test() -> int:
             f"is exactly how this class of reference reached a public repo"
         )
 
+    # argparse help strings. The three sites below are the verbatim historical
+    # defect (AGENTS.md 8.12.3): `check_abi_parity.py` took `scripts/gate.sh`
+    # down on every Python 3.14 machine, and CI's pinned 3.12 reported green
+    # throughout. The must-pass list carries the two sites that were already
+    # escaped correctly, so a fix that over-reaches is caught too.
+    _HELP_MUST_FAIL = [
+        "Validate 100% parity and exit non-zero on mismatch",
+        "Max allowed throughput regression pct (default: 25%)",
+        "Max allowed memory regression pct (default: 10%)",
+    ]
+    _HELP_MUST_PASS = [
+        "Validate 100%% parity and exit non-zero on mismatch",
+        "Max allowed relative scaling-ratio drop pct (default: 30%%)",
+        "Verify that all manifests are in 100%% version lockstep",
+        "no percent sign at all",
+        "the default is %(default)s",
+        "%(prog)s reads %(metavar)s",
+    ]
+    for case in _HELP_MUST_FAIL:
+        verdict = _help_string_is_wellformed(case)
+        assert verdict is not None and verdict[0] == "error", (
+            f"argparse help check must reject the historical defect: {case!r} (got {verdict!r})"
+        )
+    for case in _HELP_MUST_PASS:
+        assert _help_string_is_wellformed(case) is None, (
+            f"argparse help check must accept: {case!r}"
+        )
+    # An unknown conversion key is a warning, not an error: a custom Action
+    # subclass may carry an attribute this static check cannot see.
+    _unknown = _help_string_is_wellformed("threshold is %(cutoff)s")
+    assert _unknown is not None and _unknown[0] == "warning", (
+        f"an unknown conversion key must warn rather than fail, got {_unknown!r}"
+    )
+    # The check must find the defect through an actual `add_argument` call in a
+    # tracked file, not merely in a string handed straight to the predicate --
+    # a helper-level assertion stays green when the call site drops the call.
+    with tempfile.TemporaryDirectory() as td:
+        fake = Path(td)
+        (fake / "bad.py").write_text(
+            "import argparse\n"
+            "p = argparse.ArgumentParser()\n"
+            'p.add_argument("--check", help="Validate 100% parity and exit non-zero")\n'
+        )
+        (fake / "good.py").write_text(
+            "import argparse\n"
+            "p = argparse.ArgumentParser()\n"
+            'p.add_argument("--check", help="Validate 100%% parity (default: %(default)s)")\n'
+        )
+        # `add_parser` carries a help argparse expands the same way.
+        (fake / "sub.py").write_text(
+            "import argparse\n"
+            "sp = argparse.ArgumentParser().add_subparsers()\n"
+            'sp.add_parser("run", help="runs at 50% width")\n'
+        )
+        # Non-literal help cannot be evaluated statically and must not be flagged.
+        (fake / "dynamic.py").write_text(
+            "import argparse\n"
+            "pct = 100\n"
+            "p = argparse.ArgumentParser()\n"
+            'p.add_argument("--check", help=f"Validate {pct}% parity")\n'
+        )
+        # A `help=` keyword on something that is not an argparse constructor is
+        # not argparse's to expand, and must not be flagged. Without this case
+        # the call-name filter is unpinned: a check matching *every* attribute
+        # call still flags exactly bad.py, and the self-test stays green.
+        # An ATTRIBUTE call, deliberately: a bare-name call is already excluded
+        # by the `ast.Attribute` test, so it cannot discriminate the name filter.
+        (fake / "other.py").write_text(
+            "import types\n"
+            "sink = types.SimpleNamespace(record=lambda **kw: kw)\n"
+            'sink.record(help="discount is 50% off")\n'
+        )
+        (fake / "notes.md").write_text('p.add_argument("--x", help="100% parity")\n')
+        subprocess.run(["git", "init", "-q"], cwd=fake, check=True)
+        subprocess.run(["git", "add", "-A"], cwd=fake, check=True)
+        found = check_argparse_help_strings(fake)
+        assert sorted(h[0] for h in found) == ["bad.py", "sub.py"], (
+            f"expected bad.py and sub.py to be flagged, got {found!r}"
+        )
+        assert dict((h[0], h[1]) for h in found) == {"bad.py": 3, "sub.py": 3}, (
+            f"expected each call's own line number, got {found!r}"
+        )
+
     # A superseded figure rendered into a chart must be fatal. Pinned verbatim:
     # "3.12x faster" shipped inside bench_domain_algebra.svg in the same PR that
     # retracted it, because SVGs were never swept (AGENTS.md 8.12.3).
@@ -1077,6 +1161,80 @@ RELATIVE_DOC_LINK = re.compile(r'href="(?!https?://|#|mailto:)([A-Za-z0-9_./-]+\
 ROOT_PUBLISHED_HTML = ("docs/architecture_visualizer.html",)
 
 
+# Python 3.14 added `ArgumentParser._check_help`, which runs every `help=` string
+# through `help_string % params` at *parser-construction* time and re-raises any
+# ValueError / TypeError / KeyError as `ValueError: badly formed help string`.
+# A bare `%` that is not a valid conversion therefore stops the script dead
+# before it does anything -- `scripts/check_abi_parity.py` carried
+# `help="Validate 100% parity ..."` and took `scripts/gate.sh` down with it on
+# every 3.14 machine. CI pins Python 3.12, where `_check_help` does not exist,
+# so CI was green throughout and only local gate runs broke.
+#
+# This reproduces argparse's rule rather than pattern-matching for `%`: the
+# string is formatted against the parameter names argparse itself supplies
+# (`vars(action)` plus `prog`). A malformed conversion is fatal; an unknown key
+# is a warning, because a custom Action subclass may legitimately carry an
+# attribute this static check cannot see, while no custom attribute can rescue
+# a bad conversion character.
+#
+# Non-literal help (an f-string, a variable, a call) cannot be evaluated
+# statically and is skipped -- stated here rather than left to be inferred from
+# the absence of findings.
+_ARGPARSE_ACTION_PARAMS = (
+    "prog", "option_strings", "dest", "nargs", "const", "default", "type",
+    "choices", "required", "help", "metavar", "version",
+)
+
+
+def _help_string_is_wellformed(text: str) -> tuple[str, str] | None:
+    """Returns (severity, detail) when argparse would reject `text`, else None."""
+    if "%" not in text:
+        return None
+    params = {name: "x" for name in _ARGPARSE_ACTION_PARAMS}
+    try:
+        text % params
+    except KeyError as exc:
+        return ("warning", f"unknown conversion key {exc.args[0]!r}")
+    except (ValueError, TypeError) as exc:
+        return ("error", str(exc))
+    return None
+
+
+#: The two argparse calls that take a `help=` argparse later expands. `add_parser`
+#: is unused in this repo today and is matched anyway: it fails identically, and
+#: the point of the gate is that the next site cannot land unnoticed.
+_ARGPARSE_HELP_CALLS = ("add_argument", "add_parser")
+
+
+def check_argparse_help_strings(root: Path) -> list[tuple[str, int, str, str]]:
+    """Flag argparse `help=` strings Python 3.14 would reject at construction."""
+    hits: list[tuple[str, int, str, str]] = []
+    for path in tracked_text_files(root):
+        if path.suffix != ".py":
+            continue
+        rel = path.relative_to(root).as_posix()
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError, OSError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            if not (isinstance(fn, ast.Attribute) and fn.attr in _ARGPARSE_HELP_CALLS):
+                continue
+            for kw in node.keywords:
+                if kw.arg != "help" or not isinstance(kw.value, ast.Constant):
+                    continue
+                if not isinstance(kw.value.value, str):
+                    continue
+                verdict = _help_string_is_wellformed(kw.value.value)
+                if verdict is not None:
+                    severity, detail = verdict
+                    hits.append((rel, kw.value.lineno, severity, detail))
+    return hits
+
+
 def check_published_html_links(root: Path) -> int:
     """Relative markdown links in root-published HTML are 404s once deployed."""
     fatal = 0
@@ -1153,6 +1311,22 @@ def main() -> int:
             f"rule instead of a path under a maintainer's home directory"
         )
         fatal += 1
+
+    # argparse help strings Python 3.14 rejects at parser-construction time
+    for rel, lineno, severity, detail in check_argparse_help_strings(root):
+        if severity == "error":
+            print(
+                f"::error file={rel},line={lineno}::argparse would reject this help string "
+                f"on Python 3.14 ({detail}) — the script dies before it runs. Double the "
+                f"literal `%` (`100%%` renders as `100%`); CI pins 3.12 and cannot catch this"
+            )
+            fatal += 1
+        else:
+            print(
+                f"::warning file={rel},line={lineno}::help string uses {detail} — valid only "
+                f"if the Action subclass defines that attribute, else argparse raises on 3.14"
+            )
+            warnings += 1
 
     # Scan JSON datasets
     json_errors = check_json_datasets(root, registry)
