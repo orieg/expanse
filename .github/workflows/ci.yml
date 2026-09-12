@@ -355,7 +355,7 @@ jobs:
 
       # The report scripts carry the §8.1 (fail-loud) and §8.2 (no hardcoded
       # findings prose) assertions as self-tests; run them so they cannot rot.
-      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / pin exposure / warmup ramp / bench pin / docs hygiene / ecosystem theme / bench suites / bench shapes / man pages / abi parity / deletions / test floors / miri shards)
+      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / pin exposure / warmup ramp / bench pin / docs hygiene / ecosystem theme / bench suites / bench shapes / man pages / abi parity / deletions / test floors / miri shards / rocksdb locate bound)
         run: |
           python3 scripts/perf_report.py --self-test
           # Unit tests for perf_report.py, including that every Callgrind arm
@@ -399,6 +399,13 @@ jobs:
           python3 scripts/check_public_api.py --self-test
           python3 scripts/check_deletion_rationale.py --self-test
           python3 scripts/check_test_floors.py --self-test
+          # rocksdb_locate_bound.py derives what a single mutex over the
+          # RocksDB memtable's locate phase permits (#802), and its self-test
+          # pins that arithmetic against hand-checkable reference values plus
+          # the shape of the artifact it reads its inputs from. It is a
+          # pre-registration input, so it has to be executable and checked
+          # rather than narrated (AGENTS.md section 8.8 commit 1).
+          python3 scripts/rocksdb_locate_bound.py --self-test
 
       # bca_bootstrap.py is the estimator every wall-clock gate rests on; its
       # unit tests pin reference values and were not executed anywhere until

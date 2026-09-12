@@ -91,8 +91,8 @@ def parse_args():
     p.add_argument("--output", type=str, help="Save markdown report to file")
     p.add_argument("--save-baseline", type=str, help="Save results to baseline JSON file")
     p.add_argument("--check-baseline", type=str, help="Compare results against baseline JSON file")
-    p.add_argument("--max-regression-pct", type=float, default=25.0, help="Max allowed throughput regression pct (default: 25%)")
-    p.add_argument("--max-memory-regression-pct", type=float, default=10.0, help="Max allowed memory regression pct (default: 10%)")
+    p.add_argument("--max-regression-pct", type=float, default=25.0, help="Max allowed throughput regression pct (default: 25%%)")
+    p.add_argument("--max-memory-regression-pct", type=float, default=10.0, help="Max allowed memory regression pct (default: 10%%)")
     p.add_argument(
         "--prune-missing",
         action="store_true",
