@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import subprocess
 import sys
 
@@ -41,18 +43,40 @@ WORKFLOW = ".github/workflows/ci.yml"
 DELIM = "|"
 
 
-def _emit(all_changed: bool, jobs: list[str], reason: str = "") -> str:
-    """Render the GITHUB_OUTPUT lines. Job ids are delimited on both sides so
-    `contains()` -- which is substring, not word -- cannot match a prefix
-    (`test-wasm` is a prefix of `test-wasm64`)."""
+def _emit(all_changed: bool, jobs: list[str]) -> str:
+    """Render the GITHUB_OUTPUT lines, and ONLY those.
+
+    `$GITHUB_OUTPUT` accepts `key=value` lines and nothing else -- a workflow
+    command written into it fails the step with "Unable to process file command
+    'output' successfully". So notices never go through here; they go to stdout
+    via `_notice`. Pinned by `test_output_lines_are_key_value` below.
+
+    Job ids are delimited on both sides so `contains()` -- which is substring,
+    not word -- cannot match a prefix (`test-wasm` is a prefix of
+    `test-wasm64`).
+    """
     listed = DELIM + DELIM.join(sorted(jobs)) + DELIM if jobs else ""
-    lines = [
+    return "\n".join([
         f"ci-workflow-all={'true' if all_changed else 'false'}",
         f"changed-jobs={listed}",
-    ]
+    ])
+
+
+def _notice(reason: str) -> None:
+    """Workflow commands go to stdout, never to the output file."""
     if reason:
-        lines.append(f"::notice::ci_job_diff: {reason}")
-    return "\n".join(lines)
+        print(f"::notice::ci_job_diff: {reason}")
+
+
+def _write_output(text: str) -> None:
+    """Append to `$GITHUB_OUTPUT` when running under Actions; otherwise print,
+    so the script stays usable (and testable) from a shell."""
+    dest = os.environ.get("GITHUB_OUTPUT")
+    if dest:
+        with open(dest, "a", encoding="utf-8") as fh:
+            fh.write(text + "\n")
+    else:
+        print(text)
 
 
 def _read(rev: str, path: str) -> str | None:
@@ -155,6 +179,18 @@ jobs:
     # unreadable revision -> fail closed
     check("missing revision fails closed", diff_jobs(None, A)[0], True)
 
+    # THE DEFECT THIS PINS (AGENTS.md 8.12.3): a `::notice::` written into
+    # $GITHUB_OUTPUT fails the step with "Unable to process file command
+    # 'output' successfully", which failed `detect-changes` and skipped 42
+    # jobs behind it. Every line of the output payload must be `key=value`.
+    for payload in (_emit(True, []), _emit(False, ["lint", "miri"])):
+        for line in payload.split("\n"):
+            if "=" not in line.split("=", 1)[0] + "=" or line.startswith("::"):
+                failures.append(f"output line is not key=value: {line!r}")
+            key = line.split("=", 1)[0]
+            if not key or not re.fullmatch(r"[A-Za-z0-9_-]+", key):
+                failures.append(f"output line has no valid key: {line!r}")
+
     # delimiter guards against contains() prefix matching
     out = _emit(False, ["test-wasm64"])
     check("wasm64 listed delimited", "changed-jobs=|test-wasm64|" in out, True)
@@ -183,7 +219,8 @@ def main() -> int:
         return self_test()
 
     if not args.base:
-        print(_emit(True, [], "no base revision given -- running everything"))
+        _write_output(_emit(True, []))
+        _notice("no base revision given -- running everything")
         return 0
 
     all_changed, jobs, reason = diff_jobs(
@@ -196,7 +233,8 @@ def main() -> int:
         reason = "workflow unchanged in this diff"
     elif not all_changed:
         reason = f"narrowed to {len(jobs)} changed job definition(s): {' '.join(sorted(jobs))}"
-    print(_emit(all_changed, jobs, reason))
+    _write_output(_emit(all_changed, jobs))
+    _notice(reason)
     return 0
 
 

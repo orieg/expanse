@@ -271,9 +271,14 @@ jobs:
           # or change outside `jobs:` emits ci-workflow-all=true, i.e. the old
           # whole-matrix behaviour, with a ::notice:: naming the reason. The
           # narrowing only happens when the comparison fully succeeds.
+          # No stdout redirect: the script appends key=value to $GITHUB_OUTPUT
+          # itself and keeps workflow commands on stdout. Redirecting both into
+          # the output file fails the step -- "Unable to process file command
+          # 'output' successfully" -- which fails `detect-changes` and skips
+          # every job behind it.
           python3 scripts/ci_job_diff.py \
             --base "${{ github.event.pull_request.base.sha || github.event.before }}" \
-            --head "${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            --head "${{ github.sha }}"
   lint:
     name: Core / Linter & Formatting
     needs: [detect-changes]
