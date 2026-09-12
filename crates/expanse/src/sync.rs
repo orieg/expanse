@@ -1732,14 +1732,18 @@ impl<T: SharedTree> Shared<T> {
         crate::occ_stats::op_begin();
         // SAFETY: the writer mutex makes this the only mutable borrow.
         let inner = unsafe { &mut *self.inner.get() };
-        // Optimistic writers move only the sharded counter, so the engine's
-        // own population field is stale until re-synced. A removal trusts
-        // that field — the condense trigger and the root leaf `condense`
-        // rebuilds are both sized from it — so it must hold the true
-        // population. Writers are quiesced here, which makes the sharded sum
-        // exact. An insert only adds to the field and `pop_before` carries
-        // the delta, so it skips the sum.
-        if EXACT_POP {
+        inner.clear_path();
+        let mut mask = [0u32; 8];
+        if self.dirty_digits.take(&mut mask) {
+            // SAFETY: Writers are quiesced and write lock is held; root_top_ptr is safe to access and mutate.
+            let top_ptr = unsafe { inner.root_top_ptr() };
+            if !top_ptr.is_null() {
+                // SAFETY: root top pointer is non-null and points to an EBR-live root Edge.
+                let folded = unsafe { fold_branch_pop0_selective(top_ptr, 8, &mask) };
+                inner.set_tree_pop(folded);
+                self.tree_pop.flush_and_set(folded);
+            }
+        } else if EXACT_POP {
             #[cfg(feature = "std")]
             let pop = self.tree_pop.load_slots(
                 self.writers
@@ -2000,7 +2004,8 @@ pub(crate) enum CapExpansionKind {
     /// Linear leaf capacity class growth within linear leaf (Phase 4C eliminated; kept for partition completeness).
     #[allow(dead_code)]
     Class,
-    /// Linear leaf full (`pop >= cap`): level 1 converts to LeafB1 at 25, level >= 2 splits into BranchL3+ at 32.
+    /// Linear leaf full (`pop >= cap`): level 1 converts to LeafB1 at 25, level >= 2 splits into BranchL3+ at 32 (Phase 4E eliminated; kept for partition completeness).
+    #[allow(dead_code)]
     LeafFull,
     /// Bitmap leaf near-full (`pop0 >= 254`): set population 256 converts to FullExpanse, map near-full guard.
     BitmapNearFull,
@@ -3377,7 +3382,189 @@ impl SyncExpanseSet {
                             return OlcOutcome::Done(true);
                         }
                     }
-                    return cap_expansion(CapExpansionKind::LeafFull);
+
+                    // Phase 4E: Concurrent linear leaf full split & branch conversion
+                    let old_size = crate::leaf::size_set(kb as u8, pop);
+                    let saved_aux = *edge.aux_bytes();
+                    let alloc = self.shared.inner_ref().alloc();
+                    // SAFETY: edge is an EBR-live linear leaf descriptor with pop elements and kb key bytes.
+                    let mut keys = unsafe { crate::mutate::leaf_keys(&edge, kb as u8, pop) };
+                    keys.insert(at, k);
+
+                    if kb == 1 {
+                        if level > 1 {
+                            let prefix = crate::mutate::decode_value(&edge, 1, level) << 8;
+                            for k in &mut keys {
+                                *k |= prefix;
+                            }
+                        }
+                        let ptr = alloc.alloc_node_zeroed::<LeafBitmap1>();
+                        // SAFETY: populate fresh zeroed LeafBitmap1.
+                        unsafe {
+                            for &k in &keys {
+                                (*ptr.as_ptr()).bitmap.set(k as u8);
+                            }
+                        }
+                        let Ok((old_v, lock_t0)) =
+                            version_try_lock_expect_timed(p_cell, parent.version_snap)
+                        else {
+                            // SAFETY: ptr was freshly allocated and not published.
+                            unsafe {
+                                alloc.free_node_unpublished(ptr);
+                            }
+                            return OlcOutcome::Retry;
+                        };
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                            // SAFETY: ptr was freshly allocated and not published.
+                            unsafe {
+                                alloc.free_node_unpublished(ptr);
+                                version_unlock_timed(p_cell, old_v, false, lock_t0);
+                            }
+                            return OlcOutcome::Retry;
+                        }
+
+                        // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                        debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
+                        // SAFETY: parent is locked; ptr is valid LeafBitmap1; keys_ptr is valid for old_size.
+                        unsafe {
+                            let mut new_edge =
+                                Edge::new_node(ptr.as_ptr().cast(), EdgeType::LeafB1.as_u8());
+                            new_edge.set_pop0(1, keys.len() as u64 - 1);
+                            crate::mutate::restore_decode(&mut new_edge, 1, level, &saved_aux);
+                            edge_ptr.write(new_edge);
+                            version_unlock_timed(p_cell, old_v, true, lock_t0);
+                            alloc.free_bytes(core::ptr::NonNull::new_unchecked(keys_ptr), old_size);
+                            self.shared.mark_dirty_digit(digit(key, 8));
+                        }
+                        return OlcOutcome::Done(true);
+                    } else {
+                        if kb < level as usize {
+                            let prefix = crate::mutate::decode_value(&edge, kb as u8, level)
+                                << (8 * (kb as u32));
+                            for k in &mut keys {
+                                *k |= prefix;
+                            }
+                        }
+                        let d =
+                            crate::mutate::divergence_level(keys[0], keys[keys.len() - 1], level);
+                        if d == 1 {
+                            // Narrow-pointer synthesis: all keys share digits at levels 2..=kb,
+                            // converting directly to LeafB1 with decode bytes holding prefix.
+                            let ptr = alloc.alloc_node_zeroed::<LeafBitmap1>();
+                            // SAFETY: populate fresh zeroed LeafBitmap1.
+                            unsafe {
+                                for &k in &keys {
+                                    (*ptr.as_ptr()).bitmap.set(k as u8);
+                                }
+                            }
+                            let Ok((old_v, lock_t0)) =
+                                version_try_lock_expect_timed(p_cell, parent.version_snap)
+                            else {
+                                // SAFETY: ptr was freshly allocated and not published.
+                                unsafe {
+                                    alloc.free_node_unpublished(ptr);
+                                }
+                                return OlcOutcome::Retry;
+                            };
+                            // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                                // SAFETY: ptr was freshly allocated and not published.
+                                unsafe {
+                                    alloc.free_node_unpublished(ptr);
+                                    version_unlock_timed(p_cell, old_v, false, lock_t0);
+                                }
+                                return OlcOutcome::Retry;
+                            }
+
+                            // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                            debug_assert_eq!(
+                                p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1,
+                                1
+                            );
+                            // SAFETY: parent is locked; ptr is valid LeafBitmap1; keys_ptr is valid for old_size.
+                            unsafe {
+                                let mut new_edge =
+                                    Edge::new_node(ptr.as_ptr().cast(), EdgeType::LeafB1.as_u8());
+                                new_edge.set_pop0(1, keys.len() as u64 - 1);
+                                crate::mutate::write_decode(&mut new_edge, 1, level, keys[0]);
+                                edge_ptr.write(new_edge);
+                                version_unlock_timed(p_cell, old_v, true, lock_t0);
+                                alloc.free_bytes(
+                                    core::ptr::NonNull::new_unchecked(keys_ptr),
+                                    old_size,
+                                );
+                                self.shared.mark_dirty_digit(digit(key, 8));
+                            }
+                            return OlcOutcome::Done(true);
+                        } else {
+                            // Branch cascade: empty BranchL3 at divergence level, populated privately.
+                            let bl = if level <= 7 { d } else { level };
+                            let node = alloc.alloc_node_zeroed::<BranchL3>();
+                            // SAFETY: node is freshly allocated zeroed BranchL3 memory.
+                            unsafe {
+                                (*node.as_ptr()).hdr.level = bl;
+                            }
+                            let mut tmp =
+                                Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
+                            if bl < level {
+                                crate::mutate::write_decode(&mut tmp, bl, level, keys[0]);
+                            }
+                            let mut scratch = 0u32;
+                            let private = crate::occ::Cover::Node(&raw mut scratch);
+                            let mut path = crate::mutate::InsertPath::empty();
+                            for &k in &keys {
+                                // SAFETY: tmp is an unshared subtree owned by this thread.
+                                let ins = unsafe {
+                                    crate::mutate::insert_with_path::<true, false>(
+                                        alloc, &mut tmp, k, level, &mut path, private,
+                                    )
+                                };
+                                debug_assert!(ins);
+                            }
+                            tmp.set_pop0(bl, keys.len() as u64 - 1);
+
+                            let Ok((old_v, lock_t0)) =
+                                version_try_lock_expect_timed(p_cell, parent.version_snap)
+                            else {
+                                // SAFETY: tmp is an unpublished subtree owned by this thread.
+                                unsafe {
+                                    crate::mutate::free_subtree_unpublished::<false>(
+                                        alloc, &mut tmp,
+                                    );
+                                }
+                                return OlcOutcome::Retry;
+                            };
+                            // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                                // SAFETY: tmp is an unpublished subtree owned by this thread.
+                                unsafe {
+                                    crate::mutate::free_subtree_unpublished::<false>(
+                                        alloc, &mut tmp,
+                                    );
+                                    version_unlock_timed(p_cell, old_v, false, lock_t0);
+                                }
+                                return OlcOutcome::Retry;
+                            }
+
+                            // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                            debug_assert_eq!(
+                                p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1,
+                                1
+                            );
+                            // SAFETY: parent is locked; tmp is valid subtree; keys_ptr is valid for old_size.
+                            unsafe {
+                                edge_ptr.write(tmp);
+                                version_unlock_timed(p_cell, old_v, true, lock_t0);
+                                alloc.free_bytes(
+                                    core::ptr::NonNull::new_unchecked(keys_ptr),
+                                    old_size,
+                                );
+                                self.shared.mark_dirty_digit(digit(key, 8));
+                            }
+                            return OlcOutcome::Done(true);
+                        }
+                    }
                 }
 
                 EdgeTag::Immed(im) => {
@@ -4801,7 +4988,181 @@ impl SyncExpanseMap {
                             return OlcOutcome::Done(None);
                         }
                     }
-                    return cap_expansion(CapExpansionKind::LeafFull);
+
+                    // Phase 4E: Concurrent linear leaf full split & branch conversion
+                    let old_size = crate::leaf::size_map(kb as u8, pop);
+                    let saved_aux = *edge.aux_bytes();
+                    let alloc = self.shared.inner_ref().alloc();
+                    // SAFETY: edge is an EBR-live linear leaf descriptor with pop elements and kb key bytes.
+                    let mut entries =
+                        unsafe { crate::mutate_map::read_map_leaf(&edge, kb as u8, pop) };
+                    entries.insert(at, (k, val));
+
+                    if kb == 1 {
+                        let mut new_edge = Edge::NULL;
+                        crate::mutate_map::build_bitmap_leaf_map(alloc, &mut new_edge, &entries);
+                        crate::mutate::restore_decode(&mut new_edge, 1, level, &saved_aux);
+                        let Ok((old_v, lock_t0)) =
+                            version_try_lock_expect_timed(p_cell, parent.version_snap)
+                        else {
+                            // SAFETY: new_edge is an unpublished subtree owned by this thread.
+                            unsafe {
+                                crate::mutate::free_subtree_unpublished::<true>(
+                                    alloc,
+                                    &mut new_edge,
+                                );
+                            }
+                            return OlcOutcome::Retry;
+                        };
+                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                            // SAFETY: new_edge is an unpublished subtree owned by this thread.
+                            unsafe {
+                                crate::mutate::free_subtree_unpublished::<true>(
+                                    alloc,
+                                    &mut new_edge,
+                                );
+                                version_unlock_timed(p_cell, old_v, false, lock_t0);
+                            }
+                            return OlcOutcome::Retry;
+                        }
+
+                        // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                        debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
+                        // SAFETY: parent is locked; new_edge is valid subtree; base is valid for old_size.
+                        unsafe {
+                            edge_ptr.write(new_edge);
+                            version_unlock_timed(p_cell, old_v, true, lock_t0);
+                            alloc.free_bytes(core::ptr::NonNull::new_unchecked(base), old_size);
+                            self.shared.mark_dirty_digit(digit(key, 8));
+                        }
+                        return OlcOutcome::Done(None);
+                    } else {
+                        if kb < level as usize {
+                            let prefix = crate::mutate::decode_value(&edge, kb as u8, level)
+                                << (8 * (kb as u32));
+                            for e in &mut entries {
+                                e.0 |= prefix;
+                            }
+                        }
+                        let d = crate::mutate::divergence_level(
+                            entries[0].0,
+                            entries[entries.len() - 1].0,
+                            level,
+                        );
+                        if d == 1 {
+                            // Narrow-pointer synthesis: all keys share digits at levels 2..=kb,
+                            // converting directly to LeafBitmapL with decode bytes holding prefix.
+                            let low: Vec<(u64, u64)> = entries
+                                .iter()
+                                .map(|&(k, v)| (crate::mutate::key_low(k, 1), v))
+                                .collect();
+                            let mut new_edge = Edge::NULL;
+                            crate::mutate_map::build_bitmap_leaf_map(alloc, &mut new_edge, &low);
+                            crate::mutate::write_decode(&mut new_edge, 1, level, entries[0].0);
+                            let Ok((old_v, lock_t0)) =
+                                version_try_lock_expect_timed(p_cell, parent.version_snap)
+                            else {
+                                // SAFETY: new_edge is an unpublished subtree owned by this thread.
+                                unsafe {
+                                    crate::mutate::free_subtree_unpublished::<true>(
+                                        alloc,
+                                        &mut new_edge,
+                                    );
+                                }
+                                return OlcOutcome::Retry;
+                            };
+                            // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                                // SAFETY: new_edge is an unpublished subtree owned by this thread.
+                                unsafe {
+                                    crate::mutate::free_subtree_unpublished::<true>(
+                                        alloc,
+                                        &mut new_edge,
+                                    );
+                                    version_unlock_timed(p_cell, old_v, false, lock_t0);
+                                }
+                                return OlcOutcome::Retry;
+                            }
+
+                            // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                            debug_assert_eq!(
+                                p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1,
+                                1
+                            );
+                            // SAFETY: parent is locked; new_edge is valid subtree; base is valid for old_size.
+                            unsafe {
+                                edge_ptr.write(new_edge);
+                                version_unlock_timed(p_cell, old_v, true, lock_t0);
+                                alloc.free_bytes(core::ptr::NonNull::new_unchecked(base), old_size);
+                                self.shared.mark_dirty_digit(digit(key, 8));
+                            }
+                            return OlcOutcome::Done(None);
+                        } else {
+                            // Branch cascade: empty BranchL3 at divergence level, populated privately.
+                            let bl = if level <= 7 { d } else { level };
+                            let node = alloc.alloc_node_zeroed::<BranchL3>();
+                            // SAFETY: node is freshly allocated zeroed BranchL3 memory.
+                            unsafe {
+                                (*node.as_ptr()).hdr.level = bl;
+                            }
+                            let mut tmp =
+                                Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
+                            if bl < level {
+                                crate::mutate::write_decode(&mut tmp, bl, level, entries[0].0);
+                            }
+                            let mut scratch = 0u32;
+                            let private = crate::occ::Cover::Node(&raw mut scratch);
+                            let mut path = crate::mutate_map::InsertPathMap::empty();
+                            for &(k, v) in &entries {
+                                // SAFETY: tmp is an unshared subtree owned by this thread.
+                                let prev = unsafe {
+                                    crate::mutate_map::map_insert_with_path::<false, true, false>(
+                                        alloc, &mut tmp, k, v, level, &mut path, private,
+                                    )
+                                };
+                                debug_assert!(prev.0.is_none());
+                            }
+                            tmp.set_pop0(bl, entries.len() as u64 - 1);
+
+                            let Ok((old_v, lock_t0)) =
+                                version_try_lock_expect_timed(p_cell, parent.version_snap)
+                            else {
+                                // SAFETY: tmp is an unpublished subtree owned by this thread.
+                                unsafe {
+                                    crate::mutate::free_subtree_unpublished::<true>(
+                                        alloc, &mut tmp,
+                                    );
+                                }
+                                return OlcOutcome::Retry;
+                            };
+                            // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
+                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                                // SAFETY: tmp is an unpublished subtree owned by this thread.
+                                unsafe {
+                                    crate::mutate::free_subtree_unpublished::<true>(
+                                        alloc, &mut tmp,
+                                    );
+                                    version_unlock_timed(p_cell, old_v, false, lock_t0);
+                                }
+                                return OlcOutcome::Retry;
+                            }
+
+                            // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
+                            debug_assert_eq!(
+                                p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1,
+                                1
+                            );
+                            // SAFETY: parent is locked; tmp is valid subtree; base is valid for old_size.
+                            unsafe {
+                                edge_ptr.write(tmp);
+                                version_unlock_timed(p_cell, old_v, true, lock_t0);
+                                alloc.free_bytes(core::ptr::NonNull::new_unchecked(base), old_size);
+                                self.shared.mark_dirty_digit(digit(key, 8));
+                            }
+                            return OlcOutcome::Done(None);
+                        }
+                    }
                 }
 
                 EdgeTag::Immed(im) => {
@@ -6915,6 +7276,110 @@ mod tests {
             let k_kb1 = 0x02_0000 | j;
             assert!(set.contains(k_kb1));
             assert_eq!(map.get(k_kb1), Some(j * 7));
+        }
+
+        set.with_locked(crate::set::ExpanseSet::validate);
+        map.with_locked(crate::map::ExpanseMap::validate);
+    }
+
+    /// Phase 4E verification: concurrent writers trigger linear leaf splits, bitmap leaf
+    /// conversions, and branch cascades across both set and map while concurrent readers
+    /// validate consistency under OLC (W=4, R=2).
+    #[test]
+    fn test_concurrent_leaf_split() {
+        use std::sync::Barrier;
+
+        let set = Arc::new(SyncExpanseSet::new());
+        let map = Arc::new(SyncExpanseMap::new());
+
+        // Prepopulate so root is a tree
+        for i in 0..64u64 {
+            let base_k = (i << 32) | 1;
+            set.insert(base_k);
+            map.insert(base_k, i);
+        }
+        set.insert(0x03_0000 | 1);
+        map.insert(0x03_0000 | 1, 100);
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let num_readers = 2;
+        let num_writers = 4;
+        let barrier = Arc::new(Barrier::new(num_writers));
+
+        let mut reader_handles = Vec::with_capacity(num_readers);
+        for _ in 0..num_readers {
+            let set_clone = Arc::clone(&set);
+            let map_clone = Arc::clone(&map);
+            let stop_clone = Arc::clone(&stop);
+            reader_handles.push(std::thread::spawn(move || {
+                let s_reader = set_clone.reader();
+                let m_reader = map_clone.reader();
+                while !stop_clone.load(Ordering::Relaxed) {
+                    for i in 0..64u64 {
+                        let base_k = (i << 32) | 1;
+                        assert!(s_reader.contains(base_k));
+                        assert_eq!(m_reader.get(base_k), Some(i));
+                    }
+                    assert!(s_reader.contains(0x03_0000 | 1));
+                    assert_eq!(m_reader.get(0x03_0000 | 1), Some(100));
+                }
+            }));
+        }
+
+        let mut writer_handles = Vec::with_capacity(num_writers);
+        for w in 0..num_writers {
+            let set_clone = Arc::clone(&set);
+            let map_clone = Arc::clone(&map);
+            let b_clone = Arc::clone(&barrier);
+            writer_handles.push(std::thread::spawn(move || {
+                b_clone.wait();
+                for step in 0..9 {
+                    let j = 2 + (w as u64) + (step as u64) * (num_writers as u64);
+                    // 1. kb=4 keys: (i << 32) | j with j up to 37 (exceeding LEAF_CAP=32, triggering branch splits)
+                    if j <= 37 {
+                        for i in 0..16u64 {
+                            let k = (i << 32) | j;
+                            assert!(set_clone.insert(k));
+                            assert_eq!(map_clone.insert(k, i * 1000 + j), None);
+                        }
+                    }
+                    // 2. kb=1 keys in prefix 0x03_0000: j up to 28 (exceeding LEAF1_CAP=25, triggering LeafB1 conversion)
+                    if j <= 28 {
+                        let k_kb1 = 0x03_0000 | j;
+                        assert!(set_clone.insert(k_kb1));
+                        assert_eq!(map_clone.insert(k_kb1, j * 13), None);
+                    }
+                }
+            }));
+        }
+
+        for h in writer_handles {
+            h.join().expect("writer joined cleanly");
+        }
+
+        stop.store(true, Ordering::Relaxed);
+        for h in reader_handles {
+            h.join().expect("reader joined cleanly");
+        }
+
+        // Verify all keys and values
+        for i in 0..16u64 {
+            for j in 1..=37u64 {
+                let k = (i << 32) | j;
+                assert!(set.contains(k), "missing key {k:#x}");
+                let expected = if j == 1 { i } else { i * 1000 + j };
+                assert_eq!(map.get(k), Some(expected), "mismatch on key {k:#x}");
+            }
+        }
+        for j in 1..=28u64 {
+            let k_kb1 = 0x03_0000 | j;
+            assert!(set.contains(k_kb1), "missing kb1 key {k_kb1:#x}");
+            let expected = if j == 1 { 100 } else { j * 13 };
+            assert_eq!(
+                map.get(k_kb1),
+                Some(expected),
+                "mismatch on kb1 key {k_kb1:#x}"
+            );
         }
 
         set.with_locked(crate::set::ExpanseSet::validate);

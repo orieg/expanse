@@ -103,12 +103,12 @@ fn fallback_causes_account_for_every_fallback() {
     let summed: u64 = CAUSES.iter().map(|&s| d(s)).sum();
     eprintln!("Attribution breakdown for 20k map inserts:");
     for &c in &CAUSES {
-        eprintln!(
-            "  {:30}: {:6} ({:.2}%)",
-            format!("{:?}", c),
-            d(c),
+        let pct = if fallbacks > 0 {
             (d(c) as f64 / fallbacks as f64) * 100.0
-        );
+        } else {
+            0.0
+        };
+        eprintln!("  {:30}: {:6} ({:.2}%)", format!("{:?}", c), d(c), pct);
     }
     eprintln!(
         "  Total fallbacks: {} / {} inserts ({:.2}%)",
@@ -133,12 +133,12 @@ fn fallback_causes_account_for_every_fallback() {
     let s_fallbacks = sd(Stat::LockFallbacks);
     eprintln!("Attribution breakdown for 20k set inserts:");
     for &c in &CAUSES {
-        eprintln!(
-            "  {:30}: {:6} ({:.2}%)",
-            format!("{:?}", c),
-            sd(c),
+        let pct = if s_fallbacks > 0 {
             (sd(c) as f64 / s_fallbacks as f64) * 100.0
-        );
+        } else {
+            0.0
+        };
+        eprintln!("  {:30}: {:6} ({:.2}%)", format!("{:?}", c), sd(c), pct);
     }
     eprintln!(
         "  Total fallbacks: {} / {} inserts ({:.2}%)",
@@ -285,14 +285,17 @@ fn fallback_causes_account_for_every_fallback() {
         "set: FallbackImmediateConversion must be 0 after concurrent immediate conversion"
     );
 
-    // Verify discrimination: LeafFull must be non-zero on both map and set workloads
-    assert!(
-        d(Stat::CapExpansionLeafFull) > 0,
-        "map: CapExpansionLeafFull must discriminate (> 0)"
+    // Phase 4E: Linear leaf full split and branch conversion are concurrent,
+    // eliminating CapExpansionLeafFull on both map and set.
+    assert_eq!(
+        d(Stat::CapExpansionLeafFull),
+        0,
+        "map: CapExpansionLeafFull must be 0 after Phase 4E"
     );
-    assert!(
-        sd(Stat::CapExpansionLeafFull) > 0,
-        "set: CapExpansionLeafFull must discriminate (> 0)"
+    assert_eq!(
+        sd(Stat::CapExpansionLeafFull),
+        0,
+        "set: CapExpansionLeafFull must be 0 after Phase 4E"
     );
 
     // Remove partition must be 0 on insert-only workloads
@@ -387,14 +390,27 @@ fn fallback_causes_account_for_every_fallback() {
     // fallbacks would invalidate the four structural shares Phase 0 reports,
     // rather than merely annotating them (Refs #568).
     let unknown = d(Stat::FallbackUnknownTag);
-    assert!(
-        unknown * 100 < fallbacks,
-        "unattributed fallbacks are {unknown} of {fallbacks} (>= 1%); the OLC \
-         walk's undecoded-tag hole is now large enough to distort the \
-         structural shares and must be closed before Phase 0 is interpreted"
-    );
+    if fallbacks > 0 {
+        assert!(
+            unknown * 100 < fallbacks,
+            "unattributed fallbacks are {unknown} of {fallbacks} (>= 1%); the OLC \
+             walk's undecoded-tag hole is now large enough to distort the \
+             structural shares and must be closed before Phase 0 is interpreted"
+        );
+    } else {
+        assert_eq!(unknown, 0);
+    }
 
-    assert!(fallbacks > 0, "workload must exercise the fallback path");
+    // In Phase 4E, insert-only random workloads on prefilled tree roots experience
+    // zero structural fallbacks (0.00% measured and predicted).
+    assert_eq!(
+        fallbacks, 0,
+        "Phase 4E eliminates all insert structural fallbacks on uniform random workloads"
+    );
+    assert_eq!(
+        s_fallbacks, 0,
+        "Phase 4E eliminates all insert structural fallbacks on uniform random workloads"
+    );
     assert_eq!(map.len(), 21_000);
     assert_eq!(set.len(), 21_000);
     map.with_locked(expanse_trie::map::ExpanseMap::validate);
@@ -416,8 +432,8 @@ fn fallback_causes_account_for_every_fallback() {
     );
     assert_eq!(
         prod_sync_src.matches("cap_expansion(").count(),
-        9,
-        "cap_expansion must be called at exactly 9 exit sites in production sync.rs (AGENTS.md §2.3)"
+        7,
+        "cap_expansion must be called at exactly 7 exit sites in production sync.rs (AGENTS.md §2.3)"
     );
     for kind in [
         "CapExpansionKind::Class",
@@ -484,9 +500,10 @@ fn fallback_causes_account_for_every_fallback() {
         class_cnt, 0,
         "map: CapExpansionClass must be 0 after Phase 4C during leaf class growth, got {class_cnt}"
     );
-    assert!(
-        leaf_full_cnt > 0,
-        "map: CapExpansionLeafFull must discriminate (> 0) when leaf reaches capacity, got {leaf_full_cnt}"
+    // Phase 4E: Linear leaf full conversion to LeafB1 is concurrent, eliminating CapExpansionLeafFull.
+    assert_eq!(
+        leaf_full_cnt, 0,
+        "map: CapExpansionLeafFull must be 0 after Phase 4E when leaf reaches capacity, got {leaf_full_cnt}"
     );
 
     // MapBitmapSub:
