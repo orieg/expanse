@@ -41,7 +41,7 @@ graph TD
 
 ## 2. Job Catalog (rolled up by the CI Gate)
 
-`ci.yml` defines **42 jobs** — 41 verification jobs plus the `ci-gate` rollup. They are grouped below by role. Each job gates on `detect-changes` so an unaffected subsystem's job cleanly skips (counting as passing) on a scoped PR, while `main` pushes and non-PR events run everything.
+`ci.yml` defines **43 jobs** — 42 verification jobs plus the `ci-gate` rollup. They are grouped below by role. Each job gates on `detect-changes` so an unaffected subsystem's job cleanly skips (counting as passing) on a scoped PR, while `main` pushes and non-PR events run everything.
 
 > `bench-baremetal` appears in the Performance table below for completeness but lives in `bench_baremetal.yml`; it is `/bench`-triggered and is **not** one of `ci-gate`'s dependencies.
 
@@ -80,6 +80,7 @@ graph TD
 |---|---|---|
 | `miri` | Safety / Tier 1 Miri Fast Smoke | Fast per-PR Miri smoke over the unsafe core (UB, provenance, Stacked/Tree Borrows), plus the `ablation_` unit tests with the three ablation features on. |
 | `test-asan` | Safety / ASan Core Smoke (Ubuntu) | `-Zsanitizer=address` build-std smoke on the core, and `tests/test_concurrency_ablations.rs` with the three ablation features on. |
+| `writer-scaling-selftest` | Perf / Writer Scaling Instrument Self-Test | `docs/benchmarks/concurrency/scripts/writer_scaling.py --self-test`, which nothing else runs. That script decides every multi-writer C(W) verdict published in `docs/benchmarks/concurrency/README.md`, and its self-test covers the counter identities, the fallback-cause partition, the verdict rule, and the fail-loud paths (a missing `perf`, a failed `perf c2c`) that exist so a broken sweep cannot report a number (§8.1). Gated on the narrow `concurrency-instrument` filter — the driver script and the harness example it builds and parses — because the self-test builds that harness twice, and those two files are the only ones that can break the contract. Deliberately not run on `main` pushes for the same reason. |
 | `loom` | Safety / Loom Concurrency Race Model | `--cfg loom` permutation model-checking of the OCC seqlock and EBR; a second pass enables `ablation-striped-epoch` and `ablation-striped-freelist`, which adds the striped-bin models (`MAX_WRITER_SLOTS` is 2 under Loom). |
 | `fuzz-smoke` | Safety / Fuzz Invariants Smoke | libFuzzer smoke (60 s/target) over every target registered in `fuzz/Cargo.toml` (discovered via `cargo fuzz list`, never hand-listed; a self-check step fails the job if `fuzz/fuzz_targets/*.rs` and the `[[bin]]` registrations differ) — currently 8: `set_ops`, `set_algebra`, `map_ops`, `bytesmap_ops`, `strmap_ops`, `blobmap_image_corrupt`, `set32_ops`, `map32_ops`. |
 

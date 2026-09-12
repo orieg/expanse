@@ -749,12 +749,6 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
         return Err(format!("map expected pop {}, got {pop_map}", n0 + m));
     }
     if is_counters {
-        if fb_map.lock_fallbacks == 0 {
-            return Err(format!(
-                "counters test: expected fb_map > 0 at quick scale, got {}",
-                fb_map.lock_fallbacks
-            ));
-        }
         if fb_map.total_allocs.unwrap_or(0) == 0 {
             return Err("counters test: expected fb_map.total_allocs > 0".into());
         }
@@ -769,12 +763,6 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
         return Err(format!("set expected pop {}, got {pop_set}", n0 + m));
     }
     if is_counters {
-        if fb_set.lock_fallbacks == 0 {
-            return Err(format!(
-                "counters test: expected fb_set > 0 at quick scale, got {}",
-                fb_set.lock_fallbacks
-            ));
-        }
         if fb_set.total_allocs.unwrap_or(0) == 0 {
             return Err("counters test: expected fb_set.total_allocs > 0".into());
         }
@@ -782,6 +770,29 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
     } else if el_set <= 0.0 {
         return Err(format!("throughput test: invalid set elapsed {el_set}"));
     }
+
+    // No assertion here that any cell produced a fallback. There was one, on
+    // both integer arms, and it was wrong in two ways.
+    //
+    // At this scale the 64- and 63-bit keyspaces are so sparse that almost
+    // every key lands in its own expanse: no leaf fills, so the only fallbacks
+    // those cells can produce come from two writers colliding. That count is a
+    // property of the interleaving, not of the engine — it failed four runs in
+    // five on one developer host and failed CI outright.
+    //
+    // Densifying the workload does not rescue it either, and that is the more
+    // important half: every phase of the multi-writer work (Refs #568) moves
+    // another structural transition onto the optimistic path, so the fallback
+    // count legitimately falls toward zero. With concurrent capacity growth
+    // and immediate conversion merged, one writer over a 12-bit keyspace
+    // produces no fallbacks at all. A test that requires fallbacks to exist is
+    // a test that fails when the engine improves.
+    //
+    // What the counters build actually owes is checked instead, by `check()`
+    // on every cell above: the six causes sum to `lock_fallbacks`, and
+    // `write_ops` equals the inserts the cell performed. Those hold at any
+    // count, zero included (AGENTS.md section 8.4: hard assertions belong on
+    // deterministic invariants).
 
     let wl_str = WriterStrWorkload::generate(n0, m);
     let (el_str, pop_str, fb_str) = run_str_cell(&wl_str, 2, 0, is_counters, &mut dummy_ctl);

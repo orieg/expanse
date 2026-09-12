@@ -31,6 +31,7 @@ jobs:
       rust-src: ${{ steps.filter.outputs.rust-src }}
       tooling: ${{ steps.filter.outputs.tooling }}
       perf-tooling: ${{ steps.filter.outputs.perf-tooling }}
+      concurrency-instrument: ${{ steps.filter.outputs.concurrency-instrument }}
       visualizer: ${{ steps.filter.outputs.visualizer }}
       python: ${{ steps.filter.outputs.python }}
       node: ${{ steps.filter.outputs.node }}
@@ -133,6 +134,14 @@ jobs:
             # report scripts are executed by `instruction-counts` and
             # `callgrind-smoke`, so they gate those two jobs specifically
             # rather than justifying `scripts/**` -> everything.
+            # The multi-writer sweep instrument: the driver script and the
+            # harness binary it builds, runs and parses. `writer_scaling.py
+            # --self-test` exercises both ends of that contract, and building
+            # the harness is most of its cost, so it is gated on the two files
+            # that can break it rather than run on every pull request.
+            concurrency-instrument:
+              - 'docs/benchmarks/concurrency/scripts/writer_scaling.py'
+              - 'crates/expanse/examples/writer_scaling.rs'
             perf-tooling:
               - 'scripts/perf_report.py'
               - 'scripts/bench_report.py'
@@ -1700,6 +1709,31 @@ jobs:
       - name: Run memory budget assertions (32-bit embedded)
         run: cargo run --release --example bytes_per_key_32
 
+  writer-scaling-selftest:
+    name: Perf / Writer Scaling Instrument Self-Test
+    needs: [detect-changes]
+    # Deliberately not run on every push to `main`: the self-test builds the
+    # harness twice (default and `occ-stats`), and the contract it guards can
+    # only be broken by the two files in the `concurrency-instrument` filter.
+    if: needs.detect-changes.outputs.concurrency-instrument == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Nothing else runs this. The script decides every multi-writer C(W)
+      # verdict published in `docs/benchmarks/concurrency/README.md`, and its
+      # self-test covers the counter identities, the fallback-cause partition,
+      # the verdict rule, and the fail-loud paths (a missing `perf`, a failed
+      # `perf c2c`) that exist precisely so a broken sweep cannot report a
+      # number (AGENTS.md section 8.1).
+      - name: Writer scaling instrument self-test
+        run: python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --self-test
+
   loom:
     name: Safety / Loom Concurrency Race Model
     needs: [detect-changes]
@@ -2467,6 +2501,7 @@ jobs:
       - callgrind-smoke
       - differential-oracle
       - memory-budget
+      - writer-scaling-selftest
       - loom
       - wasm-fuel
       - fuzz-smoke
