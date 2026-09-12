@@ -114,3 +114,39 @@ Stated before the run so that meeting one is a recorded outcome and not a retrof
 - Multi-writer scaling. `InsertConcurrently` is `Insert` verbatim (`:337`), so writers are fully serialised by construction; measuring that is a separate question from the read path.
 - Iterator and scan concurrency beyond the `Seek` locate phase; the scan bracket was closed in #769.
 - Any change to the locate phase. This section pre-registers the measurement only; a design lands against its result, not beside it.
+
+### 5.7 Outcomes
+
+*(measured: reference host — Intel i9-12900F, 8P+8E / 24 threads, 30 MiB L3, Linux 6.8; commit `0ed8f5e5`; pin `0-15`; 5 rounds per cell, 60 cells per run; two independent runs, [34720727337](https://github.com/orieg/expanse/actions/runs/34720727337) and [34721708502](https://github.com/orieg/expanse/actions/runs/34721708502); artifacts [`results/baseline_concurrent_reads.json`](results/baseline_concurrent_reads.json) and [`results/baseline_concurrent_reads_run2.json`](results/baseline_concurrent_reads_run2.json).)*
+
+Appended beside §5.3, which is not rewritten (§8.7). Both runs are committed because a cross-run delta is not claimable from one (`docs/BENCHMARKING.md` rule 18).
+
+| hypothesis | gate | run 1 | run 2 | verdict |
+|---|---|---|---|---|
+| **H1** the mutex binds the read path | paced `S(7)` CI upper < 2.0 | 0.748 [0.733, 0.756] | 0.768 [0.762, 0.771] | **PASS** in both |
+| **H2** readers serialise against each other | idle `S(7)` CI upper < 3.5 | 0.631 [0.627, 0.633] | 0.620 [0.611, 0.629] | **PASS** in both |
+| **H3** the bound and the fit agree | fitted `alpha` interval overlaps predicted | see below | see below | **partly — `alpha` matches at its ceiling, `beta` does not exist in the bound** |
+
+Aggregate read throughput, Mops/s, mean of 5 rounds (run 1):
+
+| writer | R=1 | R=2 | R=4 | R=7 |
+|---|---|---|---|---|
+| idle (control) | 4.085 | 3.065 | 2.783 | 2.576 |
+| paced (250k/s offered, 5.45% measured duty) | 1.340 | 0.965 | 0.959 | 1.002 |
+| free (never gated) | 0.209 | 0.360 | 0.686 | 0.981 |
+
+**H1 and H2 both PASS, which is §5.4's first row:** readers serialise against each other, and the locate phase is the constraint. A shared lock over it is the cheapest candidate.
+
+They pass by more than the gates asked. `S(7) < 1` in both the paced and the idle cell means aggregate read throughput *falls* as readers are added — not merely failing to scale. The idle control is what makes that attributable: with no writer at all, seven readers deliver 0.63× what one delivers, so the serialisation is reader-against-reader and not reader-against-writer.
+
+**The bound of `scripts/rocksdb_locate_bound.py` held as an upper bound and its floor was refuted.** It predicts `S(W) = clamp(K, 1, W)`, so its minimum is 1.0: adding readers can never hurt. Measured 0.748. The bound's own docstring claims only a ceiling on an idealised handoff — zero lock transfer cost, no convoying, a reader's unlocked remainder perfectly overlapped — and the measurement says the last two of those are false. The ceiling claim survives; the implicit floor does not, and the bound carries no term for the cost that produces it.
+
+**H3, stated without folding the residue into `alpha` (§8.20.4).** At the measured 5.45% duty the bound predicts `alpha = 1.0` (a fully-locked read path). To reproduce the measurement, USL needs either `alpha = 1.394` with `beta = 0`, which `scripts/fit_usl.py` treats as inadmissible because `alpha > 1`, or `alpha = 1` with **`beta = 0.0563`**. So the contention parameter matches the prediction at its ceiling, and there is a substantial coherency term the derivation contains nothing for. That belongs on the unexplained line. Naming it: the candidates are cache-line traffic on the mutex word, lock convoying, and scheduler wake-up cost, none of which has been measured here — no counter was collected, so this is a list of hypotheses and not an attribution.
+
+**The free cell behaved exactly as §5.2 and §5.3 predicted it would, which is why it is not gated.** Its `S(7)` is 4.705, the only cell in the sweep that looks like scaling. It is not: a single reader against a free-running writer gets 0.209 Mops/s against the idle control's 4.085, a starvation of roughly twenty-fold, and adding readers only recovers collectively what one reader could not take. Gating that cell would have reported excellent read scaling from a lock-fairness artifact.
+
+**Rule 18 in practice.** Seven of nine scaling cells overlap between the two runs; `paced S(4)` and `paced S(7)` do not (0.716 vs 0.736, 0.748 vs 0.768). Neither non-overlap changes a verdict, and both are small, but they are the concrete demonstration that a within-run BCa interval does not bound between-run spread — which is why both runs are committed rather than the better one.
+
+**Host.** Maximum foreign busy CPU across all 120 cells was 0.010 core-equivalents, so neither run competed with anything. The per-cell mean is slightly negative (−0.08), an artifact of subtracting the runner's own children's CPU time from the host's busy delta at this resolution; it is reported rather than clamped.
+
+**What is not established.** No counter was collected, so the mechanism behind `beta` is unmeasured. The arm measures `Get`; `Contains` and `IteratorImpl::Seek` share the same locate path but were not swept. And no design has been built or measured — H1 and H2 say a shared lock is the cheapest candidate, not that it works.
