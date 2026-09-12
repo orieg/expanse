@@ -14,9 +14,11 @@ fields dropping back out (AGENTS.md section 8.12).
 
 ## What is required, and of which artifacts
 
-Every committed `docs/benchmarks/*/results/baseline_*.json` must carry
-`provenance.host`, `provenance.estimators` and per-cell `rounds_raw`, **unless
-it is grandfathered below**.
+Every committed `docs/benchmarks/*/results/` artifact whose name matches one of
+`ARTIFACT_GLOBS` — the `baseline_*` sweeps and the `ablation*` interventional
+arms measured against them — must carry `provenance.host`,
+`provenance.estimators`, load snapshots with a busy-CPU delta and per-cell
+`rounds_raw`, **unless it is grandfathered below**.
 
 Grandfathering is by explicit entry, not by a date or a commit comparison: an
 artifact is listed with the commit it was measured at, and the gate fails if
@@ -123,8 +125,33 @@ SUITES = (
     "rocksdb_memtable", "concurrency",
 )
 
-# Keys under which an artifact holds its cells.
-CELL_KEYS = ("cells", "results", "throughput", "health", "latency", "memory")
+# The artifact filename families this gate governs, in a suite's `results/`
+# directory and in its `multi_writer_olc/` subdirectory.
+#
+# `baseline_*` is a sweep. `ablation*` is the interventional arm measured
+# against one (section 8.20): it publishes a wall-clock ratio of a variant
+# against the default, so it is a comparative artifact under section 8.17
+# exactly like the sweep it is compared to, and a published wall-clock result
+# without its load snapshot is inadmissible. `baseline_*` alone missed every
+# one of them.
+#
+# The `ablation*` glob is deliberately wide enough for both spellings on disk:
+#   - `ablation_<mechanism>_writer_scaling[_run2].json` — the #568 writer-scaling
+#     ablations, whose Hypothesis D verdicts are published in
+#     `docs/benchmarks/concurrency/README.md`. Same shape as the `baseline_*`
+#     sweeps: a `throughput` cell list plus `provenance`.
+#   - `ablations.json` / `ablations_str.json` — the older #789 feature
+#     ablations, a different and older shape (cells under `cells`).
+# Both families carry host, estimators, busy-CPU deltas and per-cell
+# `rounds_raw` today, so neither is grandfathered and the older shape is
+# covered rather than excluded.
+ARTIFACT_GLOBS = ("baseline_*.json", "ablation*.json")
+
+# Keys under which an artifact holds its cells. `throughput_variant` is the
+# ablation artifacts' variant arm — the half of the comparison that is not the
+# default — and owes its rounds like the `throughput` arm it is divided by.
+CELL_KEYS = ("cells", "results", "throughput", "throughput_variant",
+             "health", "latency", "memory")
 
 # Concurrent artifacts measured before the runners took a load snapshot per
 # cell with the runner's own child CPU split out, and read the governor of
@@ -288,16 +315,20 @@ def findings_for(rel: str, obj) -> list[str]:
 
 
 def artifacts() -> list[Path]:
-    out = []
+    out: list[Path] = []
     for suite in SUITES:
         res = BENCH / suite / "results"
         if not res.is_dir():
             continue
-        out.extend(sorted(res.glob("baseline_*.json")))
-        mwo = res / "multi_writer_olc"
-        if mwo.is_dir():
-            out.extend(sorted(mwo.glob("baseline_*.json")))
-            out.extend(sorted(mwo.glob("counters_*.json")))
+        for d in (res, res / "multi_writer_olc"):
+            if not d.is_dir():
+                continue
+            found: set[Path] = set()
+            for pattern in ARTIFACT_GLOBS:
+                found.update(d.glob(pattern))
+            if d != res:
+                found.update(d.glob("counters_*.json"))
+            out.extend(sorted(found))
     return out
 
 
@@ -387,6 +418,29 @@ _GOOD_CONC = {
                          "own_busy_cpus": 8.9, "foreign_busy_cpus": 0.2}}],
     "memory": [{"lambda_target": 1.0, "expanse_alloc_bytes_per_key": 14.1}],
 }
+# An ablation artifact as `concurrency`'s runner writes it: the default arm
+# under `throughput`, the interventional arm under `throughput_variant`, and
+# the ratio between the two. Both arms are timed wall-clock cells and both owe
+# their rounds. Not `baseline_concurrent*` by name, so it owes host,
+# estimators, a busy-CPU delta and per-cell rounds, and not per-cell
+# attribution.
+_GOOD_ABL = {
+    "provenance": {
+        "suite": "concurrency",
+        "commit": "1a2b3c4",
+        "host": {"cpu_model": "x", "scaling_governor": "performance"},
+        "estimators": {"ratio": "median(variant)/median(default)", "raw": "rounds_raw"},
+        "loads": [{"label": "start", "load1": 0.4, "busy_cpus_since_prev": None},
+                  {"label": "end", "load1": 1.2, "busy_cpus_since_prev": 0.31}],
+    },
+    "throughput": [{"arm": "map", "writers": 4,
+                    "rounds_raw": [{"round": 0, "expanse_writer_mops": 8.6}]}],
+    "throughput_variant": [{"arm": "map", "writers": 4,
+                            "rounds_raw": [{"round": 0, "expanse_writer_mops": 8.9}]}],
+    "comparison": [{"arm": "map", "variant_name": "freelist", "rounds": 8}],
+}
+_ABL_REL = "concurrency/results/ablation_synthetic_writer_scaling.json"
+
 # A listed path, for the grandfather cases, and an unlisted concurrent path,
 # for the field cases — a listed path at a foreign commit is itself a finding.
 _CONC_OLD = "hot_comparison/results/baseline_concurrent.json"
@@ -464,6 +518,57 @@ def _self_test() -> int:
     under_results_bad["results"] = under_results_bad.pop("cells")
     del under_results_bad["results"][0]["rounds_raw"]
     expect("`results` cells without raw rows", under_results_bad, "rounds_raw")
+
+    # --- the ablation artifacts (section 8.17) -----------------------------
+    # THE HOLE THIS CLOSED: `artifacts()` globbed `baseline_*.json` only, so
+    # the committed `ablation*.json` artifacts — which publish the Hypothesis D
+    # verdicts in `docs/benchmarks/concurrency/README.md` — were never read at
+    # all. Field cases on their own do not pin that: `findings_for` is
+    # path-agnostic and would have passed them before the fix too. The
+    # selection is what has to be pinned, so this asserts both.
+    selected = {str(p.relative_to(BENCH)) for p in artifacts()}
+    for name in ("ablation_alloc_writer_scaling.json",
+                 "ablation_epoch_writer_scaling.json",
+                 "ablation_freelist_writer_scaling.json",
+                 "ablation_freelist_writer_scaling_run2.json",
+                 # the older #789 feature ablations, a different shape that the
+                 # same glob covers and that passes the gate as committed
+                 "ablations.json",
+                 "ablations_str.json"):
+        rel = f"concurrency/results/{name}"
+        if not (BENCH / rel).is_file():
+            failures.append(f"a named ablation artifact is missing: {rel}")
+        elif rel not in selected:
+            failures.append(f"artifacts() does not select {rel} — ARTIFACT_GLOBS is too narrow")
+
+    expect("a complete ablation artifact passes", copy.deepcopy(_GOOD_ABL), None, _ABL_REL)
+
+    abl_no_raw = copy.deepcopy(_GOOD_ABL)
+    del abl_no_raw["throughput"][0]["rounds_raw"]
+    expect("an ablation default arm without raw rows", abl_no_raw, "rounds_raw", _ABL_REL)
+
+    # The variant arm is half the published ratio and is checked as such: a
+    # gate that reads only `throughput` reads only the denominator.
+    abl_var_no_raw = copy.deepcopy(_GOOD_ABL)
+    del abl_var_no_raw["throughput_variant"][0]["rounds_raw"]
+    expect("an ablation variant arm without raw rows", abl_var_no_raw,
+           "throughput_variant", _ABL_REL)
+
+    abl_no_delta = copy.deepcopy(_GOOD_ABL)
+    abl_no_delta["provenance"]["loads"] = [{"label": "start", "load1": 0.4},
+                                           {"label": "end", "load1": 1.2}]
+    expect("an ablation artifact whose loads carry no jiffy delta", abl_no_delta,
+           "busy_cpus_since_prev", _ABL_REL)
+
+    abl_no_host = copy.deepcopy(_GOOD_ABL)
+    del abl_no_host["provenance"]["host"]
+    expect("an ablation artifact with no host facts", abl_no_host,
+           "provenance.host", _ABL_REL)
+
+    abl_no_est = copy.deepcopy(_GOOD_ABL)
+    del abl_no_est["provenance"]["estimators"]
+    expect("an ablation artifact with no estimators block", abl_no_est,
+           "provenance.estimators", _ABL_REL)
 
     # Every grandfathered path must actually exist, or the list is silently
     # exempting nothing and rotting.
