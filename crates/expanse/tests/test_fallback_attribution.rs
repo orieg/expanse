@@ -272,6 +272,19 @@ fn fallback_causes_account_for_every_fallback() {
         "map: CapExpansionMapBitmapSub must be 0 after Phase 4C"
     );
 
+    // Concurrent immediate growth and immediate-to-leaf conversions eliminate
+    // FallbackImmediateConversion on both map and set.
+    assert_eq!(
+        d(Stat::FallbackImmediateConversion),
+        0,
+        "map: FallbackImmediateConversion must be 0 after concurrent immediate conversion"
+    );
+    assert_eq!(
+        sd(Stat::FallbackImmediateConversion),
+        0,
+        "set: FallbackImmediateConversion must be 0 after concurrent immediate conversion"
+    );
+
     // Verify discrimination: LeafFull must be non-zero on both map and set workloads
     assert!(
         d(Stat::CapExpansionLeafFull) > 0,
@@ -389,17 +402,22 @@ fn fallback_causes_account_for_every_fallback() {
 
     // Structural invariant: ensure no raw `OlcOutcome::Fallback(FallbackCause::CapExpansion)`
     // exists in sync.rs outside `fn cap_expansion` (#568).
-    let sync_src = include_str!("../src/sync.rs");
+    let full_sync_src = include_str!("../src/sync.rs");
+    // Strip unit test module so tests within sync.rs do not skew production exit-site census (#856).
+    let prod_sync_src = match full_sync_src.find("\nmod tests {") {
+        Some(pos) => &full_sync_src[..pos],
+        None => full_sync_src,
+    };
     let raw_pattern = "OlcOutcome::Fallback(FallbackCause::CapExpansion)";
-    let count = sync_src.matches(raw_pattern).count();
+    let count = prod_sync_src.matches(raw_pattern).count();
     assert_eq!(
         count, 1,
         "only fn cap_expansion may return raw Fallback(FallbackCause::CapExpansion)"
     );
     assert_eq!(
-        sync_src.matches("cap_expansion(").count(),
+        prod_sync_src.matches("cap_expansion(").count(),
         9,
-        "cap_expansion must be called at exactly 9 exit sites in sync.rs (AGENTS.md §2.3)"
+        "cap_expansion must be called at exactly 9 exit sites in production sync.rs (AGENTS.md §2.3)"
     );
     for kind in [
         "CapExpansionKind::Class",
@@ -409,10 +427,21 @@ fn fallback_causes_account_for_every_fallback() {
         "CapExpansionKind::Remove",
     ] {
         assert!(
-            sync_src.contains(kind),
-            "CapExpansionKind::{kind} must be used in sync.rs"
+            full_sync_src.contains(kind),
+            "CapExpansionKind::{kind} must be used or tested in sync.rs"
         );
     }
+
+    // Structural invariant: immediate growth and immediate-to-leaf conversion paths in olc_insert_set and
+    // olc_insert_map have zero FallbackCause::ImmediateConversion returns.
+    // Exactly 3 remain in production sync.rs: 2 in Null-slot non-BranchU insertion, 1 in olc_remove_map.
+    assert_eq!(
+        prod_sync_src
+            .matches("OlcOutcome::Fallback(FallbackCause::ImmediateConversion)")
+            .count(),
+        3,
+        "exactly 3 FallbackCause::ImmediateConversion sites remain in production sync.rs (2 non-BranchU null-slot insert, 1 remove)"
+    );
 
     // Targeted discrimination checks: verify all 5 `CapExpansion` sub-causes discriminate (> 0)
     // under targeted workloads designed to trigger each respective engine transition across both
