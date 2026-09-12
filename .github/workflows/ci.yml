@@ -29,6 +29,13 @@ jobs:
     timeout-minutes: 5
     outputs:
       rust-src: ${{ steps.filter.outputs.rust-src }}
+      # Which `ci.yml` job definitions this diff touched. Replaces
+      # `.github/workflows/ci.yml` sitting inside `rust-src`, where one
+      # glob stood in for 43 independent job definitions. Fails closed:
+      # `ci-workflow-all` is true on any parse failure, unreadable base,
+      # added/removed job, or change outside `jobs:`.
+      ci-workflow-all: ${{ steps.jobdiff.outputs.ci-workflow-all }}
+      changed-jobs: ${{ steps.jobdiff.outputs.changed-jobs }}
       tooling: ${{ steps.filter.outputs.tooling }}
       perf-tooling: ${{ steps.filter.outputs.perf-tooling }}
       concurrency-instrument: ${{ steps.filter.outputs.concurrency-instrument }}
@@ -37,7 +44,6 @@ jobs:
       node: ${{ steps.filter.outputs.node }}
       dotnet: ${{ steps.filter.outputs.dotnet }}
       java: ${{ steps.filter.outputs.java }}
-      docs: ${{ steps.filter.outputs.docs }}
       ruby: ${{ steps.filter.outputs.ruby }}
       php: ${{ steps.filter.outputs.php }}
       wasm: ${{ steps.filter.outputs.wasm }}
@@ -46,7 +52,11 @@ jobs:
       esp-component: ${{ steps.filter.outputs.esp-component }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # `ci_job_diff.py` reads the workflow at the base revision.
+          fetch-depth: 0
       - uses: dorny/paths-filter@v4
+
         id: filter
         with:
           # REQUIRED for the `!`-prefixed pattern in `rust-src` below. Under the
@@ -88,17 +98,23 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain*'
+              # Injects `rustflags` into every cargo invocation on the
+              # macOS legs, so it is an input to every Rust action here for
+              # the same reason `rust-toolchain*` directly above is.
+              - '.cargo/config.toml'
               - '.github/actions/**'
-              # Kept here deliberately, not by reflex (#412). An edit to this
-              # file rewrites the build commands, flags, toolchains and `if:`
-              # gates of the jobs above, and can silently remove one. `main` is
-              # protected, so the `push` event fires only after the merge --
-              # PR time is the sole place a broken or disabled safety job is
-              # observable before it lands. Restricting this to the jobs a diff
-              # actually touches is not expressible as a path glob, so the
-              # conservative case is taken: every ci.yml edit runs the full
-              # matrix. Tooling-only PRs that leave this file alone do not.
-              - '.github/workflows/ci.yml'
+              # `.github/workflows/ci.yml` is deliberately NOT here any more.
+              # The concern that put it here was right -- an edit can rewrite a
+              # safety job's build commands, flags or toolchain, and `main` is
+              # protected, so PR time is the only place a broken job is
+              # observable before it lands -- but the glob was coarse: one
+              # entry stood in for 43 independent job definitions, so adding a
+              # step to `lint` woke Miri, ASan, fuzz, Callgrind, every
+              # cross-compile lane and 34 binding checks. `ci_job_diff.py`
+              # expresses what a glob cannot ("the diff touched job X") and
+              # fails closed to exactly this behaviour; `.github/ci-jobs.txt`
+              # covers the half running the matrix never did -- proving a job
+              # was not *removed*.
             # Repo tooling with no Rust coupling: the guard scripts the `lint`
             # job carries (bump_version, check_abi_parity, check_ci_gate,
             # check_bench_suites, check_docs_hygiene), the workflow files those
@@ -122,6 +138,26 @@ jobs:
               # it. Kept out of `rust-src`: troff edits compile nothing, and
               # gating the safety lane on them would undo #412.
               - 'man/**'
+              # `lint` runs check_bench_shapes.py, whose declared scope
+              # includes `crates/expanse-hot-bench/src/bin/` (AGENTS.md
+              # 8.12.1). The crate is excluded from `rust-src` because nothing
+              # compiles it; it belongs here because something checks it.
+              # Reaching `lint` without waking Miri/ASan/fuzz/Callgrind is the
+              # whole point of the split. A job that *builds* the crate is not
+              # added: its build.rs panics without the `third_party/hot`
+              # submodule, so compiling it is a separate decision with its own
+              # checkout cost.
+              - 'crates/expanse-hot-bench/**'
+              # The committed snapshot `public-api` diffs the live Rust surface
+              # against. Without this a PR that edits only the snapshot -- the
+              # `--write` regeneration a reviewer is meant to see -- skips the
+              # job that would compare it.
+              - '.github/public-api/**'
+              # Widening a TSan suppression can silence storage-level races
+              # (AGENTS.md 5). `lint` is where the repo's guard scripts run, so
+              # an edit here must at least reach them rather than only the
+              # post-merge nightly.
+              - '.github/tsan-suppressions.txt'
             # Narrow filter for visualizer dataset and visualizer HTML edits to
             # trigger workspace unit/integration tests (test_visualizer_sync.rs)
             # without triggering the expensive safety lane (Miri, ASan, fuzz).
@@ -134,14 +170,22 @@ jobs:
             # report scripts are executed by `instruction-counts` and
             # `callgrind-smoke`, so they gate those two jobs specifically
             # rather than justifying `scripts/**` -> everything.
-            # The multi-writer sweep instrument: the driver script and the
-            # harness binary it builds, runs and parses. `writer_scaling.py
-            # --self-test` exercises both ends of that contract, and building
-            # the harness is most of its cost, so it is gated on the two files
-            # that can break it rather than run on every pull request.
+            # The multi-writer sweep instrument: the driver script, the
+            # harness binary it builds, runs and parses, and the three
+            # `scripts/` modules the driver imports at run time.
+            # `writer_scaling.py --self-test` exercises both ends of that
+            # contract, and building the harness is most of its cost, so it is
+            # gated on the files that can break it rather than run on every
+            # pull request. The import edges are not visible to a reader of
+            # the driver's own directory, so they are named here: a signature
+            # change in any of the three breaks the instrument, and this is
+            # the only job that would catch it.
             concurrency-instrument:
               - 'docs/benchmarks/concurrency/scripts/writer_scaling.py'
               - 'crates/expanse/examples/writer_scaling.rs'
+              - 'scripts/bench_pin.py'
+              - 'scripts/bca_bootstrap.py'
+              - 'scripts/bench_provenance.py'
             perf-tooling:
               - 'scripts/perf_report.py'
               - 'scripts/bench_report.py'
@@ -175,25 +219,12 @@ jobs:
               - 'include/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
-            docs:
-              - 'docs/**'
-              - 'man/**'
-              - '*.md'
-              - 'components/**/*.md'
-              - 'scripts/**'
-              - 'website/**'
-              # The citation record is machine-checked by
-              # scripts/validate_citation.py; without these entries an edit
-              # to either file skips the job that validates it.
-              - 'CITATION.cff'
-              - '.zenodo.json'
             ruby:
               - 'bindings/ruby/**'
               - 'include/**'
               - 'crates/expanse-capi/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
-              - '.github/workflows/ci.yml'
             php:
               - 'bindings/php/**'
               - 'crates/expanse-php/**'
@@ -201,7 +232,6 @@ jobs:
               - 'crates/expanse-capi/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
-              - '.github/workflows/ci.yml'
             wasm:
               - 'crates/expanse-wasm/**'
               - 'crates/expanse-wasm-fuel/**'
@@ -209,14 +239,12 @@ jobs:
               - 'results/baseline_wasm_fuel.json'
               - 'Cargo.toml'
               - 'Cargo.lock'
-              - '.github/workflows/ci.yml'
             go:
               - 'bindings/go/**'
               - 'include/**'
               - 'crates/expanse-capi/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
-              - '.github/workflows/ci.yml'
             integrations:
               - 'integrations/**'
               - 'crates/expanse/**'
@@ -235,10 +263,26 @@ jobs:
               - 'crates/expanse-capi/**'
               - 'include/**'
 
+      - name: Which ci.yml job definitions changed
+        id: jobdiff
+        shell: bash
+        run: |
+          # Fails CLOSED: any parse failure, unreadable base, added/removed job,
+          # or change outside `jobs:` emits ci-workflow-all=true, i.e. the old
+          # whole-matrix behaviour, with a ::notice:: naming the reason. The
+          # narrowing only happens when the comparison fully succeeds.
+          # No stdout redirect: the script appends key=value to $GITHUB_OUTPUT
+          # itself and keeps workflow commands on stdout. Redirecting both into
+          # the output file fails the step -- "Unable to process file command
+          # 'output' successfully" -- which fails `detect-changes` and skips
+          # every job behind it.
+          python3 scripts/ci_job_diff.py \
+            --base "${{ github.event.pull_request.base.sha || github.event.before }}" \
+            --head "${{ github.sha }}"
   lint:
     name: Core / Linter & Formatting
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || needs.detect-changes.outputs.visualizer == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || needs.detect-changes.outputs.visualizer == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|lint|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -260,24 +304,21 @@ jobs:
       - name: Format
         run: cargo fmt --all --check
 
-      - name: Verify Multi-Ecosystem Version Lockstep
-        run: python3 scripts/bump_version.py --check
-
-      - name: Verify C ABI Symbol Parity Across All Bindings
-        run: python3 scripts/check_abi_parity.py
-
       - name: Verify Ecosystem Theme Contract v1 Compliance
         run: python3 scripts/check_ecosystem_theme.py
-
-      - name: Verify Tracked File Deletion Rationale
-        if: github.event_name == 'pull_request'
-        run: python3 scripts/check_deletion_rationale.py --base "origin/${{ github.base_ref }}"
 
       - name: Verify Workspace Test Count Floor
         run: python3 scripts/check_test_floors.py
 
       - name: Verify CI Gate Completeness
         run: python3 scripts/check_ci_gate.py
+
+      - name: CI Path Filters Select The Right Jobs
+        # The golden change-set -> job-set table. `check_ci_gate.py`
+        # verifies the rollup wiring; this verifies that a filter still
+        # covers what its job consumes -- the half nothing checked, and
+        # the half #620 and #671 both broke.
+        run: python3 scripts/check_ci_filters.py
 
       # The nightly Miri lane is a shard matrix; this asserts every lib test
       # is in exactly one shard and every integration target is either listed
@@ -292,22 +333,6 @@ jobs:
       # crate `[[bench]]` targets have drifted away from it (#410).
       - name: Verify Benchmark Suite Manifest Sync
         run: python3 scripts/check_bench_suites.py
-
-      - name: Chart theme drift (shared chrome identical across suite themes)
-        run: python3 scripts/check_chart_themes.py
-
-      - name: Chart layout (overflow, collision, clamped bars)
-        run: python3 scripts/check_chart_layout.py
-
-      - name: Verify Benchmark Workload Shape Declarations & Docs Sync
-        run: python3 scripts/check_bench_shapes.py
-
-      # The reference host is a hybrid part; a wall-clock arm that lands on an
-      # efficiency core measures a different machine and no interval says so
-      # (#639). The pin lives in the runner, so this is what stops a runner
-      # from quietly dropping it.
-      - name: Verify Wall-Clock Runners Take the Core Pin
-        run: python3 scripts/check_bench_pin.py
 
       # Committed artifacts live under `docs/**`, so `docs-lint` runs this too
       # — `lint` is gated on `tooling`/`rust-src` and would not fire on a PR
@@ -356,6 +381,9 @@ jobs:
           python3 scripts/warmup_ramp.py --self-test
           python3 scripts/check_docs_hygiene.py --self-test
           python3 scripts/check_ci_gate.py --self-test
+          python3 scripts/check_ci_filters.py --self-test
+          python3 scripts/check_gate_floor.py --self-test
+          python3 scripts/ci_job_diff.py --self-test
           python3 scripts/check_ecosystem_theme.py --self-test
           python3 scripts/check_miri_shards.py --self-test
           python3 scripts/check_bench_suites.py --self-test
@@ -390,7 +418,7 @@ jobs:
   msrv:
     name: Core / MSRV 1.88 Build
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|msrv|')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -409,7 +437,7 @@ jobs:
     name: Docs / Man Page Examples Compile and Match
     needs: [detect-changes]
     # `man/**` sits in the `tooling` filter, so a man-page-only PR reaches this.
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|man-examples|')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -445,7 +473,9 @@ jobs:
     # 5-minute Python scan; the other filters are untouched, so no compile,
     # Miri, ASan or Callgrind lane is widened by this.
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Raised from 5 when the repo-wide policy guards moved in: they need the
+    # full history (the deletion gate diffs against the base ref).
+    timeout-minutes: 12
     env:
       # GitHub token for gh CLI issue state checks in check_docs_hygiene.py
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -460,6 +490,9 @@ jobs:
       PR_BODY: ${{ github.event.pull_request.body }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The deletion-rationale guard diffs against the base ref.
+          fetch-depth: 0
 
       - name: Scan tracked markdown and the PR body
         shell: bash
@@ -491,6 +524,43 @@ jobs:
           python3 scripts/check_bench_provenance.py --self-test
           python3 scripts/check_bench_provenance.py
 
+      - name: Repo-Wide Policy Guards (deletion, version lockstep, ABI, charts)
+        # These read inputs that `lint`'s filters (rust-src/tooling/visualizer)
+        # do not cover, so running them there meant each was skipped by exactly
+        # the change class it exists to catch: the deletion gate skipped a PR
+        # deleting only `docs/**` or `bindings/**`; the version lockstep gate
+        # skipped a bump applied to one ecosystem manifest; the chart, shape
+        # and pin gates skipped a `docs/benchmarks/**`-only re-measurement.
+        # None needs a Rust toolchain, so they belong in this unconditional
+        # job (AGENTS.md 8.1 -- a gate that cannot observe its own trigger is
+        # not a gate).
+        run: |
+          python3 scripts/bump_version.py --check
+          python3 scripts/check_abi_parity.py
+          python3 scripts/check_chart_themes.py
+          python3 scripts/check_chart_layout.py
+          python3 scripts/check_bench_shapes.py
+          python3 scripts/check_bench_pin.py
+
+      - name: Verify Tracked File Deletion Rationale
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/check_deletion_rationale.py --base "origin/${{ github.base_ref }}"
+
+      - name: Unrun Gate Self-Tests (bounds, ablations, suite drivers)
+        # These ship `--self-test` suites and were invoked by no workflow and
+        # by no line of `gate.sh` -- committed, self-testing, and never run.
+        # They are pure Python with no Rust toolchain dependency, so they
+        # belong in this unconditional job rather than behind a path filter.
+        run: |
+          python3 scripts/bench_ab.py --self-test
+          python3 scripts/line_transfer_matrix.py --self-test
+          python3 docs/benchmarks/concurrency/scripts/ablations.py --self-test
+          python3 docs/benchmarks/concurrency/scripts/multi_writer_olc_gate.py --self-test
+          python3 docs/benchmarks/concurrency/scripts/fine_grained_brackets_gate.py --self-test
+          python3 docs/benchmarks/hot_comparison/scripts/run_all.py --self-test
+          python3 docs/benchmarks/masstree_comparison/scripts/run_all.py --self-test
+          python3 docs/benchmarks/set_algebra/scripts/harvest_domain.py --self-test
+
       - name: Shared Runner Provenance Unit Tests
         working-directory: scripts
         run: python3 -m unittest test_bench_provenance -v
@@ -504,7 +574,7 @@ jobs:
   test:
     name: Core / Workspace Tests (${{ matrix.os }})
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.visualizer == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.visualizer == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test|')
     strategy:
       fail-fast: false
       matrix:
@@ -594,7 +664,7 @@ jobs:
     # the job now runs perf_report.py, so a change to that script must be
     # exercised here too. (It was dropped when the lane only printed counts and
     # genuinely ran neither report script.)
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-aarch64|')
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     env:
@@ -782,7 +852,7 @@ jobs:
   test-riscv64:
     name: Cross / RV64GC Cross-Compile (Linux)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-riscv64|')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -800,7 +870,7 @@ jobs:
   test-rv32:
     name: Cross / RV32IMAC Cross-Compile (Bare-Metal)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-rv32|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -824,7 +894,7 @@ jobs:
   test-rv32-zbb:
     name: Cross / RV32IMAC + Zbb Cross-Compile (Bare-Metal)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-rv32-zbb|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -849,7 +919,7 @@ jobs:
   test-esp32c3:
     name: Cross / ESP32-C3 Cross-Compile (Bare-Metal RV32IMC)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.esp-component == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.esp-component == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-esp32c3|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1022,7 +1092,7 @@ jobs:
     needs: [detect-changes]
     # Also on `integrations` changes: this job links the STM32H747 harness
     # (integrations/stm32h747), so harness-only PRs must exercise it (#601).
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-cortex-m|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1060,7 +1130,7 @@ jobs:
     # C ABI and the sync32 SysTick-reader protocol run on an emulated
     # ARMv7-M core. Soft float, no cache, not cycle-accurate — the M7/M4
     # numbers stay a hardware measurement (integrations/stm32h747).
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-qemu-cortex-m3|')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -1090,7 +1160,7 @@ jobs:
   test-x86_64-none:
     name: Cross / x86_64 Bare-Metal Cross-Compile (x86_64-unknown-none)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-x86_64-none|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1109,7 +1179,7 @@ jobs:
   test-i686:
     name: Cross / i686 32-bit Test Execution (Linux)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-i686|')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -1160,7 +1230,7 @@ jobs:
   test-musl:
     name: Cross / Musl Static C ABI (Linux)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-musl|')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -1196,7 +1266,7 @@ jobs:
   miri:
     name: Safety / Tier 1 Miri Fast Smoke
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|miri|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1222,7 +1292,7 @@ jobs:
   test-asan:
     name: Safety / ASan Core Smoke (Ubuntu)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-asan|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1244,7 +1314,7 @@ jobs:
   php-judy-compat:
     name: Compat / PHP-Judy Extension (Linux)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|php-judy-compat|')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -1295,7 +1365,7 @@ jobs:
   php-judy-windows:
     name: Compat / PHP-Judy Extension (Windows x64)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|php-judy-windows|')
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -1349,7 +1419,7 @@ jobs:
   instruction-counts:
     name: Perf / Callgrind Deterministic Instructions
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|instruction-counts|')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -1563,7 +1633,7 @@ jobs:
   callgrind-smoke:
     name: Perf / Callgrind Fast Smoke (Ubuntu)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|callgrind-smoke|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1657,7 +1727,7 @@ jobs:
   differential-oracle:
     name: Compat / Stock libjudy Oracle (Linux)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|differential-oracle|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1700,7 +1770,7 @@ jobs:
   memory-budget:
     name: Perf / Memory Budget Invariants
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|memory-budget|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1722,7 +1792,7 @@ jobs:
     # Deliberately not run on every push to `main`: the self-test builds the
     # harness twice (default and `occ-stats`), and the contract it guards can
     # only be broken by the two files in the `concurrency-instrument` filter.
-    if: needs.detect-changes.outputs.concurrency-instrument == 'true'
+    if: needs.detect-changes.outputs.concurrency-instrument == 'true' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|writer-scaling-selftest|')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -1744,7 +1814,7 @@ jobs:
   loom:
     name: Safety / Loom Concurrency Race Model
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|loom|')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -1767,7 +1837,7 @@ jobs:
   fuzz-smoke:
     name: Safety / Fuzz Invariants Smoke
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|fuzz-smoke|')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -1817,7 +1887,7 @@ jobs:
   test-python:
     name: Bindings / Python Fast Smoke (Py3.12)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.python == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.python == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-python|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1849,7 +1919,7 @@ jobs:
   test-node:
     name: Bindings / Node.js (${{ matrix.os }}, Node ${{ matrix.node-version }})
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.node == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.node == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-node|')
     strategy:
       fail-fast: false
       matrix:
@@ -1882,7 +1952,7 @@ jobs:
   test-php:
     name: Bindings / PHP (${{ matrix.os }}, PHP ${{ matrix.php-version }})
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.php == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.php == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-php|')
     strategy:
       fail-fast: false
       matrix:
@@ -1925,7 +1995,7 @@ jobs:
   test-dotnet:
     name: Bindings / .NET (${{ matrix.os }})
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.dotnet == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.dotnet == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-dotnet|')
     strategy:
       fail-fast: false
       matrix:
@@ -1967,7 +2037,7 @@ jobs:
   pack-dotnet:
     name: Bindings / .NET NuGet Package
     needs: [detect-changes, test-dotnet]
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.dotnet == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.dotnet == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|pack-dotnet|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1999,7 +2069,7 @@ jobs:
   test-java:
     name: Bindings / Java 22+ Panama (${{ matrix.os }})
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.java == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.java == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-java|')
     strategy:
       fail-fast: false
       matrix:
@@ -2044,7 +2114,7 @@ jobs:
   pack-java:
     name: Bindings / Java JAR Package
     needs: [detect-changes, test-java]
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.java == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.java == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|pack-java|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -2083,7 +2153,7 @@ jobs:
   test-rocksdb-memtable:
     name: Integrations / RocksDB MemTable (${{ matrix.os }}, ${{ matrix.sanitizer }})
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-rocksdb-memtable|')
     strategy:
       fail-fast: false
       matrix:
@@ -2148,7 +2218,7 @@ jobs:
     name: Bindings / Ruby (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.ruby == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.ruby == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-ruby|')
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -2174,7 +2244,7 @@ jobs:
     name: Bindings / WebAssembly (wasm32)
     runs-on: ubuntu-latest
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-wasm|')
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -2195,7 +2265,7 @@ jobs:
     name: Bindings / WebAssembly (wasm64 Memory64 Experimental)
     runs-on: ubuntu-latest
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-wasm64|')
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -2225,7 +2295,7 @@ jobs:
     name: Perf / WebAssembly Fuel (wasm32 + wasm64, deterministic)
     runs-on: ubuntu-latest
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|wasm-fuel|')
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
@@ -2315,7 +2385,7 @@ jobs:
     name: Bindings / Go (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.go == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.go == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-go|')
     strategy:
       fail-fast: false
       matrix:
@@ -2405,7 +2475,7 @@ jobs:
   supply-chain:
     name: Core / Supply Chain (advisories, licences, sources)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|supply-chain|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -2438,7 +2508,7 @@ jobs:
   public-api:
     name: Core / Public Rust API Surface
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|public-api|')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -2548,6 +2618,21 @@ jobs:
           print("ci-gate depends on all %d other jobs (incl. test-ruby): OK" % (len(jobs) - 1))
           '
 
+      - name: Gate Floor (skip set is consistent with the filter outputs)
+        shell: bash
+        env:
+          STATUSES: ${{ toJson(needs) }}
+          FILTERS: ${{ toJson(needs.detect-changes.outputs) }}
+        run: |
+          # `skipped` counts as passing below. This is what makes that safe:
+          # it checks the skip set against the filter outputs that were
+          # actually observed, so an all-false filter evaluation cannot render
+          # as a green gate over a run that verified nothing (AGENTS.md 8.1).
+          python3 scripts/check_gate_floor.py \
+            --statuses "$STATUSES" \
+            --outputs "$FILTERS" \
+            --event-name "${{ github.event_name }}"
+
       - name: Evaluate Dependency Statuses
         shell: bash
         run: |
@@ -2555,11 +2640,16 @@ jobs:
           STATUSES='${{ toJson(needs) }}'
           FAILED=()
 
+          SKIPPED=()
+
           for job in $(echo "$STATUSES" | jq -r 'keys[]'); do
             result=$(echo "$STATUSES" | jq -r --arg j "$job" '.[$j].result')
             echo "  Job [$job]: $result"
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
               FAILED+=("$job")
+            fi
+            if [ "$result" = "skipped" ]; then
+              SKIPPED+=("$job")
             fi
           done
 
@@ -2568,5 +2658,13 @@ jobs:
             exit 1
           fi
 
-          echo "::notice::All applicable CI checks passed (or were cleanly skipped by path filters)."
+          # Name what did not run. The gate cannot tell "skipped because
+          # irrelevant" from "skipped because a filter is wrong", so it must
+          # not assert the former (AGENTS.md 8.1, and 8.11.5's rule that a
+          # bypassed check is reported by name). `check_gate_floor.py` is what
+          # actually checks the skip set against the filter outputs.
+          if [ ${#SKIPPED[@]} -gt 0 ]; then
+            echo "::notice::${#SKIPPED[@]} check(s) did not run (path-filtered): ${SKIPPED[*]}"
+          fi
+          echo "::notice::No required check failed; ${#SKIPPED[@]} skipped by path filters."
           exit 0
