@@ -224,16 +224,23 @@ Stage B replaces the single writer mutex with optimistic lock coupling (OLC) ove
    - **Linear Leaf Growth (`Leaf1`..`Leaf7`):** When a linear leaf grows to a larger capacity class within the same leaf type (`cap_class(pop + 1) != cap_class(pop)` for `pop < cap`), the writer allocates the new leaf buffer, locks the parent branch version cell, validates the edge, copies and inserts elements into the new buffer (`set_realloc_insert` / `map_realloc_insert`), atomically updates the parent edge with `Edge::new_node`, advances the parent version (`version + 2`), and retires the old leaf buffer through EBR.
    - **Map Bitmap Leaf Subarray Growth (`LeafB1` `values[sub]`):** Initial allocation or capacity-class growth of value subarrays in level-1 bitmap leaves executes under the parent version lock, updating `(*node).values[sub]` and retiring the old subarray through EBR.
    - **Speculative Abort Recycling (`free_bytes_unpublished`):** If a writer's version try-lock fails or an edge validation detects an intervening modification, the newly allocated buffer—having never been published to any reader—is recycled immediately into the allocator freelist via `NodeAlloc::free_bytes_unpublished` / `Collector::recycle_unpublished`. This bypasses EBR epoch queues entirely and preserves single-writer allocator invariants.
+4. **Phase 4B (Concurrent Immediate Expansion & Conversion, #863):**
+   - **Immediate In-Place Expansion:** Single-word immediate key growth executes directly in the 16-byte edge under the parent version lock with zero heap allocation.
+   - **Immediate-to-Leaf Conversion:** Speculatively pre-allocates linear leaf or value array memory, couples with the parent version lock, performs atomic edge replacement inside the version bracket, and frees unpublished buffers on abort, eliminating `FallbackImmediateConversion` to 0.00%.
+5. **Phase 4E (Concurrent Linear Leaf Full Split & Branch Conversion, #873):**
+   - **Bitmap Leaf Conversion:** When a level-1 linear leaf reaches capacity (`pop >= cap`), converts to `LeafB1` under the parent version lock.
+   - **Branch Conversion & Split:** For levels $\ge 2$, full linear leaves convert to `BranchL3`..`BranchL8` branches under the parent version lock, populating temporary private subtrees with exact pop0 tracking.
+   - **Subtree Recycling:** All speculative aborts recycle unpublished subtrees via `free_subtree_unpublished` / `free_node_unpublished` / `free_bytes_unpublished` without polluting EBR queues, eliminating `CapExpansionLeafFull` to 0.00% and reducing uniform random insert structural fallbacks to **0.00%**.
 
 **Fallback Partitioning (#854) & Starvation Freedom:**
 Capacity expansion fallbacks are partitioned into 5 engine-condition sub-causes:
 - `CapExpansionClass`: Linear leaf capacity class growth (eliminated by Phase 4C; measured 0 on concurrent paths).
-- `CapExpansionLeafFull`: Leaf full (`pop >= cap`), converting to a branch or bitmap leaf (Phase 4B target).
+- `CapExpansionLeafFull`: Leaf full (`pop >= cap`), converting to a branch or bitmap leaf (eliminated by Phase 4E; measured 0 on concurrent paths).
 - `CapExpansionBitmapNearFull`: Level-1 bitmap leaf near capacity (`pop0 >= 254`).
 - `CapExpansionMapBitmapSub`: Map bitmap subarray growth (eliminated by Phase 4C; measured 0 on concurrent paths).
-- `CapExpansionRemove`: Capacity shrinkage or demotion on key removal.
+- `CapExpansionRemove`: Capacity shrinkage or demotion on key removal (Phase 4F target).
 
-When a structural conversion (`LeafFull`, `BitmapNearFull`, `ImmediateConversion`, root transition) or retry exhaustion (`MAX_RETRIES = 64`) occurs, the writer cleanly drops its in-flight guard and falls back to `write_root_covered` behind `fallback_mutex`, guaranteeing starvation freedom.
+When a remaining structural conversion (`BitmapNearFull`, root transition), removal demotion (`CapExpansionRemove`, `BranchSplitRemove`), or retry exhaustion (`MAX_RETRIES = 64`) occurs, the writer cleanly drops its in-flight guard and falls back to `write_root_covered` behind `fallback_mutex`, guaranteeing starvation freedom.
 
 **Safety and liveness, with the instrument that falsifies each.**
 
@@ -321,6 +328,8 @@ An external review confirmed Phases 1–6b and identified five gaps: narrow-poin
       * **Phase 4A (#827):** Insertions into unoccupied slots of an already-allocated `BranchU` execute in-place under the local node version lock with zero heap allocation, zero ancestor locking, zero EBR retirement, and zero obsolete marking.
       * **Phase 4D (#840):** `BranchB` subarray expansion across capacity classes executes under the parent branch version lock with atomic edge swap and EBR retirement of superseded subarrays.
       * **Phase 4C (#858):** Linear leaf capacity expansion (`Leaf1`..`Leaf7`) and `LeafB1` value subarray growth execute under the parent version lock with zero-leak speculative abort recycling via `free_bytes_unpublished`, eliminating `CapExpansionClass` and reducing `map` fallbacks from 14.75% to 4.21%.
+      * **Phase 4B (#863):** Immediate key expansion and immediate-to-leaf conversion execute under the parent version lock, eliminating `FallbackImmediateConversion` (1.4% $\rightarrow$ 0.00%).
+      * **Phase 4E (#873):** Linear leaf full split and branch conversion (`LeafFull`) execute under the parent version lock with unpublished subtree recycling, eliminating `CapExpansionLeafFull` (1.7% set / 2.8% map $\rightarrow$ 0.00%) and reducing insert structural fallbacks to **0.00%**.
 
 Performance targets, measured per BENCHMARKING.md before any claim: point lookup < 15 ns on random 64-bit keys (target); < 9.5 bytes/key on dense/clustered distributions (target). `benches/comparative.rs` and `benches/concurrency.rs` implement comparison against `RoaringBitmap`, `hashbrown::HashMap` and `std::collections::BTreeMap`, plus multithreaded scaling models (1..16 threads).
 
