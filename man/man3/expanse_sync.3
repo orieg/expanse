@@ -80,12 +80,17 @@ Link with \fI-lexpanse\fR.
 \fBexpanse_sync_set_t\fR and \fBexpanse_sync_map_t\fR provide thread-safe,
 concurrent digital trie collections.
 .PP
-Writers serialize internally, while readers execute an optimistic
-validation walk using seqlock version words and Epoch-Based Reclamation (EBR).
-The protocol is blocking optimistic lock coupling \(em a reader retries a
-bounded number of times and then takes the writer mutex \(em not lock-free.
-Readers never acquire mutexes, never block writers, and scale linearly across
-CPU cores.
+Writers employ optimistic lock coupling (OLC) over per-node version
+words, allowing concurrent writers on disjoint key expanses to progress
+in parallel.
+Writers serialize behind an exclusive quiescence lock only for structural
+conversions or upon retry exhaustion.
+Readers execute an optimistic validation walk using seqlock version
+words and Epoch-Based Reclamation (EBR).
+The protocol is blocking optimistic lock coupling \(em a reader retries
+a bounded number of times and then takes the writer mutex \(em not lock-free.
+Readers never acquire mutexes on the common path, never block writers,
+and scale linearly across CPU cores.
 .SH READER HANDLES
 For optimal throughput in multithreaded readers, threads should instantiate a
 dedicated reader handle (\fBexpanse_sync_map_reader_new\fR) once per thread and
