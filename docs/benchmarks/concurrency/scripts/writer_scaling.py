@@ -1232,10 +1232,25 @@ def self_test() -> int:
         except RuntimeError as exc:
             assert "AGENTS.md §8.1" in str(exc)
     else:
-        pmu_res = run_pmu_pass(throughput_bin, arm="set", writers=[1, 2], rounds=3, quick=True)
-        assert isinstance(pmu_res, dict)
-        c2c_res = run_c2c_pass(throughput_bin, arm="set", writers=2, quick=True)
-        assert isinstance(c2c_res, dict)
+        # `perf` on PATH does not mean this host can measure: a virtualized
+        # runner exposes no hardware events, and `perf list` comes back without
+        # the cycles/ref-cycles pair the droop needs. Both outcomes are correct
+        # there — a summary, or a refusal that names its reason — and what the
+        # self-test owes is that a refusal is loud rather than a zero
+        # (AGENTS.md §8.1). Asserting success instead assumed the bench host's
+        # capabilities and failed on a GitHub runner, where `perf` is installed
+        # and the PMU is not exposed.
+        try:
+            pmu_res = run_pmu_pass(throughput_bin, arm="set", writers=[1, 2], rounds=3, quick=True)
+            assert isinstance(pmu_res, dict)
+        except RuntimeError as exc:
+            assert "AGENTS.md §8.1" in str(exc), exc
+
+        try:
+            c2c_res = run_c2c_pass(throughput_bin, arm="set", writers=2, quick=True)
+            assert isinstance(c2c_res, dict)
+        except RuntimeError as exc:
+            assert "AGENTS.md §8.1" in str(exc), exc
 
     # A row whose causes do not sum to its fallbacks is refused, not averaged.
     broken = [dict(r) for r in c_rows_map]
