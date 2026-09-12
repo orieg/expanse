@@ -168,11 +168,26 @@ ATTRIBUTION_GRANDFATHERED: dict[str, tuple[str, ...]] = {}
 # The cell lists in a concurrent artifact that are timed or counted under
 # thread load, and so owe a per-cell attribution. `memory` there is a
 # single-writer build-only census (section 8.4) and does not.
-ATTRIBUTED_CELL_KEYS = ("throughput", "health")
+# `throughput_variant` is an ablation's interventional arm, measured under the
+# same thread load as the default arm it is divided by.
+ATTRIBUTED_CELL_KEYS = ("throughput", "throughput_variant", "health")
+
+# Name parts that mark an artifact concurrent: its cells were measured with
+# more than one thread running, so #568 Step 0's per-cell attribution applies
+# — every timed cell says how much foreign CPU was on the host while it ran,
+# and the host block says which governor each pinned CPU was under.
+#
+# Two families qualify, and matching only the first left the second unchecked:
+#   - `baseline_concurrent*` — the FFI reader/writer suites.
+#   - `*writer_scaling*` — the multi-writer sweep and its ablation arms, which
+#     are concurrent by construction (W writers per cell) and carry every C(W)
+#     verdict published in `docs/benchmarks/concurrency/README.md`.
+CONCURRENT_NAME_PARTS = ("baseline_concurrent", "writer_scaling")
 
 
 def is_concurrent(rel: str) -> bool:
-    return Path(rel).name.startswith("baseline_concurrent")
+    name = Path(rel).name
+    return any(part in name for part in CONCURRENT_NAME_PARTS)
 
 
 def cell_lists(obj: dict) -> list[tuple[str, list]]:
@@ -428,14 +443,21 @@ _GOOD_ABL = {
     "provenance": {
         "suite": "concurrency",
         "commit": "1a2b3c4",
-        "host": {"cpu_model": "x", "scaling_governor": "performance"},
+        # A writer-scaling name is concurrent (`is_concurrent`), so this
+        # fixture owes the per-cell attribution and the per-CPU governor map
+        # that #568 Step 0 requires of a concurrent artifact.
+        "host": {"cpu_model": "x", "scaling_governor": "performance",
+                 "scaling_governor_by_cpu": {"0": "performance", "1": "performance"},
+                 "scaling_governor_pin_set": "0-1"},
         "estimators": {"ratio": "median(variant)/median(default)", "raw": "rounds_raw"},
         "loads": [{"label": "start", "load1": 0.4, "busy_cpus_since_prev": None},
                   {"label": "end", "load1": 1.2, "busy_cpus_since_prev": 0.31}],
     },
     "throughput": [{"arm": "map", "writers": 4,
+                    "load": {"foreign_busy_cpus": 0.0},
                     "rounds_raw": [{"round": 0, "expanse_writer_mops": 8.6}]}],
     "throughput_variant": [{"arm": "map", "writers": 4,
+                            "load": {"foreign_busy_cpus": 0.0},
                             "rounds_raw": [{"round": 0, "expanse_writer_mops": 8.9}]}],
     "comparison": [{"arm": "map", "variant_name": "freelist", "rounds": 8}],
 }
@@ -540,6 +562,26 @@ def _self_test() -> int:
             failures.append(f"a named ablation artifact is missing: {rel}")
         elif rel not in selected:
             failures.append(f"artifacts() does not select {rel} — ARTIFACT_GLOBS is too narrow")
+
+    # The concurrent predicate, pinned the same way and for the same reason:
+    # `findings_for` is name-agnostic, so a fixture cannot catch a predicate
+    # that never selects the artifact. Every writer-scaling sweep and ablation
+    # arm is concurrent by construction.
+    for name in ("baseline_concurrent.json",
+                 "baseline_concurrent_ab.json",
+                 "baseline_writer_scaling.json",
+                 "baseline_writer_scaling_run2.json",
+                 "ablation_alloc_writer_scaling.json",
+                 "ablation_epoch_writer_scaling.json",
+                 "ablation_freelist_writer_scaling.json",
+                 "ablation_freelist_writer_scaling_run2.json"):
+        if not is_concurrent(f"concurrency/results/{name}"):
+            failures.append(
+                f"is_concurrent() does not cover {name} — CONCURRENT_NAME_PARTS is too narrow"
+            )
+    # And a census must not be swept in by the widened match.
+    if is_concurrent("masstree_comparison/results/baseline_memory.json"):
+        failures.append("is_concurrent() matches a memory census — CONCURRENT_NAME_PARTS is too wide")
 
     expect("a complete ablation artifact passes", copy.deepcopy(_GOOD_ABL), None, _ABL_REL)
 
