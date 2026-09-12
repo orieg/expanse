@@ -645,6 +645,15 @@ impl NodeAlloc {
     /// and immediately recycles the block into the collector's size-class freelist, avoiding
     /// garbage bin retention and epoch queue bloat during retry loops.
     ///
+    /// # Concurrency & AGENTS.md §2.6 Architectural Contract
+    /// AGENTS.md §2.6 categorically forbids thread-local *retire* buffers for published memory
+    /// because buffering garbage from epoch `e` while another writer advances to `e+1` creates
+    /// S4 store-buffer pairing violations and thread-exit leaks.
+    /// In contrast, `free_bytes_unpublished` operates exclusively on speculative, unshared
+    /// scratch memory allocated by the current writer that aborted prior to publication. Because
+    /// this memory was never reachable by any reader, it carries zero epoch-visibility hazard
+    /// and is returned immediately to the allocator freelist.
+    ///
     /// # Safety
     ///
     /// `ptr` must come from `alloc_bytes(bytes)` on this handle with [`RAW_ALIGN`], must
@@ -681,6 +690,61 @@ impl NodeAlloc {
         // Without deferred reclamation, unpublished frees are identical to ordinary frees.
         // SAFETY: per this function's contract, layout matches original allocation.
         unsafe { self.free_raw(ptr, bytes, RAW_ALIGN) };
+    }
+
+    /// Frees an allocation made by [`Self::alloc_node`] or [`Self::alloc_node_zeroed`] that was
+    /// **never published** to the tree or exposed to any concurrent reader.
+    ///
+    /// Under concurrent OCC mode, this bypasses Epoch-Based Reclamation (EBR) retirement
+    /// and immediately recycles the block into the collector's size-class freelist, avoiding
+    /// garbage bin retention and epoch queue bloat during retry loops.
+    ///
+    /// # Concurrency & AGENTS.md §2.6 Architectural Contract
+    /// AGENTS.md §2.6 categorically forbids thread-local *retire* buffers for published memory.
+    /// In contrast, `free_node_unpublished` operates exclusively on speculative, unshared
+    /// node memory that was never reachable by any concurrent reader. It carries zero epoch
+    /// or store-buffer hazard and is returned directly to the allocator freelist.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must come from `alloc_node::<T>` or `alloc_node_zeroed::<T>` on this handle, must
+    /// NEVER have been published to any node/edge or visible to any reader, not yet freed,
+    /// and nothing may use it afterwards.
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    #[inline(always)]
+    pub(crate) unsafe fn free_node_unpublished<T>(&self, ptr: NonNull<T>) {
+        // SAFETY: ptr holds a live T per this function's contract.
+        unsafe { ptr.drop_in_place() };
+        let bytes = core::mem::size_of::<T>();
+        let align = core::mem::align_of::<T>();
+        #[cfg(feature = "std")]
+        if let Some(c) = self.deferred.get() {
+            let accounted_size = accounted_size(bytes, align);
+            #[cfg(not(feature = "ablation-sharded-alloc"))]
+            {
+                self.bytes_in_use
+                    .fetch_sub(accounted_size, Ordering::Relaxed);
+                self.live_allocs.fetch_sub(1, Ordering::Relaxed);
+            }
+            #[cfg(feature = "ablation-sharded-alloc")]
+            {
+                let slot = crate::occ::writer_slot();
+                self.shards[slot]
+                    .bytes_in_use
+                    .fetch_sub(accounted_size as isize, Ordering::Relaxed);
+                self.shards[slot]
+                    .live_allocs
+                    .fetch_sub(1, Ordering::Relaxed);
+            }
+
+            // SAFETY: ptr was never published and matches bytes/align contract.
+            unsafe { c.recycle_unpublished(ptr.cast::<u8>(), bytes, align) };
+            return;
+        }
+
+        // Without deferred reclamation, unpublished frees are identical to ordinary frees.
+        // SAFETY: per this function's contract, layout matches original allocation.
+        unsafe { self.free_raw(ptr.cast::<u8>(), bytes, align) };
     }
 
     /// True once this tree is shared through a Phase 7 concurrent

@@ -574,6 +574,37 @@ pub(crate) unsafe fn bump_pop0(edge: *mut Edge, level: u8, delta: i64) {
     }
 }
 
+/// Bump pop0 with saturation at 0 for OCC mode where branch pop0 is lazy and unmaintained.
+///
+/// # Safety
+/// `edge` must be a valid, live, aligned raw pointer to an `Edge`.
+#[inline(always)]
+pub(crate) unsafe fn bump_pop0_saturating(edge: *mut Edge, level: u8, delta: i64) {
+    if level <= 7 {
+        // SAFETY: caller guarantees edge is valid, live, and aligned.
+        unsafe {
+            let pop0 = (*edge).pop0(level) as i64;
+            let new_pop0 = (pop0 + delta).max(0) as u64;
+            (*edge).set_pop0(level, new_pop0);
+        }
+    }
+}
+
+/// Dispatch bump_pop0 according to OCC mode: saturating under OCC, unmodified on single-threaded fast path.
+///
+/// # Safety
+/// `edge` must be a valid, live, aligned raw pointer to an `Edge`.
+#[inline(always)]
+pub(crate) unsafe fn bump_pop0_dispatch<const OCC: bool>(edge: *mut Edge, level: u8, delta: i64) {
+    if OCC {
+        // SAFETY: caller guarantees edge is valid, live, and aligned.
+        unsafe { bump_pop0_saturating(edge, level, delta) };
+    } else {
+        // SAFETY: caller guarantees edge is valid, live, and aligned.
+        unsafe { bump_pop0(edge, level, delta) };
+    }
+}
+
 /// Inserts a new digit + null child into a linear branch header at its
 /// sorted position and returns the slot.
 pub(crate) fn linear_insert_slot(
@@ -2605,7 +2636,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                         cover.end_if::<OCC, NESTED>(a);
                         return true;
                     }
-                    bump_pop0(edge, bl, -1);
+                    bump_pop0_dispatch::<OCC>(edge, bl, -1);
                     if !is_l3 && num < BRANCH_L3_CAP {
                         // Hysteresis: L7 → L3 one index below the L3 capacity.
                         downgrade_l7_to_l3::<OCC>(a, edge);
@@ -2615,7 +2646,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
             } else {
                 cover.begin_if::<OCC, NESTED>(a);
                 // SAFETY: edge is a valid live edge.
-                unsafe { bump_pop0(edge, bl, -1) };
+                unsafe { bump_pop0_dispatch::<OCC>(edge, bl, -1) };
                 cover.end_if::<OCC, NESTED>(a);
             }
             true
@@ -2697,7 +2728,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                     return true;
                 }
                 // SAFETY: edge is a valid live edge.
-                unsafe { bump_pop0(edge, bl, -1) };
+                unsafe { bump_pop0_dispatch::<OCC>(edge, bl, -1) };
                 if digits < BRANCH_L7_CAP {
                     // Hysteresis: B → L7 one index below the L7 capacity.
                     // SAFETY: rebuild keeps the subtree owned.
@@ -2707,7 +2738,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
             } else {
                 cover.begin_if::<OCC, NESTED>(a);
                 // SAFETY: edge is a valid live edge.
-                unsafe { bump_pop0(edge, bl, -1) };
+                unsafe { bump_pop0_dispatch::<OCC>(edge, bl, -1) };
                 cover.end_if::<OCC, NESTED>(a);
             }
             true
@@ -2747,7 +2778,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                     return true;
                 }
                 // SAFETY: edge is a valid live edge.
-                unsafe { bump_pop0(edge, level, -1) };
+                unsafe { bump_pop0_dispatch::<OCC>(edge, level, -1) };
                 if digits < BRANCHB_UP {
                     // Hysteresis: U → B one index below the U threshold.
                     // SAFETY: rebuild keeps the subtree owned.
@@ -2757,7 +2788,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
             } else {
                 cover.begin_if::<OCC, NESTED>(a);
                 // SAFETY: edge is a valid live edge.
-                unsafe { bump_pop0(edge, level, -1) };
+                unsafe { bump_pop0_dispatch::<OCC>(edge, level, -1) };
                 cover.end_if::<OCC, NESTED>(a);
             }
             true
@@ -3046,6 +3077,123 @@ pub(crate) unsafe fn free_subtree<const MAP: bool>(a: &NodeAlloc, edge: &mut Edg
                     free_subtree::<MAP>(a, child);
                 }
                 a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchU>()).unwrap());
+            }
+        }
+    }
+    *edge = Edge::NULL;
+}
+
+/// Frees an entire subtree that was **never published** to the tree or seen by any reader.
+///
+/// Under concurrent OCC mode, this recycles all allocated blocks directly to the freelists
+/// without going through EBR queues, preventing memory retention during speculative aborts.
+///
+/// # Safety
+///
+/// `edge` must represent an unpublished subtree created by this writer, not yet freed, and
+/// nothing may reference it afterwards.
+#[cfg(all(target_pointer_width = "64", feature = "std"))]
+pub(crate) unsafe fn free_subtree_unpublished<const MAP: bool>(a: &NodeAlloc, edge: &mut Edge) {
+    let Some(tag) = edge.tag() else { return };
+    // SAFETY: unpublished nodes created by this thread, freed exactly once,
+    // children freed before their parent node.
+    unsafe {
+        match tag {
+            EdgeTag::Structural(EdgeType::Null | EdgeType::FullExpanse) => {
+                debug_assert!(!(MAP && matches!(tag, EdgeTag::Structural(EdgeType::FullExpanse))));
+            }
+            EdgeTag::Immed(im) => {
+                // Multi-key map immediates own a class-sized value array in word 0.
+                if MAP && im.key_count() > 1 {
+                    a.free_bytes_unpublished(
+                        core::ptr::NonNull::new(edge.node_ptr()).unwrap(),
+                        crate::mutate_map::map_immed_val_size(im.key_count() as usize),
+                    );
+                }
+            }
+            EdgeTag::Structural(
+                t @ (EdgeType::Leaf1
+                | EdgeType::Leaf2
+                | EdgeType::Leaf3
+                | EdgeType::Leaf4
+                | EdgeType::Leaf5
+                | EdgeType::Leaf6
+                | EdgeType::Leaf7),
+            ) => {
+                let kb = t.leaf_key_bytes().expect("leaf tag");
+                let pop = edge.pop0(kb) as usize + 1;
+                let size = if MAP {
+                    leaf::size_map(kb, pop)
+                } else {
+                    leaf::size_set(kb, pop)
+                };
+                a.free_bytes_unpublished(core::ptr::NonNull::new(edge.node_ptr()).unwrap(), size);
+            }
+            EdgeTag::Structural(EdgeType::LeafB1) => {
+                if MAP {
+                    let node = &*edge.node_ptr().cast::<LeafBitmapL>();
+                    for sub in 0..8 {
+                        let n = node.bitmap.subexpanse_count(sub) as usize;
+                        if n > 0 {
+                            a.free_bytes_unpublished(
+                                core::ptr::NonNull::new(node.values[sub].cast()).unwrap(),
+                                sub_vals_size(n),
+                            );
+                        }
+                    }
+                    a.free_node_unpublished(
+                        core::ptr::NonNull::new(edge.node_ptr().cast::<LeafBitmapL>()).unwrap(),
+                    );
+                } else {
+                    a.free_node_unpublished(
+                        core::ptr::NonNull::new(edge.node_ptr().cast::<LeafBitmap1>()).unwrap(),
+                    );
+                }
+            }
+            EdgeTag::Structural(EdgeType::BranchL3) => {
+                let b = &mut *edge.node_ptr().cast::<BranchL3>();
+                for i in 0..b.hdr.num as usize {
+                    free_subtree_unpublished::<MAP>(a, &mut b.edges[i]);
+                }
+                a.free_node_unpublished(
+                    core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL3>()).unwrap(),
+                );
+            }
+            EdgeTag::Structural(EdgeType::BranchL7) => {
+                let b = &mut *edge.node_ptr().cast::<BranchL7>();
+                for i in 0..b.hdr.num as usize {
+                    free_subtree_unpublished::<MAP>(a, &mut b.edges[i]);
+                }
+                a.free_node_unpublished(
+                    core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL7>()).unwrap(),
+                );
+            }
+            EdgeTag::Structural(EdgeType::BranchB) => {
+                let b = &mut *edge.node_ptr().cast::<BranchB>();
+                for sub in 0..8 {
+                    let n = b.pop_counts[sub] as usize;
+                    for i in 0..n {
+                        free_subtree_unpublished::<MAP>(a, &mut *b.subarrays[sub].add(i));
+                    }
+                    if n > 0 {
+                        a.free_bytes_unpublished(
+                            core::ptr::NonNull::new(b.subarrays[sub].cast()).unwrap(),
+                            sub_edges_size(n),
+                        );
+                    }
+                }
+                a.free_node_unpublished(
+                    core::ptr::NonNull::new(edge.node_ptr().cast::<BranchB>()).unwrap(),
+                );
+            }
+            EdgeTag::Structural(EdgeType::BranchU) => {
+                let b = &mut *edge.node_ptr().cast::<BranchU>();
+                for child in &mut b.edges {
+                    free_subtree_unpublished::<MAP>(a, child);
+                }
+                a.free_node_unpublished(
+                    core::ptr::NonNull::new(edge.node_ptr().cast::<BranchU>()).unwrap(),
+                );
             }
         }
     }

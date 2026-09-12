@@ -1438,6 +1438,11 @@ impl Collector {
     /// Immediately recycles an unpublished allocation back into this collector's size-class freelist,
     /// or frees it if outside size classes.
     ///
+    /// # Concurrency & AGENTS.md §2.6 Architectural Contract
+    /// AGENTS.md §2.6 strictly bans thread-local *retire* buffers for published/reachable memory
+    /// to avoid S4 store-buffer pairing hazards across epoch advances. `recycle_unpublished`
+    /// deals only with unshared, speculative memory that was aborted prior to publication.
+    ///
     /// # Safety
     ///
     /// `ptr` must have been allocated by this collector's associated `TreeAlloc`, must NEVER have been
@@ -1643,12 +1648,29 @@ impl Collector {
     pub(crate) fn tick_advance(&self) {
         #[cfg(not(feature = "advance-never"))]
         {
-            if self
-                .op_count
-                .fetch_add(1, Ordering::Relaxed)
-                .is_multiple_of(crate::sync::ADVANCE_EVERY as usize)
+            #[cfg(not(loom))]
             {
-                self.try_advance();
+                std::thread_local! {
+                    static LOCAL_TICKS: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
+                }
+                let count = LOCAL_TICKS.get() + 1;
+                if count >= crate::sync::ADVANCE_EVERY as u32 {
+                    LOCAL_TICKS.set(0);
+                    self.op_count.fetch_add(count as usize, Ordering::Relaxed);
+                    self.try_advance();
+                } else {
+                    LOCAL_TICKS.set(count);
+                }
+            }
+            #[cfg(loom)]
+            {
+                if self
+                    .op_count
+                    .fetch_add(1, Ordering::Relaxed)
+                    .is_multiple_of(crate::sync::ADVANCE_EVERY as usize)
+                {
+                    self.try_advance();
+                }
             }
         }
     }
