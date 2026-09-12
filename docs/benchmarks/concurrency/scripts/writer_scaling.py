@@ -1082,6 +1082,7 @@ def run_c2c_pass(
     print(f"  [c2c Pass] Wrote c2c report to {report_file.relative_to(REPO_ROOT)}")
 
     summary_lines = report_text.splitlines()[:20]
+    hot_lines = c2c_hot_cache_lines(report_text)
 
     return {
         "arm": arm,
@@ -1089,7 +1090,47 @@ def run_c2c_pass(
         "report_path": str(report_file.relative_to(REPO_ROOT)),
         "data_path": str(c2c_data.relative_to(REPO_ROOT)),
         "summary": "\n".join(summary_lines),
+        # The first 20 lines are the trace-event totals: how much HITM traffic
+        # there was, never which lines carried it. The whole point of a c2c pass
+        # is the address attribution, and the report file it lives in stays on
+        # the runner. Carry the shared-cache-line table into the artifact so a
+        # committed run can say WHICH line bounced (run 34722607239 measured
+        # 7.54 snoop-forwards per insert at W=8 and could not name one).
+        "hot_cache_lines": hot_lines,
     }
+
+
+def c2c_hot_cache_lines(report_text: str, max_rows: int = 24) -> list[str]:
+    """The shared-cache-line table out of a `perf c2c report --stdio` dump.
+
+    `perf` prints a "Shared Data Cache Line Table" (older builds: "Shared Cache
+    Line Distribution Pareto") listing the contended lines by HITM count, with
+    the symbol and offset that touched each. That table is the measurement; the
+    trace-event totals above it only say how much traffic there was.
+
+    Returns the table's lines, capped, or an empty list when the report has no
+    such section -- a zero-contention run legitimately has none, and this is a
+    reporting helper, so an empty list is a real answer and not a silent
+    failure. The caller still records the full report path.
+    """
+    heads = (
+        "Shared Data Cache Line Table",
+        "Shared Cache Line Distribution Pareto",
+    )
+    lines = report_text.splitlines()
+    start = None
+    for i, ln in enumerate(lines):
+        if any(h in ln for h in heads):
+            start = i
+            break
+    if start is None:
+        return []
+    out: list[str] = []
+    for ln in lines[start:]:
+        if len(out) >= max_rows:
+            break
+        out.append(ln)
+    return out
 
 
 def _assert_fallbacks_counted(arm: str, fallbacks: list) -> None:
@@ -1409,6 +1450,40 @@ def self_test() -> int:
     d_short = frequency_droop_by_writers(rd_short, CYC, REF, [1, 4], 2)
     assert d_short["by_writers"]["4"]["n_measured"] == 2, d_short
     assert "verdict" not in d_short["by_writers"]["4"], d_short
+
+    # c2c hot-line extraction: the trace-event totals say how much HITM traffic
+    # there was; only the shared-cache-line table says WHICH line carried it.
+    # Run 34722607239 recorded 7.54 snoop-forwards per insert at W=8 and could
+    # not name a single line, because the summary was the report's first 20
+    # lines -- the header block -- and the report itself stays on the runner.
+    _c2c_sample = "\n".join([
+        "=================================================",
+        "            Trace Event Information              ",
+        "=================================================",
+        "  Total records                     :      54749",
+        "  Load Local HITM                   :       3006",
+        "",
+        "=================================================",
+        "           Shared Data Cache Line Table          ",
+        "=================================================",
+        "#        Total      Tot  ----- LLC Load Hitm -----",
+        "# Index  Records     Hitm    Total  LclHitm  RmtHitm",
+        "      0     1234   41.2%     1238     1238        0",
+        "      1      567   19.0%      571      571        0",
+    ])
+    _hot = c2c_hot_cache_lines(_c2c_sample)
+    assert _hot, "hot-line table must be extracted when the report has one"
+    assert any("Shared Data Cache Line Table" in ln for ln in _hot), _hot
+    assert any("41.2%" in ln for ln in _hot), _hot
+    # the older perf heading is recognised too
+    _pareto = _c2c_sample.replace("Shared Data Cache Line Table",
+                                  "Shared Cache Line Distribution Pareto")
+    assert c2c_hot_cache_lines(_pareto), "the Pareto heading must also match"
+    # a report with no contended lines yields an empty list, not a crash
+    assert c2c_hot_cache_lines("Trace Event Information\n  Total records : 0") == []
+    # and the cap is honoured
+    _long = "Shared Data Cache Line Table\n" + "\n".join(f"row {i}" for i in range(100))
+    assert len(c2c_hot_cache_lines(_long, max_rows=5)) == 5
 
     # No event keys at all: the summary is empty rather than fabricated.
     d_none = frequency_droop_by_writers(rd, None, None, [1, 2, 4], 8)
