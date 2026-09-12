@@ -426,3 +426,55 @@ the same commit, foreign busy CPUs −0.02 to 0.00)*
 
 *(Attribution signposting: the structural test for `contention_stat` routing (Refs #838) pins the call-site assignment, not the runtime condition. The runtime condition is review-verified per AGENTS.md §5).*
 
+## 11. Hypothesis D — allocator and reclamation ablations (Refs #568)
+
+The Hypothesis D diagnostic ablation arms ([PR #848](https://github.com/orieg/expanse/pull/848), [`METHODOLOGY.md`](METHODOLOGY.md) §11) evaluated whether shared state in the allocator (`NodeAlloc`) or epoch collector (`Collector`) inflates per-insert cost at W ≥ 2. Each arm is an interventional build feature run in interleaved (build × W) rounds against the uninstrumented default build across W ∈ {1, 2, 4, 8} on `set`, `map`, and `str` (workload: concurrency_writer_scaling).
+
+Per [`METHODOLOGY.md`](METHODOLOGY.md) §11, the decision rule tests the paired ratio $C_{\text{variant}}(W) / C_{\text{default}}(W)$ at W = 2: `SINGLE_RUN_PASS` iff the BCa 95% confidence interval lower bound exceeds 1.0, `REJECTED` iff its upper bound is below 1.0, and `INCONCLUSIVE` otherwise. A confirmed claim requires the same verdict across two independent runs (AGENTS.md §8.4, `docs/BENCHMARKING.md` rule 18).
+
+### 11.1 Arm (a) — Sharded Allocator Statistics Counters (`results/ablation_alloc_writer_scaling.json`)
+
+Arm (a) (`ablation-sharded-alloc`) replaces `NodeAlloc`'s `bytes_in_use`, `live_allocs`, and `total_allocs` with one cache-line-aligned shard per writer stripe, removing atomic counter read-modify-writes from every allocation and free.
+
+*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads, Ubuntu 22.04 / kernel 6.8, P-core pin `0-15`, governor `powersave`; engine and harness at `e0b287f2`; CI run [34666098169](https://github.com/orieg/expanse/actions/runs/34666098169), `workflow_dispatch`, suite `writer_scaling_ablation_alloc`)*
+
+| arm | W | Mean paired ratio [BCa 95%] | Median paired ratio | Verdict |
+|---|--:|---|---|---|
+| `map` | 2 | 0.9710 [0.9460, 0.9948] | 0.9930 | `REJECTED` |
+| `map` | 4 | 0.8971 [0.8809, 0.9293] | 0.8937 | `REJECTED` |
+| `map` | 8 | 0.9284 [0.9005, 0.9580] | 0.9361 | `REJECTED` |
+| `set` | 2 | 1.0030 [0.9539, 1.0203] | 1.0186 | `INCONCLUSIVE` |
+| `set` | 4 | 0.9265 [0.8857, 0.9724] | 0.9408 | `REJECTED` |
+| `set` | 8 | 0.9103 [0.8618, 0.9403] | 0.9240 | `REJECTED` |
+| `str` | 2 | 1.0173 [0.9825, 1.0809] | 0.9982 | `INCONCLUSIVE` |
+| `str` | 4 | 0.9879 [0.9522, 1.0176] | 1.0245 | `INCONCLUSIVE` |
+| `str` | 8 | 1.0137 [0.9288, 1.0972] | 1.0081 | `INCONCLUSIVE` |
+
+**Verdict on Arm (a)**: `REJECTED` at W ≥ 4 across all arms. Removing atomic accounting counters does not alleviate multi-writer lock contention, and introducing per-thread striped counters incurs thread-local access and cache footprint overhead that degrades throughput at scale.
+
+### 11.2 Arm (b) — Striped Epoch Bins (`results/ablation_epoch_writer_scaling.json`)
+
+Arm (b) (`ablation-striped-epoch`) stripes the epoch garbage bins per writer slot (`bins[e % BINS][slot]`) and shards `retained_bytes` per stripe, eliminating mutex contention during node retirements (4,353,700 retirements per 2^20 insert sweep on `set W=2`).
+
+*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads, Ubuntu 22.04 / kernel 6.8, P-core pin `0-15`, governor `powersave`; engine and harness at `4f94d0d1`; Run 1 CI run [34668207740](https://github.com/orieg/expanse/actions/runs/34668207740); confirming Run 2 CI run [34668540514](https://github.com/orieg/expanse/actions/runs/34668540514), `workflow_dispatch`, suite `writer_scaling_ablation_epoch`)*
+
+| arm | W | Run 1 Mean paired ratio [BCa 95%] | Run 1 Verdict | Run 2 Mean paired ratio [BCa 95%] | Run 2 Verdict | Multi-Run Verdict |
+|---|--:|---|---|---|---|---|
+| `map` | 2 | 0.9922 [0.9574, 1.0265] | `INCONCLUSIVE` | 1.0049 [0.9660, 1.0431] | `INCONCLUSIVE` | `INCONCLUSIVE` |
+| `map` | 4 | 1.0179 [0.9989, 1.0352] | `INCONCLUSIVE` | 1.0277 [0.9982, 1.0669] | `INCONCLUSIVE` | `INCONCLUSIVE` |
+| `map` | 8 | 0.9969 [0.9759, 1.0142] | `INCONCLUSIVE` | 1.0024 [0.9749, 1.0315] | `INCONCLUSIVE` | `INCONCLUSIVE` |
+| `set` | 2 | 1.0687 [1.0179, 1.1275] | `SINGLE_RUN_PASS` | 1.0356 [0.9773, 1.0689] | `INCONCLUSIVE` | `INCONCLUSIVE` |
+| `set` | 4 | 1.0560 [0.9775, 1.0956] | `INCONCLUSIVE` | 1.0178 [0.9516, 1.0618] | `INCONCLUSIVE` | `INCONCLUSIVE` |
+| `set` | 8 | 1.0102 [0.9536, 1.0453] | `INCONCLUSIVE` | 0.9912 [0.9073, 1.0309] | `INCONCLUSIVE` | `INCONCLUSIVE` |
+| `str` | 2 | 1.0490 [0.9752, 1.1153] | `INCONCLUSIVE` | 0.9779 [0.9324, 1.0315] | `INCONCLUSIVE` | `INCONCLUSIVE` |
+| `str` | 4 | 1.0162 [0.9717, 1.0601] | `INCONCLUSIVE` | 1.0119 [0.9726, 1.0559] | `INCONCLUSIVE` | `INCONCLUSIVE` |
+| `str` | 8 | 1.1512 [0.9802, 1.4056] | `INCONCLUSIVE` | 0.9787 [0.6200, 1.5800] | `INCONCLUSIVE` | `INCONCLUSIVE` |
+
+**Verdict on Arm (b)**: `INCONCLUSIVE` across the two independent runs. Run 1 achieved a statistically significant speedup on `set W=2` (+6.9% mean, +6.4% median throughput, 7/8 rounds faster, CI lower bound 1.0179 > 1.0). In Run 2, the median speedup remained strong (+7.4% median, +3.6% mean, 6/8 rounds faster), but round-level variance widened the BCa 95% CI to [0.9773, 1.0689], placing the lower bound below 1.0. Under `docs/BENCHMARKING.md` rule 18 and AGENTS.md §8.4, confirmation requires both runs to clear the lower-bound floor independently.
+
+### 11.3 Hypothesis D Synthesis & Roadmap Consequence
+
+1. **Unexplained Budget Accounting**: Per [`METHODOLOGY.md`](METHODOLOGY.md) §11 and the Pre-Registered Unexplained Budget Rule, neither Arm (a) nor Arm (b) satisfies the two-run confirmation gate to account for the multi-writer saturation plateau. The untested per-class freelist mutex (`Collector::pop_freelist`) remains candidate on the unexplained line.
+2. **Serial Radix Trie Fallbacks Dominate**: Profiling in Section 10 shows that `FallbackCause::CapExpansion` accounts for 71.4% of all map fallbacks at W = 1 (10.53% of all inserts in `CapExpansionClass`). Eliminating structural fallback locks through concurrent leaf capacity expansion (Phase 4C) remains the primary mathematical path to expanding the multi-writer Amdahl ceiling.
+
+
