@@ -916,6 +916,17 @@ impl<'a> Drop for WriterGuard<'a> {
 #[cfg(all(not(loom), feature = "std"))]
 static NEXT_GATE_ID: AtomicU64 = AtomicU64::new(1);
 
+// The same counter per model iteration under loom, not per process. A gate's id
+// keys the per-thread writer-slot cache in `sync::Shared::enter_writer`, and
+// that cache restarts with each model iteration: an id carried across
+// iterations would make a fresh tree's first writer hit the previous
+// iteration's cached slot and never call `WriterTable::allocate_slot`.
+// (A doc comment on a macro invocation is an `unused_doc_comments` warning.)
+#[cfg(all(loom, feature = "std"))]
+loom::lazy_static! {
+    static ref NEXT_GATE_ID: AtomicU64 = AtomicU64::new(1);
+}
+
 #[cfg(feature = "std")]
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -930,13 +941,9 @@ impl WriterGate {
     /// Creates a fresh, open gate.
     #[must_use]
     pub(crate) fn new() -> Self {
-        #[cfg(not(loom))]
-        let id = NEXT_GATE_ID.fetch_add(1, Ordering::Relaxed);
-        #[cfg(loom)]
-        let id = 1;
         Self {
             closed: AtomicBool::new(false),
-            id,
+            id: NEXT_GATE_ID.fetch_add(1, Ordering::Relaxed),
         }
     }
 
@@ -1157,7 +1164,13 @@ pub(crate) fn line<X>(x: X) -> Line<X> {
 
 /// Maximum number of concurrent writer slots tracked for sharded state,
 /// tree population, gate quiescence, and epoch bin striping.
-/// Under Loom, scaled to 2 to model cross-stripe interleavings within Loom's coroutine stack.
+///
+/// Under Loom, scaled to 2 to model cross-stripe interleavings within Loom's
+/// coroutine stack. It is also what makes the writer table's hashed-slot path
+/// — two live writers publishing through one in-flight word — reachable from
+/// `sync::Shared::enter_writer`: a model runs at most five threads, so 64
+/// slots could never be exhausted there
+/// (`sync::loom_tests::loom_shared_enter_writer_quiescence`).
 #[allow(dead_code)]
 #[cfg(not(loom))]
 pub(crate) const MAX_WRITER_SLOTS: usize = 64;

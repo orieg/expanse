@@ -59,6 +59,38 @@ type AtomicUsize = core::sync::atomic::AtomicUsize;
 #[cfg(loom)]
 type AtomicUsize = loom::sync::atomic::AtomicUsize;
 
+/// The word holding a tree's writer-slot allocation mask. Under `--cfg loom`
+/// it is loom's atomic, so a model orders a writer's `allocate_slot` against
+/// the drain that reads the mask to decide which slots to wait on.
+#[cfg(not(loom))]
+type AllocMask = core::sync::atomic::AtomicU64;
+#[cfg(loom)]
+type AllocMask = loom::sync::atomic::AtomicU64;
+
+/// The `Cell` accessors `std::thread::LocalKey` carries inherently and loom's
+/// mock `LocalKey` does not, so the writer-slot cache in
+/// [`Shared::enter_writer`] reads the same way in both builds. The trait
+/// exists only under `--cfg loom`; off it, the inherent methods are the only
+/// ones in sight.
+#[cfg(loom)]
+trait LoomCellKey<T> {
+    /// The cell's current value.
+    fn get(&'static self) -> T;
+    /// Replaces the cell's value.
+    fn set(&'static self, value: T);
+}
+
+#[cfg(loom)]
+impl<T: Copy + 'static> LoomCellKey<T> for loom::thread::LocalKey<core::cell::Cell<T>> {
+    fn get(&'static self) -> T {
+        self.with(core::cell::Cell::get)
+    }
+
+    fn set(&'static self, value: T) {
+        self.with(|c| c.set(value));
+    }
+}
+
 /// By-value snapshot of a tree's root state (possibly torn — the reader
 /// validates before acting on it).
 #[derive(Clone, Copy)]
@@ -654,6 +686,7 @@ impl SharedTree for ExpanseBlobMap {
 
 /// A small integer naming the calling thread, for slot allocation and the `Handoffs` counter.
 /// Allocated once per thread from a global counter; 0 is never issued.
+#[cfg(not(loom))]
 fn thread_token() -> u64 {
     use core::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(1);
@@ -661,6 +694,29 @@ fn thread_token() -> u64 {
         static TOKEN: u64 = NEXT.fetch_add(1, Ordering::Relaxed);
     }
     TOKEN.with(|t| *t)
+}
+
+/// The same token in loom's thread-local and lazy-static flavours. loom runs
+/// its model threads as coroutines on one OS thread, so `std::thread_local!`
+/// would issue one token to every writer in a model and keep it across model
+/// iterations — and the token is what picks a slot once every slot in
+/// [`MAX_WRITER_SLOTS`] is allocated.
+#[cfg(loom)]
+fn thread_token() -> u64 {
+    use core::cell::Cell;
+    use core::sync::atomic::Ordering;
+    loom::lazy_static! {
+        static ref NEXT: loom::sync::atomic::AtomicU64 = loom::sync::atomic::AtomicU64::new(1);
+    }
+    loom::thread_local! {
+        static TOKEN: Cell<u64> = Cell::new(0);
+    }
+    TOKEN.with(|t| {
+        if t.get() == 0 {
+            t.set(NEXT.fetch_add(1, Ordering::Relaxed));
+        }
+        t.get()
+    })
 }
 
 /// Maximum number of concurrent writer slots tracked for sharded tree population
@@ -749,14 +805,14 @@ impl ShardedTreePop {
 /// (`WriterGate::enter_writer`), and the drain waits for the count to reach zero.
 pub(crate) struct WriterTable {
     pub(crate) slots: [Line<AtomicUsize>; MAX_WRITER_SLOTS],
-    pub(crate) allocated: core::sync::atomic::AtomicU64,
+    pub(crate) allocated: AllocMask,
 }
 
 impl WriterTable {
     pub(crate) fn new() -> Self {
         Self {
             slots: core::array::from_fn(|_| line(AtomicUsize::new(0))),
-            allocated: core::sync::atomic::AtomicU64::new(0),
+            allocated: AllocMask::new(0),
         }
     }
 
@@ -1422,10 +1478,27 @@ impl<T: SharedTree> Shared<T> {
     pub(crate) fn enter_writer(&self) -> Option<crate::occ::WriterGuard<'_>> {
         use std::cell::Cell;
         use std::cell::RefCell;
+        // The per-thread slot cache, in the thread-local flavour the build
+        // needs. Under `--cfg loom` these are loom's, which it gives each model
+        // thread its own copy of and resets between model iterations;
+        // `std::thread_local!` would hand every writer in a model the slot the
+        // first one allocated and keep it across iterations, so from the second
+        // iteration on nothing would call `allocate_slot` and `quiesce_writers`
+        // would walk an empty mask. The `const` initialisers stay on the
+        // non-loom path — they are what makes this a const-initialised TLS
+        // access — and `LoomCellKey` supplies the `Cell` accessors loom's
+        // `LocalKey` lacks, so the body below is one text in both builds.
+        #[cfg(not(loom))]
         std::thread_local! {
             static LAST_KEY: Cell<u64> = const { Cell::new(0) };
             static LAST_SLOT: Cell<usize> = const { Cell::new(usize::MAX) };
             static CACHED_SLOTS: RefCell<Vec<(u64, usize)>> = const { RefCell::new(Vec::new()) };
+        }
+        #[cfg(loom)]
+        loom::thread_local! {
+            static LAST_KEY: Cell<u64> = Cell::new(0);
+            static LAST_SLOT: Cell<usize> = Cell::new(usize::MAX);
+            static CACHED_SLOTS: RefCell<Vec<(u64, usize)>> = RefCell::new(Vec::new());
         }
         let key = self.gate.id();
         let slot_id = if LAST_KEY.get() == key && LAST_SLOT.get() != usize::MAX {
@@ -8753,5 +8826,118 @@ mod obsolete_tests {
                 "BranchB must upgrade to BranchU when reaching 193 digits"
             );
         }
+    }
+}
+
+#[cfg(all(test, loom))]
+mod loom_tests {
+    use super::*;
+    use core::sync::atomic::Ordering;
+
+    /// S9 and S10 through the production entry points rather than the gate
+    /// primitives: writer threads take slots from a real tree's
+    /// [`WriterTable`] through [`Shared::enter_writer`] and store under their
+    /// guards, and a coordinator runs [`Shared::quiesce_writers`] and then
+    /// reads — the exclusive section a fallback reader or `with_locked` runs.
+    ///
+    /// The model turns red three ways:
+    ///
+    /// - **A slot a writer entered on is missing from the drain mask.**
+    ///   `allocate_slot`'s store to `allocated` precedes the entering writer's
+    ///   `SeqCst` fence, so a writer whose fence precedes the coordinator's is
+    ///   in the mask the coordinator loads and the other order makes the writer
+    ///   back out at its post-fence re-read. Break that and the drain returns
+    ///   with a writer live, and the coordinator's read of that writer's cell
+    ///   races its store: loom reports a causality violation.
+    /// - **The drain does not acquire the writer's exit.** Same report, same
+    ///   cell — the coordinator takes no lock a writer released, so
+    ///   `WriterGate::wait_drained`'s `Acquire` is the only edge there is.
+    /// - **The per-thread slot cache is not per thread, or outlives one model
+    ///   iteration.** Then the writers stop filling the table, which the final
+    ///   assertion on `allocated` states exactly.
+    ///
+    /// [`MAX_WRITER_SLOTS`] is 2 under loom, so the table runs out and the last
+    /// writer hashes onto a slot another one owns — the shared-word case
+    /// `occ::loom_tests::loom_shared_slot_quiescence` covers on the primitives.
+    ///
+    /// Exploration is preemption-bounded. Four threads each running the whole
+    /// entry protocol — a slot CAS, the two gate reads either side of a
+    /// `SeqCst` fence, the in-flight increment and decrement — plus the drain's
+    /// spin loop is past what exhaustive DPOR finishes in the `loom` job's
+    /// budget; unbounded, this one model ran for minutes without terminating.
+    /// A bound of 3 keeps it to seconds and gives up only the interleavings
+    /// that need a fourth preemption, which the two primitive models above
+    /// explore exhaustively on the same protocol with fewer threads.
+    #[test]
+    fn loom_shared_enter_writer_quiescence() {
+        let mut model = loom::model::Builder::new();
+        model.preemption_bound = Some(3);
+        model.check(|| {
+            let set = Arc::new(SyncExpanseSet::new());
+
+            // The cached half of `enter_writer`: a thread's second entry
+            // returns the slot its first allocated, and allocates nothing.
+            let first = set.shared.enter_writer().expect("gate is open").slot_id();
+            let after_first = set.shared.writers.allocated.load(Ordering::Relaxed);
+            assert_eq!(
+                set.shared.enter_writer().expect("gate is open").slot_id(),
+                first,
+                "a second entry on one thread moved slots"
+            );
+            assert_eq!(
+                set.shared.writers.allocated.load(Ordering::Relaxed),
+                after_first,
+                "a cached entry allocated a second slot"
+            );
+
+            // Each writer stores its slot, biased by one, into a cell it owns.
+            let cells = Arc::new([
+                loom::cell::UnsafeCell::new(0usize),
+                loom::cell::UnsafeCell::new(0usize),
+                loom::cell::UnsafeCell::new(0usize),
+            ]);
+            let writers: Vec<_> = (0..3)
+                .map(|i| {
+                    let (s, c) = (Arc::clone(&set), Arc::clone(&cells));
+                    loom::thread::spawn(move || {
+                        if let Some(g) = s.shared.enter_writer() {
+                            // SAFETY: loom's cell checks this access; what the
+                            // test puts under that check is the gate protocol.
+                            c[i].with_mut(|p| unsafe { *p = g.slot_id() + 1 });
+                        }
+                    })
+                })
+                .collect();
+
+            // The exclusive section: close, drain every allocated slot, read.
+            // The gate stays closed until every writer has run, so a writer
+            // that has not been scheduled yet cannot write behind the read.
+            set.shared.quiesce_writers();
+            let mask = set.shared.writers.allocated.load(Ordering::Relaxed);
+            for c in cells.iter() {
+                // SAFETY: as above.
+                let seen = c.with(|p| unsafe { *p });
+                if seen != 0 {
+                    let slot = seen - 1;
+                    assert_ne!(
+                        mask & (1u64 << slot),
+                        0,
+                        "a writer entered on slot {slot}, which the drain mask {mask:#b} omits"
+                    );
+                }
+            }
+
+            for w in writers {
+                w.join().unwrap();
+            }
+            assert_eq!(
+                set.shared.writers.allocated.load(Ordering::Relaxed),
+                (1u64 << MAX_WRITER_SLOTS) - 1,
+                "every writer allocates its own slot until the table runs out: a \
+                 slot cache shared between model threads, or carried across model \
+                 iterations, shows up here"
+            );
+            set.shared.reopen_gate();
+        });
     }
 }
