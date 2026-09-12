@@ -58,6 +58,7 @@ GROUP_TITLES = {
     5: "Group 5: Standalone Examples & Profile Drivers (`crates/expanse/examples/`)",
     6: "Group 6: WebAssembly Instruments (`crates/expanse-wasm-fuel/`, `crates/expanse-wasm/tests/`)",
     7: "Group 7: Comparative FFI Suites (`crates/expanse-hot-bench/src/bin/`)",
+    8: "Group 8: RocksDB MemTable Integration (`integrations/rocksdb/benches/`)",
 }
 
 # `insertion_order` is a controlled vocabulary, not prose (#726). The cell opens
@@ -113,8 +114,15 @@ def get_repo_root() -> Path:
 
 
 def is_timed_harness(source: str) -> bool:
-    """Classifies whether a Rust file is a timed benchmark/example harness or a helper module."""
-    return bool(re.search(r"\b(criterion_group!|criterion_main!|main!|fn\s+main\b)", source))
+    """Classifies whether a source file is a timed harness or a helper module.
+
+    Covers both entry-point spellings: Rust's `fn main` / criterion macros and
+    C++'s `int main(`. The C++ form is needed because the RocksDB integration's
+    benches are `.cc` and were outside every glob until #802 -- so their shape
+    tables held by convention only, and `bench_memtable.cc` in fact had none.
+    """
+    return bool(re.search(
+        r"\b(criterion_group!|criterion_main!|main!|fn\s+main\b|int\s+main\s*\()", source))
 
 
 def discover_harnesses(repo_root: Path) -> Tuple[List[Path], List[Path]]:
@@ -129,11 +137,16 @@ def discover_harnesses(repo_root: Path) -> Tuple[List[Path], List[Path]]:
     # only — which is the wrong place for the gate to stop, since these are the
     # harnesses that carry a competitor arm (#726).
     ffi_bins = glob.glob(str(repo_root / "crates" / "expanse-hot-bench" / "src" / "bin" / "*.rs"))
+    # The RocksDB integration's benches are C++ and sat outside every glob above,
+    # so their declarations held by convention only -- the same place #726 found
+    # the FFI bins, and `bench_memtable.cc` had no table at all (#802).
+    rocksdb_benches = glob.glob(str(repo_root / "integrations" / "rocksdb" / "benches" / "*.cc"))
 
     all_files = sorted(
         [
             Path(p)
-            for p in (capi_benches + capi_examples + core_benches + core_examples + ffi_bins)
+            for p in (capi_benches + capi_examples + core_benches + core_examples
+                      + ffi_bins + rocksdb_benches)
             if not p.endswith(".disabled")
         ]
     )
@@ -176,6 +189,18 @@ def parse_workload_shape(source: str, filename: str) -> Tuple[Optional[Dict[str,
                 if trimmed.startswith("*"):
                     trimmed = trimmed[1:]
                 doc_lines.append(trimmed.strip())
+    elif filename.endswith((".cc", ".cpp", ".hpp")):
+        # C++ has no `//!` inner-doc form, so the leading `//` block IS the
+        # module doc. Collect it whole and let the section regex below find the
+        # table inside it; a licence header above the table is harmless.
+        for line in source.splitlines():
+            trimmed = line.strip()
+            if trimmed.startswith("//"):
+                doc_lines.append(trimmed[2:].strip())
+            elif trimmed == "" or trimmed.startswith("#include"):
+                continue
+            else:
+                break
     else:
         for line in source.splitlines():
             trimmed = line.strip()
@@ -552,7 +577,27 @@ fn main() {}
     # Every collected entry carries the join key and its source.
     for wid, sh in shapes.items():
         assert sh.get("stem"), f"{wid} has no stem"
-        assert sh.get("source", "").endswith((".rs", ".js")), f"{wid} has no source path"
+        # `.cc` since #802 brought the RocksDB integration's C++ benches into
+        # scope; the join key is the file stem, which is language-agnostic.
+        assert sh.get("source", "").endswith((".rs", ".js", ".cc")), f"{wid} has no source path"
+    # The C++ `//` doc form parses, and the two RocksDB benches are present with
+    # the group-8 heading. Pinned because the extractor has a per-language branch
+    # and a `.cc` file whose table stopped being read would simply vanish from
+    # the audit rather than fail (#802).
+    assert "rocksdb_memtable_single_threaded" in shapes, sorted(shapes)[:8]
+    assert "rocksdb_memtable_concurrent_read_scaling" in shapes, sorted(shapes)[:8]
+    assert shapes["rocksdb_memtable_single_threaded"]["source"].endswith("bench_memtable.cc")
+    assert int(shapes["rocksdb_memtable_concurrent_read_scaling"]["group"]) == 8
+    # A `//`-commented table must actually be parsed, not merely discovered: the
+    # hit-rate cell of the single-threaded bench is distinctive, so an extractor
+    # that returned an empty table would fail here rather than pass vacuously.
+    assert "8.98%" in shapes["rocksdb_memtable_single_threaded"]["hit_rate"], \
+        shapes["rocksdb_memtable_single_threaded"]["hit_rate"][:80]
+    assert is_timed_harness("int main(int argc, char** argv) { return 0; }"), \
+        "C++ entry point must classify as a timed harness"
+    assert not is_timed_harness("static void helper() {}"), \
+        "a C++ helper with no entry point must not classify as timed"
+
     # A stem shared by two harnesses is excluded from the join, never resolved
     # to one of them: core and capi both ship benches/smoke_instructions.rs.
     ambiguous = ambiguous_stems(get_repo_root())

@@ -59,6 +59,7 @@ on:
           - large_values
           - python_concurrency
           - rocksdb
+          - rocksdb_concurrent
           - embedded
           - embedded_memtable
           - batch_lookup
@@ -1033,6 +1034,24 @@ jobs:
                 else
                   echo "::warning::rocksdb interval harvest failed; the $ROCKSDB_ROUNDS per-round tables are uploaded and the run's numbers stand, but no baseline-rocksdb.json interval artifact was produced."
                 fi
+                ;;
+              "rocksdb_concurrent")
+                # Concurrent read scaling (#802), pre-registered in
+                # docs/benchmarks/rocksdb_memtable/METHODOLOGY.md section 5.
+                # The driver owns the rounds, the interleaving and the load
+                # snapshots; the C++ binary runs one (mode, readers) cell per
+                # invocation, which is what gives the driver a process boundary
+                # to measure each cell's busy-CPU delta across. Fatal on
+                # failure, unlike the single-threaded arm's harvest step: there
+                # is no human-readable table to fall back on here, so a failed
+                # driver means the suite produced nothing and should say so.
+                make --no-print-directory -C integrations/rocksdb bench-concurrent \
+                  BENCH_CONC_ARGS="--mode idle --readers 1 --window-seconds 0.2" \
+                  > rocksdb-concurrent-smoke.txt 2>&1 \
+                  || { echo "::error::concurrent bench binary failed to build or run"; cat rocksdb-concurrent-smoke.txt; exit 1; }
+                python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py \
+                  --out baseline-rocksdb_concurrent.json \
+                  | tee rocksdb-concurrent.txt
                 ;;
               *)
                 # Unreachable: the resolver only publishes declared suites and

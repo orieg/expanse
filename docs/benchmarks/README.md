@@ -42,7 +42,7 @@ not reachable as `/benchmark` tokens and so do not appear below.
 | [`llm_inference/`](llm_inference/README.md) | `bench_grammar_masks`, `bench_llm_datastore` | wall-clock | LLM Inference & Speculative Decoding Benchmark — Expanse vs Industry Baselines |
 | [`masstree_comparison/`](masstree_comparison/README.md) | `masstree_concurrent`, `masstree_latency`, `masstree_memory`, `masstree_string_latency` | wall-clock | Expanse vs. Masstree: Empirical Benchmark Suite |
 | [`redis_zset_engine/`](redis_zset_engine/README.md) | `zset_memory`, `zset_range`, `zset_rank`, `zset_zadd` | wall-clock | Redis ZSET Engine: Expanse dual-trie sorted set vs SkipList + Dict |
-| [`rocksdb_memtable/`](rocksdb_memtable/README.md) | `rocksdb` | wall-clock | RocksDB MemTable suite: results and how to read them |
+| [`rocksdb_memtable/`](rocksdb_memtable/README.md) | `rocksdb`, `rocksdb_concurrent` | wall-clock | RocksDB MemTable suite: results and how to read them |
 | [`search_inverted_index/`](search_inverted_index/README.md) | `search_boolean`, `search_instructions`, `search_memory`, `search_wand` | Callgrind + wall-clock | Search / Inverted-Index Benchmark: ExpanseSet vs Roaring |
 | [`set_algebra/`](set_algebra/README.md) | `domain` | wall-clock | Set algebra — engine kernels and the interned set domain |
 | [`wasm/`](wasm/README.md) | `wasm_fuel` | wasm fuel | WebAssembly suite: exact fuel on wasm32 and wasm64, and a Node wall-clock harness |

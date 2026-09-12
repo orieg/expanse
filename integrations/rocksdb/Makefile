@@ -28,10 +28,11 @@ TARGET_LIB := $(BUILD_DIR)/librocksdb_expanse.a
 TEST_BIN := $(BUILD_DIR)/test_expanse_memtable
 TEST_DIFF_BIN := $(BUILD_DIR)/test_differential_memtable
 BENCH_BIN := $(BUILD_DIR)/bench_memtable
+BENCH_CONC_BIN := $(BUILD_DIR)/bench_memtable_concurrent
 
-.PHONY: all test bench clean build_cargo
+.PHONY: all test bench bench-concurrent clean build_cargo
 
-all: $(TARGET_LIB) $(TEST_BIN) $(TEST_DIFF_BIN) $(BENCH_BIN)
+all: $(TARGET_LIB) $(TEST_BIN) $(TEST_DIFF_BIN) $(BENCH_BIN) $(BENCH_CONC_BIN)
 
 build_cargo:
 	@cd $(ROOT_DIR) && cargo build --release -p expanse-capi
@@ -54,6 +55,9 @@ $(TEST_DIFF_BIN): tests/test_differential_memtable.cc $(TARGET_LIB) | $(BUILD_DI
 $(BENCH_BIN): benches/bench_memtable.cc $(TARGET_LIB) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDE_DIRS) $< -L$(BUILD_DIR) -lrocksdb_expanse $(LIBEXPANSE) -o $@
 
+$(BENCH_CONC_BIN): benches/bench_memtable_concurrent.cc $(TARGET_LIB) | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $(INCLUDE_DIRS) $< -L$(BUILD_DIR) -lrocksdb_expanse $(LIBEXPANSE) -o $@
+
 test: $(TEST_BIN) $(TEST_DIFF_BIN)
 	@echo "Running Expanse RocksDB MemTable tests..."
 	@$(TEST_BIN)
@@ -65,6 +69,15 @@ test: $(TEST_BIN) $(TEST_DIFF_BIN)
 bench: $(BENCH_BIN)
 	@echo "Running Expanse RocksDB MemTable benchmark (release libexpanse)..."
 	@$(BENCH_BIN)
+
+# Concurrent read scaling (#802). Pre-registered in
+# docs/benchmarks/rocksdb_memtable/METHODOLOGY.md section 5; driven for real by
+# that suite's scripts/concurrent_read_scaling.py, which owns the rounds, the
+# load snapshots and the intervals. BENCH_CONC_ARGS reaches the binary so the
+# driver and a by-hand smoke run share one target.
+bench-concurrent: $(BENCH_CONC_BIN)
+	@echo "Running Expanse RocksDB MemTable concurrent read scaling (release libexpanse)..."
+	@$(BENCH_CONC_BIN) $(BENCH_CONC_ARGS)
 
 clean:
 	rm -rf $(BUILD_DIR)
