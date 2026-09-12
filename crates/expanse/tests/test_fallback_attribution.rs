@@ -254,18 +254,28 @@ fn fallback_causes_account_for_every_fallback() {
         "set: CapExpansion subsets must sum to FallbackCapExpansion"
     );
 
-    // Verify discrimination: both Class and LeafFull must be non-zero on both map and set workloads
-    assert!(
-        d(Stat::CapExpansionClass) > 0,
-        "map: CapExpansionClass must discriminate (> 0)"
+    // Phase 4C: Linear leaf capacity growth and LeafB1 subarray growth are concurrent,
+    // eliminating Class and MapBitmapSub fallbacks.
+    assert_eq!(
+        d(Stat::CapExpansionClass),
+        0,
+        "map: CapExpansionClass must be 0 after Phase 4C"
     );
+    assert_eq!(
+        sd(Stat::CapExpansionClass),
+        0,
+        "set: CapExpansionClass must be 0 after Phase 4C"
+    );
+    assert_eq!(
+        d(Stat::CapExpansionMapBitmapSub),
+        0,
+        "map: CapExpansionMapBitmapSub must be 0 after Phase 4C"
+    );
+
+    // Verify discrimination: LeafFull must be non-zero on both map and set workloads
     assert!(
         d(Stat::CapExpansionLeafFull) > 0,
         "map: CapExpansionLeafFull must discriminate (> 0)"
-    );
-    assert!(
-        sd(Stat::CapExpansionClass) > 0,
-        "set: CapExpansionClass must discriminate (> 0)"
     );
     assert!(
         sd(Stat::CapExpansionLeafFull) > 0,
@@ -386,8 +396,8 @@ fn fallback_causes_account_for_every_fallback() {
     );
     assert_eq!(
         sync_src.matches("cap_expansion(").count(),
-        10,
-        "cap_expansion must be called at exactly 10 exit sites in sync.rs (AGENTS.md §2.3)"
+        9,
+        "cap_expansion must be called at exactly 9 exit sites in sync.rs (AGENTS.md §2.3)"
     );
     for kind in [
         "CapExpansionKind::Class",
@@ -451,9 +461,10 @@ fn fallback_causes_account_for_every_fallback() {
         - s_before_fill[Stat::CapExpansionClass as usize];
     let leaf_full_cnt = s_after_fill[Stat::CapExpansionLeafFull as usize]
         - s_before_fill[Stat::CapExpansionLeafFull as usize];
-    assert!(
-        class_cnt > 0,
-        "map: CapExpansionClass must discriminate (> 0) during leaf class growth, got {class_cnt}"
+    // Phase 4C: Linear leaf capacity growth is concurrent, eliminating CapExpansionClass.
+    assert_eq!(
+        class_cnt, 0,
+        "map: CapExpansionClass must be 0 after Phase 4C during leaf class growth, got {class_cnt}"
     );
     assert!(
         leaf_full_cnt > 0,
@@ -461,26 +472,26 @@ fn fallback_causes_account_for_every_fallback() {
     );
 
     // MapBitmapSub:
-    // (a) Sub-expanse 1 empty insert: key 32 has old_n == 0, triggering MapBitmapSub.
+    // (a) Sub-expanse 1 empty insert: key 32 has old_n == 0, handled concurrently in Phase 4C.
     let s_before_sub = occ_stats::snapshot();
     targeted_map.insert(32, 320);
     let s_after_sub = occ_stats::snapshot();
     let map_sub_empty = s_after_sub[Stat::CapExpansionMapBitmapSub as usize]
         - s_before_sub[Stat::CapExpansionMapBitmapSub as usize];
-    assert!(
-        map_sub_empty > 0,
-        "map: CapExpansionMapBitmapSub must discriminate (> 0) on empty subarray entry, got {map_sub_empty}"
+    assert_eq!(
+        map_sub_empty, 0,
+        "map: CapExpansionMapBitmapSub must be 0 after Phase 4C on empty subarray entry, got {map_sub_empty}"
     );
 
-    // (b) Sub-expanse 1 populated growth: inserting key 33 has old_n == 1, growing class 1 -> 2.
+    // (b) Sub-expanse 1 populated growth: inserting key 33 has old_n == 1, growing class 1 -> 2, handled concurrently in Phase 4C.
     let s_before_sub_grow = occ_stats::snapshot();
     targeted_map.insert(33, 330);
     let s_after_sub_grow = occ_stats::snapshot();
     let map_sub_grow = s_after_sub_grow[Stat::CapExpansionMapBitmapSub as usize]
         - s_before_sub_grow[Stat::CapExpansionMapBitmapSub as usize];
-    assert!(
-        map_sub_grow > 0,
-        "map: CapExpansionMapBitmapSub must discriminate (> 0) on populated subarray class growth, got {map_sub_grow}"
+    assert_eq!(
+        map_sub_grow, 0,
+        "map: CapExpansionMapBitmapSub must be 0 after Phase 4C on populated subarray class growth, got {map_sub_grow}"
     );
 
     // 3. CapExpansionBitmapNearFull on MAP:
