@@ -16,6 +16,10 @@ version and engine version all come from the provenance line the firmware
 prints at boot, and every table cell is derived from that run's samples
 (§8.2). A log with no provenance line is refused rather than reported under a
 guessed target (§8.1).
+
+The interval itself comes from `scripts/bca_bootstrap.py`, the repository's one
+BCa implementation, which reports which construction produced it; this file maps
+that label onto the `ci_method` vocabulary the suite's artifact already records.
 """
 
 import sys
@@ -23,13 +27,34 @@ import json
 import argparse
 import statistics
 from collections import defaultdict
+from pathlib import Path
 
-import numpy as np
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import bca_bootstrap  # noqa: E402
 
 # Fixed so a re-run of the harvester over the same log reproduces the same
 # interval. The randomness here is resampling, not measurement.
 BOOTSTRAP_SEED = 0x59_79_00
 DEFAULT_RESAMPLES = 2000
+
+# The shared module's construction labels, mapped onto the vocabulary this
+# suite's artifact already records. `docs/benchmarks/embedded/results/esp32.json`
+# carries `ci_method` per cell with values "bca" and "percentile", so the finer
+# labels collapse onto "percentile". Read it as "BCa's corrections did not
+# survive this sample", not as "these endpoints are plain percentiles": the
+# shared module returns the clamped construction's endpoints where this file's
+# former local implementation substituted percentile ones. On every cell in the
+# committed artifact the two agree exactly, because all 17 of its "percentile"
+# cells are the zero-spread case (ci_95_low == mean == ci_95_high in all 17,
+# min == median == max in the 15 that record them) and there a point mass's
+# percentile interval *is* the point.
+_CI_METHOD_FOR_ARTIFACT = {
+    bca_bootstrap.CI_METHOD_BCA: "bca",
+    bca_bootstrap.CI_METHOD_BC: "percentile",
+    bca_bootstrap.CI_METHOD_CLAMPED: "percentile",
+    bca_bootstrap.CI_METHOD_DEGENERATE: "percentile",
+}
 
 # Reference offered-load rates for the derived duty-cycle table. These are
 # not measured -- they are the rates the measured per-op cost is projected
@@ -84,57 +109,34 @@ def bootstrap_ci_bca(data, num_resamples=DEFAULT_RESAMPLES, alpha=0.05, seed=BOO
     symmetric, unbiased statistic -- cycles-per-op on a microcontroller is
     neither, since it is bounded below and has a long upper tail.
 
+    The construction itself is `scripts/bca_bootstrap.py`, which every
+    wall-clock gate in the repository also uses. This file carried a second,
+    numpy-written implementation of the same estimator; two independent copies
+    of the estimator every §8.4 claim rests on can drift without anything
+    noticing, and only one of them had unit tests (#880).
+
     Returns ``(point_estimate, ci_low, ci_high, method)`` where ``method`` is
     "bca", or "percentile"/"minmax" when the sample cannot support BCa. The
     method is reported rather than silently substituted (§8.1).
     """
-    data = np.asarray(data, dtype=float)
-    n = len(data)
-    theta_hat = float(np.mean(data)) if n else 0.0
+    values = [float(x) for x in data]
+    n = len(values)
+    theta_hat = (sum(values) / n) if n else 0.0
 
     if n < 3:
-        # Too few samples for any interval worth the name.
-        return theta_hat, float(np.min(data)) if n else 0.0, float(np.max(data)) if n else 0.0, "minmax"
+        # Too few samples for any interval worth the name. Deliberately kept
+        # rather than delegated: the shared module raises below n = 3, which is
+        # the better behaviour for a gate reading a committed artifact, but here
+        # it would abort a whole device harvest over one thin arm. A labelled
+        # `minmax` cell is visible in the artifact; a lost run is not. No cell
+        # in the committed artifact has taken this path -- every one of them
+        # reports sample_count 10.
+        return theta_hat, (min(values) if n else 0.0), (max(values) if n else 0.0), "minmax"
 
-    rng = np.random.default_rng(seed)
-    boot_means = rng.choice(data, size=(num_resamples, n), replace=True).mean(axis=1)
-
-    lo_p = 100.0 * (alpha / 2.0)
-    hi_p = 100.0 * (1.0 - alpha / 2.0)
-
-    # Every sample identical: the statistic has no spread, so BCa's
-    # denominators vanish. The degenerate interval is the exact answer.
-    if np.all(data == data[0]):
-        return theta_hat, theta_hat, theta_hat, "percentile"
-
-    norm = statistics.NormalDist()
-
-    # Bias correction: where theta_hat falls in the bootstrap distribution.
-    prop_less = float(np.mean(boot_means < theta_hat))
-    if prop_less <= 0.0 or prop_less >= 1.0:
-        # theta_hat outside the bootstrap support; z0 is not finite.
-        return theta_hat, float(np.percentile(boot_means, lo_p)), float(np.percentile(boot_means, hi_p)), "percentile"
-    z0 = norm.inv_cdf(prop_less)
-
-    # Acceleration: jackknife skewness of the statistic.
-    total = data.sum()
-    jack = (total - data) / (n - 1)
-    jack_dev = jack.mean() - jack
-    denom = 6.0 * float((jack_dev ** 2).sum()) ** 1.5
-    if denom == 0.0:
-        return theta_hat, float(np.percentile(boot_means, lo_p)), float(np.percentile(boot_means, hi_p)), "percentile"
-    a = float((jack_dev ** 3).sum()) / denom
-
-    def endpoint(z_alpha):
-        adj = z0 + (z0 + z_alpha) / (1.0 - a * (z0 + z_alpha))
-        return 100.0 * norm.cdf(adj)
-
-    p_lo = endpoint(norm.inv_cdf(alpha / 2.0))
-    p_hi = endpoint(norm.inv_cdf(1.0 - alpha / 2.0))
-    if not (0.0 <= p_lo < p_hi <= 100.0):
-        return theta_hat, float(np.percentile(boot_means, lo_p)), float(np.percentile(boot_means, hi_p)), "percentile"
-
-    return theta_hat, float(np.percentile(boot_means, p_lo)), float(np.percentile(boot_means, p_hi)), "bca"
+    point, lo, hi, method = bca_bootstrap.bca_bootstrap_ci_with_method(
+        values, confidence=1.0 - alpha, num_resamples=num_resamples, seed=seed
+    )
+    return point, lo, hi, _CI_METHOD_FOR_ARTIFACT[method]
 
 
 def parse_and_process(lines):
@@ -270,8 +272,8 @@ def generate_structured_results(records, provenance=None, stack=None, metrics=No
                     "sample_count": len(cycles_list),
                 },
                 "duty_cycle_projected": duty_cycle_table(rs.get("median", mean_c), cpu_hz),
-                "heap_used_bytes": float(np.mean(heaps)) if heaps else 0.0,
-                "frag_ratio": float(np.mean(frags)) if frags else 0.0,
+                "heap_used_bytes": statistics.fmean(heaps) if heaps else 0.0,
+                "frag_ratio": statistics.fmean(frags) if frags else 0.0,
             }
         results["benchmarks"][bench_key] = entry
     return results
@@ -339,8 +341,8 @@ def generate_markdown_report(records, provenance=None, stack=None, metrics=None)
             else:
                 med_str, mean_str = "N/A", "N/A"
 
-            heap_str = f"{int(np.mean(heaps))}" if heaps else "N/A"
-            frag_str = f"{np.mean(frags):.4f}" if frags else "N/A"
+            heap_str = f"{int(statistics.fmean(heaps))}" if heaps else "N/A"
+            frag_str = f"{statistics.fmean(frags):.4f}" if frags else "N/A"
             pop_str = str(pop) if pop is not None else "—"
             md.append(
                 f"| `{bench}` | {n} | {pop_str} | `{arm}` | {med_str} | {mean_str} | "
@@ -402,6 +404,46 @@ def run_self_tests():
     # 2. A degenerate sample must be reported as such, not as a fake interval.
     mean, lo, hi, method = bootstrap_ci_bca([7.0] * 8)
     assert (mean, lo, hi) == (7.0, 7.0, 7.0) and method == "percentile"
+
+    # 2b. One implementation: the interval must be the shared module's, not a
+    #     second copy of the estimator living here (#880).
+    assert bootstrap_ci_bca(skewed)[:3] == bca_bootstrap.bca_bootstrap_ci(
+        skewed, confidence=0.95, num_resamples=DEFAULT_RESAMPLES, seed=BOOTSTRAP_SEED
+    ), "the harvester must delegate to scripts/bca_bootstrap.py"
+
+    # 2c. Every construction the shared module can report must have a mapping
+    #     onto this artifact's `ci_method` vocabulary. Without this, a label
+    #     added there would KeyError in the middle of a device harvest.
+    shared_labels = {
+        getattr(bca_bootstrap, name)
+        for name in dir(bca_bootstrap)
+        if name.startswith("CI_METHOD_")
+    }
+    assert set(_CI_METHOD_FOR_ARTIFACT) == shared_labels, (
+        f"unmapped construction labels: {sorted(shared_labels - set(_CI_METHOD_FOR_ARTIFACT))}"
+    )
+    assert set(_CI_METHOD_FOR_ARTIFACT.values()) == {"bca", "percentile"}, (
+        "the artifact's ci_method vocabulary must not grow without a migration"
+    )
+
+    # 2d. A degraded construction is labelled, not passed off as BCa. The
+    #     acceleration's jackknife denominator underflows to zero on a sample
+    #     this tight, so the interval is bias-corrected only -- and the cell
+    #     must not claim "bca".
+    underflowed = [1e-150, 1e-150, 2e-150]
+    assert bca_bootstrap.bca_bootstrap_ci_with_method(underflowed)[3] == bca_bootstrap.CI_METHOD_BC
+    assert bootstrap_ci_bca(underflowed)[3] == "percentile"
+
+    # 2e. Below the BCa minimum the shared module raises; this harvester
+    #     deliberately does not, so a single thin arm cannot cost a whole
+    #     device harvest. The cell says `minmax` so the substitution is visible.
+    assert bootstrap_ci_bca([1.0, 1.1]) == (1.05, 1.0, 1.1, "minmax")
+    try:
+        bca_bootstrap.bca_bootstrap_ci_with_method([1.0, 1.1])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("the shared module must still refuse n < 3")
 
     # 3. Determinism: the same log must give the same interval twice.
     assert bootstrap_ci_bca(skewed) == bootstrap_ci_bca(skewed)

@@ -419,6 +419,13 @@ jobs:
           # ratio under round-to-round drift) and the artifact shape the
           # provenance gate reads are all checkable without the reference host.
           python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py --self-test
+          # The ESP32 harvester. Its self-test was reachable only from
+          # `gate.sh` -- no workflow ran it -- because it needed numpy, which no
+          # job installs. It no longer does: the harvester delegates its
+          # interval to scripts/bca_bootstrap.py, and the assertion that it
+          # delegates (rather than carrying a second estimator) lives in that
+          # self-test, so CI has to be the one holding it (#880).
+          python3 scripts/esp32_bench_harvest.py --self-test
 
       # bca_bootstrap.py is the estimator every wall-clock gate rests on; its
       # unit tests pin reference values and were not executed anywhere until
