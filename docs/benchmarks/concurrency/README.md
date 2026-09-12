@@ -417,7 +417,7 @@ Arm (a) (`ablation-sharded-alloc`) replaces `NodeAlloc`'s `bytes_in_use`, `live_
 | `str` | 4 | 0.9879 [0.9522, 1.0176] | 1.0245 | `INCONCLUSIVE` |
 | `str` | 8 | 1.0137 [0.9288, 1.0972] | 1.0081 | `INCONCLUSIVE` |
 
-**Verdict on Arm (a)**: `REJECTED` at W ≥ 4 across all arms. Removing atomic accounting counters does not alleviate multi-writer lock contention, and introducing per-thread striped counters incurs thread-local access and cache footprint overhead that degrades throughput at scale.
+**Verdict on Arm (a)**: `REJECTED` on `map` at every W and on `set` at W ≥ 4. The `str` cells stayed `INCONCLUSIVE` at every W, which is what that arm can say: it holds the writer mutex for the whole insert, so it is the α = 1 reference curve and never a gate cell. Removing atomic accounting counters does not alleviate multi-writer lock contention, and introducing per-thread striped counters incurs thread-local access and cache footprint overhead that degrades throughput at scale.
 
 ### 11.2 Arm (b) — Striped Epoch Bins (`results/ablation_epoch_writer_scaling.json`)
 

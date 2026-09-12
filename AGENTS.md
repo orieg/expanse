@@ -103,17 +103,20 @@ When packing relative timestamps and entity indices into composite 32-bit words 
 2. **Explicit Epoch Rebasing**: An explicit epoch-rebase pass (or periodic memory window rebase) MUST be designed into the API contract to handle long-running execution beyond the bitfield limit without silent scan corruption or device loss.
 3. **Capacity Invariant Enforcement**: Constructors (`*_create(max_capacity)`) MUST assert or enforce that `max_capacity` does not exceed the index field's maximum representation ($2^{\text{idx\_bits}}$).
 
-### 2.6 Concurrent Memory Reclamation: Slot-Striped Epoch Bins over Buffering
+### 2.6 Concurrent Memory Reclamation: No Thread-Local Retire Buffers
 When reducing cross-writer contention on Epoch-Based Reclamation (EBR) garbage bins or allocation accounting:
 1. **Never Introduce Thread-Local Retire Buffers**:
    - Buffering retired pointers in thread-local storage introduces severe concurrency hazards:
      a. **S4 Store-Buffer Pairing Violation**: If writer A buffers garbage from epoch $e$, and writer B advances the epoch to $e+1$ and reclaims bin $e-1$, writer A's un-flushed buffer can hold pointers that bypass epoch boundaries unless complex cross-thread flush-before-advance protocols are introduced.
      b. **Thread-Exit Leaks**: Pointers buffered in thread-locals leak memory if the worker thread terminates before an advance or flush.
-2. **Stripe Epoch Bins per Writer Slot**:
-   - Stripe garbage bins directly by writer slot: `bins[e % BINS][slot]`.
-   - Each writer tags and pushes garbage into its own dedicated slot bin at retire time (`self.bins[e % BINS][slot].lock()`), eliminating cross-writer mutex contention with zero buffering.
-   - Reclaimers drain all stripes across all slots when advancing epochs.
-   - Shard atomic accounting counters (`bytes_in_use`, `retained_bytes`) per writer slot to eliminate atomic ping-ponging.
+   - This one is an argument about correctness, and it stands on its own. The two shapes below are **not** rules; they were written here as prescriptions before anything measured them, and the measurement did not support either.
+2. **Striping the bins and sharding the counters are measured, and neither is a design to reach for on the contention argument alone**:
+   - Both were built as interventional ablations rather than adopted ([#848](https://github.com/orieg/expanse/pull/848), swept in [#857](https://github.com/orieg/expanse/pull/857)), which is the order §8.20.3 asks for: an ablation decides a mechanism, a prescription cannot.
+   - **Sharding `NodeAlloc`'s accounting counters (`bytes_in_use`, `live_allocs`, `total_allocs`) per writer slot measured worse**, not better: `REJECTED` on `map` at every W and on `set` at W ≥ 4. (The `str` cells stayed `INCONCLUSIVE`; that arm holds the writer mutex for the whole insert, so it is the α = 1 reference curve and never a gate cell.) A per-writer stripe costs a thread-local read on every allocation and free, and that cost outweighed the atomic ping-ponging it removed.
+   - **Striping the epoch bins (`bins[e % BINS][slot]`) showed no confirmed effect**: `INCONCLUSIVE` across two independent runs, one of which cleared the floor on a single cell and did not repeat (`docs/BENCHMARKING.md` rule 18).
+   - What neither arm touched is the per-class freelist mutex (`Collector::pop_freelist`), taken on every size-class allocation under OCC. It stays on the unexplained line until an arm tests it.
+   - The verdicts, their intervals and the runs behind them: `docs/benchmarks/concurrency/README.md` §11.
+   - A future change may still adopt either shape — for a reason that is measured, and stated as such.
 
 ---
 
