@@ -342,6 +342,65 @@ it is the α = 1 reference curve and is never a gate cell
   `83a9a3f0`, CI run
   [34695501479](https://github.com/orieg/expanse/actions/runs/34695501479),
   `workflow_dispatch`, suite `writer_scaling`; no foreign CPU between arms)*.
+- **Phase 4B eliminated `FallbackImmediateConversion` and matched the frozen W = 1 bound exactly in both runs.**
+  In PR #863 (`b1f1520a`), immediate expansion and immediate-to-leaf conversion
+  were made concurrent under parent version locks. On uniform random workloads,
+  `immediate_conversion` is completely absent from the cause partition (0.00%
+  across all cells in both runs), dropping W = 1 structural fallbacks to **2.840%
+  on `map`** (matching the predicted bound [2.840%, 2.840%] exactly) and
+  **1.706% on `set`** (matching the predicted bound [1.706%, 1.706%] exactly).
+  Two Null-slot non-BranchU insertion exit sites and the remove path remain
+  serialized by design.
+- **Phase 4B scaling ratio C(W) and multi-run verdict against Phase 4C baseline:**
+  Two dispatches on the reference host (both at `b1f1520a`, clean under §8.17
+  with foreign busy cores 0.0 / 0.01 / 0.0; Run 1 CI run
+  [34697699474](https://github.com/orieg/expanse/actions/runs/34697699474), Run 2
+  CI run
+  [34698003906](https://github.com/orieg/expanse/actions/runs/34698003906);
+  artifacts: `results/baseline_writer_scaling_4b_run1.json`,
+  `results/baseline_writer_scaling_4b_run2.json`):
+
+  | arm | W | Run 1 C(W) [paired BCa 95%] | Run 1 verdict | Run 2 C(W) [paired BCa 95%] | Run 2 verdict | Multi-Run Verdict |
+  |---|--:|---|---|---|---|---|
+  | `map` | 2 | 1.0174 [1.0000, 1.0360] | `BOUNDARY_RESULT` | 1.0024 [0.9740, 1.0272] | `BOUNDARY_RESULT` | `BOUNDARY_RESULT` |
+  | `map` | 4 | 1.0442 [1.0318, 1.0548] | `SCALES` | 0.9975 [0.9785, 1.0114] | `BOUNDARY_RESULT` | `UNCONFIRMED` |
+  | `map` | 8 | 0.9270 [0.9039, 0.9556] | `RETROGRADE` | 0.9233 [0.9034, 0.9510] | `RETROGRADE` | `RETROGRADE` |
+  | `set` | 2 | 0.9392 [0.9231, 0.9542] | `RETROGRADE` | 0.9353 [0.9177, 0.9543] | `RETROGRADE` | `RETROGRADE` |
+  | `set` | 4 | 1.0224 [1.0080, 1.0411] | `SCALES` | 0.9839 [0.9601, 1.0039] | `BOUNDARY_RESULT` | `UNCONFIRMED` |
+  | `set` | 8 | 0.9924 [0.9787, 1.0125] | `BOUNDARY_RESULT` | 0.9844 [0.9610, 0.9952] | `RETROGRADE` | `UNCONFIRMED` |
+
+  Throughput (M ops/s), Phase 4C baseline run 2 → Phase 4B run 1 / run 2:
+  - `map` W=4: 5.143 → 5.351 / 5.178
+  - `map` W=8: 4.638 → 4.749 / 4.792
+  - `set` W=4: 6.441 → 6.937 / 6.732
+  - `set` W=8: 5.413 → 6.731 / 6.736
+
+  **What the measurements support and what they do not:**
+  1. **CONFIRMED**:
+     - `FallbackImmediateConversion` eliminated: W=1 fallback rates hit the
+       frozen mathematical bounds exactly on both arms in both runs (2.840% on
+       map, 1.706% on set).
+     - Callgrind: 0 regressions with substantial write-path instruction
+       reductions (`sync_map_insert` -8.94%, `sync_map_churn` -7.37%,
+       `sync_set_insert` -0.43%).
+     - `set` throughput sits consistently above the Phase 4C baseline at W=4
+       (+4.5% to +7.7%) and W=8 (+24.3% to +24.4%) across both runs (same
+       direction twice).
+  2. **DO NOT CLAIM**:
+     - **No `SCALES` verdict**: Neither W=4 cell reproduced across runs. On both
+       arms, the two runs' confidence intervals do not overlap (`map` W=4 run 1
+       lower 1.0318 vs run 2 upper 1.0114; `set` W=4 run 1 lower 1.0080 vs run 2
+       upper 1.0039). Under `docs/BENCHMARKING.md` rule 18, reporting run 1
+       alone would have claimed "set scales for the first time"; run 2 refutes
+       it.
+     - **Mechanism of between-run disagreement**: C(W) is a ratio against W=1
+       (T(W) / T(1)). In run 2, W=1 was faster while W=4 was slower (`map` W=1
+       5.126 → 5.191 M/s with overlapping intervals; W=4 5.351 → 5.178 M/s).
+       This is between-run drift in the denominator, not code behavior.
+     - **Remaining structural bottleneck**: The remaining structural fallback
+       floor at W=1 is exclusively `LeafFull` (2.84% map, 1.71% set), which
+       continues to close `WriterGate` and drain in-flight writers via
+       `write_root_covered`, setting the final Amdahl ceiling until Phase 4E.
 - **`set` and higher-W cells remain bound by remaining structural fallbacks and gate convoying.**
   On `set`, `CapExpansionClass` was only 0.28% of operations, so fallbacks moved
   only 3.52% → 3.23% (matching the predicted 3.23% bound), while W = 2 throughput
