@@ -2025,18 +2025,6 @@ impl CapExpansionKind {
     }
 }
 
-/// Pure helper classifying linear leaf capacity fallback into either intra-leaf class growth
-/// (`Class`) or full-leaf conversion/split (`LeafFull`).
-#[allow(dead_code)]
-#[inline(always)]
-pub(crate) const fn classify_leaf_expansion(pop: usize, cap: usize) -> CapExpansionKind {
-    if pop >= cap {
-        CapExpansionKind::LeafFull
-    } else {
-        CapExpansionKind::Class
-    }
-}
-
 /// Central routing helper for all leaf capacity expansion fallbacks.
 ///
 /// Ensures every capacity expansion fallback attributes its sub-cause consistently and
@@ -6392,15 +6380,6 @@ mod tests {
             Stat::CapExpansionMapBitmapSub
         );
         assert_eq!(CapExpansionKind::Remove.stat(), Stat::CapExpansionRemove);
-    }
-
-    #[test]
-    fn test_classify_leaf_expansion_boundaries() {
-        use super::{CapExpansionKind, classify_leaf_expansion};
-        assert_eq!(classify_leaf_expansion(0, 4), CapExpansionKind::Class);
-        assert_eq!(classify_leaf_expansion(3, 4), CapExpansionKind::Class);
-        assert_eq!(classify_leaf_expansion(4, 4), CapExpansionKind::LeafFull);
-        assert_eq!(classify_leaf_expansion(5, 4), CapExpansionKind::LeafFull);
     }
 
     #[test]
