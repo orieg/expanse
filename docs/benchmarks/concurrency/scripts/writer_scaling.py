@@ -806,6 +806,76 @@ def parse_perf_stat_csv(stderr_text: str) -> dict[str, int]:
     return result
 
 
+def frequency_droop_by_writers(
+    round_data: dict[int, dict[int, dict[str, float]]],
+    cyc_key: str | None,
+    ref_key: str | None,
+    writers: list[int],
+    rounds: int,
+) -> dict[str, Any]:
+    """Core frequency droop at each writer count against the lowest one.
+
+    Frequency is `cycles / ref-cycles` and nothing else: the TSC ticks at a
+    fixed nominal rate and is not the core clock, so it cannot answer this
+    (AGENTS.md section 8.20.1). Droop at W is `1 - f(W) / f(1)`, paired within
+    a round so a round's thermal state cancels, and summarised with a BCa 95%
+    interval over rounds.
+
+    Every W above the baseline gets its own entry. The pass used to compute one
+    number, W=2 against W=1, which cannot speak about the W=4 cells where the
+    multi-writer sweep's between-run spread actually appears (Refs #568).
+
+    Pure: it takes counts and returns a summary, so the decision rule is
+    testable without `perf` on the host.
+    """
+    out: dict[str, Any] = {
+        "definition": "1 - (cycles/ref-cycles at W) / (cycles/ref-cycles at the baseline W)",
+        "baseline_writers": min(writers) if writers else None,
+        "rounds_preregistered": rounds,
+        "by_writers": {},
+    }
+    if not writers or not cyc_key or not ref_key:
+        return out
+    base_w = min(writers)
+
+    def freq(counts: dict[str, float]) -> float | None:
+        cyc, ref = counts.get(cyc_key, 0), counts.get(ref_key, 0)
+        return (cyc / ref) if ref > 0 and cyc > 0 else None
+
+    for w in sorted(writers):
+        if w == base_w:
+            continue
+        samples: list[float] = []
+        for r in range(rounds):
+            f_base = freq(round_data.get(r, {}).get(base_w, {}))
+            f_w = freq(round_data.get(r, {}).get(w, {}))
+            if f_base and f_w:
+                samples.append(1.0 - (f_w / f_base))
+        entry: dict[str, Any] = {"n_measured": len(samples)}
+        if len(samples) >= 3:
+            mean_d, ci_lo, ci_hi = bca_bootstrap_ci(samples, confidence=0.95)
+            # Verdict decision rule (sections 8.4 / 8.20): a single run cannot
+            # CONFIRM, so a cleared floor is `SINGLE_RUN_PASS` pending a second
+            # independent run.
+            #   CI_lower > 0.05 -> SINGLE_RUN_PASS (candidate droop)
+            #   CI_upper < 0.05 -> REJECTED
+            #   spans 0.05      -> INCONCLUSIVE
+            if ci_lo > 0.05:
+                verdict = "SINGLE_RUN_PASS"
+            elif ci_hi < 0.05:
+                verdict = "REJECTED"
+            else:
+                verdict = "INCONCLUSIVE"
+            entry.update({
+                "droop_mean": round(mean_d, 4),
+                "droop_ci_lower": round(ci_lo, 4),
+                "droop_ci_upper": round(ci_hi, 4),
+                "verdict": verdict,
+            })
+        out["by_writers"][str(w)] = entry
+    return out
+
+
 def run_pmu_pass(
     binary: Path,
     arm: str = "set",
@@ -886,52 +956,22 @@ def run_pmu_pass(
 
     cyc_key = next((k for k in events if "cycles" in k and "ref" not in k), None)
     ref_key = next((k for k in events if "ref" in k), None)
-
-    droop_samples: list[float] = []
-    if cyc_key and ref_key and 1 in writers and 2 in writers:
-        for r in range(rounds):
-            w1_counts = round_data.get(r, {}).get(1, {})
-            w2_counts = round_data.get(r, {}).get(2, {})
-            c1, r1 = w1_counts.get(cyc_key, 0), w1_counts.get(ref_key, 0)
-            c2, r2 = w2_counts.get(cyc_key, 0), w2_counts.get(ref_key, 0)
-            if r1 > 0 and r2 > 0:
-                f1 = c1 / r1
-                f2 = c2 / r2
-                droop_samples.append(1.0 - (f2 / f1))
-
-    droop_summary: dict[str, Any] = {
-        "rounds_preregistered": rounds,
-        "n_measured": len(droop_samples),
-    }
-    if len(droop_samples) >= 3:
-        mean_d, ci_lo, ci_hi = bca_bootstrap_ci(droop_samples, confidence=0.95)
-        # Verdict decision rule (§8.4 / §8.20):
-        # A single run cannot CONFIRM; confirmation requires a second independent run across two committed artifacts.
-        # CI_lower > 0.05 -> SINGLE_RUN_PASS (candidate droop confirmed pending run 2)
-        # CI_upper < 0.05 -> REJECTED
-        # CI spans 0.05   -> INCONCLUSIVE (data cannot reject or confirm)
-        if ci_lo > 0.05:
-            verdict = "SINGLE_RUN_PASS"
-        elif ci_hi < 0.05:
-            verdict = "REJECTED"
-        else:
-            verdict = "INCONCLUSIVE"
-        droop_summary.update({
-            "droop_mean": round(mean_d, 4),
-            "droop_ci_lower": round(ci_lo, 4),
-            "droop_ci_upper": round(ci_hi, 4),
-            "verdict": verdict,
-        })
+    droop_summary = frequency_droop_by_writers(round_data, cyc_key, ref_key, writers, rounds)
+    for w, entry in sorted(droop_summary["by_writers"].items(), key=lambda kv: int(kv[0])):
+        if "verdict" not in entry:
+            continue
         print(
-            f"  [Hypothesis A (Frequency Droop)] Mean drop: {mean_d * 100:.2f}% "
-            f"[{ci_lo * 100:.2f}%, {ci_hi * 100:.2f}%] | Verdict: {verdict}"
+            f"  [Hypothesis A (Frequency Droop) W={w}] Mean drop: "
+            f"{entry['droop_mean'] * 100:.2f}% "
+            f"[{entry['droop_ci_lower'] * 100:.2f}%, {entry['droop_ci_upper'] * 100:.2f}%] "
+            f"| Verdict: {entry['verdict']}"
         )
 
     return {
         "arm": arm,
         "events": events,
         "rounds_preregistered": rounds,
-        "n_measured": len(droop_samples),
+        "writers": sorted(writers),
         "frequency_droop": droop_summary,
         "raw_counts": round_data,
     }
@@ -1217,6 +1257,53 @@ def self_test() -> int:
     assert len(cells_var_none[0]["counters_raw"]) == 0
     assert cells_var_none[0]["variant"] == "self_test_none"
 
+    # 6b. The frequency-droop rule, on synthetic counts. This runs everywhere:
+    # the pass itself needs `perf`, so on a runner without it the only PMU
+    # coverage below is that the pass refuses to run — which says nothing about
+    # whether its arithmetic or its verdicts are right.
+    eprintln("Testing frequency droop decision rule (synthetic counts)...")
+    CYC, REF = "cycles", "ref-cycles"
+
+    def counts(freq_ratio: float) -> dict[str, float]:
+        # ref-cycles fixed, cycles scaled: f = cycles / ref-cycles.
+        return {CYC: 1000.0 * freq_ratio, REF: 1000.0}
+
+    # A real droop at W=4 and none at W=2, in one pass: the per-W split is the
+    # point, and a single W=2-vs-W=1 number could not express this.
+    rd = {
+        r: {
+            1: counts(1.00),
+            2: counts(0.995 + 0.002 * r),
+            4: counts(0.900 + 0.002 * r),
+        }
+        for r in range(8)
+    }
+    d = frequency_droop_by_writers(rd, CYC, REF, [1, 2, 4], 8)
+    assert d["baseline_writers"] == 1, d
+    assert set(d["by_writers"]) == {"2", "4"}, d
+    assert d["by_writers"]["4"]["verdict"] == "SINGLE_RUN_PASS", d["by_writers"]["4"]
+    assert d["by_writers"]["4"]["droop_ci_lower"] > 0.05, d["by_writers"]["4"]
+    assert d["by_writers"]["2"]["verdict"] == "REJECTED", d["by_writers"]["2"]
+    assert d["by_writers"]["2"]["droop_ci_upper"] < 0.05, d["by_writers"]["2"]
+
+    # Counters absent (a PMU that returned no ref-cycles) is reported as
+    # unmeasured, never as a droop of zero (AGENTS.md §8.1).
+    rd_missing = {r: {1: counts(1.0), 4: {CYC: 900.0, REF: 0.0}} for r in range(8)}
+    d_missing = frequency_droop_by_writers(rd_missing, CYC, REF, [1, 4], 8)
+    assert d_missing["by_writers"]["4"]["n_measured"] == 0, d_missing
+    assert "verdict" not in d_missing["by_writers"]["4"], d_missing
+    assert "droop_mean" not in d_missing["by_writers"]["4"], d_missing
+
+    # Fewer than three paired rounds cannot carry a BCa interval, so no verdict.
+    rd_short = {r: {1: counts(1.0), 4: counts(0.9)} for r in range(2)}
+    d_short = frequency_droop_by_writers(rd_short, CYC, REF, [1, 4], 2)
+    assert d_short["by_writers"]["4"]["n_measured"] == 2, d_short
+    assert "verdict" not in d_short["by_writers"]["4"], d_short
+
+    # No event keys at all: the summary is empty rather than fabricated.
+    d_none = frequency_droop_by_writers(rd, None, None, [1, 2, 4], 8)
+    assert d_none["by_writers"] == {}, d_none
+
     # 7. Test PMU pass and c2c pass fail-loud on non-Linux / missing perf (AGENTS.md §8.1)
     eprintln("Testing PMU and c2c passes (fail-loud validation)...")
     if platform.system() != "Linux" or shutil.which("perf") is None:
@@ -1415,6 +1502,13 @@ def main() -> int:
         "--pmu",
         action="store_true",
         help="Run separate hardware PMU pass via perf stat on set W=1 vs W=2",
+    )
+    parser.add_argument(
+        "--pmu-arm",
+        default="map",
+        choices=("map", "set", "str"),
+        help="Arm the PMU and c2c passes measure (default: map, where the "
+             "multi-writer sweep's between-run spread appears)",
     )
     parser.add_argument(
         "--c2c",
@@ -1646,8 +1740,10 @@ def main() -> int:
     if args.pmu:
         pmu_results = run_pmu_pass(
             primary_tp_bin,
-            arm="set",
-            writers=[1, 2],
+            arm=args.pmu_arm,
+            # The sweep's own writer counts, so the pass can speak about the
+            # cells the sweep reports rather than W=2 alone.
+            writers=writers_list,
             rounds=max(args.rounds, 8),
             quick=args.quick,
         )
@@ -1658,8 +1754,8 @@ def main() -> int:
         try:
             c2c_results = run_c2c_pass(
                 primary_tp_bin,
-                arm="set",
-                writers=2,
+                arm=args.pmu_arm,
+                writers=max(writers_list),
                 quick=args.quick,
             )
         except RuntimeError as exc:
