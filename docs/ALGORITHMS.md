@@ -255,18 +255,22 @@ Stage B replaces the single writer mutex with optimistic lock coupling (OLC) ove
 2. **Optimistic Hand-Over-Hand Descent**:
    - The writer descends the trie validating version words of branch nodes (`BranchL3`, `BranchL7`, `BranchB`, `BranchU`) hand-over-hand without acquiring write locks.
    - If an odd version (active lock or obsolete) or version mismatch is observed, the writer restarts from the root.
-3. **Parent Version Try-Lock**:
-   - Before mutating the terminal leaf array (`LeafB1`, `Leaf1`..`Leaf7`) or immediate edge in place, the writer attempts an atomic CAS try-lock (`even → even + 1`, `Acquire`) on the parent branch's version word.
-   - On CAS failure, held locks are dropped in LIFO order and descent restarts.
-4. **Terminal Store & Unlock**:
-   - The key or value is written into the leaf array.
-   - The parent lock is released with a `Release` store (`locked_version + 1`), advancing the stable version counter to `old_v + 2`.
-5. **Bottom-Up Ancestor Census Bump**:
-   - To preserve invariant S7 (`pop0(e) + 1 == |keys under e|`), the writer walks upward through its recorded ancestor frames, taking a brief lock on each ancestor, updating `pop0`, and releasing.
-   - The atomic tree population (`Shared::tree_pop`) is updated via `fetch_add`/`fetch_sub`.
+3. **Parent Version Try-Lock & Local Covering**:
+   - For in-place slot insertion into an uncompressed branch (`BranchU`, Phase 4A, #827), the writer acquires the local node's version word (`even → even + 1`, `Acquire`) with zero ancestor locking.
+   - For terminal leaf mutations, `BranchB` subarray expansion (Phase 4D, #840), or linear leaf capacity expansions (Phase 4C, #858), the writer acquires the direct parent branch's version word.
+   - On CAS failure, prospective allocations are recycled immediately via `free_bytes_unpublished`, held locks are dropped in LIFO order, and descent restarts.
+4. **Terminal Mutation, Edge Swap & Unlock**:
+   - **In-Place Mutation:** The key or value is written directly into the leaf or branch array.
+   - **Phase 4D (Subarray Expansion):** Reallocates the `BranchB` subarray across capacity classes, copies child edges, updates the node pointer, advances version (`version + 2`), and retires the old subarray via EBR.
+   - **Phase 4C (Leaf Capacity Expansion):** Reallocates the linear leaf buffer across capacity classes (`cap_class(pop + 1) != cap_class(pop)` for `pop < cap`) or `LeafB1` value subarray, copies and inserts elements, atomically writes the new edge to the parent, advances parent version (`version + 2`), and retires the old buffer via EBR.
+   - **Speculative Abort Recycling (`free_bytes_unpublished`):** If CAS try-lock or edge validation fails, prospective buffers that were never published to any reader are returned directly to the allocator size-class freelist without entering EBR queues.
+5. **Zero-Sharing Common Write Path & Lazy Census Rollup (#822)**:
+   - Disjoint writers touch *only the parent branch version lock*, zero ancestor branch cache lines, and zero root cache lines on the common path ($k = 0$).
+   - Population increments flag the sharded dirty digit (`Shared::mark_dirty_digit(digit(key, 8))`) and update the 64-stripe line-padded `ShardedTreePop` atomic counter.
+   - Ancestor branch edge `pop0` words are rolled up recursively (`fold_branch_pop0`) lazily at quiescence points (`read_locked`, `write_root_covered`), eliminating multi-writer ancestor lock ping-ponging.
 6. **Bounded Restarts & Quiescent Fallback**:
    - Retries are bounded to `MAX_RETRIES` (64).
-   - If retries are exhausted or `gate.is_closed()` is observed, the writer cleanly drops its in-flight guard and joins the serialized `write_root_covered` path behind `fallback_mutex`, guaranteeing starvation freedom.
+   - If retries are exhausted, or an unhandled structural conversion occurs (`LeafFull`, `ImmediateConversion`), or `gate.is_closed()` is observed, the writer cleanly drops its in-flight guard and joins the serialized `write_root_covered` path behind `fallback_mutex`, guaranteeing starvation freedom.
 
 ---
 

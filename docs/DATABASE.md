@@ -820,9 +820,9 @@ The intended design: by utilizing base-relative offset pointers (a planned `RelO
 
 | Engine Primitive | Memory Overhead (Clustered) | Point Lookup Latency | Ordered Range Scan | Concurrency Protocol |
 |---|---:|---:|---|---|
-| **`ExpanseSet` (Judy1)** | **0.07–0.36 B/key** | **3.6–35.8 ns** | $O(\text{depth})$ Skip-Scan | Lock-Free OCC (`SyncExpanseSet`) |
+| **`ExpanseSet` (Judy1)** | **0.07–0.36 B/key** | **3.6–35.8 ns** | $O(\text{depth})$ Skip-Scan | Optimistic OCC (`SyncExpanseSet`) |
 | **Roaring Bitmap** | 0.125–0.65 B/key | ~16.4–24.2 ns | Container Iteration | External RWLock / Mutex |
-| **`ExpanseMap` (JudyL)** | **8.56–16.7 B/key** | **7.1–50.8 ns** | $O(\text{depth})$ skip-scan† | Lock-Free OCC (`SyncExpanseMap`) |
+| **`ExpanseMap` (JudyL)** | **8.56–16.7 B/key** | **7.1–50.8 ns** | $O(\text{depth})$ skip-scan† | Optimistic OCC (`SyncExpanseMap`) |
 | **`ExpanseBlobMap`** | **171.4–192.4 B/key** (128B blob) | **~41–125 ns** | **Predicate Filter Scan** | Thread-Isolated / Partitioned |
 | **`std::collections::BTreeMap`** | ~32.0–48.0 B/key (192B blob) | ~34.0–62.0 ns | Standard Iteration | External RWLock / Mutex |
 | **`hashbrown::HashMap` (Swiss Table)**| ~18.0–24.0 B/key | ~9.5–18.0 ns | ❌ Unordered ($O(N \log N)$ sort) | Read-Locked / Sharded |
@@ -860,7 +860,7 @@ F (50% Read, 50% RMW)        18.82 Mops/s         14.73 Mops/s          4.35 Mop
 **Key Architectural Insights for Database Engineers:**
 1. **MemTable Read-Latest Advantage (Workload D)**: `ExpanseBlobMap` achieves **~5.0× higher throughput than `BTreeMap`** (21.50 M/s vs 4.28 M/s; workload: `workload_ycsb`). In write-heavy ingestion where recent records are frequently read, digital trie leaf appending avoids page-split stalls.
 2. **Advantage over RocksDB SkipMap**: `ExpanseBlobMap` outperforms `crossbeam_skiplist::SkipMap` by **~8.1× to ~11.1× across Workloads B, C, D, and F** on this 24-core host (the margin is host- and payload-dependent — the boxed-128B blob path is heavier for the skiplist here than on the earlier Apple-silicon run).
-3. **Concurrency Scaling**: `SyncExpanseMap` scales on **read-only** workloads (see §3.2). Write-mixed throughput does not scale at all — it *falls* as threads are added. The cause is the **single writer mutex**, not the seqlock, and the bench's own coarse-lock controls (`RwLock<BTreeMap>`, `Mutex<ExpanseBlobMap>`) collapse identically. OCC keeps *readers* off the writer lock in the common case; it was never a multi-writer design. Size a write-heavy deployment by single-writer throughput, or shard across independent maps.
+3. **Concurrency Scaling**: Historical single-writer OCC (`SyncExpanseBlobMap`, and pre-Stage-B `SyncExpanseMap`) scaled on read-only workloads while write-mixed throughput was constrained by the single writer mutex. Stage B Multi-Writer OLC (#568, Phases 4A–4D on `SyncExpanseSet` and `SyncExpanseMap`) replaces the global writer mutex on common write paths with per-node version locks down disjoint key expanses, while `SyncExpanseBlobMap`, `SyncExpanseStrMap`, and `SyncExpanseBytesMap` retain single-writer mutex serialization with optimistic reader validation.
 
 ### 7.3 Architectural Selection Guide
 

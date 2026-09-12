@@ -1121,9 +1121,9 @@
       </div>
       <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:12px;">
         <div style="font-size:11px; font-weight:700; color:#f97316; text-transform:uppercase;">🔒 Multi-Writer Optimistic Lock Coupling (<code>SyncExpanseMap</code>)</div>
-        <div style="font-family:ui-monospace, monospace; font-size:11px; color:#f97316; margin:4px 0;">Stage B Multi-Writer OLC + Version Bracketing + EBR</div>
+        <div style="font-family:ui-monospace, monospace; font-size:11px; color:#f97316; margin:4px 0;">Stage B Multi-Writer OLC + Zero-Sharing Path + EBR</div>
         <div style="font-size:11px; color:var(--text-muted);">
-          Zero reader locking on uncontended paths, hand-over-hand optimistic lock coupling for concurrent writers on disjoint expanses, and Epoch-Based Memory Reclamation.
+          Zero reader locking on uncontended paths, hand-over-hand optimistic lock coupling for concurrent writers on disjoint expanses (Phases 4A, 4D, 4C: in-place mutations, BranchB subarray growth, and concurrent leaf capacity expansion with speculative abort recycling), and Epoch-Based Memory Reclamation.
         </div>
       </div>
       <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:12px;">
@@ -3555,9 +3555,9 @@
       steps.push({
         badge: "OLC COMMIT & CENSUS",
         badgeClass: "highlight",
-        title: "In-Place Store & Ancestor Census Bump",
-        desc: "Performs leaf mutation under parent node lock, releases lock with version increment, and executes bottom-up ancestor pop0 updates.",
-        algo: "Hand-Over-Hand Unlock (version + 2) + Ancestor pop0 Bumps"
+        title: "Zero-Sharing Commit & Dirty Digit Flagging",
+        desc: "Performs leaf mutation or expansion under parent node lock, releases lock with version increment (version + 2), and flags sharded dirty digit for lazy census rollup at quiescence.",
+        algo: "Parent Version Release (version + 2) + Sharded Dirty Digit Flag"
       });
       instr += 14;
       baselineInstr += 45;
