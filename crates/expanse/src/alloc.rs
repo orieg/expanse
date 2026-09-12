@@ -464,6 +464,23 @@ impl NodeAlloc {
             if !head.is_null() {
                 #[cfg(debug_assertions)]
                 let _bookkeeping = self.enter_bookkeeping();
+                // The guard alone cannot see the whole pop: the load above it
+                // is outside the region, so two threads that read one `head`
+                // and then take the guard one after another never overlap
+                // inside it, and each returns the same block to its caller.
+                // Re-reading under the guard catches that interleaving, since
+                // the first thread's store lands before the second gets in.
+                debug_assert_eq!(
+                    self.freelists[class].load(Ordering::Relaxed),
+                    head,
+                    "this class's freelist head moved between the load and the pop, so \
+                     another thread is inside one NodeAlloc's per-tree freelists. They \
+                     are single-writer: their updates are load/store pairs, not CAS, so \
+                     concurrent use hands the same block to two callers. Share a tree \
+                     through a Sync* wrapper (which defers to the collector's locked \
+                     freelists before carving anything), or give each thread its own \
+                     NodeAlloc."
+                );
                 debug_assert!(
                     !self.occ_enabled(),
                     "alloc_raw popped per-tree freelist under OCC: per-tree freelists \
@@ -1364,30 +1381,46 @@ mod tests {
         let _second = a.enter_bookkeeping();
     }
 
-    /// Pins the call sites, not just the helper: the three regions that mutate
-    /// the single-writer freelists and slab-page list each claim the guard.
-    /// Deleting one leaves both tests above green while restoring the silent
-    /// lost update, so this counts them in the source.
+    /// Pins the call sites, not just the helper: the regions that mutate the
+    /// single-writer freelists and slab-page list each claim the guard.
+    /// Deleting a claim leaves both tests above green while restoring the
+    /// silent lost update, so this counts them in the source.
     ///
-    /// The count is the invariant, not the number: it is the freelist pop, the
-    /// slab-page carve, and the freelist push. A fourth mutating region means
-    /// this number goes up *and* that region takes the guard.
+    /// Both counts are the invariant, not the numbers. The claims are the
+    /// freelist pop, the slab-page carve and the freelist push; the mutations
+    /// are their four stores. A new mutating region changes the store count,
+    /// which fails this test until someone states where its guard is — the
+    /// census cannot tell on its own whether a *new* store sits inside a
+    /// guarded region, so that judgement is the reviewer's, and this test is
+    /// what forces it to be made.
     ///
     /// Scanned line by line, so a CRLF checkout counts the same as an LF one,
-    /// and the needle is assembled with `concat!` so this test cannot match its
-    /// own source text.
+    /// and the needles are assembled with `concat!` so this test cannot match
+    /// its own source text.
     #[test]
     fn structural_every_freelist_mutation_claims_the_bookkeeping_guard() {
-        let needle = concat!("let _bookkeeping = self.", "enter_bookkeeping();");
-        let sites = include_str!("alloc.rs")
+        let claim = concat!("enter_", "bookkeeping()");
+        let freelist_store = concat!("self.freelists[", "class].store(");
+        let slab_store = concat!("self.slab_pages", ".store(");
+        let body: Vec<&str> = include_str!("alloc.rs")
             .lines()
             .take_while(|line| *line != "mod tests {")
-            .filter(|line| line.contains(needle))
+            .collect();
+        let claims = body.iter().filter(|line| line.contains(claim)).count();
+        let stores = body
+            .iter()
+            .filter(|line| line.contains(freelist_store) || line.contains(slab_store))
             .count();
         assert_eq!(
-            sites, 3,
+            claims, 3,
             "expected the freelist pop, the slab-page carve and the freelist push to claim \
-             the guard; found {sites} call sites in alloc.rs above its test module"
+             the guard; found {claims} claims in alloc.rs above its test module"
+        );
+        assert_eq!(
+            stores, 4,
+            "expected 4 stores to the single-writer freelists and slab-page list (the pop, \
+             the slab-page push, the carve's per-block push, and the free push); found \
+             {stores}. A new one must sit inside a region that claims the bookkeeping guard"
         );
     }
 }
