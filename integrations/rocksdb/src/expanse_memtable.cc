@@ -60,10 +60,13 @@ ExpanseMemTableRep::ExpanseMemTableRep(
     transform_(transform),
     logger_(logger),
     leaf_capacity_(leaf_capacity > 0 ? std::min(leaf_capacity, LeafBlock::kMaxCapacity) : LeafBlock::kMaxCapacity),
-    trie_index_(expanse_map_new()),
-    prefix_map_(expanse_bytesmap_new())
+    trie_index_(expanse_map_new())
 {
     (void)logger_;
+    // Retained for the prefix-seek path that does not exist yet: the
+    // MemTableRep interface hands it to us and GetPrefixIterator would
+    // need it, so keep the member rather than change the constructor.
+    (void)transform_;
     if (!allocator_) {
         own_arena_ = std::make_unique<Arena>(4096);
         allocator_ = own_arena_.get();
@@ -84,10 +87,6 @@ ExpanseMemTableRep::~ExpanseMemTableRep() {
     if (trie_index_) {
         expanse_map_free(trie_index_);
         trie_index_ = nullptr;
-    }
-    if (prefix_map_) {
-        expanse_bytesmap_free(prefix_map_);
-        prefix_map_ = nullptr;
     }
 }
 
@@ -312,23 +311,6 @@ void ExpanseMemTableRep::Insert(KeyHandle handle) {
         expanse_map_insert(trie_index_, pfx, reinterpret_cast<uintptr_t>(block), nullptr);
     }
 
-    if (transform_ != nullptr) {
-        Slice ikey = expanse_rocksdb::GetLengthPrefixedSlice(entry);
-        if (ikey.size() >= 8) {
-            Slice ukey(ikey.data(), ikey.size() - 8);
-            if (transform_->InDomain(ukey)) {
-                Slice pfx = transform_->Transform(ukey);
-                expanse_bytesmap_insert(
-                    prefix_map_,
-                    pfx.data(),
-                    pfx.size(),
-                    reinterpret_cast<uintptr_t>(block),
-                    nullptr
-                );
-            }
-        }
-    }
-
     if (block->count.load(std::memory_order_relaxed) >= leaf_capacity_) {
         SplitLeafBlock(block);
     }
@@ -407,10 +389,9 @@ void ExpanseMemTableRep::MarkReadOnly() {
 size_t ExpanseMemTableRep::ApproximateMemoryUsage() {
     std::lock_guard<std::mutex> lock(mutex_);
     size_t trie_bytes = trie_index_ ? expanse_map_mem_used(trie_index_) : 0;
-    size_t pfx_bytes = prefix_map_ ? expanse_bytesmap_mem_used(prefix_map_) : 0;
     size_t leaf_bytes = total_allocated_bytes_.load(std::memory_order_relaxed);
     size_t arena_bytes = own_arena_ ? own_arena_->ApproximateMemoryUsage() : 0;
-    return sizeof(ExpanseMemTableRep) + trie_bytes + pfx_bytes + leaf_bytes + arena_bytes;
+    return sizeof(ExpanseMemTableRep) + trie_bytes + leaf_bytes + arena_bytes;
 }
 
 void ExpanseMemTableRep::Get(

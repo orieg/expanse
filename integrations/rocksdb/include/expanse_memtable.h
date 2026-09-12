@@ -576,8 +576,6 @@ private:
     // Expanse Digital Trie Index (JudyL / expanse_map_t) over 64-bit chunk prefixes
     expanse_map_t* trie_index_{nullptr};
 
-    // Expanse Binary-Safe Bytes Map (JudyHS / expanse_bytesmap_t) for prefix transform indexing
-    expanse_bytesmap_t* prefix_map_{nullptr};
 
     // Fallback arena if no allocator was passed
     std::unique_ptr<Arena> own_arena_;
