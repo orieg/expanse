@@ -190,7 +190,8 @@ class Cell:
     def __init__(self, name: str, issue: int, suite: str, binary: str, args: list[str],
                  features: list[str], concurrent: bool = False, note: str = "",
                  blocked: str = "", arm: str = "", c2c: bool = False,
-                 layout: bool = False):
+                 layout: bool = False, builder: str = "cargo", exe: str = "",
+                 cwd: str = ""):
         self.name = name
         self.issue = issue
         self.suite = suite
@@ -204,6 +205,11 @@ class Cell:
         self.arm = arm
         self.c2c = c2c
         self.layout = layout
+        # `cargo` builds `binary` in the hot-bench crate. `make` builds `exe`
+        # (repo-relative) from the Makefile in `cwd`, and the harness runs there.
+        self.builder = builder
+        self.exe = exe
+        self.cwd = cwd
 
     @property
     def mode(self) -> str:
@@ -219,6 +225,15 @@ def _conc(name: str, issue: int, suite: str, binary: str, args: list[str],
           features: list[str], note: str, **kw) -> Cell:
     return Cell(name, issue, suite, binary, args, features, concurrent=True,
                 arm="expanse", note=note, **kw)
+
+
+def _rocks(name: str, mode: str, readers: int, note: str, **kw) -> Cell:
+    """A #802 cell: the RocksDB MemTable's concurrent harness, built by make."""
+    return Cell(name, 802, "rocksdb_memtable", "bench_memtable_concurrent",
+                ["--mode", mode, "--readers", str(readers)], [], concurrent=True,
+                arm="expanse", note=note, builder="make",
+                exe="integrations/rocksdb/build/bench_memtable_concurrent",
+                cwd="integrations/rocksdb", **kw)
 
 
 # The cells #737's gate names (the four from #724 / #725 / #730 and the HOT
@@ -312,6 +327,23 @@ CELLS = [
     _conc("hot_conc_map_w8_r0", 568, "hot_comparison",
           "hot_concurrent", ["map", "8", "0"], ["rowex"],
           "eight writers, map arm"),
+    # --- #802: the RocksDB MemTable's concurrent read path ---
+    #
+    # Neither the readers' regression (S(7) ~ 0.62, with or without a writer)
+    # nor the paced writer's R = 7 shortfall has a measured mechanism
+    # (METHODOLOGY section 5.10). R = 7 is the cell section 5.10 gates on; R = 1
+    # and R = 2 are the controls a per-operation shape needs, since a cost that
+    # steps at the second thread and one that grows with R read differently
+    # (AGENTS.md section 8.20.5 step 3). The perf c2c round runs on R = 7.
+    _rocks("rocksdb_conc_idle_r1", "idle", 1, "one reader, no writer — the per-probe baseline"),
+    _rocks("rocksdb_conc_idle_r2", "idle", 2, "two readers, no writer — where a fixed "
+           "per-operation cost of sharing first appears"),
+    _rocks("rocksdb_conc_idle_r7", "idle", 7, "seven readers, no writer — section 5.10's H2 "
+           "cell; also a `perf c2c` cell", c2c=True),
+    _rocks("rocksdb_conc_paced_r1", "paced", 1, "one reader, paced writer"),
+    _rocks("rocksdb_conc_paced_r2", "paced", 2, "two readers, paced writer"),
+    _rocks("rocksdb_conc_paced_r7", "paced", 7, "seven readers, paced writer — section 5.10's H1 "
+           "cell, whose writer runs short; also a `perf c2c` cell", c2c=True),
 ]
 
 BY_NAME = {c.name: c for c in CELLS}
@@ -498,7 +530,40 @@ def binary_path(name: str, occ_stats: bool = False) -> Path:
     return target_root(occ_stats) / "release" / name
 
 
+def cell_exe(cell: Cell) -> Path:
+    """The binary a cell runs: cargo's target dir, or the path a make cell names."""
+    return REPO_ROOT / cell.exe if cell.exe else binary_path(cell.binary)
+
+
+def cell_cwd(cell: Cell) -> Path | None:
+    """Where a cell's harness runs; None for a cargo binary.
+
+    The make-built rocksdb harness links `libexpanse` through a relative
+    `DT_NEEDED` (a cargo cdylib carries no SONAME), which resolves only from the
+    integration directory. `concurrent_read_scaling.py` runs it from there for
+    the same reason; macOS's absolute install names do not reproduce the failure.
+    """
+    return REPO_ROOT / cell.cwd if cell.cwd else None
+
+
+def harness_argv(cell: Cell, pin: list[str], rounds: int) -> list[str]:
+    return list(pin) + [str(cell_exe(cell)), *cell.args, "--arm", cell.arm,
+                        "--rounds", str(rounds), "--wait-stdin"]
+
+
 def build(cell: Cell, env: dict, occ_stats: bool = False) -> None:
+    if cell.builder == "make":
+        if occ_stats:
+            raise Preflight(f"{cell.name} is a make-built harness and has no occ-stats build")
+        target = str(cell_exe(cell).relative_to(cell_cwd(cell)))
+        # `build_cargo` first: the bench target links the release libexpanse but
+        # does not depend on building it.
+        proc = subprocess.run(["make", "--no-print-directory", "-C", str(cell_cwd(cell)),
+                               "build_cargo", target], env=env)
+        if proc.returncode != 0:
+            raise Preflight(f"building {cell.binary} (make -C {cell.cwd} build_cargo {target}) "
+                            "failed; no counters were collected")
+        return
     args = ["cargo", "build", "--release", "--manifest-path", str(CRATE), "--bin", cell.binary]
     features = list(cell.features) + (["occ-stats"] if occ_stats else [])
     if features:
@@ -629,17 +694,16 @@ def stop_perf(perf: subprocess.Popen, what: str, cell: Cell) -> tuple[int, str]:
 
 def start_harness(cell: Cell, pin: list[str], env: dict, rounds: int,
                   stderr_path: Path) -> subprocess.Popen:
-    exe = binary_path(cell.binary)
+    exe = cell_exe(cell)
     if not exe.is_file():
         raise Preflight(f"{exe} does not exist; build it before collecting counters")
-    argv = list(pin) + [str(exe), *cell.args, "--arm", cell.arm,
-                        "--rounds", str(rounds), "--wait-stdin"]
+    argv = harness_argv(cell, pin, rounds)
     # stderr goes to a file, not a pipe: a pipe nobody drains would block the
     # harness on its first diagnostic while this driver waits on stdout.
     with open(stderr_path, "w") as err_fh:
         return subprocess.Popen(
             argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=err_fh, text=True, bufsize=1, env=env,
+            stderr=err_fh, text=True, bufsize=1, env=env, cwd=cell_cwd(cell),
         )
 
 
@@ -996,7 +1060,10 @@ def _self_test() -> int:
 
     # ---- the cell registry --------------------------------------------
     for cell in CELLS:
-        src = CRATE.parent / "src" / "bin" / f"{cell.binary}.rs"
+        if cell.builder == "make":
+            src = cell_cwd(cell) / "benches" / f"{cell.binary}.cc"
+        else:
+            src = CRATE.parent / "src" / "bin" / f"{cell.binary}.rs"
         if not src.is_file():
             failures.append(f"cell {cell.name} names a missing binary source {src}")
     if len(BY_NAME) != len(CELLS):
@@ -1004,7 +1071,8 @@ def _self_test() -> int:
     # The gate names four cells from #724/#725/#730 plus the HOT lookup cell,
     # and #568 adds sixteen per-thread cells (ten attribution cells, three
     # readers-alone controls, and three PR 5 multi-writer mechanism cells).
-    for issue, want in ((724, 2), (725, 3), (730, 2), (737, 1), (568, 16)):
+    # #802 adds six: idle and paced writers at R = 1, 2 and 7.
+    for issue, want in ((724, 2), (725, 3), (730, 2), (737, 1), (568, 16), (802, 6)):
         got = sum(1 for c in CELLS if c.issue == issue)
         if got != want:
             failures.append(f"expected {want} cell(s) for #{issue}, found {got}")
@@ -1021,14 +1089,61 @@ def _self_test() -> int:
     for name in ("masstree_conc_map_w1_r8", "hot_conc_map_w1_r8"):
         if not (BY_NAME[name].c2c and BY_NAME[name].layout):
             failures.append(f"{name} is not the c2c + layout cell")
-    if sum(1 for c in CELLS if c.c2c) != 2:
-        failures.append("exactly two cells carry the perf c2c round")
+    c2c_cells = sorted(c.name for c in CELLS if c.c2c)
+    want_c2c = sorted(["masstree_conc_map_w1_r8", "hot_conc_map_w1_r8",
+                       "rocksdb_conc_idle_r7", "rocksdb_conc_paced_r7"])
+    if c2c_cells != want_c2c:
+        failures.append(f"the perf c2c round is on {c2c_cells}, want {want_c2c}")
     if CONCURRENT_EVENT in BY_NAME["hot_lookup_random_1m"].events():
         failures.append("a single-threaded cell requested the snoop-hit counter")
     if BY_NAME["hot_lookup_random_1m"].mode != "process":
         failures.append("a single-threaded cell is not in process mode")
     if FUTEX_EVENT in THREAD_EVENTS:
         failures.append("the futex tracepoint must be added by its own preflight, not by default")
+
+    # ---- a make-built harness: its binary, its working directory, its argv --
+    rocks = BY_NAME["rocksdb_conc_paced_r7"]
+    if cell_exe(rocks) != REPO_ROOT / "integrations/rocksdb/build/bench_memtable_concurrent":
+        failures.append(f"the rocksdb cell resolves to the wrong binary: {cell_exe(rocks)}")
+    if cell_cwd(rocks) != REPO_ROOT / "integrations/rocksdb":
+        failures.append("the rocksdb cell does not run from the integration directory, where "
+                        "its relative DT_NEEDED on libexpanse resolves")
+    if cell_cwd(BY_NAME["hot_conc_map_w1_r8"]) is not None:
+        failures.append("a cargo-built cell gained a working directory")
+    want_argv = ["taskset", "-c", "0,2", str(cell_exe(rocks)), "--mode", "paced",
+                 "--readers", "7", "--arm", "expanse", "--rounds", "5", "--wait-stdin"]
+    if harness_argv(rocks, ["taskset", "-c", "0,2"], 5) != want_argv:
+        failures.append(f"rocksdb harness argv: {harness_argv(rocks, ['taskset', '-c', '0,2'], 5)}")
+    # The call site: start_harness launches exactly that argv, from that cwd.
+    class _Launched(Exception):
+        pass
+
+    seen: dict = {}
+
+    def fake_popen(argv, **kw):
+        seen.update(argv=argv, cwd=kw.get("cwd"))
+        raise _Launched
+
+    real_popen = subprocess.Popen
+    with tempfile.TemporaryDirectory() as td:
+        fake_exe = Path(td) / "build" / "bench_memtable_concurrent"
+        fake_exe.parent.mkdir()
+        fake_exe.write_text("")
+        probe = Cell("probe", 802, "rocksdb_memtable", "bench_memtable_concurrent",
+                     ["--mode", "idle", "--readers", "2"], [], concurrent=True, arm="expanse",
+                     builder="make", exe=str(fake_exe), cwd=td)
+        subprocess.Popen = fake_popen
+        try:
+            start_harness(probe, [], {}, 3, Path(td) / "stderr")
+        except _Launched:
+            pass
+        finally:
+            subprocess.Popen = real_popen
+        if seen.get("cwd") != Path(td):
+            failures.append(f"start_harness did not run the make cell from its cwd: {seen}")
+        if seen.get("argv") != [str(fake_exe), "--mode", "idle", "--readers", "2", "--arm",
+                                "expanse", "--rounds", "3", "--wait-stdin"]:
+            failures.append(f"start_harness launched the wrong argv: {seen.get('argv')}")
 
     for m in failures:
         print(f"  FAIL {m}")
