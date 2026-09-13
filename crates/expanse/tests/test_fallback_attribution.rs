@@ -432,8 +432,8 @@ fn fallback_causes_account_for_every_fallback() {
     );
     assert_eq!(
         prod_sync_src.matches("cap_expansion(").count(),
-        7,
-        "cap_expansion must be called at exactly 7 exit sites in production sync.rs (AGENTS.md §2.3)"
+        2,
+        "cap_expansion must be called at exactly 2 exit sites in production sync.rs (AGENTS.md §2.3)"
     );
     for kind in [
         "CapExpansionKind::Class",
@@ -450,13 +450,13 @@ fn fallback_causes_account_for_every_fallback() {
 
     // Structural invariant: immediate growth and immediate-to-leaf conversion paths in olc_insert_set and
     // olc_insert_map have zero FallbackCause::ImmediateConversion returns.
-    // Exactly 3 remain in production sync.rs: 2 in Null-slot non-BranchU insertion, 1 in olc_remove_map.
+    // Exactly 2 remain in production sync.rs: 2 in Null-slot non-BranchU insertion (Phase 4F eliminated the 1 in olc_remove_map).
     assert_eq!(
         prod_sync_src
             .matches("OlcOutcome::Fallback(FallbackCause::ImmediateConversion)")
             .count(),
-        3,
-        "exactly 3 FallbackCause::ImmediateConversion sites remain in production sync.rs (2 non-BranchU null-slot insert, 1 remove)"
+        2,
+        "exactly 2 FallbackCause::ImmediateConversion sites remain in production sync.rs (2 non-BranchU null-slot insert)"
     );
 
     // Targeted discrimination checks: verify all 5 `CapExpansion` sub-causes discriminate (> 0)
@@ -475,7 +475,7 @@ fn fallback_causes_account_for_every_fallback() {
         - s_before_bm[Stat::CapExpansionBitmapNearFull as usize];
     assert!(
         bm_near_full_set > 0,
-        "set: CapExpansionBitmapNearFull must discriminate (> 0) on dense level-1 leaf, got {bm_near_full_set}"
+        "set: CapExpansionBitmapNearFull must discriminate (> 0) on dense LeafB1 (pop0 >= 254), got {bm_near_full_set}"
     );
 
     // 2. CapExpansionClass, CapExpansionLeafFull, and CapExpansionMapBitmapSub on MAP:
@@ -545,7 +545,7 @@ fn fallback_causes_account_for_every_fallback() {
     );
 
     // 4. CapExpansionRemove on MAP:
-    // Removals that shrink nodes or drop below threshold (pop0 <= 32).
+    // Phase 4F: remove-side capacity adjustments are concurrent, eliminating CapExpansionRemove.
     let s_before_rem = occ_stats::snapshot();
     for k in 0..25u64 {
         targeted_map.remove(k);
@@ -553,14 +553,13 @@ fn fallback_causes_account_for_every_fallback() {
     let s_after_rem = occ_stats::snapshot();
     let rem_map = s_after_rem[Stat::CapExpansionRemove as usize]
         - s_before_rem[Stat::CapExpansionRemove as usize];
-    assert!(
-        rem_map > 0,
-        "map: CapExpansionRemove must discriminate (> 0) on removals, got {rem_map}"
+    assert_eq!(
+        rem_map, 0,
+        "map: CapExpansionRemove must be 0 after Phase 4F on removals, got {rem_map}"
     );
 
     // 5. CapExpansionRemove on SET:
-    // Removing keys from targeted_set (which has 256 keys in a LeafB1 child) triggers
-    // CapExpansionRemove when popping below threshold (pop0 <= 32) or linear leaf demotion.
+    // Phase 4F: remove-side capacity adjustments are concurrent, eliminating CapExpansionRemove.
     let s_before_set_rem = occ_stats::snapshot();
     for k in 0..250u64 {
         targeted_set.remove(k);
@@ -568,9 +567,9 @@ fn fallback_causes_account_for_every_fallback() {
     let s_after_set_rem = occ_stats::snapshot();
     let rem_set = s_after_set_rem[Stat::CapExpansionRemove as usize]
         - s_before_set_rem[Stat::CapExpansionRemove as usize];
-    assert!(
-        rem_set > 0,
-        "set: CapExpansionRemove must discriminate (> 0) on removals, got {rem_set}"
+    assert_eq!(
+        rem_set, 0,
+        "set: CapExpansionRemove must be 0 after Phase 4F on removals, got {rem_set}"
     );
 
     targeted_set.with_locked(expanse_trie::set::ExpanseSet::validate);

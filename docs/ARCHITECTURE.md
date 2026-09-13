@@ -231,6 +231,11 @@ Stage B replaces the single writer mutex with optimistic lock coupling (OLC) ove
    - **Bitmap Leaf Conversion:** When a level-1 linear leaf reaches capacity (`pop >= cap`), converts to `LeafB1` under the parent version lock.
    - **Branch Conversion & Split:** For levels $\ge 2$, full linear leaves convert to `BranchL3`..`BranchL8` branches under the parent version lock, populating temporary private subtrees with exact pop0 tracking.
    - **Subtree Recycling:** All speculative aborts recycle unpublished subtrees via `free_subtree_unpublished` / `free_node_unpublished` / `free_bytes_unpublished` without polluting EBR queues, eliminating `CapExpansionLeafFull` to 0.00% and reducing uniform random insert structural fallbacks to **0.00%**.
+6. **Phase 4F (Concurrent Remove-Side Capacity Shrink & Demotion, Refs #568):**
+   - **Leaf Capacity Shrink & Demotion:** When keys are removed from a linear leaf (`Leaf1`..`Leaf7`) or level-1 bitmap leaf (`LeafB1`), capacity-class shrinks and demotions to multi-key or single-key immediate descriptors execute under the parent branch version lock with atomic edge replacement and EBR retirement of superseded nodes/subarrays.
+   - **Immediate In-Place Removal & Inlining:** For multi-key immediates, deletions execute in-place within the edge (or within the value array under parent version lock); $2 \rightarrow 1$ map immediate removals transition to single-key inlined format and retire the superseded value array via EBR.
+   - **Speculative Abort Recycling:** All speculative aborts on removal paths recycle unpublished buffers via `free_bytes_unpublished` without polluting EBR queues.
+   - **Zero Remove-Side Capacity Fallbacks:** Eliminates `CapExpansionKind::Remove` to **0.00%** across both `set` and `map`.
 
 **Fallback Partitioning (#854) & Starvation Freedom:**
 Capacity expansion fallbacks are partitioned into 5 engine-condition sub-causes:
@@ -238,9 +243,9 @@ Capacity expansion fallbacks are partitioned into 5 engine-condition sub-causes:
 - `CapExpansionLeafFull`: Leaf full (`pop >= cap`), converting to a branch or bitmap leaf (eliminated by Phase 4E; measured 0 on concurrent paths).
 - `CapExpansionBitmapNearFull`: Level-1 bitmap leaf near capacity (`pop0 >= 254`).
 - `CapExpansionMapBitmapSub`: Map bitmap subarray growth (eliminated by Phase 4C; measured 0 on concurrent paths).
-- `CapExpansionRemove`: Capacity shrinkage or demotion on key removal (Phase 4F target).
+- `CapExpansionRemove`: Capacity shrinkage or demotion on key removal (eliminated by Phase 4F; measured 0 on concurrent paths).
 
-When a remaining structural conversion (`BitmapNearFull`, root transition), removal demotion (`CapExpansionRemove`, `BranchSplitRemove`), or retry exhaustion (`MAX_RETRIES = 64`) occurs, the writer cleanly drops its in-flight guard and falls back to `write_root_covered` behind `fallback_mutex`, guaranteeing starvation freedom.
+When a remaining structural conversion (`BitmapNearFull`, root transition), branch collapse (`BranchSplitRemove`), or retry exhaustion (`MAX_RETRIES = 64`) occurs, the writer cleanly drops its in-flight guard and falls back to `write_root_covered` behind `fallback_mutex`, guaranteeing starvation freedom.
 
 **Safety and liveness, with the instrument that falsifies each.**
 
@@ -330,6 +335,7 @@ An external review confirmed Phases 1–6b and identified five gaps: narrow-poin
       * **Phase 4C (#858):** Linear leaf capacity expansion (`Leaf1`..`Leaf7`) and `LeafB1` value subarray growth execute under the parent version lock with zero-leak speculative abort recycling via `free_bytes_unpublished`, eliminating `CapExpansionClass` and reducing `map` fallbacks from 14.75% to 4.21%.
       * **Phase 4B (#863):** Immediate key expansion and immediate-to-leaf conversion execute under the parent version lock, eliminating `FallbackImmediateConversion` (1.4% $\rightarrow$ 0.00%).
       * **Phase 4E (#873):** Linear leaf full split and branch conversion (`LeafFull`) execute under the parent version lock with unpublished subtree recycling, eliminating `CapExpansionLeafFull` (1.7% set / 2.8% map $\rightarrow$ 0.00%) and reducing insert structural fallbacks to **0.00%**.
+      * **Phase 4F (Refs #568):** Remove-side capacity shrinks, demotions to immediate, and immediate inlining execute under the parent version lock with unpublished buffer recycling, eliminating `CapExpansionRemove` to **0.00%** on both `set` and `map`.
 
 Performance targets, measured per BENCHMARKING.md before any claim: point lookup < 15 ns on random 64-bit keys (target); < 9.5 bytes/key on dense/clustered distributions (target). `benches/comparative.rs` and `benches/concurrency.rs` implement comparison against `RoaringBitmap`, `hashbrown::HashMap` and `std::collections::BTreeMap`, plus multithreaded scaling models (1..16 threads).
 

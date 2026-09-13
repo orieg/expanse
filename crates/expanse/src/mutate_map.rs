@@ -104,7 +104,7 @@ fn write_map_immed(a: &NodeAlloc, edge: &mut Edge, kb: u8, entries: &[(u64, u64)
 /// downgrades.
 pub(crate) struct StackEntries32 {
     buf: [core::mem::MaybeUninit<(u64, u64)>; 32],
-    len: usize,
+    pub(crate) len: usize,
 }
 
 impl StackEntries32 {
