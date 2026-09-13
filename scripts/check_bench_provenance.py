@@ -117,6 +117,7 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/hot_comparison/scripts/run_strings.py",
     "docs/benchmarks/masstree_comparison/scripts/run_all.py",
     "docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py",
+    "docs/benchmarks/rocksdb_memtable/scripts/locate_profile.py",
     "docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py",
     "docs/benchmarks/set_algebra/scripts/harvest_domain.py",
     "scripts/bench_baseline.py",
@@ -381,7 +382,7 @@ def check_artifact(rel: str, obj) -> list[str]:
     if rel in NO_ROUNDS:
         return problems
 
-    if Path(rel).name.startswith("counters_"):
+    if Path(rel).name.startswith(("counters_", "profile_")):
         if not obj.get("rounds_raw"):
             problems.append(f"{rel}: missing `rounds_raw`")
         return problems
@@ -684,7 +685,8 @@ def artifacts(bench: Path | None = None) -> list[Path]:
         # and the per-pin directories a pin-sensitive arm needs -- were never
         # checked.
         seen = {p.resolve() for p in out}
-        out.extend(p for p in sorted(res.rglob("counters_*.json")) if p.resolve() not in seen)
+        out.extend(p for pattern in ("counters_*.json", "profile_*.json")
+                   for p in sorted(res.rglob(pattern)) if p.resolve() not in seen)
     return out
 
 
@@ -1228,8 +1230,9 @@ def _self_test() -> int:
         nested.mkdir(parents=True)
         (nested / "counters_probe.json").write_text("{}")
         (Path(td) / SUITES[0] / "results" / "counters_root.json").write_text("{}")
+        (nested / "profile_probe.json").write_text("{}")
         names = sorted(p.name for p in artifacts(Path(td)))
-    if names != ["counters_probe.json", "counters_root.json"]:
+    if names != ["counters_probe.json", "counters_root.json", "profile_probe.json"]:
         failures.append(f"counters artifacts under results/** were not all collected: {names}")
 
     # An interval stored as a `[lo, hi]` pair is an interval. This is the shape

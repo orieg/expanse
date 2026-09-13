@@ -75,6 +75,7 @@ on:
           - python_concurrency
           - rocksdb
           - rocksdb_concurrent
+          - rocksdb_locate_profile
           - rocksdb_concurrent_counters
           - embedded
           - embedded_memtable
@@ -1068,6 +1069,21 @@ jobs:
                   --out baseline-rocksdb_concurrent.json \
                   | tee rocksdb-concurrent.txt
                 ;;
+              "rocksdb_locate_profile")
+                # Where one idle reader's time goes inside the #802 locked region:
+                # FindLeafBlockForSeek's inclusive time less its mutex calls, and
+                # expanse_map_prev_at_or_before's, as shares of a Get. These are the
+                # frozen inputs of the narrowed-mutex arm's pre-registration. LBR
+                # call graphs, because neither the -O3 harness nor libexpanse keeps
+                # frame pointers; the tool refuses rather than switch modes.
+                make --no-print-directory -C integrations/rocksdb bench-concurrent \
+                  BENCH_CONC_ARGS="--mode idle --readers 1 --window-seconds 0.2" \
+                  > rocksdb-concurrent-smoke.txt 2>&1 \
+                  || { echo "::error::concurrent bench binary failed to build or run"; cat rocksdb-concurrent-smoke.txt; exit 1; }
+                EXPANSE_BENCH_COMMIT="$(git rev-parse HEAD)" \
+                  python3 docs/benchmarks/rocksdb_memtable/scripts/locate_profile.py --rounds 5 --out-dir . \
+                  | tee rocksdb-locate-profile.txt
+                ;;
               "rocksdb_concurrent_counters")
                 # Per-thread hardware counters on the #802 concurrent arm
                 # (AGENTS.md section 8.20.5 steps 3-5). Neither the readers'
@@ -1457,6 +1473,7 @@ jobs:
             rocksdb.txt
             rocksdb-driver.txt
             rocksdb-concurrent-counters.txt
+            rocksdb-locate-profile.txt
             python-concurrency.txt
             docs/benchmarks/llm_inference/results/bench_grammar_masks.json
             bytes-per-key-32.txt
@@ -1494,6 +1511,8 @@ jobs:
             perf-counters-*.json
             counters_*.json
             c2c_*.txt
+            profile_*.json
+            profile_*.txt
           if-no-files-found: ignore
           retention-days: 30
 
