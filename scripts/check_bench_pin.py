@@ -64,6 +64,11 @@ DIRECT_HARNESSES = {
         "owns the rounds and the timed cells of the RocksDB memtable suite, whose four "
         "published wall-clock ratios are section 12's (#868); the suite's run.sh sources "
         "the shell helper, but a by-hand run on the reference host has no such shell",
+    "docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py":
+        "owns the rounds and the timed cells of the RocksDB memtable concurrent read-scaling "
+        "arm (#802), producer of results/baseline_concurrent_reads*.json; bench_baremetal.yml "
+        "sources the shell helper before invoking it, but a by-hand run on the reference host "
+        "has no such shell",
 }
 
 # Directly-invoked scripts that time things but must NOT be pinned here, with
