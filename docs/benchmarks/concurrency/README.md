@@ -320,6 +320,29 @@ lower bound clears 1.0. `str` holds the writer mutex for the whole insert, so
 it is the α = 1 reference curve and is never a gate cell
 (workload: concurrency_writer_scaling).
 
+> [!IMPORTANT]
+> **`str` is only a cross-run control between runs that share a CPU pin, and
+> its W = 8 cell is extremely pin-sensitive.** Measured on the reference host at
+> the same commit, `str` W = 8 is **1.56–1.89 M ops/s** under the default
+> `cpu_core` pin (`0-15`, 8 P-cores *with* their SMT siblings) and
+> **0.42–0.43 M ops/s** under one-thread-per-physical-core
+> (`cpu_pin=0,2,4,6,8,10,12,14`). That is a 4.4× spread produced by placement
+> alone: four runs across three different commits split cleanly by pin and not
+> at all by commit.
+>
+> The mechanism is the arm's own design. `str` serialises every insert on the
+> writer mutex, so at W = 8 seven threads are blocked at any instant. Given 16
+> logical CPUs those threads park on CPUs nobody is working on and handoff is
+> cheap; restricted to exactly 8, they compete for the same CPUs as the one
+> thread making progress and the convoy collapses. The OLC arms are unaffected
+> because every thread there is doing work, which is the case the tighter pin
+> exists to clean up (§11.5).
+>
+> Consequences: compare a `str` cell only against a baseline taken under the
+> same pin, state the pin beside any `str` figure, and do not read a low
+> `str` W = 8 as an engine regression without checking the pin first. §8.12's
+> rule that paired figures share a workload applies to placement too.
+
 - **Phase 4C eliminated `CapExpansionClass` and moved `map` to `SCALES` at W = 2.**
   In PR #858 (`caa167e3`), linear leaf capacity expansion was made concurrent
   under parent version locks. On `map`, `CapExpansionClass` dropped from 10.53%

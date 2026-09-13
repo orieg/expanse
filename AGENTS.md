@@ -624,6 +624,17 @@ When diagnosing multi-writer scaling deficits ($C(W) < 1.0$) or attributing late
    one has to look at, and the early steps are far cheaper than the late ones.
    Running them out of order is how a plausible mechanism gets asserted and
    then implemented before anything has measured it.
+   0. **Match the pin to the arm's concurrency model, and state it.** The pin
+      in step 1 is not free of side effects: it is right for arms where every
+      thread does work, and wrong for an arm that serialises on one lock. A
+      coarse-mutex arm at W = cores keeps most of its threads blocked, and
+      those threads need CPUs of their own to park on — restricting the set to
+      one per physical core makes them compete with the one thread making
+      progress. Expanse's `str` arm moves 4.4× on that choice alone at the same
+      commit (`docs/benchmarks/concurrency/README.md` §10). A cell is therefore
+      comparable only against a baseline under the same pin, and every
+      published figure names its pin. §8.12's shared-workload rule for paired
+      figures covers placement, not only the workload.
    1. **Exclude the host first.** On a hybrid or SMT part, a plateau at
       W = physical-core-count and true coherency traffic predict the same
       shape. Re-run pinned one thread per physical core — on the reference
