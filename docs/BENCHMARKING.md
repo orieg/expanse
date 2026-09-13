@@ -1199,7 +1199,8 @@ stated. The `*_with_method` entry points return that as a fourth value, from the
 
 Precedence is most-degraded-first, so the label names the worst degradation the
 sample caused. Every producer records it beside the interval, as
-`<prefix>ci_method` next to `<prefix>ci_lower` — `ci_method`,
+`<prefix>ci_method` next to `<prefix>ci_lower`, or next to a `<prefix>ci: [lo, hi]`
+pair — `ci_method`,
 `writer_ci_method`, `scaling_factor_c_n_ci_method`, `{role}_ci_method` — and
 `null` where no interval was resampled at all (`C(1)` is 1.0 by definition; a
 column withheld because the competitor cannot represent the keys has no

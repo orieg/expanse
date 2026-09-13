@@ -426,6 +426,14 @@ jobs:
           # ratio under round-to-round drift) and the artifact shape the
           # provenance gate reads are all checkable without the reference host.
           python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py --self-test
+          # The same arm's verdicts, read against METHODOLOGY section 5.9 from
+          # the two committed runs: the run checks that refuse a deviating pin,
+          # H1's gateability on the R = 7 cell, the section 5.3 thresholds and
+          # the both-runs rule. H3 needs fit_usl's NLLS estimator, which needs
+          # scipy; where scipy is not importable the self-test checks that H3 is
+          # refused and says by name that section 5.10's H3 reading was not
+          # reproduced.
+          python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_verdicts.py --self-test
           # The #868 single-threaded driver, which replaced the shell loop that
           # could not emit a load snapshot or a raw row. Its CSV parsing and
           # refusals, its round-major interleaving (asserted at the CALL SITE,
