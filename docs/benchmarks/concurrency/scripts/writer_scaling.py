@@ -47,7 +47,16 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import bench_pin  # noqa: E402
-from bca_bootstrap import bca_bootstrap_ci  # noqa: E402
+import bca_bootstrap  # noqa: E402
+from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
+
+# The construction labels the shared estimator can return, read from the module
+# rather than re-listed here so a widened vocabulary cannot leave this file
+# asserting an old one.
+CI_METHODS = frozenset(
+    v for k, v in vars(bca_bootstrap).items()
+    if k.startswith("CI_METHOD_") and isinstance(v, str)
+)
 from bench_provenance import (  # noqa: E402
     begin_cell,
     end_cell,
@@ -284,7 +293,9 @@ def summarize_arm(
             raise ValueError(
                 f"Need at least 3 rounds for BCa bootstrap CI (AGENTS.md §8.1, §8.4), got {len(mops_samples)}"
             )
-        mean_mops, ci_lower, ci_upper = bca_bootstrap_ci(mops_samples, confidence=0.95)
+        mean_mops, ci_lower, ci_upper, mops_ci_method = bca_bootstrap_ci_with_method(
+            mops_samples, confidence=0.95
+        )
         median_mops = sorted(mops_samples)[len(mops_samples) // 2]
 
         # 2. Scaling factor C(N) via paired bootstrap across interleaved rounds
@@ -293,6 +304,10 @@ def summarize_arm(
             cn_ci_lower = 1.0
             cn_ci_upper = 1.0
             cn_median = 1.0
+            # C(1) is 1.0 by definition, not by resampling — no construction ran,
+            # so naming one would be a claim about an estimator that was never
+            # invoked (AGENTS.md §8.1).
+            cn_ci_method = None
         else:
             paired_ratios: list[float] = []
             for round_idx in range(rounds):
@@ -310,7 +325,7 @@ def summarize_arm(
                 raise ValueError(
                     f"Need at least 3 paired ratios for BCa bootstrap CI (AGENTS.md §8.1, §8.4), got {len(paired_ratios)}"
                 )
-            cn_mean, cn_ci_lower, cn_ci_upper = bca_bootstrap_ci(
+            cn_mean, cn_ci_lower, cn_ci_upper, cn_ci_method = bca_bootstrap_ci_with_method(
                 paired_ratios, confidence=0.95
             )
             cn_median = sorted(paired_ratios)[len(paired_ratios) // 2]
@@ -520,11 +535,19 @@ def summarize_arm(
             "expanse_writer_mops_mean": round(mean_mops, 4),
             "writer_ci_lower": round(ci_lower, 4),
             "writer_ci_upper": round(ci_upper, 4),
+            # Which construction produced each interval beside it, from
+            # `bca_bootstrap.CI_METHOD_*` (#880). Two intervals, so two labels:
+            # anything but `bca` means one of BCa's corrections degenerated on
+            # that sample, and the cell says so (AGENTS.md §8.1). The C(W) label
+            # is `null` at W=1, where C(1) is 1.0 by definition and nothing was
+            # resampled.
+            "writer_ci_method": mops_ci_method,
             "expanse_writer_mops_median": round(median_mops, 4),
             "scaling_factor_c_n": round(cn_mean, 4),
             "scaling_factor_c_n_mean": round(cn_mean, 4),
             "scaling_factor_c_n_ci_lower": round(cn_ci_lower, 4),
             "scaling_factor_c_n_ci_upper": round(cn_ci_upper, 4),
+            "scaling_factor_c_n_ci_method": cn_ci_method,
             "scaling_factor_c_n_median": round(cn_median, 4),
             "lock_fallbacks": median_fallbacks,
             "lock_fallbacks_median": median_fallbacks,
@@ -722,7 +745,9 @@ def run_comparison(
 
             paired_ratios.append(c_v / c_d)
 
-        mean_ratio, ci_lower, ci_upper = bca_bootstrap_ci(paired_ratios, confidence=0.95)
+        mean_ratio, ci_lower, ci_upper, ratio_ci_method = bca_bootstrap_ci_with_method(
+            paired_ratios, confidence=0.95
+        )
         median_ratio = sorted(paired_ratios)[len(paired_ratios) // 2]
         # Verdict decision rule (§8.4, §8.20):
         # A single run cannot CONFIRM; confirmation requires a second independent run across two committed artifacts.
@@ -741,6 +766,11 @@ def run_comparison(
             "ratio_c_variant_over_c_default_mean": round(mean_ratio, 4),
             "ratio_ci_lower": round(ci_lower, 4),
             "ratio_ci_upper": round(ci_upper, 4),
+            # The construction behind this verdict's interval
+            # (`bca_bootstrap.CI_METHOD_*`, #880): a SINGLE_RUN_PASS or REJECTED
+            # read off a degenerate or clamped interval is a different claim
+            # from one read off a BCa interval, so the artifact names which.
+            "ratio_ci_method": ratio_ci_method,
             "ratio_median": round(median_ratio, 4),
             "verdict": verdict,
             "paired_ratios_raw": [round(x, 6) for x in paired_ratios],
@@ -876,7 +906,9 @@ def frequency_droop_by_writers(
                 samples.append(1.0 - (f_w / f_base))
         entry: dict[str, Any] = {"n_measured": len(samples)}
         if len(samples) >= 3:
-            mean_d, ci_lo, ci_hi = bca_bootstrap_ci(samples, confidence=0.95)
+            mean_d, ci_lo, ci_hi, droop_ci_method = bca_bootstrap_ci_with_method(
+                samples, confidence=0.95
+            )
             # Verdict decision rule (sections 8.4 / 8.20): a single run cannot
             # CONFIRM, so a cleared floor is `SINGLE_RUN_PASS` pending a second
             # independent run.
@@ -892,6 +924,7 @@ def frequency_droop_by_writers(
             entry.update({
                 "droop_mean": round(mean_d, 4),
                 "droop_ci_lower": round(ci_lo, 4),
+                "droop_ci_method": droop_ci_method,
                 "droop_ci_upper": round(ci_hi, 4),
                 "verdict": verdict,
             })
@@ -1309,12 +1342,21 @@ def self_test() -> int:
     assert cell_w1["writers"] == 1
     assert cell_w1["scaling_factor_c_n"] == 1.0
     assert cell_w1["writer_ci_lower"] <= cell_w1["expanse_writer_mops_mean"] <= cell_w1["writer_ci_upper"]
+    # Every published interval names the construction that produced it (#880).
+    # At W=1 the throughput interval is resampled and so carries a label, while
+    # C(1) is 1.0 by definition and carries `None` — a label there would claim
+    # an estimator that never ran.
+    assert cell_w1["writer_ci_method"] in CI_METHODS, cell_w1["writer_ci_method"]
+    assert cell_w1["scaling_factor_c_n_ci_method"] is None, cell_w1["scaling_factor_c_n_ci_method"]
     assert len(cell_w1["counters_raw"]) == 3, f"Expected 3 counters_raw entries, got {len(cell_w1['counters_raw'])}"
     assert "position" in cell_w1["rounds_raw"][0]
     assert "position" in cell_w1["counters_raw"][0]
 
     assert cell_w2["writers"] == 2
     assert cell_w2["scaling_factor_c_n_ci_lower"] <= cell_w2["scaling_factor_c_n"] <= cell_w2["scaling_factor_c_n_ci_upper"]
+    # At W>1 the C(W) interval IS resampled, so it must name its construction.
+    assert cell_w2["scaling_factor_c_n_ci_method"] in CI_METHODS, cell_w2["scaling_factor_c_n_ci_method"]
+    assert cell_w2["writer_ci_method"] in CI_METHODS, cell_w2["writer_ci_method"]
     # Same reasoning as _assert_fallbacks_counted above, at the aggregated cell:
     # whether two writers collided in a quick run is timing, not an invariant.
     # What is deterministic is that the aggregated cell carries the counter as a

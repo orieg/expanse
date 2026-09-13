@@ -56,7 +56,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
-from bca_bootstrap import bca_bootstrap_ci  # noqa: E402
+from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
 from bench_baseline import validate_host_description  # noqa: E402
 
 SYS_PMU_ROOT = Path("/sys/devices")
@@ -355,10 +355,19 @@ def overlap(a: Tuple[float, float], b: Tuple[float, float]) -> bool:
     return a[0] <= b[1] and b[0] <= a[1]
 
 
-def _interval(samples: Sequence[float]) -> Tuple[float, float, float, float]:
-    """(mean, lo, hi, width%) — one condition's BCa 95% interval."""
-    mean, lo, hi = bca_bootstrap_ci(list(samples), num_resamples=RESAMPLES)
-    return mean, lo, hi, ((hi - lo) / mean * 100 if mean else float("nan"))
+def _interval(samples: Sequence[float]) -> Tuple[float, float, float, float, str]:
+    """(mean, lo, hi, width%, ci_method) — one condition's BCa 95% interval.
+
+    `ci_method` is the construction the shared estimator actually used
+    (`bca_bootstrap.CI_METHOD_*`, #880). It is returned rather than dropped
+    because this script's whole output is overlap judgements between intervals,
+    and an overlap read off a degenerate or clamped interval is not the same
+    statement as one read off a BCa interval (AGENTS.md §8.1).
+    """
+    mean, lo, hi, ci_method = bca_bootstrap_ci_with_method(
+        list(samples), num_resamples=RESAMPLES
+    )
+    return mean, lo, hi, ((hi - lo) / mean * 100 if mean else float("nan")), ci_method
 
 
 def analyse(
@@ -374,9 +383,9 @@ def analyse(
     rows: List[Dict[str, Any]] = []
     for arm in sorted(set(p_cores) & set(unpinned) & set(e_cores)):
         p, u, e = p_cores[arm], unpinned[arm], e_cores[arm]
-        p_mean, p_lo, p_hi, p_width = _interval(p)
-        u_mean, u_lo, u_hi, u_width = _interval(u)
-        e_mean, e_lo, e_hi, e_width = _interval(e)
+        p_mean, p_lo, p_hi, p_width, p_method = _interval(p)
+        u_mean, u_lo, u_hi, u_width, u_method = _interval(u)
+        e_mean, e_lo, e_hi, e_width, e_method = _interval(e)
         rows.append(
             {
                 "arm": arm,
@@ -386,6 +395,9 @@ def analyse(
                 "p_cores_ci": [p_lo, p_hi],
                 "unpinned_ci": [u_lo, u_hi],
                 "e_cores_ci": [e_lo, e_hi],
+                "p_cores_ci_method": p_method,
+                "unpinned_ci_method": u_method,
+                "e_cores_ci_method": e_method,
                 "p_cores_ci_width_pct": p_width,
                 "unpinned_ci_width_pct": u_width,
                 "e_cores_ci_width_pct": e_width,
@@ -553,13 +565,14 @@ def analyse_conditions(
         arms &= set(collected.get(name, {}))
     rows: List[Dict[str, Any]] = []
     for arm in sorted(arms):
-        r_mean, r_lo, r_hi, _ = _interval(collected[ref][arm])
+        r_mean, r_lo, r_hi, _, _ = _interval(collected[ref][arm])
         conds: Dict[str, Dict[str, Any]] = {}
         for name in names:
-            mean, lo, hi, width = _interval(collected[name][arm])
+            mean, lo, hi, width, ci_method = _interval(collected[name][arm])
             conds[name] = {
                 "mean_ns": mean,
                 "ci": [lo, hi],
+                "ci_method": ci_method,
                 "ci_width_pct": width,
                 "n": len(collected[name][arm]),
                 "ratio_over_reference": mean / r_mean if r_mean else float("nan"),

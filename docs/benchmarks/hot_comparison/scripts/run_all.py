@@ -33,7 +33,7 @@ RESULTS_DIR = BASE_DIR / "results"
 CRATE = REPO_ROOT / "crates" / "expanse-hot-bench" / "Cargo.toml"
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
-from bca_bootstrap import bca_bootstrap_ratio_ci  # noqa: E402
+from bca_bootstrap import bca_bootstrap_ratio_ci_with_method  # noqa: E402
 from bench_ab import ab_provenance, interleave  # noqa: E402
 from bench_provenance import (  # noqa: E402
     add_load, begin_cell, end_cell, estimators, git_sha, host_facts, load_snapshot, raw_rounds,
@@ -221,7 +221,7 @@ def sweep_latency(env: dict, quick: bool) -> dict:
                         # Ratio of two independently sampled means, gated on the
                         # CI lower bound (§8.4). Above 1.0 means Expanse is
                         # faster, since HOT is the numerator.
-                        ratio, lo, hi = bca_bootstrap_ratio_ci(hot, exp, num_resamples=2000, seed=42)
+                        ratio, lo, hi, ci_method = bca_bootstrap_ratio_ci_with_method(hot, exp, num_resamples=2000, seed=42)
                         head = rows[0]
                         cells.append({
                             "workload_id": head["workload_id"],
@@ -234,6 +234,12 @@ def sweep_latency(env: dict, quick: bool) -> dict:
                             "expanse_ns_per_op_median": round(sorted(exp)[len(exp) // 2], 4),
                             "hot_over_expanse": round(ratio, 4),
                             "ci_lower": round(lo, 4), "ci_upper": round(hi, 4),
+                            # Which construction produced that interval, from
+                            # `bca_bootstrap.CI_METHOD_*` (#880). Anything but
+                            # `bca` means a correction degenerated on this
+                            # sample, and the cell says so rather than leaving a
+                            # reader to assume (AGENTS.md §8.1).
+                            "ci_method": ci_method,
                             # A cell whose interval spans parity claims no winner.
                             "verdict": ("BOUNDARY_RESULT" if lo <= 1.0 <= hi
                                         else ("expanse" if lo > 1.0 else "hot")),
@@ -269,7 +275,7 @@ def sweep_sensitivity(env: dict, quick: bool) -> dict:
                                  SENSITIVITY_DIST, str(n), order], env)
                 hot = [r["hot_ns_per_op"] for r in rows]
                 exp = [r["expanse_ns_per_op"] for r in rows]
-                ratio, lo, hi = bca_bootstrap_ratio_ci(hot, exp, num_resamples=2000, seed=42)
+                ratio, lo, hi, ci_method = bca_bootstrap_ratio_ci_with_method(hot, exp, num_resamples=2000, seed=42)
                 head = rows[0]
                 latency.append({
                     "workload_id": head["workload_id"], "pillar": pillar, "arm": arm,
@@ -280,6 +286,7 @@ def sweep_sensitivity(env: dict, quick: bool) -> dict:
                     "expanse_ns_per_op_median": round(sorted(exp)[len(exp) // 2], 4),
                     "hot_over_expanse": round(ratio, 4),
                     "ci_lower": round(lo, 4), "ci_upper": round(hi, 4),
+                    "ci_method": ci_method,
                     "verdict": ("BOUNDARY_RESULT" if lo <= 1.0 <= hi
                                 else ("expanse" if lo > 1.0 else "hot")),
                     "rounds_raw": raw_rounds(rows, LATENCY_RAW),
@@ -341,12 +348,13 @@ def reduce_throughput(rows: list, arm: str, writers: int, readers: int) -> dict:
         exp = [r[f"expanse_{role}_mops"] for r in rows if r[f"expanse_{role}_mops"] is not None]
         if not hot or not exp:
             continue
-        ratio, lo, hi = bca_bootstrap_ratio_ci(exp, hot, num_resamples=2000, seed=42)
+        ratio, lo, hi, ci_method = bca_bootstrap_ratio_ci_with_method(exp, hot, num_resamples=2000, seed=42)
         cell[f"rowex_{role}_mops_median"] = round(sorted(hot)[len(hot) // 2], 4)
         cell[f"expanse_{role}_mops_median"] = round(sorted(exp)[len(exp) // 2], 4)
         cell[f"{role}_expanse_over_rowex"] = round(ratio, 4)
         cell[f"{role}_ci_lower"] = round(lo, 4)
         cell[f"{role}_ci_upper"] = round(hi, 4)
+        cell[f"{role}_ci_method"] = ci_method
         cell[f"{role}_verdict"] = ("BOUNDARY_RESULT" if lo <= 1.0 <= hi
                                    else ("expanse" if lo > 1.0 else "rowex"))
         print(f"  {role:<6} {arm:>3} W={writers:<2} R={readers:<2} "

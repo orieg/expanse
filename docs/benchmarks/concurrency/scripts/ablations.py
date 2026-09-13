@@ -46,7 +46,7 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import bench_pin  # noqa: E402
-from bca_bootstrap import bca_bootstrap_ci  # noqa: E402
+from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
 from bench_provenance import add_load, host_facts, load_snapshot, git_sha  # noqa: E402
 
 CRATE = REPO_ROOT / "crates" / "expanse-hot-bench" / "Cargo.toml"
@@ -121,8 +121,13 @@ def summarise(variant: str, writers: int, readers: int, rows: list[dict], seed: 
         vals = [r[key] for r in rows if r.get(key) is not None]
         if len(vals) < 3:
             return None
-        mean, lo, hi = bca_bootstrap_ci(vals, seed=seed)
-        return {"mean": mean, "ci_lower": lo, "ci_upper": hi, "n": len(vals)}
+        mean, lo, hi, ci_method = bca_bootstrap_ci_with_method(vals, seed=seed)
+        # `ci_method` names the construction that produced the interval
+        # (`bca_bootstrap.CI_METHOD_*`, #880): anything but `bca` means one of
+        # BCa's corrections degenerated on this cell's rounds, which the
+        # artifact states rather than leaving a reader to assume (AGENTS.md §8.1).
+        return {"mean": mean, "ci_lower": lo, "ci_upper": hi, "ci_method": ci_method,
+                "n": len(vals)}
 
     return {
         "workload_id": ARMS[arm],
@@ -152,9 +157,15 @@ def run_all(env: dict, seed: int, quick: bool, arm: str = "map",
         "rounds": ("one round per process, interleaving the variants per round"
                    if processes else "the harness's own round loop, one process per cell"),
         "processes": processes,
+        # The resampling seed is part of the estimator, not of the data: without
+        # it the committed interval cannot be recomputed from `rounds_raw`, only
+        # approximated. Recorded so a reader can reproduce the construction
+        # `ci_method` names.
+        "seed": seed,
         "estimators": {
             "point": "mean over rounds of the harness's per-round M ops/s",
-            "interval": "BCa 95% over rounds, bca_bootstrap.py",
+            "interval": "BCa 95% over rounds, bca_bootstrap.py; `ci_method` per cell "
+                        "names the construction (bca_bootstrap.CI_METHOD_*)",
         },
         "core_pin": os.environ.get("EXPANSE_BENCH_PIN_APPLIED", "unset"),
         "loads": [load_snapshot("start")],

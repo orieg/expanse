@@ -45,7 +45,10 @@ from typing import Any, Dict, List, Sequence, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
-from bca_bootstrap import bca_bootstrap_ci, bca_bootstrap_ratio_ci  # noqa: E402
+from bca_bootstrap import (  # noqa: E402
+    bca_bootstrap_ci_with_method,
+    bca_bootstrap_ratio_ci_with_method,
+)
 from bench_baseline import per_iteration_samples, validate_host_description  # noqa: E402
 
 GROUP_ALGEBRA = "domain_set_algebra_overhead"
@@ -129,13 +132,20 @@ def paired(reps: Sequence[Dict[str, List[float]]], group: str, num_arm: str, den
         pooled_num.extend(a)
         pooled_den.extend(b)
     lo, hi = percentile_bootstrap(ratios)
-    r_pooled, plo, phi = bca_bootstrap_ratio_ci(pooled_num, pooled_den, num_resamples=2000)
+    r_pooled, plo, phi, pooled_method = bca_bootstrap_ratio_ci_with_method(
+        pooled_num, pooled_den, num_resamples=2000
+    )
     return {
         "num_ns": statistics.fmean(num_means),
         "den_ns": statistics.fmean(den_means),
         "ratio": statistics.fmean(ratios),
         "ci": [lo, hi],
         "ci_pooled_bca": [plo, phi],
+        # Which construction produced `ci_pooled_bca`, from
+        # `bca_bootstrap.CI_METHOD_*` (#880). `ci` beside it is a percentile
+        # bootstrap over the per-repetition ratios and is not a BCa interval at
+        # all, which is why only the pooled one carries a method.
+        "ci_pooled_bca_method": pooled_method,
         "ratio_pooled": r_pooled,
         "per_rep_ratio": ratios,
         "per_rep_num_ns": num_means,
@@ -151,8 +161,9 @@ def arm_mean_ci(reps: Sequence[Dict[str, List[float]]], group: str, arm: str) ->
         s = need(rep, group, arm, i)
         pooled.extend(s)
         per_rep.append(statistics.fmean(s))
-    mean, lo, hi = bca_bootstrap_ci(pooled, num_resamples=2000)
-    return {"mean_ns": mean, "ci_pooled_bca": [lo, hi], "per_rep_mean_ns": per_rep}
+    mean, lo, hi, method = bca_bootstrap_ci_with_method(pooled, num_resamples=2000)
+    return {"mean_ns": mean, "ci_pooled_bca": [lo, hi], "ci_pooled_bca_method": method,
+            "per_rep_mean_ns": per_rep}
 
 
 def r4(x: float) -> float:
@@ -165,8 +176,12 @@ def build_sections(reps: Sequence[Dict[str, List[float]]]) -> Dict[str, Any]:
             "Paired ratio domain/raw per repetition; `ci` is a 95% percentile bootstrap over the per-repetition "
             "ratios, so it carries between-run variance. Criterion's own within-run interval is far tighter and "
             "cannot see that, which is why single-run figures appeared separated when they were not (AGENTS.md 8.4). "
-            "`ci_pooled_bca` is the two-sample BCa interval over all repetitions' pooled samples, recorded, not gating. "
-            "Per-repetition means are kept so the aggregate can be re-derived (harvest_domain.py)."
+            "`ci_pooled_bca` is the two-sample BCa interval over all repetitions' pooled samples, recorded, not gating, "
+            "and `ci_pooled_bca_method` names the construction that produced it (`bca_bootstrap.CI_METHOD_*`, #880): "
+            "anything but `bca` means one of BCa's corrections degenerated on that sample. "
+            "Per-repetition means are kept so the aggregate can be re-derived (harvest_domain.py). The pooled samples "
+            "themselves are not kept, so `ci_pooled_bca` cannot be recomputed from this file and the method label is "
+            "recorded from the run rather than derivable after it."
         )
     }
     for key, (raw_arm, dom_arm, _pop) in PARITY_PAIRS.items():
@@ -177,6 +192,7 @@ def build_sections(reps: Sequence[Dict[str, List[float]]]) -> Dict[str, Any]:
             "ratio": r4(p["ratio"]),
             "ci": [r4(p["ci"][0]), r4(p["ci"][1])],
             "ci_pooled_bca": [r4(p["ci_pooled_bca"][0]), r4(p["ci_pooled_bca"][1])],
+            "ci_pooled_bca_method": p["ci_pooled_bca_method"],
             "verdict": "overhead resolved" if (p["ci"][0] > 1.0 or p["ci"][1] < 1.0) else "not resolved",
             "per_rep_ratio": [r4(r) for r in p["per_rep_ratio"]],
             "per_rep_raw_ns": [round(v, 1) for v in p["per_rep_den_ns"]],
@@ -193,6 +209,7 @@ def build_sections(reps: Sequence[Dict[str, List[float]]]) -> Dict[str, Any]:
                 "speedup": round(p["ratio"], 3),
                 "ci": [round(p["ci"][0], 3), round(p["ci"][1], 3)],
                 "ci_pooled_bca": [round(p["ci_pooled_bca"][0], 3), round(p["ci_pooled_bca"][1], 3)],
+                "ci_pooled_bca_method": p["ci_pooled_bca_method"],
                 "population": pop,
                 "per_rep_speedup": [round(r, 4) for r in p["per_rep_ratio"]],
             }
@@ -209,6 +226,8 @@ def build_sections(reps: Sequence[Dict[str, List[float]]]) -> Dict[str, Any]:
             f"{100_000 / res100['mean_ns'] * 1e3:.1f} M keys/s. Pooled BCa 95% of the N=10k scan: "
             f"[{res10['ci_pooled_bca'][0] / 1e3:.2f}, {res10['ci_pooled_bca'][1] / 1e3:.2f}] us."
         ),
+        "ci_pooled_bca_method_10k": res10["ci_pooled_bca_method"],
+        "ci_pooled_bca_method_100k": res100["ci_pooled_bca_method"],
         "per_rep_scan_ns_10k": [round(v, 1) for v in res10["per_rep_mean_ns"]],
         "per_rep_scan_ns_100k": [round(v, 1) for v in res100["per_rep_mean_ns"]],
     }

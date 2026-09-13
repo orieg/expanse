@@ -110,7 +110,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from bca_bootstrap import bca_bootstrap_ci  # noqa: E402
+from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
 from bench_provenance import add_load, host_facts, load_snapshot  # noqa: E402
 from perf_counters import (  # noqa: E402
     Preflight,
@@ -569,10 +569,15 @@ def interval_over(samples: list[float]) -> dict:
     """The per-op mean with its BCa 95% interval, or a note when there are too few."""
     if len(samples) < 3:
         return {"per_op_mean": (sum(samples) / len(samples)) if samples else None,
-                "ci_lower": None, "ci_upper": None, "samples": samples,
+                "ci_lower": None, "ci_upper": None, "ci_method": None, "samples": samples,
                 "note": "fewer than three samples counted; no interval (BCa needs a jackknife)"}
-    mean, lo, hi = bca_bootstrap_ci(samples, num_resamples=2000, seed=42)
-    return {"per_op_mean": mean, "ci_lower": lo, "ci_upper": hi, "samples": samples}
+    mean, lo, hi, ci_method = bca_bootstrap_ci_with_method(samples, num_resamples=2000, seed=42)
+    # `ci_method` names the construction that produced the interval
+    # (`bca_bootstrap.CI_METHOD_*`, #880): anything but `bca` means one of BCa's
+    # corrections degenerated on these repeats, which a counter cell states
+    # rather than leaving a reader to assume (AGENTS.md §8.1).
+    return {"per_op_mean": mean, "ci_lower": lo, "ci_upper": hi, "ci_method": ci_method,
+            "samples": samples}
 
 
 def collect(cell: Cell, repeats: int, events: list[str], pin: list[str],

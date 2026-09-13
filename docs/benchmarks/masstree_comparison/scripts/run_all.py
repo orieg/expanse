@@ -39,7 +39,7 @@ RESULTS_DIR = BASE_DIR / "results"
 CRATE = REPO_ROOT / "crates" / "expanse-hot-bench" / "Cargo.toml"
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
-from bca_bootstrap import bca_bootstrap_ratio_ci  # noqa: E402
+from bca_bootstrap import bca_bootstrap_ratio_ci_with_method  # noqa: E402
 from bench_ab import ab_provenance, interleave  # noqa: E402
 from bench_provenance import (  # noqa: E402
     add_load, begin_cell, end_cell, estimators, git_sha, host_facts, load_snapshot, raw_rounds,
@@ -230,7 +230,7 @@ def sweep_latency(env: dict, quick: bool) -> dict:
                     mt = [r["masstree_ns_per_op"] for r in rows]
                     exp = [r["expanse_ns_per_op"] for r in rows]
                     # Masstree ÷ Expanse: above 1.0 means Expanse is faster (§5).
-                    ratio, lo, hi = bca_bootstrap_ratio_ci(mt, exp, num_resamples=2000, seed=42)
+                    ratio, lo, hi, ci_method = bca_bootstrap_ratio_ci_with_method(mt, exp, num_resamples=2000, seed=42)
                     head = rows[0]
                     cells.append({
                         "workload_id": head["workload_id"], "pillar": pillar, "arm": "map", "dist": dist,
@@ -240,6 +240,12 @@ def sweep_latency(env: dict, quick: bool) -> dict:
                         "expanse_ns_per_op_median": round(sorted(exp)[len(exp) // 2], 4),
                         "masstree_over_expanse": round(ratio, 4),
                         "ci_lower": round(lo, 4), "ci_upper": round(hi, 4),
+                        # Which construction produced that interval, from
+                        # `bca_bootstrap.CI_METHOD_*` (#880). Anything but `bca`
+                        # means a correction degenerated on this sample, and the
+                        # cell says so rather than leaving a reader to assume
+                        # (AGENTS.md §8.1).
+                        "ci_method": ci_method,
                         "verdict": verdict(lo, hi),
                         "rounds_raw": raw_rounds(rows, LATENCY_RAW),
                     })
@@ -271,17 +277,20 @@ def sweep_string_latency(env: dict, quick: bool) -> dict:
                     }
                     if head["masstree_not_representable"] == 0 and head["masstree_ns_per_op"] is not None:
                         mt = [r["masstree_ns_per_op"] for r in rows]
-                        ratio, lo, hi = bca_bootstrap_ratio_ci(mt, exp, num_resamples=2000, seed=42)
+                        ratio, lo, hi, ci_method = bca_bootstrap_ratio_ci_with_method(mt, exp, num_resamples=2000, seed=42)
                         cell.update({
                             "masstree_ns_per_op_median": round(sorted(mt)[len(mt) // 2], 4),
                             "masstree_over_expanse": round(ratio, 4),
                             "ci_lower": round(lo, 4), "ci_upper": round(hi, 4),
+                            "ci_method": ci_method,
                             "verdict": verdict(lo, hi),
                         })
                         print(f"  {pillar:<12} str {dist:<9} N={n:<8} k={k:<5} ratio {ratio:.3f} [{lo:.3f}, {hi:.3f}]")
                     else:
+                        # No interval, so no construction to name.
                         cell.update({"masstree_ns_per_op_median": None, "masstree_over_expanse": None,
-                                     "ci_lower": None, "ci_upper": None, "verdict": "NOT_REPRESENTABLE_MASSTREE"})
+                                     "ci_lower": None, "ci_upper": None, "ci_method": None,
+                                     "verdict": "NOT_REPRESENTABLE_MASSTREE"})
                         print(f"  {pillar:<12} str {dist:<9} N={n:<8} k={k:<5} Expanse {exp_med:.2f} ns/op; "
                               f"Masstree: {head['masstree_not_representable']} keys beyond MASSTREE_MAXKEYLEN — column withheld")
                     cells.append(cell)
@@ -313,13 +322,14 @@ def sweep_sensitivity(env: dict, quick: bool) -> dict:
                     rows = run_cell([str(exe), pillar, dist, str(n), order, table], env)
                     mt = [r["masstree_ns_per_op"] for r in rows]
                     exp = [r["expanse_ns_per_op"] for r in rows]
-                    ratio, lo, hi = bca_bootstrap_ratio_ci(mt, exp, num_resamples=2000, seed=42)
+                    ratio, lo, hi, ci_method = bca_bootstrap_ratio_ci_with_method(mt, exp, num_resamples=2000, seed=42)
                     latency.append({
                         "workload_id": rows[0]["workload_id"], "pillar": pillar, "arm": arm, "dist": dist,
                         "order": order, "table": table, "population": rows[0]["population"], "rounds": len(rows),
                         "masstree_ns_per_op_median": round(sorted(mt)[len(mt) // 2], 4),
                         "expanse_ns_per_op_median": round(sorted(exp)[len(exp) // 2], 4),
                         "masstree_over_expanse": round(ratio, 4), "ci_lower": round(lo, 4), "ci_upper": round(hi, 4),
+                        "ci_method": ci_method,
                         "verdict": verdict(lo, hi),
                         "rounds_raw": raw_rounds(rows, LATENCY_RAW),
                     })
@@ -349,12 +359,13 @@ def reduce_throughput(rows: list, arm: str, writers: int, readers: int) -> dict:
         if not mt or not exp:
             continue
         # Expanse ÷ Masstree throughput: above 1.0 means Expanse is faster (§5).
-        ratio, lo, hi = bca_bootstrap_ratio_ci(exp, mt, num_resamples=2000, seed=42)
+        ratio, lo, hi, ci_method = bca_bootstrap_ratio_ci_with_method(exp, mt, num_resamples=2000, seed=42)
         cell[f"masstree_{role}_mops_median"] = round(sorted(mt)[len(mt) // 2], 4)
         cell[f"expanse_{role}_mops_median"] = round(sorted(exp)[len(exp) // 2], 4)
         cell[f"{role}_expanse_over_masstree"] = round(ratio, 4)
         cell[f"{role}_ci_lower"] = round(lo, 4)
         cell[f"{role}_ci_upper"] = round(hi, 4)
+        cell[f"{role}_ci_method"] = ci_method
         cell[f"{role}_verdict"] = verdict(lo, hi)
         print(f"  {role:<6} {arm:>3} W={writers:<2} R={readers:<2} Masstree {cell[f'masstree_{role}_mops_median']:>7.3f}  "
               f"Expanse {cell[f'expanse_{role}_mops_median']:>7.3f} Mops/s  ratio {ratio:.3f} [{lo:.3f}, {hi:.3f}] {cell[f'{role}_verdict']}")

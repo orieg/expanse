@@ -4,6 +4,17 @@ scripts/recompute_and_patch_json.py — Offline statistical derivation and verif
 Recomputes ratio_vs_art as the mean of paired per-round ratios and its BCa 95%
 bootstrap confidence interval from stored samples, ensuring the point estimate strictly
 lies within the CI for every cell across all timing artifacts.
+
+This script REWRITES the committed artifacts in place, and its output is not
+interpreter-independent: CPython 3.12 gave `sum()` Neumaier compensated
+summation, which moves `theta_hat = sum(data) / n` by up to a ULP, and a ULP
+there moves the bias correction's `less_count` and so the selected percentile
+index. The committed intervals were produced on an older interpreter; across
+this repository's five BCa-bearing suites, re-running on 3.14 reproduces 976 of
+1,230 cells and moves 254. So run it only as part of a re-measurement whose
+numbers are re-published under a fresh provenance tag (AGENTS.md §8.7) — never
+as a tidy-up pass over artifacts that are already published.
+`docs/BENCHMARKING.md` carries the measurement.
 """
 
 from __future__ import annotations
@@ -17,7 +28,7 @@ REPO_ROOT = BASE_DIR.parent.parent.parent
 RESULTS_DIR = BASE_DIR / "results"
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
-from bca_bootstrap import bca_bootstrap_ci
+from bca_bootstrap import bca_bootstrap_ci_with_method
 
 
 def process_timing_file(filename: str) -> None:
@@ -46,9 +57,17 @@ def process_timing_file(filename: str) -> None:
         ratios = [row["ratio_vs_art"] for row in rows if row.get("ratio_vs_art") is not None]
         if not ratios:
             continue
-        theta_hat, lo, hi = bca_bootstrap_ci(ratios, confidence=0.95, num_resamples=2000, seed=42)
+        theta_hat, lo, hi, ci_method = bca_bootstrap_ci_with_method(
+            ratios, confidence=0.95, num_resamples=2000, seed=42
+        )
         r["ratio_vs_art"] = theta_hat
         r["ratio_bca_ci_95"] = [lo, hi]
+        # Which construction produced the interval, from
+        # `bca_bootstrap.CI_METHOD_*` (#880). The key is named
+        # `ratio_bca_ci_95`, so a cell where BCa's corrections did not survive
+        # the sample has to say so rather than let the key name assert it
+        # (AGENTS.md §8.1).
+        r["ratio_bca_ci_95_method"] = ci_method
         assert lo <= theta_hat <= hi, f"Point estimate {theta_hat} outside CI [{lo}, {hi}] in {filename} {r}"
 
     with open(p, "w", encoding="utf-8") as f:
