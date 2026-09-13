@@ -14,10 +14,10 @@
 // | `probes_and_reuse` | 50,000 probes drawn as `keys[rng() % N]`, so every probe names a key that IS in the structure. The same probe vector is reused by `readrandom` and `seekrandom`, and by all three arms |
 // | `hit_rate` | **~9% (measured 8.98%)**, not ~100% as "every probe names a present key" suggests. Entries carry `seq = 1000 + i` for i in [0, 100000), so sequence numbers run 1,000..100,999, while every `LookupKey` is built at snapshot 10,000. MVCC hides every entry newer than the query, so only the 9,001 keys with `1000 + i <= 10000` can be found — 9.001% of the population, and 8.98% of probes hit in practice. `readrandom` is therefore predominantly a miss-path measurement |
 // | `miss_gen_method` | n/a — no miss keys are generated. The ~91% of probes that miss are *present* keys made invisible by the snapshot above, which descends to the key's own leaf and fails on sequence rather than terminating early in a different expanse. That is a different shape from a key-space miss and is not the same thing AGENTS.md §8.6's miss-shape rule asks for |
-// | `value_dereference` | none — the `Get` callback takes `const char*` unnamed and only increments a counter, so no arm reads the stored value. The counter is printed, so the probe loop is not dead code, but the payload is never touched on any arm |
-// | `measured_region` | `chrono::high_resolution_clock` around each benchmark's probe or insert loop. Entry encoding, `LookupKey` construction and iterator construction are outside it. The three reps live to the end of `main`, so no destructor runs inside a timed window |
-// | `arm_symmetry` | identical `BenchBytewiseComparator`, identical probe and key streams, one `Arena` per arm. `ReferenceSkipListRep` models a variable-height `InlineSkipList` tower (8 B key pointer + `height` × 8 B, E[height] = 4/3) after the #372 strawman retraction; `ReferenceVectorRep` models an unindexed append vector. Single-threaded throughout: no arm is thread-safe and none is driven concurrently (see `bench_memtable_concurrent.cc` for the concurrent arm) |
-// | `statistics` | point estimates only, one invocation per run. The suite runner invokes this binary five times and `scripts/rocksdb_bench_harvest.py` turns the rounds into BCa 95% intervals and two-sample ratio intervals; this binary emits no interval |
+// | `value_dereference` | none — the `Get` callback takes `const char*` unnamed and only increments a counter, so no arm reads the stored value. In `--arm` mode that counter is printed as the `consumed` column, so the probe loop's result is consumed; in the human-readable mode it is not printed at all, and the loop survives only because `Get` is a virtual call into a separate object file. `seekrandom` consumes nothing in either mode: `Seek` returns void and the cursor it moves is never read |
+// | `measured_region` | `chrono::high_resolution_clock` around each benchmark's probe or insert loop. Entry encoding, `LookupKey` construction and iterator construction are outside it. The three reps live to the end of `main`, so no destructor runs inside a timed window. In `--arm <phase>` mode the fixture build still runs in full (it is what the read phases need) and only the named phase is timed and reported, so each phase starts from the same state instead of being warmed by the phases before it in a single process |
+// | `arm_symmetry` | identical `BenchBytewiseComparator`, identical probe and key streams, one `Arena` per arm. `ReferenceSkipListRep` models a variable-height `InlineSkipList` tower (8 B key pointer + `height` × 8 B, E[height] = 4/3) after the #372 strawman retraction; `ReferenceVectorRep` models an unindexed append vector. All three implementations of a phase are timed inside ONE invocation, so a published ratio's two arms share one host state; the `consumed` column is the same for all of them and the driver refuses a round where it is not, which is what makes a scan that terminated early visible rather than merely fast. Within `prefixscan` the iterator arm runs before the batch arm and warms the data for it — pre-existing, and unchanged here. Single-threaded throughout: no arm is thread-safe and none is driven concurrently (see `bench_memtable_concurrent.cc` for the concurrent arm) |
+// | `statistics` | point estimates only; this binary emits no interval. `docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py` owns the rounds — one `--arm <phase>` process per measured cell, phases interleaved within each round — and turns them into BCa 95% per-arm intervals plus **paired** per-round ratio intervals, with a load snapshot and a busy-CPU delta per cell (#868) |
 // | `verdict` | published in `docs/benchmarks/rocksdb_memtable/METHODOLOGY.md` §2, and **stale**: measured at `6cb64b45`, since when `Insert`, `Get`, `ScanBatch` and the iterator have all changed against a newer engine. Re-measurement is tracked in #868 |
 //
 // ## The hit rate is a property of the fixture, not a choice
@@ -33,6 +33,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -339,10 +341,101 @@ static const char* BenchEncodeEntry(
     return buf;
 }
 
-int main() {
+// ---------------------------------------------------------------------------
+// Invocation modes (#868)
+// ---------------------------------------------------------------------------
+//
+// No arguments: the full human-readable table, byte-identical to what this
+// binary printed before `--arm` existed, so `make bench` and
+// `scripts/generate_bench_svg.py` are untouched.
+//
+// `--arm <name> [--round N]`: build the fixture, time **only** that phase, and
+// print one CSV row per implementation. One phase per invocation is what gives
+// the Python driver a process boundary per measured cell, which is the only way
+// `load.foreign_busy_cpus` can be attributed to a cell rather than to a whole
+// sweep (`scripts/bench_provenance.py`). `bench_memtable_concurrent.cc` was
+// built that way for the same reason.
+//
+// The three implementations stay together inside one invocation: a published
+// ratio's two arms must be timed under the same host state, and a boundary per
+// implementation would make each ratio a comparison across two contention
+// windows rather than one.
+static std::string g_arm;          // empty => every phase (human-readable mode)
+static bool g_csv = false;
+static int g_round = 0;
+
+// True when the named phase is to be timed and reported this invocation.
+static bool want(const char* arm) { return g_arm.empty() || g_arm == arm; }
+
+// One CSV row. `ops`/`elapsed_s`/`mops` are zero on a census row and
+// `bytes_total`/`bytes_per_entry` are zero on a timed row; the driver rejects a
+// row that carries both or neither, so a phase that silently produced nothing
+// cannot reach an artifact as a zero (AGENTS.md section 8.1).
+struct CsvRow {
+    std::string arm;
+    std::string implementation;
+    uint64_t ops;
+    double elapsed_s;
+    double mops;
+    // The phase's own output counter, written to stdout so the timed loop's
+    // result is consumed rather than discarded (AGENTS.md section 8.6).
+    // `readrandom`'s is the `Get` callback count — incremented but never
+    // printed in the human-readable mode, which is the one mode this column
+    // fixes. `seekrandom` has none: `Seek` returns void and only moves the
+    // iterator's cursor, so it is 0 and that remains a DCE exposure held off
+    // only by the virtual call into a separate object file.
+    uint64_t consumed;
+    uint64_t bytes_total;
+    double bytes_per_entry;
+};
+static std::vector<CsvRow> g_rows;
+
+static void emit_timed(const char* arm, const char* impl, uint64_t ops, double secs,
+                       uint64_t consumed) {
+    if (!g_csv) return;
+    g_rows.push_back({arm, impl, ops, secs, (ops / secs) / 1e6, consumed, 0, 0.0});
+}
+
+static void emit_census(const char* impl, uint64_t entries, uint64_t bytes) {
+    if (!g_csv) return;
+    g_rows.push_back({"memory", impl, 0, 0.0, 0.0, 0, bytes,
+                      static_cast<double>(bytes) / static_cast<double>(entries)});
+}
+
+int main(int argc, char** argv) {
+    static const char* kArms[] = {"fillrandom", "readrandom", "seekrandom",
+                                  "prefixscan", "memory"};
+    for (int i = 1; i < argc; ++i) {
+        std::string a = argv[i];
+        if (a == "--arm" && i + 1 < argc) {
+            g_arm = argv[++i];
+            g_csv = true;
+        } else if (a == "--round" && i + 1 < argc) {
+            g_round = std::atoi(argv[++i]);
+        } else {
+            std::cerr << "unknown argument: " << a << "\n"
+                      << "usage: bench_memtable [--arm <"
+                      << "fillrandom|readrandom|seekrandom|prefixscan|memory"
+                      << "> [--round N]]\n";
+            return 2;
+        }
+    }
+    if (g_csv) {
+        bool known = false;
+        for (const char* a : kArms) known = known || (g_arm == a);
+        if (!known) {
+            // Refuse by name rather than running the whole suite under an
+            // unrecognised arm (AGENTS.md section 8.1).
+            std::cerr << "unknown --arm " << g_arm << "\n";
+            return 2;
+        }
+    }
+
+    if (!g_csv) {
     std::cout << "==========================================================================" << std::endl;
     std::cout << " RocksDB Pluggable MemTable Microbenchmark Suite: Expanse vs SkipList" << std::endl;
     std::cout << "==========================================================================" << std::endl;
+    }
 
     const int N = 100000; // 100K entries
     const int val_size = 64; // 64-byte payload
@@ -381,7 +474,9 @@ int main() {
     // ------------------------------------------------------------------------
     // Benchmark 1: Fill Random (Inserts)
     // ------------------------------------------------------------------------
-    std::cout << "\n--- Benchmark 1: fillrandom (N = " << N << ") ---" << std::endl;
+    // Always executed: the fill IS the build, so every read phase needs it.
+    // Timed in every mode; reported only when it is the selected arm.
+    if (!g_csv) std::cout << "\n--- Benchmark 1: fillrandom (N = " << N << ") ---" << std::endl;
 
     ExpanseMemTableRep expanse_rep(cmp, &arena_expanse, nullptr, nullptr, 64);
     ReferenceSkipListRep skiplist_rep(cmp, &arena_skiplist);
@@ -414,14 +509,21 @@ int main() {
     double vector_insert_sec = std::chrono::duration<double>(t1 - t0).count();
     double vector_insert_mops = (N / vector_insert_sec) / 1e6;
 
+    if (!g_csv) {
     std::cout << "  ExpanseMemTable: " << std::fixed << std::setprecision(2) << expanse_insert_mops << " Mops/s (" << (expanse_insert_sec * 1000.0) << " ms)" << std::endl;
     std::cout << "  SkipListRep:     " << std::fixed << std::setprecision(2) << skiplist_insert_mops << " Mops/s (" << (skiplist_insert_sec * 1000.0) << " ms)" << std::endl;
     std::cout << "  VectorRep:       " << std::fixed << std::setprecision(2) << vector_insert_mops << " Mops/s (" << (vector_insert_sec * 1000.0) << " ms)" << std::endl;
+    }
+    if (want("fillrandom")) {
+        emit_timed("fillrandom", "ExpanseMemTable", N, expanse_insert_sec, N);
+        emit_timed("fillrandom", "SkipListRep", N, skiplist_insert_sec, N);
+        emit_timed("fillrandom", "VectorRep", N, vector_insert_sec, N);
+    }
 
     // ------------------------------------------------------------------------
     // Benchmark 2: Read Random (Point Lookups)
     // ------------------------------------------------------------------------
-    std::cout << "\n--- Benchmark 2: readrandom (Point Lookups, 50K queries) ---" << std::endl;
+    if (!g_csv) std::cout << "\n--- Benchmark 2: readrandom (Point Lookups, 50K queries) ---" << std::endl;
     const int query_count = 50000;
     std::vector<LookupKey> queries;
     queries.reserve(query_count);
@@ -429,6 +531,7 @@ int main() {
         queries.emplace_back(Slice(keys[rng() % N]), 10000);
     }
 
+    if (want("readrandom")) {
     // Expanse Read
     t0 = std::chrono::high_resolution_clock::now();
     uint64_t expanse_found = 0;
@@ -471,19 +574,28 @@ int main() {
     double vector_read_mops = (query_count / vector_read_sec) / 1e6;
     double vector_read_ns = (vector_read_sec * 1e9) / query_count;
 
+    if (!g_csv) {
     std::cout << "  ExpanseMemTable: " << std::fixed << std::setprecision(2) << expanse_read_mops << " Mops/s (" << expanse_read_ns << " ns/op)" << std::endl;
     std::cout << "  SkipListRep:     " << std::fixed << std::setprecision(2) << skiplist_read_mops << " Mops/s (" << skiplist_read_ns << " ns/op)" << std::endl;
     std::cout << "  VectorRep:       " << std::fixed << std::setprecision(2) << vector_read_mops << " Mops/s (" << vector_read_ns << " ns/op)" << std::endl;
+    }
+    emit_timed("readrandom", "ExpanseMemTable", query_count, expanse_read_sec, expanse_found);
+    emit_timed("readrandom", "SkipListRep", query_count, skiplist_read_sec, skiplist_found);
+    emit_timed("readrandom", "VectorRep", query_count, vector_read_sec, vector_found);
+    }
 
     // ------------------------------------------------------------------------
     // Benchmark 3: Seek Random (Range Seeks)
     // ------------------------------------------------------------------------
-    std::cout << "\n--- Benchmark 3: seekrandom (Range Seeks, 50K queries) ---" << std::endl;
+    if (!g_csv) std::cout << "\n--- Benchmark 3: seekrandom (Range Seeks, 50K queries) ---" << std::endl;
 
+    // Built unconditionally: `prefixscan` walks the same iterators, and the
+    // construction is outside every timed window in either mode.
     std::unique_ptr<MemTableRep::Iterator> it_expanse(expanse_rep.GetIterator());
     std::unique_ptr<MemTableRep::Iterator> it_skiplist(skiplist_rep.GetIterator());
     std::unique_ptr<MemTableRep::Iterator> it_vector(vector_rep.GetIterator());
 
+    if (want("seekrandom")) {
     t0 = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < query_count; ++i) {
         it_expanse->Seek(queries[i].internal_key(), queries[i].memtable_key().data());
@@ -508,15 +620,24 @@ int main() {
     double vector_seek_sec = std::chrono::duration<double>(t1 - t0).count();
     double vector_seek_mops = (query_count / vector_seek_sec) / 1e6;
 
+    if (!g_csv) {
     std::cout << "  ExpanseMemTable: " << std::fixed << std::setprecision(2) << expanse_seek_mops << " Mops/s" << std::endl;
     std::cout << "  SkipListRep:     " << std::fixed << std::setprecision(2) << skiplist_seek_mops << " Mops/s" << std::endl;
     std::cout << "  VectorRep:       " << std::fixed << std::setprecision(2) << vector_seek_mops << " Mops/s" << std::endl;
+    }
+    // `consumed` is 0 on every seek arm: `Seek` returns void and the cursor it
+    // moves is never read, so there is no output to write out.
+    emit_timed("seekrandom", "ExpanseMemTable", query_count, expanse_seek_sec, 0);
+    emit_timed("seekrandom", "SkipListRep", query_count, skiplist_seek_sec, 0);
+    emit_timed("seekrandom", "VectorRep", query_count, vector_seek_sec, 0);
+    }
 
     // ------------------------------------------------------------------------
     // Benchmark 4: Prefix Scan (Sequential Traversal)
     // ------------------------------------------------------------------------
-    std::cout << "\n--- Benchmark 4: prefixscan (Sequential Scan across 100K entries) ---" << std::endl;
+    if (!g_csv) std::cout << "\n--- Benchmark 4: prefixscan (Sequential Scan across 100K entries) ---" << std::endl;
 
+    if (want("prefixscan")) {
     t0 = std::chrono::high_resolution_clock::now();
     it_expanse->SeekToFirst();
     uint64_t expanse_scan_count = 0;
@@ -566,15 +687,26 @@ int main() {
     double vector_scan_sec = std::chrono::duration<double>(t1 - t0).count();
     double vector_scan_mops = (vector_scan_count / vector_scan_sec) / 1e6;
 
+    if (!g_csv) {
     std::cout << "  ExpanseMemTable (Iterator): " << std::fixed << std::setprecision(2) << expanse_scan_mops << " Mops/s" << std::endl;
     std::cout << "  ExpanseMemTable (Batch):    " << std::fixed << std::setprecision(2) << expanse_batch_mops << " Mops/s" << std::endl;
     std::cout << "  SkipListRep:                " << std::fixed << std::setprecision(2) << skiplist_scan_mops << " Mops/s" << std::endl;
     std::cout << "  VectorRep:                  " << std::fixed << std::setprecision(2) << vector_scan_mops << " Mops/s" << std::endl;
+    }
+    // Each scan arm's op count IS its entry count, so `ops` and `consumed`
+    // agree here; the driver checks that they do, which is what makes a scan
+    // that stopped early visible rather than merely fast.
+    emit_timed("prefixscan", "ExpanseMemTable (Iterator)", expanse_scan_count, expanse_scan_sec, expanse_scan_count);
+    emit_timed("prefixscan", "ExpanseMemTable (Batch)", expanse_batch_scan_count, expanse_batch_sec, expanse_batch_scan_count);
+    emit_timed("prefixscan", "SkipListRep", skiplist_scan_count, skiplist_scan_sec, skiplist_scan_count);
+    emit_timed("prefixscan", "VectorRep", vector_scan_count, vector_scan_sec, vector_scan_count);
+    }
 
     // ------------------------------------------------------------------------
     // Benchmark 5: Memory Density & Footprint Analysis
     // ------------------------------------------------------------------------
-    std::cout << "\n--- Memory Density & Footprint Analysis ---" << std::endl;
+    // Always computed: deterministic allocator accounting, no timed window.
+    if (!g_csv) std::cout << "\n--- Memory Density & Footprint Analysis ---" << std::endl;
     size_t mem_expanse = expanse_rep.ApproximateMemoryUsage();
     size_t mem_skiplist = skiplist_rep.ApproximateMemoryUsage();
     size_t mem_vector = vector_rep.ApproximateMemoryUsage();
@@ -583,15 +715,46 @@ int main() {
     double bytes_per_key_skiplist = static_cast<double>(mem_skiplist) / N;
     double bytes_per_key_vector = static_cast<double>(mem_vector) / N;
 
+    if (!g_csv) {
     std::cout << "  ExpanseMemTable: " << (mem_expanse / (1024.0 * 1024.0)) << " MB (" << std::fixed << std::setprecision(1) << bytes_per_key_expanse << " B/entry)" << std::endl;
     std::cout << "  SkipListRep:     " << (mem_skiplist / (1024.0 * 1024.0)) << " MB (" << std::fixed << std::setprecision(1) << bytes_per_key_skiplist << " B/entry)" << std::endl;
     std::cout << "  VectorRep:       " << (mem_vector / (1024.0 * 1024.0)) << " MB (" << std::fixed << std::setprecision(1) << bytes_per_key_vector << " B/entry)" << std::endl;
     std::cout << "  => Key Density Advantage vs SkipList: " << std::fixed << std::setprecision(2)
               << (bytes_per_key_skiplist / bytes_per_key_expanse) << "x Higher Key Density in RAM!" << std::endl;
+    }
+    if (want("memory")) {
+        emit_census("ExpanseMemTable", N, mem_expanse);
+        emit_census("SkipListRep", N, mem_skiplist);
+        emit_census("VectorRep", N, mem_vector);
+    }
 
+    if (!g_csv) {
     std::cout << "\n==========================================================================" << std::endl;
     std::cout << " Microbenchmark Completed Successfully!" << std::endl;
     std::cout << "==========================================================================" << std::endl;
+    }
+
+    if (g_csv) {
+        // Full precision on `elapsed_s`: the driver recomputes Mops/s from
+        // `ops / elapsed_s` and cross-checks it against the `mops` column, so
+        // a rounded seconds field would make the two disagree by construction.
+        std::cout << "# rocksdb_memtable_single_threaded\n";
+        std::cout << "arm,implementation,round,ops,elapsed_s,mops,consumed,bytes_total,bytes_per_entry\n";
+        for (const CsvRow& r : g_rows) {
+            std::cout << r.arm << "," << r.implementation << "," << g_round << ","
+                      << r.ops << ","
+                      << std::setprecision(12) << std::fixed << r.elapsed_s << ","
+                      << std::setprecision(9) << r.mops << ","
+                      << r.consumed << "," << r.bytes_total << ","
+                      << std::setprecision(6) << r.bytes_per_entry << "\n";
+        }
+        if (g_rows.empty()) {
+            // Unreachable while every declared arm emits rows; if it is ever
+            // reached the arm produced nothing and must not look like a pass.
+            std::cerr << "arm " << g_arm << " produced no rows\n";
+            return 1;
+        }
+    }
 
     return 0;
 }
