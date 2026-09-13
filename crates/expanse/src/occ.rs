@@ -1203,7 +1203,7 @@ pub(crate) const NUM_EPOCH_STRIPES: usize = 2;
 /// Decoupled from `MAX_WRITER_SLOTS` (64) to bound the per-wrapper memory footprint
 /// to 16.0 KiB on Linux (24.0 KiB on macOS) at S=16.
 #[cfg(all(feature = "std", not(loom)))]
-pub(crate) const NUM_FREELIST_STRIPES: usize = 16;
+pub(crate) const NUM_FREELIST_STRIPES: usize = 64;
 #[cfg(all(feature = "std", loom))]
 pub(crate) const NUM_FREELIST_STRIPES: usize = 2;
 
