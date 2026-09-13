@@ -35,7 +35,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from bca_bootstrap import bca_bootstrap_ci  # noqa: E402
+from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
 from bench_provenance import add_load, host_facts, load_snapshot, git_sha  # noqa: E402
 
 MODES = ("spin", "park")
@@ -113,7 +113,7 @@ def one_cell(exe: Path, a: int, b: int | None, mode: str, trips: int) -> dict:
 def summarise(label: str, kind: str, a: int, b: int | None, mode: str,
               rows: list[dict], seed: int) -> dict:
     ns = [r["ns_per_transfer"] for r in rows]
-    mean, lo, hi = bca_bootstrap_ci(ns, seed=seed)
+    mean, lo, hi, ci_method = bca_bootstrap_ci_with_method(ns, seed=seed)
     return {
         "workload_id": WORKLOAD_ID,
         "label": label,
@@ -122,7 +122,11 @@ def summarise(label: str, kind: str, a: int, b: int | None, mode: str,
         "cpu_b": b,
         "mode": mode,
         "repeats": len(rows),
-        "ns_per_transfer": {"mean": mean, "ci_lower": lo, "ci_upper": hi},
+        # `ci_method` names the construction that produced the interval
+        # (`bca_bootstrap.CI_METHOD_*`, #880): anything but `bca` means one of
+        # BCa's corrections degenerated on this pair's repeats (AGENTS.md §8.1).
+        "ns_per_transfer": {"mean": mean, "ci_lower": lo, "ci_upper": hi,
+                            "ci_method": ci_method},
         "rounds_raw": rows,
     }
 

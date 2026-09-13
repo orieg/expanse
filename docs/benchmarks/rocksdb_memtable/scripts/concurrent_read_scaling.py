@@ -44,7 +44,7 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import bench_provenance as prov  # noqa: E402
-from bca_bootstrap import bca_bootstrap_ci  # noqa: E402
+from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
 
 BENCH = REPO_ROOT / "integrations" / "rocksdb" / "build" / "bench_memtable_concurrent"
 DEFAULT_OUT = REPO_ROOT / "docs" / "benchmarks" / "rocksdb_memtable" / "results" / "baseline_concurrent_reads.json"
@@ -131,9 +131,9 @@ def scaling_ratios(rows: list[dict], mode: str) -> dict:
             out[f"S({R})"] = {"point": None, "ci": None, "n": len(per_round),
                               "why_no_interval": "fewer than 3 paired rounds"}
             continue
-        point, lo, hi = bca_bootstrap_ci(per_round)
-        out[f"S({R})"] = {"point": point, "ci": [lo, hi], "n": len(per_round),
-                          "rounds_raw": per_round}
+        point, lo, hi, ci_method = bca_bootstrap_ci_with_method(per_round)
+        out[f"S({R})"] = {"point": point, "ci": [lo, hi], "ci_method": ci_method,
+                          "n": len(per_round), "rounds_raw": per_round}
     return out
 
 
@@ -302,6 +302,13 @@ def self_test() -> int:
     lo, hi = s_flat["S(4)"]["ci"]
     if not (abs(lo - 1.0) < 1e-9 and abs(hi - 1.0) < 1e-9):
         fails.append(f"flat S(4) interval should be degenerate at 1.0, got [{lo}, {hi}]")
+    # And the cell must SAY it is degenerate. A ratio that is identically 1.0 in
+    # every round gives a one-point bootstrap distribution, so BCa's corrections
+    # are vacuous; an artifact that records `bca` there is claiming a
+    # construction that did not happen (AGENTS.md §8.1, #880).
+    if s_flat["S(4)"].get("ci_method") != "degenerate":
+        fails.append(f"flat S(4) must be labelled degenerate, got "
+                     f"{s_flat['S(4)'].get('ci_method')!r}")
     # Pairing matters: the same marginals with the ratio varying per round must
     # still produce a ratio near 4, which an unpaired treatment would smear.
     linear = []
@@ -312,6 +319,21 @@ def self_test() -> int:
     s_lin = scaling_ratios(linear, "paced")
     if abs(s_lin["S(4)"]["point"] - 4.0) > 1e-9:
         fails.append(f"paired S(4) under drift: {s_lin['S(4)']['point']} (pairing lost?)")
+    if s_lin["S(4)"].get("ci_method") != "degenerate":
+        fails.append(f"paired S(4) under exact 4x drift is still a one-point bootstrap, "
+                     f"got {s_lin['S(4)'].get('ci_method')!r}")
+    # A cell whose ratio actually varies between rounds is the `bca` case, and
+    # must be labelled as one: a cell list where every label reads `degenerate`
+    # would also satisfy the two checks above.
+    jittered = []
+    for rd, (t1, t4) in enumerate(((1.0, 3.6), (1.1, 4.6), (0.9, 3.4),
+                                   (1.05, 4.3), (1.2, 4.5))):
+        jittered.append({"round": rd, "writer_mode": "paced", "readers": 1, "read_mops": t1})
+        jittered.append({"round": rd, "writer_mode": "paced", "readers": 4, "read_mops": t4})
+    s_jit = scaling_ratios(jittered, "paced")
+    if s_jit["S(4)"].get("ci_method") != "bca":
+        fails.append(f"a varying S(4) should be a clean BCa interval, got "
+                     f"{s_jit['S(4)'].get('ci_method')!r}")
     # Too few rounds: report why, never a degenerate interval.
     few = [{"round": 0, "writer_mode": "idle", "readers": 1, "read_mops": 1.0},
            {"round": 0, "writer_mode": "idle", "readers": 2, "read_mops": 2.0}]

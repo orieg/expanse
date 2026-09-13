@@ -57,7 +57,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from bca_bootstrap import bca_bootstrap_ci  # noqa: E402
+from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
 
 # The counters #455 R0 names. The first group is portable; the second is
 # Intel-specific and simply does not exist on other microarchitectures, which
@@ -651,12 +651,17 @@ def summarise(samples: list[float]) -> dict:
             "point": (sum(samples) / len(samples)) if samples else None,
             "ci_lower": None,
             "ci_upper": None,
+            "ci_method": None,
             "status": f"n<{MIN_RUNS}: no interval",
         }
-    point, lo, hi = bca_bootstrap_ci(
+    point, lo, hi, ci_method = bca_bootstrap_ci_with_method(
         samples, confidence=CONFIDENCE, num_resamples=NUM_RESAMPLES, seed=SEED
     )
-    return {"n": len(samples), "point": point, "ci_lower": lo, "ci_upper": hi, "status": "ok"}
+    # `ci_method` names the construction that produced the interval
+    # (`bca_bootstrap.CI_METHOD_*`, #880): anything but `bca` means one of BCa's
+    # corrections degenerated on these runs (AGENTS.md §8.1).
+    return {"n": len(samples), "point": point, "ci_lower": lo, "ci_upper": hi,
+            "ci_method": ci_method, "status": "ok"}
 
 
 # --------------------------------------------------------------------------

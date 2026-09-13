@@ -36,7 +36,7 @@ RESULTS_DIR = BASE_DIR / "results"
 CRATE = REPO_ROOT / "crates" / "expanse-hot-bench" / "Cargo.toml"
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
-from bca_bootstrap import bca_bootstrap_ratio_ci  # noqa: E402
+from bca_bootstrap import bca_bootstrap_ratio_ci_with_method  # noqa: E402
 from bench_provenance import (  # noqa: E402
     add_load, estimators, git_sha, host_facts, raw_rounds,
 )
@@ -158,11 +158,16 @@ def sweep_latency(env: dict, quick: bool) -> dict:
                             # Ratio of two independently sampled means, gated on
                             # the CI lower bound (§8.4). Above 1.0 means Expanse
                             # is faster, since HOT is the numerator.
-                            ratio, lo, hi = bca_bootstrap_ratio_ci(hot, exp, num_resamples=2000, seed=42)
+                            ratio, lo, hi, ci_method = bca_bootstrap_ratio_ci_with_method(hot, exp, num_resamples=2000, seed=42)
                             cell.update({
                                 "hot_ns_per_op_median": round(sorted(hot)[len(hot) // 2], 4),
                                 "hot_over_expanse": round(ratio, 4),
                                 "ci_lower": round(lo, 4), "ci_upper": round(hi, 4),
+                                # Which construction produced that interval
+                                # (`bca_bootstrap.CI_METHOD_*`, #880): anything
+                                # but `bca` means a correction degenerated on
+                                # this sample (AGENTS.md §8.1).
+                                "ci_method": ci_method,
                                 "verdict": ("BOUNDARY_RESULT" if lo <= 1.0 <= hi
                                             else ("expanse" if lo > 1.0 else "hot")),
                             })
@@ -175,6 +180,8 @@ def sweep_latency(env: dict, quick: bool) -> dict:
                             cell.update({
                                 "hot_ns_per_op_median": None,
                                 "hot_over_expanse": None, "ci_lower": None, "ci_upper": None,
+                                # No interval, so no construction to name.
+                                "ci_method": None,
                                 "verdict": "NOT_REPRESENTABLE_HOT",
                                 "rounds_raw": raw_rounds(rows, LATENCY_RAW),
                             })
@@ -222,11 +229,12 @@ def sweep_sensitivity(env: dict, quick: bool) -> dict:
                 }
                 if head["hot_not_representable"] == 0:
                     hot = [r["hot_ns_per_op"] for r in rows]
-                    ratio, lo, hi = bca_bootstrap_ratio_ci(hot, exp, num_resamples=2000, seed=42)
+                    ratio, lo, hi, ci_method = bca_bootstrap_ratio_ci_with_method(hot, exp, num_resamples=2000, seed=42)
                     cell.update({
                         "hot_ns_per_op_median": round(sorted(hot)[len(hot) // 2], 4),
                         "hot_over_expanse": round(ratio, 4),
                         "ci_lower": round(lo, 4), "ci_upper": round(hi, 4),
+                        "ci_method": ci_method,
                         "verdict": ("BOUNDARY_RESULT" if lo <= 1.0 <= hi
                                     else ("expanse" if lo > 1.0 else "hot")),
                     })
@@ -234,7 +242,7 @@ def sweep_sensitivity(env: dict, quick: bool) -> dict:
                           f"ratio {ratio:.3f} [{lo:.3f}, {hi:.3f}]")
                 else:
                     cell.update({"hot_ns_per_op_median": None, "hot_over_expanse": None,
-                                 "ci_lower": None, "ci_upper": None,
+                                 "ci_lower": None, "ci_upper": None, "ci_method": None,
                                  "verdict": "NOT_REPRESENTABLE_HOT"})
                 latency.append(cell)
     return {"memory": memory, "latency": latency}

@@ -72,7 +72,10 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from bca_bootstrap import bca_bootstrap_ci, bca_bootstrap_ratio_ci  # noqa: E402
+from bca_bootstrap import (  # noqa: E402
+    bca_bootstrap_ci_with_method,
+    bca_bootstrap_ratio_ci_with_method,
+)
 
 SCHEMA = "expanse.baseline.v1"
 
@@ -309,7 +312,7 @@ def arm_interval(
             }
         )
         return out
-    point, lo, hi = bca_bootstrap_ci(
+    point, lo, hi, ci_method = bca_bootstrap_ci_with_method(
         samples, confidence=confidence, num_resamples=num_resamples, seed=seed
     )
     if not (lo <= point <= hi):
@@ -325,6 +328,12 @@ def arm_interval(
             "ci_upper_ns": hi,
             "ci_width_ns": hi - lo,
             "ci_rel_width_pct": ((hi - lo) / point * 100.0) if point else None,
+            # Which construction produced the interval, from
+            # `bca_bootstrap.CI_METHOD_*` (#880). A §8.4 verdict read off a
+            # clamped or degenerate interval is a different claim from one read
+            # off a BCa interval, so the artifact names which rather than
+            # leaving a reader to assume (AGENTS.md §8.1).
+            "ci_method": ci_method,
             "status": "OK",
         }
     )
@@ -409,7 +418,7 @@ def gate_speedup(
         numerator, denominator = base["samples_ns"], head["samples_ns"]
     else:
         numerator, denominator = head["samples_ns"], base["samples_ns"]
-    point, lo, hi = bca_bootstrap_ratio_ci(
+    point, lo, hi, ci_method = bca_bootstrap_ratio_ci_with_method(
         numerator,
         denominator,
         confidence=confidence,
@@ -434,6 +443,9 @@ def gate_speedup(
         "speedup": point,
         "ci_lower": lo,
         "ci_upper": hi,
+        # The construction behind the interval this verdict was read off
+        # (`bca_bootstrap.CI_METHOD_*`, #880).
+        "ci_method": ci_method,
         "floor": floor_speedup,
         "direction": direction,
     }

@@ -1176,9 +1176,61 @@ point estimate.
 | `INSUFFICIENT_SAMPLES` | `n` below `--min-n`; reported, never silently passed |
 
 A head-vs-baseline speedup is a ratio of two independently sampled means, so
-`--against` uses a two-sample BCa (`bca_bootstrap_ratio_ci`) and gates the
-speedup's CI lower bound against `--floor-speedup`. Speedup is defined so
-higher is always better, which makes rule 12 apply verbatim.
+`--against` uses a two-sample BCa (`bca_bootstrap_ratio_ci_with_method`) and
+gates the speedup's CI lower bound against `--floor-speedup`. Speedup is defined
+so higher is always better, which makes rule 12 apply verbatim.
+
+### Which construction produced an interval (`ci_method`)
+
+BCa's two corrections can each degenerate on a sample, and
+`scripts/bca_bootstrap.py`'s defensive clamps then bound the interval rather
+than failing. The clamps land on the right answer, but a three-value return
+could not say *which* construction produced the endpoints, so "this is a BCa
+interval" was an assumption a reader made rather than something the artifact
+stated. The `*_with_method` entry points return that as a fourth value, from the
+`CI_METHOD_*` vocabulary:
+
+| `ci_method` | What happened |
+|---|---|
+| `bca` | neither correction degenerated |
+| `bc` | the jackknife acceleration denominator vanished; what remains is Efron's bias-corrected percentile interval, one correction short of BCa |
+| `clamped` | a defensive clamp bound the result — the observed statistic sits outside the bootstrap support, or the adjusted-percentile denominator was pinned away from zero |
+| `degenerate` | the bootstrap distribution is a single point; both endpoints are that point and the corrections are vacuous rather than wrong |
+
+Precedence is most-degraded-first, so the label names the worst degradation the
+sample caused. Every producer records it beside the interval, as
+`<prefix>ci_method` next to `<prefix>ci_lower` — `ci_method`,
+`writer_ci_method`, `scaling_factor_c_n_ci_method`, `{role}_ci_method` — and
+`null` where no interval was resampled at all (`C(1)` is 1.0 by definition; a
+column withheld because the competitor cannot represent the keys has no
+interval to label). `scripts/check_bench_provenance.py` holds the census: every
+module importing the estimator is declared a producer or exempt with a reason, a
+producer cannot call the bare three-value entry point or drop the fourth value,
+and an artifact that labels one interval labels all of them.
+
+**Artifacts measured before this existed are not relabelled.** Their intervals
+can be recomputed from `rounds_raw`, and they do reproduce exactly — all 1,230
+of them, across 32 committed artifacts in five suites, every one labelled `bca` —
+but only with CPython's pre-3.12 `sum()` accumulation restored.
+
+That caveat is the reason, and it is worth knowing on its own: **a committed
+interval is not interpreter-independent.** CPython 3.12 gave `sum()` Neumaier
+compensated summation for floats, which moves `theta_hat = sum(data) / n` by up
+to a ULP — and a ULP there moves the bias correction's `less_count`, hence `z0`,
+hence the *selected percentile index*, which is a jump rather than a rounding
+difference. Recomputing the same 1,230 cells on Python 3.14 with no shim
+reproduces 976 and moves 254; most of those move in the last bit, but one
+`baseline_concurrent_reads` CI lower bound moves 4.5394 → 4.5349, about 0.1%.
+
+Two consequences. A recomputation script (`art_comparison`'s
+`recompute_and_patch_json.py` rewrites its artifacts in place) is **not** a safe
+tidy-up pass over published numbers — run it only as part of a re-measurement
+published under a fresh provenance tag (§8.7). And backfilling the construction
+label into already-published artifacts would mean committing a second
+accumulation path for the estimator, which is the duplication #880 removed, in
+order to add a field whose derived value is `bca` on every cell. So the label
+arrives with each suite's next re-run instead, and the gate's output names the
+artifacts still waiting for it.
 
 `--num-resamples` below 1,000 is rejected rather than defaulted around, and
 `n < 3` cannot form a jackknife at all — both surface as errors or an explicit

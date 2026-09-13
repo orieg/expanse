@@ -407,6 +407,8 @@ def run_self_tests():
 
     # 2b. One implementation: the interval must be the shared module's, not a
     #     second copy of the estimator living here (#880).
+    # bare-entry-point: the assertion IS that the three-value entry point and the
+    # labelled one agree, so it has to call both; this is not a producer site.
     assert bootstrap_ci_bca(skewed)[:3] == bca_bootstrap.bca_bootstrap_ci(
         skewed, confidence=0.95, num_resamples=DEFAULT_RESAMPLES, seed=BOOTSTRAP_SEED
     ), "the harvester must delegate to scripts/bca_bootstrap.py"

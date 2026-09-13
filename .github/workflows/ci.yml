@@ -131,6 +131,13 @@ jobs:
               # driver's self-test never ran, and the change landed unexercised.
               # #874's gate floor is what refused to let that pass silently.
               - 'docs/benchmarks/**/scripts/**'
+              # `check_bench_provenance.py`'s construction-label census sweeps
+              # every `.py` that imports the shared BCa estimator, and a new
+              # interval producer could land outside `scripts/` and the suite
+              # driver directories. Only the Python files, so this does not drag
+              # `lint` into every binding or integration change.
+              - 'bindings/**/*.py'
+              - 'integrations/**/*.py'
               - 'tests/test_perf_report.py'
               - '.github/workflows/**'
               - '.github/bench-suites.json'
