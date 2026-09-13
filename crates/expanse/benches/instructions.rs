@@ -919,6 +919,32 @@ fn sync_map_remove(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
     black_box(removed)
 }
 
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_set)]
+fn sync_set_churn(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
+    let (set, probes) = built;
+    let mut sink = 0u64;
+    for &k in &probes {
+        sink ^= u64::from(set.insert(black_box(k)));
+        set.insert(black_box(k ^ 1));
+        sink ^= u64::from(set.remove(black_box(k ^ 1)));
+    }
+    core::mem::forget(set);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_set)]
+fn sync_set_remove(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
+    let (set, probes) = built;
+    let mut removed = 0u64;
+    for &k in &probes {
+        removed += u64::from(set.remove(black_box(k)));
+    }
+    core::mem::forget(set);
+    black_box(removed)
+}
+
 /// Callgrind simulator settings for this harness.
 ///
 /// **`--cache-sim=yes` is stated here, not inherited.** iai-callgrind's runner
@@ -1002,7 +1028,9 @@ library_benchmark_group!(
         sync_map_get,
         sync_set_contains,
         sync_map_churn,
-        sync_map_remove
+        sync_map_remove,
+        sync_set_churn,
+        sync_set_remove
 );
 
 library_benchmark_group!(
