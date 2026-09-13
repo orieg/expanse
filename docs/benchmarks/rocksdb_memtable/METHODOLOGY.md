@@ -129,27 +129,29 @@ Appended beside §5.3, which is not rewritten (§8.7). Both runs are committed b
 >
 > Step 0 landed in #903, after #875 locked this section, and it says the one-sibling pin is the wrong choice for a coarse-mutex arm whose thread count equals the core count, because the blocked threads then compete for the CPUs of the one thread making progress. That does not license adopting the pin that ran in place of the one pre-registered. §5.3's gates are evaluated on the pin they were locked against (§8.19); changing it is a new pre-registration with fresh rounds, not a re-reading of these.
 >
-> **Status: the §5.3 verdicts are deferred pending re-run** under the pre-registered pin, tracked in [#802](https://github.com/orieg/expanse/issues/802). Nothing is retracted. Every figure in this section was measured at `0ed8f5e5` under pin `0-15`, its provenance is stated correctly above, and it stays as committed, so `.github/superseded-figures.json` is unchanged. What is withheld is reading those figures as the pre-registered outcome: the verdict labels below describe the `0-15` runs only, and §5.4's routing is not acted on from them. The re-run is a `workflow_dispatch` of `bench_baremetal.yml` with `benchmark_suite=rocksdb_concurrent` and `cpu_pin=0,2,4,6,8,10,12,14`, as two independent runs (`docs/BENCHMARKING.md` rule 18). The pre-registered verdict is read from that re-run alone, and the `0-15` artifacts stay committed beside it.
+> **Status: the §5.3 verdicts were deferred pending re-run** under the pre-registered pin, tracked in [#802](https://github.com/orieg/expanse/issues/802). **That re-run is §5.8, and the deferral is discharged there.** No figure is retracted. Every figure in this section was measured at `0ed8f5e5` under pin `0-15`, its provenance is stated correctly above, and it stays as committed, so `.github/superseded-figures.json` is unchanged. What is withheld is reading those figures as the pre-registered outcome: the verdict labels below describe the `0-15` runs only, and §5.4's routing is not acted on from them. The re-run is a `workflow_dispatch` of `bench_baremetal.yml` with `benchmark_suite=rocksdb_concurrent` and `cpu_pin=0,2,4,6,8,10,12,14`, as two independent runs (`docs/BENCHMARKING.md` rule 18). The pre-registered verdict is read from that re-run alone, and the `0-15` artifacts stay committed beside it.
 
 | hypothesis | gate | run 1 | run 2 | verdict |
 |---|---|---|---|---|
-| **H1** the mutex binds the read path | paced `S(7)` CI upper < 2.0 | 0.748 [0.733, 0.756] | 0.768 [0.762, 0.771] | **PASS** in both, under pin `0-15`; pre-registered verdict deferred (note above) |
-| **H2** readers serialise against each other | idle `S(7)` CI upper < 3.5 | 0.631 [0.627, 0.633] | 0.620 [0.611, 0.629] | **PASS** in both, under pin `0-15`; pre-registered verdict deferred (note above) |
-| **H3** the bound and the fit agree | fitted `alpha` interval overlaps predicted | see below | see below | **partly — `alpha` matches at its ceiling, `beta` does not exist in the bound** (under pin `0-15`; pre-registered verdict deferred) |
+| **H1** the mutex binds the read path | paced `S(7)` CI upper < 2.0 | 0.748 [0.733, 0.756] | 0.768 [0.762, 0.771] | ~~**PASS** in both, under pin `0-15`~~ — **superseded by §5.8: not gated.** The writer reached 200,116–225,044 and 213,714–216,479 inserts/s in this cell against 250,000 offered, and §5.5 does not gate such a cell |
+| **H2** readers serialise against each other | idle `S(7)` CI upper < 3.5 | 0.631 [0.627, 0.633] | 0.620 [0.611, 0.629] | **PASS** in both, under pin `0-15`; the pre-registered verdict is in §5.8 |
+| **H3** the bound and the fit agree | fitted `alpha` interval overlaps predicted | see below | see below | ~~**partly — `alpha` matches at its ceiling, `beta` does not exist in the bound** (under pin `0-15`)~~ — **superseded by §5.8: not gated.** Its instrument is the paced `S(7)` cell and that cell's duty |
 
 Aggregate read throughput, Mops/s, mean of 5 rounds (run 1):
 
 | writer | R=1 | R=2 | R=4 | R=7 |
 |---|---|---|---|---|
 | idle (control) | 4.085 | 3.065 | 2.783 | 2.576 |
-| paced (250k/s offered, 5.45% measured duty) | 1.340 | 0.965 | 0.959 | 1.002 |
+| paced (250k/s offered, 5.45% measured duty averaged over `R`: 5.65% at `R ≤ 4`, 4.84% at `R = 7`; §5.8) | 1.340 | 0.965 | 0.959 | 1.002 |
 | free (never gated) | 0.209 | 0.360 | 0.686 | 0.981 |
 
-**H1 and H2 both PASS under pin `0-15`, which is §5.4's first row:** readers serialise against each other, and the locate phase is the constraint. A shared lock over it is the cheapest candidate. That routing is not acted on until the pre-registered pin has been run (deviation note above).
+~~**H1 and H2 both PASS under pin `0-15`, which is §5.4's first row:** readers serialise against each other, and the locate phase is the constraint. A shared lock over it is the cheapest candidate. That routing is not acted on until the pre-registered pin has been run (deviation note above).~~ **Superseded by §5.8.** H1 is not gated in any run, so no §5.4 row applies. H2's reading stands on its own: with no writer, readers serialise against each other. That the locate phase is *the* constraint, and that a shared lock over it is the cheapest candidate, rested on H1 and is not established.
 
-They pass by more than the gates asked. `S(7) < 1` in both the paced and the idle cell means aggregate read throughput *falls* as readers are added — not merely failing to scale. The idle control is what makes that attributable: with no writer at all, seven readers deliver 0.63× what one delivers, so the serialisation is reader-against-reader and not reader-against-writer.
+~~They pass by more than the gates asked.~~ H2 passes by more than its gate asked; the paced cell is measured but not gated (§5.8). `S(7) < 1` in both the paced and the idle cell means aggregate read throughput *falls* as readers are added — not merely failing to scale. The idle control is what makes that attributable: with no writer at all, seven readers deliver 0.63× what one delivers, so the serialisation is reader-against-reader and not reader-against-writer.
 
-**The bound of `scripts/rocksdb_locate_bound.py` held as an upper bound and its floor was refuted.** It predicts `S(W) = clamp(K, 1, W)`, so its minimum is 1.0: adding readers can never hurt. Measured 0.748. The bound's own docstring claims only a ceiling on an idealised handoff — zero lock transfer cost, no convoying, a reader's unlocked remainder perfectly overlapped — and the measurement says the last two of those are false. The ceiling claim survives; the implicit floor does not, and the bound carries no term for the cost that produces it.
+**The bound of `scripts/rocksdb_locate_bound.py` held as an upper bound and its floor was refuted.** It predicts `S(W) = clamp(K, 1, W)`, so its minimum is 1.0: adding readers can never hurt. Measured 0.748 in the paced cell, and 0.631 [0.627, 0.633] in the idle cell, which has no writer and so does not depend on the pacing question §5.8 raises. The bound's own docstring claims only a ceiling on an idealised handoff — zero lock transfer cost, no convoying, a reader's unlocked remainder perfectly overlapped — and the measurement says the last two of those are false. The ceiling claim survives; the implicit floor does not, and the bound carries no term for the cost that produces it.
+
+**Superseded by §5.8: H3 is not gated.** The paragraph below is kept as written. Its predicted `alpha` reads the 5.45% duty averaged over all four paced cells, and its measured side reads the paced `S(7)` cell, whose writer missed its pace.
 
 **H3, stated without folding the residue into `alpha` (§8.20.4).** At the measured 5.45% duty the bound predicts `alpha = 1.0` (a fully-locked read path). To reproduce the measurement, USL needs either `alpha = 1.394` with `beta = 0`, which `scripts/fit_usl.py` treats as inadmissible because `alpha > 1`, or `alpha = 1` with **`beta = 0.0563`**. So the contention parameter matches the prediction at its ceiling, and there is a substantial coherency term the derivation contains nothing for. That belongs on the unexplained line. Naming it: the candidates are cache-line traffic on the mutex word, lock convoying, and scheduler wake-up cost, none of which has been measured here — no counter was collected, so this is a list of hypotheses and not an attribution.
 
@@ -159,4 +161,51 @@ They pass by more than the gates asked. `S(7) < 1` in both the paced and the idl
 
 **Host.** Maximum foreign busy CPU across all 120 cells was 0.010 core-equivalents, so neither run competed with anything. The per-cell mean is slightly negative (−0.08), an artifact of subtracting the runner's own children's CPU time from the host's busy delta at this resolution; it is reported rather than clamped.
 
-**What is not established.** No counter was collected, so the mechanism behind `beta` is unmeasured. The arm measures `Get`; `Contains` and `IteratorImpl::Seek` share the same locate path but were not swept. And no design has been built or measured — H1 and H2 say a shared lock is the cheapest candidate, not that it works. Every cell was also taken with both SMT siblings of each P-core available to the scheduler, so neither the verdicts nor the `beta` term is established for the pre-registered one-sibling placement.
+**What is not established.** No counter was collected, so the mechanism behind `beta` is unmeasured. The arm measures `Get`; `Contains` and `IteratorImpl::Seek` share the same locate path but were not swept. And no design has been built or measured — ~~H1 and H2 say a shared lock is the cheapest candidate, not that it works.~~ with H1 not gated (§5.8), not even the candidate is established. Every cell was also taken with both SMT siblings of each P-core available to the scheduler, so neither the verdicts nor the `beta` term is established for the pre-registered one-sibling placement; §5.8 measures that placement.
+
+### 5.8 Outcomes under the pre-registered pin
+
+*(measured: reference host — Intel i9-12900F, 8P+8E / 24 threads, 30 MiB L3, Linux 6.8; commit `0ed8f5e5`; pin `0,2,4,6,8,10,12,14` as pre-registered in §5.2, recorded as `provenance.core_pin` with source `EXPANSE_BENCH_PIN_APPLIED`; 5 rounds per cell, 60 cells per run; two independent runs, [34773016420](https://github.com/orieg/expanse/actions/runs/34773016420) and [34773192119](https://github.com/orieg/expanse/actions/runs/34773192119); artifacts [`results/baseline_concurrent_reads_pin_one_sibling.json`](results/baseline_concurrent_reads_pin_one_sibling.json) and [`results/baseline_concurrent_reads_pin_one_sibling_run2.json`](results/baseline_concurrent_reads_pin_one_sibling_run2.json).)*
+
+This is the re-run the §5.7 deviation note deferred to. It was taken at `0ed8f5e5`, the commit §5.7 measured, so the pin is the only thing that differs between the two pairs of runs. §5.2 and §5.3 are not rewritten (§8.7), and the pre-registered verdicts are read here, from these two runs alone.
+
+| hypothesis | gate | run 1 | run 2 | verdict |
+|---|---|---|---|---|
+| **H1** the mutex binds the read path | paced `S(7)` CI upper < 2.0 | 0.634 [0.628, 0.641] | 0.625 [0.621, 0.633] | **not gated**: the writer reached 138,388–144,013 and 138,559–142,664 inserts/s in this cell against 250,000 offered (below) |
+| **H2** readers serialise against each other | idle `S(7)` CI upper < 3.5 | 0.624 [0.614, 0.631] | 0.628 [0.618, 0.634] | **PASS** in both |
+| **H3** the bound and the fit agree | fitted `alpha` interval overlaps predicted | — | — | **not gated**: its instrument is the paced `S(7)` cell and that cell's duty |
+
+**The paced `R = 7` cell cannot be gated under §5.5, in any run of either pin.** §5.5 pre-registers that a cell whose achieved rate "departs materially" from 250,000 inserts/s is reported and not gated, but it never gives "materially" a value. The driver does not supply one either. It refuses a paced cell only when the writer ran out of keys (`writer_exhausted`), and no cell in the four runs did. The achieved rates were:
+
+| pin | run | paced `R ≤ 4`, lowest cell (inserts/s) | paced `R = 7`, range (inserts/s) | paced `R = 7`, mean duty |
+|---|---|---|---|---|
+| `0-15` | 1 | 249,920 | 200,116–225,044 | 4.84% |
+| `0-15` | 2 | 249,797 | 213,714–216,479 | 4.87% |
+| `0,2,4,6,8,10,12,14` | 1 | 249,697 | 138,388–144,013 | 3.19% |
+| `0,2,4,6,8,10,12,14` | 2 | 249,957 | 138,559–142,664 | 3.18% |
+
+Every `R ≤ 4` cell held its offered rate to within 303 inserts/s. Every `R = 7` cell fell short: by 10.0–20.0% under `0-15`, and by 42.4–44.6% under the pre-registered pin. Deciding now which of those shortfalls is "material" would fix the threshold after seeing the data, which §8.19 forbids. So H1 is not gated under either pin, and §5.7's H1 `PASS` is marked superseded in place. H3 falls with it, because the locked fraction it reads is implied by the same cell and by the duty computed from it.
+
+The duty §5.7 published, 5.45%, is the mean over all four paced cells, and it hid the `R = 7` shortfall. That is a pre-registration defect, recorded here rather than repaired in §5.5. Gating H1 needs a tolerance fixed before fresh rounds are taken (§8.19), tracked in [#802](https://github.com/orieg/expanse/issues/802).
+
+**No §5.4 row applies.** Every row keys on H1, and a not-gated H1 is not the `BOUNDARY_RESULT` the last row covers, so no design is routed from this arm. H2's `PASS` stands on its own. With the writer idle, seven readers deliver less aggregate throughput than one under the pre-registered pin as well (`S(7)` 0.624 [0.614, 0.631] and 0.628 [0.618, 0.634]), so readers serialise against each other.
+
+Aggregate read throughput, Mops/s, mean of 5 rounds (run 1):
+
+| writer | R=1 | R=2 | R=4 | R=7 |
+|---|---|---|---|---|
+| idle (control) | 4.081 | 3.081 | 2.782 | 2.547 |
+| paced (250k/s offered; achieved rates above) | 1.339 | 0.982 | 0.993 | 0.849 |
+| free (never gated) | 0.211 | 0.379 | 0.702 | 0.794 |
+
+**Pin sensitivity, at one commit.** The two pairs of runs differ only in the pin. A move counts only where both runs moved the same way with separated intervals (`docs/BENCHMARKING.md` rule 18).
+
+- **Idle: no pin effect is detectable.** Every idle `S(2)`, `S(4)` and `S(7)` interval under one pin overlaps every matching interval under the other. For `S(7)` that is [0.627, 0.633] and [0.611, 0.629] under `0-15`, against [0.614, 0.631] and [0.618, 0.634] under the pre-registered pin.
+- **Paced `S(7)` is lower under the pre-registered pin, but not attributably to it.** It fell in both runs with separated intervals: [0.733, 0.756] and [0.762, 0.771], against [0.628, 0.641] and [0.621, 0.633]. The writer's achieved rate moved with it, though, so pin and duty changed together. Paced `S(2)` and `S(4)` do not separate in both runs.
+- **Free `S(7)` is pin-sensitive by rule 18's test.** It was lower under the pre-registered pin in both runs, with separated intervals: [4.539, 5.154] and [4.650, 5.011], against [3.629, 3.906] and [3.707, 3.773]. The cell is never gated (§5.2), and its mechanism is unmeasured.
+
+**The writer's `R = 7` shortfall is larger under the pre-registered pin, and the cause is unmeasured.** That cell puts 8 runnable threads, 7 readers and the writer, on 8 hardware threads under the pre-registered pin, against 16 under `0-15`. AGENTS.md §8.20.5 step 0 describes blocked threads competing for the CPUs of the thread making progress in a coarse-mutex arm. That is a hypothesis for the sleeping writer missing its schedule; no counter was collected, so nothing here tests it.
+
+**Host.** Maximum foreign busy CPU across the 120 cells was 0.02 core-equivalents (0.02 in run 1, 0.01 in run 2). The per-cell means were −0.083 and −0.081, the same subtraction artifact §5.7 reports. `load1` peaked at 2.24 and 2.27 on 24 logical CPUs, a figure that includes the sweep's own threads.
+
+**What is not established.** H1 is not decided in either direction: the reader curve under a writer is measured, but not at the pre-registered duty. No counter was collected, so neither the writer's shortfall nor the readers' regression has a measured mechanism. `Contains` and `IteratorImpl::Seek` share the locate path but were not swept, and no design has been built or measured.
