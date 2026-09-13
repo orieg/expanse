@@ -67,7 +67,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import bench_pin  # noqa: E402
 import bench_provenance as prov  # noqa: E402
-from bca_bootstrap import bca_bootstrap_ci  # noqa: E402
+from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
 
 BENCH = REPO_ROOT / "integrations" / "rocksdb" / "build" / "bench_memtable"
 SUITE_DIR = REPO_ROOT / "docs" / "benchmarks" / "rocksdb_memtable"
@@ -303,12 +303,13 @@ def arm_cells(rows: list[dict]) -> list[dict]:
                 "rounds_raw": raw,
             }
             if len(samples) >= MIN_ROUNDS:
-                point, lo, hi = bca_bootstrap_ci(samples, CONFIDENCE, RESAMPLES, SEED)
+                point, lo, hi, ci_method = bca_bootstrap_ci_with_method(
+                    samples, CONFIDENCE, RESAMPLES, SEED)
                 cell.update({"point": round(point, 4), "ci_lower": round(lo, 4),
-                             "ci_upper": round(hi, 4)})
+                             "ci_upper": round(hi, 4), "ci_method": ci_method})
             else:
                 cell.update({"point": sum(samples) / len(samples),
-                             "ci_lower": None, "ci_upper": None,
+                             "ci_lower": None, "ci_upper": None, "ci_method": None,
                              "why_no_interval":
                                  f"fewer than {MIN_ROUNDS} rounds; BCa needs n >= 3"})
             cells.append(cell)
@@ -349,15 +350,16 @@ def ratio_cells(rows: list[dict]) -> list[dict]:
                                    for rd, v in zip(shared, per_round)],
                 }
                 if len(per_round) >= MIN_ROUNDS:
-                    r, lo, hi = bca_bootstrap_ci(per_round, CONFIDENCE, RESAMPLES, SEED)
+                    r, lo, hi, ci_method = bca_bootstrap_ci_with_method(
+                        per_round, CONFIDENCE, RESAMPLES, SEED)
                     entry.update({"ratio": round(r, 4), "ci_lower": round(lo, 4),
-                                  "ci_upper": round(hi, 4),
+                                  "ci_upper": round(hi, 4), "ci_method": ci_method,
                                   # AGENTS.md 8.4: the LOWER bound clears the
                                   # floor, never the point estimate.
                                   "beats_baseline": lo > 1.0})
                 else:
                     entry.update({"ratio": sum(per_round) / len(per_round),
-                                  "ci_lower": None, "ci_upper": None,
+                                  "ci_lower": None, "ci_upper": None, "ci_method": None,
                                   "beats_baseline": None,
                                   "why_no_interval":
                                       f"fewer than {MIN_ROUNDS} rounds; BCa needs n >= 3"})
@@ -595,6 +597,22 @@ def self_test() -> int:  # noqa: C901 - a checklist, read top to bottom
     lo, hi = r[0]["ci_lower"], r[0]["ci_upper"]
     if not (lo <= r[0]["ratio"] <= hi):
         fails.append(f"ratio {r[0]['ratio']} outside its interval [{lo}, {hi}]")
+    # The ratio cell must name its construction (AGENTS.md 8.1, #880). Which
+    # label is not pinned on this fixture: (1.5 * base) / base is one ULP off
+    # 1.5 in one round, so the distribution is two values and the estimator
+    # honestly reports a clamped bias correction. Pinning that would pin float
+    # noise. The varying fixture below pins the clean `bca` case instead.
+    if r[0].get("ci_method") not in ("bca", "bc", "clamped", "degenerate"):
+        fails.append(f"ratio cell names no construction: {r[0].get('ci_method')!r}")
+    varying: list[dict] = []
+    for rd, q in enumerate((1.4, 1.6, 1.45, 1.55, 1.5)):
+        for impl, m in (("ExpanseMemTable", q), ("SkipListRep", 1.0)):
+            varying.append({"arm": "readrandom", "implementation": impl, "round": rd,
+                            "ops": 50000, "elapsed_s": 1.0, "mops": m, "consumed": 7,
+                            "bytes_total": 0, "bytes_per_entry": 0.0,
+                            "cell": f"cell:readrandom:round{rd}", "load": _fake_load()})
+    check("a ratio that varies between rounds is a clean BCa interval",
+          ratio_cells(varying)[0].get("ci_method"), "bca")
     check("beats_baseline is the LOWER bound clearing 1.0",
           r[0]["beats_baseline"], lo > 1.0)
     if r[0]["n"] != 5 or len(r[0]["rounds_raw"]) != 5:
@@ -608,6 +626,11 @@ def self_test() -> int:  # noqa: C901 - a checklist, read top to bottom
             fails.append(f"{c['id']} carries no rounds_raw")
         if not (c["ci_lower"] <= c["point"] <= c["ci_upper"]):
             fails.append(f"{c['id']}: point outside interval")
+        # Throughput drifts round to round here, so this is the clean case; a
+        # list where every label read `degenerate` would pass the ratio check.
+        if c.get("ci_method") != "bca":
+            fails.append(f"{c['id']}: varying samples should be a BCa interval, "
+                         f"got {c.get('ci_method')!r}")
         if any("load" not in e for e in c["rounds_raw"]):
             fails.append(f"{c['id']}: a round row carries no load attribution")
 
