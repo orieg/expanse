@@ -1100,7 +1100,7 @@ def run_c2c_pass(
     }
 
 
-def c2c_hot_cache_lines(report_text: str, max_rows: int = 24) -> list[str]:
+def c2c_hot_cache_lines(report_text: str, max_rows: int = 160) -> list[str]:
     """The shared-cache-line table out of a `perf c2c report --stdio` dump.
 
     `perf` prints a "Shared Data Cache Line Table" (older builds: "Shared Cache
@@ -1112,6 +1112,13 @@ def c2c_hot_cache_lines(report_text: str, max_rows: int = 24) -> list[str]:
     such section -- a zero-contention run legitimately has none, and this is a
     reporting helper, so an empty list is a real answer and not a silent
     failure. The caller still records the full report path.
+
+    The cap covers the address table AND the per-line detail that follows it,
+    because the addresses alone cannot name a structure. Run 34727050294
+    attributed 60.1% of HITM to 13 sixty-four-byte-aligned lines inside one
+    3,072-byte span -- unmistakably a padded per-slot array rather than trie
+    node version words, which would be scattered across the heap -- and still
+    could not say which array. The symbols live in the detail rows.
     """
     heads = (
         "Shared Data Cache Line Table",
