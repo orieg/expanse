@@ -36,6 +36,12 @@ extern crate alloc as core_alloc;
 #[cfg(not(any(target_pointer_width = "64", target_pointer_width = "32")))]
 compile_error!("expanse supports 64-bit and 32-bit targets");
 
+#[cfg(feature = "ablation-striped-freelist")]
+compile_error!(
+    "ablation-striped-freelist is deprecated; per-stripe freelists are now the production default. \
+     To measure unstriped freelists, use ablation-unstriped-freelist."
+);
+
 #[cfg(target_pointer_width = "64")]
 mod algebra;
 #[cfg(target_pointer_width = "64")]

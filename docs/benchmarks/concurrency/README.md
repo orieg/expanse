@@ -614,7 +614,7 @@ Arm (b) (`ablation-striped-epoch`) stripes the epoch garbage bins per writer slo
 
 ### 11.3 Arm (c) — Per-Stripe Collector Freelists (`results/ablation_freelist_writer_scaling.json`, `results/ablation_freelist_writer_scaling_run2.json`)
 
-Arm (c) (`ablation-striped-freelist`) gives each writer stripe its own set of per-class collector freelists, so `Collector::pop_freelist` — a mutex taken on every size-class allocation under OCC, and on every reclaim — is no longer shared across writers. A reclaimed block returns to the freelists of the stripe that retired it.
+Arm (c) (`ablation-unstriped-freelist`, originally evaluated as `ablation-striped-freelist`) gives each writer stripe its own set of per-class collector freelists, so `Collector::pop_freelist` — a mutex taken on every size-class allocation under OCC, and on every reclaim — is no longer shared across writers. A reclaimed block returns to the freelists of the stripe that retired it. Following promotion of per-stripe freelists to the production standard (Refs #568), `ablation-unstriped-freelist` preserves the unstriped single-mutex configuration as a diagnostic ablation.
 
 This is the mechanism §11.1 and §11.2 left untested, and the one the earlier synthesis named as the remaining candidate on the unexplained line.
 

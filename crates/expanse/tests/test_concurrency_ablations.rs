@@ -1,7 +1,7 @@
 //! Integration tests for the concurrency ablation arms (Hypothesis D):
 //! - Arm (a): sharded allocator accounting counters (`ablation-sharded-alloc`)
 //! - Arm (b): striped epoch garbage bins and sharded retained bytes (`ablation-striped-epoch`)
-//! - Arm (c): per-stripe collector freelists (`ablation-striped-freelist`)
+//! - Arm (c): unstriped collector freelists (`ablation-unstriped-freelist`)
 //!
 //! These check that each ablated build stays correct under real threads,
 //! and CI also runs them under ASan. Which stripe a thread lands on is

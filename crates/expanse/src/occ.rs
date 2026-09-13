@@ -1104,14 +1104,21 @@ const INACTIVE: usize = usize::MAX;
 struct Garbage {
     ptr: NonNull<u8>,
     bytes: usize,
-    /// Alignment the allocation was made with. Travels with the pointer
-    /// because the collector frees it later and elsewhere; a `dealloc`
-    /// layout mismatch is UB, not a leak.
-    align: usize,
-    /// Stripe of the writer that retired it (`ablation-striped-freelist`):
-    /// the reclaimed block goes back to that writer's freelists.
-    #[cfg(feature = "ablation-striped-freelist")]
-    slot: usize,
+    /// Power-of-two alignment exponent (align = 1usize << align_log2).
+    /// Rust Layout guarantees align is a non-zero power of two.
+    align_log2: u8,
+    /// Stripe of the writer that retired it: the reclaimed block goes back
+    /// to that writer's freelists.
+    #[cfg_attr(feature = "ablation-unstriped-freelist", allow(dead_code))]
+    stripe: u8,
+}
+
+#[cfg(feature = "std")]
+impl Garbage {
+    #[inline(always)]
+    fn align(&self) -> usize {
+        1usize << (self.align_log2 as usize)
+    }
 }
 
 // SAFETY: a retired allocation is exclusively owned by the collector —
@@ -1191,6 +1198,15 @@ pub(crate) const NUM_EPOCH_STRIPES: usize = 16;
 #[cfg(all(feature = "std", loom))]
 pub(crate) const NUM_EPOCH_STRIPES: usize = 2;
 
+/// Number of striped size-class freelists in standard production architecture (Refs #568).
+///
+/// Decoupled from `MAX_WRITER_SLOTS` (64) to bound the per-wrapper memory footprint
+/// to 16.0 KiB on Linux (24.0 KiB on macOS) at S=16.
+#[cfg(all(feature = "std", not(loom)))]
+pub(crate) const NUM_FREELIST_STRIPES: usize = 16;
+#[cfg(all(feature = "std", loom))]
+pub(crate) const NUM_FREELIST_STRIPES: usize = 2;
+
 /// One writer stripe of one epoch bin.
 #[cfg(feature = "std")]
 #[derive(Debug)]
@@ -1227,10 +1243,10 @@ impl PaddedBin {
 #[repr(align(64))]
 pub(crate) struct PaddedRetained(pub(crate) AtomicUsize);
 
-/// One writer stripe's size-class freelists (`ablation-striped-freelist`).
+/// One writer stripe's size-class freelists (Refs #568).
 /// A stripe's classes share lines only with each other, never with another
 /// stripe's.
-#[cfg(all(feature = "std", feature = "ablation-striped-freelist"))]
+#[cfg(all(feature = "std", not(feature = "ablation-unstriped-freelist")))]
 #[derive(Debug)]
 #[repr(align(64))]
 struct PaddedFreelists([Mutex<FreeListHead>; NUM_CLASSES]);
@@ -1452,16 +1468,16 @@ pub struct Collector {
     op_count: Line<AtomicUsize>,
     readers: Mutex<Vec<Arc<Slot>>>,
     // NOT boxed. `Collector` is only ever constructed behind an `Arc`
-    // (`Arc::new(Collector::new())` in alloc.rs and sync.rs; the only bare
+    // (`Arc::new(Collector::new())` in sync.rs; the only bare
     // constructions are in this file's test module), so it already lives on
     // the heap and there is no stack bloat for a `Box` to prevent. A `Box`
     // would only move the same 4 KiB into a second allocation behind a
     // pointer loaded on every `retire`.
     bins: [[PaddedBin; NUM_EPOCH_STRIPES]; BINS],
-    #[cfg(not(feature = "ablation-striped-freelist"))]
+    #[cfg(feature = "ablation-unstriped-freelist")]
     freelists: [Mutex<FreeListHead>; NUM_CLASSES],
-    #[cfg(feature = "ablation-striped-freelist")]
-    freelists: [PaddedFreelists; MAX_WRITER_SLOTS],
+    #[cfg(not(feature = "ablation-unstriped-freelist"))]
+    freelists: [PaddedFreelists; NUM_FREELIST_STRIPES],
     pub(crate) retained_bytes: [PaddedRetained; NUM_EPOCH_STRIPES],
     #[cfg(test)]
     registrations: core::sync::atomic::AtomicU64,
@@ -1486,9 +1502,9 @@ impl Collector {
             op_count: line(AtomicUsize::new(0)),
             readers: Mutex::new(Vec::new()),
             bins: core::array::from_fn(|_| core::array::from_fn(|_| PaddedBin::new())),
-            #[cfg(not(feature = "ablation-striped-freelist"))]
+            #[cfg(feature = "ablation-unstriped-freelist")]
             freelists: core::array::from_fn(|_| Mutex::new(FreeListHead(core::ptr::null_mut()))),
-            #[cfg(feature = "ablation-striped-freelist")]
+            #[cfg(not(feature = "ablation-unstriped-freelist"))]
             freelists: core::array::from_fn(|_| {
                 PaddedFreelists(core::array::from_fn(|_| {
                     Mutex::new(FreeListHead(core::ptr::null_mut()))
@@ -1500,32 +1516,32 @@ impl Collector {
         }
     }
 
-    /// The freelist an allocation of `class` pops from: the one shared list,
-    /// or the calling writer's own under `ablation-striped-freelist`.
+    /// The freelist an allocation of `class` pops from: the one shared list
+    /// under `ablation-unstriped-freelist`, or the calling writer's own stripe.
     #[inline(always)]
     fn alloc_freelist(&self, class: usize) -> &Mutex<FreeListHead> {
-        #[cfg(not(feature = "ablation-striped-freelist"))]
+        #[cfg(feature = "ablation-unstriped-freelist")]
         {
             &self.freelists[class]
         }
-        #[cfg(feature = "ablation-striped-freelist")]
+        #[cfg(not(feature = "ablation-unstriped-freelist"))]
         {
-            &self.freelists[writer_slot()].0[class]
+            &self.freelists[writer_slot() % NUM_FREELIST_STRIPES].0[class]
         }
     }
 
     /// The freelist a reclaimed block of `class` is pushed to: the one shared
-    /// list, or the retiring writer's own under `ablation-striped-freelist`.
+    /// list under `ablation-unstriped-freelist`, or the retiring writer's stripe.
     #[inline(always)]
     fn reclaim_freelist(&self, class: usize, g: &Garbage) -> &Mutex<FreeListHead> {
-        #[cfg(not(feature = "ablation-striped-freelist"))]
+        #[cfg(feature = "ablation-unstriped-freelist")]
         {
             let _ = g;
             &self.freelists[class]
         }
-        #[cfg(feature = "ablation-striped-freelist")]
+        #[cfg(not(feature = "ablation-unstriped-freelist"))]
         {
-            &self.freelists[g.slot].0[class]
+            &self.freelists[g.stripe as usize % NUM_FREELIST_STRIPES].0[class]
         }
     }
 
@@ -1608,12 +1624,12 @@ impl Collector {
         // `retire` is on the per-mutation path, so calling it twice paid for the
         // lookup twice for one value.
         let slot = writer_slot();
+        debug_assert!(align.is_power_of_two(), "align must be a power of two");
         let g = Garbage {
             ptr,
             bytes,
-            align,
-            #[cfg(feature = "ablation-striped-freelist")]
-            slot,
+            align_log2: align.trailing_zeros() as u8,
+            stripe: (slot % NUM_FREELIST_STRIPES) as u8,
         };
         let stripe = slot % NUM_EPOCH_STRIPES;
         let p_bin = &self.bins[e % BINS][stripe];
@@ -1694,7 +1710,7 @@ impl Collector {
             let mut freed_bytes = 0;
             for g in stale {
                 freed_bytes += g.bytes;
-                if let Some(class) = class_for(g.bytes, g.align) {
+                if let Some(class) = class_for(g.bytes, g.align()) {
                     let block = g.ptr.as_ptr().cast::<FreeBlock>();
                     let mut head = self
                         .reclaim_freelist(class, &g)
@@ -1707,7 +1723,7 @@ impl Collector {
                     }
                     head.0 = block;
                 } else {
-                    free_raw(g.ptr, g.bytes, g.align);
+                    free_raw(g.ptr, g.bytes, g.align());
                 }
             }
             self.retained_bytes[stripe]
@@ -1805,7 +1821,7 @@ impl Collector {
                 let mut freed_bytes = 0;
                 for g in stale {
                     freed_bytes += g.bytes;
-                    free_raw(g.ptr, g.bytes, g.align);
+                    free_raw(g.ptr, g.bytes, g.align());
                 }
                 self.retained_bytes[stripe]
                     .0
@@ -1813,9 +1829,9 @@ impl Collector {
                 crate::occ_stats::record_reclaim(freed_bytes);
             }
         }
-        #[cfg(not(feature = "ablation-striped-freelist"))]
+        #[cfg(feature = "ablation-unstriped-freelist")]
         let rows = core::iter::once(&self.freelists);
-        #[cfg(feature = "ablation-striped-freelist")]
+        #[cfg(not(feature = "ablation-unstriped-freelist"))]
         let rows = self.freelists.iter().map(|stripe| &stripe.0);
         for row in rows {
             for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
@@ -2358,11 +2374,40 @@ mod tests {
         // an unrelated inline array by accident. It is deliberately loose enough to hold
         // the un-boxed 4 KiB of striped bins: boxing them to shrink this number would move
         // the same bytes into a second allocation behind a pointer loaded on every `retire`.
+        assert_eq!(core::mem::size_of::<Garbage>(), 24);
+        #[cfg(feature = "ablation-unstriped-freelist")]
         assert!(
             core::mem::size_of::<Collector>() <= 8192,
             "Collector direct size {} exceeds 8192 bytes",
             core::mem::size_of::<Collector>()
         );
+        #[cfg(not(feature = "ablation-unstriped-freelist"))]
+        {
+            let max_bytes = match NUM_FREELIST_STRIPES {
+                16 => {
+                    if cfg!(target_os = "macos") {
+                        30_720
+                    } else {
+                        22_528
+                    }
+                }
+                64 => {
+                    if cfg!(target_os = "macos") {
+                        107_520
+                    } else {
+                        73_728
+                    }
+                }
+                _ => 107_520,
+            };
+            assert!(
+                core::mem::size_of::<Collector>() <= max_bytes,
+                "Collector direct size {} exceeds {} bytes ceiling for S={}",
+                core::mem::size_of::<Collector>(),
+                max_bytes,
+                NUM_FREELIST_STRIPES
+            );
+        }
     }
 
     /// Verifies thread-exit slot recycling under sequential and concurrent churn (Refs #568).
@@ -2447,14 +2492,14 @@ mod tests {
     /// A reclaimed block goes back to the freelist of the stripe that
     /// retired it, and only an allocation on that stripe pops it.
     #[test]
-    #[cfg(feature = "ablation-striped-freelist")]
+    #[cfg(all(feature = "std", not(feature = "ablation-unstriped-freelist")))]
     fn ablation_striped_freelist_routes_by_stripe() {
         let c = Collector::new();
         let class = 1;
         let (bytes, align) = CLASS_SPECS[class];
         assert_eq!(class_for(bytes, align), Some(class));
         let layout = Layout::from_size_align(bytes, align).unwrap();
-        let home = MAX_WRITER_SLOTS - 1;
+        let home = NUM_FREELIST_STRIPES - 1;
 
         set_writer_slot(home);
         // SAFETY: non-zero size and a valid power-of-two alignment.
@@ -2480,6 +2525,28 @@ mod tests {
         );
         // SAFETY: `got` was allocated with `layout` and the test now owns it.
         unsafe { dealloc(got, layout) };
+
+        #[cfg(not(loom))]
+        if NUM_FREELIST_STRIPES < MAX_WRITER_SLOTS {
+            // Verify that a different slot mapping to the same stripe via modulo shares the freelist.
+            // SAFETY: `layout` has non-zero size and valid alignment.
+            let ptr2 = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
+            set_writer_slot(0);
+            c.retire(ptr2, bytes, align);
+            for _ in 0..BINS {
+                c.try_advance();
+            }
+            // Slot 0 + NUM_FREELIST_STRIPES maps to stripe 0.
+            set_writer_slot(NUM_FREELIST_STRIPES);
+            let got2 = c.pop_freelist(class);
+            assert_eq!(
+                got2,
+                ptr2.as_ptr(),
+                "a slot sharing the stripe via modulo must see the reclaimed block"
+            );
+            // SAFETY: `got2` was allocated with `layout` and the test now owns it.
+            unsafe { dealloc(got2, layout) };
+        }
     }
 }
 
