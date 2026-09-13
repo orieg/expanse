@@ -615,10 +615,92 @@ Removing the shared freelist mutex therefore does not move multi-writer scaling 
 
 ### 11.4 Hypothesis D Synthesis & Roadmap Consequence
 
-1. **Hypothesis D is exhausted on its named mechanisms, and none of them explains the plateau.** §11 named three: the allocator's accounting counters, the epoch bins, and the per-class freelist mutex. All three have now been ablated, and not one produced an improvement that clears the floor and repeats — arm (a) measured worse (single run), arms (b) and (c) `INCONCLUSIVE` across two runs each. Under the Pre-Registered Unexplained Budget Rule ([`METHODOLOGY.md`](METHODOLOGY.md) §11), the multi-writer saturation plateau stays **unexplained**: it is not accounted for by shared allocator or reclamation state, and that is a result about the named mechanisms, not a measurement of whatever does account for it.
+1. **Superseded by §11.5 — on the post-Phase-4E engine, arm (b) explains the plateau.** What follows describes the pre-Phase-4C engine the arms originally ran on, and is kept because the contrast is the finding. *Original text:* §11 named three mechanisms — the allocator's accounting counters, the epoch bins, and the per-class freelist mutex. All three were ablated, and not one produced an improvement that cleared the floor and repeated — arm (a) measured worse (single run), arms (b) and (c) `INCONCLUSIVE` across two runs each. Under the Pre-Registered Unexplained Budget Rule ([`METHODOLOGY.md`](METHODOLOGY.md) §11), the multi-writer saturation plateau was recorded as **unexplained**. That verdict stands for the engine it measured and does not carry to the current one.
 2. **What the arms cannot rule out.** Each arm's rejection is scoped to the mechanism it ablated (AGENTS.md §8.20.3). Shared state no arm touched remains: the system allocator behind a `pop_freelist` miss, the collector's reader registry (locked by every advance), and its `epoch` and `op_count` words, which every successful optimistic operation bumps. Arms (a) and (b) also measured the pre-Phase-4C engine, where the fallback regime was different; their verdicts describe that engine.
-3. **The one mechanism with measured numbers is the gate convoy.** Section 10 measures arriving writers waiting at a closed `WriterGate` — 12.4% of `map` inserts at W = 4 and 27.1% at W = 8 — which is a different mechanism from anything Hypothesis D named, and is where the next arm belongs.
+3. **The gate convoy closed with the structural fallbacks.** It was the one mechanism with measured numbers on the pre-4C engine — arriving writers waiting at a closed `WriterGate`, 12.4% of `map` inserts at W = 4 and 27.1% at W = 8. Post-4E those counters read 0.0% on every cell (§10), because a gate closes only on a fallback and there are none. It is no longer a candidate.
 4. **Serial radix trie fallbacks fell, and the gain is confirmed.** PR #858 landed Phase 4C concurrent leaf capacity expansion, eliminating `CapExpansionClass` (0.00% across all arms) and reducing `map` fallbacks from 14.75% to 4.21%. PR #863 landed Phase 4B, eliminating `FallbackImmediateConversion` (1.4% $\rightarrow$ 0.00%). PR #873 landed Phase 4E, eliminating `CapExpansionLeafFull` (1.7% set / 2.8% map $\rightarrow$ 0.00%), closing the structural fallback floor. The post-4E sweep measures the consequence: **exactly zero lock fallbacks on every cell of every arm**, and every OLC gate cell `SCALES` across two runs (§10).
 
 
 
+
+### 11.5 Re-run on the post-Phase-4E engine — arm (b) explains the plateau (Refs #568)
+
+Arms (a) and (b) originally measured the pre-Phase-4C engine, where structural
+fallbacks took the writer mutex on 4–12% of inserts and dominated every cell;
+§11.4 notes that their verdicts describe that engine. Phases 4C, 4D, 4B and 4E
+drove structural fallbacks to exactly zero (§10), so the arms were re-run on
+`1f465728` (workload: concurrency_writer_scaling).
+
+**Arm (b), striped epoch bins — `SCALES`, confirmed across two runs.** Paired
+C(W) ratio, ablation ÷ default, interleaved (build × W), 8 rounds
+*(measured: reference host, `1f465728`, CI runs
+[34728760293](https://github.com/orieg/expanse/actions/runs/34728760293) and
+[34729039867](https://github.com/orieg/expanse/actions/runs/34729039867))*:
+
+| arm | W | run 1 | run 2 | verdict |
+|---|--:|---|---|---|
+| `map` | 2 | 1.126 [1.111, 1.137] | 1.112 [1.090, 1.136] | both clear 1.0 |
+| `map` | 4 | 1.300 [1.255, 1.338] | 1.282 [1.265, 1.301] | both clear 1.0 |
+| `map` | 8 | **1.730 [1.640, 1.813]** | **1.718 [1.630, 1.801]** | both clear 1.0 |
+| `set` | 2 | 1.160 [1.127, 1.204] | 1.162 [1.125, 1.194] | both clear 1.0 |
+| `set` | 4 | 1.257 [1.210, 1.291] | 1.242 [1.219, 1.265] | both clear 1.0 |
+| `set` | 8 | **1.617 [1.539, 1.667]** | **1.624 [1.548, 1.671]** | both clear 1.0 |
+| `str` | 2/4/8 | ~1.0, `INCONCLUSIVE` | ~1.0, `INCONCLUSIVE` | control |
+
+`str` takes the writer mutex for the whole insert and retires almost nothing,
+so it is the control here: it sits at 1.0 with intervals spanning it in both
+runs. Every cell overlaps between runs, which is what rule 18 requires.
+
+**The turnover is the bins.** The default build peaks at W = 4 and falls back;
+the striped build does not turn over at all (M ops/s, run 2):
+
+| arm | W=1 | W=2 | W=4 | W=8 |
+|---|--:|--:|--:|--:|
+| `map` default | 5.07 | 5.86 | 6.53 | 6.14 |
+| `map` striped | 5.01 | 6.45 | 8.27 | **10.40** |
+| `set` default | 6.62 | 6.86 | 7.63 | 7.68 |
+| `set` striped | 6.56 | 7.88 | 9.38 | **12.33** |
+
+C(8) moves from 1.21 to **2.078 [1.996, 2.139]** on `map` and from 1.16 to
+**1.881 [1.831, 1.930]** on `set`.
+
+**Arm (c), per-stripe freelists — a real but much smaller effect** *(single run,
+[34729407478](https://github.com/orieg/expanse/actions/runs/34729407478))*:
+`map` C(8) ratio 1.110 [1.054, 1.146], `set` 1.092 [1.058, 1.109], with W = 2
+`INCONCLUSIVE` on both arms and the `str` control at 0.91–0.99. So the retire
+path's two shared structures separate cleanly: the bins carry 62–73% at W = 8
+and the freelists 9–11%. Arm (c) has one run and is not confirmed.
+
+**How the mechanism was located before it was ablated.** The diagnostic pass
+(`results/diagnostic_writer_scaling.json`) reached the same place from three
+independent directions, which is why arm (b) was re-run rather than a new arm
+written:
+
+- **USL** refit on the post-4E sweeps puts α at 0.637 [0.565, 0.705] (`map`)
+  and 0.809 [0.765, 0.831] (`set`) against a 0.15 ceiling, with β at 0.0177
+  and 0.0008 — the latter's interval containing zero. The residue is a serial
+  term, not pairwise coherency, and `map`'s N_max of 4.53 predicts the observed
+  peak without any β at all.
+- **PMU** measures cross-core snoop forwarding per insert stepping from 0.001
+  at W = 1 to 3.21 at W = 2, then 5.36 and 7.54 — a step at the second writer
+  followed by sublinear growth, which is the shape of a fixed per-operation
+  cost rather than an N² one. Frequency droop over the same rounds is 3.09%,
+  4.47% and 7.65%: real, and far too small to account for the shortfall.
+- **`perf c2c`** puts 60.1% of all HITM on 13 sixty-four-byte-aligned lines
+  inside one 3,072-byte span (8.7% more is kernel-side). That rules out trie
+  node version words, which are allocated across size-class slabs and would be
+  scattered over many pages. The store-heavy offsets in those lines resolve to
+  `occ::Collector::retire`.
+
+**SMT was excluded first.** The host's `cpu_core` list is `0-15` — 8 physical
+P-cores with SMT — and `writer_scaling.rs` sets no per-thread affinity, so a
+W = 8 plateau could have been sibling sharing. Re-running pinned one thread per
+physical core (`0,2,4,6,8,10,12,14`) moved no cell: every C(W) interval
+overlaps the unpinned run.
+
+**Roadmap consequence.** Arm (b) is a diagnostic build feature, not an
+implementation. Promoting it is now the highest-value concurrency work on the
+insert path, ahead of remove-side work: it is the only intervention measured to
+remove the turnover, and §2.6 already prescribes slot-striped epoch bins as the
+architecture. Arm (c) is worth a confirming run and is a smaller, separate
+change.
