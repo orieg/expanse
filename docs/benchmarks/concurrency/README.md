@@ -700,10 +700,18 @@ independent directions, which is why arm (b) was re-run rather than a new arm
 written:
 
 - **USL** refit on the post-4E sweeps puts α at 0.637 [0.565, 0.705] (`map`)
-  and 0.809 [0.765, 0.831] (`set`) against a 0.15 ceiling, with β at 0.0177
-  and 0.0008 — the latter's interval containing zero. The residue is a serial
-  term, not pairwise coherency, and `map`'s N_max of 4.53 predicts the observed
-  peak without any β at all.
+  and 0.809 [0.765, 0.831] (`set`) against a 0.15 ceiling. **The two arms
+  differ in β and must not be summarised together**: `set` measures
+  0.0008 [0.0000, 0.0071], an interval containing zero, so its curve is
+  α-dominated and monotonic (N_max 15.53); `map` measures
+  0.0177 [0.0068, 0.0293], above the 0.0033 ceiling, and it is that β which
+  gives `map` a finite N_max of 4.53 — the peak the sweep observes between
+  W = 4 and W = 8. N_max = √((1 − α) / β) is undefined at β = 0, so a finite
+  N_max and a zero β cannot be stated of the same arm.
+  So α is the larger term on both arms, and it is the whole story only on
+  `set`. On `map` a real, smaller coherency term sets where the curve turns
+  over, which is consistent with striping the retire path — a coherency
+  remedy — being what removed the turnover (§11.5).
 - **PMU** measures cross-core snoop forwarding per insert stepping from 0.001
   at W = 1 to 3.21 at W = 2, then 5.36 and 7.54 — a step at the second writer
   followed by sublinear growth, which is the shape of a fixed per-operation
