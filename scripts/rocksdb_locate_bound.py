@@ -327,6 +327,93 @@ def predicted_alpha_from_scaling(observed_scaling: float, readers: int) -> float
     return 1.0 / min(max(observed_scaling, 1.0), float(readers))
 
 
+def usl_scaling(readers: int, alpha: float, beta: float) -> float:
+    """`S(W) = W / (1 + alpha (W - 1) + beta W (W - 1))`: Gunther's Universal
+    Scalability Law as a speedup over one reader, the form `scripts/fit_usl.py`
+    fits (its `X(N) = gamma N / (1 + alpha (N - 1) + beta N (N - 1))`, divided
+    by `X(1) = gamma`).
+
+    `alpha` is the serial fraction and `beta` the pairwise term. `beta` may be
+    any finite non-negative number; `alpha` is a fraction, in [0, 1].
+    """
+    if not isinstance(readers, int) or readers < 1:
+        raise ValueError(f"readers must be an int >= 1, got {readers!r}")
+    if not (0.0 <= alpha <= 1.0):
+        raise ValueError(f"alpha must be in [0, 1], got {alpha!r}")
+    if not (beta >= 0.0) or math.isinf(beta):
+        raise ValueError(f"beta must be finite and non-negative, got {beta!r}")
+    w = float(readers)
+    return w / (1.0 + alpha * (w - 1.0) + beta * w * (w - 1.0))
+
+
+def unexplained_term(observed_scaling: float, readers: int, alpha: float) -> float:
+    """The second USL coefficient a measured `S(W)` needs once `alpha` is fixed from outside.
+
+    Solving `S = W / (1 + alpha (W - 1) + b W (W - 1))` for `b` gives
+
+        b = (W / S - 1 - alpha (W - 1)) / (W (W - 1))
+
+    It is whatever the measured curve needs beyond the fixed `alpha`, and
+    nothing in this file says what it is. AGENTS.md 8.20.4 forbids naming a
+    remainder by subtraction, so it is reported as unexplained rather than as
+    coherency. It is negative when `alpha` alone already takes `S` below what
+    was measured, which says the fixed `alpha` is too large for this curve.
+    """
+    if not isinstance(readers, int) or readers < 2:
+        raise ValueError(f"readers must be an int >= 2 (W = 1 carries no term), got {readers!r}")
+    if not (observed_scaling > 0.0) or math.isinf(observed_scaling):
+        raise ValueError(f"observed_scaling must be finite and positive, got {observed_scaling!r}")
+    if not (0.0 <= alpha <= 1.0):
+        raise ValueError(f"alpha must be in [0, 1], got {alpha!r}")
+    w = float(readers)
+    return (w / observed_scaling - 1.0 - alpha * (w - 1.0)) / (w * (w - 1.0))
+
+
+def unexplained_term_interval(scaling_ci: tuple[float, float], readers: int,
+                              alpha_ci: tuple[float, float]) -> tuple[float, float]:
+    """The unexplained term's range over the intervals of `S` and of `alpha`.
+
+    The term falls as `S` rises and as `alpha` rises, and is monotone in each,
+    so its extremes sit at opposite corners of the two intervals: the lowest
+    `S` with the lowest `alpha`, and the highest with the highest. That is exact
+    for a box of inputs, not a bootstrap interval.
+    """
+    s_lo, s_hi = scaling_ci
+    a_lo, a_hi = alpha_ci
+    if not (s_lo <= s_hi and a_lo <= a_hi):
+        raise ValueError(f"intervals must be ordered, got S {scaling_ci!r} and alpha {alpha_ci!r}")
+    return (unexplained_term(s_hi, readers, a_hi), unexplained_term(s_lo, readers, a_lo))
+
+
+def narrowed_scaling_bracket(readers: int, alpha_now: float, alpha_narrowed: float,
+                             term: float) -> tuple[float, float]:
+    """`(pessimistic, optimistic)` `S(W)` for a lock that covers less of a read.
+
+    The narrowed lock changes `alpha` from `alpha_now` to `alpha_narrowed`, the
+    share of a read it still covers. What it does to the unexplained term is
+    not derivable here, so two bounding assumptions stand in for it:
+
+    - pessimistic: the term does not depend on how long the lock is held, as a
+      fixed cost per acquisition would not;
+    - optimistic: it scales with the hold time, `term * alpha_narrowed / alpha_now`.
+
+    Neither assumption is measured. The bracket is what can be predicted without
+    naming the term, and an outcome outside it says the term behaves like
+    neither. A negative `term` is refused: `alpha_now` already over-explains
+    the curve, and no bracket follows from a model that does.
+    """
+    if term < 0.0:
+        raise ValueError(f"the unexplained term is {term!r}: alpha alone already over-explains "
+                         f"S, so this model does not describe the curve")
+    if not (0.0 < alpha_now <= 1.0):
+        raise ValueError(f"alpha_now must be in (0, 1], got {alpha_now!r}")
+    if not (0.0 <= alpha_narrowed <= alpha_now):
+        raise ValueError(f"alpha_narrowed must be in [0, alpha_now], got {alpha_narrowed!r}")
+    pessimistic = usl_scaling(readers, alpha_narrowed, term)
+    optimistic = usl_scaling(readers, alpha_narrowed, term * alpha_narrowed / alpha_now)
+    return (pessimistic, optimistic)
+
+
 def min_detectable_ratio(relative_halfwidth: float) -> float:
     """Smallest scaling ratio whose BCa lower bound clears 1.0 (AGENTS.md 8.4).
 
@@ -379,6 +466,31 @@ def load_arms(path: Path = ARTIFACT) -> dict:
     out["commit"] = prov.get("commit", "unknown")
     out["host"] = prov.get("host_description", "unknown")
     out["run_id"] = prov.get("run_id", "unknown")
+    return out
+
+
+PROFILE_GLOB = "docs/benchmarks/rocksdb_memtable/results/locate_profile/pin_one_sibling/*/profile_rocksdb_conc_idle_r1.json"
+IDLE_CURVES = (
+    REPO_ROOT / "docs" / "benchmarks" / "rocksdb_memtable" / "results" / "baseline_concurrent_reads_amended_h1.json",
+    REPO_ROOT / "docs" / "benchmarks" / "rocksdb_memtable" / "results" / "baseline_concurrent_reads_amended_h1_run2.json",
+)
+
+
+def load_locate_profile(path: Path) -> dict:
+    """`locked_fraction` and `trie_fraction`, point and interval, from a locate profile.
+
+    `docs/benchmarks/rocksdb_memtable/scripts/locate_profile.py` writes the
+    artifact. A share with no interval is refused, because the bracket reads
+    the interval, not the point.
+    """
+    obj = json.loads(Path(path).read_text())
+    out = {"commit": obj.get("provenance", {}).get("commit", "unknown"),
+           "pin": (obj.get("provenance", {}).get("pin") or [None])[-1]}
+    for name in ("locked_fraction", "trie_fraction"):
+        v = obj.get("shares", {}).get(name)
+        if not v or v.get("ci_lower") is None:
+            raise ValueError(f"{Path(path).name}: `shares.{name}` carries no interval")
+        out[name] = (float(v["point"]), float(v["ci_lower"]), float(v["ci_upper"]))
     return out
 
 
@@ -460,7 +572,38 @@ def render(arms: dict, writer_ops_per_s: float) -> str:
     lines.append("  reader remainder perfectly overlapped), so a measured curve should sit at or")
     lines.append("  below them. Nothing here is measured: the mechanism is arithmetic over two")
     lines.append("  committed single-threaded cells, and the concurrent arm is what tests it.")
+    lines.extend(render_narrowed())
     return "\n".join(lines)
+
+
+def render_narrowed() -> list[str]:
+    """The narrowed-mutex arm's bracket, where a locate profile is committed."""
+    import glob  # noqa: PLC0415
+    profiles = sorted(glob.glob(str(REPO_ROOT / PROFILE_GLOB)))
+    out = ["", "  Narrowed-mutex arm (idle writer, one-sibling pin), (projected):"]
+    if not profiles:
+        out.append("    no locate profile is committed yet; dispatch the `rocksdb_locate_profile` suite")
+        return out
+    curves = [json.loads(p.read_text()) for p in IDLE_CURVES if p.is_file()]
+    for path in profiles:
+        prof = load_locate_profile(Path(path))
+        lf, tf = prof["locked_fraction"], prof["trie_fraction"]
+        out.append(f"    profile {Path(path).parent.name} ({prof['commit'][:8]}, pin {prof['pin']}): "
+                   f"locked_fraction {lf[0]:.4f} [{lf[1]:.4f}, {lf[2]:.4f}], "
+                   f"trie_fraction {tf[0]:.4f} [{tf[1]:.4f}, {tf[2]:.4f}]")
+        for curve in curves:
+            idle = curve["scaling"]["idle"]
+            for w in (2, 4, 7):
+                cell = idle[f"S({w})"]
+                lo, hi = unexplained_term_interval(tuple(cell["ci"]), w, (lf[1], lf[2]))
+                term = unexplained_term(cell["point"], w, lf[0])
+                if term < 0.0:
+                    out.append(f"      S({w}) {cell['point']:.3f}: term {term:.4f} < 0, no bracket")
+                    continue
+                pess, opt = narrowed_scaling_bracket(w, lf[0], tf[0], term)
+                out.append(f"      S({w}) {cell['point']:.3f} -> unexplained term {term:.4f} "
+                           f"[{lo:.4f}, {hi:.4f}]; narrowed S({w}) in [{pess:.3f}, {opt:.3f}]")
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -757,6 +900,83 @@ def self_test() -> int:
             pass
         else:
             fails.append("load_arms() on an artifact with neither key: did not raise")
+
+    # --- the narrowed-mutex arm: USL with an alpha fixed from outside ------
+    check("usl_scaling(1, any)", usl_scaling(1, 0.7, 3.0), 1.0)
+    check("usl_scaling(7, 0, 0) is linear", usl_scaling(7, 0.0, 0.0), 7.0)
+    check("usl_scaling(7, 1, 0) is flat", usl_scaling(7, 1.0, 0.0), 1.0)
+    # 2 / (1 + 0.5 * 1 + 0.1 * 2 * 1) = 2 / 1.7
+    check("usl_scaling(2, 0.5, 0.1)", usl_scaling(2, 0.5, 0.1), 1.1764705882)
+    # alpha 0.3, beta 0.2 at W = 7: 7 / (1 + 1.8 + 8.4) = 7 / 11.2 = 0.625.
+    check("usl_scaling(7, 0.3, 0.2)", usl_scaling(7, 0.3, 0.2), 0.625)
+    # ...and the term that curve needs beyond alpha = 0.3 is beta again:
+    # (7 / 0.625 - 1 - 1.8) / 42 = 8.4 / 42 = 0.2.
+    check("unexplained_term inverts usl_scaling", unexplained_term(0.625, 7, 0.3), 0.2)
+    for w, a, b in ((2, 0.1, 0.05), (4, 0.6, 0.0), (7, 0.25, 1.3)):
+        check(f"round trip W={w} alpha={a} beta={b}",
+              unexplained_term(usl_scaling(w, a, b), w, a), b, tol=1e-9)
+    # A linear curve against alpha = 0.5 needs a negative term.
+    if not unexplained_term(7.0, 7, 0.5) < 0.0:
+        fails.append("unexplained_term: alpha over-explaining S must give a negative term")
+    # Interval over S in [0.611, 0.631] at alpha 0.3:
+    # (7/0.631 - 2.8)/42 = 0.1974643 and (7/0.611 - 2.8)/42 = 0.2061102.
+    lo, hi = unexplained_term_interval((0.611, 0.631), 7, (0.3, 0.3))
+    check("unexplained_term_interval lower", lo, 0.1974643, tol=1e-6)
+    check("unexplained_term_interval upper", hi, 0.2061102, tol=1e-6)
+    lo2, hi2 = unexplained_term_interval((0.611, 0.631), 7, (0.25, 0.35))
+    if not (lo2 < lo and hi2 > hi):
+        fails.append("a wider alpha interval must widen the term interval at both ends")
+    # Bracket: alpha 0.3 -> 0.05, term 0.2, hold ratio 1/6, W = 7.
+    #   pessimistic 7 / (1 + 0.3 + 8.4) = 7 / 9.7   = 0.7216495
+    #   optimistic  7 / (1 + 0.3 + 1.4) = 7 / 2.7   = 2.5925926
+    pess, opt = narrowed_scaling_bracket(7, 0.3, 0.05, 0.2)
+    check("narrowed bracket pessimistic", pess, 0.7216495, tol=1e-6)
+    check("narrowed bracket optimistic", opt, 2.5925926, tol=1e-6)
+    check("no narrowing leaves both ends at today's curve",
+          narrowed_scaling_bracket(7, 0.3, 0.3, 0.2), (0.625, 0.625))
+    # The negative-term refusal is checked by its reason: usl_scaling also
+    # rejects a negative beta, so any ValueError would pass without the
+    # bracket's own refusal existing.
+    try:
+        narrowed_scaling_bracket(7, 0.3, 0.05, -0.01)
+    except ValueError as exc:
+        if "over-explains" not in str(exc):
+            fails.append(f"negative term refused for the wrong reason: {exc}")
+    else:
+        fails.append("negative term: did not raise")
+    for name, call in (
+        ("narrowed alpha above today's", lambda: narrowed_scaling_bracket(7, 0.3, 0.4, 0.2)),
+        ("W = 1 carries no term", lambda: unexplained_term(1.0, 1, 0.3)),
+        ("alpha above 1", lambda: usl_scaling(7, 1.2, 0.0)),
+        ("unordered interval", lambda: unexplained_term_interval((0.7, 0.6), 7, (0.3, 0.3))),
+    ):
+        try:
+            call()
+        except ValueError:
+            pass
+        else:
+            fails.append(f"{name}: did not raise")
+    # load_locate_profile reads points and intervals, and refuses a share
+    # without an interval.
+    with tempfile.TemporaryDirectory() as td:
+        good = {"provenance": {"commit": "abc12345", "pin": ["taskset", "-c", "0,2,4"]},
+                "shares": {"locked_fraction": {"point": 0.3, "ci_lower": 0.29, "ci_upper": 0.31},
+                           "trie_fraction": {"point": 0.05, "ci_lower": 0.04, "ci_upper": 0.06}}}
+        gp = Path(td) / "profile.json"
+        gp.write_text(json.dumps(good))
+        got = load_locate_profile(gp)
+        check("load_locate_profile locked_fraction", got["locked_fraction"], (0.3, 0.29, 0.31))
+        check("load_locate_profile pin", got["pin"], "0,2,4")
+        bad = json.loads(json.dumps(good))
+        bad["shares"]["trie_fraction"]["ci_lower"] = None
+        bp = Path(td) / "bad.json"
+        bp.write_text(json.dumps(bad))
+        try:
+            load_locate_profile(bp)
+        except ValueError:
+            pass
+        else:
+            fails.append("load_locate_profile: a share without an interval was accepted")
 
     if fails:
         print("rocksdb_locate_bound.py --self-test: FAILED")
