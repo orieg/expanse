@@ -434,6 +434,12 @@ jobs:
           # refused and says by name that section 5.10's H3 reading was not
           # reproduced.
           python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_verdicts.py --self-test
+          # The arm's hardware counters, rendered from results/counters/: it refuses
+          # a run whose harness rows did not run on its directory's pin and a pin
+          # with fewer than two runs, applies rule 18 to pin effects, and parses
+          # the perf c2c reports. The self-test also renders the committed tree
+          # and asserts every section is filled (AGENTS.md section 8.20.7).
+          python3 docs/benchmarks/rocksdb_memtable/scripts/counters_report.py --self-test
           # The #868 single-threaded driver, which replaced the shell loop that
           # could not emit a load snapshot or a raw row. Its CSV parsing and
           # refusals, its round-major interleaving (asserted at the CALL SITE,

@@ -1,0 +1,1891 @@
+{
+  "provenance": {
+    "instrument": {
+      "process": "perf stat, one invocation per repeat, whole process",
+      "per-thread": "perf stat --per-thread -p <pid>, attached per round after the harness spawned the round's threads and before its barrier released them (0.2 s settle), stopped by SIGINT after the harness's `counters` row"
+    },
+    "commit": "09ed3357cd4cb2c2e1382ae509c50da979dbfdfd",
+    "perf_event_paranoid": "1",
+    "pmu": "cpu_core",
+    "pmu_reason": "`cpu_core` is the performance-core PMU among the 2 this host exposes (cpu_atom, cpu_core)",
+    "pmu_cpus": "0-15",
+    "pin": [
+      "taskset",
+      "-c",
+      "0-15"
+    ],
+    "pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+    "core_pin": "0-15",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "powersave",
+      "scaling_governor_by_cpu": {
+        "0": "powersave",
+        "1": "powersave",
+        "2": "powersave",
+        "3": "powersave",
+        "4": "powersave",
+        "5": "powersave",
+        "6": "powersave",
+        "7": "powersave",
+        "8": "powersave",
+        "9": "powersave",
+        "10": "powersave",
+        "11": "powersave",
+        "12": "powersave",
+        "13": "powersave",
+        "14": "powersave",
+        "15": "powersave"
+      },
+      "scaling_governor_pin_set": "0-15",
+      "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+      "transparent_hugepage": "always [madvise] never",
+      "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35"
+    },
+    "events_available": [
+      "LLC-load-misses",
+      "cycles",
+      "instructions",
+      "ref-cycles",
+      "task-clock",
+      "context-switches",
+      "l2_rqsts.rfo_miss",
+      "mem_load_l3_hit_retired.xsnp_hitm"
+    ],
+    "events_unavailable": [
+      {
+        "event": "syscalls:sys_enter_futex",
+        "reason": "no row; event syntax error: 'syscalls:sys_enter_futex'\n                     \\___ can't access trace events\n\nError:\tNo permissions to read /sys/kernel/tracing//events/syscalls/sys_enter_futex\nHint:\tTry 'sudo mount -o remount,mode=755 /sys/kernel/tracing/'\n\nRun 'perf list' for a list of valid events\n\n Usage: "
+      }
+    ],
+    "futex_preflight": {
+      "event": "syscalls:sys_enter_futex",
+      "available": false,
+      "rc": 129,
+      "reason": "no row; event syntax error: 'syscalls:sys_enter_futex'\n                     \\___ can't access trace events\n\nError:\tNo permissions to read /sys/kernel/tracing//events/syscalls/sys_enter_futex\nHint:\tTry 'sudo mount -o remount,mode=755 /sys/kernel/tracing/'\n\nRun 'perf list' for a list of valid events\n\n Usage: "
+    },
+    "repeats": 5,
+    "estimators": {
+      "per_op": "the raw event row from perf's CSV divided by the harness's own operation count (AGENTS.md section 8.9 principle 5); both are published. Per-thread mode: writer-thread rows summed and divided by that round's `write_ops`, reader-thread rows by its `read_ops`; the main thread's rows are kept and attributed to neither",
+      "interval": "BCa 95% bootstrap over the repeats (process mode) or rounds (per-thread mode) (scripts/bca_bootstrap.py), 2000 resamples"
+    },
+    "scope": "process mode: counts are per PROCESS and include the population build; two arms are comparable only over the same work. Per-thread mode: counts are per THREAD over one round, from the attach to the harness's `counters` row; the prefill is outside them",
+    "attribution": "a counter is evidence for a mechanism, not the mechanism; a cell whose intervals overlap decides nothing",
+    "loads": [
+      {
+        "label": "start",
+        "since": null,
+        "load1": 0.49,
+        "load5": 0.75,
+        "load15": 0.52,
+        "at": "2026-09-13T21:34:29Z",
+        "stat_busy_jiffies": 58681459,
+        "stat_total_jiffies": 7464072947,
+        "child_cpu_s": 0.021,
+        "monotonic_s": 3110865.872,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "before rocksdb_conc_idle_r1",
+        "since": "start",
+        "load1": 0.49,
+        "load5": 0.75,
+        "load15": 0.52,
+        "at": "2026-09-13T21:34:29Z",
+        "stat_busy_jiffies": 58681459,
+        "stat_total_jiffies": 7464072947,
+        "child_cpu_s": 0.021,
+        "monotonic_s": 3110865.873,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": -0.07,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "after rocksdb_conc_idle_r1",
+        "since": "before rocksdb_conc_idle_r1",
+        "load1": 0.6,
+        "load5": 0.77,
+        "load15": 0.53,
+        "at": "2026-09-13T21:34:41Z",
+        "stat_busy_jiffies": 58682531,
+        "stat_total_jiffies": 7464100867,
+        "child_cpu_s": 10.644,
+        "monotonic_s": 3110877.508,
+        "busy_cpus_since_prev": 0.92,
+        "own_busy_cpus_since_prev": 0.91,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "before rocksdb_conc_idle_r2",
+        "since": "after rocksdb_conc_idle_r1",
+        "load1": 0.6,
+        "load5": 0.77,
+        "load15": 0.53,
+        "at": "2026-09-13T21:34:41Z",
+        "stat_busy_jiffies": 58682531,
+        "stat_total_jiffies": 7464100870,
+        "child_cpu_s": 10.644,
+        "monotonic_s": 3110877.51,
+        "busy_cpus_since_prev": 0.0,
+        "own_busy_cpus_since_prev": -0.24,
+        "foreign_busy_cpus_since_prev": 0.24
+      },
+      {
+        "label": "after rocksdb_conc_idle_r2",
+        "since": "before rocksdb_conc_idle_r2",
+        "load1": 0.75,
+        "load5": 0.79,
+        "load15": 0.54,
+        "at": "2026-09-13T21:34:53Z",
+        "stat_busy_jiffies": 58684365,
+        "stat_total_jiffies": 7464128544,
+        "child_cpu_s": 29.242,
+        "monotonic_s": 3110889.145,
+        "busy_cpus_since_prev": 1.59,
+        "own_busy_cpus_since_prev": 1.6,
+        "foreign_busy_cpus_since_prev": -0.01
+      }
+    ]
+  },
+  "cell": "rocksdb_conc_idle_r2",
+  "issue": 802,
+  "suite": "rocksdb_memtable",
+  "binary": "bench_memtable_concurrent",
+  "args": [
+    "--mode",
+    "idle",
+    "--readers",
+    "2"
+  ],
+  "arm": "expanse",
+  "note": "two readers, no writer \u2014 where a fixed per-operation cost of sharing first appears",
+  "concurrent": true,
+  "mode": "per-thread",
+  "repeats": 5,
+  "rounds": 5,
+  "ops_per_repeat": 6672320,
+  "rounds_per_repeat": 1,
+  "primary_role": "reader",
+  "roles": {
+    "writer": {
+      "ops_key": "write_ops",
+      "threads": 0,
+      "events": {
+        "cycles": {
+          "per_op_mean": null,
+          "ci_lower": null,
+          "ci_upper": null,
+          "ci_method": null,
+          "samples": [],
+          "note": "fewer than three samples counted; no interval (BCa needs a jackknife)"
+        },
+        "ref-cycles": {
+          "per_op_mean": null,
+          "ci_lower": null,
+          "ci_upper": null,
+          "ci_method": null,
+          "samples": [],
+          "note": "fewer than three samples counted; no interval (BCa needs a jackknife)"
+        },
+        "instructions": {
+          "per_op_mean": null,
+          "ci_lower": null,
+          "ci_upper": null,
+          "ci_method": null,
+          "samples": [],
+          "note": "fewer than three samples counted; no interval (BCa needs a jackknife)"
+        },
+        "task-clock": {
+          "per_op_mean": null,
+          "ci_lower": null,
+          "ci_upper": null,
+          "ci_method": null,
+          "samples": [],
+          "note": "fewer than three samples counted; no interval (BCa needs a jackknife)"
+        },
+        "context-switches": {
+          "per_op_mean": null,
+          "ci_lower": null,
+          "ci_upper": null,
+          "ci_method": null,
+          "samples": [],
+          "note": "fewer than three samples counted; no interval (BCa needs a jackknife)"
+        },
+        "LLC-load-misses": {
+          "per_op_mean": null,
+          "ci_lower": null,
+          "ci_upper": null,
+          "ci_method": null,
+          "samples": [],
+          "note": "fewer than three samples counted; no interval (BCa needs a jackknife)"
+        },
+        "l2_rqsts.rfo_miss": {
+          "per_op_mean": null,
+          "ci_lower": null,
+          "ci_upper": null,
+          "ci_method": null,
+          "samples": [],
+          "note": "fewer than three samples counted; no interval (BCa needs a jackknife)"
+        },
+        "mem_load_l3_hit_retired.xsnp_hitm": {
+          "per_op_mean": null,
+          "ci_lower": null,
+          "ci_upper": null,
+          "ci_method": null,
+          "samples": [],
+          "note": "fewer than three samples counted; no interval (BCa needs a jackknife)"
+        }
+      }
+    },
+    "reader": {
+      "ops_key": "read_ops",
+      "threads": 2,
+      "events": {
+        "cycles": {
+          "per_op_mean": 2263.681837398896,
+          "ci_lower": 2262.1827084678584,
+          "ci_upper": 2265.5668269409134,
+          "ci_method": "bca",
+          "samples": [
+            2263.1166574744616,
+            2266.960266064738,
+            2262.519515487491,
+            2264.433821022864,
+            2261.3789269449244
+          ]
+        },
+        "ref-cycles": {
+          "per_op_mean": 1117.4388782174342,
+          "ci_lower": 1107.7421711538657,
+          "ci_upper": 1121.1798577802108,
+          "ci_method": "bca",
+          "samples": [
+            1122.141035951513,
+            1118.168889212957,
+            1120.9395632373853,
+            1121.5020795523292,
+            1104.4428231329857
+          ]
+        },
+        "instructions": {
+          "per_op_mean": 2955.725450916614,
+          "ci_lower": 2954.6286716117984,
+          "ci_upper": 2956.737596228211,
+          "ci_method": "bca",
+          "samples": [
+            2956.6893100151074,
+            2956.2661400490133,
+            2957.23319551396,
+            2954.3093496132574,
+            2954.129259391733
+          ]
+        },
+        "task-clock": {
+          "per_op_mean": 0.0005294014455205013,
+          "ci_lower": 0.0005259125022645858,
+          "ci_upper": 0.0005313085126502068,
+          "ci_method": "bc",
+          "samples": [
+            0.0005312365114383003,
+            0.0005301890589216071,
+            0.0005317054614542101,
+            0.0005311275674819232,
+            0.0005227486283064662
+          ]
+        },
+        "context-switches": {
+          "per_op_mean": 0.044418227157678,
+          "ci_lower": 0.044181272429630145,
+          "ci_upper": 0.04471203003623373,
+          "ci_method": "bca",
+          "samples": [
+            0.04416709630233562,
+            0.044652803064421855,
+            0.044873311459974634,
+            0.0442874127368229,
+            0.044110512224834975
+          ]
+        },
+        "LLC-load-misses": {
+          "per_op_mean": 0.02858301065121268,
+          "ci_lower": 0.024250935089542902,
+          "ci_upper": 0.03167296750342934,
+          "ci_method": "bca",
+          "samples": [
+            0.03143344443911563,
+            0.031089646077482536,
+            0.021373962376542023,
+            0.032974858122317284,
+            0.026043142240605905
+          ]
+        },
+        "l2_rqsts.rfo_miss": {
+          "per_op_mean": 1.9660121911690127,
+          "ci_lower": 1.9510639145967297,
+          "ci_upper": 1.984230884736986,
+          "ci_method": "bca",
+          "samples": [
+            1.9623675123495277,
+            1.9708769727575006,
+            1.9492561296645017,
+            2.0003404404209757,
+            1.947219900652558
+          ]
+        },
+        "mem_load_l3_hit_retired.xsnp_hitm": {
+          "per_op_mean": 1.8962462674101404,
+          "ci_lower": 1.8802193781950343,
+          "ci_upper": 1.9138587986660494,
+          "ci_method": "bca",
+          "samples": [
+            1.9273128387127716,
+            1.8712033102080319,
+            1.8969612284308828,
+            1.9048894386349013,
+            1.880864521064113
+          ]
+        }
+      }
+    }
+  },
+  "events": {
+    "reader/cycles": {
+      "per_op_mean": 2263.681837398896,
+      "ci_lower": 2262.1827084678584,
+      "ci_upper": 2265.5668269409134,
+      "ci_method": "bca",
+      "samples": [
+        2263.1166574744616,
+        2266.960266064738,
+        2262.519515487491,
+        2264.433821022864,
+        2261.3789269449244
+      ]
+    },
+    "reader/ref-cycles": {
+      "per_op_mean": 1117.4388782174342,
+      "ci_lower": 1107.7421711538657,
+      "ci_upper": 1121.1798577802108,
+      "ci_method": "bca",
+      "samples": [
+        1122.141035951513,
+        1118.168889212957,
+        1120.9395632373853,
+        1121.5020795523292,
+        1104.4428231329857
+      ]
+    },
+    "reader/instructions": {
+      "per_op_mean": 2955.725450916614,
+      "ci_lower": 2954.6286716117984,
+      "ci_upper": 2956.737596228211,
+      "ci_method": "bca",
+      "samples": [
+        2956.6893100151074,
+        2956.2661400490133,
+        2957.23319551396,
+        2954.3093496132574,
+        2954.129259391733
+      ]
+    },
+    "reader/task-clock": {
+      "per_op_mean": 0.0005294014455205013,
+      "ci_lower": 0.0005259125022645858,
+      "ci_upper": 0.0005313085126502068,
+      "ci_method": "bc",
+      "samples": [
+        0.0005312365114383003,
+        0.0005301890589216071,
+        0.0005317054614542101,
+        0.0005311275674819232,
+        0.0005227486283064662
+      ]
+    },
+    "reader/context-switches": {
+      "per_op_mean": 0.044418227157678,
+      "ci_lower": 0.044181272429630145,
+      "ci_upper": 0.04471203003623373,
+      "ci_method": "bca",
+      "samples": [
+        0.04416709630233562,
+        0.044652803064421855,
+        0.044873311459974634,
+        0.0442874127368229,
+        0.044110512224834975
+      ]
+    },
+    "reader/LLC-load-misses": {
+      "per_op_mean": 0.02858301065121268,
+      "ci_lower": 0.024250935089542902,
+      "ci_upper": 0.03167296750342934,
+      "ci_method": "bca",
+      "samples": [
+        0.03143344443911563,
+        0.031089646077482536,
+        0.021373962376542023,
+        0.032974858122317284,
+        0.026043142240605905
+      ]
+    },
+    "reader/l2_rqsts.rfo_miss": {
+      "per_op_mean": 1.9660121911690127,
+      "ci_lower": 1.9510639145967297,
+      "ci_upper": 1.984230884736986,
+      "ci_method": "bca",
+      "samples": [
+        1.9623675123495277,
+        1.9708769727575006,
+        1.9492561296645017,
+        2.0003404404209757,
+        1.947219900652558
+      ]
+    },
+    "reader/mem_load_l3_hit_retired.xsnp_hitm": {
+      "per_op_mean": 1.8962462674101404,
+      "ci_lower": 1.8802193781950343,
+      "ci_upper": 1.9138587986660494,
+      "ci_method": "bca",
+      "samples": [
+        1.9273128387127716,
+        1.8712033102080319,
+        1.8969612284308828,
+        1.9048894386349013,
+        1.880864521064113
+      ]
+    }
+  },
+  "rounds_raw": [
+    {
+      "round": 0,
+      "pid": 16584,
+      "read_ops": 6672320,
+      "write_ops": 0,
+      "reader_elapsed_s": 2.000271,
+      "writer_elapsed_s": null,
+      "harness_row": {
+        "workload_id": "rocksdb_memtable_concurrent_read_scaling",
+        "role": "counters",
+        "arm": "expanse",
+        "writer_mode": "idle",
+        "writers": 0,
+        "readers": 2,
+        "round": 0,
+        "pid": 16584,
+        "read_ops": 6672320,
+        "write_ops": 0,
+        "elapsed_s": 2.000271,
+        "reader_elapsed_s": 2.000271,
+        "writer_elapsed_s": null,
+        "writer_exhausted": 0,
+        "population_start": 100000,
+        "population_after": 100000,
+        "window_s": 2.0,
+        "paced_rate": 250000.0,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15"
+      },
+      "threads": {
+        "bench_memtable_-16584": {
+          "comm": "bench_memtable_",
+          "tid": 16584,
+          "role": "other",
+          "rows": {
+            "cpu_core/cycles/": {
+              "event": "cpu_core/cycles/",
+              "pmu": "cpu_core",
+              "base_event": "cycles",
+              "pct_running": 100.0,
+              "value": 1401659.0,
+              "status": "counted"
+            },
+            "cpu_core/ref-cycles/": {
+              "event": "cpu_core/ref-cycles/",
+              "pmu": "cpu_core",
+              "base_event": "ref-cycles",
+              "pct_running": 100.0,
+              "value": 830718.0,
+              "status": "counted"
+            },
+            "cpu_core/instructions/": {
+              "event": "cpu_core/instructions/",
+              "pmu": "cpu_core",
+              "base_event": "instructions",
+              "pct_running": 100.0,
+              "value": 1837562.0,
+              "status": "counted"
+            },
+            "task-clock": {
+              "event": "task-clock",
+              "pmu": null,
+              "base_event": "task-clock",
+              "pct_running": 100.0,
+              "value": 0.4,
+              "status": "counted"
+            },
+            "context-switches": {
+              "event": "context-switches",
+              "pmu": null,
+              "base_event": "context-switches",
+              "pct_running": 100.0,
+              "value": 2.0,
+              "status": "counted"
+            },
+            "cpu_core/LLC-load-misses/": {
+              "event": "cpu_core/LLC-load-misses/",
+              "pmu": "cpu_core",
+              "base_event": "LLC-load-misses",
+              "pct_running": 100.0,
+              "value": 3054.0,
+              "status": "counted"
+            },
+            "cpu_core/l2_rqsts.rfo_miss/": {
+              "event": "cpu_core/l2_rqsts.rfo_miss/",
+              "pmu": "cpu_core",
+              "base_event": "l2_rqsts.rfo_miss",
+              "pct_running": 100.0,
+              "value": 337.0,
+              "status": "counted"
+            },
+            "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/": {
+              "event": "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/",
+              "pmu": "cpu_core",
+              "base_event": "mem_load_l3_hit_retired.xsnp_hitm",
+              "pct_running": 100.0,
+              "value": 119.0,
+              "status": "counted"
+            }
+          }
+        },
+        "reader-0-16585": {
+          "comm": "reader-0",
+          "tid": 16585,
+          "role": "reader",
+          "rows": {
+            "cpu_core/cycles/": {
+              "event": "cpu_core/cycles/",
+              "pmu": "cpu_core",
+              "base_event": "cycles",
+              "pct_running": 100.0,
+              "value": 7559213861.0,
+              "status": "counted"
+            },
+            "cpu_core/ref-cycles/": {
+              "event": "cpu_core/ref-cycles/",
+              "pmu": "cpu_core",
+              "base_event": "ref-cycles",
+              "pct_running": 100.0,
+              "value": 3748220154.0,
+              "status": "counted"
+            },
+            "cpu_core/instructions/": {
+              "event": "cpu_core/instructions/",
+              "pmu": "cpu_core",
+              "base_event": "instructions",
+              "pct_running": 100.0,
+              "value": 9855896084.0,
+              "status": "counted"
+            },
+            "task-clock": {
+              "event": "task-clock",
+              "pmu": null,
+              "base_event": "task-clock",
+              "pct_running": 100.0,
+              "value": 1773.05,
+              "status": "counted"
+            },
+            "context-switches": {
+              "event": "context-switches",
+              "pmu": null,
+              "base_event": "context-switches",
+              "pct_running": 100.0,
+              "value": 146649.0,
+              "status": "counted"
+            },
+            "cpu_core/LLC-load-misses/": {
+              "event": "cpu_core/LLC-load-misses/",
+              "pmu": "cpu_core",
+              "base_event": "LLC-load-misses",
+              "pct_running": 100.0,
+              "value": 103713.0,
+              "status": "counted"
+            },
+            "cpu_core/l2_rqsts.rfo_miss/": {
+              "event": "cpu_core/l2_rqsts.rfo_miss/",
+              "pmu": "cpu_core",
+              "base_event": "l2_rqsts.rfo_miss",
+              "pct_running": 100.0,
+              "value": 6535373.0,
+              "status": "counted"
+            },
+            "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/": {
+              "event": "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/",
+              "pmu": "cpu_core",
+              "base_event": "mem_load_l3_hit_retired.xsnp_hitm",
+              "pct_running": 100.0,
+              "value": 6330075.0,
+              "status": "counted"
+            }
+          }
+        },
+        "reader-1-16586": {
+          "comm": "reader-1",
+          "tid": 16586,
+          "role": "reader",
+          "rows": {
+            "cpu_core/cycles/": {
+              "event": "cpu_core/cycles/",
+              "pmu": "cpu_core",
+              "base_event": "cycles",
+              "pct_running": 100.0,
+              "value": 7541024675.0,
+              "status": "counted"
+            },
+            "cpu_core/ref-cycles/": {
+              "event": "cpu_core/ref-cycles/",
+              "pmu": "cpu_core",
+              "base_event": "ref-cycles",
+              "pct_running": 100.0,
+              "value": 3739063923.0,
+              "status": "counted"
+            },
+            "cpu_core/instructions/": {
+              "event": "cpu_core/instructions/",
+              "pmu": "cpu_core",
+              "base_event": "instructions",
+              "pct_running": 100.0,
+              "value": 9872081133.0,
+              "status": "counted"
+            },
+            "task-clock": {
+              "event": "task-clock",
+              "pmu": null,
+              "base_event": "task-clock",
+              "pct_running": 100.0,
+              "value": 1771.53,
+              "status": "counted"
+            },
+            "context-switches": {
+              "event": "context-switches",
+              "pmu": null,
+              "base_event": "context-switches",
+              "pct_running": 100.0,
+              "value": 148048.0,
+              "status": "counted"
+            },
+            "cpu_core/LLC-load-misses/": {
+              "event": "cpu_core/LLC-load-misses/",
+              "pmu": "cpu_core",
+              "base_event": "LLC-load-misses",
+              "pct_running": 100.0,
+              "value": 106021.0,
+              "status": "counted"
+            },
+            "cpu_core/l2_rqsts.rfo_miss/": {
+              "event": "cpu_core/l2_rqsts.rfo_miss/",
+              "pmu": "cpu_core",
+              "base_event": "l2_rqsts.rfo_miss",
+              "pct_running": 100.0,
+              "value": 6558171.0,
+              "status": "counted"
+            },
+            "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/": {
+              "event": "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/",
+              "pmu": "cpu_core",
+              "base_event": "mem_load_l3_hit_retired.xsnp_hitm",
+              "pct_running": 100.0,
+              "value": 6529573.0,
+              "status": "counted"
+            }
+          }
+        }
+      },
+      "role_threads": {
+        "other": 1,
+        "reader": 2
+      },
+      "role_raw": {
+        "other": {
+          "cycles": 1401659.0,
+          "ref-cycles": 830718.0,
+          "instructions": 1837562.0,
+          "task-clock": 0.4,
+          "context-switches": 2.0,
+          "LLC-load-misses": 3054.0,
+          "l2_rqsts.rfo_miss": 337.0,
+          "mem_load_l3_hit_retired.xsnp_hitm": 119.0
+        },
+        "reader": {
+          "cycles": 15100238536.0,
+          "ref-cycles": 7487284077.0,
+          "instructions": 19727977217.0,
+          "task-clock": 3544.58,
+          "context-switches": 294697.0,
+          "LLC-load-misses": 209734.0,
+          "l2_rqsts.rfo_miss": 13093544.0,
+          "mem_load_l3_hit_retired.xsnp_hitm": 12859648.0
+        }
+      },
+      "per_op": {
+        "writer": {},
+        "reader": {
+          "cycles": 2263.1166574744616,
+          "ref-cycles": 1122.141035951513,
+          "instructions": 2956.6893100151074,
+          "task-clock": 0.0005312365114383003,
+          "context-switches": 0.04416709630233562,
+          "LLC-load-misses": 0.03143344443911563,
+          "l2_rqsts.rfo_miss": 1.9623675123495277,
+          "mem_load_l3_hit_retired.xsnp_hitm": 1.9273128387127716
+        }
+      },
+      "perf_rc": -2
+    },
+    {
+      "round": 1,
+      "pid": 16584,
+      "read_ops": 6678976,
+      "write_ops": 0,
+      "reader_elapsed_s": 2.000106,
+      "writer_elapsed_s": null,
+      "harness_row": {
+        "workload_id": "rocksdb_memtable_concurrent_read_scaling",
+        "role": "counters",
+        "arm": "expanse",
+        "writer_mode": "idle",
+        "writers": 0,
+        "readers": 2,
+        "round": 1,
+        "pid": 16584,
+        "read_ops": 6678976,
+        "write_ops": 0,
+        "elapsed_s": 2.000106,
+        "reader_elapsed_s": 2.000106,
+        "writer_elapsed_s": null,
+        "writer_exhausted": 0,
+        "population_start": 100000,
+        "population_after": 100000,
+        "window_s": 2.0,
+        "paced_rate": 250000.0,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15"
+      },
+      "threads": {
+        "bench_memtable_-16584": {
+          "comm": "bench_memtable_",
+          "tid": 16584,
+          "role": "other",
+          "rows": {
+            "cpu_core/cycles/": {
+              "event": "cpu_core/cycles/",
+              "pmu": "cpu_core",
+              "base_event": "cycles",
+              "pct_running": 100.0,
+              "value": 1481051.0,
+              "status": "counted"
+            },
+            "cpu_core/ref-cycles/": {
+              "event": "cpu_core/ref-cycles/",
+              "pmu": "cpu_core",
+              "base_event": "ref-cycles",
+              "pct_running": 100.0,
+              "value": 809424.0,
+              "status": "counted"
+            },
+            "cpu_core/instructions/": {
+              "event": "cpu_core/instructions/",
+              "pmu": "cpu_core",
+              "base_event": "instructions",
+              "pct_running": 100.0,
+              "value": 2054130.0,
+              "status": "counted"
+            },
+            "task-clock": {
+              "event": "task-clock",
+              "pmu": null,
+              "base_event": "task-clock",
+              "pct_running": 100.0,
+              "value": 0.37,
+              "status": "counted"
+            },
+            "context-switches": {
+              "event": "context-switches",
+              "pmu": null,
+              "base_event": "context-switches",
+              "pct_running": 100.0,
+              "value": 2.0,
+              "status": "counted"
+            },
+            "cpu_core/LLC-load-misses/": {
+              "event": "cpu_core/LLC-load-misses/",
+              "pmu": "cpu_core",
+              "base_event": "LLC-load-misses",
+              "pct_running": 100.0,
+              "value": 4482.0,
+              "status": "counted"
+            },
+            "cpu_core/l2_rqsts.rfo_miss/": {
+              "event": "cpu_core/l2_rqsts.rfo_miss/",
+              "pmu": "cpu_core",
+              "base_event": "l2_rqsts.rfo_miss",
+              "pct_running": 100.0,
+              "value": 319.0,
+              "status": "counted"
+            },
+            "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/": {
+              "event": "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/",
+              "pmu": "cpu_core",
+              "base_event": "mem_load_l3_hit_retired.xsnp_hitm",
+              "pct_running": 100.0,
+              "value": 54.0,
+              "status": "counted"
+            }
+          }
+        },
+        "reader-0-16592": {
+          "comm": "reader-0",
+          "tid": 16592,
+          "role": "reader",
+          "rows": {
+            "cpu_core/cycles/": {
+              "event": "cpu_core/cycles/",
+              "pmu": "cpu_core",
+              "base_event": "cycles",
+              "pct_running": 100.0,
+              "value": 7570874428.0,
+              "status": "counted"
+            },
+            "cpu_core/ref-cycles/": {
+              "event": "cpu_core/ref-cycles/",
+              "pmu": "cpu_core",
+              "base_event": "ref-cycles",
+              "pct_running": 100.0,
+              "value": 3734087679.0,
+              "status": "counted"
+            },
+            "cpu_core/instructions/": {
+              "event": "cpu_core/instructions/",
+              "pmu": "cpu_core",
+              "base_event": "instructions",
+              "pct_running": 100.0,
+              "value": 9843138272.0,
+              "status": "counted"
+            },
+            "task-clock": {
+              "event": "task-clock",
+              "pmu": null,
+              "base_event": "task-clock",
+              "pct_running": 100.0,
+              "value": 1770.44,
+              "status": "counted"
+            },
+            "context-switches": {
+              "event": "context-switches",
+              "pmu": null,
+              "base_event": "context-switches",
+              "pct_running": 100.0,
+              "value": 148709.0,
+              "status": "counted"
+            },
+            "cpu_core/LLC-load-misses/": {
+              "event": "cpu_core/LLC-load-misses/",
+              "pmu": "cpu_core",
+              "base_event": "LLC-load-misses",
+              "pct_running": 100.0,
+              "value": 104217.0,
+              "status": "counted"
+            },
+            "cpu_core/l2_rqsts.rfo_miss/": {
+              "event": "cpu_core/l2_rqsts.rfo_miss/",
+              "pmu": "cpu_core",
+              "base_event": "l2_rqsts.rfo_miss",
+              "pct_running": 100.0,
+              "value": 6593915.0,
+              "status": "counted"
+            },
+            "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/": {
+              "event": "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/",
+              "pmu": "cpu_core",
+              "base_event": "mem_load_l3_hit_retired.xsnp_hitm",
+              "pct_running": 100.0,
+              "value": 6294774.0,
+              "status": "counted"
+            }
+          }
+        },
+        "reader-1-16593": {
+          "comm": "reader-1",
+          "tid": 16593,
+          "role": "reader",
+          "rows": {
+            "cpu_core/cycles/": {
+              "event": "cpu_core/cycles/",
+              "pmu": "cpu_core",
+              "base_event": "cycles",
+              "pct_running": 100.0,
+              "value": 7570098782.0,
+              "status": "counted"
+            },
+            "cpu_core/ref-cycles/": {
+              "event": "cpu_core/ref-cycles/",
+              "pmu": "cpu_core",
+              "base_event": "ref-cycles",
+              "pct_running": 100.0,
+              "value": 3734135496.0,
+              "status": "counted"
+            },
+            "cpu_core/instructions/": {
+              "event": "cpu_core/instructions/",
+              "pmu": "cpu_core",
+              "base_event": "instructions",
+              "pct_running": 100.0,
+              "value": 9901692327.0,
+              "status": "counted"
+            },
+            "task-clock": {
+              "event": "task-clock",
+              "pmu": null,
+              "base_event": "task-clock",
+              "pct_running": 100.0,
+              "value": 1770.68,
+              "status": "counted"
+            },
+            "context-switches": {
+              "event": "context-switches",
+              "pmu": null,
+              "base_event": "context-switches",
+              "pct_running": 100.0,
+              "value": 149526.0,
+              "status": "counted"
+            },
+            "cpu_core/LLC-load-misses/": {
+              "event": "cpu_core/LLC-load-misses/",
+              "pmu": "cpu_core",
+              "base_event": "LLC-load-misses",
+              "pct_running": 100.0,
+              "value": 103430.0,
+              "status": "counted"
+            },
+            "cpu_core/l2_rqsts.rfo_miss/": {
+              "event": "cpu_core/l2_rqsts.rfo_miss/",
+              "pmu": "cpu_core",
+              "base_event": "l2_rqsts.rfo_miss",
+              "pct_running": 100.0,
+              "value": 6569525.0,
+              "status": "counted"
+            },
+            "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/": {
+              "event": "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/",
+              "pmu": "cpu_core",
+              "base_event": "mem_load_l3_hit_retired.xsnp_hitm",
+              "pct_running": 100.0,
+              "value": 6202948.0,
+              "status": "counted"
+            }
+          }
+        }
+      },
+      "role_threads": {
+        "other": 1,
+        "reader": 2
+      },
+      "role_raw": {
+        "other": {
+          "cycles": 1481051.0,
+          "ref-cycles": 809424.0,
+          "instructions": 2054130.0,
+          "task-clock": 0.37,
+          "context-switches": 2.0,
+          "LLC-load-misses": 4482.0,
+          "l2_rqsts.rfo_miss": 319.0,
+          "mem_load_l3_hit_retired.xsnp_hitm": 54.0
+        },
+        "reader": {
+          "cycles": 15140973210.0,
+          "ref-cycles": 7468223175.0,
+          "instructions": 19744830599.0,
+          "task-clock": 3541.12,
+          "context-switches": 298235.0,
+          "LLC-load-misses": 207647.0,
+          "l2_rqsts.rfo_miss": 13163440.0,
+          "mem_load_l3_hit_retired.xsnp_hitm": 12497722.0
+        }
+      },
+      "per_op": {
+        "writer": {},
+        "reader": {
+          "cycles": 2266.960266064738,
+          "ref-cycles": 1118.168889212957,
+          "instructions": 2956.2661400490133,
+          "task-clock": 0.0005301890589216071,
+          "context-switches": 0.044652803064421855,
+          "LLC-load-misses": 0.031089646077482536,
+          "l2_rqsts.rfo_miss": 1.9708769727575006,
+          "mem_load_l3_hit_retired.xsnp_hitm": 1.8712033102080319
+        }
+      },
+      "perf_rc": -2
+    },
+    {
+      "round": 2,
+      "pid": 16584,
+      "read_ops": 6661376,
+      "write_ops": 0,
+      "reader_elapsed_s": 2.000231,
+      "writer_elapsed_s": null,
+      "harness_row": {
+        "workload_id": "rocksdb_memtable_concurrent_read_scaling",
+        "role": "counters",
+        "arm": "expanse",
+        "writer_mode": "idle",
+        "writers": 0,
+        "readers": 2,
+        "round": 2,
+        "pid": 16584,
+        "read_ops": 6661376,
+        "write_ops": 0,
+        "elapsed_s": 2.000231,
+        "reader_elapsed_s": 2.000231,
+        "writer_elapsed_s": null,
+        "writer_exhausted": 0,
+        "population_start": 100000,
+        "population_after": 100000,
+        "window_s": 2.0,
+        "paced_rate": 250000.0,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15"
+      },
+      "threads": {
+        "bench_memtable_-16584": {
+          "comm": "bench_memtable_",
+          "tid": 16584,
+          "role": "other",
+          "rows": {
+            "cpu_core/cycles/": {
+              "event": "cpu_core/cycles/",
+              "pmu": "cpu_core",
+              "base_event": "cycles",
+              "pct_running": 100.0,
+              "value": 617747.0,
+              "status": "counted"
+            },
+            "cpu_core/ref-cycles/": {
+              "event": "cpu_core/ref-cycles/",
+              "pmu": "cpu_core",
+              "base_event": "ref-cycles",
+              "pct_running": 100.0,
+              "value": 381969.0,
+              "status": "counted"
+            },
+            "cpu_core/instructions/": {
+              "event": "cpu_core/instructions/",
+              "pmu": "cpu_core",
+              "base_event": "instructions",
+              "pct_running": 100.0,
+              "value": 487617.0,
+              "status": "counted"
+            },
+            "task-clock": {
+              "event": "task-clock",
+              "pmu": null,
+              "base_event": "task-clock",
+              "pct_running": 100.0,
+              "value": 0.21,
+              "status": "counted"
+            },
+            "context-switches": {
+              "event": "context-switches",
+              "pmu": null,
+              "base_event": "context-switches",
+              "pct_running": 100.0,
+              "value": 2.0,
+              "status": "counted"
+            },
+            "cpu_core/LLC-load-misses/": {
+              "event": "cpu_core/LLC-load-misses/",
+              "pmu": "cpu_core",
+              "base_event": "LLC-load-misses",
+              "pct_running": 100.0,
+              "value": 2152.0,
+              "status": "counted"
+            },
+            "cpu_core/l2_rqsts.rfo_miss/": {
+              "event": "cpu_core/l2_rqsts.rfo_miss/",
+              "pmu": "cpu_core",
+              "base_event": "l2_rqsts.rfo_miss",
+              "pct_running": 100.0,
+              "value": 170.0,
+              "status": "counted"
+            },
+            "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/": {
+              "event": "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/",
+              "pmu": "cpu_core",
+              "base_event": "mem_load_l3_hit_retired.xsnp_hitm",
+              "pct_running": 100.0,
+              "value": 118.0,
+              "status": "counted"
+            }
+          }
+        },
+        "reader-0-16597": {
+          "comm": "reader-0",
+          "tid": 16597,
+          "role": "reader",
+          "rows": {
+            "cpu_core/cycles/": {
+              "event": "cpu_core/cycles/",
+              "pmu": "cpu_core",
+              "base_event": "cycles",
+              "pct_running": 100.0,
+              "value": 7505106023.0,
+              "status": "counted"
+            },
+            "cpu_core/ref-cycles/": {
+              "event": "cpu_core/ref-cycles/",
+              "pmu": "cpu_core",
+              "base_event": "ref-cycles",
+              "pct_running": 100.0,
+              "value": 3718359288.0,
+              "status": "counted"
+            },
+            "cpu_core/instructions/": {
+              "event": "cpu_core/instructions/",
+              "pmu": "cpu_core",
+              "base_event": "instructions",
+              "pct_running": 100.0,
+              "value": 9802083975.0,
+              "status": "counted"
+            },
+            "task-clock": {
+              "event": "task-clock",
+              "pmu": null,
+              "base_event": "task-clock",
+              "pct_running": 100.0,
+              "value": 1767.25,
+              "status": "counted"
+            },
+            "context-switches": {
+              "event": "context-switches",
+              "pmu": null,
+              "base_event": "context-switches",
+              "pct_running": 100.0,
+              "value": 151202.0,
+              "status": "counted"
+            },
+            "cpu_core/LLC-load-misses/": {
+              "event": "cpu_core/LLC-load-misses/",
+              "pmu": "cpu_core",
+              "base_event": "LLC-load-misses",
+              "pct_running": 100.0,
+              "value": 68512.0,
+              "status": "counted"
+            },
+            "cpu_core/l2_rqsts.rfo_miss/": {
+              "event": "cpu_core/l2_rqsts.rfo_miss/",
+              "pmu": "cpu_core",
+              "base_event": "l2_rqsts.rfo_miss",
+              "pct_running": 100.0,
+              "value": 6449737.0,
+              "status": "counted"
+            },
+            "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/": {
+              "event": "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/",
+              "pmu": "cpu_core",
+              "base_event": "mem_load_l3_hit_retired.xsnp_hitm",
+              "pct_running": 100.0,
+              "value": 6194186.0,
+              "status": "counted"
+            }
+          }
+        },
+        "reader-1-16598": {
+          "comm": "reader-1",
+          "tid": 16598,
+          "role": "reader",
+          "rows": {
+            "cpu_core/cycles/": {
+              "event": "cpu_core/cycles/",
+              "pmu": "cpu_core",
+              "base_event": "cycles",
+              "pct_running": 100.0,
+              "value": 7566387177.0,
+              "status": "counted"
+            },
+            "cpu_core/ref-cycles/": {
+              "event": "cpu_core/ref-cycles/",
+              "pmu": "cpu_core",
+              "base_event": "ref-cycles",
+              "pct_running": 100.0,
+              "value": 3748640616.0,
+              "status": "counted"
+            },
+            "cpu_core/instructions/": {
+              "event": "cpu_core/instructions/",
+              "pmu": "cpu_core",
+              "base_event": "instructions",
+              "pct_running": 100.0,
+              "value": 9897158260.0,
+              "status": "counted"
+            },
+            "task-clock": {
+              "event": "task-clock",
+              "pmu": null,
+              "base_event": "task-clock",
+              "pct_running": 100.0,
+              "value": 1774.64,
+              "status": "counted"
+            },
+            "context-switches": {
+              "event": "context-switches",
+              "pmu": null,
+              "base_event": "context-switches",
+              "pct_running": 100.0,
+              "value": 147716.0,
+              "status": "counted"
+            },
+            "cpu_core/LLC-load-misses/": {
+              "event": "cpu_core/LLC-load-misses/",
+              "pmu": "cpu_core",
+              "base_event": "LLC-load-misses",
+              "pct_running": 100.0,
+              "value": 73868.0,
+              "status": "counted"
+            },
+            "cpu_core/l2_rqsts.rfo_miss/": {
+              "event": "cpu_core/l2_rqsts.rfo_miss/",
+              "pmu": "cpu_core",
+              "base_event": "l2_rqsts.rfo_miss",
+              "pct_running": 100.0,
+              "value": 6534991.0,
+              "status": "counted"
+            },
+            "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/": {
+              "event": "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/",
+              "pmu": "cpu_core",
+              "base_event": "mem_load_l3_hit_retired.xsnp_hitm",
+              "pct_running": 100.0,
+              "value": 6442186.0,
+              "status": "counted"
+            }
+          }
+        }
+      },
+      "role_threads": {
+        "other": 1,
+        "reader": 2
+      },
+      "role_raw": {
+        "other": {
+          "cycles": 617747.0,
+          "ref-cycles": 381969.0,
+          "instructions": 487617.0,
+          "task-clock": 0.21,
+          "context-switches": 2.0,
+          "LLC-load-misses": 2152.0,
+          "l2_rqsts.rfo_miss": 170.0,
+          "mem_load_l3_hit_retired.xsnp_hitm": 118.0
+        },
+        "reader": {
+          "cycles": 15071493200.0,
+          "ref-cycles": 7466999904.0,
+          "instructions": 19699242235.0,
+          "task-clock": 3541.8900000000003,
+          "context-switches": 298918.0,
+          "LLC-load-misses": 142380.0,
+          "l2_rqsts.rfo_miss": 12984728.0,
+          "mem_load_l3_hit_retired.xsnp_hitm": 12636372.0
+        }
+      },
+      "per_op": {
+        "writer": {},
+        "reader": {
+          "cycles": 2262.519515487491,
+          "ref-cycles": 1120.9395632373853,
+          "instructions": 2957.23319551396,
+          "task-clock": 0.0005317054614542101,
+          "context-switches": 0.044873311459974634,
+          "LLC-load-misses": 0.021373962376542023,
+          "l2_rqsts.rfo_miss": 1.9492561296645017,
+          "mem_load_l3_hit_retired.xsnp_hitm": 1.8969612284308828
+        }
+      },
+      "perf_rc": -2
+    },
+    {
+      "round": 3,
+      "pid": 16584,
+      "read_ops": 6664896,
+      "write_ops": 0,
+      "reader_elapsed_s": 2.000238,
+      "writer_elapsed_s": null,
+      "harness_row": {
+        "workload_id": "rocksdb_memtable_concurrent_read_scaling",
+        "role": "counters",
+        "arm": "expanse",
+        "writer_mode": "idle",
+        "writers": 0,
+        "readers": 2,
+        "round": 3,
+        "pid": 16584,
+        "read_ops": 6664896,
+        "write_ops": 0,
+        "elapsed_s": 2.000238,
+        "reader_elapsed_s": 2.000238,
+        "writer_elapsed_s": null,
+        "writer_exhausted": 0,
+        "population_start": 100000,
+        "population_after": 100000,
+        "window_s": 2.0,
+        "paced_rate": 250000.0,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15"
+      },
+      "threads": {
+        "bench_memtable_-16584": {
+          "comm": "bench_memtable_",
+          "tid": 16584,
+          "role": "other",
+          "rows": {
+            "cpu_core/cycles/": {
+              "event": "cpu_core/cycles/",
+              "pmu": "cpu_core",
+              "base_event": "cycles",
+              "pct_running": 100.0,
+              "value": 609318.0,
+              "status": "counted"
+            },
+            "cpu_core/ref-cycles/": {
+              "event": "cpu_core/ref-cycles/",
+              "pmu": "cpu_core",
+              "base_event": "ref-cycles",
+              "pct_running": 100.0,
+              "value": 376677.0,
+              "status": "counted"
+            },
+            "cpu_core/instructions/": {
+              "event": "cpu_core/instructions/",
+              "pmu": "cpu_core",
+              "base_event": "instructions",
+              "pct_running": 100.0,
+              "value": 478430.0,
+              "status": "counted"
+            },
+            "task-clock": {
+              "event": "task-clock",
+              "pmu": null,
+              "base_event": "task-clock",
+              "pct_running": 100.0,
+              "value": 0.21,
+              "status": "counted"
+            },
+            "context-switches": {
+              "event": "context-switches",
+              "pmu": null,
+              "base_event": "context-switches",
+              "pct_running": 100.0,
+              "value": 2.0,
+              "status": "counted"
+            },
+            "cpu_core/LLC-load-misses/": {
+              "event": "cpu_core/LLC-load-misses/",
+              "pmu": "cpu_core",
+              "base_event": "LLC-load-misses",
+              "pct_running": 100.0,
+              "value": 2058.0,
+              "status": "counted"
+            },
+            "cpu_core/l2_rqsts.rfo_miss/": {
+              "event": "cpu_core/l2_rqsts.rfo_miss/",
+              "pmu": "cpu_core",
+              "base_event": "l2_rqsts.rfo_miss",
+              "pct_running": 100.0,
+              "value": 174.0,
+              "status": "counted"
+            },
+            "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/": {
+              "event": "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/",
+              "pmu": "cpu_core",
+              "base_event": "mem_load_l3_hit_retired.xsnp_hitm",
+              "pct_running": 100.0,
+              "value": 150.0,
+              "status": "counted"
+            }
+          }
+        },
+        "reader-0-16602": {
+          "comm": "reader-0",
+          "tid": 16602,
+          "role": "reader",
+          "rows": {
+            "cpu_core/cycles/": {
+              "event": "cpu_core/cycles/",
+              "pmu": "cpu_core",
+              "base_event": "cycles",
+              "pct_running": 100.0,
+              "value": 7672171461.0,
+              "status": "counted"
+            },
+            "cpu_core/ref-cycles/": {
+              "event": "cpu_core/ref-cycles/",
+              "pmu": "cpu_core",
+              "base_event": "ref-cycles",
+              "pct_running": 100.0,
+              "value": 3799187658.0,
+              "status": "counted"
+            },
+            "cpu_core/instructions/": {
+              "event": "cpu_core/instructions/",
+              "pmu": "cpu_core",
+              "base_event": "instructions",
+              "pct_running": 100.0,
+              "value": 9996999499.0,
+              "status": "counted"
+            },
+            "task-clock": {
+              "event": "task-clock",
+              "pmu": null,
+              "base_event": "task-clock",
+              "pct_running": 100.0,
+              "value": 1783.36,
+              "status": "counted"
+            },
+            "context-switches": {
+              "event": "context-switches",
+              "pmu": null,
+              "base_event": "context-switches",
+              "pct_running": 100.0,
+              "value": 139512.0,
+              "status": "counted"
+            },
+            "cpu_core/LLC-load-misses/": {
+              "event": "cpu_core/LLC-load-misses/",
+              "pmu": "cpu_core",
+              "base_event": "LLC-load-misses",
+              "pct_running": 100.0,
+              "value": 116253.0,
+              "status": "counted"
+            },
+            "cpu_core/l2_rqsts.rfo_miss/": {
+              "event": "cpu_core/l2_rqsts.rfo_miss/",
+              "pmu": "cpu_core",
+              "base_event": "l2_rqsts.rfo_miss",
+              "pct_running": 100.0,
+              "value": 6759992.0,
+              "status": "counted"
+            },
+            "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/": {
+              "event": "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/",
+              "pmu": "cpu_core",
+              "base_event": "mem_load_l3_hit_retired.xsnp_hitm",
+              "pct_running": 100.0,
+              "value": 6476217.0,
+              "status": "counted"
+            }
+          }
+        },
+        "reader-1-16603": {
+          "comm": "reader-1",
+          "tid": 16603,
+          "role": "reader",
+          "rows": {
+            "cpu_core/cycles/": {
+              "event": "cpu_core/cycles/",
+              "pmu": "cpu_core",
+              "base_event": "cycles",
+              "pct_running": 100.0,
+              "value": 7420044455.0,
+              "status": "counted"
+            },
+            "cpu_core/ref-cycles/": {
+              "event": "cpu_core/ref-cycles/",
+              "pmu": "cpu_core",
+              "base_event": "ref-cycles",
+              "pct_running": 100.0,
+              "value": 3675507066.0,
+              "status": "counted"
+            },
+            "cpu_core/instructions/": {
+              "event": "cpu_core/instructions/",
+              "pmu": "cpu_core",
+              "base_event": "instructions",
+              "pct_running": 100.0,
+              "value": 9693165068.0,
+              "status": "counted"
+            },
+            "task-clock": {
+              "event": "task-clock",
+              "pmu": null,
+              "base_event": "task-clock",
+              "pct_running": 100.0,
+              "value": 1756.55,
+              "status": "counted"
+            },
+            "context-switches": {
+              "event": "context-switches",
+              "pmu": null,
+              "base_event": "context-switches",
+              "pct_running": 100.0,
+              "value": 155659.0,
+              "status": "counted"
+            },
+            "cpu_core/LLC-load-misses/": {
+              "event": "cpu_core/LLC-load-misses/",
+              "pmu": "cpu_core",
+              "base_event": "LLC-load-misses",
+              "pct_running": 100.0,
+              "value": 103521.0,
+              "status": "counted"
+            },
+            "cpu_core/l2_rqsts.rfo_miss/": {
+              "event": "cpu_core/l2_rqsts.rfo_miss/",
+              "pmu": "cpu_core",
+              "base_event": "l2_rqsts.rfo_miss",
+              "pct_running": 100.0,
+              "value": 6572069.0,
+              "status": "counted"
+            },
+            "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/": {
+              "event": "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/",
+              "pmu": "cpu_core",
+              "base_event": "mem_load_l3_hit_retired.xsnp_hitm",
+              "pct_running": 100.0,
+              "value": 6219673.0,
+              "status": "counted"
+            }
+          }
+        }
+      },
+      "role_threads": {
+        "other": 1,
+        "reader": 2
+      },
+      "role_raw": {
+        "other": {
+          "cycles": 609318.0,
+          "ref-cycles": 376677.0,
+          "instructions": 478430.0,
+          "task-clock": 0.21,
+          "context-switches": 2.0,
+          "LLC-load-misses": 2058.0,
+          "l2_rqsts.rfo_miss": 174.0,
+          "mem_load_l3_hit_retired.xsnp_hitm": 150.0
+        },
+        "reader": {
+          "cycles": 15092215916.0,
+          "ref-cycles": 7474694724.0,
+          "instructions": 19690164567.0,
+          "task-clock": 3539.91,
+          "context-switches": 295171.0,
+          "LLC-load-misses": 219774.0,
+          "l2_rqsts.rfo_miss": 13332061.0,
+          "mem_load_l3_hit_retired.xsnp_hitm": 12695890.0
+        }
+      },
+      "per_op": {
+        "writer": {},
+        "reader": {
+          "cycles": 2264.433821022864,
+          "ref-cycles": 1121.5020795523292,
+          "instructions": 2954.3093496132574,
+          "task-clock": 0.0005311275674819232,
+          "context-switches": 0.0442874127368229,
+          "LLC-load-misses": 0.032974858122317284,
+          "l2_rqsts.rfo_miss": 2.0003404404209757,
+          "mem_load_l3_hit_retired.xsnp_hitm": 1.9048894386349013
+        }
+      },
+      "perf_rc": -2
+    },
+    {
+      "round": 4,
+      "pid": 16584,
+      "read_ops": 6777024,
+      "write_ops": 0,
+      "reader_elapsed_s": 2.000224,
+      "writer_elapsed_s": null,
+      "harness_row": {
+        "workload_id": "rocksdb_memtable_concurrent_read_scaling",
+        "role": "counters",
+        "arm": "expanse",
+        "writer_mode": "idle",
+        "writers": 0,
+        "readers": 2,
+        "round": 4,
+        "pid": 16584,
+        "read_ops": 6777024,
+        "write_ops": 0,
+        "elapsed_s": 2.000224,
+        "reader_elapsed_s": 2.000224,
+        "writer_elapsed_s": null,
+        "writer_exhausted": 0,
+        "population_start": 100000,
+        "population_after": 100000,
+        "window_s": 2.0,
+        "paced_rate": 250000.0,
+        "cpus_allowed": "0-15",
+        "pin_applied": "0-15"
+      },
+      "threads": {
+        "bench_memtable_-16584": {
+          "comm": "bench_memtable_",
+          "tid": 16584,
+          "role": "other",
+          "rows": {
+            "cpu_core/cycles/": {
+              "event": "cpu_core/cycles/",
+              "pmu": "cpu_core",
+              "base_event": "cycles",
+              "pct_running": 100.0,
+              "value": 618600.0,
+              "status": "counted"
+            },
+            "cpu_core/ref-cycles/": {
+              "event": "cpu_core/ref-cycles/",
+              "pmu": "cpu_core",
+              "base_event": "ref-cycles",
+              "pct_running": 100.0,
+              "value": 382221.0,
+              "status": "counted"
+            },
+            "cpu_core/instructions/": {
+              "event": "cpu_core/instructions/",
+              "pmu": "cpu_core",
+              "base_event": "instructions",
+              "pct_running": 100.0,
+              "value": 444070.0,
+              "status": "counted"
+            },
+            "task-clock": {
+              "event": "task-clock",
+              "pmu": null,
+              "base_event": "task-clock",
+              "pct_running": 100.0,
+              "value": 0.21,
+              "status": "counted"
+            },
+            "context-switches": {
+              "event": "context-switches",
+              "pmu": null,
+              "base_event": "context-switches",
+              "pct_running": 100.0,
+              "value": 2.0,
+              "status": "counted"
+            },
+            "cpu_core/LLC-load-misses/": {
+              "event": "cpu_core/LLC-load-misses/",
+              "pmu": "cpu_core",
+              "base_event": "LLC-load-misses",
+              "pct_running": 100.0,
+              "value": 2283.0,
+              "status": "counted"
+            },
+            "cpu_core/l2_rqsts.rfo_miss/": {
+              "event": "cpu_core/l2_rqsts.rfo_miss/",
+              "pmu": "cpu_core",
+              "base_event": "l2_rqsts.rfo_miss",
+              "pct_running": 100.0,
+              "value": 166.0,
+              "status": "counted"
+            },
+            "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/": {
+              "event": "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/",
+              "pmu": "cpu_core",
+              "base_event": "mem_load_l3_hit_retired.xsnp_hitm",
+              "pct_running": 100.0,
+              "value": 73.0,
+              "status": "counted"
+            }
+          }
+        },
+        "reader-0-16607": {
+          "comm": "reader-0",
+          "tid": 16607,
+          "role": "reader",
+          "rows": {
+            "cpu_core/cycles/": {
+              "event": "cpu_core/cycles/",
+              "pmu": "cpu_core",
+              "base_event": "cycles",
+              "pct_running": 100.0,
+              "value": 7653664548.0,
+              "status": "counted"
+            },
+            "cpu_core/ref-cycles/": {
+              "event": "cpu_core/ref-cycles/",
+              "pmu": "cpu_core",
+              "base_event": "ref-cycles",
+              "pct_running": 100.0,
+              "value": 3737371869.0,
+              "status": "counted"
+            },
+            "cpu_core/instructions/": {
+              "event": "cpu_core/instructions/",
+              "pmu": "cpu_core",
+              "base_event": "instructions",
+              "pct_running": 100.0,
+              "value": 9974275293.0,
+              "status": "counted"
+            },
+            "task-clock": {
+              "event": "task-clock",
+              "pmu": null,
+              "base_event": "task-clock",
+              "pct_running": 100.0,
+              "value": 1770.78,
+              "status": "counted"
+            },
+            "context-switches": {
+              "event": "context-switches",
+              "pmu": null,
+              "base_event": "context-switches",
+              "pct_running": 100.0,
+              "value": 150252.0,
+              "status": "counted"
+            },
+            "cpu_core/LLC-load-misses/": {
+              "event": "cpu_core/LLC-load-misses/",
+              "pmu": "cpu_core",
+              "base_event": "LLC-load-misses",
+              "pct_running": 100.0,
+              "value": 88972.0,
+              "status": "counted"
+            },
+            "cpu_core/l2_rqsts.rfo_miss/": {
+              "event": "cpu_core/l2_rqsts.rfo_miss/",
+              "pmu": "cpu_core",
+              "base_event": "l2_rqsts.rfo_miss",
+              "pct_running": 100.0,
+              "value": 6652037.0,
+              "status": "counted"
+            },
+            "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/": {
+              "event": "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/",
+              "pmu": "cpu_core",
+              "base_event": "mem_load_l3_hit_retired.xsnp_hitm",
+              "pct_running": 100.0,
+              "value": 6400996.0,
+              "status": "counted"
+            }
+          }
+        },
+        "reader-1-16608": {
+          "comm": "reader-1",
+          "tid": 16608,
+          "role": "reader",
+          "rows": {
+            "cpu_core/cycles/": {
+              "event": "cpu_core/cycles/",
+              "pmu": "cpu_core",
+              "base_event": "cycles",
+              "pct_running": 100.0,
+              "value": 7671754713.0,
+              "status": "counted"
+            },
+            "cpu_core/ref-cycles/": {
+              "event": "cpu_core/ref-cycles/",
+              "pmu": "cpu_core",
+              "base_event": "ref-cycles",
+              "pct_running": 100.0,
+              "value": 3747463650.0,
+              "status": "counted"
+            },
+            "cpu_core/instructions/": {
+              "event": "cpu_core/instructions/",
+              "pmu": "cpu_core",
+              "base_event": "instructions",
+              "pct_running": 100.0,
+              "value": 10045929597.0,
+              "status": "counted"
+            },
+            "task-clock": {
+              "event": "task-clock",
+              "pmu": null,
+              "base_event": "task-clock",
+              "pct_running": 100.0,
+              "value": 1771.9,
+              "status": "counted"
+            },
+            "context-switches": {
+              "event": "context-switches",
+              "pmu": null,
+              "base_event": "context-switches",
+              "pct_running": 100.0,
+              "value": 148686.0,
+              "status": "counted"
+            },
+            "cpu_core/LLC-load-misses/": {
+              "event": "cpu_core/LLC-load-misses/",
+              "pmu": "cpu_core",
+              "base_event": "LLC-load-misses",
+              "pct_running": 100.0,
+              "value": 87523.0,
+              "status": "counted"
+            },
+            "cpu_core/l2_rqsts.rfo_miss/": {
+              "event": "cpu_core/l2_rqsts.rfo_miss/",
+              "pmu": "cpu_core",
+              "base_event": "l2_rqsts.rfo_miss",
+              "pct_running": 100.0,
+              "value": 6544319.0,
+              "status": "counted"
+            },
+            "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/": {
+              "event": "cpu_core/mem_load_l3_hit_retired.xsnp_hitm/",
+              "pmu": "cpu_core",
+              "base_event": "mem_load_l3_hit_retired.xsnp_hitm",
+              "pct_running": 100.0,
+              "value": 6345668.0,
+              "status": "counted"
+            }
+          }
+        }
+      },
+      "role_threads": {
+        "other": 1,
+        "reader": 2
+      },
+      "role_raw": {
+        "other": {
+          "cycles": 618600.0,
+          "ref-cycles": 382221.0,
+          "instructions": 444070.0,
+          "task-clock": 0.21,
+          "context-switches": 2.0,
+          "LLC-load-misses": 2283.0,
+          "l2_rqsts.rfo_miss": 166.0,
+          "mem_load_l3_hit_retired.xsnp_hitm": 73.0
+        },
+        "reader": {
+          "cycles": 15325419261.0,
+          "ref-cycles": 7484835519.0,
+          "instructions": 20020204890.0,
+          "task-clock": 3542.6800000000003,
+          "context-switches": 298938.0,
+          "LLC-load-misses": 176495.0,
+          "l2_rqsts.rfo_miss": 13196356.0,
+          "mem_load_l3_hit_retired.xsnp_hitm": 12746664.0
+        }
+      },
+      "per_op": {
+        "writer": {},
+        "reader": {
+          "cycles": 2261.3789269449244,
+          "ref-cycles": 1104.4428231329857,
+          "instructions": 2954.129259391733,
+          "task-clock": 0.0005227486283064662,
+          "context-switches": 0.044110512224834975,
+          "LLC-load-misses": 0.026043142240605905,
+          "l2_rqsts.rfo_miss": 1.947219900652558,
+          "mem_load_l3_hit_retired.xsnp_hitm": 1.880864521064113
+        }
+      },
+      "perf_rc": -2
+    }
+  ]
+}
