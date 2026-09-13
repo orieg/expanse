@@ -577,11 +577,27 @@ def ci_method_census() -> list[str]:
     return problems
 
 
+def _is_interval_pair(v) -> bool:
+    """A published `[lo, hi]` pair: two numbers. Not a bool, not a null, not a label.
+
+    Keyed on the value as well as the name, because `ci` alone is too generic a
+    key to count by spelling: a `"ci": null` publishes no interval, and a string
+    or a three-element list is not one.
+    """
+    return (isinstance(v, (list, tuple)) and len(v) == 2
+            and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v))
+
+
 def ci_method_keys(node, prefix: str = "") -> tuple[set[str], set[str]]:
     """`(interval prefixes, labelled prefixes)` found anywhere under `node`.
 
     A prefix is whatever precedes `ci_lower`, so `writer_ci_lower` pairs with
-    `writer_ci_method` and a bare `ci_lower` with `ci_method`. Walks nested
+    `writer_ci_method` and a bare `ci_lower` with `ci_method`. An interval
+    stored as a pair is the same thing spelled differently: `ci: [lo, hi]`
+    pairs with `ci_method`, and `p_cores_ci: [lo, hi]` with `p_cores_ci_method`.
+    The #802 concurrent artifacts publish every `S(R)` that way, and before the
+    pair form was counted they carried intervals this census could not see,
+    so they were neither enforced nor named as unlabelled. Walks nested
     dicts, because several suites hold an interval in a sub-object
     (`ns_per_transfer`, a per-condition block) rather than flat on the cell.
     """
@@ -593,6 +609,9 @@ def ci_method_keys(node, prefix: str = "") -> tuple[set[str], set[str]]:
                 intervals.add(prefix + k[: -len("ci_lower")])
             elif isinstance(k, str) and k.endswith("ci_method"):
                 labelled.add(prefix + k[: -len("ci_method")])
+            elif (isinstance(k, str) and (k == "ci" or k.endswith("_ci"))
+                  and _is_interval_pair(v)):
+                intervals.add(prefix + k[: -len("ci")])
             if isinstance(v, (dict, list)):
                 sub_i, sub_l = ci_method_keys(v, f"{prefix}{k}.")
                 intervals |= sub_i
@@ -626,7 +645,7 @@ def partial_label_problems(rel: str, obj) -> list[str]:
     if missing:
         return [
             f"{rel}: records a construction label for some intervals but not for "
-            f"{len(missing)} other(s) ({', '.join(f'{p}ci_lower' for p in missing[:4])}"
+            f"{len(missing)} other(s) ({', '.join(f'{p}ci…' for p in missing[:4])}"
             f"{', …' if len(missing) > 4 else ''}) — a runner that names the "
             f"construction names it for every interval it publishes (#880)"
         ]
@@ -1181,6 +1200,30 @@ def _self_test() -> int:
     got = partial_label_problems("x.json", nested)
     if not got:
         failures.append("a nested interval must be reached by the pairing check")
+
+    # An interval stored as a `[lo, hi]` pair is an interval. This is the shape
+    # every `S(R)` in the #802 concurrent artifacts takes, verbatim from
+    # `baseline_concurrent_reads_amended_h1.json`; before the pair form was
+    # counted, those artifacts escaped the census entirely.
+    s7 = {"scaling": {"paced": {"S(7)": {"point": 0.624, "ci": [0.618, 0.630], "n": 5,
+                                         "rounds_raw": [0.62, 0.63, 0.62, 0.62, 0.63]}}}}
+    iv, lb = ci_method_keys(s7)
+    if iv != {"scaling.paced.S(7)."} or lb:
+        failures.append(f"a `ci: [lo, hi]` pair must count as one unlabelled interval, "
+                        f"got intervals={iv} labelled={lb}")
+    half_pair = {"scaling": {"paced": {"S(4)": {"ci": [0.70, 0.74], "ci_method": "bca"},
+                                       "S(7)": {"ci": [0.618, 0.630]}}}}
+    if not any("not for 1 other" in g for g in partial_label_problems("x.json", half_pair)):
+        failures.append("a half-labelled set of `ci` pairs must be a finding")
+    suffixed = {"arms": [{"p_cores_ci": [1.0, 2.0], "p_cores_ci_method": "bca"}]}
+    iv, lb = ci_method_keys(suffixed)
+    if iv != lb or not iv:
+        failures.append(f"`p_cores_ci` must pair with `p_cores_ci_method`, got {iv} / {lb}")
+    not_intervals = {"ci": "github-actions", "a": {"ci": None}, "b": {"ci": [1.0, 2.0, 3.0]},
+                     "c": {"ci": [True, False]}, "d": {"ci": ["0.1", "0.2"]}}
+    iv, _ = ci_method_keys(not_intervals)
+    if iv:
+        failures.append(f"only a pair of two numbers is an interval, got {iv}")
 
     for msg in failures:
         print(f"  FAIL {msg}")
