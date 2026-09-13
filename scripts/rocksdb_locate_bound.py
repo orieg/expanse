@@ -279,6 +279,54 @@ def predicted_usl_alpha(locked_fraction: float, duty: float) -> float:
     return 1.0 / max(knee(locked_fraction, duty), 1.0)
 
 
+def gate_boundary_locked_fraction(threshold: float, duty: float) -> float:
+    """The locked fraction a scaling threshold decides at, at writer duty `duty`.
+
+    `S(W) = clamp(K, 1, W)` with `K = (1 - duty) / locked_fraction`, so on the
+    unclamped stretch a gate of the form "`S` below `threshold`" is the same
+    decision as "`locked_fraction` above `(1 - duty) / threshold`". METHODOLOGY
+    section 5.3 states H1's threshold of 2.0 in `S`; this is what it means in
+    the quantity the design decision turns on.
+    """
+    if not (threshold > 1.0) or math.isinf(threshold):
+        raise ValueError(f"threshold must be finite and > 1, got {threshold!r}")
+    if not (0.0 <= duty < 1.0):
+        raise ValueError(f"duty must be in [0, 1), got {duty!r}")
+    return (1.0 - duty) / threshold
+
+
+def max_gate_boundary_shift(threshold: float, offered_duty: float) -> float:
+    """The most a writer that runs short can move a gate's locked-fraction boundary.
+
+    A paced writer sleeps to an absolute schedule, so its achieved duty lies in
+    `[0, offered_duty]`. The boundary `(1 - d) / threshold` is linear and
+    decreasing in `d`, so over that interval it moves by at most
+    `offered_duty / threshold`, reached only by a writer that stalls outright.
+    A shortfall of any size therefore moves the decision by no more than this.
+    """
+    return (gate_boundary_locked_fraction(threshold, 0.0)
+            - gate_boundary_locked_fraction(threshold, offered_duty))
+
+
+def predicted_alpha_from_scaling(observed_scaling: float, readers: int) -> float:
+    """The USL `alpha` this bound predicts from a measured `S(W)` -- with no duty in it.
+
+    Composing `implied_locked_fraction` with `predicted_usl_alpha` gives
+    `1 / clamp(S, 1, W)`: the duty enters the implied locked fraction as
+    `(1 - d)` and leaves the knee as `(1 - d)` again, so it cancels. A writer
+    that misses its offered rate changes the locked fraction inferred from a
+    cell, but not the `alpha` that fraction predicts. The self-test pins the
+    cancellation by composing the two existing functions across a grid of
+    duties, not by restating this closed form.
+    """
+    _validate(1.0, readers)
+    if not (observed_scaling > 0.0) or math.isinf(observed_scaling):
+        raise ValueError(f"observed_scaling must be finite and positive, got {observed_scaling!r}")
+    if observed_scaling > readers * (1.0 + 1e-9):
+        raise ValueError(f"observed scaling {observed_scaling} exceeds the reader count {readers}")
+    return 1.0 / min(max(observed_scaling, 1.0), float(readers))
+
+
 def min_detectable_ratio(relative_halfwidth: float) -> float:
     """Smallest scaling ratio whose BCa lower bound clears 1.0 (AGENTS.md 8.4).
 
@@ -598,6 +646,53 @@ def self_test() -> int:
             fails.append(f"{name}: raised {type(exc).__name__}, expected ValueError")
         else:
             fails.append(f"{name}: did not raise")
+
+    # --- gate boundaries under a writer that runs short (#802 amendment) ---
+    # The paced writer's offered duty in METHODOLOGY section 5.2: 250,000
+    # inserts/s x the section 2 insert cell (1000/4.422 ns).
+    offered = writer_duty_cycle(250_000.0, 226.14201718)
+    check("offered duty at 250k/s", offered, 0.0565355043)
+    check("H1 boundary at offered duty", gate_boundary_locked_fraction(2.0, offered), 0.4717322479)
+    check("H1 boundary, writer stalled", gate_boundary_locked_fraction(2.0, 0.0), 0.5)
+    check("H1 max boundary shift", max_gate_boundary_shift(2.0, offered), 0.0282677521)
+    # The shift is the difference of the two ends, and every duty in between
+    # lands inside them: monotone, so no interior shortfall exceeds the bound.
+    for k in range(0, 101):
+        d = offered * k / 100
+        b = gate_boundary_locked_fraction(2.0, d)
+        if not (gate_boundary_locked_fraction(2.0, offered) - 1e-12 <= b <= 0.5 + 1e-12):
+            fails.append(f"H1 boundary at duty {d!r} left [boundary(offered), 0.5]: {b!r}")
+    # The boundary is exactly the point `implied_locked_fraction` returns for
+    # an `S` equal to the threshold, so the two functions describe one decision.
+    for d in (0.0, 0.0319, 0.0484, offered):
+        lo, hi = implied_locked_fraction(2.0, 7, d)
+        check(f"boundary == implied_locked_fraction(2.0, 7, {d})", gate_boundary_locked_fraction(2.0, d), lo)
+    for bad in ((1.0, 0.0), (0.5, 0.0), (float("inf"), 0.0), (2.0, 1.0), (2.0, -0.1)):
+        try:
+            gate_boundary_locked_fraction(*bad)
+        except ValueError:
+            pass
+        else:
+            fails.append(f"gate_boundary_locked_fraction{bad}: did not raise")
+
+    # alpha from a measured S carries no duty: pinned by composing the two
+    # existing functions, not by restating the closed form.
+    for s in (0.62, 1.0, 1.5, 2.0, 6.0, 7.0):
+        want = predicted_alpha_from_scaling(s, 7)
+        for d in (0.0, 0.0319, 0.0484, offered, 0.5):
+            lo, hi = implied_locked_fraction(s, 7, d)
+            lf = lo if s < 7 else hi
+            check(f"alpha(S={s}) at duty {d} via the composition", predicted_usl_alpha(lf, d), want)
+    check("alpha from a saturated S", predicted_alpha_from_scaling(0.62, 7), 1.0)
+    check("alpha from S = 2.0", predicted_alpha_from_scaling(2.0, 7), 0.5)
+    check("alpha from a linear S", predicted_alpha_from_scaling(7.0, 7), 1.0 / 7.0)
+    for bad in ((0.0, 7), (8.0, 7), (float("inf"), 7), (2.0, 0)):
+        try:
+            predicted_alpha_from_scaling(*bad)
+        except ValueError:
+            pass
+        else:
+            fails.append(f"predicted_alpha_from_scaling{bad}: did not raise")
 
     # --- the loader, structurally -----------------------------------------
     # Pinned by shape, not by value: a re-measurement must re-derive the
