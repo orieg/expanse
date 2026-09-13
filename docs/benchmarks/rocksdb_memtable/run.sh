@@ -34,7 +34,17 @@ echo "========================================================================"
 
 cd "${REPO_ROOT}"
 cargo build --release -p expanse-capi
+# Builds the binary and prints the human-readable table once. The measured cells
+# are the driver's, below: `make bench`'s single invocation times every phase in
+# one process and so has no cell boundary for a load snapshot to attach to (#868).
 make -C integrations/rocksdb bench
+
+# The measurement. One `bench_memtable --arm <phase>` process per cell, phases
+# interleaved within each round, per-cell load attribution and BCa intervals
+# (AGENTS.md sections 8.4, 8.17, 8.20.2). `--quick` here: a reproduction run on a
+# developer host writes to the gitignored results/quick/ and never to a committed
+# baseline (section 8.5). Drop `--quick` on the reference host.
+python3 docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py --quick
 
 if [ -f "integrations/rocksdb/scripts/generate_bench_svg.py" ]; then
   python3 integrations/rocksdb/scripts/generate_bench_svg.py

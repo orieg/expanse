@@ -1007,11 +1007,11 @@ jobs:
                 # C++ integration, not a cargo bench target: `make bench` builds
                 # benches/bench_memtable.cc against the release libexpanse the
                 # step already built above (the Makefile's default LIB_DIR is
-                # ../../target/release), then runs it. Fills the scan and lookup
-                # ratio cells left pending by #382 item 5, which had no
-                # dispatchable suite until now and so could only be run by hand
-                # -- a manual run leaves no artifact for a published number to
-                # resolve to (AGENTS.md section 8.7).
+                # ../../target/release). Fills the scan and lookup ratio cells
+                # left pending by #382 item 5, which had no dispatchable suite
+                # until then and so could only be run by hand -- a manual run
+                # leaves no artifact for a published number to resolve to
+                # (AGENTS.md section 8.7).
                 # `--no-print-directory`: make's "Entering/Leaving directory"
                 # lines print the runner's absolute working directory, which on
                 # a self-hosted runner contains the OS username
@@ -1020,38 +1020,34 @@ jobs:
                 # forbids OS usernames and home-directory paths in anything
                 # committed or published. The compile lines are relative and
                 # carry none. Seen in run 33393355990, the suite's first run.
-                # Five rounds, not one. The C++ bench prints a table per
-                # invocation and computes nothing across runs, so a single
-                # invocation yields point estimates with no sampling
-                # distribution — publishable only as a hedge, which is why
-                # #382 item 5's ratios stayed pending while the deterministic
-                # density figure beside them shipped. `rocksdb_bench_harvest.py`
-                # turns the rounds into BCa intervals in the same
-                # `baseline-*.json` shape the criterion suites use, so the
-                # existing wall-clock baseline upload picks it up unchanged and
-                # a published ratio is gated on its CI lower bound (section 8.4).
-                ROCKSDB_ROUNDS=5
-                ROUND_ARGS=""
-                for i in $(seq 1 "$ROCKSDB_ROUNDS"); do
-                  echo "=== rocksdb round $i/$ROCKSDB_ROUNDS ==="
-                  make --no-print-directory -C integrations/rocksdb bench | tee "rocksdb-round-$i.txt"
-                  ROUND_ARGS="$ROUND_ARGS --round rocksdb-round-$i.txt"
-                done
-                # The last round doubles as the human-readable table.
-                cp "rocksdb-round-$ROCKSDB_ROUNDS.txt" rocksdb.txt
-                # Non-fatal for the reason #449 established: a completed
-                # measurement must not be lost to its post-processing. The
-                # per-round tables upload either way.
-                if python3 scripts/rocksdb_bench_harvest.py \
-                  $ROUND_ARGS \
+                #
+                # The rounds are a Python driver's, not a shell loop's (#868).
+                # The loop this replaced ran five whole-suite invocations and
+                # parsed the tables afterwards, which left the artifact with a
+                # host description and nothing else: no load snapshot, no
+                # busy-CPU delta, no raw rows. `bench_provenance.py` is a Python
+                # API that has to wrap each measured cell, so the driver owns the
+                # rounds and the cell boundaries -- one
+                # `bench_memtable --arm <phase>` process per cell, which is what
+                # makes `load.foreign_busy_cpus` attributable per cell -- and the
+                # intervals. Same shape as this suite's concurrent arm below.
+                #
+                # Build once here so a compile failure is reported as one, and
+                # so the driver's own output is not interleaved with the compile
+                # lines. `make bench` also runs the binary once in its
+                # human-readable mode: that table is the uploaded `rocksdb.txt`
+                # and is not a measured cell.
+                make --no-print-directory -C integrations/rocksdb bench | tee rocksdb.txt
+                # Fatal, unlike the harvest step this replaced: there is no
+                # separate measurement to preserve any more. The driver IS the
+                # measurement, so a failure means the suite produced nothing and
+                # must say so rather than uploading a table that looks like a
+                # result (AGENTS.md section 8.1).
+                python3 docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py \
                   --out baseline-rocksdb.json \
                   --host-desc "$HOST_DESC" \
-                  --commit "$(git rev-parse HEAD)" \
-                  --run-id "$RUN_URL"; then
-                  :
-                else
-                  echo "::warning::rocksdb interval harvest failed; the $ROCKSDB_ROUNDS per-round tables are uploaded and the run's numbers stand, but no baseline-rocksdb.json interval artifact was produced."
-                fi
+                  --run-id "$RUN_URL" \
+                  | tee rocksdb-driver.txt
                 ;;
               "rocksdb_concurrent")
                 # Concurrent read scaling (#802), pre-registered in
@@ -1435,8 +1431,8 @@ jobs:
             bytes-per-key.txt
             bench-output.txt
             rocksdb.txt
+            rocksdb-driver.txt
             python-concurrency.txt
-            rocksdb-round-*.txt
             docs/benchmarks/llm_inference/results/bench_grammar_masks.json
             bytes-per-key-32.txt
             head-instructions.txt

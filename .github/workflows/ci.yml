@@ -426,6 +426,13 @@ jobs:
           # ratio under round-to-round drift) and the artifact shape the
           # provenance gate reads are all checkable without the reference host.
           python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py --self-test
+          # The #868 single-threaded driver, which replaced the shell loop that
+          # could not emit a load snapshot or a raw row. Its CSV parsing and
+          # refusals, its round-major interleaving (asserted at the CALL SITE,
+          # not only on the helper), its arm-symmetry check, its PAIRED ratio and
+          # the artifact shape check_bench_provenance.py reads are all checkable
+          # without the reference host.
+          python3 docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py --self-test
           # The ESP32 harvester. Its self-test was reachable only from
           # `gate.sh` -- no workflow ran it -- because it needed numpy, which no
           # job installs. It no longer does: the harvester delegates its
