@@ -1243,6 +1243,38 @@ struct PaddedFreelists([Mutex<FreeListHead>; NUM_CLASSES]);
 #[cfg(all(feature = "std", not(loom)))]
 static ALLOC_SLOTS_MASK: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 
+/// One past the highest epoch stripe any thread in the process can have
+/// retired on. It only grows, and it grows before the thread that raised it
+/// can retire anything, so every stripe at or above it is empty in every
+/// `Collector`: an advance scans `0..stripe_bound()` instead of all
+/// `NUM_EPOCH_STRIPES`. Written once per slot claim, never on `retire`, so
+/// it adds no write to a line the writers share. A stale read only delays a
+/// stripe to its bin's next drain, the same contract as `PaddedBin::nonempty`,
+/// and `drain` ignores it.
+#[cfg(all(feature = "std", not(loom)))]
+static STRIPE_BOUND: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+/// Records that `slot` may retire, so advances scan its stripe.
+#[cfg(all(feature = "std", not(loom)))]
+fn raise_stripe_bound(slot: usize) {
+    STRIPE_BOUND.fetch_max(slot % NUM_EPOCH_STRIPES + 1, Ordering::AcqRel);
+}
+
+/// How many stripes, from 0, an advance must scan.
+#[cfg(all(feature = "std", not(loom)))]
+#[inline]
+fn stripe_bound() -> usize {
+    STRIPE_BOUND.load(Ordering::Acquire)
+}
+
+// Loom's model threads pick their stripe with `set_writer_slot` and never
+// claim one, so a model scans every stripe.
+#[cfg(all(feature = "std", loom))]
+#[inline]
+fn stripe_bound() -> usize {
+    NUM_EPOCH_STRIPES
+}
+
 #[cfg(all(feature = "std", not(loom)))]
 struct SlotRegistration {
     claimed_bit: core::cell::Cell<Option<u8>>,
@@ -1317,11 +1349,13 @@ fn claim_writer_slot() -> usize {
             static OVERFLOW_COUNTER: core::sync::atomic::AtomicUsize =
                 core::sync::atomic::AtomicUsize::new(0);
             let overflow = OVERFLOW_COUNTER.fetch_add(1, Ordering::Relaxed) % MAX_WRITER_SLOTS;
+            raise_stripe_bound(overflow);
             SLOT.with(|s| s.set(overflow));
             return overflow;
         }
         let bit = free.trailing_zeros() as usize;
         if bit >= MAX_WRITER_SLOTS {
+            raise_stripe_bound(0);
             SLOT.with(|s| s.set(0));
             return 0;
         }
@@ -1336,6 +1370,7 @@ fn claim_writer_slot() -> usize {
                 // Touch the destructor-carrying thread-local exactly once, here,
                 // so thread exit still releases the bit.
                 REGISTRATION.with(|reg| reg.claimed_bit.set(Some(bit as u8)));
+                raise_stripe_bound(bit);
                 SLOT.with(|s| s.set(bit));
                 return bit;
             }
@@ -1361,6 +1396,7 @@ pub(crate) fn writer_slot() -> usize {
 #[cfg(all(test, feature = "std", not(loom)))]
 pub(crate) fn set_writer_slot(slot: usize) {
     assert!(slot < MAX_WRITER_SLOTS, "stripe {slot} out of range");
+    raise_stripe_bound(slot);
     SLOT.with(|s| s.set(slot));
 }
 
@@ -1416,12 +1452,11 @@ pub struct Collector {
     op_count: Line<AtomicUsize>,
     readers: Mutex<Vec<Arc<Slot>>>,
     // NOT boxed. `Collector` is only ever constructed behind an `Arc`
-    // (`Arc::new(Collector::new())`, 6 sites in alloc.rs and 9 in sync.rs; the
-    // only bare constructions are in this file's test module), so it already
-    // lives on the heap and there is no stack bloat for a `Box` to prevent.
-    // Boxing moved the same 4 KiB into a second allocation and bought a
-    // pointer chase on every `retire` and every `retained_bytes` update --
-    // measured as +1.03% to +1.57% across six `sync_*` Callgrind arms.
+    // (`Arc::new(Collector::new())` in alloc.rs and sync.rs; the only bare
+    // constructions are in this file's test module), so it already lives on
+    // the heap and there is no stack bloat for a `Box` to prevent. A `Box`
+    // would only move the same 4 KiB into a second allocation behind a
+    // pointer loaded on every `retire`.
     bins: [[PaddedBin; NUM_EPOCH_STRIPES]; BINS],
     #[cfg(not(feature = "ablation-striped-freelist"))]
     freelists: [Mutex<FreeListHead>; NUM_CLASSES],
@@ -1647,7 +1682,7 @@ impl Collector {
         // Everything retired at epoch e - 1 predates every possible pin
         // in epochs e and e + 1: no live reader can hold it.
         let stale_bin = (e + BINS - 1) % BINS;
-        for stripe in 0..NUM_EPOCH_STRIPES {
+        for stripe in 0..stripe_bound() {
             let p_bin = &self.bins[stale_bin][stripe];
             // A stripe whose flag reads clear is skipped without its
             // lock; one being filled right now keeps its garbage until
@@ -2265,6 +2300,31 @@ mod tests {
         assert_eq!(c.retained_bytes(), 0);
     }
 
+    /// Serialises the tests that spawn threads to claim writer slots: a claim in
+    /// one would change the process-wide slot mask another is asserting on.
+    #[cfg(all(feature = "std", not(loom)))]
+    static SLOT_CLAIM_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// A claimed slot raises the stripe bound before `writer_slot` returns, so
+    /// an advance that scans only `0..stripe_bound()` reaches the stripe the
+    /// claiming thread retires on, and the bound never exceeds the stripe count.
+    #[test]
+    #[cfg(all(feature = "std", not(loom)))]
+    fn claimed_slot_is_inside_the_stripe_bound() {
+        let _guard = SLOT_CLAIM_TEST_LOCK.lock().unwrap();
+        std::thread::spawn(|| {
+            let s = writer_slot();
+            assert!(
+                stripe_bound() > s % NUM_EPOCH_STRIPES,
+                "slot {s} claimed without raising the stripe bound {}",
+                stripe_bound()
+            );
+        })
+        .join()
+        .unwrap();
+        assert!(stripe_bound() <= NUM_EPOCH_STRIPES);
+    }
+
     /// Verifies static memory layout and footprint bounds for the striped epoch architecture (Refs #568).
     #[test]
     #[cfg(feature = "std")]
@@ -2296,9 +2356,8 @@ mod tests {
         // heap-allocation size and never a stack frame. The bound that matters is the
         // epoch-bin overhead asserted above; this one only keeps the struct from growing
         // an unrelated inline array by accident. It is deliberately loose enough to hold
-        // the un-boxed 4 KiB of striped bins: boxing them to shrink this number moved the
-        // same bytes into a second allocation and cost a pointer chase on every `retire`,
-        // measured at +1.03% to +1.57% across six `sync_*` Callgrind arms.
+        // the un-boxed 4 KiB of striped bins: boxing them to shrink this number would move
+        // the same bytes into a second allocation behind a pointer loaded on every `retire`.
         assert!(
             core::mem::size_of::<Collector>() <= 8192,
             "Collector direct size {} exceeds 8192 bytes",
@@ -2314,8 +2373,7 @@ mod tests {
     #[test]
     #[cfg(all(feature = "std", not(loom)))]
     fn test_writer_slot_recycling_under_churn() {
-        static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = SLOT_CLAIM_TEST_LOCK.lock().unwrap();
 
         reset_thread_writer_slot();
         let initial_mask = live_slot_mask();
