@@ -1104,21 +1104,7 @@ const INACTIVE: usize = usize::MAX;
 struct Garbage {
     ptr: NonNull<u8>,
     bytes: usize,
-    /// Power-of-two alignment exponent (align = 1usize << align_log2).
-    /// Rust Layout guarantees align is a non-zero power of two.
-    align_log2: u8,
-    /// Stripe of the writer that retired it: the reclaimed block goes back
-    /// to that writer's freelists.
-    #[cfg_attr(feature = "ablation-unstriped-freelist", allow(dead_code))]
-    stripe: u8,
-}
-
-#[cfg(feature = "std")]
-impl Garbage {
-    #[inline(always)]
-    fn align(&self) -> usize {
-        1usize << (self.align_log2 as usize)
-    }
+    align: usize,
 }
 
 // SAFETY: a retired allocation is exclusively owned by the collector —
@@ -1206,6 +1192,16 @@ pub(crate) const NUM_EPOCH_STRIPES: usize = 2;
 pub(crate) const NUM_FREELIST_STRIPES: usize = 16;
 #[cfg(all(feature = "std", loom))]
 pub(crate) const NUM_FREELIST_STRIPES: usize = 2;
+
+// The loop-stripe shortcut in `try_advance` routes reclaimed blocks to the
+// freelist of the epoch stripe draining them. That is sound iff every block in
+// `bins[e][stripe]` was placed there by a writer whose freelist stripe equals
+// that same `stripe`. This holds iff NUM_FREELIST_STRIPES == NUM_EPOCH_STRIPES.
+#[cfg(feature = "std")]
+const _: () = assert!(
+    NUM_FREELIST_STRIPES == NUM_EPOCH_STRIPES,
+    "loop-stripe shortcut requires NUM_FREELIST_STRIPES == NUM_EPOCH_STRIPES"
+);
 
 /// One writer stripe of one epoch bin.
 #[cfg(feature = "std")]
@@ -1531,17 +1527,17 @@ impl Collector {
     }
 
     /// The freelist a reclaimed block of `class` is pushed to: the one shared
-    /// list under `ablation-unstriped-freelist`, or the retiring writer's stripe.
+    /// list under `ablation-unstriped-freelist`, or the draining stripe's freelist.
     #[inline(always)]
-    fn reclaim_freelist(&self, class: usize, g: &Garbage) -> &Mutex<FreeListHead> {
+    fn reclaim_freelist(&self, stripe: usize, class: usize) -> &Mutex<FreeListHead> {
         #[cfg(feature = "ablation-unstriped-freelist")]
         {
-            let _ = g;
+            let _ = stripe;
             &self.freelists[class]
         }
         #[cfg(not(feature = "ablation-unstriped-freelist"))]
         {
-            &self.freelists[g.stripe as usize % NUM_FREELIST_STRIPES].0[class]
+            &self.freelists[stripe].0[class]
         }
     }
 
@@ -1624,13 +1620,7 @@ impl Collector {
         // `retire` is on the per-mutation path, so calling it twice paid for the
         // lookup twice for one value.
         let slot = writer_slot();
-        debug_assert!(align.is_power_of_two(), "align must be a power of two");
-        let g = Garbage {
-            ptr,
-            bytes,
-            align_log2: align.trailing_zeros() as u8,
-            stripe: (slot % NUM_FREELIST_STRIPES) as u8,
-        };
+        let g = Garbage { ptr, bytes, align };
         let stripe = slot % NUM_EPOCH_STRIPES;
         let p_bin = &self.bins[e % BINS][stripe];
         let mut garbage = p_bin.garbage.lock().expect("garbage bin poisoned");
@@ -1710,10 +1700,10 @@ impl Collector {
             let mut freed_bytes = 0;
             for g in stale {
                 freed_bytes += g.bytes;
-                if let Some(class) = class_for(g.bytes, g.align()) {
+                if let Some(class) = class_for(g.bytes, g.align) {
                     let block = g.ptr.as_ptr().cast::<FreeBlock>();
                     let mut head = self
-                        .reclaim_freelist(class, &g)
+                        .reclaim_freelist(stripe, class)
                         .lock()
                         .expect("freelist poisoned");
                     // SAFETY: block was retired by a well-aligned allocation
@@ -1723,7 +1713,7 @@ impl Collector {
                     }
                     head.0 = block;
                 } else {
-                    free_raw(g.ptr, g.bytes, g.align());
+                    free_raw(g.ptr, g.bytes, g.align);
                 }
             }
             self.retained_bytes[stripe]
@@ -1821,7 +1811,7 @@ impl Collector {
                 let mut freed_bytes = 0;
                 for g in stale {
                     freed_bytes += g.bytes;
-                    free_raw(g.ptr, g.bytes, g.align());
+                    free_raw(g.ptr, g.bytes, g.align);
                 }
                 self.retained_bytes[stripe]
                     .0
