@@ -206,6 +206,19 @@ IMPORTS_BCA = re.compile(r"^\s*(?:from\s+bca_bootstrap\s+import|import\s+bca_boo
 # `rounds_raw`, so the gate enforces them like any other. Only the instrument
 # bridge remains, and it is not re-measured by that runner.
 GRANDFATHERED = {
+    # Process-mode counter artifacts written before `bench_counters.py` recorded
+    # host facts and load snapshots. They were outside the gate's scope until it
+    # collected `counters_*.json` from every directory under results/; named
+    # here so that a re-run lands the fields rather than being skipped.
+    "hot_comparison/results/counters_hot_lookup_random_1m.json": ('f173f0e6',),
+    "masstree_comparison/results/counters_masstree_insert_random_1m_shuffled.json": ('f173f0e6',),
+    "masstree_comparison/results/counters_masstree_insert_random_1m_sorted.json": ('f173f0e6',),
+    "masstree_comparison/results/counters_masstree_insert_sparse_1m_sorted.json": ('f173f0e6',),
+    "masstree_comparison/results/counters_masstree_str_lookup_counter_1m.json": ('f173f0e6',),
+    "masstree_comparison/results/counters_masstree_str_lookup_short_1m.json": ('f173f0e6',),
+    "masstree_comparison/results/counters_strmap_hugepage_off_1m.json": ('b18688138a81005327925dd407d1056b6fe9753d',),
+    "masstree_comparison/results/counters_strmap_hugepage_on_1m.json": ('b18688138a81005327925dd407d1056b6fe9753d',),
+    "masstree_comparison/results/counters_strmap_vs_map_lookup_1m.json": ('43c68caa3dc66fc99b61613ec8d23caa9a5e33db',),
     "hot_comparison/results/baseline_instrument_bridge.json": ("86daaddf",),
     # rocksdb_memtable — a `expanse.baseline.v1` artifact from
     # `scripts/bench_baseline.py`, whose provenance block names the host and
@@ -652,10 +665,10 @@ def partial_label_problems(rel: str, obj) -> list[str]:
     return []
 
 
-def artifacts() -> list[Path]:
+def artifacts(bench: Path | None = None) -> list[Path]:
     out: list[Path] = []
     for suite in SUITES:
-        res = BENCH / suite / "results"
+        res = (bench or BENCH) / suite / "results"
         if not res.is_dir():
             continue
         for d in (res, res / "multi_writer_olc"):
@@ -664,9 +677,14 @@ def artifacts() -> list[Path]:
             found: set[Path] = set()
             for pattern in ARTIFACT_GLOBS:
                 found.update(d.glob(pattern))
-            if d != res:
-                found.update(d.glob("counters_*.json"))
             out.extend(sorted(found))
+        # A counters artifact is governed wherever it sits under results/. It
+        # was collected only from `multi_writer_olc/`, so the ones in results/
+        # itself and in every other subdirectory -- `fine_grained_brackets/`,
+        # and the per-pin directories a pin-sensitive arm needs -- were never
+        # checked.
+        seen = {p.resolve() for p in out}
+        out.extend(p for p in sorted(res.rglob("counters_*.json")) if p.resolve() not in seen)
     return out
 
 
@@ -1200,6 +1218,19 @@ def _self_test() -> int:
     got = partial_label_problems("x.json", nested)
     if not got:
         failures.append("a nested interval must be reached by the pairing check")
+
+    # A counters artifact is collected from any directory under results/, not
+    # only `multi_writer_olc/` -- a per-pin subdirectory is where a
+    # pin-sensitive arm's replicates go, and it was outside the gate.
+    import tempfile  # noqa: PLC0415
+    with tempfile.TemporaryDirectory() as td:
+        nested = Path(td) / SUITES[0] / "results" / "counters" / "pin_x" / "run1"
+        nested.mkdir(parents=True)
+        (nested / "counters_probe.json").write_text("{}")
+        (Path(td) / SUITES[0] / "results" / "counters_root.json").write_text("{}")
+        names = sorted(p.name for p in artifacts(Path(td)))
+    if names != ["counters_probe.json", "counters_root.json"]:
+        failures.append(f"counters artifacts under results/** were not all collected: {names}")
 
     # An interval stored as a `[lo, hi]` pair is an interval. This is the shape
     # every `S(R)` in the #802 concurrent artifacts takes, verbatim from
