@@ -1245,7 +1245,6 @@ static ALLOC_SLOTS_MASK: core::sync::atomic::AtomicU64 = core::sync::atomic::Ato
 
 #[cfg(all(feature = "std", not(loom)))]
 struct SlotRegistration {
-    slot: core::cell::Cell<usize>,
     claimed_bit: core::cell::Cell<Option<u8>>,
 }
 
@@ -1253,7 +1252,6 @@ struct SlotRegistration {
 impl SlotRegistration {
     const fn new() -> Self {
         Self {
-            slot: core::cell::Cell::new(usize::MAX),
             claimed_bit: core::cell::Cell::new(None),
         }
     }
@@ -1270,6 +1268,14 @@ impl Drop for SlotRegistration {
 
 #[cfg(all(feature = "std", not(loom)))]
 std::thread_local! {
+    // Read on every `writer_slot()` call, so it is deliberately `Drop`-free and
+    // const-initialised: a thread-local whose type has a destructor cannot use
+    // the cheapest TLS access path, because every access has to go through
+    // destructor-registration bookkeeping first. Keeping the hot value in its
+    // own `Drop`-free cell restores that path.
+    static SLOT: core::cell::Cell<usize> = const { core::cell::Cell::new(usize::MAX) };
+    // Carries the `Drop` that releases the claimed bit on thread exit. Touched
+    // exactly once per thread, on the claim, and never on the hot read.
     static REGISTRATION: SlotRegistration = const { SlotRegistration::new() };
 }
 
@@ -1287,44 +1293,55 @@ loom::thread_local! {
 #[cfg(all(feature = "std", not(loom)))]
 #[inline]
 pub(crate) fn writer_slot() -> usize {
-    REGISTRATION.with(|reg| {
-        let v = reg.slot.get();
-        if v < MAX_WRITER_SLOTS {
-            return v;
+    // Hot path: one read of a `Drop`-free, const-initialised thread-local.
+    let v = SLOT.with(|s| s.get());
+    if v < MAX_WRITER_SLOTS {
+        return v;
+    }
+    claim_writer_slot()
+}
+
+/// The once-per-thread slow half of [`writer_slot`]: claim the lowest free bit
+/// and arm the destructor that releases it. Kept out of line so the hot read
+/// above stays a single TLS access with no claim code inlined around it.
+#[cfg(all(feature = "std", not(loom)))]
+#[cold]
+#[inline(never)]
+fn claim_writer_slot() -> usize {
+    let mut curr = ALLOC_SLOTS_MASK.load(Ordering::Relaxed);
+    loop {
+        let free = !curr;
+        if free == 0 {
+            // All 64 slots are currently held by live threads.
+            // Fall back without bit reservation.
+            static OVERFLOW_COUNTER: core::sync::atomic::AtomicUsize =
+                core::sync::atomic::AtomicUsize::new(0);
+            let overflow = OVERFLOW_COUNTER.fetch_add(1, Ordering::Relaxed) % MAX_WRITER_SLOTS;
+            SLOT.with(|s| s.set(overflow));
+            return overflow;
         }
-        let mut curr = ALLOC_SLOTS_MASK.load(Ordering::Relaxed);
-        loop {
-            let free = !curr;
-            if free == 0 {
-                // All 64 slots are currently held by live threads.
-                // Fall back without bit reservation.
-                static OVERFLOW_COUNTER: core::sync::atomic::AtomicUsize =
-                    core::sync::atomic::AtomicUsize::new(0);
-                let overflow = OVERFLOW_COUNTER.fetch_add(1, Ordering::Relaxed) % MAX_WRITER_SLOTS;
-                reg.slot.set(overflow);
-                return overflow;
-            }
-            let bit = free.trailing_zeros() as usize;
-            if bit >= MAX_WRITER_SLOTS {
-                reg.slot.set(0);
-                return 0;
-            }
-            let next = curr | (1u64 << bit);
-            match ALLOC_SLOTS_MASK.compare_exchange_weak(
-                curr,
-                next,
-                Ordering::AcqRel,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => {
-                    reg.claimed_bit.set(Some(bit as u8));
-                    reg.slot.set(bit);
-                    return bit;
-                }
-                Err(actual) => curr = actual,
-            }
+        let bit = free.trailing_zeros() as usize;
+        if bit >= MAX_WRITER_SLOTS {
+            SLOT.with(|s| s.set(0));
+            return 0;
         }
-    })
+        let next = curr | (1u64 << bit);
+        match ALLOC_SLOTS_MASK.compare_exchange_weak(
+            curr,
+            next,
+            Ordering::AcqRel,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => {
+                // Touch the destructor-carrying thread-local exactly once, here,
+                // so thread exit still releases the bit.
+                REGISTRATION.with(|reg| reg.claimed_bit.set(Some(bit as u8)));
+                SLOT.with(|s| s.set(bit));
+                return bit;
+            }
+            Err(actual) => curr = actual,
+        }
+    }
 }
 
 #[cfg(all(feature = "std", loom))]
@@ -1344,9 +1361,7 @@ pub(crate) fn writer_slot() -> usize {
 #[cfg(all(test, feature = "std", not(loom)))]
 pub(crate) fn set_writer_slot(slot: usize) {
     assert!(slot < MAX_WRITER_SLOTS, "stripe {slot} out of range");
-    REGISTRATION.with(|reg| {
-        reg.slot.set(slot);
-    });
+    SLOT.with(|s| s.set(slot));
 }
 
 #[cfg(all(test, feature = "std", loom))]
@@ -1369,8 +1384,8 @@ pub(crate) fn reset_thread_writer_slot() {
             ALLOC_SLOTS_MASK.fetch_and(!(1u64 << bit), Ordering::Release);
             reg.claimed_bit.set(None);
         }
-        reg.slot.set(usize::MAX);
     });
+    SLOT.with(|s| s.set(usize::MAX));
 }
 
 // Without `std` there are no threads to separate, and the sharded
