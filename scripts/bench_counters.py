@@ -111,7 +111,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
-from bench_provenance import add_load, host_facts, load_snapshot  # noqa: E402
+from bench_provenance import add_load, expand_cpu_list, host_facts, load_snapshot  # noqa: E402
 from perf_counters import (  # noqa: E402
     Preflight,
     NOT_COUNTED,
@@ -474,7 +474,8 @@ def preflight(events: list[str]) -> tuple[str | None, str, list[str], list[str],
         )
 
     pmu, why = resolve_pmu([r["pmu"] for r in rows], "auto")
-    pin = pin_for(pmu) if pmu else []
+    pin = compose_pin(pin_for(pmu) if pmu else [], pmu_cpus(pmu),
+                      os.environ.get("EXPANSE_BENCH_PIN_APPLIED"))
 
     # Which of the requested events this host can actually serve. An event the
     # kernel refuses is reported by name, never silently dropped and never
@@ -549,6 +550,55 @@ def cell_cwd(cell: Cell) -> Path | None:
 def harness_argv(cell: Cell, pin: list[str], rounds: int) -> list[str]:
     return list(pin) + [str(cell_exe(cell)), *cell.args, "--arm", cell.arm,
                         "--rounds", str(rounds), "--wait-stdin"]
+
+
+UNPINNED = (None, "", "none", "off", "unset")
+
+
+def compose_pin(base: list[str], pmu_list: str | None, applied: str | None) -> list[str]:
+    """The `taskset` prefix a workload is launched under.
+
+    `base` confines the workload to the counting PMU's CPUs (`pin_for`). When
+    the benchmark pin (`EXPANSE_BENCH_PIN_APPLIED`) names a narrower set, that
+    set is the prefix. `taskset` re-sets a child's affinity rather than
+    narrowing the driver's, so launching under `base` widens a one-sibling pin
+    back to every CPU of the PMU, while the artifact still records the narrow
+    pin. Run 34783092421 did exactly that: every harness row reported
+    `cpus_allowed` 0-15 under `core_pin` 0,2,4,6,8,10,12,14. A pin with a CPU
+    the PMU does not cover is refused, because nothing counts work scheduled
+    there.
+    """
+    if applied in UNPINNED:
+        return list(base)
+    try:
+        want = set(expand_cpu_list(applied))
+    except ValueError as exc:
+        raise Preflight(f"EXPANSE_BENCH_PIN_APPLIED={applied!r} is not a CPU list ({exc}); "
+                        "no counters were collected")
+    if pmu_list is not None:
+        outside = sorted(want - set(expand_cpu_list(pmu_list)))
+        if outside:
+            raise Preflight(f"the benchmark pin {applied} includes CPU(s) {outside} outside the "
+                            f"counting PMU's {pmu_list}, where nothing would count; no counters "
+                            "were collected")
+    return ["taskset", "-c", applied]
+
+
+def affinity_problem(row: dict, pin: list[str]) -> str | None:
+    """Why a harness row's own CPU affinity is not the pin it was launched under; None if it is."""
+    if not pin:
+        return None
+    want = set(expand_cpu_list(pin[-1]))
+    got = row.get("cpus_allowed")
+    if not got or got == "unknown":
+        return f"the harness reported no `cpus_allowed`, so the pin {pin[-1]} cannot be verified"
+    try:
+        have = set(expand_cpu_list(got))
+    except ValueError:
+        return f"the harness reported an unparseable `cpus_allowed` {got!r}"
+    if have != want:
+        return f"the harness ran on CPUs {got}, not the pin {pin[-1]} it was launched under"
+    return None
 
 
 def build(cell: Cell, env: dict, occ_stats: bool = False) -> None:
@@ -717,7 +767,7 @@ def finish_harness(child: subprocess.Popen, cell: Cell, stderr_path: Path) -> No
 
 def one_attached_round(cell: Cell, child: subprocess.Popen, round_idx: int,
                        requested: list[str], events: list[str], pmu: str | None,
-                       stderr_path: Path) -> dict:
+                       stderr_path: Path, pin: list[str] | None = None) -> dict:
     """Attach perf stat to the round's threads, release it, collect the rows."""
     ready = read_until(child.stdout, lambda o: o.get("event") == "threads_ready",
                        f"`threads_ready` for round {round_idx}", cell, stderr_path)
@@ -742,6 +792,10 @@ def one_attached_round(cell: Cell, child: subprocess.Popen, round_idx: int,
     child.stdin.flush()
     row = read_until(child.stdout, lambda o: o.get("role") == "counters",
                      f"the `counters` row for round {round_idx}", cell, stderr_path)
+    problem = affinity_problem(row, pin or [])
+    if problem:
+        stop_perf(perf, "perf stat", cell)
+        raise Preflight(f"{cell.name} round {round_idx}: {problem}; the round is void")
     rc, err = stop_perf(perf, "perf stat", cell)
     csv_text = Path(csv_path).read_text(encoding="utf-8", errors="replace")
     os.unlink(csv_path)
@@ -787,7 +841,8 @@ def collect_per_thread(cell: Cell, rounds: int, requested: list[str], events: li
     out = []
     try:
         for i in range(rounds):
-            out.append(one_attached_round(cell, child, i, requested, events, pmu, stderr_path))
+            out.append(one_attached_round(cell, child, i, requested, events, pmu, stderr_path,
+                                          pin))
         finish_harness(child, cell, stderr_path)
     finally:
         if child.poll() is None:
@@ -863,6 +918,10 @@ def c2c_round(cell: Cell, pin: list[str], env: dict, out_dir: Path) -> dict:
         child.stdin.flush()
         row = read_until(child.stdout, lambda o: o.get("role") == "counters",
                          "the `counters` row for the c2c round", cell, stderr_path)
+        problem = affinity_problem(row, pin)
+        if problem:
+            stop_perf(perf, "perf c2c record", cell)
+            raise Preflight(f"{cell.name} c2c round: {problem}; the round is void")
         record_rc, record_err = stop_perf(perf, "perf c2c record", cell)
         finish_harness(child, cell, stderr_path)
     finally:
@@ -904,6 +963,8 @@ def provenance(pmu, why, pin, available, unavailable, repeats, futex: dict | Non
         "commit": os.environ.get("EXPANSE_BENCH_COMMIT", "unknown"),
         "perf_event_paranoid": paranoid_level(),
         "pmu": pmu, "pmu_reason": why, "pmu_cpus": pmu_cpus(pmu), "pin": pin,
+        "pin_source": ("pmu" if os.environ.get("EXPANSE_BENCH_PIN_APPLIED") in UNPINNED
+                       else "EXPANSE_BENCH_PIN_APPLIED"),
         "core_pin": os.environ.get("EXPANSE_BENCH_PIN_APPLIED", "unset"),
         "host": host_facts(),
         "events_available": available, "events_unavailable": unavailable,
@@ -1100,6 +1161,48 @@ def _self_test() -> int:
         failures.append("a single-threaded cell is not in process mode")
     if FUTEX_EVENT in THREAD_EVENTS:
         failures.append("the futex tracepoint must be added by its own preflight, not by default")
+
+    # ---- the pin a workload is launched under, and its verification -----
+    wide = ["taskset", "-c", "0-15"]
+    sibling = "0,2,4,6,8,10,12,14"
+    if compose_pin(wide, "0-15", sibling) != ["taskset", "-c", sibling]:
+        failures.append("a one-sibling benchmark pin was widened to the PMU's CPUs "
+                        "(run 34783092421's defect)")
+    for unpinned in UNPINNED:
+        if compose_pin(wide, "0-15", unpinned) != wide:
+            failures.append(f"with EXPANSE_BENCH_PIN_APPLIED={unpinned!r} the PMU pin must stand")
+    if compose_pin([], None, "0,2") != ["taskset", "-c", "0,2"]:
+        failures.append("a uniform host's benchmark pin was not applied")
+    try:
+        compose_pin(wide, "0-15", "0-23")
+    except Preflight as exc:
+        if "16" not in str(exc):
+            failures.append(f"the refusal of a pin outside the PMU names no CPU: {exc}")
+    else:
+        failures.append("a benchmark pin with CPUs outside the counting PMU was accepted")
+    # Run 34783092421's own row: launched with core_pin one sibling per core,
+    # and the harness reported 0-15.
+    if affinity_problem({"cpus_allowed": "0-15", "pin_applied": sibling},
+                        ["taskset", "-c", sibling]) is None:
+        failures.append("a harness that ran on 0-15 under a one-sibling pin was accepted")
+    if affinity_problem({"cpus_allowed": sibling}, ["taskset", "-c", sibling]) is not None:
+        failures.append("a harness on exactly its pin was refused")
+    if affinity_problem({"cpus_allowed": "0-3"}, ["taskset", "-c", "0,1,2,3"]) is not None:
+        failures.append("cpulist spellings of the same set were compared as strings")
+    if affinity_problem({}, ["taskset", "-c", sibling]) is None:
+        failures.append("a harness that reports no affinity was accepted as pinned")
+    if affinity_problem({"cpus_allowed": "0-15"}, []) is not None:
+        failures.append("an unpinned run was held to a pin")
+    # The decisions at their call sites: composing the pin in the preflight,
+    # and verifying it on every attached round and the c2c round.
+    import inspect  # noqa: PLC0415
+    if "compose_pin(" not in inspect.getsource(preflight):
+        failures.append("preflight does not compose the benchmark pin")
+    for fn in (one_attached_round, c2c_round):
+        if "affinity_problem(row, pin" not in inspect.getsource(fn):
+            failures.append(f"{fn.__name__} does not verify the harness's affinity")
+    if "stderr_path,\n                                          pin)" not in inspect.getsource(collect_per_thread):
+        failures.append("collect_per_thread does not pass the pin to its attached rounds")
 
     # ---- a make-built harness: its binary, its working directory, its argv --
     rocks = BY_NAME["rocksdb_conc_paced_r7"]
