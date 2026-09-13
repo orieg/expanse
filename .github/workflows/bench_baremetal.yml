@@ -53,7 +53,6 @@ on:
           - writer_scaling_diagnostic
           - writer_scaling_padded
           - writer_scaling_ablation_alloc
-          - writer_scaling_ablation_epoch
           - writer_scaling_ablation_freelist
           - point_lookup_counters
           - search_instructions
