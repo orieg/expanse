@@ -1335,7 +1335,7 @@ loom::thread_local! {
 /// occupy the densest set of slots in $0..N_{\text{live}}-1$ with zero modulo collision
 /// when mapped to `NUM_EPOCH_STRIPES` (Refs #568).
 #[cfg(all(feature = "std", not(loom)))]
-#[inline]
+#[inline(always)]
 pub(crate) fn writer_slot() -> usize {
     // Hot path: one read of a `Drop`-free, const-initialised thread-local.
     let v = SLOT.with(|s| s.get());
@@ -1392,7 +1392,7 @@ fn claim_writer_slot() -> usize {
 }
 
 #[cfg(all(feature = "std", loom))]
-#[inline]
+#[inline(always)]
 pub(crate) fn writer_slot() -> usize {
     STRIPE.with(|s| {
         let v = s.get();
