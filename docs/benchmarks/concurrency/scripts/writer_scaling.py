@@ -91,11 +91,16 @@ PADDED_RESULTS_PATH = (
 ABLATION_ARMS = {
     "compare_ablation_alloc": "ablation-sharded-alloc",
     "compare_ablation_epoch": "ablation-striped-epoch",
-    "compare_ablation_freelist": "ablation-striped-freelist",
+    "compare_ablation_unstriped_freelist": "ablation-unstriped-freelist",
 }
+# Inverse ablations where the default build represents the promoted optimization
+# and the ablation variant represents the unstriped/unoptimized baseline.
+# For these, the reported scaling ratio is C_default(W) / C_variant(W) (§8.20.7).
+INVERSE_ABLATIONS = {"ablation-unstriped-freelist"}
+
 ABLATION_RESULTS_PATHS = tuple(
     REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / f"ablation_{arm}_writer_scaling.json"
-    for arm in ("alloc", "epoch", "freelist")
+    for arm in ("alloc", "epoch", "freelist", "unstriped_freelist")
 )
 
 
@@ -631,6 +636,108 @@ def summarize_arm(
     return cells
 
 
+def compute_paired_scaling_ratios(
+    arm: str,
+    variant_name: str,
+    writers_list: list[int],
+    rounds: int,
+    all_t_rows_default: list[dict[str, Any]],
+    all_t_rows_variant: list[dict[str, Any]],
+    inverse: bool = False,
+) -> dict[str, Any]:
+    """Compute paired scaling ratios C_variant(w) / C_default(w) (or C_default(w) / C_variant(w) for inverse ablations) per round."""
+    is_inverse = (variant_name in INVERSE_ABLATIONS) or inverse
+
+    t_by_round_w_def: dict[tuple[int, int], float] = {
+        (int(r["round"]), int(r["writers"])): float(r["writer_mops"])
+        for r in all_t_rows_default
+    }
+    t_by_round_w_var: dict[tuple[int, int], float] = {
+        (int(r["round"]), int(r["writers"])): float(r["writer_mops"])
+        for r in all_t_rows_variant
+    }
+
+    comparison_stats: dict[str, Any] = {
+        "arm": arm,
+        "variant_name": variant_name,
+        "rounds": rounds,
+        "is_inverse": is_inverse,
+        "per_writer": {},
+    }
+
+    for w in writers_list:
+        if w == 1:
+            # Skip W=1: by definition C(1) == 1.0, so the ratio is identically 1.0,
+            # bca_bootstrap_ci returns (1,1,1), and testing C(1) > 1.0 is not a concurrency decision.
+            continue
+
+        paired_ratios: list[float] = []
+        for r in range(rounds):
+            t1_d = t_by_round_w_def[(r, 1)]
+            tw_d = t_by_round_w_def[(r, w)]
+            if t1_d <= 0:
+                raise RuntimeError(f"Round {r} W=1 default throughput <= 0 ({t1_d}) (AGENTS.md §8.1)")
+            c_d = tw_d / t1_d
+            if c_d <= 0:
+                raise RuntimeError(f"Round {r} W={w} default scaling C(W) <= 0 ({c_d}) (AGENTS.md §8.1)")
+
+            t1_v = t_by_round_w_var[(r, 1)]
+            tw_v = t_by_round_w_var[(r, w)]
+            if t1_v <= 0:
+                raise RuntimeError(f"Round {r} W=1 variant throughput <= 0 ({t1_v}) (AGENTS.md §8.1)")
+            c_v = tw_v / t1_v
+
+            if is_inverse:
+                paired_ratios.append(c_d / c_v)
+            else:
+                paired_ratios.append(c_v / c_d)
+
+        mean_ratio, ci_lower, ci_upper, ratio_ci_method = bca_bootstrap_ci_with_method(
+            paired_ratios, confidence=0.95
+        )
+        median_ratio = sorted(paired_ratios)[len(paired_ratios) // 2]
+        # Verdict decision rule (§8.4, §8.20):
+        # A single run cannot CONFIRM; confirmation requires a second independent run across two committed artifacts.
+        # CI_lower > 1.0 -> SINGLE_RUN_PASS (candidate confirmed pending run 2)
+        # CI_upper < 1.0 -> REJECTED
+        # CI spans 1.0   -> INCONCLUSIVE (data cannot reject or confirm)
+        if ci_lower > 1.0:
+            verdict = "SINGLE_RUN_PASS"
+        elif ci_upper < 1.0:
+            verdict = "REJECTED"
+        else:
+            verdict = "INCONCLUSIVE"
+
+        stat_entry = {
+            "w": w,
+            "ratio_c_variant_over_c_default_mean": round(mean_ratio, 4),
+            "ratio_ci_lower": round(ci_lower, 4),
+            "ratio_ci_upper": round(ci_upper, 4),
+            # The construction behind this verdict's interval
+            # (`bca_bootstrap.CI_METHOD_*`, #880): a SINGLE_RUN_PASS or REJECTED
+            # read off a degenerate or clamped interval is a different claim
+            # from one read off a BCa interval, so the artifact names which.
+            "ratio_ci_method": ratio_ci_method,
+            "ratio_median": round(median_ratio, 4),
+            "verdict": verdict,
+            "paired_ratios_raw": [round(x, 6) for x in paired_ratios],
+        }
+        comparison_stats["per_writer"][str(w)] = stat_entry
+
+        ratio_label = (
+            f"Ratio C_default({w}) / C_{variant_name}({w})"
+            if is_inverse
+            else f"Ratio C_{variant_name}({w}) / C_default({w})"
+        )
+        print(
+            f"  [Comparison W={w:<2}] {ratio_label}: "
+            f"Mean {mean_ratio:.4f} [{ci_lower:.4f}, {ci_upper:.4f}] | "
+            f"Verdict: {verdict}"
+        )
+
+    return comparison_stats
+
+
 def run_comparison(
     bin_default: Path,
     bin_variant: Path,
@@ -642,6 +749,7 @@ def run_comparison(
     rounds: int,
     prov: dict[str, Any],
     quick: bool = False,
+    inverse: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     """Runs interleaved (build × W) execution within each round.
 
@@ -704,84 +812,15 @@ def run_comparison(
     for c in cells_variant:
         c["variant"] = variant_name
 
-    # Compute paired C_variant(w) / C_default(w) per round
-    t_by_round_w_def: dict[tuple[int, int], float] = {
-        (int(r["round"]), int(r["writers"])): float(r["writer_mops"])
-        for r in all_t_rows_default
-    }
-    t_by_round_w_var: dict[tuple[int, int], float] = {
-        (int(r["round"]), int(r["writers"])): float(r["writer_mops"])
-        for r in all_t_rows_variant
-    }
-
-    comparison_stats: dict[str, Any] = {
-        "arm": arm,
-        "variant_name": variant_name,
-        "rounds": rounds,
-        "per_writer": {},
-    }
-
-    for w in writers_list:
-        if w == 1:
-            # Skip W=1: by definition C(1) == 1.0, so the ratio is identically 1.0,
-            # bca_bootstrap_ci returns (1,1,1), and testing C(1) > 1.0 is not a concurrency decision.
-            continue
-
-        paired_ratios: list[float] = []
-        for r in range(rounds):
-            t1_d = t_by_round_w_def[(r, 1)]
-            tw_d = t_by_round_w_def[(r, w)]
-            if t1_d <= 0:
-                raise RuntimeError(f"Round {r} W=1 default throughput <= 0 ({t1_d}) (AGENTS.md §8.1)")
-            c_d = tw_d / t1_d
-            if c_d <= 0:
-                raise RuntimeError(f"Round {r} W={w} default scaling C(W) <= 0 ({c_d}) (AGENTS.md §8.1)")
-
-            t1_v = t_by_round_w_var[(r, 1)]
-            tw_v = t_by_round_w_var[(r, w)]
-            if t1_v <= 0:
-                raise RuntimeError(f"Round {r} W=1 variant throughput <= 0 ({t1_v}) (AGENTS.md §8.1)")
-            c_v = tw_v / t1_v
-
-            paired_ratios.append(c_v / c_d)
-
-        mean_ratio, ci_lower, ci_upper, ratio_ci_method = bca_bootstrap_ci_with_method(
-            paired_ratios, confidence=0.95
-        )
-        median_ratio = sorted(paired_ratios)[len(paired_ratios) // 2]
-        # Verdict decision rule (§8.4, §8.20):
-        # A single run cannot CONFIRM; confirmation requires a second independent run across two committed artifacts.
-        # CI_lower > 1.0 -> SINGLE_RUN_PASS (candidate confirmed pending run 2)
-        # CI_upper < 1.0 -> REJECTED
-        # CI spans 1.0   -> INCONCLUSIVE (data cannot reject or confirm)
-        if ci_lower > 1.0:
-            verdict = "SINGLE_RUN_PASS"
-        elif ci_upper < 1.0:
-            verdict = "REJECTED"
-        else:
-            verdict = "INCONCLUSIVE"
-
-        stat_entry = {
-            "w": w,
-            "ratio_c_variant_over_c_default_mean": round(mean_ratio, 4),
-            "ratio_ci_lower": round(ci_lower, 4),
-            "ratio_ci_upper": round(ci_upper, 4),
-            # The construction behind this verdict's interval
-            # (`bca_bootstrap.CI_METHOD_*`, #880): a SINGLE_RUN_PASS or REJECTED
-            # read off a degenerate or clamped interval is a different claim
-            # from one read off a BCa interval, so the artifact names which.
-            "ratio_ci_method": ratio_ci_method,
-            "ratio_median": round(median_ratio, 4),
-            "verdict": verdict,
-            "paired_ratios_raw": [round(x, 6) for x in paired_ratios],
-        }
-        comparison_stats["per_writer"][str(w)] = stat_entry
-
-        print(
-            f"  [Comparison W={w:<2}] Ratio C_{variant_name}({w}) / C_default({w}): "
-            f"Mean {mean_ratio:.4f} [{ci_lower:.4f}, {ci_upper:.4f}] | "
-            f"Verdict: {verdict}"
-        )
+    comparison_stats = compute_paired_scaling_ratios(
+        arm,
+        variant_name,
+        writers_list,
+        rounds,
+        all_t_rows_default,
+        all_t_rows_variant,
+        inverse=inverse,
+    )
 
     return cells_default, cells_variant, comparison_stats
 
@@ -1483,7 +1522,34 @@ def self_test() -> int:
     assert len(cells_var_none[0]["counters_raw"]) == 0
     assert cells_var_none[0]["variant"] == "self_test_none"
 
-    # 6b. The frequency-droop rule, on synthetic counts. This runs everywhere:
+    # 6b. Directional invariant self-test for inverse comparison (§8.20.7):
+    # Under an inverse comparison where default is strictly faster than variant,
+    # C_default(W) / C_variant(W) > 1.0 yields SINGLE_RUN_PASS.
+    eprintln("Testing directional invariant self-test for inverse comparison (§8.20.7)...")
+    rounds_syn = 8
+    syn_def = [
+        {"round": r, "writers": 1, "writer_mops": 1.0} for r in range(rounds_syn)
+    ] + [
+        {"round": r, "writers": 2, "writer_mops": 2.0} for r in range(rounds_syn)
+    ]
+    syn_var = [
+        {"round": r, "writers": 1, "writer_mops": 1.0} for r in range(rounds_syn)
+    ] + [
+        {"round": r, "writers": 2, "writer_mops": 1.5} for r in range(rounds_syn)
+    ]
+    comp_std = compute_paired_scaling_ratios("set", "test_std", [1, 2], rounds_syn, syn_def, syn_var, inverse=False)
+    assert comp_std["per_writer"]["2"]["verdict"] == "REJECTED", comp_std["per_writer"]["2"]
+    assert comp_std["per_writer"]["2"]["ratio_c_variant_over_c_default_mean"] == 0.75, comp_std["per_writer"]["2"]
+
+    comp_inv = compute_paired_scaling_ratios("set", "test_inv", [1, 2], rounds_syn, syn_def, syn_var, inverse=True)
+    assert comp_inv["per_writer"]["2"]["verdict"] == "SINGLE_RUN_PASS", comp_inv["per_writer"]["2"]
+    assert abs(comp_inv["per_writer"]["2"]["ratio_c_variant_over_c_default_mean"] - 1.3333) < 1e-3, comp_inv["per_writer"]["2"]
+
+    comp_inv_feature = compute_paired_scaling_ratios("set", "ablation-unstriped-freelist", [1, 2], rounds_syn, syn_def, syn_var)
+    assert comp_inv_feature["per_writer"]["2"]["verdict"] == "SINGLE_RUN_PASS", comp_inv_feature["per_writer"]["2"]
+    assert abs(comp_inv_feature["per_writer"]["2"]["ratio_c_variant_over_c_default_mean"] - 1.3333) < 1e-3, comp_inv_feature["per_writer"]["2"]
+
+    # 6c. The frequency-droop rule, on synthetic counts. This runs everywhere:
     # the pass itself needs `perf`, so on a runner without it the only PMU
     # coverage below is that the pass refuses to run — which says nothing about
     # whether its arithmetic or its verdicts are right.
@@ -1782,9 +1848,9 @@ def main() -> int:
         help="Shorthand for --compare ablation-striped-epoch (Hypothesis D arm b)",
     )
     comparison.add_argument(
-        "--compare-ablation-freelist",
+        "--compare-ablation-unstriped-freelist",
         action="store_true",
-        help="Shorthand for --compare ablation-striped-freelist (Hypothesis D arm c)",
+        help="Shorthand for --compare ablation-unstriped-freelist (Hypothesis D arm c unstriped)",
     )
     parser.add_argument(
         "--pmu",
