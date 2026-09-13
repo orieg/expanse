@@ -64,9 +64,12 @@ gate carries a producer census:
   - every module that imports `bca_bootstrap` is named in exactly one of
     `CI_METHOD_PRODUCERS` or `CI_METHOD_EXEMPT` — a new interval producer cannot
     appear without saying which it is;
-  - a producer calls the `*_with_method` entry points, never the bare
-    three-value ones, does not discard the fourth value, and names `ci_method`
-    in its output;
+  - a producer calls the `*_with_method` entry points and not the bare
+    three-value ones (waivable per line, with a stated reason, for the one
+    legitimate use: asserting that both paths agree), does not discard the
+    fourth value, and writes the label out once per call site that binds it —
+    counted per site, because a file-wide "does `ci_method` appear anywhere"
+    check stays green when one site of three stops recording it;
   - and an artifact that records the label for one interval records it for all
     of them — partial adoption is how a field drops back out of half a schema.
 
