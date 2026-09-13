@@ -1554,14 +1554,18 @@ impl Collector {
         // has a happens-before with an advance and readers pinned at the next epoch.
         fence(Ordering::SeqCst);
         let e = self.epoch.load(Ordering::Relaxed);
+        // One thread-local read, not two: `writer_slot()` goes through TLS and
+        // `retire` is on the per-mutation path, so calling it twice paid for the
+        // lookup twice for one value.
+        let slot = writer_slot();
         let g = Garbage {
             ptr,
             bytes,
             align,
             #[cfg(feature = "ablation-striped-freelist")]
-            slot: writer_slot(),
+            slot,
         };
-        let stripe = writer_slot() % NUM_EPOCH_STRIPES;
+        let stripe = slot % NUM_EPOCH_STRIPES;
         let p_bin = &self.bins[e % BINS][stripe];
         let mut garbage = p_bin.garbage.lock().expect("garbage bin poisoned");
         // Counted before the push: an advance may take the block as soon
