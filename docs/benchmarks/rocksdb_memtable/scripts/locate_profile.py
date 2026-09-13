@@ -79,9 +79,11 @@ MIN_SAMPLES = 1000
 def parse_report(text: str) -> list[dict]:
     """Rows of `perf report --children --sort sym -t ,`, with or without `-n`.
 
-    `-t ,` separates the fields with commas, and a C++ symbol carries commas
-    of its own, so a row is split at most once per leading numeric field and
-    the symbol keeps the rest intact.
+    `-t ,` separates the fields with commas. perf rewrites a comma inside a
+    field to a dot -- `Get(rocksdb::LookupKey const&. void*. ...)` on the
+    reference host -- so a symbol carries none. The split still stops after the
+    leading numeric fields, so a perf that did not rewrite would not break the
+    symbol either.
     """
     rows = []
     for line in text.splitlines():
@@ -112,6 +114,13 @@ def children_of(rows: list[dict], needle: str, nested_variants: bool = False) ->
     inclusive time is already inside the parent's; it is excluded rather than
     counted twice.
 
+    A PLT stub (`@plt`) is excluded too. It is a jump into the function, not a
+    call, so its inclusive time is not the call's: on the reference host
+    `expanse_map_prev_at_or_before@plt` carried 0.52% against the function's
+    11.24%, and `pthread_mutex_lock@plt` 2.69% against 2.60% (run 34789727679).
+    Dropping it loses the trampoline's own few samples, which then count in
+    whatever called it.
+
     Otherwise exactly one row must match. Two rows would be two real symbols --
     a compiler clone, an overload -- and picking either would hide an
     attribution this tool cannot make, so it refuses instead.
@@ -121,7 +130,8 @@ def children_of(rows: list[dict], needle: str, nested_variants: bool = False) ->
     and the outer row's inclusive time already contains the inner's. The
     outermost -- the largest -- is the call, and summing would double it.
     """
-    hits = [r for r in rows if needle in r["symbol"] and ".cold" not in r["symbol"]]
+    hits = [r for r in rows if needle in r["symbol"]
+            and ".cold" not in r["symbol"] and "@plt" not in r["symbol"]]
     if not hits:
         return None
     if nested_variants:
@@ -291,6 +301,25 @@ VERBATIM_ROWS = """\
  47.19% , 47.19% ,[.] 0x0000000000000888
 """
 
+# Verbatim rows from the reference host (run 34789727679, round 0, perf 6.8):
+# the harness's, libexpanse's and glibc's symbols as that host names them,
+# including the PLT stubs that made round 0 ambiguous before stubs were
+# excluded. Subset of the report: the header lines and the rows this tool reads.
+HOST_ROWS = """\
+# Samples: 8K of event 'cpu_core/cycles/'
+# Children,    Self,     Samples,Symbol
+ 99.68% , 9.88%  , 795        ,[.] rocksdb::ExpanseMemTableRep::Get(rocksdb::LookupKey const&. void*. bool (*)(void*. char const*))
+ 62.64% , 39.05% , 3129       ,[.] (anonymous namespace)::BenchCmp::operator()(char const*. char const*) const
+ 54.80% , 9.57%  , 763        ,[.] rocksdb::ExpanseMemTableRep::FindLeafBlockForSeek(rocksdb::Slice const&. char const*) const
+ 11.24% , 0.44%  , 35         ,[.] expanse_map_prev_at_or_before
+ 10.61% , 6.76%  , 542        ,[.] _RINvNtCs6fUdrY3seH1_12expanse_trie3nav4prevKb1_EB4_
+ 2.69%  , 0.09%  , 7          ,[.] pthread_mutex_lock@plt
+ 2.60%  , 2.60%  , 210        ,[.] pthread_mutex_lock
+ 2.18%  , 0.05%  , 4          ,[.] pthread_mutex_unlock@plt
+ 2.13%  , 2.13%  , 172        ,[.] pthread_mutex_unlock
+ 0.52%  , 0.08%  , 6          ,[.] expanse_map_prev_at_or_before@plt
+"""
+
 # Synthetic rows in the `-n` layout (children, self, samples, symbol), with the
 # real symbols the harness carries. The numbers are chosen to check the
 # arithmetic, not measured.
@@ -322,6 +351,24 @@ def self_test() -> int:
     check("verbatim children", rows[0]["children"], 99.88)
     check("verbatim symbol", rows[1]["symbol"], "__libc_start_main")
     check("verbatim layout has no samples column", rows[0]["samples"], None)
+
+    # The reference host's own rows: commas rewritten to dots, padded sample
+    # counts, PLT stubs beside the functions they jump to.
+    host = parse_report(HOST_ROWS)
+    try:
+        hs = shares(host)
+    except RuntimeError as exc:
+        fails.append(f"the reference host's rows were refused: {exc}")
+    else:
+        check("host Get", hs["get_pct"], 99.68)
+        check("host locate", hs["locate_pct"], 54.80)
+        check("host mutex calls, stubs excluded", hs["lock_pct"], 2.60 + 2.13, tol=1e-9)
+        check("host locked region", hs["locked_pct"], 54.80 - 4.73, tol=1e-9)
+        check("host trie, stub excluded", hs["trie_pct"], 11.24)
+        check("host locked_fraction", hs["locked_fraction"], 50.07 / 99.68, tol=1e-9)
+        check("host trie_fraction", hs["trie_fraction"], 11.24 / 99.68, tol=1e-9)
+    if not any("LookupKey const&. void*." in r["symbol"] for r in host):
+        fails.append("the host fixture no longer carries perf's comma-to-dot rewrite")
 
     rows = parse_report(SYNTHETIC)
     check("synthetic rows parsed", len(rows), 10)
