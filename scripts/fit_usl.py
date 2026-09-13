@@ -377,11 +377,23 @@ def _ci_bounds(
     jackknife_thetas: Sequence[float],
     confidence: float,
 ) -> Tuple[float, float, str]:
-    """BCa bounds, or percentile bounds when BCa cannot be computed. Returns (lo, hi, method)."""
+    """BCa bounds, or percentile bounds when BCa cannot be computed. Returns (lo, hi, method).
+
+    `_bca_from_distribution` returns the construction it used as a third value
+    (`CI_METHOD_*`, #882), so the label is read from it rather than asserted
+    here: a sample whose acceleration or bias correction degenerated is not a
+    `bca` interval and must not be published as one (AGENTS.md §8.1). This
+    unpacked two values until #882 widened the return, which made the `try`
+    raise `ValueError` on every call and silently took the percentile branch
+    below — the reason `test_ci_bounds_reaches_the_shared_bca_construction`
+    asserts the label rather than only the bounds.
+    """
     if _bca_from_distribution is not None and len(jackknife_thetas) > 0:
         try:
-            lo, hi = _bca_from_distribution(theta_hat, list(boot_thetas), list(jackknife_thetas), confidence)
-            return lo, hi, "bca"
+            lo, hi, method = _bca_from_distribution(
+                theta_hat, list(boot_thetas), list(jackknife_thetas), confidence
+            )
+            return lo, hi, method
         except Exception:
             pass
     ordered = sorted(boot_thetas)
@@ -677,6 +689,36 @@ class TestUniversalScalabilityLaw(unittest.TestCase):
             seen = {call.kwargs.get("use_nlls", True) for call in spy.call_args_list}
             self.assertEqual(seen, {use_nlls})
             self.assertEqual(spy.call_count, 1 + 20 + sum(len(r) for r in reps))
+
+    def test_ci_bounds_reaches_the_shared_bca_construction(self):
+        """The BCa branch must run, and its own label must be what is reported.
+
+        THE DEFECT THIS PINS: `_ci_bounds` unpacked two values from
+        `_bca_from_distribution` and returned a hard-coded `"bca"`. #882 widened
+        that return to `(lo, hi, method)`, so the unpack raised `ValueError`
+        inside the `except Exception: pass` and every interval silently became
+        the plain-percentile fallback while the report kept saying BCa. A test
+        that only checked the bounds stayed green, because the fallback also
+        returns bounds — so this asserts the label, and that the shared
+        construction was actually called.
+        """
+        if _bca_from_distribution is None:
+            self.skipTest("scripts/bca_bootstrap.py not importable")
+        boots = [1.0 + 0.01 * i for i in range(200)]
+        jacks = [1.0, 1.02, 0.97, 1.05, 0.99]
+        lo, hi, method = _ci_bounds(1.5, boots, jacks, 0.95)
+        self.assertEqual(method, "bca", "the shared BCa branch did not run")
+        self.assertLess(lo, hi)
+        # A point estimate outside the bootstrap support clamps the bias
+        # correction, and that is reported rather than passed off as `bca`.
+        self.assertEqual(_ci_bounds(0.5, boots, jacks, 0.95)[2], "clamped")
+        # And a degenerate sample is reported as degenerate, not as `bca`: the
+        # label is read from the construction, never asserted by this module.
+        flat = [7.0] * 200
+        self.assertEqual(_ci_bounds(7.0, flat, [7.0] * 5, 0.95)[2], "degenerate")
+        # Every label the construction can return must be printable (§8.1).
+        for label in ("bca", "bc", "clamped", "degenerate", "percentile"):
+            self.assertIn(label, _CI_METHOD_LABELS)
 
     def test_unusable_interval_blocks_pass(self):
         # A curve that PASSes must not keep PASS beside an interval that was rejected.
@@ -1001,9 +1043,24 @@ def artifact_fit_inputs(data: Any, max_n: Optional[float] = None) -> Dict[str, A
     return {"schema": schema, "series": series, "notices": notices}
 
 
+# How a `_ci_bounds` label prints. The first four are the shared estimator's
+# `CI_METHOD_*` vocabulary (#882) and name which of BCa's two corrections
+# survived the sample; `percentile` is this module's own fallback, taken when
+# the shared module is absent or its construction raised. A label outside this
+# map is a vocabulary the reporter has not been taught, and the KeyError saying
+# so is the intended behaviour (AGENTS.md §8.1) — never a silent "BCa".
+_CI_METHOD_LABELS = {
+    "bca": "BCa",
+    "bc": "bias-corrected (BCa acceleration degenerated)",
+    "clamped": "clamped (a BCa correction was bounded)",
+    "degenerate": "degenerate (the bootstrap distribution is one point)",
+    "percentile": "percentile",
+}
+
+
 def _format_ci(ci: Dict[str, Any]) -> str:
     """One report line for an interval; an unusable one is never printed as bounds."""
-    method = {"bca": "BCa", "percentile": "percentile"}[ci["method"]]
+    method = _CI_METHOD_LABELS[ci["method"]]
     label = f"{method} {ci['confidence'] * 100:g}% CI"
     if not ci["usable"]:
         return (f"{label}: ⚠️ UNUSABLE ({', '.join(ci['problems'])}); rejected bounds "
