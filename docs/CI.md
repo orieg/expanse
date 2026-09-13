@@ -118,7 +118,7 @@ graph TD
 ### Integrations
 | Job | Name | Role |
 |---|---|---|
-| `test-rocksdb-memtable` | Integrations / RocksDB MemTable (matrix) | Builds/tests `ExpanseMemTableRep` across `sanitizer: [none, asan-ubsan, tsan]` (TSan excluded on macOS); includes a differential test vs reference structures. |
+| `test-rocksdb-memtable` | Integrations / RocksDB MemTable (matrix) | Builds/tests `ExpanseMemTableRep` across `sanitizer: [none, asan-ubsan, tsan]` (TSan excluded on macOS); includes a differential test vs reference structures. The `none` cells also compile both benches with the Makefile's warning flags and smoke their CLIs: `benches/bench_memtable.cc` through its `--arm memory` census and an unknown-arm refusal, and `benches/bench_memtable_concurrent.cc` through one `idle` cell read back by the driver's `parse_row` plus its `--mode` and unknown-argument refusals. Refusals are checked by diagnostic string, not exit code alone; no timing from either is read. |
 
 ### Rollup gate
 | Job | Name | Role |

@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -43,6 +42,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+import bench_pin  # noqa: E402
 import bench_provenance as prov  # noqa: E402
 from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
 
@@ -362,6 +362,8 @@ def self_test() -> int:
         fails.append("artifact provenance carries no host block")
     if "estimators" not in art.get("provenance", {}):
         fails.append("artifact provenance carries no estimators block")
+    if "core_pin" not in art.get("provenance", {}):
+        fails.append("artifact provenance does not record the core pin")
     for c in art["cells"]:
         if not c.get("rounds_raw"):
             fails.append("a cell carries no rounds_raw")
@@ -420,11 +422,20 @@ def main() -> int:
         readers, modes, rounds, window_s = (1, 2), ("idle", "paced"), 1, 0.25
         out = REPO_ROOT / "docs" / "benchmarks" / "rocksdb_memtable" / "results" / "quick" / out.name
 
+    # The core pin, before anything is timed and before `new_provenance`, which
+    # records `core_pin` from the variable this call publishes. The bare-metal
+    # workflow sources `bench_pin.sh` before invoking this driver, and this call
+    # then verifies the affinity actually arrived rather than re-applying it;
+    # run by hand with no such shell, it applies the pin itself. On the hybrid
+    # reference host a cell whose threads land on efficiency cores measures
+    # 1.576x the P-core time and no interval says so (#639).
+    pin = bench_pin.apply("concurrent_read_scaling.py")
+
     provenance = prov.new_provenance(
         "rocksdb_concurrent", 802, "T(R)/T(1)", repo_root=REPO_ROOT,
         pre_registration="docs/benchmarks/rocksdb_memtable/METHODOLOGY.md section 5",
     )
-    provenance["host"] = prov.host_facts(os.environ.get("EXPANSE_BENCH_PIN_APPLIED"))
+    provenance["host"] = prov.host_facts(pin)
     provenance["estimators"] = prov.estimators(
         ratio="paired BCa 95% on S(R) = T(R)/T(1), resampled over rounds",
         columns="per-cell aggregate read Mops/s",
