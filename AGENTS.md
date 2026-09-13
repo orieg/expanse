@@ -619,6 +619,90 @@ When diagnosing multi-writer scaling deficits ($C(W) < 1.0$) or attributing late
    - Direct measurement of fallback extra work: subtract wait times already deducted (e.g. `quiesce_drain_cycles`) from fallback ticks to prevent double-counting, and source baseline optimistic ticks directly from the $W=1$ control cell ($t(1) \times \text{tsc\_hz}$).
    - **No Residual-by-Subtraction**: Never attribute an unexplained remainder to a hypothesis by subtracting measured shares from 100%. Any budget left over after direct measurement MUST be explicitly reported as **unexplained**.
 
+5. **Localising Contention: the Cheap Checks First, the Ablation Last**:
+   This is subsystem-agnostic — it applies to any shared structure under
+   contention, not only the trie's OLC engine. Each step narrows what the next
+   one has to look at, and the early steps are far cheaper than the late ones.
+   Running them out of order is how a plausible mechanism gets asserted and
+   then implemented before anything has measured it.
+   1. **Exclude the host first.** On a hybrid or SMT part, a plateau at
+      W = physical-core-count and true coherency traffic predict the same
+      shape. Re-run pinned one thread per physical core — on the reference
+      host the `cpu_core` list `0-15` is 8 P-cores *with SMT*, so
+      `cpu_pin=0,2,4,6,8,10,12,14` is one per core — and confirm no cell
+      moves. A harness that spawns threads without per-thread affinity leaves
+      placement to the scheduler, so this cannot be reasoned about, only
+      measured.
+   2. **Fit the USL and read α against β.** They point at different fixes: α
+      is serialisation, β is pairwise coherency growing as $N(N-1)$. A large
+      α with β's interval containing zero means a *serial* term remains, and
+      remedies aimed at cache-line crosstalk will not move it. Refit after any
+      change that alters the dominant cost; a fit describes the build it was
+      taken on.
+   3. **Read the PMU for shape, not just magnitude.** Cross-core snoop
+      forwarding per operation that *steps* at the second writer and then
+      grows sublinearly is a fixed per-operation cost — α-shaped. One that
+      grows with $N^2$ is β-shaped. Measure frequency droop in the same rounds
+      and check its magnitude against the deficit before invoking it: a droop
+      of a few percent cannot explain a several-fold scaling shortfall.
+   4. **Use `perf c2c` for *where*, and read the address layout.** The
+      distribution of contended lines identifies the *kind* of structure
+      before any symbol is resolved: a compact run of 64-byte-aligned lines
+      inside a sub-page span is a **padded per-slot array**, and — since such
+      arrays are padded precisely to prevent false sharing — writers hitting
+      them means *true* sharing on the same slots, which more padding cannot
+      fix. Lines scattered across many pages are **per-object state** (node
+      version words, per-entry locks) allocated across the heap. Those have
+      different fixes, and the layout tells them apart.
+   5. **Resolve the symbols separately.** `perf c2c report` pads its symbol
+      column to a fixed width and truncates Rust v0 manglings inside it;
+      `perf report --stdio --sort symbol,dso` over the same recording prints
+      them whole. Cross-reference the truncated prefix in the per-line rows
+      against the full names to attribute a specific contended offset to a
+      function.
+   6. **Confirm by intervention.** Steps 1–5 are observational and cannot
+      establish causality (§8.20.3). Ablate the named structure, evaluate with
+      the paired C(W) ratio across two independent runs, and include an arm
+      that should *not* benefit as a control — an α = 1 coarse-mutex path that
+      barely exercises the structure is the natural one, and it also shows the
+      two runs are comparable.
+
+6. **An Ablation Verdict Describes the Build It Measured, and Expires**:
+   §8.20.3 scopes a rejection to the mechanism ablated. It is also scoped to
+   the **engine version**, and that half is easier to forget because the
+   verdict reads like a property of the system.
+   - A mechanism whose cost is masked by a larger one cannot be measured until
+     the larger one is removed. An arm that came back `INCONCLUSIVE` while a
+     serial fallback path dominated says nothing about the same arm once that
+     path is gone.
+   - **Re-run the arms after any change that removes a dominant cost**, before
+     concluding the remaining deficit is unexplained. Expanse's own case:
+     Hypothesis D's epoch-bin arm was `INCONCLUSIVE` across two runs on the
+     pre-Phase-4C engine and recorded as not explaining the plateau; re-run
+     after structural fallbacks reached zero, the same arm measured a 1.72×
+     improvement in C(8) and removed the turnover entirely
+     (`docs/benchmarks/concurrency/README.md` §11.5).
+   - A superseded verdict is marked superseded **in place**, not deleted: the
+     contrast between the two measurements is itself the finding, and deleting
+     the first destroys the evidence for the second.
+   - Corollary for prose: *"the fallback rate reached zero"* is not *"α reached
+     zero"*. Those are different quantities, and a curve can keep a serial
+     fraction of 0.6–0.8 with no fallbacks left at all.
+
+7. **A Diagnostic's Self-Test Must Assert the Artifact Is Usable**:
+   A diagnostic that runs green and produces nothing answerable is worse than
+   one that fails, because it consumes a measurement cycle and reports
+   success. Unit tests over its functions do not catch this — the seam between
+   a script and its environment does. Assert on the **shape of what lands in
+   the artifact**: that a derived metric has a non-zero sample count when its
+   raw inputs are present, that a report's payload contains the section
+   decisions rest on rather than only a header, and that every line written to
+   a machine-consumed output has that output's format. Expanse's writer-
+   scaling diagnostic needed four separate fixes — a silently empty frequency
+   droop, discarded cache-line attribution, twice-truncated symbols — before
+   it could answer the question it was built for, with its self-tests green
+   throughout.
+
 ### 8.21 Self-Review Before Handoff (Plans, PR Bodies, Docs)
 Review time should go to what the author could not check, not to what the author did not check. On #568 most plan-review rounds found errors in text written to fix the previous round. Before requesting review of a plan, a PR body or a doc:
 
