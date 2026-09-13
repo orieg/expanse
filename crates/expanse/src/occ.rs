@@ -1400,12 +1400,19 @@ pub struct Collector {
     pub(crate) alive: AtomicBool,
     op_count: Line<AtomicUsize>,
     readers: Mutex<Vec<Arc<Slot>>>,
-    bins: Box<[[PaddedBin; NUM_EPOCH_STRIPES]; BINS]>,
+    // NOT boxed. `Collector` is only ever constructed behind an `Arc`
+    // (`Arc::new(Collector::new())`, 6 sites in alloc.rs and 9 in sync.rs; the
+    // only bare constructions are in this file's test module), so it already
+    // lives on the heap and there is no stack bloat for a `Box` to prevent.
+    // Boxing moved the same 4 KiB into a second allocation and bought a
+    // pointer chase on every `retire` and every `retained_bytes` update --
+    // measured as +1.03% to +1.57% across six `sync_*` Callgrind arms.
+    bins: [[PaddedBin; NUM_EPOCH_STRIPES]; BINS],
     #[cfg(not(feature = "ablation-striped-freelist"))]
     freelists: [Mutex<FreeListHead>; NUM_CLASSES],
     #[cfg(feature = "ablation-striped-freelist")]
     freelists: [PaddedFreelists; MAX_WRITER_SLOTS],
-    pub(crate) retained_bytes: Box<[PaddedRetained; NUM_EPOCH_STRIPES]>,
+    pub(crate) retained_bytes: [PaddedRetained; NUM_EPOCH_STRIPES],
     #[cfg(test)]
     registrations: core::sync::atomic::AtomicU64,
 }
@@ -1428,9 +1435,7 @@ impl Collector {
             alive: AtomicBool::new(true),
             op_count: line(AtomicUsize::new(0)),
             readers: Mutex::new(Vec::new()),
-            bins: Box::new(core::array::from_fn(|_| {
-                core::array::from_fn(|_| PaddedBin::new())
-            })),
+            bins: core::array::from_fn(|_| core::array::from_fn(|_| PaddedBin::new())),
             #[cfg(not(feature = "ablation-striped-freelist"))]
             freelists: core::array::from_fn(|_| Mutex::new(FreeListHead(core::ptr::null_mut()))),
             #[cfg(feature = "ablation-striped-freelist")]
@@ -1439,9 +1444,7 @@ impl Collector {
                     Mutex::new(FreeListHead(core::ptr::null_mut()))
                 }))
             }),
-            retained_bytes: Box::new(core::array::from_fn(|_| {
-                PaddedRetained(AtomicUsize::new(0))
-            })),
+            retained_bytes: core::array::from_fn(|_| PaddedRetained(AtomicUsize::new(0))),
             #[cfg(test)]
             registrations: core::sync::atomic::AtomicU64::new(0),
         }
@@ -2270,11 +2273,16 @@ mod tests {
                 "epoch bin overhead {epoch_bin_overhead} exceeds 4.5 KiB gate ceiling"
             );
         }
-        // Direct Collector struct size is bounded to <= 2048 bytes (1576 B on macOS due to
-        // 16 pthread_mutex_t freelists, ~400-600 B on Linux futex), avoiding inline 16.4 KiB arrays.
+        // `Collector` is only ever constructed behind an `Arc`, so its own size is a
+        // heap-allocation size and never a stack frame. The bound that matters is the
+        // epoch-bin overhead asserted above; this one only keeps the struct from growing
+        // an unrelated inline array by accident. It is deliberately loose enough to hold
+        // the un-boxed 4 KiB of striped bins: boxing them to shrink this number moved the
+        // same bytes into a second allocation and cost a pointer chase on every `retire`,
+        // measured at +1.03% to +1.57% across six `sync_*` Callgrind arms.
         assert!(
-            core::mem::size_of::<Collector>() <= 2048,
-            "Collector direct size {} exceeds 2048 bytes",
+            core::mem::size_of::<Collector>() <= 8192,
+            "Collector direct size {} exceeds 8192 bytes",
             core::mem::size_of::<Collector>()
         );
     }
