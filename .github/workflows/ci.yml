@@ -440,6 +440,10 @@ jobs:
           # the perf c2c reports. The self-test also renders the committed tree
           # and asserts every section is filled (AGENTS.md section 8.20.7).
           python3 docs/benchmarks/rocksdb_memtable/scripts/counters_report.py --self-test
+          # The #802 locate-path profiler: its perf report parser (verbatim row
+          # layout), the share arithmetic, its refusals, and that each round
+          # verifies affinity and reads inclusive time for the reader thread.
+          python3 docs/benchmarks/rocksdb_memtable/scripts/locate_profile.py --self-test
           # The #868 single-threaded driver, which replaced the shell loop that
           # could not emit a load snapshot or a raw row. Its CSV parsing and
           # refusals, its round-major interleaving (asserted at the CALL SITE,

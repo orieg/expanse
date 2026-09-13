@@ -166,6 +166,7 @@ python3 scripts/rocksdb_locate_bound.py --self-test
 python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py --self-test
 python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_verdicts.py --self-test
 python3 docs/benchmarks/rocksdb_memtable/scripts/counters_report.py --self-test
+python3 docs/benchmarks/rocksdb_memtable/scripts/locate_profile.py --self-test
 python3 docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py --self-test
 
 # Verifying the documented example output needs libexpanse built; the CI

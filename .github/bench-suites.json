@@ -452,6 +452,14 @@
       "suite": "rocksdb_memtable"
     },
     {
+      "name": "rocksdb_locate_profile",
+      "available": true,
+      "kind": "counters",
+      "runner": "builtin",
+      "summary": "LBR call-graph sampling (`perf record --call-graph lbr`) of one idle reader in the RocksDB MemTable concurrent harness: the share of a Get inside the locked region and inside the trie call, the inputs the #802 narrowed-mutex arm is pre-registered on. Diagnostic only.",
+      "suite": "rocksdb_memtable"
+    },
+    {
       "name": "rocksdb_concurrent_counters",
       "available": true,
       "kind": "counters",
