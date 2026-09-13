@@ -209,3 +209,32 @@ Aggregate read throughput, Mops/s, mean of 5 rounds (run 1):
 **Host.** Maximum foreign busy CPU across the 120 cells was 0.02 core-equivalents (0.02 in run 1, 0.01 in run 2). The per-cell means were −0.083 and −0.081, the same subtraction artifact §5.7 reports. `load1` peaked at 2.24 and 2.27 on 24 logical CPUs, a figure that includes the sweep's own threads.
 
 **What is not established.** H1 is not decided in either direction: the reader curve under a writer is measured, but not at the pre-registered duty. No counter was collected, so neither the writer's shortfall nor the readers' regression has a measured mechanism. `Contains` and `IteratorImpl::Seek` share the locate path but were not swept, and no design has been built or measured.
+
+### 5.9 Amendment — gating H1 when the paced writer runs short
+
+This amendment was written after §5.7 and §5.8 were measured and read, and it is locked before the rounds it is evaluated on (§8.19). It is therefore **not a blind pre-registration**. Its authors already knew that every paced `R = 7` cell had missed its offered rate, and what `S(7)` those cells returned. It changes a method and fixes a new sample; it changes no threshold.
+
+§5.2–§5.5 are not rewritten (§8.7). The §5.7 and §5.8 verdicts stand as recorded, and nothing in them is re-read under this amendment.
+
+**What it changes for H1.** §5.5 excludes from gating a paced cell whose achieved rate "departs materially" from the offered 250,000 inserts/s, but never defines "materially" (§5.8). For H1, that exclusion is replaced by a rule derived from the bound. No tolerance is chosen.
+
+- H1's threshold, `S(7)` = 2.0, is the decision "the lock covers at least `(1 − d) / 2` of a read", where `d` is the writer's duty (`gate_boundary_locked_fraction` in `scripts/rocksdb_locate_bound.py`).
+- A paced writer sleeps to an absolute schedule, so its achieved duty lies in `[0, d_offered]`. Across that interval the boundary moves by at most `d_offered / 2` = 0.0283: from 0.4717 at the offered duty to 0.5 for a writer that stalls outright (`max_gate_boundary_shift`, pinned by `--self-test`). A shortfall of any size leaves H1 deciding "about half a read".
+- A paced `R = 7` cell whose achieved rate is **at or below** the offered rate is therefore gated for H1, whatever the size of the shortfall.
+- A cell whose achieved rate is **above** the offered rate, or whose writer ran out of keys (`writer_exhausted`), is outside the derivation. It is reported, not gated.
+- H1's `PASS`, `REFUTED` and `BOUNDARY_RESULT` thresholds are unchanged (§5.3).
+
+**What it changes for H3.** H3's pass criterion is a fitted `alpha` *interval*. On every curve this arm has produced — paced and idle, under both pins, six curves — `fit_usl_with_bootstrap` in `scripts/fit_usl.py` pins `alpha` at its bound of 1 and labels the `alpha` interval `zero_width` and unusable. That is observed on those six curves, not derived for every curve: the script's own docstring gives a retrograde USL curve that both of its estimators recover.
+
+H3 is therefore evaluated on the fresh rounds **only if** `fit_usl_with_bootstrap` returns a usable `alpha` interval for a run's paced curve. Its predicted side is then `predicted_alpha_from_scaling` at that run's paced `S(7)` point estimate. The bound's prediction carries no duty, so the writer's shortfall does not enter it. Where the interval is unusable, H3 is reported **not evaluable** for that run.
+
+**The fresh rounds, fixed here.**
+
+- **Commit and pin:** commit `0ed8f5e5`, the commit §5.7 and §5.8 measured, with pin `0,2,4,6,8,10,12,14` (§5.2).
+- **Cell parameters:** cells, rounds per cell (5), window (2.0 s), offered rate (250,000 inserts/s) and estimator all as §5.2.
+- **Runs:** two independent runs, each a `bench_baremetal.yml` dispatch with `benchmark_suite=rocksdb_concurrent` and `cpu_pin=0,2,4,6,8,10,12,14`. Run 1 completes before run 2 is dispatched.
+- **Verdicts:** H1 and H2 are read per §5.3 in each run. A verdict is claimed only where both runs return it; otherwise it is `BOUNDARY_RESULT`.
+- **H3:** as above.
+- **Pooling:** no round from §5.7 or §5.8 is pooled into these.
+
+**Expected outcome, stated before the rounds.** Both earlier pairs of runs put paced `S(7)` far below 2.0: [0.628, 0.641] and [0.621, 0.633] under this pin, and [0.733, 0.756] and [0.762, 0.771] under `0-15`. H1 is expected to `PASS`. That expectation comes from having seen the data, which is why the rounds that decide it are fresh. The gate is still applied as written, and a paced `S(7)` whose lower bound clears 2.0 in both runs would refute H1.
