@@ -102,6 +102,59 @@ def duty_cycle(write_ops: int, elapsed_s: float, insert_ns: float) -> float:
     return (write_ops / elapsed_s) * insert_ns * 1e-9
 
 
+def paced_rate_report(rows: list[dict], offered: float) -> dict:
+    """The paced writer's achieved rate per reader count, and the cells not to gate.
+
+    Per `R`, never averaged. A mean duty over every paced cell is how the
+    `R = 7` shortfall went unseen in METHODOLOGY section 5.7: the `R <= 4` cells
+    held 250,000 inserts/s and the `R = 7` cells reached ~140,000, and one mean
+    over all four read as a writer on schedule (section 5.8).
+
+    A paced cell is flagged, and METHODOLOGY section 5.9 excludes it from
+    gating, when its achieved rate is above the offered rate or its writer ran
+    out of keys. A rate below the offered one is recorded, not flagged: section
+    5.9 derives that a shortfall of any size leaves H1 deciding the same
+    question. The comparison is literal. The schedule starts after the window
+    opens and inserts first at `n = 0`, so a writer exactly on schedule could in
+    principle exceed the offered rate by one insert over the window
+    (`1 / elapsed_s` inserts/s); thread start and join latency of that size
+    have not been observed, and a cell that did so would be reported rather
+    than argued away.
+    """
+    per: dict[str, dict] = {}
+    flags: list[dict] = []
+    for r in rows:
+        if r["writer_mode"] != "paced":
+            continue
+        if r["elapsed_s"] <= 0.0:
+            raise ValueError(f"elapsed_s must be > 0, got {r['elapsed_s']} for {r.get('cell')}")
+        rate = r["write_ops"] / r["elapsed_s"]
+        e = per.setdefault(str(r["readers"]), {"rounds": 0, "achieved_min_ops_per_s": rate,
+                                               "achieved_max_ops_per_s": rate})
+        e["rounds"] += 1
+        e["achieved_min_ops_per_s"] = min(e["achieved_min_ops_per_s"], rate)
+        e["achieved_max_ops_per_s"] = max(e["achieved_max_ops_per_s"], rate)
+        reasons = []
+        if rate > offered:
+            reasons.append("above_offered")
+        if r.get("writer_exhausted"):
+            reasons.append("writer_exhausted")
+        if reasons:
+            flags.append({"cell": r.get("cell"), "readers": r["readers"], "round": r["round"],
+                          "achieved_ops_per_s": rate, "reasons": reasons})
+    for e in per.values():
+        e["max_shortfall_fraction"] = 1.0 - e["achieved_min_ops_per_s"] / offered
+    return {
+        "offered_ops_per_s": offered,
+        "per_readers": dict(sorted(per.items(), key=lambda kv: int(kv[0]))),
+        "flags": flags,
+        "rule": ("METHODOLOGY section 5.9: a paced cell whose achieved rate is above the "
+                 "offered rate, or whose writer ran out of keys, is reported and not gated. "
+                 "Read per_readers before gating any paced cell; a duty averaged over R hides "
+                 "a short cell."),
+    }
+
+
 def scaling_ratios(rows: list[dict], mode: str) -> dict:
     """Paired BCa 95% interval on S(R) = T(R)/T(1) for one writer mode.
 
@@ -232,10 +285,12 @@ def build_artifact(rows: list[dict], provenance: dict, insert_ns: float,
                      "insert_ns_used_for_duty": insert_ns},
         "cells": cells,
         "scaling": {mode: scaling_ratios(rows, mode) for mode in sorted({r["writer_mode"] for r in rows})},
+        "paced_rate_check": paced_rate_report(rows, paced_rate),
         "verdicts": None,
         "why_no_verdicts": (
-            "Verdicts are read against METHODOLOGY section 5.3 by a reviewer; this driver "
-            "emits the intervals and does not decide PASS/REFUTED/BOUNDARY_RESULT."
+            "This driver emits the intervals and decides nothing. Verdicts are read from two "
+            "runs against the pre-registration in force; for the runs METHODOLOGY section 5.9 "
+            "fixes, scripts/concurrent_verdicts.py applies its rules."
         ),
     }
     # `attach` RETURNS the carrying dict; it does not mutate in place. Dropping
@@ -372,6 +427,50 @@ def self_test() -> int:
         if not isinstance(fb, (int, float)) or isinstance(fb, bool):
             fails.append("a cell carries no numeric load.foreign_busy_cpus")
             break
+    # --- paced rate, per R, and the cells section 5.9 does not gate --------
+    pr_rows = [
+        {"round": 0, "writer_mode": "paced", "readers": 1, "write_ops": 500000,
+         "elapsed_s": 2.0001, "writer_exhausted": 0, "cell": "p1"},
+        {"round": 1, "writer_mode": "paced", "readers": 1, "write_ops": 499000,
+         "elapsed_s": 2.0, "writer_exhausted": 0, "cell": "p1b"},
+        {"round": 0, "writer_mode": "paced", "readers": 7, "write_ops": 280000,
+         "elapsed_s": 2.0, "writer_exhausted": 0, "cell": "p7"},
+        {"round": 0, "writer_mode": "paced", "readers": 4, "write_ops": 500010,
+         "elapsed_s": 2.0, "writer_exhausted": 0, "cell": "p4"},
+        {"round": 0, "writer_mode": "paced", "readers": 2, "write_ops": 120000,
+         "elapsed_s": 2.0, "writer_exhausted": 1, "cell": "p2"},
+        {"round": 0, "writer_mode": "idle", "readers": 7, "write_ops": 900000,
+         "elapsed_s": 2.0, "writer_exhausted": 0, "cell": "i7"},
+    ]
+    rep = paced_rate_report(pr_rows, PACED_RATE)
+    check("per-R keys, paced only, in R order", list(rep["per_readers"]), ["1", "2", "4", "7"])
+    check("R=1 rounds", rep["per_readers"]["1"]["rounds"], 2)
+    check("R=1 min is the worse round", rep["per_readers"]["1"]["achieved_min_ops_per_s"], 249500.0)
+    check("R=7 shortfall is reported, not averaged away",
+          round(rep["per_readers"]["7"]["max_shortfall_fraction"], 6), 0.44)
+    check("flagged cells", sorted((f["cell"], tuple(f["reasons"])) for f in rep["flags"]),
+          [("p2", ("writer_exhausted",)), ("p4", ("above_offered",))])
+    # A writer 44% short is recorded and NOT flagged: section 5.9 derives that a
+    # shortfall of any size leaves H1 deciding the same question.
+    if any(f["cell"] == "p7" for f in rep["flags"]):
+        fails.append("a short paced cell must be reported per R, not flagged")
+    try:
+        paced_rate_report([dict(pr_rows[0], elapsed_s=0.0)], PACED_RATE)
+    except ValueError:
+        pass
+    else:
+        fails.append("paced_rate_report with elapsed_s=0 did not raise")
+    # The call site: the artifact carries the report built from ITS rows. One
+    # paced cell above the offered rate must surface in the artifact itself.
+    fast = [dict(r) for r in rows]
+    i = next(i for i, r in enumerate(fast) if r["writer_mode"] == "paced")
+    fast[i] = dict(fast[i], write_ops=int(PACED_RATE) + 1, elapsed_s=1.0)
+    art_fast = build_artifact(fast, p, 226.142, 2.0, PACED_RATE)
+    got = art_fast.get("paced_rate_check", {}).get("flags")
+    if not got or got[0]["cell"] != fast[i]["cell"] or got[0]["reasons"] != ["above_offered"]:
+        fails.append(f"the artifact must carry the above-offered paced cell in "
+                     f"paced_rate_check.flags, got {got!r}")
+
     # The idle control must record a zero duty, not a missing one.
     idle = [c for c in art["cells"] if c["writer_mode"] == "idle"]
     if not idle or any(c["writer_duty_cycle"] != 0.0 for c in idle):
@@ -474,6 +573,17 @@ def main() -> int:
               f"the duty cycle computed from it is wrong and they cannot be gated "
               f"(METHODOLOGY section 5.2).", file=sys.stderr)
         return 1
+    report = paced_rate_report(rows, args.paced_rate)
+    for R, e in report["per_readers"].items():
+        print(f"paced R={R}: achieved {e['achieved_min_ops_per_s']:,.0f}-"
+              f"{e['achieved_max_ops_per_s']:,.0f} inserts/s over {e['rounds']} round(s) "
+              f"(offered {args.paced_rate:,.0f}; max shortfall {e['max_shortfall_fraction']:.1%})")
+    above = [f for f in report["flags"] if "above_offered" in f["reasons"]]
+    if above:
+        print(f"::warning::{len(above)} paced cell(s) ran above the offered rate (first: "
+              f"{above[0]['cell']}, {above[0]['achieved_ops_per_s']:,.1f} inserts/s). "
+              f"METHODOLOGY section 5.9 reports these and does not gate them; the artifact's "
+              f"paced_rate_check.flags names every one.")
     n_exh = sum(1 for r in rows
                 if r["writer_mode"] == "free" and r.get("writer_exhausted"))
     if n_exh:
