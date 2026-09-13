@@ -2322,10 +2322,14 @@ jobs:
           # What is checked is what an attach depends on: that the round's
           # threads exist and carry the names perf keys its rows on while the
           # harness waits, that each row carries the harness's own counts, and
-          # that closing stdin before a round is released stops the cell.
+          # that closing stdin before a round is released stops the cell. The
+          # thread names and their CPU accrual are read from /proc, so they are
+          # checked on Linux, which is where the attach runs; elsewhere the step
+          # says by name that they were not.
           python3 - <<'EOF'
           import json, os, subprocess, sys, time
           exe = "/tmp/bench_memtable_concurrent"
+          LINUX = sys.platform.startswith("linux")
 
           def role_cpu_ticks(pid):
               """utime + stime of each reader-/writer- thread, from /proc."""
@@ -2346,12 +2350,16 @@ jobs:
               ready = json.loads(p.stdout.readline())
               if ready.get("event") != "threads_ready" or ready.get("round") != rnd or ready.get("pid") != p.pid:
                   sys.exit(f"::error::round {rnd}: expected threads_ready for pid {p.pid}, got {ready}")
-              names = sorted(open(f"/proc/{p.pid}/task/{tid}/comm").read().strip()
-                             for tid in os.listdir(f"/proc/{p.pid}/task"))
-              roles = [n for n in names if n.startswith(("reader-", "writer-"))]
-              if roles != ["reader-0", "reader-1", "writer-0"]:
-                  sys.exit(f"::error::round {rnd}: threads are not named for perf --per-thread: {names}")
-              if rnd == 0:
+              if LINUX:
+                  names = sorted(open(f"/proc/{p.pid}/task/{tid}/comm").read().strip()
+                                 for tid in os.listdir(f"/proc/{p.pid}/task"))
+                  roles = [n for n in names if n.startswith(("reader-", "writer-"))]
+                  if roles != ["reader-0", "reader-1", "writer-0"]:
+                      sys.exit(f"::error::round {rnd}: threads are not named for perf --per-thread: {names}")
+              elif rnd == 0:
+                  print(f"::notice::{sys.platform}: thread names and the blocking start gate are "
+                        f"read from /proc and were not checked on this runner; the Linux cell checks them")
+              if LINUX and rnd == 0:
                   # Waiting threads must block, not spin: the attach settles
                   # while they wait, and a spinning wait is counted as work.
                   before = role_cpu_ticks(p.pid)
@@ -2397,7 +2405,7 @@ jobs:
               echo "::error::bench_memtable_concurrent accepted '$flags'; it must be refused by name"
               exit 1
             fi
-            grep -qF "$want" /tmp/bench-concurrent-counters-refusal.txt \
+            grep -qF -e "$want" /tmp/bench-concurrent-counters-refusal.txt \
               || { echo "::error::the refusal of '$flags' did not say why:"; cat /tmp/bench-concurrent-counters-refusal.txt; exit 1; }
           done
 
