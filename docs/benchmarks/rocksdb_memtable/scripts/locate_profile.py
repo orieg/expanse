@@ -114,6 +114,15 @@ def children_of(rows: list[dict], needle: str, nested_variants: bool = False) ->
     inclusive time is already inside the parent's; it is excluded rather than
     counted twice.
 
+    Rows with an identical symbol name are one function whose samples perf
+    split across two histogram entries, and their inclusive time is summed. On
+    the reference host `expanse_map_prev_at_or_before` appeared once at 11.79%
+    and again at 0.01%, and its Rust callees likewise (run 34790214222, round
+    0); another run showed no split. Should one sample reach both entries, the
+    sum over-counts by at most the smaller row. Rows whose full names differ --
+    a compiler clone, an overload -- are different functions, and more than one
+    of those is refused as ambiguous.
+
     A PLT stub (`@plt`) is excluded too. It is a jump into the function, not a
     call, so its inclusive time is not the call's: on the reference host
     `expanse_map_prev_at_or_before@plt` carried 0.52% against the function's
@@ -121,11 +130,12 @@ def children_of(rows: list[dict], needle: str, nested_variants: bool = False) ->
     Dropping it loses the trampoline's own few samples, which then count in
     whatever called it.
 
-    Otherwise exactly one row must match. Two rows would be two real symbols --
-    a compiler clone, an overload -- and picking either would hide an
-    attribution this tool cannot make, so it refuses instead.
+    Otherwise exactly one distinct name must match. Two names would be two real
+    symbols, and picking either would hide an attribution this tool cannot
+    make, so it refuses instead.
 
-    `nested_variants` is for glibc's mutex entry points. `___pthread_mutex_unlock`
+    `nested_variants` is for glibc's mutex entry points, taken after identical
+    names are summed. `___pthread_mutex_unlock`
     calls `__pthread_mutex_unlock_usercnt`, so both match `pthread_mutex_unlock`
     and the outer row's inclusive time already contains the inner's. The
     outermost -- the largest -- is the call, and summing would double it.
@@ -134,12 +144,15 @@ def children_of(rows: list[dict], needle: str, nested_variants: bool = False) ->
             and ".cold" not in r["symbol"] and "@plt" not in r["symbol"]]
     if not hits:
         return None
+    by_name: dict[str, float] = {}
+    for r in hits:
+        by_name[r["symbol"]] = by_name.get(r["symbol"], 0.0) + r["children"]
     if nested_variants:
-        return max(r["children"] for r in hits)
-    if len(hits) > 1:
-        raise RuntimeError(f"{len(hits)} rows match {needle!r} "
-                           f"({[h['symbol'][:60] for h in hits]}); the attribution is ambiguous")
-    return hits[0]["children"]
+        return max(by_name.values())
+    if len(by_name) > 1:
+        raise RuntimeError(f"{len(by_name)} distinct symbols match {needle!r} "
+                           f"({[name[:60] for name in by_name]}); the attribution is ambiguous")
+    return next(iter(by_name.values()))
 
 
 def shares(rows: list[dict]) -> dict:
@@ -320,6 +333,26 @@ HOST_ROWS = """\
  0.52%  , 0.08%  , 6          ,[.] expanse_map_prev_at_or_before@plt
 """
 
+# Verbatim rows from run 34790214222, round 0: `expanse_map_prev_at_or_before`
+# and its Rust callees each appear twice under one name, once at 0.01%.
+HOST_ROWS_SPLIT = """\
+# Samples: 8K of event 'cpu_core/cycles/'
+# Children,    Self,     Samples,Symbol
+ 99.57% , 10.21% , 817        ,[.] rocksdb::ExpanseMemTableRep::Get(rocksdb::LookupKey const&. void*. bool (*)(void*. char const*))
+ 55.15% , 10.26% , 820        ,[.] rocksdb::ExpanseMemTableRep::FindLeafBlockForSeek(rocksdb::Slice const&. char const*) const
+ 11.79% , 0.37%  , 29         ,[.] expanse_map_prev_at_or_before
+ 11.42% , 0.32%  , 25         ,[.] _RNvMsd_NtCs6fUdrY3seH1_12expanse_trie3mapNtB5_10ExpanseMap17prev_at_or_before
+ 11.11% , 7.42%  , 591        ,[.] _RINvNtCs6fUdrY3seH1_12expanse_trie3nav4prevKb1_EB4_
+ 2.44%  , 0.10%  , 8          ,[.] pthread_mutex_lock@plt
+ 2.34%  , 2.34%  , 190        ,[.] pthread_mutex_lock
+ 2.02%  , 0.06%  , 5          ,[.] pthread_mutex_unlock@plt
+ 1.96%  , 1.96%  , 157        ,[.] pthread_mutex_unlock
+ 0.45%  , 0.09%  , 7          ,[.] expanse_map_prev_at_or_before@plt
+ 0.01%  , 0.00%  , 1          ,[.] _RNvMsd_NtCs6fUdrY3seH1_12expanse_trie3mapNtB5_10ExpanseMap17prev_at_or_before
+ 0.01%  , 0.00%  , 0          ,[.] expanse_map_prev_at_or_before
+ 0.01%  , 0.01%  , 4          ,[.] _RINvNtCs6fUdrY3seH1_12expanse_trie3nav4prevKb1_EB4_
+"""
+
 # Synthetic rows in the `-n` layout (children, self, samples, symbol), with the
 # real symbols the harness carries. The numbers are chosen to check the
 # arithmetic, not measured.
@@ -370,6 +403,17 @@ def self_test() -> int:
     if not any("LookupKey const&. void*." in r["symbol"] for r in host):
         fails.append("the host fixture no longer carries perf's comma-to-dot rewrite")
 
+    # The same function split across two entries under one name is summed.
+    split = parse_report(HOST_ROWS_SPLIT)
+    try:
+        ss = shares(split)
+    except RuntimeError as exc:
+        fails.append(f"a function split across two identically named rows was refused: {exc}")
+    else:
+        check("split trie rows summed", ss["trie_pct"], 11.79 + 0.01, tol=1e-9)
+        check("split host locate", ss["locate_pct"], 55.15)
+        check("split host mutex calls, stubs excluded", ss["lock_pct"], 2.34 + 1.96, tol=1e-9)
+
     rows = parse_report(SYNTHETIC)
     check("synthetic rows parsed", len(rows), 10)
     get_row = next(r for r in rows if r["symbol"].startswith("rocksdb::ExpanseMemTableRep::Get(") and ".cold" not in r["symbol"])
@@ -398,7 +442,7 @@ def self_test() -> int:
         else:
             fails.append(f"{name}: did not refuse")
 
-    refuses("two non-cold Get rows", clone, "ambiguous")
+    refuses("two distinct Get symbols", clone, "ambiguous")
     refuses("no trie row", "\n".join(ln for ln in SYNTHETIC.splitlines() if TRIE not in ln), "no row for")
     refuses("no mutex row", "\n".join(ln for ln in SYNTHETIC.splitlines() if "mutex_unlock" not in ln), "no row for")
     refuses("trie above the locked region", SYNTHETIC.replace(" 10.00% , 10.00% ,800,[.] expanse_map", " 29.00% , 29.00% ,800,[.] expanse_map"),
