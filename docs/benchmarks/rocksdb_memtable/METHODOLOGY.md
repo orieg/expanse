@@ -238,3 +238,37 @@ H3 is therefore evaluated on the fresh rounds **only if** `fit_usl_with_bootstra
 - **Pooling:** no round from §5.7 or §5.8 is pooled into these.
 
 **Expected outcome, stated before the rounds.** Both earlier pairs of runs put paced `S(7)` far below 2.0: [0.628, 0.641] and [0.621, 0.633] under this pin, and [0.733, 0.756] and [0.762, 0.771] under `0-15`. H1 is expected to `PASS`. That expectation comes from having seen the data, which is why the rounds that decide it are fresh. The gate is still applied as written, and a paced `S(7)` whose lower bound clears 2.0 in both runs would refute H1.
+
+### 5.10 Outcomes under the §5.9 amendment
+
+*(measured: reference host — Intel i9-12900F, 8P+8E / 24 threads, 30 MiB L3, Linux 6.8; commit `0ed8f5e5`; pin `0,2,4,6,8,10,12,14`, recorded as `provenance.core_pin` with source `EXPANSE_BENCH_PIN_APPLIED`; 5 rounds per cell, 60 cells per run; two independent runs, dispatched in sequence after §5.9 was pushed, [34775640656](https://github.com/orieg/expanse/actions/runs/34775640656) and [34775850899](https://github.com/orieg/expanse/actions/runs/34775850899); artifacts [`results/baseline_concurrent_reads_amended_h1.json`](results/baseline_concurrent_reads_amended_h1.json) and [`results/baseline_concurrent_reads_amended_h1_run2.json`](results/baseline_concurrent_reads_amended_h1_run2.json).)*
+
+These outcomes are read against §5.9 as it was locked. No round from §5.7 or §5.8 is pooled into them, and §5.7 and §5.8 are not re-read.
+
+| hypothesis | gate | run 1 | run 2 | verdict |
+|---|---|---|---|---|
+| **H1** the mutex binds the read path | paced `S(7)` CI upper < 2.0, the cell gated per §5.9 | 0.624 [0.618, 0.630] | 0.622 [0.618, 0.628] | **PASS** in both |
+| **H2** readers serialise against each other | idle `S(7)` CI upper < 3.5 | 0.621 [0.611, 0.631] | 0.609 [0.599, 0.614] | **PASS** in both |
+| **H3** the bound and the fit agree | usable fitted `alpha` interval overlaps predicted `alpha` | not evaluable | not evaluable | **not evaluable** |
+
+**H1's gate cell is gated under §5.9.** In the paced `R = 7` cell the writer reached 139,698–145,363 inserts/s in run 1 and 139,403–143,861 in run 2. That is below the offered 250,000 in every cell, and no writer ran out of keys. Every `R ≤ 4` paced cell held within 221 inserts/s of the offered rate. The mean `R = 7` duty was 3.20% and 3.19%. That puts H1's decision boundary at a locked fraction of 0.4840 and 0.4841 (`gate_boundary_locked_fraction`), inside the [0.4717, 0.5] band §5.9 derived.
+
+**H1 and H2 both PASS, which is §5.4's first row.** Readers serialise against each other, and the locate phase is the constraint. A shared lock over the locate phase is the cheapest candidate. §5.4 pre-approves no design, and none has been built or measured.
+
+**H3 is not evaluable.** On both paced curves, `fit_usl_with_bootstrap` pinned `alpha` at its bound of 1 and labelled the `alpha` interval `zero_width`, as it did on every earlier curve. §5.9 makes that "not evaluable", so there is no H3 verdict. The bound's predicted `alpha` from paced `S(7)` is 1.0 in both runs (`predicted_alpha_from_scaling`), but agreement at a clamp is not the test H3 pre-registered.
+
+Aggregate read throughput, Mops/s, mean of 5 rounds (run 1):
+
+| writer | R=1 | R=2 | R=4 | R=7 |
+|---|---|---|---|---|
+| idle (control) | 4.092 | 3.113 | 2.808 | 2.541 |
+| paced (250k/s offered; achieved rates above) | 1.344 | 0.985 | 1.006 | 0.838 |
+| free (never gated) | 0.203 | 0.380 | 0.704 | 0.782 |
+
+**The expectation §5.9 stated was met, and that is weaker evidence than a blind result.** §5.9 predicted `PASS` from §5.7 and §5.8, and the upper bounds landed at 0.630 and 0.628 against 2.0. The fresh rounds guard against a rule fitted to one sample. They do not guard against a rule written by someone who already knew the effect's size, and §5.9 says so.
+
+**Against §5.8 (same commit and pin, not pooled).** Paced `S(7)` reproduces: every fresh interval overlaps every §5.8 interval. Idle `S(7)` in fresh run 2, [0.599, 0.614], separates from §5.8 run 2's [0.618, 0.634] but overlaps §5.8 run 1's [0.614, 0.631]. One pairing of four does not make a cross-run delta, so none is claimed (`docs/BENCHMARKING.md` rule 18).
+
+**Host.** Maximum foreign busy CPU was 0.01 core-equivalents in run 1 and 0.04 in run 2. The per-cell means were −0.082 and −0.083, the subtraction artifact §5.7 reports. `load1` peaked at 1.62 and 1.98 on 24 logical CPUs.
+
+**What is not established.** No counter was collected, so neither the readers' regression nor the writer's `R = 7` shortfall has a measured mechanism. `Contains` and `IteratorImpl::Seek` share the locate path but were not swept. H3 being not evaluable leaves the bound-versus-fit agreement untested. The shared-lock design that §5.4 names has not been built or measured.
