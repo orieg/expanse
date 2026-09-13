@@ -1191,6 +1191,16 @@ pub(crate) const NUM_EPOCH_STRIPES: usize = 16;
 #[cfg(all(feature = "std", loom))]
 pub(crate) const NUM_EPOCH_STRIPES: usize = 2;
 
+/// Number of striped size-class freelists (`ablation-striped-freelist`).
+///
+/// Set to 4 to measure the empirical scaling and collision impact of a 6.0 KiB
+/// footprint (4 stripes * 1,536 B) vs the confirmed 24.0 KiB (16 stripes) and
+/// 96.0 KiB (64 stripes) baselines (Refs #568).
+#[cfg(all(feature = "std", not(loom), feature = "ablation-striped-freelist"))]
+pub(crate) const NUM_FREELIST_STRIPES: usize = 4;
+#[cfg(all(feature = "std", loom, feature = "ablation-striped-freelist"))]
+pub(crate) const NUM_FREELIST_STRIPES: usize = 2;
+
 /// One writer stripe of one epoch bin.
 #[cfg(feature = "std")]
 #[derive(Debug)]
@@ -1426,7 +1436,7 @@ pub struct Collector {
     #[cfg(not(feature = "ablation-striped-freelist"))]
     freelists: [Mutex<FreeListHead>; NUM_CLASSES],
     #[cfg(feature = "ablation-striped-freelist")]
-    freelists: [PaddedFreelists; MAX_WRITER_SLOTS],
+    freelists: [PaddedFreelists; NUM_FREELIST_STRIPES],
     pub(crate) retained_bytes: [PaddedRetained; NUM_EPOCH_STRIPES],
     #[cfg(test)]
     registrations: core::sync::atomic::AtomicU64,
@@ -1475,7 +1485,7 @@ impl Collector {
         }
         #[cfg(feature = "ablation-striped-freelist")]
         {
-            &self.freelists[writer_slot()].0[class]
+            &self.freelists[writer_slot() % NUM_FREELIST_STRIPES].0[class]
         }
     }
 
@@ -1490,7 +1500,7 @@ impl Collector {
         }
         #[cfg(feature = "ablation-striped-freelist")]
         {
-            &self.freelists[g.slot].0[class]
+            &self.freelists[g.slot % NUM_FREELIST_STRIPES].0[class]
         }
     }
 
@@ -2396,7 +2406,7 @@ mod tests {
         let (bytes, align) = CLASS_SPECS[class];
         assert_eq!(class_for(bytes, align), Some(class));
         let layout = Layout::from_size_align(bytes, align).unwrap();
-        let home = MAX_WRITER_SLOTS - 1;
+        let home = NUM_FREELIST_STRIPES - 1;
 
         set_writer_slot(home);
         // SAFETY: non-zero size and a valid power-of-two alignment.
@@ -2422,6 +2432,26 @@ mod tests {
         );
         // SAFETY: `got` was allocated with `layout` and the test now owns it.
         unsafe { dealloc(got, layout) };
+
+        #[cfg(not(loom))]
+        {
+            // Verify that a different slot mapping to the same stripe via modulo shares the freelist.
+            let ptr2 = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
+            set_writer_slot(0);
+            c.retire(ptr2, bytes, align);
+            for _ in 0..BINS {
+                c.try_advance();
+            }
+            // Slot 0 + NUM_FREELIST_STRIPES maps to stripe 0.
+            set_writer_slot(NUM_FREELIST_STRIPES);
+            let got2 = c.pop_freelist(class);
+            assert_eq!(
+                got2,
+                ptr2.as_ptr(),
+                "a slot sharing the stripe via modulo must see the reclaimed block"
+            );
+            unsafe { dealloc(got2, layout) };
+        }
     }
 }
 
