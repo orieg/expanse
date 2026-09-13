@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """What a single mutex over the locate phase permits, before the host is spent (#802).
 
-`FindLeafBlockForSeek` (`integrations/rocksdb/src/expanse_memtable.cc:137`) opens
+`FindLeafBlockForSeek` (`integrations/rocksdb/src/expanse_memtable.cc:136`) opens
 with `lock_guard(mutex_)`, and it is the locate path for `Contains`, `Get` and
 `IteratorImpl::Seek`. That is the same mutex `Insert` holds for its entire body.
 So read throughput under a concurrent writer is bounded by arithmetic, not by

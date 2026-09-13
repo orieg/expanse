@@ -42,7 +42,7 @@ Locked before any concurrent measurement exists, and before the harness that wil
 
 ### 5.1 The question, and why it needs its own arm
 
-`FindLeafBlockForSeek` (`integrations/rocksdb/src/expanse_memtable.cc:137`) opens with `std::lock_guard<std::mutex> lock(mutex_)`, and is the locate path for `Contains`, `Get` and `IteratorImpl::Seek`. It is the same `mutex_` that `Insert` holds for its whole body. The per-leaf seqlock therefore protects the in-block scan *after* a reader has already serialised, and every cell in §2 is single-threaded, so nothing measured in this suite so far can show a read-scaling change in either direction.
+`FindLeafBlockForSeek` (`integrations/rocksdb/src/expanse_memtable.cc:136`) opens with `std::lock_guard<std::mutex> lock(mutex_)`, and is the locate path for `Contains`, `Get` and `IteratorImpl::Seek`. It is the same `mutex_` that `Insert` holds for its whole body. The per-leaf seqlock therefore protects the in-block scan *after* a reader has already serialised, and every cell in §2 is single-threaded, so nothing measured in this suite so far can show a read-scaling change in either direction.
 
 `scripts/rocksdb_locate_bound.py` derives what that mutex permits from the §2 insert and read cells. Its outputs are `(projected)`, and the free input — `locked_fraction`, the share of a read spent inside the lock — is exactly what no committed artifact pins and what this arm is built to measure.
 
@@ -111,7 +111,7 @@ Stated before the run so that meeting one is a recorded outcome and not a retrof
 
 ### 5.6 Not covered here
 
-- Multi-writer scaling. `InsertConcurrently` is `Insert` verbatim (`:337`), so writers are fully serialised by construction; measuring that is a separate question from the read path.
+- Multi-writer scaling. `InsertConcurrently` is `Insert` verbatim (`:319`), so writers are fully serialised by construction; measuring that is a separate question from the read path.
 - Iterator and scan concurrency beyond the `Seek` locate phase; the scan bracket was closed in #769.
 - Any change to the locate phase. This section pre-registers the measurement only; a design lands against its result, not beside it.
 
