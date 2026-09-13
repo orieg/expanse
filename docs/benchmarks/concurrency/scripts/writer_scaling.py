@@ -1084,12 +1084,38 @@ def run_c2c_pass(
     summary_lines = report_text.splitlines()[:20]
     hot_lines = c2c_hot_cache_lines(report_text)
 
+    # `perf c2c report` pads the symbol column to a fixed width and truncates
+    # Rust v0 manglings inside it -- run 34727964001 returned
+    # `_RNvMsc_NtCsfHnohCjqgYz_12`, cut at the crate-name boundary, which names
+    # nothing. `perf report` over the same recording prints the symbol
+    # untruncated, so the two together give the contended line AND the
+    # functions touching it.
+    sym_rows: list[str] = []
+    cmd_sym = [
+        "perf", "report", "--stdio", "--no-children",
+        "--sort", "symbol,dso", "-i", str(c2c_data),
+    ]
+    proc_sym = subprocess.run(cmd_sym, capture_output=True, text=True, check=False)
+    if proc_sym.returncode == 0:
+        sym_rows = [
+            ln.rstrip() for ln in proc_sym.stdout.splitlines()
+            if ln.strip() and not ln.lstrip().startswith("#")
+        ][:40]
+    else:
+        # Not fatal: the c2c measurement above already succeeded and is the
+        # gate's subject. Say so rather than dropping it silently (§8.1).
+        print(
+            f"  [c2c Pass] ::notice:: perf report symbol pass failed "
+            f"(exit {proc_sym.returncode}); cache lines captured, symbols not"
+        )
+
     return {
         "arm": arm,
         "writers": writers,
         "report_path": str(report_file.relative_to(REPO_ROOT)),
         "data_path": str(c2c_data.relative_to(REPO_ROOT)),
         "summary": "\n".join(summary_lines),
+        "symbol_profile": sym_rows,
         # The first 20 lines are the trace-event totals: how much HITM traffic
         # there was, never which lines carried it. The whole point of a c2c pass
         # is the address attribution, and the report file it lives in stays on
