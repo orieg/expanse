@@ -306,7 +306,16 @@ def load_arms(path: Path = ARTIFACT) -> dict:
     if not path.is_file():
         raise FileNotFoundError(f"suite artifact not found: {path}")
     obj = json.loads(path.read_text())
-    by_id = {a["id"]: a for a in obj.get("arms", [])}
+    # `cells` first, `arms` second. The suite's shell-loop harvester wrote the
+    # published arms under `arms`; `scripts/check_bench_provenance.py` requires a
+    # key from its own CELL_KEYS list, so the #868 driver writes `cells`. Reading
+    # both is what keeps this derivation working across the re-measurement
+    # instead of breaking at it -- and it still fails loudly when neither key
+    # holds the arm it needs, rather than falling back to a literal (8.1).
+    cells = obj.get("cells")
+    if not isinstance(cells, list) or not cells:
+        cells = obj.get("arms") or []
+    by_id = {a["id"]: a for a in cells}
     out = {}
     for label, arm_id in (("insert", INSERT_ARM), ("read", READ_ARM)):
         arm = by_id.get(arm_id)
@@ -618,6 +627,41 @@ def self_test() -> int:
         pass
     else:
         fails.append("load_arms() on a missing file: did not raise FileNotFoundError")
+
+    # --- both artifact shapes, and neither ---------------------------------
+    # The suite's artifact moves its published arms from `arms` to `cells` when
+    # it is re-measured through the #868 driver, because the provenance gate
+    # requires one of its own cell keys. Reading exactly one of the two spellings
+    # would break this derivation at the re-measurement, silently on whichever
+    # side was not covered -- so both are pinned here, against identical
+    # contents, and an artifact carrying neither must still raise.
+    import tempfile  # noqa: PLC0415 - self-test only
+
+    _arm_rows = [
+        {"id": INSERT_ARM, "unit": "Mops_per_second", "n": 5,
+         "point": 4.0, "ci_lower": 3.9, "ci_upper": 4.1},
+        {"id": READ_ARM, "unit": "Mops_per_second", "n": 5,
+         "point": 2.0, "ci_lower": 1.9, "ci_upper": 2.1},
+    ]
+    with tempfile.TemporaryDirectory() as td:
+        shapes = {}
+        for key in ("arms", "cells"):
+            p = Path(td) / f"{key}.json"
+            p.write_text(json.dumps({key: _arm_rows,
+                                     "provenance": {"commit": "abc1234"}}))
+            shapes[key] = load_arms(p)
+        if shapes["arms"] != shapes["cells"]:
+            fails.append(f"load_arms() reads `arms` and `cells` differently: "
+                         f"{shapes['arms']} vs {shapes['cells']}")
+        check("load_arms reads the cells shape", shapes["cells"]["insert_ns"], 250.0)
+        empty = Path(td) / "neither.json"
+        empty.write_text(json.dumps({"provenance": {}}))
+        try:
+            load_arms(empty)
+        except KeyError:
+            pass
+        else:
+            fails.append("load_arms() on an artifact with neither key: did not raise")
 
     if fails:
         print("rocksdb_locate_bound.py --self-test: FAILED")

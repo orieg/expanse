@@ -117,6 +117,7 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/hot_comparison/scripts/run_strings.py",
     "docs/benchmarks/masstree_comparison/scripts/run_all.py",
     "docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py",
+    "docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py",
     "docs/benchmarks/set_algebra/scripts/harvest_domain.py",
     "scripts/bench_baseline.py",
     "scripts/bench_counters.py",

@@ -426,6 +426,13 @@ jobs:
           # ratio under round-to-round drift) and the artifact shape the
           # provenance gate reads are all checkable without the reference host.
           python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py --self-test
+          # The #868 single-threaded driver, which replaced the shell loop that
+          # could not emit a load snapshot or a raw row. Its CSV parsing and
+          # refusals, its round-major interleaving (asserted at the CALL SITE,
+          # not only on the helper), its arm-symmetry check, its PAIRED ratio and
+          # the artifact shape check_bench_provenance.py reads are all checkable
+          # without the reference host.
+          python3 docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py --self-test
           # The ESP32 harvester. Its self-test was reachable only from
           # `gate.sh` -- no workflow ran it -- because it needed numpy, which no
           # job installs. It no longer does: the harvester delegates its
@@ -2214,6 +2221,37 @@ jobs:
             integrations/rocksdb/tests/test_differential_memtable.cc \
             target/release/libexpanse.a -lpthread -ldl -lm -o /tmp/test_differential
           /tmp/test_differential
+
+      # The benches in this directory were compiled by no CI job at all: this
+      # one built only the two test binaries, so `benches/bench_memtable.cc`
+      # reached `main` compile-checked on whatever host last ran `make bench` by
+      # hand. It is the fixture behind four published wall-clock ratios and it
+      # now carries a CLI the #868 driver depends on, so CI builds it and drives
+      # that CLI. `-Wall -Wextra` matches the Makefile's flags.
+      #
+      # The `memory` arm is the cheap one: it builds the fixture and prints the
+      # deterministic byte census, so it exercises the argument parser, the CSV
+      # writer and the fixture without paying for a probe phase. The refusal is
+      # checked by exit code AND by the diagnostic string, because a compile
+      # error or a missing binary also exits non-zero and would let a broken
+      # refusal pass for good (AGENTS.md section 8.1).
+      - name: Compile MemTable Bench and Smoke Its CLI
+        if: matrix.sanitizer == 'none'
+        run: |
+          c++ -std=c++20 -O3 -Wall -Wextra -pthread \
+            -Iintegrations/rocksdb/include -Iinclude \
+            integrations/rocksdb/src/expanse_memtable.cc \
+            integrations/rocksdb/benches/bench_memtable.cc \
+            target/release/libexpanse.a -lpthread -ldl -lm -o /tmp/bench_memtable
+          /tmp/bench_memtable --arm memory --round 0 | tee /tmp/bench-memory.csv
+          grep -q '^memory,ExpanseMemTable,0,0,' /tmp/bench-memory.csv
+          grep -q '^memory,SkipListRep,0,0,' /tmp/bench-memory.csv
+          grep -q '^memory,VectorRep,0,0,' /tmp/bench-memory.csv
+          if /tmp/bench_memtable --arm not_an_arm > /tmp/bench-refusal.txt 2>&1; then
+            echo "::error::bench_memtable accepted --arm not_an_arm; an unrecognised arm must be refused by name, never run as the whole suite"
+            exit 1
+          fi
+          grep -q 'unknown --arm not_an_arm' /tmp/bench-refusal.txt
 
       - name: Compile and Run MemTable Tests (ASan / UBSan)
         if: matrix.sanitizer == 'asan-ubsan'

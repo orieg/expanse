@@ -60,6 +60,10 @@ DIRECT_HARNESSES = {
         "runs the #789 ablation builds on the concurrent cells (#568 Step 0)",
     "docs/benchmarks/concurrency/scripts/writer_scaling.py":
         "the Expanse-native writer scaling instrument for Phase 1.5D and multi-writer OLC gating (#568)",
+    "docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py":
+        "owns the rounds and the timed cells of the RocksDB memtable suite, whose four "
+        "published wall-clock ratios are section 12's (#868); the suite's run.sh sources "
+        "the shell helper, but a by-hand run on the reference host has no such shell",
 }
 
 # Directly-invoked scripts that time things but must NOT be pinned here, with

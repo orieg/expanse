@@ -164,6 +164,7 @@ python3 scripts/olc_bounds.py --self-test
 python3 scripts/fit_usl.py --self-test
 python3 scripts/rocksdb_locate_bound.py --self-test
 python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py --self-test
+python3 docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py --self-test
 
 # Verifying the documented example output needs libexpanse built; the CI
 # man-examples job always runs it. Locally it is opt-in, so `gate.sh` stays
