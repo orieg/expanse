@@ -2316,6 +2316,99 @@ jobs:
           grep -q 'unknown argument: --not-a-flag' /tmp/bench-concurrent-arg.txt \
             || { echo "::error::unknown-argument refusal did not name the argument:"; cat /tmp/bench-concurrent-arg.txt; exit 1; }
 
+          # Counters mode, the protocol scripts/bench_counters.py drives: per
+          # round a `threads_ready` line, a block on stdin, then one `counters`
+          # row. No perf attach happens here (a hosted runner exposes no PMU).
+          # What is checked is what an attach depends on: that the round's
+          # threads exist and carry the names perf keys its rows on while the
+          # harness waits, that each row carries the harness's own counts, and
+          # that closing stdin before a round is released stops the cell. The
+          # thread names and their CPU accrual are read from /proc, so they are
+          # checked on Linux, which is where the attach runs; elsewhere the step
+          # says by name that they were not.
+          python3 - <<'EOF'
+          import json, os, subprocess, sys, time
+          exe = "/tmp/bench_memtable_concurrent"
+          LINUX = sys.platform.startswith("linux")
+
+          def role_cpu_ticks(pid):
+              """utime + stime of each reader-/writer- thread, from /proc."""
+              out = {}
+              for tid in os.listdir(f"/proc/{pid}/task"):
+                  comm = open(f"/proc/{pid}/task/{tid}/comm").read().strip()
+                  if comm.startswith(("reader-", "writer-")):
+                      fields = open(f"/proc/{pid}/task/{tid}/stat").read().rsplit(")", 1)[1].split()
+                      out[comm] = int(fields[11]) + int(fields[12])
+              return out
+
+          p = subprocess.Popen([exe, "--mode", "paced", "--readers", "2", "--paced-rate", "1000",
+                                "--window-seconds", "0.05", "--arm", "expanse", "--rounds", "2",
+                                "--wait-stdin"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True, bufsize=1)
+          rows = []
+          for rnd in range(2):
+              ready = json.loads(p.stdout.readline())
+              if ready.get("event") != "threads_ready" or ready.get("round") != rnd or ready.get("pid") != p.pid:
+                  sys.exit(f"::error::round {rnd}: expected threads_ready for pid {p.pid}, got {ready}")
+              if LINUX:
+                  names = sorted(open(f"/proc/{p.pid}/task/{tid}/comm").read().strip()
+                                 for tid in os.listdir(f"/proc/{p.pid}/task"))
+                  roles = [n for n in names if n.startswith(("reader-", "writer-"))]
+                  if roles != ["reader-0", "reader-1", "writer-0"]:
+                      sys.exit(f"::error::round {rnd}: threads are not named for perf --per-thread: {names}")
+              elif rnd == 0:
+                  print(f"::notice::{sys.platform}: thread names and the blocking start gate are "
+                        f"read from /proc and were not checked on this runner; the Linux cell checks them")
+              if LINUX and rnd == 0:
+                  # Waiting threads must block, not spin: the attach settles
+                  # while they wait, and a spinning wait is counted as work.
+                  before = role_cpu_ticks(p.pid)
+                  time.sleep(0.5)
+                  spent = {k: v - before.get(k, 0) for k, v in role_cpu_ticks(p.pid).items()}
+                  if any(v > 10 for v in spent.values()):
+                      sys.exit(f"::error::threads waiting on the start gate used CPU ({spent} ticks "
+                               f"in 0.5 s); counters mode must block there, or an attach counts "
+                               f"its own settle as work")
+                  print(f"waiting threads, CPU ticks over 0.5 s: {spent}")
+              p.stdin.write("\n")
+              p.stdin.flush()
+              rows.append(json.loads(p.stdout.readline()))
+          p.stdin.close()
+          rc = p.wait(timeout=120)
+          err = p.stderr.read()
+          if rc != 0:
+              sys.exit(f"::error::counters mode exited {rc}: {err}")
+          for rnd, row in enumerate(rows):
+              want = {"role": "counters", "arm": "expanse", "writer_mode": "paced", "writers": 1,
+                      "readers": 2, "round": rnd, "pid": p.pid, "writer_exhausted": 0,
+                      "population_start": 100000}
+              got = {k: row.get(k) for k in want}
+              if got != want or not row.get("read_ops") or not row.get("write_ops"):
+                  sys.exit(f"::error::counters row {rnd} does not match its arguments: want {want} "
+                           f"with read_ops and write_ops > 0, got {row}")
+          print(f"counters mode rows: {rows}")
+          q = subprocess.run([exe, "--mode", "idle", "--readers", "1", "--window-seconds", "0.05",
+                              "--arm", "expanse", "--rounds", "2", "--wait-stdin"],
+                             input="\n", capture_output=True, text=True, timeout=120)
+          if q.returncode == 0 or "stdin closed before round 1 was released" not in q.stderr:
+              sys.exit(f"::error::closing stdin before round 1 must stop the cell by name: "
+                       f"rc {q.returncode}, stderr {q.stderr!r}")
+          print("counters mode: an early stdin close stops the cell")
+          EOF
+          for bad in "--arm masstree|--arm must be expanse, the only arm this harness runs (got 'masstree')" \
+                     "--rounds 2|--rounds and --wait-stdin need --arm expanse (counters mode)" \
+                     "--wait-stdin|--rounds and --wait-stdin need --arm expanse (counters mode)" \
+                     "--arm expanse --header|--header and --round are the CSV mode's; counters mode numbers its own rounds"; do
+            flags="${bad%%|*}"
+            want="${bad#*|}"
+            if /tmp/bench_memtable_concurrent --mode idle --readers 1 $flags > /tmp/bench-concurrent-counters-refusal.txt 2>&1; then
+              echo "::error::bench_memtable_concurrent accepted '$flags'; it must be refused by name"
+              exit 1
+            fi
+            grep -qF -e "$want" /tmp/bench-concurrent-counters-refusal.txt \
+              || { echo "::error::the refusal of '$flags' did not say why:"; cat /tmp/bench-concurrent-counters-refusal.txt; exit 1; }
+          done
+
       - name: Compile and Run MemTable Tests (ASan / UBSan)
         if: matrix.sanitizer == 'asan-ubsan'
         run: |

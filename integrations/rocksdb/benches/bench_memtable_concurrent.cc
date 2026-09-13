@@ -51,6 +51,29 @@
 // across, which is what `load.foreign_busy_cpus` needs
 // (scripts/check_bench_provenance.py). The cost is rebuilding the fixture per
 // cell, which is outside the measured region either way.
+//
+// ## Counters mode (`--arm expanse`), and the per-thread attach handshake
+//
+// `--arm expanse [--rounds N] [--wait-stdin]` runs the same (mode, R) cell N
+// times in one process for `scripts/bench_counters.py`, and prints one
+// `{"role":"counters",...}` JSON row per round instead of the CSV row. It is not
+// a timing publication: the rows give a per-thread counter attach a divisor the
+// harness agrees with (`read_ops`, `write_ops`). Three things differ from the
+// CSV mode, each for the attach:
+//
+// - Every round rebuilds the fixture before its threads exist. A paced round
+//   inserts about rate x window keys into the 100,000-key population, so rounds
+//   sharing one structure would each measure a bigger tree than the last.
+// - After a round's threads are spawned and before its start gate opens, the
+//   harness prints `{"event":"threads_ready","round":N,"pid":P}` and, with
+//   `--wait-stdin`, blocks on one stdin line while the driver attaches -- the
+//   handshake the Rust concurrent harnesses speak.
+// - The threads block on the start gate (`std::atomic::wait`) instead of
+//   spinning on `yield()`. A spinning wait would count the attach's settle and
+//   the stdin handshake as work on every thread.
+//
+// Threads are named `reader-N` and `writer-0` in both modes, before the gate:
+// the kernel's `comm`, which `perf stat --per-thread` keys its rows on.
 
 #include <algorithm>
 #include <atomic>
@@ -64,6 +87,13 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+#include <cstdlib>
+#include <fstream>
+#include <unistd.h>
+#if defined(__linux__) || defined(__APPLE__)
+#include <pthread.h>
+#endif
 
 #include "expanse_memtable.h"
 
@@ -121,6 +151,100 @@ const char* ModeName(WriterMode m) {
     return "?";
 }
 
+// Names the calling thread for `perf stat --per-thread`, which keys its rows on
+// the kernel's `comm` (15 characters on Linux). `scripts/bench_counters.py`
+// groups threads by the `reader-` and `writer-` prefixes.
+void SetThreadName(const std::string& name) {
+#if defined(__linux__)
+    pthread_setname_np(pthread_self(), name.substr(0, 15).c_str());
+#elif defined(__APPLE__)
+    pthread_setname_np(name.c_str());
+#else
+    (void)name;
+#endif
+}
+
+// The start gate. The CSV mode's threads spin on `yield()` until `go`, exactly
+// as before counters mode existed. Counters mode blocks: an attach is opened
+// while the threads wait, and a spinning wait would be counted as their work.
+void WaitForGo(const std::atomic<bool>& go, bool block) {
+    if (block) {
+        while (!go.load(std::memory_order_acquire)) go.wait(false, std::memory_order_acquire);
+        return;
+    }
+    while (!go.load(std::memory_order_acquire)) std::this_thread::yield();
+}
+
+// The attach handshake: announce the round's threads, then (with
+// `--wait-stdin`) block until the driver has attached and says so. A closed
+// stdin means the driver went away, and the round must not run unobserved.
+void ThreadsReady(int round, bool wait_stdin) {
+    std::cout << "{\"event\":\"threads_ready\",\"round\":" << round
+              << ",\"pid\":" << static_cast<long>(getpid()) << "}\n";
+    std::cout.flush();
+    if (!wait_stdin) return;
+    std::string line;
+    if (!std::getline(std::cin, line)) {
+        std::cerr << "stdin closed before round " << round
+                  << " was released; the driver detached\n";
+        std::exit(1);
+    }
+}
+
+std::string CpusAllowed() {
+    std::ifstream status("/proc/self/status");
+    std::string line;
+    while (std::getline(status, line)) {
+        if (line.rfind("Cpus_allowed_list:", 0) == 0) {
+            const size_t v = line.find_first_not_of(" \t", sizeof("Cpus_allowed_list:") - 1);
+            return v == std::string::npos ? std::string() : line.substr(v);
+        }
+    }
+    return "unknown";
+}
+
+struct CellArgs {
+    WriterMode mode = WriterMode::kIdle;
+    int readers = 1;
+    double window_s = 2.0;
+    double paced_rate = 250000.0;
+    bool header = false;
+    bool counters = false;
+    bool wait_stdin = false;
+};
+
+// One `counters` row per round, carrying the harness's own counts, so a driver
+// dividing a counter by them publishes a per-operation figure this binary
+// agrees with (AGENTS.md section 8.9 principle 5). Its elapsed fields are the
+// round's window, not a published timing.
+void CountersRow(const CellArgs& cell, int round, uint64_t read_ops, uint64_t write_ops,
+                 double elapsed_s, bool exhausted) {
+    const char* pin = std::getenv("EXPANSE_BENCH_PIN_APPLIED");
+    std::ostringstream o;
+    o << std::fixed << std::setprecision(6)
+      << "{\"workload_id\":\"rocksdb_memtable_concurrent_read_scaling\",\"role\":\"counters\","
+      << "\"arm\":\"expanse\",\"writer_mode\":\"" << ModeName(cell.mode) << "\""
+      << ",\"writers\":" << (cell.mode == WriterMode::kIdle ? 0 : 1)
+      << ",\"readers\":" << cell.readers << ",\"round\":" << round
+      << ",\"pid\":" << static_cast<long>(getpid())
+      << ",\"read_ops\":" << read_ops << ",\"write_ops\":" << write_ops
+      << ",\"elapsed_s\":" << elapsed_s << ",\"reader_elapsed_s\":" << elapsed_s
+      << ",\"writer_elapsed_s\":";
+    if (cell.mode == WriterMode::kIdle) {
+        o << "null";
+    } else {
+        o << elapsed_s;
+    }
+    o << ",\"writer_exhausted\":" << (exhausted ? 1 : 0)
+      << ",\"population_start\":" << kPopulation
+      << ",\"population_after\":" << (static_cast<uint64_t>(kPopulation) + write_ops)
+      << ",\"window_s\":" << cell.window_s << ",\"paced_rate\":" << cell.paced_rate
+      << ",\"cpus_allowed\":\"" << CpusAllowed() << "\""
+      << ",\"pin_applied\":\"" << (pin ? pin : "unset") << "\"}";
+    std::cout << o.str() << "\n";
+    std::cout.flush();
+}
+
 struct CellResult {
     int readers = 0;
     WriterMode mode = WriterMode::kIdle;
@@ -132,51 +256,14 @@ struct CellResult {
 
 }  // namespace
 
-int main(int argc, char** argv) {
-    int readers = 1;
-    int round = 0;
-    double window_s = 2.0;
-    double paced_rate = 250000.0;
-    std::string mode_arg;
-    bool header = false;
-
-    for (int i = 1; i < argc; ++i) {
-        std::string a = argv[i];
-        auto next = [&]() -> std::string { return (i + 1 < argc) ? argv[++i] : std::string(); };
-        if (a == "--readers") readers = std::stoi(next());
-        else if (a == "--round") round = std::stoi(next());
-        else if (a == "--window-seconds") window_s = std::stod(next());
-        else if (a == "--paced-rate") paced_rate = std::stod(next());
-        else if (a == "--mode") mode_arg = next();
-        else if (a == "--header") header = true;
-        else if (a == "--quick") window_s = 0.25;
-        else {
-            std::cerr << "unknown argument: " << a << "\n"
-                      << "usage: bench_memtable_concurrent --mode <idle|paced|free> --readers R\n"
-                      << "       [--round N] [--window-seconds S] [--paced-rate OPS]\n"
-                      << "       [--header] [--quick]\n"
-                      << "One cell per invocation; the driver owns the rounds and the order.\n";
-            return 2;  // fail loud on an argument we do not understand (AGENTS.md 8.1)
-        }
-    }
-
-    WriterMode mode;
-    if (mode_arg == "idle") mode = WriterMode::kIdle;
-    else if (mode_arg == "paced") mode = WriterMode::kPaced;
-    else if (mode_arg == "free") mode = WriterMode::kFree;
-    else {
-        std::cerr << "--mode is required and must be idle, paced or free (got '"
-                  << mode_arg << "')\n";
-        return 2;
-    }
-    if (readers < 1) {
-        std::cerr << "--readers must be >= 1, got " << readers << "\n";
-        return 2;
-    }
-    if (!(window_s > 0.0)) {
-        std::cerr << "--window-seconds must be > 0, got " << window_s << "\n";
-        return 2;
-    }
+// One (mode, R) cell: build the fixture, run one window, emit its row. The CSV
+// mode calls this once per process; counters mode once per round.
+int RunCell(const CellArgs& cell, int round) {
+    const WriterMode mode = cell.mode;
+    const int readers = cell.readers;
+    const double window_s = cell.window_s;
+    const double paced_rate = cell.paced_rate;
+    const bool header = cell.header;
 
     // ---- population: identical construction to bench_memtable.cc ----------
     BenchCmp cmp;
@@ -277,9 +364,10 @@ int main(int argc, char** argv) {
     for (int t = 0; t < readers; ++t) {
         reader_threads.emplace_back([&, t]() {
             const auto& stream = probes[t];
+            SetThreadName("reader-" + std::to_string(t));
             uint64_t ops = 0, sink = 0;
             ready.fetch_add(1, std::memory_order_release);
-            while (!go.load(std::memory_order_acquire)) std::this_thread::yield();
+            WaitForGo(go, cell.counters);
             size_t idx = 0;
             while (!stop.load(std::memory_order_relaxed)) {
                 // Check the stop flag per batch, not per probe: a relaxed load
@@ -305,8 +393,9 @@ int main(int argc, char** argv) {
     std::thread writer_thread;
     if (mode != WriterMode::kIdle) {
         writer_thread = std::thread([&]() {
+            SetThreadName("writer-0");
             ready.fetch_add(1, std::memory_order_release);
-            while (!go.load(std::memory_order_acquire)) std::this_thread::yield();
+            WaitForGo(go, cell.counters);
             const auto start = Clock::now();
             uint64_t n = 0;
             const double interval_s =
@@ -333,10 +422,12 @@ int main(int argc, char** argv) {
 
     const int expect_ready = readers + (mode == WriterMode::kIdle ? 0 : 1);
     while (ready.load(std::memory_order_acquire) < expect_ready) std::this_thread::yield();
+    if (cell.counters) ThreadsReady(round, cell.wait_stdin);
 
     // ---- measured region opens here --------------------------------------
     const auto t0 = Clock::now();
     go.store(true, std::memory_order_release);
+    if (cell.counters) go.notify_all();
     std::this_thread::sleep_for(std::chrono::duration<double>(window_s));
     stop.store(true, std::memory_order_relaxed);
     for (auto& th : reader_threads) th.join();
@@ -356,9 +447,13 @@ int main(int argc, char** argv) {
 
     const bool exhausted = (mode != WriterMode::kIdle)
                            && fresh_cursor.load(std::memory_order_relaxed) >= fresh.size();
-    std::cout << round << "," << ModeName(mode) << "," << readers << "," << read_ops << ","
-              << write_ops << "," << std::fixed << std::setprecision(6) << elapsed_s << ","
-              << std::setprecision(4) << mops << "," << (exhausted ? 1 : 0) << "\n";
+    if (!cell.counters) {
+        std::cout << round << "," << ModeName(mode) << "," << readers << "," << read_ops << ","
+                  << write_ops << "," << std::fixed << std::setprecision(6) << elapsed_s << ","
+                  << std::setprecision(4) << mops << "," << (exhausted ? 1 : 0) << "\n";
+    } else {
+        CountersRow(cell, round, read_ops, write_ops, elapsed_s, exhausted);
+    }
 
     // A PACED writer that ran dry stopped inserting before the window closed, so
     // its achieved rate understates what it was offering and the duty cycle the
@@ -385,6 +480,97 @@ int main(int argc, char** argv) {
     if (sink == 0xFFFFFFFFFFFFFFFFULL) {
         std::cerr << "sink sentinel\n";
         return 1;
+    }
+    return 0;
+}
+
+int main(int argc, char** argv) {
+    int readers = 1;
+    int round = 0;
+    double window_s = 2.0;
+    double paced_rate = 250000.0;
+    std::string mode_arg;
+    bool header = false;
+    std::string arm;
+    int rounds = -1;
+    bool wait_stdin = false;
+    bool round_given = false;
+
+    for (int i = 1; i < argc; ++i) {
+        std::string a = argv[i];
+        auto next = [&]() -> std::string { return (i + 1 < argc) ? argv[++i] : std::string(); };
+        if (a == "--readers") readers = std::stoi(next());
+        else if (a == "--round") { round = std::stoi(next()); round_given = true; }
+        else if (a == "--window-seconds") window_s = std::stod(next());
+        else if (a == "--paced-rate") paced_rate = std::stod(next());
+        else if (a == "--mode") mode_arg = next();
+        else if (a == "--header") header = true;
+        else if (a == "--quick") window_s = 0.25;
+        else if (a == "--arm") arm = next();
+        else if (a == "--rounds") rounds = std::stoi(next());
+        else if (a == "--wait-stdin") wait_stdin = true;
+        else {
+            std::cerr << "unknown argument: " << a << "\n"
+                      << "usage: bench_memtable_concurrent --mode <idle|paced|free> --readers R\n"
+                      << "       [--round N] [--window-seconds S] [--paced-rate OPS]\n"
+                      << "       [--header] [--quick]\n"
+                      << "       bench_memtable_concurrent --mode M --readers R --arm expanse\n"
+                      << "       [--rounds N] [--wait-stdin] [--window-seconds S] [--paced-rate OPS]\n"
+                      << "One cell per invocation; the driver owns the rounds and the order.\n"
+                      << "--arm selects counters mode: N rounds, a JSON row each, fixture rebuilt per round.\n";
+            return 2;  // fail loud on an argument we do not understand (AGENTS.md 8.1)
+        }
+    }
+
+    WriterMode mode;
+    if (mode_arg == "idle") mode = WriterMode::kIdle;
+    else if (mode_arg == "paced") mode = WriterMode::kPaced;
+    else if (mode_arg == "free") mode = WriterMode::kFree;
+    else {
+        std::cerr << "--mode is required and must be idle, paced or free (got '"
+                  << mode_arg << "')\n";
+        return 2;
+    }
+    if (readers < 1) {
+        std::cerr << "--readers must be >= 1, got " << readers << "\n";
+        return 2;
+    }
+    if (!(window_s > 0.0)) {
+        std::cerr << "--window-seconds must be > 0, got " << window_s << "\n";
+        return 2;
+    }
+
+    const bool counters = !arm.empty();
+    if (counters && arm != "expanse") {
+        std::cerr << "--arm must be expanse, the only arm this harness runs (got '" << arm << "')\n";
+        return 2;
+    }
+    if (!counters && (rounds != -1 || wait_stdin)) {
+        std::cerr << "--rounds and --wait-stdin need --arm expanse (counters mode)\n";
+        return 2;
+    }
+    if (counters && (header || round_given)) {
+        std::cerr << "--header and --round are the CSV mode's; counters mode numbers its own rounds\n";
+        return 2;
+    }
+    if (counters && rounds == -1) rounds = 1;
+    if (counters && rounds < 1) {
+        std::cerr << "--rounds must be >= 1, got " << rounds << "\n";
+        return 2;
+    }
+
+    CellArgs cell;
+    cell.mode = mode;
+    cell.readers = readers;
+    cell.window_s = window_s;
+    cell.paced_rate = paced_rate;
+    cell.header = header;
+    cell.counters = counters;
+    cell.wait_stdin = wait_stdin;
+    if (!counters) return RunCell(cell, round);
+    for (int r = 0; r < rounds; ++r) {
+        const int rc = RunCell(cell, r);
+        if (rc != 0) return rc;
     }
     return 0;
 }

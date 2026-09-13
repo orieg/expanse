@@ -170,6 +170,7 @@ The suites below are declared once, in [`.github/bench-suites.json`](../.github/
 | `python_concurrency` | wall-clock | Python multi-core read scaling across the pyo3 `py.detach` GIL-releasing path, against a GIL-serialised `dict` twin (`bindings/python/bench_concurrency.py`). |
 | `rocksdb` | wall-clock | RocksDB pluggable MemTable: fillrandom / readrandom / seek / scan and RAM bytes-per-key against a fair variable-height skiplist baseline (`integrations/rocksdb`, C++ built against release libexpanse). |
 | `rocksdb_concurrent` | wall-clock | RocksDB pluggable MemTable concurrent read scaling: readers 1..7 against an idle, paced and free-running writer, pre-registered in the suite's METHODOLOGY section 5 (#802). |
+| `rocksdb_concurrent_counters` | `perf stat` | Per-thread hardware counters (`perf stat --per-thread`) and a `perf c2c` round on the RocksDB MemTable concurrent arm: idle and paced writers at R = 1, 2 and 7 (#802, AGENTS.md section 8.20.5 steps 3-5). Diagnostic only, nothing is gated on a counter; dispatch once per `cpu_pin`. |
 | `embedded` | wall-clock | 32-bit embedded trie surface (`trie32` / `set32` / `map32` / `blobmap32`). |
 | `embedded_memtable` | wall-clock | 32-bit embedded telemetry memtable & BLE tracker registry vs competitor baselines. |
 | `batch_lookup` | wall-clock | Interleave-width sweep for the batched descent, on a cold-DRAM population and a cache-resident control. |

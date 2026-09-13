@@ -75,6 +75,7 @@ on:
           - python_concurrency
           - rocksdb
           - rocksdb_concurrent
+          - rocksdb_concurrent_counters
           - embedded
           - embedded_memtable
           - batch_lookup
@@ -1067,6 +1068,29 @@ jobs:
                   --out baseline-rocksdb_concurrent.json \
                   | tee rocksdb-concurrent.txt
                 ;;
+              "rocksdb_concurrent_counters")
+                # Per-thread hardware counters on the #802 concurrent arm
+                # (AGENTS.md section 8.20.5 steps 3-5). Neither the readers'
+                # regression nor the paced writer's R = 7 shortfall has a
+                # measured mechanism (docs/benchmarks/rocksdb_memtable/
+                # METHODOLOGY.md section 5.10). scripts/bench_counters.py attaches
+                # `perf stat --per-thread` to each round of the harness's counters
+                # mode and adds a `perf c2c` round on the two R = 7 cells; the
+                # suite's `counters` kind arms the perf preflight above. The arm
+                # is pin-sensitive, so dispatch once per cpu_pin and compare cells
+                # only within one pin. The smoke builds the binary, so the driver
+                # skips its own build. Output lands in the workspace root, where
+                # the hardware-counter upload below collects it.
+                make --no-print-directory -C integrations/rocksdb bench-concurrent \
+                  BENCH_CONC_ARGS="--mode idle --readers 1 --window-seconds 0.2" \
+                  > rocksdb-concurrent-smoke.txt 2>&1 \
+                  || { echo "::error::concurrent bench binary failed to build or run"; cat rocksdb-concurrent-smoke.txt; exit 1; }
+                EXPANSE_BENCH_COMMIT="$(git rev-parse HEAD)" \
+                  python3 scripts/bench_counters.py --skip-build --repeats 5 --out-dir . \
+                  --cell rocksdb_conc_idle_r1 --cell rocksdb_conc_idle_r2 --cell rocksdb_conc_idle_r7 \
+                  --cell rocksdb_conc_paced_r1 --cell rocksdb_conc_paced_r2 --cell rocksdb_conc_paced_r7 \
+                  | tee rocksdb-concurrent-counters.txt
+                ;;
               *)
                 # Unreachable: the resolver only publishes declared suites and
                 # every builtin one has an arm above. If it is ever reached, a
@@ -1432,6 +1456,7 @@ jobs:
             bench-output.txt
             rocksdb.txt
             rocksdb-driver.txt
+            rocksdb-concurrent-counters.txt
             python-concurrency.txt
             docs/benchmarks/llm_inference/results/bench_grammar_masks.json
             bytes-per-key-32.txt
@@ -1456,14 +1481,19 @@ jobs:
       # The per-run counter values behind every interval in the counters
       # report, so a claim built on them is recomputable from the same run
       # that published it rather than trusted as a summary line (AGENTS.md
-      # sections 8.4 and 8.7). Only the counters suite writes one; `ignore`
-      # keeps every other suite from failing over a file it never produces.
+      # sections 8.4 and 8.7). Only the counters suites write these: the
+      # point-lookup suite's `perf-counters-*.json`, and `bench_counters.py`'s
+      # `counters_<cell>.json` with its `c2c_<cell>.txt` reports. `ignore` keeps
+      # every other suite from failing over a file it never produces.
       - name: Upload hardware-counter artifact
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: perf-counters-${{ needs.resolve.outputs.suite }}-${{ github.run_id }}
-          path: perf-counters-*.json
+          path: |
+            perf-counters-*.json
+            counters_*.json
+            c2c_*.txt
           if-no-files-found: ignore
           retention-days: 30
 

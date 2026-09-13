@@ -452,6 +452,14 @@
       "suite": "rocksdb_memtable"
     },
     {
+      "name": "rocksdb_concurrent_counters",
+      "available": true,
+      "kind": "counters",
+      "runner": "builtin",
+      "summary": "Per-thread hardware counters (`perf stat --per-thread`) and a `perf c2c` round on the RocksDB MemTable concurrent arm: idle and paced writers at R = 1, 2 and 7 (#802, AGENTS.md section 8.20.5 steps 3-5). Diagnostic only, nothing is gated on a counter; dispatch once per `cpu_pin`.",
+      "suite": "rocksdb_memtable"
+    },
+    {
       "name": "embedded",
       "available": true,
       "kind": "wallclock",
