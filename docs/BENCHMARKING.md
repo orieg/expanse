@@ -148,7 +148,6 @@ The suites below are declared once, in [`.github/bench-suites.json`](../.github/
 | `writer_scaling_diagnostic` | `perf stat` | Expanse multi-writer scaling diagnostic suite with hardware PMU frequency droop and perf c2c cache contention passes (Phase 1.5D, Refs #568); outputs diagnostic_writer_scaling.json. |
 | `writer_scaling_padded` | wall-clock | Expanse multi-writer scaling with lock-padded comparison (Hypothesis B, Refs #568); outputs padded_writer_scaling.json. |
 | `writer_scaling_ablation_alloc` | wall-clock | Expanse multi-writer scaling, default build vs sharded allocator accounting counters (Hypothesis D arm a, Refs #568); outputs ablation_alloc_writer_scaling.json. |
-| `writer_scaling_ablation_epoch` | wall-clock | Expanse multi-writer scaling, default build vs striped epoch garbage bins (Hypothesis D arm b, Refs #568); outputs ablation_epoch_writer_scaling.json. |
 | `writer_scaling_ablation_freelist` | wall-clock | Expanse multi-writer scaling, default build vs per-stripe collector freelists (Hypothesis D arm c, Refs #568); outputs ablation_freelist_writer_scaling.json. |
 | `point_lookup_counters` | `perf stat` | Hardware performance counters (`perf stat`) over the random point-lookup path — `probe` minus `build`, with a BCa 95% interval per counter. Diagnostic only: it gates nothing, and it is the instrument the Callgrind `Ir` gate structurally cannot be. |
 | `search_instructions` | Callgrind | Callgrind instruction counters for the inverted-index search kernels, dual-pass against the base ref. |
@@ -187,6 +186,7 @@ Bench targets deliberately **not** reachable from a slash command:
 
 | Target | Why |
 |---|---|
+| `writer_scaling_ablation_epoch` | Arm (b) slot-striped epoch bins landed as the production default standard with S=16 stripes and thread-exit slot recycling (Refs #568). Use writer_scaling to measure multi-writer performance on the reference host. |
 | `leaf_cap_cascaded_wallclock` | the measurement is a pair — the shipped `LEAF_CAP` against a `LEAF_CAP = 48` build-time patch — interleaved A/B/A/B under one lock and pin with a same-build A/A repeat; a single `cargo bench` measures one build and cannot produce it. Driven by `docs/benchmarks/hot_comparison/scripts/leaf_cap_cascaded_wallclock.sh` on the reference host. |
 | `bench_llm_datastore` | needs the generated corpus under `docs/benchmarks/llm_inference/data/`, which is materialized by that suite's Python driver; run `docs/benchmarks/llm_inference/run.sh` instead. |
 | `wasm_fuel` | runs on every PR in `ci.yml`'s `wasm-fuel` job against `results/baseline_wasm_fuel.json`; it needs no bare-metal host, so `/benchmark wasm_fuel` is refused by name and points here. |

@@ -407,12 +407,10 @@ default build compiles all three out.
 | Arm | Feature | Shared state it removes | Replaced by | Suite token |
 |---|---|---|---|---|
 | a | `ablation-sharded-alloc` | `NodeAlloc`'s `bytes_in_use`, `live_allocs` and `total_allocs`, updated by every allocation and free | one cache-line-aligned shard per stripe; the accessors sum the shards | `writer_scaling_ablation_alloc` |
-| b | `ablation-striped-epoch` | the collector's epoch bins (one mutex per bin, taken by every retire) and its `retained_bytes` counter | `bins[e % BINS][stripe]` and one `retained_bytes` per stripe; an advance takes each stripe of the stale bin whose non-empty flag is set | `writer_scaling_ablation_epoch` |
+| b | `ablation-striped-epoch` (landed in production standard, Refs #568) | the collector's epoch bins (one mutex per bin, taken by every retire) and its `retained_bytes` counter | `bins[e % BINS][stripe]` and one `retained_bytes` per stripe ($S=16$ in production standard with thread-exit slot recycling) | `writer_scaling_ablation_epoch` (retired; measured via `writer_scaling`) |
 | c | `ablation-striped-freelist` | the collector's per-class freelists (one mutex per class, taken by every size-class allocation under OCC in `Collector::pop_freelist`, and by every reclaim) | one set of class freelists per stripe; a reclaimed block goes back to the stripe that retired it | `writer_scaling_ablation_freelist` |
 
-**Stripe.** A thread's stripe is assigned round-robin on its first use
-(`occ::writer_slot`), so threads created in succession take distinct stripes
-until `MAX_WRITER_SLOTS` (64) of them exist. The sweep's W is at most 8.
+**Stripe.** A thread's stripe is assigned via dense slot reservation and thread-exit recycling (`occ::writer_slot`, backed by `ALLOC_SLOTS_MASK`), so $N_{\text{live}}$ active threads strictly occupy slots $0..N_{\text{live}}-1$ with zero modulo collision across the 16 stripes. The sweep's W is at most 8.
 
 **Instrument and decision rule.** `writer_scaling.py --compare-ablation-<arm>`
 runs the default and the ablated build in interleaved (build × W) rounds and

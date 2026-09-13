@@ -162,10 +162,11 @@
     },
     {
       "name": "writer_scaling_ablation_epoch",
-      "available": true,
+      "available": false,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "Expanse multi-writer scaling, default build vs striped epoch garbage bins (Hypothesis D arm b, Refs #568); outputs ablation_epoch_writer_scaling.json.",
+      "summary": "Expanse multi-writer scaling, default build vs striped epoch garbage bins (Hypothesis D arm b, Refs #568); outputs ablation_epoch_writer_scaling.json. Landed in production standard.",
+      "reason": "Arm (b) slot-striped epoch bins landed as the production default standard with S=16 stripes and thread-exit slot recycling (Refs #568). Use writer_scaling to measure multi-writer performance on the reference host.",
       "suite": "concurrency"
     },
     {

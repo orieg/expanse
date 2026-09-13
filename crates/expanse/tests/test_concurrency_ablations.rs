@@ -12,21 +12,10 @@
 // census (`scripts/check_miri_shards.py`) matches `^#!\[cfg\(not\(miri\)\)\]`
 // literally rather than parsing nested `cfg(all(..))`.
 #![cfg(not(miri))]
-#![cfg(all(
-    feature = "std",
-    any(
-        feature = "ablation-sharded-alloc",
-        feature = "ablation-striped-epoch",
-        feature = "ablation-striped-freelist"
-    )
-))]
+#![cfg(feature = "std")]
 
 #[cfg(feature = "ablation-sharded-alloc")]
 use expanse_trie::alloc::NodeAlloc;
-#[cfg(any(
-    feature = "ablation-striped-epoch",
-    feature = "ablation-striped-freelist"
-))]
 use expanse_trie::occ::Collector;
 use expanse_trie::sync::SyncExpanseMap;
 #[cfg(feature = "ablation-sharded-alloc")]
@@ -177,10 +166,6 @@ fn test_node_alloc_sharded_counters_cross_thread() {
 }
 
 #[test]
-#[cfg(any(
-    feature = "ablation-striped-epoch",
-    feature = "ablation-striped-freelist"
-))]
 fn test_striped_epoch_bins_multi_writer() {
     let collector = Arc::new(Collector::new());
     let num_writers = 4;
@@ -231,10 +216,6 @@ fn test_striped_epoch_bins_multi_writer() {
 }
 
 #[test]
-#[cfg(any(
-    feature = "ablation-striped-epoch",
-    feature = "ablation-striped-freelist"
-))]
 fn test_striped_epoch_single_thread_lifecycle() {
     let collector = Arc::new(Collector::new());
     let reader = collector.register();

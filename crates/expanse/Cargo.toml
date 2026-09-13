@@ -45,9 +45,9 @@ avx512 = []
 # to measure what atomic ping-ponging in `bytes_in_use`, `live_allocs`, and
 # `total_allocs` costs concurrent writer scaling.
 ablation-sharded-alloc = []
-# Diagnostic-only: striped epoch garbage bins and sharded retained bytes
-# (Hypothesis D Arm b), to measure what the epoch bin mutex and retained_bytes
-# sharing cost concurrent writer scaling.
+# Deprecated / Landed in production standard (Refs #568): Striped epoch garbage
+# bins are now the standard default architecture with 16 stripes and thread-exit
+# slot recycling. Retained as a no-op feature alias for build compatibility.
 ablation-striped-epoch = []
 # Diagnostic-only: per-writer-stripe collector freelists (Hypothesis D Arm c),
 # to measure what the shared per-class freelist mutex, taken on every OCC

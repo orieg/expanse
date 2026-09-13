@@ -698,9 +698,9 @@ W = 8 plateau could have been sibling sharing. Re-running pinned one thread per
 physical core (`0,2,4,6,8,10,12,14`) moved no cell: every C(W) interval
 overlaps the unpinned run.
 
-**Roadmap consequence.** Arm (b) is a diagnostic build feature, not an
-implementation. Promoting it is now the highest-value concurrency work on the
-insert path, ahead of remove-side work: it is the only intervention measured to
-remove the turnover, and §2.6 already prescribes slot-striped epoch bins as the
-architecture. Arm (c) is worth a confirming run and is a smaller, separate
-change.
+**Roadmap consequence.** Arm (b) landed as the production default standard
+(Refs #568), adopting calibrated $S=16$ stripes and thread-exit slot recycling
+via an atomic bitmask (`ALLOC_SLOTS_MASK`). This eliminates the $W=8$ turnover,
+bounds per-tree epoch bin memory footprint to 4.0 KiB ($4\times$ reduction vs
+the naive 64-stripe layout), and guarantees zero modulo collisions for up to
+16 concurrent threads. Arm (c) remains a diagnostic ablation.
