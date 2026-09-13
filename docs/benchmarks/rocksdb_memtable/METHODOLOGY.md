@@ -117,15 +117,25 @@ Stated before the run so that meeting one is a recorded outcome and not a retrof
 
 ### 5.7 Outcomes
 
-*(measured: reference host — Intel i9-12900F, 8P+8E / 24 threads, 30 MiB L3, Linux 6.8; commit `0ed8f5e5`; pin `0-15`; 5 rounds per cell, 60 cells per run; two independent runs, [34720727337](https://github.com/orieg/expanse/actions/runs/34720727337) and [34721708502](https://github.com/orieg/expanse/actions/runs/34721708502); artifacts [`results/baseline_concurrent_reads.json`](results/baseline_concurrent_reads.json) and [`results/baseline_concurrent_reads_run2.json`](results/baseline_concurrent_reads_run2.json).)*
+*(measured: reference host — Intel i9-12900F, 8P+8E / 24 threads, 30 MiB L3, Linux 6.8; commit `0ed8f5e5`; pin `0-15` — the auto pin, **not** the pre-registered `0,2,4,6,8,10,12,14` (deviation note below); 5 rounds per cell, 60 cells per run; two independent runs, [34720727337](https://github.com/orieg/expanse/actions/runs/34720727337) and [34721708502](https://github.com/orieg/expanse/actions/runs/34721708502); artifacts [`results/baseline_concurrent_reads.json`](results/baseline_concurrent_reads.json) and [`results/baseline_concurrent_reads_run2.json`](results/baseline_concurrent_reads_run2.json).)*
 
 Appended beside §5.3, which is not rewritten (§8.7). Both runs are committed because a cross-run delta is not claimable from one (`docs/BENCHMARKING.md` rule 18).
 
+> **Pre-registration deviation: the pin.** §5.2 pre-registers `EXPANSE_BENCH_PIN=0,2,4,6,8,10,12,14`, one hardware thread per physical P-core. Neither run used it. Both artifacts record `provenance.core_pin` as `0-15`, with `host.scaling_governor_pin_source` as `EXPANSE_BENCH_PIN_APPLIED`, and `0-15` is the list `scripts/bench_pin.sh` selects by itself on this host: the kernel's `cpu_core` list (`host.cpu_core_cpus` in the same artifacts). That list is 8 physical P-cores with **both** SMT siblings of each (`host.cpu0_thread_siblings` is `0-1`), so it is two hardware threads per physical core, not one (AGENTS.md §8.20.5 step 1). §5.2 is not rewritten (§8.7); this note records what ran instead.
+>
+> **What the deviation exposes.** `integrations/rocksdb/benches/bench_memtable_concurrent.cc` sets no per-thread affinity, so placement inside `0-15` is the scheduler's. A paced or free cell at `R = 7` runs 8 threads, 7 readers and the writer (the idle control spawns no writer thread, so its `R = 7` runs 7), on 16 hardware threads, and nothing stops two of them sharing a physical core. §5.2's `readers` row stops at `R = 7` so that the widest cell would not price SMT. Under `0-15` that exclusion does not hold, at `R = 7` or at any `R ≥ 2`.
+>
+> **Why the pin is not a detail for this arm.** AGENTS.md §8.20.5 step 0: a pin is not neutral for an arm whose threads serialise on one lock, and this arm serialises every reader on `mutex_` in `FindLeafBlockForSeek` (§5.1). The concurrency suite's `str` arm, which holds its writer mutex for a whole insert, moved by placement alone between exactly these two pins at one commit ([`docs/benchmarks/concurrency/README.md`](../concurrency/README.md) §10), and there the one-sibling pin was the slower of the two. That arm's direction and size do not transfer to this one, so the `0-15` cells are not a proxy for the pre-registered cells in either direction. Nor do the margins settle it by arithmetic. Taking the larger upper bound of the two runs, H1's 2.0 is crossed by paced `S(7)` [0.762, 0.771] (run 2) under an upward move of 2.594× on that bound, and H2's 3.5 by idle `S(7)` [0.627, 0.633] (run 1) under 5.529×. Those are the sizes a move would need, not a prediction that one happens; no pin comparison of this arm has been measured.
+>
+> Step 0 landed in #903, after #875 locked this section, and it says the one-sibling pin is the wrong choice for a coarse-mutex arm whose thread count equals the core count, because the blocked threads then compete for the CPUs of the one thread making progress. That does not license adopting the pin that ran in place of the one pre-registered. §5.3's gates are evaluated on the pin they were locked against (§8.19); changing it is a new pre-registration with fresh rounds, not a re-reading of these.
+>
+> **Status: the §5.3 verdicts are deferred pending re-run** under the pre-registered pin, tracked in [#802](https://github.com/orieg/expanse/issues/802). Nothing is retracted. Every figure in this section was measured at `0ed8f5e5` under pin `0-15`, its provenance is stated correctly above, and it stays as committed, so `.github/superseded-figures.json` is unchanged. What is withheld is reading those figures as the pre-registered outcome: the verdict labels below describe the `0-15` runs only, and §5.4's routing is not acted on from them. The re-run is a `workflow_dispatch` of `bench_baremetal.yml` with `benchmark_suite=rocksdb_concurrent` and `cpu_pin=0,2,4,6,8,10,12,14`, as two independent runs (`docs/BENCHMARKING.md` rule 18). The pre-registered verdict is read from that re-run alone, and the `0-15` artifacts stay committed beside it.
+
 | hypothesis | gate | run 1 | run 2 | verdict |
 |---|---|---|---|---|
-| **H1** the mutex binds the read path | paced `S(7)` CI upper < 2.0 | 0.748 [0.733, 0.756] | 0.768 [0.762, 0.771] | **PASS** in both |
-| **H2** readers serialise against each other | idle `S(7)` CI upper < 3.5 | 0.631 [0.627, 0.633] | 0.620 [0.611, 0.629] | **PASS** in both |
-| **H3** the bound and the fit agree | fitted `alpha` interval overlaps predicted | see below | see below | **partly — `alpha` matches at its ceiling, `beta` does not exist in the bound** |
+| **H1** the mutex binds the read path | paced `S(7)` CI upper < 2.0 | 0.748 [0.733, 0.756] | 0.768 [0.762, 0.771] | **PASS** in both, under pin `0-15`; pre-registered verdict deferred (note above) |
+| **H2** readers serialise against each other | idle `S(7)` CI upper < 3.5 | 0.631 [0.627, 0.633] | 0.620 [0.611, 0.629] | **PASS** in both, under pin `0-15`; pre-registered verdict deferred (note above) |
+| **H3** the bound and the fit agree | fitted `alpha` interval overlaps predicted | see below | see below | **partly — `alpha` matches at its ceiling, `beta` does not exist in the bound** (under pin `0-15`; pre-registered verdict deferred) |
 
 Aggregate read throughput, Mops/s, mean of 5 rounds (run 1):
 
@@ -135,7 +145,7 @@ Aggregate read throughput, Mops/s, mean of 5 rounds (run 1):
 | paced (250k/s offered, 5.45% measured duty) | 1.340 | 0.965 | 0.959 | 1.002 |
 | free (never gated) | 0.209 | 0.360 | 0.686 | 0.981 |
 
-**H1 and H2 both PASS, which is §5.4's first row:** readers serialise against each other, and the locate phase is the constraint. A shared lock over it is the cheapest candidate.
+**H1 and H2 both PASS under pin `0-15`, which is §5.4's first row:** readers serialise against each other, and the locate phase is the constraint. A shared lock over it is the cheapest candidate. That routing is not acted on until the pre-registered pin has been run (deviation note above).
 
 They pass by more than the gates asked. `S(7) < 1` in both the paced and the idle cell means aggregate read throughput *falls* as readers are added — not merely failing to scale. The idle control is what makes that attributable: with no writer at all, seven readers deliver 0.63× what one delivers, so the serialisation is reader-against-reader and not reader-against-writer.
 
@@ -149,4 +159,4 @@ They pass by more than the gates asked. `S(7) < 1` in both the paced and the idl
 
 **Host.** Maximum foreign busy CPU across all 120 cells was 0.010 core-equivalents, so neither run competed with anything. The per-cell mean is slightly negative (−0.08), an artifact of subtracting the runner's own children's CPU time from the host's busy delta at this resolution; it is reported rather than clamped.
 
-**What is not established.** No counter was collected, so the mechanism behind `beta` is unmeasured. The arm measures `Get`; `Contains` and `IteratorImpl::Seek` share the same locate path but were not swept. And no design has been built or measured — H1 and H2 say a shared lock is the cheapest candidate, not that it works.
+**What is not established.** No counter was collected, so the mechanism behind `beta` is unmeasured. The arm measures `Get`; `Contains` and `IteratorImpl::Seek` share the same locate path but were not swept. And no design has been built or measured — H1 and H2 say a shared lock is the cheapest candidate, not that it works. Every cell was also taken with both SMT siblings of each P-core available to the scheduler, so neither the verdicts nor the `beta` term is established for the pre-registered one-sibling placement.
