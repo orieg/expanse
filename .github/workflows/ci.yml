@@ -2253,6 +2253,61 @@ jobs:
           fi
           grep -q 'unknown --arm not_an_arm' /tmp/bench-refusal.txt
 
+      # `benches/bench_memtable_concurrent.cc` was compiled by no CI job: this
+      # one built the two test binaries and, since #902, `bench_memtable.cc`,
+      # so the fixture behind the #802 concurrent read-scaling artifacts
+      # reached `main` compile-checked on whatever host last ran
+      # `make bench-concurrent` by hand. CI builds it with
+      # the Makefile's flags (`-Wall -Wextra -pthread`) and drives one cell of
+      # the CLI that `concurrent_read_scaling.py` depends on.
+      #
+      # `--mode idle` is the cheapest cell: the writer encodes no key supply.
+      # `--readers` and `--round` are given non-default values, because a parser
+      # that ignored them would still print the defaults; the header line echoes
+      # `--window-seconds` and `--paced-rate` back. The data row is read through
+      # the driver's own `parse_row`, the consumer the CSV writer must satisfy.
+      # Output goes to a file, not through a pipe: this shell has no pipefail.
+      #
+      # Each refusal is checked by exit code AND by its diagnostic string,
+      # because a compile error or a missing binary also exits non-zero and
+      # would let a broken refusal pass for good (AGENTS.md section 8.1).
+      - name: Compile MemTable Concurrent Bench and Smoke Its CLI
+        if: matrix.sanitizer == 'none'
+        run: |
+          c++ -std=c++20 -O3 -Wall -Wextra -pthread \
+            -Iintegrations/rocksdb/include -Iinclude \
+            integrations/rocksdb/src/expanse_memtable.cc \
+            integrations/rocksdb/benches/bench_memtable_concurrent.cc \
+            target/release/libexpanse.a -lpthread -ldl -lm -o /tmp/bench_memtable_concurrent
+          /tmp/bench_memtable_concurrent --mode idle --readers 2 --round 3 \
+            --window-seconds 0.05 --paced-rate 1000 --header > /tmp/bench-concurrent.csv
+          cat /tmp/bench-concurrent.csv
+          grep -q '^# population=100000 value_bytes=64 window_s=0.05 paced_rate=1000$' /tmp/bench-concurrent.csv \
+            || { echo "::error::bench_memtable_concurrent header does not echo --window-seconds 0.05 --paced-rate 1000"; exit 1; }
+          python3 - <<'EOF'
+          import sys
+          sys.path.insert(0, "docs/benchmarks/rocksdb_memtable/scripts")
+          from concurrent_read_scaling import parse_row
+          row = parse_row(open("/tmp/bench-concurrent.csv").read())
+          want = {"round": 3, "writer_mode": "idle", "readers": 2, "write_ops": 0, "writer_exhausted": 0}
+          got = {k: row[k] for k in want}
+          if got != want or row["read_ops"] <= 0 or row["elapsed_s"] <= 0.0:
+              sys.exit(f"::error::bench_memtable_concurrent row does not match its arguments: want {want} and read_ops > 0, got {row}")
+          print(f"bench_memtable_concurrent row parsed: {row}")
+          EOF
+          if /tmp/bench_memtable_concurrent --mode not_a_mode --readers 1 > /tmp/bench-concurrent-mode.txt 2>&1; then
+            echo "::error::bench_memtable_concurrent accepted --mode not_a_mode; an unrecognised writer mode must be refused by name, never run"
+            exit 1
+          fi
+          grep -q "must be idle, paced or free (got 'not_a_mode')" /tmp/bench-concurrent-mode.txt \
+            || { echo "::error::--mode refusal did not name the mode:"; cat /tmp/bench-concurrent-mode.txt; exit 1; }
+          if /tmp/bench_memtable_concurrent --mode idle --readers 1 --not-a-flag > /tmp/bench-concurrent-arg.txt 2>&1; then
+            echo "::error::bench_memtable_concurrent accepted --not-a-flag; an unknown argument must be refused, never ignored"
+            exit 1
+          fi
+          grep -q 'unknown argument: --not-a-flag' /tmp/bench-concurrent-arg.txt \
+            || { echo "::error::unknown-argument refusal did not name the argument:"; cat /tmp/bench-concurrent-arg.txt; exit 1; }
+
       - name: Compile and Run MemTable Tests (ASan / UBSan)
         if: matrix.sanitizer == 'asan-ubsan'
         run: |
