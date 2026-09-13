@@ -46,6 +46,38 @@ was read for. The four artifacts measured before the runners recorded these are
 grandfathered by the same commit-pinned mechanism: re-measure at another commit
 and the fields are required.
 
+## Which construction produced an interval (#880, #882)
+
+`scripts/bca_bootstrap.py` can now say whether a defensive clamp bound an
+interval: `bca_bootstrap_ci_with_method` / `bca_bootstrap_ratio_ci_with_method`
+return a fourth value from the `CI_METHOD_*` vocabulary. #882 landed the
+capability and converted one harvester; the rest kept the three-value entry
+point, so for their cells "this is a BCa interval" stayed an assumption a reader
+makes rather than something the artifact states.
+
+A fourth return value callers may ignore is exactly the shape that drifts, and
+it drifted inside one PR: `scripts/fit_usl.py` still unpacked two values from
+`_bca_from_distribution`, so after #882 its `try` raised `ValueError` on every
+call and every interval silently became the plain-percentile fallback. So this
+gate carries a producer census:
+
+  - every module that imports `bca_bootstrap` is named in exactly one of
+    `CI_METHOD_PRODUCERS` or `CI_METHOD_EXEMPT` — a new interval producer cannot
+    appear without saying which it is;
+  - a producer calls the `*_with_method` entry points, never the bare
+    three-value ones, does not discard the fourth value, and names `ci_method`
+    in its output;
+  - and an artifact that records the label for one interval records it for all
+    of them — partial adoption is how a field drops back out of half a schema.
+
+The committed artifacts are NOT relabelled. Their intervals can be recomputed
+from `rounds_raw`, but only after restoring CPython's pre-3.12 `sum()`
+accumulation (3.12 gave it Neumaier compensation, which moves `theta_hat` by a
+ULP and with it the selected percentile index). Backfilling would mean
+committing a second accumulation path for the estimator — the duplication #880
+removed — to add a field whose derived value is `bca` on every cell. Artifacts
+gain the label at their next re-run, which the census is what guarantees.
+
 Usage:
   python3 scripts/check_bench_provenance.py
   python3 scripts/check_bench_provenance.py --self-test
@@ -55,11 +87,106 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BENCH = REPO_ROOT / "docs" / "benchmarks"
+
+# --------------------------------------------------------------------------
+# the construction-label producer census (#880)
+# --------------------------------------------------------------------------
+
+# Directories swept for modules that import `bca_bootstrap`. A producer that
+# lives outside them would not be discovered, so the list is deliberately the
+# whole of the tooling and suite-driver tree rather than the files known today.
+CI_METHOD_ROOTS = ("scripts", "docs/benchmarks", "bindings", "integrations", "crates")
+
+# Modules that turn samples into a published interval. Each must reach the
+# shared estimator through `*_with_method`, keep the fourth value, and name
+# `ci_method` in what it writes.
+CI_METHOD_PRODUCERS = {
+    "docs/benchmarks/art_comparison/scripts/recompute_and_patch_json.py",
+    "docs/benchmarks/concurrency/scripts/ablations.py",
+    "docs/benchmarks/concurrency/scripts/writer_scaling.py",
+    "docs/benchmarks/hot_comparison/scripts/run_all.py",
+    "docs/benchmarks/hot_comparison/scripts/run_strings.py",
+    "docs/benchmarks/masstree_comparison/scripts/run_all.py",
+    "docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py",
+    "docs/benchmarks/set_algebra/scripts/harvest_domain.py",
+    "scripts/bench_baseline.py",
+    "scripts/bench_counters.py",
+    "scripts/esp32_bench_harvest.py",
+    "scripts/line_transfer_matrix.py",
+    "scripts/perf_counters.py",
+    "scripts/pin_exposure.py",
+}
+
+# Importers that are not producers, each with the reason. Exemption is by
+# explicit entry and never inferred from a file looking test-shaped.
+CI_METHOD_EXEMPT = {
+    "scripts/test_bca_bootstrap.py":
+        "the estimator's own unit tests: they call the bare entry points on "
+        "purpose, to pin that the three-value signatures still return what six "
+        "suites' committed intervals came from",
+    "scripts/fit_usl.py":
+        "reaches `_bca_from_distribution` directly, which returns its label as a "
+        "third value; `_ci_bounds` forwards it and `test_ci_bounds_reaches_the_"
+        "shared_bca_construction` pins that",
+    "scripts/rocksdb_bench_harvest.py":
+        "the single-threaded rocksdb runner is being rewritten under #868 and is "
+        "not this change's to convert; its two call sites still take the bare "
+        "entry point, so `baseline_rocksdb.json` stays unlabelled until then",
+}
+
+# A bare three-value call, module-qualified or not. `_with_method` spellings do
+# not match: the `(` has to follow the name immediately.
+BARE_CALL = re.compile(r"(?<![\w.])(?:\w+\.)?bca_bootstrap_(?:ci|ratio_ci)\s*\(")
+
+# A producer may call the bare entry point where that IS the point — an
+# equivalence assertion between the two paths. Waived per line, by an explicit
+# comment carrying the reason, within this many lines above the call.
+BARE_CALL_WAIVER = "# bare-entry-point:"
+BARE_CALL_WAIVER_WINDOW = 3
+
+# The label must be written out, not just bound to a local — and counted per
+# binding, because a file-wide "does the string `ci_method` appear anywhere"
+# check stays green when one call site of several stops recording it. That is
+# the same defect shape as a helper-level assertion that survives the call site
+# dropping the call: every site is counted, so N bindings need N recordings.
+#
+# A recording is a dict entry under a string key (`"ci_method": ci_method`,
+# including the `.update({...})` form), an assignment into a subscript
+# (`cell[f"{role}_ci_method"] = ci_method`), or a `return` that carries the name
+# (`scripts/pin_exposure.py`'s `_interval`, whose caller writes the key).
+#
+# The naming convention for the key is `<prefix>ci_method` beside
+# `<prefix>ci_lower`, which is what the artifact-side pairing check reads. A
+# suite whose interval is a `[lo, hi]` pair rather than two keys has no
+# `ci_lower` to prefix-match and names its own key instead
+# (`set_algebra`'s `ci_pooled_bca` / `ci_pooled_bca_method`).
+def _recording_patterns(name: str) -> tuple[re.Pattern[str], ...]:
+    n = re.escape(name)
+    return (
+        re.compile(r"""["'][^"'\n]*["']\s*:\s*""" + n + r"\b"),   # {"k": name}
+        re.compile(r"\]\s*=\s*" + n + r"\b"),                      # obj[k] = name
+        re.compile(r"\breturn\b[^\n]*\b" + n + r"\b"),             # return …, name
+    )
+
+# An assignment taking a `*_with_method` result. The LHS is captured so the
+# fourth target can be checked: a `_` there is the drift this census exists for,
+# and it is the one shape the interpreter cannot catch (unpacking three from
+# four already raises).
+WITH_METHOD_ASSIGN = re.compile(
+    r"^\s*(?P<lhs>[^=\n]+?)\s*=\s*(?:\w+\.)?"
+    r"bca_bootstrap_(?:ci|ratio_ci)_with_method\s*\("
+)
+WITH_METHOD_CALL = re.compile(
+    r"(?<![\w.])(?:\w+\.)?bca_bootstrap_(?:ci|ratio_ci)_with_method\s*\("
+)
+IMPORTS_BCA = re.compile(r"^\s*(?:from\s+bca_bootstrap\s+import|import\s+bca_bootstrap)\b",
+                         re.MULTILINE)
 
 # Artifacts measured before the shared module existed. Key: path relative to
 # `docs/benchmarks/`. Value: the `provenance.commit`(s) they were measured at —
@@ -320,6 +447,7 @@ def attribution_status(rel: str, obj) -> tuple[bool, str | None]:
 def findings_for(rel: str, obj) -> list[str]:
     """Every finding for one non-grandfathered artifact, both requirement sets."""
     out = check_artifact(rel, obj)
+    out.extend(partial_label_problems(rel, obj))
     if is_concurrent(rel):
         exempt, note = attribution_status(rel, obj)
         if note:
@@ -327,6 +455,178 @@ def findings_for(rel: str, obj) -> list[str]:
         if not exempt:
             out.extend(check_attribution(rel, obj))
     return out
+
+
+def bca_importers() -> list[str]:
+    """Repo-relative paths of every `.py` that imports the shared estimator.
+
+    Discovery, not a list: a new interval producer has to be classified rather
+    than added to a table someone remembers to update. A file that only mentions
+    `bca_bootstrap` in prose or a string is not an importer and is not swept in.
+    """
+    found: set[str] = set()
+    for root in CI_METHOD_ROOTS:
+        base = REPO_ROOT / root
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*.py"):
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if IMPORTS_BCA.search(text):
+                found.add(path.resolve().relative_to(REPO_ROOT).as_posix())
+    return sorted(found)
+
+
+def producer_problems(rel: str, text: str) -> list[str]:
+    """Findings for one module declared a construction-label producer."""
+    problems = []
+    lines = text.splitlines()
+    bare = []
+    for i, line in enumerate(lines):
+        if not BARE_CALL.search(line):
+            continue
+        window = lines[max(0, i - BARE_CALL_WAIVER_WINDOW):i + 1]
+        if any(BARE_CALL_WAIVER in w for w in window):
+            continue
+        bare.append(i + 1)
+    if bare:
+        problems.append(
+            f"{rel}: line(s) {bare} call the bare three-value entry point — a cell it "
+            f"writes cannot say which construction produced its interval; use "
+            f"bca_bootstrap_ci_with_method / bca_bootstrap_ratio_ci_with_method (#880), "
+            f"or waive the line with a `{BARE_CALL_WAIVER} <reason>` comment above it"
+        )
+    if not WITH_METHOD_CALL.search(text):
+        problems.append(
+            f"{rel}: declared a construction-label producer but never calls a "
+            f"`*_with_method` entry point — drop its CI_METHOD_PRODUCERS entry or "
+            f"convert it"
+        )
+    bound: dict[str, list[int]] = {}
+    for i, line in enumerate(lines, start=1):
+        m = WITH_METHOD_ASSIGN.match(line)
+        if not m:
+            continue
+        targets = [t.strip() for t in m.group("lhs").split(",")]
+        if len(targets) != 4:
+            problems.append(
+                f"{rel}:{i}: a `*_with_method` result is bound to {len(targets)} name(s), "
+                f"not 4 — the construction label is the fourth value"
+            )
+            continue
+        if targets[3].startswith("_"):
+            problems.append(
+                f"{rel}:{i}: the construction label is discarded into {targets[3]!r} — "
+                f"record it beside the interval instead (#880); a fourth value callers "
+                f"throw away is how this capability drifts"
+            )
+            continue
+        bound.setdefault(targets[3], []).append(i)
+    if not bound:
+        return problems
+    for name, sites in sorted(bound.items()):
+        pats = _recording_patterns(name)
+        # Lines, not pattern hits: `return {"ci_method": ci_method}` is one
+        # recording that two of the three patterns match, and counting hits
+        # would let it cover a second site that records nothing.
+        records = sum(1 for line in lines if any(p.search(line) for p in pats))
+        if records < len(sites):
+            problems.append(
+                f"{rel}: `{name}` is bound at {len(sites)} `*_with_method` call site(s) "
+                f"(line(s) {sites}) but written out {records} time(s) — a site whose label "
+                f"is never recorded leaves that cell as unlabelled as before #880. Record "
+                f"it under a `<prefix>ci_method` key beside the interval's "
+                f"`<prefix>ci_lower`, or return it to a caller that does"
+            )
+    return problems
+
+
+def ci_method_census() -> list[str]:
+    """Every finding from the producer census."""
+    problems = []
+    importers = bca_importers()
+    declared = CI_METHOD_PRODUCERS | set(CI_METHOD_EXEMPT)
+    for rel in importers:
+        if rel == "scripts/bca_bootstrap.py":
+            continue  # the module itself; it defines the entry points
+        if rel not in declared:
+            problems.append(
+                f"{rel}: imports bca_bootstrap but is in neither CI_METHOD_PRODUCERS nor "
+                f"CI_METHOD_EXEMPT — say whether it publishes an interval that must name "
+                f"its construction (#880), with a reason if it does not"
+            )
+    for rel in sorted(declared):
+        if rel not in importers:
+            problems.append(
+                f"{rel}: named in the construction-label census but does not import "
+                f"bca_bootstrap — the entry is exempting or requiring nothing"
+            )
+    for rel in sorted(CI_METHOD_PRODUCERS & set(CI_METHOD_EXEMPT)):
+        problems.append(f"{rel}: named as both a producer and exempt; it is one or the other")
+    for rel in sorted(CI_METHOD_PRODUCERS):
+        path = REPO_ROOT / rel
+        if not path.is_file():
+            continue  # reported above as not importing
+        problems.extend(producer_problems(rel, path.read_text(encoding="utf-8")))
+    return problems
+
+
+def ci_method_keys(node, prefix: str = "") -> tuple[set[str], set[str]]:
+    """`(interval prefixes, labelled prefixes)` found anywhere under `node`.
+
+    A prefix is whatever precedes `ci_lower`, so `writer_ci_lower` pairs with
+    `writer_ci_method` and a bare `ci_lower` with `ci_method`. Walks nested
+    dicts, because several suites hold an interval in a sub-object
+    (`ns_per_transfer`, a per-condition block) rather than flat on the cell.
+    """
+    intervals: set[str] = set()
+    labelled: set[str] = set()
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if isinstance(k, str) and k.endswith("ci_lower"):
+                intervals.add(prefix + k[: -len("ci_lower")])
+            elif isinstance(k, str) and k.endswith("ci_method"):
+                labelled.add(prefix + k[: -len("ci_method")])
+            if isinstance(v, (dict, list)):
+                sub_i, sub_l = ci_method_keys(v, f"{prefix}{k}.")
+                intervals |= sub_i
+                labelled |= sub_l
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            if isinstance(v, (dict, list)):
+                # The index is part of the prefix, so each cell is paired on its
+                # own. Without it one labelled cell would cover every unlabelled
+                # cell beside it under the same key — which is precisely the
+                # partial adoption this check exists to catch.
+                sub_i, sub_l = ci_method_keys(v, f"{prefix}[{i}].")
+                intervals |= sub_i
+                labelled |= sub_l
+    return intervals, labelled
+
+
+def partial_label_problems(rel: str, obj) -> list[str]:
+    """An artifact labels every interval it publishes, or none of them.
+
+    None is the pre-#880 state and is reported by name in the summary, never
+    enforced: the committed intervals were not relabelled, because deriving the
+    label needs CPython's pre-3.12 `sum()` restored (see the module docstring).
+    *Some* is the failure — a converted runner that dropped the label at one of
+    its several interval sites, which is how a field falls out of half a schema.
+    """
+    intervals, labelled = ci_method_keys(obj)
+    if not labelled:
+        return []
+    missing = sorted(intervals - labelled)
+    if missing:
+        return [
+            f"{rel}: records a construction label for some intervals but not for "
+            f"{len(missing)} other(s) ({', '.join(f'{p}ci_lower' for p in missing[:4])}"
+            f"{', …' if len(missing) > 4 else ''}) — a runner that names the "
+            f"construction names it for every interval it publishes (#880)"
+        ]
+    return []
 
 
 def artifacts() -> list[Path]:
@@ -349,6 +649,8 @@ def artifacts() -> list[Path]:
 
 def run() -> int:
     findings, checked, grandfathered, attribution_grandfathered = [], 0, 0, 0
+    findings.extend(ci_method_census())
+    unlabelled: list[str] = []
     for path in artifacts():
         rel = str(path.relative_to(BENCH))
         try:
@@ -373,7 +675,18 @@ def run() -> int:
         checked += 1
         if is_concurrent(rel) and attribution_status(rel, obj)[0]:
             attribution_grandfathered += 1
+        intervals, labelled = ci_method_keys(obj)
+        if intervals and not labelled:
+            unlabelled.append(rel)
         findings.extend(findings_for(rel, obj))
+
+    if unlabelled:
+        # Named, never silently skipped (section 8.1). These predate #880's
+        # construction label and gain it when their suite is next re-run; the
+        # producer census above is what stops a re-run landing without it.
+        print(f"check_bench_provenance.py: {len(unlabelled)} artifact(s) publish intervals "
+              f"that name no construction (pre-#880, relabelled only by re-measurement): "
+              f"{', '.join(unlabelled)}")
 
     if findings:
         for f in findings:
@@ -690,6 +1003,180 @@ def _self_test() -> int:
             failures.append(f"ATTRIBUTION_GRANDFATHERED names a missing artifact: {rel}")
         elif not is_concurrent(rel):
             failures.append(f"ATTRIBUTION_GRANDFATHERED lists a non-concurrent artifact: {rel}")
+
+    # --- #880: which construction produced an interval --------------------
+    # THE DEFECT THIS PINS: #882 added a fourth return value naming the
+    # construction, and `scripts/fit_usl.py` — inside the same PR — kept
+    # unpacking two, so its `try` raised and every interval silently became the
+    # percentile fallback. A value callers may ignore drifts, so the census
+    # reads the real producer files rather than a fixture: THE CALL SITES ARE
+    # THE ASSERTION. Revert any one of them to the bare entry point, or discard
+    # the fourth value there, and this goes red.
+    real = ci_method_census()
+    if real:
+        failures.extend(f"the committed census is not clean: {f}" for f in real)
+
+    # The discovery half. A fixture cannot catch a sweep that stops finding the
+    # producers — then every rule above would be checking an empty set.
+    importers = set(bca_importers())
+    for rel in sorted(CI_METHOD_PRODUCERS | set(CI_METHOD_EXEMPT)):
+        if rel not in importers:
+            failures.append(f"bca_importers() does not find {rel} — CI_METHOD_ROOTS or "
+                            f"IMPORTS_BCA is too narrow")
+    if "scripts/bca_bootstrap.py" in (CI_METHOD_PRODUCERS | set(CI_METHOD_EXEMPT)):
+        failures.append("the estimator module itself must not be in the census tables")
+    # And not so wide that prose counts: `bindings/python/bench_concurrency.py`
+    # names the module in a disclosure string and imports nothing.
+    if "bindings/python/bench_concurrency.py" in importers:
+        failures.append("IMPORTS_BCA matched a file that only mentions the module in prose")
+
+    def census_expect(name, source, want_substr):
+        got = producer_problems("fixture.py", source)
+        if want_substr is None:
+            if got:
+                failures.append(f"{name}: expected no finding, got {got}")
+        elif not any(want_substr in g for g in got):
+            failures.append(f"{name}: expected a finding mentioning {want_substr!r}, got {got}")
+
+    good_src = (
+        "from bca_bootstrap import bca_bootstrap_ci_with_method\n"
+        "def cell(samples):\n"
+        "    mean, lo, hi, ci_method = bca_bootstrap_ci_with_method(samples)\n"
+        '    return {"ci_lower": lo, "ci_upper": hi, "ci_method": ci_method}\n'
+    )
+    census_expect("a converted producer passes", good_src, None)
+
+    census_expect(
+        "a bare three-value call",
+        good_src.replace("mean, lo, hi, ci_method = bca_bootstrap_ci_with_method(samples)",
+                         "mean, lo, hi = bca_bootstrap_ci(samples)"),
+        "bare three-value entry point")
+    census_expect(
+        "a bare ratio call",
+        good_src.replace("mean, lo, hi, ci_method = bca_bootstrap_ci_with_method(samples)",
+                         "mean, lo, hi = bca_bootstrap_ratio_ci(samples, samples)"),
+        "bare three-value entry point")
+    # A module-qualified bare call is the same defect and was the spelling the
+    # esp32 harvester uses.
+    census_expect(
+        "a module-qualified bare call",
+        good_src.replace("mean, lo, hi, ci_method = bca_bootstrap_ci_with_method(samples)",
+                         "mean, lo, hi = bca_bootstrap.bca_bootstrap_ci(samples)"),
+        "bare three-value entry point")
+    # ... and is waivable per line, with a stated reason, for the one legitimate
+    # use: asserting the two paths agree.
+    census_expect(
+        "a waived bare call",
+        good_src.replace(
+            "    mean, lo, hi, ci_method = bca_bootstrap_ci_with_method(samples)\n",
+            "    mean, lo, hi, ci_method = bca_bootstrap_ci_with_method(samples)\n"
+            "    # bare-entry-point: the assertion is that both paths agree\n"
+            "    assert (mean, lo, hi) == bca_bootstrap_ci(samples)\n"),
+        None)
+
+    # THE DRIFT SHAPE the interpreter cannot catch: unpacking three from four
+    # raises, but discarding the fourth is silent and compiles forever.
+    census_expect(
+        "the construction label discarded",
+        good_src.replace("mean, lo, hi, ci_method =", "mean, lo, hi, _method ="),
+        "discarded")
+    census_expect(
+        "the label bound but never recorded",
+        good_src.replace('"ci_method": ci_method', '"n": 1'),
+        "written out 0 time(s)")
+    # THE WEAKNESS THIS COUNTS PER SITE: a file-wide "does `ci_method` appear"
+    # check stays green when one call site of three stops recording it, because
+    # the others still mention the name. Three bindings need three recordings.
+    three_sites = (
+        "from bca_bootstrap import bca_bootstrap_ci_with_method\n"
+        "def a(s):\n"
+        "    m, lo, hi, ci_method = bca_bootstrap_ci_with_method(s)\n"
+        '    return {"ci_lower": lo, "ci_method": ci_method}\n'
+        "def b(s):\n"
+        "    m, lo, hi, ci_method = bca_bootstrap_ci_with_method(s)\n"
+        '    return {"ci_lower": lo, "ci_method": ci_method}\n'
+        "def c(s, cell):\n"
+        "    m, lo, hi, ci_method = bca_bootstrap_ci_with_method(s)\n"
+        '    cell["x_ci_method"] = ci_method\n'
+    )
+    census_expect("three sites, three recordings", three_sites, None)
+    census_expect(
+        "one of three sites stops recording",
+        three_sites.replace('    cell["x_ci_method"] = ci_method\n', "    cell\n"),
+        "bound at 3 `*_with_method` call site(s)")
+    census_expect(
+        "a producer that calls nothing",
+        "from bca_bootstrap import bca_bootstrap_ci_with_method\n"
+        'X = {"ci_method": None}\n',
+        "never calls a `*_with_method` entry point")
+    # A suite whose interval is a [lo, hi] pair has no `ci_lower` to prefix, and
+    # its `<name>_method` key satisfies the source-side rule (set_algebra).
+    census_expect(
+        "a pair-shaped interval with its own label key",
+        "from bca_bootstrap import bca_bootstrap_ratio_ci_with_method\n"
+        "def cell(a, b):\n"
+        "    r, lo, hi, m = bca_bootstrap_ratio_ci_with_method(a, b)\n"
+        '    return {"ci_pooled_bca": [lo, hi], "ci_pooled_bca_method": m}\n',
+        None)
+
+    # The classification tables, both directions.
+    saved_p, saved_e = set(CI_METHOD_PRODUCERS), dict(CI_METHOD_EXEMPT)
+    try:
+        CI_METHOD_PRODUCERS.discard("scripts/bench_baseline.py")
+        dropped = ci_method_census()
+        if not any("neither CI_METHOD_PRODUCERS nor CI_METHOD_EXEMPT" in f
+                   and "bench_baseline" in f for f in dropped):
+            failures.append(f"an unclassified importer must be a finding, got {dropped}")
+        CI_METHOD_PRODUCERS.add("scripts/bench_baseline.py")
+        CI_METHOD_PRODUCERS.add("scripts/does_not_exist.py")
+        stale = ci_method_census()
+        if not any("does not import" in f for f in stale):
+            failures.append(f"a stale census entry must be a finding, got {stale}")
+        CI_METHOD_PRODUCERS.discard("scripts/does_not_exist.py")
+        CI_METHOD_EXEMPT["scripts/bench_baseline.py"] = "both, which is not a state"
+        both = ci_method_census()
+        if not any("both a producer and exempt" in f for f in both):
+            failures.append(f"a doubly-listed module must be a finding, got {both}")
+    finally:
+        CI_METHOD_PRODUCERS.clear()
+        CI_METHOD_PRODUCERS.update(saved_p)
+        CI_METHOD_EXEMPT.clear()
+        CI_METHOD_EXEMPT.update(saved_e)
+    for rel, reason in CI_METHOD_EXEMPT.items():
+        if not reason or len(reason) < 20:
+            failures.append(f"CI_METHOD_EXEMPT[{rel}] carries no usable reason")
+
+    # --- the artifact side: all intervals labelled, or none ---------------
+    # None is the pre-#880 state and is reported by name, not enforced; SOME is
+    # the failure, because that is a converted runner dropping the label at one
+    # of its several interval sites.
+    none_labelled = {"throughput": [{"writer_ci_lower": 1.0, "writer_ci_upper": 2.0,
+                                     "scaling_factor_c_n_ci_lower": 0.9,
+                                     "scaling_factor_c_n_ci_upper": 1.1}]}
+    if partial_label_problems("x.json", none_labelled):
+        failures.append("an artifact that labels nothing must not be enforced")
+    all_labelled = {"throughput": [{"writer_ci_lower": 1.0, "writer_ci_upper": 2.0,
+                                    "writer_ci_method": "bca",
+                                    "scaling_factor_c_n_ci_lower": 0.9,
+                                    "scaling_factor_c_n_ci_upper": 1.1,
+                                    "scaling_factor_c_n_ci_method": "bca"}]}
+    if partial_label_problems("x.json", all_labelled):
+        failures.append(f"a fully labelled artifact must pass, got "
+                        f"{partial_label_problems('x.json', all_labelled)}")
+    half = {"throughput": [{"writer_ci_lower": 1.0, "writer_ci_upper": 2.0,
+                            "writer_ci_method": "bca",
+                            "scaling_factor_c_n_ci_lower": 0.9,
+                            "scaling_factor_c_n_ci_upper": 1.1}]}
+    got = partial_label_problems("x.json", half)
+    if not any("not for 1 other" in g for g in got):
+        failures.append(f"a half-labelled artifact must be a finding, got {got}")
+    # An interval nested in a sub-object is reached too (`ns_per_transfer`).
+    nested = {"cells": [{"ns_per_transfer": {"ci_lower": 1.0, "ci_upper": 2.0}},
+                        {"ns_per_transfer": {"ci_lower": 1.0, "ci_upper": 2.0,
+                                             "ci_method": "bca"}}]}
+    got = partial_label_problems("x.json", nested)
+    if not got:
+        failures.append("a nested interval must be reached by the pairing check")
 
     for msg in failures:
         print(f"  FAIL {msg}")

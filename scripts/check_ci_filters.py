@@ -102,6 +102,13 @@ GOLDEN_CASES = [
         {"miri", "test-asan", "fuzz-smoke", "instruction-counts"},
     ),
     (
+        "a Python file under bindings/ reaches the construction-label census in "
+        "`lint` (#880), which sweeps every importer of the BCa estimator",
+        ["bindings/python/bench_concurrency.py"],
+        {"lint"},
+        {"miri", "test-asan", "fuzz-smoke"},
+    ),
+    (
         "a TSan suppression edit reaches the guard scripts",
         [".github/tsan-suppressions.txt"],
         {"lint"},
