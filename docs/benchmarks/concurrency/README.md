@@ -859,6 +859,8 @@ read scaling. The `sync32` rows fix the roles instead — one writer at the name
 duty, N readers on `try_get` — and report the share of read attempts abandoned
 to an open write bracket (Busy rate) and the writer's refused mutations.
 
+Arms compare only within a key type: u64 → u64 over 1M draws (`SyncExpanseMap`, `SyncExpanseSet`, with no third-party arm), u64 → 128-byte payload over 200k (`SyncExpanseBlobMap`, `Mutex<ExpanseBlobMap>`, `RwLock<BTreeMap>`, `SkipMap`), and 37-byte string keys → u64 over 100k (`SyncExpanseStrMap`, `SyncExpanseBytesMap`, their `Mutex` twins, `DashMap`).
+
 Artifacts: run 1 `baseline_concurrent_mixed.json` at `76432c5c`, pin `0-15`, 18 rounds, largest foreign busy CPUs over a group 0.04; run 2 `baseline_concurrent_mixed_run2.json` at `76432c5c`, pin `0-15`, 18 rounds, largest foreign busy CPUs over a group 0.04.
 
 | arm | workload | N | total M ops/s, run 1 [BCa 95%] | run 2 | C(N), run 1 [paired BCa 95%] | run 2 |

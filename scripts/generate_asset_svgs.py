@@ -336,8 +336,8 @@ def render_concurrency(data: dict) -> None:
 """
     if two_runs:
         svg += (
-            '  <text x="30" y="88" class="t-note">Two runs of one commit: bars are run 1; labels and badges '
-            'read run 1 / run 2, so a cell the second run does not reproduce shows two values.</text>\n'
+            '  <text x="30" y="88" class="t-note">Two runs of one commit: bars are run 1, labels and badges read run 1 / run 2. '
+            'Compare arms only within the key type under each name.</text>\n'
         )
     for i, r in enumerate(rows):
         y = top + i * row_h
@@ -354,6 +354,8 @@ def render_concurrency(data: dict) -> None:
             f'  <text x="{bar_x + w + 8:.1f}" y="{y + 9}" class="{vcls}">{value}</text>\n'
         )
         svg += badge(800, y - 4, 130, label, min(scales) >= 1.0)
+        if r.get("family"):
+            svg += f'  <text x="30" y="{y + 21}" class="t-note">{esc(r["family"])}</text>\n'
 
     # The same arms under a 50/50 read/write mix, where every thread also writes.
     svg += f'\n  <line x1="30" y1="{mixed_top - 18}" x2="930" y2="{mixed_top - 18}" class="divider"/>\n'
@@ -368,7 +370,7 @@ def render_concurrency(data: dict) -> None:
         scales = [r["scale_16t"]] + ([r["scale_16t_run2"]] if two_runs else [])
         cls = "t-row-accent" if min(scales) >= 1.0 else "t-row-muted"
         svg += (
-            f'  <text x="42" y="{y}" class="{cls}">{esc(r["arm"])}: {chain} M ops/s'
+            f'  <text x="42" y="{y}" class="{cls}">{esc(r["arm"])}{" [" + esc(r["family"]) + "]" if r.get("family") else ""}: {chain} M ops/s'
             f'{" (run 1)" if two_runs else ""} &#183; {" / ".join(f"{s:.2f}x" for s in scales)}</text>\n'
         )
     runs = f'runs {esc(meta["run"])} and {esc(meta["run2"])}' if meta.get("run2") else f'run {esc(meta["run"])}'

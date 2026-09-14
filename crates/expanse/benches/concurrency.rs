@@ -54,7 +54,7 @@
 //! | `miss_gen_method` | Bounded keyspace random stream |
 //! | `value_dereference` | `black_box(sink)` |
 //! | `measured_region` | Clean (`run_rounds`): a window starts at a barrier after thread creation and per-thread setup, and its rates divide by its own elapsed time |
-//! | `arm_symmetry` | Symmetric across concurrency primitives |
+//! | `arm_symmetry` | Symmetric within three key types, not across them: u64 → u64 over 1M draws (`SyncExpanseMap`, `SyncExpanseSet`, with no third-party arm), u64 → 128-byte payload and u32 over 200k (`SyncExpanseBlobMap`, `Mutex<ExpanseBlobMap>`, `RwLock<BTreeMap>`, and `SkipMap`, whose values are `(Vec<u8>, u32)` although its label reads `Vec<u8>`), and 37-byte string keys → u64 over 100k (`SyncExpanseStrMap`, `SyncExpanseBytesMap`, their `Mutex` twins, `DashMap`). Compare arms only within a key type |
 //! | `statistics` | Tables: mean ops/sec over a thread count's windows; `EXPANSE_BENCH_SAMPLES` carries every window for BCa 95% intervals (`docs/benchmarks/concurrency/scripts/mixed_concurrency.py`) |
 //! | `verdict` | **MEASURED** `[verified: RUN (reference host, runs 34881026495 and 34882381735)]`: every cell of both runs, with its BCa interval, is in `docs/benchmarks/concurrency/README.md` §12; report-only, no gate is pre-registered on it. The #375 bounded-keyspace correction still holds. |
 
