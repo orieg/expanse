@@ -1459,11 +1459,6 @@ pub(crate) fn line<X>(x: X) -> Line<X> {
 #[derive(Debug)]
 #[repr(C)]
 pub struct Collector {
-    epoch: Line<AtomicUsize>,
-    advancing: AtomicBool,
-    pub(crate) alive: AtomicBool,
-    op_count: Line<AtomicUsize>,
-    readers: Mutex<Vec<Arc<Slot>>>,
     // NOT boxed. `Collector` is only ever constructed behind an `Arc`
     // (`Arc::new(Collector::new())` in sync.rs; the only bare
     // constructions are in this file's test module), so it already lives on
@@ -1471,6 +1466,11 @@ pub struct Collector {
     // would only move the same 4 KiB into a second allocation behind a
     // pointer loaded on every `retire`.
     bins: [[PaddedBin; NUM_EPOCH_STRIPES]; BINS],
+    epoch: Line<AtomicUsize>,
+    advancing: AtomicBool,
+    pub(crate) alive: AtomicBool,
+    op_count: Line<AtomicUsize>,
+    readers: Mutex<Vec<Arc<Slot>>>,
     pub(crate) retained_bytes: [PaddedRetained; NUM_EPOCH_STRIPES],
     #[cfg(feature = "ablation-unstriped-freelist")]
     freelists: [Mutex<FreeListHead>; NUM_CLASSES],
@@ -1493,12 +1493,12 @@ impl Collector {
     #[must_use]
     pub fn new() -> Self {
         Self {
+            bins: core::array::from_fn(|_| core::array::from_fn(|_| PaddedBin::new())),
             epoch: line(AtomicUsize::new(0)),
             advancing: AtomicBool::new(false),
             alive: AtomicBool::new(true),
             op_count: line(AtomicUsize::new(0)),
             readers: Mutex::new(Vec::new()),
-            bins: core::array::from_fn(|_| core::array::from_fn(|_| PaddedBin::new())),
             retained_bytes: core::array::from_fn(|_| PaddedRetained(AtomicUsize::new(0))),
             #[cfg(feature = "ablation-unstriped-freelist")]
             freelists: core::array::from_fn(|_| Mutex::new(FreeListHead(core::ptr::null_mut()))),
@@ -2366,6 +2366,7 @@ mod tests {
         // the un-boxed 4 KiB of striped bins: boxing them to shrink this number would move
         // the same bytes into a second allocation behind a pointer loaded on every `retire`.
         assert_eq!(core::mem::size_of::<Garbage>(), 24);
+        assert_eq!(core::mem::offset_of!(Collector, bins), 0);
         assert!(
             core::mem::offset_of!(Collector, bins) < core::mem::offset_of!(Collector, freelists)
         );
