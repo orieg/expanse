@@ -1457,6 +1457,7 @@ pub(crate) fn line<X>(x: X) -> Line<X> {
 /// they are freed, so a pinned reader can never observe freed memory.
 #[cfg(feature = "std")]
 #[derive(Debug)]
+#[repr(C)]
 pub struct Collector {
     epoch: Line<AtomicUsize>,
     advancing: AtomicBool,
@@ -1470,11 +1471,11 @@ pub struct Collector {
     // would only move the same 4 KiB into a second allocation behind a
     // pointer loaded on every `retire`.
     bins: [[PaddedBin; NUM_EPOCH_STRIPES]; BINS],
+    pub(crate) retained_bytes: [PaddedRetained; NUM_EPOCH_STRIPES],
     #[cfg(feature = "ablation-unstriped-freelist")]
     freelists: [Mutex<FreeListHead>; NUM_CLASSES],
     #[cfg(not(feature = "ablation-unstriped-freelist"))]
     freelists: [PaddedFreelists; NUM_FREELIST_STRIPES],
-    pub(crate) retained_bytes: [PaddedRetained; NUM_EPOCH_STRIPES],
     #[cfg(test)]
     registrations: core::sync::atomic::AtomicU64,
 }
@@ -1498,6 +1499,7 @@ impl Collector {
             op_count: line(AtomicUsize::new(0)),
             readers: Mutex::new(Vec::new()),
             bins: core::array::from_fn(|_| core::array::from_fn(|_| PaddedBin::new())),
+            retained_bytes: core::array::from_fn(|_| PaddedRetained(AtomicUsize::new(0))),
             #[cfg(feature = "ablation-unstriped-freelist")]
             freelists: core::array::from_fn(|_| Mutex::new(FreeListHead(core::ptr::null_mut()))),
             #[cfg(not(feature = "ablation-unstriped-freelist"))]
@@ -1506,7 +1508,6 @@ impl Collector {
                     Mutex::new(FreeListHead(core::ptr::null_mut()))
                 }))
             }),
-            retained_bytes: core::array::from_fn(|_| PaddedRetained(AtomicUsize::new(0))),
             #[cfg(test)]
             registrations: core::sync::atomic::AtomicU64::new(0),
         }
@@ -2365,6 +2366,9 @@ mod tests {
         // the un-boxed 4 KiB of striped bins: boxing them to shrink this number would move
         // the same bytes into a second allocation behind a pointer loaded on every `retire`.
         assert_eq!(core::mem::size_of::<Garbage>(), 24);
+        assert!(
+            core::mem::offset_of!(Collector, bins) < core::mem::offset_of!(Collector, freelists)
+        );
         #[cfg(feature = "ablation-unstriped-freelist")]
         assert!(
             core::mem::size_of::<Collector>() <= 8192,
