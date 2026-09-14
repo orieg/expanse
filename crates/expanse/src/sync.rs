@@ -1875,6 +1875,44 @@ impl<T: SharedTree> Shared<T> {
         res
     }
 
+    /// The optimistic read protocol of the map and set readers, written once.
+    ///
+    /// Counts the operation, then makes up to `MAX_RETRIES` attempts. Each
+    /// attempt holds an epoch pin, samples the tree version after taking it,
+    /// copies the root snapshot by value through `root_of`, and runs `walk`
+    /// against that root, version and sample; the first attempt whose walk
+    /// validates answers. When every attempt fails, it counts the fallback and
+    /// answers with `locked` under [`Shared::read_locked`].
+    ///
+    /// `walk` is called only in that state -- pinned, with a version sampled
+    /// after the pin and a root copied under it -- which is the contract
+    /// `walk_validated` and every validated walk states. Point reads and the
+    /// ordered reads (#900) supply only their walk and their locked answer, so
+    /// the retry, counter and fallback protocol cannot drift between them.
+    #[inline(always)]
+    fn optimistic_read<R>(
+        &self,
+        reader: &Reader,
+        root_of: impl Fn(&T) -> RootSnapshot,
+        mut walk: impl FnMut(RootSnapshot, &SeqVersion, u64) -> Result<R, Retry>,
+        locked: impl FnOnce(&T) -> R,
+    ) -> R {
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
+        for _ in 0..MAX_RETRIES {
+            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
+            let _pin = reader.pin();
+            let snap = self.version().sample();
+            // SAFETY: pinned, with a freshly sampled version; `root_of` copies
+            // the root by value, and `walk` validates every load it makes from it.
+            let root = root_of(unsafe { &*self.inner.get() });
+            if let Ok(r) = walk(root, self.version(), snap) {
+                return r;
+            }
+        }
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
+        self.read_locked(locked)
+    }
+
     /// Validated population read: samples the version, copies the root
     /// snapshot by value (no heap dereference, so no pin is needed), and
     /// retries until the snapshot validates — one shared definition for
@@ -4517,24 +4555,17 @@ impl SetReader<'_> {
     /// Optimistic membership test.
     #[must_use]
     pub fn contains(&self, key: Key) -> bool {
-        let shared = &self.set.shared;
-        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
-        for _ in 0..MAX_RETRIES {
-            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
-            let _pin = self.reader.pin();
-            let snap = shared.version().sample();
-            // SAFETY: pinned + freshly sampled version; the walk
-            // validates every load (see `walk_validated`).
-            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-            let root = unsafe { (*shared.inner.get()).occ_root().0 };
-            // SAFETY: same pin + snapshot contract as the line above.
-            let walked = unsafe { walk_validated::<false>(root, key, shared.version(), snap) };
-            if let Ok(r) = walked {
-                return r.is_some();
-            }
-        }
-        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
-        shared.read_locked(|s| s.contains(key))
+        self.set.shared.optimistic_read(
+            &self.reader,
+            |s| s.occ_root().0,
+            |root, ver, snap| {
+                // SAFETY: `optimistic_read` calls the walk pinned, with a version
+                // sampled after the pin and a root copied under it (`walk_validated`).
+                let walked = unsafe { walk_validated::<false>(root, key, ver, snap) };
+                walked.map(|r| r.is_some())
+            },
+            |s| s.contains(key),
+        )
     }
 }
 
@@ -7205,24 +7236,14 @@ pub struct MapReader<'a> {
 /// Split out so the borrowing and owning readers cannot drift: both are the
 /// same protocol, differing only in how they hold the map (#554).
 fn map_get_with(map: &SyncExpanseMap, reader: &Reader, key: Key) -> Option<u64> {
-    let shared = &map.shared;
-    crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
-    for _ in 0..MAX_RETRIES {
-        crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
-        let _pin = reader.pin();
-        let snap = shared.version().sample();
-        // SAFETY: pinned + freshly sampled version; the walk validates every
-        // load (see `walk_validated`).
-        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-        let root = unsafe { (*shared.inner.get()).occ_root().0 };
-        // SAFETY: same pin + snapshot contract as the line above.
-        let walked = unsafe { walk_validated::<true>(root, key, shared.version(), snap) };
-        if let Ok(r) = walked {
-            return r;
-        }
-    }
-    crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
-    shared.read_locked(|m| m.get(key))
+    map.shared.optimistic_read(
+        reader,
+        |m| m.occ_root().0,
+        // SAFETY: `optimistic_read` calls the walk pinned, with a version
+        // sampled after the pin and a root copied under it (`walk_validated`).
+        |root, ver, snap| unsafe { walk_validated::<true>(root, key, ver, snap) },
+        |m| m.get(key),
+    )
 }
 
 /// A reader that **owns** its map handle instead of borrowing it.
