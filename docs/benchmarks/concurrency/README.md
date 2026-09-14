@@ -693,6 +693,8 @@ C(8) moves from 1.21 to **2.078 [1.996, 2.139]** on `map` and from 1.16 to
 `INCONCLUSIVE` on both arms and the `str` control at 0.91–0.99. So the retire
 path's two shared structures separate cleanly: the bins carry 62–73% at W = 8
 and the freelists 9–11%. Arm (c) has one run and is not confirmed.
+*Superseded by §11.6: two runs on the promoted build confirm arm (c) at W = 4 and
+W = 8. This single run is kept because it is the measurement that led to them.*
 
 **How the mechanism was located before it was ablated.** The diagnostic pass
 (`results/diagnostic_writer_scaling.json`) reached the same place from three
@@ -734,4 +736,67 @@ overlaps the unpinned run.
 via an atomic bitmask (`ALLOC_SLOTS_MASK`). This eliminates the $W=8$ turnover,
 bounds per-tree epoch bin memory footprint to 4.0 KiB ($4\times$ reduction vs
 the naive 64-stripe layout), and guarantees zero modulo collisions for up to
-16 concurrent threads. Arm (c) remains a diagnostic ablation.
+16 concurrent threads. Arm (c) was promoted after two further runs (§11.6).
+
+### 11.6 Arm (c) promotion — per-stripe freelists confirmed across two runs (Refs #568)
+
+PR [#912](https://github.com/orieg/expanse/pull/912) makes per-stripe collector
+freelists the default at S = 16 and keeps the shared freelists behind the
+inverse ablation `ablation-unstriped-freelist`. The gate it states: at W = 8, on
+`map` and on `set`, a paired C(W) ratio with point estimate ≥ 1.050 and BCa 95%
+lower bound ≥ 1.020 in each of two runs, one thread per physical core; no `str`
+cell at W ∈ {2, 4, 8} whose interval lies wholly below 1.0 in both runs; and a
+footprint bound, Tier-1 Miri and a single-threaded Callgrind bound.
+
+Paired C(W) ratio, **default ÷ ablation**, so above 1.0 means the per-stripe
+default scales better than the shared freelists; interleaved (build × W), 8
+rounds, pin `0,2,4,6,8,10,12,14` *(measured: reference host, `5cf94b17`, CI runs
+[34871047267](https://github.com/orieg/expanse/actions/runs/34871047267) and
+[34871825299](https://github.com/orieg/expanse/actions/runs/34871825299);
+`results/ablation_unstriped_freelist_writer_scaling.json`,
+`results/ablation_unstriped_freelist_writer_scaling_run2.json`)*
+(workload: concurrency_writer_scaling):
+
+| arm | W | run 1 | run 2 | verdict |
+|---|--:|---|---|---|
+| `map` | 2 | 1.0300 [1.0005, 1.0524] | 1.0116 [0.9966, 1.0321] | `INCONCLUSIVE`: run 2 spans 1.0 |
+| `map` | 4 | 1.0739 [1.0415, 1.1011] | 1.0547 [1.0300, 1.0795] | both clear 1.0 |
+| `map` | 8 | **1.0859 [1.0372, 1.1140]** | **1.0802 [1.0528, 1.1134]** | both clear 1.0; gate floor met |
+| `set` | 2 | 1.0318 [0.9973, 1.0751] | 1.0342 [1.0210, 1.0497] | `INCONCLUSIVE`: run 1 spans 1.0 |
+| `set` | 4 | 1.0421 [1.0144, 1.0657] | 1.0670 [1.0357, 1.0880] | both clear 1.0 |
+| `set` | 8 | **1.0702 [1.0327, 1.1039]** | **1.0688 [1.0355, 1.0921]** | both clear 1.0; gate floor met |
+| `str` | 2 | 0.9998 [0.9589, 1.0759] | 1.0187 [0.9877, 1.0722] | control; spans 1.0 |
+| `str` | 4 | 0.9931 [0.9632, 1.0220] | 1.0003 [0.9720, 1.0308] | control; spans 1.0 |
+| `str` | 8 | 0.9898 [0.9474, 1.0296] | 0.9846 [0.9641, 1.0041] | control; spans 1.0 |
+
+Every cell's intervals overlap between the two runs (rule 18). Foreign busy CPU
+stayed at or below 0.01 in every cell of both artifacts. In both artifacts
+`comparison[*].is_inverse` is `true`: those two runs predate the label fix in
+`writer_scaling.py`, so their `ratio_c_variant_over_c_default_mean` field and
+`provenance.estimators.ratio` text still read variant ÷ default, while the values
+are default ÷ ablation, as each run's log prints.
+
+Throughput per build, M ops/s, medians of run 2:
+
+| arm | W=1 | W=2 | W=4 | W=8 |
+|---|--:|--:|--:|--:|
+| `map` default (per-stripe) | 5.08 | 6.64 | 8.91 | 11.42 |
+| `map` `ablation-unstriped-freelist` | 5.09 | 6.57 | 8.34 | 10.59 |
+| `set` default (per-stripe) | 6.67 | 8.21 | 10.07 | 13.54 |
+| `set` `ablation-unstriped-freelist` | 6.69 | 8.07 | 9.41 | 12.63 |
+
+The other clauses, as measured on #912: at S = 16, `size_of::<Collector>()` is
+20,608 B in the test build, under the 22.0 KiB bound; S = 64 is excluded, because
+the loop-stripe shortcut makes 64 freelist stripes imply 64 epoch stripes and
+that layout measures 82,048 B against a 72.0 KiB bound; Tier-1 Miri passes. The
+six `sync_*` Callgrind arms move −1.680% to +0.235% against the merge base
+`d09f764e` (CI run [34867061886](https://github.com/orieg/expanse/actions/runs/34867061886)).
+The gate named `f624522f` as that comparator, and `main` itself moved the
+`sync_set_*` arms between the two commits, so that clause is `INTERMEDIATE`: a
+comparator changed after the gate was written. Plain-tree insert arms, which run
+no collector code, move by up to +1.63% on the x86 instruction suite in the same
+run; #912 approves them with a sourced override.
+
+The single run in §11.5 measured arm (c) on `1f465728`, before #907, #931 and #932
+changed the engine, and in the forward direction; it is not comparable cell for
+cell with this table.
