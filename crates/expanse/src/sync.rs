@@ -2829,10 +2829,6 @@ impl SyncExpanseSet {
                     }
                     let d = digit(key, bl);
                     let slot_opt = digits[..num].iter().position(|&x| x == d);
-                    // SAFETY: version cell is within an EBR-live node allocation.
-                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
-                        return OlcOutcome::Retry;
-                    }
                     if let Some(slot) = slot_opt {
                         ancestors[anc_depth] = AncestorFrame {
                             node,
@@ -2850,10 +2846,27 @@ impl SyncExpanseSet {
                             // SAFETY: node pointer is EBR-live and validated by parent version check.
                             unsafe { &raw mut (*node.cast::<BranchL7>()).edges[slot] }
                         };
+                        #[cfg(test)]
+                        test_hooks::before_child_edge_load();
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                         edge = unsafe { edge_ptr.read() };
+                        // Validated after the child edge is loaded, not before: no later
+                        // step re-validates this node, and a new digit's linear insert
+                        // shifts its edges in place, which can move a neighbouring digit's
+                        // edge into this slot, or a concurrent store can tear the load. A
+                        // descent into the neighbour's live subtree passes every later check.
+                        // SAFETY: version cell is within an EBR-live node allocation.
+                        if !unsafe {
+                            crate::occ::node_validate(crate::occ::version_cell(vp), nsnap)
+                        } {
+                            return OlcOutcome::Retry;
+                        }
                         level = bl - 1;
                         continue;
+                    }
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
+                        return OlcOutcome::Retry;
                     }
                     let cap = if is_l3 { BRANCH_L3_CAP } else { BRANCH_L7_CAP };
                     if num < cap {
@@ -3138,10 +3151,22 @@ impl SyncExpanseSet {
                         digit: digit(key, bl),
                     };
                     anc_depth += 1;
+                    #[cfg(test)]
+                    test_hooks::before_child_edge_load();
                     // SAFETY: pointer arithmetic and destination buffer bounds are valid under locked parent.
                     edge_ptr = unsafe { sub.add(rank) };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                     edge = unsafe { edge_ptr.read() };
+                    // Validated again after the child edge is loaded: the check above
+                    // guards the subarray and rank this load uses, and no later step
+                    // re-validates this node. Subarray growth within its capacity class
+                    // shifts edges in place, which can move a neighbouring digit's edge
+                    // into this slot, or a concurrent store can tear the load. A descent
+                    // into the neighbour's live subtree passes every later check.
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
+                        return OlcOutcome::Retry;
+                    }
                     level = bl - 1;
                     continue;
                 }
@@ -3157,10 +3182,6 @@ impl SyncExpanseSet {
                         return OlcOutcome::Retry;
                     };
                     let d = digit(key, level);
-                    // SAFETY: version cell is within an EBR-live node allocation.
-                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
-                        return OlcOutcome::Retry;
-                    }
                     ancestors[anc_depth] = AncestorFrame {
                         node: node.cast(),
                         edge_type: EdgeType::BranchU,
@@ -3174,6 +3195,13 @@ impl SyncExpanseSet {
                     edge_ptr = unsafe { &raw mut (*node).edges[d as usize] };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                     edge = unsafe { edge_ptr.read() };
+                    // Validated after the child edge is loaded, not before: no later
+                    // step re-validates this node, and a concurrent store to this slot
+                    // can tear the load.
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
+                        return OlcOutcome::Retry;
+                    }
                     level -= 1;
                     continue;
                 }
@@ -3810,10 +3838,6 @@ impl SyncExpanseSet {
                     }
                     let d = digit(key, bl);
                     let slot_opt = digits[..num].iter().position(|&x| x == d);
-                    // SAFETY: version cell is within an EBR-live node allocation.
-                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
-                        return OlcOutcome::Retry;
-                    }
                     if let Some(slot) = slot_opt {
                         ancestors[anc_depth] = AncestorFrame {
                             node,
@@ -3831,10 +3855,27 @@ impl SyncExpanseSet {
                             // SAFETY: node pointer is EBR-live and validated by parent version check.
                             unsafe { &raw mut (*node.cast::<BranchL7>()).edges[slot] }
                         };
+                        #[cfg(test)]
+                        test_hooks::before_child_edge_load();
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                         edge = unsafe { edge_ptr.read() };
+                        // Validated after the child edge is loaded, not before: no later
+                        // step re-validates this node, and a new digit's linear insert
+                        // shifts its edges in place, which can move a neighbouring digit's
+                        // edge into this slot, or a concurrent store can tear the load. A
+                        // descent into the neighbour's live subtree passes every later check.
+                        // SAFETY: version cell is within an EBR-live node allocation.
+                        if !unsafe {
+                            crate::occ::node_validate(crate::occ::version_cell(vp), nsnap)
+                        } {
+                            return OlcOutcome::Retry;
+                        }
                         level = bl - 1;
                         continue;
+                    }
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
+                        return OlcOutcome::Retry;
                     }
                     return OlcOutcome::Done(false);
                 }
@@ -3882,10 +3923,22 @@ impl SyncExpanseSet {
                         digit: digit(key, bl),
                     };
                     anc_depth += 1;
+                    #[cfg(test)]
+                    test_hooks::before_child_edge_load();
                     // SAFETY: pointer arithmetic and destination buffer bounds are valid under locked parent.
                     edge_ptr = unsafe { sub.add(rank) };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                     edge = unsafe { edge_ptr.read() };
+                    // Validated again after the child edge is loaded: the check above
+                    // guards the subarray and rank this load uses, and no later step
+                    // re-validates this node. Subarray growth within its capacity class
+                    // shifts edges in place, which can move a neighbouring digit's edge
+                    // into this slot, or a concurrent store can tear the load. A descent
+                    // into the neighbour's live subtree passes every later check.
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
+                        return OlcOutcome::Retry;
+                    }
                     level = bl - 1;
                     continue;
                 }
@@ -3901,10 +3954,6 @@ impl SyncExpanseSet {
                         return OlcOutcome::Retry;
                     };
                     let d = digit(key, level);
-                    // SAFETY: version cell is within an EBR-live node allocation.
-                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
-                        return OlcOutcome::Retry;
-                    }
                     ancestors[anc_depth] = AncestorFrame {
                         node: node.cast(),
                         edge_type: EdgeType::BranchU,
@@ -3918,6 +3967,13 @@ impl SyncExpanseSet {
                     edge_ptr = unsafe { &raw mut (*node).edges[d as usize] };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                     edge = unsafe { edge_ptr.read() };
+                    // Validated after the child edge is loaded, not before: no later
+                    // step re-validates this node, and a concurrent store to this slot
+                    // can tear the load.
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
+                        return OlcOutcome::Retry;
+                    }
                     level -= 1;
                     continue;
                 }
@@ -4720,10 +4776,6 @@ impl SyncExpanseMap {
                         return branch_split(BranchSplitKind::Prefix);
                     }
                     let d = digit(key, bl);
-                    // SAFETY: version cell is within an EBR-live node allocation.
-                    if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
-                        return OlcOutcome::Retry;
-                    }
                     if let Some(slot) = slot_opt {
                         ancestors[anc_depth] = AncestorFrame {
                             node,
@@ -4741,10 +4793,26 @@ impl SyncExpanseMap {
                             // SAFETY: node pointer is EBR-live and validated by parent version check.
                             unsafe { &raw mut (*node.cast::<BranchL7>()).edges[slot] }
                         };
+                        #[cfg(test)]
+                        test_hooks::before_child_edge_load();
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                         edge = unsafe { edge_ptr.read() };
+                        // Validated after the child edge is loaded, not before: no later
+                        // step re-validates this node, and a new digit's linear insert
+                        // shifts its edges in place, which can move a neighbouring digit's
+                        // edge into this slot, or a concurrent store can tear the load. A
+                        // descent into the neighbour's live subtree passes every later check.
+                        // SAFETY: version cell is within an EBR-live node allocation.
+                        let cell = unsafe { crate::occ::version_cell(vp) };
+                        if !crate::occ::node_validate(cell, nsnap) {
+                            return OlcOutcome::Retry;
+                        }
                         level = bl - 1;
                         continue;
+                    }
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
+                        return OlcOutcome::Retry;
                     }
                     let cap = if is_l3 { BRANCH_L3_CAP } else { BRANCH_L7_CAP };
                     if num < cap {
@@ -5034,10 +5102,22 @@ impl SyncExpanseMap {
                         digit: digit(key, bl),
                     };
                     anc_depth += 1;
+                    #[cfg(test)]
+                    test_hooks::before_child_edge_load();
                     // SAFETY: pointer arithmetic and destination buffer bounds are valid under locked parent.
                     edge_ptr = unsafe { sub.add(rank) };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                     edge = unsafe { edge_ptr.read() };
+                    // Validated again after the child edge is loaded: the check above
+                    // guards the subarray and rank this load uses, and no later step
+                    // re-validates this node. Subarray growth within its capacity class
+                    // shifts edges in place, which can move a neighbouring digit's edge
+                    // into this slot, or a concurrent store can tear the load. A descent
+                    // into the neighbour's live subtree passes every later check.
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
+                        return OlcOutcome::Retry;
+                    }
                     level = bl - 1;
                     continue;
                 }
@@ -5053,10 +5133,6 @@ impl SyncExpanseMap {
                         return OlcOutcome::Retry;
                     };
                     let d = digit(key, level);
-                    // SAFETY: version cell is within an EBR-live node allocation.
-                    if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
-                        return OlcOutcome::Retry;
-                    }
                     ancestors[anc_depth] = AncestorFrame {
                         node: node.cast(),
                         edge_type: EdgeType::BranchU,
@@ -5070,6 +5146,13 @@ impl SyncExpanseMap {
                     edge_ptr = unsafe { &raw mut (*node).edges[d as usize] };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                     edge = unsafe { edge_ptr.read() };
+                    // Validated after the child edge is loaded, not before: no later
+                    // step re-validates this node, and a concurrent store to this slot
+                    // can tear the load.
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
+                        return OlcOutcome::Retry;
+                    }
                     level -= 1;
                     continue;
                 }
@@ -6032,10 +6115,6 @@ impl SyncExpanseMap {
                         return OlcOutcome::Done(None);
                     }
                     let d = digit(key, bl);
-                    // SAFETY: version cell is within an EBR-live node allocation.
-                    if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
-                        return OlcOutcome::Retry;
-                    }
                     if let Some(slot) = slot_opt {
                         ancestors[anc_depth] = AncestorFrame {
                             node,
@@ -6053,10 +6132,26 @@ impl SyncExpanseMap {
                             // SAFETY: node pointer is EBR-live and validated by parent version check.
                             unsafe { &raw mut (*node.cast::<BranchL7>()).edges[slot] }
                         };
+                        #[cfg(test)]
+                        test_hooks::before_child_edge_load();
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                         edge = unsafe { edge_ptr.read() };
+                        // Validated after the child edge is loaded, not before: no later
+                        // step re-validates this node, and a new digit's linear insert
+                        // shifts its edges in place, which can move a neighbouring digit's
+                        // edge into this slot, or a concurrent store can tear the load. A
+                        // descent into the neighbour's live subtree passes every later check.
+                        // SAFETY: version cell is within an EBR-live node allocation.
+                        let cell = unsafe { crate::occ::version_cell(vp) };
+                        if !crate::occ::node_validate(cell, nsnap) {
+                            return OlcOutcome::Retry;
+                        }
                         level = bl - 1;
                         continue;
+                    }
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
+                        return OlcOutcome::Retry;
                     }
                     return OlcOutcome::Done(None);
                 }
@@ -6104,10 +6199,22 @@ impl SyncExpanseMap {
                         digit: digit(key, bl),
                     };
                     anc_depth += 1;
+                    #[cfg(test)]
+                    test_hooks::before_child_edge_load();
                     // SAFETY: pointer arithmetic and destination buffer bounds are valid under locked parent.
                     edge_ptr = unsafe { sub.add(rank) };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                     edge = unsafe { edge_ptr.read() };
+                    // Validated again after the child edge is loaded: the check above
+                    // guards the subarray and rank this load uses, and no later step
+                    // re-validates this node. Subarray growth within its capacity class
+                    // shifts edges in place, which can move a neighbouring digit's edge
+                    // into this slot, or a concurrent store can tear the load. A descent
+                    // into the neighbour's live subtree passes every later check.
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
+                        return OlcOutcome::Retry;
+                    }
                     level = bl - 1;
                     continue;
                 }
@@ -6123,10 +6230,6 @@ impl SyncExpanseMap {
                         return OlcOutcome::Retry;
                     };
                     let d = digit(key, level);
-                    // SAFETY: version cell is within an EBR-live node allocation.
-                    if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
-                        return OlcOutcome::Retry;
-                    }
                     ancestors[anc_depth] = AncestorFrame {
                         node: node.cast(),
                         edge_type: EdgeType::BranchU,
@@ -6140,6 +6243,13 @@ impl SyncExpanseMap {
                     edge_ptr = unsafe { &raw mut (*node).edges[d as usize] };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
                     edge = unsafe { edge_ptr.read() };
+                    // Validated after the child edge is loaded, not before: no later
+                    // step re-validates this node, and a concurrent store to this slot
+                    // can tear the load.
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
+                        return OlcOutcome::Retry;
+                    }
                     level -= 1;
                     continue;
                 }
@@ -10275,6 +10385,27 @@ pub(crate) mod test_hooks {
             g.release.wait();
         }
     }
+
+    thread_local! {
+        static ARMED_CHILD_EDGE: Cell<Option<Arc<Gate>>> = const { Cell::new(None) };
+    }
+
+    /// The next time *this thread's* optimistic writer descent is about to
+    /// load a child edge from a linear or bitmap branch, it stops at `gate`
+    /// (once).
+    pub(crate) fn arm_child_edge_load(gate: Arc<Gate>) {
+        ARMED_CHILD_EDGE.with(|c| c.set(Some(gate)));
+    }
+
+    /// Between a writer's last read of a branch node's metadata and its load
+    /// of the child edge it descends through.
+    #[inline(always)]
+    pub(crate) fn before_child_edge_load() {
+        if let Some(g) = ARMED_CHILD_EDGE.with(Cell::take) {
+            g.parked.wait();
+            g.release.wait();
+        }
+    }
 }
 
 /// A reader whose cover node is replaced must restart, not trust the dead
@@ -10578,6 +10709,387 @@ mod obsolete_tests {
         }
 
         assert_eq!(map.len(), 9000);
+        map.with_locked(ExpanseMap::validate);
+    }
+
+    /// Keys `(d << 56) | low` for top digit `d`, shaped so that the digit's
+    /// subtree is a branch at level 5 over two linear leaves: 30 keys with
+    /// byte 4 clear (the second-lowest byte pair counting up from `base`) and
+    /// five with byte 4 set. The low seven bytes repeat across digits, so a
+    /// descent that lands in a neighbouring digit's subtree finds a key there.
+    fn misdirect_keys(d: u64, base: u64) -> impl Iterator<Item = u64> {
+        (base..base + 30)
+            .map(move |j| (d << 56) | (j << 16) | 1)
+            .chain((0..5u64).map(move |j| (d << 56) | (1 << 32) | (j << 16) | 1))
+    }
+
+    /// The key a parked writer operates on (top digit 3, absent) and its twin
+    /// under top digit 2 (present): the same low seven bytes.
+    const MISDIRECT_PROBE: u64 = (3 << 56) | (5 << 16) | 1;
+    const MISDIRECT_TWIN: u64 = (2 << 56) | (5 << 16) | 1;
+    /// A new top digit below the probe's, which the concurrent insert adds.
+    const MISDIRECT_SHIFTER: u64 = (1 << 56) | (250 << 16) | 1;
+
+    /// The level-8 root at `top`: its form, the address of the storage its
+    /// child edges live in (the node for a linear branch, subexpanse 0's
+    /// subarray for a bitmap branch), its top digits in order, and whether
+    /// every child is itself a branch.
+    fn misdirect_root(top: *mut Edge) -> (EdgeType, *const Edge, Vec<u8>, bool) {
+        // SAFETY: `top` is the live root edge of a quiescent tree.
+        let e = unsafe { top.read() };
+        let is_branch = |c: &Edge| {
+            matches!(
+                c.tag(),
+                Some(EdgeTag::Structural(
+                    EdgeType::BranchL3 | EdgeType::BranchL7 | EdgeType::BranchB | EdgeType::BranchU
+                ))
+            )
+        };
+        match e.tag() {
+            Some(EdgeTag::Structural(EdgeType::BranchL7)) => {
+                let b = e.node_ptr().cast::<BranchL7>();
+                // SAFETY: the tag says the root node is a live BranchL7.
+                unsafe {
+                    assert_eq!((*b).hdr.level, 8, "root branch at level 8");
+                    let num = (*b).hdr.num as usize;
+                    let edges = &(*b).edges;
+                    let hdr_digits = &(*b).hdr.digits;
+                    (
+                        EdgeType::BranchL7,
+                        edges.as_ptr(),
+                        hdr_digits[..num].to_vec(),
+                        edges[..num].iter().all(is_branch),
+                    )
+                }
+            }
+            Some(EdgeTag::Structural(EdgeType::BranchB)) => {
+                let b = e.node_ptr().cast::<BranchB>();
+                // SAFETY: the tag says the root node is a live BranchB; every
+                // digit below 32 lives in subexpanse 0's subarray.
+                unsafe {
+                    assert_eq!((*b).level, 8, "root branch at level 8");
+                    let digits: Vec<u8> = (0..32u8).filter(|&d| (*b).bitmap.test(d)).collect();
+                    let sub = (*b).subarrays[0].cast_const();
+                    let kids = (0..digits.len()).all(|r| is_branch(&*sub.add(r)));
+                    (EdgeType::BranchB, sub, digits, kids)
+                }
+            }
+            other => panic!("root must be a linear or bitmap branch, got {other:?}"),
+        }
+    }
+
+    /// Builds the fixture shared by the misdirected-descent tests and checks
+    /// the shape they depend on: a level-8 root of the given form whose
+    /// children are branches, the probe absent and its twin present. Returns
+    /// the root's child-edge storage address before the shift.
+    fn misdirect_fixture(
+        insert: impl Fn(u64),
+        top: impl Fn() -> *mut Edge,
+        digits: &[u64],
+        form: EdgeType,
+    ) -> *const Edge {
+        for &d in digits {
+            let base = match d {
+                2 => 0,
+                3 => 100,
+                _ => 200,
+            };
+            misdirect_keys(d, base).for_each(&insert);
+        }
+        let (got_form, storage, got_digits, kids) = misdirect_root(top());
+        assert_eq!(got_form, form, "root form");
+        let want: Vec<u8> = digits.iter().map(|&d| d as u8).collect();
+        assert_eq!(got_digits, want, "root digits");
+        assert!(
+            kids,
+            "every root child is a branch, so a terminal's parent is never the root"
+        );
+        storage
+    }
+
+    /// After the concurrent insert, the root must have taken the new digit
+    /// in place: same form, same edge storage, one more digit. Otherwise the
+    /// writer's edge was never moved and the test exercises nothing.
+    fn assert_shifted_in_place(top: *mut Edge, form: EdgeType, storage: *const Edge, n: usize) {
+        let (got_form, got_storage, got_digits, _) = misdirect_root(top);
+        assert_eq!(got_form, form, "the shift kept the root's form");
+        assert_eq!(got_storage, storage, "the shift moved edges in place");
+        assert_eq!(got_digits.len(), n + 1, "the shift added one digit");
+    }
+
+    /// Runs `op` on a writer parked just before it loads the root's child
+    /// edge, while this thread inserts a smaller top digit into the root,
+    /// shifting the writer's edge one slot right in place.
+    fn run_with_parked_writer<R: Send>(op: impl FnOnce() -> R + Send, shift: impl FnOnce()) -> R {
+        use std::sync::Arc;
+        let gate = test_hooks::Gate::new();
+        std::thread::scope(|sc| {
+            let g = Arc::clone(&gate);
+            let writer = sc.spawn(move || {
+                test_hooks::arm_child_edge_load(g);
+                op()
+            });
+            gate.parked.wait();
+            shift();
+            gate.release.wait();
+            writer.join().expect("writer thread")
+        })
+    }
+
+    #[test]
+    fn olc_set_insert_revalidates_linear_branch_after_child_edge_load() {
+        let set = SyncExpanseSet::new();
+        // SAFETY: each call reads the root edge pointer of a live tree.
+        let top = || unsafe { (*set.shared.inner.get()).root_top_ptr() };
+        let digits = [0, 2, 3, 5];
+        let storage =
+            misdirect_fixture(|k| assert!(set.insert(k)), top, &digits, EdgeType::BranchL7);
+        assert!(set.contains(MISDIRECT_TWIN) && !set.contains(MISDIRECT_PROBE));
+        let n0 = set.len();
+
+        let inserted = run_with_parked_writer(
+            || set.insert(MISDIRECT_PROBE),
+            || {
+                assert!(set.insert(MISDIRECT_SHIFTER));
+                assert_shifted_in_place(top(), EdgeType::BranchL7, storage, digits.len());
+            },
+        );
+
+        assert!(inserted, "an absent key's insert must report it inserted");
+        assert!(set.contains(MISDIRECT_PROBE), "the probe must be present");
+        assert!(set.contains(MISDIRECT_TWIN), "the twin must be untouched");
+        assert_eq!(set.len(), n0 + 2);
+        set.with_locked(ExpanseSet::validate);
+    }
+
+    /// Top digits for a bitmap root whose subexpanse-0 subarray has room for
+    /// one more edge in its capacity class, so the shifter's new digit moves
+    /// the probe's edge in place rather than into a fresh subarray.
+    fn misdirect_bitmap_digits() -> Vec<u64> {
+        let n = (crate::types::BRANCH_L7_CAP + 1..31)
+            .find(|&c| crate::leaf::cap_class(c + 1) == crate::leaf::cap_class(c))
+            .expect("a subarray population with spare capacity in its class");
+        assert!(
+            n < crate::mutate::BRANCHB_UP,
+            "the root stays a bitmap branch"
+        );
+        core::iter::once(0).chain(2..=n as u64).collect()
+    }
+
+    #[test]
+    fn olc_set_insert_revalidates_bitmap_branch_after_child_edge_load() {
+        let digits = misdirect_bitmap_digits();
+
+        let set = SyncExpanseSet::new();
+        // SAFETY: each call reads the root edge pointer of a live tree.
+        let top = || unsafe { (*set.shared.inner.get()).root_top_ptr() };
+        let storage =
+            misdirect_fixture(|k| assert!(set.insert(k)), top, &digits, EdgeType::BranchB);
+        assert!(set.contains(MISDIRECT_TWIN) && !set.contains(MISDIRECT_PROBE));
+        let n0 = set.len();
+
+        let inserted = run_with_parked_writer(
+            || set.insert(MISDIRECT_PROBE),
+            || {
+                assert!(set.insert(MISDIRECT_SHIFTER));
+                assert_shifted_in_place(top(), EdgeType::BranchB, storage, digits.len());
+            },
+        );
+
+        assert!(inserted, "an absent key's insert must report it inserted");
+        assert!(set.contains(MISDIRECT_PROBE), "the probe must be present");
+        assert!(set.contains(MISDIRECT_TWIN), "the twin must be untouched");
+        assert_eq!(set.len(), n0 + 2);
+        set.with_locked(ExpanseSet::validate);
+    }
+
+    #[test]
+    fn olc_map_insert_revalidates_linear_branch_after_child_edge_load() {
+        let map = SyncExpanseMap::new();
+        // SAFETY: each call reads the root edge pointer of a live tree.
+        let top = || unsafe { (*map.shared.inner.get()).root_top_ptr() };
+        let digits = [0, 2, 3, 5];
+        let storage = misdirect_fixture(
+            |k| assert_eq!(map.insert(k, !k), None),
+            top,
+            &digits,
+            EdgeType::BranchL7,
+        );
+        assert_eq!(map.get(MISDIRECT_PROBE), None);
+        let n0 = map.len();
+
+        let old = run_with_parked_writer(
+            || map.insert(MISDIRECT_PROBE, 0xFEED),
+            || {
+                assert_eq!(map.insert(MISDIRECT_SHIFTER, 1), None);
+                assert_shifted_in_place(top(), EdgeType::BranchL7, storage, digits.len());
+            },
+        );
+
+        assert_eq!(
+            old, None,
+            "an absent key's insert must return no previous value"
+        );
+        assert_eq!(map.get(MISDIRECT_PROBE), Some(0xFEED));
+        assert_eq!(map.get(MISDIRECT_TWIN), Some(!MISDIRECT_TWIN));
+        assert_eq!(map.len(), n0 + 2);
+        map.with_locked(ExpanseMap::validate);
+    }
+
+    #[test]
+    fn olc_set_remove_revalidates_linear_branch_after_child_edge_load() {
+        let set = SyncExpanseSet::new();
+        // SAFETY: each call reads the root edge pointer of a live tree.
+        let top = || unsafe { (*set.shared.inner.get()).root_top_ptr() };
+        let digits = [0, 2, 3, 5];
+        let storage =
+            misdirect_fixture(|k| assert!(set.insert(k)), top, &digits, EdgeType::BranchL7);
+        let n0 = set.len();
+
+        let removed = run_with_parked_writer(
+            || set.remove(MISDIRECT_PROBE),
+            || {
+                assert!(set.insert(MISDIRECT_SHIFTER));
+                assert_shifted_in_place(top(), EdgeType::BranchL7, storage, digits.len());
+            },
+        );
+
+        assert!(
+            !removed,
+            "removing an absent key must report nothing removed"
+        );
+        assert!(
+            set.contains(MISDIRECT_TWIN),
+            "the twin must not be removed in its place"
+        );
+        assert_eq!(set.len(), n0 + 1);
+        set.with_locked(ExpanseSet::validate);
+    }
+
+    #[test]
+    fn olc_map_remove_revalidates_linear_branch_after_child_edge_load() {
+        let map = SyncExpanseMap::new();
+        // SAFETY: each call reads the root edge pointer of a live tree.
+        let top = || unsafe { (*map.shared.inner.get()).root_top_ptr() };
+        let digits = [0, 2, 3, 5];
+        let storage = misdirect_fixture(
+            |k| assert_eq!(map.insert(k, !k), None),
+            top,
+            &digits,
+            EdgeType::BranchL7,
+        );
+        let n0 = map.len();
+
+        let removed = run_with_parked_writer(
+            || map.remove(MISDIRECT_PROBE),
+            || {
+                assert_eq!(map.insert(MISDIRECT_SHIFTER, 1), None);
+                assert_shifted_in_place(top(), EdgeType::BranchL7, storage, digits.len());
+            },
+        );
+
+        assert_eq!(removed, None, "removing an absent key must return no value");
+        assert_eq!(
+            map.get(MISDIRECT_TWIN),
+            Some(!MISDIRECT_TWIN),
+            "the twin must not be removed"
+        );
+        assert_eq!(map.len(), n0 + 1);
+        map.with_locked(ExpanseMap::validate);
+    }
+
+    #[test]
+    fn olc_map_insert_revalidates_bitmap_branch_after_child_edge_load() {
+        let digits = misdirect_bitmap_digits();
+        let map = SyncExpanseMap::new();
+        // SAFETY: each call reads the root edge pointer of a live tree.
+        let top = || unsafe { (*map.shared.inner.get()).root_top_ptr() };
+        let storage = misdirect_fixture(
+            |k| assert_eq!(map.insert(k, !k), None),
+            top,
+            &digits,
+            EdgeType::BranchB,
+        );
+        assert_eq!(map.get(MISDIRECT_PROBE), None);
+        let n0 = map.len();
+
+        let old = run_with_parked_writer(
+            || map.insert(MISDIRECT_PROBE, 0xFEED),
+            || {
+                assert_eq!(map.insert(MISDIRECT_SHIFTER, 1), None);
+                assert_shifted_in_place(top(), EdgeType::BranchB, storage, digits.len());
+            },
+        );
+
+        assert_eq!(
+            old, None,
+            "an absent key's insert must return no previous value"
+        );
+        assert_eq!(map.get(MISDIRECT_PROBE), Some(0xFEED));
+        assert_eq!(map.get(MISDIRECT_TWIN), Some(!MISDIRECT_TWIN));
+        assert_eq!(map.len(), n0 + 2);
+        map.with_locked(ExpanseMap::validate);
+    }
+
+    #[test]
+    fn olc_set_remove_revalidates_bitmap_branch_after_child_edge_load() {
+        let digits = misdirect_bitmap_digits();
+        let set = SyncExpanseSet::new();
+        // SAFETY: each call reads the root edge pointer of a live tree.
+        let top = || unsafe { (*set.shared.inner.get()).root_top_ptr() };
+        let storage =
+            misdirect_fixture(|k| assert!(set.insert(k)), top, &digits, EdgeType::BranchB);
+        let n0 = set.len();
+
+        let removed = run_with_parked_writer(
+            || set.remove(MISDIRECT_PROBE),
+            || {
+                assert!(set.insert(MISDIRECT_SHIFTER));
+                assert_shifted_in_place(top(), EdgeType::BranchB, storage, digits.len());
+            },
+        );
+
+        assert!(
+            !removed,
+            "removing an absent key must report nothing removed"
+        );
+        assert!(
+            set.contains(MISDIRECT_TWIN),
+            "the twin must not be removed in its place"
+        );
+        assert_eq!(set.len(), n0 + 1);
+        set.with_locked(ExpanseSet::validate);
+    }
+
+    #[test]
+    fn olc_map_remove_revalidates_bitmap_branch_after_child_edge_load() {
+        let digits = misdirect_bitmap_digits();
+        let map = SyncExpanseMap::new();
+        // SAFETY: each call reads the root edge pointer of a live tree.
+        let top = || unsafe { (*map.shared.inner.get()).root_top_ptr() };
+        let storage = misdirect_fixture(
+            |k| assert_eq!(map.insert(k, !k), None),
+            top,
+            &digits,
+            EdgeType::BranchB,
+        );
+        let n0 = map.len();
+
+        let removed = run_with_parked_writer(
+            || map.remove(MISDIRECT_PROBE),
+            || {
+                assert_eq!(map.insert(MISDIRECT_SHIFTER, 1), None);
+                assert_shifted_in_place(top(), EdgeType::BranchB, storage, digits.len());
+            },
+        );
+
+        assert_eq!(removed, None, "removing an absent key must return no value");
+        assert_eq!(
+            map.get(MISDIRECT_TWIN),
+            Some(!MISDIRECT_TWIN),
+            "the twin must not be removed"
+        );
+        assert_eq!(map.len(), n0 + 1);
         map.with_locked(ExpanseMap::validate);
     }
 
