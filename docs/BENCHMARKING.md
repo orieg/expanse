@@ -1487,6 +1487,9 @@ The deterministic Callgrind matrix evaluates instructions retired and cache line
 | `map_remove/*` | Key removal and tree condensation | Evaluates 1-index hysteresis and node compaction back down the compression ladder. |
 | `map_iterate/*` | Full-order traversal | Measures iterator state machine and stackless trie traversal. |
 | `map_nav/*` | Ordered navigation (`next_at_or_after`) | Evaluates cursor bounding and successor searching across multi-level branches. |
+| `map_prev/*` | Strict predecessor (`prev_before`) from each present key | The backtracking path: a probe that is its terminal's smallest key descends a sibling subtree to its maximum. The single-threaded reference for #900's optimistic ordered reads. |
+| `map32_nav/*` · `map32_prev/*` | 32-bit `next_at_or_after` and `prev_before` from each `keys32` probe | The 32-bit twins of `map_nav` and `map_prev`. |
+| `sync_map_prev_locked/*` | `prev_before` on `SyncExpanseMap` through `with_locked` | The only ordered route on the concurrent map before #900; the optimistic reads are compared against it. |
 
 ### 2. Key Distributions & Targeted Node Forms
 

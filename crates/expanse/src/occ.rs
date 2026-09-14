@@ -2693,6 +2693,111 @@ mod loom_tests {
         });
     }
 
+    // Ordered reads (#900). A predecessor search that finds nothing at or below
+    // its target in child C backtracks and descends a sibling S to its maximum.
+    // Each subtree is modelled by the one value it offers the search: C's
+    // candidate (0 = none) and S's maximum. The writer inserts ORD_K_PRIME
+    // into C, then ORD_M into S. The predecessor is ORD_M0 before the first
+    // insert and ORD_K_PRIME from then on, so ORD_M is never the answer.
+    const ORD_M0: u64 = 0x10;
+    const ORD_M: u64 = 0x20;
+    const ORD_K_PRIME: u64 = 0x1F0;
+
+    fn ordered_writer(
+        c_v: Arc<VersionCell>,
+        c_key: Arc<AtomicU64>,
+        s_v: Arc<VersionCell>,
+        s_max: Arc<AtomicU64>,
+    ) -> loom::thread::JoinHandle<()> {
+        loom::thread::spawn(move || {
+            version_begin(&c_v);
+            c_key.store(ORD_K_PRIME, Ordering::Relaxed);
+            version_end(&c_v);
+            version_begin(&s_v);
+            s_max.store(ORD_M, Ordering::Relaxed);
+            version_end(&s_v);
+        })
+    }
+
+    /// The negative control. Validating one cover at a time and dropping C's
+    /// snapshot before descending S, as a single moving cover does, lets a
+    /// search that backtracks return a key that was never the predecessor.
+    /// The model must find that interleaving.
+    #[test]
+    #[should_panic(expected = "never the predecessor")]
+    fn loom_ordered_read_hand_over_hand_is_not_enough() {
+        loom::model(|| {
+            let (c_v, s_v) = (Arc::new(VersionCell::new(0)), Arc::new(VersionCell::new(0)));
+            let (c_key, s_max) = (
+                Arc::new(AtomicU64::new(0)),
+                Arc::new(AtomicU64::new(ORD_M0)),
+            );
+            let writer = ordered_writer(
+                Arc::clone(&c_v),
+                Arc::clone(&c_key),
+                Arc::clone(&s_v),
+                Arc::clone(&s_max),
+            );
+            let answer = (|| {
+                let cs = node_sample(&c_v)?;
+                let x = c_key.load(Ordering::Relaxed);
+                if !node_validate(&c_v, cs) {
+                    return None;
+                }
+                if x != 0 {
+                    return Some(x);
+                }
+                let ss = node_sample(&s_v)?;
+                let y = s_max.load(Ordering::Relaxed);
+                node_validate(&s_v, ss).then_some(y)
+            })();
+            if let Some(a) = answer {
+                assert!(
+                    a == ORD_M0 || a == ORD_K_PRIME,
+                    "ordered read returned {a:#x}, never the predecessor"
+                );
+            }
+            writer.join().unwrap();
+        });
+    }
+
+    /// Retaining every snapshot the search read, and validating all of them
+    /// after the last load, returns only a key that was the predecessor at
+    /// one instant: the one after every sample and before every validation.
+    #[test]
+    fn loom_ordered_read_retained_read_set() {
+        loom::model(|| {
+            let (c_v, s_v) = (Arc::new(VersionCell::new(0)), Arc::new(VersionCell::new(0)));
+            let (c_key, s_max) = (
+                Arc::new(AtomicU64::new(0)),
+                Arc::new(AtomicU64::new(ORD_M0)),
+            );
+            let writer = ordered_writer(
+                Arc::clone(&c_v),
+                Arc::clone(&c_key),
+                Arc::clone(&s_v),
+                Arc::clone(&s_max),
+            );
+            let answer = (|| {
+                let cs = node_sample(&c_v)?;
+                let x = c_key.load(Ordering::Relaxed);
+                if x != 0 {
+                    return node_validate(&c_v, cs).then_some(x);
+                }
+                let ss = node_sample(&s_v)?;
+                let y = s_max.load(Ordering::Relaxed);
+                (node_validate(&c_v, cs) && node_validate(&s_v, ss)).then_some(y)
+            })();
+            if let Some(a) = answer {
+                assert!(
+                    a == ORD_M0 || a == ORD_K_PRIME,
+                    "ordered read returned {a:#x}, never the predecessor"
+                );
+            }
+            writer.join().unwrap();
+        });
+    }
+
     /// S5: Two concurrent writers attempt to acquire a lock on the same node `N` via `try_lock()`.
     /// At no point do both writers enter the critical section simultaneously.
     #[test]

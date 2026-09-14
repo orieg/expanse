@@ -1,6 +1,6 @@
 //! Concurrent OCC linearizability verification test harness.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
@@ -753,4 +753,245 @@ fn test_sync_set_linearizability_tree_rooted() {
     set.with_locked(|inner| {
         inner.validate();
     });
+}
+
+// ---- Ordered queries: a whole-map model (#900) ----------------------------
+//
+// The checkers above partition a history by key, which is sound only for
+// point operations: a predecessor's answer depends on keys other than its
+// argument, so an ordered history is checked against one sequential map. The
+// search is Wing & Gong's, memoised on (operations applied, map state); it is
+// exponential in the worst case, so a history holds at most 64 events.
+
+#[derive(Clone, Debug, PartialEq)]
+enum OrdOp {
+    Insert(u64, u64),
+    Remove(u64),
+    PrevAtOrBefore(u64),
+    NextAtOrAfter(u64),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum OrdRet {
+    Insert(Option<u64>),
+    Remove(Option<u64>),
+    Found(Option<(u64, u64)>),
+}
+
+#[derive(Clone, Debug)]
+struct OrdEvent {
+    op: OrdOp,
+    ret: OrdRet,
+    start: Instant,
+    end: Instant,
+}
+
+/// The map after `op`, if the sequential map in `state` returns `ret` for it.
+fn ord_apply(state: &BTreeMap<u64, u64>, op: &OrdOp, ret: &OrdRet) -> Option<BTreeMap<u64, u64>> {
+    match (op, ret) {
+        (OrdOp::Insert(k, v), OrdRet::Insert(old)) => (state.get(k).copied() == *old).then(|| {
+            let mut s = state.clone();
+            s.insert(*k, *v);
+            s
+        }),
+        (OrdOp::Remove(k), OrdRet::Remove(old)) => (state.get(k).copied() == *old).then(|| {
+            let mut s = state.clone();
+            s.remove(k);
+            s
+        }),
+        (OrdOp::PrevAtOrBefore(k), OrdRet::Found(got)) => {
+            (state.range(..=*k).next_back().map(|(a, b)| (*a, *b)) == *got).then(|| state.clone())
+        }
+        (OrdOp::NextAtOrAfter(k), OrdRet::Found(got)) => {
+            (state.range(*k..).next().map(|(a, b)| (*a, *b)) == *got).then(|| state.clone())
+        }
+        _ => None,
+    }
+}
+
+fn check_ordered_linearizability(events: &[OrdEvent], initial: &BTreeMap<u64, u64>) -> bool {
+    assert!(
+        events.len() <= 64,
+        "the whole-map search memoises on a u64 mask: at most 64 events, got {}",
+        events.len()
+    );
+    fn search(
+        events: &[OrdEvent],
+        used: u64,
+        state: &BTreeMap<u64, u64>,
+        seen: &mut HashSet<(u64, Vec<(u64, u64)>)>,
+    ) -> bool {
+        if used.count_ones() as usize == events.len() {
+            return true;
+        }
+        if !seen.insert((used, state.iter().map(|(a, b)| (*a, *b)).collect())) {
+            return false;
+        }
+        // An operation may go next only if no unapplied operation ended before it started.
+        let min_end = events
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| used & (1u64 << i) == 0)
+            .map(|(_, e)| e.end)
+            .min();
+        for (i, e) in events.iter().enumerate() {
+            if used & (1u64 << i) != 0 {
+                continue;
+            }
+            if let Some(me) = min_end
+                && me < e.start
+            {
+                continue;
+            }
+            if let Some(next) = ord_apply(state, &e.op, &e.ret)
+                && search(events, used | (1u64 << i), &next, seen)
+            {
+                return true;
+            }
+        }
+        false
+    }
+    search(events, 0, initial, &mut HashSet::new())
+}
+
+/// `n` strictly increasing instants, for a hand-built history.
+fn increasing_instants(n: usize) -> Vec<Instant> {
+    let mut out = vec![Instant::now()];
+    while out.len() < n {
+        let t = Instant::now();
+        if t > *out.last().unwrap() {
+            out.push(t);
+        }
+    }
+    out
+}
+
+/// The whole-map checker rejects the answer an optimistic predecessor search
+/// can return if it drops a subtree's snapshot before backtracking (#900): a
+/// read overlapping two inserts returns `m`, which is below `k_prime` in every
+/// state that contains it. Each answer that was the predecessor at some instant
+/// is accepted, and a read that starts after both inserts cannot see the state
+/// before them.
+#[test]
+fn ordered_checker_rejects_a_key_that_was_never_the_predecessor() {
+    const K: u64 = 0x0200;
+    let (m0, m, k_prime) = (0x0010u64, 0x0020u64, 0x01F0u64);
+    let initial: BTreeMap<u64, u64> = [(m0, 1), (K + 5, 2)].into_iter().collect();
+    let t = increasing_instants(8);
+    let writes = [
+        OrdEvent {
+            op: OrdOp::Insert(k_prime, 3),
+            ret: OrdRet::Insert(None),
+            start: t[1],
+            end: t[2],
+        },
+        OrdEvent {
+            op: OrdOp::Insert(m, 4),
+            ret: OrdRet::Insert(None),
+            start: t[3],
+            end: t[4],
+        },
+    ];
+    let read = |got, start, end| OrdEvent {
+        op: OrdOp::PrevAtOrBefore(K),
+        ret: OrdRet::Found(got),
+        start,
+        end,
+    };
+
+    let bad = [
+        writes[0].clone(),
+        writes[1].clone(),
+        read(Some((m, 4)), t[0], t[5]),
+    ];
+    assert!(
+        !check_ordered_linearizability(&bad, &initial),
+        "a key that was never the predecessor must be rejected"
+    );
+    for got in [Some((m0, 1)), Some((k_prime, 3))] {
+        let good = [writes[0].clone(), writes[1].clone(), read(got, t[0], t[5])];
+        assert!(
+            check_ordered_linearizability(&good, &initial),
+            "{got:?} was the predecessor at some instant of the read"
+        );
+    }
+    let stale = [
+        writes[0].clone(),
+        writes[1].clone(),
+        read(Some((m0, 1)), t[6], t[7]),
+    ];
+    assert!(
+        !check_ordered_linearizability(&stale, &initial),
+        "a read that starts after both inserts must not see the state before them"
+    );
+}
+
+/// A live ordered history on a tree-rooted map, with predecessor and successor
+/// reads taken through `with_locked` -- the only ordered route before #900, and
+/// linearizable by construction. It exercises the whole-map checker on real
+/// interleavings; the optimistic ordered reads replace `with_locked` here once
+/// they exist. The keys straddle byte boundaries at two levels, so a search
+/// from one of them leaves its terminal for a neighbour.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_map_ordered_linearizability_through_with_locked() {
+    let map = Arc::new(SyncExpanseMap::new());
+    const PREPOP: u64 = 64;
+    let mut initial = BTreeMap::new();
+    for b in 1..=PREPOP {
+        map.insert(b << 56, b);
+        initial.insert(b << 56, b);
+    }
+    let keys: [u64; 8] = [
+        0x00FF, 0x0100, 0x01FF, 0x0200, 0xFFFF, 0x1_0000, 0x1_00FF, 0x1_0100,
+    ];
+    let history = Arc::new(Mutex::new(Vec::new()));
+    let (threads, per_thread) = (3usize, 16usize);
+    let mut handles = vec![];
+    for t_id in 0..threads {
+        let (map, history) = (Arc::clone(&map), Arc::clone(&history));
+        handles.push(thread::spawn(move || {
+            let mut local = Vec::with_capacity(per_thread);
+            for i in 0..per_thread {
+                let key = keys[(t_id * 3 + i) % keys.len()];
+                let op = match (t_id + i) % 4 {
+                    0 => OrdOp::Insert(key, (t_id * 1000 + i) as u64),
+                    1 => OrdOp::Remove(key),
+                    2 => OrdOp::PrevAtOrBefore(key),
+                    _ => OrdOp::NextAtOrAfter(key),
+                };
+                let start = Instant::now();
+                let ret = match &op {
+                    OrdOp::Insert(k, v) => OrdRet::Insert(map.insert(*k, *v)),
+                    OrdOp::Remove(k) => OrdRet::Remove(map.remove(*k)),
+                    OrdOp::PrevAtOrBefore(k) => {
+                        OrdRet::Found(map.with_locked(|m| m.prev_at_or_before(*k)))
+                    }
+                    OrdOp::NextAtOrAfter(k) => {
+                        OrdRet::Found(map.with_locked(|m| m.next_at_or_after(*k)))
+                    }
+                };
+                let end = Instant::now();
+                local.push(OrdEvent {
+                    op,
+                    ret,
+                    start,
+                    end,
+                });
+            }
+            history.lock().unwrap().extend(local);
+        }));
+    }
+    for h in handles {
+        h.join().unwrap();
+    }
+    let history = history.lock().unwrap().clone();
+    assert_eq!(history.len(), threads * per_thread);
+    assert!(
+        check_ordered_linearizability(&history, &initial),
+        "an ordered history taken through with_locked is not linearizable"
+    );
 }
