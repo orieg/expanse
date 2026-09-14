@@ -20,9 +20,11 @@ recorded in ``docs/benchmarks/hot_comparison/METHODOLOGY.md``:
    the keyspace is exactly a doubling of density.
 """
 
+import inspect
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -104,9 +106,27 @@ HEALTH_DERIVED = (
     "deep_cascade_share", "root_rewrite_share", "spin_time_share",
 )
 CONCURRENT_MEMORY_ARMS = {"set": "rowex_set", "map": "rowex_map"}
-# A second target dir for the diagnostic build, so the two feature sets can
-# never overwrite each other's binary (decision 5).
+# One target dir per feature set. Cargo writes a binary to
+# `<target>/release/<name>` whatever features built it, so two builds sharing a
+# dir leave only the later one's binary there. The `occ-stats` build must never
+# time anything (§11.3 decision 5). The `rowex` build links libtbb and a second
+# shim into every binary of the crate; the single-threaded cells were published
+# from the build without it, and whether `rowex` moves them is unmeasured, so
+# they keep that build.
+ROWEX_TARGET = CRATE.parent / "target-rowex"
 OCC_STATS_TARGET = CRATE.parent / "target-occ-stats"
+BUILD_FEATURES = {"default": (), "rowex": ("rowex",), "occ-stats": ("rowex", "occ-stats")}
+# The build each pass runs each of its binaries from.
+PASS_BINARIES = {
+    "sensitivity": {"hot_memory_curve": "default", "hot_latency": "default"},
+    "memory": {"hot_memory_curve": "default"},
+    "latency": {"hot_latency": "default"},
+    "throughput": {"hot_concurrent": "rowex"},
+    "health": {"hot_concurrent": "occ-stats"},
+    "concurrent_memory": {"hot_memory_curve": "rowex"},
+}
+SINGLE_THREADED_PASSES = ("sensitivity", "memory", "latency")
+CONCURRENT_PASSES = ("throughput", "health", "concurrent_memory")
 
 
 def keyspace_bits(arm: str) -> int:
@@ -120,20 +140,45 @@ def population_for_lambda(arm: str, lam: float) -> int:
     return max(1000, int(round(lam * expanses)))
 
 
-def build(env: dict) -> None:
-    """Builds both binaries once, at the ISA target §3.3 binds both arms to."""
-    print("building hot_memory_curve and hot_latency at -C target-cpu=haswell ...")
-    subprocess.run(
-        ["cargo", "build", "--release", "--manifest-path", str(CRATE),
-         "--bin", "hot_memory_curve", "--bin", "hot_latency"],
-        check=True, env=env,
-    )
-
-
-def binary(name: str) -> Path:
+def target_dir(build: str) -> Path:
+    """Where `build` writes; only the default build honours CARGO_TARGET_DIR."""
+    if build == "rowex":
+        return ROWEX_TARGET
+    if build == "occ-stats":
+        return OCC_STATS_TARGET
     target = os.environ.get("CARGO_TARGET_DIR")
-    root = Path(target) if target else (CRATE.parent / "target")
-    return root / "release" / name
+    return Path(target) if target else (CRATE.parent / "target")
+
+
+def binary(pass_: str, name: str) -> Path:
+    """The binary `pass_` runs, from the build PASS_BINARIES assigns it."""
+    return target_dir(PASS_BINARIES[pass_][name]) / "release" / name
+
+
+def build_plan(single_threaded: bool, concurrent: bool) -> list:
+    """Every cargo build a run performs, in order, as (build, binaries)."""
+    plan = []
+    if concurrent:
+        plan.append(("rowex", ("hot_concurrent", "hot_memory_curve")))
+        plan.append(("occ-stats", ("hot_concurrent",)))
+    if single_threaded:
+        plan.append(("default", ("hot_memory_curve", "hot_latency")))
+    return plan
+
+
+def run_builds(plan: list, env: dict) -> None:
+    """Runs `plan` at the ISA target §3.3 binds both arms to."""
+    for build, bins in plan:
+        args = ["cargo", "build", "--release", "--manifest-path", str(CRATE)]
+        if BUILD_FEATURES[build]:
+            args += ["--features", ",".join(BUILD_FEATURES[build])]
+        for b in bins:
+            args += ["--bin", b]
+        build_env = dict(env)
+        build_env["CARGO_TARGET_DIR"] = str(target_dir(build))
+        note = " (libtbb is built from HOT's nested submodule on first use)" if "rowex" in BUILD_FEATURES[build] else ""
+        print(f"building {', '.join(bins)} ({build} build) into {target_dir(build)}{note} ...")
+        subprocess.run(args, check=True, env=build_env)
 
 
 def run_cell(args: list, env: dict) -> list:
@@ -152,7 +197,7 @@ def sweep_memory(env: dict, quick: bool) -> dict:
     for arm in ARMS:
         for lam in targets:
             n = population_for_lambda(arm, lam)
-            rows = run_cell([str(binary("hot_memory_curve")), arm, str(n)], env)
+            rows = run_cell([str(binary("memory", "hot_memory_curve")), arm, str(n)], env)
             if len(rows) != 1:
                 raise RuntimeError(f"memory cell emitted {len(rows)} rows, expected 1")
             row = rows[0]
@@ -212,7 +257,7 @@ def sweep_latency(env: dict, quick: bool) -> dict:
                 for n in pops:
                     ks = SCAN_K if pillar == "scan" else [0]
                     for k in ks:
-                        args = [str(binary("hot_latency")), arm, pillar, dist, str(n)]
+                        args = [str(binary("latency", "hot_latency")), arm, pillar, dist, str(n)]
                         if pillar == "scan":
                             args.append(str(k))
                         rows = run_cell(args, env)
@@ -262,7 +307,7 @@ def sweep_sensitivity(env: dict, quick: bool) -> dict:
     memory, latency = [], []
     for arm in ARMS:
         for order in SENSITIVITY_ORDERS:
-            rows = run_cell([str(binary("hot_memory_curve")), arm, str(n), order], env)
+            rows = run_cell([str(binary("sensitivity", "hot_memory_curve")), arm, str(n), order], env)
             if len(rows) != 1:
                 raise RuntimeError(f"sensitivity memory cell emitted {len(rows)} rows, expected 1")
             memory.append(rows[0])
@@ -271,7 +316,7 @@ def sweep_sensitivity(env: dict, quick: bool) -> dict:
                   f"Expanse {rows[0]['expanse_alloc_bytes_per_key']:.2f} B/key  "
                   f"mem_used {rows[0]['expanse_mem_used_bytes_per_key']:.2f}")
             for pillar in SENSITIVITY_PILLARS:
-                rows = run_cell([str(binary("hot_latency")), arm, pillar,
+                rows = run_cell([str(binary("sensitivity", "hot_latency")), arm, pillar,
                                  SENSITIVITY_DIST, str(n), order], env)
                 hot = [r["hot_ns_per_op"] for r in rows]
                 exp = [r["expanse_ns_per_op"] for r in rows]
@@ -296,37 +341,13 @@ def sweep_sensitivity(env: dict, quick: bool) -> dict:
     return {"memory": memory, "latency": latency}
 
 
-def build_concurrent_binaries(env: dict) -> None:
-    """Two builds, never one (§11.3 decision 5).
-
-    The default build carries the throughput cells and the ROWEX memory arms;
-    the `occ-stats` build carries the health cells and refuses to time anything.
-    They go to separate target dirs so neither can overwrite the other.
-    """
-    print("building hot_concurrent and hot_memory_curve with --features rowex "
-          "(libtbb is built from HOT's nested submodule on first use) ...")
-    subprocess.run(
-        ["cargo", "build", "--release", "--manifest-path", str(CRATE),
-         "--features", "rowex", "--bin", "hot_concurrent", "--bin", "hot_memory_curve"],
-        check=True, env=env,
-    )
-    print("building the diagnostic hot_concurrent with --features rowex,occ-stats ...")
-    occ_env = dict(env)
-    occ_env["CARGO_TARGET_DIR"] = str(OCC_STATS_TARGET)
-    subprocess.run(
-        ["cargo", "build", "--release", "--manifest-path", str(CRATE),
-         "--features", "rowex,occ-stats", "--bin", "hot_concurrent"],
-        check=True, env=occ_env,
-    )
-
-
 def concurrent_cell(arm: str, writers: int, readers: int, env: dict) -> dict:
     """One throughput cell in its own process, harvested into BCa intervals.
 
     Ratios are Expanse ÷ ROWEX throughput, so — as everywhere in this suite —
     above 1.000 means Expanse is faster (§11.4).
     """
-    rows = run_cell([str(binary("hot_concurrent")), arm, str(writers), str(readers)], env)
+    rows = run_cell([str(binary("throughput", "hot_concurrent")), arm, str(writers), str(readers)], env)
     if not rows:
         raise RuntimeError(f"concurrent cell {arm} W={writers} R={readers} emitted no rows")
     return reduce_throughput(rows, arm, writers, readers)
@@ -440,7 +461,7 @@ def reduce_health(rows: list, arm: str, writers: int, readers: int) -> dict:
 def health_cell(arm: str, writers: int, readers: int, env: dict) -> dict:
     """Event ratios from the diagnostic build; nothing here is a timing."""
     occ_env = dict(env)
-    exe = OCC_STATS_TARGET / "release" / "hot_concurrent"
+    exe = binary("health", "hot_concurrent")
     rows = run_cell([str(exe), arm, str(writers), str(readers), "--health"], occ_env)
     cell = reduce_health(rows, arm, writers, readers)
     locked = "n/a" if cell["locked_share"] is None else f"{cell['locked_share']['median']:.4%}"
@@ -460,7 +481,7 @@ def ab_cell(arm: str, writers: int, readers: int, base_bin: Path, env: dict) -> 
     single-build cell is; the cell carries both reductions and every round
     of both builds (`rounds_raw`, tagged `build`).
     """
-    head_bin = binary("hot_concurrent")
+    head_bin = binary("throughput", "hot_concurrent")
     base_rows, head_rows = interleave(base_bin, head_bin, [arm, str(writers), str(readers)],
                                       AB_ROUNDS, env, run_cell)
     print(f"  base build ({len(base_rows)} rounds):")
@@ -553,7 +574,7 @@ def sweep_concurrent(env: dict, quick: bool, prov: dict) -> dict:
         print(f"\n  M memory — ROWEX {arm} arm vs Sync wrapper, build-only, single writer")
         for lam in lambdas:
             n = population_for_lambda(arm, lam)
-            rows = run_cell([str(binary("hot_memory_curve")), CONCURRENT_MEMORY_ARMS[arm], str(n)], env)
+            rows = run_cell([str(binary("concurrent_memory", "hot_memory_curve")), CONCURRENT_MEMORY_ARMS[arm], str(n)], env)
             if len(rows) != 1:
                 raise RuntimeError(f"memory cell emitted {len(rows)} rows, expected 1")
             row = rows[0]
@@ -639,6 +660,35 @@ def _self_test() -> int:
     except RuntimeError as exc:
         check("the refusal names locked_reads and the round", "locked_reads" in str(exc) and "round 1" in str(exc))
 
+    # THE BUILD PLAN: every binary a pass runs must be, when it runs, the output
+    # of the build that pass needs. Replay each flag combination's plan over the
+    # paths it writes, later writer wins. A combined `--concurrent` run once
+    # built the ROWEX `hot_memory_curve` and then overwrote it with the default
+    # build in the same dir, so the concurrent memory pass failed on `rowex_set`.
+    for label, single, conc in (("single-threaded", True, False),
+                                ("--concurrent", True, True),
+                                ("--only-concurrent", False, True)):
+        written = {}
+        for build, bins in build_plan(single, conc):
+            for b in bins:
+                written[target_dir(build) / "release" / b] = BUILD_FEATURES[build]
+        passes = (SINGLE_THREADED_PASSES if single else ()) + (CONCURRENT_PASSES if conc else ())
+        for p in passes:
+            for name, build in PASS_BINARIES[p].items():
+                got = written.get(binary(p, name))
+                check(f"{label}: the {p} pass runs {name} built with {got}, needs {BUILD_FEATURES[build]}",
+                      got == BUILD_FEATURES[build])
+    # ...and each call site asks for its own pass's binaries, and main builds
+    # the plan for the phases it runs.
+    for fn, want in ((sweep_memory, {"memory"}), (sweep_latency, {"latency"}),
+                     (sweep_sensitivity, {"sensitivity"}), (concurrent_cell, {"throughput"}),
+                     (ab_cell, {"throughput"}), (health_cell, {"health"}),
+                     (sweep_concurrent, {"concurrent_memory"})):
+        used = set(re.findall(r'binary\("(\w+)"', inspect.getsource(fn)))
+        check(f"{fn.__name__} runs binaries of {sorted(used)}, expected {sorted(want)}", used == want)
+    check("main builds the plan for the phases it runs",
+          "run_builds(build_plan(single_threaded, concurrent), env)" in inspect.getsource(main))
+
     for msg in failures:
         print(f"  FAIL {msg}")
     if failures:
@@ -708,12 +758,10 @@ def main() -> int:
     if quick:
         print("QUICK MODE — reduced sweep, writing to gitignored results/quick/ (§8.5)")
 
-    if concurrent:
-        # Build before anything is timed and before the lock matters: the
-        # first `rowex` build also compiles libtbb.
-        build_concurrent_binaries(env)
-    if not only_concurrent:
-        build(env)
+    single_threaded = not only_concurrent
+    # Every build before anything is timed (the first `rowex` build also
+    # compiles libtbb), each into its own target dir.
+    run_builds(build_plan(single_threaded, concurrent), env)
 
     provenance = {
         "suite": "hot_comparison",
@@ -744,7 +792,7 @@ def main() -> int:
     # is only the sweep's own tail — `masstree_comparison` discarded a full run
     # for exactly that (start 0.88, 4.79 after the concurrent join) before its
     # runner was ordered this way.
-    if not only_concurrent:
+    if single_threaded:
         if sensitivity:
             print("\n[sensitivity] §12.2 — the same population sorted and shuffled")
             sens = sweep_sensitivity(env, quick)
