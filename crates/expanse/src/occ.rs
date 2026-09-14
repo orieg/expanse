@@ -2312,10 +2312,11 @@ mod tests {
     ///
     /// `ALLOC_SLOTS_MASK` is process-global: a test that retires through a
     /// collector holds a bit of it for as long as its thread lives, so which bit
-    /// a new thread claims depends on every test running at the same time. Outside Miri the calling test re-runs itself with `--exact` in a
-    /// child process, where no other test claims a slot, and `body` receives
-    /// `true` there. Miri cannot spawn a process, so under Miri `body` runs in
-    /// place and receives `false`.
+    /// a new thread claims depends on every test running at the same time.
+    /// Outside Miri the calling test re-runs itself with `--exact` in a child
+    /// process, where no other test claims a slot, and `body` receives `true`
+    /// there. Miri cannot spawn a process, so under Miri `body` runs in place
+    /// and receives `false`.
     #[cfg(all(feature = "std", not(loom)))]
     fn in_own_process(test: &str, body: impl FnOnce(bool)) {
         const CHILD: &str = "EXPANSE_OCC_TEST_OWN_PROCESS";
