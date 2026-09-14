@@ -1543,7 +1543,7 @@ impl Collector {
     }
 
     /// Pops a reclaimed block from this collector's size-class freelist.
-    #[inline(always)]
+    #[inline(never)]
     pub(crate) fn pop_freelist(&self, class: usize) -> *mut u8 {
         let mut head = self
             .alloc_freelist(class)
