@@ -540,3 +540,41 @@ Threshold, method and round count are fixed here. Changing any of them after a r
 - **The 32-bit surface's wall clock,** which is measured on-device, not here.
 - **Ordered reads on `SyncExpanseSet`, and rank or select.**
 - **The RocksDB consumer arm.** It is pre-registered in `docs/benchmarks/rocksdb_memtable/METHODOLOGY.md` before its runs, once the C ABI exists.
+
+### 12.7 Outcomes (appended 2026-09-14; §12.1–§12.6 are not edited)
+
+**P12.2 — REFUTED on `sync_set_contains/random`; holds on `sync_map_get/random`** (#928, which moved both readers onto `Shared::optimistic_read`).
+
+| arm | bound | result | verdict |
+|---|---|---|---|
+| `sync_map_get/random` | at most 0.1% change | 0.00% | holds |
+| `sync_set_contains/random` | at most 0.1% change | −0.95% | **REFUTED** |
+
+*(measured: CI `instruction-counts`, #928 head `4364337d` against `4305add8`, [run 34891445998](https://github.com/orieg/expanse/actions/runs/34891445998))*
+
+The bound has no direction, so fewer instructions refute it just as more would. The set arm is not reclassified as a pass (AGENTS.md §8.19).
+
+**Attribution** (AGENTS.md §6). *(measured: iai-callgrind 0.16.1 on an x86_64 Linux host, rustc 1.98.0, the same two commits; per-function `callgrind_annotate --inclusive=no` and `objdump -d -C` of both bench binaries)*
+
+- **Reproduced.** The set arm's total fell from 14,866,219 to 14,725,106 instructions (−141,113). The map arm did not move.
+- **One function.** The whole change sits in `SetReader::contains` and the code inlined into it:
+
+  | inlined source | Δ instructions |
+  |---|---|
+  | `sync.rs` | −191,113 |
+  | `core/src/macros` | −100,000 |
+  | `bits.rs` | −50,000 |
+  | `atomic.rs` | +50,000 |
+  | `occ.rs` | +50,000 |
+  | `set.rs` | +100,000 |
+
+  Data reads fell by 208,929 and data writes by 100,021 in the same profiles.
+- **The source that changed** is the call site, not the walk. `walk_validated` and the node code are identical in both commits. Base matched the walk's `Result` and then converted with `r.is_some()`. Head converts inside the walk closure, `walked.map(|r| r.is_some())`, and the helper returns the `Ok` value unchanged. `map_get_with` returns the walk's result with no conversion, and its count did not move.
+- **The disassembly changed with it.**
+  - **Size.** `SetReader::contains` is 805 instructions in base and 789 in head. `map_get_with` is 978 and 976, differing only in padding and branch offsets. Both builds call the same seven targets out of line, `leaf::search` among them, so no inlining decision changed.
+  - **Base exits.** Every walk exit stores its answer in `%rax` and branches to one shared block, reached by seven branches. That block converts the answer to a bool (`test %rax,%rax; setne`), writes `INACTIVE` to the reader's slot (the pin's drop, `occ.rs:1932`) and jumps to the epilogue. The bitmap exit reaches it through `bt`/`setb`.
+  - **Head exits.** Each exit writes the bool directly, with its own pin release and jump, plus one `and $0x1` at the epilogue. The shared block and the `bt` are gone.
+  - **The stack slot.** Base keeps a 32-bit value in `0x4(%rsp)`, with 21 references. Head holds it in a register, with 0 references. That fits the fall in data reads and writes.
+- **Not established.**
+  - How the 141,113 splits between the exit layout and the stack slot. Per-instruction execution counts (`--dump-instr=yes`) were not collected.
+  - Why the code generator chose the different layout.
