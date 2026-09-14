@@ -454,3 +454,89 @@ verdict can be read against the rate at which its mechanism is exercised.
 
 **Explicitly not predicted.** No direction or magnitude is predicted for any
 arm; this is an interventional diagnostic, and no run exists yet (#568).
+
+## 12. Pre-registration for #900 — optimistic ordered reads on the concurrent map (appended 2026-09-14, locked before any ordered-read engine code)
+
+The question (#900): can `SyncExpanseMap` answer ordered queries under optimistic lock coupling, instead of through `with_locked`, which excludes every writer? And do its readers gain from it?
+
+Decisions fixed before this section, on #900:
+
+- **Scope:** the six-operation family on the map, at 64-bit and 32-bit.
+- **Shape:** single calls, no cursor.
+- **Retries:** restart the whole walk when a validation fails. After `MAX_RETRIES` (64), a 64-bit read falls back through `read_locked`; a 32-bit reader returns `Busy`.
+- **Code layout:** the validated walks are separate from `nav.rs`. The retry protocol is extracted once (`optimistic_read`) before the walks are added.
+
+### 12.1 What is derived, and what the change must do
+
+- **The read set.** `nav::prev` and `nav::next` make at most one sibling descent. A search that backtracks at branch level ℓ therefore validates ℓ + 5 branch versions: at most 13, against `get`'s 7 (`olc_bounds.ordered_read_set_branches`, #926).
+- **The validation rule.** `get` validates hand-over-hand. A search that drops a child's snapshot before its sibling descent can return a key that was never the answer, and `loom_ordered_read_hand_over_hand_is_not_enough` finds that interleaving. The rule that passes `loom_ordered_read_retained_read_set` (#925) is a *retained read set*:
+  - every branch version the search read is validated again after its last load;
+  - every empty subtree is confirmed against its node.
+- **A projection, not a prediction.** It assumes per-node independence and is dated to artifact commits `a1982ff2` and `c71fa4ba`. On that basis an ordered read fails 10.06–49.71% of attempts, takes 1.11–1.99 attempts per operation, and falls back on at most 3.7e-20 of operations (`python3 scripts/olc_bounds.py` at `4bb5a4cf`). Writes concentrated near the probe break the independence hypothesis; P12.4 measures that case.
+
+### 12.2 Soundness gates, before any measurement
+
+No cell in §12.4 is read until every gate below passes on the head being measured.
+
+- **G12.1 — deterministic reproducer.** A thread-armed `cfg(test)` park point sits at the validated walk's backtrack step, following the `test_hooks::Gate` pattern in `sync.rs`. It replays the Loom interleaving on the real walk, in an insert variant and a remove variant. A variant that drops the child's snapshot must fail by name, and the shipped walk must pass (AGENTS.md §2.3).
+- **G12.2 — history.** The whole-map checker in `tests/linearizability.rs` passes with the optimistic operations in place of `with_locked`, on the tree-rooted history and on a hot-spot history.
+- **G12.3 — differential.** On quiescent trees, across the `keys` distributions, the validated walks agree with `nav::next` and `nav::prev`, including keys 0 and `u64::MAX` and `next_after(u64::MAX)`.
+- **G12.4 — lanes, and a known defect.** The Loom, TSan and ASan lanes pass. The intermittent length mismatch in `sync::obsolete_tests::set_lazy_branch_pop0_fold_and_sharded_tree_pop_invariant` must also be explained: CI run 34801088246 counted 8999 against 9000 after every writer joined. Ordered reads run beside that insert path, so a concurrent cell measured before the mismatch is explained is void.
+- **G12.5 — 32-bit.** `sync32_stress` checks that every key a `try_*` ordered read returns was the correct neighbour in some committed state.
+
+G12.1 and the Loom models are re-run after any #568 change to the obsolete-marking or cover rules.
+
+### 12.3 Predictions, each with its refuter
+
+- **P12.1 — the single-threaded paths do not move** (AGENTS.md §2.1.5).
+  - The claim: in each PR that adds ordered-read code, against that PR's base, `map_nav/*`, `map_prev/*`, `map_get/*`, `map_insert/*`, `map32_nav/*` and `map32_prev/*` change by at most 0.1%, the §6 review threshold. The disassembly of `nav::next`, `nav::prev` and `mutate::insert_with_path_flat` also gains no thread-local access.
+  - **REFUTED** on any arm above 0.1%.
+- **P12.2 — extracting the retry protocol moves no concurrent reader.**
+  - The claim: in the PR that moves them onto `optimistic_read`, `sync_map_get/random` and `sync_set_contains/random` change by at most 0.1%.
+  - **REFUTED** above that.
+- **P12.3 — an optimistic ordered read costs fewer instructions than the locked one.**
+  - The claim: on the head that adds it, the new `sync_map_prev/random` arm (a reader handle's `prev_before` from each present key) counts fewer instructions per operation than `sync_map_prev_locked/random` on the same head.
+  - For scale, #925 measured 437.6 per operation for `map_prev/random` and 1,142.6 for `sync_map_prev_locked/random` *(measured: CI `instruction-counts` on #925, head `409e1d30`)*. No magnitude is predicted.
+  - **REFUTED** at or above the locked arm.
+- **P12.4 — fallbacks stay rare when writes concentrate near the probe.**
+  - The claim: in the counters build, `read_fallbacks ÷ read_ops` for ordered reads is below 0.1% in every §12.4 cell, uniform and hot-spot.
+  - The ceiling is a choice, fixed here, orders of magnitude above the independence projection. Every fallback quiesces writers (`read_locked`), so the cell tests one hypothesis only: that correlated validation failures turn ordered reads into repeated writer stalls.
+  - Attempts per operation are reported beside the projection and are not gated.
+  - **REFUTED** at any cell above 0.1%.
+- **P12.5 — readers gain over `with_locked`.**
+  - The statistic: in the throughput build, the reader throughput of `prev_before` on the optimistic path, divided by the throughput of the same probe stream through `with_locked`. The ratio is paired within each round.
+  - The gate cell is W = 1, R = 4, uniform. The W = 0, R = 1 cell is the control, reported and not gated.
+  - Verdict per run: `SINGLE_RUN_PASS` when the BCa 95% lower bound is above 1.0, `REJECTED` when the upper bound is below 1.0, `INCONCLUSIVE` otherwise. A claim needs the same verdict in two independent runs (`docs/BENCHMARKING.md` rule 18).
+
+### 12.4 Instruments and cells
+
+- **Reader mode.** `writer_scaling.rs` and `writer_scaling.py` gain `--readers R`, `--read-op get|prev_locked|prev` and `--probe uniform|hotspot`.
+  - With W ≥ 1, readers start at the writers' barrier and probe until the writers join. With W = 0, each reader makes 2^20 probes.
+  - Rows add `readers`, `read_op`, `probe`, `reader_ops` and `reader_elapsed_s`. In the counters role they also add `read_ops`, `read_attempts`, `read_fallbacks` and `locked_reads`.
+- **Probes.**
+  - `uniform`: each reader draws present prefill keys, shuffled per reader, and asks `prev_before`.
+  - `hotspot`: probe keys and the writers' fresh keys come from one 2^16-wide expanse, so writes land in the subtrees the searches backtrack through.
+- **Cells.** (W, R) ∈ {(0, 1), (0, 4), (1, 4), (4, 4)}, crossed with `read_op` ∈ {`prev_locked`, `prev`} and `probe` ∈ {`uniform`, `hotspot`}.
+  - 8 rounds per cell, the driver's default, with (`read_op` × W × R) interleaved within each round.
+  - Pin `0,2,4,6,8,10,12,14`, recorded in the artifact, so each thread gets its own physical P-core (AGENTS.md §8.20.5 step 0; every thread here does work). W + R ≤ 8.
+- **Suite.** `writer_scaling_ordered_readers`, wired at every point AGENTS.md §2.7 item 3 lists: `.github/bench-suites.json`, and the dispatch `case`, flag spelling and upload paths in `bench_baremetal.yml`. Artifact `results/ordered_readers_writer_scaling.json`, two runs.
+- **Callgrind.** `sync_map_prev/random` beside `sync_map_prev_locked/random` in `benches/instructions.rs`, registered in `scripts/perf_report.py`.
+
+### 12.5 What voids a cell
+
+§6 applies. In addition, a cell is void if:
+
+- it was read before every §12.2 gate passed on the measured head;
+- it is a throughput cell from an `occ-stats` build, or a counters cell from a default build (the two roles never share a binary);
+- its harness rows record a pin other than `0,2,4,6,8,10,12,14`.
+
+Threshold, method and round count are fixed here. Changing any of them after a run relabels that run `INTERMEDIATE` (AGENTS.md §8.19).
+
+### 12.6 Explicitly not predicted
+
+- **The other four operations,** `first`, `last`, `next_at_or_after`, `next_after` and `prev_at_or_before`, separately. They derive from the two walks, and §12.2's gates and the Callgrind arms cover them; no wall-clock cell does.
+- **Magnitudes** for P12.3 and P12.5.
+- **Reader cells at W ≥ 2** beyond reporting.
+- **The 32-bit surface's wall clock,** which is measured on-device, not here.
+- **Ordered reads on `SyncExpanseSet`, and rank or select.**
+- **The RocksDB consumer arm.** It is pre-registered in `docs/benchmarks/rocksdb_memtable/METHODOLOGY.md` before its runs, once the C ABI exists.
