@@ -814,6 +814,291 @@ class TestOlcBounds(unittest.TestCase):
             leaf_split_predicted_fallback_rate("set", branchb_up=10, leaf_cap=20)
 
 
+# ---------------------------------------------------------------------------
+# Ordered reads on the concurrent map (#900)
+# ---------------------------------------------------------------------------
+#
+# What an optimistic predecessor or successor search must validate, and what
+# that costs, derived from the single-threaded walks it is built on.
+#
+# `nav::prev` descends the child for the probe's digit with the probe's low
+# bytes, and when that child yields nothing it scans the branch's lower live
+# digits, searching each with the maximum remainder (crates/expanse/src/nav.rs,
+# the BranchL3/L7, BranchB and BranchU arms of `prev`). Every node form returns
+# a key for the maximum remainder when it is non-empty (the leaf, LeafB1,
+# immediate and prefix-skipping branch arms of the same function), so the
+# first live lower sibling always answers. A search therefore makes at most one
+# sibling descent, from the deepest branch on its path that has a lower live
+# digit. `nav::next` is the mirror image, with remainder 0. Branches sit at
+# levels 8 down to 2 (`debug_assert!(level >= 2)` at every branch site in
+# crates/expanse/src/mutate.rs; level 1 holds leaves).
+
+BRANCH_TOP_LEVEL = 8
+BRANCH_MIN_LEVEL = 2
+#: The retry budget of every `Sync*` optimistic read (crates/expanse/src/sync.rs, `MAX_RETRIES`).
+MAX_READ_RETRIES = 64
+
+
+def get_read_set_branches() -> int:
+    """Branch versions a point lookup validates at most: one per level from
+    `BRANCH_TOP_LEVEL` down to `BRANCH_MIN_LEVEL`, plus none for the terminal,
+    which its parent's version covers."""
+    return BRANCH_TOP_LEVEL - BRANCH_MIN_LEVEL + 1
+
+
+def ordered_read_set_branches(backtrack_level: int) -> int:
+    """Branch versions an ordered search validates at most when it leaves the
+    probe's path at the branch at `backtrack_level`.
+
+    The path from the root down to that branch is `BRANCH_TOP_LEVEL -
+    backtrack_level + 1` branches. Below it, the failed descent along the probe
+    and the one sibling descent each cross at most `backtrack_level -
+    BRANCH_MIN_LEVEL` more. Every one of them decided the answer, so all of
+    them are in the read set. The tree version is one more, and is not counted
+    here.
+    """
+    if not BRANCH_MIN_LEVEL <= backtrack_level <= BRANCH_TOP_LEVEL:
+        raise ValueError(f"backtrack_level must be in [{BRANCH_MIN_LEVEL}, {BRANCH_TOP_LEVEL}], got {backtrack_level}")
+    below = backtrack_level - BRANCH_MIN_LEVEL
+    return (BRANCH_TOP_LEVEL - backtrack_level + 1) + 2 * below
+
+
+def max_ordered_read_set_branches() -> int:
+    """The largest `ordered_read_set_branches` over every backtrack level."""
+    return max(ordered_read_set_branches(level)
+               for level in range(BRANCH_MIN_LEVEL, BRANCH_TOP_LEVEL + 1))
+
+
+def version_word_cost(nodes: int, retained: bool) -> tuple[int, int]:
+    """`(version loads, fences)` to validate `nodes` branch versions.
+
+    A hand-over-hand walk (`get`) samples each node once (`node_sample`: one
+    load) and validates it once before dereferencing a pointer read from it
+    (`node_validate`: one fence and one load), crates/expanse/src/occ.rs. A
+    retained read set does the same per step, because a racily loaded child
+    pointer still has to be validated before it is followed, and then
+    re-validates every node once more after the last load, behind one shared
+    fence. This is the cost model of that design, not a count taken from
+    code that exists; Callgrind decides once it does.
+    """
+    if nodes < 0:
+        raise ValueError(f"nodes must be >= 0, got {nodes}")
+    if not retained:
+        return 2 * nodes, nodes
+    return 3 * nodes, nodes + (1 if nodes else 0)
+
+
+def failed_attempt_share(read_ops: int, read_attempts: int, read_fallbacks: int) -> float:
+    """Share of optimistic attempts that failed validation, from the reader counters.
+
+    An operation that succeeded optimistically made exactly one successful
+    attempt; one that fell back made only failed attempts. So the successful
+    attempts number `read_ops - read_fallbacks`, and the rest failed.
+    """
+    if min(read_ops, read_attempts, read_fallbacks) < 0:
+        raise ValueError("counters cannot be negative")
+    if read_fallbacks > read_ops:
+        raise ValueError(f"read_fallbacks ({read_fallbacks}) cannot exceed read_ops ({read_ops})")
+    succeeded = read_ops - read_fallbacks
+    if read_attempts < succeeded:
+        raise ValueError(f"read_attempts ({read_attempts}) cannot be below the successful attempts ({succeeded})")
+    if read_attempts == 0:
+        raise ValueError("no attempts: the share is undefined")
+    return (read_attempts - succeeded) / read_attempts
+
+
+def per_node_failure(attempt_failure: float, nodes: int) -> float:
+    """Per-node validation failure probability implied by an attempt failure
+    probability over `nodes` validated nodes, if nodes fail independently:
+    `1 - (1 - p)^(1/nodes)`. The independence is a hypothesis; writes that
+    concentrate near the probe break it."""
+    if not 0.0 <= attempt_failure < 1.0:
+        raise ValueError(f"attempt_failure must be in [0, 1), got {attempt_failure}")
+    if nodes < 1:
+        raise ValueError(f"nodes must be >= 1, got {nodes}")
+    return 1.0 - math.pow(1.0 - attempt_failure, 1.0 / nodes)
+
+
+def attempt_failure(node_failure: float, nodes: int) -> float:
+    """Probability an attempt fails when each of `nodes` validated nodes fails
+    independently with `node_failure`: `1 - (1 - q)^nodes`."""
+    if not 0.0 <= node_failure <= 1.0:
+        raise ValueError(f"node_failure must be in [0, 1], got {node_failure}")
+    if nodes < 0:
+        raise ValueError(f"nodes must be >= 0, got {nodes}")
+    return 1.0 - math.pow(1.0 - node_failure, nodes)
+
+
+def fallback_share(attempt_failure_p: float, max_retries: int = MAX_READ_RETRIES) -> float:
+    """Share of operations that exhaust every attempt and take the writer
+    mutex, if attempts fail independently: `p^max_retries`."""
+    if not 0.0 <= attempt_failure_p <= 1.0:
+        raise ValueError(f"attempt_failure_p must be in [0, 1], got {attempt_failure_p}")
+    if max_retries < 1:
+        raise ValueError(f"max_retries must be >= 1, got {max_retries}")
+    return math.pow(attempt_failure_p, max_retries)
+
+
+def expected_attempts(attempt_failure_p: float, max_retries: int = MAX_READ_RETRIES) -> float:
+    """Expected optimistic attempts per operation, capped at `max_retries`:
+    the truncated geometric sum `(1 - p^M) / (1 - p)`, which is `M` at `p = 1`."""
+    if not 0.0 <= attempt_failure_p <= 1.0:
+        raise ValueError(f"attempt_failure_p must be in [0, 1], got {attempt_failure_p}")
+    if max_retries < 1:
+        raise ValueError(f"max_retries must be >= 1, got {max_retries}")
+    if attempt_failure_p == 1.0:
+        return float(max_retries)
+    return (1.0 - math.pow(attempt_failure_p, max_retries)) / (1.0 - attempt_failure_p)
+
+
+#: Committed reader health cells for the concurrent map: 8 optimistic readers
+#: against 1-8 writers, HOT and Masstree FFI suites, one-thread-per-core pin `0-15`.
+ORDERED_HEALTH_ARTIFACTS = (
+    REPO_ROOT / "docs" / "benchmarks" / "hot_comparison" / "results" / "baseline_concurrent.json",
+    REPO_ROOT / "docs" / "benchmarks" / "hot_comparison" / "results" / "multi_writer_olc" / "baseline_concurrent_ab.json",
+    REPO_ROOT / "docs" / "benchmarks" / "masstree_comparison" / "results" / "multi_writer_olc" / "baseline_concurrent_ab.json",
+)
+
+
+def map_read_health(paths: tuple[Path, ...] = ORDERED_HEALTH_ARTIFACTS) -> list[dict]:
+    """`get` attempt-failure shares from the committed `map` reader health cells.
+
+    One row per cell: its artifact, engine commit, writers, readers and the
+    `failed_attempt_share` of the summed `rounds_raw` counters. A cell without
+    reader counters is skipped, not read as zero (AGENTS.md 8.1). The engine
+    has changed since every one of these commits, so a projection built on
+    them is dated to its commit and is not a measurement of `main`.
+    """
+    rows = []
+    for path in paths:
+        obj = json.loads(Path(path).read_text())
+        commit = str(obj.get("provenance", {}).get("commit", "unknown"))[:8]
+        for cell in obj.get("health", []):
+            if cell.get("arm") != "map":
+                continue
+            rr = cell.get("rounds_raw") or []
+            ops = sum(r.get("read_ops", 0) for r in rr)
+            att = sum(r.get("read_attempts", 0) for r in rr)
+            fb = sum(r.get("read_fallbacks", 0) for r in rr)
+            if not att:
+                continue
+            rows.append({
+                "artifact": Path(path).relative_to(REPO_ROOT).as_posix(),
+                "commit": commit,
+                "writers": cell.get("writers"),
+                "readers": cell.get("readers"),
+                "attempt_failure": failed_attempt_share(ops, att, fb),
+            })
+    return rows
+
+
+def ordered_projection(get_attempt_failure: float, get_nodes: int, ordered_nodes: int) -> dict[str, float]:
+    """An ordered read's attempt failure, expected attempts and fallback share,
+    projected from a `get` attempt failure over `get_nodes` validated nodes to
+    `ordered_nodes`, under the per-node independence hypothesis."""
+    q = per_node_failure(get_attempt_failure, get_nodes)
+    p = attempt_failure(q, ordered_nodes)
+    return {
+        "node_failure": q,
+        "attempt_failure": p,
+        "expected_attempts": expected_attempts(p),
+        "fallback_share": fallback_share(p),
+    }
+
+
+class TestOrderedReadBounds(unittest.TestCase):
+    def test_read_set_sizes(self):
+        self.assertEqual(get_read_set_branches(), 7)
+        # Backtracking at the root: 1 path branch, then 6 + 6 below it.
+        self.assertEqual(ordered_read_set_branches(8), 13)
+        # At the lowest branch the sibling is a terminal: the read set is get's.
+        self.assertEqual(ordered_read_set_branches(2), 7)
+        self.assertEqual(ordered_read_set_branches(5), 10)
+        self.assertEqual(max_ordered_read_set_branches(), 13)
+        for level in range(BRANCH_MIN_LEVEL, BRANCH_TOP_LEVEL + 1):
+            self.assertEqual(ordered_read_set_branches(level), level + 5)
+            self.assertGreaterEqual(ordered_read_set_branches(level), get_read_set_branches())
+
+    def test_version_word_cost(self):
+        self.assertEqual(version_word_cost(7, retained=False), (14, 7))
+        self.assertEqual(version_word_cost(13, retained=True), (39, 14))
+        self.assertEqual(version_word_cost(0, retained=True), (0, 0))
+
+    def test_failed_attempt_share(self):
+        self.assertAlmostEqual(failed_attempt_share(100, 125, 0), 0.2)
+        # Two fallbacks: 98 successful attempts of 225, the rest failed.
+        self.assertAlmostEqual(failed_attempt_share(100, 225, 2), 127 / 225)
+        self.assertEqual(failed_attempt_share(10, 10, 0), 0.0)
+
+    def test_independence_round_trip(self):
+        q = per_node_failure(0.2, 4)
+        self.assertAlmostEqual(q, 1.0 - 0.8 ** 0.25, places=12)
+        self.assertAlmostEqual(attempt_failure(q, 4), 0.2, places=12)
+        self.assertAlmostEqual(attempt_failure(0.1, 2), 0.19)
+        self.assertEqual(attempt_failure(0.3, 0), 0.0)
+
+    def test_fallback_and_attempts(self):
+        self.assertAlmostEqual(fallback_share(0.5, 3), 0.125)
+        self.assertAlmostEqual(expected_attempts(0.5, 3), 1.75)
+        self.assertEqual(expected_attempts(0.0), 1.0)
+        self.assertEqual(expected_attempts(1.0, 64), 64.0)
+        self.assertLess(fallback_share(0.2), 1e-40)
+
+    def test_ordered_projection(self):
+        # get fails 10% of attempts over 4 nodes; the same per-node rate over 13 nodes.
+        proj = ordered_projection(0.1, 4, 13)
+        q = 1.0 - 0.9 ** 0.25
+        self.assertAlmostEqual(proj["node_failure"], q, places=12)
+        self.assertAlmostEqual(proj["attempt_failure"], 1.0 - (1.0 - q) ** 13, places=12)
+        self.assertAlmostEqual(proj["expected_attempts"],
+                               (1.0 - proj["attempt_failure"] ** 64) / (1.0 - proj["attempt_failure"]), places=12)
+        # Same node count: the projection returns get's own share.
+        self.assertAlmostEqual(ordered_projection(0.1, 7, 7)["attempt_failure"], 0.1, places=12)
+
+    def test_map_read_health_reads_counters(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "health.json"
+            p.write_text(json.dumps({
+                "provenance": {"commit": "abcdef1234"},
+                "health": [
+                    {"arm": "map", "writers": 2, "readers": 8,
+                     "rounds_raw": [{"read_ops": 100, "read_attempts": 120, "read_fallbacks": 0},
+                                    {"read_ops": 100, "read_attempts": 105, "read_fallbacks": 1}]},
+                    {"arm": "set", "writers": 2, "readers": 8,
+                     "rounds_raw": [{"read_ops": 1, "read_attempts": 9, "read_fallbacks": 0}]},
+                    {"arm": "map", "writers": 4, "readers": 8, "rounds_raw": []},
+                ],
+            }))
+            global REPO_ROOT
+            saved = REPO_ROOT
+            try:
+                REPO_ROOT = Path(td)
+                rows = map_read_health((p,))
+            finally:
+                REPO_ROOT = saved
+        self.assertEqual(len(rows), 1)
+        self.assertEqual((rows[0]["commit"], rows[0]["writers"]), ("abcdef12", 2))
+        # 199 successful attempts of 225.
+        self.assertAlmostEqual(rows[0]["attempt_failure"], 26 / 225)
+
+    def test_invalid_arguments_raise(self):
+        for call in (
+            lambda: ordered_read_set_branches(1),
+            lambda: ordered_read_set_branches(9),
+            lambda: version_word_cost(-1, retained=True),
+            lambda: failed_attempt_share(10, 5, 0),
+            lambda: failed_attempt_share(10, 20, 11),
+            lambda: failed_attempt_share(0, 0, 0),
+            lambda: per_node_failure(1.0, 3),
+            lambda: per_node_failure(0.1, 0),
+            lambda: attempt_failure(1.5, 3),
+            lambda: fallback_share(0.5, 0),
+            lambda: expected_attempts(-0.1),
+        ):
+            with self.assertRaises(ValueError):
+                call()
+
+
 def report() -> None:
     lt = line_transfer_ns()
     t_line = lt["median"]
@@ -848,6 +1133,20 @@ def report() -> None:
         b_lo, b_hi = immediate_conversion_predicted_fallback_rate(arm)
         print(f"  {arm}: post-immediate-conversion {b_lo*100:.2f}% -> predicted post-leaf-split [{e_lo*100:.2f}%, {e_hi*100:.2f}%] "
               f"(eliminating CapExpansionLeafFull: {PRE_4C_W1_CAUSES[arm]['cap_expansion_leaf_full']*100:.2f}%)")
+    print()
+    print("Ordered reads on the concurrent map (#900), derived from nav.rs:")
+    print(f"  branch versions validated: get <= {get_read_set_branches()}; ordered read <= {max_ordered_read_set_branches()} "
+          f"(backtracking at level l: l + 5); the tree version is one more")
+    for nodes, retained in ((get_read_set_branches(), False), (max_ordered_read_set_branches(), True)):
+        loads, fences = version_word_cost(nodes, retained)
+        print(f"  {'retained read set' if retained else 'hand-over-hand'} over {nodes} nodes: {loads} version loads, {fences} fences (cost model)")
+    print("  projected from committed get attempt-failure shares (independence hypothesis; dated to each artifact's commit):")
+    for row in map_read_health():
+        for get_nodes in (3, 5, 7):
+            pr = ordered_projection(row["attempt_failure"], get_nodes, max_ordered_read_set_branches())
+            print(f"    {row['artifact']} @{row['commit']} W={row['writers']} R={row['readers']}: get fails "
+                  f"{row['attempt_failure']:.2%} of attempts; over {get_nodes} -> 13 nodes an ordered read fails "
+                  f"{pr['attempt_failure']:.2%}, {pr['expected_attempts']:.2f} attempts/op, fallback share {pr['fallback_share']:.1e}")
     print()
     print("Contention ceilings by workload shape (evaluated against measured t_line = 33.37 ns):")
     t_hold_set = holds[("hot_comparison", "set")]

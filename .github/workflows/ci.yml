@@ -368,7 +368,7 @@ jobs:
 
       # The report scripts carry the §8.1 (fail-loud) and §8.2 (no hardcoded
       # findings prose) assertions as self-tests; run them so they cannot rot.
-      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / pin exposure / warmup ramp / bench pin / docs hygiene / ecosystem theme / bench suites / bench shapes / man pages / abi parity / deletions / test floors / miri shards / rocksdb locate bound)
+      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / pin exposure / warmup ramp / bench pin / docs hygiene / ecosystem theme / bench suites / bench shapes / man pages / abi parity / deletions / test floors / miri shards / rocksdb locate bound / olc bounds)
         run: |
           python3 scripts/perf_report.py --self-test
           # Unit tests for perf_report.py, including that every Callgrind arm
@@ -421,6 +421,12 @@ jobs:
           # pre-registration input, so it has to be executable and checked
           # rather than narrated (AGENTS.md section 8.8 commit 1).
           python3 scripts/rocksdb_locate_bound.py --self-test
+          # olc_bounds.py holds the multi-writer OLC bounds (#568) and the ordered-read
+          # bounds (#900): read-set size per backtrack level, the version-word cost
+          # model, and restart and fallback shares from the reader counters. Its
+          # self-test pinned that arithmetic only through gate.sh; the
+          # pre-registrations invoke it, so CI runs it too (AGENTS.md section 8.8).
+          python3 scripts/olc_bounds.py --self-test
           # The #802 concurrent-arm driver: its CSV parsing, its duty-cycle
           # arithmetic, its PAIRED scaling ratio (an unpaired one smears the
           # ratio under round-to-round drift) and the artifact shape the
