@@ -606,6 +606,9 @@ jobs:
           python3 scripts/check_abi_parity.py
           python3 scripts/check_chart_themes.py
           python3 scripts/check_chart_layout.py
+          # Every generated chart must be what its data renders, so a data edit
+          # that skips the regeneration fails here.
+          python3 scripts/generate_asset_svgs.py --check
           python3 scripts/check_bench_shapes.py
           python3 scripts/check_bench_pin.py
 
