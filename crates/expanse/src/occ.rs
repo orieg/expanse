@@ -2307,10 +2307,53 @@ mod tests {
         assert_eq!(c.retained_bytes(), 0);
     }
 
-    /// Serialises the tests that spawn threads to claim writer slots: a claim in
-    /// one would change the process-wide slot mask another is asserting on.
+    /// Serialises the tests in this module that spawn threads to claim writer
+    /// slots: a claim in one would change the process-wide slot mask another is
+    /// asserting on. It cannot serialise a test elsewhere that claims a slot by
+    /// retiring through a collector, which is why an assertion on exactly which
+    /// slot a thread claims runs through `in_own_process`.
     #[cfg(all(feature = "std", not(loom)))]
     static SLOT_CLAIM_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Runs `body` as the only test in its process, and tells it whether it is.
+    ///
+    /// `ALLOC_SLOTS_MASK` is process-global: a test that retires through a
+    /// collector holds a bit of it for as long as its thread lives, so which bit
+    /// a new thread claims depends on every test running at the same time.
+    /// Outside Miri the calling test re-runs itself with `--exact` in a child
+    /// process, where no other test claims a slot, and `body` receives `true`
+    /// there. Miri cannot spawn a process, so under Miri `body` runs in place
+    /// and receives `false`.
+    #[cfg(all(feature = "std", not(loom)))]
+    fn in_own_process(test: &str, body: impl FnOnce(bool)) {
+        const CHILD: &str = "EXPANSE_OCC_TEST_OWN_PROCESS";
+        if cfg!(miri) {
+            body(false);
+            return;
+        }
+        if std::env::var_os(CHILD).is_some() {
+            body(true);
+            return;
+        }
+        let module = module_path!()
+            .split_once("::")
+            .map_or(module_path!(), |(_, m)| m);
+        let name = format!("{module}::{test}");
+        let out = std::process::Command::new(std::env::current_exe().expect("test binary path"))
+            .args(["--exact", name.as_str(), "--test-threads=1"])
+            .env(CHILD, "1")
+            .output()
+            .expect("re-run the test binary");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        // The child's summary line as well as its exit status: a filter that
+        // matches no test also exits successfully.
+        assert!(
+            out.status.success() && stdout.contains("test result: ok. 1 passed"),
+            "{name} in its own process ({}):\n{stdout}\n{}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
 
     /// A claimed slot raises the stripe bound before `writer_slot` returns, so
     /// an advance that scans only `0..stripe_bound()` reaches the stripe the
@@ -2409,79 +2452,87 @@ mod tests {
     ///
     /// When threads exit, their `SlotRegistration` drops and releases the claimed bit in
     /// `ALLOC_SLOTS_MASK`. This guarantees that N_live active threads strictly occupy slots
-    /// 0..N_live-1, eliminating modulo collisions across NUM_EPOCH_STRIPES (16).
+    /// 0..N_live-1, eliminating modulo collisions across NUM_EPOCH_STRIPES (16). These are
+    /// assertions on the whole process's slot mask, so the test runs in its own process.
     #[test]
     #[cfg(all(feature = "std", not(loom)))]
     fn test_writer_slot_recycling_under_churn() {
-        let _guard = SLOT_CLAIM_TEST_LOCK.lock().unwrap();
+        in_own_process("test_writer_slot_recycling_under_churn", |alone| {
+            let _guard = SLOT_CLAIM_TEST_LOCK.lock().unwrap();
 
-        reset_thread_writer_slot();
-        let initial_mask = live_slot_mask();
+            reset_thread_writer_slot();
+            let initial_mask = live_slot_mask();
+            assert!(
+                !alone || initial_mask == 0,
+                "slot mask {initial_mask:#x} is held outside this test in its own process"
+            );
 
-        // 1. Sequential churn: 32 threads run sequentially.
-        // Each thread must claim the lowest available slot bit, and upon thread exit,
-        // its Drop implementation must recycle the slot back to ALLOC_SLOTS_MASK.
-        let expected_slot = (!initial_mask).trailing_zeros() as usize;
-        for _ in 0..32 {
-            let handle = std::thread::spawn(move || {
-                let s = writer_slot();
+            // 1. Sequential churn: 32 threads run sequentially.
+            // Each thread must claim the lowest available slot bit, and upon thread exit,
+            // its Drop implementation must recycle the slot back to ALLOC_SLOTS_MASK.
+            let expected_slot = (!initial_mask).trailing_zeros() as usize;
+            for _ in 0..32 {
+                let handle = std::thread::spawn(move || {
+                    let s = writer_slot();
+                    assert_eq!(
+                        s, expected_slot,
+                        "sequential thread must claim lowest free slot"
+                    );
+                });
+                handle.join().unwrap();
                 assert_eq!(
-                    s, expected_slot,
-                    "sequential thread must claim lowest free slot"
+                    live_slot_mask(),
+                    initial_mask,
+                    "thread exit must release its slot back to the mask"
                 );
-            });
-            handle.join().unwrap();
+            }
+
+            // 2. Concurrent churn: spawn 8 concurrent threads.
+            // Because previous threads released their slots, 8 concurrent threads
+            // must claim 8 distinct bits. When initial_mask is 0 (or low), all 8 active
+            // threads strictly occupy slots < 16, guaranteeing zero modulo collision
+            // across NUM_EPOCH_STRIPES (16).
+            let barrier = Arc::new(std::sync::Barrier::new(8));
+            let mut handles = Vec::new();
+            for _ in 0..8 {
+                let b = Arc::clone(&barrier);
+                handles.push(std::thread::spawn(move || {
+                    let s = writer_slot();
+                    b.wait();
+                    s
+                }));
+            }
+
+            let mut slots = std::collections::BTreeSet::new();
+            for h in handles {
+                let s = h.join().unwrap();
+                slots.insert(s);
+            }
+            assert_eq!(slots.len(), 8, "all 8 threads must hold unique slots");
+            for &s in &slots {
+                assert!(
+                    s < MAX_WRITER_SLOTS,
+                    "slot {s} must be within MAX_WRITER_SLOTS"
+                );
+            }
+            // Only a process no other test shares starts from an empty mask, so only there
+            // can 8 threads be required to occupy exactly slots 0..8.
+            if initial_mask == 0 {
+                for &s in &slots {
+                    assert!(s < 8, "dense allocation must place slot {s} < 8");
+                    assert_eq!(
+                        s % NUM_EPOCH_STRIPES,
+                        s,
+                        "slot {s} must map 1:1 to dedicated stripe without modulo collision"
+                    );
+                }
+            }
             assert_eq!(
                 live_slot_mask(),
                 initial_mask,
-                "thread exit must release its slot back to the mask"
+                "all threads exiting must return mask to initial state"
             );
-        }
-
-        // 2. Concurrent churn: spawn 8 concurrent threads.
-        // Because previous threads released their slots, 8 concurrent threads
-        // must claim 8 distinct bits. When initial_mask is 0 (or low), all 8 active
-        // threads strictly occupy slots < 16, guaranteeing zero modulo collision
-        // across NUM_EPOCH_STRIPES (16).
-        let barrier = Arc::new(std::sync::Barrier::new(8));
-        let mut handles = Vec::new();
-        for _ in 0..8 {
-            let b = Arc::clone(&barrier);
-            handles.push(std::thread::spawn(move || {
-                let s = writer_slot();
-                b.wait();
-                s
-            }));
-        }
-
-        let mut slots = std::collections::BTreeSet::new();
-        for h in handles {
-            let s = h.join().unwrap();
-            slots.insert(s);
-        }
-        assert_eq!(slots.len(), 8, "all 8 threads must hold unique slots");
-        for &s in &slots {
-            assert!(
-                s < MAX_WRITER_SLOTS,
-                "slot {s} must be within MAX_WRITER_SLOTS"
-            );
-        }
-        // If running in quiet test environment (initial_mask == 0), verify strict 0..8 dense occupancy.
-        if initial_mask == 0 {
-            for &s in &slots {
-                assert!(s < 8, "dense allocation must place slot {s} < 8");
-                assert_eq!(
-                    s % NUM_EPOCH_STRIPES,
-                    s,
-                    "slot {s} must map 1:1 to dedicated stripe without modulo collision"
-                );
-            }
-        }
-        assert_eq!(
-            live_slot_mask(),
-            initial_mask,
-            "all threads exiting must return mask to initial state"
-        );
+        });
     }
 
     /// A reclaimed block goes back to the freelist of the stripe that
