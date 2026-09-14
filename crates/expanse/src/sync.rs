@@ -5480,7 +5480,11 @@ impl SyncExpanseMap {
 
                     if kb == 1 {
                         let mut new_edge = Edge::NULL;
-                        crate::mutate_map::build_bitmap_leaf_map(alloc, &mut new_edge, &entries);
+                        crate::mutate_map::build_bitmap_leaf_map::<true>(
+                            alloc,
+                            &mut new_edge,
+                            &entries,
+                        );
                         crate::mutate::restore_decode(&mut new_edge, 1, level, &saved_aux);
                         let Ok((old_v, lock_t0)) =
                             version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -5538,7 +5542,11 @@ impl SyncExpanseMap {
                                 .map(|&(k, v)| (crate::mutate::key_low(k, 1), v))
                                 .collect();
                             let mut new_edge = Edge::NULL;
-                            crate::mutate_map::build_bitmap_leaf_map(alloc, &mut new_edge, &low);
+                            crate::mutate_map::build_bitmap_leaf_map::<true>(
+                                alloc,
+                                &mut new_edge,
+                                &low,
+                            );
                             crate::mutate::write_decode(&mut new_edge, 1, level, entries[0].0);
                             let Ok((old_v, lock_t0)) =
                                 version_try_lock_expect_timed(p_cell, parent.version_snap)
