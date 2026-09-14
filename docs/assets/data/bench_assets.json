@@ -554,7 +554,7 @@
       "lambda": "N / 2^(bits - 48): mean population of a 2-byte-prefix expanse once the top two key bytes saturate",
       "leaf_cap": 32,
       "bitmap_to_uncompressed_threshold": 192,
-      "commit": "86daaddf",
+      "commit": "66a355f9",
       "workload_id": "example_keyspace_density",
       "census": "ExpanseStats per flavor at three cells; node_bytes is the per-form byte attribution and its total equals mem_used; branch_depth_histogram[6] counts cascaded 2-byte expanses, [5] cascaded sub-expanses below them",
       "seed_sensitivity": "the census cells re-drawn under a second XorShift64 seed; the delta is generator variance at fixed \u03bb"

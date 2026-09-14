@@ -159,54 +159,54 @@
   <line x1="643.5" y1="70" x2="643.5" y2="330" class="axis" stroke-dasharray="4,3"/>
   <text x="638.5" y="82" class="t-legend" text-anchor="end">256 &#215; LEAF_CAP = 8192</text>
   <text x="638.5" y="95" class="t-note" text-anchor="end">the next byte level cascades</text>
-  <path d="M84.5,169.9 L129.6,193.5 L129.6,193.6 L174.7,217.1 L174.7,217.2 L174.7,217.2 L201.1,230.7 L219.9,238.8 L219.9,238.8 L219.9,238.9 L227.5,241.9 L234.4,244.2 L240.6,245.9 L246.2,247.2 L246.2,247.2 L251.4,247.8 L256.3,247.0 L265.0,238.2 L265.0,238.0 L265.0,238.3 L271.5,220.4 L272.6,215.9 L272.6,216.1 L279.5,182.7 L279.5,182.7 L285.7,147.7 L291.4,121.5 L291.4,120.9 L291.4,121.3 L296.6,106.1 L297.1,104.8 L310.1,102.3 L317.7,109.5 L321.3,113.3 L324.6,117.0 L324.6,116.9 L336.5,129.6 L369.7,161.2 L550.1,234.7 L595.3,255.4 L607.1,257.3 L629.8,238.6 L640.4,189.4 L659.9,102.7 L685.5,117.0" fill="none" class="axis"/>
-  <circle cx="84.5" cy="169.9" r="4.5" class="b-expanse"/>
+  <path d="M84.5,169.1 L129.6,193.5 L129.6,193.6 L174.7,217.1 L174.7,217.2 L174.7,217.2 L201.1,230.4 L219.9,237.3 L219.9,237.4 L219.9,237.5 L227.5,239.5 L234.4,241.1 L240.6,242.2 L246.2,243.2 L246.2,243.2 L251.4,243.8 L256.3,243.2 L265.0,235.0 L265.0,234.8 L265.0,235.2 L271.5,217.9 L272.6,213.5 L272.6,213.9 L279.5,181.2 L279.5,181.2 L285.7,146.9 L291.4,121.1 L291.4,120.6 L291.4,121.0 L296.6,106.0 L297.1,104.7 L310.1,102.3 L317.7,109.5 L321.3,113.3 L324.6,117.0 L324.6,116.9 L336.5,129.5 L369.7,158.7 L550.1,234.6 L595.3,252.2 L607.1,253.3 L629.8,235.8 L640.4,188.0 L659.9,102.6 L685.5,117.0" fill="none" class="axis"/>
+  <circle cx="84.5" cy="169.1" r="4.5" class="b-expanse"/>
   <rect x="125.6" y="189.5" width="8" height="8" class="b-expanse-alt"/>
   <circle cx="129.6" cy="193.6" r="4.5" class="b-expanse"/>
   <polygon points="174.7,211.6 180.2,217.1 174.7,222.6 169.2,217.1" class="b-other"/>
   <rect x="170.7" y="213.2" width="8" height="8" class="b-expanse-alt"/>
   <circle cx="174.7" cy="217.2" r="4.5" class="b-expanse"/>
-  <circle cx="201.1" cy="230.7" r="4.5" class="b-expanse"/>
-  <polygon points="219.9,233.3 225.4,238.8 219.9,244.3 214.4,238.8" class="b-other"/>
-  <rect x="215.9" y="234.8" width="8" height="8" class="b-expanse-alt"/>
-  <circle cx="219.9" cy="238.9" r="4.5" class="b-expanse"/>
-  <circle cx="227.5" cy="241.9" r="4.5" class="b-expanse"/>
-  <circle cx="234.4" cy="244.2" r="4.5" class="b-expanse"/>
-  <circle cx="240.6" cy="245.9" r="4.5" class="b-expanse"/>
-  <rect x="242.2" y="243.2" width="8" height="8" class="b-expanse-alt"/>
-  <circle cx="246.2" cy="247.2" r="4.5" class="b-expanse"/>
-  <circle cx="251.4" cy="247.8" r="4.5" class="b-expanse"/>
-  <circle cx="256.3" cy="247.0" r="4.5" class="b-expanse"/>
-  <polygon points="265.0,232.7 270.5,238.2 265.0,243.7 259.5,238.2" class="b-other"/>
-  <rect x="261.0" y="234.0" width="8" height="8" class="b-expanse-alt"/>
-  <circle cx="265.0" cy="238.3" r="4.5" class="b-expanse"/>
-  <rect x="267.5" y="216.4" width="8" height="8" class="b-expanse-alt"/>
-  <rect x="268.6" y="211.9" width="8" height="8" class="b-expanse-alt"/>
-  <circle cx="272.6" cy="216.1" r="4.5" class="b-expanse"/>
-  <rect x="275.5" y="178.7" width="8" height="8" class="b-expanse-alt"/>
-  <circle cx="279.5" cy="182.7" r="4.5" class="b-expanse"/>
-  <circle cx="285.7" cy="147.7" r="4.5" class="b-expanse"/>
-  <polygon points="291.4,116.0 296.9,121.5 291.4,127.0 285.9,121.5" class="b-other"/>
-  <rect x="287.4" y="116.9" width="8" height="8" class="b-expanse-alt"/>
-  <circle cx="291.4" cy="121.3" r="4.5" class="b-expanse"/>
-  <circle cx="296.6" cy="106.1" r="4.5" class="b-expanse"/>
-  <rect x="293.1" y="100.8" width="8" height="8" class="b-expanse-alt"/>
+  <circle cx="201.1" cy="230.4" r="4.5" class="b-expanse"/>
+  <polygon points="219.9,231.8 225.4,237.3 219.9,242.8 214.4,237.3" class="b-other"/>
+  <rect x="215.9" y="233.4" width="8" height="8" class="b-expanse-alt"/>
+  <circle cx="219.9" cy="237.5" r="4.5" class="b-expanse"/>
+  <circle cx="227.5" cy="239.5" r="4.5" class="b-expanse"/>
+  <circle cx="234.4" cy="241.1" r="4.5" class="b-expanse"/>
+  <circle cx="240.6" cy="242.2" r="4.5" class="b-expanse"/>
+  <rect x="242.2" y="239.2" width="8" height="8" class="b-expanse-alt"/>
+  <circle cx="246.2" cy="243.2" r="4.5" class="b-expanse"/>
+  <circle cx="251.4" cy="243.8" r="4.5" class="b-expanse"/>
+  <circle cx="256.3" cy="243.2" r="4.5" class="b-expanse"/>
+  <polygon points="265.0,229.5 270.5,235.0 265.0,240.5 259.5,235.0" class="b-other"/>
+  <rect x="261.0" y="230.8" width="8" height="8" class="b-expanse-alt"/>
+  <circle cx="265.0" cy="235.2" r="4.5" class="b-expanse"/>
+  <rect x="267.5" y="213.9" width="8" height="8" class="b-expanse-alt"/>
+  <rect x="268.6" y="209.5" width="8" height="8" class="b-expanse-alt"/>
+  <circle cx="272.6" cy="213.9" r="4.5" class="b-expanse"/>
+  <rect x="275.5" y="177.2" width="8" height="8" class="b-expanse-alt"/>
+  <circle cx="279.5" cy="181.2" r="4.5" class="b-expanse"/>
+  <circle cx="285.7" cy="146.9" r="4.5" class="b-expanse"/>
+  <polygon points="291.4,115.6 296.9,121.1 291.4,126.6 285.9,121.1" class="b-other"/>
+  <rect x="287.4" y="116.6" width="8" height="8" class="b-expanse-alt"/>
+  <circle cx="291.4" cy="121.0" r="4.5" class="b-expanse"/>
+  <circle cx="296.6" cy="106.0" r="4.5" class="b-expanse"/>
+  <rect x="293.1" y="100.7" width="8" height="8" class="b-expanse-alt"/>
   <polygon points="310.1,96.8 315.6,102.3 310.1,107.8 304.6,102.3" class="b-other"/>
   <polygon points="317.7,104.0 323.2,109.5 317.7,115.0 312.2,109.5" class="b-other"/>
   <polygon points="321.3,107.8 326.8,113.3 321.3,118.8 315.8,113.3" class="b-other"/>
   <polygon points="324.6,111.5 330.1,117.0 324.6,122.5 319.1,117.0" class="b-other"/>
   <rect x="320.6" y="112.9" width="8" height="8" class="b-expanse-alt"/>
-  <polygon points="336.5,124.1 342.0,129.6 336.5,135.1 331.0,129.6" class="b-other"/>
-  <polygon points="369.7,155.7 375.2,161.2 369.7,166.7 364.2,161.2" class="b-other"/>
-  <polygon points="550.1,229.2 555.1,238.2 545.1,238.2" class="b-hash"/>
-  <polygon points="595.3,249.9 600.3,258.9 590.3,258.9" class="b-hash"/>
-  <polygon points="607.1,251.8 612.1,260.8 602.1,260.8" class="b-hash"/>
-  <polygon points="629.8,233.1 634.8,242.1 624.8,242.1" class="b-hash"/>
-  <polygon points="640.4,183.9 645.4,192.9 635.4,192.9" class="b-hash"/>
-  <polygon points="659.9,97.2 664.9,106.2 654.9,106.2" class="b-hash"/>
+  <polygon points="336.5,124.0 342.0,129.5 336.5,135.0 331.0,129.5" class="b-other"/>
+  <polygon points="369.7,153.2 375.2,158.7 369.7,164.2 364.2,158.7" class="b-other"/>
+  <polygon points="550.1,229.1 555.1,238.1 545.1,238.1" class="b-hash"/>
+  <polygon points="595.3,246.7 600.3,255.7 590.3,255.7" class="b-hash"/>
+  <polygon points="607.1,247.8 612.1,256.8 602.1,256.8" class="b-hash"/>
+  <polygon points="629.8,230.2 634.8,239.2 624.8,239.2" class="b-hash"/>
+  <polygon points="640.4,182.5 645.4,191.5 635.4,191.5" class="b-hash"/>
+  <polygon points="659.9,97.1 664.9,106.1 654.9,106.1" class="b-hash"/>
   <polygon points="685.5,111.5 690.5,120.5 680.5,120.5" class="b-hash"/>
-  <text x="234.4" y="266.2" class="t-note" text-anchor="middle">memory-budget cell, N = 1M: 7.92 B/key (&#955; = 15.26)</text>
-  <text x="269.5" y="186.7" class="t-note" text-anchor="end">second gate cell, N = 2M: 13.60 B/key (&#955; = 30.52)</text>
+  <text x="234.4" y="263.1" class="t-note" text-anchor="middle">memory-budget cell, N = 1M: 8.21 B/key (&#955; = 15.26)</text>
+  <text x="269.5" y="185.2" class="t-note" text-anchor="end">second gate cell, N = 2M: 13.74 B/key (&#955; = 30.52)</text>
   <text x="730" y="80" class="t-legend">Keyspace width (same seed)</text>
   <circle cx="736.0" cy="94.0" r="4.5" class="b-expanse"/>
   <text x="748" y="98" class="t-legend">64-bit keys &#183; 17 cells</text>
@@ -218,14 +218,14 @@
   <text x="748" y="152" class="t-legend">58&#8211;55-bit keys &#183; 7 cells</text>
   <text x="730" y="182" class="t-note">9 &#955; values are hit by two or three widths;</text>
   <text x="730" y="195" class="t-note">their cells agree within 0.05 B/key: one curve.</text>
-  <text x="730" y="216" class="t-note">Range under density alone: 6.71&#8211;21.02 B/key</text>
-  <text x="730" y="229" class="t-note">(3.13&#215;) with no code change.</text>
+  <text x="730" y="216" class="t-note">Range under density alone: 7.08&#8211;21.02 B/key</text>
+  <text x="730" y="229" class="t-note">(2.97&#215;) with no code change.</text>
   <text x="730" y="254" class="t-legend">Fixed-occupancy distributions</text>
   <text x="730" y="270" class="t-note">clustered: 0.36&#8211;0.37 B/key, flat across N</text>
   <text x="730" y="284" class="t-note">sequential: 0.06&#8211;0.07 B/key, flat across N</text>
   <text x="730" y="298" class="t-note">sparse: 16.31&#8211;16.32 B/key, flat across N</text>
 
   <line x1="30" y1="374" x2="930" y2="374" class="divider"/>
-  <text x="30" y="390" class="t-note">Measured: mem_used() deterministic byte accounting — host-independent; no wall clock; commit 86daaddf; workload example_keyspace_density.</text>
+  <text x="30" y="390" class="t-note">Measured: mem_used() deterministic byte accounting — host-independent; no wall clock; commit 66a355f9; workload example_keyspace_density.</text>
   <text x="30" y="404" class="t-note">Clearing one top key bit halves the expanses and is exactly a doubling of N, so the three widths share one axis. Source: docs/ARCHITECTURE.md &#167;3.5.</text>
 </svg>
