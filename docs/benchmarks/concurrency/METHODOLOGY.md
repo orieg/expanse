@@ -367,7 +367,7 @@ beside it as the second bar.
 The same two-commit runners as §8 (`--ab-base-bin` / `--ab-base-commit`
 against `10cd755d`), two runs per suite, one host lock, concurrent sweeps
 last (§8.17), executed via `docs/benchmarks/concurrency/scripts/multi_writer_olc_campaign.sh`
-and evaluated by `scripts/multi_writer_olc_gate.py` (with `results/multi_writer_olc/`).
+and evaluated by `docs/benchmarks/concurrency/scripts/multi_writer_olc_gate.py` (with `results/multi_writer_olc/`).
 New counters PR 5 adds and this section relies on:
 `Stat::LockRestarts`, `Stat::LockSpins`, `Stat::LockHoldCycles` (sharded per
 thread like the #804 counters). New `bench_counters.py` cells: writer-thread
