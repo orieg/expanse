@@ -566,3 +566,43 @@ USL with `alpha` fixed at the locked fraction does not describe the idle curve. 
 
 - **Expected rejected:** `usl_alpha_profiled`, `queue_handoff` and `usl_free`. None fits the training points of any committed curve.
 - **No outcome predicted:** `queue_handoff_growing`, `step_power` and `reciprocal_linear`. The first two each missed the training points of one committed curve in four, and `reciprocal_linear` missed three in four.
+
+### 5.13 Outcomes of the §5.12 model check
+
+*(measured: reference host — Intel i9-12900F, 8P+8E / 24 threads, 30 MiB L3, Linux 6.8; commit `b290aa0b`; pin `0,2,4,6,8,10,12,14`, source `EXPANSE_BENCH_PIN_APPLIED`; suite `rocksdb_concurrent_heldout`, idle writer, `R` = 1–7 interleaved, 5 rounds per cell, 2.0 s window; two runs dispatched in sequence after §5.12 merged, [34793233295](https://github.com/orieg/expanse/actions/runs/34793233295) and [34793373222](https://github.com/orieg/expanse/actions/runs/34793373222); artifacts [`results/baseline_concurrent_reads_heldout.json`](results/baseline_concurrent_reads_heldout.json) and [`results/baseline_concurrent_reads_heldout_run2.json`](results/baseline_concurrent_reads_heldout_run2.json); verdicts from `python3 scripts/rocksdb_locate_bound.py`.)*
+
+These outcomes are read against §5.12 as it was merged. No shape was added, refitted or re-weighted after the cells were read, and no round from §5.7–§5.10 is pooled in.
+
+**Both runs are admissible.** `held_out_problems` reports nothing for either. Foreign busy CPU peaked at 0.01 core-equivalents in both, and `load1` peaked at 2.69 and 2.04 on 24 logical CPUs.
+
+| `S(R)` | run 34793233295 | run 34793373222 |
+|---|---|---|
+| `S(2)` | 0.7623 [0.7549, 0.7677] | 0.7594 [0.7511, 0.7680] |
+| `S(3)` | 0.7050 [0.7032, 0.7065] | 0.7081 [0.6999, 0.7164] |
+| `S(4)` | 0.6834 [0.6812, 0.6866] | 0.6855 [0.6730, 0.6956] |
+| `S(5)` | 0.6764 [0.6658, 0.6877] | 0.6820 [0.6715, 0.6899] |
+| `S(6)` | 0.6428 [0.6384, 0.6499] | 0.6499 [0.6419, 0.6609] |
+| `S(7)` | 0.6332 [0.6277, 0.6377] | 0.6273 [0.6091, 0.6341] |
+
+Every interval overlaps between the two runs, so no cross-run difference is claimed (`docs/BENCHMARKING.md` rule 18).
+
+**Every candidate is `REJECTED`.** The misses below are the reader counts where the fitted curve lies outside the measured interval, in either run and at any of the three locked fractions.
+
+| candidate | verdict | misses, run 1 | misses, run 2 | held-out chi-square, both runs |
+|---|---|---|---|---|
+| `usl_alpha_profiled` | `REJECTED` | 2, 3, 4, 5, 6, 7 | 2, 3, 4, 5, 6, 7 | 7309.24 |
+| `queue_handoff` | `REJECTED` | 2, 3, 4, 6, 7 | 2, 3, 6, 7 | 252.19 |
+| `queue_handoff_growing` | `REJECTED` | 2, 5, 6 (5, 6 at `f` = 0.5162) | 3, 5 | 9.35 |
+| `reciprocal_linear` | `REJECTED` | 2, 3, 4, 7 | 3, 4, 5 | 49.76 |
+| `step_power` | `REJECTED` | 3, 5 | 5 | 42.79 |
+| `usl_free` | `REJECTED` | 2, 3, 4, 5, 6, 7 | 2, 3, 5, 6, 7 | 2438.55 |
+
+- **The three shapes §5.12 expected to fail did.** `usl_alpha_profiled`, `queue_handoff` and `usl_free` miss training points in both runs.
+- **The two shapes with no predicted outcome both miss `R = 5` in both runs.** `queue_handoff_growing` predicts 0.6653 and 0.6608 (at the mean locked fraction), and `step_power` 0.6626 and 0.6613, against measured intervals of [0.6658, 0.6877] and [0.6715, 0.6899]. Each also misses one further held-out point in at least one run.
+- **No fit ended on a search limit.** Every rejection is an interval miss.
+
+**Consequence (`model_consequence`).** No candidate passed. The narrowed-mutex arm is therefore pre-registered on the directional gate §5.12 names: the paired ratio narrowed/mutex `S(R)`, CI lower bound above 1 at `R = 7`, `R = 1` as the control, both pins. None of the six shapes supplies a numeric prediction for it.
+
+**What the cells show and do not explain.** In both runs `S(5)` sits above the two closest shapes' predictions, and its interval overlaps `S(4)`'s: [0.6812, 0.6866] and [0.6658, 0.6877] in run 1, [0.6730, 0.6956] and [0.6715, 0.6899] in run 2. No candidate has a flat step followed by a further fall: `queue_handoff` flattens from `R = 4` on and misses `R = 6` and `R = 7` in both runs, and the other five fall at every step. The cause is unmeasured. No seventh shape is fitted to it here, because a shape chosen after seeing these cells would be checked on the cells that suggested it (§8.19).
+
+**What is not established.** A shape outside the six may describe the curve. That would need its own pre-registration and fresh cells. `h` and `g` were fitted, never measured, so the rejection says nothing about what a lock handoff costs on this host. The narrowed-mutex arm has not been built or measured.
