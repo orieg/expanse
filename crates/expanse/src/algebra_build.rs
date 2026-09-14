@@ -111,7 +111,7 @@ unsafe fn build_leaf_from_bitmap(
             from = if b == 255 { None } else { bm.next_set(b + 1) };
         }
         let mut e = Edge::NULL;
-        mutate::build_leaf(a, &mut e, 1, &finals);
+        mutate::build_leaf::<false>(a, &mut e, 1, &finals);
         set_skip_decode(&mut e, level, dv);
         return Some(e);
     }
@@ -358,7 +358,7 @@ pub(crate) unsafe fn build_subtree(a: &NodeAlloc, keys: &[u64], level: u8) -> Ed
         // an immediate overflows into and grows in place until it splits.
         let rem: Vec<u64> = keys.iter().map(|&k| mutate::key_low(k, level)).collect();
         let mut e = Edge::NULL;
-        mutate::build_leaf(a, &mut e, level, &rem);
+        mutate::build_leaf::<false>(a, &mut e, level, &rem);
         return e;
     }
 

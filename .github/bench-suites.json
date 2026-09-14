@@ -171,10 +171,19 @@
     },
     {
       "name": "writer_scaling_ablation_freelist",
+      "available": false,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Expanse multi-writer scaling, default build vs per-stripe collector freelists (Hypothesis D arm c, Refs #568); outputs ablation_freelist_writer_scaling.json. Landed in production standard.",
+      "reason": "Arm (c) per-stripe collector freelists landed as the production default standard (Refs #568). Use writer_scaling_ablation_unstriped_freelist to measure unstriped freelist contention.",
+      "suite": "concurrency"
+    },
+    {
+      "name": "writer_scaling_ablation_unstriped_freelist",
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "Expanse multi-writer scaling, default build vs per-stripe collector freelists (Hypothesis D arm c, Refs #568); outputs ablation_freelist_writer_scaling.json.",
+      "summary": "Expanse multi-writer scaling, default build vs unstriped collector freelists (Hypothesis D arm c unstriped, Refs #568); outputs ablation_unstriped_freelist_writer_scaling.json.",
       "suite": "concurrency"
     },
     {

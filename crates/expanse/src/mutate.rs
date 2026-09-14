@@ -379,8 +379,8 @@ pub(crate) unsafe fn leaf_keys(edge: &Edge, kb: u8, pop: usize) -> Vec<u64> {
 }
 
 /// Allocates a linear leaf from sorted keys and points `edge` at it.
-pub(crate) fn build_leaf(a: &NodeAlloc, edge: &mut Edge, kb: u8, keys: &[u64]) {
-    let ptr = a.alloc_bytes(leaf::size_set(kb, keys.len()));
+pub(crate) fn build_leaf<const OCC: bool>(a: &NodeAlloc, edge: &mut Edge, kb: u8, keys: &[u64]) {
+    let ptr = a.alloc_bytes_dispatch::<OCC>(leaf::size_set(kb, keys.len()));
     let base = ptr.as_ptr();
     match kb {
         1 => {
@@ -513,7 +513,7 @@ pub(crate) fn restore_decode(edge: &mut Edge, kb: u8, level: u8, saved_aux: &[u8
 /// narrow when `at < slot_level`); the child keeps those below. Used
 /// when a full skipping `BranchB` must become a `BranchU` (which has no
 /// header and cannot skip): wrapping at `bl + 1` un-skips it in place.
-pub(crate) fn wrap_skip_level(
+pub(crate) fn wrap_skip_level<const OCC: bool>(
     a: &NodeAlloc,
     edge: &mut Edge,
     at: u8,
@@ -528,7 +528,7 @@ pub(crate) fn wrap_skip_level(
     for i in (at as usize - 1)..(slot_level as usize).min(7) {
         child.clear_aux_byte(i);
     }
-    let node = a.alloc_node_zeroed::<BranchL3>();
+    let node = a.alloc_node_zeroed_dispatch::<OCC, BranchL3>();
     // SAFETY: node is freshly allocated zeroed BranchL3 memory.
     unsafe {
         (*node.as_ptr()).hdr.level = at;
@@ -549,13 +549,19 @@ pub(crate) fn wrap_skip_level(
 /// digit disagrees with `key`, not one level at a time — the retry then
 /// lands in this branch and opens a sibling slot, with no single-child
 /// chain along the divergence path.
-pub(crate) fn split_skip(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8, subtree_pop: u64) {
+pub(crate) fn split_skip<const OCC: bool>(
+    a: &NodeAlloc,
+    edge: &mut Edge,
+    key: Key,
+    level: u8,
+    subtree_pop: u64,
+) {
     let aux = *edge.aux_bytes();
     let mut at = level;
     while digit(key, at) == aux[at as usize - 1] {
         at -= 1;
     }
-    wrap_skip_level(a, edge, at, level, subtree_pop);
+    wrap_skip_level::<OCC>(a, edge, at, level, subtree_pop);
 }
 
 /// Bumps the subtree `pop0` of an edge at `level` by `delta` (level 8 has
@@ -788,7 +794,7 @@ unsafe fn insert_with_path_flat(
             0x00 => {
                 if level == 8 {
                     // No 8-byte leaves/immediates: the top starts as a branch.
-                    let node = a.alloc_node_zeroed::<BranchL3>();
+                    let node = a.alloc_node_zeroed_plain::<BranchL3>();
                     // SAFETY: node is freshly allocated zeroed BranchL3 memory.
                     unsafe {
                         (*node.as_ptr()).hdr.level = level;
@@ -818,7 +824,7 @@ unsafe fn insert_with_path_flat(
                     if bl < level && !crate::get::decode_matches(&*edge, key, bl, level) {
                         let pop = (*edge).pop0(bl) + 1;
                         path.clear();
-                        split_skip(a, &mut *edge, key, level, pop);
+                        split_skip::<false>(a, &mut *edge, key, level, pop);
                         continue;
                     }
                     let d = digit(key, bl);
@@ -869,7 +875,7 @@ unsafe fn insert_with_path_flat(
                     if bl < level && !crate::get::decode_matches(&*edge, key, bl, level) {
                         let pop = (*edge).pop0(bl) + 1;
                         path.clear();
-                        split_skip(a, &mut *edge, key, level, pop);
+                        split_skip::<false>(a, &mut *edge, key, level, pop);
                         continue;
                     }
                     let d = digit(key, bl);
@@ -908,7 +914,7 @@ unsafe fn insert_with_path_flat(
                     let pop = unsafe { (*edge).pop0(bl) + 1 };
                     path.clear();
                     // SAFETY: split_skip maintains valid tree invariants.
-                    unsafe { split_skip(a, &mut *edge, key, level, pop) };
+                    unsafe { split_skip::<false>(a, &mut *edge, key, level, pop) };
                     continue;
                 }
                 let slot_level = level;
@@ -930,7 +936,7 @@ unsafe fn insert_with_path_flat(
                         let pop = unsafe { (*edge).pop0(bl) + 1 };
                         path.clear();
                         // SAFETY: wrap_skip_level maintains valid tree invariants.
-                        unsafe { wrap_skip_level(a, &mut *edge, bl + 1, slot_level, pop) };
+                        unsafe { wrap_skip_level::<false>(a, &mut *edge, bl + 1, slot_level, pop) };
                         level = slot_level;
                         continue;
                     }
@@ -953,7 +959,9 @@ unsafe fn insert_with_path_flat(
                         arr.add(rank).write(Edge::NULL);
                     }
                 } else {
-                    let new = a.alloc_bytes(sub_edges_size(old_n + 1)).cast::<Edge>();
+                    let new = a
+                        .alloc_bytes_plain(sub_edges_size(old_n + 1))
+                        .cast::<Edge>();
                     // SAFETY: allocate fresh subarray, copy old entries, write NULL, free old subarray.
                     unsafe {
                         if old_n > 0 {
@@ -962,7 +970,7 @@ unsafe fn insert_with_path_flat(
                             new.as_ptr()
                                 .add(rank + 1)
                                 .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                            a.free_bytes(
+                            a.free_bytes_plain(
                                 core::ptr::NonNull::new(old.cast()).expect("subarray"),
                                 sub_edges_size(old_n),
                             );
@@ -1000,7 +1008,7 @@ unsafe fn insert_with_path_flat(
                     let pop = unsafe { (*edge).pop0(1) + 1 };
                     path.clear();
                     // SAFETY: split_skip maintains tree invariants.
-                    unsafe { split_skip(a, &mut *edge, key, level, pop) };
+                    unsafe { split_skip::<false>(a, &mut *edge, key, level, pop) };
                     continue;
                 }
                 a.assert_bracketed();
@@ -1018,7 +1026,7 @@ unsafe fn insert_with_path_flat(
                     });
                     // SAFETY: free the LeafBitmap1 and convert to FullExpanse.
                     unsafe {
-                        a.free_node(ptr.expect("leaf ptr"));
+                        a.free_node_plain(ptr.expect("leaf ptr"));
                         *edge = Edge::NULL;
                         (*edge).set_tag(EdgeType::FullExpanse.as_u8());
                         (*edge).set_pop0(1, 255);
@@ -1055,7 +1063,7 @@ unsafe fn insert_with_path_flat(
                 // SAFETY: edge is a live Leaf1 linear leaf.
                 if level > 1 && !unsafe { crate::get::decode_matches(&*edge, key, 1, level) } {
                     // SAFETY: split_skip maintains valid tree invariants.
-                    unsafe { split_skip(a, &mut *edge, key, level, pop as u64) };
+                    unsafe { split_skip::<false>(a, &mut *edge, key, level, pop as u64) };
                     continue;
                 }
                 let k = key & 0xFF;
@@ -1112,14 +1120,14 @@ unsafe fn insert_with_path_flat(
                 // SAFETY: edge is a live linear leaf edge.
                 let saved_aux = unsafe { *(*edge).aux_bytes() };
                 if pop < cap {
-                    let new = a.alloc_bytes(leaf::size_set(1, pop + 1));
+                    let new = a.alloc_bytes_plain(leaf::size_set(1, pop + 1));
                     // SAFETY: copy pop keys around pos into new, set new node, free old allocation.
                     unsafe {
                         leaf::set_realloc_insert_fixed::<1>(base, new.as_ptr(), pop, pos, k);
                         *edge = Edge::new_node(new.as_ptr(), (*edge).tag_byte());
                         (*edge).set_aux_bytes(saved_aux);
                         (*edge).set_pop0(1, pop as u64);
-                        a.free_bytes(
+                        a.free_bytes_plain(
                             core::ptr::NonNull::new(old_ptr).expect("leaf ptr"),
                             old_size,
                         );
@@ -1156,7 +1164,7 @@ unsafe fn insert_with_path_flat(
                         *k |= prefix;
                     }
                 }
-                let ptr = a.alloc_node_zeroed::<LeafBitmap1>();
+                let ptr = a.alloc_node_zeroed_plain::<LeafBitmap1>();
                 // SAFETY: populate fresh LeafBitmap1 and install into edge.
                 unsafe {
                     for &k in &keys {
@@ -1178,7 +1186,7 @@ unsafe fn insert_with_path_flat(
                 }
                 // SAFETY: free old linear leaf and update ancestors.
                 unsafe {
-                    a.free_bytes(
+                    a.free_bytes_plain(
                         core::ptr::NonNull::new(old_ptr).expect("leaf ptr"),
                         old_size,
                     );
@@ -1199,7 +1207,7 @@ unsafe fn insert_with_path_flat(
                 // SAFETY: edge is a live linear leaf edge.
                 if kb < level && !unsafe { crate::get::decode_matches(&*edge, key, kb, level) } {
                     // SAFETY: split_skip maintains valid tree invariants.
-                    unsafe { split_skip(a, &mut *edge, key, level, pop as u64) };
+                    unsafe { split_skip::<false>(a, &mut *edge, key, level, pop as u64) };
                     continue;
                 }
                 let k = key_low(key, kb);
@@ -1245,14 +1253,14 @@ unsafe fn insert_with_path_flat(
                 // SAFETY: edge is a live linear leaf edge.
                 let saved_aux = unsafe { *(*edge).aux_bytes() };
                 if pop < cap {
-                    let new = a.alloc_bytes(leaf::size_set(kb, pop + 1));
+                    let new = a.alloc_bytes_plain(leaf::size_set(kb, pop + 1));
                     // SAFETY: copy pop keys around pos into new, set new node, free old allocation.
                     unsafe {
                         leaf::set_realloc_insert(base, new.as_ptr(), kb, pop, pos, k);
                         *edge = Edge::new_node(new.as_ptr(), (*edge).tag_byte());
                         (*edge).set_aux_bytes(saved_aux);
                         (*edge).set_pop0(kb, pop as u64);
-                        a.free_bytes(
+                        a.free_bytes_plain(
                             core::ptr::NonNull::new(old_ptr).expect("leaf ptr"),
                             old_size,
                         );
@@ -1280,11 +1288,11 @@ unsafe fn insert_with_path_flat(
                 if keys.len() <= cap {
                     // SAFETY: build_leaf allocates a fresh linear leaf of keys.len() keys.
                     unsafe {
-                        build_leaf(a, &mut *edge, kb, &keys);
+                        build_leaf::<false>(a, &mut *edge, kb, &keys);
                         restore_decode(&mut *edge, kb, level, &saved_aux);
                     }
                 } else if kb == 1 {
-                    let ptr = a.alloc_node_zeroed::<LeafBitmap1>();
+                    let ptr = a.alloc_node_zeroed_plain::<LeafBitmap1>();
                     // SAFETY: populate fresh LeafBitmap1 and install into edge.
                     unsafe {
                         for &k in &keys {
@@ -1297,7 +1305,7 @@ unsafe fn insert_with_path_flat(
                 } else {
                     let d = divergence_level(keys[0], keys[keys.len() - 1], level);
                     if d == 1 {
-                        let ptr = a.alloc_node_zeroed::<LeafBitmap1>();
+                        let ptr = a.alloc_node_zeroed_plain::<LeafBitmap1>();
                         // SAFETY: populate fresh LeafBitmap1 and install into edge.
                         unsafe {
                             for &k in &keys {
@@ -1319,7 +1327,7 @@ unsafe fn insert_with_path_flat(
                         }
                     } else {
                         let bl = d;
-                        let ptr = a.alloc_node_zeroed::<BranchL3>();
+                        let ptr = a.alloc_node_zeroed_plain::<BranchL3>();
                         // SAFETY: initialize fresh BranchL3 and re-insert keys.
                         unsafe {
                             (*ptr.as_ptr()).hdr.level = bl;
@@ -1337,7 +1345,7 @@ unsafe fn insert_with_path_flat(
                 }
                 // SAFETY: free old linear leaf and update ancestors.
                 unsafe {
-                    a.free_bytes(
+                    a.free_bytes_plain(
                         core::ptr::NonNull::new(old_ptr).expect("leaf ptr"),
                         old_size,
                     );
@@ -1434,7 +1442,7 @@ unsafe fn insert_with_path_flat(
                     return true;
                 }
                 // Overflow immediate capacity -> build linear leaf.
-                let ptr = a.alloc_bytes(leaf::size_set(kb, n + 1));
+                let ptr = a.alloc_bytes_plain(leaf::size_set(kb, n + 1));
                 let base = ptr.as_ptr();
                 // SAFETY: ptr is freshly allocated with size for n + 1 keys; payload has n keys.
                 unsafe {
@@ -1582,7 +1590,7 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                     keys.push(ki);
                 }
                 cover.begin_if::<OCC, NESTED>(a);
-                build_leaf(a, edge, kb, keys.as_slice());
+                build_leaf::<OCC>(a, edge, kb, keys.as_slice());
                 cover.end_if::<OCC, NESTED>(a);
                 return true;
             }
@@ -1605,7 +1613,7 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                     // decode digit as a branch level and retry (a chain forms
                     // only along the divergence path).
                     cover.begin_if::<OCC, NESTED>(a);
-                    split_skip(a, edge, key, level, pop as u64);
+                    split_skip::<OCC>(a, edge, key, level, pop as u64);
                     cover.end_if::<OCC, NESTED>(a);
                     continue;
                 }
@@ -1688,7 +1696,7 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                 // edge first, so no bracket nests on the same word.
                 if keys.len() <= cap {
                     cover.begin_if::<OCC, NESTED>(a);
-                    build_leaf(a, edge, kb, &keys);
+                    build_leaf::<OCC>(a, edge, kb, &keys);
                     restore_decode(edge, kb, level, &saved_aux);
                     cover.end_if::<OCC, NESTED>(a);
                 } else if kb == 1 {
@@ -1787,7 +1795,7 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                     let pop = edge.pop0(1) + 1;
                     path.clear();
                     cover.begin_if::<OCC, NESTED>(a);
-                    split_skip(a, edge, key, level, pop);
+                    split_skip::<OCC>(a, edge, key, level, pop);
                     cover.end_if::<OCC, NESTED>(a);
                     continue;
                 }
@@ -1833,7 +1841,7 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                     let pop = edge.pop0(bl) + 1;
                     path.clear();
                     cover.begin_if::<OCC, NESTED>(a);
-                    split_skip(a, edge, key, level, pop);
+                    split_skip::<OCC>(a, edge, key, level, pop);
                     cover.end_if::<OCC, NESTED>(a);
                     continue;
                 }
@@ -1988,7 +1996,7 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                     let pop = edge.pop0(bl) + 1;
                     path.clear();
                     cover.begin_if::<OCC, NESTED>(a);
-                    split_skip(a, edge, key, level, pop);
+                    split_skip::<OCC>(a, edge, key, level, pop);
                     cover.end_if::<OCC, NESTED>(a);
                     continue;
                 }
@@ -2029,7 +2037,7 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                         let pop = edge.pop0(bl) + 1;
                         path.clear();
                         cover.begin_if::<OCC, NESTED>(a);
-                        wrap_skip_level(a, edge, bl + 1, slot_level, pop);
+                        wrap_skip_level::<OCC>(a, edge, bl + 1, slot_level, pop);
                         cover.end_if::<OCC, NESTED>(a);
                         level = slot_level;
                         continue;
@@ -2151,7 +2159,7 @@ pub(crate) unsafe fn upgrade_l3_to_l7<const OCC: bool>(a: &NodeAlloc, edge: &mut
     crate::occ_stats::note_branch_replacement();
     // SAFETY: live BranchL3 per contract.
     let old = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
-    let new = a.alloc_node_zeroed::<BranchL7>();
+    let new = a.alloc_node_zeroed_dispatch::<OCC, BranchL7>();
     // SAFETY: new is freshly allocated zeroed BranchL7 memory; old is live BranchL3.
     unsafe {
         core::ptr::addr_of_mut!((*new.as_ptr()).hdr).write(old.hdr);
@@ -2173,7 +2181,11 @@ pub(crate) unsafe fn upgrade_l3_to_l7<const OCC: bool>(a: &NodeAlloc, edge: &mut
         );
     }
     // SAFETY: old node no longer referenced.
-    unsafe { a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL3>()).unwrap()) };
+    unsafe {
+        a.free_node_dispatch::<OCC, BranchL3>(
+            core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL3>()).unwrap(),
+        )
+    };
     *edge = Edge::new_node(new.as_ptr().cast(), EdgeType::BranchL7.as_u8());
     edge.set_aux_bytes(aux);
 }
@@ -2187,7 +2199,7 @@ pub(crate) unsafe fn upgrade_l7_to_b<const OCC: bool>(a: &NodeAlloc, edge: &mut 
     crate::occ_stats::note_branch_replacement();
     // SAFETY: live BranchL7 per contract.
     let old = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
-    let new = a.alloc_node_zeroed::<BranchB>();
+    let new = a.alloc_node_zeroed_dispatch::<OCC, BranchB>();
     // SAFETY: new is freshly allocated zeroed BranchB memory; old is live BranchL7.
     unsafe {
         (*new.as_ptr()).level = old.hdr.level;
@@ -2198,8 +2210,10 @@ pub(crate) unsafe fn upgrade_l7_to_b<const OCC: bool>(a: &NodeAlloc, edge: &mut 
         for sub in 0..8 {
             let n = (*new.as_ptr()).pop_counts[sub] as usize;
             if n > 0 {
-                (*new.as_ptr()).subarrays[sub] =
-                    a.alloc_bytes(sub_edges_size(n)).cast::<Edge>().as_ptr();
+                (*new.as_ptr()).subarrays[sub] = a
+                    .alloc_bytes_dispatch::<OCC>(sub_edges_size(n))
+                    .cast::<Edge>()
+                    .as_ptr();
             }
         }
         let mut filled = [0usize; 8];
@@ -2226,7 +2240,11 @@ pub(crate) unsafe fn upgrade_l7_to_b<const OCC: bool>(a: &NodeAlloc, edge: &mut 
         );
     }
     // SAFETY: old node no longer referenced.
-    unsafe { a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL7>()).unwrap()) };
+    unsafe {
+        a.free_node_dispatch::<OCC, BranchL7>(
+            core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL7>()).unwrap(),
+        )
+    };
     *edge = Edge::new_node(new.as_ptr().cast(), EdgeType::BranchB.as_u8());
     edge.set_aux_bytes(aux);
 }
@@ -2239,7 +2257,7 @@ pub(crate) unsafe fn upgrade_l7_to_b<const OCC: bool>(a: &NodeAlloc, edge: &mut 
 /// (`BranchU` has no header level; callers wrap a skipping node first).
 pub(crate) unsafe fn upgrade_b_to_u<const OCC: bool>(a: &NodeAlloc, edge: &mut Edge) {
     crate::occ_stats::note_branch_replacement();
-    let new = a.alloc_node_zeroed::<BranchU>();
+    let new = a.alloc_node_zeroed_dispatch::<OCC, BranchU>();
     // SAFETY: live BranchB; subarray reads bounded by pop_counts.
     unsafe {
         let old = &*edge.node_ptr().cast::<BranchB>();
@@ -2258,7 +2276,7 @@ pub(crate) unsafe fn upgrade_b_to_u<const OCC: bool>(a: &NodeAlloc, edge: &mut E
         for sub in 0..8 {
             let n = old.pop_counts[sub] as usize;
             if n > 0 {
-                a.free_bytes(
+                a.free_bytes_dispatch::<OCC>(
                     core::ptr::NonNull::new(old.subarrays[sub].cast()).unwrap(),
                     sub_edges_size(n),
                 );
@@ -2277,7 +2295,11 @@ pub(crate) unsafe fn upgrade_b_to_u<const OCC: bool>(a: &NodeAlloc, edge: &mut E
         );
     }
     // SAFETY: old node no longer referenced.
-    unsafe { a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchB>()).unwrap()) };
+    unsafe {
+        a.free_node_dispatch::<OCC, BranchB>(
+            core::ptr::NonNull::new(edge.node_ptr().cast::<BranchB>()).unwrap(),
+        )
+    };
     *edge = Edge::new_node(new.as_ptr().cast(), EdgeType::BranchU.as_u8());
     edge.set_aux_bytes(aux);
 }
@@ -2504,7 +2526,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                     }
                     write_immed(edge, level, full.as_slice());
                 } else {
-                    build_leaf(a, edge, 1, keys.as_slice());
+                    build_leaf::<OCC>(a, edge, 1, keys.as_slice());
                     restore_decode(edge, 1, level, &saved_aux);
                 }
             } else {

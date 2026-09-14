@@ -436,7 +436,12 @@ impl NodeAlloc {
     /// rather than remembered: `alloc_bytes`/`free_bytes` are always
     /// [`RAW_ALIGN`], `alloc_node`/`free_node` are always `align_of::<T>()`.
     #[inline(always)]
-    fn alloc_raw(&self, bytes: usize, align: usize) -> NonNull<u8> {
+    fn alloc_raw<const OCC: bool>(&self, bytes: usize, align: usize) -> NonNull<u8> {
+        #[cfg(feature = "std")]
+        debug_assert!(
+            OCC || self.deferred.get().is_none(),
+            "plain allocator path (OCC=false) invoked on an allocator with deferred reclamation enabled"
+        );
         let accounted_size = accounted_size(bytes, align);
         #[cfg(not(feature = "ablation-sharded-alloc"))]
         {
@@ -460,97 +465,96 @@ impl NodeAlloc {
         }
 
         if let Some(class) = class_for(bytes, align) {
-            let head = self.freelists[class].load(Ordering::Relaxed);
-            if !head.is_null() {
-                #[cfg(debug_assertions)]
-                let _bookkeeping = self.enter_bookkeeping();
-                // The guard alone cannot see the whole pop: the load above it
-                // is outside the region, so two threads that read one `head`
-                // and then take the guard one after another never overlap
-                // inside it, and each returns the same block to its caller.
-                // Re-reading under the guard catches that interleaving, since
-                // the first thread's store lands before the second gets in.
-                debug_assert_eq!(
-                    self.freelists[class].load(Ordering::Relaxed),
-                    head,
-                    "this class's freelist head moved between the load and the pop, so \
-                     another thread is inside one NodeAlloc's per-tree freelists. They \
-                     are single-writer: their updates are load/store pairs, not CAS, so \
-                     concurrent use hands the same block to two callers. Share a tree \
-                     through a Sync* wrapper (which defers to the collector's locked \
-                     freelists before carving anything), or give each thread its own \
-                     NodeAlloc."
-                );
-                debug_assert!(
-                    !self.occ_enabled(),
-                    "alloc_raw popped per-tree freelist under OCC: per-tree freelists \
-                     are single-writer only; OCC allocations must use collector freelist"
-                );
-                // SAFETY: head points to a valid FreeBlock previously freed to this class.
-                let next = unsafe { (*head).next };
-                self.freelists[class].store(next, Ordering::Relaxed);
-                let raw = head.cast::<u8>();
-                // SAFETY: zero out the reused memory before returning.
-                unsafe { core::ptr::write_bytes(raw, 0, bytes) };
-                return NonNull::new(raw).expect("non-null free block");
-            }
-
             #[cfg(feature = "std")]
-            let mut raw = if let Some(c) = self.deferred.get() {
-                c.pop_freelist(class)
-            } else {
-                core::ptr::null_mut()
-            };
-
-            #[cfg(not(feature = "std"))]
-            let mut raw: *mut u8 = core::ptr::null_mut();
-
-            if raw.is_null() && bytes <= 256 && !self.occ_enabled() {
-                #[cfg(debug_assertions)]
-                let _bookkeeping = self.enter_bookkeeping();
-                // Pre-populate freelist from an intrusive 4KB slab page
-                const SLAB_PAGE_SIZE: usize = 4096;
-                let page_align = align.max(CACHE_LINE);
-                let page_layout = Layout::from_size_align(SLAB_PAGE_SIZE, page_align)
-                    .expect("valid slab page layout");
-                // SAFETY: page_layout has non-zero size.
-                let page_raw = unsafe { alloc_zeroed(page_layout) };
-                let Some(page_ptr) = NonNull::new(page_raw) else {
-                    handle_alloc_error(page_layout)
-                };
-
-                // Embed intrusive SlabPage header at the start of the page
-                let slab_page = page_ptr.as_ptr().cast::<SlabPage>();
-                // SAFETY: page_raw is a fresh 4KB zeroed allocation.
-                unsafe {
-                    (*slab_page).next = self.slab_pages.load(Ordering::Relaxed);
-                    (*slab_page).layout = page_layout;
+            if OCC && let Some(c) = self.deferred.get() {
+                let raw = c.pop_freelist(class);
+                if !raw.is_null() {
+                    // SAFETY: zero out the reused memory before returning.
+                    unsafe { core::ptr::write_bytes(raw, 0, bytes) };
+                    return NonNull::new(raw).expect("non-null free block");
                 }
-                self.slab_pages.store(slab_page, Ordering::Relaxed);
-
-                let header_offset = CACHE_LINE;
-                let step = accounted_size;
-                let available_bytes = SLAB_PAGE_SIZE - header_offset;
-                let num_blocks = available_bytes / step;
-
-                for i in (1..num_blocks).rev() {
-                    // SAFETY: ptr is inside the allocated SLAB_PAGE_SIZE buffer.
-                    let blk_ptr =
-                        unsafe { page_raw.add(header_offset + i * step) }.cast::<FreeBlock>();
-                    let cur_head = self.freelists[class].load(Ordering::Relaxed);
-                    // SAFETY: blk_ptr is valid memory.
-                    unsafe { (*blk_ptr).next = cur_head };
-                    self.freelists[class].store(blk_ptr, Ordering::Relaxed);
-                }
-
-                // SAFETY: header_offset is aligned to CACHE_LINE.
-                raw = unsafe { page_raw.add(header_offset) };
             }
 
-            if !raw.is_null() {
-                // SAFETY: zero out the reused memory before returning.
-                unsafe { core::ptr::write_bytes(raw, 0, bytes) };
-                return NonNull::new(raw).expect("non-null free block");
+            if !OCC || !self.occ_enabled() {
+                let head = self.freelists[class].load(Ordering::Relaxed);
+                if !head.is_null() {
+                    #[cfg(debug_assertions)]
+                    let _bookkeeping = self.enter_bookkeeping();
+                    // The guard alone cannot see the whole pop: the load above it
+                    // is outside the region, so two threads that read one `head`
+                    // and then take the guard one after another never overlap
+                    // inside it, and each returns the same block to its caller.
+                    // Re-reading under the guard catches that interleaving, since
+                    // the first thread's store lands before the second gets in.
+                    debug_assert_eq!(
+                        self.freelists[class].load(Ordering::Relaxed),
+                        head,
+                        "this class's freelist head moved between the load and the pop, so \
+                         another thread is inside one NodeAlloc's per-tree freelists. They \
+                         are single-writer: their updates are load/store pairs, not CAS, so \
+                         concurrent use hands the same block to two callers. Share a tree \
+                         through a Sync* wrapper (which defers to the collector's locked \
+                         freelists before carving anything), or give each thread its own \
+                         NodeAlloc."
+                    );
+                    debug_assert!(
+                        !self.occ_enabled(),
+                        "alloc_raw popped per-tree freelist under OCC: per-tree freelists \
+                         are single-writer only; OCC allocations must use collector freelist"
+                    );
+                    // SAFETY: head points to a valid FreeBlock previously freed to this class.
+                    let next = unsafe { (*head).next };
+                    self.freelists[class].store(next, Ordering::Relaxed);
+                    let raw = head.cast::<u8>();
+                    // SAFETY: zero out the reused memory before returning.
+                    unsafe { core::ptr::write_bytes(raw, 0, bytes) };
+                    return NonNull::new(raw).expect("non-null free block");
+                }
+
+                if bytes <= 256 {
+                    #[cfg(debug_assertions)]
+                    let _bookkeeping = self.enter_bookkeeping();
+                    // Pre-populate freelist from an intrusive 4KB slab page
+                    const SLAB_PAGE_SIZE: usize = 4096;
+                    let page_align = align.max(CACHE_LINE);
+                    let page_layout = Layout::from_size_align(SLAB_PAGE_SIZE, page_align)
+                        .expect("valid slab page layout");
+                    // SAFETY: page_layout has non-zero size.
+                    let page_raw = unsafe { alloc_zeroed(page_layout) };
+                    let Some(page_ptr) = NonNull::new(page_raw) else {
+                        handle_alloc_error(page_layout)
+                    };
+
+                    // Embed intrusive SlabPage header at the start of the page
+                    let slab_page = page_ptr.as_ptr().cast::<SlabPage>();
+                    // SAFETY: page_raw is a fresh 4KB zeroed allocation.
+                    unsafe {
+                        (*slab_page).next = self.slab_pages.load(Ordering::Relaxed);
+                        (*slab_page).layout = page_layout;
+                    }
+                    self.slab_pages.store(slab_page, Ordering::Relaxed);
+
+                    let header_offset = CACHE_LINE;
+                    let step = accounted_size;
+                    let available_bytes = SLAB_PAGE_SIZE - header_offset;
+                    let num_blocks = available_bytes / step;
+
+                    for i in (1..num_blocks).rev() {
+                        // SAFETY: ptr is inside the allocated SLAB_PAGE_SIZE buffer.
+                        let blk_ptr =
+                            unsafe { page_raw.add(header_offset + i * step) }.cast::<FreeBlock>();
+                        let cur_head = self.freelists[class].load(Ordering::Relaxed);
+                        // SAFETY: blk_ptr is valid memory.
+                        unsafe { (*blk_ptr).next = cur_head };
+                        self.freelists[class].store(blk_ptr, Ordering::Relaxed);
+                    }
+
+                    // SAFETY: header_offset is aligned to CACHE_LINE.
+                    let raw = unsafe { page_raw.add(header_offset) };
+                    // SAFETY: zero out the reused memory before returning.
+                    unsafe { core::ptr::write_bytes(raw, 0, bytes) };
+                    return NonNull::new(raw).expect("non-null free block");
+                }
             }
         }
 
@@ -570,7 +574,12 @@ impl NodeAlloc {
     /// `ptr` must come from `alloc_raw(bytes, align)` on this handle with
     /// **the same `align`**, not yet freed, and nothing may use it after.
     #[inline(always)]
-    unsafe fn free_raw(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
+    unsafe fn free_raw<const OCC: bool>(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
+        #[cfg(feature = "std")]
+        debug_assert!(
+            OCC || self.deferred.get().is_none(),
+            "plain free path (OCC=false) invoked on an allocator with deferred reclamation enabled"
+        );
         let accounted_size = accounted_size(bytes, align);
         #[cfg(not(feature = "ablation-sharded-alloc"))]
         {
@@ -590,7 +599,7 @@ impl NodeAlloc {
         }
 
         #[cfg(feature = "std")]
-        if let Some(c) = self.deferred.get() {
+        if OCC && let Some(c) = self.deferred.get() {
             // Deferred mode: the structure no longer references `ptr`,
             // but pinned readers may — reclamation waits out the grace
             // period. The alignment travels with the pointer, because the
@@ -622,7 +631,7 @@ impl NodeAlloc {
     #[must_use]
     #[inline(always)]
     pub fn alloc_bytes(&self, bytes: usize) -> NonNull<u8> {
-        self.alloc_raw(bytes, RAW_ALIGN)
+        self.alloc_raw::<true>(bytes, RAW_ALIGN)
     }
 
     /// Frees an allocation made by [`Self::alloc_bytes`] with this handle.
@@ -635,7 +644,56 @@ impl NodeAlloc {
     pub unsafe fn free_bytes(&self, ptr: NonNull<u8>, bytes: usize) {
         // SAFETY: `alloc_bytes` is the only producer of these pointers and
         // always uses RAW_ALIGN, so the layout matches.
-        unsafe { self.free_raw(ptr, bytes, RAW_ALIGN) };
+        unsafe { self.free_raw::<true>(ptr, bytes, RAW_ALIGN) };
+    }
+
+    /// [`Self::alloc_bytes`] for a tree with no collector attached, with the
+    /// collector branch compiled out instead of tested on each call
+    /// (AGENTS.md §2.1.5). Valid only while `occ_enabled()` is false, which
+    /// `alloc_raw` checks in debug builds; the engine calls it only from the
+    /// `OCC = false` paths that `by_mode!` selects on that same condition.
+    #[must_use]
+    #[inline(always)]
+    pub(crate) fn alloc_bytes_plain(&self, bytes: usize) -> NonNull<u8> {
+        self.alloc_raw::<false>(bytes, RAW_ALIGN)
+    }
+
+    /// [`Self::free_bytes`] for a tree with no collector attached: the block
+    /// returns to this tree's freelists with no retirement branch.
+    ///
+    /// # Safety
+    ///
+    /// As [`Self::free_bytes`], and `occ_enabled()` must be false (checked in
+    /// debug builds): on a shared tree a reader may still hold `ptr`, and only
+    /// retirement waits it out.
+    #[inline(always)]
+    pub(crate) unsafe fn free_bytes_plain(&self, ptr: NonNull<u8>, bytes: usize) {
+        // SAFETY: forwarded contract; `alloc_bytes` and `alloc_bytes_plain`
+        // both allocate at RAW_ALIGN, so the layout matches.
+        unsafe { self.free_raw::<false>(ptr, bytes, RAW_ALIGN) };
+    }
+
+    /// [`Self::alloc_bytes`] with the collector branch chosen at compile time;
+    /// `OCC = false` is [`Self::alloc_bytes_plain`].
+    #[must_use]
+    #[inline(always)]
+    pub(crate) fn alloc_bytes_dispatch<const OCC: bool>(&self, bytes: usize) -> NonNull<u8> {
+        self.alloc_raw::<OCC>(bytes, RAW_ALIGN)
+    }
+
+    /// [`Self::free_bytes`] with the collector branch chosen at compile time.
+    ///
+    /// # Safety
+    ///
+    /// As [`Self::free_bytes`]; with `OCC = false`, as [`Self::free_bytes_plain`].
+    #[inline(always)]
+    pub(crate) unsafe fn free_bytes_dispatch<const OCC: bool>(
+        &self,
+        ptr: NonNull<u8>,
+        bytes: usize,
+    ) {
+        // SAFETY: forwarded contract; every byte allocation uses RAW_ALIGN.
+        unsafe { self.free_raw::<OCC>(ptr, bytes, RAW_ALIGN) };
     }
 
     /// Frees an allocation made by [`Self::alloc_bytes`] that was **never published** to
@@ -689,7 +747,7 @@ impl NodeAlloc {
 
         // Without deferred reclamation, unpublished frees are identical to ordinary frees.
         // SAFETY: per this function's contract, layout matches original allocation.
-        unsafe { self.free_raw(ptr, bytes, RAW_ALIGN) };
+        unsafe { self.free_raw::<true>(ptr, bytes, RAW_ALIGN) };
     }
 
     /// Frees an allocation made by [`Self::alloc_node`] or [`Self::alloc_node_zeroed`] that was
@@ -744,7 +802,7 @@ impl NodeAlloc {
 
         // Without deferred reclamation, unpublished frees are identical to ordinary frees.
         // SAFETY: per this function's contract, layout matches original allocation.
-        unsafe { self.free_raw(ptr.cast::<u8>(), bytes, align) };
+        unsafe { self.free_raw::<true>(ptr.cast::<u8>(), bytes, align) };
     }
 
     /// True once this tree is shared through a Phase 7 concurrent
@@ -970,7 +1028,9 @@ impl NodeAlloc {
         // node types need the full cache line, while raw byte storage does
         // not, and routing both through one alignment is what made every
         // allocation take glibc's `memalign` path.
-        let ptr = self.alloc_raw(size_of::<T>(), align_of::<T>()).cast::<T>();
+        let ptr = self
+            .alloc_raw::<true>(size_of::<T>(), align_of::<T>())
+            .cast::<T>();
         // SAFETY: freshly allocated, correctly sized, and allocated at
         // exactly `align_of::<T>()`.
         unsafe { ptr.write(init) };
@@ -985,7 +1045,8 @@ impl NodeAlloc {
     #[must_use]
     pub fn alloc_node_zeroed<T>(&self) -> NonNull<T> {
         debug_assert!(align_of::<T>() <= CACHE_LINE);
-        self.alloc_raw(size_of::<T>(), align_of::<T>()).cast::<T>()
+        self.alloc_raw::<true>(size_of::<T>(), align_of::<T>())
+            .cast::<T>()
     }
 
     /// Frees a node allocated by [`Self::alloc_node`], dropping its value.
@@ -1001,7 +1062,54 @@ impl NodeAlloc {
         // SAFETY: same allocation, same size AND same alignment as
         // `alloc_node` used — deliberately not routed through
         // `free_bytes`, whose alignment is RAW_ALIGN.
-        unsafe { self.free_raw(ptr.cast::<u8>(), size_of::<T>(), align_of::<T>()) };
+        unsafe { self.free_raw::<true>(ptr.cast::<u8>(), size_of::<T>(), align_of::<T>()) };
+    }
+
+    /// [`Self::alloc_node_zeroed`] for a tree with no collector attached; see
+    /// [`Self::alloc_bytes_plain`] for when that holds.
+    #[inline(always)]
+    #[must_use]
+    pub(crate) fn alloc_node_zeroed_plain<T>(&self) -> NonNull<T> {
+        debug_assert!(align_of::<T>() <= CACHE_LINE);
+        self.alloc_raw::<false>(size_of::<T>(), align_of::<T>())
+            .cast::<T>()
+    }
+
+    /// [`Self::free_node`] for a tree with no collector attached.
+    ///
+    /// # Safety
+    ///
+    /// As [`Self::free_node`], and `occ_enabled()` must be false; see
+    /// [`Self::free_bytes_plain`].
+    #[inline(always)]
+    pub(crate) unsafe fn free_node_plain<T>(&self, ptr: NonNull<T>) {
+        // SAFETY: caller asserts `ptr` is a valid node of type `T`.
+        unsafe { ptr.drop_in_place() };
+        // SAFETY: allocated at `size_of::<T>()` and `align_of::<T>()`.
+        unsafe { self.free_raw::<false>(ptr.cast::<u8>(), size_of::<T>(), align_of::<T>()) };
+    }
+
+    /// [`Self::alloc_node_zeroed`] with the collector branch chosen at compile
+    /// time; `OCC = false` is [`Self::alloc_node_zeroed_plain`].
+    #[must_use]
+    #[inline(always)]
+    pub(crate) fn alloc_node_zeroed_dispatch<const OCC: bool, T>(&self) -> NonNull<T> {
+        debug_assert!(align_of::<T>() <= CACHE_LINE);
+        self.alloc_raw::<OCC>(size_of::<T>(), align_of::<T>())
+            .cast::<T>()
+    }
+
+    /// [`Self::free_node`] with the collector branch chosen at compile time.
+    ///
+    /// # Safety
+    ///
+    /// As [`Self::free_node`]; with `OCC = false`, as [`Self::free_node_plain`].
+    #[inline(always)]
+    pub(crate) unsafe fn free_node_dispatch<const OCC: bool, T>(&self, ptr: NonNull<T>) {
+        // SAFETY: caller asserts `ptr` is a valid node of type `T`.
+        unsafe { ptr.drop_in_place() };
+        // SAFETY: allocated at `size_of::<T>()` and `align_of::<T>()`.
+        unsafe { self.free_raw::<OCC>(ptr.cast::<u8>(), size_of::<T>(), align_of::<T>()) };
     }
 }
 
@@ -1412,6 +1520,44 @@ mod tests {
         unsafe { a.free_node(ptr) };
         let collector = std::sync::Arc::new(crate::occ::Collector::new());
         a.defer_to(collector);
+    }
+
+    #[test]
+    #[cfg(all(debug_assertions, feature = "std"))]
+    #[should_panic = "plain free path (OCC=false) invoked on an allocator with deferred reclamation enabled"]
+    fn plain_free_rejects_deferred_allocator() {
+        struct RawBlockGuard {
+            ptr: *mut u8,
+            layout: std::alloc::Layout,
+        }
+        impl Drop for RawBlockGuard {
+            fn drop(&mut self) {
+                // SAFETY: self.ptr was allocated with self.layout.
+                unsafe { std::alloc::dealloc(self.ptr, self.layout) };
+            }
+        }
+
+        let a = NodeAlloc::new();
+        let collector = std::sync::Arc::new(crate::occ::Collector::new());
+        a.defer_to(collector);
+        let layout = std::alloc::Layout::from_size_align(64, RAW_ALIGN).unwrap();
+        // SAFETY: layout has non-zero size and valid alignment.
+        let raw = unsafe { std::alloc::alloc(layout) };
+        let guard = RawBlockGuard { ptr: raw, layout };
+        let ptr = NonNull::new(raw).unwrap();
+        // SAFETY: ptr is a valid 64-byte allocation at RAW_ALIGN; triggers invariant debug_assert.
+        unsafe { a.free_bytes_plain(ptr, 64) };
+        core::mem::forget(guard);
+    }
+
+    #[test]
+    #[cfg(all(debug_assertions, feature = "std"))]
+    #[should_panic = "plain allocator path (OCC=false) invoked on an allocator with deferred reclamation enabled"]
+    fn plain_alloc_rejects_deferred_allocator() {
+        let a = NodeAlloc::new();
+        let collector = std::sync::Arc::new(crate::occ::Collector::new());
+        a.defer_to(collector);
+        let _ = a.alloc_bytes_plain(64);
     }
 
     /// The guard itself: a second holder is rejected while the first lives, and

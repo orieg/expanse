@@ -408,7 +408,7 @@ default build compiles all three out.
 |---|---|---|---|---|
 | a | `ablation-sharded-alloc` | `NodeAlloc`'s `bytes_in_use`, `live_allocs` and `total_allocs`, updated by every allocation and free | one cache-line-aligned shard per stripe; the accessors sum the shards | `writer_scaling_ablation_alloc` |
 | b | `ablation-striped-epoch` (landed in production standard, Refs #568) | the collector's epoch bins (one mutex per bin, taken by every retire) and its `retained_bytes` counter | `bins[e % BINS][stripe]` and one `retained_bytes` per stripe ($S=16$ in production standard with thread-exit slot recycling) | `writer_scaling_ablation_epoch` (retired; measured via `writer_scaling`) |
-| c | `ablation-striped-freelist` | the collector's per-class freelists (one mutex per class, taken by every size-class allocation under OCC in `Collector::pop_freelist`, and by every reclaim) | one set of class freelists per stripe; a reclaimed block goes back to the stripe that retired it | `writer_scaling_ablation_freelist` |
+| c | `ablation-unstriped-freelist` | reverts collector freelists to a single shared array across all writer stripes (Refs #568; per-stripe freelists landed as production default) | one set of class freelists shared by all stripes; reverts per-stripe freelists to measure contention | `writer_scaling_ablation_unstriped_freelist` |
 
 **Stripe.** A thread's stripe is assigned via dense slot reservation and thread-exit recycling (`occ::writer_slot`, backed by `ALLOC_SLOTS_MASK`), so $N_{\text{live}}$ active threads strictly occupy slots $0..N_{\text{live}}-1$ with zero modulo collision across the 16 stripes. The sweep's W is at most 8.
 

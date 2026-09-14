@@ -76,7 +76,12 @@ pub(crate) unsafe fn leaf_locate_fixed(
 }
 
 /// Builds a fresh map immediate from sorted entries.
-fn write_map_immed(a: &NodeAlloc, edge: &mut Edge, kb: u8, entries: &[(u64, u64)]) {
+fn write_map_immed<const OCC: bool>(
+    a: &NodeAlloc,
+    edge: &mut Edge,
+    kb: u8,
+    entries: &[(u64, u64)],
+) {
     let im = ImmedType::new(kb, entries.len() as u8).expect("immediate capacity");
     debug_assert!(entries.len() <= map_immed_max(kb));
     let mut aux = [0u8; 7];
@@ -88,7 +93,7 @@ fn write_map_immed(a: &NodeAlloc, edge: &mut Edge, kb: u8, entries: &[(u64, u64)
         edge.set_imm_bytes(entries[0].1.to_le_bytes());
     } else {
         let vals = a
-            .alloc_bytes(map_immed_val_size(entries.len()))
+            .alloc_bytes_dispatch::<OCC>(map_immed_val_size(entries.len()))
             .cast::<u64>();
         for (slot, &(_, v)) in entries.iter().enumerate() {
             // SAFETY: fresh array of entries.len() slots.
@@ -158,8 +163,12 @@ pub(crate) unsafe fn read_map_leaf(edge: &Edge, kb: u8, pop: usize) -> Vec<(u64,
 
 /// Allocates a `LeafBitmapL` from sorted level-1 entries and points
 /// `edge` at it (decode bytes, if any, are the caller's to restore).
-pub(crate) fn build_bitmap_leaf_map(a: &NodeAlloc, edge: &mut Edge, entries: &[(u64, u64)]) {
-    let ptr = a.alloc_node_zeroed::<LeafBitmapL>();
+pub(crate) fn build_bitmap_leaf_map<const OCC: bool>(
+    a: &NodeAlloc,
+    edge: &mut Edge,
+    entries: &[(u64, u64)],
+) {
+    let ptr = a.alloc_node_zeroed_dispatch::<OCC, LeafBitmapL>();
     // SAFETY: ptr is freshly allocated zeroed LeafBitmapL memory.
     unsafe {
         for &(k, _) in entries {
@@ -187,7 +196,9 @@ pub(crate) fn build_bitmap_leaf_map(a: &NodeAlloc, edge: &mut Edge, entries: &[(
             while j < entries.len() && (entries[j].0 >> 5) as usize == sub {
                 j += 1;
             }
-            let arr = a.alloc_bytes(sub_vals_size(j - i)).cast::<u64>();
+            let arr = a
+                .alloc_bytes_dispatch::<OCC>(sub_vals_size(j - i))
+                .cast::<u64>();
             for (slot, &(_, v)) in entries[i..j].iter().enumerate() {
                 // SAFETY: fresh array of `j - i` slots.
                 arr.as_ptr().add(slot).write(v);
@@ -201,9 +212,9 @@ pub(crate) fn build_bitmap_leaf_map(a: &NodeAlloc, edge: &mut Edge, entries: &[(
 }
 
 /// Allocates a map leaf from sorted entries and points `edge` at it.
-fn build_map_leaf(a: &NodeAlloc, edge: &mut Edge, kb: u8, entries: &[(u64, u64)]) {
+fn build_map_leaf<const OCC: bool>(a: &NodeAlloc, edge: &mut Edge, kb: u8, entries: &[(u64, u64)]) {
     let pop = entries.len();
-    let ptr = a.alloc_bytes(leaf::size_map(kb, pop));
+    let ptr = a.alloc_bytes_dispatch::<OCC>(leaf::size_map(kb, pop));
     let vals = ptr.as_ptr().cast::<u64>();
     // SAFETY: freshly allocated leaf buffer holds keys at map_keys_offset.
     let keys = unsafe { ptr.as_ptr().add(leaf::map_keys_offset(pop)) };
@@ -431,7 +442,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
             0x00 => {
                 path.clear();
                 if level == 8 {
-                    let node = a.alloc_node_zeroed::<BranchL3>();
+                    let node = a.alloc_node_zeroed_plain::<BranchL3>();
                     // SAFETY: node is freshly allocated zeroed BranchL3 memory.
                     unsafe {
                         (*node.as_ptr()).hdr.level = level;
@@ -461,7 +472,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                     if bl < level && !crate::get::decode_matches(&*edge, key, bl, level) {
                         let pop = (*edge).pop0(bl) + 1;
                         path.clear();
-                        split_skip(a, &mut *edge, key, level, pop);
+                        split_skip::<false>(a, &mut *edge, key, level, pop);
                         continue;
                     }
                     let d = digit(key, bl);
@@ -512,7 +523,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                     if bl < level && !crate::get::decode_matches(&*edge, key, bl, level) {
                         let pop = (*edge).pop0(bl) + 1;
                         path.clear();
-                        split_skip(a, &mut *edge, key, level, pop);
+                        split_skip::<false>(a, &mut *edge, key, level, pop);
                         continue;
                     }
                     let d = digit(key, bl);
@@ -551,7 +562,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                     let pop = unsafe { (*edge).pop0(bl) + 1 };
                     path.clear();
                     // SAFETY: split_skip maintains valid tree invariants.
-                    unsafe { split_skip(a, &mut *edge, key, level, pop) };
+                    unsafe { split_skip::<false>(a, &mut *edge, key, level, pop) };
                     continue;
                 }
                 let slot_level = level;
@@ -573,7 +584,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         let pop = unsafe { (*edge).pop0(bl) + 1 };
                         path.clear();
                         // SAFETY: wrap_skip_level maintains valid tree invariants.
-                        unsafe { wrap_skip_level(a, &mut *edge, bl + 1, slot_level, pop) };
+                        unsafe { wrap_skip_level::<false>(a, &mut *edge, bl + 1, slot_level, pop) };
                         level = slot_level;
                         continue;
                     }
@@ -596,7 +607,9 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         arr.add(rank).write(Edge::NULL);
                     }
                 } else {
-                    let new = a.alloc_bytes(sub_edges_size(old_n + 1)).cast::<Edge>();
+                    let new = a
+                        .alloc_bytes_plain(sub_edges_size(old_n + 1))
+                        .cast::<Edge>();
                     // SAFETY: allocate fresh subarray, copy old entries, write NULL, free old subarray.
                     unsafe {
                         if old_n > 0 {
@@ -605,7 +618,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                             new.as_ptr()
                                 .add(rank + 1)
                                 .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                            a.free_bytes(
+                            a.free_bytes_plain(
                                 core::ptr::NonNull::new(old.cast()).expect("subarray"),
                                 sub_edges_size(old_n),
                             );
@@ -643,7 +656,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                     let pop = unsafe { (*edge).pop0(1) + 1 };
                     path.clear();
                     // SAFETY: split_skip maintains valid tree invariants.
-                    unsafe { split_skip(a, &mut *edge, key, level, pop) };
+                    unsafe { split_skip::<false>(a, &mut *edge, key, level, pop) };
                     continue;
                 }
                 a.assert_bracketed();
@@ -672,7 +685,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         arr.add(rank).write(val);
                     }
                 } else {
-                    let new = a.alloc_bytes(sub_vals_size(old_n + 1)).cast::<u64>();
+                    let new = a.alloc_bytes_plain(sub_vals_size(old_n + 1)).cast::<u64>();
                     // SAFETY: allocate fresh subarray, copy old entries, write val, free old subarray.
                     unsafe {
                         if old_n > 0 {
@@ -681,7 +694,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                             new.as_ptr()
                                 .add(rank + 1)
                                 .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                            a.free_bytes(
+                            a.free_bytes_plain(
                                 core::ptr::NonNull::new(old.cast()).expect("values"),
                                 sub_vals_size(old_n),
                             );
@@ -727,7 +740,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                 // SAFETY: edge is a live linear leaf edge.
                 if kb < level && !unsafe { crate::get::decode_matches(&*edge, key, kb, level) } {
                     // SAFETY: split_skip maintains valid tree invariants.
-                    unsafe { split_skip(a, &mut *edge, key, level, pop as u64) };
+                    unsafe { split_skip::<false>(a, &mut *edge, key, level, pop as u64) };
                     continue;
                 }
                 let k = key_low(key, kb);
@@ -801,14 +814,14 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         // SAFETY: edge is a live linear leaf edge.
                         let saved_aux = unsafe { *(*edge).aux_bytes() };
                         if pop < cap {
-                            let new = a.alloc_bytes(leaf::size_map(kb, pop + 1));
+                            let new = a.alloc_bytes_plain(leaf::size_map(kb, pop + 1));
                             // SAFETY: realloc_insert into fresh buffer, free old leaf; ancestors valid.
                             let slot = unsafe {
                                 leaf::map_realloc_insert(base, new.as_ptr(), kb, pop, pos, k, val);
                                 *edge = Edge::new_node(new.as_ptr(), (*edge).tag_byte());
                                 (*edge).set_aux_bytes(saved_aux);
                                 (*edge).set_pop0(kb, pop as u64);
-                                a.free_bytes(
+                                a.free_bytes_plain(
                                     core::ptr::NonNull::new(old_ptr).expect("leaf ptr"),
                                     old_size,
                                 );
@@ -854,12 +867,12 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         if entries.len() <= cap {
                             // SAFETY: build fresh map leaf and restore decode.
                             unsafe {
-                                build_map_leaf(a, &mut *edge, kb, &entries);
+                                build_map_leaf::<false>(a, &mut *edge, kb, &entries);
                                 restore_decode(&mut *edge, kb, level, &saved_aux);
                             }
                         } else if kb == 1 {
                             // SAFETY: edge is a live valid edge.
-                            build_bitmap_leaf_map(a, unsafe { &mut *edge }, &entries);
+                            build_bitmap_leaf_map::<false>(a, unsafe { &mut *edge }, &entries);
                             // SAFETY: edge is a live valid edge.
                             restore_decode(unsafe { &mut *edge }, 1, level, &saved_aux);
                         } else if divergence_level(
@@ -872,7 +885,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                                 entries.iter().map(|&(k, v)| (key_low(k, 1), v)).collect();
                             let prefix_key = entries[0].0;
                             // SAFETY: edge is a live valid edge.
-                            build_bitmap_leaf_map(a, unsafe { &mut *edge }, &low);
+                            build_bitmap_leaf_map::<false>(a, unsafe { &mut *edge }, &low);
                             // SAFETY: edge is a live valid edge.
                             write_decode(unsafe { &mut *edge }, 1, level, prefix_key);
                             if level == 1 {
@@ -890,7 +903,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                             let d =
                                 divergence_level(entries[0].0, entries[entries.len() - 1].0, level);
                             let bl = if level <= 7 { d } else { level };
-                            let node = a.alloc_node_zeroed::<BranchL3>();
+                            let node = a.alloc_node_zeroed_plain::<BranchL3>();
                             // SAFETY: populate fresh BranchL3, insert entries, set pop0.
                             unsafe {
                                 (*node.as_ptr()).hdr.level = bl;
@@ -912,7 +925,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         }
                         // SAFETY: free old linear leaf and update ancestors.
                         unsafe {
-                            a.free_bytes(
+                            a.free_bytes_plain(
                                 core::ptr::NonNull::new(old_ptr).expect("leaf ptr"),
                                 old_size,
                             );
@@ -965,7 +978,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         (existing_k, old_val, k, val, 1)
                     };
                     if map_immed_max(kb) >= 2 {
-                        let vals = a.alloc_bytes(map_immed_val_size(2)).cast::<u64>();
+                        let vals = a.alloc_bytes_plain(map_immed_val_size(2)).cast::<u64>();
                         // SAFETY: populate 2-entry array and install into edge; ancestors valid.
                         unsafe {
                             vals.as_ptr().write(slot0_v);
@@ -987,7 +1000,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         let entries = [(slot0_k, slot0_v), (slot1_k, slot1_v)];
                         // SAFETY: build fresh map leaf and update ancestors.
                         unsafe {
-                            build_map_leaf(a, &mut *edge, kb, &entries);
+                            build_map_leaf::<false>(a, &mut *edge, kb, &entries);
                             for &(anc, al) in ancestors.iter().take(anc_depth) {
                                 bump_pop0(anc, al, 1);
                                 path.record_ancestor(anc, al);
@@ -1042,7 +1055,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                             return (None, old_vals.add(pos));
                         }
                     }
-                    let new_vals = a.alloc_bytes(map_immed_val_size(n + 1)).cast::<u64>();
+                    let new_vals = a.alloc_bytes_plain(map_immed_val_size(n + 1)).cast::<u64>();
                     // SAFETY: copy n values into fresh array, write val, free old array; ancestors valid.
                     unsafe {
                         if pos > 0 {
@@ -1056,7 +1069,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                                 n - pos,
                             );
                         }
-                        a.free_bytes(
+                        a.free_bytes_plain(
                             core::ptr::NonNull::new((*edge).node_ptr()).expect("value array"),
                             map_immed_val_size(n),
                         );
@@ -1076,7 +1089,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         return (None, new_vals.as_ptr().add(pos));
                     }
                 }
-                let ptr = a.alloc_bytes(leaf::size_map(kb, n + 1));
+                let ptr = a.alloc_bytes_plain(leaf::size_map(kb, n + 1));
                 let vals = ptr.as_ptr().cast::<u64>();
                 // SAFETY: freshly allocated leaf buffer holds keys at map_keys_offset.
                 let keys = unsafe { ptr.as_ptr().add(leaf::map_keys_offset(n + 1)) };
@@ -1105,7 +1118,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                             (n - pos) * kb_usize,
                         );
                     }
-                    a.free_bytes(
+                    a.free_bytes_plain(
                         core::ptr::NonNull::new((*edge).node_ptr()).expect("value array"),
                         map_immed_val_size(n),
                     );
@@ -1227,7 +1240,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                         // Immediate max capacity is 1 (for kb in 4..=7): upgrade directly to linear leaf.
                         let entries = [(slot0_k, slot0_v), (slot1_k, slot1_v)];
                         cover.begin_if::<OCC, NESTED>(a);
-                        build_map_leaf(a, edge, kb, &entries);
+                        build_map_leaf::<OCC>(a, edge, kb, &entries);
                         cover.end_if::<OCC, NESTED>(a);
                         // SAFETY: build_map_leaf places value array at the base of the leaf.
                         return (None, unsafe { edge.node_ptr().cast::<u64>().add(pos) });
@@ -1339,7 +1352,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                     entries.push((ki, vi));
                 }
                 cover.begin_if::<OCC, NESTED>(a);
-                build_map_leaf(a, edge, kb, entries.as_slice());
+                build_map_leaf::<OCC>(a, edge, kb, entries.as_slice());
                 cover.end_if::<OCC, NESTED>(a);
                 // SAFETY: old_vals points to the unlinked n*8 byte allocation.
                 unsafe {
@@ -1369,7 +1382,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                     // level and retry. The rewrite of this slot is the
                     // parent's store.
                     cover.begin_if::<OCC, NESTED>(a);
-                    split_skip(a, edge, key, level, pop as u64);
+                    split_skip::<OCC>(a, edge, key, level, pop as u64);
                     cover.end_if::<OCC, NESTED>(a);
                     continue;
                 }
@@ -1475,12 +1488,12 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                         }
                         let mut tmp = Edge::NULL;
                         if entries.len() <= cap {
-                            build_map_leaf(a, &mut tmp, kb, &entries);
+                            build_map_leaf::<OCC>(a, &mut tmp, kb, &entries);
                             restore_decode(&mut tmp, kb, level, &saved_aux);
                         } else if kb == 1 {
                             // Level-1 overflow: linear map leaf → bitmap leaf
                             // (any narrow pointer carries over).
-                            build_bitmap_leaf_map(a, &mut tmp, &entries);
+                            build_bitmap_leaf_map::<OCC>(a, &mut tmp, &entries);
                             restore_decode(&mut tmp, 1, level, &saved_aux);
                         } else if divergence_level(
                             entries[0].0,
@@ -1494,7 +1507,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                             let low: Vec<(u64, u64)> =
                                 entries.iter().map(|&(k, v)| (key_low(k, 1), v)).collect();
                             let prefix_key = entries[0].0;
-                            build_bitmap_leaf_map(a, &mut tmp, &low);
+                            build_bitmap_leaf_map::<OCC>(a, &mut tmp, &low);
                             write_decode(&mut tmp, 1, level, prefix_key);
                         } else {
                             // Cascade: an empty branch at the divergence level
@@ -1506,7 +1519,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                             let d =
                                 divergence_level(entries[0].0, entries[entries.len() - 1].0, level);
                             let bl = if level <= 7 { d } else { level };
-                            let node = a.alloc_node_zeroed::<BranchL3>();
+                            let node = a.alloc_node_zeroed_dispatch::<OCC, BranchL3>();
                             // SAFETY: node is freshly allocated zeroed BranchL3 memory.
                             unsafe {
                                 (*node.as_ptr()).hdr.level = bl;
@@ -1560,7 +1573,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                     // level and retry.
                     let pop = edge.pop0(1) + 1;
                     cover.begin_if::<OCC, NESTED>(a);
-                    split_skip(a, edge, key, level, pop);
+                    split_skip::<OCC>(a, edge, key, level, pop);
                     cover.end_if::<OCC, NESTED>(a);
                     continue;
                 }
@@ -1644,7 +1657,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                 if bl < level && !crate::get::decode_matches(edge, key, bl, level) {
                     let pop = edge.pop0(bl) + 1;
                     cover.begin_if::<OCC, NESTED>(a);
-                    split_skip(a, edge, key, level, pop);
+                    split_skip::<OCC>(a, edge, key, level, pop);
                     cover.end_if::<OCC, NESTED>(a);
                     continue;
                 }
@@ -1796,7 +1809,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                 if bl < level && !crate::get::decode_matches(edge, key, bl, level) {
                     let pop = edge.pop0(bl) + 1;
                     cover.begin_if::<OCC, NESTED>(a);
-                    split_skip(a, edge, key, level, pop);
+                    split_skip::<OCC>(a, edge, key, level, pop);
                     cover.end_if::<OCC, NESTED>(a);
                     continue;
                 }
@@ -1838,7 +1851,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                         // BranchU cannot skip: materialize one chain level.
                         let pop = edge.pop0(bl) + 1;
                         cover.begin_if::<OCC, NESTED>(a);
-                        wrap_skip_level(a, edge, bl + 1, slot_level, pop);
+                        wrap_skip_level::<OCC>(a, edge, bl + 1, slot_level, pop);
                         cover.end_if::<OCC, NESTED>(a);
                         level = slot_level;
                         continue;
@@ -2019,7 +2032,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                 cover.end_if::<OCC, NESTED>(a);
                 // SAFETY: the old 2-entry value array is unlinked above.
                 unsafe {
-                    a.free_bytes(
+                    a.free_bytes_dispatch::<OCC>(
                         core::ptr::NonNull::new(vals.cast::<u8>()).expect("value array"),
                         map_immed_val_size(2),
                     );
@@ -2049,7 +2062,9 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
             }
             // n > 2: copy values around pos into a private array and shift
             // keys in aux; publish with the slot rewrite.
-            let new_vals = a.alloc_bytes(map_immed_val_size(n - 1)).cast::<u64>();
+            let new_vals = a
+                .alloc_bytes_dispatch::<OCC>(map_immed_val_size(n - 1))
+                .cast::<u64>();
             // SAFETY: copy n-1 surviving values.
             unsafe {
                 if pos > 0 {
@@ -2074,7 +2089,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
             cover.end_if::<OCC, NESTED>(a);
             // SAFETY: the old array is unlinked above.
             unsafe {
-                a.free_bytes(
+                a.free_bytes_dispatch::<OCC>(
                     core::ptr::NonNull::new(vals.cast::<u8>()).expect("value array"),
                     map_immed_val_size(n),
                 );
@@ -2126,7 +2141,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                 // hysteresis band keeps it one below `map_immed_max`):
                 // direct copy with the slot elided into a private
                 // allocation; only the slot rewrite is published.
-                let new = a.alloc_bytes(leaf::size_map(kb, pop - 1));
+                let new = a.alloc_bytes_dispatch::<OCC>(leaf::size_map(kb, pop - 1));
                 // SAFETY: live source leaf of `pop >= 2` entries; fresh
                 // destination sized for `pop - 1`.
                 unsafe { leaf::map_realloc_remove(base, new.as_ptr(), kb, pop, pos) };
@@ -2139,7 +2154,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                 // SAFETY: the old leaf is unlinked above; freed (or
                 // retired) with its allocation size.
                 unsafe {
-                    a.free_bytes(
+                    a.free_bytes_dispatch::<OCC>(
                         core::ptr::NonNull::new(base).expect("leaf ptr"),
                         leaf::size_map(kb, pop),
                     );
@@ -2155,7 +2170,10 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                 cover.end_if::<OCC, NESTED>(a);
                 // SAFETY: old leaf allocation no longer referenced.
                 unsafe {
-                    a.free_bytes(core::ptr::NonNull::new(old_ptr).expect("leaf"), old_size);
+                    a.free_bytes_dispatch::<OCC>(
+                        core::ptr::NonNull::new(old_ptr).expect("leaf"),
+                        old_size,
+                    );
                 }
                 return Some(old);
             }
@@ -2181,11 +2199,14 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                 idx += 1;
             }
             cover.begin_if::<OCC, NESTED>(a);
-            write_map_immed(a, edge, level, &entries[..rem_pop]);
+            write_map_immed::<OCC>(a, edge, level, &entries[..rem_pop]);
             cover.end_if::<OCC, NESTED>(a);
             // SAFETY: old leaf allocation no longer referenced.
             unsafe {
-                a.free_bytes(core::ptr::NonNull::new(old_ptr).expect("leaf"), old_size);
+                a.free_bytes_dispatch::<OCC>(
+                    core::ptr::NonNull::new(old_ptr).expect("leaf"),
+                    old_size,
+                );
             }
             Some(old)
         }
@@ -2216,20 +2237,22 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                 let old_arr = (*node).values[sub];
                 if old_n == 1 {
                     (*node).values[sub] = core::ptr::null_mut();
-                    a.free_bytes(
+                    a.free_bytes_dispatch::<OCC>(
                         core::ptr::NonNull::new(old_arr.cast()).expect("values"),
                         sub_vals_size(old_n),
                     );
                 } else if leaf::cap_class(old_n - 1) == leaf::cap_class(old_n) {
                     core::ptr::copy(old_arr.add(rank + 1), old_arr.add(rank), old_n - 1 - rank);
                 } else {
-                    let new = a.alloc_bytes(sub_vals_size(old_n - 1)).cast::<u64>();
+                    let new = a
+                        .alloc_bytes_dispatch::<OCC>(sub_vals_size(old_n - 1))
+                        .cast::<u64>();
                     new.as_ptr().copy_from_nonoverlapping(old_arr, rank);
                     new.as_ptr()
                         .add(rank)
                         .copy_from_nonoverlapping(old_arr.add(rank + 1), old_n - 1 - rank);
                     (*node).values[sub] = new.as_ptr();
-                    a.free_bytes(
+                    a.free_bytes_dispatch::<OCC>(
                         core::ptr::NonNull::new(old_arr.cast()).expect("values"),
                         sub_vals_size(old_n),
                     );
@@ -2267,23 +2290,25 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                     for sub in 0..8 {
                         let n = (*node).bitmap.subexpanse_count(sub) as usize;
                         if n > 0 {
-                            a.free_bytes(
+                            a.free_bytes_dispatch::<OCC>(
                                 core::ptr::NonNull::new((*node).values[sub].cast())
                                     .expect("values"),
                                 sub_vals_size(n),
                             );
                         }
                     }
-                    a.free_node(core::ptr::NonNull::new(node).unwrap());
+                    a.free_node_dispatch::<OCC, LeafBitmapL>(
+                        core::ptr::NonNull::new(node).unwrap(),
+                    );
                 }
                 if entries.len < map_immed_max(level) {
                     let mut full = StackEntries32::new();
                     for &(low, v) in entries.as_slice() {
                         full.push(((dv << 8) | low, v));
                     }
-                    write_map_immed(a, edge, level, full.as_slice());
+                    write_map_immed::<OCC>(a, edge, level, full.as_slice());
                 } else {
-                    build_map_leaf(a, edge, 1, entries.as_slice());
+                    build_map_leaf::<OCC>(a, edge, 1, entries.as_slice());
                     restore_decode(edge, 1, level, &saved_aux);
                 }
             } else {
@@ -2438,20 +2463,22 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                     let old_arr = (*b).subarrays[sub];
                     if old_n == 1 {
                         (*b).subarrays[sub] = core::ptr::null_mut();
-                        a.free_bytes(
+                        a.free_bytes_dispatch::<OCC>(
                             core::ptr::NonNull::new(old_arr.cast()).unwrap(),
                             sub_edges_size(old_n),
                         );
                     } else if leaf::cap_class(old_n - 1) == leaf::cap_class(old_n) {
                         core::ptr::copy(old_arr.add(rank + 1), old_arr.add(rank), old_n - 1 - rank);
                     } else {
-                        let new = a.alloc_bytes(sub_edges_size(old_n - 1)).cast::<Edge>();
+                        let new = a
+                            .alloc_bytes_dispatch::<OCC>(sub_edges_size(old_n - 1))
+                            .cast::<Edge>();
                         new.as_ptr().copy_from_nonoverlapping(old_arr, rank);
                         new.as_ptr()
                             .add(rank)
                             .copy_from_nonoverlapping(old_arr.add(rank + 1), old_n - 1 - rank);
                         (*b).subarrays[sub] = new.as_ptr();
-                        a.free_bytes(
+                        a.free_bytes_dispatch::<OCC>(
                             core::ptr::NonNull::new(old_arr.cast()).unwrap(),
                             sub_edges_size(old_n),
                         );
@@ -2468,7 +2495,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                     // obsolete first (its own bracket is closed).
                     unsafe {
                         crate::occ::version_obsolete_if::<OCC>(&raw mut (*b).version);
-                        a.free_node(core::ptr::NonNull::new(b).unwrap());
+                        a.free_node_dispatch::<OCC, BranchB>(core::ptr::NonNull::new(b).unwrap());
                     }
                     *edge = Edge::NULL;
                     cover.end_if::<OCC, NESTED>(a);
@@ -2520,7 +2547,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                     // obsolete first (its own bracket is closed).
                     unsafe {
                         crate::occ::version_obsolete_if::<OCC>(&raw mut (*b).version);
-                        a.free_node(core::ptr::NonNull::new(b).unwrap());
+                        a.free_node_dispatch::<OCC, BranchU>(core::ptr::NonNull::new(b).unwrap());
                     }
                     *edge = Edge::NULL;
                     cover.end_if::<OCC, NESTED>(a);
