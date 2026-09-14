@@ -74,6 +74,15 @@
 //
 // Threads are named `reader-N` and `writer-0` in both modes, before the gate:
 // the kernel's `comm`, which `perf stat --per-thread` keys its rows on.
+//
+// ## Seek lock scope (`--lock full|trie`)
+//
+// `--lock trie` builds the rep with `SeekLockScope::kTrieCall`, the #802
+// narrowed-mutex arm: `mutex_` covers only `expanse_map_prev_at_or_before` in a
+// seek, and the leaf walk runs outside it. `--lock full` (the default) is
+// every earlier measurement's scope. The CSV mode prints `# lock_scope=<scope>`
+// before its row and counters mode adds `lock_scope` to its JSON, so a driver
+// can check the scope it asked for is the one that ran.
 
 #include <algorithm>
 #include <atomic>
@@ -203,7 +212,12 @@ std::string CpusAllowed() {
     return "unknown";
 }
 
+const char* LockScopeName(ExpanseMemTableRep::SeekLockScope scope) {
+    return scope == ExpanseMemTableRep::SeekLockScope::kFullLocate ? "full" : "trie";
+}
+
 struct CellArgs {
+    ExpanseMemTableRep::SeekLockScope lock_scope = ExpanseMemTableRep::SeekLockScope::kFullLocate;
     WriterMode mode = WriterMode::kIdle;
     int readers = 1;
     double window_s = 2.0;
@@ -223,7 +237,8 @@ void CountersRow(const CellArgs& cell, int round, uint64_t read_ops, uint64_t wr
     std::ostringstream o;
     o << std::fixed << std::setprecision(6)
       << "{\"workload_id\":\"rocksdb_memtable_concurrent_read_scaling\",\"role\":\"counters\","
-      << "\"arm\":\"expanse\",\"writer_mode\":\"" << ModeName(cell.mode) << "\""
+      << "\"arm\":\"expanse\",\"lock_scope\":\"" << LockScopeName(cell.lock_scope) << "\""
+      << ",\"writer_mode\":\"" << ModeName(cell.mode) << "\""
       << ",\"writers\":" << (cell.mode == WriterMode::kIdle ? 0 : 1)
       << ",\"readers\":" << cell.readers << ",\"round\":" << round
       << ",\"pid\":" << static_cast<long>(getpid())
@@ -289,7 +304,7 @@ int RunCell(const CellArgs& cell, int round) {
         }
     }
 
-    ExpanseMemTableRep rep(cmp, &arena, nullptr, nullptr, 64);
+    ExpanseMemTableRep rep(cmp, &arena, nullptr, nullptr, 64, cell.lock_scope);
     for (int i = 0; i < kPopulation; ++i) {
         rep.Insert(const_cast<char*>(EncodeEntry(arena, present[i], 1000 + i, val)));
     }
@@ -448,6 +463,7 @@ int RunCell(const CellArgs& cell, int round) {
     const bool exhausted = (mode != WriterMode::kIdle)
                            && fresh_cursor.load(std::memory_order_relaxed) >= fresh.size();
     if (!cell.counters) {
+        std::cout << "# lock_scope=" << LockScopeName(cell.lock_scope) << "\n";
         std::cout << round << "," << ModeName(mode) << "," << readers << "," << read_ops << ","
                   << write_ops << "," << std::fixed << std::setprecision(6) << elapsed_s << ","
                   << std::setprecision(4) << mops << "," << (exhausted ? 1 : 0) << "\n";
@@ -495,6 +511,7 @@ int main(int argc, char** argv) {
     int rounds = -1;
     bool wait_stdin = false;
     bool round_given = false;
+    std::string lock_arg = "full";
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -509,11 +526,12 @@ int main(int argc, char** argv) {
         else if (a == "--arm") arm = next();
         else if (a == "--rounds") rounds = std::stoi(next());
         else if (a == "--wait-stdin") wait_stdin = true;
+        else if (a == "--lock") lock_arg = next();
         else {
             std::cerr << "unknown argument: " << a << "\n"
                       << "usage: bench_memtable_concurrent --mode <idle|paced|free> --readers R\n"
                       << "       [--round N] [--window-seconds S] [--paced-rate OPS]\n"
-                      << "       [--header] [--quick]\n"
+                      << "       [--header] [--quick] [--lock full|trie]\n"
                       << "       bench_memtable_concurrent --mode M --readers R --arm expanse\n"
                       << "       [--rounds N] [--wait-stdin] [--window-seconds S] [--paced-rate OPS]\n"
                       << "One cell per invocation; the driver owns the rounds and the order.\n"
@@ -537,6 +555,14 @@ int main(int argc, char** argv) {
     }
     if (!(window_s > 0.0)) {
         std::cerr << "--window-seconds must be > 0, got " << window_s << "\n";
+        return 2;
+    }
+
+    ExpanseMemTableRep::SeekLockScope lock_scope;
+    if (lock_arg == "full") lock_scope = ExpanseMemTableRep::SeekLockScope::kFullLocate;
+    else if (lock_arg == "trie") lock_scope = ExpanseMemTableRep::SeekLockScope::kTrieCall;
+    else {
+        std::cerr << "--lock must be full or trie (got '" << lock_arg << "')\n";
         return 2;
     }
 
@@ -567,6 +593,7 @@ int main(int argc, char** argv) {
     cell.header = header;
     cell.counters = counters;
     cell.wait_stdin = wait_stdin;
+    cell.lock_scope = lock_scope;
     if (!counters) return RunCell(cell, round);
     for (int r = 0; r < rounds; ++r) {
         const int rc = RunCell(cell, r);
