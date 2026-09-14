@@ -437,6 +437,11 @@ impl NodeAlloc {
     /// [`RAW_ALIGN`], `alloc_node`/`free_node` are always `align_of::<T>()`.
     #[inline(always)]
     fn alloc_raw<const OCC: bool>(&self, bytes: usize, align: usize) -> NonNull<u8> {
+        #[cfg(feature = "std")]
+        debug_assert!(
+            OCC || self.deferred.get().is_none(),
+            "plain allocator path (OCC=false) invoked on an allocator with deferred reclamation enabled"
+        );
         let accounted_size = accounted_size(bytes, align);
         #[cfg(not(feature = "ablation-sharded-alloc"))]
         {
@@ -570,6 +575,11 @@ impl NodeAlloc {
     /// **the same `align`**, not yet freed, and nothing may use it after.
     #[inline(always)]
     unsafe fn free_raw<const OCC: bool>(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
+        #[cfg(feature = "std")]
+        debug_assert!(
+            OCC || self.deferred.get().is_none(),
+            "plain free path (OCC=false) invoked on an allocator with deferred reclamation enabled"
+        );
         let accounted_size = accounted_size(bytes, align);
         #[cfg(not(feature = "ablation-sharded-alloc"))]
         {
@@ -1510,6 +1520,44 @@ mod tests {
         unsafe { a.free_node(ptr) };
         let collector = std::sync::Arc::new(crate::occ::Collector::new());
         a.defer_to(collector);
+    }
+
+    #[test]
+    #[cfg(all(debug_assertions, feature = "std"))]
+    #[should_panic = "plain free path (OCC=false) invoked on an allocator with deferred reclamation enabled"]
+    fn plain_free_rejects_deferred_allocator() {
+        struct RawBlockGuard {
+            ptr: *mut u8,
+            layout: std::alloc::Layout,
+        }
+        impl Drop for RawBlockGuard {
+            fn drop(&mut self) {
+                // SAFETY: self.ptr was allocated with self.layout.
+                unsafe { std::alloc::dealloc(self.ptr, self.layout) };
+            }
+        }
+
+        let a = NodeAlloc::new();
+        let collector = std::sync::Arc::new(crate::occ::Collector::new());
+        a.defer_to(collector);
+        let layout = std::alloc::Layout::from_size_align(64, RAW_ALIGN).unwrap();
+        // SAFETY: layout has non-zero size and valid alignment.
+        let raw = unsafe { std::alloc::alloc(layout) };
+        let guard = RawBlockGuard { ptr: raw, layout };
+        let ptr = NonNull::new(raw).unwrap();
+        // SAFETY: ptr is a valid 64-byte allocation at RAW_ALIGN; triggers invariant debug_assert.
+        unsafe { a.free_bytes_plain(ptr, 64) };
+        core::mem::forget(guard);
+    }
+
+    #[test]
+    #[cfg(all(debug_assertions, feature = "std"))]
+    #[should_panic = "plain allocator path (OCC=false) invoked on an allocator with deferred reclamation enabled"]
+    fn plain_alloc_rejects_deferred_allocator() {
+        let a = NodeAlloc::new();
+        let collector = std::sync::Arc::new(crate::occ::Collector::new());
+        a.defer_to(collector);
+        let _ = a.alloc_bytes_plain(64);
     }
 
     /// The guard itself: a second holder is rejected while the first lives, and
