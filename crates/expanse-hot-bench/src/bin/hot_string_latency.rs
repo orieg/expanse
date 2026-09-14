@@ -147,21 +147,21 @@ impl Exp {
         }
     }
     #[inline]
-    fn insert(&mut self, k: &[u8], v: u64) {
+    fn insert(&mut self, k: &KeyStr, v: u64) {
         match self {
             Exp::Str(m) => {
-                m.insert(expanse_trie::strmap::NulFreeStr::new(k).expect("suite keys are NUL-free"), v);
+                m.insert(k.key(), v);
             }
             Exp::Bytes(m) => {
-                m.insert(k, v);
+                m.insert(k.bytes(), v);
             }
         }
     }
     #[inline]
-    fn get(&self, k: &[u8]) -> Option<u64> {
+    fn get(&self, k: &KeyStr) -> Option<u64> {
         match self {
-            Exp::Str(m) => m.get(expanse_trie::strmap::NulFreeStr::new(k).expect("suite keys are NUL-free")),
-            Exp::Bytes(m) => m.get(k),
+            Exp::Str(m) => m.get(k.key()),
+            Exp::Bytes(m) => m.get(k.bytes()),
         }
     }
     fn len(&self) -> usize {
@@ -234,7 +234,7 @@ fn build_hot<'a>(arm: Arm, pop: &'a [KeyStr]) -> Hot<'a> {
 fn build_exp(arm: Arm, pop: &[KeyStr]) -> Exp {
     let mut e = Exp::new(arm);
     for (i, k) in pop.iter().enumerate() {
-        e.insert(k.bytes(), value_for(arm, k, i));
+        e.insert(k, value_for(arm, k, i));
     }
     e
 }
@@ -332,7 +332,7 @@ fn main() {
                     let t0 = Instant::now();
                     let mut sink = 0u64;
                     for p in &w.probes {
-                        sink ^= e.get(p.bytes()).unwrap_or(0);
+                        sink ^= e.get(p).unwrap_or(0);
                     }
                     let t = t0.elapsed().as_nanos();
                     black_box(sink);
@@ -368,7 +368,7 @@ fn main() {
                     let t0 = Instant::now();
                     let mut e = Exp::new(arm);
                     for (i, k) in w.population.iter().enumerate() {
-                        e.insert(k.bytes(), value_for(arm, k, i));
+                        e.insert(k, value_for(arm, k, i));
                     }
                     let t = t0.elapsed().as_nanos();
                     let built = e.len();

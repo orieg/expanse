@@ -30,10 +30,13 @@ const ALNUM: &[u8; 62] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0
 pub struct KeyStr(Box<[u8]>);
 
 impl KeyStr {
-    /// Copies `bytes` (which must be NUL-free) into a fresh allocation with a
-    /// terminating NUL.
+    /// Copies `bytes` into a fresh allocation with a terminating NUL.
+    ///
+    /// Panics if `bytes` contains a NUL. The check runs here, where keys are
+    /// built outside every timed region, so that [`KeyStr::key`] costs nothing
+    /// inside one.
     pub fn new(bytes: &[u8]) -> Self {
-        debug_assert!(!bytes.contains(&0), "string keys are NUL-free");
+        assert!(!bytes.contains(&0), "string keys are NUL-free");
         let mut v = Vec::with_capacity(bytes.len() + 1);
         v.extend_from_slice(bytes);
         v.push(0);
@@ -46,11 +49,16 @@ impl KeyStr {
         &self.0[..self.0.len() - 1]
     }
 
-    /// The key as the Expanse string maps take it: the generators never
-    /// emit a NUL byte, so the domain check cannot fail on a suite key.
+    /// The key as the Expanse string maps take it, with no per-call check.
+    ///
+    /// The competitor arms receive the key's pointer or bytes as they are, so
+    /// the Expanse arm must not pay a NUL scan inside a timed loop that they
+    /// do not (AGENTS.md §8.6, §8.16).
     #[inline]
     pub fn key(&self) -> &expanse_trie::strmap::NulFreeStr {
-        expanse_trie::strmap::NulFreeStr::new(self.bytes()).expect("suite keys are NUL-free")
+        // SAFETY: `KeyStr::new` asserts that the key bytes hold no NUL, and the
+        // allocation is never mutated after construction.
+        unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(self.bytes()) }
     }
 
     /// Key length in bytes, without the terminator.
