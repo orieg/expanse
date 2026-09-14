@@ -17,7 +17,7 @@ Expanse is an unsafe-heavy, invariant-dense data structure whose compat story re
 | 7 | Documentation & Visualizer Sync | `cargo test --test test_visualizer_sync` against `docs/` | Divergence between compiled Rust geometry/ladder constants and architecture visualizer representations |
 | 8 | Integrations & Sanitizers | `test_expanse_memtable` with ASan, UBSan, and TSan in CI | Memory corruption, undefined behavior in arenas, and data races in concurrent leaf chaining |
 | 9 | MemTable Differential Fuzzing | `test_differential_memtable` vs `std::set` / SkipList reference model | State desynchronization, incorrect MVCC sequence sorting, iterator seek errors |
-| 10 | OCC Linearizability Verification | `tests/linearizability.rs` concurrent history verification harness: per-key checkers for point operations, and a whole-map checker for ordered queries, whose answer depends on keys other than their argument | Non-linearizable execution traces across concurrent multi-threaded writers and readers, including a predecessor or successor that was never the answer at any instant |
+| 10 | OCC Linearizability Verification | `tests/linearizability.rs` concurrent history verification harness: per-key checkers for point operations, and a whole-map checker for ordered queries, whose answer depends on keys other than their argument — run on ordered reads taken through `with_locked` and, over repeated tree-rooted and hot-spot histories, through the optimistic reader handles (#900) | Non-linearizable execution traces across concurrent multi-threaded writers and readers, including a predecessor or successor that was never the answer at any instant |
 
 Rules of engagement:
 

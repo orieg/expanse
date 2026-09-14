@@ -995,3 +995,114 @@ fn test_sync_map_ordered_linearizability_through_with_locked() {
         "an ordered history taken through with_locked is not linearizable"
     );
 }
+
+/// One live ordered history on a fresh map: `threads` threads each run
+/// `per_thread` operations over `keys`, taking ordered reads optimistically
+/// through their own reader handle (#900).
+fn optimistic_ordered_history(
+    prepop: &[u64],
+    keys: &[u64],
+    threads: usize,
+    per_thread: usize,
+) -> (Vec<OrdEvent>, BTreeMap<u64, u64>) {
+    let map = Arc::new(SyncExpanseMap::new());
+    let mut initial = BTreeMap::new();
+    for &k in prepop {
+        map.insert(k, !k);
+        initial.insert(k, !k);
+    }
+    let keys = Arc::new(keys.to_vec());
+    let history = Arc::new(Mutex::new(Vec::new()));
+    let mut handles = vec![];
+    for t_id in 0..threads {
+        let (map, keys, history) = (Arc::clone(&map), Arc::clone(&keys), Arc::clone(&history));
+        handles.push(thread::spawn(move || {
+            let rd = map.reader();
+            let mut local = Vec::with_capacity(per_thread);
+            for i in 0..per_thread {
+                let key = keys[(t_id * 3 + i) % keys.len()];
+                let op = match (t_id + i) % 4 {
+                    0 => OrdOp::Insert(key, (t_id * 1000 + i) as u64),
+                    1 => OrdOp::Remove(key),
+                    2 => OrdOp::PrevAtOrBefore(key),
+                    _ => OrdOp::NextAtOrAfter(key),
+                };
+                let start = Instant::now();
+                let ret = match &op {
+                    OrdOp::Insert(k, v) => OrdRet::Insert(map.insert(*k, *v)),
+                    OrdOp::Remove(k) => OrdRet::Remove(map.remove(*k)),
+                    OrdOp::PrevAtOrBefore(k) => OrdRet::Found(rd.prev_at_or_before(*k)),
+                    OrdOp::NextAtOrAfter(k) => OrdRet::Found(rd.next_at_or_after(*k)),
+                };
+                let end = Instant::now();
+                local.push(OrdEvent {
+                    op,
+                    ret,
+                    start,
+                    end,
+                });
+            }
+            drop(rd);
+            history.lock().unwrap().extend(local);
+        }));
+    }
+    for h in handles {
+        h.join().unwrap();
+    }
+    let history = history.lock().unwrap().clone();
+    assert_eq!(history.len(), threads * per_thread);
+    (history, initial)
+}
+
+/// G12.2 (`docs/benchmarks/concurrency/METHODOLOGY.md` §12.2): the tree-rooted
+/// history above, with the ordered reads taken optimistically instead of
+/// through `with_locked`, over repeated rounds.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_map_ordered_linearizability_optimistic_tree_rooted() {
+    let prepop: Vec<u64> = (1..=64u64).map(|b| b << 56).collect();
+    let keys = [
+        0x00FF, 0x0100, 0x01FF, 0x0200, 0xFFFF, 0x1_0000, 0x1_00FF, 0x1_0100,
+    ];
+    for round in 0..24 {
+        let (history, initial) = optimistic_ordered_history(&prepop, &keys, 3, 16);
+        assert!(
+            check_ordered_linearizability(&history, &initial),
+            "round {round}: an optimistic ordered history is not linearizable"
+        );
+    }
+}
+
+/// G12.2, hot-spot: every key sits in one 2^16-wide expanse, so the writes
+/// land in the subtrees the searches pass over and backtrack through. The
+/// prefilled keys fill the expanse's level-2 digits on both sides of each
+/// probe.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_map_ordered_linearizability_optimistic_hotspot() {
+    const BASE: u64 = 0x5_0000;
+    let prepop: Vec<u64> = (0..64u64).map(|d| BASE | (d << 10) | 0x80).collect();
+    let keys = [
+        BASE | 0x00FF,
+        BASE | 0x0100,
+        BASE | 0x0401,
+        BASE | 0x07FF,
+        BASE | 0x0800,
+        BASE | 0x0C7F,
+        BASE | 0x0C81,
+        BASE | 0x1000,
+    ];
+    for round in 0..24 {
+        let (history, initial) = optimistic_ordered_history(&prepop, &keys, 4, 12);
+        assert!(
+            check_ordered_linearizability(&history, &initial),
+            "round {round}: an optimistic hot-spot ordered history is not linearizable"
+        );
+    }
+}

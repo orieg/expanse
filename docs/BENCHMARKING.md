@@ -1491,6 +1491,7 @@ The deterministic Callgrind matrix evaluates instructions retired and cache line
 | `map_prev/*` | Strict predecessor (`prev_before`) from each present key | The backtracking path: a probe that is its terminal's smallest key descends a sibling subtree to its maximum. The single-threaded reference for #900's optimistic ordered reads. |
 | `map32_nav/*` · `map32_prev/*` | 32-bit `next_at_or_after` and `prev_before` from each `keys32` probe | The 32-bit twins of `map_nav` and `map_prev`. |
 | `sync_map_prev_locked/*` | `prev_before` on `SyncExpanseMap` through `with_locked` | The only ordered route on the concurrent map before #900; the optimistic reads are compared against it. |
+| `sync_map_prev/*` | `prev_before` through a `SyncExpanseMap` reader handle, by the validated ordered walk | The optimistic ordered read (#900); prediction P12.3 compares it with `sync_map_prev_locked` on the same head. |
 
 ### 2. Key Distributions & Targeted Node Forms
 

@@ -7310,6 +7310,87 @@ impl MapReader<'_> {
     }
 }
 
+/// The smallest entry with key `>= key`, by a validated ordered search that
+/// does not exclude writers (#900; `sync_nav`).
+fn map_next_with(map: &SyncExpanseMap, reader: &Reader, key: Key) -> Option<(u64, u64)> {
+    map.shared.optimistic_read(
+        reader,
+        |m| m.occ_root().0,
+        // SAFETY: `optimistic_read` calls the walk pinned, with a version
+        // sampled after the pin and a root copied under it.
+        |root, ver, snap| unsafe { crate::sync_nav::next_validated::<true>(root, key, ver, snap) },
+        |m| m.next_at_or_after(key),
+    )
+}
+
+/// The largest entry with key `<= key`; see [`map_next_with`].
+fn map_prev_with(map: &SyncExpanseMap, reader: &Reader, key: Key) -> Option<(u64, u64)> {
+    map.shared.optimistic_read(
+        reader,
+        |m| m.occ_root().0,
+        // SAFETY: as in `map_next_with`.
+        |root, ver, snap| unsafe { crate::sync_nav::prev_validated::<true>(root, key, ver, snap) },
+        |m| m.prev_at_or_before(key),
+    )
+}
+
+/// The ordered reads on a map reader handle, over `map_next_with` and
+/// `map_prev_with`. Hidden while their soundness gates and measurements
+/// (`docs/benchmarks/concurrency/METHODOLOGY.md` §12) are outstanding.
+macro_rules! map_reader_ordered_reads {
+    ($($map:ident).+) => {
+        /// Smallest entry, without excluding writers.
+        #[doc(hidden)]
+        #[must_use]
+        pub fn first(&self) -> Option<(u64, u64)> {
+            map_next_with(&self.$($map).+, &self.reader, 0)
+        }
+
+        /// Largest entry, without excluding writers.
+        #[doc(hidden)]
+        #[must_use]
+        pub fn last(&self) -> Option<(u64, u64)> {
+            map_prev_with(&self.$($map).+, &self.reader, u64::MAX)
+        }
+
+        /// Smallest entry with key `>= key`, without excluding writers.
+        #[doc(hidden)]
+        #[must_use]
+        pub fn next_at_or_after(&self, key: Key) -> Option<(u64, u64)> {
+            map_next_with(&self.$($map).+, &self.reader, key)
+        }
+
+        /// Smallest entry with key `> key`, without excluding writers.
+        #[doc(hidden)]
+        #[must_use]
+        pub fn next_after(&self, key: Key) -> Option<(u64, u64)> {
+            map_next_with(&self.$($map).+, &self.reader, key.checked_add(1)?)
+        }
+
+        /// Largest entry with key `<= key`, without excluding writers.
+        #[doc(hidden)]
+        #[must_use]
+        pub fn prev_at_or_before(&self, key: Key) -> Option<(u64, u64)> {
+            map_prev_with(&self.$($map).+, &self.reader, key)
+        }
+
+        /// Largest entry with key `< key`, without excluding writers.
+        #[doc(hidden)]
+        #[must_use]
+        pub fn prev_before(&self, key: Key) -> Option<(u64, u64)> {
+            map_prev_with(&self.$($map).+, &self.reader, key.checked_sub(1)?)
+        }
+    };
+}
+
+impl MapReader<'_> {
+    map_reader_ordered_reads!(map);
+}
+
+impl OwnedMapReader {
+    map_reader_ordered_reads!(map);
+}
+
 /// A blob map shareable across threads (issue #219 Phase 1): one writer at a
 /// time (internally serialized), validated optimistic readers with epoch-pinned
 /// zero-copy payload borrows. See the module docs for the protocol and its
@@ -10453,6 +10534,40 @@ pub(crate) mod test_hooks {
     }
 
     thread_local! {
+        static ARMED_BACKTRACK: Cell<Option<Arc<Gate>>> = const { Cell::new(None) };
+        static DROP_CHILD_SNAPSHOTS: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// The next time *this thread's* validated ordered search finds nothing
+    /// in a child subtree and moves on to its sibling, it stops at `gate`
+    /// (once).
+    pub(crate) fn arm_ordered_backtrack(gate: Arc<Gate>) {
+        ARMED_BACKTRACK.with(|c| c.set(Some(gate)));
+    }
+
+    /// Between a child subtree answering nothing and the sibling descent.
+    #[inline(always)]
+    pub(crate) fn before_ordered_backtrack() {
+        if let Some(g) = ARMED_BACKTRACK.with(Cell::take) {
+            g.parked.wait();
+            g.release.wait();
+        }
+    }
+
+    /// The negative control for the retained read set (G12.1): while set, this
+    /// thread's ordered searches forget a child subtree's snapshots when they
+    /// backtrack past it, as a single moving cover would.
+    pub(crate) fn set_drop_child_snapshots(on: bool) {
+        DROP_CHILD_SNAPSHOTS.with(|c| c.set(on));
+    }
+
+    /// Whether [`set_drop_child_snapshots`] is on for this thread.
+    #[inline(always)]
+    pub(crate) fn drops_child_snapshots() -> bool {
+        DROP_CHILD_SNAPSHOTS.with(Cell::get)
+    }
+
+    thread_local! {
         static ARMED_CHILD_EDGE: Cell<Option<Arc<Gate>>> = const { Cell::new(None) };
     }
 
@@ -11999,5 +12114,263 @@ mod loom_tests {
             );
             set.shared.reopen_gate();
         });
+    }
+}
+
+/// Soundness gates for the validated ordered reads (#900;
+/// `docs/benchmarks/concurrency/METHODOLOGY.md` §12.2, G12.1 and G12.3).
+#[cfg(all(test, not(miri)))]
+mod ordered_read_tests {
+    use super::*;
+
+    // The backtrack fixture: a level-3 linear branch P with two level-2
+    // linear branches below it, S under digit 0x10 and C under digit 0x20.
+    // Each holds two Leaf1 children of 17 keys, under level-2 digits 0x20 and
+    // 0x30 (capacity class 24, so an 18th key shifts in place).
+    const PROBE: u64 = 0x20_20_05;
+    // Inserted into C: the predecessor of PROBE from then on.
+    const K_PRIME: u64 = 0x20_20_01;
+    // S's maximum before the writes.
+    const M0: u64 = 0x10_30_30;
+    // A new maximum for S.
+    const M: u64 = 0x10_30_F0;
+    // S's maximum once M0 is removed.
+    const M1: u64 = 0x10_30_2E;
+
+    fn backtrack_fixture() -> SyncExpanseMap {
+        let map = SyncExpanseMap::new();
+        for p in [0x10u64, 0x20] {
+            for q in [0x20u64, 0x30] {
+                for i in 0..17u64 {
+                    let k = (p << 16) | (q << 8) | (0x10 + 2 * i);
+                    map.insert(k, !k);
+                }
+            }
+        }
+        map
+    }
+
+    /// The version fields of P, S and C. Panics unless the fixture has the
+    /// shape the interleaving needs (AGENTS.md §5 negative-control
+    /// discrimination).
+    fn backtrack_shape(map: &SyncExpanseMap) -> [*const u32; 3] {
+        // SAFETY: no writer is running; the snapshot is read for its shape.
+        let RootSnapshot::Tree { top } = (unsafe { (*map.shared.inner.get()).occ_root().0 }) else {
+            panic!("root must be a tree")
+        };
+        let l3 = |e: &Edge| -> *const BranchL3 {
+            assert_eq!(
+                e.tag(),
+                Some(EdgeTag::Structural(EdgeType::BranchL3)),
+                "every branch in the fixture is a BranchL3"
+            );
+            e.node_ptr().cast::<BranchL3>()
+        };
+        // SAFETY: live nodes of a quiescent map; copied out before any write.
+        unsafe {
+            let mut edge = top;
+            let p = loop {
+                let b = l3(&edge);
+                if (*b).hdr.level == 3 {
+                    break b;
+                }
+                assert!(
+                    (*b).hdr.level > 3 && (*b).hdr.num == 1,
+                    "a single-digit chain above P"
+                );
+                let edges = (*b).edges;
+                edge = edges[0];
+            };
+            let (p_digits, p_edges) = ((*p).hdr.digits, (*p).edges);
+            assert_eq!(&p_digits[..(*p).hdr.num as usize], &[0x10, 0x20]);
+            let (s, c) = (l3(&p_edges[0]), l3(&p_edges[1]));
+            for b in [s, c] {
+                let (digits, edges) = ((*b).hdr.digits, (*b).edges);
+                assert_eq!((*b).hdr.level, 2);
+                assert_eq!(&digits[..(*b).hdr.num as usize], &[0x20, 0x30]);
+                for e in &edges[..2] {
+                    assert_eq!(e.tag(), Some(EdgeTag::Structural(EdgeType::Leaf1)));
+                    assert_eq!(e.pop0(1) + 1, 17);
+                }
+            }
+            [
+                &raw const (*p).hdr.version,
+                &raw const (*s).hdr.version,
+                &raw const (*c).hdr.version,
+            ]
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum SiblingWrite {
+        InsertAbove,
+        RemoveMax,
+    }
+
+    /// G12.1 on the real walk. A reader asks for the predecessor of PROBE,
+    /// finds nothing in C and parks before it descends S. The writer then
+    /// inserts K_PRIME into C and changes S's maximum (inserting M, or
+    /// removing M0). S's new maximum was never the predecessor: before the
+    /// insert into C it was M0, and from then on it is K_PRIME.
+    ///
+    /// Neither write moves P's version (asserted), so only C's retained
+    /// snapshot can tell the reader that its empty answer from C went stale.
+    fn run_backtrack_interleaving(write: SiblingWrite, drop_child: bool) -> Option<(u64, u64)> {
+        let map = backtrack_fixture();
+        let [p, s, c] = backtrack_shape(&map);
+        let version = |vp: *const u32| {
+            // SAFETY: the fixture's nodes are not replaced by the in-place
+            // writes below, and the map outlives every read of their versions.
+            let cell = unsafe { crate::occ::version_cell(vp) };
+            cell.load(core::sync::atomic::Ordering::Acquire)
+        };
+        let before = [version(p), version(s), version(c)];
+        let gate = test_hooks::Gate::new();
+        let (got, after) = std::thread::scope(|sc| {
+            let g = Arc::clone(&gate);
+            let map = &map;
+            let reader = sc.spawn(move || {
+                test_hooks::set_drop_child_snapshots(drop_child);
+                test_hooks::arm_ordered_backtrack(g);
+                map.reader().prev_at_or_before(PROBE)
+            });
+            gate.parked.wait();
+            assert_eq!(map.insert(K_PRIME, !K_PRIME), None);
+            match write {
+                SiblingWrite::InsertAbove => assert_eq!(map.insert(M, !M), None),
+                SiblingWrite::RemoveMax => assert_eq!(map.remove(M0), Some(!M0)),
+            }
+            let after = [version(p), version(s), version(c)];
+            gate.release.wait();
+            (reader.join().expect("reader thread"), after)
+        });
+        assert_eq!(
+            after[0], before[0],
+            "P's version must not move, or the interleaving does not need C's snapshot"
+        );
+        assert_ne!(after[1], before[1], "the write to S must move S's version");
+        assert_ne!(
+            after[2], before[2],
+            "the insert into C must move C's version"
+        );
+        got
+    }
+
+    #[test]
+    fn ordered_read_restarts_when_a_passed_child_changes_insert_variant() {
+        assert_eq!(
+            run_backtrack_interleaving(SiblingWrite::InsertAbove, false),
+            Some((K_PRIME, !K_PRIME)),
+            "the search must restart and find the key inserted into C"
+        );
+    }
+
+    #[test]
+    fn ordered_read_restarts_when_a_passed_child_changes_remove_variant() {
+        assert_eq!(
+            run_backtrack_interleaving(SiblingWrite::RemoveMax, false),
+            Some((K_PRIME, !K_PRIME)),
+            "the search must restart and find the key inserted into C"
+        );
+    }
+
+    /// The negative control: a search that forgets C's snapshots when it
+    /// backtracks returns S's new maximum, which was never the predecessor.
+    /// This is what makes the two tests above discriminating.
+    #[test]
+    fn ordered_read_that_forgets_a_passed_child_returns_a_key_that_was_never_the_predecessor() {
+        assert_eq!(
+            run_backtrack_interleaving(SiblingWrite::InsertAbove, true),
+            Some((M, !M))
+        );
+        assert_eq!(
+            run_backtrack_interleaving(SiblingWrite::RemoveMax, true),
+            Some((M1, !M1))
+        );
+    }
+
+    /// G12.3: on quiescent maps every validated ordered read agrees with the
+    /// single-threaded API (`nav::next` / `nav::prev` behind `with_locked`),
+    /// across root states and node forms, and at the key-space boundaries.
+    #[test]
+    fn ordered_reads_match_nav_on_quiescent_maps() {
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        let mut rand = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let random: Vec<u64> = (0..3000).map(|_| rand()).collect();
+        let probes_extra: Vec<u64> = (0..256).map(|_| rand()).collect();
+        let shapes: Vec<(&str, Vec<u64>)> = vec![
+            ("empty", vec![]),
+            ("root leaf", vec![7, 300, 1 << 40]),
+            ("sequential", (0..4096).collect()),
+            ("random", random),
+            (
+                "clustered",
+                (0..2000).map(|i| 0x77_0000_0000 + i * 3).collect(),
+            ),
+            ("sparse top", (0..512).map(|i| i << 48).collect()),
+            (
+                "bitmap branch",
+                (0..48u64)
+                    .flat_map(|d| (0..4u64).map(move |i| ((d * 5) << 16) | i))
+                    .collect(),
+            ),
+            (
+                "uncompressed branch",
+                (0..256u64)
+                    .flat_map(|hi| (0..16u64).map(move |lo| (hi << 8) | lo))
+                    .collect(),
+            ),
+            (
+                "boundaries",
+                vec![0, 1, 0xFF, 0x100, 0xFFFF, 0x1_0000, u64::MAX - 1, u64::MAX],
+            ),
+        ];
+        for (name, keys) in shapes {
+            let map = SyncExpanseMap::new();
+            for &k in &keys {
+                map.insert(k, k.rotate_left(17) ^ 0xA5A5);
+            }
+            let rd = map.reader();
+            assert_eq!(
+                rd.first(),
+                map.with_locked(ExpanseMap::first),
+                "{name}: first"
+            );
+            assert_eq!(rd.last(), map.with_locked(ExpanseMap::last), "{name}: last");
+            assert_eq!(rd.next_after(u64::MAX), None, "{name}: next_after(MAX)");
+            assert_eq!(rd.prev_before(0), None, "{name}: prev_before(0)");
+            let mut probes = vec![0, u64::MAX];
+            for &k in &keys {
+                probes.extend([k, k.wrapping_sub(1), k.wrapping_add(1)]);
+            }
+            probes.extend(&probes_extra);
+            for k in probes {
+                assert_eq!(
+                    rd.next_at_or_after(k),
+                    map.with_locked(|m| m.next_at_or_after(k)),
+                    "{name}: next_at_or_after({k:#x})"
+                );
+                assert_eq!(
+                    rd.next_after(k),
+                    map.with_locked(|m| m.next_after(k)),
+                    "{name}: next_after({k:#x})"
+                );
+                assert_eq!(
+                    rd.prev_at_or_before(k),
+                    map.with_locked(|m| m.prev_at_or_before(k)),
+                    "{name}: prev_at_or_before({k:#x})"
+                );
+                assert_eq!(
+                    rd.prev_before(k),
+                    map.with_locked(|m| m.prev_before(k)),
+                    "{name}: prev_before({k:#x})"
+                );
+            }
+        }
     }
 }
