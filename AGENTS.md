@@ -69,6 +69,8 @@ Expanse is fundamentally defined by the **Judy digital tree architecture**. Ever
 5. **Deterministic Concurrency Invariant Enforcement & Zero Overhead**:
    - Never rely on probabilistic multi-threaded race timing as the primary verification of synchronization boundaries. Mutation paths under concurrent models (OCC/seqlock/EBR) must carry debug invariant assertions (`assert_bracketed()`) that panic immediately on unbracketed mutations.
    - Concurrency safeguards must never penalize single-threaded fast paths: suppress bypass conditions structurally (e.g., compile-time paths or clearing acceleration cursors in OCC mutations) rather than adding runtime atomic checks to hot paths.
+   - **Concurrency-only code stays out of shared inlined paths.** A branch that is empty at runtime still compiles into every caller. `NodeAlloc::alloc_raw` is `#[inline(always)]`, so a collector branch that inlines `writer_slot()` puts thread-local reads into plain-tree insert paths: on #912 `mutate::insert_with_path_flat` went from 0 to 8 `%fs:` reads, and its instruction count on `set_insert clustered` rose 0.77% with no change to its source. Reach concurrency-only code through an out-of-line call, and check the plain paths' disassembly for `%fs:` reads before pushing.
+   - **A large field moves the hot fields.** The default struct representation reorders fields by alignment and size, so adding a large array to a hot struct can move every hot field to a larger offset and add instructions on the paths that read them: on #912 a 16 KiB freelist array moved `Collector::bins` from offset 0 to `0x4000` and added an `add` to `retire`. Order hot structs explicitly with `#[repr(C)]`, large cold arrays last, pin the hot offsets with `offset_of!` in a layout test, and read the disassembly of the hot path to confirm.
 6. **Structural Derivation of Paired Hysteresis & Ladder Thresholds**:
    - Never define paired demotion or exit thresholds as independent integer literals (e.g. writing `pub const BRANCH_B_DOWN_32: usize = 5;` when `BRANCH_L6_CAP_32 = 6`).
    - Demotion and exit thresholds MUST be expressed as derived arithmetic expressions from the primary capacity/entry constants (e.g. `pub const BRANCH_B_DOWN_32: usize = BRANCH_L6_CAP_32 - 1;`, `pub const MAP_BITMAP_LEAVE_32: usize = MAP_BITMAP_ENTER_32 - 16;`).
@@ -118,6 +120,13 @@ When reducing cross-writer contention on Epoch-Based Reclamation (EBR) garbage b
    - **Per-stripe collector freelists measured a minor secondary effect, on one run**: the per-class freelist mutex (`Collector::pop_freelist`), ablated as arm (c), accounted for 9–11% at $W=8$ against 62–73% for the bins. That is a `SINGLE_RUN_PASS` and not a confirmed result — rule 18 wants a second independent run before it is claimed — so arm (c) remains a diagnostic ablation.
    - The verdicts, their intervals and the runs behind them: `docs/benchmarks/concurrency/README.md` §11.
 
+### 2.7 Promoting a Diagnostic Ablation to the Default
+An ablation feature exists to decide a mechanism (§8.20.3). Promoting its winner changes what every build compiles, so:
+1. **Promote only a configuration that was measured, on the current engine.** A parameter value (a stripe count, a capacity) that no run measured is not promoted by reasoning from the values that were, and a verdict taken before an engine change that removed a dominant cost has expired (§8.20.6).
+2. **Keep the mechanism re-testable.** Invert the feature (an `ablation-un…` feature restores the old path) so the new default can itself be ablated. If the old feature name stays declared, make it a `compile_error!`; never leave it as a no-op, which silently compares the default with itself (§8.1).
+3. **Migrate every consumer in the same PR.** `git grep` the old feature name over the whole tree: CI jobs, `scripts/gate.sh`, harness feature maps, docs, and for a bench suite `.github/bench-suites.json` plus the dispatch `case`, the flag spelling and the upload-artifact list in `.github/workflows/bench_baremetal.yml` — `scripts/check_bench_suites.py --write` regenerates only the dispatch dropdown. A test gated on the old feature stops compiling in without an error; re-gate it to the new default.
+4. **Meet the single-threaded bound before the wall-clock runs.** Pre-register it over every `sync_*` Callgrind arm and every plain-tree arm (§6 review threshold), and satisfy it first: it is deterministic and cheap to re-measure, and the concurrency runs are neither.
+
 ---
 
 
@@ -162,7 +171,9 @@ When reducing cross-writer contention on Epoch-Based Reclamation (EBR) garbage b
 ```bash
 scripts/gate.sh            # fmt · clippy · workspace tests (PROPTEST_CASES=500) · repo scripts · docs hygiene
 scripts/gate.sh --miri     # additionally the Tier-1 Miri filter (the per-PR CI scope)
+scripts/gate.sh --quick    # fmt · clippy · repo scripts · docs hygiene — runs no cargo test
 ```
+A handoff that ran only `--quick` does not report the tests as run (§8.11.6).
 The local test step excludes `expanse-php` (PHP headers, as CI does) and
 `expanse-py` (its PyO3 test binary needs `libpythonX.Y` on the rpath); CI runs
 both. `--with-bindings` includes them once your toolchain is set up. CI remains
@@ -285,6 +296,9 @@ See `docs/BENCHMARKING.md` §2–3 and `docs/CI.md` for details.
 - **Rank before changing.** A performance change starts from a per-function Callgrind ranking of the exact benchmark-arm body (a `callgrind_annotate` profile, not intuition about which idiom is expensive). The #577 write-path work found 58% of instructions in one leaf-rebuild pattern that no candidate list had ranked first.
 - **One increment, one measurement.** Each change is measured in isolation against the previous increment on the same instrument before the next is attempted; a batch of plausible changes measured once cannot attribute anything.
 - **A flat or negative result is reverted and written down.** The textbook fix can lose: the iterative rewrite of the 32-bit descent measured +1.2% and was reverted (#586). §8.7 applies to negatives — the PR records what was tried, the number, and why it was reverted, so the next agent does not retry it.
+- **Attribute a regression before choosing its fix.** When a change regresses an arm, diff base against head with `callgrind_annotate --inclusive=no` (per function) and `--auto=yes` (per line; inlined helpers only show there). Reading the diff is not attribution: on #912 the profile put about 30% of the regression on the allocation path the diff pointed at, and the rest where the diff did not.
+- **A function whose source did not change is read from its disassembly.** Callgrind counts executed instructions, so "code layout" never explains a change in them. Diff `objdump -d -C` of both binaries: moved field offsets, inlining decisions and the form of a thread-local access all change instruction counts without a source change (§2.1.5).
+- **A projection is not a target.** A saving predicted from an attribution is labelled unmeasured, and does not go into a commit message, a PR checklist or a gate.
 - **Benchmark arm prerequisite for engine paths.** Never modify or optimize an engine path (e.g. `map_remove`, `set_remove`, `scan`) unless that path is already covered by a deterministic Callgrind benchmark arm in `crates/expanse/benches/instructions.rs` and registered in `scripts/perf_report.py`. If missing, land the benchmark arm in CI first before touching engine code.
 - **A `perf(...)` PR carries its number before it asks for review.** The instrument for an instruction-count claim is the `instruction-counts` job on the PR itself — pushing is how the measurement is taken, so push, read the `perf_report.py` table, and only then title the change `perf(...)` or claim an optimization. A branch whose report is red or absent is a candidate spike, not an optimization, and says so in its title and body. Where the path carries a published on-target figure, §8.7 applies: the device pairing is part of the PR, not a follow-up.
 - **A conditional bypass states its selectivity.** Before guarding a store with `if changed`, write down which data invariant makes the condition false often enough to pay for the compare, and on which node forms. On the 32-bit engine a leaf child's edge carries its population, so a removal changes the edge every time and the guard never skips (#632, §8.1.5 of the design doc); a bitmap terminal's edge does not change on in-place removal, so the same guard is selective there. The Callgrind arm decides; the argument only says what to expect.
@@ -351,6 +365,7 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | Chart legibility: no text or bar overflowing its card, no text collision, no bar population pinned at a scale floor/ceiling | **CI** | `lint` job → `scripts/check_chart_layout.py` (+ `--self-test`); widths are estimated, so it is a gross-breakage tripwire, not a layout engine |
 | Paired performance figures carry a shared workload ID (§8.12) | **CI** | `docs-lint` job → `scripts/check_docs_hygiene.py` |
 | §6 profile-first: per-function ranking before a perf change, one increment per measurement, negatives recorded | **review** | the PR body carries the ranking and each increment's number |
+| §6 a regression is attributed from a base-vs-head profile (and disassembly where the source did not change) before its fix; §2.1.5 concurrency-only code out of shared inlined paths and hot struct layout; §2.7 ablation promotion | **review** | the PR body carries the `callgrind_annotate` diff and, for untouched functions, the `objdump` evidence |
 | §8.7 a fix on a measured path re-measures that number and states the correction | **review** | `docs/benchmarks/**/results.json` provenance must post-date the fix commit |
 | `Closes #N` only for full resolution; partial work uses `Refs #N` | **review** | — |
 | Width-gated C symbols: narrow-surface block tagged `narrow_only`, excluded from binding coverage; verified on the 32-bit lane | **CI** | `lint` job → `scripts/check_abi_parity.py`; `test-i686` job (Rust test + `-m32` C smoke) |
@@ -370,7 +385,10 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
   - **A single required status check — `CI Gate / All Checks Passed`** (the `ci-gate` rollup job that `needs:` every other `ci.yml` job and fails if any failed or was cancelled; a `lint` step plus the gate's own self-check parse `ci.yml` and assert no job id is missing from its `needs`). Because the ruleset requires only the rollup context, renaming a *non-gate* CI job does not require editing the ruleset; only renaming `ci-gate` itself would.
   - **Branches must be up to date before merging** (enforced by the repository ruleset).
   - No force-push, no deletion, no bypass actors.
+  - **Signed commits** (`required_signatures`). Bring a PR branch up to date by rebasing locally and pushing it with `--force-with-lease`; `gh pr update-branch --rebase` rewrites the branch server-side into unsigned commits, and the PR stays `BLOCKED` behind a green gate.
   - Workflow: branch → push → `gh pr create` → watch checks → `gh pr merge`.
+- **Workflow dispatch refs** (`gh workflow run … -f ref=`) take a branch, a tag or a full 40-character SHA; an abbreviated SHA fails at checkout.
+- **Commit messages are held to the §8.21 claim audit.** A saving or a cause is stated in a commit body only once it is measured, with the run that measured it.
 - **`Closes #N` only when the PR fully resolves the issue.** GitHub ignores prose qualifiers — `Closes #564's terminology half` closed #564. Partial or follow-up work uses `Refs #N`; closing is the maintainer's action.
 - **Worktree & Branch Hygiene (Never Soft-Reset Across Moving Base Refs)**:
   - **Never `git reset --soft <moving-ref>` followed by `git add -A`** in agent workflows. If `origin/main` has advanced since a worktree or branch was created, running a soft reset to the new `origin/main` while the working tree contains an older checkout causes `git add -A` to stage **unintentional deletions of all files added on `main` in the interim** (#458).
@@ -590,6 +608,7 @@ The reference host is quiet but not dedicated, and §8.4 gates on intervals take
 - **The unit of work is one gate moving from unmet to met**, never "a phase" and never "an epic". State the gate verbatim, its falsifier, and its blast radius before starting.
 - **Threshold, method and sample size are fixed before execution.** Changing any of them after seeing results forces an `INTERMEDIATE` relabel and fresh seeds, however well justified the new value is. This is the price of the change, not an argument against it: pay it and re-run, or keep the original threshold and report the result it gives.
 - A gate that is met by redefining it was never a gate. Where a threshold turns out to be wrong, say so in the issue, set the new one, and re-run from seeds — the sequence §8.8 already fixes for a spike applies to a single gate too.
+- **A falsified gate is not reopened by moving its bound to the measurement.** A stop-and-ask after a falsifier trips offers two options — change the code and re-measure against the same bound, or record the rejection — never a bound set just above the observed value.
 
 ### 8.20 Multi-Writer Concurrency Diagnostics & Time Budget Attribution
 When diagnosing multi-writer scaling deficits ($C(W) < 1.0$) or attributing latency inflation:
@@ -724,5 +743,6 @@ Review time should go to what the author could not check, not to what the author
 5. **Walk the path end to end.** For a gate, walk a legitimate case through it (can a correct PR pass?) and a bad one (does it fail?). For a test, confirm CI runs it rather than zero tests. For a fix, run the arms that exercise the changed path and read the whole CI log.
 6. **Treat every revision as new material.** Verify a reviewer's point against the code before applying it, and audit what you wrote to address it. A reviewer's estimate is not a measurement and is not pasted in as one.
 7. **Prefer fewer, sourced claims.** Drop speculative shares and words such as "dominant" or "exactly" that the evidence does not carry. A shorter plan with every line checked is cheaper to review than a complete one with guesses.
+8. **Answer a comparison from the repo's own measurements first.** Before stating how Expanse compares with a competitor, read the suite that measured the pair, and check whether its tables predate engine changes on the compared path — a fix on a measured path makes the published figure stale (§8.7). A figure recalled from the literature is labelled unsourced unless it is cited.
 
 The handoff states the audit's outcome ("claims: N verified, M derived, K labelled"). An independent verifier pass — an agent whose only job is to take each claim to its source and report what does not resolve — is a cheap way to run it; it checks provenance and is not a substitute for review.
