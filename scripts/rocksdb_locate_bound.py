@@ -90,6 +90,18 @@ Inputs come from the committed suite artifact
 being copied into this file, so a re-measurement re-derives the prediction
 instead of silently leaving it stale (AGENTS.md 8.7).
 
+## The idle curve's shape
+
+The single-mutex ceiling above says nothing about how a curve bends below it,
+and USL with `alpha` fixed at the profiled locked fraction does not describe
+the idle curve: the `beta` each reader count needs is not one number
+(`unexplained_term`, rendered below). `MODEL_CANDIDATES` fixes six shapes
+before any held-out cell exists. `check_candidate` fits one on `S(2)`, `S(4)`
+and `S(7)` and checks it at `S(3)`, `S(5)` and `S(6)` too, and `model_verdicts`
+applies METHODOLOGY section 5.12's acceptance rule over two runs. Nothing here
+chooses a shape after seeing the held-out cells; a shape that fails is
+reported, and the section says what follows.
+
 Usage:
     python3 scripts/rocksdb_locate_bound.py
     python3 scripts/rocksdb_locate_bound.py --writer-ops 1e6
@@ -99,8 +111,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import math
+import statistics
 import sys
 from pathlib import Path
 
@@ -385,35 +399,6 @@ def unexplained_term_interval(scaling_ci: tuple[float, float], readers: int,
     return (unexplained_term(s_hi, readers, a_hi), unexplained_term(s_lo, readers, a_lo))
 
 
-def narrowed_scaling_bracket(readers: int, alpha_now: float, alpha_narrowed: float,
-                             term: float) -> tuple[float, float]:
-    """`(pessimistic, optimistic)` `S(W)` for a lock that covers less of a read.
-
-    The narrowed lock changes `alpha` from `alpha_now` to `alpha_narrowed`, the
-    share of a read it still covers. What it does to the unexplained term is
-    not derivable here, so two bounding assumptions stand in for it:
-
-    - pessimistic: the term does not depend on how long the lock is held, as a
-      fixed cost per acquisition would not;
-    - optimistic: it scales with the hold time, `term * alpha_narrowed / alpha_now`.
-
-    Neither assumption is measured. The bracket is what can be predicted without
-    naming the term, and an outcome outside it says the term behaves like
-    neither. A negative `term` is refused: `alpha_now` already over-explains
-    the curve, and no bracket follows from a model that does.
-    """
-    if term < 0.0:
-        raise ValueError(f"the unexplained term is {term!r}: alpha alone already over-explains "
-                         f"S, so this model does not describe the curve")
-    if not (0.0 < alpha_now <= 1.0):
-        raise ValueError(f"alpha_now must be in (0, 1], got {alpha_now!r}")
-    if not (0.0 <= alpha_narrowed <= alpha_now):
-        raise ValueError(f"alpha_narrowed must be in [0, alpha_now], got {alpha_narrowed!r}")
-    pessimistic = usl_scaling(readers, alpha_narrowed, term)
-    optimistic = usl_scaling(readers, alpha_narrowed, term * alpha_narrowed / alpha_now)
-    return (pessimistic, optimistic)
-
-
 def min_detectable_ratio(relative_halfwidth: float) -> float:
     """Smallest scaling ratio whose BCa lower bound clears 1.0 (AGENTS.md 8.4).
 
@@ -424,6 +409,288 @@ def min_detectable_ratio(relative_halfwidth: float) -> float:
     if not (0.0 <= relative_halfwidth < 1.0):
         raise ValueError(f"relative_halfwidth must be in [0, 1), got {relative_halfwidth!r}")
     return 1.0 / (1.0 - relative_halfwidth)
+
+
+def queue_scaling(readers: int, locked_fraction: float, handoff: float,
+                  growth: float = 0.0) -> float:
+    """`S(W)` for readers cycling through one lock, by mean-value analysis.
+
+    A closed network of `W` readers and two stations, in units of one
+    uncontended read. At a delay station a reader does the unlocked
+    `1 - locked_fraction` of its read. At one first-come-first-served lock the
+    service time is `locked_fraction` while one reader is present, and
+    `locked_fraction + handoff + growth * (n - 2)` once `n >= 2` are. The
+    recursion is Reiser and Lavenberg's mean-value analysis ("Mean-Value
+    Analysis of Closed Multichain Queuing Networks", J. ACM 27(2), 1980):
+
+        R(n) = s(n) (1 + Q(n - 1)),   X(n) = n / (Z + R(n)),   Q(n) = X(n) R(n)
+
+    with `Z = 1 - locked_fraction` and `S(W) = X(W) / X(1)`. It is exact for a
+    load-independent service time, which is `handoff = growth = 0`. With `s(n)`
+    depending on `n` it is the same recursion used as an approximation, not a
+    product-form result.
+
+    `handoff` stands for a cost an acquisition pays once a second reader exists
+    (a futex wake, a migration), and `growth` for how that cost rises per
+    further reader. Nothing in this file measures either: they are fitted, and
+    the names say what they would have to be, not what they are.
+    """
+    if not isinstance(readers, int) or readers < 1:
+        raise ValueError(f"readers must be an int >= 1, got {readers!r}")
+    if not (0.0 < locked_fraction <= 1.0):
+        raise ValueError(f"locked_fraction must be in (0, 1], got {locked_fraction!r}")
+    for name, value in (("handoff", handoff), ("growth", growth)):
+        if not (value >= 0.0) or math.isinf(value):
+            raise ValueError(f"{name} must be finite and non-negative, got {value!r}")
+    think = 1.0 - locked_fraction
+    queue = 0.0
+    x1 = x = 0.0
+    for n in range(1, readers + 1):
+        service = locked_fraction if n == 1 else locked_fraction + handoff + growth * (n - 2)
+        response = service * (1.0 + queue)
+        x = n / (think + response)
+        queue = x * response
+        if n == 1:
+            x1 = x
+    return x / x1
+
+
+#: METHODOLOGY section 5.12. Each shape is fitted on the reader counts every
+#: committed idle curve has, and checked as well on three no curve had when the
+#: shapes were fixed.
+TRAINING_READERS = (2, 4, 7)
+HELD_OUT_READERS = (3, 5, 6)
+
+#: The candidates, fixed before the held-out cells were measured. `mechanistic`
+#: shapes take the profiled `locked_fraction`, which is what would let one carry
+#: over to a lock that covers less of a read; the others describe the curve and
+#: name no lock parameter. Each parameter is `(name, low, high, low_is_physical,
+#: high_is_physical)`. A fit may rest on a physical limit (a cost of zero, a
+#: serial fraction of one). One that ends on a search limit has not converged
+#: inside the box it was given, and is refused rather than read.
+MODEL_CANDIDATES: dict[str, dict] = {
+    "usl_alpha_profiled": {
+        "mechanistic": True,
+        "params": (("beta", 0.0, 5.0, True, False),),
+        "shape": lambda w, f, p: usl_scaling(w, f, p[0]),
+    },
+    "queue_handoff": {
+        "mechanistic": True,
+        "params": (("handoff", 0.0, 20.0, True, False),),
+        "shape": lambda w, f, p: queue_scaling(w, f, p[0]),
+    },
+    "queue_handoff_growing": {
+        "mechanistic": True,
+        "params": (("handoff", 0.0, 20.0, True, False), ("growth", 0.0, 5.0, True, False)),
+        "shape": lambda w, f, p: queue_scaling(w, f, p[0], p[1]),
+    },
+    "reciprocal_linear": {
+        "mechanistic": False,
+        "params": (("a", -5.0, 5.0, False, False), ("b", -1.0, 1.0, False, False)),
+        "shape": lambda w, f, p: 1.0 / (p[0] + p[1] * w),
+    },
+    "step_power": {
+        "mechanistic": False,
+        "params": (("s2", 0.1, 2.0, False, False), ("gamma", -1.0, 2.0, False, False)),
+        "shape": lambda w, f, p: p[0] * (w / 2.0) ** (-p[1]),
+    },
+    "usl_free": {
+        "mechanistic": False,
+        "params": (("alpha", 0.0, 1.0, True, True), ("beta", 0.0, 5.0, True, False)),
+        "shape": lambda w, f, p: usl_scaling(w, p[0], p[1]),
+    },
+}
+
+
+def _minimise(objective, bounds: list[tuple[float, float]]) -> tuple[tuple[float, ...], float]:
+    """A deterministic bounded minimiser: a grid, then a shrinking pattern search.
+
+    No scipy. The CI lint job has none, and an estimator that changes with the
+    host's installed packages has already changed one reading here (METHODOLOGY
+    section 5.10). The grid is 401 points for one parameter and 61 x 61 for two.
+    The pattern search starts at the grid spacing, shrinks it by 0.7 over 80
+    passes, and clamps every step to the bounds. A point where the shape is
+    undefined scores infinity rather than raising.
+    """
+    k = len(bounds)
+    n = 400 if k == 1 else 60
+
+    def score(p):
+        try:
+            v = objective(p)
+        except (ZeroDivisionError, OverflowError, ValueError):
+            return math.inf
+        return v if math.isfinite(v) else math.inf
+
+    best_v, best_p = math.inf, None
+    for idx in itertools.product(range(n + 1), repeat=k):
+        p = tuple(lo + (hi - lo) * i / n for (lo, hi), i in zip(bounds, idx))
+        v = score(p)
+        if v < best_v:
+            best_v, best_p = v, p
+    if best_p is None:
+        raise ValueError("the objective is not finite anywhere on the grid")
+    step = [(hi - lo) / n for lo, hi in bounds]
+    for _ in range(80):
+        improved = True
+        while improved:
+            improved = False
+            for i in range(k):
+                for d in (-1.0, 1.0):
+                    q = list(best_p)
+                    q[i] = min(max(q[i] + d * step[i], bounds[i][0]), bounds[i][1])
+                    v = score(tuple(q))
+                    if v < best_v:
+                        best_v, best_p, improved = v, tuple(q), True
+        step = [s * 0.7 for s in step]
+    return best_p, best_v
+
+
+def fit_candidate(name: str, curve: dict, locked_fraction: float | None) -> dict:
+    """Fit one candidate to a curve's training points, weighted by their intervals.
+
+    `curve` maps `W` to `(point, ci_lower, ci_upper)` for `S(W)`. The fit
+    minimises `sum(((shape(W) - point) / half_width) ** 2)` over
+    `TRAINING_READERS`, with `half_width = (ci_upper - ci_lower) / 2`, so a
+    point measured tightly counts for more than one measured loosely.
+    """
+    spec = MODEL_CANDIDATES[name]
+    if spec["mechanistic"] and locked_fraction is None:
+        raise ValueError(f"{name} takes the profiled locked_fraction, and none was given")
+    f = locked_fraction if spec["mechanistic"] else None
+    points = []
+    for w in TRAINING_READERS:
+        if w not in curve:
+            raise ValueError(f"the curve has no S({w}), a training point")
+        point, lo, hi = curve[w]
+        half = (hi - lo) / 2.0
+        if not half > 0.0 or not (lo <= point <= hi):
+            raise ValueError(f"S({w}) = {point!r} with interval [{lo!r}, {hi!r}] cannot weight a fit")
+        points.append((w, point, half))
+    shape = spec["shape"]
+    params, chi2 = _minimise(
+        lambda p: sum(((shape(w, f, p) - s) / h) ** 2 for w, s, h in points),
+        [(lo, hi) for _, lo, hi, _, _ in spec["params"]],
+    )
+    at_limit = []
+    for (pname, lo, hi, lo_physical, hi_physical), v in zip(spec["params"], params):
+        tol = 1e-9 * (hi - lo)
+        if (not lo_physical and v <= lo + tol) or (not hi_physical and v >= hi - tol):
+            at_limit.append(pname)
+    names = [p[0] for p in spec["params"]]
+    return {"params": dict(zip(names, params)), "chi2_training": chi2, "search_limit": at_limit}
+
+
+def check_candidate(name: str, curve: dict, locked_fraction: float | None,
+                    readers: tuple[int, ...] = TRAINING_READERS + HELD_OUT_READERS) -> dict:
+    """METHODOLOGY section 5.12's rule for one candidate on one curve.
+
+    Fitted on `TRAINING_READERS` only. The candidate passes on the curve when
+    its fit converged and its prediction lies inside the measured interval at
+    every `W` in `readers`: the training points and, by default, the held-out
+    ones. A held-out point is never used to fit.
+    """
+    spec = MODEL_CANDIDATES[name]
+    fit = fit_candidate(name, curve, locked_fraction)
+    f = locked_fraction if spec["mechanistic"] else None
+    p = tuple(fit["params"].values())
+    rows = {}
+    for w in readers:
+        if w not in curve:
+            raise ValueError(f"the curve has no S({w})")
+        point, lo, hi = curve[w]
+        pred = spec["shape"](w, f, p)
+        rows[w] = {"predicted": pred, "point": point, "ci": (lo, hi), "inside": lo <= pred <= hi,
+                   "role": "training" if w in TRAINING_READERS else "held_out"}
+    misses = [w for w, r in rows.items() if not r["inside"]]
+    return {**fit, "readers": rows, "misses": misses,
+            "accepted": not fit["search_limit"] and not misses}
+
+
+def held_out_chi2(check: dict) -> float:
+    """`sum(((predicted - point) / half_width) ** 2)` over a check's held-out rows."""
+    total = 0.0
+    for r in check["readers"].values():
+        if r["role"] == "held_out":
+            lo, hi = r["ci"]
+            total += ((r["predicted"] - r["point"]) / ((hi - lo) / 2.0)) ** 2
+    return total
+
+
+def model_verdicts(curves: list[dict], fraction_span: tuple[float, float, float]) -> dict:
+    """METHODOLOGY section 5.12's acceptance rule over the held-out runs.
+
+    A candidate is `ACCEPTED` only if `check_candidate` passes it on every run.
+    A mechanistic one must also pass at each of the three locked fractions in
+    `fraction_span` (the lowest interval end, the mean point, the highest end of
+    the two profile runs), refitted at each: a shape that holds at one fraction
+    and not at a neighbour the profile cannot exclude is not carried over.
+    """
+    if len(curves) < 2:
+        raise ValueError(f"the rule reads two runs, got {len(curves)}")
+    lo_f, mid_f, hi_f = fraction_span
+    if not (0.0 < lo_f <= mid_f <= hi_f <= 1.0):
+        raise ValueError(f"fraction_span must be ordered inside (0, 1], got {fraction_span!r}")
+    out = {}
+    for name, spec in MODEL_CANDIDATES.items():
+        fractions = (lo_f, mid_f, hi_f) if spec["mechanistic"] else (None,)
+        checks = [[check_candidate(name, c, f) for f in fractions] for c in curves]
+        accepted = all(ch["accepted"] for run in checks for ch in run)
+        out[name] = {
+            "verdict": "ACCEPTED" if accepted else "REJECTED",
+            "mechanistic": spec["mechanistic"],
+            "n_params": len(spec["params"]),
+            "held_out_chi2": sum(held_out_chi2(run[len(run) // 2]) for run in checks),
+            "checks": checks,
+        }
+    return out
+
+
+def select_model(verdicts: dict) -> str | None:
+    """The accepted candidate section 5.12 carries forward, or `None`.
+
+    Mechanistic before descriptive, since only a mechanistic shape names a lock
+    parameter a narrower lock could change. Then fewer parameters, then the
+    lower held-out chi-square summed over runs.
+    """
+    ranked = sorted((not v["mechanistic"], v["n_params"], v["held_out_chi2"], name)
+                    for name, v in verdicts.items() if v["verdict"] == "ACCEPTED")
+    return ranked[0][3] if ranked else None
+
+
+def model_consequence(verdicts: dict) -> str:
+    """What section 5.12 says follows from its verdicts."""
+    chosen = select_model(verdicts)
+    if chosen is None:
+        return ("no candidate passed: the narrowed-mutex arm is pre-registered on the "
+                "directional gate, and every candidate is reported with its misses")
+    if not verdicts[chosen]["mechanistic"]:
+        return (f"only a descriptive shape passed ({chosen}): it names no lock parameter, so "
+                f"the narrowed-mutex arm is pre-registered on the directional gate")
+    return (f"{chosen} passed: the narrowed-mutex arm's prediction is derived from it, in a "
+            f"pre-registration written before that arm's rounds")
+
+
+def held_out_separation(curve: dict, locked_fraction: float) -> list[tuple[str, str, float]]:
+    """How far apart the candidates' held-out predictions are, before any held-out cell.
+
+    For every pair of candidates whose training fit on `curve` lies inside all
+    three training intervals, the largest gap between their predictions over
+    `HELD_OUT_READERS`, in units of the curve's median training half-width.
+    A gap below one says a held-out interval of that width cannot tell the
+    two apart, whatever the cells return.
+    """
+    half = statistics.median((curve[w][2] - curve[w][1]) / 2.0 for w in TRAINING_READERS)
+    fits = {}
+    for name, spec in MODEL_CANDIDATES.items():
+        f = locked_fraction if spec["mechanistic"] else None
+        ch = check_candidate(name, curve, f, readers=TRAINING_READERS)
+        if ch["accepted"]:
+            p = tuple(ch["params"].values())
+            fits[name] = [spec["shape"](w, f, p) for w in HELD_OUT_READERS]
+    names = sorted(fits)
+    return [(a, b, max(abs(x - y) for x, y in zip(fits[a], fits[b])) / half)
+            for i, a in enumerate(names) for b in names[i + 1:]]
 
 
 # ---------------------------------------------------------------------------
@@ -470,10 +737,14 @@ def load_arms(path: Path = ARTIFACT) -> dict:
 
 
 PROFILE_GLOB = "docs/benchmarks/rocksdb_memtable/results/locate_profile/pin_one_sibling/*/profile_rocksdb_conc_idle_r1.json"
-IDLE_CURVES = (
-    REPO_ROOT / "docs" / "benchmarks" / "rocksdb_memtable" / "results" / "baseline_concurrent_reads_amended_h1.json",
-    REPO_ROOT / "docs" / "benchmarks" / "rocksdb_memtable" / "results" / "baseline_concurrent_reads_amended_h1_run2.json",
-)
+_RESULTS = REPO_ROOT / "docs" / "benchmarks" / "rocksdb_memtable" / "results"
+#: The committed idle curves under the one-sibling pin: sections 5.8 and 5.10.
+COMMITTED_IDLE_CURVES = tuple(_RESULTS / f"baseline_concurrent_reads_{n}.json" for n in (
+    "pin_one_sibling", "pin_one_sibling_run2", "amended_h1", "amended_h1_run2"))
+#: The two held-out runs section 5.12 fixes, once committed.
+HELD_OUT_CURVES = (_RESULTS / "baseline_concurrent_reads_heldout.json",
+                   _RESULTS / "baseline_concurrent_reads_heldout_run2.json")
+HELD_OUT_PIN = "0,2,4,6,8,10,12,14"
 
 
 def load_locate_profile(path: Path) -> dict:
@@ -492,6 +763,58 @@ def load_locate_profile(path: Path) -> dict:
             raise ValueError(f"{Path(path).name}: `shares.{name}` carries no interval")
         out[name] = (float(v["point"]), float(v["ci_lower"]), float(v["ci_upper"]))
     return out
+
+
+
+def profile_fraction_span(paths: list[Path]) -> tuple[float, float, float]:
+    """`(lowest ci_lower, mean point, highest ci_upper)` of `locked_fraction`.
+
+    Section 5.12 fixes the two committed profile runs as the input, both under
+    the one-sibling pin; any other count, or another pin, is refused.
+    """
+    profiles = [load_locate_profile(p) for p in paths]
+    if len(profiles) != 2:
+        raise ValueError(f"section 5.12 reads the two committed profile runs, found {len(profiles)}")
+    for path, prof in zip(paths, profiles):
+        if prof["pin"] != HELD_OUT_PIN:
+            raise ValueError(f"{Path(path).parent.name}: pin {prof['pin']!r}, expected {HELD_OUT_PIN}")
+    lf = [p["locked_fraction"] for p in profiles]
+    return (min(x[1] for x in lf), sum(x[0] for x in lf) / len(lf), max(x[2] for x in lf))
+
+
+def idle_curve(obj: dict, readers: tuple[int, ...]) -> dict:
+    """`{W: (point, ci_lower, ci_upper)}` for the idle `S(W)` of a driver artifact."""
+    idle = obj.get("scaling", {}).get("idle", {})
+    out = {}
+    for w in readers:
+        cell = idle.get(f"S({w})")
+        if not cell or cell.get("ci") is None:
+            raise ValueError(f"no idle S({w}) with an interval")
+        out[w] = (float(cell["point"]), float(cell["ci"][0]), float(cell["ci"][1]))
+    return out
+
+
+def held_out_problems(obj: dict) -> list[str]:
+    """Why a driver artifact is not one of the held-out runs section 5.12 fixes."""
+    problems = []
+    p = obj.get("provenance", {})
+    if p.get("core_pin") != HELD_OUT_PIN:
+        problems.append(f"core_pin {p.get('core_pin')!r}, expected {HELD_OUT_PIN}")
+    if p.get("host", {}).get("scaling_governor_pin_source") != "EXPANSE_BENCH_PIN_APPLIED":
+        problems.append("the pin was not verified as applied (EXPANSE_BENCH_PIN_APPLIED)")
+    if obj.get("settings", {}).get("window_seconds") != 2.0:
+        problems.append(f"window {obj.get('settings', {}).get('window_seconds')!r} s, expected 2.0")
+    modes = sorted(obj.get("scaling", {}))
+    if modes != ["idle"]:
+        problems.append(f"modes {modes}, expected idle only")
+    idle = obj.get("scaling", {}).get("idle", {})
+    for w in (2, 3, 4, 5, 6, 7):
+        cell = idle.get(f"S({w})")
+        if not cell or cell.get("ci") is None:
+            problems.append(f"no idle S({w}) with an interval")
+        elif cell.get("n") != 5:
+            problems.append(f"idle S({w}) pairs {cell.get('n')} rounds, expected 5")
+    return problems
 
 
 # ---------------------------------------------------------------------------
@@ -572,37 +895,64 @@ def render(arms: dict, writer_ops_per_s: float) -> str:
     lines.append("  reader remainder perfectly overlapped), so a measured curve should sit at or")
     lines.append("  below them. Nothing here is measured: the mechanism is arithmetic over two")
     lines.append("  committed single-threaded cells, and the concurrent arm is what tests it.")
-    lines.extend(render_narrowed())
+    lines.extend(render_model_check())
     return "\n".join(lines)
 
 
-def render_narrowed() -> list[str]:
-    """The narrowed-mutex arm's bracket, where a locate profile is committed."""
+def render_model_check() -> list[str]:
+    """Section 5.12's candidates on the committed curves, and its verdicts once run."""
     import glob  # noqa: PLC0415
-    profiles = sorted(glob.glob(str(REPO_ROOT / PROFILE_GLOB)))
-    out = ["", "  Narrowed-mutex arm (idle writer, one-sibling pin), (projected):"]
-    if not profiles:
-        out.append("    no locate profile is committed yet; dispatch the `rocksdb_locate_profile` suite")
+    out = ["", "  Idle-curve model check (METHODOLOGY section 5.12), one-sibling pin:"]
+    profiles = [Path(p) for p in sorted(glob.glob(str(REPO_ROOT / PROFILE_GLOB)))]
+    try:
+        span = profile_fraction_span(profiles)
+    except ValueError as exc:
+        out.append(f"    not evaluable: {exc}")
         return out
-    curves = [json.loads(p.read_text()) for p in IDLE_CURVES if p.is_file()]
-    for path in profiles:
-        prof = load_locate_profile(Path(path))
-        lf, tf = prof["locked_fraction"], prof["trie_fraction"]
-        out.append(f"    profile {Path(path).parent.name} ({prof['commit'][:8]}, pin {prof['pin']}): "
-                   f"locked_fraction {lf[0]:.4f} [{lf[1]:.4f}, {lf[2]:.4f}], "
-                   f"trie_fraction {tf[0]:.4f} [{tf[1]:.4f}, {tf[2]:.4f}]")
-        for curve in curves:
-            idle = curve["scaling"]["idle"]
-            for w in (2, 4, 7):
-                cell = idle[f"S({w})"]
-                lo, hi = unexplained_term_interval(tuple(cell["ci"]), w, (lf[1], lf[2]))
-                term = unexplained_term(cell["point"], w, lf[0])
-                if term < 0.0:
-                    out.append(f"      S({w}) {cell['point']:.3f}: term {term:.4f} < 0, no bracket")
-                    continue
-                pess, opt = narrowed_scaling_bracket(w, lf[0], tf[0], term)
-                out.append(f"      S({w}) {cell['point']:.3f} -> unexplained term {term:.4f} "
-                           f"[{lo:.4f}, {hi:.4f}]; narrowed S({w}) in [{pess:.3f}, {opt:.3f}]")
+    out.append(f"    locked_fraction {span[1]:.4f}, the mean of {len(profiles)} profile runs; "
+               f"mechanistic shapes are also refitted at {span[0]:.4f} and {span[2]:.4f}")
+    for path in COMMITTED_IDLE_CURVES:
+        curve = idle_curve(json.loads(path.read_text()), TRAINING_READERS)
+        out.append(f"    {path.name}: " + "  ".join(
+            f"S({w}) {curve[w][0]:.4f} [{curve[w][1]:.4f}, {curve[w][2]:.4f}]" for w in TRAINING_READERS))
+        out.append("      USL with alpha = locked_fraction needs beta " + ", ".join(
+            f"{unexplained_term(curve[w][0], w, span[1]):.3f} at R={w}" for w in TRAINING_READERS)
+            + "; one USL needs one beta")
+        for name, spec in MODEL_CANDIDATES.items():
+            f = span[1] if spec["mechanistic"] else None
+            ch = check_candidate(name, curve, f, readers=TRAINING_READERS)
+            p = tuple(ch["params"].values())
+            if ch["search_limit"]:
+                status = "search limit " + ",".join(ch["search_limit"])
+            elif ch["misses"]:
+                status = "misses R=" + ",".join(str(w) for w in ch["misses"])
+            else:
+                status = "inside"
+            params = ", ".join(f"{k} {v:.4f}" for k, v in ch["params"].items())
+            pred = "  ".join(f"S({w}) {spec['shape'](w, f, p):.4f}" for w in HELD_OUT_READERS)
+            out.append(f"      {name:22s} {params:30s} chi2 {ch['chi2_training']:8.2f}  "
+                       f"training {status:12s} -> {pred}")
+        for a, b, gap in held_out_separation(curve, span[1]):
+            out.append(f"      held-out gap, {a} vs {b}: {gap:.2f} training half-widths at most")
+    present = [p for p in HELD_OUT_CURVES if p.is_file()]
+    if len(present) < len(HELD_OUT_CURVES):
+        out.append(f"    held-out runs: {len(present)} of {len(HELD_OUT_CURVES)} committed; "
+                   f"dispatch `rocksdb_concurrent_heldout` with cpu_pin={HELD_OUT_PIN}")
+        return out
+    objs = [json.loads(p.read_text()) for p in present]
+    for path, obj in zip(present, objs):
+        problems = held_out_problems(obj)
+        if problems:
+            out.append(f"    {path.name} is not a section 5.12 run: " + "; ".join(problems))
+            return out
+    verdicts = model_verdicts([idle_curve(o, TRAINING_READERS + HELD_OUT_READERS) for o in objs], span)
+    for name, v in verdicts.items():
+        misses = sorted({w for run in v["checks"] for ch in run for w in ch["misses"]})
+        limits = sorted({x for run in v["checks"] for ch in run for x in ch["search_limit"]})
+        why = (f" (misses R={','.join(map(str, misses))})" if misses else "") + \
+              (f" (search limit {','.join(limits)})" if limits else "")
+        out.append(f"    {name:22s} {v['verdict']}{why}; held-out chi2 {v['held_out_chi2']:.2f}")
+    out.append(f"    consequence: {model_consequence(verdicts)}")
     return out
 
 
@@ -926,26 +1276,132 @@ def self_test() -> int:
     lo2, hi2 = unexplained_term_interval((0.611, 0.631), 7, (0.25, 0.35))
     if not (lo2 < lo and hi2 > hi):
         fails.append("a wider alpha interval must widen the term interval at both ends")
-    # Bracket: alpha 0.3 -> 0.05, term 0.2, hold ratio 1/6, W = 7.
-    #   pessimistic 7 / (1 + 0.3 + 8.4) = 7 / 9.7   = 0.7216495
-    #   optimistic  7 / (1 + 0.3 + 1.4) = 7 / 2.7   = 2.5925926
-    pess, opt = narrowed_scaling_bracket(7, 0.3, 0.05, 0.2)
-    check("narrowed bracket pessimistic", pess, 0.7216495, tol=1e-6)
-    check("narrowed bracket optimistic", opt, 2.5925926, tol=1e-6)
-    check("no narrowing leaves both ends at today's curve",
-          narrowed_scaling_bracket(7, 0.3, 0.3, 0.2), (0.625, 0.625))
-    # The negative-term refusal is checked by its reason: usl_scaling also
-    # rejects a negative beta, so any ValueError would pass without the
-    # bracket's own refusal existing.
-    try:
-        narrowed_scaling_bracket(7, 0.3, 0.05, -0.01)
-    except ValueError as exc:
-        if "over-explains" not in str(exc):
-            fails.append(f"negative term refused for the wrong reason: {exc}")
-    else:
-        fails.append("negative term: did not raise")
+    # --- section 5.12: the queue, the candidates and the acceptance rule ----
+    check("queue_scaling(1) is 1", queue_scaling(1, 0.4, 3.0, 1.0), 1.0)
+    # A lock that is the whole read, with no handoff, serialises exactly: S = 1.
+    check("queue_scaling saturated", queue_scaling(7, 1.0, 0.0, 0.0), 1.0)
+    # f = 0.5, W = 2, no handoff: R(1) = 0.5, Q(1) = 0.5; R(2) = 0.5 * 1.5 = 0.75,
+    # X(2) = 2 / (0.5 + 0.75) = 1.6.
+    check("queue_scaling(2, 0.5, 0)", queue_scaling(2, 0.5, 0.0), 1.6)
+    # handoff 0.5: s(2) = 1.0, R(2) = 1.5, X(2) = 2 / 2.0 = 1.0.
+    check("queue_scaling(2, 0.5, 0.5)", queue_scaling(2, 0.5, 0.5), 1.0)
+    # growth 0.25 at W = 3: Q(2) = 1.0 * 1.5 = 1.5; s(3) = 1.25, R(3) = 3.125,
+    # X(3) = 3 / 3.625.
+    check("queue_scaling(3, 0.5, 0.5, 0.25)", queue_scaling(3, 0.5, 0.5, 0.25), 0.8275862069)
     for name, call in (
-        ("narrowed alpha above today's", lambda: narrowed_scaling_bracket(7, 0.3, 0.4, 0.2)),
+        ("queue readers 0", lambda: queue_scaling(0, 0.5, 0.0)),
+        ("queue locked_fraction 0", lambda: queue_scaling(3, 0.0, 0.0)),
+        ("queue negative handoff", lambda: queue_scaling(3, 0.5, -0.1)),
+        ("queue infinite growth", lambda: queue_scaling(3, 0.5, 0.1, math.inf)),
+    ):
+        try:
+            call()
+        except ValueError:
+            pass
+        else:
+            fails.append(f"{name}: did not raise")
+
+    def synthetic(shape, hw=0.005, shift=None):
+        c = {w: (shape(w), shape(w) - hw, shape(w) + hw) for w in range(2, 8)}
+        for w, d in (shift or {}).items():
+            s = c[w][0] + d
+            c[w] = (s, s - hw, s + hw)
+        return c
+
+    truth = synthetic(lambda w: queue_scaling(w, 0.5, 0.9, 0.04))
+    ch = check_candidate("queue_handoff_growing", truth, 0.5)
+    check("fit recovers handoff", round(ch["params"]["handoff"], 3), 0.9)
+    check("fit recovers growth", round(ch["params"]["growth"], 3), 0.04)
+    check("a shape checked on its own curve is accepted", ch["accepted"], True)
+    check("every reader count is checked", sorted(ch["readers"]), [2, 3, 4, 5, 6, 7])
+    check("held-out rows are labelled", sorted(w for w, r in ch["readers"].items()
+                                               if r["role"] == "held_out"), [3, 5, 6])
+    # The rule reads the held-out points: shift only S(5) out of reach, leave the
+    # training points exact, and the same fit must be refused on R = 5 alone.
+    moved = check_candidate("queue_handoff_growing",
+                            synthetic(lambda w: queue_scaling(w, 0.5, 0.9, 0.04), shift={5: 0.03}), 0.5)
+    check("a held-out miss refuses the shape", (moved["accepted"], moved["misses"]), (False, [5]))
+    # A one-parameter queue cannot follow a power-law step (hand check: its
+    # S(5) and S(6) differ by under 0.001, the step's by 0.017).
+    step = synthetic(lambda w: 0.76 * (w / 2.0) ** -0.15)
+    check("queue_handoff refused on a power-law step",
+          check_candidate("queue_handoff", step, 0.5)["accepted"], False)
+    check("step_power accepted on its own curve", check_candidate("step_power", step, None)["accepted"], True)
+    # A curve whose 1/S climbs faster than b = 1 allows pins b at its search limit.
+    steep = {2: (0.3, 0.29, 0.31), 4: (0.1, 0.095, 0.105), 7: (0.05, 0.045, 0.055)}
+    lim = check_candidate("reciprocal_linear", steep, None, readers=TRAINING_READERS)
+    check("a search-limit fit is named", lim["search_limit"], ["b"])
+    check("a search-limit fit is refused", lim["accepted"], False)
+    # usl_free may rest on alpha = 1, a physical limit, and is not refused for it.
+    flat = synthetic(lambda w: usl_scaling(w, 1.0, 0.02))
+    check("usl_free at alpha = 1 is not a search limit",
+          check_candidate("usl_free", flat, None)["search_limit"], [])
+    for name, call in (
+        ("mechanistic without a fraction", lambda: fit_candidate("queue_handoff", truth, None)),
+        ("missing training point", lambda: fit_candidate("step_power", {2: truth[2], 4: truth[4]}, None)),
+        ("zero-width interval", lambda: fit_candidate("step_power", {**truth, 4: (0.7, 0.7, 0.7)}, None)),
+        ("missing held-out point", lambda: check_candidate("step_power", {w: truth[w] for w in (2, 4, 7)}, None)),
+        ("one run", lambda: model_verdicts([truth], (0.49, 0.5, 0.51))),
+        ("unordered span", lambda: model_verdicts([truth, truth], (0.52, 0.5, 0.51))),
+    ):
+        try:
+            call()
+        except ValueError:
+            pass
+        else:
+            fails.append(f"{name}: did not raise")
+    # Both runs: a shape accepted on one run and refused on the other is REJECTED.
+    v = model_verdicts([truth, synthetic(lambda w: queue_scaling(w, 0.5, 0.9, 0.04), shift={3: 0.03})],
+                       (0.5, 0.5, 0.5))
+    check("accepted on one run of two is rejected", v["queue_handoff_growing"]["verdict"], "REJECTED")
+    v = model_verdicts([truth, truth], (0.5, 0.5, 0.5))
+    check("accepted on both runs", v["queue_handoff_growing"]["verdict"], "ACCEPTED")
+    # A mechanistic shape must hold across the profile's span: at f = 0.9 the
+    # queue's S(2) cannot reach a curve drawn at f = 0.5 with no handoff.
+    v = model_verdicts([truth, truth], (0.5, 0.5, 0.9))
+    check("a shape refused at one end of the span is rejected",
+          v["queue_handoff_growing"]["verdict"], "REJECTED")
+
+    def fake(mech, k, chi2, verdict="ACCEPTED"):
+        return {"verdict": verdict, "mechanistic": mech, "n_params": k, "held_out_chi2": chi2}
+    check("mechanistic before descriptive, whatever the parameter count",
+          select_model({"d": fake(False, 1, 0.1), "m": fake(True, 2, 9.0)}), "m")
+    check("fewer parameters next", select_model({"a": fake(True, 2, 0.1), "b": fake(True, 1, 5.0)}), "b")
+    check("then the lower held-out chi-square",
+          select_model({"a": fake(True, 1, 3.0), "b": fake(True, 1, 2.0)}), "b")
+    check("nothing accepted selects nothing",
+          select_model({"a": fake(True, 1, 0.0, "REJECTED")}), None)
+    if "directional gate" not in model_consequence({"a": fake(False, 2, 1.0)}):
+        fails.append("a descriptive-only pass must fall back to the directional gate")
+    if "directional gate" not in model_consequence({"a": fake(True, 2, 1.0, "REJECTED")}):
+        fails.append("no pass must fall back to the directional gate")
+    if "derived from it" not in model_consequence({"a": fake(True, 2, 1.0)}):
+        fails.append("a mechanistic pass must carry the prediction forward")
+    # Separation pairs exactly the shapes whose training fit is inside, and the
+    # gap is recomputed here from check_candidate's own held-out predictions.
+    wide = synthetic(lambda w: 0.76 * (w / 2.0) ** -0.15, hw=0.03)
+    fitted = {}
+    for name, spec in MODEL_CANDIDATES.items():
+        c = check_candidate(name, wide, 0.5 if spec["mechanistic"] else None)
+        if not c["search_limit"] and all(c["readers"][w]["inside"] for w in TRAINING_READERS):
+            fitted[name] = [c["readers"][w]["predicted"] for w in HELD_OUT_READERS]
+    pairs = held_out_separation(wide, 0.5)
+    names = sorted(fitted)
+    check("separation pairs exactly the shapes that fit", sorted((a, b) for a, b, _ in pairs),
+          [(a, b) for i, a in enumerate(names) for b in names[i + 1:]])
+    if not pairs:
+        fails.append("the separation check needs at least one pair of fitted shapes")
+    for a, b, gap in (p for p in pairs if p[0] in fitted and p[1] in fitted):
+        check(f"separation {a} vs {b}", gap,
+              max(abs(x - y) for x, y in zip(fitted[a], fitted[b])) / 0.03, tol=1e-9)
+    # held_out_problems reads the keys the driver writes: a section 5.10 artifact
+    # carries the verified pin, and is refused for its modes and its missing R.
+    amended = json.loads(COMMITTED_IDLE_CURVES[2].read_text())
+    got = held_out_problems(amended)
+    if any("pin" in g for g in got) or not any("modes" in g for g in got) \
+            or not any("S(3)" in g for g in got):
+        fails.append(f"held_out_problems on a section 5.10 artifact: {got!r}")
+    for name, call in (
         ("W = 1 carries no term", lambda: unexplained_term(1.0, 1, 0.3)),
         ("alpha above 1", lambda: usl_scaling(7, 1.2, 0.0)),
         ("unordered interval", lambda: unexplained_term_interval((0.7, 0.6), 7, (0.3, 0.3))),
