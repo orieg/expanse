@@ -2456,14 +2456,15 @@
       "harness": "crates/expanse/benches/concurrency.rs",
       "arm": "SyncExpanseMap",
       "population": 1000000,
-      "keyspace": "2 x POP bounded (~50% hit rate)",
+      "keyspace": "2 x POP bounded",
       "window_ms": 500,
+      "rounds": 18,
       "thread_counts": [
         1,
         4,
         16
       ],
-      "metric": "read ops/s (M) reported by the bench arm",
+      "metric": "read ops/s (M): the mean over a thread count's windows",
       "workloads": [
         {
           "workload": "100% read",
@@ -2471,37 +2472,39 @@
           "rows": [
             {
               "threads": 1,
-              "read_mops": 37.2
+              "read_mops": 38.2
             },
             {
               "threads": 4,
-              "read_mops": 138.9
+              "read_mops": 144.8
             },
             {
               "threads": 16,
-              "read_mops": 424.1
+              "read_mops": 361.0
             }
           ],
-          "scale_at_16t": "11.40x"
+          "scale_at_16t": "9.44x",
+          "scale_at_16t_run2": "9.44x"
         },
         {
           "workload": "50% read / 50% write",
-          "metric_note": "mixed-workload read-op rate, NOT read scaling: each bench thread alternates read and write in one loop, so reads are pinned 1:1 to write handoffs",
+          "metric_note": "mixed-workload read-op rate, NOT read scaling: every bench thread picks a read or a write per operation in one loop, so a thread waiting on a write is not reading",
           "rows": [
             {
               "threads": 1,
-              "read_mops": 10.9
+              "read_mops": 14.0
             },
             {
               "threads": 4,
-              "read_mops": 3.0
+              "read_mops": 20.5
             },
             {
               "threads": 16,
-              "read_mops": 2.0
+              "read_mops": 31.3
             }
           ],
-          "scale_at_16t": "0.19x"
+          "scale_at_16t": "2.23x",
+          "scale_at_16t_run2": "2.23x"
         }
       ]
     }

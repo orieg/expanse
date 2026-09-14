@@ -1079,8 +1079,9 @@ fn test_retracted_figures_absent() {
     for figure in ["19.63", "27.94", "35.62", "33.97", "28.84"] {
         assert!(
             !json_text.contains(figure) && !assets_text.contains(figure),
-            "retracted concurrency figure {figure} is published again -- the honest \
-             measurement is negative scaling (0.12x-0.55x), docs/BENCHMARKING.md section 3"
+            "retracted concurrency figure {figure} is published again -- the curve \
+             probed unbounded u64 keys (#375); the bounded-keyspace measurement is \
+             docs/benchmarks/concurrency/README.md section 12"
         );
     }
     // 2. The retracted vs-libjudy wall-clock random-lookup reading (unmeasured ns)
@@ -1410,24 +1411,26 @@ fn test_ycsb_derived_and_concurrency_labelled() {
         .iter()
         .find(|w| s(w, "workload").contains("50%"))
         .expect("concurrency_scaling must publish the 50/50 write-mixed rows");
-    // benches/concurrency.rs alternates read and write inside a single thread
-    // loop, so the 50/50 read-op column is a mixed-workload rate. Publishing it
-    // as "read scaling" is exactly the mislabel this section had to correct.
+    // benches/concurrency.rs picks a read or a write per operation inside one
+    // thread loop, so the 50/50 read-op column is a mixed-workload rate.
+    // Publishing it as "read scaling" is exactly the mislabel this section had
+    // to correct.
     let note = s(mixed, "metric_note").to_lowercase();
     assert!(
         note.contains("mixed") && note.contains("not read scaling"),
         "the 50/50 rows must be labelled a mixed-workload read-op rate, NOT read \
-         scaling -- each bench thread alternates read and write in one loop, so \
-         reads are pinned 1:1 to write handoffs. Got: {note:?}"
+         scaling -- each bench thread picks a read or a write per operation in one \
+         loop, so a thread waiting on a write is not reading. Got: {note:?}"
     );
-    let rows = mixed["rows"].as_array().expect("rows");
-    let first = f(&rows[0], "read_mops");
-    let last = f(&rows[rows.len() - 1], "read_mops");
+    // What made the retracted curve wrong was its keyspace: it probed unbounded
+    // u64 keys and so timed a near-100%-miss walk (#375). Its figures are pinned
+    // above; this pins the property. The curve's direction is not pinned,
+    // because it is a measurement: on the engine measured in
+    // docs/benchmarks/concurrency/README.md section 12 it rises.
     assert!(
-        last < first,
-        "the measured 50/50 curve is NEGATIVE scaling (throughput falls as threads \
-         are added). A rising curve here means the retracted word-key figures have \
-         come back -- docs/BENCHMARKING.md section 3"
+        s(conc, "keyspace").contains("bounded"),
+        "concurrency_scaling must come from the bounded keyspace (#375), got {:?}",
+        s(conc, "keyspace")
     );
     // docs/BENCHMARKING.md publishes the per-thread rows rounded to 0.1 Mops/s
     // and the scaling factor from the full-precision run, so the two agree only

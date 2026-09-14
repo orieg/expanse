@@ -29,8 +29,16 @@ Usage:
         --out docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json
     python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --quick --engines map
     python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --self-test
+    python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --write-assets RUN1,RUN2
+    python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --check-assets
 
-`--self-test` runs without Cargo and is run by CI's `lint` job.
+`--self-test` runs without Cargo and is run by CI's `lint` job. The committed
+artifact and its second run (`baseline_concurrent_mixed_run2.json`) also feed
+the README hero chart's and the sync32 health chart's data
+(`docs/assets/data/bench_assets.json`) and the architecture visualizer's
+concurrency panel: `--write-assets` writes those blocks from the two runs,
+citing their CI run ids, and `--check-assets`, also run by `lint`, fails when
+they differ from what the runs produce.
 """
 
 from __future__ import annotations
@@ -421,6 +429,236 @@ def run(args: argparse.Namespace) -> int:
     return 0
 
 
+# The published surfaces that quote this instrument besides the suite README:
+# the README hero chart and the sync32 health chart (`bench_assets.json`, drawn
+# by `scripts/generate_asset_svgs.py`) and the architecture visualizer's
+# concurrency panel (`visualizer_data.json` and the HTML's embedded copy).
+ASSETS_JSON = REPO_ROOT / "docs" / "assets" / "data" / "bench_assets.json"
+VISUALIZER_JSON = REPO_ROOT / "docs" / "visualizer_data.json"
+VISUALIZER_HTML = REPO_ROOT / "docs" / "architecture_visualizer.html"
+VISUALIZER_KEY = "ycsb_benchmarks.concurrency_scaling"
+RUN2_OUT = DEFAULT_OUT.with_name("baseline_concurrent_mixed_run2.json")
+# Chart rows by engine key: the 100%-read bars are the Expanse OCC arms and the
+# three baselines that admit concurrent readers (the coarse-mutex arms stay in
+# the README table), and the 50/50 lines add no arm the bars do not show.
+CHART_READ = ("set", "map", "blob", "bytes", "str", "str_dashmap", "blob_skiplist", "blob_rwlock_btree")
+CHART_MIXED = ("str_dashmap", "blob_skiplist", "map", "set", "blob", "bytes", "str")
+EXPANSE_OCC = frozenset({"map", "set", "blob", "bytes", "str"})
+CHART_LABEL = {"blob_rwlock_btree": "RwLock<BTreeMap<u64, ...>>"}
+
+
+def _find(artifact: dict[str, Any], where: str, engine_key: str, threads: int,
+          read_pct: int | None = None, workload: str | None = None) -> dict[str, Any]:
+    hits = [c for c in artifact["throughput"]
+            if c["engine_key"] == engine_key and c["threads"] == threads
+            and (read_pct is None or c["read_pct"] == read_pct)
+            and (workload is None or c["workload"] == workload)]
+    if len(hits) != 1:
+        raise InstrumentError(f"{where}: expected one {engine_key} cell at N={threads} "
+                              f"(read {read_pct}%, workload {workload}), found {len(hits)}")
+    return hits[0]
+
+
+def _run_facts(artifact: dict[str, Any], where: str) -> tuple[dict[str, Any], str, float]:
+    """The provenance a published block cites, and the run's largest foreign load."""
+    prov = artifact.get("provenance") or {}
+    missing = [k for k in ("commit", "core_pin", "rounds", "threads", "window_ms") if k not in prov]
+    cpu = (prov.get("host") or {}).get("cpu_model")
+    if missing or not cpu:
+        raise InstrumentError(f"{where}: provenance lacks {missing or ['host.cpu_model']}")
+    cells = artifact.get("throughput") or []
+    if not cells:
+        raise InstrumentError(f"{where}: no throughput cells")
+    return prov, cpu, max(c["load"]["foreign_busy_cpus"] for c in cells)
+
+
+def asset_blocks(run1: dict[str, Any], run2: dict[str, Any], run_ids: tuple[str, str],
+                 assets: dict[str, Any], visualizer: dict[str, Any]) -> dict[str, Any]:
+    """The chart and visualizer blocks the two committed runs publish (AGENTS.md §8.2, §8.7).
+
+    Levels and ratios come from run 1, with run 2's beside them wherever a chart
+    prints one, so a cell the second run does not reproduce reads as two values
+    (rule 18). Run 2 must have measured the same commit and the same cells. Descriptive fields the artifact
+    does not carry — the chart's keyspace and retraction notes, the visualizer's
+    population and keyspace — are kept from the current files.
+    """
+    w1, w2 = DEFAULT_OUT.name, RUN2_OUT.name
+    prov, cpu, foreign1 = _run_facts(run1, w1)
+    prov2, _, foreign2 = _run_facts(run2, w2)
+    if prov["commit"] != prov2["commit"]:
+        raise InstrumentError(f"{w1} and {w2} measured different commits "
+                              f"({prov['commit']} vs {prov2['commit']})")
+    cover1 = {(c["engine_key"], c["workload"], c["threads"]) for c in run1["throughput"]}
+    cover2 = {(c["engine_key"], c["workload"], c["threads"]) for c in run2["throughput"]}
+    if cover1 != cover2:
+        raise InstrumentError(f"{w1} and {w2} cover different cells: {sorted(cover1 ^ cover2)}")
+    threads = list(prov["threads"])
+    if threads[0] != 1:
+        raise InstrumentError(f"{w1}: the scaling figures need a one-thread cell, threads are {threads}")
+    ref = str(prov["commit"])[:8]
+    host = f"reference host -- {cpu}, pin {prov['core_pin']}"
+    config = (f"threads {','.join(str(t) for t in threads)}, {prov['rounds']} interleaved rounds of "
+              f"{prov['window_ms']} ms windows, largest foreign busy CPUs over a group "
+              f"{max(foreign1, foreign2):.2f} across both runs")
+    source = ("docs/benchmarks/concurrency/README.md section 12; written by "
+              "docs/benchmarks/concurrency/scripts/mixed_concurrency.py --write-assets from "
+              f"results/{w1} (run 1), with results/{w2} as its second run")
+
+    def chart_row(key: str, read_pct: int) -> dict[str, Any]:
+        cells = [_find(run1, w1, key, t, read_pct=read_pct) for t in threads]
+        cells2 = [_find(run2, w2, key, t, read_pct=read_pct) for t in threads]
+        return {
+            "arm": CHART_LABEL.get(key, cells[-1]["engine"]),
+            "mops": [round(c["total_ops_s_mean"] / 1e6, 1) for c in cells],
+            "mops_run2": [round(c["total_ops_s_mean"] / 1e6, 1) for c in cells2],
+            "scale_16t": round(cells[-1]["scaling_c_n_mean"], 2),
+            "scale_16t_run2": round(cells2[-1]["scaling_c_n_mean"], 2),
+            "kind": "expanse" if key in EXPANSE_OCC else "other",
+        }
+
+    old_meta = (assets.get("concurrency") or {}).get("meta") or {}
+    concurrency = {
+        "meta": {"source": source, "host": host, "run": run_ids[0], "run2": run_ids[1], "ref": ref,
+                 "config": config, "keyspace": old_meta.get("keyspace", "bounded 2xPOP, ~50% hit rate (#375)"),
+                 **({"retraction": old_meta["retraction"]} if "retraction" in old_meta else {})},
+        "threads": threads,
+        "read_100": [chart_row(k, 100) for k in CHART_READ],
+        "read_write_50_50": [chart_row(k, 50) for k in CHART_MIXED],
+    }
+
+    s32_workloads = list(dict.fromkeys(c["workload"] for c in run1["throughput"] if c["engine_key"] == SYNC32))
+    if not s32_workloads:
+        raise InstrumentError(f"{w1}: no {SYNC32} cells")
+    s32_threads = sorted({c["threads"] for c in run1["throughput"] if c["engine_key"] == SYNC32})
+    duties = []
+    for workload in s32_workloads:
+        rows = []
+        for t in s32_threads:
+            c = _find(run1, w1, SYNC32, t, workload=workload)
+            c2 = _find(run2, w2, SYNC32, t, workload=workload)
+            busy = sum(r["busy"] for r in c["rounds_raw"])
+            ok = sum(r["ok"] for r in c["rounds_raw"])
+            rows.append({"readers": t, "reads_per_s": round(c["read_ops_s_mean"]),
+                         "writes_per_s": round(c["write_ops_s_mean"]), "busy": busy, "attempts": busy + ok,
+                         "busy_pct": round(c["busy_pct"], 3), "refused": c["refused_writes"],
+                         "busy_pct_run2": round(c2["busy_pct"], 3), "refused_run2": c2["refused_writes"]})
+        duty = workload.split(" / ")[0].removeprefix("writer ").removesuffix(" duty")
+        duties.append({"duty": duty, "rows": rows})
+    sync32_health = {
+        "meta": {"source": source, "host": host, "run": run_ids[0], "run2": run_ids[1], "ref": ref,
+                 "config": (f"{config}; one writer thread (full duty or deadline-paced), N readers on "
+                            f"try_get over a 2x keyspace"),
+                 "workload_id": WORKLOAD_ID},
+        "threads": s32_threads,
+        "duties": duties,
+    }
+
+    old_vis = visualizer["ycsb_benchmarks"]["concurrency_scaling"]
+
+    def vis_workload(read_pct: int, name: str, note: str) -> dict[str, Any]:
+        cells = [_find(run1, w1, "map", t, read_pct=read_pct) for t in threads]
+        cells2 = [_find(run2, w2, "map", t, read_pct=read_pct) for t in threads]
+        return {
+            "workload": name,
+            "metric_note": note,
+            "rows": [{"threads": c["threads"], "read_mops": round(c["read_ops_s_mean"] / 1e6, 1)} for c in cells],
+            "scale_at_16t": f"{cells[-1]['read_ops_s_mean'] / cells[0]['read_ops_s_mean']:.2f}x",
+            "scale_at_16t_run2": f"{cells2[-1]['read_ops_s_mean'] / cells2[0]['read_ops_s_mean']:.2f}x",
+        }
+
+    vis_block = {
+        "harness": HARNESS,
+        "arm": "SyncExpanseMap",
+        "population": old_vis["population"],
+        "keyspace": old_vis["keyspace"],
+        "window_ms": prov["window_ms"],
+        "rounds": prov["rounds"],
+        "thread_counts": threads,
+        "metric": "read ops/s (M): the mean over a thread count's windows",
+        "workloads": [
+            vis_workload(100, "100% read", "pure read scaling: no writer is active"),
+            vis_workload(50, "50% read / 50% write",
+                         "mixed-workload read-op rate, NOT read scaling: every bench thread picks a read "
+                         "or a write per operation in one loop, so a thread waiting on a write is not reading"),
+        ],
+    }
+    vis_prov = (f"measured: {host}, CI runs {run_ids[0]} and {run_ids[1]}, ref {ref}; {HARNESS} through "
+                f"docs/benchmarks/concurrency/scripts/mixed_concurrency.py, {config} - {source}. Per-thread "
+                f"rows are rounded to 0.1 Mops/s; scale_at_16t is run 1's mean read ops/s at {threads[-1]} "
+                f"threads over that at 1 thread before rounding, so it follows the rows only to within the "
+                f"rounding envelope; scale_at_16t_run2 is the same ratio in run 2. The 95/5 mix is NOT a published cell: the bare-metal sweep runs "
+                f"workloads 100 and 50.")
+    return {"concurrency": concurrency, "sync32_health": sync32_health,
+            "visualizer": vis_block, "visualizer_provenance": vis_prov}
+
+
+def _literal_span(html: str, var: str) -> tuple[int, int]:
+    """Where the HTML's embedded `let <var> = {...}` literal starts and ends."""
+    needle = f"\n  let {var} = "
+    at = html.find(needle)
+    if at < 0:
+        raise InstrumentError(f"{VISUALIZER_HTML.name} declares no `let {var} =`")
+    start = at + len(needle)
+    depth, in_string, escaped = 0, False, False
+    for i in range(start, len(html)):
+        ch = html[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
+        elif ch in "]}":
+            depth -= 1
+            if depth == 0:
+                return start, i + 1
+    raise InstrumentError(f"{VISUALIZER_HTML.name}: `{var}` literal never closes")
+
+
+def publish_assets(run_ids: tuple[str, str] | None) -> list[str]:
+    """Writes the blocks when given the two CI run ids; checks them when not.
+
+    Returns the surfaces whose committed text differs from what the two
+    committed artifacts produce, as it stood before any write.
+    """
+    runs = []
+    for path in (DEFAULT_OUT, RUN2_OUT):
+        if not path.is_file():
+            raise InstrumentError(f"{path.relative_to(REPO_ROOT)} is not committed")
+        runs.append(json.loads(path.read_text()))
+    assets = json.loads(ASSETS_JSON.read_text(encoding="utf-8"))
+    vis = json.loads(VISUALIZER_JSON.read_text(encoding="utf-8"))
+    html = VISUALIZER_HTML.read_text(encoding="utf-8")
+    write = run_ids is not None
+    if not write:
+        meta = (assets.get("concurrency") or {}).get("meta") or {}
+        run_ids = (meta.get("run"), meta.get("run2"))
+        if not all(run_ids):
+            raise InstrumentError(f"{ASSETS_JSON.name} names no run pair; write it with --write-assets RUN1,RUN2")
+    blocks = asset_blocks(runs[0], runs[1], run_ids, assets, vis)
+    new_assets = dict(assets, concurrency=blocks["concurrency"], sync32_health=blocks["sync32_health"])
+    new_vis = json.loads(json.dumps(vis))
+    new_vis["ycsb_benchmarks"]["concurrency_scaling"] = blocks["visualizer"]
+    new_vis["provenance"][VISUALIZER_KEY] = blocks["visualizer_provenance"]
+    start, end = _literal_span(html, "YCSB_BENCHMARKS_DATA")
+    literal = json.dumps(new_vis["ycsb_benchmarks"], indent=2, ensure_ascii=False).replace("\n", "\n  ")
+    outputs = [
+        (ASSETS_JSON, json.dumps(new_assets, indent=2, ensure_ascii=True) + "\n"),
+        (VISUALIZER_JSON, json.dumps(new_vis, indent=2, ensure_ascii=False) + "\n"),
+        (VISUALIZER_HTML, html[:start] + literal + html[end:]),
+    ]
+    drifted = [str(p.relative_to(REPO_ROOT)) for p, text in outputs if p.read_text(encoding="utf-8") != text]
+    if write:
+        for path, text in outputs:
+            path.write_text(text, encoding="utf-8")
+    return drifted
+
+
 def _synthetic_rows(key: str, workload: str, read_pct: int | None, threads: list[int],
                     rounds: int) -> list[dict[str, Any]]:
     rows = []
@@ -516,6 +754,47 @@ def self_test() -> int:
     assert check_bench_provenance.producer_problems(
         "docs/benchmarks/concurrency/scripts/mixed_concurrency.py", source) == []
 
+    # The published blocks: every value from run 1 (chart rows are totals, the
+    # visualizer's rows read ops), the second run cited beside it, and a pair
+    # that measured different commits or different cells refused.
+    def fake_cell(key: str, pct: int | None, workload: str, t: int) -> dict[str, Any]:
+        return {"engine_key": key, "engine": key.upper(), "workload": workload, "read_pct": pct,
+                "threads": t, "read_ops_s_mean": 1e6 * t, "write_ops_s_mean": 5e5 * t,
+                "total_ops_s_mean": 1.5e6 * t, "scaling_c_n_mean": float(t), "busy_pct": 0.25,
+                "refused_writes": 0, "rounds_raw": [{"busy": 1, "ok": 399}],
+                "load": {"foreign_busy_cpus": 0.01 * t}}
+    full = [fake_cell(k, pct, f"{pct}% Read / {100 - pct}% Write", t)
+            for k in CHART_READ for pct in (100, 50) for t in threads]
+    full += [fake_cell(SYNC32, None, "writer 10k/s / N readers try_get", t) for t in threads]
+    fake_prov = {"commit": "0123456789abcdef", "core_pin": "self-test", "rounds": rounds,
+                 "threads": threads, "window_ms": WINDOW_MS, "host": {"cpu_model": "synthetic"}}
+    run_a = {"provenance": fake_prov, "throughput": full}
+    current = ({"concurrency": {"meta": {"keyspace": "k", "retraction": "r"}}},
+               {"ycsb_benchmarks": {"concurrency_scaling": {"population": 1, "keyspace": "k"}}})
+    run_b = {"provenance": fake_prov, "throughput": [
+        dict(c, total_ops_s_mean=2 * c["total_ops_s_mean"], read_ops_s_mean=2 * c["read_ops_s_mean"],
+             scaling_c_n_mean=c["scaling_c_n_mean"] / 2, busy_pct=0.5, refused_writes=3) for c in full]}
+    blocks = asset_blocks(run_a, run_b, ("1", "2"), *current)
+    chart = blocks["concurrency"]
+    assert [r["kind"] for r in chart["read_100"]] == ["expanse"] * 5 + ["other"] * 3, chart["read_100"]
+    assert chart["meta"]["retraction"] == "r" and chart["meta"]["ref"] == "01234567"
+    assert "0.04 across both runs" in chart["meta"]["config"], chart["meta"]["config"]
+    map_mixed = next(r for r in chart["read_write_50_50"] if r["arm"] == "MAP")
+    assert map_mixed == {"arm": "MAP", "mops": [1.5, 3.0, 6.0], "mops_run2": [3.0, 6.0, 12.0],
+                         "scale_16t": 4.0, "scale_16t_run2": 2.0, "kind": "expanse"}, map_mixed
+    s32 = blocks["sync32_health"]["duties"]
+    assert [d["duty"] for d in s32] == ["10k/s"] and s32[0]["rows"][0]["attempts"] == 400, s32
+    assert s32[0]["rows"][0]["busy_pct_run2"] == 0.5 and s32[0]["rows"][0]["refused_run2"] == 3, s32
+    vis_mixed = blocks["visualizer"]["workloads"][1]
+    assert [r["read_mops"] for r in vis_mixed["rows"]] == [1.0, 2.0, 4.0] and vis_mixed["scale_at_16t"] == "4.00x"
+    expect_error(asset_blocks, run_a, dict(run_a, provenance=dict(fake_prov, commit="f" * 16)), ("1", "2"),
+                 *current, what="two runs of different commits")
+    expect_error(asset_blocks, run_a, dict(run_a, throughput=[c for c in full if c["engine_key"] != "str"]),
+                 ("1", "2"), *current, what="two runs covering different cells")
+    html = 'x\n  let YCSB_BENCHMARKS_DATA = {"a": "}{", "b": [1, {"c": 2}]};\n  let NEXT = [];'
+    start, end = _literal_span(html, "YCSB_BENCHMARKS_DATA")
+    assert json.loads(html[start:end]) == {"a": "}{", "b": [1, {"c": 2}]}, html[start:end]
+
     print("mixed_concurrency.py self-test PASSED")
     return 0
 
@@ -532,10 +811,32 @@ def main() -> int:
     ap.add_argument("--quick", action="store_true",
                     help="scratch run: one or more short cycles, written under results/quick/")
     ap.add_argument("--self-test", action="store_true", help="run the self-test and exit")
+    ap.add_argument("--write-assets", metavar="RUN1,RUN2",
+                    help="write the chart and visualizer blocks from the committed run 1 and run 2 "
+                         "artifacts, citing these two CI run ids, and exit")
+    ap.add_argument("--check-assets", action="store_true",
+                    help="exit non-zero if the chart and visualizer blocks differ from what the "
+                         "committed run 1 and run 2 artifacts produce")
     args = ap.parse_args()
     if args.self_test:
         return self_test()
     try:
+        if args.write_assets and args.check_assets:
+            raise InstrumentError("--write-assets and --check-assets are separate steps")
+        if args.check_assets:
+            drifted = publish_assets(None)
+            if drifted:
+                raise InstrumentError(f"{', '.join(drifted)} differ from what the committed runs produce; "
+                                      f"regenerate with --write-assets RUN1,RUN2")
+            print("mixed_concurrency.py: chart and visualizer blocks match the committed runs")
+            return 0
+        if args.write_assets:
+            ids = tuple(p.strip() for p in args.write_assets.split(","))
+            if len(ids) != 2 or not all(i.isdigit() for i in ids):
+                raise InstrumentError("--write-assets takes two CI run ids: RUN1,RUN2")
+            drifted = publish_assets((ids[0], ids[1]))
+            print(f"mixed_concurrency.py: wrote {', '.join(drifted) or 'nothing (already in sync)'}")
+            return 0
         return run(args)
     except InstrumentError as exc:
         sys.stderr.write(f"mixed_concurrency.py: {exc}\n")
