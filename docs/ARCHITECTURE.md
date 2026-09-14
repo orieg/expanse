@@ -212,6 +212,8 @@ Stage B replaces the single writer mutex with optimistic lock coupling (OLC) ove
 
 **Zero-Sharing Common Write Path (#822).** To eliminate cache-line bouncing on the common write path ($k = 0$), disjoint writers lock *only the direct parent branch* of the mutated leaf or slot. Ancestor branch nodes and root cache lines are completely untouched on common inserts and removals.
 
+**Descent validation.** Because the terminal step locks or validates only the direct parent, nothing after it re-checks an ancestor, so a writer's descent validates each branch *after* loading the child edge it follows. A check taken only before the load is not enough: a new digit's linear insert, or `BranchB` subarray growth within its capacity class, shifts that branch's edges in place and can move a neighbouring digit's edge into the slot being loaded, and a descent into that live subtree passes every later check and resolves the operation against a different key with the same low bytes. `BranchB` validates both before the load, which guards the subarray and rank it dereferences, and after it. The `olc_*_revalidates_*_after_child_edge_load` tests in `sync.rs` park a writer between the two and fail when the post-load check is removed.
+
 **Lazy Census Rollup & Sharded Population (#822).** Instead of serializing writers on bottom-up ancestor edge locks for every insert:
 - Writers flag dirty subtrees in `Shared::mark_dirty_digit(digit(key, 8))` and `Shared::mark_branch_pop0_dirty()`.
 - Total tree population is tracked in `ShardedTreePop`, sharded across 64 cache-line-padded atomic counters (`Line<AtomicUsize>`), eliminating line-transfer stalls on `tree_pop`.
