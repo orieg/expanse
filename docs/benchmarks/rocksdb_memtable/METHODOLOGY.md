@@ -606,3 +606,85 @@ Every interval overlaps between the two runs, so no cross-run difference is clai
 **What the cells show and do not explain.** In both runs `S(5)` sits above the two closest shapes' predictions, and its interval overlaps `S(4)`'s: [0.6812, 0.6866] and [0.6658, 0.6877] in run 1, [0.6730, 0.6956] and [0.6715, 0.6899] in run 2. No candidate has a flat step followed by a further fall: `queue_handoff` flattens from `R = 4` on and misses `R = 6` and `R = 7` in both runs, and the other five fall at every step. The cause is unmeasured. No seventh shape is fitted to it here, because a shape chosen after seeing these cells would be checked on the cells that suggested it (§8.19).
 
 **What is not established.** A shape outside the six may describe the curve. That would need its own pre-registration and fresh cells. `h` and `g` were fitted, never measured, so the rejection says nothing about what a lock handoff costs on this host. The narrowed-mutex arm has not been built or measured.
+
+### 5.14 Pre-registration — the narrowed-mutex arm
+
+This section was written after §5.13 rejected every candidate shape. Under §5.12 that means the arm is gated on a direction, with no numeric prediction. Its authors have seen every full-scope curve in §5.7–§5.13, so the section is **not blind** to the control arm's behaviour. What it fixes before any narrowed cell exists: the change, the gate, the cells, and what each outcome decides (§8.19).
+
+**The change.** `ExpanseMemTableRep` gains `SeekLockScope`, set at construction (`integrations/rocksdb/include/expanse_memtable.h`).
+
+- **`kFullLocate`** (the default, and every earlier cell) holds `mutex_` for all of `FindLeafBlockForSeek`.
+- **`kTrieCall`** holds it only for the head/tail load and `expanse_map_prev_at_or_before`. `expanse_map_t` is not safe for a read concurrent with `Insert`'s `expanse_map_insert`, so that call stays under the lock.
+- **The leaf walk** that follows (`SettleSeekCandidate`) runs outside the lock, as the walks in `Get`, `Contains` and `IteratorImpl::Seek` already do. Why that is sound is stated beside the function as four invariants of the writer path.
+- **The writer** is unchanged: `Insert` holds `mutex_` for its whole body.
+
+**What checks the change.**
+
+- **Test coverage.** The CI TSan lane runs `TestMultiThreadedConcurrentOperations` and `TestHighConcurrencyOptimisticReaders` under both scopes.
+- **Two §2.3 mutations, run locally before this section.**
+  - Disabling the backward walk fails `TestHighConcurrencyOptimisticReaders`' `assert(found)`.
+  - Moving the trie call out of the lock under `kTrieCall` fails the TSan build in three of three runs. TSan reports the walk's `prev_leaf` load racing `SplitLeafBlock`'s construction of a new block.
+- **Limits of that coverage.**
+  - `libexpanse.a` is not instrumented, so TSan cannot report a race inside the trie itself. It reports this mutation only because the block pointer no longer arrives under `mutex_`.
+  - No linearizability checker covers either scope.
+
+**The full-scope path changed as well** (§8.7).
+
+- **What changed:** `FindLeafBlockForSeek` now branches on the scope. Its walk moved into `SettleSeekCandidate`, whose loads are `acquire` rather than `relaxed`; under the mutex that changes no ordering.
+- **Consequences:** §5.7–§5.13 describe their own commits. The runs below measure `full` again, interleaved with `trie`, and nothing here is compared against an earlier commit's numbers.
+
+**Hypothesis N.** Narrowing the seek's critical section to the trie call raises read scaling under an idle writer. The profile motivates the direction, not a size: the locked region is 0.5094 [0.5045, 0.5162] and 0.5052 [0.5014, 0.5114] of a `Get`, and the trie call 0.1158 [0.1149, 0.1167] and 0.1142 [0.1104, 0.1171] (§5.12). No magnitude is predicted, because §5.13 left no model to predict one.
+
+**The gate** (`directional_verdict` in `scripts/rocksdb_locate_bound.py`, over the artifact's `lock_scope_ratio`, AGENTS.md §8.20.2).
+
+- **The decision statistic:** the paired ratio `S_trie(7) / S_full(7)` under an idle writer. Each round's quotient uses that round's four cells, `(T_trie(7) / T_trie(1)) / (T_full(7) / T_full(1))`, with a BCa 95% interval over the rounds.
+- **Verdicts:** `PASS` when both runs' lower bounds are above 1, and `REFUTED` when both runs' upper bounds are below 1. Anything else is `BOUNDARY_RESULT`, including a bound exactly at 1.
+- **Pins:** read separately for `0,2,4,6,8,10,12,14` and for `0-15` (§8.20.5 step 0). One verdict per pin, never pooled.
+- **Reported, never gated:**
+  - the `R = 1` control `T_trie(1) / T_full(1)`, idle and paced;
+  - the idle ratios at `R = 2` and `R = 4`;
+  - every paced ratio, with each scope's achieved writer rate per `R` (`paced_rate_check_by_lock_scope`).
+- **Why paced is not gated:** the two scopes' paced writers are not held to the same achieved rate. A narrower read lock can change how often the writer wins the lock, so a paced ratio mixes the reader effect with a different writer load.
+- **A control whose interval excludes 1** in both runs is reported as a single-reader effect of the scope. The gated ratio divides it out and still decides.
+
+**How small an effect the gate can see, derived before the cells** (`render_gate_detectability`, projected from the committed full-scope curves under the one-sibling pin).
+
+| source curve | `S(7)` relative half-width | projected paired half-width | lower bound clears 1 above |
+|---|---|---|---|
+| `baseline_concurrent_reads_amended_h1.json`, idle | 1.59% | 2.25% | 1.0230 |
+| `baseline_concurrent_reads_amended_h1_run2.json`, idle | 1.28% | 1.81% | 1.0184 |
+| `baseline_concurrent_reads_heldout.json`, idle | 0.79% | 1.11% | 1.0113 |
+| `baseline_concurrent_reads_heldout_run2.json`, idle | 2.00% | 2.82% | 1.0290 |
+| `baseline_concurrent_reads_amended_h1.json`, paced | 0.96% | 1.35% | 1.0137 |
+| `baseline_concurrent_reads_amended_h1_run2.json`, paced | 0.79% | 1.12% | 1.0113 |
+
+- **How the projection is built:** `paired_ratio_relative_halfwidth` treats the two arms as independent. Interleaving is meant to correlate them positively, so the measured paired interval is expected to be no wider than this.
+- **What it means:** an idle `S(7)` gain below the projected threshold, 1.1–2.9% across these curves, may return `BOUNDARY_RESULT` however real it is.
+
+**The cells, fixed here.**
+
+- **Suite:** `rocksdb_concurrent_narrowed`, which runs `concurrent_read_scaling.py --lock-scopes full,trie --modes idle,paced --readers 1,2,4,7`.
+  - Lock scope × writer mode × `R` interleave within each round.
+  - 5 rounds per cell, 2.0 s window, paced writer offered 250,000 inserts/s.
+  - Estimator as §5.2, plus the paired `lock_scope_ratio`.
+- **Commit:** the `main` commit this section lands on, recorded in each artifact.
+- **Runs:** four dispatches of `bench_baremetal.yml`, each after the previous completes, in this order: two with `cpu_pin=0,2,4,6,8,10,12,14`, then two with `cpu_pin=0-15`.
+- **Artifacts:** `results/baseline_concurrent_reads_narrowed_pin_one_sibling.json` and `_run2`, then `results/baseline_concurrent_reads_narrowed_pin_0-15.json` and `_run2`.
+- **Admissibility:** `narrowed_problems` refuses a run whose pin, pin source, window, offered rate, reader counts, modes, scopes or round count differ from these.
+- **Pooling:** no round from §5.7–§5.13 is pooled in.
+
+**What each outcome decides.**
+
+- **`PASS` under both pins:** a separate change may propose `kTrieCall` as the default, with its own review of the soundness argument. This section changes no default.
+- **`PASS` under one pin only:** the effect is pin-sensitive and is reported as such; the default is unchanged.
+- **`BOUNDARY_RESULT` or `REFUTED`:** the default is unchanged, and the option's future is decided in the issue, not here.
+- **In every case:** ordered navigation on the OCC surface (#900) is the next arm.
+
+**Expected outcome, stated before the cells.** Idle `S(7)` is expected to `PASS` under both pins: the lock would cover the trie call instead of the whole locate phase. That expectation comes from the profile, not from a model, and it names no size.
+
+**Not covered.**
+
+- **Other callers:** `Contains` and `IteratorImpl::Seek` take the same path but are not swept; the cells time `Get`.
+- **The free writer:** not swept.
+- **Shared or reader-writer lock:** not an arm here.
+- **Correctness of `kTrieCall`** beyond the argument, the TSan lane and the two mutations above is not established.

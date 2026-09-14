@@ -476,6 +476,14 @@
       "suite": "rocksdb_memtable"
     },
     {
+      "name": "rocksdb_concurrent_narrowed",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "RocksDB pluggable MemTable concurrent read scaling under two seek lock scopes, interleaved per round: `full` (the mutex over the whole locate phase) and `trie` (the mutex only around `expanse_map_prev_at_or_before`), idle and paced writers, readers 1, 2, 4, 7. The #802 narrowed-mutex arm, pre-registered in the suite's METHODOLOGY section 5.14. Dispatch once per `cpu_pin`.",
+      "suite": "rocksdb_memtable"
+    },
+    {
       "name": "embedded",
       "available": true,
       "kind": "wallclock",

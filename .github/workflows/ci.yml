@@ -2307,7 +2307,8 @@ jobs:
           sys.path.insert(0, "docs/benchmarks/rocksdb_memtable/scripts")
           from concurrent_read_scaling import parse_row
           row = parse_row(open("/tmp/bench-concurrent.csv").read())
-          want = {"round": 3, "writer_mode": "idle", "readers": 2, "write_ops": 0, "writer_exhausted": 0}
+          want = {"round": 3, "writer_mode": "idle", "readers": 2, "write_ops": 0, "writer_exhausted": 0,
+                  "lock_scope": "full"}
           got = {k: row[k] for k in want}
           if got != want or row["read_ops"] <= 0 or row["elapsed_s"] <= 0.0:
               sys.exit(f"::error::bench_memtable_concurrent row does not match its arguments: want {want} and read_ops > 0, got {row}")
@@ -2325,6 +2326,17 @@ jobs:
           fi
           grep -q 'unknown argument: --not-a-flag' /tmp/bench-concurrent-arg.txt \
             || { echo "::error::unknown-argument refusal did not name the argument:"; cat /tmp/bench-concurrent-arg.txt; exit 1; }
+          # --lock selects ExpanseMemTableRep::SeekLockScope; the row must name
+          # the scope that ran, and an unknown scope must be refused by name.
+          /tmp/bench_memtable_concurrent --mode idle --readers 1 --window-seconds 0.05 --lock trie > /tmp/bench-concurrent-lock.csv
+          grep -qx '# lock_scope=trie' /tmp/bench-concurrent-lock.csv \
+            || { echo "::error::bench_memtable_concurrent --lock trie did not echo its scope:"; cat /tmp/bench-concurrent-lock.csv; exit 1; }
+          if /tmp/bench_memtable_concurrent --mode idle --readers 1 --lock rw > /tmp/bench-concurrent-lock-refusal.txt 2>&1; then
+            echo "::error::bench_memtable_concurrent accepted --lock rw; an unknown lock scope must be refused, never run"
+            exit 1
+          fi
+          grep -qF -e "--lock must be full or trie (got 'rw')" /tmp/bench-concurrent-lock-refusal.txt \
+            || { echo "::error::--lock refusal did not name the scope:"; cat /tmp/bench-concurrent-lock-refusal.txt; exit 1; }
 
           # Counters mode, the protocol scripts/bench_counters.py drives: per
           # round a `threads_ready` line, a block on stdin, then one `counters`

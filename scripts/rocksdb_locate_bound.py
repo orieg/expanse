@@ -411,6 +411,28 @@ def min_detectable_ratio(relative_halfwidth: float) -> float:
     return 1.0 / (1.0 - relative_halfwidth)
 
 
+def paired_ratio_relative_halfwidth(halfwidth_a: float, halfwidth_b: float) -> float:
+    """Relative half-width of `A / B` from the relative half-widths of `A` and `B`.
+
+    First-order propagation of error for a quotient of two independent
+    estimates adds relative uncertainties in quadrature (H. H. Ku, "Notes on the
+    Use of Propagation of Error Formulas", J. Res. NBS 70C(4), 1966, 263-273):
+
+        h(A / B) = sqrt(h(A)^2 + h(B)^2)
+
+    Independence is the conservative case for an interleaved paired design.
+    Round-to-round drift that moves both arms together is positively
+    correlated, and a positive covariance subtracts from the quotient's
+    variance, so the measured paired interval is expected to be no wider. It is
+    a projection for sizing a gate, never a substitute for the interval the
+    rounds produce.
+    """
+    for name, h in (("halfwidth_a", halfwidth_a), ("halfwidth_b", halfwidth_b)):
+        if not (0.0 <= h < 1.0):
+            raise ValueError(f"{name} must be in [0, 1), got {h!r}")
+    return math.hypot(halfwidth_a, halfwidth_b)
+
+
 def queue_scaling(readers: int, locked_fraction: float, handoff: float,
                   growth: float = 0.0) -> float:
     """`S(W)` for readers cycling through one lock, by mean-value analysis.
@@ -671,6 +693,26 @@ def model_consequence(verdicts: dict) -> str:
             f"pre-registration written before that arm's rounds")
 
 
+def directional_verdict(intervals: list[tuple[float, float]], floor: float = 1.0) -> str:
+    """METHODOLOGY section 5.14's gate over one pin's runs of a paired ratio.
+
+    `PASS` when every run's BCa lower bound is above `floor`, `REFUTED` when
+    every run's upper bound is below it, `BOUNDARY_RESULT` otherwise -- an
+    interval that contains `floor`, or runs that disagree (AGENTS.md 8.4, and
+    `docs/BENCHMARKING.md` rule 18 for the both-runs part).
+    """
+    if len(intervals) < 2:
+        raise ValueError(f"the gate reads two runs, got {len(intervals)}")
+    for lo, hi in intervals:
+        if not lo <= hi:
+            raise ValueError(f"interval [{lo!r}, {hi!r}] is not ordered")
+    if all(lo > floor for lo, _ in intervals):
+        return "PASS"
+    if all(hi < floor for _, hi in intervals):
+        return "REFUTED"
+    return "BOUNDARY_RESULT"
+
+
 def held_out_separation(curve: dict, locked_fraction: float) -> list[tuple[str, str, float]]:
     """How far apart the candidates' held-out predictions are, before any held-out cell.
 
@@ -745,6 +787,12 @@ COMMITTED_IDLE_CURVES = tuple(_RESULTS / f"baseline_concurrent_reads_{n}.json" f
 HELD_OUT_CURVES = (_RESULTS / "baseline_concurrent_reads_heldout.json",
                    _RESULTS / "baseline_concurrent_reads_heldout_run2.json")
 HELD_OUT_PIN = "0,2,4,6,8,10,12,14"
+#: METHODOLOGY section 5.14's runs: two per pin, once committed.
+NARROWED_PINS = {"pin_one_sibling": "0,2,4,6,8,10,12,14", "pin_0-15": "0-15"}
+NARROWED_CURVES = {label: (_RESULTS / f"baseline_concurrent_reads_narrowed_{label}.json",
+                           _RESULTS / f"baseline_concurrent_reads_narrowed_{label}_run2.json")
+                   for label in NARROWED_PINS}
+NARROWED_RATIOS = ("T(1)", "S(2)", "S(4)", "S(7)")
 
 
 def load_locate_profile(path: Path) -> dict:
@@ -896,7 +944,83 @@ def render(arms: dict, writer_ops_per_s: float) -> str:
     lines.append("  below them. Nothing here is measured: the mechanism is arithmetic over two")
     lines.append("  committed single-threaded cells, and the concurrent arm is what tests it.")
     lines.extend(render_model_check())
+    lines.extend(render_gate_detectability())
+    lines.extend(render_narrowed_verdicts())
     return "\n".join(lines)
+
+
+def narrowed_problems(obj: dict, pin: str) -> list[str]:
+    """Why a driver artifact is not one of the runs METHODOLOGY section 5.14 fixes for `pin`."""
+    problems = []
+    p = obj.get("provenance", {})
+    if p.get("core_pin") != pin:
+        problems.append(f"core_pin {p.get('core_pin')!r}, expected {pin}")
+    if p.get("host", {}).get("scaling_governor_pin_source") != "EXPANSE_BENCH_PIN_APPLIED":
+        problems.append("the pin was not verified as applied (EXPANSE_BENCH_PIN_APPLIED)")
+    s = obj.get("settings", {})
+    for key, want in (("window_seconds", 2.0), ("paced_rate_ops_per_s", 250000.0),
+                      ("readers", [1, 2, 4, 7]), ("modes", ["idle", "paced"]),
+                      ("lock_scopes", ["full", "trie"])):
+        if s.get(key) != want:
+            problems.append(f"settings.{key} {s.get(key)!r}, expected {want!r}")
+    for mode in ("idle", "paced"):
+        for key in NARROWED_RATIOS:
+            cell = obj.get("lock_scope_ratio", {}).get(mode, {}).get(key)
+            if not cell or cell.get("ci") is None:
+                problems.append(f"no {mode} {key} trie/full ratio with an interval")
+            elif cell.get("n") != 5:
+                problems.append(f"{mode} {key} pairs {cell.get('n')} rounds, expected 5")
+    return problems
+
+
+def render_narrowed_verdicts() -> list[str]:
+    """Section 5.14's verdicts per pin, once both of that pin's runs are committed."""
+    out = ["", "  Narrowed-mutex arm, trie/full paired ratios (METHODOLOGY section 5.14):"]
+    for label, pin in NARROWED_PINS.items():
+        present = [p for p in NARROWED_CURVES[label] if p.is_file()]
+        if len(present) < 2:
+            out.append(f"    {label}: {len(present)} of 2 runs committed; dispatch "
+                       f"`rocksdb_concurrent_narrowed` with cpu_pin={pin}")
+            continue
+        objs = [json.loads(p.read_text()) for p in present]
+        bad = [(p.name, narrowed_problems(o, pin)) for p, o in zip(present, objs)]
+        bad = [b for b in bad if b[1]]
+        if bad:
+            out.append(f"    {label}: {bad[0][0]} is not a section 5.14 run: " + "; ".join(bad[0][1]))
+            continue
+        for mode in ("idle", "paced"):
+            for key in NARROWED_RATIOS:
+                cells = [o["lock_scope_ratio"][mode][key] for o in objs]
+                gated = mode == "idle" and key == "S(7)"
+                verdict = directional_verdict([tuple(c["ci"]) for c in cells]) if gated else "reported, not gated"
+                vals = "  ".join(f"{c['point']:.4f} [{c['ci'][0]:.4f}, {c['ci'][1]:.4f}]" for c in cells)
+                out.append(f"    {label} {mode} {key}: {vals} -> {verdict}")
+        for path, o in zip(present, objs):
+            for scope, report in o.get("paced_rate_check_by_lock_scope", {}).items():
+                e = report["per_readers"].get("7")
+                if e:
+                    out.append(f"    {path.name} [{scope}] paced R=7: {e['achieved_min_ops_per_s']:,.0f}-"
+                               f"{e['achieved_max_ops_per_s']:,.0f} inserts/s, {len(report['flags'])} flagged cell(s)")
+    return out
+
+
+def render_gate_detectability() -> list[str]:
+    """What paired trie/full ratio of `S(7)` a two-arm run could distinguish from 1.
+
+    Projected from committed full-scope curves under the one-sibling pin: each
+    curve's relative half-width of `S(7)` stands in for both arms, combined by
+    `paired_ratio_relative_halfwidth` and read through `min_detectable_ratio`.
+    """
+    out = ["", "  Directional gate, trie/full S(7) (projected from committed full-scope curves):"]
+    sources = [(p, mode) for p in COMMITTED_IDLE_CURVES[2:] for mode in ("idle", "paced")]
+    sources += [(p, "idle") for p in HELD_OUT_CURVES if p.is_file()]
+    for path, mode in sources:
+        cell = json.loads(path.read_text())["scaling"][mode]["S(7)"]
+        h = (cell["ci"][1] - cell["ci"][0]) / 2.0 / cell["point"]
+        paired = paired_ratio_relative_halfwidth(h, h)
+        out.append(f"    {path.name} {mode}: S(7) relative half-width {h:.2%} -> paired {paired:.2%}, "
+                   f"lower bound clears 1 above a ratio of {min_detectable_ratio(paired):.4f}")
+    return out
 
 
 def render_model_check() -> list[str]:
@@ -1276,6 +1400,53 @@ def self_test() -> int:
     lo2, hi2 = unexplained_term_interval((0.611, 0.631), 7, (0.25, 0.35))
     if not (lo2 < lo and hi2 > hi):
         fails.append("a wider alpha interval must widen the term interval at both ends")
+    # --- the directional gate's detectability --------------------------------
+    check("paired half-width 3-4-5", paired_ratio_relative_halfwidth(0.03, 0.04), 0.05)
+    check("paired half-width of one exact arm", paired_ratio_relative_halfwidth(0.02, 0.0), 0.02)
+    # composed with the lower-bound rule: h = 0.05 clears 1 only above 1 / 0.95.
+    check("detectable paired ratio at h = 0.05",
+          min_detectable_ratio(paired_ratio_relative_halfwidth(0.03, 0.04)), 1.0526315789)
+    for name, call in (("negative half-width", lambda: paired_ratio_relative_halfwidth(-0.01, 0.02)),
+                       ("half-width of 1", lambda: paired_ratio_relative_halfwidth(0.02, 1.0))):
+        try:
+            call()
+        except ValueError:
+            pass
+        else:
+            fails.append(f"{name}: did not raise")
+
+    # --- section 5.14: the directional gate and its admissibility check ----------
+    check("both lower bounds above 1", directional_verdict([(1.01, 1.05), (1.002, 1.2)]), "PASS")
+    check("both upper bounds below 1", directional_verdict([(0.9, 0.99), (0.8, 0.999)]), "REFUTED")
+    check("one run contains 1", directional_verdict([(1.01, 1.05), (0.99, 1.03)]), "BOUNDARY_RESULT")
+    check("runs on opposite sides", directional_verdict([(1.01, 1.05), (0.9, 0.95)]), "BOUNDARY_RESULT")
+    check("a bound exactly at 1 does not pass", directional_verdict([(1.0, 1.05), (1.01, 1.05)]), "BOUNDARY_RESULT")
+    for name, call in (("one run", lambda: directional_verdict([(1.01, 1.05)])),
+                       ("unordered interval", lambda: directional_verdict([(1.05, 1.01), (1.01, 1.05)]))):
+        try:
+            call()
+        except ValueError:
+            pass
+        else:
+            fails.append(f"{name}: did not raise")
+    good_run = {
+        "provenance": {"core_pin": "0-15", "host": {"scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED"}},
+        "settings": {"window_seconds": 2.0, "paced_rate_ops_per_s": 250000.0, "readers": [1, 2, 4, 7],
+                     "modes": ["idle", "paced"], "lock_scopes": ["full", "trie"]},
+        "lock_scope_ratio": {m: {k: {"point": 1.1, "ci": [1.05, 1.15], "n": 5} for k in NARROWED_RATIOS}
+                             for m in ("idle", "paced")},
+    }
+    check("an admissible section 5.14 run", narrowed_problems(good_run, "0-15"), [])
+    got = narrowed_problems(good_run, "0,2,4,6,8,10,12,14")
+    if len(got) != 1 or "core_pin" not in got[0]:
+        fails.append(f"narrowed_problems on the wrong pin: {got!r}")
+    one_scope = json.loads(json.dumps(good_run))
+    one_scope["settings"]["lock_scopes"] = ["full"]
+    del one_scope["lock_scope_ratio"]["paced"]["S(7)"]
+    got = narrowed_problems(one_scope, "0-15")
+    if not any("lock_scopes" in g for g in got) or not any("paced S(7)" in g for g in got):
+        fails.append(f"narrowed_problems must name the missing scope and ratio: {got!r}")
+
     # --- section 5.12: the queue, the candidates and the acceptance rule ----
     check("queue_scaling(1) is 1", queue_scaling(1, 0.4, 3.0, 1.0), 1.0)
     # A lock that is the whole read, with no handoff, serialises exactly: S = 1.

@@ -528,12 +528,22 @@ public:
         void EnsureKeyCached() const;
     };
 
+    // Which part of a seek holds mutex_. kFullLocate holds it for the whole
+    // of FindLeafBlockForSeek. kTrieCall holds it only around the head/tail
+    // load and expanse_map_prev_at_or_before: expanse_map_t is not safe for a
+    // read concurrent with Insert's expanse_map_insert, while the leaf walk
+    // that follows reads only atomics (SettleSeekCandidate says why that is
+    // sound). kTrieCall is the #802 narrowed-mutex arm, measured under
+    // docs/benchmarks/rocksdb_memtable/METHODOLOGY.md; it is not the default.
+    enum class SeekLockScope { kFullLocate, kTrieCall };
+
     ExpanseMemTableRep(
         const MemTableRep::KeyComparator& compare,
         Allocator* allocator,
         const SliceTransform* transform,
         Logger* logger,
-        size_t leaf_capacity = 64
+        size_t leaf_capacity = 64,
+        SeekLockScope seek_lock_scope = SeekLockScope::kFullLocate
     );
 
     ~ExpanseMemTableRep() override;
@@ -555,17 +565,22 @@ public:
         return total_keys_.load(std::memory_order_relaxed);
     }
 
+    SeekLockScope seek_lock_scope() const { return seek_lock_scope_; }
+
 private:
     friend class IteratorImpl;
 
     LeafBlock* FindLeafBlockForInsert(const char* entry);
     const LeafBlock* FindLeafBlockForSeek(const Slice& internal_key, const char* memtable_key) const;
+    const LeafBlock* SettleSeekCandidate(const LeafBlock* candidate, const Slice& internal_key,
+                                         const char* memtable_key) const;
     void SplitLeafBlock(LeafBlock* block);
 
     const MemTableRep::KeyComparator& compare_;
     const SliceTransform* transform_;
     Logger* logger_;
     size_t leaf_capacity_;
+    SeekLockScope seek_lock_scope_;
 
     mutable std::mutex mutex_;
     std::atomic<LeafBlock*> head_{nullptr};

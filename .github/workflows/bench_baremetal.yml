@@ -78,6 +78,7 @@ on:
           - rocksdb_locate_profile
           - rocksdb_concurrent_counters
           - rocksdb_concurrent_heldout
+          - rocksdb_concurrent_narrowed
           - embedded
           - embedded_memtable
           - batch_lookup
@@ -1087,6 +1088,23 @@ jobs:
                   --out baseline-rocksdb_concurrent_heldout.json \
                   | tee rocksdb-concurrent-heldout.txt
                 ;;
+              "rocksdb_concurrent_narrowed")
+                # The #802 narrowed-mutex arm, pre-registered in
+                # docs/benchmarks/rocksdb_memtable/METHODOLOGY.md section 5.14:
+                # the same cells under both seek lock scopes, interleaved within
+                # each round (lock scope x writer mode x readers), so the paired
+                # trie/full ratio of S(R) shares each round's drift. Idle and
+                # paced writers only; the free writer is never gated. Dispatched
+                # once per cpu_pin.
+                make --no-print-directory -C integrations/rocksdb bench-concurrent \
+                  BENCH_CONC_ARGS="--mode idle --readers 1 --window-seconds 0.2 --lock trie" \
+                  > rocksdb-concurrent-smoke.txt 2>&1 \
+                  || { echo "::error::concurrent bench binary failed to build or run"; cat rocksdb-concurrent-smoke.txt; exit 1; }
+                python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py \
+                  --lock-scopes full,trie --modes idle,paced --readers 1,2,4,7 \
+                  --out baseline-rocksdb_concurrent_narrowed.json \
+                  | tee rocksdb-concurrent-narrowed.txt
+                ;;
               "rocksdb_locate_profile")
                 # Where one idle reader's time goes inside the #802 locked region:
                 # FindLeafBlockForSeek's inclusive time less its mutex calls, and
@@ -1493,6 +1511,7 @@ jobs:
             rocksdb-concurrent-counters.txt
             rocksdb-locate-profile.txt
             rocksdb-concurrent-heldout.txt
+            rocksdb-concurrent-narrowed.txt
             python-concurrency.txt
             docs/benchmarks/llm_inference/results/bench_grammar_masks.json
             bytes-per-key-32.txt

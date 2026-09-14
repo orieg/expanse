@@ -59,6 +59,10 @@ READERS = (1, 2, 4, 7)
 PACED_RATE = 250000.0
 CSV_FIELDS = ("round", "writer_mode", "readers", "read_ops", "write_ops", "elapsed_s",
               "read_mops", "writer_exhausted")
+#: `ExpanseMemTableRep::SeekLockScope`, as the binary's `--lock` spells it:
+#: `full` holds `mutex_` for the whole locate phase, `trie` only around
+#: `expanse_map_prev_at_or_before` (the #802 narrowed-mutex arm).
+LOCK_SCOPES = ("full", "trie")
 
 
 def parse_row(text: str) -> dict:
@@ -76,6 +80,11 @@ def parse_row(text: str) -> dict:
     if len(parts) != len(CSV_FIELDS):
         raise RuntimeError(f"expected {len(CSV_FIELDS)} CSV fields, got {len(parts)}: {rows[0]!r}")
     out = dict(zip(CSV_FIELDS, parts))
+    # The binary names the scope it built, on its own line. A driver that asked
+    # for one scope and read a row from the other would publish the wrong arm.
+    locks = [ln.split("=", 1)[1].strip() for ln in text.splitlines() if ln.startswith("# lock_scope=")]
+    if len(locks) != 1 or locks[0] not in LOCK_SCOPES:
+        raise RuntimeError(f"expected one `# lock_scope=` line naming one of {LOCK_SCOPES}, got {locks}")
     return {
         "round": int(out["round"]),
         "writer_mode": out["writer_mode"],
@@ -89,6 +98,7 @@ def parse_row(text: str) -> dict:
         # never gated; the binary makes it fatal for a paced cell, where it
         # would corrupt the duty cycle.
         "writer_exhausted": int(out["writer_exhausted"]),
+        "lock_scope": locks[0],
     }
 
 
@@ -132,6 +142,15 @@ def parse_modes(text: str) -> tuple[str, ...]:
     if unknown or not vals or len(set(vals)) != len(vals):
         raise argparse.ArgumentTypeError(f"--modes takes distinct values from {MODES}, got {text!r}")
     return tuple(m for m in MODES if m in vals)
+
+
+def parse_lock_scopes(text: str) -> tuple[str, ...]:
+    """`--lock-scopes full,trie`: seek lock scopes to interleave, in LOCK_SCOPES order."""
+    vals = text.split(",")
+    unknown = [v for v in vals if v not in LOCK_SCOPES]
+    if unknown or len(set(vals)) != len(vals):
+        raise argparse.ArgumentTypeError(f"--lock-scopes takes distinct values from {LOCK_SCOPES}, got {text!r}")
+    return tuple(s for s in LOCK_SCOPES if s in vals)
 
 
 def paced_rate_report(rows: list[dict], offered: float) -> dict:
@@ -187,7 +206,7 @@ def paced_rate_report(rows: list[dict], offered: float) -> dict:
     }
 
 
-def scaling_ratios(rows: list[dict], mode: str) -> dict:
+def scaling_ratios(rows: list[dict], mode: str, lock: str = "full") -> dict:
     """Paired BCa 95% interval on S(R) = T(R)/T(1) for one writer mode.
 
     Paired: the numerator and denominator of each resampled ratio come from the
@@ -196,13 +215,14 @@ def scaling_ratios(rows: list[dict], mode: str) -> dict:
     """
     by_round: dict[int, dict[int, float]] = {}
     for r in rows:
-        if r["writer_mode"] != mode:
+        if r["writer_mode"] != mode or r.get("lock_scope", "full") != lock:
             continue
         by_round.setdefault(r["round"], {})[r["readers"]] = r["read_mops"]
 
     out: dict[str, dict] = {}
     rounds = sorted(by_round)
-    for R in sorted({r["readers"] for r in rows if r["writer_mode"] == mode}):
+    for R in sorted({r["readers"] for r in rows
+                     if r["writer_mode"] == mode and r.get("lock_scope", "full") == lock}):
         if R == 1:
             continue
         per_round = []
@@ -219,6 +239,41 @@ def scaling_ratios(rows: list[dict], mode: str) -> dict:
         point, lo, hi, ci_method = bca_bootstrap_ci_with_method(per_round)
         out[f"S({R})"] = {"point": point, "ci": [lo, hi], "ci_method": ci_method,
                           "n": len(per_round), "rounds_raw": per_round}
+    return out
+
+
+def lock_scope_ratios(rows: list[dict], mode: str, variant: str = "trie",
+                      default: str = "full") -> dict:
+    """Paired BCa 95% intervals on `S_variant(R) / S_default(R)`, and the `R = 1` control.
+
+    AGENTS.md 8.20.2's decision statistic for a concurrency change: the ratio of
+    the two arms' scaling factors at `R >= 2`, with `T_variant(1) / T_default(1)`
+    reported as `T(1)`, the control cell. Each round's quotient uses that
+    round's four cells only, `(T_v(R) / T_v(1)) / (T_d(R) / T_d(1))`, so drift
+    shared by both arms within a round cancels instead of widening the interval.
+    """
+    by: dict[tuple[str, int], dict[int, float]] = {}
+    for r in rows:
+        if r["writer_mode"] == mode:
+            by.setdefault((r.get("lock_scope", "full"), r["round"]), {})[r["readers"]] = r["read_mops"]
+    rounds = sorted({rd for _, rd in by})
+    out: dict[str, dict] = {}
+    for R in sorted({r["readers"] for r in rows if r["writer_mode"] == mode}):
+        per_round = []
+        for rd in rounds:
+            v, d = by.get((variant, rd), {}), by.get((default, rd), {})
+            need = (1,) if R == 1 else (1, R)
+            if not all(cell.get(k, 0.0) > 0.0 for cell in (v, d) for k in need):
+                continue
+            per_round.append(v[1] / d[1] if R == 1 else (v[R] / v[1]) / (d[R] / d[1]))
+        key = "T(1)" if R == 1 else f"S({R})"
+        if len(per_round) < 3:
+            out[key] = {"point": None, "ci": None, "n": len(per_round),
+                        "why_no_interval": "fewer than 3 paired rounds"}
+            continue
+        point, lo, hi, ci_method = bca_bootstrap_ci_with_method(per_round)
+        out[key] = {"point": point, "ci": [lo, hi], "ci_method": ci_method,
+                    "n": len(per_round), "rounds_raw": per_round}
     return out
 
 
@@ -251,20 +306,24 @@ def preflight(bench: Path) -> None:
 
 
 def run_sweep(bench: Path, rounds: int, window_s: float, readers: tuple,
-              modes: tuple, paced_rate: float, provenance: dict) -> list[dict]:
+              modes: tuple, paced_rate: float, provenance: dict,
+              lock_scopes: tuple = ("full",)) -> list[dict]:
     preflight(bench)
     rows: list[dict] = []
     # `new_provenance` already took the opening snapshot; a second one here
     # would leave two cells labelled `start` and make `since` ambiguous.
     for rd in range(rounds):
         # Interleave (mode x readers) within the round, not across it.
-        for mode in modes:
+        # (lock scope x mode x readers) interleaves within the round, so both
+        # arms of a paired ratio share each round's drift (AGENTS.md 8.20.2).
+        for lock, mode in [(s, m) for s in lock_scopes for m in modes]:
             for R in readers:
-                label = f"cell:{mode}:R{R}:round{rd}"
+                label = (f"cell:{mode}:R{R}:round{rd}" if tuple(lock_scopes) == ("full",)
+                         else f"cell:{lock}:{mode}:R{R}:round{rd}")
                 start = prov.begin_cell(provenance, label)
                 cmd = [str(bench), "--mode", mode, "--readers", str(R),
                        "--round", str(rd), "--window-seconds", str(window_s),
-                       "--paced-rate", str(paced_rate)]
+                       "--paced-rate", str(paced_rate), "--lock", lock]
                 # Run from the integration directory, as `make -C
                 # integrations/rocksdb bench-concurrent` does. The Makefile links
                 # the binary against the RELATIVE path
@@ -285,6 +344,9 @@ def run_sweep(bench: Path, rounds: int, window_s: float, readers: tuple,
                         f"{label}: {' '.join(cmd)} exited {res.returncode}\n"
                         f"stdout:\n{res.stdout}\nstderr:\n{res.stderr}")
                 row = parse_row(res.stdout)
+                if row["lock_scope"] != lock:
+                    raise RuntimeError(f"{label}: asked for --lock {lock}, the binary ran "
+                                       f"{row['lock_scope']}")
                 row["load"] = prov.end_cell(start)
                 row["cell"] = label
                 rows.append(row)
@@ -294,6 +356,11 @@ def run_sweep(bench: Path, rounds: int, window_s: float, readers: tuple,
 
 def build_artifact(rows: list[dict], provenance: dict, insert_ns: float,
                    window_s: float, paced_rate: float) -> dict:
+    if not rows:
+        raise ValueError("build_artifact needs at least one row")
+    scopes = [s for s in LOCK_SCOPES if any(r.get("lock_scope", "full") == s for r in rows)]
+    first = [r for r in rows if r.get("lock_scope", "full") == scopes[0]]
+    modes_run = [m for m in MODES if any(r["writer_mode"] == m for r in rows)]
     cells = []
     for r in rows:
         c = dict(r)
@@ -316,10 +383,15 @@ def build_artifact(rows: list[dict], provenance: dict, insert_ns: float,
         "settings": {"window_seconds": window_s, "paced_rate_ops_per_s": paced_rate,
                      "insert_ns_used_for_duty": insert_ns,
                      "readers": sorted({r["readers"] for r in rows}),
-                     "modes": [m for m in MODES if any(r["writer_mode"] == m for r in rows)]},
+                     "modes": modes_run,
+                     "lock_scopes": scopes},
         "cells": cells,
-        "scaling": {mode: scaling_ratios(rows, mode) for mode in sorted({r["writer_mode"] for r in rows})},
-        "paced_rate_check": paced_rate_report(rows, paced_rate),
+        # `scaling` and `paced_rate_check` read the first scope that ran, which
+        # is `full` whenever it ran, so every reader of a single-scope artifact
+        # sees the shape it always has. A two-scope run adds the keys below.
+        "scaling": {mode: scaling_ratios(rows, mode, scopes[0])
+                    for mode in sorted({r["writer_mode"] for r in first})},
+        "paced_rate_check": paced_rate_report(first, paced_rate),
         "verdicts": None,
         "why_no_verdicts": (
             "This driver emits the intervals and decides nothing. Verdicts are read from two "
@@ -327,6 +399,14 @@ def build_artifact(rows: list[dict], provenance: dict, insert_ns: float,
             "fixes, scripts/concurrent_verdicts.py applies its rules."
         ),
     }
+    if len(scopes) > 1:
+        payload["scaling_by_lock_scope"] = {
+            s: {mode: scaling_ratios(rows, mode, s) for mode in modes_run} for s in scopes}
+        payload["paced_rate_check_by_lock_scope"] = {
+            s: paced_rate_report([r for r in rows if r.get("lock_scope", "full") == s], paced_rate)
+            for s in scopes}
+        if {"full", "trie"} <= set(scopes):
+            payload["lock_scope_ratio"] = {mode: lock_scope_ratios(rows, mode) for mode in modes_run}
     # `attach` RETURNS the carrying dict; it does not mutate in place. Dropping
     # the return shipped an artifact with no provenance block at all, which the
     # self-test below is what caught.
@@ -343,6 +423,7 @@ def self_test() -> int:
     # --- CSV parsing ------------------------------------------------------
     good = ("# rocksdb_memtable_concurrent_read_scaling\n"
             "round,writer_mode,readers,read_ops,write_ops,elapsed_s,read_mops,writer_exhausted\n"
+            "# lock_scope=full\n"
             "2,paced,4,123456,6789,2.001000,0.0617,0\n")
     row = parse_row(good)
     check("writer_exhausted", row["writer_exhausted"], 0)
@@ -353,6 +434,19 @@ def self_test() -> int:
     check("readers", row["readers"], 4)
     check("read_ops", row["read_ops"], 123456)
     check("write_ops", row["write_ops"], 6789)
+    check("lock_scope", row["lock_scope"], "full")
+    check("lock_scope trie", parse_row(good.replace("=full", "=trie"))["lock_scope"], "trie")
+    for name, text in (("no lock line", good.replace("# lock_scope=full\n", "")),
+                       ("two lock lines", good.replace("# lock_scope=full\n", "# lock_scope=full\n# lock_scope=trie\n")),
+                       ("unknown lock", good.replace("=full", "=rw"))):
+        try:
+            parse_row(text)
+        except RuntimeError:
+            pass
+        except Exception as exc:  # noqa: BLE001
+            fails.append(f"{name}: raised {type(exc).__name__}, expected RuntimeError")
+        else:
+            fails.append(f"{name}: did not raise")
     for name, text in (("no data row", "# only a comment\n"),
                        ("two data rows", good + "3,idle,1,1,0,1.0,0.1,0\n"),
                        ("short row", "1,idle,2\n")):
@@ -530,6 +624,50 @@ def self_test() -> int:
     check("an idle-only sweep reports no paced reader counts",
           art_idle["paced_rate_check"]["per_readers"], {})
 
+    # --- seek lock scopes ------------------------------------------------------
+    check("parse_lock_scopes keeps LOCK_SCOPES order", parse_lock_scopes("trie,full"), ("full", "trie"))
+    for text in ("full,rw", "trie,trie"):
+        try:
+            parse_lock_scopes(text)
+        except argparse.ArgumentTypeError:
+            pass
+        else:
+            fails.append(f"parse_lock_scopes accepted {text!r}")
+    # Paired per round: drift b differs every round, the trie arm reads 1.1x at
+    # R = 1 and holds 0.9 of it at R = 7 where full holds 0.6, so every round's
+    # quotient is (0.9 / 1.1 * 1.1) / 0.6 = 1.5 exactly, and T(1) is 1.1.
+    lk = []
+    for rd in range(5):
+        b = 1.0 + 0.3 * rd
+        for scope, t1, t7 in (("full", b, 0.6 * b), ("trie", 1.1 * b, 0.99 * b)):
+            lk.append({"round": rd, "writer_mode": "idle", "readers": 1, "read_mops": t1, "lock_scope": scope})
+            lk.append({"round": rd, "writer_mode": "idle", "readers": 7, "read_mops": t7, "lock_scope": scope})
+    lr = lock_scope_ratios(lk, "idle")
+    if abs(lr["S(7)"]["point"] - 1.5) > 1e-9 or abs(lr["T(1)"]["point"] - 1.1) > 1e-9:
+        fails.append(f"lock_scope_ratios: S(7) {lr['S(7)']['point']}, T(1) {lr['T(1)']['point']}; want 1.5, 1.1")
+    # Unpaired, the same cells would not give 1.5: round 0's trie arm over round 4's
+    # full arm is (0.99 / 1.1) / (0.6 * 2.2 / 2.2) -- pairing is what the fixture pins,
+    # so shuffling one arm's rounds must move the point.
+    shuffled = [dict(r, round=(4 - r["round"])) if r["lock_scope"] == "trie" and r["readers"] == 7 else r for r in lk]
+    if abs(lock_scope_ratios(shuffled, "idle")["S(7)"]["point"] - 1.5) < 1e-6:
+        fails.append("lock_scope_ratios did not pair by round: mismatched rounds still gave 1.5")
+    # scaling_ratios reads one scope: the trie rows must not overwrite full's.
+    check("scaling_ratios keeps scopes apart", round(scaling_ratios(lk, "idle", "full")["S(7)"]["point"], 9), 0.6)
+    check("scaling_ratios trie scope", round(scaling_ratios(lk, "idle", "trie")["S(7)"]["point"], 9), 0.9)
+    # The call site: a two-scope artifact carries the ratio and both scopes'
+    # scaling, and `scaling` is still full's; a one-scope artifact adds nothing.
+    two = [dict(r, cell=f"c{i}", load={"foreign_busy_cpus": 0.0}, write_ops=0, elapsed_s=2.0,
+                writer_exhausted=0, read_ops=1) for i, r in enumerate(lk)]
+    art_two = build_artifact(two, p, 226.142, 2.0, PACED_RATE)
+    check("two-scope settings", art_two["settings"]["lock_scopes"], ["full", "trie"])
+    check("two-scope scaling is full's", round(art_two["scaling"]["idle"]["S(7)"]["point"], 9), 0.6)
+    got = (art_two.get("lock_scope_ratio") or {}).get("idle", {}).get("S(7)", {}).get("point")
+    check("two-scope ratio at the call site", None if got is None else round(got, 9), 1.5)
+    check("two-scope per-scope scaling", sorted(art_two["scaling_by_lock_scope"]), ["full", "trie"])
+    one = build_artifact([r for r in two if r["lock_scope"] == "full"], p, 226.142, 2.0, PACED_RATE)
+    if "lock_scope_ratio" in one or "scaling_by_lock_scope" in one:
+        fails.append("a one-scope artifact must not carry lock-scope keys")
+
     # The idle control must record a zero duty, not a missing one.
     idle = [c for c in art["cells"] if c["writer_mode"] == "idle"]
     if not idle or any(c["writer_duty_cycle"] != 0.0 for c in idle):
@@ -560,6 +698,9 @@ def main() -> int:
     ap.add_argument("--modes", type=parse_modes, default=MODES,
                     help="comma-separated writer modes (default: idle,paced,free); section "
                          "5.12's held-out runs use idle")
+    ap.add_argument("--lock-scopes", type=parse_lock_scopes, default=("full",),
+                    help="comma-separated seek lock scopes, interleaved within each round "
+                         "(default: full). The #802 narrowed-mutex arm uses full,trie")
     ap.add_argument("--quick", action="store_true",
                     help="smoke shape only: 1 round, short window, R in {1,2}. Writes under "
                          "results/quick/ so it cannot overwrite a committed baseline (8.5)")
@@ -606,7 +747,8 @@ def main() -> int:
         raw="rounds_raw",
     )
 
-    rows = run_sweep(args.bench, rounds, window_s, readers, modes, args.paced_rate, provenance)
+    rows = run_sweep(args.bench, rounds, window_s, readers, modes, args.paced_rate, provenance,
+                     args.lock_scopes)
 
     # A concurrent artifact owes a numeric `load.foreign_busy_cpus` on every
     # timed cell (scripts/check_bench_provenance.py). The delta is read from
@@ -639,6 +781,12 @@ def main() -> int:
               f"(METHODOLOGY section 5.2).", file=sys.stderr)
         return 1
     report = paced_rate_report(rows, args.paced_rate)
+    if len(args.lock_scopes) > 1:
+        for scope in args.lock_scopes:
+            for R, e in paced_rate_report([r for r in rows if r["lock_scope"] == scope],
+                                          args.paced_rate)["per_readers"].items():
+                print(f"[{scope}] paced R={R}: achieved {e['achieved_min_ops_per_s']:,.0f}-"
+                      f"{e['achieved_max_ops_per_s']:,.0f} inserts/s")
     for R, e in report["per_readers"].items():
         print(f"paced R={R}: achieved {e['achieved_min_ops_per_s']:,.0f}-"
               f"{e['achieved_max_ops_per_s']:,.0f} inserts/s over {e['rounds']} round(s) "
