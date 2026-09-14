@@ -488,3 +488,81 @@ Per-thread counters per operation: mean [BCa 95%] over 5 rounds. `reader/*` divi
 | `one_sibling` 34784008215 | paced_r7 | 1,622 | 0 | kernel `0xffff8909c25bc040` | 14.06% | `kernel (unresolved)` 100% |
 | `one_sibling` 34784008215 | paced_r7 | 1,622 | 1 | user `0x7fffe173da00` | 8.08% | `pthread_mutex_lock` 55%; `pthread_mutex_unlock` 36%; `libc.so.6 (unresolved)` 7%; `ExpanseMemTableRep::FindLeafBlockForSeek` 2% |
 | `one_sibling` 34784008215 | paced_r7 | 1,622 | 2 | user `0x7fffe173da00` | 5.92% | `kernel (unresolved)` 100% |
+
+### 5.12 Pre-registration — the idle curve's shape, checked on reader counts no fit has seen
+
+This section was written after §5.10, §5.11 and the two locate-profile runs below had been read, and before any cell at `R` = 3, 5 or 6 existed. It is **not blind** about `R` = 2, 4 and 7. What it fixes before the new cells are measured is the shapes, the fit, the acceptance rule, and what follows from each outcome (§8.19).
+
+**Why a shape has to be fixed first.** The narrowed-mutex arm would hold the lock around `expanse_map_prev_at_or_before` only, instead of around all of `FindLeafBlockForSeek`. It needs a prediction. The inputs are two locate-profile runs on idle `R = 1` under the one-sibling pin *(measured: reference host — Intel i9-12900F, 8P+8E / 24 threads, 30 MiB L3, Linux 6.8; commits `6bf3f85c` and `a2191c3a`; runs [34790145594](https://github.com/orieg/expanse/actions/runs/34790145594) and [34790867119](https://github.com/orieg/expanse/actions/runs/34790867119); 5 rounds each, about 8,010 LBR samples per round; artifacts under [`results/locate_profile/pin_one_sibling/`](results/locate_profile/pin_one_sibling/))*:
+
+| share of a `Get` | run 34790145594 | run 34790867119 |
+|---|---|---|
+| inside the locked region (`locked_fraction`) | 0.5094 [0.5045, 0.5162] | 0.5052 [0.5014, 0.5114] |
+| inside `expanse_map_prev_at_or_before` (`trie_fraction`) | 0.1158 [0.1149, 0.1167] | 0.1142 [0.1104, 0.1171] |
+
+Every interval overlaps between the two runs, so no cross-run difference is claimed (`docs/BENCHMARKING.md` rule 18).
+
+USL with `alpha` fixed at the locked fraction does not describe the idle curve. On each of the four committed one-sibling idle curves (§5.8 and §5.10), the `beta` it needs is 0.56–0.57 at `R = 2`, 0.28 at `R = 4` and 0.17–0.18 at `R = 7` (`unexplained_term`). A USL has one `beta`, so a bracket built on it is not a prediction. Three more shapes were then fitted to the same curves, and each missed at least one point's interval: `1/S` linear in `R`, a closed queue with a constant handoff cost, and the same queue with that cost growing per waiter. With `S` measured at three reader counts, a two-parameter shape leaves one point to check it on, and trying shapes until one fits is the forking-paths error §8.19 names. So the shapes are fixed here and checked where none of them was fitted.
+
+**The candidates.** Each is a function in [`scripts/rocksdb_locate_bound.py`](../../../scripts/rocksdb_locate_bound.py) (`MODEL_CANDIDATES`), pinned by its `--self-test`:
+
+| candidate | `S(W)` | free parameters (search box) | takes `locked_fraction` |
+|---|---|---|---|
+| `usl_alpha_profiled` | `W / (1 + f (W − 1) + β W (W − 1))` | `β` ∈ [0, 5] | yes |
+| `queue_handoff` | `queue_scaling(W, f, h)` | `h` ∈ [0, 20] | yes |
+| `queue_handoff_growing` | `queue_scaling(W, f, h, g)` | `h` ∈ [0, 20], `g` ∈ [0, 5] | yes |
+| `reciprocal_linear` | `1 / (a + b W)` | `a` ∈ [−5, 5], `b` ∈ [−1, 1] | no |
+| `step_power` | `s₂ (W / 2)^(−γ)` | `s₂` ∈ [0.1, 2], `γ` ∈ [−1, 2] | no |
+| `usl_free` | `W / (1 + α (W − 1) + β W (W − 1))` | `α` ∈ [0, 1], `β` ∈ [0, 5] | no |
+
+- **`queue_scaling`** is Reiser and Lavenberg's mean-value analysis for `W` readers in a closed network. Readers spend `1 − f` of an uncontended read at a delay station, then queue at one lock. The lock's service time is `f` with one reader present, and `f + h + g (n − 2)` once `n ≥ 2` are. `h` and `g` are fitted, not counted. A futex wake or a migration is a hypothesis for what they stand for, unmeasured here.
+- **Where the shapes came from.** `queue_handoff`, `queue_handoff_growing` and `reciprocal_linear` are the three shapes already tried, now under the fit below. `step_power` was suggested by the measured curves themselves (`S(4) / S(2)` and `S(7) / S(4)` both lie in 0.886–0.919 across the four curves' point estimates) and has no mechanism. `usl_free` is the standard reference.
+- **Mechanistic shapes.** Only the three that take `locked_fraction` name a lock parameter that a narrower lock could change.
+
+**The fit.** Each candidate is fitted per run, on that run's `S(2)`, `S(4)` and `S(7)` only.
+
+- **Objective:** minimise `Σ ((S_model(W) − S(W)) / h(W))²`, where `h(W)` is half the width of `S(W)`'s BCa interval (`fit_candidate`).
+- **Minimiser:** a deterministic grid followed by a pattern search (`_minimise`). It does not use scipy, so the result does not depend on what the host has installed (§5.10).
+- **Search limits.** A parameter may end on a physical limit: a cost of zero, or `α = 1`. A fit whose parameter ends on the edge of its search box has not converged, and is refused.
+
+**The acceptance rule** (`check_candidate`, `model_verdicts`).
+
+- **Per run:** a candidate passes when its fitted curve lies inside the measured BCa 95% interval at every `W` in {2, 3, 4, 5, 6, 7}. Three of those points were fitted and three were not.
+- **Runs:** a candidate is `ACCEPTED` only if it passes in both runs.
+- **The locked fraction:** the three mechanistic candidates must also pass at `f` = 0.5014, 0.5073 and 0.5162, refitted at each. Those are the lowest interval end, the mean point and the highest interval end across the two profile runs (`profile_fraction_span`).
+- **Strictness:** the fit's own uncertainty is not carried into the prediction. That makes the rule stricter than an interval-overlap test, and a correct shape fitted to noisy training points can fail it.
+
+**What follows** (`select_model`, `model_consequence`).
+
+- **More than one accepted:** mechanistic before descriptive, then fewer parameters, then the lower held-out chi-square summed over both runs.
+- **A mechanistic candidate accepted:** the narrowed-mutex arm's prediction is derived from it, in that arm's own pre-registration, written before its rounds. How `h` and `g` are taken to change under a narrower lock is stated there, not here.
+- **Only a descriptive candidate accepted:** it names no lock parameter. The narrowed-mutex arm is then pre-registered on the directional gate: the paired ratio narrowed/mutex `S(R)`, CI lower bound above 1 at `R = 7`, `R = 1` as the control, both pins.
+- **None accepted:** the same directional gate, with every candidate reported with its misses.
+- **What acceptance means:** "consistent with six reader counts in two runs". It is not a measured mechanism (§8.20.3).
+
+**The cells, fixed here.**
+
+- **Suite:** `rocksdb_concurrent_heldout`. Idle writer only, `R` = 1 through 7 interleaved within each round, 5 rounds per cell, 2.0 s window, and §5.2's estimator (paired BCa on `S(R) = T(R) / T(1)`). The same binary serves `rocksdb_concurrent`.
+- **Pin:** `0,2,4,6,8,10,12,14`, with source `EXPANSE_BENCH_PIN_APPLIED`. `held_out_problems` refuses any other pin, window, round count or mode.
+- **Commit:** the `main` commit this section lands on, recorded in each artifact. Each run is fitted and checked only against itself, so that commit's difference from `0ed8f5e5` enters no verdict. A difference from §5.10's curves is not a claim.
+- **Runs:** two `bench_baremetal.yml` dispatches with `benchmark_suite=rocksdb_concurrent_heldout` and `cpu_pin=0,2,4,6,8,10,12,14`, the second dispatched after the first completes. Artifacts: `results/baseline_concurrent_reads_heldout.json` and `results/baseline_concurrent_reads_heldout_run2.json`.
+- **Pooling:** no round from §5.7–§5.10 is pooled into these.
+
+**How well the cells can discriminate, derived before they exist** (`python3 scripts/rocksdb_locate_bound.py`, on the four committed one-sibling curves at `f` = 0.5073).
+
+| candidate | curves where the training fit lies inside all three intervals |
+|---|---|
+| `usl_alpha_profiled` | 0 of 4 |
+| `queue_handoff` | 0 of 4 |
+| `queue_handoff_growing` | 3 of 4 |
+| `reciprocal_linear` | 1 of 4 |
+| `step_power` | 3 of 4 |
+| `usl_free` | 0 of 4 |
+
+- **The two shapes that fit most curves predict close together.** On the curves where both `queue_handoff_growing` and `step_power` fit, their held-out predictions are at most 0.98 to 2.65 training half-widths apart (`held_out_separation`). The gap is largest at `R = 3`: 0.694–0.706 against 0.710–0.716.
+- **Consequence:** both can pass in the same run. If both are accepted, the preference order carries `queue_handoff_growing` forward, and the held-out cells will not have excluded `step_power`. The narrowed-arm pre-registration must say so.
+
+**Expected outcome, stated before the cells.**
+
+- **Expected rejected:** `usl_alpha_profiled`, `queue_handoff` and `usl_free`. None fits the training points of any committed curve.
+- **No outcome predicted:** `queue_handoff_growing`, `step_power` and `reciprocal_linear`. The first two each missed the training points of one committed curve in four, and `reciprocal_linear` missed three in four.
