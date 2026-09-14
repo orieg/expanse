@@ -961,6 +961,26 @@ fn sync_map_prev_locked(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
     black_box(sink)
 }
 
+// The optimistic ordered read (#900): the probes of `sync_map_prev_locked`,
+// through a reader handle that does not exclude writers. Prediction P12.3
+// (`docs/benchmarks/concurrency/METHODOLOGY.md` §12.3) compares the two.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_map)]
+fn sync_map_prev(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let rd = map.reader();
+    let mut sink = 0u64;
+    for &k in &probes {
+        if let Some((pk, pv)) = rd.prev_before(black_box(k)) {
+            sink ^= pk ^ pv;
+        }
+    }
+    // Both leaked — see `sync_map_get`.
+    core::mem::forget(rd);
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = built_sync_set)]
 fn sync_set_contains(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
@@ -1112,6 +1132,7 @@ library_benchmark_group!(
         sync_set_insert,
         sync_map_get,
         sync_map_prev_locked,
+        sync_map_prev,
         sync_set_contains,
         sync_map_churn,
         sync_map_remove,
