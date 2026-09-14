@@ -468,6 +468,14 @@
       "suite": "rocksdb_memtable"
     },
     {
+      "name": "rocksdb_concurrent_heldout",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "RocksDB pluggable MemTable concurrent read scaling with an idle writer only, readers 1..7 interleaved per round: the held-out reader counts (R = 3, 5, 6) the #802 idle-curve model check is evaluated on, pre-registered in the suite's METHODOLOGY section 5.12. Dispatch with `cpu_pin=0,2,4,6,8,10,12,14`.",
+      "suite": "rocksdb_memtable"
+    },
+    {
       "name": "embedded",
       "available": true,
       "kind": "wallclock",

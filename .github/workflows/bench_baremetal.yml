@@ -77,6 +77,7 @@ on:
           - rocksdb_concurrent
           - rocksdb_locate_profile
           - rocksdb_concurrent_counters
+          - rocksdb_concurrent_heldout
           - embedded
           - embedded_memtable
           - batch_lookup
@@ -1069,6 +1070,23 @@ jobs:
                   --out baseline-rocksdb_concurrent.json \
                   | tee rocksdb-concurrent.txt
                 ;;
+              "rocksdb_concurrent_heldout")
+                # The #802 idle-curve model check's held-out cells, pre-registered
+                # in docs/benchmarks/rocksdb_memtable/METHODOLOGY.md section 5.12:
+                # the idle writer only, readers 1 through 7 interleaved within each
+                # round, so R = 3, 5 and 6 are measured in the same run as the
+                # R = 2, 4 and 7 cells each candidate shape is fitted on. Same
+                # binary, window and rounds as rocksdb_concurrent. A separate suite,
+                # so its artifact is never read as a section 5.9 run.
+                make --no-print-directory -C integrations/rocksdb bench-concurrent \
+                  BENCH_CONC_ARGS="--mode idle --readers 1 --window-seconds 0.2" \
+                  > rocksdb-concurrent-smoke.txt 2>&1 \
+                  || { echo "::error::concurrent bench binary failed to build or run"; cat rocksdb-concurrent-smoke.txt; exit 1; }
+                python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py \
+                  --readers 1,2,3,4,5,6,7 --modes idle \
+                  --out baseline-rocksdb_concurrent_heldout.json \
+                  | tee rocksdb-concurrent-heldout.txt
+                ;;
               "rocksdb_locate_profile")
                 # Where one idle reader's time goes inside the #802 locked region:
                 # FindLeafBlockForSeek's inclusive time less its mutex calls, and
@@ -1474,6 +1492,7 @@ jobs:
             rocksdb-driver.txt
             rocksdb-concurrent-counters.txt
             rocksdb-locate-profile.txt
+            rocksdb-concurrent-heldout.txt
             python-concurrency.txt
             docs/benchmarks/llm_inference/results/bench_grammar_masks.json
             bytes-per-key-32.txt

@@ -1,0 +1,68 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 8K of event 'cpu_core/cycles/'
+# Event count (approx.): 10093881769
+#
+# Children,    Self,     Samples,Symbol                                                                                                                                              
+ 100.00%, 0.30%  , 24         ,[.] std::thread::_State_impl<std::thread::_Invoker<std::tuple<RunCell((anonymous namespace)::CellArgs const&. int)::{lambda()#1}> > >::_M_run()
+ 99.70% , 9.67%  , 777        ,[.] rocksdb::ExpanseMemTableRep::Get(rocksdb::LookupKey const&. void*. bool (*)(void*. char const*))
+ 62.33% , 38.03% , 3047       ,[.] (anonymous namespace)::BenchCmp::operator()(char const*. char const*) const
+ 55.56% , 9.87%  , 792        ,[.] rocksdb::ExpanseMemTableRep::FindLeafBlockForSeek(rocksdb::Slice const&. char const*) const
+ 25.99% , 1.52%  , 122        ,[.] memcmp@plt
+ 11.47% , 0.47%  , 38         ,[.] expanse_map_prev_at_or_before
+ 11.01% , 0.29%  , 23         ,[.] _RNvMsd_NtCs6fUdrY3seH1_12expanse_trie3mapNtB5_10ExpanseMap17prev_at_or_before
+ 10.72% , 6.53%  , 524        ,[.] _RINvNtCs6fUdrY3seH1_12expanse_trie3nav4prevKb1_EB4_
+ 8.56%  , 8.56%  , 684        ,[.] 0x0000000000199e3d
+ 4.66%  , 4.66%  , 372        ,[.] 0x0000000000199c28
+ 3.50%  , 3.50%  , 280        ,[.] _RINvNtCs6fUdrY3seH1_12expanse_trie4leaf17lower_bound_fixedKj1_EB4_
+ 2.60%  , 0.05%  , 5          ,[.] pthread_mutex_lock@plt
+ 2.54%  , 2.54%  , 203        ,[.] pthread_mutex_lock
+ 1.94%  , 0.09%  , 7          ,[.] pthread_mutex_unlock@plt
+ 1.85%  , 1.85%  , 149        ,[.] pthread_mutex_unlock
+ 1.40%  , 1.40%  , 112        ,[.] 0x0000000000199e20
+ 1.38%  , 1.38%  , 111        ,[.] 0x0000000000199c20
+ 1.28%  , 1.28%  , 102        ,[.] 0x0000000000199c24
+ 1.27%  , 1.27%  , 102        ,[.] 0x0000000000199b40
+ 1.26%  , 1.26%  , 101        ,[.] 0x0000000000199f18
+ 0.96%  , 0.96%  , 78         ,[.] 0x0000000000199c2e
+ 0.83%  , 0.83%  , 67         ,[.] 0x0000000000199e48
+ 0.69%  , 0.69%  , 55         ,[.] _RNvNtCs6fUdrY3seH1_12expanse_trie6mutate12decode_value
+ 0.69%  , 0.69%  , 55         ,[.] 0x0000000000199e43
+ 0.58%  , 0.11%  , 9          ,[.] expanse_map_prev_at_or_before@plt
+ 0.58%  , 0.58%  , 47         ,[.] 0x0000000000199e41
+ 0.38%  , 0.38%  , 30         ,[.] 0x0000000000199c2c
+ 0.34%  , 0.34%  , 27         ,[.] 0x0000000000199f14
+ 0.29%  , 0.29%  , 23         ,[.] 0x0000000000199e4e
+ 0.24%  , 0.24%  , 19         ,[.] 0x0000000000199f10
+ 0.18%  , 0.18%  , 15         ,[.] 0x0000000000199e60
+ 0.09%  , 0.09%  , 7          ,[.] 0x0000000000199f2d
+ 0.04%  , 0.04%  , 3          ,[.] 0x0000000000199f3b
+ 0.02%  , 0.02%  , 2          ,[.] 0x0000000000199f27
+ 0.02%  , 0.00%  , 0          ,[.] 0xffffffff948ad43e
+ 0.02%  , 0.00%  , 0          ,[.] 0xffffffff94a0b787
+ 0.02%  , 0.00%  , 0          ,[.] 0xffffffff94a0c6c6
+ 0.02%  , 0.00%  , 0          ,[.] 0xffffffff95a30beb
+ 0.02%  , 0.00%  , 0          ,[.] 0xffffffff95c00f4b
+ 0.01%  , 0.00%  , 0          ,[.] 0xffffffff949664a3
+ 0.01%  , 0.00%  , 0          ,[.] 0xffffffff94a0a839
+ 0.01%  , 0.00%  , 0          ,[.] 0xffffffff94a23158
+ 0.01%  , 0.00%  , 0          ,[.] 0xffffffff94a23678
+ 0.01%  , 0.01%  , 1          ,[.] 0x0000000000199e39
+ 0.01%  , 0.01%  , 1          ,[.] 0x0000000000199e50
+ 0.01%  , 0.01%  , 1          ,[.] 0x0000000000199e53
+ 0.01%  , 0.01%  , 1          ,[.] RunCell((anonymous namespace)::CellArgs const&. int)::{lambda()#1}::operator()() const::{lambda(void*. char const*)#1}::_FUN(void*. char const*)
+ 0.01%  , 0.01%  , 1          ,[k] 0xffffffff94973de4
+ 0.01%  , 0.00%  , 0          ,[.] 0xffffffff949748cb
+ 0.00%  , 0.00%  , 1          ,[k] 0xffffffff9496e520
+ 0.00%  , 0.00%  , 0          ,[.] 0xffffffff949748db
+ 0.00%  , 0.00%  , 1          ,[k] 0xffffffff95a432e0
+ 0.00%  , 0.00%  , 0          ,[.] 0xffffffff94a235db
+ 0.00%  , 0.00%  , 0          ,[.] 0xffffffff94a23632
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

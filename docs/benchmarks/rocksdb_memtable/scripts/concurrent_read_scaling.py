@@ -27,6 +27,8 @@ What it owns, and why the C++ binary does not:
 Usage:
     python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py \
         --out docs/benchmarks/rocksdb_memtable/results/baseline_concurrent_reads.json
+    python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py \
+        --readers 1,2,3,4,5,6,7 --modes idle --out baseline_concurrent_reads_heldout.json
     python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py --quick
     python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py --self-test
 """
@@ -100,6 +102,36 @@ def duty_cycle(write_ops: int, elapsed_s: float, insert_ns: float) -> float:
     if elapsed_s <= 0.0:
         raise ValueError(f"elapsed_s must be > 0, got {elapsed_s}")
     return (write_ops / elapsed_s) * insert_ns * 1e-9
+
+
+def parse_readers(text: str) -> tuple[int, ...]:
+    """`--readers 1,3,5`: distinct reader counts, ascending, always including 1.
+
+    `S(R) = T(R) / T(1)` pairs each cell with the same round's `R = 1` cell, so a
+    sweep without `R = 1` pays for its cells and returns no ratio. That is
+    refused at the command line rather than found after the host is spent
+    (AGENTS.md 8.1).
+    """
+    try:
+        vals = [int(v) for v in text.split(",")]
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"--readers takes comma-separated integers, got {text!r}") from None
+    if any(v < 1 for v in vals):
+        raise argparse.ArgumentTypeError(f"reader counts must be >= 1, got {text!r}")
+    if len(set(vals)) != len(vals):
+        raise argparse.ArgumentTypeError(f"reader counts repeat in {text!r}")
+    if 1 not in vals:
+        raise argparse.ArgumentTypeError(f"--readers must include 1, the denominator of S(R); got {text!r}")
+    return tuple(sorted(vals))
+
+
+def parse_modes(text: str) -> tuple[str, ...]:
+    """`--modes idle,paced`: writer modes from METHODOLOGY section 5.2, in its order."""
+    vals = text.split(",")
+    unknown = [v for v in vals if v not in MODES]
+    if unknown or not vals or len(set(vals)) != len(vals):
+        raise argparse.ArgumentTypeError(f"--modes takes distinct values from {MODES}, got {text!r}")
+    return tuple(m for m in MODES if m in vals)
 
 
 def paced_rate_report(rows: list[dict], offered: float) -> dict:
@@ -282,7 +314,9 @@ def build_artifact(rows: list[dict], provenance: dict, insert_ns: float,
         "workload_id": "rocksdb_memtable_concurrent_read_scaling",
         "pre_registration": "docs/benchmarks/rocksdb_memtable/METHODOLOGY.md section 5",
         "settings": {"window_seconds": window_s, "paced_rate_ops_per_s": paced_rate,
-                     "insert_ns_used_for_duty": insert_ns},
+                     "insert_ns_used_for_duty": insert_ns,
+                     "readers": sorted({r["readers"] for r in rows}),
+                     "modes": [m for m in MODES if any(r["writer_mode"] == m for r in rows)]},
         "cells": cells,
         "scaling": {mode: scaling_ratios(rows, mode) for mode in sorted({r["writer_mode"] for r in rows})},
         "paced_rate_check": paced_rate_report(rows, paced_rate),
@@ -471,6 +505,31 @@ def self_test() -> int:
         fails.append(f"the artifact must carry the above-offered paced cell in "
                      f"paced_rate_check.flags, got {got!r}")
 
+    # --- --readers and --modes ------------------------------------------------
+    check("parse_readers sorts", parse_readers("7,1,3"), (1, 3, 7))
+    check("parse_modes keeps section 5.2's order", parse_modes("free,idle"), ("idle", "free"))
+    for name, call, text in (("readers without 1", parse_readers, "2,4"),
+                             ("readers repeat", parse_readers, "1,2,2"),
+                             ("readers zero", parse_readers, "0,1"),
+                             ("readers not ints", parse_readers, "1,x"),
+                             ("unknown mode", parse_modes, "idle,burst"),
+                             ("repeated mode", parse_modes, "idle,idle")):
+        try:
+            call(text)
+        except argparse.ArgumentTypeError:
+            pass
+        else:
+            fails.append(f"{name}: {text!r} was accepted")
+    # The call site: the artifact records the sweep its rows came from, which is
+    # what tells a held-out run from a section 5.9 run.
+    idle_only = [r for r in rows if r["writer_mode"] == "idle"]
+    art_idle = build_artifact(idle_only, p, 226.142, 2.0, PACED_RATE)
+    check("settings.modes from rows", art_idle["settings"]["modes"], ["idle"])
+    check("settings.readers from rows", art_idle["settings"]["readers"],
+          sorted({r["readers"] for r in idle_only}))
+    check("an idle-only sweep reports no paced reader counts",
+          art_idle["paced_rate_check"]["per_readers"], {})
+
     # The idle control must record a zero duty, not a missing one.
     idle = [c for c in art["cells"] if c["writer_mode"] == "idle"]
     if not idle or any(c["writer_duty_cycle"] != 0.0 for c in idle):
@@ -495,6 +554,12 @@ def main() -> int:
     ap.add_argument("--insert-ns", type=float, default=None,
                     help="insert cost used to turn an achieved write rate into a duty cycle; "
                          "defaults to the suite artifact's fillrandom cell")
+    ap.add_argument("--readers", type=parse_readers, default=READERS,
+                    help="comma-separated reader counts, including 1 (default: section 5.2's "
+                         "1,2,4,7). METHODOLOGY section 5.12's held-out runs use 1,2,3,4,5,6,7")
+    ap.add_argument("--modes", type=parse_modes, default=MODES,
+                    help="comma-separated writer modes (default: idle,paced,free); section "
+                         "5.12's held-out runs use idle")
     ap.add_argument("--quick", action="store_true",
                     help="smoke shape only: 1 round, short window, R in {1,2}. Writes under "
                          "results/quick/ so it cannot overwrite a committed baseline (8.5)")
@@ -515,7 +580,7 @@ def main() -> int:
         from rocksdb_locate_bound import load_arms
         insert_ns = load_arms()["insert_ns"]
 
-    readers, modes, rounds, window_s = READERS, MODES, args.rounds, args.window_seconds
+    readers, modes, rounds, window_s = args.readers, args.modes, args.rounds, args.window_seconds
     out = args.out
     if args.quick:
         readers, modes, rounds, window_s = (1, 2), ("idle", "paced"), 1, 0.25
