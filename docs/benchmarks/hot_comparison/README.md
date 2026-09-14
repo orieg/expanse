@@ -75,20 +75,21 @@ a wider λ range and is what locates the teeth; the two instruments are not the
 same quantity and are never mixed in one table (§9.3, §9.10.6). Set and map
 flavors, uniform random keys, same PRNG and seed *(measured: deterministic
 byte accounting; workload: `example_keyspace_density`;
-`docs/assets/data/bench_assets.json` → `density_sweep`, commit 86daaddf; full
-tables and the node census in `METHODOLOGY.md` §9.10)*:
+`docs/assets/data/bench_assets.json` → `density_sweep`, commit 66a355f9; the full
+tables and node census in `METHODOLOGY.md` §9.10 were taken at 86daaddf, before
+the capacity-class ladder of #826)*:
 
 | λ | cell | `ExpanseSet` B/key | `ExpanseMap<u64,u64>` B/key | where on the curve |
 |---:|---|---:|---:|---|
-| 15.26 | 1M @64 | 7.92 | 16.70 | the `memory-budget` cell |
-| 19.84 | 1.3M @64 | **7.59** | 16.15 | first trough |
-| 27.47 | 1.8M @64 | 10.51 | 17.58 | first knee |
-| 30.52 | 2M @64 | 13.60 | 19.38 | 35.05% of expanses cascaded (census) |
+| 15.26 | 1M @64 | 8.21 | 17.58 | the `memory-budget` cell |
+| 19.84 | 1.3M @64 | **7.96** | 17.26 | first trough |
+| 27.47 | 1.8M @64 | 10.72 | 18.23 | first knee |
+| 30.52 | 2M @64 | 13.74 | 19.78 | 35.05% of expanses cascaded (census) |
 | 48.83 | 800k @62 | 21.02 | 23.90 | first peak |
-| 1,953 | 2M @58 | 8.80 | 18.51 | every level-6 expanse a `BranchU` |
-| 4,688 | 1.2M @56 | **6.71** | 15.35 | second trough |
-| 7,812 | 2M @56 | 12.98 | 18.74 | second tooth, 34.9% of sub-expanses cascaded |
-| 10,547 | 2.7M @56 | 20.98 | 23.76 | second peak |
+| 1,953 | 2M @58 | 8.81 | 18.52 | every level-6 expanse a `BranchU` |
+| 4,688 | 1.2M @56 | **7.08** | 16.47 | second trough |
+| 7,812 | 2M @56 | 13.11 | 19.15 | second tooth, 34.9% of sub-expanses cascaded |
+| 10,547 | 2.7M @56 | 20.99 | 23.78 | second peak |
 
 The curve repeats one byte level down at λ ≈ 256 × `LEAF_CAP`, so the memory
 verdict of §1 — Expanse wins in a band and loses outside it — is a verdict
