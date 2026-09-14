@@ -47,16 +47,16 @@
 //! |---|---|
 //! | `workload_id` | `core_concurrency` |
 //! | `group` | 2 |
-//! | `population` | 1M (keyspace 2M); `SyncExpanseMap32` arm: 4,096 stable + 4,096 churn keys (keyspace 8k, 32-bit) |
+//! | `population` | 1M draws (keyspace 2M); `SyncExpanseMap32` arm: 4,096 draws over an 8k keyspace whose upper 4,096 keys the writer churns (32-bit) |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; prefill and the concurrent stream both draw from the bounded-keyspace PRNG |
 //! | `probes_and_reuse` | Continuous stream; `EXPANSE_BENCH_ROUNDS` interleaved 500 ms windows per thread count (Williams order), all on one prefilled structure per engine and workload |
-//! | `hit_rate` | ~50% |
+//! | `hit_rate` | ~39% at 100% read (derived: 1M uniform draws over 2M keys occupy 1 − e^(−1/2) of the keyspace); under a mix, writes insert even keys and remove odd ones, which moves occupancy toward half |
 //! | `miss_gen_method` | Bounded keyspace random stream |
 //! | `value_dereference` | `black_box(sink)` |
 //! | `measured_region` | Clean (`run_rounds`): a window starts at a barrier after thread creation and per-thread setup, and its rates divide by its own elapsed time |
 //! | `arm_symmetry` | Symmetric across concurrency primitives |
 //! | `statistics` | Tables: mean ops/sec over a thread count's windows; `EXPANSE_BENCH_SAMPLES` carries every window for BCa 95% intervals (`docs/benchmarks/concurrency/scripts/mixed_concurrency.py`) |
-//! | `verdict` | **PENDING** `[unverified: re-measurement with the round and barrier window pending, #568]`: the #375 bounded-keyspace correction still holds. |
+//! | `verdict` | **MEASURED** `[verified: RUN (reference host, runs 34881026495 and 34882381735)]`: every cell of both runs, with its BCa interval, is in `docs/benchmarks/concurrency/README.md` §12; report-only, no gate is pre-registered on it. The #375 bounded-keyspace correction still holds. |
 
 use crossbeam_skiplist::SkipMap;
 use dashmap::DashMap;
@@ -684,11 +684,12 @@ fn bench_str_dashmap(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
 /// falling back to `default` when unset. CI uses these knobs
 /// (`EXPANSE_BENCH_THREADS`, `EXPANSE_BENCH_WORKLOADS`) to bound the sweep;
 /// local runs with the variables unset keep the full default sweep.
-/// Stable keys of the `sync32` arm: prefilled once, never mutated, probed
-/// by every reader over a 2× keyspace (~50% hit rate like the 64-bit arms).
+/// Prefill of the `sync32` arm: this many draws over a 2× keyspace, the
+/// keyspace every reader probes.
 const S32_STABLE: u32 = 4_096;
-/// Churn keys live above the stable range; the writer inserts and removes
-/// them continuously so every reader probe races a live write bracket.
+/// Churn keys are the upper half of that keyspace, where prefill draws also
+/// land; the writer inserts and removes them continuously, so reader probes
+/// race a live write bracket.
 const S32_CHURN: u32 = 4_096;
 /// Fixed arena for the `sync32` wrapper: comfortably above the node count
 /// an 8k-key `ExpanseMap32` reaches, so `ArenaFull` only ever signals a
@@ -698,7 +699,7 @@ const S32_MAX_READERS: usize = 16;
 
 /// One writer on the churn range — at full duty when `write_rate` is
 /// `None`, otherwise paced to that many mutations per second by spinning
-/// on a deadline — and `threads` readers on the stable range, over the rounds
+/// on a deadline — and `threads` readers over the whole keyspace, over the rounds
 /// of `plan`. `threads` is the table's `threads` column; the writer is an
 /// extra thread. Reader throughput counts only reads that validated; `busy`
 /// counts the attempts abandoned to an open write bracket. The readers are

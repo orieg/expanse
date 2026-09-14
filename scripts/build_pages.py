@@ -1098,9 +1098,9 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
             <div class="bench-card-header">
               <div class="bench-card-left">
                 <div class="bench-card-title">CONCURRENT READ SCALING</div>
-                <div class="bench-card-caption">SyncExpanseMap OCC reader scaling vs rwlock/mutex. Zero reader cache-line bouncing; <strong style="color: var(--heading);">50/50 write mix degrades under concurrent contention</strong>.</div>
+                <div class="bench-card-caption">Sync* OCC arms against DashMap, SkipMap and lock-based baselines at 100% read, with the 50/50 read/write mix below. <strong style="color: var(--heading);">Two runs of one commit, side by side</strong>.</div>
               </div>
-              <div class="bench-card-prov">harness concurrency.rs<br>CI run 33030152085</div>
+              <div class="bench-card-prov">harness concurrency.rs<br>CI runs 34881026495, 34882381735</div>
             </div>
             <div class="chart-surface">
               BENCH_CONC_SVG_PLACEHOLDER
