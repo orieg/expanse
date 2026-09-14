@@ -438,11 +438,18 @@ VISUALIZER_JSON = REPO_ROOT / "docs" / "visualizer_data.json"
 VISUALIZER_HTML = REPO_ROOT / "docs" / "architecture_visualizer.html"
 VISUALIZER_KEY = "ycsb_benchmarks.concurrency_scaling"
 RUN2_OUT = DEFAULT_OUT.with_name("baseline_concurrent_mixed_run2.json")
-# Chart rows by engine key: the 100%-read bars are the Expanse OCC arms and the
-# three baselines that admit concurrent readers (the coarse-mutex arms stay in
-# the README table), and the 50/50 lines add no arm the bars do not show.
-CHART_READ = ("set", "map", "blob", "bytes", "str", "str_dashmap", "blob_skiplist", "blob_rwlock_btree")
-CHART_MIXED = ("str_dashmap", "blob_skiplist", "map", "set", "blob", "bytes", "str")
+# Chart rows by engine key, grouped by key type, the only grouping a comparison
+# holds within: the integer arms (no third-party arm of that type), the blob arms
+# and their baselines, and the string arms and theirs. The coarse-mutex arms stay
+# in the README table, and the 50/50 lines add no arm the bars do not show.
+CHART_READ = ("set", "map", "blob", "blob_skiplist", "blob_rwlock_btree", "bytes", "str", "str_dashmap")
+CHART_MIXED = ("map", "set", "blob", "blob_skiplist", "bytes", "str", "str_dashmap")
+CHART_FAMILY = {
+    "set": "u64 keys, 1M draws", "map": "u64 keys, 1M draws",
+    "blob": "u64 -> 128-byte payload, 200k", "blob_skiplist": "u64 -> 128-byte payload, 200k",
+    "blob_rwlock_btree": "u64 -> 128-byte payload, 200k",
+    "bytes": "string keys, 100k", "str": "string keys, 100k", "str_dashmap": "string keys, 100k",
+}
 EXPANSE_OCC = frozenset({"map", "set", "blob", "bytes", "str"})
 CHART_LABEL = {"blob_rwlock_btree": "RwLock<BTreeMap<u64, ...>>"}
 
@@ -514,6 +521,7 @@ def asset_blocks(run1: dict[str, Any], run2: dict[str, Any], run_ids: tuple[str,
             "scale_16t": round(cells[-1]["scaling_c_n_mean"], 2),
             "scale_16t_run2": round(cells2[-1]["scaling_c_n_mean"], 2),
             "kind": "expanse" if key in EXPANSE_OCC else "other",
+            "family": CHART_FAMILY[key],
         }
 
     old_meta = (assets.get("concurrency") or {}).get("meta") or {}
@@ -776,12 +784,14 @@ def self_test() -> int:
              scaling_c_n_mean=c["scaling_c_n_mean"] / 2, busy_pct=0.5, refused_writes=3) for c in full]}
     blocks = asset_blocks(run_a, run_b, ("1", "2"), *current)
     chart = blocks["concurrency"]
-    assert [r["kind"] for r in chart["read_100"]] == ["expanse"] * 5 + ["other"] * 3, chart["read_100"]
+    assert [r["kind"] for r in chart["read_100"]] == ["expanse"] * 3 + ["other"] * 2 + ["expanse"] * 2 + ["other"], chart["read_100"]
+    assert [r["family"] for r in chart["read_100"]] == [CHART_FAMILY[k] for k in CHART_READ]
     assert chart["meta"]["retraction"] == "r" and chart["meta"]["ref"] == "01234567"
     assert "0.04 across both runs" in chart["meta"]["config"], chart["meta"]["config"]
     map_mixed = next(r for r in chart["read_write_50_50"] if r["arm"] == "MAP")
     assert map_mixed == {"arm": "MAP", "mops": [1.5, 3.0, 6.0], "mops_run2": [3.0, 6.0, 12.0],
-                         "scale_16t": 4.0, "scale_16t_run2": 2.0, "kind": "expanse"}, map_mixed
+                         "scale_16t": 4.0, "scale_16t_run2": 2.0, "kind": "expanse",
+                         "family": CHART_FAMILY["map"]}, map_mixed
     s32 = blocks["sync32_health"]["duties"]
     assert [d["duty"] for d in s32] == ["10k/s"] and s32[0]["rows"][0]["attempts"] == 400, s32
     assert s32[0]["rows"][0]["busy_pct_run2"] == 0.5 and s32[0]["rows"][0]["refused_run2"] == 3, s32
