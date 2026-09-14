@@ -389,11 +389,19 @@ void TestSuggestCompactRange() {
     std::cout << "  -> PASSED" << std::endl;
 }
 
-void TestMultiThreadedConcurrentOperations() {
-    std::cout << "[RUN] TestMultiThreadedConcurrentOperations" << std::endl;
+// Both concurrent tests run once per seek lock scope. kTrieCall runs the
+// leaf walk outside mutex_, concurrently with inserts and splits, and the TSan
+// lane is what checks it; see SettleSeekCandidate.
+static const char* ScopeName(ExpanseMemTableRep::SeekLockScope scope) {
+    return scope == ExpanseMemTableRep::SeekLockScope::kFullLocate ? "kFullLocate" : "kTrieCall";
+}
+
+void TestMultiThreadedConcurrentOperations(ExpanseMemTableRep::SeekLockScope scope) {
+    std::cout << "[RUN] TestMultiThreadedConcurrentOperations (" << ScopeName(scope) << ")" << std::endl;
     TestBytewiseComparator cmp;
     Arena arena;
-    ExpanseMemTableRep memtable(cmp, &arena, nullptr, nullptr, 32);
+    ExpanseMemTableRep memtable(cmp, &arena, nullptr, nullptr, 32, scope);
+    assert(memtable.seek_lock_scope() == scope);
 
     const int num_writers = 4;
     const int keys_per_writer = 1000;
@@ -459,11 +467,12 @@ void TestMultiThreadedConcurrentOperations() {
     std::cout << "  -> PASSED (verified " << count << " concurrent entries)" << std::endl;
 }
 
-void TestHighConcurrencyOptimisticReaders() {
-    std::cout << "[RUN] TestHighConcurrencyOptimisticReaders" << std::endl;
+void TestHighConcurrencyOptimisticReaders(ExpanseMemTableRep::SeekLockScope scope) {
+    std::cout << "[RUN] TestHighConcurrencyOptimisticReaders (" << ScopeName(scope) << ")" << std::endl;
     TestBytewiseComparator cmp;
     Arena arena;
-    ExpanseMemTableRep memtable(cmp, &arena, nullptr, nullptr, 32);
+    ExpanseMemTableRep memtable(cmp, &arena, nullptr, nullptr, 32, scope);
+    assert(memtable.seek_lock_scope() == scope);
 
     const int num_writers = 4;
     const int num_readers = 4;
@@ -846,8 +855,10 @@ int main() {
     TestIteratorSurvivesLeafSplitUnderCursor();
     TestPrefixSeeksAndSeekForPrev();
     TestSuggestCompactRange();
-    TestMultiThreadedConcurrentOperations();
-    TestHighConcurrencyOptimisticReaders();
+    TestMultiThreadedConcurrentOperations(ExpanseMemTableRep::SeekLockScope::kFullLocate);
+    TestMultiThreadedConcurrentOperations(ExpanseMemTableRep::SeekLockScope::kTrieCall);
+    TestHighConcurrencyOptimisticReaders(ExpanseMemTableRep::SeekLockScope::kFullLocate);
+    TestHighConcurrencyOptimisticReaders(ExpanseMemTableRep::SeekLockScope::kTrieCall);
     TestLargeVolumeRandomOperations();
     TestBatchScanApi();
     TestBatchScanLoopTerminates();

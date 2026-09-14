@@ -54,12 +54,14 @@ ExpanseMemTableRep::ExpanseMemTableRep(
     Allocator* allocator,
     const SliceTransform* transform,
     Logger* logger,
-    size_t leaf_capacity
+    size_t leaf_capacity,
+    SeekLockScope seek_lock_scope
 ) : MemTableRep(allocator),
     compare_(compare),
     transform_(transform),
     logger_(logger),
     leaf_capacity_(leaf_capacity > 0 ? std::min(leaf_capacity, LeafBlock::kMaxCapacity) : LeafBlock::kMaxCapacity),
+    seek_lock_scope_(seek_lock_scope),
     trie_index_(expanse_map_new())
 {
     (void)logger_;
@@ -129,48 +131,104 @@ ExpanseMemTableRep::LeafBlock* ExpanseMemTableRep::FindLeafBlockForInsert(const 
     return candidate;
 }
 
+static uint64_t SeekPrefix(const Slice& internal_key, const char* memtable_key) {
+    return (memtable_key != nullptr)
+        ? expanse_rocksdb::ExtractKeyPrefix64(memtable_key)
+        : expanse_rocksdb::ExtractSlicePrefix64(internal_key);
+}
+
 const ExpanseMemTableRep::LeafBlock* ExpanseMemTableRep::FindLeafBlockForSeek(
     const Slice& internal_key,
     const char* memtable_key
 ) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    const LeafBlock* h = head_.load(std::memory_order_acquire);
-    const LeafBlock* t = tail_.load(std::memory_order_acquire);
-    if (!h || h == t) {
-        return h;
+    if (seek_lock_scope_ == SeekLockScope::kFullLocate) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const LeafBlock* h = head_.load(std::memory_order_acquire);
+        const LeafBlock* t = tail_.load(std::memory_order_acquire);
+        if (!h || h == t) {
+            return h;
+        }
+        uint64_t out_k = 0;
+        uint64_t out_v = 0;
+        const LeafBlock* candidate = h;
+        if (expanse_map_prev_at_or_before(trie_index_, SeekPrefix(internal_key, memtable_key), &out_k, &out_v)) {
+            if (out_v != 0) {
+                candidate = reinterpret_cast<const LeafBlock*>(static_cast<uintptr_t>(out_v));
+            }
+        }
+        return SettleSeekCandidate(candidate, internal_key, memtable_key);
     }
 
-    uint64_t prefix = (memtable_key != nullptr)
-        ? expanse_rocksdb::ExtractKeyPrefix64(memtable_key)
-        : expanse_rocksdb::ExtractSlicePrefix64(internal_key);
-
-    uint64_t out_k = 0;
-    uint64_t out_v = 0;
-    const LeafBlock* candidate = h;
-
-    if (expanse_map_prev_at_or_before(trie_index_, prefix, &out_k, &out_v)) {
-        if (out_v != 0) {
-            candidate = reinterpret_cast<const LeafBlock*>(static_cast<uintptr_t>(out_v));
+    // kTrieCall: the prefix is computed before the lock and the walk runs
+    // after it, so mutex_ covers only what expanse_map_t needs.
+    const uint64_t prefix = SeekPrefix(internal_key, memtable_key);
+    const LeafBlock* candidate = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const LeafBlock* h = head_.load(std::memory_order_acquire);
+        const LeafBlock* t = tail_.load(std::memory_order_acquire);
+        if (!h || h == t) {
+            return h;
+        }
+        uint64_t out_k = 0;
+        uint64_t out_v = 0;
+        candidate = h;
+        if (expanse_map_prev_at_or_before(trie_index_, prefix, &out_k, &out_v)) {
+            if (out_v != 0) {
+                candidate = reinterpret_cast<const LeafBlock*>(static_cast<uintptr_t>(out_v));
+            }
         }
     }
+    return SettleSeekCandidate(candidate, internal_key, memtable_key);
+}
 
+// The leaf walk from the trie's candidate to the block a seek starts in.
+//
+// Under kFullLocate it runs with mutex_ held. Under kTrieCall it runs
+// concurrently with Insert and SplitLeafBlock, and ends on a usable block
+// because of four invariants of that writer path:
+//
+//   1. A LeafBlock is freed only by ~ExpanseMemTableRep, so every block
+//      pointer loaded here stays valid for the rep's lifetime.
+//   2. A block enters the prev_leaf/next_leaf chain in key order, after its
+//      entries, count and own links are stored (SplitLeafBlock stores
+//      block->next_leaf last), and never leaves it.
+//   3. A block's min_key never increases. Insert replaces entries[0] only
+//      with a smaller key, in one store after the shift, and SplitLeafBlock
+//      moves the upper half out and keeps entries[0].
+//   4. Entry pointers name write-once key bytes, and min_key() acquire-loads
+//      both count and the entry.
+//
+// So the backward step stops on a block whose min_key is at or below the
+// target, or on the head, and 3 keeps that true for the rest of the read.
+// Every key below that block's min_key is in an earlier block, so a present
+// target is reachable forward from it. A concurrent split can leave the walk
+// on a block that is no longer the tightest, and Get, Contains and
+// IteratorImpl::Seek each step forward from wherever it ends. The loads are
+// acquire so each takes a happens-before edge from the writer's release
+// store, the ordering mutex_ supplies under kFullLocate.
+const ExpanseMemTableRep::LeafBlock* ExpanseMemTableRep::SettleSeekCandidate(
+    const LeafBlock* candidate,
+    const Slice& internal_key,
+    const char* memtable_key
+) const {
     // Step backward via prev_leaf if candidate is positioned after search target
-    while (candidate->prev_leaf.load(std::memory_order_relaxed) != nullptr &&
+    while (candidate->prev_leaf.load(std::memory_order_acquire) != nullptr &&
            candidate->min_key() != nullptr) {
         bool is_after = (memtable_key != nullptr)
             ? (compare_(candidate->min_key(), memtable_key) > 0)
             : (compare_(internal_key, candidate->min_key()) < 0);
         if (is_after) {
-            candidate = candidate->prev_leaf.load(std::memory_order_relaxed);
+            candidate = candidate->prev_leaf.load(std::memory_order_acquire);
         } else {
             break;
         }
     }
 
     // Step forward via next_leaf
-    while (candidate->next_leaf.load(std::memory_order_relaxed) != nullptr) {
-        const LeafBlock* nxt = candidate->next_leaf.load(std::memory_order_relaxed);
-        if (nxt->count.load(std::memory_order_relaxed) == 0) {
+    while (candidate->next_leaf.load(std::memory_order_acquire) != nullptr) {
+        const LeafBlock* nxt = candidate->next_leaf.load(std::memory_order_acquire);
+        if (nxt->count.load(std::memory_order_acquire) == 0) {
             candidate = nxt;
             continue;
         }
