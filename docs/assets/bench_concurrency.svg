@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="0 0 960 452" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="0 0 960 508" width="100%" height="100%">
   <title>OCC concurrency: 100% read at 16 threads</title>
   <defs>
     <style>
@@ -108,7 +108,7 @@
   <rect width="100%" height="100%" class="border" rx="8"/>
 
   <text x="30" y="30" class="t-title">MULTITHREADED OCC CONCURRENCY &#183; 100% READ</text>
-  <text x="30" y="46" class="t-sub">Read throughput at 16 threads &#183; M ops/sec &#183; higher is better &#183; bounded 2xPOP, ~50% hit rate (#375)</text>
+  <text x="30" y="46" class="t-sub">Read throughput at 16 threads &#183; M ops/sec &#183; higher is better &#183; bounded 2xPOP keyspace (#375)</text>
   <g transform="translate(690, 20)">
     <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
     <text x="18" y="10" class="t-legend">Expanse OCC arm</text>
@@ -117,54 +117,58 @@
   </g>
   <line x1="30" y1="58" x2="930" y2="58" class="divider"/>
   <text x="30" y="74" class="t-note">Bars are 16-thread throughput on a zero-based linear axis; the badge is that arm's own 1&#8594;16-thread scaling.</text>
-  <text x="30" y="105" class="t-bar-label">SyncExpanseSet</text>
-  <rect x="300.0" y="96" width="263.2" height="11" rx="2" class="b-expanse"/>
-  <text x="571.2" y="105" class="t-row-accent">884.5 M ops/s</text>
-  <rect x="800" y="92" width="130" height="18" class="badge-win"/>
-  <text x="865.0" y="105" class="badge-win-text">11.42x scaling</text>
-  <text x="30" y="131" class="t-bar-label">SyncExpanseMap</text>
-  <rect x="300.0" y="122" width="126.2" height="11" rx="2" class="b-expanse"/>
-  <text x="434.2" y="131" class="t-row-accent">424.1 M ops/s</text>
-  <rect x="800" y="118" width="130" height="18" class="badge-win"/>
-  <text x="865.0" y="131" class="badge-win-text">11.40x scaling</text>
-  <text x="30" y="157" class="t-bar-label">SyncExpanseBlobMap</text>
-  <rect x="300.0" y="148" width="98.9" height="11" rx="2" class="b-expanse"/>
-  <text x="406.9" y="157" class="t-row-accent">332.4 M ops/s</text>
-  <rect x="800" y="144" width="130" height="18" class="badge-win"/>
-  <text x="865.0" y="157" class="badge-win-text">10.60x scaling</text>
-  <text x="30" y="183" class="t-bar-label">SyncExpanseBytesMap</text>
-  <rect x="300.0" y="174" width="39.8" height="11" rx="2" class="b-expanse"/>
-  <text x="347.8" y="183" class="t-row-accent">133.8 M ops/s</text>
-  <rect x="800" y="170" width="130" height="18" class="badge-win"/>
-  <text x="865.0" y="183" class="badge-win-text">11.48x scaling</text>
-  <text x="30" y="209" class="t-bar-label">SyncExpanseStrMap</text>
-  <rect x="300.0" y="200" width="24.7" height="11" rx="2" class="b-expanse"/>
-  <text x="332.7" y="209" class="t-row-accent">82.9 M ops/s</text>
-  <rect x="800" y="196" width="130" height="18" class="badge-win"/>
-  <text x="865.0" y="209" class="badge-win-text">11.84x scaling</text>
-  <text x="30" y="235" class="t-bar-label">DashMap&lt;Vec&lt;u8&gt;, u64&gt;</text>
-  <rect x="300.0" y="226" width="39.3" height="11" rx="2" class="b-other"/>
-  <text x="347.3" y="235" class="t-row-muted">132.1 M ops/s</text>
-  <rect x="800" y="222" width="130" height="18" class="badge-win"/>
-  <text x="865.0" y="235" class="badge-win-text">8.47x scaling</text>
-  <text x="30" y="261" class="t-bar-label">SkipMap&lt;u64, Vec&lt;u8&gt;&gt;</text>
-  <rect x="300.0" y="252" width="11.4" height="11" rx="2" class="b-other"/>
-  <text x="319.4" y="261" class="t-row-muted">38.3 M ops/s</text>
-  <rect x="800" y="248" width="130" height="18" class="badge-win"/>
-  <text x="865.0" y="261" class="badge-win-text">11.13x scaling</text>
-  <text x="30" y="287" class="t-bar-label">RwLock&lt;BTreeMap&lt;u64, ...&gt;&gt;</text>
-  <rect x="300.0" y="278" width="5.5" height="11" rx="2" class="b-other"/>
-  <text x="313.5" y="287" class="t-row-muted">18.6 M ops/s</text>
-  <rect x="800" y="274" width="130" height="18" class="badge-win"/>
-  <text x="865.0" y="287" class="badge-win-text">1.75x scaling</text>
+  <text x="30" y="88" class="t-note">Two runs of one commit: bars are run 1; labels and badges read run 1 / run 2, so a cell the second run does not reproduce shows two values.</text>
+  <text x="30" y="113" class="t-bar-label">SyncExpanseSet</text>
+  <rect x="300.0" y="104" width="263.2" height="11" rx="2" class="b-expanse"/>
+  <text x="571.2" y="113" class="t-row-accent">562.0 / 414.9 M ops/s</text>
+  <rect x="800" y="100" width="130" height="18" class="badge-win"/>
+  <text x="865.0" y="113" class="badge-win-text">7.36x / 5.44x</text>
+  <text x="30" y="139" class="t-bar-label">SyncExpanseMap</text>
+  <rect x="300.0" y="130" width="169.0" height="11" rx="2" class="b-expanse"/>
+  <text x="477.0" y="139" class="t-row-accent">361.0 / 360.5 M ops/s</text>
+  <rect x="800" y="126" width="130" height="18" class="badge-win"/>
+  <text x="865.0" y="139" class="badge-win-text">9.44x / 9.44x</text>
+  <text x="30" y="165" class="t-bar-label">SyncExpanseBlobMap</text>
+  <rect x="300.0" y="156" width="143.2" height="11" rx="2" class="b-expanse"/>
+  <text x="451.2" y="165" class="t-row-accent">305.8 / 306.7 M ops/s</text>
+  <rect x="800" y="152" width="130" height="18" class="badge-win"/>
+  <text x="865.0" y="165" class="badge-win-text">9.86x / 9.87x</text>
+  <text x="30" y="191" class="t-bar-label">SyncExpanseBytesMap</text>
+  <rect x="300.0" y="182" width="59.2" height="11" rx="2" class="b-expanse"/>
+  <text x="367.2" y="191" class="t-row-accent">126.4 / 125.6 M ops/s</text>
+  <rect x="800" y="178" width="130" height="18" class="badge-win"/>
+  <text x="865.0" y="191" class="badge-win-text">11.08x / 11.03x</text>
+  <text x="30" y="217" class="t-bar-label">SyncExpanseStrMap</text>
+  <rect x="300.0" y="208" width="34.3" height="11" rx="2" class="b-expanse"/>
+  <text x="342.3" y="217" class="t-row-accent">73.3 / 75.6 M ops/s</text>
+  <rect x="800" y="204" width="130" height="18" class="badge-win"/>
+  <text x="865.0" y="217" class="badge-win-text">10.63x / 10.99x</text>
+  <text x="30" y="243" class="t-bar-label">DashMap&lt;Vec&lt;u8&gt;, u64&gt;</text>
+  <rect x="300.0" y="234" width="60.8" height="11" rx="2" class="b-other"/>
+  <text x="368.8" y="243" class="t-row-muted">129.9 / 129.4 M ops/s</text>
+  <rect x="800" y="230" width="130" height="18" class="badge-win"/>
+  <text x="865.0" y="243" class="badge-win-text">8.46x / 8.39x</text>
+  <text x="30" y="269" class="t-bar-label">SkipMap&lt;u64, Vec&lt;u8&gt;&gt;</text>
+  <rect x="300.0" y="260" width="17.9" height="11" rx="2" class="b-other"/>
+  <text x="325.9" y="269" class="t-row-muted">38.3 / 38.4 M ops/s</text>
+  <rect x="800" y="256" width="130" height="18" class="badge-win"/>
+  <text x="865.0" y="269" class="badge-win-text">11.05x / 11.10x</text>
+  <text x="30" y="295" class="t-bar-label">RwLock&lt;BTreeMap&lt;u64, ...&gt;&gt;</text>
+  <rect x="300.0" y="286" width="7.2" height="11" rx="2" class="b-other"/>
+  <text x="315.2" y="295" class="t-row-muted">15.3 / 16.0 M ops/s</text>
+  <rect x="800" y="282" width="130" height="18" class="badge-win"/>
+  <text x="865.0" y="295" class="badge-win-text">1.45x / 1.52x</text>
 
-  <line x1="30" y1="316" x2="930" y2="316" class="divider"/>
-  <text x="30" y="330" class="t-bar-label">Honest limit &#8212; the same arms at 50% read / 50% write (1&#8594;16 threads, read ops/s):</text>
-  <text x="42" y="346" class="t-row-accent">DashMap&lt;Vec&lt;u8&gt;, u64&gt;: 5.6 &#8594; 17.3 &#8594; 44.5 M ops/s &#183; 7.93x</text>
-  <text x="42" y="362" class="t-row-accent">SkipMap&lt;u64, Vec&lt;u8&gt;&gt;: 1.1 &#8594; 3.4 &#8594; 7.7 M ops/s &#183; 6.94x</text>
-  <text x="42" y="378" class="t-row-muted">SyncExpanseMap: 10.9 &#8594; 3.0 &#8594; 2.0 M ops/s &#183; 0.19x</text>
-  <text x="42" y="394" class="t-row-muted">SyncExpanseSet: 16.6 &#8594; 3.3 &#8594; 2.1 M ops/s &#183; 0.12x</text>
+  <line x1="30" y1="324" x2="930" y2="324" class="divider"/>
+  <text x="30" y="338" class="t-bar-label">At 50% read / 50% write &#8212; 1&#8594;16 threads, read + write ops/s (a mixed-operation rate), then that arm's scaling in run 1 / run 2:</text>
+  <text x="42" y="354" class="t-row-accent">DashMap&lt;Vec&lt;u8&gt;, u64&gt;: 10.7 &#8594; 33.0 &#8594; 83.6 M ops/s (run 1) &#183; 7.80x / 7.77x</text>
+  <text x="42" y="370" class="t-row-accent">SkipMap&lt;u64, Vec&lt;u8&gt;&gt;: 2.0 &#8594; 6.6 &#8594; 17.5 M ops/s (run 1) &#183; 8.54x / 8.54x</text>
+  <text x="42" y="386" class="t-row-accent">SyncExpanseMap: 28.0 &#8594; 40.9 &#8594; 62.5 M ops/s (run 1) &#183; 2.23x / 2.23x</text>
+  <text x="42" y="402" class="t-row-accent">SyncExpanseSet: 42.9 &#8594; 44.7 &#8594; 82.9 M ops/s (run 1) &#183; 1.93x / 1.98x</text>
+  <text x="42" y="418" class="t-row-muted">SyncExpanseBlobMap: 27.2 &#8594; 9.5 &#8594; 7.3 M ops/s (run 1) &#183; 0.27x / 0.27x</text>
+  <text x="42" y="434" class="t-row-muted">SyncExpanseBytesMap: 4.8 &#8594; 3.6 &#8594; 3.1 M ops/s (run 1) &#183; 0.65x / 0.65x</text>
+  <text x="42" y="450" class="t-row-muted">SyncExpanseStrMap: 6.2 &#8594; 5.3 &#8594; 4.1 M ops/s (run 1) &#183; 0.65x / 0.65x</text>
 
-  <text x="30" y="426" class="t-note">Measured: reference host -- Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8 &#183; run 33030152085, ref 5fb03aa3</text>
-  <text x="30" y="439" class="t-note">EXPANSE_BENCH_THREADS="1,4,16", EXPANSE_BENCH_WORKLOADS="100,50", 500 ms windows, load average 0.00 at start &#183; single-writer OCC scales reads, not writes.</text>
+  <text x="30" y="482" class="t-note">Measured: reference host -- 12th Gen Intel(R) Core(TM) i9-12900F, pin 0-15 &#183; runs 34881026495 and 34882381735, ref 76432c5c</text>
+  <text x="30" y="495" class="t-note">threads 1,4,16, 18 interleaved rounds of 500 ms windows, largest foreign busy CPUs over a group 0.04 across both runs</text>
 </svg>

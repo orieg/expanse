@@ -418,6 +418,34 @@
       "replacement": "0.58–1.30 spins per lookup over the 64f8a3af pair and 1.8–3.7 over the a1982ff2 pair with per-thread shards; a band, never a level (docs/benchmarks/hot_comparison/README.md §7.3, docs/benchmarks/concurrency/README.md §5)",
       "provenance": "#568 Step 0",
       "rationale": "The HOT README §7.3 health table was typed by hand from an earlier harness commit and disagreed with both committed artifacts; it and its prose are generated from the artifacts now"
+    },
+    {
+      "id": "syncexpanse_single_window_concurrency_figures",
+      "patterns": [
+        "(?<![\\w.])884\\.5\\s*M",
+        "(?<![\\w.])424\\.1\\s*M",
+        "(?<![\\w.])332\\.4\\s*M",
+        "(?<![\\w.])133\\.8\\s*M",
+        "(?<![\\w.])671\\.3\\s*M",
+        "(?<![\\w.])620\\.9\\s*M",
+        "(?<![\\w.])11\\.42\\s*[x×](?!\\w)",
+        "(?<![\\w.])11\\.40\\s*[x×](?!\\w)",
+        "(?<![\\w.])11\\.48\\s*[x×](?!\\w)",
+        "(?<![\\w.])11\\.84\\s*[x×](?!\\w)",
+        "(?<![\\w.])0\\.12\\s*[x×]\\s*[–-]\\s*0\\.55\\s*[x×]",
+        "(?<![\\w.])0\\.14\\s*[x×]\\s*[–-]\\s*0\\.45\\s*[x×]"
+      ],
+      "context": [
+        "syncexpanse",
+        "threads",
+        "concurrency",
+        "m ops",
+        "scaling",
+        "readers"
+      ],
+      "replacement": "docs/benchmarks/concurrency/README.md section 12: results/baseline_concurrent_mixed.json and results/baseline_concurrent_mixed_run2.json (CI runs 34881026495 and 34882381735)",
+      "provenance": "#568, #935",
+      "rationale": "Measured with the single-window benches/concurrency.rs, whose window started before its threads were spawned and whose rates divided by the window constant; withdrawn when the harness became an instrument (barrier-started interleaved rounds, elapsed-time divisor, BCa intervals, two runs)"
     }
   ]
 }

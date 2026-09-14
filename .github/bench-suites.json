@@ -125,7 +125,7 @@
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "`Sync*` wall-clock scaling instrument on a reduced thread/workload sweep; report-only, never gating.",
+      "summary": "`Sync*` mixed read/write instrument (`benches/concurrency.rs` through `mixed_concurrency.py`): interleaved barrier-started rounds with BCa intervals on a reduced thread/workload sweep; report-only until a gate is pre-registered on it.",
       "suite": "concurrency"
     },
     {

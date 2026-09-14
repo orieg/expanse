@@ -62,6 +62,9 @@ DIRECT_HARNESSES = {
         "samples the #802 locate path under perf on the reference host",
     "docs/benchmarks/concurrency/scripts/writer_scaling.py":
         "the Expanse-native writer scaling instrument for Phase 1.5D and multi-writer OLC gating (#568)",
+    "docs/benchmarks/concurrency/scripts/mixed_concurrency.py":
+        "the mixed read/write instrument over benches/concurrency.rs, producer of "
+        "results/baseline_concurrent_mixed.json (#568)",
     "docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py":
         "owns the rounds and the timed cells of the RocksDB memtable suite, whose four "
         "published wall-clock ratios are section 12's (#868); the suite's run.sh sources "

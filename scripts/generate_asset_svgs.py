@@ -300,8 +300,9 @@ def render_concurrency(data: dict) -> None:
     bar_x, bar_max = 300.0, 300.0
     axis_max = max(r["mops"][-1] for r in rows) * 1.14
     row_h = 26
-    top = 96
+    top = 104
     mixed = c["read_write_50_50"]
+    two_runs = all("mops_run2" in r for r in rows + mixed)
     mixed_top = top + len(rows) * row_h + 30
     height = mixed_top + len(mixed) * 16 + 54
 
@@ -318,39 +319,48 @@ def render_concurrency(data: dict) -> None:
   <line x1="30" y1="58" x2="930" y2="58" class="divider"/>
   <text x="30" y="74" class="t-note">Bars are {t_max}-thread throughput on a zero-based linear axis; the badge is that arm's own {threads[0]}&#8594;{t_max}-thread scaling.</text>
 """
+    if two_runs:
+        svg += (
+            '  <text x="30" y="88" class="t-note">Two runs of one commit: bars are run 1; labels and badges '
+            'read run 1 / run 2, so a cell the second run does not reproduce shows two values.</text>\n'
+        )
     for i, r in enumerate(rows):
         y = top + i * row_h
         v = r["mops"][-1]
         w = max(3.0, v / axis_max * bar_max)
         cls = "b-expanse" if r["kind"] == "expanse" else "b-other"
         vcls = "t-row-accent" if r["kind"] == "expanse" else "t-row-muted"
+        value = f"{v:,.1f} / {r['mops_run2'][-1]:,.1f} M ops/s" if two_runs else f"{v:,.1f} M ops/s"
+        scales = [r["scale_16t"]] + ([r["scale_16t_run2"]] if two_runs else [])
+        label = " / ".join(f"{s:.2f}x" for s in scales) + ("" if two_runs else " scaling")
         svg += (
             f'  <text x="30" y="{y + 9}" class="t-bar-label">{esc(r["arm"])}</text>\n'
             f'  <rect x="{bar_x}" y="{y}" width="{w:.1f}" height="11" rx="2" class="{cls}"/>\n'
-            f'  <text x="{bar_x + w + 8:.1f}" y="{y + 9}" class="{vcls}">{v:,.1f} M ops/s</text>\n'
+            f'  <text x="{bar_x + w + 8:.1f}" y="{y + 9}" class="{vcls}">{value}</text>\n'
         )
-        svg += badge(800, y - 4, 130, f'{r["scale_16t"]:.2f}x scaling', r["scale_16t"] >= 1.0)
+        svg += badge(800, y - 4, 130, label, min(scales) >= 1.0)
 
-    # The honest limit: the same arms under a 50/50 read/write mix.
+    # The same arms under a 50/50 read/write mix, where every thread also writes.
     svg += f'\n  <line x1="30" y1="{mixed_top - 18}" x2="930" y2="{mixed_top - 18}" class="divider"/>\n'
     svg += (
         f'  <text x="30" y="{mixed_top - 4}" class="t-bar-label">'
-        f"Honest limit &#8212; the same arms at 50% read / 50% write "
-        f"({threads[0]}&#8594;{t_max} threads, read ops/s):</text>\n"
+        f"At 50% read / 50% write &#8212; {threads[0]}&#8594;{t_max} threads, read + write ops/s "
+        f"(a mixed-operation rate), then that arm's scaling{' in run 1 / run 2' if two_runs else ''}:</text>\n"
     )
     for i, r in enumerate(mixed):
         y = mixed_top + 12 + i * 16
         chain = " &#8594; ".join(f"{m:,.1f}" for m in r["mops"])
-        cls = "t-row-accent" if r["scale_16t"] >= 1.0 else "t-row-muted"
+        scales = [r["scale_16t"]] + ([r["scale_16t_run2"]] if two_runs else [])
+        cls = "t-row-accent" if min(scales) >= 1.0 else "t-row-muted"
         svg += (
-            f'  <text x="42" y="{y}" class="{cls}">{esc(r["arm"])}: {chain} M ops/s '
-            f'&#183; {r["scale_16t"]:.2f}x</text>\n'
+            f'  <text x="42" y="{y}" class="{cls}">{esc(r["arm"])}: {chain} M ops/s'
+            f'{" (run 1)" if two_runs else ""} &#183; {" / ".join(f"{s:.2f}x" for s in scales)}</text>\n'
         )
+    runs = f'runs {esc(meta["run"])} and {esc(meta["run2"])}' if meta.get("run2") else f'run {esc(meta["run"])}'
     svg += (
         f'\n  <text x="30" y="{height - 26}" class="t-note">Measured: {esc(meta["host"])}'
-        f' &#183; run {esc(meta["run"])}, ref {esc(meta["ref"])}</text>\n'
-        f'  <text x="30" y="{height - 13}" class="t-note">{esc(meta["config"])}'
-        f' &#183; single-writer OCC scales reads, not writes.</text>\n'
+        f' &#183; {runs}, ref {esc(meta["ref"])}</text>\n'
+        f'  <text x="30" y="{height - 13}" class="t-note">{esc(meta["config"])}</text>\n'
     )
     svg += "</svg>\n"
     write(ASSETS / "bench_concurrency.svg", svg)
@@ -469,7 +479,7 @@ def render_sync32_health(data: dict) -> None:
     duties = h["duties"]
     cls_for = {1: "b-expanse", 4: "b-expanse-alt", 16: "b-hash"}
 
-    bar_x, bar_max = 210.0, 270.0
+    bar_x, bar_max = 210.0, 240.0
     badge_x, badge_w = 796.0, 134.0
     row_h, grp_gap = 15, 22
     top = 104
@@ -479,6 +489,7 @@ def render_sync32_health(data: dict) -> None:
     def rate(v: float) -> str:
         return f"{v / 1e6:.2f}M" if v >= 9.995e5 else (f"{v / 1e3:.0f}k" if v >= 1e3 else f"{v:.0f}")
 
+    two_runs = all("busy_pct_run2" in r for d in duties for r in d["rows"])
     svg = head(960, height, "sync32 protocol health: Busy rate per writer duty")
     legend = "".join(
         f'    <rect x="{i * 120}" y="0" width="12" height="12" rx="2" class="{cls_for[t]}"/>\n'
@@ -487,11 +498,11 @@ def render_sync32_health(data: dict) -> None:
     )
     svg += f"""
   <text x="30" y="30" class="t-title">SYNC32 OPTIMISTIC PROTOCOL &#183; BUSY RATE BY WRITER DUTY</text>
-  <text x="30" y="46" class="t-sub">Share of try_get attempts abandoned to an open write bracket &#183; lower is better &#183; one writer, N readers, 4,096 stable + 4,096 churn keys</text>
+  <text x="30" y="46" class="t-sub">Share of try_get attempts abandoned to an open write bracket &#183; lower is better &#183; one writer churning the upper half of an 8,192-key space, N readers probing all of it</text>
   <g transform="translate(600, 20)">
 {legend}  </g>
   <line x1="30" y1="58" x2="930" y2="58" class="divider"/>
-  <text x="30" y="74" class="t-note">Bars are the Busy rate on a zero-based linear axis (0&#8211;100%); the badge is the writer's refused mutations (ArenaFull / ReclaimBacklog) in the same 500 ms window &#8212; a stalled-reclamation signal.</text>
+  <text x="30" y="74" class="t-note">Bars: {"run 1's" if two_runs else "the"} Busy rate, 0&#8211;100% linear{"; Busy labels read run 1 / run 2, rates are run 1" if two_runs else ""}. Badge: the writer's refused mutations (ArenaFull / ReclaimBacklog) over {"both runs'" if two_runs else "the cell's"} windows.</text>
   <text x="30" y="88" class="t-note">Writer duty: full (as fast as it can, the Busy ceiling) then deadline-paced 1M, 100k and 10k mutations/s; a saturated CAN bus is ~10k frames/s. reads/s = validated reads.</text>
 """
     for gi, d in enumerate(duties):
@@ -502,19 +513,35 @@ def render_sync32_health(data: dict) -> None:
             pct = r["busy_pct"]
             w = max(2.0, pct / 100.0 * bar_max)
             t = r["readers"]
+            busy_txt = f"{pct:.3g}% / {r['busy_pct_run2']:.3g}%" if two_runs else f"{pct:.3g}%"
             svg += (
                 f'  <text x="{bar_x - 8}" y="{y + 9}" class="t-axis-label" text-anchor="end">{t}R</text>\n'
                 f'  <rect x="{bar_x}" y="{y}" width="{w:.1f}" height="11" rx="2" class="{cls_for[t]}"/>\n'
-                f'  <text x="{bar_x + w + 8:.1f}" y="{y + 9}" class="t-row-muted">{pct:.3g}% busy &#183; {rate(r["reads_per_s"])} reads/s &#183; {rate(r["writes_per_s"])} writes/s</text>\n'
+                f'  <text x="{bar_x + w + 8:.1f}" y="{y + 9}" class="t-row-muted">{busy_txt} busy &#183; {rate(r["reads_per_s"])} reads/s &#183; {rate(r["writes_per_s"])} writes/s</text>\n'
             )
-            refused = r["refused"]
+            refused = r["refused"] + (r["refused_run2"] if two_runs else 0)
             label = f"{refused:,} refused" if refused else "0 refused"
             svg += badge(badge_x, y - 2, badge_w, label, refused == 0)
+    # The reading is derived from the rows it summarises (AGENTS.md section 8.2):
+    # the validated share at the sweep's last duty, and the refusals over every cell.
+    last = duties[-1]
+    validated = min(100.0 - max(r["busy_pct"], r["busy_pct_run2"] if two_runs else 0.0) for r in last["rows"])
+    refused_total = sum(r["refused"] + (r["refused_run2"] if two_runs else 0) for d in duties for r in d["rows"])
+    refusals = "none at any reader count" if refused_total == 0 else f"{refused_total:,} across the cells"
+    runs = f'runs {esc(meta["run"])} and {esc(meta["run2"])}' if meta.get("run2") else f'run {esc(meta["run"])}'
     svg += (
         f'\n  <line x1="30" y1="{height - 60}" x2="930" y2="{height - 60}" class="divider"/>\n'
-        f'  <text x="30" y="{height - 44}" class="t-note">Reading: Busy tracks write rate &#215; bracket length, as the seqlock model predicts &#8212; at embedded ingestion rates reads validate &#8805;99.8% of the time. Refusals: none at any reader count &#8212;</text>\n'
-        f'  <text x="30" y="{height - 31}" class="t-note">reclamation frees a parked node once every reader has passed through a quiescent state since it was retired (per-reader walk counters, #594), so dense readers no longer starve the writer.</text>\n'
-        f'  <text x="30" y="{height - 13}" class="t-note">Measured: {esc(meta["host"])} &#183; run {esc(meta["run"])}, ref {esc(meta["ref"])} &#183; report-only, never gating (workload: {esc(meta["workload_id"])}).</text>\n'
+        f'  <text x="30" y="{height - 44}" class="t-note">Reading: at the {esc(last["duty"])} duty, reads validate '
+        f'&#8805;{int(validated * 10) / 10:.1f}% of the time at every reader count{" in both runs" if two_runs else ""}. Refusals: {refusals}.</text>\n'
+    )
+    if refused_total == 0:
+        svg += (
+            f'  <text x="30" y="{height - 31}" class="t-note">Reclamation frees a parked node once every reader '
+            f'has passed through a quiescent state since it was retired (per-reader walk counters, #594).</text>\n'
+        )
+    svg += (
+        f'  <text x="30" y="{height - 13}" class="t-note">Measured: {esc(meta["host"])} &#183; {runs}, '
+        f'ref {esc(meta["ref"])} &#183; report-only, never gating (workload: {esc(meta["workload_id"])}).</text>\n'
     )
     svg += "</svg>\n"
     write(ASSETS / "bench_sync32_health.svg", svg)

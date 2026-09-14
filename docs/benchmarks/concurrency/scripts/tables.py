@@ -14,6 +14,8 @@ Sections emitted, in README order:
 - `8. Fine-grained write brackets gate` via `fine_grained_brackets_gate.py`
 - `9. Multi-writer OLC gate` via `multi_writer_olc_gate.py`
 - `10. Writer scaling` from `results/baseline_writer_scaling.json`
+- `12. Mixed read/write concurrency` from `results/baseline_concurrent_mixed.json`
+  and its second run, `results/baseline_concurrent_mixed_run2.json`
 
 A missing artifact renders the section's rows as `pending` citing the open
 tracking issue, so the README is correct before the run exists and
@@ -432,6 +434,95 @@ def writer_scaling() -> list[str]:
     return out
 
 
+# ---- 12. mixed read/write concurrency --------------------------------------
+# Report-only: no gate is pre-registered on this instrument, so the section
+# prints intervals and no verdict. The second artifact is a second dispatch of
+# the same commit, and a level or a C(N) is read from both runs (rule 18).
+MIXED_RUNS = ("baseline_concurrent_mixed.json", "baseline_concurrent_mixed_run2.json")
+SYNC32 = "sync32"
+
+
+def _mops_digits(mean: float) -> int:
+    """Decimals for a rate in M ops/s: three significant figures, down to 0.001."""
+    return 0 if mean >= 100 else 1 if mean >= 10 else 2 if mean >= 1 else 3
+
+
+def _mops_iv(cell: dict, prefix: str, at: str) -> str:
+    mean, lo, hi = (need(cell, prefix + k, at) / 1e6 for k in ("mean", "ci_lower", "ci_upper"))
+    d = _mops_digits(mean)
+    return f"{mean:.{d}f} [{lo:.{d}f}, {hi:.{d}f}]"
+
+
+def _c_n_iv(cell: dict, at: str) -> str:
+    if need(cell, "threads", at) == 1:
+        return "—"
+    mean, lo, hi = (need(cell, "scaling_c_n_" + k, at) for k in ("mean", "ci_lower", "ci_upper"))
+    return f"{mean:.2f} [{lo:.2f}, {hi:.2f}]"
+
+
+def _pct(p: float) -> str:
+    return f"{p:.3g}%" if p >= 0.001 else f"{p:.4f}%"
+
+
+def mixed_concurrency() -> list[str]:
+    out = ["## 12. Mixed read/write concurrency — `benches/concurrency.rs` "
+           "(`results/baseline_concurrent_mixed.json`)", ""]
+    arts = [load(SUITE / "results" / name) for name in MIXED_RUNS]
+    cells = [None if art is None else
+             {(c["engine_key"], c["workload"], c["threads"]): c for c in need(art, "throughput", name)}
+             for art, name in zip(arts, MIXED_RUNS)]
+    if cells[0] is not None and cells[1] is not None and set(cells[0]) != set(cells[1]):
+        raise SystemExit(f"{MIXED_RUNS[0]} and {MIXED_RUNS[1]} cover different cells: "
+                         f"{sorted(set(cells[0]) ^ set(cells[1]))}")
+
+    facts = []
+    for label, art, name in zip(("run 1", "run 2"), arts, MIXED_RUNS):
+        if art is None:
+            facts.append(f"{label} {PENDING}")
+            continue
+        prov = need(art, "provenance", name)
+        foreign = max(need(need(c, "load", name), "foreign_busy_cpus", name)
+                      for c in need(art, "throughput", name))
+        facts.append(f"{label} `{name}` at `{str(need(prov, 'commit', name))[:8]}`, pin "
+                     f"`{need(prov, 'core_pin', name)}`, {need(prov, 'rounds', name)} rounds, "
+                     f"largest foreign busy CPUs over a group {foreign:.2f}")
+    out += ["Artifacts: " + "; ".join(facts) + ".", ""]
+
+    out += ["| arm | workload | N | total M ops/s, run 1 [BCa 95%] | run 2 | C(N), run 1 [paired BCa 95%] | run 2 |",
+            "|---|---|--:|---|---|---|---|"]
+    if cells[0] is None:
+        out.append(f"| — | — | — | {PENDING} | pending | pending | pending |")
+    else:
+        for key, c in cells[0].items():
+            if key[0] == SYNC32:
+                continue
+            at, at2 = f"{MIXED_RUNS[0]} {key}", f"{MIXED_RUNS[1]} {key}"
+            other = None if cells[1] is None else cells[1][key]
+            out.append(
+                f"| `{c['engine']}` | {need(c, 'read_pct', at)}% read | {key[2]} "
+                f"| {_mops_iv(c, 'total_ops_s_', at)} "
+                f"| {'pending' if other is None else _mops_iv(other, 'total_ops_s_', at2)} "
+                f"| {_c_n_iv(c, at)} | {'pending' if other is None else _c_n_iv(other, at2)} |")
+
+    out += ["", "| run | writer duty | readers | validated reads M/s [BCa 95%] | writes M/s [BCa 95%] "
+                "| Busy rate | refused writes |",
+            "|---|---|--:|---|---|--:|--:|"]
+    for label, ix, name in zip(("run 1", "run 2"), cells, MIXED_RUNS):
+        rows = [] if ix is None else [(k, c) for k, c in ix.items() if k[0] == SYNC32]
+        if not rows:
+            out.append(f"| {label} | — | — | {PENDING if ix is None else 'not measured'} "
+                       f"| pending | pending | pending |")
+            continue
+        for key, c in rows:
+            at = f"{name} {key}"
+            duty = key[1].split(" / ")[0].removeprefix("writer ").removesuffix(" duty")
+            out.append(
+                f"| {label} | {duty} | {key[2]} | {_mops_iv(c, 'read_ops_s_', at)} "
+                f"| {_mops_iv(c, 'write_ops_s_', at)} | {_pct(need(c, 'busy_pct', at))} "
+                f"| {need(c, 'refused_writes', at):,} |")
+    return out
+
+
 def main() -> int:
     import fine_grained_brackets_gate  # the §8 fine-grained write brackets verdicts, beside this file
     import multi_writer_olc_gate  # the §9 multi-writer OLC verdicts, beside this file
@@ -446,6 +537,7 @@ def main() -> int:
         fine_grained_brackets_gate.render(),
         multi_writer_olc_gate.render(),
         writer_scaling(),
+        mixed_concurrency(),
     ]
     print("\n\n".join("\n".join(b) for b in blocks))
     return 0
