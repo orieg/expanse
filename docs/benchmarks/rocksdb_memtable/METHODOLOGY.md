@@ -688,3 +688,59 @@ This section was written after §5.13 rejected every candidate shape. Under §5.
 - **The free writer:** not swept.
 - **Shared or reader-writer lock:** not an arm here.
 - **Correctness of `kTrieCall`** beyond the argument, the TSan lane and the two mutations above is not established.
+
+### 5.15 Outcomes of the narrowed-mutex arm
+
+*(measured: reference host — Intel i9-12900F, 8P+8E / 24 threads, 30 MiB L3, Linux 6.8; commit `ed2a02b9`; suite `rocksdb_concurrent_narrowed`, lock scopes `full` and `trie` interleaved with idle and paced writers at `R` = 1, 2, 4, 7, 5 rounds per cell, 2.0 s window, paced writer offered 250,000 inserts/s, 80 cells per run; four runs dispatched in sequence after §5.14 merged — `0,2,4,6,8,10,12,14`: [34795076442](https://github.com/orieg/expanse/actions/runs/34795076442), [34795328360](https://github.com/orieg/expanse/actions/runs/34795328360); `0-15`: [34795592230](https://github.com/orieg/expanse/actions/runs/34795592230), [34795837264](https://github.com/orieg/expanse/actions/runs/34795837264); pin source `EXPANSE_BENCH_PIN_APPLIED`; artifacts [`results/baseline_concurrent_reads_narrowed_pin_one_sibling.json`](results/baseline_concurrent_reads_narrowed_pin_one_sibling.json), [`…_pin_one_sibling_run2.json`](results/baseline_concurrent_reads_narrowed_pin_one_sibling_run2.json), [`…_pin_0-15.json`](results/baseline_concurrent_reads_narrowed_pin_0-15.json), [`…_pin_0-15_run2.json`](results/baseline_concurrent_reads_narrowed_pin_0-15_run2.json); verdicts from `python3 scripts/rocksdb_locate_bound.py`.)*
+
+These outcomes are read against §5.14 as merged. No threshold, cell or rule was changed after the runs, and no round from §5.7–§5.13 is pooled in.
+
+**All four runs are admissible.** `narrowed_problems` reports nothing for any of them. Foreign busy CPU peaked at 0.04, 0.16, 0.03 and 0.06 core-equivalents, and `load1` at 2.91, 2.98, 2.97 and 2.93 on 24 logical CPUs.
+
+**Hypothesis N `PASS`es under both pins.**
+
+| pin | idle `S_trie(7) / S_full(7)`, run 1 | run 2 | verdict |
+|---|---|---|---|
+| `0,2,4,6,8,10,12,14` | 1.8692 [1.7927, 1.9379] | 1.7589 [1.6694, 1.8487] | **`PASS`** |
+| `0-15` | 1.7731 [1.6436, 1.8943] | 1.7892 [1.6154, 1.9183] | **`PASS`** |
+
+- **Pin sensitivity:** every one-sibling interval overlaps every `0-15` interval, so no pin effect on the gated ratio is claimed (`docs/BENCHMARKING.md` rule 18).
+- **Against §5.14's expectation:** the expected outcome was `PASS` under both pins, and it was met. The authors had seen every full-scope curve, so this is weaker evidence than a blind result.
+- **Mechanism:** the size of the ratio has no measured mechanism. §5.14 predicted a direction, not a magnitude, and why the trie-call lock gives roughly 1.8× rather than some other factor is unmeasured.
+
+**Reported, not gated.**
+
+| pin | writer | `T(1)` | `S(2)` | `S(4)` | `S(7)` |
+|---|---|---|---|---|---|
+| `0,2,4,6,8,10,12,14` | idle | 1.0109 [1.0061, 1.0170] · 1.0132 [1.0032, 1.0269] | 2.0639 [1.8049, 2.2164] · 1.9442 [1.7314, 2.1361] | 2.1031 [1.7832, 2.2328] · 1.9455 [1.7015, 2.2099] | gated above |
+| `0,2,4,6,8,10,12,14` | paced | 1.0733 [1.0708, 1.0769] · 1.0757 [1.0651, 1.1007] | 2.1790 [2.0153, 2.3432] · 2.2769 [2.0810, 2.4491] | 2.8634 [2.5983, 3.1276] · 2.6002 [2.4040, 2.9739] | 3.1636 [2.8073, 3.5449] · 3.1981 [2.8898, 3.5171] |
+| `0-15` | idle | 1.0082 [1.0049, 1.0108] · 1.0103 [1.0074, 1.0133] | 1.8610 [1.6641, 2.0578] · 1.7119 [1.5820, 1.9236] | 2.1945 [1.8758, 2.3110] · 1.7887 [1.7497, 1.8621] | gated above |
+| `0-15` | paced | 1.0626 [1.0569, 1.0685] · 1.0739 [1.0676, 1.0781] | 2.3417 [2.1519, 2.4153] · 2.1457 [2.0313, 2.2853] | 2.8682 [2.5579, 3.1997] · 2.6294 [2.4595, 2.9180] | 2.7869 [2.3708, 2.9374] · 2.5531 [2.2331, 2.8731] |
+
+Each cell is run 1 · run 2 of the trie/full paired ratio.
+
+- **The `R = 1` control excludes 1 in every idle and paced run.** One reader goes 0.8–1.3% faster idle, and 6–8% faster paced, under `trie`. §5.14 reports this as a single-reader effect of the scope. The gated ratio divides it out. Its cause is unmeasured.
+- **Idle `S(4)` under `0-15` separates between its two runs**: [1.8758, 2.3110] and [1.7497, 1.8621]. It is the only reported ratio that does. The gated `S(7)` overlaps.
+- **The paced writers carried different loads.** At `R = 7` the `full` writer reached 135,750–143,566 inserts/s under the one-sibling pin and 201,203–216,810 under `0-15`. The `trie` writer held 249,974–249,985 in every run. Paced ratios therefore mix the reader effect with a heavier writer load on the `trie` side, which is why §5.14 does not gate them. No paced cell was flagged above the offered rate or exhausted.
+
+**What the scope does to the curve** (read Mops/s, mean of 5 rounds, run 1 of each pin; `S(7)` with its interval for both runs).
+
+| pin | scope | writer | `R=1` | `R=2` | `R=4` | `R=7` | `S(7)` run 1 · run 2 |
+|---|---|---|---|---|---|---|---|
+| `0,2,4,6,8,10,12,14` | `full` | idle | 4.056 | 3.025 | 2.811 | 2.472 | 0.609 [0.597, 0.627] · 0.636 [0.635, 0.638] |
+| `0,2,4,6,8,10,12,14` | `trie` | idle | 4.100 | 6.296 | 5.974 | 4.671 | 1.139 [1.083, 1.191] · 1.119 [1.062, 1.176] |
+| `0-15` | `full` | idle | 4.072 | 3.083 | 2.761 | 2.546 | 0.625 [0.615, 0.634] · 0.615 [0.595, 0.631] |
+| `0-15` | `trie` | idle | 4.106 | 5.776 | 6.106 | 4.557 | 1.110 [1.013, 1.198] · 1.098 [1.021, 1.177] |
+
+- **Adding readers now adds throughput.** Under `full` the idle curve is retrograde in all four runs. Under `trie`, idle `S(7)` sits above 1 with its lower bound above 1 in all four runs.
+- **The `trie` curve still falls after `R = 2` or `R = 4`,** so it is not linear scaling. What bounds it is unmeasured: the trie call is still serialised, and the writer mutex still covers `Insert`.
+- **Not comparable to earlier sections:** these `full` curves are at `ed2a02b9`, not §5.10's `0ed8f5e5`, and are not compared to them (§5.14).
+
+**Consequence (§5.14).** `PASS` under both pins means a separate change may propose `kTrieCall` as the default, with its own review of the soundness argument in `SettleSeekCandidate`. That change is a promotion under AGENTS.md §2.7: it meets a pre-registered single-threaded bound before any wall-clock run, and keeps `kFullLocate` selectable so the default can itself be compared. This section changes no default. Ordered navigation on the OCC surface (#900) is the next arm.
+
+**What is not established.**
+
+- **Correctness of `kTrieCall`:** nothing beyond the argument, the TSan lane and the two §2.3 mutations in §5.14. No linearizability checker has run on it.
+- **`Contains`, `IteratorImpl::Seek` and the free writer:** not measured.
+- **Mechanism:** none is attributed. No counters were collected on either scope, so neither the size of the gain, the single-reader control's effect, nor the paced writer's rate difference has a measured cause.
+- **What the scope branch costs the default path:** #922 added a runtime branch on the scope to `FindLeafBlockForSeek`, which `kFullLocate` takes too (AGENTS.md §2.1.5). `T(1)` compares the two scopes at `ed2a02b9`; it does not compare `kFullLocate` before and after #922, so that cost on a single-threaded read is unmeasured.
