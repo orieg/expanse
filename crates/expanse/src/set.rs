@@ -1948,6 +1948,141 @@ mod tests {
         assert!(crate::alloc::bracket_stack::open().is_empty());
     }
 
+    /// The insert-path cache records the root edge slot among a warm
+    /// terminal's ancestors, and that slot lives in the set, not in a trie
+    /// node: once the set moves, the entry names memory the set has left. It
+    /// is never dereferenced, because the root is always a level-8 branch (so
+    /// the entry is recorded at level 8) and `bump_pop0` ignores levels above
+    /// 7. The cache is warmed in a helper whose frame then ends, and the set
+    /// is moved into a `Box` and later out of it, which frees the box. Flushes
+    /// then run with the stale entry recorded — select and the bitmap leaf's
+    /// conversion to a full expanse inside the bypass after the first move, a
+    /// removal after the second — and population, select and the validator
+    /// are checked against a model. Miri reports a dereference of the stale
+    /// entry as a use-after-free; natively the test pins the recorded levels
+    /// and the results. Sized for Miri.
+    #[test]
+    fn warm_insert_path_across_a_move() {
+        /// Address of the root edge slot while the root is a tree.
+        fn root_slot(s: &ExpanseSet) -> *const Edge {
+            match &s.root {
+                Root::Tree { top } => core::ptr::from_ref(top),
+                _ => panic!("root must be a tree"),
+            }
+        }
+        /// The cache's one level-8 entry; every other ancestor must sit at a
+        /// level in `2..=7`.
+        fn root_entry(p: &crate::mutate::InsertPath) -> *const Edge {
+            assert!(
+                p.depth >= 2,
+                "the cache must hold a terminal and its ancestors"
+            );
+            let (edges, levels) = (&p.edges[1..p.depth], &p.levels[1..p.depth]);
+            assert!(
+                levels.iter().all(|l| (2..=8).contains(l)),
+                "ancestor levels {levels:?}"
+            );
+            let mut at_8 = edges.iter().zip(levels).filter(|&(_, &l)| l == 8);
+            let (&root, _) = at_8
+                .next()
+                .expect("the root slot must be recorded at level 8");
+            assert!(at_8.next().is_none(), "only the root slot sits at level 8");
+            root.cast_const()
+        }
+        /// Population, select over every rank, and the validator. Select reads
+        /// the ancestors' `pop0`, so its first call flushes the cache.
+        fn check(s: &ExpanseSet, model: &BTreeSet<u64>) {
+            for (n, &k) in model.iter().enumerate() {
+                assert_eq!(s.by_count(n as u64), Some(k), "by_count({n})");
+            }
+            assert_eq!(s.by_count(model.len() as u64), None);
+            assert_eq!(s.len(), model.len() as u64);
+            s.validate();
+        }
+        /// Inserts `keys`, each of which must take the bypass: it is the only
+        /// path that adds to `pending_pop` without flushing it.
+        fn insert_warm(
+            s: &mut ExpanseSet,
+            model: &mut BTreeSet<u64>,
+            keys: impl Iterator<Item = u64>,
+        ) {
+            for k in keys {
+                let pending = s.path_mut().pending_pop;
+                assert!(s.insert(k));
+                model.insert(k);
+                assert_eq!(
+                    s.path_mut().pending_pop,
+                    pending + 1,
+                    "insert({k:#x}) left the warm path"
+                );
+            }
+        }
+        fn warmed() -> (ExpanseSet, BTreeSet<u64>, *const Edge) {
+            let mut s = ExpanseSet::new();
+            let mut model = BTreeSet::new();
+            // Blocks 0 and 1 in full, past ROOT_LEAF_CAP, so the root is a
+            // tree; then 32 even digits of block 2, past LEAF1_CAP, which
+            // leave the cache on block 2's bitmap leaf.
+            for k in (0..0x200u64).chain((0x200..0x240).step_by(2)) {
+                assert!(s.insert(k));
+                model.insert(k);
+            }
+            let root = root_slot(&s);
+            let p = s.path_mut();
+            assert_eq!(p.prefix, 2, "insert must leave the cache on block 2");
+            assert!(!p.leaf.is_null(), "block 2 must be cached as a bitmap leaf");
+            assert!(
+                core::ptr::eq(root_entry(p), root),
+                "the level-8 entry is the root slot"
+            );
+            (s, model, root)
+        }
+
+        // The frame that recorded the root slot has ended, and the box moves
+        // the set again.
+        let (s, mut model, recorded) = warmed();
+        let mut s = Box::new(s);
+        assert!(!core::ptr::eq(root_slot(&s), recorded));
+        assert!(core::ptr::eq(root_entry(s.path_mut()), recorded));
+        insert_warm(&mut s, &mut model, (0x201..0x240).step_by(2));
+        check(&s, &model);
+        assert_eq!(s.path_mut().pending_pop, 0, "select must flush the cache");
+        assert!(core::ptr::eq(root_entry(s.path_mut()), recorded));
+        // The rest of block 2 through the bypass; the key that completes it
+        // turns the bitmap leaf into a full expanse, which flushes the cache
+        // before freeing the leaf and clears it after.
+        insert_warm(&mut s, &mut model, 0x240..0x2FF);
+        assert!(s.insert(0x2FF));
+        model.insert(0x2FF);
+        assert_eq!(
+            s.path_mut().prefix,
+            u64::MAX,
+            "the full expanse must clear the cache"
+        );
+        check(&s, &model);
+
+        // A cold descent records the root slot inside the box; moving the set
+        // out frees the box with the entry still naming it.
+        for k in (0x300..0x340u64).step_by(2) {
+            assert!(s.insert(k));
+            model.insert(k);
+        }
+        let recorded = root_slot(&s);
+        assert!(core::ptr::eq(root_entry(s.path_mut()), recorded));
+        let mut s = {
+            let boxed = s;
+            *boxed
+        };
+        assert!(!core::ptr::eq(root_slot(&s), recorded));
+        assert!(core::ptr::eq(root_entry(s.path_mut()), recorded));
+        insert_warm(&mut s, &mut model, (0x301..0x340).step_by(2));
+        // A removal clears the cache, flushing it first.
+        assert!(s.remove(0x301));
+        model.remove(&0x301);
+        assert_eq!(s.path_mut().prefix, u64::MAX, "remove must clear the cache");
+        check(&s, &model);
+    }
+
     #[cfg(miri)]
     const OPS: usize = 250;
     #[cfg(not(miri))]
