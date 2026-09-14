@@ -457,6 +457,12 @@ jobs:
           # the artifact shape check_bench_provenance.py reads are all checkable
           # without the reference host.
           python3 docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py --self-test
+          # The mixed read/write concurrency driver over benches/concurrency.rs
+          # (#568): its sample validation and refusals, the Williams position
+          # and carryover balance it requires of a run, its per-cell BCa
+          # intervals and paired C(N), and the artifact checked by
+          # check_bench_provenance.py's own code, all without Cargo.
+          python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --self-test
           # The ESP32 harvester. Its self-test was reachable only from
           # `gate.sh` -- no workflow ran it -- because it needed numpy, which no
           # job installs. It no longer does: the harvester delegates its

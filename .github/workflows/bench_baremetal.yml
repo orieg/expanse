@@ -931,11 +931,14 @@ jobs:
                 cargo bench --bench ycsb -p expanse-trie | tee ycsb.txt
                 ;;
               "concurrency")
-                # Wall-clock Sync* scaling instrument (benches/concurrency.rs,
-                # harness = false; configured via env, not CLI args). Reduced
-                # sweep to stay within the job window; report-only.
-                EXPANSE_BENCH_THREADS="1,4,16" EXPANSE_BENCH_WORKLOADS="100,50" \
-                  cargo bench --bench concurrency -p expanse-trie | tee concurrency.txt
+                # Mixed read/write Sync* instrument: benches/concurrency.rs run
+                # through mixed_concurrency.py, which pins, interleaves the
+                # thread counts in barrier-started rounds, puts BCa intervals on
+                # every cell and writes the artifact. Reduced sweep to stay
+                # within the job window; report-only.
+                python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py \
+                  --threads 1,4,16 --workloads 100,50 --engines all \
+                  --out docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json | tee concurrency.txt
                 ;;
               "writer_scaling")
                 # Expanse-native multi-writer scaling sweep (Phase 1.5D, Refs #568)
@@ -1504,6 +1507,7 @@ jobs:
             docs/benchmarks/concurrency/results/ablation_epoch_writer_scaling.json
             docs/benchmarks/concurrency/results/ablation_freelist_writer_scaling.json
             docs/benchmarks/concurrency/results/ablation_unstriped_freelist_writer_scaling.json
+            docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json
             ycsb.txt
             comparative.txt
             bytes-per-key.txt

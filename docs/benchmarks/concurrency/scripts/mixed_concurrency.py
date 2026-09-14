@@ -1,0 +1,546 @@
+#!/usr/bin/env python3
+"""Mixed read/write concurrency instrument over `crates/expanse/benches/concurrency.rs` (Refs #568).
+
+The bench measures each engine and read/write mix in interleaved rounds of
+500 ms windows: one window per thread count per round, in a Williams order,
+each window started at a barrier after its threads' setup and divided by its
+own elapsed time. This driver turns those windows into an artifact a gate can
+be read from (`METHODOLOGY.md` §10.3):
+
+- applies the reference-host core pin (`scripts/bench_pin.py`) before building
+  or running anything;
+- builds the bench once and runs it once per (engine, workload) group, with a
+  load snapshot around each group (`bench_provenance.begin_cell` / `end_cell`);
+- refuses a run whose windows miss a requested thread count, or whose rounds
+  do not form a balanced Williams design (every thread count in every position,
+  and after every other thread count, equally often);
+- reports, per (engine, workload, threads) cell, the mean read, write and total
+  ops/s with BCa 95% intervals (`scripts/bca_bootstrap.py`), their medians, and
+  every window under `rounds_raw`;
+- reports the scaling factor C(N) = T(N) / T(1), paired within each round, with
+  its BCa 95% interval;
+- refuses fewer than 15 rounds unless `--quick`, which writes under
+  `results/quick/` and never to a committed artifact (AGENTS.md §8.5);
+- runs `scripts/check_bench_provenance.py`'s own checks on the artifact before
+  writing it.
+
+Usage:
+    python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py \\
+        --out docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json
+    python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --quick --engines map
+    python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --self-test
+
+`--self-test` runs without Cargo and is run by CI's `lint` job.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+
+import bench_pin  # noqa: E402
+import bca_bootstrap  # noqa: E402
+import check_bench_provenance  # noqa: E402
+from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
+from bench_provenance import add_load, begin_cell, end_cell, new_provenance  # noqa: E402
+
+CI_METHODS = frozenset(
+    v for k, v in vars(bca_bootstrap).items()
+    if k.startswith("CI_METHOD_") and isinstance(v, str)
+)
+
+HARNESS = "crates/expanse/benches/concurrency.rs"
+WORKLOAD_ID = "core_concurrency"
+WINDOW_MS = 500
+# METHODOLOGY.md §10.3: `benches/concurrency.rs` is an instrument only with at
+# least 15 windows per cell.
+MIN_ROUNDS = 15
+ENGINE_KEYS = (
+    "map", "set", "blob", "blob_mutex", "blob_rwlock_btree", "blob_skiplist",
+    "str", "str_mutex", "bytes", "bytes_mutex", "str_dashmap", "sync32",
+)
+SYNC32 = "sync32"
+DEFAULT_OUT = REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "baseline_concurrent_mixed.json"
+QUICK_OUT = REPO_ROOT / "results" / "quick" / "concurrent_mixed.json"
+RATIO = (
+    "C(N) = T(N) / T(1), paired within an interleaved round; T is (read + write) "
+    "operations per second over one window's own elapsed time"
+)
+LOAD_SCOPE = (
+    "engine and workload group: its thread counts run interleaved in one process, "
+    "so every cell of the group carries the group's load"
+)
+SAMPLE_KEYS = (
+    "workload_id", "engine_key", "engine", "workload", "read_pct", "write_rate",
+    "threads", "round", "position", "elapsed_s", "read_ops", "write_ops",
+    "busy", "ok", "refused",
+)
+RAW_KEYS = ("round", "position", "elapsed_s", "read_ops", "write_ops", "busy", "ok", "refused")
+
+
+class InstrumentError(RuntimeError):
+    """A run that cannot produce a publishable artifact (AGENTS.md §8.1)."""
+
+
+def williams_period(n_levels: int) -> int:
+    """Rounds in one full Williams cycle over `n_levels` thread counts."""
+    return n_levels if n_levels % 2 == 0 else 2 * n_levels
+
+
+def williams_order(n_levels: int, round_idx: int) -> list[int]:
+    """Row `round_idx` of the Williams design `benches/concurrency.rs` runs.
+
+    Used by the self-test to build synthetic windows; a real run is checked for
+    the design's balance property instead, so this copy cannot mask a harness
+    that orders its windows differently.
+    """
+    if n_levels == 0:
+        return []
+    base = [0 if k == 0 else ((k + 1) // 2 if k % 2 == 1 else n_levels - k // 2)
+            for k in range(n_levels)]
+    period = williams_period(n_levels)
+    row = round_idx % period
+    order = [(b + row % n_levels) % n_levels for b in base]
+    if row >= n_levels:
+        order.reverse()
+    return order
+
+
+def resolve_rounds(requested: int | None, n_levels: int, quick: bool) -> int:
+    """The round count: a whole number of Williams cycles, at least 15 unless quick."""
+    period = williams_period(n_levels)
+    if requested is None:
+        floor = 3 if quick else MIN_ROUNDS
+        return period * -(-floor // period)
+    if requested % period:
+        raise InstrumentError(
+            f"--rounds {requested} is not a whole number of Williams cycles "
+            f"({period} rounds for {n_levels} thread counts); position and carryover "
+            f"balance would be incomplete"
+        )
+    if not quick and requested < MIN_ROUNDS:
+        raise InstrumentError(
+            f"--rounds {requested} is below the {MIN_ROUNDS} windows per cell METHODOLOGY.md "
+            f"§10.3 requires; use --quick for a scratch run"
+        )
+    if requested < 3:
+        raise InstrumentError("a BCa interval needs at least 3 windows per cell")
+    return requested
+
+
+def resolve_out(out: str | None, quick: bool) -> Path:
+    """The artifact path; a quick run may not write a committed results file."""
+    path = Path(out).resolve() if out else (QUICK_OUT if quick else DEFAULT_OUT)
+    committed = (REPO_ROOT / "docs" / "benchmarks").resolve()
+    if quick and committed in path.parents:
+        raise InstrumentError(
+            f"--quick may not write under docs/benchmarks/ ({path}); quick runs go to "
+            f"results/quick/ (AGENTS.md §8.5)"
+        )
+    return path
+
+
+def parse_csv_ints(text: str, what: str) -> list[int]:
+    try:
+        values = [int(p) for p in text.split(",") if p.strip()]
+    except ValueError as exc:
+        raise InstrumentError(f"{what} must be comma-separated integers: {text!r}") from exc
+    if not values:
+        raise InstrumentError(f"{what} must not be empty")
+    return values
+
+
+def parse_engines(text: str) -> list[str]:
+    keys = list(ENGINE_KEYS) if text == "all" else [k.strip() for k in text.split(",") if k.strip()]
+    unknown = [k for k in keys if k not in ENGINE_KEYS]
+    if unknown or not keys:
+        raise InstrumentError(f"unknown engine key(s) {unknown}; known: {', '.join(ENGINE_KEYS)}")
+    return keys
+
+
+def build_bench() -> Path:
+    """Builds the bench once and returns its executable."""
+    cmd = ["cargo", "bench", "-p", "expanse-trie", "--bench", "concurrency", "--no-run",
+           "--message-format=json-render-diagnostics"]
+    proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise InstrumentError(f"`{' '.join(cmd)}` failed:\n{proc.stderr[-4000:]}")
+    exe = None
+    for line in proc.stdout.splitlines():
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if (msg.get("reason") == "compiler-artifact"
+                and msg.get("target", {}).get("name") == "concurrency"
+                and msg.get("executable")):
+            exe = msg["executable"]
+    if not exe:
+        raise InstrumentError("cargo reported no `concurrency` bench executable")
+    return Path(exe)
+
+
+def run_group(exe: Path, key: str, read_pct: int | None, threads: list[int], rounds: int,
+              samples: Path) -> None:
+    """Runs one engine and workload group of the bench, windows to `samples`."""
+    env = dict(os.environ)
+    env.update({
+        "EXPANSE_BENCH_ENGINES": key,
+        "EXPANSE_BENCH_THREADS": ",".join(str(t) for t in threads),
+        "EXPANSE_BENCH_ROUNDS": str(rounds),
+        "EXPANSE_BENCH_SAMPLES": str(samples),
+    })
+    if read_pct is not None:
+        env["EXPANSE_BENCH_WORKLOADS"] = str(read_pct)
+    proc = subprocess.run([str(exe)], cwd=REPO_ROOT / "crates" / "expanse", env=env,
+                          capture_output=True, text=True)
+    sys.stdout.write(proc.stdout)
+    if proc.returncode != 0:
+        raise InstrumentError(
+            f"bench group {key} (read {read_pct}%) exited {proc.returncode}:\n{proc.stderr[-4000:]}"
+        )
+
+
+def read_samples(path: Path) -> list[dict[str, Any]]:
+    """Every window the bench appended, validated field by field."""
+    if not path.is_file():
+        raise InstrumentError(f"the bench wrote no samples file ({path})")
+    rows = []
+    for n, line in enumerate(path.read_text().splitlines(), start=1):
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        missing = [k for k in SAMPLE_KEYS if k not in row]
+        if missing:
+            raise InstrumentError(f"{path}:{n}: sample lacks {missing}")
+        if row["workload_id"] != WORKLOAD_ID:
+            raise InstrumentError(f"{path}:{n}: workload_id {row['workload_id']!r} is not {WORKLOAD_ID!r}")
+        if not (isinstance(row["elapsed_s"], (int, float)) and row["elapsed_s"] > 0):
+            raise InstrumentError(f"{path}:{n}: elapsed_s {row['elapsed_s']!r} is not positive")
+        rows.append(row)
+    if not rows:
+        raise InstrumentError(f"the bench wrote an empty samples file ({path})")
+    return rows
+
+
+def balance_problems(rows: list[dict[str, Any]], threads: list[int], rounds: int) -> list[str]:
+    """Whether one table's windows form a balanced Williams design.
+
+    Over whole cycles every thread count must take every position `rounds / n`
+    times and directly follow every other thread count `rounds / n` times.
+    """
+    n = len(threads)
+    problems = []
+    by_round: dict[int, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_round.setdefault(row["round"], []).append(row)
+    if sorted(by_round) != list(range(rounds)):
+        problems.append(f"rounds {sorted(by_round)} are not 0..{rounds - 1}")
+        return problems
+    positions: dict[tuple[int, int], int] = {}
+    follows: dict[tuple[int, int], int] = {}
+    for round_idx, windows in sorted(by_round.items()):
+        windows = sorted(windows, key=lambda w: w["position"])
+        if [w["position"] for w in windows] != list(range(n)):
+            problems.append(f"round {round_idx}: positions {[w['position'] for w in windows]} are not 0..{n - 1}")
+            continue
+        if sorted(w["threads"] for w in windows) != sorted(threads):
+            problems.append(f"round {round_idx}: thread counts {[w['threads'] for w in windows]} are not {threads}")
+            continue
+        for w in windows:
+            positions[(w["threads"], w["position"])] = positions.get((w["threads"], w["position"]), 0) + 1
+        for a, b in zip(windows, windows[1:]):
+            follows[(a["threads"], b["threads"])] = follows.get((a["threads"], b["threads"]), 0) + 1
+    if problems:
+        return problems
+    if rounds % williams_period(n):
+        return [f"{rounds} rounds are not a whole number of Williams cycles for {n} thread counts"]
+    expected = rounds // n
+    uneven = {k: v for k, v in positions.items() if v != expected}
+    if uneven or len(positions) != n * n:
+        problems.append(f"position balance: expected every (threads, position) {expected} times, got {positions}")
+    if n > 1:
+        uneven_follow = {k: v for k, v in follows.items() if v != expected}
+        if uneven_follow or len(follows) != n * (n - 1):
+            problems.append(f"carryover balance: expected every ordered pair {expected} times, got {follows}")
+    return problems
+
+
+def _median(values: list[float]) -> float:
+    s = sorted(values)
+    mid = len(s) // 2
+    return s[mid] if len(s) % 2 else (s[mid - 1] + s[mid]) / 2
+
+
+def summarize_cell(rows: list[dict[str, Any]], base: dict[int, float] | None,
+                   load: dict[str, Any]) -> dict[str, Any]:
+    """One (engine, workload, threads) cell from its windows."""
+    rows = sorted(rows, key=lambda r: r["round"])
+    first = rows[0]
+    read = [r["read_ops"] / r["elapsed_s"] for r in rows]
+    write = [r["write_ops"] / r["elapsed_s"] for r in rows]
+    total = [a + b for a, b in zip(read, write)]
+    read_mean, read_lo, read_hi, read_method = bca_bootstrap_ci_with_method(read, confidence=0.95)
+    write_mean, write_lo, write_hi, write_method = bca_bootstrap_ci_with_method(write, confidence=0.95)
+    total_mean, total_lo, total_hi, total_method = bca_bootstrap_ci_with_method(total, confidence=0.95)
+    cell: dict[str, Any] = {
+        "workload_id": WORKLOAD_ID,
+        "engine_key": first["engine_key"],
+        "engine": first["engine"],
+        "workload": first["workload"],
+        "read_pct": first["read_pct"],
+        "write_rate": first["write_rate"],
+        "threads": first["threads"],
+        "rounds": len(rows),
+        "window_ms": WINDOW_MS,
+        "read_ops_s_mean": read_mean,
+        "read_ops_s_ci_lower": read_lo,
+        "read_ops_s_ci_upper": read_hi,
+        "read_ops_s_ci_method": read_method,
+        "read_ops_s_median": _median(read),
+        "write_ops_s_mean": write_mean,
+        "write_ops_s_ci_lower": write_lo,
+        "write_ops_s_ci_upper": write_hi,
+        "write_ops_s_ci_method": write_method,
+        "write_ops_s_median": _median(write),
+        "total_ops_s_mean": total_mean,
+        "total_ops_s_ci_lower": total_lo,
+        "total_ops_s_ci_upper": total_hi,
+        "total_ops_s_ci_method": total_method,
+        "total_ops_s_median": _median(total),
+    }
+    if first["engine_key"] == SYNC32:
+        busy = sum(r["busy"] for r in rows)
+        attempts = busy + sum(r["ok"] for r in rows)
+        cell["busy_pct"] = 100.0 * busy / attempts if attempts else 0.0
+        cell["refused_writes"] = sum(r["refused"] for r in rows)
+    if base is not None and first["threads"] != 1:
+        ratios = [t / base[r["round"]] for t, r in zip(total, rows)]
+        scale_mean, scale_lo, scale_hi, scale_method = bca_bootstrap_ci_with_method(ratios, confidence=0.95)
+        cell.update({
+            "scaling_c_n_mean": scale_mean,
+            "scaling_c_n_ci_lower": scale_lo,
+            "scaling_c_n_ci_upper": scale_hi,
+            "scaling_c_n_ci_method": scale_method,
+            "scaling_c_n_median": _median(ratios),
+        })
+    cell["load"] = dict(load, scope=LOAD_SCOPE)
+    cell["rounds_raw"] = [{k: r[k] for k in RAW_KEYS} for r in rows]
+    return cell
+
+
+def summarize_group(rows: list[dict[str, Any]], threads: list[int], rounds: int,
+                    load: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every cell of one bench group; refuses a missing thread count or an unbalanced order."""
+    tables: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in rows:
+        tables.setdefault((row["engine_key"], row["workload"]), []).append(row)
+    cells = []
+    for (key, workload), table in tables.items():
+        seen = sorted({r["threads"] for r in table})
+        if seen != sorted(threads):
+            raise InstrumentError(
+                f"{key} ({workload}): windows cover thread counts {seen}, not {sorted(threads)} — "
+                f"the bench drops thread counts above the CPUs it may use"
+            )
+        problems = balance_problems(table, threads, rounds)
+        if problems:
+            raise InstrumentError(f"{key} ({workload}): " + "; ".join(problems))
+        base = None
+        if 1 in threads:
+            base = {}
+            for r in table:
+                if r["threads"] == 1:
+                    base[r["round"]] = (r["read_ops"] + r["write_ops"]) / r["elapsed_s"]
+            if any(v <= 0 for v in base.values()):
+                raise InstrumentError(f"{key} ({workload}): a one-thread window measured no operations")
+        for t in threads:
+            cells.append(summarize_cell([r for r in table if r["threads"] == t], base, load))
+    return cells
+
+
+def artifact_problems(path: Path, artifact: dict[str, Any]) -> list[str]:
+    """`check_bench_provenance.py`'s findings for this artifact, as it will be checked in CI."""
+    try:
+        rel = str(path.resolve().relative_to((REPO_ROOT / "docs" / "benchmarks").resolve()))
+    except ValueError:
+        rel = path.name
+    return check_bench_provenance.findings_for(rel, artifact)
+
+
+def run(args: argparse.Namespace) -> int:
+    threads = parse_csv_ints(args.threads, "--threads")
+    workloads = parse_csv_ints(args.workloads, "--workloads")
+    if any(not 0 <= w <= 100 for w in workloads):
+        raise InstrumentError("--workloads are read percentages (0-100)")
+    engines = parse_engines(args.engines)
+    rounds = resolve_rounds(args.rounds, len(threads), args.quick)
+    out = resolve_out(args.out, args.quick)
+
+    pin = bench_pin.apply("mixed_concurrency.py")
+    exe = build_bench()
+    prov = new_provenance(
+        suite="concurrency",
+        issue=568,
+        ratio=RATIO,
+        repo_root=REPO_ROOT,
+        core_pin=pin,
+        harness=HARNESS,
+        window_ms=WINDOW_MS,
+        rounds=rounds,
+        threads=threads,
+    )
+    print(f"core pin: {pin} | threads {threads} | rounds {rounds} | engines {engines}")
+    cells: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for key in engines:
+            for read_pct in ([None] if key == SYNC32 else workloads):
+                label = f"group:{key}" + ("" if read_pct is None else f":R{read_pct}")
+                samples = Path(tmp) / (label.replace(":", "_") + ".jsonl")
+                start = begin_cell(prov, label)
+                run_group(exe, key, read_pct, threads, rounds, samples)
+                load = end_cell(start)
+                cells.extend(summarize_group(read_samples(samples), threads, rounds, load))
+    add_load(prov, "end")
+    artifact = {"provenance": prov, "throughput": cells}
+    problems = artifact_problems(out, artifact)
+    if problems:
+        raise InstrumentError("artifact would fail check_bench_provenance.py:\n  " + "\n  ".join(problems))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(artifact, indent=2) + "\n")
+    print(f"Wrote artifact to {out.relative_to(REPO_ROOT) if REPO_ROOT in out.parents else out}")
+    return 0
+
+
+def _synthetic_rows(key: str, workload: str, read_pct: int | None, threads: list[int],
+                    rounds: int) -> list[dict[str, Any]]:
+    rows = []
+    for round_idx in range(rounds):
+        for position, idx in enumerate(williams_order(len(threads), round_idx)):
+            t = threads[idx]
+            jitter = 1.0 + 0.01 * ((round_idx * 7 + position * 3) % 5)
+            rows.append({
+                "workload_id": WORKLOAD_ID, "engine_key": key, "engine": key.upper(),
+                "workload": workload, "read_pct": read_pct, "write_rate": None,
+                "threads": t, "round": round_idx, "position": position,
+                "elapsed_s": 0.5 + 0.001 * position,
+                "read_ops": int(1_000_000 * t ** 0.8 * jitter),
+                "write_ops": int(400_000 * t ** 0.5 * jitter),
+                "busy": 3 * t if key == SYNC32 else 0,
+                "ok": int(1_000_000 * t ** 0.8 * jitter) if key == SYNC32 else 0,
+                "refused": 0,
+            })
+    return rows
+
+
+def self_test() -> int:
+    """Checks the design helpers, the cell summaries and the artifact contract without Cargo."""
+    def expect_error(fn, *args, what: str) -> None:
+        try:
+            fn(*args)
+        except InstrumentError:
+            return
+        raise AssertionError(f"expected InstrumentError: {what}")
+
+    # Williams rows: the textbook rows for 4 and the mirrored second half for 3.
+    assert [williams_order(4, r) for r in range(4)] == [[0, 1, 3, 2], [1, 2, 0, 3], [2, 3, 1, 0], [3, 0, 2, 1]]
+    assert williams_order(3, 0) == [0, 1, 2] and williams_order(3, 3) == list(reversed(williams_order(3, 0)))
+    assert williams_period(3) == 6 and williams_period(4) == 4
+
+    # Round resolution: whole cycles, at least 15 for a committed artifact.
+    assert resolve_rounds(None, 3, quick=False) == 18
+    assert resolve_rounds(None, 5, quick=False) == 20
+    assert resolve_rounds(None, 3, quick=True) == 6
+    expect_error(resolve_rounds, 12, 3, False, what="12 rounds below the §10.3 floor")
+    expect_error(resolve_rounds, 20, 3, False, what="20 rounds is not whole cycles of 6")
+    expect_error(resolve_out, str(DEFAULT_OUT), True, what="quick run writing a committed artifact")
+
+    threads = [1, 2, 4]
+    rounds = 18
+    load = {"since": "group:map:R50", "wall_s": 27.0, "busy_cpus_since_prev": 4.0,
+            "own_busy_cpus": 4.0, "foreign_busy_cpus": 0.0}
+    rows = _synthetic_rows("map", "50% Read / 50% Write", 50, threads, rounds)
+    assert balance_problems(rows, threads, rounds) == []
+    cells = summarize_group(rows, threads, rounds, load)
+    assert [c["threads"] for c in cells] == threads
+    for c in cells:
+        assert len(c["rounds_raw"]) == rounds and set(c["rounds_raw"][0]) == set(RAW_KEYS)
+        for prefix in ("read_ops_s_", "write_ops_s_", "total_ops_s_"):
+            assert c[prefix + "ci_lower"] <= c[prefix + "mean"] <= c[prefix + "ci_upper"], c
+            assert c[prefix + "ci_method"] in CI_METHODS, c[prefix + "ci_method"]
+        assert c["load"]["foreign_busy_cpus"] == 0.0 and c["load"]["scope"] == LOAD_SCOPE
+    assert "scaling_c_n_mean" not in cells[0]
+    assert cells[2]["scaling_c_n_ci_method"] in CI_METHODS and cells[2]["scaling_c_n_mean"] > 1.0
+
+    # The sync32 group: several duty tables in one process, busy telemetry kept.
+    s32 = (_synthetic_rows(SYNC32, "writer full duty / N readers try_get", None, threads, rounds)
+           + _synthetic_rows(SYNC32, "writer 10k/s / N readers try_get", None, threads, rounds))
+    s32_cells = summarize_group(s32, threads, rounds, load)
+    assert len(s32_cells) == 2 * len(threads) and all("busy_pct" in c for c in s32_cells)
+
+    # Negative controls: a dropped thread count, a swapped order, a zero window.
+    expect_error(summarize_group, [r for r in rows if r["threads"] != 4], threads, rounds, load,
+                 what="a thread count the bench dropped")
+    swapped = [dict(r) for r in rows]
+    for r in swapped:
+        if r["round"] == 0 and r["position"] in (0, 1):
+            r["position"] = 1 - r["position"]
+    assert balance_problems(swapped, threads, rounds), "a swapped round must break position balance"
+    with tempfile.TemporaryDirectory() as tmp:
+        bad = Path(tmp) / "zero.jsonl"
+        bad.write_text(json.dumps(dict(rows[0], elapsed_s=0)) + "\n")
+        expect_error(read_samples, bad, what="a window with zero elapsed time")
+        expect_error(read_samples, Path(tmp) / "absent.jsonl", what="a missing samples file")
+
+    # The artifact contract, checked by the gate's own code: provenance, rounds,
+    # per-cell attribution and construction labels.
+    prov = new_provenance(suite="concurrency", issue=568, ratio=RATIO, repo_root=REPO_ROOT,
+                          core_pin="self-test", harness=HARNESS, window_ms=WINDOW_MS,
+                          rounds=rounds, threads=threads)
+    add_load(prov, "end")
+    artifact = {"provenance": prov, "throughput": cells + s32_cells}
+    problems = artifact_problems(DEFAULT_OUT, artifact)
+    assert problems == [], problems
+    no_load = {"provenance": prov, "throughput": [{k: v for k, v in c.items() if k != "load"} for c in cells]}
+    assert artifact_problems(DEFAULT_OUT, no_load), "cells without load attribution must fail the gate"
+    source = Path(__file__).read_text()
+    assert check_bench_provenance.producer_problems(
+        "docs/benchmarks/concurrency/scripts/mixed_concurrency.py", source) == []
+
+    print("mixed_concurrency.py self-test PASSED")
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--threads", default="1,2,4,8,16", help="thread counts (comma-separated)")
+    ap.add_argument("--workloads", default="100,95,50", help="read percentages (comma-separated)")
+    ap.add_argument("--engines", default="map,set",
+                    help=f"engine keys (comma-separated) or 'all': {', '.join(ENGINE_KEYS)}")
+    ap.add_argument("--rounds", type=int, default=None,
+                    help="rounds per group; whole Williams cycles, at least 15 unless --quick")
+    ap.add_argument("--out", default=None, help="artifact path")
+    ap.add_argument("--quick", action="store_true",
+                    help="scratch run: one or more short cycles, written under results/quick/")
+    ap.add_argument("--self-test", action="store_true", help="run the self-test and exit")
+    args = ap.parse_args()
+    if args.self_test:
+        return self_test()
+    try:
+        return run(args)
+    except InstrumentError as exc:
+        sys.stderr.write(f"mixed_concurrency.py: {exc}\n")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
