@@ -98,6 +98,22 @@ ABLATION_ARMS = {
 # For these, the reported scaling ratio is C_default(W) / C_variant(W) (§8.20.7).
 INVERSE_ABLATIONS = {"ablation-unstriped-freelist"}
 
+
+def ratio_description(variant_list: list[str]) -> str:
+    """The `provenance.estimators.ratio` text for a comparison run.
+
+    Names the ratio each variant's comparison reports, in that comparison's own
+    direction: an inverse ablation reports C_default(W) / C_variant(W).
+    """
+    clauses = [
+        f"{v}: C_default(W) / C_variant(W), the default build over an inverse "
+        "ablation that restores the replaced path"
+        if v in INVERSE_ABLATIONS
+        else f"{v}: C_variant(W) / C_default(W), the variant build over the default baseline"
+        for v in variant_list
+    ]
+    return "Expanse paired scaling ratio per variant; " + "; ".join(clauses)
+
 ABLATION_RESULTS_PATHS = tuple(
     REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / f"ablation_{arm}_writer_scaling.json"
     for arm in ("alloc", "epoch", "freelist", "unstriped_freelist")
@@ -662,6 +678,12 @@ def compute_paired_scaling_ratios(
         "variant_name": variant_name,
         "rounds": rounds,
         "is_inverse": is_inverse,
+        # Which ratio every `per_writer` entry holds. The mean is stored under
+        # `ratio_c_variant_over_c_default_mean` in both directions, so this is
+        # what says an inverse ablation's value is default over variant.
+        "ratio_direction": (
+            "c_default_over_c_variant" if is_inverse else "c_variant_over_c_default"
+        ),
         "per_writer": {},
     }
 
@@ -1548,6 +1570,15 @@ def self_test() -> int:
     comp_inv_feature = compute_paired_scaling_ratios("set", "ablation-unstriped-freelist", [1, 2], rounds_syn, syn_def, syn_var)
     assert comp_inv_feature["per_writer"]["2"]["verdict"] == "SINGLE_RUN_PASS", comp_inv_feature["per_writer"]["2"]
     assert abs(comp_inv_feature["per_writer"]["2"]["ratio_c_variant_over_c_default_mean"] - 1.3333) < 1e-3, comp_inv_feature["per_writer"]["2"]
+    # The artifact must say which ratio it holds: the stored field's name reads
+    # variant over default in both directions.
+    assert comp_std["ratio_direction"] == "c_variant_over_c_default", comp_std
+    assert comp_inv["ratio_direction"] == "c_default_over_c_variant", comp_inv
+    assert comp_inv_feature["ratio_direction"] == "c_default_over_c_variant", comp_inv_feature
+    desc_inv = ratio_description(["ablation-unstriped-freelist"])
+    assert "C_default(W) / C_variant(W)" in desc_inv and "C_variant(W) / C_default(W)" not in desc_inv, desc_inv
+    desc_fwd = ratio_description(["ablation-striped-epoch"])
+    assert "C_variant(W) / C_default(W)" in desc_fwd and "C_default(W) / C_variant(W)" not in desc_fwd, desc_fwd
 
     # 6c. The frequency-droop rule, on synthetic counts. This runs everywhere:
     # the pass itself needs `perf`, so on a runner without it the only PMU
@@ -1961,11 +1992,7 @@ def main() -> int:
     if variant_list:
         bin_default, cnt_default = build_binaries(features=None, verbose=True)
 
-        ratio_desc = (
-            f"Expanse {variant_list[0]} throughput over default baseline C_variant(W) / C_default(W)"
-            if len(variant_list) == 1
-            else f"Expanse variants ({', '.join(variant_list)}) throughput over default baseline C_variant(W) / C_default(W)"
-        )
+        ratio_desc = ratio_description(variant_list)
         prov = new_provenance(
             suite="concurrency",
             issue=568,
