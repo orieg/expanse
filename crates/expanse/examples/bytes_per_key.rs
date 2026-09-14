@@ -118,10 +118,11 @@ fn main() {
     // expanse — with its tooth at λ ≈ LEAF_CAP, where the linear leaf
     // cascades into a branch of single-key immediates (ARCHITECTURE.md §3.5).
     // N = 1_000_000 is λ = 15.26, 48% of LEAF_CAP, in the trough of that
-    // curve: 7.92 B/key against a 9.00 ceiling reads as 14% of headroom in
-    // bytes, but the real headroom is about 2× in N. The same generator at
-    // N = 2_000_000 (λ = 30.5, 95% of LEAF_CAP, ~39% of expanses cascaded)
-    // measures 13.60 set / 19.38 map and breaches both ceilings with no code
+    // curve: 8.21 B/key against a 9.00 ceiling reads as 10% of headroom in
+    // bytes, but the real headroom is in N, and under 2× of it (8.75 B/key at
+    // 1.6M, 10.72 at 1.8M). The same generator at N = 2_000_000 (λ = 30.5,
+    // 95% of LEAF_CAP, 35% of expanses cascaded) measures 13.74 set / 19.78
+    // map and breaches both ceilings with no code
     // change. Changing this row's N therefore means re-deriving its ceiling
     // from the curve, never raising the number until the gate is green. The
     // other four rows have occupancy fixed by their generators and do not
@@ -129,14 +130,14 @@ fn main() {
     // halves 2^16 and is exactly a doubling of N.
     //
     // The gate therefore samples `random` at TWO densities. N = 2_000_000
-    // (λ = 30.5) sits in the cascade's mixture regime, where ~39% of the
+    // (λ = 30.5) sits in the cascade's mixture regime, where 35% of the
     // 2-byte expanses have overflowed LEAF_CAP and pay one 16-byte immediate
     // per key while the rest are still packed Leaf6 nodes. It is the
     // steepest part of the curve, which is the point: a regression in Leaf6
     // packing, in cap_class rounding or in the cost of the cascaded branch's
     // single-key children moves this cell and leaves the 1M cell alone. Its
     // ceilings follow the same policy as the others — a little above the
-    // measured 13.60 set / 19.38 map, enough to catch a compression path
+    // measured 13.74 set / 19.78 map, enough to catch a compression path
     // stopping firing (a fully cascaded expanse costs 17–21 B/key), not the
     // last few percent. The two cells are two points on one curve, not a
     // before/after; compare each only against its own history.

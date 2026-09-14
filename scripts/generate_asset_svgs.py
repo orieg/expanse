@@ -19,6 +19,10 @@ same way ``docs/benchmarks/rocksdb_memtable/results/bench_rocksdb.svg`` is: edit
 
     python3 scripts/generate_asset_svgs.py
 
+`--check` renders every chart in memory and exits non-zero, naming the file,
+when a committed SVG is not what its data renders; CI's `lint` job runs it, so
+a data edit that skips the regeneration cannot land.
+
 Every rendered number, ratio and verdict is derived from that file at render
 time -- no summary constant is stamped into the markup (AGENTS.md 8.2), and
 each chart carries its own provenance footer (AGENTS.md 8.7).
@@ -27,6 +31,7 @@ each chart carries its own provenance footer (AGENTS.md 8.7).
 from __future__ import annotations
 
 import json
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -152,8 +157,18 @@ def head(width: int, height: int, title: str) -> str:
     )
 
 
+# Set by `--check`: render without writing, and collect every committed chart
+# that differs from what its data renders.
+CHECK = False
+DRIFTED: list[str] = []
+
+
 def write(path: Path, svg: str) -> None:
     ET.fromstring(svg)  # fail before touching a published asset
+    if CHECK:
+        if not path.is_file() or path.read_text(encoding="utf-8") != svg:
+            DRIFTED.append(str(path.relative_to(REPO_ROOT)))
+        return
     path.write_text(svg, encoding="utf-8")
     print(f"wrote {path.relative_to(REPO_ROOT)}")
 
@@ -691,12 +706,21 @@ def render_density(data: dict) -> None:
 
 
 def main() -> int:
+    global CHECK
+    CHECK = "--check" in sys.argv[1:]
     data = json.loads(DATA.read_text(encoding="utf-8"))
     render_comparative(data)
     render_concurrency(data)
     render_ycsb(data)
     render_sync32_health(data)
     render_density(data)
+    if CHECK:
+        for path in DRIFTED:
+            print(f"::error file={path}::{path} is not what scripts/generate_asset_svgs.py renders from "
+                  f"{DATA.relative_to(REPO_ROOT)}; regenerate it with `python3 scripts/generate_asset_svgs.py`")
+        if DRIFTED:
+            return 1
+        print("generate_asset_svgs.py --check: every chart matches its data")
     return 0
 
 
