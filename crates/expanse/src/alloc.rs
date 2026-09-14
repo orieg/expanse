@@ -647,42 +647,52 @@ impl NodeAlloc {
         unsafe { self.free_raw::<true>(ptr, bytes, RAW_ALIGN) };
     }
 
-    /// Plain-tree (single-threaded, non-OCC) variant of [`Self::alloc_bytes`].
-    ///
-    /// Compile-time path separation (AGENTS.md §2.1.5): guarantees zero collector
-    /// branches, zero `pop_freelist` calls, and zero thread-local reads in plain-tree
-    /// mutation loops.
+    /// [`Self::alloc_bytes`] for a tree with no collector attached, with the
+    /// collector branch compiled out instead of tested on each call
+    /// (AGENTS.md §2.1.5). Valid only while `occ_enabled()` is false, which
+    /// `alloc_raw` checks in debug builds; the engine calls it only from the
+    /// `OCC = false` paths that `by_mode!` selects on that same condition.
     #[must_use]
     #[inline(always)]
     pub(crate) fn alloc_bytes_plain(&self, bytes: usize) -> NonNull<u8> {
         self.alloc_raw::<false>(bytes, RAW_ALIGN)
     }
 
-    /// Plain-tree (single-threaded, non-OCC) variant of [`Self::free_bytes`].
+    /// [`Self::free_bytes`] for a tree with no collector attached: the block
+    /// returns to this tree's freelists with no retirement branch.
     ///
-    /// Compile-time path separation (AGENTS.md §2.1.5): recycles to per-tree freelists
-    /// without EBR retirement branches.
+    /// # Safety
+    ///
+    /// As [`Self::free_bytes`], and `occ_enabled()` must be false (checked in
+    /// debug builds): on a shared tree a reader may still hold `ptr`, and only
+    /// retirement waits it out.
     #[inline(always)]
     pub(crate) unsafe fn free_bytes_plain(&self, ptr: NonNull<u8>, bytes: usize) {
-        // SAFETY: caller asserts `ptr` comes from `alloc_bytes_plain(bytes)` on this handle.
+        // SAFETY: forwarded contract; `alloc_bytes` and `alloc_bytes_plain`
+        // both allocate at RAW_ALIGN, so the layout matches.
         unsafe { self.free_raw::<false>(ptr, bytes, RAW_ALIGN) };
     }
 
-    /// Dispatches [`Self::alloc_bytes`] according to `const OCC: bool`.
+    /// [`Self::alloc_bytes`] with the collector branch chosen at compile time;
+    /// `OCC = false` is [`Self::alloc_bytes_plain`].
     #[must_use]
     #[inline(always)]
     pub(crate) fn alloc_bytes_dispatch<const OCC: bool>(&self, bytes: usize) -> NonNull<u8> {
         self.alloc_raw::<OCC>(bytes, RAW_ALIGN)
     }
 
-    /// Dispatches [`Self::free_bytes`] according to `const OCC: bool`.
+    /// [`Self::free_bytes`] with the collector branch chosen at compile time.
+    ///
+    /// # Safety
+    ///
+    /// As [`Self::free_bytes`]; with `OCC = false`, as [`Self::free_bytes_plain`].
     #[inline(always)]
     pub(crate) unsafe fn free_bytes_dispatch<const OCC: bool>(
         &self,
         ptr: NonNull<u8>,
         bytes: usize,
     ) {
-        // SAFETY: caller asserts `ptr` comes from an allocation on this handle with `RAW_ALIGN`.
+        // SAFETY: forwarded contract; every byte allocation uses RAW_ALIGN.
         unsafe { self.free_raw::<OCC>(ptr, bytes, RAW_ALIGN) };
     }
 
@@ -1055,11 +1065,8 @@ impl NodeAlloc {
         unsafe { self.free_raw::<true>(ptr.cast::<u8>(), size_of::<T>(), align_of::<T>()) };
     }
 
-    /// Plain-tree (single-threaded, non-OCC) variant of [`Self::alloc_node_zeroed`].
-    ///
-    /// Compile-time path separation (AGENTS.md §2.1.5): guarantees zero collector
-    /// branches, zero `pop_freelist` calls, and zero thread-local reads in plain-tree
-    /// mutation loops.
+    /// [`Self::alloc_node_zeroed`] for a tree with no collector attached; see
+    /// [`Self::alloc_bytes_plain`] for when that holds.
     #[inline(always)]
     #[must_use]
     pub(crate) fn alloc_node_zeroed_plain<T>(&self) -> NonNull<T> {
@@ -1068,24 +1075,12 @@ impl NodeAlloc {
             .cast::<T>()
     }
 
-    /// Plain-tree (single-threaded, non-OCC) variant of [`Self::alloc_node`].
-    #[must_use]
-    #[inline(always)]
-    #[allow(dead_code)]
-    pub(crate) fn alloc_node_plain<T>(&self, init: T) -> NonNull<T> {
-        debug_assert!(align_of::<T>() <= CACHE_LINE);
-        let ptr = self
-            .alloc_raw::<false>(size_of::<T>(), align_of::<T>())
-            .cast::<T>();
-        // SAFETY: freshly allocated at `align_of::<T>()`.
-        unsafe { ptr.write(init) };
-        ptr
-    }
-
-    /// Plain-tree (single-threaded, non-OCC) variant of [`Self::free_node`].
+    /// [`Self::free_node`] for a tree with no collector attached.
     ///
-    /// Compile-time path separation (AGENTS.md §2.1.5): recycles to per-tree freelists
-    /// without EBR retirement branches.
+    /// # Safety
+    ///
+    /// As [`Self::free_node`], and `occ_enabled()` must be false; see
+    /// [`Self::free_bytes_plain`].
     #[inline(always)]
     pub(crate) unsafe fn free_node_plain<T>(&self, ptr: NonNull<T>) {
         // SAFETY: caller asserts `ptr` is a valid node of type `T`.
@@ -1094,7 +1089,8 @@ impl NodeAlloc {
         unsafe { self.free_raw::<false>(ptr.cast::<u8>(), size_of::<T>(), align_of::<T>()) };
     }
 
-    /// Dispatches [`Self::alloc_node_zeroed`] according to `const OCC: bool`.
+    /// [`Self::alloc_node_zeroed`] with the collector branch chosen at compile
+    /// time; `OCC = false` is [`Self::alloc_node_zeroed_plain`].
     #[must_use]
     #[inline(always)]
     pub(crate) fn alloc_node_zeroed_dispatch<const OCC: bool, T>(&self) -> NonNull<T> {
@@ -1103,7 +1099,11 @@ impl NodeAlloc {
             .cast::<T>()
     }
 
-    /// Dispatches [`Self::free_node`] according to `const OCC: bool`.
+    /// [`Self::free_node`] with the collector branch chosen at compile time.
+    ///
+    /// # Safety
+    ///
+    /// As [`Self::free_node`]; with `OCC = false`, as [`Self::free_node_plain`].
     #[inline(always)]
     pub(crate) unsafe fn free_node_dispatch<const OCC: bool, T>(&self, ptr: NonNull<T>) {
         // SAFETY: caller asserts `ptr` is a valid node of type `T`.
