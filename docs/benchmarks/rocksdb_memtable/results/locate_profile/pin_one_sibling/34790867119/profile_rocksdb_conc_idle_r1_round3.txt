@@ -1,0 +1,52 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 8K of event 'cpu_core/cycles/'
+# Event count (approx.): 10085567055
+#
+# Children,    Self,     Samples,Symbol                                                                                                                                              
+ 100.00%, 0.23%  , 18         ,[.] std::thread::_State_impl<std::thread::_Invoker<std::tuple<RunCell((anonymous namespace)::CellArgs const&. int)::{lambda()#1}> > >::_M_run()
+ 99.77% , 11.06% , 887        ,[.] rocksdb::ExpanseMemTableRep::Get(rocksdb::LookupKey const&. void*. bool (*)(void*. char const*))
+ 61.69% , 36.81% , 2951       ,[.] (anonymous namespace)::BenchCmp::operator()(char const*. char const*) const
+ 54.42% , 9.73%  , 779        ,[.] rocksdb::ExpanseMemTableRep::FindLeafBlockForSeek(rocksdb::Slice const&. char const*) const
+ 26.55% , 1.51%  , 120        ,[.] memcmp@plt
+ 10.82% , 0.33%  , 27         ,[.] expanse_map_prev_at_or_before
+ 10.50% , 0.19%  , 15         ,[.] _RNvMsd_NtCs6fUdrY3seH1_12expanse_trie3mapNtB5_10ExpanseMap17prev_at_or_before
+ 10.31% , 6.75%  , 541        ,[.] _RINvNtCs6fUdrY3seH1_12expanse_trie3nav4prevKb1_EB4_
+ 8.82%  , 8.82%  , 707        ,[.] 0x0000000000199e3d
+ 5.04%  , 5.04%  , 403        ,[.] 0x0000000000199c28
+ 2.73%  , 2.73%  , 218        ,[.] _RINvNtCs6fUdrY3seH1_12expanse_trie4leaf17lower_bound_fixedKj1_EB4_
+ 2.50%  , 0.15%  , 12         ,[.] pthread_mutex_lock@plt
+ 2.35%  , 2.35%  , 187        ,[.] pthread_mutex_lock
+ 2.20%  , 0.06%  , 5          ,[.] pthread_mutex_unlock@plt
+ 2.13%  , 2.13%  , 171        ,[.] pthread_mutex_unlock
+ 1.50%  , 1.50%  , 120        ,[.] 0x0000000000199b40
+ 1.49%  , 1.49%  , 119        ,[.] 0x0000000000199e20
+ 1.35%  , 1.35%  , 108        ,[.] 0x0000000000199c24
+ 1.30%  , 1.30%  , 104        ,[.] 0x0000000000199c20
+ 1.21%  , 1.21%  , 96         ,[.] 0x0000000000199f18
+ 0.91%  , 0.91%  , 73         ,[.] 0x0000000000199c2e
+ 0.83%  , 0.83%  , 67         ,[.] _RNvNtCs6fUdrY3seH1_12expanse_trie6mutate12decode_value
+ 0.76%  , 0.76%  , 61         ,[.] 0x0000000000199e48
+ 0.63%  , 0.63%  , 50         ,[.] 0x0000000000199e43
+ 0.47%  , 0.47%  , 39         ,[.] 0x0000000000199e41
+ 0.45%  , 0.45%  , 36         ,[.] 0x0000000000199e4e
+ 0.38%  , 0.05%  , 4          ,[.] expanse_map_prev_at_or_before@plt
+ 0.30%  , 0.30%  , 24         ,[.] 0x0000000000199c2c
+ 0.21%  , 0.21%  , 17         ,[.] 0x0000000000199e60
+ 0.18%  , 0.18%  , 14         ,[.] 0x0000000000199f10
+ 0.14%  , 0.14%  , 11         ,[.] 0x0000000000199f14
+ 0.10%  , 0.10%  , 9          ,[.] 0x0000000000199f2d
+ 0.08%  , 0.08%  , 6          ,[.] 0x0000000000199e39
+ 0.06%  , 0.06%  , 5          ,[.] RunCell((anonymous namespace)::CellArgs const&. int)::{lambda()#1}::operator()() const::{lambda(void*. char const*)#1}::_FUN(void*. char const*)
+ 0.05%  , 0.05%  , 4          ,[.] 0x0000000000199f27
+ 0.03%  , 0.03%  , 2          ,[.] 0x0000000000199f3b
+ 0.03%  , 0.03%  , 2          ,[.] 0x0000000000199e53
+ 0.01%  , 0.01%  , 1          ,[.] 0x0000000000199e50
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

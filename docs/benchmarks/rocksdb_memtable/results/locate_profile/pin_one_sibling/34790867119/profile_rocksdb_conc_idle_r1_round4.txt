@@ -1,0 +1,101 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 8K of event 'cpu_core/cycles/'
+# Event count (approx.): 10095921921
+#
+# Children,    Self,     Samples,Symbol                                                                                                                                              
+ 100.00%, 0.39%  , 31         ,[.] std::thread::_State_impl<std::thread::_Invoker<std::tuple<RunCell((anonymous namespace)::CellArgs const&. int)::{lambda()#1}> > >::_M_run()
+ 99.61% , 9.80%  , 784        ,[.] rocksdb::ExpanseMemTableRep::Get(rocksdb::LookupKey const&. void*. bool (*)(void*. char const*))
+ 62.90% , 37.35% , 2995       ,[.] (anonymous namespace)::BenchCmp::operator()(char const*. char const*) const
+ 54.52% , 9.59%  , 768        ,[.] rocksdb::ExpanseMemTableRep::FindLeafBlockForSeek(rocksdb::Slice const&. char const*) const
+ 26.76% , 1.33%  , 107        ,[.] memcmp@plt
+ 11.13% , 0.31%  , 25         ,[.] expanse_map_prev_at_or_before
+ 10.82% , 0.29%  , 23         ,[.] _RNvMsd_NtCs6fUdrY3seH1_12expanse_trie3mapNtB5_10ExpanseMap17prev_at_or_before
+ 10.53% , 6.83%  , 546        ,[.] _RINvNtCs6fUdrY3seH1_12expanse_trie3nav4prevKb1_EB4_
+ 8.50%  , 8.50%  , 681        ,[.] 0x0000000000199e3d
+ 5.27%  , 5.27%  , 422        ,[.] 0x0000000000199c28
+ 2.97%  , 2.96%  , 236        ,[.] _RINvNtCs6fUdrY3seH1_12expanse_trie4leaf17lower_bound_fixedKj1_EB4_
+ 2.45%  , 0.10%  , 8          ,[.] pthread_mutex_lock@plt
+ 2.33%  , 2.33%  , 188        ,[.] pthread_mutex_lock
+ 2.19%  , 0.09%  , 7          ,[.] pthread_mutex_unlock@plt
+ 2.11%  , 2.11%  , 168        ,[.] pthread_mutex_unlock
+ 1.64%  , 1.64%  , 132        ,[.] 0x0000000000199e20
+ 1.39%  , 1.39%  , 111        ,[.] 0x0000000000199b40
+ 1.38%  , 1.38%  , 110        ,[.] 0x0000000000199c20
+ 1.24%  , 1.24%  , 100        ,[.] 0x0000000000199c24
+ 1.14%  , 1.14%  , 92         ,[.] 0x0000000000199f18
+ 1.05%  , 1.05%  , 84         ,[.] 0x0000000000199c2e
+ 0.97%  , 0.97%  , 78         ,[.] 0x0000000000199e48
+ 0.74%  , 0.74%  , 59         ,[.] 0x0000000000199e43
+ 0.70%  , 0.70%  , 56         ,[.] _RNvNtCs6fUdrY3seH1_12expanse_trie6mutate12decode_value
+ 0.54%  , 0.54%  , 43         ,[.] 0x0000000000199e41
+ 0.43%  , 0.11%  , 9          ,[.] expanse_map_prev_at_or_before@plt
+ 0.31%  , 0.31%  , 25         ,[.] 0x0000000000199c2c
+ 0.29%  , 0.29%  , 24         ,[.] 0x0000000000199f14
+ 0.25%  , 0.00%  , 0          ,[.] 0xffffffff95a30beb
+ 0.25%  , 0.00%  , 0          ,[.] 0xffffffff95c00f4b
+ 0.22%  , 0.22%  , 18         ,[.] 0x0000000000199e60
+ 0.22%  , 0.00%  , 0          ,[.] 0xffffffff948ad43e
+ 0.22%  , 0.00%  , 0          ,[.] 0xffffffff94a0b787
+ 0.22%  , 0.00%  , 0          ,[.] 0xffffffff94a0c6c6
+ 0.21%  , 0.21%  , 17         ,[.] 0x0000000000199e4e
+ 0.19%  , 0.19%  , 15         ,[.] 0x0000000000199f10
+ 0.18%  , 0.00%  , 0          ,[.] 0xffffffff94a23158
+ 0.18%  , 0.00%  , 0          ,[.] 0xffffffff94a23678
+ 0.17%  , 0.00%  , 0          ,[.] 0xffffffff94a0a839
+ 0.09%  , 0.00%  , 0          ,[.] 0xffffffff949664dd
+ 0.09%  , 0.00%  , 0          ,[.] 0xffffffff94ba661c
+ 0.09%  , 0.09%  , 7          ,[.] 0x0000000000199f2d
+ 0.08%  , 0.08%  , 6          ,[k] 0xffffffff94ba22b4
+ 0.05%  , 0.05%  , 4          ,[.] 0x0000000000199e39
+ 0.05%  , 0.05%  , 4          ,[.] RunCell((anonymous namespace)::CellArgs const&. int)::{lambda()#1}::operator()() const::{lambda(void*. char const*)#1}::_FUN(void*. char const*)
+ 0.05%  , 0.05%  , 4          ,[k] 0xffffffff95c00f30
+ 0.04%  , 0.04%  , 3          ,[.] 0x0000000000199e53
+ 0.04%  , 0.00%  , 0          ,[.] 0xffffffff94a235db
+ 0.04%  , 0.00%  , 0          ,[.] 0xffffffff94a23632
+ 0.04%  , 0.00%  , 0          ,[.] 0xffffffff94966523
+ 0.04%  , 0.00%  , 0          ,[.] 0xffffffff9497b94f
+ 0.04%  , 0.00%  , 0          ,[.] 0xffffffff9497bdbd
+ 0.03%  , 0.00%  , 0          ,[.] 0xffffffff949664a3
+ 0.03%  , 0.00%  , 0          ,[.] 0xffffffff949748cb
+ 0.03%  , 0.00%  , 0          ,[.] 0xffffffff94a0f43c
+ 0.03%  , 0.00%  , 0          ,[.] 0xffffffff94a10290
+ 0.03%  , 0.00%  , 0          ,[.] 0xffffffff94a23447
+ 0.03%  , 0.00%  , 0          ,[.] 0xffffffff94969f96
+ 0.02%  , 0.02%  , 2          ,[k] 0xffffffff948b84cb
+ 0.02%  , 0.02%  , 2          ,[k] 0xffffffff95a2d2de
+ 0.02%  , 0.02%  , 2          ,[.] 0x0000000000199f3b
+ 0.01%  , 0.00%  , 0          ,[.] 0xffffffff9496641a
+ 0.01%  , 0.01%  , 2          ,[k] 0xffffffff94973de4
+ 0.01%  , 0.01%  , 1          ,[.] 0x0000000000199e50
+ 0.01%  , 0.01%  , 1          ,[.] 0x0000000000199e25
+ 0.01%  , 0.01%  , 1          ,[.] 0x0000000000199f4a
+ 0.01%  , 0.01%  , 1          ,[k] 0xffffffff94a2534b
+ 0.01%  , 0.00%  , 0          ,[.] 0xffffffff94a0dd90
+ 0.01%  , 0.01%  , 1          ,[k] 0xffffffff9494605d
+ 0.01%  , 0.00%  , 0          ,[.] 0xffffffff949461f6
+ 0.01%  , 0.00%  , 0          ,[.] 0xffffffff94a0dda9
+ 0.01%  , 0.01%  , 1          ,[k] 0xffffffff95a432f6
+ 0.01%  , 0.00%  , 0          ,[.] 0xffffffff94a23442
+ 0.01%  , 0.01%  , 1          ,[k] 0xffffffff94973ce2
+ 0.01%  , 0.00%  , 0          ,[.] 0xffffffff94973d50
+ 0.01%  , 0.00%  , 0          ,[.] 0xffffffff94973e1f
+ 0.01%  , 0.01%  , 1          ,[k] 0xffffffff948ad429
+ 0.01%  , 0.01%  , 1          ,[k] 0xffffffff9487c4c5
+ 0.01%  , 0.01%  , 1          ,[k] 0xffffffff9496052d
+ 0.01%  , 0.01%  , 1          ,[k] 0xffffffff94960510
+ 0.01%  , 0.01%  , 1          ,[k] 0xffffffff94ba22a4
+ 0.01%  , 0.01%  , 1          ,[k] 0xffffffff9505333d
+ 0.01%  , 0.01%  , 1          ,[k] 0xffffffff9498933c
+ 0.01%  , 0.00%  , 0          ,[.] 0xffffffff94989939
+ 0.01%  , 0.00%  , 0          ,[.] 0xffffffff94a0a7d9
+ 0.00%  , 0.00%  , 1          ,[k] 0xffffffff948c7979
+ 0.00%  , 0.00%  , 0          ,[.] 0xffffffff9487c40c
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#
