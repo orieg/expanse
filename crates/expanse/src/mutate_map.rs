@@ -298,6 +298,10 @@ fn build_map_leaf<const OCC: bool>(a: &NodeAlloc, edge: &mut Edge, kb: u8, entri
 
 /// Tracks the descent path of edges from the root to the active leaf
 /// for fast multi-level sequential bypass.
+///
+/// Same entries as `mutate::InsertPath`, under the same contract: the
+/// root-slot entry may dangle once the map moves and is never dereferenced,
+/// by the two invariants stated there.
 #[derive(Clone, Copy)]
 pub(crate) struct InsertPathMap {
     pub prefix: u64,
@@ -339,7 +343,13 @@ impl InsertPathMap {
             let delta = self.pending_pop as i64;
             self.pending_pop = 0;
             for i in 1..self.depth {
-                // SAFETY: path contains valid live edge pointers during active bypass.
+                // SAFETY: `bump_pop0` dereferences an entry only below level 8,
+                // and every such entry is an edge slot inside a live trie node
+                // while the cache is warm. The root-slot entry is not valid to
+                // dereference (it came from a borrow of the tree's owner, which
+                // may since have moved or been reborrowed) but is always
+                // recorded at level 8, where `bump_pop0` is a no-op; the two
+                // invariants behind that are stated on `mutate::InsertPath`.
                 unsafe {
                     crate::mutate::bump_pop0(self.edges[i], self.levels[i], delta);
                 }

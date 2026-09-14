@@ -2451,6 +2451,134 @@ mod tests {
         }
     }
 
+    /// Map twin of `set::tests::warm_insert_path_across_a_move`: the cache's
+    /// root-slot entry lives in the map, not in a trie node, so a move leaves
+    /// it naming memory the map has left, and it is never dereferenced. The
+    /// cache is warmed in a helper whose frame then ends, and the map is moved
+    /// into a `Box` and later out of it, which frees the box. Flushes then run
+    /// with the stale entry recorded — select after the first move, the cache
+    /// clear before a cold insert after the second — and population, select
+    /// (keys and values) and the validator are checked against a model. Sized
+    /// for Miri.
+    #[test]
+    fn warm_insert_path_across_a_move() {
+        use crate::node::Edge;
+        fn val(k: u64) -> u64 {
+            k.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1
+        }
+        /// Address of the root edge slot while the root is a tree.
+        fn root_slot(m: &ExpanseMap) -> *const Edge {
+            match &m.core.root {
+                Root::Tree { top } => core::ptr::from_ref(top),
+                _ => panic!("root must be a tree"),
+            }
+        }
+        /// The cache's one level-8 entry; every other ancestor must sit at a
+        /// level in `2..=7`.
+        fn root_entry(p: &crate::mutate_map::InsertPathMap) -> *const Edge {
+            assert!(
+                p.depth >= 2,
+                "the cache must hold a terminal and its ancestors"
+            );
+            let (edges, levels) = (&p.edges[1..p.depth], &p.levels[1..p.depth]);
+            assert!(
+                levels.iter().all(|l| (2..=8).contains(l)),
+                "ancestor levels {levels:?}"
+            );
+            let mut at_8 = edges.iter().zip(levels).filter(|&(_, &l)| l == 8);
+            let (&root, _) = at_8
+                .next()
+                .expect("the root slot must be recorded at level 8");
+            assert!(at_8.next().is_none(), "only the root slot sits at level 8");
+            root.cast_const()
+        }
+        /// Population, select over every rank, and the validator. Select reads
+        /// the ancestors' `pop0`, so its first call flushes the cache.
+        fn check(m: &ExpanseMap, model: &BTreeMap<u64, u64>) {
+            for (n, (&k, &v)) in model.iter().enumerate() {
+                assert_eq!(m.by_count(n as u64), Some((k, v)), "by_count({n})");
+            }
+            assert_eq!(m.by_count(model.len() as u64), None);
+            assert_eq!(m.len(), model.len() as u64);
+            m.validate();
+        }
+        /// Inserts `keys`, each of which must take the bypass: it is the only
+        /// path that adds to `pending_pop` without flushing it.
+        fn insert_warm(
+            m: &mut ExpanseMap,
+            model: &mut BTreeMap<u64, u64>,
+            keys: impl Iterator<Item = u64>,
+        ) {
+            for k in keys {
+                let pending = m.path_mut().pending_pop;
+                assert_eq!(m.insert(k, val(k)), None);
+                model.insert(k, val(k));
+                assert_eq!(
+                    m.path_mut().pending_pop,
+                    pending + 1,
+                    "insert({k:#x}) left the warm path"
+                );
+            }
+        }
+        fn warmed() -> (ExpanseMap, BTreeMap<u64, u64>, *const Edge) {
+            let mut m = ExpanseMap::new();
+            let mut model = BTreeMap::new();
+            // Blocks 0 and 1 in full, past ROOT_LEAF_CAP, so the root is a
+            // tree; then 32 even digits of block 2, past LEAF1_CAP, which
+            // leave the cache on block 2's bitmap leaf.
+            for k in (0..0x200u64).chain((0x200..0x240).step_by(2)) {
+                assert_eq!(m.insert(k, val(k)), None);
+                model.insert(k, val(k));
+            }
+            let root = root_slot(&m);
+            let p = m.path_mut();
+            assert_eq!(p.prefix, 2, "insert must leave the cache on block 2");
+            assert!(!p.leaf.is_null(), "block 2 must be cached as a bitmap leaf");
+            assert!(
+                core::ptr::eq(root_entry(p), root),
+                "the level-8 entry is the root slot"
+            );
+            (m, model, root)
+        }
+
+        // The frame that recorded the root slot has ended, and the box moves
+        // the map again.
+        let (m, mut model, recorded) = warmed();
+        let mut m = Box::new(m);
+        assert!(!core::ptr::eq(root_slot(&m), recorded));
+        assert!(core::ptr::eq(root_entry(m.path_mut()), recorded));
+        insert_warm(&mut m, &mut model, (0x201..0x240).step_by(2));
+        check(&m, &model);
+        assert_eq!(m.path_mut().pending_pop, 0, "select must flush the cache");
+        assert!(core::ptr::eq(root_entry(m.path_mut()), recorded));
+
+        // A cold descent records the root slot inside the box; moving the map
+        // out frees the box with the entry still naming it.
+        for k in (0x300..0x340u64).step_by(2) {
+            assert_eq!(m.insert(k, val(k)), None);
+            model.insert(k, val(k));
+        }
+        let recorded = root_slot(&m);
+        assert!(core::ptr::eq(root_entry(m.path_mut()), recorded));
+        let mut m = {
+            let boxed = m;
+            *boxed
+        };
+        assert!(!core::ptr::eq(root_slot(&m), recorded));
+        assert!(core::ptr::eq(root_entry(m.path_mut()), recorded));
+        insert_warm(&mut m, &mut model, (0x301..0x340).step_by(2));
+        // A key of another block descends cold: the cache is flushed, then
+        // cleared, first.
+        assert_eq!(m.insert(0x400, val(0x400)), None);
+        model.insert(0x400, val(0x400));
+        assert_eq!(
+            m.path_mut().prefix,
+            u64::MAX,
+            "a cold insert must clear the cache"
+        );
+        check(&m, &model);
+    }
+
     /// Regression for the fuzz crash `crash-7048e639` (ASan overflow):
     /// a 1-byte-remainder linear leaf with pop 9..=12 has a
     /// cap_class-derived key area of only 12 bytes, which the 16-byte
