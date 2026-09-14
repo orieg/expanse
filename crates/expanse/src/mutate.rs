@@ -568,11 +568,15 @@ pub(crate) fn split_skip<const OCC: bool>(
 /// no pop0 field; the tree owner tracks the total).
 ///
 /// # Safety
-/// `edge` must be a valid, live, aligned raw pointer to an `Edge`.
+/// If `level <= 7`, `edge` must be a valid, live, aligned raw pointer to an
+/// `Edge`. Above level 7 it is never dereferenced, so it need not be valid:
+/// the insert-path cache's root-slot entry, always recorded at level 8,
+/// relies on this (see `InsertPath`).
 #[inline(always)]
 pub(crate) unsafe fn bump_pop0(edge: *mut Edge, level: u8, delta: i64) {
     if level <= 7 {
-        // SAFETY: caller guarantees edge is valid, live, and aligned.
+        // SAFETY: `level <= 7`, where the caller guarantees `edge` is valid,
+        // live, and aligned.
         unsafe {
             let pop0 = (*edge).pop0(level) as i64;
             (*edge).set_pop0(level, (pop0 + delta) as u64);
@@ -666,6 +670,32 @@ pub(crate) fn linear_insert_slot_l3(
 
 /// Tracks the descent path of edges from the root to the active leaf
 /// for fast multi-level sequential bypass.
+///
+/// `edges[0]` is the level-1 terminal edge the bypass writes; `edges[1..depth]`
+/// are its recorded ancestors, each with the level `flush` passes to
+/// `bump_pop0`: a branch's own level (the slot level for a `BranchU`). Only
+/// entries below `depth` are ever read.
+///
+/// Every ancestor is an edge slot inside a trie node except the root slot,
+/// which lives in the tree's owner: the `Root::Tree` field of an `ExpanseSet`
+/// or a `MapCore`, or `promote_leaf`'s local `top` while it builds the trie.
+/// That entry must never be dereferenced: a move of the owner leaves it
+/// dangling, and even in place the owner's later `&mut self` calls invalidate
+/// the borrow it was derived from, and the cache sees neither. Two invariants
+/// keep `flush` from dereferencing it:
+///
+/// 1. A level-8 slot never skips. The root is always a branch whose own level
+///    is 8, so its entry is recorded at level 8, and no other entry is: every
+///    other slot sits at level 7 or below, and a branch's level never exceeds
+///    its slot's. The engines create the root at level 8, branch upgrades and
+///    downgrades carry the level over, the bulk builder and set-algebra
+///    assembly force a level-8 branch, and the validator rejects a level-8
+///    slot that skips.
+/// 2. `bump_pop0` ignores levels above 7 (a level-8 edge has no `pop0`).
+///
+/// `set::tests::warm_insert_path_across_a_move` and its map twin pin both: the
+/// recorded levels on every run, and under Miri that no flush dereferences the
+/// stale root-slot entry.
 #[derive(Clone, Copy)]
 pub(crate) struct InsertPath {
     pub prefix: u64,
@@ -707,7 +737,13 @@ impl InsertPath {
             let delta = self.pending_pop as i64;
             self.pending_pop = 0;
             for i in 1..self.depth {
-                // SAFETY: path contains valid live edge pointers during active bypass.
+                // SAFETY: `bump_pop0` dereferences an entry only below level 8,
+                // and every such entry is an edge slot inside a live trie node
+                // while the cache is warm. The root-slot entry is not valid to
+                // dereference (it came from a borrow of the tree's owner, which
+                // may since have moved or been reborrowed) but is always
+                // recorded at level 8, where `bump_pop0` is a no-op; the two
+                // invariants behind that are stated on this type.
                 unsafe {
                     bump_pop0(self.edges[i], self.levels[i], delta);
                 }
