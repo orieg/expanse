@@ -3890,6 +3890,8 @@ impl SyncExpanseSet {
                     else {
                         return OlcOutcome::Retry;
                     };
+                    #[cfg(test)]
+                    test_hooks::before_bitmap_branch_read();
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     let (bl, bit, rank, sub) = unsafe {
                         let bl = (*node).level;
@@ -3907,8 +3909,25 @@ impl SyncExpanseSet {
                     if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
                         return OlcOutcome::Done(false);
                     }
-                    if !bit || sub.is_null() {
+                    #[cfg(test)]
+                    test_hooks::after_bitmap_branch_read();
+                    if !bit {
+                        // An absence read from this branch's own bitmap is validated
+                        // against the branch before it is returned: the bitmap agrees
+                        // with the node's contents only under an unchanged version,
+                        // and a lock-holder's stores need not keep it so between them.
+                        // SAFETY: version cell is within an EBR-live node allocation.
+                        if !unsafe {
+                            crate::occ::node_validate(crate::occ::version_cell(vp), nsnap)
+                        } {
+                            return OlcOutcome::Retry;
+                        }
                         return OlcOutcome::Done(false);
+                    }
+                    // A null subarray under a set bit is not a state the node is ever
+                    // left in; restart, as `walk_validated` does.
+                    if sub.is_null() {
+                        return OlcOutcome::Retry;
                     }
                     // SAFETY: version cell is within an EBR-live node allocation.
                     if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
@@ -6166,6 +6185,8 @@ impl SyncExpanseMap {
                     else {
                         return OlcOutcome::Retry;
                     };
+                    #[cfg(test)]
+                    test_hooks::before_bitmap_branch_read();
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     let (bl, bit, rank, sub) = unsafe {
                         let bl = (*node).level;
@@ -6183,8 +6204,24 @@ impl SyncExpanseMap {
                     if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
                         return OlcOutcome::Done(None);
                     }
-                    if !bit || sub.is_null() {
+                    #[cfg(test)]
+                    test_hooks::after_bitmap_branch_read();
+                    if !bit {
+                        // An absence read from this branch's own bitmap is validated
+                        // against the branch before it is returned: the bitmap agrees
+                        // with the node's contents only under an unchanged version,
+                        // and a lock-holder's stores need not keep it so between them.
+                        // SAFETY: version cell is within an EBR-live node allocation.
+                        let cell = unsafe { crate::occ::version_cell(vp) };
+                        if !crate::occ::node_validate(cell, nsnap) {
+                            return OlcOutcome::Retry;
+                        }
                         return OlcOutcome::Done(None);
+                    }
+                    // A null subarray under a set bit is not a state the node is ever
+                    // left in; restart, as `walk_validated` does.
+                    if sub.is_null() {
+                        return OlcOutcome::Retry;
                     }
                     // SAFETY: version cell is within an EBR-live node allocation.
                     if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
@@ -10406,6 +10443,38 @@ pub(crate) mod test_hooks {
             g.release.wait();
         }
     }
+
+    thread_local! {
+        static ARMED_BITMAP_READ: Cell<Option<Arc<Gate>>> = const { Cell::new(None) };
+        static ARMED_BITMAP_DECIDE: Cell<Option<Arc<Gate>>> = const { Cell::new(None) };
+    }
+
+    /// The next time *this thread's* optimistic remove reaches a bitmap
+    /// branch, it stops at `before` just before reading the branch's bitmap
+    /// and at `after` just after that read (once each).
+    pub(crate) fn arm_bitmap_branch_read(before: Arc<Gate>, after: Arc<Gate>) {
+        ARMED_BITMAP_READ.with(|c| c.set(Some(before)));
+        ARMED_BITMAP_DECIDE.with(|c| c.set(Some(after)));
+    }
+
+    /// Between an optimistic remove's sample of a bitmap branch's version and
+    /// its read of the branch's bitmap.
+    #[inline(always)]
+    pub(crate) fn before_bitmap_branch_read() {
+        if let Some(g) = ARMED_BITMAP_READ.with(Cell::take) {
+            g.parked.wait();
+            g.release.wait();
+        }
+    }
+
+    /// Between that read and the remove's decision from it.
+    #[inline(always)]
+    pub(crate) fn after_bitmap_branch_read() {
+        if let Some(g) = ARMED_BITMAP_DECIDE.with(Cell::take) {
+            g.parked.wait();
+            g.release.wait();
+        }
+    }
 }
 
 /// A reader whose cover node is replaced must restart, not trust the dead
@@ -11090,6 +11159,93 @@ mod obsolete_tests {
             "the twin must not be removed"
         );
         assert_eq!(map.len(), n0 + 1);
+        map.with_locked(ExpanseMap::validate);
+    }
+
+    /// Runs `op` on a remover parked around its read of the bitmap root's
+    /// bitmap. Before the read, this thread takes the root's lock and clears
+    /// `digit`'s bit; after it, this thread restores the bit and unlocks with a
+    /// modification. That is a lock-holder whose stores pass through a state
+    /// with a present digit's bit clear, and the digit is present before and
+    /// after, so no linearization point reports it absent.
+    fn run_with_transiently_clear_bit<R: Send>(
+        top: *mut Edge,
+        digit: u8,
+        op: impl FnOnce() -> R + Send,
+    ) -> R {
+        use std::sync::Arc;
+        // SAFETY: `top` is the live root edge of a tree this test owns.
+        let node = unsafe { top.read() }.node_ptr().cast::<BranchB>();
+        let before = test_hooks::Gate::new();
+        let after = test_hooks::Gate::new();
+        std::thread::scope(|sc| {
+            let (b, a) = (Arc::clone(&before), Arc::clone(&after));
+            let writer = sc.spawn(move || {
+                test_hooks::arm_bitmap_branch_read(b, a);
+                op()
+            });
+            before.parked.wait();
+            // SAFETY: `node` is the live root `BranchB`; its version field is
+            // a version cell for the life of the tree.
+            let cell = unsafe { crate::occ::version_cell(&raw const (*node).version) };
+            let old = crate::occ::version_try_lock(cell).expect("the root is unlocked");
+            // SAFETY: this thread holds the root's lock, so it is the only
+            // writer of the node's bitmap.
+            let was_present = unsafe { (*node).bitmap.clear(digit) };
+            assert!(was_present, "the digit is present before the clear");
+            before.release.wait();
+            after.parked.wait();
+            // SAFETY: as above; the lock is still held.
+            unsafe {
+                (*node).bitmap.set(digit);
+            }
+            crate::occ::version_unlock(cell, old, true);
+            after.release.wait();
+            writer.join().expect("writer thread")
+        })
+    }
+
+    #[test]
+    fn olc_set_remove_validates_bitmap_absence_before_returning() {
+        let digits = misdirect_bitmap_digits();
+        let set = SyncExpanseSet::new();
+        // SAFETY: each call reads the root edge pointer of a live tree.
+        let top = || unsafe { (*set.shared.inner.get()).root_top_ptr() };
+        misdirect_fixture(|k| assert!(set.insert(k)), top, &digits, EdgeType::BranchB);
+        assert!(set.contains(MISDIRECT_TWIN));
+        let n0 = set.len();
+
+        let removed = run_with_transiently_clear_bit(top(), 2, || set.remove(MISDIRECT_TWIN));
+
+        assert!(removed, "a present key's remove must not report it absent");
+        assert!(!set.contains(MISDIRECT_TWIN), "the key must be removed");
+        assert_eq!(set.len(), n0 - 1);
+        set.with_locked(ExpanseSet::validate);
+    }
+
+    #[test]
+    fn olc_map_remove_validates_bitmap_absence_before_returning() {
+        let digits = misdirect_bitmap_digits();
+        let map = SyncExpanseMap::new();
+        // SAFETY: each call reads the root edge pointer of a live tree.
+        let top = || unsafe { (*map.shared.inner.get()).root_top_ptr() };
+        misdirect_fixture(
+            |k| assert_eq!(map.insert(k, !k), None),
+            top,
+            &digits,
+            EdgeType::BranchB,
+        );
+        let n0 = map.len();
+
+        let removed = run_with_transiently_clear_bit(top(), 2, || map.remove(MISDIRECT_TWIN));
+
+        assert_eq!(
+            removed,
+            Some(!MISDIRECT_TWIN),
+            "a present key's remove must return its value, not report it absent"
+        );
+        assert_eq!(map.get(MISDIRECT_TWIN), None, "the key must be removed");
+        assert_eq!(map.len(), n0 - 1);
         map.with_locked(ExpanseMap::validate);
     }
 
