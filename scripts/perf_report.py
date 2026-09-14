@@ -67,6 +67,7 @@ BENCH_N_MAP: Dict[str, int] = {
     "set_range": 10_000,
     "map_iterate": 50_000,
     "map_nav": 50_000,
+    "map_prev": 50_000,
     "blobmap32_scan": 2_000,
     # Mutations & Churn
     "map_insert": 50_000,
@@ -79,6 +80,7 @@ BENCH_N_MAP: Dict[str, int] = {
     "sync_map_insert": 50_000,
     "sync_set_insert": 50_000,
     "sync_map_get": 50_000,
+    "sync_map_prev_locked": 50_000,
     "sync_set_contains": 50_000,
     "sync_map_churn": 50_000,
     "sync_map_remove": 50_000,
@@ -91,6 +93,9 @@ BENCH_N_MAP: Dict[str, int] = {
     # 32-bit ordered walks over the 2,000-key `keys32` maps and sets.
     "map32_iterate": 2_000,
     "set32_iterate": 2_000,
+    # 32-bit ordered navigation from each of the 2,000 `keys32` probes.
+    "map32_nav": 2_000,
+    "map32_prev": 2_000,
     # The range arms walk `0..=Key32::MAX / 2`: every sequential and clustered
     # key lies below it, but the uniform-random keys span all 32 bits and
     # 1,007 of the 2,000 do (replicating `keys32("random")`).
@@ -157,6 +162,10 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "set_range",
             "map_iterate",
             "map_nav",
+            "map_prev",
+            "map32_nav",
+            "map32_prev",
+            "sync_map_prev_locked",
             "blobmap32_scan",
             "map32_iterate",
             "map32_range",

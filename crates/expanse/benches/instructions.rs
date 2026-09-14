@@ -344,12 +344,36 @@ fn map_iterate(built: (ExpanseMap, Vec<u64>)) -> u64 {
 
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = built_map)]
+#[bench::sequential(args = ("sequential",), setup = built_map)]
+#[bench::clustered(args = ("clustered",), setup = built_map)]
 fn map_nav(built: (ExpanseMap, Vec<u64>)) -> u64 {
     let (map, probes) = built;
     let mut sink = 0u64;
     for &k in &probes {
         if let Some((next_k, next_v)) = map.next_at_or_after(black_box(k)) {
             sink ^= next_k ^ next_v;
+        }
+    }
+    // Leaked — see `map_get`.
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// The strict predecessor of a present key. Whenever the probe is the smallest
+// key in its terminal, the walk leaves that subtree and descends a sibling to
+// its maximum: the backtracking path that `next_at_or_after` on a present key
+// never takes, and the one an optimistic ordered read must validate (#900).
+// The three key shapes place terminal boundaries differently.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_map)]
+#[bench::sequential(args = ("sequential",), setup = built_map)]
+#[bench::clustered(args = ("clustered",), setup = built_map)]
+fn map_prev(built: (ExpanseMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for &k in &probes {
+        if let Some((prev_k, prev_v)) = map.prev_before(black_box(k)) {
+            sink ^= prev_k ^ prev_v;
         }
     }
     // Leaked — see `map_get`.
@@ -541,6 +565,45 @@ fn map32_iterate(map: ExpanseMap32) -> u64 {
     let mut sink = 0u64;
     for (k, v) in map.iter() {
         sink = sink.wrapping_add(u64::from(k) ^ u64::from(v));
+    }
+    // Leaked — see `map_get`.
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// Ordered navigation on the 32-bit map from each present key, shuffled:
+// `next_at_or_after` lands on the probe itself, and `prev_before` crosses to a
+// sibling subtree whenever the probe is its terminal's smallest key. The
+// 32-bit twins of `map_nav` and `map_prev`, which the concurrent 32-bit
+// ordered reads (#900) are measured against.
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = built_map32_remove)]
+#[bench::clustered(args = ("clustered",), setup = built_map32_remove)]
+#[bench::random(args = ("random",), setup = built_map32_remove)]
+fn map32_nav(built: (ExpanseMap32, Vec<Key32>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for &k in &probes {
+        if let Some((nk, nv)) = map.next_at_or_after(black_box(k)) {
+            sink ^= u64::from(nk) ^ u64::from(nv);
+        }
+    }
+    // Leaked — see `map_get`.
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = built_map32_remove)]
+#[bench::clustered(args = ("clustered",), setup = built_map32_remove)]
+#[bench::random(args = ("random",), setup = built_map32_remove)]
+fn map32_prev(built: (ExpanseMap32, Vec<Key32>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for &k in &probes {
+        if let Some((pk, pv)) = map.prev_before(black_box(k)) {
+            sink ^= u64::from(pk) ^ u64::from(pv);
+        }
     }
     // Leaked — see `map_get`.
     core::mem::forget(map);
@@ -879,6 +942,25 @@ fn sync_map_get(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
     black_box(sink)
 }
 
+// Ordered navigation on the concurrent map before #900: `with_locked` is the
+// only route, and it runs each call with every writer excluded. The
+// optimistic ordered reads #900 adds are compared against this cell and
+// against `map_prev`.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_map)]
+fn sync_map_prev_locked(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for &k in &probes {
+        if let Some((pk, pv)) = map.with_locked(|m| m.prev_before(black_box(k))) {
+            sink ^= pk ^ pv;
+        }
+    }
+    // Leaked — see `map_get`.
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = built_sync_set)]
 fn sync_set_contains(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
@@ -1006,10 +1088,13 @@ library_benchmark_group!(
         map_remove,
         map_iterate,
         map_nav,
+        map_prev,
         set32_insert,
         map32_insert,
         map32_get,
         map32_iterate,
+        map32_nav,
+        map32_prev,
         map32_range,
         map32_for_each_range,
         set32_iterate,
@@ -1026,6 +1111,7 @@ library_benchmark_group!(
         sync_map_insert,
         sync_set_insert,
         sync_map_get,
+        sync_map_prev_locked,
         sync_set_contains,
         sync_map_churn,
         sync_map_remove,
