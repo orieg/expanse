@@ -236,7 +236,7 @@ the correction under the 100% hit table.
 
 Expanse wins all 24 insertion cells across the three populations in both runs —
 1.735 [1.706, 1.758] to 12.146 [12.084, 12.185] in run 1, 1.639 [1.310, 2.034] to
-12.205 [12.181, 12.271] in run 2 (`results/baseline_latency.json` is run 1). §5.2 registered this as a *weak*
+12.205 [12.181, 12.271] in run 2 (`results/baseline_latency.json` is run 1 and `results/baseline_latency_run2.json` run 2). §5.2 registered this as a *weak*
 prediction; it landed stronger than registered. Every one of these is a
 **sorted-order** cell — the shared generator hands both arms a sorted population
 — and §4.1 publishes what the same cells do on a shuffled permutation.
@@ -296,7 +296,7 @@ axes, and both are recorded as **`UNPREDICTED LOSS`**:
 
 The `map`/`random`/1M row is the exception and it reverses cleanly: Expanse wins
 every scan width there in both runs, 1.702 / 1.631 / 1.525 and 1.712 / 1.632 /
-1.518 (`results/baseline_latency.json` is run 1). At `5232af74`, with HOT timed
+1.518 (`results/baseline_latency.json` is run 1 and `results/baseline_latency_run2.json` run 2). At `5232af74`, with HOT timed
 first in every round, the row read 1.414 / 1.402 / 1.517, with no interval
 published beside it. Scan outcome therefore depends on population as well as
 on `k`, which is a second reason this suite does not publish single-population
