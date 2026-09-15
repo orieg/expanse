@@ -126,6 +126,9 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/art_comparison/scripts/recompute_and_patch_json.py",
     "docs/benchmarks/concurrency/scripts/ablations.py",
     "docs/benchmarks/concurrency/scripts/mixed_concurrency.py",
+    # README §11.8's paired throughput ratio: the interval goes into the README
+    # table, which names the construction whenever it is not BCa.
+    "docs/benchmarks/concurrency/scripts/tables.py",
     "docs/benchmarks/concurrency/scripts/writer_scaling.py",
     "docs/benchmarks/hot_comparison/scripts/run_all.py",
     "docs/benchmarks/hot_comparison/scripts/run_strings.py",

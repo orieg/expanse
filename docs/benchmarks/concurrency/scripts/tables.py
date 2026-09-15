@@ -15,6 +15,10 @@ Sections emitted, in README order:
 - `8. Fine-grained write brackets gate` via `fine_grained_brackets_gate.py`
 - `9. Multi-writer OLC gate` via `multi_writer_olc_gate.py`
 - `10. Writer scaling` from `results/baseline_writer_scaling.json`
+- `11.8` arm (a), `lock-padded` and their combination, one process per cell,
+  from `results/{combined_alloc_padded,ablation_alloc,padded}_writer_scaling_bad1bd3d{,_run2}.json`,
+  beside the `726b01fc` multi-cell artifacts of §11.7 for the position and
+  `str` W = 1 comparisons
 - `12. Mixed read/write concurrency` from `results/baseline_concurrent_mixed.json`
   and its second run, `results/baseline_concurrent_mixed_run2.json`
 
@@ -524,6 +528,268 @@ def mixed_concurrency() -> list[str]:
     return out
 
 
+# ---- 11.8 arm (a), lock-padded and the combination, one process per cell ----
+# The #930 re-run at `bad1bd3d` (METHODOLOGY.md section 15): three two-build
+# comparisons, two runs each, every timed cell in a harness process of its own.
+# The per-run verdict is the artifact's own (METHODOLOGY section 11,
+# `writer_scaling.py::compute_paired_scaling_ratios`); the two-run label is
+# rule 18's — the same verdict on the same cell in both runs, else
+# INCONCLUSIVE. Every other column is derived from `rounds_raw` and the load
+# snapshots, and the README labels it so.
+PERCELL_COMMIT = "bad1bd3d"
+MULTICELL_COMMIT = "726b01fc"
+# (subsection, artifact stem, variant build, how the README names it)
+PERCELL_BUILDS = (
+    ("11.8.1", "combined_alloc_padded_writer_scaling", "ablation-sharded-alloc,lock-padded",
+     "both changes together, not pre-registered"),
+    ("11.8.2", "ablation_alloc_writer_scaling", "ablation-sharded-alloc", "arm a"),
+    ("11.8.3", "padded_writer_scaling", "lock-padded", "not pre-registered"),
+)
+# The §11.7 artifacts: multi-cell processes, no `cell_isolation` field.
+MULTICELL_BUILDS = (
+    ("ablation_alloc_writer_scaling", "ablation-sharded-alloc"),
+    ("padded_writer_scaling", "lock-padded"),
+)
+PERCELL_ARMS = ("map", "set", "str")
+
+
+def _pc_runs(stem: str, commit: str, variant: str, isolation: str | None) -> list[dict] | None:
+    """Both runs of one comparison, or None if either is absent. A present
+    artifact at another commit, isolation or variant is an error (section 8.1)."""
+    arts = []
+    for suffix in ("", "_run2"):
+        path = SUITE / "results" / f"{stem}_{commit}{suffix}.json"
+        art = load(path)
+        if art is None:
+            return None
+        prov = need(art, "provenance", path.name)
+        if prov.get("commit") != commit or prov.get("cell_isolation") != isolation:
+            raise SystemExit(f"{path.name}: commit {prov.get('commit')!r}, cell_isolation "
+                             f"{prov.get('cell_isolation')!r}; expected {commit!r}, {isolation!r}")
+        names = {c["variant_name"] for c in need(art, "comparison", path.name)}
+        if names != {variant}:
+            raise SystemExit(f"{path.name}: compares {sorted(names)}, expected {variant!r}")
+        arts.append(art)
+    return arts
+
+
+def _pc_cell(art: dict, key: str, arm: str, w: int) -> dict:
+    hits = [c for c in need(art, key, key) if c["arm"] == arm and c["writers"] == w]
+    if len(hits) != 1:
+        raise SystemExit(f"{key}: {len(hits)} cells for {arm} W={w}, expected 1")
+    return hits[0]
+
+
+def _pc_writers(art: dict, arm: str) -> list[int]:
+    return sorted(c["writers"] for c in art["throughput"] if c["arm"] == arm)
+
+
+def _pc_cmp(art: dict, arm: str, w: int) -> dict:
+    hits = [c for c in art["comparison"] if c["arm"] == arm]
+    if len(hits) != 1 or hits[0].get("ratio_direction") != "c_variant_over_c_default":
+        raise SystemExit(f"comparison for {arm}: expected one C_variant / C_default entry")
+    return hits[0]["per_writer"][str(w)]
+
+
+def _pc_iv(m: float, lo: float, hi: float, digits: int, method: str = "bca") -> str:
+    tail = "" if method == "bca" else f" ({method})"
+    return f"{m:.{digits}f} [{lo:.{digits}f}, {hi:.{digits}f}]{tail}"
+
+
+def _pc_two_run(v1: str, v2: str) -> str:
+    if v1 != v2:
+        return "`INCONCLUSIVE` (verdicts differ)"
+    if v1 == "INCONCLUSIVE":
+        return "`INCONCLUSIVE`"
+    return f"`{v1}` in both runs"
+
+
+def _pc_rounds(art: dict, key: str, arm: str, w: int) -> dict[int, dict]:
+    rows = _pc_cell(art, key, arm, w)["rounds_raw"]
+    out = {int(r["round"]): r for r in rows}
+    if len(out) != len(rows):
+        raise SystemExit(f"{key} {arm} W={w}: duplicate round in rounds_raw")
+    return out
+
+
+def _pc_throughput_ratio(art: dict, arm: str, w: int) -> str:
+    """Per-round T_variant / T_default paired by round index, BCa 95%."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    from bca_bootstrap import bca_bootstrap_ci_with_method
+    d = _pc_rounds(art, "throughput", arm, w)
+    v = _pc_rounds(art, "throughput_variant", arm, w)
+    if d.keys() != v.keys():
+        raise SystemExit(f"{arm} W={w}: default and variant rounds differ")
+    ratios = [v[k]["writer_mops"] / d[k]["writer_mops"] for k in sorted(d)]
+    m, lo, hi, method = bca_bootstrap_ci_with_method(ratios, confidence=0.95)
+    return _pc_iv(m, lo, hi, 3, method)
+
+
+def writer_scaling_percell() -> list[str]:
+    from statistics import median
+
+    out: list[str] = []
+    runs = {stem: _pc_runs(stem, PERCELL_COMMIT, variant, "process")
+            for _, stem, variant, _ in PERCELL_BUILDS}
+    if any(a is None for a in runs.values()):
+        return ["#### 11.8.1 Verdicts", "", f"| build | {PENDING} |", "|---|---|"]
+
+    # Verdicts, per build.
+    for sub, stem, variant, label in PERCELL_BUILDS:
+        a1, a2 = runs[stem]
+        out += [f"#### {sub} `{variant}` ({label}) — verdicts", "",
+                "| arm | W | run 1 | run 1 verdict | run 2 | run 2 verdict | intervals overlap | two-run verdict |",
+                "|---|--:|---|---|---|---|---|---|"]
+        for arm in PERCELL_ARMS:
+            for w in _pc_writers(a1, arm):
+                if w == 1:
+                    continue
+                c1, c2 = _pc_cmp(a1, arm, w), _pc_cmp(a2, arm, w)
+                ivs = []
+                for c in (c1, c2):
+                    ivs.append(_pc_iv(c["ratio_c_variant_over_c_default_mean"], c["ratio_ci_lower"],
+                                      c["ratio_ci_upper"], 4, c.get("ratio_ci_method", "unlabelled")))
+                overlap = (c1["ratio_ci_lower"] <= c2["ratio_ci_upper"]
+                           and c2["ratio_ci_lower"] <= c1["ratio_ci_upper"])
+                out.append(f"| `{arm}` | {w} | {ivs[0]} | `{c1['verdict']}` | {ivs[1]} | `{c2['verdict']}` "
+                           f"| {'yes' if overlap else '**no**'} | {_pc_two_run(c1['verdict'], c2['verdict'])} |")
+        out.append("")
+
+    # Absolute writer throughput at W = 1 and W = 8, and the paired throughput ratio.
+    out += ["#### 11.8.4 Throughput per build, one process per cell", "",
+            "| build | arm | W | run 1 default | run 1 variant | run 2 default | run 2 variant |",
+            "|---|---|--:|---|---|---|---|"]
+    for _, stem, variant, _ in PERCELL_BUILDS:
+        for arm in PERCELL_ARMS:
+            for w in (1, 8):
+                cols = []
+                for art in runs[stem]:
+                    for key in ("throughput", "throughput_variant"):
+                        c = _pc_cell(art, key, arm, w)
+                        cols.append(_pc_iv(c["expanse_writer_mops_mean"], c["writer_ci_lower"],
+                                           c["writer_ci_upper"], 2, c.get("writer_ci_method", "unlabelled")))
+                out.append(f"| `{variant}` | `{arm}` | {w} | " + " | ".join(cols) + " |")
+    out += ["", "| build | arm | W | T_variant ÷ T_default, run 1 | T_variant ÷ T_default, run 2 |",
+            "|---|---|--:|---|---|"]
+    for _, stem, variant, _ in PERCELL_BUILDS:
+        for arm in PERCELL_ARMS:
+            for w in (1, 8):
+                out.append(f"| `{variant}` | `{arm}` | {w} | "
+                           + " | ".join(_pc_throughput_ratio(a, arm, w) for a in runs[stem]) + " |")
+    out.append("")
+
+    # Schedule position: the combined build's W = 8 `map` variant cell here, and
+    # the two single builds' in the §11.7 multi-cell artifacts.
+    comb = runs[PERCELL_BUILDS[0][1]]
+    out += ["#### 11.8.5 Schedule position, W = 8 `map` variant cell", "",
+            "| position in the round's cell order | run 1 rounds | run 1 median M ops/s | run 2 rounds | run 2 median M ops/s |",
+            "|--:|---|--:|---|--:|"]
+    by = []
+    for art in comb:
+        pos: dict[int, list[dict]] = {}
+        for r in _pc_rounds(art, "throughput_variant", "map", 8).values():
+            pos.setdefault(int(r["position"]), []).append(r)
+        by.append(pos)
+    for p in sorted(set(by[0]) | set(by[1])):
+        cells = []
+        for pos in by:
+            rs = sorted(pos.get(p, []), key=lambda r: r["round"])
+            cells.append(", ".join(str(r["round"]) for r in rs) or "—")
+            cells.append(f"{median(r['writer_mops'] for r in rs):.2f}" if rs else "—")
+        out.append(f"| {p} | " + " | ".join(cells) + " |")
+    out += ["", f"| build (`{MULTICELL_COMMIT}`, one process per build per round) | position in the process | "
+            "run 1 rounds | run 1 median M ops/s | run 2 rounds | run 2 median M ops/s |",
+            "|---|--:|---|--:|---|--:|"]
+    for stem, variant in MULTICELL_BUILDS:
+        arts = _pc_runs(stem, MULTICELL_COMMIT, variant, None)
+        if arts is None:
+            out.append(f"| `{variant}` | — | {PENDING} | — | — | — |")
+            continue
+        by = []
+        for art in arts:
+            pos = {}
+            for r in _pc_rounds(art, "throughput_variant", "map", 8).values():
+                pos.setdefault(int(r["position"]), []).append(r)
+            by.append(pos)
+        for p in sorted(set(by[0]) | set(by[1])):
+            cells = []
+            for pos in by:
+                rs = sorted(pos.get(p, []), key=lambda r: r["round"])
+                cells.append(", ".join(str(r["round"]) for r in rs) or "—")
+                cells.append(f"{median(r['writer_mops'] for r in rs):.2f}" if rs else "—")
+            out.append(f"| `{variant}` | {p} | " + " | ".join(cells) + " |")
+    out.append("")
+
+    # The `set` W = 1 control under arm (a), per round.
+    sharded = runs[PERCELL_BUILDS[1][1]]
+    out += ["#### 11.8.6 `set` W = 1 under `ablation-sharded-alloc`, per round", "",
+            "| run | round | variant position | variant M ops/s | default position | default M ops/s | variant ÷ default |",
+            "|--:|--:|--:|--:|--:|--:|--:|"]
+    for i, art in enumerate(sharded, start=1):
+        d = _pc_rounds(art, "throughput", "set", 1)
+        v = _pc_rounds(art, "throughput_variant", "set", 1)
+        for k in sorted(d):
+            out.append(f"| {i} | {k} | {v[k]['position']} | {v[k]['writer_mops']:.2f} | {d[k]['position']} "
+                       f"| {d[k]['writer_mops']:.2f} | {v[k]['writer_mops'] / d[k]['writer_mops']:.3f} |")
+    out.append("")
+
+    # The combination against the product of the single-change C(W) ratio means.
+    out += ["#### 11.8.7 The combination against the two single changes", "",
+            "| arm | W | run | combined C(W) ratio | `ablation-sharded-alloc` | `lock-padded` | product of the two (derived) |",
+            "|---|--:|--:|--:|--:|--:|--:|"]
+    for arm in ("map", "set"):
+        for i in (0, 1):
+            vals = [_pc_cmp(runs[stem][i], arm, 8)["ratio_c_variant_over_c_default_mean"]
+                    for _, stem, _, _ in PERCELL_BUILDS]
+            out.append(f"| `{arm}` | 8 | {i + 1} | {vals[0]:.4f} | {vals[1]:.4f} | {vals[2]:.4f} "
+                       f"| {vals[1] * vals[2]:.4f} |")
+    out.append("")
+
+    # The default build's `str` W = 1 rate, before and after one process per cell.
+    out += ["#### 11.8.8 The default build's `str` W = 1 rate", "",
+            "| commit | cells per process | artifact | default `str` W = 1 M ops/s [BCa 95%] |",
+            "|---|---|---|---|"]
+    rows = [(MULTICELL_COMMIT, "several", stem, variant, None) for stem, variant in MULTICELL_BUILDS]
+    rows += [(PERCELL_COMMIT, "one", stem, variant, "process") for _, stem, variant, _ in PERCELL_BUILDS]
+    for commit, per, stem, variant, iso in rows:
+        arts = _pc_runs(stem, commit, variant, iso)
+        if arts is None:
+            continue
+        for suffix, art in zip(("", "_run2"), arts):
+            c = _pc_cell(art, "throughput", "str", 1)
+            out.append(f"| `{commit}` | {per} | `{stem}_{commit}{suffix}.json` | "
+                       f"{_pc_iv(c['expanse_writer_mops_mean'], c['writer_ci_lower'], c['writer_ci_upper'], 2, c.get('writer_ci_method', 'unlabelled'))} |")
+    out.append("")
+
+    # Host load (section 8.17): the cell windows, and the phase snapshots taken
+    # back to back, whose `*_since_prev` fields cover no measurable wall time.
+    out += ["#### 11.8.9 Host load", "",
+            "| artifact | cell `foreign_busy_cpus`, min – max | peak `load1` | largest `load1` shift between consecutive snapshots "
+            "| back-to-back phase snapshots: `own` / `foreign` since the previous one |",
+            "|---|---|--:|--:|---|"]
+
+    def num(x) -> str:
+        return "null" if x is None else f"{x:.2f}"
+
+    for _, stem, _, _ in PERCELL_BUILDS:
+        for suffix, art in zip(("", "_run2"), runs[stem]):
+            name = f"{stem}_{PERCELL_COMMIT}{suffix}.json"
+            fb = [need(c["load"], "foreign_busy_cpus", name)
+                  for key in ("throughput", "throughput_variant") for c in art[key]]
+            loads = art["provenance"]["loads"]
+            peak = max(l["load1"] for l in loads)
+            shift = max(abs(b["load1"] - a["load1"]) for a, b in zip(loads, loads[1:]))
+            back = []
+            for a, b in zip(loads, loads[1:]):
+                if b["monotonic_s"] == a["monotonic_s"]:
+                    if b["child_cpu_s"] != a["child_cpu_s"]:
+                        raise SystemExit(f"{name}: {b['label']} shares monotonic_s but not child_cpu_s")
+                    back.append(f"{num(b['own_busy_cpus_since_prev'])} / {num(b['foreign_busy_cpus_since_prev'])}")
+            out.append(f"| `{name}` | {min(fb):.2f} – {max(fb):.2f} | {peak:.2f} | {shift:.2f} | "
+                       + "; ".join(back) + " |")
+    return out
+
+
 def main() -> int:
     import fine_grained_brackets_gate  # the §8 fine-grained write brackets verdicts, beside this file
     import multi_writer_olc_gate  # the §9 multi-writer OLC verdicts, beside this file
@@ -538,6 +804,7 @@ def main() -> int:
         fine_grained_brackets_gate.render(),
         multi_writer_olc_gate.render(),
         writer_scaling(),
+        writer_scaling_percell(),
         mixed_concurrency(),
     ]
     print("\n\n".join("\n".join(b) for b in blocks))
