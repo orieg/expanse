@@ -122,17 +122,17 @@
 <text class="t-axis-label" x="410.0" y="404" text-anchor="middle">expanse occupancy λ = N / populated 2-byte-prefix expanses (log scale)</text>
 <text class="t-axis-label" x="16" y="216.0" text-anchor="middle" transform="rotate(-90 16 216.0)">B / key</text>
 <line class="axis" x1="70" y1="366" x2="750" y2="366"/>
-<path d="M70.0,244.7 L184.7,254.4 L299.3,272.3 L414.0,291.1 L518.0,304.0 L588.7,305.2 L632.6,265.7 L671.7,210.8 L703.3,201.6 L750.0,213.8" fill="none" stroke="#16a34a" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
-<circle cx="70.0" cy="244.7" r="2.6" fill="#16a34a"/>
-<circle cx="184.7" cy="254.4" r="2.6" fill="#16a34a"/>
-<circle cx="299.3" cy="272.3" r="2.6" fill="#16a34a"/>
-<circle cx="414.0" cy="291.1" r="2.6" fill="#16a34a"/>
-<circle cx="518.0" cy="304.0" r="2.6" fill="#16a34a"/>
-<circle cx="588.7" cy="305.2" r="2.6" fill="#16a34a"/>
-<circle cx="632.6" cy="265.7" r="2.6" fill="#16a34a"/>
+<path d="M70.0,238.1 L184.7,254.7 L299.3,272.6 L414.0,291.3 L518.0,302.3 L588.7,302.1 L632.6,264.1 L671.7,210.8 L703.3,201.7 L750.0,213.9" fill="none" stroke="#16a34a" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
+<circle cx="70.0" cy="238.1" r="2.6" fill="#16a34a"/>
+<circle cx="184.7" cy="254.7" r="2.6" fill="#16a34a"/>
+<circle cx="299.3" cy="272.6" r="2.6" fill="#16a34a"/>
+<circle cx="414.0" cy="291.3" r="2.6" fill="#16a34a"/>
+<circle cx="518.0" cy="302.3" r="2.6" fill="#16a34a"/>
+<circle cx="588.7" cy="302.1" r="2.6" fill="#16a34a"/>
+<circle cx="632.6" cy="264.1" r="2.6" fill="#16a34a"/>
 <circle cx="671.7" cy="210.8" r="2.6" fill="#16a34a"/>
-<circle cx="703.3" cy="201.6" r="2.6" fill="#16a34a"/>
-<circle cx="750.0" cy="213.8" r="2.6" fill="#16a34a"/>
+<circle cx="703.3" cy="201.7" r="2.6" fill="#16a34a"/>
+<circle cx="750.0" cy="213.9" r="2.6" fill="#16a34a"/>
 <line x1="768" y1="70" x2="786" y2="70" stroke="#16a34a" stroke-width="2" stroke-dasharray="4 0"/>
 <text class="t-legend" x="792" y="74">ExpanseSet (Arm A)</text>
 <path d="M70.0,275.5 L184.7,276.8 L299.3,277.4 L414.0,277.7 L518.0,278.2 L588.7,278.3 L632.6,278.3 L671.7,277.8 L703.3,278.4 L750.0,278.3" fill="none" stroke="#2563eb" stroke-width="2" stroke-dasharray="4 0" stroke-linejoin="round"/>
@@ -148,16 +148,16 @@
 <circle cx="750.0" cy="278.3" r="2.6" fill="#2563eb"/>
 <line x1="768" y1="90" x2="786" y2="90" stroke="#2563eb" stroke-width="2" stroke-dasharray="4 0"/>
 <text class="t-legend" x="792" y="94">HOT set (Arm A)</text>
-<path d="M70.0,186.9 L184.7,180.1 L299.3,195.0 L414.0,223.6 L518.0,240.6 L588.7,244.0 L632.6,220.6 L671.7,186.7 L703.3,180.7 L750.0,187.3" fill="none" stroke="#16a34a" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round"/>
-<circle cx="70.0" cy="186.9" r="2.6" fill="#16a34a"/>
+<path d="M70.0,179.6 L184.7,180.1 L299.3,195.0 L414.0,223.4 L518.0,232.2 L588.7,234.3 L632.6,216.1 L671.7,186.1 L703.3,180.6 L750.0,187.3" fill="none" stroke="#16a34a" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round"/>
+<circle cx="70.0" cy="179.6" r="2.6" fill="#16a34a"/>
 <circle cx="184.7" cy="180.1" r="2.6" fill="#16a34a"/>
 <circle cx="299.3" cy="195.0" r="2.6" fill="#16a34a"/>
-<circle cx="414.0" cy="223.6" r="2.6" fill="#16a34a"/>
-<circle cx="518.0" cy="240.6" r="2.6" fill="#16a34a"/>
-<circle cx="588.7" cy="244.0" r="2.6" fill="#16a34a"/>
-<circle cx="632.6" cy="220.6" r="2.6" fill="#16a34a"/>
-<circle cx="671.7" cy="186.7" r="2.6" fill="#16a34a"/>
-<circle cx="703.3" cy="180.7" r="2.6" fill="#16a34a"/>
+<circle cx="414.0" cy="223.4" r="2.6" fill="#16a34a"/>
+<circle cx="518.0" cy="232.2" r="2.6" fill="#16a34a"/>
+<circle cx="588.7" cy="234.3" r="2.6" fill="#16a34a"/>
+<circle cx="632.6" cy="216.1" r="2.6" fill="#16a34a"/>
+<circle cx="671.7" cy="186.1" r="2.6" fill="#16a34a"/>
+<circle cx="703.3" cy="180.6" r="2.6" fill="#16a34a"/>
 <circle cx="750.0" cy="187.3" r="2.6" fill="#16a34a"/>
 <line x1="768" y1="110" x2="786" y2="110" stroke="#16a34a" stroke-width="2" stroke-dasharray="5 4"/>
 <text class="t-legend" x="792" y="114">ExpanseMap (Arm B)</text>

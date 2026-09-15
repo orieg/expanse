@@ -446,6 +446,93 @@
       "replacement": "docs/benchmarks/concurrency/README.md section 12: results/baseline_concurrent_mixed.json and results/baseline_concurrent_mixed_run2.json (CI runs 34881026495 and 34882381735)",
       "provenance": "#568, #935",
       "rationale": "Measured with the single-window benches/concurrency.rs, whose window started before its threads were spawned and whose rates divided by the window constant; withdrawn when the harness became an instrument (barrier-started interleaved rounds, elapsed-time divisor, BCa intervals, two runs)"
+    },
+    {
+      "id": "hot_integer_latency_ae0c610d",
+      "patterns": [
+        "(?<![\\w.])0\\.986\\s*\\[0\\.970,\\s*1\\.003\\]",
+        "(?<![\\w.])0\\.992\\s*\\[0\\.977,\\s*1\\.007\\]",
+        "(?<![\\w.])0\\.960\\s*\\[0\\.953,\\s*0\\.967\\]",
+        "(?<![\\w.])1\\.012\\s*\\[1\\.004,\\s*1\\.021\\]",
+        "(?<![\\w.])1\\.245\\s*\\[1\\.224,\\s*1\\.266\\]",
+        "(?<![\\w.])0\\.939\\s*\\[0\\.888,\\s*0\\.970\\]",
+        "(?<![\\w.])1\\.003\\s*\\[0\\.984,\\s*1\\.027\\]",
+        "(?<![\\w.])0\\.521\\s*\\[0\\.519,\\s*0\\.523\\]",
+        "(?<![\\w.])0\\.407\\s*\\[0\\.406,\\s*0\\.409\\]",
+        "(?<![\\w.])1\\.63×\\s*[–-]\\s*12\\.93×",
+        "(?<![\\w.])111\\s+of\\s+144(?!\\d)",
+        "(?<![\\w.])1\\.822(?![\\d])",
+        "28\\s+of\\s+HOT's\\s+29\\s+integer-key",
+        "(?<![\\w.])0\\.41\\s*[–-]\\s*0\\.53(?![\\d])"
+      ],
+      "context": [
+        "hot",
+        "lookup",
+        "lookup_hit",
+        "scan",
+        "insert",
+        "boundary",
+        "map",
+        "random",
+        "latency"
+      ],
+      "replacement": "hot_comparison integer latency re-measured twice at ae9e716e: lookup_hit map random 10^6 is a HOT win, 0.946 [0.934, 0.960] and 0.954 [0.941, 0.968]; map sparse 10^6 k=1000 scan is an Expanse win, 1.026 [1.009, 1.054] and 1.030 [1.012, 1.059]; scorecard 112 Expanse / 31 HOT / 1 BOUNDARY_RESULT in both runs (docs/benchmarks/hot_comparison/results/baseline_latency.json, docs/benchmarks/hot_comparison/README.md §2-§4); 28 of HOT's 31 integer-key wins are scan cells, HOT ÷ Expanse 0.39–0.52 on random keys at 100k and k = 1000 across both runs",
+      "provenance": "#660, #760, #783",
+      "rationale": "The ae0c610d integer latency artifact, and the two earlier alternating-harness runs of the map hit cell, were superseded by a two-run re-measurement at ae9e716e in which two cells changed winner class (both runs agree) and every quoted interval moved. The boundary claim on uniform-random map lookup at 10^6 no longer holds. `0.993 [0.977, 1.009]` is not a pattern: METHODOLOGY.md §12.4 and §13.4 record it as the frozen amendment it was, at the commit it was measured on. Superseded, not silently overwritten (section 8.7)."
+    },
+    {
+      "id": "hot_integer_memory_curve_0f4fd40c",
+      "patterns": [
+        "(?<![\\w.])8\\.26(?![\\d])",
+        "(?<![\\w.])8\\.11(?![\\d])",
+        "(?<![\\w.])23\\.87(?![\\d])",
+        "(?<![\\w.])13\\.37(?![\\d])",
+        "(?<![\\w.])1\\.42×\\s+less\\s+memory",
+        "(?<![\\w.])2\\.7×\\s+swing",
+        "Expanse's\\s+2\\.7×",
+        "\\*\\*2\\.19×\\*\\*"
+      ],
+      "context": [
+        "b/key",
+        "bytes/key",
+        "expanseset",
+        "expansemap",
+        "memory",
+        "occupancy",
+        "λ"
+      ],
+      "replacement": "hot_comparison allocator census re-measured at ae9e716e (identical in two runs): ExpanseSet 17.05 / 8.50 / 8.52 / 13.58 B/key at λ ≈ 1 / 15 / 23 / 30, ExpanseMap 24.86 / 17.84 / 17.57 / 19.98, largest Arm B advantage 2.03×, Expanse set swing 2.6×; HOT column unchanged (docs/benchmarks/hot_comparison/results/baseline_memory_curve.json)",
+      "provenance": "#660",
+      "rationale": "The 0f4fd40c memory-curve Expanse column was superseded by a re-measurement at ae9e716e; no cell changed winner. `16.17` is not a pattern because README §7.4 still sets it beside the concurrent census, and the map-arm `16.72` / `16.26` / `19.39` are not patterns because masstree_comparison publishes those digits correctly at its own commit. Superseded, not silently overwritten (section 8.7)."
+    },
+    {
+      "id": "hot_integer_sensitivity_0f4fd40c",
+      "patterns": [
+        "(?<![\\w.])13\\.95(?![\\d])",
+        "(?<![\\w.])20\\.33(?![\\d])",
+        "(?<![\\w.])27\\.10\\s*→\\s*64\\.75",
+        "(?<![\\w.])3\\.514(?![\\d])",
+        "(?<![\\w.])2\\.828(?![\\d])",
+        "(?<![\\w.])1\\.021\\s*\\[1\\.012,\\s*1\\.030\\]",
+        "(?<![\\w.])1\\.009\\s*\\[1\\.000,\\s*1\\.020\\]",
+        "(?<![\\w.])0\\.990\\s*\\[0\\.977,\\s*1\\.005\\]",
+        "(?<![\\w.])1\\.072\\s*\\[1\\.056,\\s*1\\.091\\]",
+        "(?<![\\w.])2\\.532\\s*\\[2\\.527,\\s*2\\.539\\]",
+        "(?<![\\w.])1\\.943\\s*\\[1\\.933,\\s*1\\.952\\]",
+        "independent\\s+replication\\s+of\\s+that\\s+figure"
+      ],
+      "context": [
+        "sensitivity",
+        "shuffled",
+        "sorted",
+        "insertion order",
+        "mem_used",
+        "hot",
+        "masstree"
+      ],
+      "replacement": "hot_comparison integer insertion-order rows re-measured twice at ae9e716e: set 14.13 / 20.62 B/key allocator and 13.74 mem_used, map 17.84 / 24.75 and 17.58; map sorted lookup_hit a HOT win in both runs (0.948 [0.935, 0.963], 0.954 [0.941, 0.968]); map shuffled lookup_hit winner not established (1.012 [0.999, 1.028] vs 1.016 [1.002, 1.030]) (docs/benchmarks/hot_comparison/results/baseline_sensitivity.json, README §4.1)",
+      "provenance": "#660, #772",
+      "rationale": "The 0f4fd40c integer sensitivity rows were superseded by a two-run re-measurement at ae9e716e. The allocator and mem_used columns moved, so this suite no longer reproduces masstree_comparison's 16.67 -> 23.63 at 2ce92b7f and the replication claim is withdrawn; those digits stay valid in the Masstree suite and are not patterns here. Superseded, not silently overwritten (section 8.7)."
     }
   ]
 }
