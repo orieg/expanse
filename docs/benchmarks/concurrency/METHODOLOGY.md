@@ -741,7 +741,11 @@ Every lower bound clears the 1.5 margin, and the 1.667 that §13.4 names as the 
   - At `0-15` the largest frozen per-round CV is 0.0783, which needs 38 rounds, so 40.
   - At `0,2,4,6,8,10,12,14` it is 0.0356, which needs 8.
   - One count serves both pins, the larger.
-- **The dispatch cannot run this yet.** The `writer_scaling` case in `.github/workflows/bench_baremetal.yml` passes no `--rounds`, so today it runs the driver's default of 8. A run under this section needs the dispatch to pass `--rounds 40`, landed before the first such run and changing nothing else in the driver or harness. At 8 rounds the `0-15` planning CV resolves only to a relative half-width of 0.0542, which would need a true mean of 21.15 M ops/s. That configuration is not the one registered.
+- **The dispatch.** The pull request that adds this section also adds a `rounds` input to `.github/workflows/bench_baremetal.yml`. It passes `--rounds` to the `writer_scaling` case only when set, and changes nothing else in the driver or harness. An empty value runs the driver's default of 8, and any other suite refuses a non-empty value. Each run under this section is one `workflow_dispatch` with `ref` naming the head being evaluated and:
+  - pin `0-15`: `benchmark_suite=writer_scaling`, `rounds=40`, `cpu_pin=0-15`;
+  - pin `0,2,4,6,8,10,12,14`: `benchmark_suite=writer_scaling`, `rounds=40`, `cpu_pin=0,2,4,6,8,10,12,14`.
+
+  A dispatch without `rounds=40` runs 8 rounds, and §14.5 voids it. At 8 rounds the `0-15` planning CV resolves only to a relative half-width of 0.0542, which would need a true mean of 21.15 M ops/s.
 - **Resolution, stated before any run.** At a relative half-width of 0.025, a true mean of 20.513 M ops/s reaches the bound in about half of runs (`mean_needed_to_clear`) and 21.039 in 97.5% of runs (`mean_needed_with_probability`). Both figures count within-run spread only. A real level between 20 and about 21 M ops/s can therefore read `INCONCLUSIVE`.
 - **Load.** The driver takes a snapshot around every arm (`begin_cell`, `end_cell`), recorded in `provenance.loads` and in each cell's `load` (AGENTS.md §8.17).
 - **Two independent runs per pin** (`docs/BENCHMARKING.md` rule 18), each a fresh dispatch, all four at one head.
