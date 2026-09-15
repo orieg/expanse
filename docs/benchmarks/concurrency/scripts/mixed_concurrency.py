@@ -32,6 +32,52 @@ Usage:
     python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --write-assets RUN1,RUN2
     python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --check-assets
 
+`--step2-gate` is the two-build mode `METHODOLOGY.md` §13 pre-registers for
+#568 Steps 1–2. The flags above describe the single-build sweep, and that mode
+is unchanged when `--step2-gate` is absent. The Step 2 mode:
+
+- refuses a head that does not contain #949 (`git merge-base --is-ancestor
+  5c8c5802 HEAD`), a tracked change under `crates/` in the head checkout, and
+  a pin other than `0-15`. Under `--quick` it records each of these and goes
+  on;
+- applies the pin, builds the bench from the head checkout, then builds it
+  again from a detached `git worktree` at `1edfa952` with its own
+  `CARGO_TARGET_DIR`. Only the head's `crates/expanse/benches/concurrency.rs`
+  is copied into that worktree. `git diff --name-only 1edfa952` plus untracked
+  files must list nothing else, both before and after the build. The two
+  executables must differ. The worktree and its target are removed at the end;
+- runs one bench process per window: `EXPANSE_BENCH_ENGINES` one arm of
+  (`map`, `set`), `EXPANSE_BENCH_THREADS` one of (1, 16),
+  `EXPANSE_BENCH_WORKLOADS=50`, `EXPANSE_BENCH_ROUNDS=1` and a fresh
+  `EXPANSE_BENCH_SAMPLES` file, so every window starts from its own prefill.
+  A process that exits non-zero, or that does not write exactly one row with
+  the requested arm, thread count and read percentage, voids its round. The
+  run is then discarded and nothing is written (§13.5);
+- runs 48 rounds by default and refuses fewer, or an odd count. Each round
+  runs every (threads, arm, build) window once, nested in that order. Head
+  runs first in even rounds and baseline first in odd ones, and the thread
+  order flips on the same schedule. Each window records its `round` and
+  `position`, and a load snapshot is taken around every round;
+- reports, per arm and thread count, the per-round ratio head / baseline of
+  total ops/s with the BCa 95% interval of its mean. Beside it are each
+  build's mean, median and BCa interval of total ops/s, and every window
+  under `rounds_raw`;
+- reads §13.4's verdict at 16 threads per arm: `PASS` when the lower bound is
+  at least `STEP2_MARGIN` (`scripts/olc_bounds.py`, 1.5), `REFUTED` when the
+  upper bound is below it, `INCONCLUSIVE` otherwise. The 1-thread control is
+  reported with its interval and `NOT_GATED`. The gate block covers this run
+  only; §13.4's two-run decision is read from two artifacts;
+- writes `results/baseline_concurrent_step2_gate.json`, or with `--run2`
+  `results/baseline_concurrent_step2_gate_run2.json`. Under `--quick` it writes
+  `results/quick/baseline_concurrent_step2_gate.json`. A quick run may shorten the
+  rounds and pick other thread counts, since a host with fewer than 16 CPUs
+  drops the 16-thread window.
+
+    python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --step2-gate
+    python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --step2-gate --run2
+    EXPANSE_BENCH_PIN=off python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py \\
+        --step2-gate --quick --rounds 2 --threads 1,8
+
 `--self-test` runs without Cargo and is run by CI's `lint` job. The committed
 artifact and its second run (`baseline_concurrent_mixed_run2.json`) also feed
 the README hero chart's and the sync32 health chart's data
@@ -44,13 +90,15 @@ they differ from what the runs produce.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
@@ -58,6 +106,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 import bench_pin  # noqa: E402
 import bca_bootstrap  # noqa: E402
 import check_bench_provenance  # noqa: E402
+import olc_bounds  # noqa: E402
 from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
 from bench_provenance import add_load, begin_cell, end_cell, new_provenance  # noqa: E402
 
@@ -175,11 +224,19 @@ def parse_engines(text: str) -> list[str]:
     return keys
 
 
-def build_bench() -> Path:
-    """Builds the bench once and returns its executable."""
+def build_bench(root: Path = REPO_ROOT, target_dir: Path | None = None) -> Path:
+    """Builds the bench once and returns its executable.
+
+    `root` is the tree to build, which defaults to this checkout. `target_dir`,
+    when given, becomes `CARGO_TARGET_DIR`, so a second tree never shares or
+    overwrites the first tree's build.
+    """
     cmd = ["cargo", "bench", "-p", "expanse-trie", "--bench", "concurrency", "--no-run",
            "--message-format=json-render-diagnostics"]
-    proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
+    env = None
+    if target_dir is not None:
+        env = dict(os.environ, CARGO_TARGET_DIR=str(target_dir))
+    proc = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True)
     if proc.returncode != 0:
         raise InstrumentError(f"`{' '.join(cmd)}` failed:\n{proc.stderr[-4000:]}")
     exe = None
@@ -385,12 +442,17 @@ def artifact_problems(path: Path, artifact: dict[str, Any]) -> list[str]:
     return check_bench_provenance.findings_for(rel, artifact)
 
 
+DEFAULT_THREADS = "1,2,4,8,16"
+DEFAULT_WORKLOADS = "100,95,50"
+DEFAULT_ENGINES = "map,set"
+
+
 def run(args: argparse.Namespace) -> int:
-    threads = parse_csv_ints(args.threads, "--threads")
-    workloads = parse_csv_ints(args.workloads, "--workloads")
+    threads = parse_csv_ints(args.threads or DEFAULT_THREADS, "--threads")
+    workloads = parse_csv_ints(args.workloads or DEFAULT_WORKLOADS, "--workloads")
     if any(not 0 <= w <= 100 for w in workloads):
         raise InstrumentError("--workloads are read percentages (0-100)")
-    engines = parse_engines(args.engines)
+    engines = parse_engines(args.engines or DEFAULT_ENGINES)
     rounds = resolve_rounds(args.rounds, len(threads), args.quick)
     out = resolve_out(args.out, args.quick)
 
@@ -425,6 +487,531 @@ def run(args: argparse.Namespace) -> int:
         raise InstrumentError("artifact would fail check_bench_provenance.py:\n  " + "\n  ".join(problems))
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(artifact, indent=2) + "\n")
+    print(f"Wrote artifact to {out.relative_to(REPO_ROOT) if REPO_ROOT in out.parents else out}")
+    return 0
+
+
+# --------------------------------------------------------------------------
+# #568 Step 2: the two-build single-writer gate (METHODOLOGY.md §13)
+# --------------------------------------------------------------------------
+
+# §13.1: the last commit before multi-writer optimistic lock coupling landed.
+STEP2_BASELINE_REF = "1edfa952"
+# §13.1: #949, which the head must contain.
+STEP2_REQUIRED_ANCESTOR = "5c8c5802"
+STEP2_ARMS = ("map", "set")
+STEP2_THREADS = (1, 16)
+STEP2_GATE_THREADS = 16
+STEP2_READ_PCT = 50
+STEP2_ROUNDS = 48
+STEP2_QUICK_ROUNDS = 4
+STEP2_PIN = "0-15"
+STEP2_RESAMPLES = 2000
+STEP2_BUILDS = ("head", "baseline")
+# §13.4. The margin is a choice, and `scripts/olc_bounds.py` sizes the rounds
+# against it, so the two copies must stay equal. `step2_margin_problems` checks
+# that before every run and in the self-test.
+STEP2_GATE_MARGIN = 1.5
+STEP2_DEFAULT_OUT = DEFAULT_OUT.with_name("baseline_concurrent_step2_gate.json")
+STEP2_RUN2_OUT = DEFAULT_OUT.with_name("baseline_concurrent_step2_gate_run2.json")
+STEP2_QUICK_OUT = QUICK_OUT.with_name("baseline_concurrent_step2_gate.json")
+STEP2_METHODOLOGY = "docs/benchmarks/concurrency/METHODOLOGY.md section 13"
+STEP2_RATIO = (
+    "per-round ratio head / baseline of total operations per second, (read_ops + write_ops) "
+    "/ elapsed_s from each build's own window of that round; ratio_* is the mean of those "
+    "ratios with a one-sample BCa 95% interval"
+)
+STEP2_COLUMNS = (
+    "throughput cells: the mean of one build's windows of total ops/s with a BCa 95% interval, "
+    "and their median; ratio cells: the mean of the per-round ratios, which is not the "
+    "quotient of the two builds' means"
+)
+STEP2_LOAD_SCOPE = (
+    "round: a load snapshot is taken around every round; a cell carries the largest and the "
+    "mean foreign busy CPUs over the rounds its windows ran in, and each raw window its "
+    "round's value"
+)
+STEP2_ORDER = (
+    "within a round every (threads, arm, build) window runs once, nested in that order; "
+    "head runs first in even rounds and baseline first in odd rounds, and the thread order "
+    "flips on the same schedule; arm order is fixed"
+)
+STEP2_GATE_RULE = (
+    "per arm at the gate thread count: PASS when ratio_ci_lower >= margin, REFUTED when "
+    "ratio_ci_upper < margin, INCONCLUSIVE otherwise"
+)
+STEP2_GATE_SCOPE = (
+    "this run only; section 13.4 meets #568's gate when map and set both read PASS in two "
+    "independent runs, decided by reading two artifacts, never by this block"
+)
+STEP2_RAW_KEYS = ("round", "position", "elapsed_s", "read_ops", "write_ops")
+
+
+def step2_margin_problems(margin: float = STEP2_GATE_MARGIN) -> list[str]:
+    """The gate margin must equal the one the rounds were sized against."""
+    if margin != olc_bounds.STEP2_MARGIN:
+        return [f"STEP2_GATE_MARGIN {margin} differs from scripts/olc_bounds.py STEP2_MARGIN "
+                f"{olc_bounds.STEP2_MARGIN}; METHODOLOGY.md §13 fixes one margin"]
+    return []
+
+
+def step2_round_order(round_idx: int, arms: tuple[str, ...] = STEP2_ARMS,
+                      threads: tuple[int, ...] = STEP2_THREADS) -> list[tuple[str, int, str]]:
+    """The (arm, threads, build) windows of one round, in run order (§13.3)."""
+    flip = round_idx % 2 == 1
+    builds = tuple(reversed(STEP2_BUILDS)) if flip else STEP2_BUILDS
+    thread_order = tuple(reversed(threads)) if flip else tuple(threads)
+    return [(arm, t, build) for t in thread_order for arm in arms for build in builds]
+
+
+def resolve_step2_rounds(requested: int | None, quick: bool) -> int:
+    """48 rounds, or more; an even count so each build goes first equally often."""
+    rounds = requested if requested is not None else (STEP2_QUICK_ROUNDS if quick else STEP2_ROUNDS)
+    if rounds < 2 or rounds % 2:
+        raise InstrumentError(
+            f"--rounds {rounds}: the build order alternates between rounds, so the count must be "
+            f"even and at least 2")
+    if not quick and rounds < STEP2_ROUNDS:
+        raise InstrumentError(
+            f"--rounds {rounds} is below the {STEP2_ROUNDS} rounds METHODOLOGY.md §13.3 fixes; "
+            f"use --quick for a scratch run")
+    return rounds
+
+
+def resolve_step2_out(out: str | None, run2: bool, quick: bool) -> Path:
+    """The artifact path; neither committed Step 2 path is writable by a quick run."""
+    if out and run2:
+        raise InstrumentError("--run2 names the second run's committed path; do not pass --out with it")
+    if out:
+        chosen = out
+    elif run2:
+        chosen = str(STEP2_RUN2_OUT)
+    else:
+        chosen = str(STEP2_QUICK_OUT if quick else STEP2_DEFAULT_OUT)
+    return resolve_out(chosen, quick)
+
+
+def step2_pin_problems(pin: str, quick: bool) -> list[str]:
+    """A committed run is void unless its pin is `0-15` (§13.5)."""
+    if quick or pin == STEP2_PIN:
+        return []
+    return [f"core pin {pin!r} is not {STEP2_PIN}; METHODOLOGY.md §13.5 voids a run whose artifact "
+            f"records another pin (use --quick for a scratch run)"]
+
+
+def git_out(args: list[str], cwd: Path) -> str:
+    """`git <args>` in `cwd`; any non-zero exit fails loud (AGENTS.md §8.1)."""
+    proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise InstrumentError(f"`git {' '.join(args)}` exited {proc.returncode}: {proc.stderr.strip()[-2000:]}")
+    return proc.stdout
+
+
+def head_contains(ancestor: str, repo: Path = REPO_ROOT) -> bool:
+    """`git merge-base --is-ancestor <ancestor> HEAD`, discriminating its exit codes.
+
+    0 means contained and 1 means not contained. Anything else, such as an
+    unknown commit in a shallow clone, is an execution failure and never
+    counts as an answer.
+    """
+    proc = subprocess.run(["git", "merge-base", "--is-ancestor", ancestor, "HEAD"],
+                          cwd=repo, capture_output=True, text=True)
+    if proc.returncode == 0:
+        return True
+    if proc.returncode == 1:
+        return False
+    raise InstrumentError(
+        f"`git merge-base --is-ancestor {ancestor} HEAD` exited {proc.returncode}: "
+        f"{proc.stderr.strip()} (a shallow clone cannot answer; fetch full history)")
+
+
+def check_head_ancestry(quick: bool, contains: Callable[[], bool]) -> bool:
+    """Refuses a head without #949 unless quick; returns whether the head contains it."""
+    ok = contains()
+    if not ok:
+        message = (f"the head does not contain {STEP2_REQUIRED_ANCESTOR} (#949); METHODOLOGY.md §13.5 "
+                   f"voids the run")
+        if not quick:
+            raise InstrumentError(message)
+        sys.stderr.write(f"mixed_concurrency.py: WARNING (--quick): {message}\n")
+    return ok
+
+
+def head_tree_problems(repo: Path = REPO_ROOT) -> list[str]:
+    """Tracked changes under `crates/` would make the head commit misname what was built."""
+    dirty = git_out(["status", "--porcelain", "--untracked-files=no", "--", "crates"], repo).strip()
+    if dirty:
+        return [f"the head checkout has uncommitted changes under crates/, so its commit does not "
+                f"name the build:\n{dirty}"]
+    return []
+
+
+def baseline_tree_changes(tree: Path, commit: str) -> tuple[list[str], str]:
+    """Every path in `tree` that differs from `commit`, untracked files included, and the diff stat."""
+    changed = [p for p in git_out(["diff", "--name-only", commit], tree).splitlines() if p.strip()]
+    untracked = [p for p in git_out(["ls-files", "--others", "--exclude-standard"], tree).splitlines()
+                 if p.strip()]
+    stat = git_out(["diff", "--stat", commit], tree)
+    return sorted(set(changed) | set(untracked)), stat
+
+
+def baseline_tree_problems(changed: list[str]) -> list[str]:
+    """§13.5: the baseline tree differs from `1edfa952` in nothing but the bench file."""
+    extra = [p for p in changed if p != HARNESS]
+    if extra:
+        return [f"the baseline tree differs from {STEP2_BASELINE_REF} outside {HARNESS}: {extra}; "
+                f"METHODOLOGY.md §13.5 voids the run"]
+    return []
+
+
+def materialise_baseline(parent: Path, head_bench: Path, repo: Path = REPO_ROOT,
+                         ref: str = STEP2_BASELINE_REF) -> tuple[Path, str]:
+    """A detached worktree of `ref` under `parent`, with only the head's bench file copied in.
+
+    Returns the tree and the full SHA it was checked out at.
+    """
+    tree = parent / "baseline-tree"
+    git_out(["worktree", "add", "--detach", str(tree), ref], repo)
+    shutil.copyfile(head_bench, tree / HARNESS)
+    return tree, git_out(["rev-parse", "HEAD"], tree).strip()
+
+
+def remove_baseline(parent: Path, tree: Path, repo: Path = REPO_ROOT) -> None:
+    """Removes the worktree, its target directory and git's record of it."""
+    subprocess.run(["git", "worktree", "remove", "--force", str(tree)], cwd=repo,
+                   capture_output=True, text=True)
+    shutil.rmtree(parent, ignore_errors=True)
+    subprocess.run(["git", "worktree", "prune"], cwd=repo, capture_output=True, text=True)
+
+
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def executable_problems(head_sha: str, baseline_sha: str) -> list[str]:
+    """Two builds of different engine code cannot yield one binary."""
+    if head_sha == baseline_sha:
+        return ["the head and baseline bench executables are byte-identical, so the baseline did not "
+                "build the baseline engine"]
+    return []
+
+
+def run_window(exe: Path, cwd: Path, arm: str, threads: int, samples: Path) -> None:
+    """One bench process for one window: one arm, one thread count, one round, a fresh prefill."""
+    if samples.exists():
+        raise InstrumentError(f"samples file {samples.name} already exists; every window needs a fresh one")
+    env = dict(os.environ)
+    env.update({
+        "EXPANSE_BENCH_ENGINES": arm,
+        "EXPANSE_BENCH_THREADS": str(threads),
+        "EXPANSE_BENCH_WORKLOADS": str(STEP2_READ_PCT),
+        "EXPANSE_BENCH_ROUNDS": "1",
+        "EXPANSE_BENCH_SAMPLES": str(samples),
+    })
+    proc = subprocess.run([str(exe)], cwd=cwd, env=env, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise InstrumentError(
+            f"bench process ({arm}, {threads} threads) exited {proc.returncode}:\n"
+            f"{proc.stdout[-2000:]}\n{proc.stderr[-4000:]}")
+
+
+def read_window(samples: Path, arm: str, threads: int) -> dict[str, Any]:
+    """The single row one window's process wrote, checked against what was requested (§13.5)."""
+    rows = read_samples(samples)
+    if len(rows) != 1:
+        raise InstrumentError(f"{samples.name}: the process wrote {len(rows)} window rows, not exactly one")
+    row = rows[0]
+    wrong = [f"{k} {row.get(k)!r} (requested {want!r})"
+             for k, want in (("engine_key", arm), ("threads", threads), ("read_pct", STEP2_READ_PCT),
+                             ("round", 0), ("position", 0))
+             if row.get(k) != want]
+    if wrong:
+        raise InstrumentError(f"{samples.name}: the window reports " + ", ".join(wrong))
+    return row
+
+
+Launcher = Callable[[str, str, int, Path], None]
+
+
+def run_step2_rounds(launch: Launcher, prov: dict[str, Any], rounds: int, scratch: Path,
+                     arms: tuple[str, ...] = STEP2_ARMS,
+                     threads: tuple[int, ...] = STEP2_THREADS,
+                     progress: bool = True) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Every round of the design; returns the windows and one load record per round.
+
+    `launch(build, arm, threads, samples)` runs one window's process. This
+    function reads and validates what that process wrote, so a substituted
+    launcher cannot skip the validation. Any failure voids the round and
+    discards the run.
+    """
+    windows: list[dict[str, Any]] = []
+    round_loads: list[dict[str, Any]] = []
+    for r in range(rounds):
+        start = begin_cell(prov, f"round:{r}")
+        for position, (arm, t, build) in enumerate(step2_round_order(r, arms, threads)):
+            samples = scratch / f"round{r}_pos{position}_{build}_{arm}_T{t}.jsonl"
+            try:
+                launch(build, arm, t, samples)
+                row = read_window(samples, arm, t)
+            except InstrumentError as exc:
+                raise InstrumentError(
+                    f"round {r} is void ({build} {arm} at {t} threads, position {position}): {exc}\n"
+                    f"METHODOLOGY.md §13.5 discards the whole run; re-run from fresh builds") from exc
+            windows.append({
+                "build": build, "engine_key": arm, "engine": row["engine"], "workload": row["workload"],
+                "read_pct": row["read_pct"], "threads": t, "round": r, "position": position,
+                "elapsed_s": row["elapsed_s"], "read_ops": row["read_ops"], "write_ops": row["write_ops"],
+            })
+            if progress:
+                print(f"step2: round {r + 1}/{rounds} position {position}: {build} {arm} {t}T ok", flush=True)
+        round_loads.append(dict(end_cell(start), round=r))
+    return windows, round_loads
+
+
+def step2_order_problems(windows: list[dict[str, Any]], rounds: int, arms: tuple[str, ...],
+                         threads: tuple[int, ...]) -> list[str]:
+    """Whether the recorded windows are the §13.3 design, and each build led equally often."""
+    problems = []
+    by_round: dict[int, list[dict[str, Any]]] = {}
+    for w in windows:
+        by_round.setdefault(w["round"], []).append(w)
+    if sorted(by_round) != list(range(rounds)):
+        return [f"rounds {sorted(by_round)} are not 0..{rounds - 1}"]
+    first = {b: 0 for b in STEP2_BUILDS}
+    for r, ws in sorted(by_round.items()):
+        ws = sorted(ws, key=lambda w: w["position"])
+        got = [(w["engine_key"], w["threads"], w["build"]) for w in ws]
+        if got != step2_round_order(r, arms, threads) or [w["position"] for w in ws] != list(range(len(ws))):
+            problems.append(f"round {r}: windows {got} are not the pre-registered order")
+            continue
+        first[ws[0]["build"]] += 1
+    if not problems and len(set(first.values())) != 1:
+        problems.append(f"build order unbalanced: first in a round {first}")
+    return problems
+
+
+def window_total(w: dict[str, Any]) -> float:
+    return (w["read_ops"] + w["write_ops"]) / w["elapsed_s"]
+
+
+def paired_ratios(head: dict[int, dict[str, Any]],
+                  baseline: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
+    """Head / baseline per round, each from the same round's two windows."""
+    if sorted(head) != sorted(baseline):
+        raise InstrumentError(f"unpaired rounds: head {sorted(head)} vs baseline {sorted(baseline)}")
+    out = []
+    for r in sorted(head):
+        h = window_total(head[r])
+        b = window_total(baseline[r])
+        if b <= 0:
+            raise InstrumentError(f"round {r}: the baseline window measured no operations")
+        out.append({"round": r, "head_position": head[r]["position"],
+                    "baseline_position": baseline[r]["position"],
+                    "head_total_ops_s": h, "baseline_total_ops_s": b, "ratio": h / b})
+    return out
+
+
+def step2_interval(values: list[float]) -> tuple[float, float | None, float | None, str]:
+    """Mean, BCa 95% bounds and construction label; a quick run below 3 rounds gets no interval."""
+    if len(values) < 3:
+        return sum(values) / len(values), None, None, "not_computed_below_3_rounds"
+    mean, lo, hi, bca_method = bca_bootstrap_ci_with_method(values, confidence=0.95,
+                                                            num_resamples=STEP2_RESAMPLES)
+    return mean, lo, hi, bca_method
+
+
+def step2_verdict(ci_lower: float | None, ci_upper: float | None,
+                  margin: float = STEP2_GATE_MARGIN) -> str:
+    """§13.4, at the gate cell."""
+    if ci_lower is None or ci_upper is None:
+        return "NOT_EVALUABLE"
+    if ci_lower >= margin:
+        return "PASS"
+    if ci_upper < margin:
+        return "REFUTED"
+    return "INCONCLUSIVE"
+
+
+def _cell_load(round_ids: list[int], loads: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    foreign = [loads[r].get("foreign_busy_cpus") for r in round_ids]
+    numeric = [f for f in foreign if isinstance(f, (int, float)) and not isinstance(f, bool)]
+    complete = len(numeric) == len(foreign)
+    return {
+        "scope": STEP2_LOAD_SCOPE,
+        "rounds": len(round_ids),
+        # None unless every round attributed: a partial maximum is not a smaller number (§8.1).
+        "foreign_busy_cpus": max(numeric) if complete and numeric else None,
+        "foreign_busy_cpus_mean": round(sum(numeric) / len(numeric), 3) if complete and numeric else None,
+        "wall_s": round(sum(loads[r].get("wall_s") or 0.0 for r in round_ids), 3),
+    }
+
+
+def summarize_step2(windows: list[dict[str, Any]], round_loads: list[dict[str, Any]], rounds: int,
+                    arms: tuple[str, ...] = STEP2_ARMS, threads: tuple[int, ...] = STEP2_THREADS,
+                    gate_threads: int = STEP2_GATE_THREADS,
+                    commits: dict[str, str] | None = None) -> dict[str, Any]:
+    """The throughput cells, the ratio cells and this run's gate block."""
+    problems = step2_order_problems(windows, rounds, arms, threads)
+    if problems:
+        raise InstrumentError("the windows are not the §13.3 design: " + "; ".join(problems))
+    loads = {entry["round"]: entry for entry in round_loads}
+    if sorted(loads) != list(range(rounds)):
+        raise InstrumentError(f"load records cover rounds {sorted(loads)}, not 0..{rounds - 1}")
+    throughput: list[dict[str, Any]] = []
+    ratios: list[dict[str, Any]] = []
+    verdicts: dict[str, str] = {}
+    for arm in arms:
+        for t in threads:
+            by_build = {b: {w["round"]: w for w in windows
+                            if w["engine_key"] == arm and w["threads"] == t and w["build"] == b}
+                        for b in STEP2_BUILDS}
+            for b in STEP2_BUILDS:
+                cell_windows = [by_build[b][r] for r in sorted(by_build[b])]
+                totals = [window_total(w) for w in cell_windows]
+                mean, lo, hi, total_method = step2_interval(totals)
+                first = cell_windows[0]
+                throughput.append({
+                    "workload_id": WORKLOAD_ID, "engine_key": arm, "engine": first["engine"],
+                    "workload": first["workload"], "read_pct": first["read_pct"], "threads": t,
+                    "build": b, "commit": (commits or {}).get(b), "rounds": len(cell_windows),
+                    "window_ms": WINDOW_MS,
+                    "total_ops_s_mean": mean, "total_ops_s_ci_lower": lo, "total_ops_s_ci_upper": hi,
+                    "total_ops_s_ci_method": total_method, "total_ops_s_median": _median(totals),
+                    "load": _cell_load(sorted(by_build[b]), loads),
+                    "rounds_raw": [dict({k: w[k] for k in STEP2_RAW_KEYS}, total_ops_s=tot,
+                                        foreign_busy_cpus=loads[w["round"]].get("foreign_busy_cpus"))
+                                   for w, tot in zip(cell_windows, totals)],
+                })
+            pairs = paired_ratios(by_build["head"], by_build["baseline"])
+            values = [p["ratio"] for p in pairs]
+            mean, lo, hi, ratio_method = step2_interval(values)
+            gated = t == gate_threads
+            verdict = step2_verdict(lo, hi) if gated else "NOT_GATED"
+            if gated:
+                verdicts[arm] = verdict
+            first = by_build["head"][min(by_build["head"])]
+            ratios.append({
+                "workload_id": WORKLOAD_ID, "engine_key": arm, "engine": first["engine"],
+                "workload": first["workload"], "read_pct": first["read_pct"], "threads": t,
+                "rounds": len(pairs),
+                "ratio_mean": mean, "ratio_ci_lower": lo, "ratio_ci_upper": hi,
+                "ratio_ci_method": ratio_method, "ratio_median": _median(values),
+                "gated": gated, "verdict": verdict,
+                "load": _cell_load([p["round"] for p in pairs], loads),
+                "rounds_raw": pairs,
+            })
+    if sorted(verdicts) != sorted(arms):
+        raise InstrumentError(f"no gate cell at {gate_threads} threads for {sorted(set(arms) - set(verdicts))}")
+    gate = {
+        "methodology": STEP2_METHODOLOGY, "threads": gate_threads, "margin": STEP2_GATE_MARGIN,
+        "margin_source": "scripts/olc_bounds.py STEP2_MARGIN", "rule": STEP2_GATE_RULE,
+        "verdicts": verdicts, "scope": STEP2_GATE_SCOPE,
+    }
+    return {"throughput": throughput, "ratio": ratios, "gate": gate}
+
+
+def step2_artifact_problems(path: Path, artifact: dict[str, Any], quick: bool) -> list[str]:
+    """The provenance gate's findings, plus per-cell attribution on a committed run.
+
+    The committed name `baseline_concurrent_step2_gate*.json` falls under
+    `check_bench_provenance.py`'s `baseline_*` glob and its concurrent-name
+    rule, so CI applies the same attribution check to the committed file.
+    Running it here as well refuses a failing run on the host, before it is
+    written. A quick run is exempt because it may run where `/proc` does not
+    exist.
+    """
+    problems = artifact_problems(path, artifact)
+    if not quick:
+        problems.extend(check_bench_provenance.check_attribution(path.name, artifact))
+    return problems
+
+
+def run_step2(args: argparse.Namespace) -> int:
+    quick = args.quick
+    if args.engines is not None or args.workloads is not None:
+        raise InstrumentError("--step2-gate fixes the arms (map, set) and the mix (50% read); "
+                              "--engines and --workloads do not apply")
+    if args.threads is not None and not quick:
+        raise InstrumentError(f"--step2-gate runs threads {STEP2_THREADS}; --threads is for --quick only")
+    threads = tuple(parse_csv_ints(args.threads, "--threads")) if args.threads else STEP2_THREADS
+    gate_threads = max(threads)
+    rounds = resolve_step2_rounds(args.rounds, quick)
+    out = resolve_step2_out(args.out, args.run2, quick)
+    problems = step2_margin_problems()
+    if problems:
+        raise InstrumentError("; ".join(problems))
+
+    contains_949 = check_head_ancestry(quick, lambda: head_contains(STEP2_REQUIRED_ANCESTOR))
+    head_dirty = head_tree_problems()
+    if head_dirty and not quick:
+        raise InstrumentError(head_dirty[0])
+
+    pin = bench_pin.apply("mixed_concurrency.py --step2-gate")
+    problems = step2_pin_problems(pin, quick)
+    if problems:
+        raise InstrumentError(problems[0])
+
+    head_commit = git_out(["rev-parse", "HEAD"], REPO_ROOT).strip()
+    print(f"step2: building the head bench at {head_commit}", flush=True)
+    head_exe = build_bench()
+    parent = Path(tempfile.mkdtemp(prefix="expanse-step2-"))
+    tree = parent / "baseline-tree"
+    try:
+        tree, baseline_commit = materialise_baseline(parent, REPO_ROOT / HARNESS)
+        changed, _ = baseline_tree_changes(tree, STEP2_BASELINE_REF)
+        problems = baseline_tree_problems(changed)
+        if problems:
+            raise InstrumentError(problems[0])
+        print(f"step2: building the baseline bench at {baseline_commit} with the head's {HARNESS}", flush=True)
+        baseline_exe = build_bench(tree, target_dir=parent / "target")
+        changed, stat = baseline_tree_changes(tree, STEP2_BASELINE_REF)
+        problems = baseline_tree_problems(changed)
+        if problems:
+            raise InstrumentError(f"after the build: {problems[0]}")
+        exe_sha = {"head": file_sha256(head_exe), "baseline": file_sha256(baseline_exe)}
+        problems = executable_problems(exe_sha["head"], exe_sha["baseline"])
+        if problems:
+            raise InstrumentError(problems[0])
+
+        prov = new_provenance(
+            suite="concurrency", issue=568, ratio=STEP2_RATIO, repo_root=REPO_ROOT, core_pin=pin,
+            harness=HARNESS, window_ms=WINDOW_MS, rounds=rounds, threads=list(threads),
+            mode="step2_gate", methodology=STEP2_METHODOLOGY, quick=quick,
+            arms=list(STEP2_ARMS), read_pct=STEP2_READ_PCT, order=STEP2_ORDER,
+            bootstrap_resamples=STEP2_RESAMPLES,
+            head_commit=head_commit, baseline_commit=baseline_commit, baseline_ref=STEP2_BASELINE_REF,
+            required_ancestor=STEP2_REQUIRED_ANCESTOR, head_contains_required_ancestor=contains_949,
+            head_crates_clean=not head_dirty,
+            baseline_tree_changed_files=changed, baseline_tree_diff_stat=stat,
+            head_bench_sha256=file_sha256(REPO_ROOT / HARNESS),
+            executable_sha256=exe_sha,
+        )
+        prov["estimators"]["columns"] = STEP2_COLUMNS
+        print(f"core pin: {pin} | threads {list(threads)} | rounds {rounds} | arms {list(STEP2_ARMS)}")
+
+        exes = {"head": head_exe, "baseline": baseline_exe}
+        cwds = {"head": REPO_ROOT / "crates" / "expanse", "baseline": tree / "crates" / "expanse"}
+
+        def launch(build: str, arm: str, t: int, samples: Path) -> None:
+            run_window(exes[build], cwds[build], arm, t, samples)
+
+        scratch = parent / "samples"
+        scratch.mkdir()
+        windows, round_loads = run_step2_rounds(launch, prov, rounds, scratch, STEP2_ARMS, threads)
+    finally:
+        remove_baseline(parent, tree)
+    add_load(prov, "end")
+    prov["round_loads"] = round_loads
+    summary = summarize_step2(windows, round_loads, rounds, STEP2_ARMS, threads, gate_threads,
+                              commits={"head": head_commit, "baseline": baseline_commit})
+    summary["gate"]["quick"] = quick
+    artifact = {"provenance": prov, **summary}
+    problems = step2_artifact_problems(out, artifact, quick)
+    if problems:
+        raise InstrumentError("artifact would fail check_bench_provenance.py:\n  " + "\n  ".join(problems))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(artifact, indent=2) + "\n")
+    print(f"step2 gate verdicts at {gate_threads} threads (this run only): {summary['gate']['verdicts']}")
     print(f"Wrote artifact to {out.relative_to(REPO_ROOT) if REPO_ROOT in out.parents else out}")
     return 0
 
@@ -805,15 +1392,259 @@ def self_test() -> int:
     start, end = _literal_span(html, "YCSB_BENCHMARKS_DATA")
     assert json.loads(html[start:end]) == {"a": "}{", "b": [1, {"c": 2}]}, html[start:end]
 
+    step2_self_test()
     print("mixed_concurrency.py self-test PASSED")
     return 0
 
 
+def _step2_launcher(factor: Callable[[str, int, int], float],
+                    mutate: Callable[[dict[str, Any], str, int], list[dict[str, Any]]] | None = None) -> Launcher:
+    """A launcher that writes synthetic windows in place of a bench process.
+
+    Baseline throughput drifts strongly from round to round, and head is
+    `factor(arm, threads, round)` times the same round's baseline. A ratio that
+    pairs windows from two different rounds therefore reads a different value.
+    """
+    def launch(build: str, arm: str, t: int, samples: Path) -> None:
+        r = int(samples.name.split("_")[0].removeprefix("round"))
+        base = 1_000_000 * (1 + (r * 7) % 5) * (4 if t > 1 else 1)
+        ops = base if build == "baseline" else int(round(base * factor(arm, t, r)))
+        row = {"workload_id": WORKLOAD_ID, "engine_key": arm, "engine": arm.upper(),
+               "workload": "50% Read / 50% Write", "read_pct": STEP2_READ_PCT, "write_rate": None,
+               "threads": t, "round": 0, "position": 0, "elapsed_s": 0.5,
+               "read_ops": ops // 2, "write_ops": ops - ops // 2, "busy": 0, "ok": 0, "refused": 0}
+        rows = mutate(row, build, r) if mutate else [row]
+        if rows:
+            samples.write_text("".join(json.dumps(x) + "\n" for x in rows))
+    return launch
+
+
+def step2_self_test() -> None:
+    """The Step 2 mode without Cargo: design, pairing, verdicts, refusals and the artifact."""
+    def expect_error(fn, *args, what: str, **kwargs) -> str:
+        try:
+            fn(*args, **kwargs)
+        except InstrumentError as exc:
+            return str(exc)
+        raise AssertionError(f"expected InstrumentError: {what}")
+
+    def synthetic_loads(rounds: int, foreign: float | None = 0.02) -> list[dict[str, Any]]:
+        return [{"round": r, "since": f"round:{r}", "wall_s": 9.0, "busy_cpus_since_prev": 8.5,
+                 "own_busy_cpus": 8.5 - (foreign or 0.0), "foreign_busy_cpus": foreign} for r in range(rounds)]
+
+    def scenario(factor, rounds, arms=STEP2_ARMS, threads=STEP2_THREADS, mutate=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            windows, round_loads = run_step2_rounds(_step2_launcher(factor, mutate), {}, rounds, Path(tmp),
+                                                    arms, threads, progress=False)
+        assert [entry["round"] for entry in round_loads] == list(range(rounds))
+        return windows, summarize_step2(windows, synthetic_loads(rounds), rounds, arms, threads,
+                                        gate_threads=max(threads))
+
+    def cell(summary, key, arm, t, build=None):
+        hits = [c for c in summary[key] if c["engine_key"] == arm and c["threads"] == t
+                and (build is None or c["build"] == build)]
+        assert len(hits) == 1, (key, arm, t, build, len(hits))
+        return hits[0]
+
+    # The margin is the one the rounds were sized against.
+    assert step2_margin_problems() == [] and STEP2_GATE_MARGIN == olc_bounds.STEP2_MARGIN
+    assert step2_margin_problems(1.0), "a drifted margin must be refused"
+
+    # The verdict line, directly: >= at the bound, < for refuted.
+    assert step2_verdict(1.5, 2.0) == "PASS"
+    assert step2_verdict(1.2, 1.8) == "INCONCLUSIVE"
+    assert step2_verdict(1.0, 1.49) == "REFUTED"
+    assert step2_verdict(None, None) == "NOT_EVALUABLE"
+
+    # The order design over 48 rounds, from the plan and from the windows the loop recorded.
+    plan_first = {b: sum(1 for r in range(STEP2_ROUNDS) if step2_round_order(r)[0][2] == b) for b in STEP2_BUILDS}
+    assert plan_first == {"head": 24, "baseline": 24}, plan_first
+    windows, summary = scenario(lambda arm, t, r: 2.0, STEP2_ROUNDS)
+    assert len(windows) == STEP2_ROUNDS * len(STEP2_ARMS) * len(STEP2_THREADS) * len(STEP2_BUILDS)
+    lead = [w for w in windows if w["position"] == 0]
+    assert len(lead) == STEP2_ROUNDS
+    assert sum(1 for w in lead if w["build"] == "head") == 24 and sum(1 for w in lead if w["build"] == "baseline") == 24
+    assert all(w["threads"] == (1 if w["round"] % 2 == 0 else 16) for w in lead), "thread order alternates"
+    assert all(w["build"] == ("head" if w["round"] % 2 == 0 else "baseline") for w in lead), "build order alternates"
+    for arm in STEP2_ARMS:
+        for t in STEP2_THREADS:
+            pos = {(w["round"], w["build"]): w["position"] for w in windows
+                   if w["engine_key"] == arm and w["threads"] == t}
+            head_before = sum(1 for r in range(STEP2_ROUNDS) if pos[(r, "head")] < pos[(r, "baseline")])
+            assert head_before == 24, (arm, t, head_before)
+    assert step2_order_problems(windows, STEP2_ROUNDS, STEP2_ARMS, STEP2_THREADS) == []
+    swapped = [dict(w) for w in windows]
+    for w in swapped:
+        if w["round"] == 0 and w["position"] in (0, 1):
+            w["position"] = 1 - w["position"]
+    assert step2_order_problems(swapped, STEP2_ROUNDS, STEP2_ARMS, STEP2_THREADS), "a swapped round must be refused"
+    expect_error(summarize_step2, windows[1:], synthetic_loads(STEP2_ROUNDS), STEP2_ROUNDS,
+                 what="a missing window in the summary")
+
+    # PASS, and pairing within a round: every per-round ratio is exactly the factor,
+    # although the baseline drifts several-fold between rounds.
+    assert summary["gate"]["verdicts"] == {"map": "PASS", "set": "PASS"}, summary["gate"]
+    assert summary["gate"]["margin"] == STEP2_GATE_MARGIN and summary["gate"]["threads"] == STEP2_GATE_THREADS
+    for arm in STEP2_ARMS:
+        gate_cell = cell(summary, "ratio", arm, 16)
+        assert all(p["ratio"] == 2.0 for p in gate_cell["rounds_raw"]), \
+            "a ratio must pair the head and baseline windows of the same round"
+        assert gate_cell["ratio_ci_lower"] == 2.0 and gate_cell["ratio_ci_method"] in CI_METHODS
+        assert cell(summary, "ratio", arm, 1)["verdict"] == "NOT_GATED"
+        for build in STEP2_BUILDS:
+            c = cell(summary, "throughput", arm, 16, build)
+            assert c["total_ops_s_ci_lower"] <= c["total_ops_s_mean"] <= c["total_ops_s_ci_upper"], c
+            assert c["total_ops_s_ci_method"] in CI_METHODS and len(c["rounds_raw"]) == STEP2_ROUNDS
+            assert c["load"]["foreign_busy_cpus"] == 0.02 and c["load"]["scope"] == STEP2_LOAD_SCOPE
+
+    # The artifact passes the provenance gate's own code, attribution included.
+    prov = new_provenance(suite="concurrency", issue=568, ratio=STEP2_RATIO, repo_root=REPO_ROOT,
+                          core_pin=STEP2_PIN, harness=HARNESS, window_ms=WINDOW_MS, rounds=STEP2_ROUNDS,
+                          threads=list(STEP2_THREADS), mode="step2_gate")
+    prov["estimators"]["columns"] = STEP2_COLUMNS
+    add_load(prov, "end")
+    artifact = {"provenance": prov, **summary}
+    for path in (STEP2_DEFAULT_OUT, STEP2_RUN2_OUT):
+        problems = step2_artifact_problems(path, artifact, quick=False)
+        assert problems == [], problems
+    unattributed = json.loads(json.dumps(artifact))
+    unattributed["throughput"][0]["load"]["foreign_busy_cpus"] = None
+    assert step2_artifact_problems(STEP2_DEFAULT_OUT, unattributed, quick=False), \
+        "a committed cell without numeric foreign load must fail"
+
+    # PASS exactly at the margin, REFUTED, and INCONCLUSIVE, each with a lower
+    # bound above 1.0 so a weakened decision line would change the verdict.
+    _, at_margin = scenario(lambda arm, t, r: 1.5, 8, arms=("map",))
+    assert at_margin["gate"]["verdicts"] == {"map": "PASS"}, at_margin["gate"]
+    _, refuted = scenario(lambda arm, t, r: 1.1 if r % 2 == 0 else 1.2, 8, arms=("map",))
+    gate_cell = cell(refuted, "ratio", "map", 16)
+    assert refuted["gate"]["verdicts"] == {"map": "REFUTED"} and gate_cell["ratio_ci_lower"] > 1.0, gate_cell
+    _, unsure = scenario(lambda arm, t, r: 1.4 if r % 2 == 0 else 1.6, 8, arms=("map",))
+    gate_cell = cell(unsure, "ratio", "map", 16)
+    assert 1.0 < gate_cell["ratio_ci_lower"] < STEP2_GATE_MARGIN <= gate_cell["ratio_ci_upper"], gate_cell
+    assert unsure["gate"]["verdicts"] == {"map": "INCONCLUSIVE"}, unsure["gate"]
+
+    # A two-round quick run: no interval, no verdict.
+    _, tiny = scenario(lambda arm, t, r: 2.0, 2, arms=("map",), threads=(1, 8))
+    assert tiny["gate"] == dict(tiny["gate"], threads=8, verdicts={"map": "NOT_EVALUABLE"}), tiny["gate"]
+    assert cell(tiny, "ratio", "map", 8)["ratio_ci_lower"] is None
+
+    # A process's output voids the round: a missing window, a wrong thread count,
+    # a wrong arm, a wrong mix, two rows.
+    def at(r0, build0, change):
+        return lambda row, build, r: change(row) if (r == r0 and build == build0) else [row]
+    for what, mutate in (
+        ("a missing window", at(1, "baseline", lambda row: [])),
+        ("a wrong thread count", at(0, "head", lambda row: [dict(row, threads=8) if row["threads"] == 16 else row])),
+        ("a wrong arm", at(1, "head", lambda row: [dict(row, engine_key="str")])),
+        ("a wrong read percentage", at(0, "baseline", lambda row: [dict(row, read_pct=100)])),
+        ("two rows from one process", at(1, "head", lambda row: [row, dict(row, round=1)])),
+    ):
+        message = expect_error(scenario, lambda arm, t, r: 2.0, 2, ("map",), STEP2_THREADS, mutate, what=what)
+        assert "void" in message and "discards the whole run" in message, message
+
+    # A real process: the environment one window gets, a fresh samples file, and a non-zero exit.
+    with tempfile.TemporaryDirectory() as tmp:
+        tmpd = Path(tmp)
+        fake = tmpd / "fake_bench.py"
+        fake.write_text(
+            "import json, os, sys\n"
+            "e = os.environ\n"
+            "assert e['EXPANSE_BENCH_WORKLOADS'] == '50' and e['EXPANSE_BENCH_ROUNDS'] == '1', dict(e)\n"
+            "assert ',' not in e['EXPANSE_BENCH_ENGINES'] and ',' not in e['EXPANSE_BENCH_THREADS']\n"
+            "assert not os.path.exists(e['EXPANSE_BENCH_SAMPLES']), 'samples file not fresh'\n"
+            "code = int(e.get('FAKE_EXIT', '0'))\n"
+            "row = {'workload_id': 'core_concurrency', 'engine_key': e['EXPANSE_BENCH_ENGINES'], 'engine': 'X',\n"
+            "       'workload': '50% Read / 50% Write', 'read_pct': 50, 'write_rate': None,\n"
+            "       'threads': int(e['EXPANSE_BENCH_THREADS']), 'round': 0, 'position': 0, 'elapsed_s': 0.5,\n"
+            "       'read_ops': 10, 'write_ops': 10, 'busy': 0, 'ok': 0, 'refused': 0}\n"
+            "open(e['EXPANSE_BENCH_SAMPLES'], 'a').write(json.dumps(row) + '\\n')\n"
+            "sys.exit(code)\n")
+        exe = tmpd / "fake_bench"
+        exe.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{fake}" "$@"\n')
+        exe.chmod(0o755)
+        samples = tmpd / "w.jsonl"
+        run_window(exe, tmpd, "set", 16, samples)
+        assert read_window(samples, "set", 16)["threads"] == 16
+        expect_error(run_window, exe, tmpd, "set", 16, samples, what="a reused samples file")
+        os.environ["FAKE_EXIT"] = "3"
+        try:
+            expect_error(run_window, exe, tmpd, "map", 1, tmpd / "x.jsonl", what="a non-zero exit")
+        finally:
+            del os.environ["FAKE_EXIT"]
+
+    # Refusals: the pin, the rounds, the output paths, identical executables.
+    assert step2_pin_problems(STEP2_PIN, quick=False) == []
+    for pin in ("0-7", "off", "none", "0-15,16"):
+        assert step2_pin_problems(pin, quick=False), f"pin {pin} on a committed run"
+    assert step2_pin_problems("off", quick=True) == []
+    assert resolve_step2_rounds(None, quick=False) == 48 and resolve_step2_rounds(50, quick=False) == 50
+    assert resolve_step2_rounds(None, quick=True) == STEP2_QUICK_ROUNDS and resolve_step2_rounds(2, quick=True) == 2
+    for n, quick in ((46, False), (47, False), (49, False), (3, True), (0, True)):
+        expect_error(resolve_step2_rounds, n, quick, what=f"{n} rounds (quick={quick})")
+    assert resolve_step2_out(None, False, True) == STEP2_QUICK_OUT
+    assert resolve_step2_out(None, False, False) == STEP2_DEFAULT_OUT
+    assert resolve_step2_out(None, True, False) == STEP2_RUN2_OUT
+    for path in (STEP2_DEFAULT_OUT, STEP2_RUN2_OUT):
+        expect_error(resolve_step2_out, str(path), False, True, what=f"quick run writing {path.name}")
+    expect_error(resolve_step2_out, None, True, True, what="--run2 under --quick")
+    expect_error(resolve_step2_out, "x.json", True, False, what="--run2 with --out")
+    assert executable_problems("a", "b") == [] and executable_problems("a", "a")
+
+    # The ancestry refusal, injected and then through real git exit codes; the
+    # baseline tree's materialisation and its one-file rule, on a scratch repo.
+    expect_error(check_head_ancestry, False, lambda: False, what="a head without #949")
+    assert check_head_ancestry(False, lambda: True) is True
+    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as scratch:
+        repo = Path(tmp)
+        ident = ["-c", "user.name=self-test", "-c", "user.email=self-test@example.invalid",
+                 "-c", "commit.gpgsign=false"]
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", *ident, *args], cwd=repo, check=True,
+                                  capture_output=True, text=True).stdout.strip()
+
+        git("init", "-q")
+        (repo / HARNESS).parent.mkdir(parents=True)
+        (repo / HARNESS).write_text("// baseline bench\n")
+        (repo / "crates" / "expanse" / "lib.rs").write_text("// engine\n")
+        git("add", "-A")
+        git("commit", "-q", "-m", "a")
+        first = git("rev-parse", "HEAD")
+        (repo / "crates" / "expanse" / "lib.rs").write_text("// engine, head\n")
+        git("commit", "-q", "-am", "b")
+        second = git("rev-parse", "HEAD")
+        assert head_contains(first, repo) is True and head_contains(second, repo) is True
+        expect_error(head_contains, "0" * 40, repo, what="an unknown commit is not an answer")
+        assert head_tree_problems(repo) == []
+        (repo / "crates" / "expanse" / "lib.rs").write_text("// uncommitted\n")
+        assert head_tree_problems(repo), "an uncommitted engine change in the head must be refused"
+        git("checkout", "-q", "--", ".")
+
+        head_bench = Path(scratch) / "head_bench.rs"
+        head_bench.write_text("// head bench\n")
+        parent = Path(scratch) / "parent"
+        parent.mkdir()
+        tree, sha = materialise_baseline(parent, head_bench, repo=repo, ref=first)
+        assert sha == first and (tree / HARNESS).read_text() == "// head bench\n"
+        changed, stat = baseline_tree_changes(tree, first)
+        assert changed == [HARNESS] and HARNESS in stat and baseline_tree_problems(changed) == [], changed
+        (tree / "crates" / "expanse" / "lib.rs").write_text("// drifted\n")
+        assert baseline_tree_problems(baseline_tree_changes(tree, first)[0]), "an extra changed file"
+        git("-C", str(tree), "checkout", "-q", "--", "crates/expanse/lib.rs")
+        (tree / "stray.txt").write_text("untracked\n")
+        assert baseline_tree_problems(baseline_tree_changes(tree, first)[0]), "an untracked file"
+        git("checkout", "-q", "--detach", first)
+        assert head_contains(second, repo) is False, "a head behind the required commit"
+        remove_baseline(parent, tree, repo=repo)
+        assert not parent.exists() and str(tree) not in git("worktree", "list")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--threads", default="1,2,4,8,16", help="thread counts (comma-separated)")
-    ap.add_argument("--workloads", default="100,95,50", help="read percentages (comma-separated)")
-    ap.add_argument("--engines", default="map,set",
+    ap.add_argument("--threads", default=None, help="thread counts (comma-separated)")
+    ap.add_argument("--workloads", default=None, help="read percentages (comma-separated)")
+    ap.add_argument("--engines", default=None,
                     help=f"engine keys (comma-separated) or 'all': {', '.join(ENGINE_KEYS)}")
     ap.add_argument("--rounds", type=int, default=None,
                     help="rounds per group; whole Williams cycles, at least 15 unless --quick")
@@ -827,10 +1658,22 @@ def main() -> int:
     ap.add_argument("--check-assets", action="store_true",
                     help="exit non-zero if the chart and visualizer blocks differ from what the "
                          "committed run 1 and run 2 artifacts produce")
+    ap.add_argument("--step2-gate", action="store_true",
+                    help="the #568 Step 2 two-build gate run (METHODOLOGY.md section 13): head vs "
+                         "1edfa952, one process per window, map and set at 1 and 16 threads")
+    ap.add_argument("--run2", action="store_true",
+                    help="with --step2-gate: write the second run's committed artifact")
     args = ap.parse_args()
     if args.self_test:
         return self_test()
     try:
+        if args.step2_gate:
+            if args.write_assets or args.check_assets:
+                raise InstrumentError("--step2-gate is a measurement run; --write-assets and "
+                                      "--check-assets are separate steps")
+            return run_step2(args)
+        if args.run2:
+            raise InstrumentError("--run2 applies only with --step2-gate")
         if args.write_assets and args.check_assets:
             raise InstrumentError("--write-assets and --check-assets are separate steps")
         if args.check_assets:

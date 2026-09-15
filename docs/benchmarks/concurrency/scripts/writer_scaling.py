@@ -18,8 +18,22 @@ Computes:
 - lock fallbacks and fallback rate from the diagnostic occ-stats pass
 - str arm as the alpha=1 coarse-mutex reference curve (0 lock fallbacks by construction)
 
+`--ordered-readers` (#900, `METHODOLOGY.md` §12.3-§12.5) is a separate sweep on
+the map arm:
+- cells probe in {uniform, hotspot} x (W, R) in {(0,1), (0,4), (1,4), (4,4)} x
+  read_op in {prev_locked, prev}, 8 rounds by default;
+- within each round the (read_op, W, R) cells of each probe block follow a
+  Williams row, one harness process per cell, throughput pass then counters pass;
+- it runs under the pin `0,2,4,6,8,10,12,14`, which it sets when unset and
+  refuses to replace, except for a `--quick` smoke run written outside the
+  committed results;
+- it writes P12.4 (`read_fallbacks / read_ops` below 0.1% in every `prev` cell)
+  and P12.5 (the per-round paired `prev` / `prev_locked` reader throughput ratio
+  at W=1, R=4, uniform, with the W=0, R=1 control).
+
 Usage:
     python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --out docs/benchmarks/concurrency/results/baseline_writer_scaling.json
+    python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --ordered-readers
     python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --self-test
 
 `--self-test` is run by the `writer-scaling-selftest` CI job, gated on the
@@ -60,6 +74,7 @@ CI_METHODS = frozenset(
 from bench_provenance import (  # noqa: E402
     begin_cell,
     end_cell,
+    estimators,
     new_provenance,
 )
 
@@ -847,6 +862,603 @@ def run_comparison(
     return cells_default, cells_variant, comparison_stats
 
 
+# ---------------------------------------------------------------------------
+# Ordered readers (#900, docs/benchmarks/concurrency/METHODOLOGY.md §12.3–§12.5)
+# ---------------------------------------------------------------------------
+
+ORDERED_READERS_RESULTS_PATH = (
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "ordered_readers_writer_scaling.json"
+)
+# §12.4: one thread per physical P-core on the reference host. §12.5 voids a
+# cell whose harness rows record any other pin.
+ORDERED_READERS_PIN = "0,2,4,6,8,10,12,14"
+ORDERED_READERS_WORKLOAD_ID = "concurrency_ordered_readers_map_64bit"
+ORDERED_READERS_PROBES = ("uniform", "hotspot")
+ORDERED_READERS_OPS = ("prev_locked", "prev")
+ORDERED_READERS_WR = ((0, 1), (0, 4), (1, 4), (4, 4))
+# The unit §12.4 interleaves within a round: (read_op, W, R).
+ORDERED_READERS_BLOCK = tuple(
+    (op, w, r) for (w, r) in ORDERED_READERS_WR for op in ORDERED_READERS_OPS
+)
+# P12.4's ceiling as an exact fraction: read_fallbacks / read_ops < 1 / 1000.
+P124_CEILING = (1, 1000)
+P125_GATE = ("uniform", 1, 4)
+P125_CONTROL = ("uniform", 0, 1)
+READER_COUNTER_FIELDS = ("read_ops", "read_attempts", "read_fallbacks", "locked_reads")
+READER_TIMING_FIELDS = ("reader_elapsed_s", "reader_mops", "writer_elapsed_s", "writer_mops")
+
+
+def committed_result_paths() -> tuple[Path, ...]:
+    """The committed artifacts a `--quick` run must not overwrite."""
+    return (
+        COMMITTED_RESULTS_PATH.resolve(),
+        DIAGNOSTIC_RESULTS_PATH.resolve(),
+        PADDED_RESULTS_PATH.resolve(),
+        *(p.resolve() for p in ABLATION_RESULTS_PATHS),
+        ORDERED_READERS_RESULTS_PATH.resolve(),
+    )
+
+
+def williams_positions(n: int, round_idx: int) -> list[int]:
+    """Row `round_idx` of a Williams design over `n` treatments.
+
+    The construction `williams_order` in `writer_scaling.rs` uses: first row
+    0, 1, n-1, 2, n-2, ...; row r adds r mod n. For even n, n rows put every
+    treatment in every position once and make every ordered pair of distinct
+    treatments adjacent once.
+    """
+    if n <= 1:
+        return list(range(n))
+    first = [0]
+    lo, hi = 1, n - 1
+    while len(first) < n:
+        first.append(lo)
+        lo += 1
+        if len(first) < n:
+            first.append(hi)
+            hi -= 1
+    return [(i + round_idx) % n for i in first]
+
+
+def ordered_readers_schedule(rounds: int) -> list[dict[str, Any]]:
+    """Every harness invocation of an ordered-reader sweep, in execution order.
+
+    Each round runs both probe blocks, and which block goes first alternates by
+    round. Within a block the eight (read_op, W, R) cells follow row `round` of
+    a Williams design (§12.4's interleaving), so across 8 rounds each cell holds
+    each position once and each ordered pair of cells is adjacent once. The
+    `position` is the cell's index within its block.
+    """
+    out: list[dict[str, Any]] = []
+    n = len(ORDERED_READERS_BLOCK)
+    for r in range(rounds):
+        probes = ORDERED_READERS_PROBES if r % 2 == 0 else ORDERED_READERS_PROBES[::-1]
+        for block, probe in enumerate(probes):
+            for pos, idx in enumerate(williams_positions(n, r)):
+                op, w, rd = ORDERED_READERS_BLOCK[idx]
+                out.append({
+                    "round": r, "block": block, "probe": probe, "position": pos,
+                    "read_op": op, "writers": w, "readers": rd,
+                })
+    return out
+
+
+def _pin_list(value: str | None) -> list[int] | None:
+    """A CPU list, expanded; `None` for an absent, `none`, `off` or unparsable value."""
+    if not value or value.lower() in ("none", "off", "unset"):
+        return None
+    try:
+        return bench_pin.expand(value)
+    except ValueError:
+        return None
+
+
+def pins_equal(a: str | None, b: str | None) -> bool:
+    """Two pins name the same CPUs, however each CPU list is spelled."""
+    la, lb = _pin_list(a), _pin_list(b)
+    if la is None or lb is None:
+        return (a or "") == (b or "")
+    return la == lb
+
+
+def resolve_ordered_readers_pin(env: dict[str, str], smoke: bool) -> str | None:
+    """Point `env` at the §12.4 pin before `bench_pin.apply` reads it.
+
+    An unset `EXPANSE_BENCH_PIN` becomes `0,2,4,6,8,10,12,14`. A pin variable
+    that names anything else, whether requested or inherited from a runner that
+    sourced `bench_pin.sh`, is refused with `ValueError`, because §12.5 voids
+    every cell measured under it. The one exception is a smoke run (`--quick`
+    to a path outside the committed results), for which the departure is
+    returned as a notice instead: a host without `sched_setaffinity` can only
+    run it with `EXPANSE_BENCH_PIN=off`.
+    """
+    required = _pin_list(ORDERED_READERS_PIN)
+    if not env.get("EXPANSE_BENCH_PIN"):
+        env["EXPANSE_BENCH_PIN"] = ORDERED_READERS_PIN
+    departures = [
+        f"{name}={env[name]!r}"
+        for name in ("EXPANSE_BENCH_PIN", "EXPANSE_BENCH_PIN_APPLIED")
+        if env.get(name) and _pin_list(env[name]) != required
+    ]
+    if not departures:
+        return None
+    message = (
+        f"--ordered-readers measures under the pin {ORDERED_READERS_PIN} "
+        f"(METHODOLOGY.md §12.4), but {', '.join(departures)} names another, and "
+        f"§12.5 voids every cell measured under it"
+    )
+    if not smoke:
+        raise ValueError(message)
+    return message
+
+
+def check_row_pins(rows: list[dict[str, Any]], applied: str) -> None:
+    """Every harness row records the pin the driver applied (§12.5)."""
+    bad = sorted({str(r.get("cpu_pin")) for r in rows if not pins_equal(r.get("cpu_pin"), applied)})
+    if bad:
+        raise ValueError(
+            f"harness rows record cpu_pin {bad}, but the driver applied {applied!r}; "
+            f"a row whose pin is not the applied one is not a cell of this run (§12.5)"
+        )
+
+
+def run_reader_invocation(
+    binary: Path, role: str, run: dict[str, Any], quick: bool
+) -> dict[str, Any]:
+    """One reader-mode cell from the harness, checked against the schedule that asked for it."""
+    cmd = [
+        str(binary), "--role", role, "--arm", "map",
+        "--writers", str(run["writers"]), "--readers", str(run["readers"]),
+        "--read-op", run["read_op"], "--probe", run["probe"],
+        "--round", str(run["round"]), "--position", str(run["position"]),
+    ]
+    if quick:
+        cmd.append("--quick")
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"writer_scaling reader cell ({role}, {run}) failed "
+            f"(exit {proc.returncode}):\n{proc.stderr}"
+        )
+    rows = []
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if line.startswith("{") and line.endswith("}"):
+            row = json.loads(line)
+            if row.get("role") == role and row.get("workload_id") == ORDERED_READERS_WORKLOAD_ID:
+                rows.append(row)
+    if len(rows) != 1:
+        raise RuntimeError(f"reader cell ({role}, {run}) emitted {len(rows)} rows, expected 1")
+    row = rows[0]
+    for key in ("round", "position", "read_op", "probe", "writers", "readers"):
+        if row.get(key) != run[key]:
+            raise RuntimeError(
+                f"reader cell ({role}, {run}): the row carries {key}={row.get(key)!r}, "
+                f"the schedule ran {run[key]!r}"
+            )
+    row["block"] = run["block"]
+    return row
+
+
+def check_reader_throughput_row(row: dict[str, Any]) -> None:
+    """A throughput row carries reader timing and no counters (§12.5)."""
+    ctx = f"{row.get('cell')} round {row.get('round')}"
+    leaked = [k for k in (*READER_COUNTER_FIELDS, "lock_fallbacks", "inserts") if k in row]
+    if leaked:
+        raise ValueError(f"{ctx}: throughput row carries counter field(s) {leaked}; the two roles never share a binary (§12.5)")
+    for k in ("reader_ops", "reader_elapsed_s", "reader_mops"):
+        v = row.get(k)
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
+            raise ValueError(f"{ctx}: throughput row {k} = {v!r}, expected a positive number")
+
+
+def check_reader_counters_row(row: dict[str, Any]) -> None:
+    """The identities a reader-mode counters row owes, re-checked on the driver side (§8.1).
+
+    `read_locked` and `with_locked` both quiesce the writers, so
+    `quiesce_calls == lock_fallbacks + locked_reads`. An optimistic reader
+    counts one `read_ops` per call and takes the writer mutex only by falling
+    back; a `prev_locked` reader never enters the optimistic protocol.
+    """
+    ctx = f"{row.get('cell')} round {row.get('round')}"
+    needed = (*READER_COUNTER_FIELDS, "reader_ops", "inserts", "write_ops", "lock_fallbacks",
+              "quiesce_calls", "fallback_causes")
+    missing = [k for k in needed if k not in row]
+    if missing:
+        raise ValueError(f"{ctx}: counters row lacks {missing}")
+    leaked = [k for k in READER_TIMING_FIELDS if k in row]
+    if leaked:
+        raise ValueError(f"{ctx}: counters row carries timing field(s) {leaked}; the two roles never share a binary (§12.5)")
+    causes = row["fallback_causes"]
+    if not isinstance(causes, dict) or set(causes) != set(CAUSE_NAMES):
+        raise ValueError(f"{ctx}: fallback_causes must carry exactly {CAUSE_NAMES}, got {causes!r}")
+    if sum(int(v) for v in causes.values()) != int(row["lock_fallbacks"]):
+        raise ValueError(f"{ctx}: causes sum to {sum(int(v) for v in causes.values())}, lock_fallbacks = {row['lock_fallbacks']}")
+    if int(row["inserts"]) != int(row["write_ops"]):
+        raise ValueError(f"{ctx}: Stat::Inserts = {row['inserts']}, the cell inserted {row['write_ops']}")
+    if int(row["quiesce_calls"]) != int(row["lock_fallbacks"]) + int(row["locked_reads"]):
+        raise ValueError(
+            f"{ctx}: quiesce_calls ({row['quiesce_calls']}) != lock_fallbacks ({row['lock_fallbacks']}) "
+            f"+ locked_reads ({row['locked_reads']})"
+        )
+    ops, reader_ops = int(row["read_ops"]), int(row["reader_ops"])
+    if row["read_op"] == "prev_locked":
+        if ops != 0 or int(row["locked_reads"]) != reader_ops:
+            raise ValueError(
+                f"{ctx}: a with_locked reader cell needs read_ops == 0 and locked_reads == reader_ops, "
+                f"got read_ops {ops}, locked_reads {row['locked_reads']}, reader_ops {reader_ops}"
+            )
+    elif ops != reader_ops or int(row["locked_reads"]) != int(row["read_fallbacks"]):
+        raise ValueError(
+            f"{ctx}: an optimistic reader cell needs read_ops == reader_ops and locked_reads == "
+            f"read_fallbacks, got read_ops {ops}, reader_ops {reader_ops}, locked_reads "
+            f"{row['locked_reads']}, read_fallbacks {row['read_fallbacks']}"
+        )
+
+
+def summarize_ordered_readers(
+    throughput_rows: list[dict[str, Any]],
+    counters_rows: list[dict[str, Any]],
+    rounds: int,
+    load: dict[str, Any],
+    throughput_target: Path = THROUGHPUT_TARGET,
+) -> list[dict[str, Any]]:
+    """One cell per (probe, read_op, W, R), each carrying every round of both roles.
+
+    A cell missing a round in either role, or holding a round twice, is refused:
+    its statistics would silently rest on fewer rounds than §12.4 fixes.
+    """
+    cells: list[dict[str, Any]] = []
+    for probe in ORDERED_READERS_PROBES:
+        for op, w, r in ORDERED_READERS_BLOCK:
+            key = (probe, op, w, r)
+            label = f"{probe} {op} W={w} R={r}"
+
+            def matches(row: dict[str, Any]) -> bool:
+                return (row["probe"], row["read_op"], int(row["writers"]), int(row["readers"])) == key
+
+            t = sorted((x for x in throughput_rows if matches(x)), key=lambda x: int(x["round"]))
+            c = sorted((x for x in counters_rows if matches(x)), key=lambda x: int(x["round"]))
+            for role, got in (("throughput", t), ("counters", c)):
+                seen = [int(x["round"]) for x in got]
+                if seen != list(range(rounds)):
+                    raise ValueError(
+                        f"{label}: {role} rows cover rounds {seen}, expected each of 0..{rounds - 1} once"
+                    )
+            for x in t:
+                check_reader_throughput_row(x)
+            for x in c:
+                check_reader_counters_row(x)
+            if rounds < 3:
+                raise ValueError(f"{label}: need at least 3 rounds for a BCa interval, got {rounds}")
+
+            mops = [float(x["reader_mops"]) for x in t]
+            mean, lo, hi, reader_ci_method = bca_bootstrap_ci_with_method(mops, confidence=0.95)
+            totals = {k: sum(int(x[k]) for x in c) for k in (*READER_COUNTER_FIELDS, "reader_ops")}
+            read_ops = totals["read_ops"]
+            cells.append({
+                "workload_id": t[0]["workload_id"],
+                "arm": "map",
+                "probe": probe,
+                "read_op": op,
+                "writers": w,
+                "readers": r,
+                "prefill": t[0]["prefill"],
+                "hotspot_prefill": t[0]["hotspot_prefill"],
+                "hotspot_base": t[0]["hotspot_base"],
+                "fresh_keys": t[0]["fresh_keys"],
+                "rounds": rounds,
+                "cpu_pin": t[0]["cpu_pin"],
+                "reader_mops_mean": round(mean, 6),
+                "reader_ci_lower": round(lo, 6),
+                "reader_ci_upper": round(hi, 6),
+                "reader_ci_method": reader_ci_method,
+                "reader_mops_median": round(sorted(mops)[len(mops) // 2], 6),
+                "read_counters_total": totals,
+                "attempts_per_op": round(totals["read_attempts"] / read_ops, 6) if read_ops else None,
+                "fallback_rate": (totals["read_fallbacks"] / read_ops) if read_ops else None,
+                "build_provenance": {
+                    "throughput": f"{throughput_target.relative_to(REPO_ROOT)}/release/examples/writer_scaling",
+                    "counters": f"{COUNTERS_TARGET.relative_to(REPO_ROOT)}/release/examples/writer_scaling (--features occ-stats)",
+                },
+                "rounds_raw": [
+                    {k: x.get(k) for k in (
+                        "round", "block", "position", "reader_ops", "reader_elapsed_s", "reader_mops",
+                        "write_ops", "writer_elapsed_s", "writer_mops", "population_after", "cpu_pin", "tsc_hz",
+                    )}
+                    for x in t
+                ],
+                "counters_raw": [
+                    {k: x.get(k) for k in (
+                        "round", "block", "position", "reader_ops", "write_ops", "inserts",
+                        *READER_COUNTER_FIELDS, "lock_fallbacks", "quiesce_calls", "fallback_causes",
+                        "population_after", "cpu_pin",
+                    )}
+                    for x in c
+                ],
+                "load": load,
+            })
+    return cells
+
+
+def p124_verdict(cells: list[dict[str, Any]]) -> dict[str, Any]:
+    """P12.4 (§12.3): `read_fallbacks ÷ read_ops` below 0.1% in every `prev` cell.
+
+    Read off each cell's summed counters, and compared in integers
+    (`fallbacks × 1000 < read_ops`). A cell at exactly 0.1% is therefore not
+    below the ceiling: the claim is "below", so equality does not meet it, and
+    the cell is named with the cells above.
+    """
+    num, den = P124_CEILING
+    per_cell: list[dict[str, Any]] = []
+    refuted: list[str] = []
+    for c in cells:
+        if c["read_op"] != "prev":
+            continue
+        totals = c["read_counters_total"]
+        ops, fb = int(totals["read_ops"]), int(totals["read_fallbacks"])
+        label = f"{c['probe']} W={c['writers']} R={c['readers']}"
+        if ops <= 0:
+            raise ValueError(f"P12.4 {label}: read_ops = {ops}, so the cell made no optimistic reads to evaluate")
+        holds = fb * den < ops * num
+        per_cell.append({
+            "cell": label, "probe": c["probe"], "writers": c["writers"], "readers": c["readers"],
+            "read_ops": ops, "read_fallbacks": fb, "fallback_rate": fb / ops, "holds": holds,
+        })
+        if not holds:
+            refuted.append(label)
+    if not per_cell:
+        raise ValueError("P12.4: no prev cells to evaluate")
+    return {
+        "claim": "read_fallbacks / read_ops < 0.001 in every prev cell, uniform and hotspot (METHODOLOGY.md §12.3 P12.4)",
+        "ceiling": num / den,
+        "boundary": "exactly 0.1% is not below the ceiling and counts against the claim",
+        "per_cell": per_cell,
+        "verdict": "HOLDS" if not refuted else "REFUTED",
+        "refuted_cells": refuted,
+    }
+
+
+def p125_decision(ci_lower: float, ci_upper: float) -> str:
+    """§12.3 P12.5's verdict per run; a claim needs the same verdict in two runs."""
+    if ci_lower > 1.0:
+        return "SINGLE_RUN_PASS"
+    if ci_upper < 1.0:
+        return "REJECTED"
+    return "INCONCLUSIVE"
+
+
+def p125_paired_ratio(
+    throughput_rows: list[dict[str, Any]], probe: str, writers: int, readers: int, rounds: int
+) -> dict[str, Any]:
+    """`reader_mops(prev) / reader_mops(prev_locked)`, paired within each round, with a BCa 95% CI of the mean."""
+    label = f"{probe} W={writers} R={readers}"
+    by_round: dict[tuple[int, str], float] = {}
+    for row in throughput_rows:
+        if (row["probe"], int(row["writers"]), int(row["readers"])) != (probe, writers, readers):
+            continue
+        key = (int(row["round"]), row["read_op"])
+        if key in by_round:
+            raise ValueError(f"P12.5 {label}: round {key[0]} holds two {key[1]} rows")
+        by_round[key] = float(row["reader_mops"])
+    ratios: list[float] = []
+    for r in range(rounds):
+        optimistic = by_round.get((r, "prev"))
+        locked = by_round.get((r, "prev_locked"))
+        if optimistic is None or locked is None:
+            raise ValueError(
+                f"P12.5 {label}: round {r} is unpaired (prev {optimistic}, prev_locked {locked})"
+            )
+        if optimistic <= 0 or locked <= 0:
+            raise ValueError(f"P12.5 {label}: round {r} has a non-positive throughput ({optimistic}, {locked})")
+        ratios.append(optimistic / locked)
+    if len(ratios) < 3:
+        raise ValueError(f"P12.5 {label}: need at least 3 paired rounds for a BCa interval, got {len(ratios)}")
+    mean, lo, hi, p125_ci_method = bca_bootstrap_ci_with_method(ratios, confidence=0.95)
+    return {
+        "cell": label, "probe": probe, "writers": writers, "readers": readers,
+        "ratio_mean": round(mean, 6),
+        "ratio_ci_lower": round(lo, 6),
+        "ratio_ci_upper": round(hi, 6),
+        "ratio_ci_method": p125_ci_method,
+        "ratio_median": round(sorted(ratios)[len(ratios) // 2], 6),
+        "paired_ratios_raw": [round(x, 6) for x in ratios],
+        "verdict": p125_decision(lo, hi),
+    }
+
+
+def p125_report(throughput_rows: list[dict[str, Any]], rounds: int) -> dict[str, Any]:
+    """The P12.5 gate cell, its control, and every other cell's ratio for reference."""
+    reference = [
+        {**p125_paired_ratio(throughput_rows, probe, w, r, rounds), "gated": False}
+        for probe in ORDERED_READERS_PROBES
+        for w, r in ORDERED_READERS_WR
+        if (probe, w, r) not in (P125_GATE, P125_CONTROL)
+    ]
+    return {
+        "statistic": "mean over rounds of reader_mops(prev) / reader_mops(prev_locked), each ratio paired "
+                     "within one round of the throughput build, with a BCa 95% interval "
+                     "(METHODOLOGY.md §12.3 P12.5)",
+        "decision": "SINGLE_RUN_PASS when the lower bound is above 1.0, REJECTED when the upper bound is "
+                    "below 1.0, INCONCLUSIVE otherwise; a claim needs the same verdict in two independent runs",
+        "gate": {**p125_paired_ratio(throughput_rows, *P125_GATE, rounds), "gated": True},
+        "control": {**p125_paired_ratio(throughput_rows, *P125_CONTROL, rounds), "gated": False},
+        "reference": reference,
+    }
+
+
+def ordered_read_projection() -> dict[str, Any]:
+    """§12.1's attempts-per-operation projection, which P12.4 reports beside. Not gated.
+
+    Read from `scripts/olc_bounds.py`, under its per-node independence
+    hypothesis and dated to the commits of the reader health artifacts it
+    reads. A failure to compute it is recorded by name, never as zero (§8.1).
+    """
+    try:
+        import olc_bounds  # noqa: PLC0415 -- optional: the projection is reported, not gated
+
+        nodes = olc_bounds.max_ordered_read_set_branches()
+        rows = olc_bounds.map_read_health()
+        projected = [
+            olc_bounds.ordered_projection(row["attempt_failure"], get_nodes, nodes)["expected_attempts"]
+            for row in rows
+            for get_nodes in (3, 5, 7)
+        ]
+    except (ImportError, OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        return {"available": False, "error": f"{type(exc).__name__}: {exc}", "gated": False}
+    if not projected:
+        return {"available": False, "error": "map_read_health() found no map reader cells", "gated": False}
+    return {
+        "available": True,
+        "source": "scripts/olc_bounds.py: ordered_projection(attempt failure of each map_read_health() "
+                  "cell, get_nodes in (3, 5, 7), max_ordered_read_set_branches())",
+        "hypothesis": "per-node independence; writes concentrated near the probe break it",
+        "dated_to_commits": sorted({row["commit"] for row in rows}),
+        "ordered_nodes": nodes,
+        "expected_attempts_min": round(min(projected), 4),
+        "expected_attempts_max": round(max(projected), 4),
+        "gated": False,
+    }
+
+
+def attempts_report(cells: list[dict[str, Any]]) -> dict[str, Any]:
+    """Measured attempts per optimistic ordered read, per `prev` cell, beside the projection."""
+    return {
+        "per_cell": [
+            {
+                "cell": f"{c['probe']} W={c['writers']} R={c['readers']}",
+                "read_ops": c["read_counters_total"]["read_ops"],
+                "read_attempts": c["read_counters_total"]["read_attempts"],
+                "attempts_per_op": c["attempts_per_op"],
+            }
+            for c in cells
+            if c["read_op"] == "prev"
+        ],
+        "projection": ordered_read_projection(),
+        "gated": False,
+    }
+
+
+def build_ordered_readers_artifact(
+    prov: dict[str, Any],
+    cells: list[dict[str, Any]],
+    throughput_rows: list[dict[str, Any]],
+    rounds: int,
+    applied_pin: str,
+    quick: bool,
+) -> dict[str, Any]:
+    """The committed shape: provenance, the cells, and both predictions' verdicts."""
+    conforms = pins_equal(applied_pin, ORDERED_READERS_PIN)
+    void: list[str] = []
+    if not conforms:
+        void.append(f"applied pin {applied_pin!r} is not {ORDERED_READERS_PIN} (METHODOLOGY.md §12.5)")
+    if quick:
+        void.append("--quick population: a smoke run of the instrument, not the §12.4 cells")
+    return {
+        "provenance": prov,
+        "throughput": cells,
+        "ordered_readers": {
+            "issue": 900,
+            "preregistration": "docs/benchmarks/concurrency/METHODOLOGY.md §12.3-§12.5",
+            "pin": {"required": ORDERED_READERS_PIN, "applied": applied_pin, "conforms": conforms},
+            "rounds": rounds,
+            "quick": quick,
+            "schedule": "each round runs both probe blocks, alternating which goes first; within a block the "
+                        "eight (read_op, W, R) cells follow that round's row of a Williams design; one harness "
+                        "process per cell; the throughput pass runs every round before the counters pass",
+            "void": void,
+            "soundness_gates": "not evaluated by this driver: a cell read before every §12.2 gate passed on "
+                               "the measured head is void (§12.5)",
+            "p12_4": p124_verdict(cells),
+            "attempts_per_op": attempts_report(cells),
+            "p12_5": p125_report(throughput_rows, rounds),
+        },
+    }
+
+
+def run_ordered_readers(args: argparse.Namespace) -> int:
+    """`--ordered-readers`: the §12.4 cells, both roles, and the P12.4 / P12.5 verdicts."""
+    out_path = Path(args.out) if args.out else ORDERED_READERS_RESULTS_PATH
+    committed = out_path.resolve().is_relative_to((REPO_ROOT / "docs" / "benchmarks").resolve())
+    smoke = bool(args.quick) and not committed
+    try:
+        notice = resolve_ordered_readers_pin(os.environ, smoke)
+    except ValueError as exc:
+        sys.stderr.write(f"refusing to start: {exc}\nNo benchmark was run and no numbers were produced.\n")
+        return 1
+    if notice:
+        sys.stderr.write(f"::notice:: smoke run: {notice}; nothing this run produces is a §12.4 cell\n")
+    applied = bench_pin.apply("writer_scaling.py --ordered-readers")
+    if not pins_equal(applied, ORDERED_READERS_PIN) and not smoke:
+        sys.stderr.write(
+            f"refusing to start: the applied pin is {applied!r}, not {ORDERED_READERS_PIN} (§12.5)\n"
+        )
+        return 1
+
+    throughput_bin, counters_bin = build_binaries(verbose=True)
+    ratio = ("P12.5: mean over rounds of reader_mops(prev) / reader_mops(prev_locked), paired within each "
+             "round, BCa 95% interval")
+    prov = new_provenance(
+        suite="concurrency",
+        issue=900,
+        ratio=ratio,
+        repo_root=REPO_ROOT,
+        core_pin=applied,
+        estimators=estimators(
+            ratio,
+            columns="per-cell reader_mops_mean is the mean over rounds with a BCa 95% interval; "
+                    "reader_mops_median is auxiliary; P12.4 reads summed counters over rounds",
+        ),
+    )
+    schedule = ordered_readers_schedule(args.rounds)
+    print("========================================================================")
+    print(" Ordered readers on SyncExpanseMap (#900, METHODOLOGY.md §12.4)")
+    print(f" Cells: {len(ORDERED_READERS_PROBES) * len(ORDERED_READERS_BLOCK)} | Rounds: {args.rounds} | "
+          f"Pin: {applied} | Quick: {bool(args.quick)}")
+    print("========================================================================")
+    try:
+        start = begin_cell(prov, "ordered_readers:throughput")
+        t_rows = []
+        for i, run in enumerate(schedule):
+            t_rows.append(run_reader_invocation(throughput_bin, "throughput", run, args.quick))
+            if (i + 1) % len(ORDERED_READERS_BLOCK) == 0:
+                print(f"  [throughput] {i + 1}/{len(schedule)} cells")
+        load = end_cell(start)
+        c_rows = []
+        for i, run in enumerate(schedule):
+            c_rows.append(run_reader_invocation(counters_bin, "counters", run, args.quick))
+            if (i + 1) % len(ORDERED_READERS_BLOCK) == 0:
+                print(f"  [counters] {i + 1}/{len(schedule)} cells")
+        check_row_pins(t_rows + c_rows, applied)
+        cells = summarize_ordered_readers(t_rows, c_rows, args.rounds, load)
+        artifact = build_ordered_readers_artifact(prov, cells, t_rows, args.rounds, applied, bool(args.quick))
+    except (RuntimeError, ValueError) as exc:
+        sys.stderr.write(f"ordered readers failed: {exc} (AGENTS.md §8.1)\n")
+        return 1
+
+    report = artifact["ordered_readers"]
+    for c in cells:
+        rate = "n/a" if c["fallback_rate"] is None else f"{c['fallback_rate'] * 100:.4f}%"
+        print(
+            f"  {c['probe']:>7} {c['read_op']:>11} W={c['writers']} R={c['readers']} | reader Mops/s "
+            f"{c['reader_mops_mean']:.4f} [{c['reader_ci_lower']:.4f}, {c['reader_ci_upper']:.4f}] "
+            f"| attempts/op {c['attempts_per_op']} | fallbacks {rate}"
+        )
+    p124 = report["p12_4"]
+    print(f"  P12.4: {p124['verdict']}" + (f" in {', '.join(p124['refuted_cells'])}" if p124["refuted_cells"] else ""))
+    for name in ("gate", "control"):
+        e = report["p12_5"][name]
+        print(f"  P12.5 {name} ({e['cell']}): ratio {e['ratio_mean']:.4f} "
+              f"[{e['ratio_ci_lower']:.4f}, {e['ratio_ci_upper']:.4f}] {e['verdict']}")
+    for reason in report["void"]:
+        sys.stderr.write(f"::warning:: this run is void as a §12.4 measurement: {reason}\n")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(artifact, indent=2) + "\n")
+    print(f"\nWrote artifact to {out_path}")
+    return 0
+
+
 def probe_pmu_events() -> list[str]:
     events: list[str] = []
     proc = subprocess.run(["perf", "list"], capture_output=True, text=True, check=False)
@@ -1295,6 +1907,243 @@ def _assert_fallbacks_counted(arm: str, fallbacks: list) -> None:
               f"rounds ({fallbacks}) -- the writers did not collide on this host. The "
               f"counter is present and parsed, which is what this pass verifies; "
               f"contention itself is not an invariant of a short run.")
+
+
+def _synthetic_reader_rows(
+    rounds: int,
+    mops: Any,
+    fallbacks: Any,
+    pin: str,
+    reader_ops: int = 100_000,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Rows in the harness's reader-mode schema for every scheduled run.
+
+    `mops(run)` gives a throughput row's `reader_mops`, and `fallbacks(run)` a
+    `prev` counters row's `read_fallbacks`. Every counter identity holds, so
+    the statistics can be driven to a chosen verdict through the production
+    functions.
+    """
+    t_rows: list[dict[str, Any]] = []
+    c_rows: list[dict[str, Any]] = []
+    for run in ordered_readers_schedule(rounds):
+        fresh = 0 if run["writers"] == 0 else 65_280
+        base = {
+            "workload_id": ORDERED_READERS_WORKLOAD_ID, "arm": "expanse",
+            "cell": f"map_w{run['writers']}_r{run['readers']}_{run['read_op']}_{run['probe']}",
+            "keyspace_bits": 64, "prefill": 4096, "hotspot_prefill": 256, "hotspot_base": 1 << 40,
+            "fresh_keys": fresh, "write_ops": fresh, "cpu_pin": pin, "tsc_hz": 1,
+            "population_after": 4096 + 256 + fresh, **run,
+        }
+        t_rows.append({
+            **base, "role": "throughput",
+            "writer_elapsed_s": 1.0 if fresh else None, "writer_mops": fresh / 1e6 if fresh else None,
+            "reader_ops": reader_ops, "reader_elapsed_s": 1.0, "reader_mops": mops(run),
+        })
+        optimistic = run["read_op"] == "prev"
+        fb = fallbacks(run) if optimistic else 0
+        locked = fb if optimistic else reader_ops
+        c_rows.append({
+            **base, "role": "counters", "reader_ops": reader_ops,
+            "read_ops": reader_ops if optimistic else 0,
+            # A fallen-back read made MAX_RETRIES (64) failed attempts; every
+            # other read made one successful attempt.
+            "read_attempts": reader_ops + 63 * fb if optimistic else 0,
+            "read_fallbacks": fb, "locked_reads": locked,
+            "lock_fallbacks": 0, "inserts": fresh, "quiesce_calls": locked,
+            "fallback_causes": {name: 0 for name in CAUSE_NAMES},
+        })
+    return t_rows, c_rows
+
+
+def _expect_value_error(fn: Any, needle: str) -> None:
+    """`fn()` must raise `ValueError` naming `needle`: refused, never averaged (§8.1)."""
+    try:
+        fn()
+    except ValueError as exc:
+        assert needle in str(exc), (needle, str(exc))
+        return
+    raise AssertionError(f"expected a ValueError naming {needle!r}; nothing was raised")
+
+
+def _self_test_ordered_readers(throughput_bin: Path, counters_bin: Path, pin: str) -> None:
+    """The ordered-reader instrument (#900): schedule, verdicts, refusals, artifact, harness seam."""
+    import check_bench_provenance as cbp  # noqa: PLC0415 -- the gate's own functions judge the artifact
+
+    sys.stderr.write("Testing the ordered-reader instrument (#900, METHODOLOGY.md §12.3-§12.5)...\n")
+    rounds = 8
+    n = len(ORDERED_READERS_BLOCK)
+
+    # The schedule: per probe block, every cell in every position once and
+    # every ordered pair of cells adjacent once over 8 rounds; the block that
+    # runs first alternates by round.
+    sched = ordered_readers_schedule(rounds)
+    assert len(sched) == rounds * len(ORDERED_READERS_PROBES) * n, len(sched)
+    for probe in ORDERED_READERS_PROBES:
+        positions = {cell: [0] * n for cell in ORDERED_READERS_BLOCK}
+        pairs: dict[tuple[Any, Any], int] = {}
+        for r in range(rounds):
+            block = sorted((x for x in sched if x["round"] == r and x["probe"] == probe),
+                           key=lambda x: x["position"])
+            assert [x["position"] for x in block] == list(range(n)), block
+            order = [(x["read_op"], x["writers"], x["readers"]) for x in block]
+            assert sorted(order) == sorted(ORDERED_READERS_BLOCK), order
+            for i, cell in enumerate(order):
+                positions[cell][i] += 1
+            for a, b in zip(order, order[1:]):
+                pairs[(a, b)] = pairs.get((a, b), 0) + 1
+        assert all(v == [1] * n for v in positions.values()), positions
+        assert len(pairs) == n * (n - 1) and all(v == 1 for v in pairs.values()), pairs
+    firsts = [next(x["probe"] for x in sched if x["round"] == r) for r in range(rounds)]
+    assert firsts == [ORDERED_READERS_PROBES[r % 2] for r in range(rounds)], firsts
+
+    load = {"since": "ordered_readers:throughput", "wall_s": 1.0, "busy_cpus_since_prev": 1.0,
+            "own_busy_cpus": 1.0, "foreign_busy_cpus": 0.0}
+    # Rounds differ eightfold in throughput; a statistic that is not paired
+    # within the round cannot land near the within-round ratio.
+    base = [1.0, 5.0, 2.0, 8.0, 3.0, 7.0, 4.0, 6.0]
+
+    def optimistic_times(factor: Any) -> Any:
+        return lambda run: base[run["round"]] * (factor(run) if run["read_op"] == "prev" else 1.0)
+
+    def sweep(mops: Any, fallbacks: Any) -> tuple[Any, Any, Any]:
+        t, c = _synthetic_reader_rows(rounds, mops, fallbacks, pin)
+        cells = summarize_ordered_readers(t, c, rounds, load)
+        return t, c, cells
+
+    def no_fallbacks(run: dict[str, Any]) -> int:
+        return 0
+
+    def hot_w4(run: dict[str, Any]) -> bool:
+        return run["probe"] == "hotspot" and run["writers"] == 4
+
+    # P12.5, all three verdicts, at the call site the driver uses.
+    pass_mops = optimistic_times(lambda run: 1.10 * (1.0 + 0.001 * run["round"]))
+    t_pass, c_pass, cells_pass = sweep(pass_mops, no_fallbacks)
+    p125 = p125_report(t_pass, rounds)
+    gate = p125["gate"]
+    assert gate["verdict"] == "SINGLE_RUN_PASS", gate
+    expect = sum(1.10 * (1.0 + 0.001 * r) for r in range(rounds)) / rounds
+    assert abs(gate["ratio_mean"] - expect) < 1e-4, (gate, expect)
+    assert gate["ratio_ci_method"] in CI_METHODS, gate
+    assert (gate["probe"], gate["writers"], gate["readers"]) == P125_GATE, gate
+    assert gate["gated"] is True and p125["control"]["gated"] is False, p125
+    assert (p125["control"]["probe"], p125["control"]["writers"], p125["control"]["readers"]) == P125_CONTROL
+    assert len(p125["reference"]) == len(ORDERED_READERS_PROBES) * len(ORDERED_READERS_WR) - 2, p125
+    t_rej, _, _ = sweep(optimistic_times(lambda run: 0.90 * (1.0 + 0.001 * run["round"])), no_fallbacks)
+    assert p125_report(t_rej, rounds)["gate"]["verdict"] == "REJECTED"
+    t_inc, _, _ = sweep(optimistic_times(lambda run: 1.20 if run["round"] % 2 == 0 else 0.85), no_fallbacks)
+    assert p125_report(t_inc, rounds)["gate"]["verdict"] == "INCONCLUSIVE"
+
+    # P12.4, both verdicts, and the boundary: 100 fallbacks in 100,000 reads a
+    # round is exactly 0.1%, which is not below the ceiling.
+    p124 = p124_verdict(cells_pass)
+    assert p124["verdict"] == "HOLDS" and p124["refuted_cells"] == [], p124
+    assert len(p124["per_cell"]) == len(ORDERED_READERS_PROBES) * len(ORDERED_READERS_WR), p124
+    for fb, verdict in ((200, "REFUTED"), (100, "REFUTED"), (99, "HOLDS")):
+        _, _, cells_fb = sweep(pass_mops, lambda run, fb=fb: fb if hot_w4(run) else 0)
+        got = p124_verdict(cells_fb)
+        assert got["verdict"] == verdict, (fb, got)
+        assert got["refuted_cells"] == ([] if verdict == "HOLDS" else ["hotspot W=4 R=4"]), (fb, got)
+    attempts = attempts_report(cells_pass)
+    assert attempts["gated"] is False and len(attempts["per_cell"]) == len(p124["per_cell"]), attempts
+    assert "available" in attempts["projection"], attempts
+
+    # Refusals: a missing counters row, an unpaired or doubled round, a pin
+    # mismatch, a broken identity, a timing field in a counters row.
+    _expect_value_error(lambda: summarize_ordered_readers(t_pass, c_pass[1:], rounds, load),
+                        "counters rows cover rounds")
+    unpaired = [x for x in t_pass
+                if (x["probe"], x["writers"], x["readers"], x["read_op"], x["round"]) != ("uniform", 1, 4, "prev_locked", 2)]
+    _expect_value_error(lambda: p125_paired_ratio(unpaired, "uniform", 1, 4, rounds), "round 2 is unpaired")
+    _expect_value_error(lambda: summarize_ordered_readers(unpaired, c_pass, rounds, load),
+                        "throughput rows cover rounds")
+    first = t_pass[0]
+    _expect_value_error(
+        lambda: p125_paired_ratio(t_pass + [dict(first)], first["probe"], first["writers"], first["readers"], rounds),
+        "holds two")
+    _expect_value_error(lambda: check_row_pins([*t_pass, {**first, "cpu_pin": "0-15"}], pin), "cpu_pin")
+    tampered = [dict(x) for x in c_pass]
+    i_prev = next(i for i, x in enumerate(tampered) if x["read_op"] == "prev")
+    tampered[i_prev]["locked_reads"] += 1
+    _expect_value_error(lambda: summarize_ordered_readers(t_pass, tampered, rounds, load), "quiesce_calls")
+    leaked = [dict(x) for x in c_pass]
+    leaked[0]["reader_mops"] = 1.0
+    _expect_value_error(lambda: summarize_ordered_readers(t_pass, leaked, rounds, load), "timing field")
+
+    # The pin: set when unset, refused when anything else is named, and let
+    # through with a notice only for a smoke run.
+    env: dict[str, str] = {}
+    assert resolve_ordered_readers_pin(env, smoke=False) is None
+    assert env["EXPANSE_BENCH_PIN"] == ORDERED_READERS_PIN, env
+    assert resolve_ordered_readers_pin({"EXPANSE_BENCH_PIN": "14,12,10,8,6,4,2,0"}, smoke=False) is None
+    _expect_value_error(lambda: resolve_ordered_readers_pin({"EXPANSE_BENCH_PIN": "0-15"}, smoke=False),
+                        "EXPANSE_BENCH_PIN='0-15'")
+    _expect_value_error(lambda: resolve_ordered_readers_pin({"EXPANSE_BENCH_PIN_APPLIED": "0-15"}, smoke=False),
+                        "EXPANSE_BENCH_PIN_APPLIED='0-15'")
+    _expect_value_error(lambda: resolve_ordered_readers_pin({"EXPANSE_BENCH_PIN": "off"}, smoke=False), "'off'")
+    assert "EXPANSE_BENCH_PIN='off'" in (resolve_ordered_readers_pin({"EXPANSE_BENCH_PIN": "off"}, smoke=True) or "")
+
+    # The artifact, judged by the provenance gate's own functions.
+    prov = new_provenance(suite="concurrency", issue=900, ratio="self-test", repo_root=REPO_ROOT,
+                          core_pin=pin, estimators=estimators("self-test"))
+    rel = ORDERED_READERS_RESULTS_PATH.relative_to(cbp.BENCH).as_posix()
+    assert any(Path(rel).match(g) for g in cbp.ARTIFACT_GLOBS), (rel, cbp.ARTIFACT_GLOBS)
+    art = build_ordered_readers_artifact(prov, cells_pass, t_pass, rounds, pin, quick=True)
+    assert cbp.findings_for(rel, art) == [], cbp.findings_for(rel, art)
+    assert any("--quick" in v for v in art["ordered_readers"]["void"]), art["ordered_readers"]["void"]
+    clean = build_ordered_readers_artifact(prov, cells_pass, t_pass, rounds, ORDERED_READERS_PIN, quick=False)
+    assert clean["ordered_readers"]["void"] == [] and clean["ordered_readers"]["pin"]["conforms"] is True
+    no_rounds = json.loads(json.dumps(art))
+    del no_rounds["throughput"][0]["rounds_raw"]
+    assert cbp.findings_for(rel, no_rounds), "the provenance gate must see a cell without rounds_raw"
+    unlabelled = json.loads(json.dumps(art))
+    del unlabelled["ordered_readers"]["p12_5"]["gate"]["ratio_ci_method"]
+    assert any("construction label" in f for f in cbp.findings_for(rel, unlabelled)), "a dropped CI label must be seen"
+    assert str(REPO_ROOT) not in json.dumps(art), "absolute repo path leaked into the artifact (AGENTS.md §7)"
+
+    # The seam: real harness rows, spliced into a synthetic sweep, flow through
+    # the same functions and yield a usable cell (AGENTS.md §8.20.7).
+    wanted = {("uniform", "prev", 0, 1), ("hotspot", "prev_locked", 1, 4), ("hotspot", "prev", 1, 4)}
+    short = 3
+    real_runs = [x for x in ordered_readers_schedule(short)
+                 if x["round"] == 0 and (x["probe"], x["read_op"], x["writers"], x["readers"]) in wanted]
+    assert len(real_runs) == len(wanted), real_runs
+    t3, c3 = _synthetic_reader_rows(short, pass_mops, no_fallbacks, pin)
+
+    def key(x: dict[str, Any]) -> tuple[Any, ...]:
+        return (x["probe"], x["read_op"], x["writers"], x["readers"], x["round"])
+
+    for run in real_runs:
+        rt = run_reader_invocation(throughput_bin, "throughput", run, quick=True)
+        rc = run_reader_invocation(counters_bin, "counters", run, quick=True)
+        check_row_pins([rt, rc], pin)
+        t3 = [rt if key(x) == key(run) else x for x in t3]
+        c3 = [rc if key(x) == key(run) else x for x in c3]
+    cells3 = summarize_ordered_readers(t3, c3, short, load)
+    real = next(c for c in cells3 if (c["probe"], c["read_op"], c["writers"], c["readers"]) == ("hotspot", "prev", 1, 4))
+    assert real["counters_raw"][0]["read_ops"] == real["counters_raw"][0]["reader_ops"] > 0, real["counters_raw"][0]
+    assert real["rounds_raw"][0]["reader_mops"] > 0 and real["rounds_raw"][0]["writer_mops"] > 0, real["rounds_raw"][0]
+    assert real["rounds_raw"][0]["write_ops"] == 65_280, real["rounds_raw"][0]
+    locked = next(c for c in cells3 if (c["probe"], c["read_op"], c["writers"], c["readers"]) == ("hotspot", "prev_locked", 1, 4))
+    assert locked["counters_raw"][0]["read_ops"] == 0, locked["counters_raw"][0]
+    assert locked["counters_raw"][0]["locked_reads"] == locked["counters_raw"][0]["reader_ops"] > 0
+    control = next(c for c in cells3 if (c["probe"], c["read_op"], c["writers"], c["readers"]) == ("uniform", "prev", 0, 1))
+    assert control["rounds_raw"][0]["writer_mops"] is None and control["counters_raw"][0]["inserts"] == 0, control
+    assert control["rounds_raw"][0]["reader_ops"] == 4096, control["rounds_raw"][0]
+    art3 = build_ordered_readers_artifact(prov, cells3, t3, short, pin, quick=True)
+    assert cbp.findings_for(rel, art3) == [], cbp.findings_for(rel, art3)
+
+    # The harness refuses what reader mode cannot measure, by name.
+    for extra, needle in (
+        (["--arm", "set", "--writers", "1", "--readers", "2"], "map arm only"),
+        (["--arm", "map", "--writers", "1", "--readers", "2", "--read-op", "bogus"], "unknown --read-op"),
+        (["--arm", "map", "--writers", "1", "--readers", "2", "--probe", "bogus"], "unknown --probe"),
+        (["--arm", "map", "--writers", "0"], "--writers 0 is accepted only in reader mode"),
+    ):
+        proc = subprocess.run([str(throughput_bin), "--role", "throughput", *extra, "--quick"],
+                              capture_output=True, text=True, check=False)
+        assert proc.returncode != 0 and needle in proc.stderr, (extra, proc.returncode, proc.stderr)
+    sys.stderr.write("Ordered-reader instrument PASSED\n")
 
 
 def self_test() -> int:
@@ -1818,6 +2667,9 @@ def self_test() -> int:
                     f"appeared {pair_counts[w1][w2]} times (expected 1)"
                 )
 
+    # 10. The ordered-reader instrument (#900).
+    _self_test_ordered_readers(throughput_bin, counters_bin, pin)
+
     eprintln("writer_scaling.py self-test PASSED\n")
     return 0
 
@@ -1883,6 +2735,13 @@ def main() -> int:
         action="store_true",
         help="Shorthand for --compare ablation-unstriped-freelist (Hypothesis D arm c unstriped)",
     )
+    comparison.add_argument(
+        "--ordered-readers",
+        action="store_true",
+        help="Ordered readers on the map (#900, METHODOLOGY.md §12.4): probe x (W, R) x read_op cells "
+             "under the pin 0,2,4,6,8,10,12,14, with the P12.4 and P12.5 verdicts "
+             "(default output ordered_readers_writer_scaling.json)",
+    )
     parser.add_argument(
         "--pmu",
         action="store_true",
@@ -1925,6 +2784,33 @@ def main() -> int:
     if args.self_test:
         return self_test()
 
+    if args.ordered_readers:
+        # A sweep of its own: none of the writer sweep's selectors apply, and
+        # accepting one would silently drop it.
+        conflicts = [
+            flag for flag, on in (
+                ("--diagnostic", args.diagnostic), ("--pmu", args.pmu), ("--c2c", args.c2c),
+                ("--features", args.features is not None), ("--arm", args.arm != "all"),
+                ("--writers", args.writers != "1,2,4,8"),
+            ) if on
+        ]
+        if conflicts:
+            sys.stderr.write(f"error: --ordered-readers does not combine with {', '.join(conflicts)}\n")
+            return 1
+        if args.rounds < 3:
+            sys.stderr.write("error: --rounds must be >= 3 for BCa bootstrap confidence intervals\n")
+            return 1
+        if not args.out:
+            args.out = str(ORDERED_READERS_RESULTS_PATH)
+        if (args.quick and Path(args.out).resolve() in committed_result_paths()
+                and not args.force_quick_out):
+            sys.stderr.write(
+                "error: --quick output cannot overwrite committed results path "
+                f"{Path(args.out).resolve()} without --force-quick-out\n"
+            )
+            return 1
+        return run_ordered_readers(args)
+
     if args.diagnostic:
         args.pmu = True
         args.c2c = True
@@ -1961,16 +2847,7 @@ def main() -> int:
 
     if args.quick and args.out:
         out_path = Path(args.out).resolve()
-        if (
-            out_path
-            in (
-                COMMITTED_RESULTS_PATH.resolve(),
-                DIAGNOSTIC_RESULTS_PATH.resolve(),
-                PADDED_RESULTS_PATH.resolve(),
-                *(p.resolve() for p in ABLATION_RESULTS_PATHS),
-            )
-            and not args.force_quick_out
-        ):
+        if out_path in committed_result_paths() and not args.force_quick_out:
             sys.stderr.write(
                 "error: --quick output cannot overwrite committed results path "
                 f"{out_path} without --force-quick-out\n"
