@@ -7301,6 +7301,52 @@ impl DetachedMapReader {
     pub fn get(&self, map: &SyncExpanseMap, key: Key) -> Option<u64> {
         map_get_with(map, &self.reader, key)
     }
+
+    // The ordered reads of `map_reader_ordered_reads!`, taking the map at call
+    // time; the same `map` requirement as `get` applies to each. Hidden for
+    // the same reason (`docs/benchmarks/concurrency/METHODOLOGY.md` §12).
+
+    /// Smallest entry, without excluding writers.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn first(&self, map: &SyncExpanseMap) -> Option<(u64, u64)> {
+        map_next_with(map, &self.reader, 0)
+    }
+
+    /// Largest entry, without excluding writers.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn last(&self, map: &SyncExpanseMap) -> Option<(u64, u64)> {
+        map_prev_with(map, &self.reader, u64::MAX)
+    }
+
+    /// Smallest entry with key `>= key`, without excluding writers.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn next_at_or_after(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
+        map_next_with(map, &self.reader, key)
+    }
+
+    /// Smallest entry with key `> key`, without excluding writers.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn next_after(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
+        map_next_with(map, &self.reader, key.checked_add(1)?)
+    }
+
+    /// Largest entry with key `<= key`, without excluding writers.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn prev_at_or_before(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
+        map_prev_with(map, &self.reader, key)
+    }
+
+    /// Largest entry with key `< key`, without excluding writers.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn prev_before(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
+        map_prev_with(map, &self.reader, key.checked_sub(1)?)
+    }
 }
 
 impl MapReader<'_> {
@@ -8901,6 +8947,42 @@ mod tests {
             map.shared.collector.registrations(),
             regs_before_loop,
             "lookups through a detached reader must not call register()"
+        );
+
+        // The ordered reads (#900) answer as the writer-excluding reads do, at
+        // both ends of the key space, and register nothing either.
+        let probes = [0u64, 1, 250, 498, 499, 500, 9_999, u64::MAX];
+        let expected: Vec<_> = probes
+            .iter()
+            .map(|&p| {
+                map.with_locked(|m| {
+                    (
+                        m.next_at_or_after(p),
+                        m.next_after(p),
+                        m.prev_at_or_before(p),
+                        m.prev_before(p),
+                    )
+                })
+            })
+            .collect();
+        let regs_before_ordered = map.shared.collector.registrations();
+        for (&p, want) in probes.iter().zip(&expected) {
+            let got = (
+                reader.next_at_or_after(&map, p),
+                reader.next_after(&map, p),
+                reader.prev_at_or_before(&map, p),
+                reader.prev_before(&map, p),
+            );
+            assert_eq!(&got, want, "detached ordered reads disagree at {p}");
+        }
+        assert_eq!(reader.first(&map), Some((0, 0)));
+        assert_eq!(reader.last(&map), Some((499, 499 * 3)));
+        assert_eq!(reader.next_after(&map, u64::MAX), None);
+        assert_eq!(reader.prev_before(&map, 0), None);
+        assert_eq!(
+            map.shared.collector.registrations(),
+            regs_before_ordered,
+            "ordered reads through a detached reader must not call register()"
         );
 
         // The map drops while the reader is still alive. An owned reader could
