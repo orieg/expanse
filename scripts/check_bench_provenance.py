@@ -47,6 +47,18 @@ was read for. The four artifacts measured before the runners recorded these are
 grandfathered by the same commit-pinned mechanism: re-measure at another commit
 and the fields are required.
 
+## Writer-scaling cells ran one process each (METHODOLOGY.md §15, #930)
+
+`writer_scaling.py` ran every W cell of a round in one harness process, and
+process-wide state carried from one cell into the next moved a cell's
+throughput with the cell before it. Every timed cell now runs in a process of
+its own, and the artifact says so: every `*writer_scaling*` artifact under
+`concurrency/results/` must carry `provenance.cell_isolation == "process"`.
+The artifacts measured before the change are grandfathered by the same
+commit-pinned mechanism as above, in `CELL_ISOLATION_GRANDFATHERED`: re-measure
+one at another commit and the field is required, so a re-run cannot land from
+multi-cell processes.
+
 ## Which construction produced an interval (#880, #882)
 
 `scripts/bca_bootstrap.py` can now say whether a defensive clamp bound an
@@ -331,6 +343,42 @@ CELL_KEYS = ("cells", "results", "throughput", "throughput_variant",
 # that predates a field.
 ATTRIBUTION_GRANDFATHERED: dict[str, tuple[str, ...]] = {}
 
+# METHODOLOGY.md §15: a writer-scaling artifact says its timed cells ran one
+# harness process each. The concurrency suite's `*writer_scaling*` artifacts
+# are in scope; the value is exact, because a multi-cell process is the defect.
+CELL_ISOLATION_SUITE = "concurrency"
+CELL_ISOLATION_NAME_PART = "writer_scaling"
+CELL_ISOLATION_VALUE = "process"
+
+# Writer-scaling artifacts measured before the driver ran one process per timed
+# cell, pinned to the commit each was measured at. Their timed cells shared a
+# process with the cells before them (the throughput and comparison passes); the
+# two ordered-reader artifacts already ran one process per cell but predate the
+# field. A re-measurement at any other commit must carry the field; removing an
+# entry is a deliberate edit.
+CELL_ISOLATION_GRANDFATHERED: dict[str, tuple[str, ...]] = {
+    "concurrency/results/ablation_alloc_writer_scaling.json": ("e0b287f2",),
+    "concurrency/results/ablation_alloc_writer_scaling_726b01fc.json": ("726b01fc",),
+    "concurrency/results/ablation_alloc_writer_scaling_726b01fc_run2.json": ("726b01fc",),
+    "concurrency/results/ablation_epoch_writer_scaling.json": ("4f94d0d1",),
+    "concurrency/results/ablation_epoch_writer_scaling_post4e.json": ("1f465728",),
+    "concurrency/results/ablation_epoch_writer_scaling_post4e_run2.json": ("1f465728",),
+    "concurrency/results/ablation_freelist_writer_scaling.json": ("83a9a3f0",),
+    "concurrency/results/ablation_freelist_writer_scaling_post4e.json": ("1f465728",),
+    "concurrency/results/ablation_freelist_writer_scaling_run2.json": ("83a9a3f0",),
+    "concurrency/results/ablation_unstriped_freelist_writer_scaling.json": ("5cf94b17",),
+    "concurrency/results/ablation_unstriped_freelist_writer_scaling_run2.json": ("5cf94b17",),
+    "concurrency/results/baseline_writer_scaling.json": ("10ce2f9d",),
+    "concurrency/results/baseline_writer_scaling_4b_run1.json": ("b1f1520a",),
+    "concurrency/results/baseline_writer_scaling_4b_run2.json": ("b1f1520a",),
+    "concurrency/results/baseline_writer_scaling_phase4e_run2.json": ("10ce2f9d",),
+    "concurrency/results/baseline_writer_scaling_run2.json": ("83a9a3f0",),
+    "concurrency/results/ordered_readers_writer_scaling.json": ("5228fc3a",),
+    "concurrency/results/ordered_readers_writer_scaling_run2.json": ("5228fc3a",),
+    "concurrency/results/padded_writer_scaling_726b01fc.json": ("726b01fc",),
+    "concurrency/results/padded_writer_scaling_726b01fc_run2.json": ("726b01fc",),
+}
+
 # The cell lists in a concurrent artifact that are timed or counted under
 # thread load, and so owe a per-cell attribution. `memory` there is a
 # single-writer build-only census (section 8.4) and does not.
@@ -483,8 +531,43 @@ def attribution_status(rel: str, obj) -> tuple[bool, str | None]:
     )
 
 
+def owes_cell_isolation(rel: str) -> bool:
+    """A concurrency-suite writer-scaling artifact (METHODOLOGY.md §15)."""
+    parts = Path(rel).parts
+    return (bool(parts) and parts[0] == CELL_ISOLATION_SUITE
+            and CELL_ISOLATION_NAME_PART in Path(rel).name)
+
+
+def check_cell_isolation(rel: str, obj) -> list[str]:
+    """`provenance.cell_isolation == "process"`, unless grandfathered at its commit."""
+    if not owes_cell_isolation(rel):
+        return []
+    if not isinstance(obj, dict) or not isinstance(obj.get("provenance"), dict):
+        return []  # check_artifact already reported the block
+    got = obj["provenance"].get("cell_isolation")
+    if got == CELL_ISOLATION_VALUE:
+        # Compliant whatever the table says. An entry for a file re-measured
+        # with the field exempts nothing, and a driver's self-test that judges
+        # a fresh artifact under a listed name must not fail on the table.
+        return []
+    got_commit = obj["provenance"].get("commit")
+    if rel in CELL_ISOLATION_GRANDFATHERED:
+        if got_commit in CELL_ISOLATION_GRANDFATHERED[rel]:
+            return []
+        note = (f"{rel}: cell-isolation-grandfathered at commit(s) "
+                f"{CELL_ISOLATION_GRANDFATHERED[rel]!r} but carries {got_commit!r} — it was "
+                f"re-measured, so drop its CELL_ISOLATION_GRANDFATHERED entry; ")
+    else:
+        note = f"{rel}: "
+    return [note + (
+        f"`provenance.cell_isolation` is {got!r}, not {CELL_ISOLATION_VALUE!r} — every timed "
+        f"writer-scaling cell runs in a harness process of its own, and the artifact says so "
+        f"(docs/benchmarks/concurrency/METHODOLOGY.md §15)"
+    )]
+
+
 def findings_for(rel: str, obj) -> list[str]:
-    """Every finding for one non-grandfathered artifact, both requirement sets."""
+    """Every finding for one non-grandfathered artifact, every requirement set."""
     out = check_artifact(rel, obj)
     out.extend(partial_label_problems(rel, obj))
     if is_concurrent(rel):
@@ -493,6 +576,7 @@ def findings_for(rel: str, obj) -> list[str]:
             out.append(note)
         if not exempt:
             out.extend(check_attribution(rel, obj))
+    out.extend(check_cell_isolation(rel, obj))
     return out
 
 
@@ -713,6 +797,7 @@ def artifacts(bench: Path | None = None) -> list[Path]:
 
 def run() -> int:
     findings, checked, grandfathered, attribution_grandfathered = [], 0, 0, 0
+    isolation_grandfathered = 0
     findings.extend(ci_method_census())
     unlabelled: list[str] = []
     for path in artifacts():
@@ -739,6 +824,10 @@ def run() -> int:
         checked += 1
         if is_concurrent(rel) and attribution_status(rel, obj)[0]:
             attribution_grandfathered += 1
+        if (rel in CELL_ISOLATION_GRANDFATHERED and isinstance(obj, dict)
+                and obj.get("provenance", {}).get("cell_isolation") != CELL_ISOLATION_VALUE
+                and obj.get("provenance", {}).get("commit") in CELL_ISOLATION_GRANDFATHERED[rel]):
+            isolation_grandfathered += 1
         intervals, labelled = ci_method_keys(obj)
         if intervals and not labelled:
             unlabelled.append(rel)
@@ -761,7 +850,9 @@ def run() -> int:
     print(f"check_bench_provenance.py: {checked} artifact(s) carry host, estimators, "
           f"busy-CPU deltas and per-cell rounds_raw; {grandfathered} grandfathered; "
           f"{attribution_grandfathered} concurrent artifact(s) grandfathered from per-cell "
-          f"attribution and the per-CPU governor map (#568 Step 0)")
+          f"attribution and the per-CPU governor map (#568 Step 0); {isolation_grandfathered} "
+          f"writer-scaling artifact(s) grandfathered from provenance.cell_isolation "
+          f"(multi-cell processes, METHODOLOGY.md §15)")
     return 0
 
 
@@ -820,6 +911,9 @@ _GOOD_ABL = {
     "provenance": {
         "suite": "concurrency",
         "commit": "1a2b3c4",
+        # A concurrency writer-scaling artifact says its timed cells ran one
+        # process each (METHODOLOGY.md §15).
+        "cell_isolation": "process",
         # A writer-scaling name is concurrent (`is_concurrent`), so this
         # fixture owes the per-cell attribution and the per-CPU governor map
         # that #568 Step 0 requires of a concurrent artifact.
@@ -1101,6 +1195,46 @@ def _self_test() -> int:
             failures.append(f"ATTRIBUTION_GRANDFATHERED names a missing artifact: {rel}")
         elif not is_concurrent(rel):
             failures.append(f"ATTRIBUTION_GRANDFATHERED lists a non-concurrent artifact: {rel}")
+
+    # --- METHODOLOGY.md §15: writer-scaling cells ran one process each ------
+    # THE DEFECT THIS PINS: a writer-scaling sweep ran every W cell of a round
+    # in one harness process, and a cell's throughput moved with the cell that
+    # ran before it. A new artifact without the field is a finding.
+    no_iso = copy.deepcopy(_GOOD_ABL)
+    del no_iso["provenance"]["cell_isolation"]
+    expect("a writer-scaling artifact that does not say its cells ran one process each",
+           no_iso, "cell_isolation", _ABL_REL)
+    multi = copy.deepcopy(_GOOD_ABL)
+    multi["provenance"]["cell_isolation"] = "round"
+    expect("a writer-scaling artifact whose cells shared a process", multi, "'round'", _ABL_REL)
+    # Scoped by suite and name: the same shape under another concurrent name
+    # owes no field, and a writer-scaling name outside the suite owes none.
+    expect("a non-writer-scaling concurrent artifact is not asked for cell isolation",
+           copy.deepcopy(_GOOD_CONC), None, _CONC_REL)
+    if not owes_cell_isolation("concurrency/results/padded_writer_scaling_726b01fc.json"):
+        failures.append("owes_cell_isolation() misses a padded writer-scaling artifact")
+    if owes_cell_isolation("concurrency/results/baseline_concurrent_mixed.json"):
+        failures.append("owes_cell_isolation() matches a mixed-workload artifact")
+    # The grandfather mechanism, both directions, on a synthetic entry.
+    saved_iso = dict(CELL_ISOLATION_GRANDFATHERED)
+    CELL_ISOLATION_GRANDFATHERED[_ABL_REL] = ("1a2b3c4",)
+    try:
+        expect("a pre-§15 artifact at its pinned commit is exempt", no_iso, None, _ABL_REL)
+        moved = copy.deepcopy(no_iso)
+        moved["provenance"]["commit"] = "0000000"
+        expect("the same artifact at another commit is enforced", moved, "cell_isolation", _ABL_REL)
+        expect("... and says the entry must go", moved, "CELL_ISOLATION_GRANDFATHERED", _ABL_REL)
+        fixed = copy.deepcopy(_GOOD_ABL)
+        fixed["provenance"]["commit"] = "0000000"
+        expect("a listed artifact re-measured with the field passes", fixed, None, _ABL_REL)
+    finally:
+        CELL_ISOLATION_GRANDFATHERED.clear()
+        CELL_ISOLATION_GRANDFATHERED.update(saved_iso)
+    for rel in CELL_ISOLATION_GRANDFATHERED:
+        if not (BENCH / rel).is_file():
+            failures.append(f"CELL_ISOLATION_GRANDFATHERED names a missing artifact: {rel}")
+        elif not owes_cell_isolation(rel):
+            failures.append(f"CELL_ISOLATION_GRANDFATHERED lists an artifact that owes no field: {rel}")
 
     # --- #880: which construction produced an interval --------------------
     # THE DEFECT THIS PINS: #882 added a fourth return value naming the

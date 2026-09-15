@@ -25,6 +25,26 @@
 //! cargo run --release -p expanse-trie --features occ-stats --example writer_scaling -- --role counters [--arm <map|set|str|all>] [--writers <1,2,4,8>] [--rounds <N>]
 //! ```
 //!
+//! ## One timed cell per process (`docs/benchmarks/concurrency/METHODOLOGY.md` §15)
+//!
+//! A multi-W invocation runs every W of a round in one process, in Williams
+//! order. Each cell builds and drops its own tree, but process-wide state —
+//! the allocator's per-thread arenas among it — carries from one cell into the
+//! next, so a cell's throughput depends on which cells ran before it in the
+//! same process. The driver (`writer_scaling.py`) therefore runs every timed
+//! writer cell in a process of its own:
+//!
+//! ```text
+//! cargo run --release -p expanse-trie --example writer_scaling -- --arm map --writers <W> --round <r> --position <p> [--quick]
+//! ```
+//!
+//! - `--position` records the cell's scheduled place in its round, which the
+//!   driver owns. It needs `--round` and a single `--writers` count, and is
+//!   refused otherwise.
+//! - The multi-W form stays for manual use and for the counters pass, which
+//!   times nothing; there `position` is the index in the harness's own
+//!   Williams row.
+//!
 //! ## Reader mode (#900, `docs/benchmarks/concurrency/METHODOLOGY.md` §12.4)
 //!
 //! `--readers R` with R > 0 runs ordered-read cells on the map arm only, one
@@ -1867,7 +1887,7 @@ fn main() {
         }
         return;
     }
-    for flag in ["--read-op", "--probe", "--position"] {
+    for flag in ["--read-op", "--probe"] {
         if args.iter().any(|a| a == flag) {
             eprintln!("{flag} is a reader-mode flag and needs --readers > 0");
             std::process::exit(1);
@@ -1895,11 +1915,23 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(8);
 
-    let round_opt: Option<usize> = args
-        .iter()
-        .position(|a| a == "--round")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|s| s.parse().ok());
+    // Parsed strictly: a per-cell invocation that silently ignored a malformed
+    // `--round` would run every round in one process, the carryover this
+    // form exists to remove (AGENTS.md §8.1).
+    let round_opt: Option<usize> = match parse_flag(&args, "--round") {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    };
+    let position_opt: Option<usize> = match parse_flag(&args, "--position") {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    };
 
     let (round_start, round_end) = if let Some(r) = round_opt {
         (r, r + 1)
@@ -1925,7 +1957,16 @@ fn main() {
     }
 
     let n_w = writers_list.len();
-    if !n_w.is_multiple_of(2) || !rounds.is_multiple_of(n_w) {
+    if position_opt.is_some() && (round_opt.is_none() || n_w != 1) {
+        eprintln!(
+            "--position names one cell's place in its round: it needs --round <r> and a single \
+             --writers <W>, got --writers {writers_arg} and --round {round_opt:?}"
+        );
+        std::process::exit(1);
+    }
+    // A single-cell invocation cannot be balanced on its own; the driver that
+    // schedules the cells owns the Williams balance, so no notice here.
+    if position_opt.is_none() && (!n_w.is_multiple_of(2) || !rounds.is_multiple_of(n_w)) {
         eprintln!(
             "notice: Williams square balance requires even writer count and rounds multiple of len(writers); \
              got len(writers)={n_w}, rounds={rounds} — position/carryover balance will be incomplete"
@@ -1959,6 +2000,7 @@ fn main() {
         for round in round_start..round_end {
             let round_writers = williams_order(&writers_list, round);
             for (pos, &w) in round_writers.iter().enumerate() {
+                let pos = position_opt.unwrap_or(pos);
                 let (elapsed_s, final_pop, counters) =
                     run_map_cell(&wl, w, round, is_counters, &mut perf_ctl);
                 let write_ops = m;
@@ -2001,6 +2043,7 @@ fn main() {
         for round in round_start..round_end {
             let round_writers = williams_order(&writers_list, round);
             for (pos, &w) in round_writers.iter().enumerate() {
+                let pos = position_opt.unwrap_or(pos);
                 let (elapsed_s, final_pop, counters) =
                     run_set_cell(&wl, w, round, is_counters, &mut perf_ctl);
                 let write_ops = m;
@@ -2042,6 +2085,7 @@ fn main() {
         for round in round_start..round_end {
             let round_writers = williams_order(&writers_list, round);
             for (pos, &w) in round_writers.iter().enumerate() {
+                let pos = position_opt.unwrap_or(pos);
                 let (elapsed_s, final_pop, counters) =
                     run_str_cell(&wl, w, round, is_counters, &mut perf_ctl);
                 let write_ops = m;

@@ -8,8 +8,21 @@ Two builds, never one (AGENTS.md §6 / hot_concurrent.rs:36-42):
 - Pass 1 (throughput): uninstrumented release build, interleaved across W within each round,
   balancing position and first-order carryover across rounds (Williams design).
   Emits elapsed_s and writer_mops. Refuses to run if occ-stats is enabled.
+  Every timed cell runs in a harness process of its own (`--writers W --round r
+  --position p`, METHODOLOGY.md §15): process-wide state carried from one cell into
+  the next changed a W = 8 cell's throughput with the cell that ran before it.
 - Pass 2 (counters): diagnostic build (--features occ-stats), captures exact lock_fallbacks
-  and write_ops across all rounds. Refuses to emit elapsed_s or writer_mops.
+  and write_ops across all rounds. Refuses to emit elapsed_s or writer_mops. It times
+  nothing, so it still runs every cell of an arm in one process.
+
+A comparison (`--compare`, `--variants`, the ablation shorthands) runs the 2 x len(W)
+(build, W) cells of each round in the order of that round's row of a Williams design
+over those cells, one process per cell: over 2 x len(W) rounds every (build, W) cell
+holds every position once and every ordered pair of cells is adjacent once.
+
+Before writing, the driver checks every row against the schedule that asked for it
+(build, round, position, W) and refuses an artifact that disagrees; the artifact
+records `provenance.cell_isolation = "process"`.
 
 Computes:
 - expanse_writer_mops_mean as headline point estimate with BCa 95% bootstrap CI (AGENTS.md §8.4)
@@ -46,6 +59,7 @@ either end of the contract.
 from __future__ import annotations
 
 import argparse
+import collections
 import contextlib
 import datetime
 import json
@@ -114,6 +128,26 @@ ABLATION_ARMS = {
 # and the ablation variant represents the unstriped/unoptimized baseline.
 # For these, the reported scaling ratio is C_default(W) / C_variant(W) (§8.20.7).
 INVERSE_ABLATIONS = {"ablation-unstriped-freelist"}
+
+# METHODOLOGY.md §15: every timed writer-mode cell runs in a harness process of
+# its own. Recorded in every artifact this driver writes, and required by
+# `scripts/check_bench_provenance.py` of every writer-scaling artifact measured
+# after the change.
+CELL_ISOLATION = "process"
+# The build label of the default (no-feature) build in a schedule and in
+# `rounds_raw`. A variant is labelled by its feature list.
+DEFAULT_BUILD = "default"
+CELL_SCHEDULE_SWEEP = (
+    "one harness process per timed (W, round) cell; within round r the W cells follow row r "
+    "of a Williams design over the writer counts (position = index in that row); the counters "
+    "pass times nothing and runs every cell of an arm in one process"
+)
+CELL_SCHEDULE_COMPARISON = (
+    "one harness process per timed (build, W, round) cell; within round r the 2 x len(W) "
+    "(build, W) cells follow row r of a Williams design over those cells, indexed "
+    "(default, W1), (variant, W1), (default, W2), ... (position = index in that row); the "
+    "counters passes time nothing and run every cell of an arm in one process per build"
+)
 
 
 def ratio_description(variant_list: list[str]) -> str:
@@ -246,6 +280,14 @@ def run_pass(
     round_opt: int | None = None,
     quick: bool = False,
 ) -> list[dict[str, Any]]:
+    """Every cell of an arm in ONE harness process: the counters pass only.
+
+    A timed cell never goes through here. Cells sharing a process share its
+    allocator arenas and every other piece of process-wide state, and a W = 8
+    cell's throughput moved with the cell that ran before it (METHODOLOGY.md
+    §15). Timed cells go through `run_throughput_pass` / `run_comparison`, one
+    process each. The counters pass reads exact counts and no clock.
+    """
     cmd = [
         str(binary),
         "--role",
@@ -288,6 +330,172 @@ def run_pass(
         sys.exit(1)
 
     return rows
+
+
+def writer_cell_schedule(
+    writers_list: list[int], rounds: int, builds: tuple[str, ...] = (DEFAULT_BUILD,)
+) -> list[dict[str, Any]]:
+    """Every timed writer-mode harness invocation, in execution order.
+
+    The treatments are the (build, W) cells, indexed (build_0, W_0), (build_1,
+    W_0), ..., (build_0, W_1), .... Round r runs them in the order of row r of a
+    Williams design (`williams_positions`), and `position` is the index in that
+    row. With one build this is exactly the order the harness's own
+    `williams_order` gave a multi-W invocation. For an even number of cells, as
+    many rounds as cells put every cell in every position once and make every
+    ordered pair of cells adjacent once.
+    """
+    if len(set(builds)) != len(builds):
+        raise ValueError(f"build labels must be distinct, got {builds}")
+    treatments = [(b, w) for w in writers_list for b in builds]
+    out: list[dict[str, Any]] = []
+    for r in range(rounds):
+        for pos, idx in enumerate(williams_positions(len(treatments), r)):
+            build, w = treatments[idx]
+            out.append({"round": r, "position": pos, "writers": w, "build": build})
+    return out
+
+
+def writer_cell_argv(binary: Path, arm: str, cell: dict[str, Any], quick: bool) -> list[str]:
+    """The harness command for ONE timed writer cell: one W, its round, its position."""
+    cmd = [
+        str(binary),
+        "--role",
+        "throughput",
+        "--arm",
+        arm,
+        "--writers",
+        str(cell["writers"]),
+        "--round",
+        str(cell["round"]),
+        "--position",
+        str(cell["position"]),
+    ]
+    if quick:
+        cmd.append("--quick")
+    return cmd
+
+
+def writer_cell_row(stdout: str, arm: str, cell: dict[str, Any]) -> dict[str, Any]:
+    """The one throughput row a single-cell process printed, checked against its schedule entry."""
+    rows = []
+    for line in stdout.splitlines():
+        line = line.strip()
+        if line.startswith("{") and line.endswith("}"):
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get("role") == "throughput" and row.get("arm") == "expanse":
+                rows.append(row)
+    if len(rows) != 1:
+        raise RuntimeError(
+            f"writer cell ({arm}, {cell}) emitted {len(rows)} throughput rows, expected exactly 1: "
+            "a timed cell runs alone in its process (METHODOLOGY.md §15, AGENTS.md §8.1)"
+        )
+    row = rows[0]
+    for key in ("round", "position", "writers"):
+        if row.get(key) != cell[key]:
+            raise RuntimeError(
+                f"writer cell ({arm}, {cell}): the row carries {key}={row.get(key)!r}, "
+                f"the schedule ran {key}={cell[key]!r} (METHODOLOGY.md §15)"
+            )
+    row["build"] = cell["build"]
+    return row
+
+
+def run_writer_cell(binary: Path, arm: str, cell: dict[str, Any], quick: bool) -> dict[str, Any]:
+    """One timed writer cell in a harness process of its own."""
+    cmd = writer_cell_argv(binary, arm, cell, quick)
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"writer_scaling cell ({arm}, {cell}) failed (exit {proc.returncode}):\n{proc.stderr}"
+        )
+    return writer_cell_row(proc.stdout, arm, cell)
+
+
+def check_rows_against_schedule(
+    rows: list[dict[str, Any]], schedule: list[dict[str, Any]], context: str
+) -> None:
+    """Rows and schedule hold the same (build, round, position, W) cells, each once."""
+    def key(x: dict[str, Any]) -> tuple[Any, ...]:
+        return (x.get("build"), x.get("round"), x.get("position"), x.get("writers"))
+
+    want, got = collections.Counter(map(key, schedule)), collections.Counter(map(key, rows))
+    if want != got:
+        raise ValueError(
+            f"{context}: rows disagree with the per-cell schedule "
+            f"(build, round, position, W) -- missing {sorted((want - got).elements(), key=str)}, "
+            f"unexpected {sorted((got - want).elements(), key=str)}; refusing to report them "
+            "(METHODOLOGY.md §15, AGENTS.md §8.1)"
+        )
+
+
+def run_throughput_pass(
+    binary: Path, arm: str, writers_list: list[int], rounds: int, quick: bool = False
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The timed pass of a single-build sweep: one process per (W, round) cell.
+
+    Returns the rows and the schedule they were run under.
+    """
+    schedule = writer_cell_schedule(writers_list, rounds)
+    rows = [run_writer_cell(binary, arm, cell, quick) for cell in schedule]
+    check_rows_against_schedule(rows, schedule, f"{arm} throughput pass")
+    return rows, schedule
+
+
+def expected_cells(
+    arm: str, schedule: list[dict[str, Any]]
+) -> dict[tuple[str, str, int], list[tuple[int, int]]]:
+    """(arm, build, W) -> the sorted (round, position) cells the schedule ran."""
+    out: dict[tuple[str, str, int], list[tuple[int, int]]] = {}
+    for c in schedule:
+        out.setdefault((arm, c["build"], int(c["writers"])), []).append((c["round"], c["position"]))
+    return {k: sorted(v) for k, v in out.items()}
+
+
+def check_artifact_against_schedule(
+    artifact: dict[str, Any], expected: dict[tuple[str, str, int], list[tuple[int, int]]]
+) -> None:
+    """Refuse an artifact whose timed rows are not the cells the schedule ran.
+
+    Every cell under `throughput` (the default build) and `throughput_variant`
+    (its `variant` build) must carry in `rounds_raw` exactly the (round,
+    position) cells the schedule ran for its (arm, build, W), each row labelled
+    with that build; every scheduled (arm, build, W) must appear; and the
+    provenance must say the cells ran one process each.
+    """
+    problems: list[str] = []
+    isolation = artifact.get("provenance", {}).get("cell_isolation")
+    if isolation != CELL_ISOLATION:
+        problems.append(f"provenance.cell_isolation is {isolation!r}, not {CELL_ISOLATION!r}")
+    seen: set[tuple[str, str, int]] = set()
+    for list_key in ("throughput", "throughput_variant"):
+        for cell in artifact.get(list_key, []):
+            build = DEFAULT_BUILD if list_key == "throughput" else cell.get("variant")
+            k = (cell.get("arm"), build, int(cell.get("writers", -1)))
+            if k in seen:
+                problems.append(f"{k}: summarised twice")
+                continue
+            seen.add(k)
+            raw = cell.get("rounds_raw") or []
+            wrong_build = sorted({str(r.get("build")) for r in raw if r.get("build") != build})
+            if wrong_build:
+                problems.append(f"{k}: rounds_raw rows labelled build {wrong_build}")
+            got = sorted((r.get("round"), r.get("position")) for r in raw)
+            if k not in expected:
+                problems.append(f"{k}: a cell the schedule never ran")
+            elif got != expected[k]:
+                problems.append(f"{k}: rounds_raw (round, position) {got} != scheduled {expected[k]}")
+    missing = sorted(set(expected) - seen)
+    if missing:
+        problems.append(f"scheduled cells absent from the artifact: {missing}")
+    if problems:
+        raise ValueError(
+            "refusing to write an artifact whose rows disagree with the per-cell schedule "
+            "(METHODOLOGY.md §15, AGENTS.md §8.1): " + "; ".join(problems)
+        )
 
 
 def summarize_arm(
@@ -619,6 +827,7 @@ def summarize_arm(
                 {
                     "round": r["round"],
                     "position": r["position"],
+                    "build": r.get("build"),
                     "writer_mops": r["writer_mops"],
                     "writer_elapsed_s": r["writer_elapsed_s"],
                     "write_ops": r["write_ops"],
@@ -790,12 +999,21 @@ def run_comparison(
     quick: bool = False,
     inverse: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-    """Runs interleaved (build × W) execution within each round.
+    """Runs interleaved (build × W) execution within each round, one process per cell.
 
-    Within each round r, default and variant builds are alternated to eliminate
-    thermal drift and host load confounding between builds (Williams design).
+    Within round r the 2 x len(W) (build, W) cells run in the order of row r of
+    a Williams design over those cells (`writer_cell_schedule`), each in a
+    harness process of its own (METHODOLOGY.md §15). Over 2 x len(W) rounds
+    every cell holds every position once and every ordered pair of cells is
+    adjacent once, so position, host drift and first-order carryover land on
+    both builds and every W alike (AGENTS.md §8.20.2).
     Computes paired bootstrap BCa 95% CI on C_variant(w) / C_default(w).
+
+    Returns the default cells, the variant cells, the comparison, and the
+    schedule the timed cells ran under.
     """
+    if variant_name == DEFAULT_BUILD:
+        raise ValueError(f"a variant cannot be labelled {DEFAULT_BUILD!r}")
     print("\n========================================================================")
     print(f" Interleaved (build × W) Execution: default vs {variant_name}")
     print(f" Arm: {arm} | Writers: {writers_list} | Rounds: {rounds}")
@@ -807,24 +1025,14 @@ def run_comparison(
     start_snap_def = begin_cell(prov, f"arm:{arm}:default")
     start_snap_var = begin_cell(prov, f"arm:{arm}:{variant_name}")
 
-    for round_idx in range(rounds):
-        # Alternate order within round to balance first-runner order bias
-        if round_idx % 2 == 0:
-            rows_d = run_pass(
-                bin_default, "throughput", arm, writers_list, rounds=rounds, round_opt=round_idx, quick=quick
-            )
-            rows_v = run_pass(
-                bin_variant, "throughput", arm, writers_list, rounds=rounds, round_opt=round_idx, quick=quick
-            )
-        else:
-            rows_v = run_pass(
-                bin_variant, "throughput", arm, writers_list, rounds=rounds, round_opt=round_idx, quick=quick
-            )
-            rows_d = run_pass(
-                bin_default, "throughput", arm, writers_list, rounds=rounds, round_opt=round_idx, quick=quick
-            )
-        all_t_rows_default.extend(rows_d)
-        all_t_rows_variant.extend(rows_v)
+    binaries = {DEFAULT_BUILD: bin_default, variant_name: bin_variant}
+    schedule = writer_cell_schedule(writers_list, rounds, builds=(DEFAULT_BUILD, variant_name))
+    for cell in schedule:
+        row = run_writer_cell(binaries[cell["build"]], arm, cell, quick)
+        (all_t_rows_default if cell["build"] == DEFAULT_BUILD else all_t_rows_variant).append(row)
+    check_rows_against_schedule(
+        all_t_rows_default + all_t_rows_variant, schedule, f"{arm} default vs {variant_name}"
+    )
 
     load_def = end_cell(start_snap_def)
     load_var = end_cell(start_snap_var)
@@ -861,7 +1069,7 @@ def run_comparison(
         inverse=inverse,
     )
 
-    return cells_default, cells_variant, comparison_stats
+    return cells_default, cells_variant, comparison_stats, schedule
 
 
 # ---------------------------------------------------------------------------
@@ -1357,7 +1565,9 @@ def build_ordered_readers_artifact(
     if quick:
         void.append("--quick population: a smoke run of the instrument, not the §12.4 cells")
     return {
-        "provenance": prov,
+        # Every reader cell already runs in a process of its own
+        # (`run_reader_invocation`); stated, as for the writer sweep (§15).
+        "provenance": {**prov, "cell_isolation": CELL_ISOLATION},
         "throughput": cells,
         "ordered_readers": {
             "issue": 900,
@@ -1673,43 +1883,35 @@ def run_pmu_pass(
     print("========================================================================")
 
     event_arg = ",".join(events)
-    round_data: dict[int, dict[int, dict[str, int]]] = {}
+    round_data: dict[int, dict[int, dict[str, int]]] = {r: {} for r in range(rounds)}
 
-    for r in range(rounds):
-        round_data[r] = {}
-        for w in writers:
-            with perf_control_fifos(f"perf_fifo_r{r}_w{w}_") as (ctl_fifo, ack_fifo):
-                cmd = [
-                    "perf",
-                    "stat",
-                    *perf_control_args(ctl_fifo, ack_fifo),
-                    "-x,",
-                    "-e",
-                    event_arg,
-                    "--",
-                    str(binary),
-                    "--role",
-                    "throughput",
-                    "--arm",
-                    arm,
-                    "--writers",
-                    str(w),
-                    "--rounds",
-                    "1",
-                    "--round",
-                    str(r),
-                    *harness_control_args(ctl_fifo, ack_fifo),
-                ]
-                if quick:
-                    cmd.append("--quick")
+    # One process per (W, round) cell, as in the throughput pass (METHODOLOGY.md
+    # §15), in the same Williams order, so the droop at W is read off cells run
+    # under the schedule the throughput it is set against ran under. This pass
+    # already ran one W per process; what it gains is the order and a row that
+    # is checked against the cell that asked for it.
+    for cell in writer_cell_schedule(writers, rounds):
+        r, w = cell["round"], cell["writers"]
+        with perf_control_fifos(f"perf_fifo_r{r}_w{w}_") as (ctl_fifo, ack_fifo):
+            cmd = [
+                "perf",
+                "stat",
+                *perf_control_args(ctl_fifo, ack_fifo),
+                "-x,",
+                "-e",
+                event_arg,
+                "--",
+                *writer_cell_argv(binary, arm, cell, quick),
+                *harness_control_args(ctl_fifo, ack_fifo),
+            ]
 
-                proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-                if proc.returncode != 0:
-                    raise RuntimeError(
-                        f"--pmu round {r} W={w} failed (exit {proc.returncode}): {proc.stderr} (AGENTS.md §8.1)"
-                    )
-                counts = parse_perf_stat_csv(proc.stderr)
-                round_data[r][w] = counts
+            proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    f"--pmu round {r} W={w} failed (exit {proc.returncode}): {proc.stderr} (AGENTS.md §8.1)"
+                )
+            writer_cell_row(proc.stdout, arm, cell)
+            round_data[r][w] = parse_perf_stat_csv(proc.stderr)
 
     # Resolve against the keys `perf` REPORTED, not the ones we asked for. On a
     # hybrid host perf accepts a bare `cycles` and reports it back qualified as
@@ -1745,6 +1947,7 @@ def run_pmu_pass(
     return {
         "arm": arm,
         "events": events,
+        "cell_isolation": CELL_ISOLATION,
         "rounds_preregistered": rounds,
         "writers": sorted(writers),
         "frequency_droop": droop_summary,
@@ -1766,6 +1969,13 @@ C2C_WINDOW = (
     "measured barrier-to-join only (perf --delay=-1 --control=fifo, harness "
     "--perf-ctl-fifo); setup and teardown excluded"
 )
+# The c2c pass is one `perf c2c record` over one harness process that runs the
+# same W for every round. Splitting it per round would need one recording per
+# process and a merged report; it reads which cache lines carried HITM, not a
+# throughput, and it has no cross-W carryover because W never changes. Rounds
+# after the first do follow a cell of the same W in the same process, which
+# METHODOLOGY.md §15 does not measure, so the block says so.
+C2C_CELL_ISOLATION = "one process, one W, every round (not per cell; METHODOLOGY.md §15)"
 
 
 def c2c_total_records(report_text: str) -> int | None:
@@ -1894,6 +2104,7 @@ def run_c2c_pass(
         # What the profile covers, so a reader never has to infer whether the
         # HITM shares and symbol_profile include setup (they do not).
         "window": C2C_WINDOW,
+        "cell_isolation": C2C_CELL_ISOLATION,
         "rounds": rounds,
         "total_records": total_records,
         "report_path": str(report_file.relative_to(REPO_ROOT)),
@@ -2344,6 +2555,287 @@ def _self_test_c2c_window() -> None:
     eprintln("c2c measured-window checks PASSED\n")
 
 
+def _self_test_per_cell_isolation(throughput_bin: Path, counters_bin: Path) -> None:
+    """Every timed writer pass runs one W per harness process (METHODOLOGY.md §15).
+
+    Drives the production entry points -- `main()` for the sweep and the
+    comparison, `run_pmu_pass` for the droop pass -- with `subprocess.run`
+    replaced at the module boundary, so the assertions read the argv the driver
+    actually built and the artifact it actually wrote, never a helper the call
+    site could stop calling (AGENTS.md §8.20.7). The fake harness emulates the
+    real one's writer mode: a `--writers` list prints every W of the round in
+    Williams order, and a missing `--position` prints the index in that order.
+    The counters pass still reaches the real counters binary.
+    """
+    import io
+    from unittest import mock
+
+    eprintln = sys.stderr.write
+    eprintln("Testing one harness process per timed writer cell (METHODOLOGY.md §15)...\n")
+    module = sys.modules[__name__]
+    real_run = subprocess.run
+    real_summarize = summarize_arm
+    variant = "selftest-variant"
+    fake_default = REPO_ROOT / "target" / "selftest-per-cell-default" / "release" / "examples" / "writer_scaling"
+    fake_variant = REPO_ROOT / "target" / "selftest-per-cell-variant" / "release" / "examples" / "writer_scaling"
+    fake_builds = {str(fake_default): DEFAULT_BUILD, str(fake_variant): variant}
+
+    def flag(cmd: list[str], name: str) -> str | None:
+        return cmd[cmd.index(name) + 1] if name in cmd else None
+
+    def harness_stdout(cmd: list[str], build: str, tamper: Any) -> str:
+        writers = [int(x) for x in (flag(cmd, "--writers") or "1,2,4,8").split(",")]
+        rnd = flag(cmd, "--round")
+        rounds = [int(rnd)] if rnd is not None else range(int(flag(cmd, "--rounds") or 8))
+        pos_flag = flag(cmd, "--position")
+        lines = []
+        for r in rounds:
+            order = [writers[i] for i in williams_positions(len(writers), r)]
+            for i, w in enumerate(order):
+                row = {
+                    "workload_id": "concurrency_writer_map_64bit", "role": "throughput",
+                    "arm": "expanse", "cell": f"map_w{w}_r0", "keyspace_bits": 64,
+                    "prefill": 4096, "fresh_keys": 4096, "writers": w, "readers": 0,
+                    "round": r, "position": int(pos_flag) if pos_flag is not None else i,
+                    "write_ops": 4096, "writer_elapsed_s": 0.001,
+                    "writer_mops": round((1.0 + 0.4 * w) * (1.0 + 0.01 * r) * (1.1 if build != DEFAULT_BUILD else 1.0), 4),
+                    "tsc_hz": 1, "population_after": 8192,
+                }
+                tamper(row)
+                lines.append(json.dumps(row))
+        return "\n".join(lines) + "\n"
+
+    def fake_subprocess(timed: list[tuple[str, list[str]]], counters: list[list[str]], tamper: Any) -> Any:
+        def fake_run(cmd: Any, *args: Any, **kwargs: Any) -> Any:
+            argv = [str(c) for c in cmd]
+            if argv and argv[0] in fake_builds:
+                build = fake_builds[argv[0]]
+                assert flag(argv, "--role") == "throughput", f"a fake throughput binary was run as {argv}"
+                timed.append((build, argv))
+                return subprocess.CompletedProcess(argv, 0, stdout=harness_stdout(argv, build, tamper), stderr="")
+            if argv and argv[0] == str(counters_bin):
+                counters.append(argv)
+            return real_run(cmd, *args, **kwargs)
+        return fake_run
+
+    def fake_build(features: str | None = None, verbose: bool = True) -> tuple[Path, Path]:
+        return (fake_default if features is None else fake_variant), counters_bin
+
+    def drive_main(argv: list[str], tamper: Any = lambda row: None, summarize: Any = None) -> dict[str, Any]:
+        timed: list[tuple[str, list[str]]] = []
+        counters: list[list[str]] = []
+        err: BaseException | None = None
+        art = None
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "selftest_per_cell_writer_scaling.json"
+            with contextlib.ExitStack() as stack:
+                stack.enter_context(mock.patch.object(
+                    subprocess, "run", side_effect=fake_subprocess(timed, counters, tamper)))
+                stack.enter_context(mock.patch.object(module, "build_binaries", side_effect=fake_build))
+                if summarize is not None:
+                    stack.enter_context(mock.patch.object(module, "summarize_arm", side_effect=summarize))
+                stack.enter_context(mock.patch.object(
+                    sys, "argv", ["writer_scaling.py", *argv, "--quick", "--out", str(out)]))
+                stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+                try:
+                    rc = main()
+                    assert rc == 0, f"main({argv}) returned {rc}"
+                except (RuntimeError, ValueError, AssertionError) as exc:
+                    err = exc
+            if out.exists():
+                art = json.loads(out.read_text())
+        return {"timed": timed, "counters": counters, "err": err, "artifact": art}
+
+    def assert_one_w_per_process(timed: list[tuple[str, list[str]]], context: str) -> None:
+        assert timed, f"{context}: the timed pass invoked the harness zero times"
+        for _, cmd in timed:
+            w = flag(cmd, "--writers")
+            assert w is not None and "," not in w, (
+                f"{context}: a timed writer pass invoked the harness with --writers {w!r}: more than "
+                f"one W in one process (METHODOLOGY.md §15): {cmd}"
+            )
+            assert flag(cmd, "--round") is not None and "--rounds" not in cmd, (
+                f"{context}: a timed writer invocation must run exactly one round: {cmd}"
+            )
+            assert flag(cmd, "--position") is not None, (
+                f"{context}: a timed writer invocation carries no --position, so its row cannot "
+                f"name its scheduled place (METHODOLOGY.md §15): {cmd}"
+            )
+
+    def invoked_cells(timed: list[tuple[str, list[str]]]) -> list[tuple[str, int, int, int]]:
+        """(build, round, position, W) per invocation, in execution order, read off the argv."""
+        return [(b, int(flag(c, "--round")), int(flag(c, "--position")), int(flag(c, "--writers")))
+                for b, c in timed]
+
+    def assert_balance(timed: list[tuple[str, list[str]]], builds: tuple[str, ...],
+                       writers: list[int], rounds: int, context: str) -> None:
+        cells = invoked_cells(timed)
+        treatments = [(b, w) for w in writers for b in builds]
+        n = len(treatments)
+        assert rounds == n, f"{context}: a balance check needs one full cycle ({n} rounds), got {rounds}"
+        assert len(cells) == rounds * n, (
+            f"{context}: {len(cells)} timed processes, expected rounds x builds x W = {rounds * n}"
+        )
+        positions = {t: [0] * n for t in treatments}
+        pairs: dict[tuple[Any, Any], int] = {}
+        for r in range(rounds):
+            run = [c for c in cells if c[1] == r]
+            order = [(b, w) for b, _, _, w in run]
+            assert sorted(order) == sorted(treatments), (
+                f"{context}: round {r} ran {order}, not every (build, W) cell once"
+            )
+            assert [pos for _, _, pos, _ in run] == list(range(n)), (
+                f"{context}: round {r} ran positions {[pos for _, _, pos, _ in run]} in execution "
+                f"order, expected 0..{n - 1}"
+            )
+            for i, t in enumerate(order):
+                positions[t][i] += 1
+            for a, b in zip(order, order[1:]):
+                pairs[(a, b)] = pairs.get((a, b), 0) + 1
+        if len(builds) > 1:
+            for pos in range(n):
+                at = collections.Counter(b for b, _, p, _ in cells if p == pos)
+                assert all(at[b] == rounds // len(builds) for b in builds), (
+                    f"{context}: build interleave unbalanced: position {pos} ran {dict(at)} over "
+                    f"{rounds} rounds (expected {rounds // len(builds)} per build)"
+                )
+        for t, counts in positions.items():
+            for pos, c in enumerate(counts):
+                assert c == 1, (
+                    f"{context}: Williams balance broken: (build, W) = {t} held position {pos} "
+                    f"{c} times over {rounds} rounds (expected 1)"
+                )
+        for a in treatments:
+            for b in treatments:
+                if a != b:
+                    assert pairs.get((a, b), 0) == 1, (
+                        f"{context}: Williams carryover balance broken: {a} -> {b} adjacent "
+                        f"{pairs.get((a, b), 0)} times over {rounds} rounds (expected 1)"
+                    )
+
+    def assert_artifact_matches(res: dict[str, Any], context: str) -> None:
+        art = res["artifact"]
+        assert art is not None, f"{context}: no artifact was written ({res['err']})"
+        assert art["provenance"].get("cell_isolation") == CELL_ISOLATION, (
+            f"{context}: provenance.cell_isolation = {art['provenance'].get('cell_isolation')!r}"
+        )
+        ran = collections.Counter(invoked_cells(res["timed"]))
+        rows = collections.Counter()
+        for key in ("throughput", "throughput_variant"):
+            for cell in art.get(key, []):
+                for r in cell["rounds_raw"]:
+                    rows[(r["build"], r["round"], r["position"], cell["writers"])] += 1
+        assert rows == ran, (
+            f"{context}: artifact rows (build, round, position, W) disagree with the invocations "
+            f"that produced them: rows only {sorted((rows - ran).elements())}, "
+            f"invocations only {sorted((ran - rows).elements())}"
+        )
+
+    # 1. The single-build sweep: argv, balance, artifact.
+    writers = [1, 2, 4, 8]
+    sweep = drive_main(["--arm", "map", "--writers", "1,2,4,8", "--rounds", "4"])
+    assert_one_w_per_process(sweep["timed"], "throughput pass")
+    if sweep["err"] is not None:
+        raise sweep["err"]
+    assert_balance(sweep["timed"], (DEFAULT_BUILD,), writers, 4, "throughput pass")
+    assert_artifact_matches(sweep, "throughput pass")
+    # The counters pass times nothing and may run every cell in one process.
+    assert sweep["counters"] and all(flag(c, "--role") == "counters" for c in sweep["counters"]), sweep["counters"]
+
+    # 2. The comparison: every (build, W) cell of a round in its own process,
+    #    Williams-balanced over the 2 x len(W) cells.
+    comp = drive_main(["--compare", variant, "--arm", "map", "--writers", "1,2,4,8", "--rounds", "8"])
+    assert_one_w_per_process(comp["timed"], "comparison pass")
+    if comp["err"] is not None:
+        raise comp["err"]
+    assert_balance(comp["timed"], (DEFAULT_BUILD, variant), writers, 8, "comparison pass")
+    assert_artifact_matches(comp, "comparison pass")
+    assert comp["artifact"]["comparison"][0]["per_writer"]["8"]["paired_ratios_raw"], comp["artifact"]["comparison"]
+
+    # 3. A row whose position disagrees with the invocation that printed it is
+    #    refused, and nothing is written.
+    def shift_position(row: dict[str, Any]) -> None:
+        if row["round"] == 1 and row["position"] == 2:
+            row["position"] = 3
+
+    bad_row = drive_main(["--arm", "map", "--writers", "1,2,4,8", "--rounds", "4"], tamper=shift_position)
+    assert bad_row["err"] is not None and "position" in str(bad_row["err"]), (
+        f"a row whose position disagrees with its invocation was accepted: {bad_row['err']!r}"
+    )
+    assert bad_row["artifact"] is None, "an artifact was written from a row that disagrees with its schedule"
+
+    # 4. main() itself refuses an artifact whose summarised rows disagree with
+    #    the schedule: the check is pinned at main's call site, not only here.
+    corrupted = {"done": False}
+
+    def corrupting_summarize(*args: Any, **kwargs: Any) -> Any:
+        cells = real_summarize(*args, **kwargs)
+        if not corrupted["done"]:
+            cells[-1]["rounds_raw"][0]["position"] += 1
+            corrupted["done"] = True
+        return cells
+
+    bad_art = drive_main(["--arm", "map", "--writers", "1,2,4,8", "--rounds", "4"], summarize=corrupting_summarize)
+    assert corrupted["done"], "summarize_arm was never called"
+    assert bad_art["err"] is not None and "per-cell schedule" in str(bad_art["err"]), (
+        f"main() wrote an artifact whose rows disagree with the per-cell schedule: {bad_art['err']!r}"
+    )
+    assert bad_art["artifact"] is None, "main() wrote an artifact whose rows disagree with the per-cell schedule"
+
+    # ... and an artifact that does not say its cells ran one process each.
+    good = sweep["artifact"]
+    expected: dict[tuple[str, str, int], list[tuple[int, int]]] = {}
+    for b, r, pos, w in invoked_cells(sweep["timed"]):
+        expected.setdefault(("map", b, w), []).append((r, pos))
+    expected = {k: sorted(v) for k, v in expected.items()}
+    check_artifact_against_schedule(good, expected)
+    no_isolation = json.loads(json.dumps(good))
+    del no_isolation["provenance"]["cell_isolation"]
+    _expect_value_error(lambda: check_artifact_against_schedule(no_isolation, expected), "cell_isolation")
+    relabelled = json.loads(json.dumps(good))
+    relabelled["throughput"][0]["rounds_raw"][0]["build"] = variant
+    _expect_value_error(lambda: check_artifact_against_schedule(relabelled, expected), "labelled build")
+
+    # 5. The droop pass: one W per `perf stat` process, same balance.
+    pmu_timed: list[tuple[str, list[str]]] = []
+
+    def fake_perf(cmd: Any, *args: Any, **kwargs: Any) -> Any:
+        argv = [str(c) for c in cmd]
+        if argv[:2] == ["perf", "list"]:
+            return subprocess.CompletedProcess(argv, 0, stdout="cycles\nref-cycles\n", stderr="")
+        if argv[:2] == ["perf", "stat"]:
+            harness = argv[argv.index("--") + 1:]
+            build = fake_builds[harness[0]]
+            pmu_timed.append((build, harness))
+            return subprocess.CompletedProcess(
+                argv, 0, stdout=harness_stdout(harness, build, lambda row: None),
+                stderr="990,,cycles,1,100.00,,\n1000,,ref-cycles,1,100.00,,\n")
+        raise AssertionError(f"unexpected command in the PMU self-test: {argv}")
+
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(mock.patch.object(platform, "system", return_value="Linux"))
+        stack.enter_context(mock.patch.object(shutil, "which", return_value="/usr/bin/perf"))
+        stack.enter_context(mock.patch.object(subprocess, "run", side_effect=fake_perf))
+        stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+        pmu = run_pmu_pass(fake_default, arm="map", writers=writers, rounds=4, quick=True)
+    assert_one_w_per_process(pmu_timed, "PMU pass")
+    assert_balance(pmu_timed, (DEFAULT_BUILD,), writers, 4, "PMU pass")
+    assert pmu["cell_isolation"] == CELL_ISOLATION, pmu
+    assert pmu["frequency_droop"]["by_writers"]["8"]["n_measured"] == 4, pmu["frequency_droop"]
+
+    # 6. The real harness honours --position and refuses it where it cannot hold.
+    real_cell = {"round": 1, "position": 3, "writers": 2, "build": DEFAULT_BUILD}
+    row = run_writer_cell(throughput_bin, "map", real_cell, quick=True)
+    assert (row["round"], row["position"], row["writers"]) == (1, 3, 2), row
+    for extra in (["--writers", "1,2", "--round", "0", "--position", "1"],
+                  ["--writers", "2", "--position", "1"]):
+        proc = subprocess.run([str(throughput_bin), "--role", "throughput", "--arm", "map", *extra, "--quick"],
+                              capture_output=True, text=True, check=False)
+        assert proc.returncode != 0 and "--position names one cell" in proc.stderr, (extra, proc.stderr)
+
+    eprintln("One process per timed writer cell PASSED\n")
+
+
 def self_test() -> int:
     eprintln = sys.stderr.write
     eprintln("Running writer_scaling.py self-test...\n")
@@ -2395,6 +2887,10 @@ def self_test() -> int:
     assert p_st_cnt.returncode == 0, f"counters self-test failed: {p_st_cnt.stderr}"
     eprintln("Binary self-tests PASSED\n")
 
+    # 2b. Every timed writer cell in a harness process of its own (§15). Early,
+    #     because it needs no measurement and says the most when it fails.
+    _self_test_per_cell_isolation(throughput_bin, counters_bin)
+
     # 3. Apply bench_pin to satisfy gate
     pin = bench_pin.apply("writer_scaling.py")
     eprintln(f"Applied core pin: {pin}\n")
@@ -2410,8 +2906,9 @@ def self_test() -> int:
 
     # Pass 1: throughput (load snapshot covers Pass 1 only)
     start_snap = begin_cell(prov, "cell:map:W1:R0")
-    t_rows_map = run_pass(throughput_bin, "throughput", "map", [1, 2], 3, quick=True)
+    t_rows_map, _ = run_throughput_pass(throughput_bin, "map", [1, 2], 3, quick=True)
     load = end_cell(start_snap)
+    assert all(r["build"] == DEFAULT_BUILD for r in t_rows_map), t_rows_map
 
     assert len(t_rows_map) == 6, f"Expected 6 rows (2 writers * 3 rounds), got {len(t_rows_map)}"
     assert all(r["role"] == "throughput" for r in t_rows_map)
@@ -2541,7 +3038,7 @@ def self_test() -> int:
 
     # 6. Test comparison runner with self-comparison on quick scale
     eprintln("Testing run_comparison (interleaved build x W execution)...")
-    cells_def, cells_var, comp_stats = run_comparison(
+    cells_def, cells_var, comp_stats, comp_schedule = run_comparison(
         throughput_bin,
         throughput_bin,
         "self_test",
@@ -2555,6 +3052,8 @@ def self_test() -> int:
     )
     assert len(cells_def) == 2
     assert len(cells_var) == 2
+    assert len(comp_schedule) == 3 * 2 * 2, comp_schedule
+    assert {r["build"] for c in cells_var for r in c["rounds_raw"]} == {"self_test"}, cells_var
     assert len(cells_def[0]["counters_raw"]) == 3
     assert len(cells_var[0]["counters_raw"]) == 3
     assert cells_var[0]["variant"] == "self_test"
@@ -2579,7 +3078,7 @@ def self_test() -> int:
     assert w2_comp["verdict"] == expected_verdict, w2_comp
 
     # Also test with counters_bin_variant=None (empty variant counters)
-    cells_def_none, cells_var_none, _ = run_comparison(
+    cells_def_none, cells_var_none, _, _ = run_comparison(
         throughput_bin,
         throughput_bin,
         "self_test_none",
@@ -2827,9 +3326,7 @@ def self_test() -> int:
         ), f"Home directory path leaked into cell JSON (AGENTS.md §7): {c_json}"
 
     # 9. Williams square balance property check (count positions and pairs over 1 full cycle)
-    t_rows_bal = run_pass(
-        throughput_bin, "throughput", "map", [1, 2, 4, 8], 4, quick=True
-    )
+    t_rows_bal, _ = run_throughput_pass(throughput_bin, "map", [1, 2, 4, 8], 4, quick=True)
     writers_bal = [1, 2, 4, 8]
     n_w = len(writers_bal)
     pos_counts: dict[int, list[int]] = {w: [0] * n_w for w in writers_bal}
@@ -3041,10 +3538,13 @@ def main() -> int:
         return 1
 
     n_w = len(writers_list)
-    if n_w % 2 != 0 or args.rounds % n_w != 0:
+    # A comparison's Williams design runs over the 2 x len(W) (build, W) cells.
+    n_cells = 2 * n_w if variant_list else n_w
+    if n_cells % 2 != 0 or args.rounds % n_cells != 0:
         sys.stderr.write(
-            f"notice: Williams square balance requires even writer count and rounds multiple of len(writers); "
-            f"got len(writers)={n_w}, rounds={args.rounds} — position/carryover balance will be incomplete\n"
+            f"notice: Williams square balance requires an even number of cells per round and rounds a "
+            f"multiple of it; got {n_cells} cells per round, rounds={args.rounds} — position/carryover "
+            f"balance will be incomplete\n"
         )
 
     if args.quick and args.out:
@@ -3067,6 +3567,9 @@ def main() -> int:
     throughput_cells: list[dict[str, Any]] = []
     variant_cells: list[dict[str, Any]] = []
     comparison_results: list[dict[str, Any]] = []
+    # (arm, build, W) -> the (round, position) cells the timed passes ran; the
+    # artifact is checked against it before it is written (§15).
+    scheduled: dict[tuple[str, str, int], list[tuple[int, int]]] = {}
 
     if variant_list:
         bin_default, cnt_default = build_binaries(features=None, verbose=True)
@@ -3078,12 +3581,14 @@ def main() -> int:
             ratio=ratio_desc,
             repo_root=REPO_ROOT,
             core_pin=core_pin,
+            cell_isolation=CELL_ISOLATION,
+            cell_schedule=CELL_SCHEDULE_COMPARISON,
         )
 
         for var in variant_list:
             bin_variant, cnt_variant = build_binaries(features=var, verbose=True)
             for arm in arms:
-                cells_d, cells_v, comp_stats = run_comparison(
+                cells_d, cells_v, comp_stats, schedule = run_comparison(
                     bin_default,
                     bin_variant,
                     var,
@@ -3095,6 +3600,7 @@ def main() -> int:
                     prov,
                     quick=args.quick,
                 )
+                scheduled.update(expected_cells(arm, schedule))
                 if not any(c.get("arm") == arm for c in throughput_cells):
                     throughput_cells.extend(cells_d)
                 variant_cells.extend(cells_v)
@@ -3108,6 +3614,8 @@ def main() -> int:
             ratio="Expanse throughput over single-writer baseline C(N) = Mops(W) / Mops(1)",
             repo_root=REPO_ROOT,
             core_pin=core_pin,
+            cell_isolation=CELL_ISOLATION,
+            cell_schedule=CELL_SCHEDULE_SWEEP,
         )
 
         feat_label = f" ({args.features})" if args.features else ""
@@ -3123,9 +3631,13 @@ def main() -> int:
             cell_label = f"arm:{arm}:writers"
             start_snap = begin_cell(prov, cell_label)
 
-            # Pass 1: throughput (uninstrumented binary, interleaved across W)
-            print(f"\n  [Pass 1/2] Throughput — {arm} arm across W ∈ {writers_list}")
-            t_rows = run_pass(throughput_bin, "throughput", arm, writers_list, args.rounds, quick=args.quick)
+            # Pass 1: throughput (uninstrumented binary, interleaved across W,
+            # one harness process per cell -- METHODOLOGY.md §15)
+            print(f"\n  [Pass 1/2] Throughput — {arm} arm across W ∈ {writers_list}, one process per cell")
+            t_rows, schedule = run_throughput_pass(
+                throughput_bin, arm, writers_list, args.rounds, quick=args.quick
+            )
+            scheduled.update(expected_cells(arm, schedule))
 
             # End load snapshot immediately after timed Pass 1 so Pass 2 does not dilute load window
             load = end_cell(start_snap)
@@ -3225,6 +3737,7 @@ def main() -> int:
                 "arm": args.pmu_arm,
                 "writers": max(writers_list),
                 "window": C2C_WINDOW,
+                "cell_isolation": C2C_CELL_ISOLATION,
                 "rounds": max(args.rounds, C2C_ROUNDS),
                 "error": c2c_error,
                 "verdict": "FAILED",
@@ -3241,6 +3754,10 @@ def main() -> int:
         artifact["pmu"] = pmu_results
     if c2c_results is not None:
         artifact["c2c"] = c2c_results
+
+    # Refuse, before anything is written, an artifact whose timed rows are not
+    # the cells the schedule ran (METHODOLOGY.md §15).
+    check_artifact_against_schedule(artifact, scheduled)
 
     if args.out:
         out_path = Path(args.out)
