@@ -585,6 +585,9 @@ jobs:
       - name: Generated benchmark tables match the suite READMEs
         run: |
           python3 scripts/check_readme_tables.py --self-test
+          # HOT §7's generator: pinned literal rows, a changed ratio reaching
+          # the checker, and refusal of outcomes its prose does not describe.
+          python3 docs/benchmarks/hot_comparison/scripts/concurrent_tables.py --self-test
           python3 scripts/check_readme_tables.py
       - name: Verify Benchmark Artifact Provenance
         run: |

@@ -136,6 +136,7 @@ python3 scripts/check_bench_shapes.py --self-test
 python3 scripts/check_bench_pin.py --self-test
 python3 scripts/check_public_api.py --self-test
 python3 scripts/check_readme_tables.py --self-test
+python3 docs/benchmarks/hot_comparison/scripts/concurrent_tables.py --self-test
 
 # Python lint (ruff, pyflakes rules per ruff.toml). CI is the authority: the
 # `docs-lint` job installs a pinned ruff and runs the same check. Locally it is

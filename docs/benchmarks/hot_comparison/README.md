@@ -1212,6 +1212,8 @@ docs/benchmarks/hot_comparison/run.sh --quick    # reduced, -> gitignored result
 git -C third_party/hot submodule update --init --depth 1 third-party/tbb
 docs/benchmarks/hot_comparison/run.sh --only-concurrent          # -> results/baseline_concurrent.json
 docs/benchmarks/hot_comparison/run.sh --only-concurrent --quick  # -> results/quick/
+python3 docs/benchmarks/hot_comparison/scripts/concurrent_tables.py  # §7.1, §7.2, §7.6 rows and figures, from results/
+python3 docs/benchmarks/hot_comparison/scripts/integer_tables.py     # §2–§4 tables and §7.3, from results/
 ```
 
 The runner takes the host-wide benchmark lock, pins to performance cores, drives
