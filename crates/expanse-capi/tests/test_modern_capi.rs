@@ -793,3 +793,83 @@ fn test_sync_reader_handles_freed_on_another_thread() {
         expanse_sync_map_free(m);
     }
 }
+
+/// `expanse_sync_map_mem_used`: 0 for NULL (as `expanse_sync_map_len`), the
+/// writer-excluding answer of `SyncExpanseMap::with_locked` at every quiescent
+/// point, the same figure as a plain `expanse_map_t` holding the same entries
+/// inserted in the same order, and callable while a writer thread runs.
+#[test]
+fn test_sync_map_mem_used() {
+    use expanse::modern::{
+        expanse_map_mem_used, expanse_map_remove, expanse_sync_map_free, expanse_sync_map_insert,
+        expanse_sync_map_len, expanse_sync_map_mem_used, expanse_sync_map_new,
+        expanse_sync_map_remove,
+    };
+    use expanse_trie::map::ExpanseMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    // SAFETY: a null handle is a documented 0.
+    assert_eq!(unsafe { expanse_sync_map_mem_used(core::ptr::null()) }, 0);
+    // SAFETY: a null handle is a documented 0.
+    assert_eq!(unsafe { expanse_sync_map_len(core::ptr::null()) }, 0);
+
+    let m = expanse_sync_map_new();
+    let plain = expanse_map_new();
+    // SAFETY: `m` and `plain` are live until freed at the end; `&*m` is a
+    // shared borrow of a handle whose methods take `&self`; null `old_out`s.
+    unsafe {
+        let locked = || (*m).with_locked(ExpanseMap::mem_used);
+        let empty = expanse_sync_map_mem_used(m);
+        assert_eq!(empty, locked());
+        assert_eq!(empty, expanse_map_mem_used(plain));
+
+        for k in (0..60_000u64).step_by(3) {
+            expanse_sync_map_insert(m, k, k, core::ptr::null_mut());
+            expanse_map_insert(plain, k, k, core::ptr::null_mut());
+        }
+        let full = expanse_sync_map_mem_used(m);
+        assert!(full > empty, "{full} <= {empty}");
+        assert_eq!(full, locked());
+        assert_eq!(full, expanse_map_mem_used(plain));
+
+        for k in (0..60_000u64).step_by(6) {
+            assert!(expanse_sync_map_remove(m, k, core::ptr::null_mut()));
+            assert!(expanse_map_remove(plain, k, core::ptr::null_mut()));
+        }
+        let half = expanse_sync_map_mem_used(m);
+        assert_eq!(half, locked());
+        assert_eq!(half, expanse_map_mem_used(plain));
+    }
+
+    // Against a live writer: every call returns (the writer is quiesced, not
+    // deadlocked) and the final quiescent figure is the locked one.
+    let m_addr = m as usize;
+    let stop = AtomicBool::new(false);
+    std::thread::scope(|sc| {
+        let stop = &stop;
+        sc.spawn(move || {
+            let mut i = 0u64;
+            while !stop.load(Ordering::Relaxed) {
+                let k = 1_000_000 + (i % 50_000);
+                // SAFETY: live handle; writes serialize internally.
+                unsafe { expanse_sync_map_insert(m_addr as *const _, k, i, core::ptr::null_mut()) };
+                i += 1;
+            }
+        });
+        for _ in 0..2_000 {
+            // SAFETY: live handle for the whole scope.
+            let used = unsafe { expanse_sync_map_mem_used(m_addr as *const _) };
+            assert!(used > 0);
+        }
+        stop.store(true, Ordering::Relaxed);
+    });
+    // SAFETY: the writer has been joined; both handles are freed exactly once.
+    unsafe {
+        assert_eq!(
+            expanse_sync_map_mem_used(m),
+            (*m).with_locked(ExpanseMap::mem_used)
+        );
+        expanse_sync_map_free(m);
+        expanse::modern::expanse_map_free(plain);
+    }
+}

@@ -570,6 +570,14 @@ bool                expanse_sync_map_get(const expanse_sync_map_t *map, uint64_t
 bool                expanse_sync_map_remove(expanse_sync_map_t *map, uint64_t key,
                                             uint64_t *old_out);
 uint64_t            expanse_sync_map_len(const expanse_sync_map_t *map);
+/*
+ * Heap bytes used by the map's nodes and leaves, as expanse_map_mem_used
+ * counts them; 0 for a NULL map. Read with writers excluded (it quiesces
+ * writers and takes the writer mutex), so writers wait for it: not a call for
+ * a hot loop. Nodes retired to the epoch collector but not yet reclaimed are
+ * no longer counted, although their allocations are still resident.
+ */
+size_t              expanse_sync_map_mem_used(const expanse_sync_map_t *map);
 
 expanse_sync_map_reader_t *expanse_sync_map_reader_new(const expanse_sync_map_t *map);
 void                       expanse_sync_map_reader_free(expanse_sync_map_reader_t *reader);

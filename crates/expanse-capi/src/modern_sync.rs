@@ -243,6 +243,19 @@ pub unsafe extern "C" fn expanse_sync_map_len(map: *const SyncExpanseMap) -> u64
     unsafe { map.as_ref() }.map_or(0, SyncExpanseMap::len)
 }
 
+/// Heap bytes used by the map's nodes and leaves, read with writers excluded
+/// ([`SyncExpanseMap::mem_used`]); 0 for a null handle, as
+/// [`expanse_sync_map_len`].
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_map_mem_used(map: *const SyncExpanseMap) -> usize {
+    // SAFETY: null or live handle per contract.
+    unsafe { map.as_ref() }.map_or(0, SyncExpanseMap::mem_used)
+}
+
 /// Registers a reader handle for this thread. Free it before the map.
 ///
 /// # Safety

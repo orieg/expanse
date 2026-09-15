@@ -589,6 +589,7 @@ void test_sync_map() {
         assert(sm.insert(i, i * 10));
     }
     assert(sm.size() == 500);
+    assert(sm.mem_used() > 0);
     assert(sm.get(250) == 2500);
 
     // Multi-threaded OCC readers

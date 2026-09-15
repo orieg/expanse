@@ -484,6 +484,7 @@ export class SyncExpanseMap {
 
   size(): bigint;
   isEmpty(): boolean;
+  memUsed(): bigint;
   has(key: KeyInput): boolean;
   set(key: KeyInput, value: KeyInput): bigint | null;
   get(key: KeyInput): bigint | null;

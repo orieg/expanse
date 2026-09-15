@@ -121,7 +121,7 @@ one that does not link, and a link error names the gap at build time.
 
 | Configuration | Cargo invocation | Exported C symbols |
 |---|---|---|
-| 64-bit, `std` (default) | `cargo build -p expanse-capi` | 151 |
+| 64-bit, `std` (default) | `cargo build -p expanse-capi` | 152 |
 | 64-bit, `no_std` | `--no-default-features` | 127 |
 | 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 62 |
 
@@ -132,12 +132,13 @@ narrow surface grew: 31 for the ordered core plus `expanse_map_remove_range`,
 `expanse_map_for_each_range` landed for #614, 62 when the reader-handle
 ordered reads landed for #900. That change also added six 64-bit symbols: the
 64-bit `std` row was re-measured then with `nm -gU` on an arm64 macOS dylib,
-145 before and 151 after, and the 64-bit `no_std` row is unchanged by
+145 before and 151 after, and 152 once `expanse_sync_map_mem_used` was added
+(same `nm -gU` method; 151 on its parent); the 64-bit `no_std` row is unchanged by
 construction, because the concurrent entry points compile only with `std`.
 Reproduce with the invocations above; the 32-bit row needs
 `--features embedded-panic-handler`, as the CI job does.)
 
-**64-bit `no_std` drops only the concurrent containers** — the 24
+**64-bit `no_std` drops only the concurrent containers** — the 25
 `expanse_sync_*` entry points. `expanse_trie::sync` needs `std::sync`, so a
 bare-metal 64-bit build has no one-writer/many-reader surface. Everything
 else, the entire legacy `Judy*` drop-in included, is present and unchanged.
@@ -309,10 +310,10 @@ Status: **all four families exported** — Judy1, JudyL, JudySL, JudyHS — with
 | **`ExpanseStrMap` (JudySL)** | `expanse_strmap_*` (16 fns) | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `StrMap` / `ExpanseStrMap` | `Expanse::StrMap` |
 | **StrMap truncation-aware nav** | `expanse_strmap_*_ex` (6 fns) | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `StrMap` | `Expanse::StrMap` |
 | **`SyncExpanseSet` (OCC Set)**| `expanse_sync_set_*` (9 fns) | `SyncExpanseSet` | `SyncExpanseSet` | `SyncExpanseSet` | `SyncExpanseSet` | `SyncExpanseSet` | `SyncSet` | Via C ABI |
-| **`SyncExpanseMap` (OCC Map)**| `expanse_sync_map_*` (15 fns, 6 of them reader-handle ordered reads) | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncMap` | Via C ABI |
+| **`SyncExpanseMap` (OCC Map)**| `expanse_sync_map_*` (16 fns, 6 of them reader-handle ordered reads) | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncMap` | Via C ABI |
 | **`ExpanseBlobMap` (Large-Value)**| `expanse_blob_map_*` (11 fns) | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `BlobMap` / `ExpanseBlobMap` | `Expanse::BlobMap` |
 | **Rank/Select (`by_count`)** | ✅ All ordered types | ✅ `count_below`/`by_count` | ✅ `rank`/`select` | ✅ `Rank`/`ByCount` | ✅ `count_below`/`by_count` | ✅ `countRange`/`byCount` | ✅ `rank`/`select` | ✅ `rank`/`select` |
 | **Metadata Filtering** | ✅ Predicate callbacks | ✅ SWAR vector kernels | ✅ Functional predicates | ✅ Delegated predicates | ✅ Predicate callbacks | ✅ Predicate callbacks | ✅ Callback predicates | ✅ Hot metadata |
 | **Optimistic Concurrency** | ✅ Epoch-based OCC | ✅ `SeqVersion` atomics | ✅ Read-coupling handles | ✅ Reader handles | ✅ GIL-free thread queries | ✅ Event-loop safe | ✅ Optimistic OCC | ✅ GVL-safe FFI |
-| **C ABI Symbol Parity** | **107 / 107 (100%)** | **107 / 107 (100%)** | **107 / 107 (100%)** | **107 / 107 (100%)** | **107 / 107 (100%)** | **107 / 107 (100%)** | not checked by `check_abi_parity.py` | not checked by `check_abi_parity.py` |
+| **C ABI Symbol Parity** | **108 / 108 (100%)** | **108 / 108 (100%)** | **108 / 108 (100%)** | **108 / 108 (100%)** | **108 / 108 (100%)** | **108 / 108 (100%)** | not checked by `check_abi_parity.py` | not checked by `check_abi_parity.py` |
 

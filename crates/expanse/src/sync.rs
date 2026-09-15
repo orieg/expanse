@@ -7219,6 +7219,23 @@ impl SyncExpanseMap {
         self.len() == 0
     }
 
+    /// Heap bytes used by the map's nodes and leaves, as
+    /// [`ExpanseMap::mem_used`] counts them (consistent read under the writer
+    /// lock).
+    ///
+    /// Taken under the same writer-excluding read as
+    /// [`SyncExpanseBlobMap::mem_used`] and [`SyncExpanseBytesMap::mem_used`]:
+    /// writers are quiesced and the writer mutex is held, so the figure is the
+    /// tree's between two mutations, never one caught mid-way with a
+    /// replacement node counted and its predecessor not yet retired. Writers
+    /// wait for it, so it does not belong in a hot loop. Nodes already retired
+    /// to the epoch collector but not yet reclaimed are no longer counted,
+    /// although their allocations are still resident.
+    #[must_use]
+    pub fn mem_used(&self) -> usize {
+        self.shared.read_locked(ExpanseMap::mem_used)
+    }
+
     /// Runs `f` over the tree with all writers excluded — the escape
     /// hatch to the full single-threaded read API.
     pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseMap) -> R) -> R {

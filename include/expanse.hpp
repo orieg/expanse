@@ -1534,6 +1534,11 @@ public:
         return expanse_sync_map_len(ptr_);
     }
 
+    /// Heap bytes used, read with writers excluded (writers wait for it).
+    [[nodiscard]] size_t mem_used() const noexcept {
+        return expanse_sync_map_mem_used(ptr_);
+    }
+
     [[nodiscard]] bool empty() const noexcept {
         return size() == 0;
     }

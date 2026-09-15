@@ -48,6 +48,14 @@ impl SyncExpanseMap {
         self.inner.is_empty()
     }
 
+    // abi-parity: expanse_sync_map_mem_used
+    /// Heap bytes used by the map's nodes and leaves, read with writers
+    /// excluded (concurrent writers wait for it).
+    #[napi]
+    pub fn mem_used(&self) -> BigInt {
+        BigInt::from(self.inner.mem_used() as u64)
+    }
+
     /// Optimistic membership test `has(key)`.
     #[napi]
     pub fn has(&self, key: KeyInput) -> Result<bool> {

@@ -445,6 +445,9 @@ public static class NativeMethods
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_map_len")]
     public static extern ulong expanse_sync_map_len(SafeExpanseSyncMapHandle map);
 
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_map_mem_used")]
+    public static extern nuint expanse_sync_map_mem_used(SafeExpanseSyncMapHandle map);
+
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_map_reader_new")]
     public static extern SafeExpanseSyncMapReaderHandle expanse_sync_map_reader_new(SafeExpanseSyncMapHandle map);
 
