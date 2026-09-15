@@ -81,6 +81,9 @@ python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --threads 1,4,1
     --workloads 100,50 --engines all \
     --out docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json
 python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --quick --engines map,sync32
+# #568 Step 2, METHODOLOGY.md §13: head vs 1edfa952, one process per window
+python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --step2-gate          # run 1
+python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --step2-gate --run2   # run 2
 ```
 
 ## 2. Line-transfer matrix (`results/line_transfer.json`)

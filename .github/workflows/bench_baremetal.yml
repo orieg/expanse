@@ -49,6 +49,7 @@ on:
           - comparative
           - ycsb
           - concurrency
+          - mixed_concurrency_step2_gate
           - writer_scaling
           - writer_scaling_diagnostic
           - writer_scaling_padded
@@ -941,6 +942,16 @@ jobs:
                   --threads 1,4,16 --workloads 100,50 --engines all \
                   --out docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json | tee concurrency.txt
                 ;;
+              "mixed_concurrency_step2_gate")
+                # #568 Step 2 (docs/benchmarks/concurrency/METHODOLOGY.md §13):
+                # the driver builds the head and 1edfa952 (with the head's
+                # benches/concurrency.rs) itself, refuses a head without #949
+                # or a pin other than 0-15, runs one process per window over
+                # 48 rounds and writes the per-run gate artifact. A second run
+                # is a second dispatch, committed as the _run2 artifact.
+                python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --step2-gate \
+                  --out docs/benchmarks/concurrency/results/step2_single_writer_gate.json | tee concurrency.txt
+                ;;
               "writer_scaling")
                 # Expanse-native multi-writer scaling sweep (Phase 1.5D, Refs #568)
                 python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
@@ -1525,6 +1536,7 @@ jobs:
             docs/benchmarks/concurrency/results/ablation_unstriped_freelist_writer_scaling.json
             docs/benchmarks/concurrency/results/ordered_readers_writer_scaling.json
             docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json
+            docs/benchmarks/concurrency/results/step2_single_writer_gate.json
             ycsb.txt
             comparative.txt
             bytes-per-key.txt

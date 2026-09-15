@@ -129,6 +129,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "mixed_concurrency_step2_gate",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "#568 Step 2 gate run (`METHODOLOGY.md` §13) through `mixed_concurrency.py --step2-gate`: the head against `1edfa952` built with the head's `benches/concurrency.rs`, one process per window, `map` and `set` at 50/50 on 1 and 16 threads, 48 rounds, pin `0-15`; writes `step2_single_writer_gate.json`.",
+      "suite": "concurrency"
+    },
+    {
       "name": "writer_scaling",
       "available": true,
       "kind": "wallclock",
