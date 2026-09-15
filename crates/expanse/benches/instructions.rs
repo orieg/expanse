@@ -46,7 +46,9 @@ use expanse_trie::bytesmap::ExpanseBytesMap;
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
 use expanse_trie::strmap::ExpanseStrMap;
-use expanse_trie::sync::{SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap};
+use expanse_trie::sync::{
+    SyncExpanseBlobMap, SyncExpanseBytesMap, SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap,
+};
 use expanse_trie::{ExpanseBlobMap32, ExpanseMap32, ExpanseSet32, Key32, Value32};
 #[cfg(target_os = "linux")]
 use iai_callgrind::main;
@@ -1159,6 +1161,193 @@ fn sync_strmap_churn_short(built: (SyncExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
     black_box(sink)
 }
 
+// ---- The coarse-mutex wrappers' mutations, one thread (#929) -------------
+//
+// `SyncExpanseStrMap`, `SyncExpanseBytesMap` and `SyncExpanseBlobMap` route
+// every insert and remove through `Shared::write`: the writer mutex, the
+// tree-level version bracket, deferred reclamation through the collector.
+// One thread, so no lock is contended and the count is exact. The string and
+// byte-string arms run the `str_keys` population their plain twins
+// (`strmap_*`, `bytesmap_*`) run, so each difference is the wrapper's cost
+// on that path. The blob arm has no 64-bit plain twin in this file; its
+// payloads are 16 bytes, above the 7-byte inline limit, with non-zero
+// metadata, so every value lives in the arena.
+
+fn built_sync_strmap(dist: &str) -> (SyncExpanseStrMap, Vec<Vec<u8>>) {
+    let ks = str_keys(dist);
+    let map = SyncExpanseStrMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(tk(k), i as u64);
+    }
+    (map, shuffled_bytes(ks))
+}
+
+fn built_sync_bytesmap(dist: &str) -> (SyncExpanseBytesMap<DetHasher>, Vec<Vec<u8>>) {
+    let ks = str_keys(dist);
+    let map = SyncExpanseBytesMap::with_hasher(DetHasher::default());
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(k, i as u64);
+    }
+    (map, shuffled_bytes(ks))
+}
+
+/// The blob arms' payload for `k`: 16 key-derived bytes, an arena payload.
+fn blob_payload(k: u64) -> [u8; 16] {
+    let mut out = [0u8; 16];
+    out[..8].copy_from_slice(&k.to_le_bytes());
+    out[8..].copy_from_slice(&(!k).to_le_bytes());
+    out
+}
+
+/// The blob arms' 24-bit metadata for `k`; never zero, so no insert takes the
+/// metadata-free compressed-inline path.
+fn blob_meta(k: u64) -> u32 {
+    (k as u32 & 0x00FF_FFFF) | 1
+}
+
+fn built_sync_blobmap(dist: &str) -> (SyncExpanseBlobMap, Vec<u64>) {
+    let ks = keys(dist);
+    let map = SyncExpanseBlobMap::new();
+    for &k in &ks {
+        map.insert(k, &blob_payload(k), blob_meta(k))
+            .expect("blob insert");
+    }
+    (map, shuffled(ks))
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = str_keys)]
+fn sync_strmap_insert(ks: Vec<Vec<u8>>) -> u64 {
+    let map = SyncExpanseStrMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(black_box(tk(k)), black_box(i as u64));
+    }
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_sync_strmap)]
+fn sync_strmap_remove(built: (SyncExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let mut removed = 0u64;
+    for k in &probes {
+        removed += u64::from(map.remove(black_box(tk(k))).is_some());
+    }
+    core::mem::forget(map);
+    black_box(removed)
+}
+
+// `strmap_churn`'s ladder through the wrapper.
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_sync_strmap)]
+fn sync_strmap_churn(built: (SyncExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        sink ^= map.insert(black_box(tk(k)), black_box(7)).unwrap_or(0);
+        sink ^= map.remove(black_box(tk(k))).unwrap_or(0);
+        map.insert(black_box(tk(k)), black_box(9));
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = str_keys)]
+fn sync_bytesmap_insert(ks: Vec<Vec<u8>>) -> u64 {
+    let map = SyncExpanseBytesMap::with_hasher(DetHasher::default());
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(black_box(k), black_box(i as u64));
+    }
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_sync_bytesmap)]
+fn sync_bytesmap_remove(built: (SyncExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let mut removed = 0u64;
+    for k in &probes {
+        removed += u64::from(map.remove(black_box(k)).is_some());
+    }
+    core::mem::forget(map);
+    black_box(removed)
+}
+
+// `bytesmap_churn`'s ladder through the wrapper.
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_sync_bytesmap)]
+fn sync_bytesmap_churn(built: (SyncExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        sink ^= map.insert(black_box(k), black_box(7)).unwrap_or(0);
+        sink ^= map.remove(black_box(k)).unwrap_or(0);
+        map.insert(black_box(k), black_box(9));
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = keys)]
+fn sync_blobmap_insert(ks: Vec<u64>) -> u64 {
+    let map = SyncExpanseBlobMap::new();
+    for &k in &ks {
+        map.insert(
+            black_box(k),
+            black_box(&blob_payload(k)),
+            black_box(blob_meta(k)),
+        )
+        .expect("blob insert");
+    }
+    let n = map.with_locked(|m| m.len());
+    core::mem::forget(map);
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_blobmap)]
+fn sync_blobmap_remove(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let mut removed = 0u64;
+    for &k in &probes {
+        removed += u64::from(map.remove(black_box(k)));
+    }
+    core::mem::forget(map);
+    black_box(removed)
+}
+
+// Same-key replace (a new arena payload, the old one recorded as garbage),
+// remove, reinsert: the blob wrapper's mutation ladder.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_blobmap)]
+fn sync_blobmap_churn(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for &k in &probes {
+        map.insert(
+            black_box(k),
+            black_box(&blob_payload(!k)),
+            black_box(blob_meta(!k)),
+        )
+        .expect("blob replace");
+        sink ^= u64::from(map.remove(black_box(k)));
+        map.insert(
+            black_box(k),
+            black_box(&blob_payload(k)),
+            black_box(blob_meta(k)),
+        )
+        .expect("blob reinsert");
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 /// Callgrind simulator settings for this harness.
 ///
 /// **`--cache-sim=yes` is stated here, not inherited.** iai-callgrind's runner
@@ -1253,7 +1442,16 @@ library_benchmark_group!(
         strmap_get_short,
         sync_strmap_get_short,
         sync_strmap_insert_short,
-        sync_strmap_churn_short
+        sync_strmap_churn_short,
+        sync_strmap_insert,
+        sync_strmap_remove,
+        sync_strmap_churn,
+        sync_bytesmap_insert,
+        sync_bytesmap_remove,
+        sync_bytesmap_churn,
+        sync_blobmap_insert,
+        sync_blobmap_remove,
+        sync_blobmap_churn
 );
 
 library_benchmark_group!(
