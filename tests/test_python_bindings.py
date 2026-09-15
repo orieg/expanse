@@ -444,6 +444,75 @@ def test_sync_range_inclusive_matches_nonsync():
     assert list(ss.range(20, 40, inclusive=False)) == [20, 30]
 
 
+def test_sync_map_ordered_reads_match_nonsync():
+    """SyncExpanseMap.first/last/next/prev answer like ExpanseMap on a quiescent map,
+    including both ends of the key space, on the optimistic reader path (#900)."""
+    top = 2**64 - 1
+    m = ExpanseMap()
+    sm = SyncExpanseMap()
+    assert sm.first() is None and sm.last() is None
+    assert sm.next(0, inclusive=True) is None and sm.prev(top, inclusive=True) is None
+
+    for k in [0, 10, 20, 30, top]:
+        m[k] = k ^ 0x5A5A
+        sm.insert(k, k ^ 0x5A5A)
+    assert sm.first() == m.first() == (0, 0x5A5A)
+    assert sm.last() == m.last() == (top, top ^ 0x5A5A)
+    for probe in [0, 5, 10, 15, 20, 25, 30, 31, top - 1, top]:
+        assert sm.next(probe) == m.next_after(probe), probe
+        assert sm.next(probe, inclusive=True) == m.next_at_or_after(probe), probe
+        assert sm.prev(probe) == m.prev_before(probe), probe
+        assert sm.prev(probe, inclusive=True) == m.prev_at_or_before(probe), probe
+    assert sm.next(top) is None
+    assert sm.prev(0) is None
+
+
+def test_sync_map_ordered_reads_under_concurrent_writer():
+    """Ordered reads return the right neighbour while a writer churns the keys between
+    stable ones: even keys never change, odd keys come and go with a fixed value."""
+    n = 2048
+    sm = SyncExpanseMap()
+    for k in range(0, n, 2):
+        sm.insert(k, k * 3)
+    stop = threading.Event()
+    errors = []
+
+    def writer():
+        rnd = 0
+        while not stop.is_set():
+            for k in range(1, n, 2):
+                if (k + rnd) % 3 == 0:
+                    sm.remove(k)
+                else:
+                    sm.insert(k, k * 3)
+            rnd += 1
+
+    def reader(seed):
+        for i in range(4000):
+            even = ((i * 7919 + seed) % n) & ~1
+            if sm.next(even, inclusive=True) != (even, even * 3):
+                errors.append(("next inclusive", even))
+            if sm.prev(even, inclusive=True) != (even, even * 3):
+                errors.append(("prev inclusive", even))
+            if even + 2 < n and sm.next(even) not in ((even + 1, (even + 1) * 3), (even + 2, (even + 2) * 3)):
+                errors.append(("next", even))
+            if even >= 2 and sm.prev(even) not in ((even - 1, (even - 1) * 3), (even - 2, (even - 2) * 3)):
+                errors.append(("prev", even))
+            if sm.first() != (0, 0):
+                errors.append(("first", 0))
+
+    w = threading.Thread(target=writer)
+    readers = [threading.Thread(target=reader, args=(s,)) for s in range(4)]
+    w.start()
+    for t in readers:
+        t.start()
+    for t in readers:
+        t.join()
+    stop.set()
+    w.join()
+    assert errors == []
+
+
 def test_sync_remove_returns_value_not_keyerror():
     """SyncExpanseMap.remove -> Optional[int]; SyncExpanseSet.remove -> bool (mirror non-sync)."""
     sm = SyncExpanseMap()

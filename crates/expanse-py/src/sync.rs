@@ -186,39 +186,49 @@ impl SyncExpanseMap {
         });
     }
 
-    /// Smallest entry `(key, value)` releasing the GIL.
+    // The ordered reads run optimistically through this thread's cached reader
+    // (#900): no writer lock unless a read exhausts its retries, when it falls
+    // back to the writer-excluding path.
+
+    // abi-parity: expanse_sync_map_reader_first
+    /// Smallest entry `(key, value)` releasing the GIL (optimistic read).
     pub fn first(&self, py: Python<'_>) -> Option<(u64, u64)> {
-        py.detach(|| self.inner.with_locked(|m| m.first()))
+        py.detach(|| with_map_reader(&self.inner, |r| r.first(&self.inner)))
     }
 
-    /// Largest entry `(key, value)` releasing the GIL.
+    // abi-parity: expanse_sync_map_reader_last
+    /// Largest entry `(key, value)` releasing the GIL (optimistic read).
     pub fn last(&self, py: Python<'_>) -> Option<(u64, u64)> {
-        py.detach(|| self.inner.with_locked(|m| m.last()))
+        py.detach(|| with_map_reader(&self.inner, |r| r.last(&self.inner)))
     }
 
-    /// Smallest entry with key `> key` (or `>= key` if `inclusive=True`) releasing the GIL.
+    // abi-parity: expanse_sync_map_reader_next_at_or_after, expanse_sync_map_reader_next_after
+    /// Smallest entry with key `> key` (or `>= key` if `inclusive=True`) releasing the GIL
+    /// (optimistic read).
     #[pyo3(signature = (key, inclusive=false))]
     pub fn next(&self, py: Python<'_>, key: u64, inclusive: bool) -> Option<(u64, u64)> {
         py.detach(|| {
-            self.inner.with_locked(|m| {
+            with_map_reader(&self.inner, |r| {
                 if inclusive {
-                    m.next_at_or_after(key)
+                    r.next_at_or_after(&self.inner, key)
                 } else {
-                    m.next_after(key)
+                    r.next_after(&self.inner, key)
                 }
             })
         })
     }
 
-    /// Largest entry with key `< key` (or `<= key` if `inclusive=True`) releasing the GIL.
+    // abi-parity: expanse_sync_map_reader_prev_at_or_before, expanse_sync_map_reader_prev_before
+    /// Largest entry with key `< key` (or `<= key` if `inclusive=True`) releasing the GIL
+    /// (optimistic read).
     #[pyo3(signature = (key, inclusive=false))]
     pub fn prev(&self, py: Python<'_>, key: u64, inclusive: bool) -> Option<(u64, u64)> {
         py.detach(|| {
-            self.inner.with_locked(|m| {
+            with_map_reader(&self.inner, |r| {
                 if inclusive {
-                    m.prev_at_or_before(key)
+                    r.prev_at_or_before(&self.inner, key)
                 } else {
-                    m.prev_before(key)
+                    r.prev_before(&self.inner, key)
                 }
             })
         })

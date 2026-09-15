@@ -286,7 +286,7 @@ Status: **all four families exported** — Judy1, JudyL, JudySL, JudyHS — with
 
 ## Cross-Language Feature & Container Parity
 
-Expanse provides 100% C ABI symbol coverage across all high-level language bindings, continuously validated by `scripts/check_abi_parity.py` in CI:
+`scripts/check_abi_parity.py` checks C ABI symbol coverage in CI for the Java, .NET, Python, Node.js and Go bindings (the 64-bit surface; the `!EXPANSE_WIDE_SURFACE` block is excluded). Java, .NET and Go are checked by symbol name; Python and Node, which bind the Rust API, by a per-symbol `// abi-parity:` marker at the implementing site. The PHP and Ruby bindings are not checked by it:
 
 | Container / Feature | C ABI (`expanse.h`) | Rust (`expanse-trie`) | Java 22+ (`expanse-java`) | .NET 9 (`Orieg.Expanse`) | Python (`expanse-trie`) | Node.js (`@orieg/expanse`) | PHP (`orieg/expanse`) | Ruby (`expanse`) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -301,5 +301,5 @@ Expanse provides 100% C ABI symbol coverage across all high-level language bindi
 | **Rank/Select (`by_count`)** | ✅ All ordered types | ✅ `count_below`/`by_count` | ✅ `rank`/`select` | ✅ `Rank`/`ByCount` | ✅ `count_below`/`by_count` | ✅ `countRange`/`byCount` | ✅ `rank`/`select` | ✅ `rank`/`select` |
 | **Metadata Filtering** | ✅ Predicate callbacks | ✅ SWAR vector kernels | ✅ Functional predicates | ✅ Delegated predicates | ✅ Predicate callbacks | ✅ Predicate callbacks | ✅ Callback predicates | ✅ Hot metadata |
 | **Optimistic Concurrency** | ✅ Epoch-based OCC | ✅ `SeqVersion` atomics | ✅ Read-coupling handles | ✅ Reader handles | ✅ GIL-free thread queries | ✅ Event-loop safe | ✅ Optimistic OCC | ✅ GVL-safe FFI |
-| **C ABI Symbol Parity** | **101 / 101 (100%)** | **101 / 101 (100%)** | **101 / 101 (100%)** | **101 / 101 (100%)** | **101 / 101 (100%)** | **101 / 101 (100%)** | **101 / 101 (100%)** | **101 / 101 (100%)** |
+| **C ABI Symbol Parity** | **107 / 107 (100%)** | **107 / 107 (100%)** | **107 / 107 (100%)** | **107 / 107 (100%)** | **107 / 107 (100%)** | **107 / 107 (100%)** | not checked by `check_abi_parity.py` | not checked by `check_abi_parity.py` |
 

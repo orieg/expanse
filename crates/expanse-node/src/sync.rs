@@ -6,6 +6,14 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::sync::Arc;
 
+/// An ordered read's `(key, value)` as the JavaScript entry object.
+fn map_entry((key, value): (u64, u64)) -> MapEntry {
+    MapEntry {
+        key: BigInt::from(key),
+        value: BigInt::from(value),
+    }
+}
+
 // abi-parity: expanse_sync_map_free
 /// A thread-safe concurrent 64-bit integer map with optimistic concurrency control (OCC).
 ///
@@ -79,60 +87,52 @@ impl SyncExpanseMap {
         self.inner.clear();
     }
 
-    /// Smallest entry `(key, value)` in the map, or `null` if empty.
+    // The ordered reads run optimistically through a reader registered for the
+    // call, as `get` and `has` do (#900): no writer lock unless a read exhausts
+    // its retries, when it falls back to the writer-excluding path.
+
+    // abi-parity: expanse_sync_map_reader_first
+    /// Smallest entry `(key, value)` in the map, or `null` if empty (optimistic read).
     #[napi]
     pub fn first(&self) -> Option<MapEntry> {
-        self.inner.with_locked(|m| {
-            m.first().map(|(k, v)| MapEntry {
-                key: BigInt::from(k),
-                value: BigInt::from(v),
-            })
-        })
+        self.inner.reader().first().map(map_entry)
     }
 
-    /// Largest entry `(key, value)` in the map, or `null` if empty.
+    // abi-parity: expanse_sync_map_reader_last
+    /// Largest entry `(key, value)` in the map, or `null` if empty (optimistic read).
     #[napi]
     pub fn last(&self) -> Option<MapEntry> {
-        self.inner.with_locked(|m| {
-            m.last().map(|(k, v)| MapEntry {
-                key: BigInt::from(k),
-                value: BigInt::from(v),
-            })
-        })
+        self.inner.reader().last().map(map_entry)
     }
 
-    /// Smallest entry with key strictly `> key` (or `>= key` if `inclusive` is `true`).
+    // abi-parity: expanse_sync_map_reader_next_at_or_after, expanse_sync_map_reader_next_after
+    /// Smallest entry with key strictly `> key` (or `>= key` if `inclusive` is `true`)
+    /// (optimistic read).
     #[napi]
     pub fn next(&self, key: KeyInput, inclusive: Option<bool>) -> Result<Option<MapEntry>> {
         let k = key_to_u64(key)?;
-        let val = self.inner.with_locked(|m| {
-            if inclusive.unwrap_or(false) {
-                m.next_at_or_after(k)
-            } else {
-                m.next_after(k)
-            }
-        });
-        Ok(val.map(|(ek, ev)| MapEntry {
-            key: BigInt::from(ek),
-            value: BigInt::from(ev),
-        }))
+        let reader = self.inner.reader();
+        let val = if inclusive.unwrap_or(false) {
+            reader.next_at_or_after(k)
+        } else {
+            reader.next_after(k)
+        };
+        Ok(val.map(map_entry))
     }
 
-    /// Largest entry with key strictly `< key` (or `<= key` if `inclusive` is `true`).
+    // abi-parity: expanse_sync_map_reader_prev_at_or_before, expanse_sync_map_reader_prev_before
+    /// Largest entry with key strictly `< key` (or `<= key` if `inclusive` is `true`)
+    /// (optimistic read).
     #[napi]
     pub fn prev(&self, key: KeyInput, inclusive: Option<bool>) -> Result<Option<MapEntry>> {
         let k = key_to_u64(key)?;
-        let val = self.inner.with_locked(|m| {
-            if inclusive.unwrap_or(false) {
-                m.prev_at_or_before(k)
-            } else {
-                m.prev_before(k)
-            }
-        });
-        Ok(val.map(|(ek, ev)| MapEntry {
-            key: BigInt::from(ek),
-            value: BigInt::from(ev),
-        }))
+        let reader = self.inner.reader();
+        let val = if inclusive.unwrap_or(false) {
+            reader.prev_at_or_before(k)
+        } else {
+            reader.prev_before(k)
+        };
+        Ok(val.map(map_entry))
     }
 
     /// Number of keys strictly below `key` (rank).
