@@ -1227,17 +1227,25 @@ class TestStep2Sizing(unittest.TestCase):
 # with W = 8 writers, read as the BCa 95% lower bound of the mean of per-round
 # `writer_mops` the driver computes, in two independent runs. These functions
 # only size the round count that bound needs, from the per-round spread of
-# absolute W = 8 throughput the committed `writer_scaling` artifacts carry. The
+# absolute W = 8 throughput in four sizing sweeps of main at `bad1bd3d`, each
+# measured with the per-cell driver the evaluation uses (METHODOLOGY.md §15). The
 # half-width uses the normal quantile as a planning approximation, as
 # `ratio_relative_halfwidth` does; the gate is the run's BCa interval
 # (AGENTS.md §8.4). A within-run interval does not bound between-run spread
 # (docs/BENCHMARKING.md rule 18), which is why the target needs two runs.
 #
-# The inputs are frozen in `W8_SPREAD_AT_LOCK`. The `writer_scaling` dispatch
-# writes `baseline_writer_scaling.json` in place, so a sizing read from the live
-# file would change once a run for the target is committed (AGENTS.md §8.7).
+# The inputs are frozen in `W8_SPREAD_AT_LOCK`, so the registered sizing cannot
+# move with a later edit to the files it was read from (AGENTS.md §8.7).
 # `check_frozen_spread` reproduces every frozen row from the committed files
-# whose artifact still records the frozen commit.
+# whose artifact still records the frozen commit, and lists any sizing artifact
+# whose timed cells did not run one harness process each.
+#
+# The first sizing, before #958 locked, read the 48 W = 8 cells of the 17
+# writer-sweep artifacts committed before `bad1bd3d`. Every one of those ran all
+# the W cells of a round in one harness process. METHODOLOGY.md §15 found a
+# cell's throughput moving with the cell run before it in the same process, so
+# their spread includes position-dependent carryover and may not describe the
+# per-cell instrument the target is evaluated with.
 
 WRITER_TARGET_MOPS = 20.0
 WRITER_TARGET_WRITERS = 8
@@ -1251,82 +1259,32 @@ WRITER_TARGET_HALFWIDTH = 0.025
 #: is a multiple of the number of writer counts (`writer_scaling.py` main()).
 WRITER_SWEEP_WRITER_COUNTS = 4
 CONCURRENCY_RESULTS = REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results"
-#: Every committed `writer_scaling` artifact at lock time. The two
-#: `ordered_readers_*` files are read too; they carry reader cells only.
-WRITER_SCALING_ARTIFACTS = tuple(CONCURRENCY_RESULTS / name for name in (
-    "ablation_alloc_writer_scaling.json",
-    "ablation_epoch_writer_scaling.json",
-    "ablation_epoch_writer_scaling_post4e.json",
-    "ablation_epoch_writer_scaling_post4e_run2.json",
-    "ablation_freelist_writer_scaling.json",
-    "ablation_freelist_writer_scaling_post4e.json",
-    "ablation_freelist_writer_scaling_run2.json",
-    "ablation_unstriped_freelist_writer_scaling.json",
-    "ablation_unstriped_freelist_writer_scaling_run2.json",
-    "baseline_writer_scaling.json",
-    "baseline_writer_scaling_4b_run1.json",
-    "baseline_writer_scaling_4b_run2.json",
-    "baseline_writer_scaling_phase4e_run2.json",
-    "baseline_writer_scaling_run2.json",
-    "diagnostic_writer_scaling.json",
-    "ordered_readers_writer_scaling.json",
-    "ordered_readers_writer_scaling_run2.json",
+#: The sizing sweeps: default build, `writer_scaling.py` without `--compare`,
+#: 8 rounds, one harness process per timed cell, engine, harness and driver at
+#: `bad1bd3d`, two runs per registered pin on the reference host.
+WRITER_SIZING_ARTIFACTS = tuple(CONCURRENCY_RESULTS / name for name in (
+    "sizing958_writer_scaling_bad1bd3d_percore.json",
+    "sizing958_writer_scaling_bad1bd3d_percore_run2.json",
+    "sizing958_writer_scaling_bad1bd3d_pin0-15.json",
+    "sizing958_writer_scaling_bad1bd3d_pin0-15_run2.json",
 ))
+#: The `provenance.cell_isolation` a sizing artifact must record (METHODOLOGY.md §15).
+SIZING_CELL_ISOLATION = "process"
 
-#: `w8_round_spread` over `WRITER_SCALING_ARTIFACTS` at `561f27d0`: artifact,
-#: engine commit, `provenance.core_pin`, section, arm, rounds, mean `writer_mops`
-#: (M ops/s) and per-round CV, the last two rounded to six places. Every round of
-#: every W = 8 `map` and `set` cell, default (`throughput`) and variant
-#: (`throughput_variant`) builds alike; nothing filtered.
+#: `w8_round_spread` over `WRITER_SIZING_ARTIFACTS`: artifact, engine commit,
+#: `provenance.core_pin`, section, arm, rounds, mean `writer_mops` (M ops/s) and
+#: per-round CV, the last two rounded to six places. Every round of every W = 8
+#: `map` and `set` cell; nothing filtered. The sweeps ran the default build only,
+#: so every row is the `throughput` section.
 W8_SPREAD_AT_LOCK: tuple[tuple[str, str, str, str, str, int, float, float], ...] = (
-    ("ablation_alloc_writer_scaling.json", "e0b287f2", "0-15", "throughput", "map", 8, 3.354512, 0.017404),
-    ("ablation_alloc_writer_scaling.json", "e0b287f2", "0-15", "throughput", "set", 8, 5.286412, 0.023098),
-    ("ablation_alloc_writer_scaling.json", "e0b287f2", "0-15", "throughput_variant", "map", 8, 3.181087, 0.018399),
-    ("ablation_alloc_writer_scaling.json", "e0b287f2", "0-15", "throughput_variant", "set", 8, 4.834075, 0.026011),
-    ("ablation_epoch_writer_scaling.json", "4f94d0d1", "0-15", "throughput", "map", 8, 3.343575, 0.021376),
-    ("ablation_epoch_writer_scaling.json", "4f94d0d1", "0-15", "throughput", "set", 8, 5.2504, 0.022248),
-    ("ablation_epoch_writer_scaling.json", "4f94d0d1", "0-15", "throughput_variant", "map", 8, 3.310875, 0.02414),
-    ("ablation_epoch_writer_scaling.json", "4f94d0d1", "0-15", "throughput_variant", "set", 8, 5.271113, 0.018856),
-    ("ablation_epoch_writer_scaling_post4e.json", "1f465728", "0-15", "throughput", "map", 8, 6.2914, 0.069541),
-    ("ablation_epoch_writer_scaling_post4e.json", "1f465728", "0-15", "throughput", "set", 8, 7.836975, 0.047123),
-    ("ablation_epoch_writer_scaling_post4e.json", "1f465728", "0-15", "throughput_variant", "map", 8, 10.553762, 0.035101),
-    ("ablation_epoch_writer_scaling_post4e.json", "1f465728", "0-15", "throughput_variant", "set", 8, 12.382838, 0.010719),
-    ("ablation_epoch_writer_scaling_post4e_run2.json", "1f465728", "0-15", "throughput", "map", 8, 6.144575, 0.043957),
-    ("ablation_epoch_writer_scaling_post4e_run2.json", "1f465728", "0-15", "throughput", "set", 8, 7.681038, 0.033797),
-    ("ablation_epoch_writer_scaling_post4e_run2.json", "1f465728", "0-15", "throughput_variant", "map", 8, 10.401463, 0.040217),
-    ("ablation_epoch_writer_scaling_post4e_run2.json", "1f465728", "0-15", "throughput_variant", "set", 8, 12.333013, 0.020527),
-    ("ablation_freelist_writer_scaling.json", "83a9a3f0", "0-15", "throughput", "map", 8, 4.58975, 0.021152),
-    ("ablation_freelist_writer_scaling.json", "83a9a3f0", "0-15", "throughput", "set", 8, 5.291688, 0.024002),
-    ("ablation_freelist_writer_scaling.json", "83a9a3f0", "0-15", "throughput_variant", "map", 8, 4.525688, 0.018132),
-    ("ablation_freelist_writer_scaling.json", "83a9a3f0", "0-15", "throughput_variant", "set", 8, 5.190175, 0.016865),
-    ("ablation_freelist_writer_scaling_post4e.json", "1f465728", "0-15", "throughput", "map", 8, 6.306188, 0.065079),
-    ("ablation_freelist_writer_scaling_post4e.json", "1f465728", "0-15", "throughput", "set", 8, 7.6602, 0.039693),
-    ("ablation_freelist_writer_scaling_post4e.json", "1f465728", "0-15", "throughput_variant", "map", 8, 7.072362, 0.021383),
-    ("ablation_freelist_writer_scaling_post4e.json", "1f465728", "0-15", "throughput_variant", "set", 8, 8.267062, 0.016173),
-    ("ablation_freelist_writer_scaling_run2.json", "83a9a3f0", "0-15", "throughput", "map", 8, 4.519375, 0.021487),
-    ("ablation_freelist_writer_scaling_run2.json", "83a9a3f0", "0-15", "throughput", "set", 8, 5.287863, 0.012906),
-    ("ablation_freelist_writer_scaling_run2.json", "83a9a3f0", "0-15", "throughput_variant", "map", 8, 4.492538, 0.020062),
-    ("ablation_freelist_writer_scaling_run2.json", "83a9a3f0", "0-15", "throughput_variant", "set", 8, 5.242188, 0.022536),
-    ("ablation_unstriped_freelist_writer_scaling.json", "5cf94b17", "0,2,4,6,8,10,12,14", "throughput", "map", 8, 11.476975, 0.03557),
-    ("ablation_unstriped_freelist_writer_scaling.json", "5cf94b17", "0,2,4,6,8,10,12,14", "throughput", "set", 8, 13.465737, 0.020379),
-    ("ablation_unstriped_freelist_writer_scaling.json", "5cf94b17", "0,2,4,6,8,10,12,14", "throughput_variant", "map", 8, 10.579375, 0.024014),
-    ("ablation_unstriped_freelist_writer_scaling.json", "5cf94b17", "0,2,4,6,8,10,12,14", "throughput_variant", "set", 8, 12.50885, 0.013072),
-    ("ablation_unstriped_freelist_writer_scaling_run2.json", "5cf94b17", "0,2,4,6,8,10,12,14", "throughput", "map", 8, 11.375775, 0.028427),
-    ("ablation_unstriped_freelist_writer_scaling_run2.json", "5cf94b17", "0,2,4,6,8,10,12,14", "throughput", "set", 8, 13.39295, 0.021351),
-    ("ablation_unstriped_freelist_writer_scaling_run2.json", "5cf94b17", "0,2,4,6,8,10,12,14", "throughput_variant", "map", 8, 10.532887, 0.026604),
-    ("ablation_unstriped_freelist_writer_scaling_run2.json", "5cf94b17", "0,2,4,6,8,10,12,14", "throughput_variant", "set", 8, 12.618388, 0.018812),
-    ("baseline_writer_scaling.json", "10ce2f9d", "0-15", "throughput", "map", 8, 6.418163, 0.078181),
-    ("baseline_writer_scaling.json", "10ce2f9d", "0-15", "throughput", "set", 8, 7.914338, 0.033301),
-    ("baseline_writer_scaling_4b_run1.json", "b1f1520a", "0-15", "throughput", "map", 8, 4.749237, 0.036259),
-    ("baseline_writer_scaling_4b_run1.json", "b1f1520a", "0-15", "throughput", "set", 8, 6.7314, 0.015413),
-    ("baseline_writer_scaling_4b_run2.json", "b1f1520a", "0-15", "throughput", "map", 8, 4.791488, 0.039643),
-    ("baseline_writer_scaling_4b_run2.json", "b1f1520a", "0-15", "throughput", "set", 8, 6.736237, 0.027992),
-    ("baseline_writer_scaling_phase4e_run2.json", "10ce2f9d", "0-15", "throughput", "map", 8, 6.431662, 0.078282),
-    ("baseline_writer_scaling_phase4e_run2.json", "10ce2f9d", "0-15", "throughput", "set", 8, 8.03615, 0.031355),
-    ("baseline_writer_scaling_run2.json", "83a9a3f0", "0-15", "throughput", "map", 8, 4.638013, 0.023146),
-    ("baseline_writer_scaling_run2.json", "83a9a3f0", "0-15", "throughput", "set", 8, 5.412763, 0.027497),
-    ("diagnostic_writer_scaling.json", "1f465728", "0-15", "throughput", "map", 8, 6.634525, 0.057596),
-    ("diagnostic_writer_scaling.json", "1f465728", "0-15", "throughput", "set", 8, 7.94545, 0.036787),
+    ("sizing958_writer_scaling_bad1bd3d_percore.json", "bad1bd3d", "0,2,4,6,8,10,12,14", "throughput", "map", 8, 11.386225, 0.02318),
+    ("sizing958_writer_scaling_bad1bd3d_percore.json", "bad1bd3d", "0,2,4,6,8,10,12,14", "throughput", "set", 8, 13.263113, 0.0185),
+    ("sizing958_writer_scaling_bad1bd3d_percore_run2.json", "bad1bd3d", "0,2,4,6,8,10,12,14", "throughput", "map", 8, 11.50715, 0.011937),
+    ("sizing958_writer_scaling_bad1bd3d_percore_run2.json", "bad1bd3d", "0,2,4,6,8,10,12,14", "throughput", "set", 8, 13.319437, 0.014878),
+    ("sizing958_writer_scaling_bad1bd3d_pin0-15.json", "bad1bd3d", "0-15", "throughput", "map", 8, 11.512037, 0.004952),
+    ("sizing958_writer_scaling_bad1bd3d_pin0-15.json", "bad1bd3d", "0-15", "throughput", "set", 8, 13.381488, 0.016333),
+    ("sizing958_writer_scaling_bad1bd3d_pin0-15_run2.json", "bad1bd3d", "0-15", "throughput", "map", 8, 11.405862, 0.027706),
+    ("sizing958_writer_scaling_bad1bd3d_pin0-15_run2.json", "bad1bd3d", "0-15", "throughput", "set", 8, 13.25375, 0.02939),
 )
 _SPREAD_KEYS = ("artifact", "commit", "pin", "section", "arm", "n", "mean", "cv")
 
@@ -1370,7 +1328,13 @@ def frozen_spread_rows() -> list[dict]:
     return [dict(zip(_SPREAD_KEYS, row)) for row in W8_SPREAD_AT_LOCK]
 
 
-def check_frozen_spread(paths: tuple[Path, ...] = WRITER_SCALING_ARTIFACTS,
+def cell_isolation(path: Path) -> str | None:
+    """`provenance.cell_isolation` of one `writer_scaling` artifact, or None."""
+    prov = json.loads(Path(path).read_text()).get("provenance", {})
+    return prov.get("cell_isolation") if isinstance(prov, dict) else None
+
+
+def check_frozen_spread(paths: tuple[Path, ...] = WRITER_SIZING_ARTIFACTS,
                         frozen: list[dict] | None = None, tol: float = 5e-6) -> dict:
     """Reproduce the frozen rows from the committed artifacts.
 
@@ -1379,16 +1343,22 @@ def check_frozen_spread(paths: tuple[Path, ...] = WRITER_SCALING_ARTIFACTS,
     `baseline_writer_scaling.json` in place); it is listed under `replaced` and
     its frozen rows stand. An absent file is listed under `absent`. A file at
     the frozen commit whose cells differ from the frozen rows is `mismatched`,
-    which is a defect in the frozen table or the reader.
+    which is a defect in the frozen table or the reader. A present file whose
+    `provenance.cell_isolation` is not `SIZING_CELL_ISOLATION` is listed under
+    `not_isolated`: its cells shared a harness process (METHODOLOGY.md §15), so
+    it cannot size a target evaluated one process per cell.
     """
     frozen = frozen_spread_rows() if frozen is None else frozen
-    out: dict = {"checked": 0, "replaced": [], "absent": [], "empty": [], "mismatched": []}
+    out: dict = {"checked": 0, "replaced": [], "absent": [], "empty": [], "mismatched": [],
+                 "not_isolated": []}
     for path in paths:
         path = Path(path)
         want = [r for r in frozen if r["artifact"] == path.name]
         if not path.exists():
             out["absent"].append(path.name)
             continue
+        if cell_isolation(path) != SIZING_CELL_ISOLATION:
+            out["not_isolated"].append(path.name)
         live = w8_round_spread(path)
         if not live and not want:
             out["empty"].append(path.name)
@@ -1506,14 +1476,25 @@ class TestWriterTarget930(unittest.TestCase):
             self.assertEqual(w8_round_spread(f), [])
 
     def test_check_frozen_spread_classifies(self):
-        art = {"provenance": {"commit": "abcdef123456", "core_pin": "0-15"},
+        art = {"provenance": {"commit": "abcdef123456", "core_pin": "0-15", "cell_isolation": "process"},
                "throughput": [self._cell("map", 8, [9.0, 10.0, 11.0])]}
         frozen = [dict(zip(_SPREAD_KEYS, ("a.json", "abcdef12", "0-15", "throughput", "map", 3, 10.0, 0.1)))]
         with tempfile.TemporaryDirectory() as d:
             f = Path(d) / "a.json"
             f.write_text(json.dumps(art))
             got = check_frozen_spread((f, Path(d) / "gone.json"), frozen)
-            self.assertEqual((got["checked"], got["absent"], got["mismatched"]), (1, ["gone.json"], []))
+            self.assertEqual((got["checked"], got["absent"], got["mismatched"], got["not_isolated"]),
+                             (1, ["gone.json"], [], []))
+            # A sizing artifact whose cells shared a harness process is listed,
+            # whether the field is absent or names another isolation.
+            for isolation in (None, "round"):
+                if isolation is None:
+                    art["provenance"].pop("cell_isolation")
+                else:
+                    art["provenance"]["cell_isolation"] = isolation
+                f.write_text(json.dumps(art))
+                self.assertEqual(check_frozen_spread((f,), frozen)["not_isolated"], ["a.json"])
+            art["provenance"]["cell_isolation"] = "process"
             art["provenance"]["commit"] = "0123456789"
             f.write_text(json.dumps(art))
             self.assertEqual(check_frozen_spread((f,), frozen)["replaced"], ["a.json"])
@@ -1524,32 +1505,46 @@ class TestWriterTarget930(unittest.TestCase):
 
     def test_frozen_rows_reproduce_from_committed_artifacts(self):
         frozen = frozen_spread_rows()
-        self.assertEqual(len(frozen), 48)
-        self.assertTrue({r["artifact"] for r in frozen} <= {p.name for p in WRITER_SCALING_ARTIFACTS})
-        self.assertTrue(all(r["n"] == 8 for r in frozen))
+        self.assertEqual(len(frozen), 8)
+        self.assertEqual({r["artifact"] for r in frozen}, {p.name for p in WRITER_SIZING_ARTIFACTS})
+        self.assertTrue(all(r["n"] == 8 and r["commit"] == "bad1bd3d" and r["section"] == "throughput"
+                            for r in frozen))
         got = check_frozen_spread()
-        self.assertEqual(got["mismatched"], [])
-        self.assertGreater(got["checked"], 0)
+        self.assertEqual((got["checked"], got["mismatched"], got["replaced"], got["absent"], got["empty"]),
+                         (8, [], [], [], []))
+        # Every sizing artifact ran one harness process per timed cell (METHODOLOGY.md §15).
+        self.assertEqual(got["not_isolated"], [])
 
     def test_planning_inputs_at_lock(self):
         rows = frozen_spread_rows()
-        self.assertEqual(sum(r["pin"] == PIN_CPU_CORE for r in rows), 40)
-        self.assertEqual(sum(r["pin"] == PIN_ONE_PER_CORE for r in rows), 8)
+        self.assertEqual(sum(r["pin"] == PIN_CPU_CORE for r in rows), 4)
+        self.assertEqual(sum(r["pin"] == PIN_ONE_PER_CORE for r in rows), 4)
         core = planning_cv(rows, PIN_CPU_CORE)
         one = planning_cv(rows, PIN_ONE_PER_CORE)
         self.assertEqual((core["artifact"], core["commit"], core["section"], core["arm"]),
-                         ("baseline_writer_scaling_phase4e_run2.json", "10ce2f9d", "throughput", "map"))
-        self.assertAlmostEqual(core["cv"], 0.078282, places=6)
+                         ("sizing958_writer_scaling_bad1bd3d_pin0-15_run2.json", "bad1bd3d", "throughput", "set"))
+        self.assertAlmostEqual(core["cv"], 0.02939, places=6)
         self.assertEqual((one["artifact"], one["commit"], one["section"], one["arm"]),
-                         ("ablation_unstriped_freelist_writer_scaling.json", "5cf94b17", "throughput", "map"))
-        self.assertAlmostEqual(one["cv"], 0.03557, places=6)
-        # (1.96 x 0.078282 / 0.025)^2 = 37.67 -> 38 rounds -> 40, a multiple of 4.
-        self.assertEqual(rounds_for_halfwidth(core["cv"], WRITER_TARGET_HALFWIDTH), 38)
-        self.assertEqual(rounds_for_williams(core["cv"], WRITER_TARGET_HALFWIDTH), 40)
-        # (1.96 x 0.03557 / 0.025)^2 = 7.78 -> 8 rounds, already a multiple of 4.
-        self.assertEqual(rounds_for_williams(one["cv"], WRITER_TARGET_HALFWIDTH), 8)
-        # The driver's default of 8 rounds resolves the core pin to 5.42%.
-        self.assertAlmostEqual(ratio_relative_halfwidth(core["cv"], 8), 0.054247, places=5)
+                         ("sizing958_writer_scaling_bad1bd3d_percore.json", "bad1bd3d", "throughput", "map"))
+        self.assertAlmostEqual(one["cv"], 0.02318, places=6)
+        # (1.96 x 0.02939 / 0.025)^2 = 5.31 -> 6 rounds -> 8, a multiple of 4.
+        self.assertEqual(rounds_for_halfwidth(core["cv"], WRITER_TARGET_HALFWIDTH), 6)
+        self.assertEqual(rounds_for_williams(core["cv"], WRITER_TARGET_HALFWIDTH), 8)
+        # (1.96 x 0.02318 / 0.025)^2 = 3.30 -> 4 rounds, already a multiple of 4.
+        self.assertEqual(rounds_for_halfwidth(one["cv"], WRITER_TARGET_HALFWIDTH), 4)
+        self.assertEqual(rounds_for_williams(one["cv"], WRITER_TARGET_HALFWIDTH), 4)
+        # One count for both pins, the larger: 8.
+        rounds = max(rounds_for_williams(core["cv"], WRITER_TARGET_HALFWIDTH),
+                     rounds_for_williams(one["cv"], WRITER_TARGET_HALFWIDTH))
+        self.assertEqual(rounds, 8)
+        # At 8 rounds the 0-15 planning CV resolves to a relative half-width of 2.04%.
+        h8 = ratio_relative_halfwidth(core["cv"], rounds)
+        self.assertAlmostEqual(h8, 0.020366, places=6)
+        self.assertAlmostEqual(mean_needed_to_clear(WRITER_TARGET_MOPS, h8), 20.415785, places=6)
+        self.assertAlmostEqual(mean_needed_with_probability(WRITER_TARGET_MOPS, h8, 0.975), 20.840214, places=6)
+        # Context: the first sizing's 40 rounds, with these CVs.
+        self.assertAlmostEqual(ratio_relative_halfwidth(core["cv"], 40), 0.009108, places=6)
+        self.assertAlmostEqual(ratio_relative_halfwidth(one["cv"], 40), 0.007183, places=6)
         with self.assertRaises(ValueError):
             planning_cv(rows, "0-23")
 
@@ -1663,8 +1658,11 @@ def report() -> None:
     print()
     print(f"#930 sizing: map and set writer throughput at W={WRITER_TARGET_WRITERS}, gate = BCa 95% lower bound "
           f">= {WRITER_TARGET_MOPS:.0f} M ops/s (the threshold is the issue's choice)")
-    print("  inputs frozen at lock in W8_SPREAD_AT_LOCK; every round of every W=8 map/set cell, both builds, no filtering")
+    print("  inputs frozen at lock in W8_SPREAD_AT_LOCK; every round of every W=8 map/set cell of the per-cell "
+          "sizing sweeps at bad1bd3d, no filtering")
     check = check_frozen_spread()
+    for name in check["not_isolated"]:
+        print(f"  {name}: NOT ISOLATED — provenance.cell_isolation is not {SIZING_CELL_ISOLATION!r}")
     for name in check["empty"]:
         print(f"  {name}: read; no W={WRITER_TARGET_WRITERS} writer-sweep cell (reader cells only)")
     for name in check["replaced"]:
@@ -1678,16 +1676,26 @@ def report() -> None:
         print(f"  {r['artifact']} @{r['commit']} pin {r['pin']} {r['section']} {r['arm']}: {r['n']} rounds, "
               f"mean {r['mean']:.2f} M ops/s, per-round CV {r['cv']:.4f}, target / mean {WRITER_TARGET_MOPS / r['mean']:.2f}")
     h = WRITER_TARGET_HALFWIDTH
+    counts = {}
     for pin in (PIN_CPU_CORE, PIN_ONE_PER_CORE):
         top = planning_cv(frozen, pin)
+        counts[pin] = (top, rounds_for_williams(top["cv"], h))
         cells = sum(r["pin"] == pin for r in frozen)
         print(f"  pin {pin}: {cells} cells; planning CV = largest, {top['cv']:.4f} "
               f"({top['artifact']} @{top['commit']} {top['section']} {top['arm']})")
         for hw in (0.05, h):
             print(f"    relative half-width {hw:.3f}: {rounds_for_halfwidth(top['cv'], hw)} rounds, "
                   f"{rounds_for_williams(top['cv'], hw)} as a multiple of {WRITER_SWEEP_WRITER_COUNTS}")
-        print(f"    the driver's default 8 rounds: relative half-width {ratio_relative_halfwidth(top['cv'], 8):.4f}, "
-              f"true mean needed {mean_needed_to_clear(WRITER_TARGET_MOPS, ratio_relative_halfwidth(top['cv'], 8)):.2f} M ops/s")
+        for n in (8, 40):
+            hn = ratio_relative_halfwidth(top['cv'], n)
+            print(f"    {n} rounds: relative half-width {hn:.5f}, true mean needed {mean_needed_to_clear(WRITER_TARGET_MOPS, hn):.3f} "
+                  f"M ops/s (half of runs), {mean_needed_with_probability(WRITER_TARGET_MOPS, hn, 0.975):.3f} (97.5%)")
+    rounds = max(n for _, n in counts.values())
+    top = max((t for t, _ in counts.values()), key=lambda t: t["cv"])
+    hr = ratio_relative_halfwidth(top["cv"], rounds)
+    print(f"  one count for both pins, the larger: {rounds} rounds; at the largest planning CV {top['cv']:.6f} that is "
+          f"relative half-width {hr:.5f}, true mean needed {mean_needed_to_clear(WRITER_TARGET_MOPS, hr):.3f} M ops/s "
+          f"(half of runs), {mean_needed_with_probability(WRITER_TARGET_MOPS, hr, 0.975):.3f} (97.5%)")
     print(f"  at relative half-width {h:.3f}: a true mean of {mean_needed_to_clear(WRITER_TARGET_MOPS, h):.3f} M ops/s "
           f"reaches the bound in about half of runs; {mean_needed_with_probability(WRITER_TARGET_MOPS, h, 0.975):.3f} "
           f"in 97.5% of runs (within-run spread only)")
