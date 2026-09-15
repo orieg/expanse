@@ -638,6 +638,8 @@ Arm (a) (`ablation-sharded-alloc`) replaces `NodeAlloc`'s `bytes_in_use`, `live_
 
 **Verdict on Arm (a)**: `REJECTED` on `map` at every W and on `set` at W ≥ 4. The `str` cells stayed `INCONCLUSIVE` at every W, which is what that arm can say: it holds the writer mutex for the whole insert, so it is the α = 1 reference curve and never a gate cell. Removing atomic accounting counters does not alleviate multi-writer lock contention, and introducing per-thread striped counters incurs thread-local access and cache footprint overhead that degrades throughput at scale.
 
+*Superseded on the current engine by §11.7 (2026-09-15, Refs #930).* The table and verdict above describe `e0b287f2`, the pre-Phase-4C engine, at pin `0-15`, and are kept as that engine's record (AGENTS.md §8.20.6). Re-run at `726b01fc` with one thread per physical core, the same feature measured `SINGLE_RUN_PASS` on `map` and `set` at every W in both of two runs, and `str` stayed `INCONCLUSIVE` at every W after two runs. The verdict's last sentence was an explanation no counter measured, and the thread-local read it names is still in the re-run build (`occ::writer_slot`), so that sentence does not describe the current engine.
+
 ### 11.2 Arm (b) — Striped Epoch Bins (`results/ablation_epoch_writer_scaling.json`)
 
 Arm (b) (`ablation-striped-epoch`) stripes the epoch garbage bins per writer slot (`bins[e % BINS][slot]`) and shards `retained_bytes` per stripe, eliminating mutex contention during node retirements (4,353,700 retirements per 2^20 insert sweep on `set W=2`).
@@ -684,7 +686,7 @@ Removing the shared freelist mutex therefore does not move multi-writer scaling 
 
 ### 11.4 Hypothesis D Synthesis & Roadmap Consequence
 
-1. **Superseded by §11.5 — on the post-Phase-4E engine, arm (b) explains the plateau.** What follows describes the pre-Phase-4C engine the arms originally ran on, and is kept because the contrast is the finding. *Original text:* §11 named three mechanisms — the allocator's accounting counters, the epoch bins, and the per-class freelist mutex. All three were ablated, and not one produced an improvement that cleared the floor and repeated — arm (a) measured worse (single run), arms (b) and (c) `INCONCLUSIVE` across two runs each. Under the Pre-Registered Unexplained Budget Rule ([`METHODOLOGY.md`](METHODOLOGY.md) §11), the multi-writer saturation plateau was recorded as **unexplained**. That verdict stands for the engine it measured and does not carry to the current one.
+1. **Superseded by §11.5 — on the post-Phase-4E engine, arm (b) explains the plateau.** What follows describes the pre-Phase-4C engine the arms originally ran on, and is kept because the contrast is the finding. *Original text:* §11 named three mechanisms — the allocator's accounting counters, the epoch bins, and the per-class freelist mutex. All three were ablated, and not one produced an improvement that cleared the floor and repeated — arm (a) measured worse (single run), arms (b) and (c) `INCONCLUSIVE` across two runs each. Under the Pre-Registered Unexplained Budget Rule ([`METHODOLOGY.md`](METHODOLOGY.md) §11), the multi-writer saturation plateau was recorded as **unexplained**. That verdict stands for the engine it measured and does not carry to the current one. *Arm (a)'s "measured worse" is superseded separately by §11.7 (2026-09-15, Refs #930): re-run at `726b01fc`, the same feature clears 1.0 on `map` and `set` at every W in both of two runs.*
 2. **What the arms cannot rule out.** Each arm's rejection is scoped to the mechanism it ablated (AGENTS.md §8.20.3). Shared state no arm touched remains: the system allocator behind a `pop_freelist` miss, the collector's reader registry (locked by every advance), and its `epoch` and `op_count` words, which every successful optimistic operation bumps. Arms (a) and (b) also measured the pre-Phase-4C engine, where the fallback regime was different; their verdicts describe that engine.
 3. **The gate convoy closed with the structural fallbacks.** It was the one mechanism with measured numbers on the pre-4C engine — arriving writers waiting at a closed `WriterGate`, 12.4% of `map` inserts at W = 4 and 27.1% at W = 8. Post-4E those counters read 0.0% on every cell (§10), because a gate closes only on a fallback and there are none. It is no longer a candidate.
 4. **Serial radix trie fallbacks fell, and the gain is confirmed.** PR #858 landed Phase 4C concurrent leaf capacity expansion, eliminating `CapExpansionClass` (0.00% across all arms) and reducing `map` fallbacks from 14.75% to 4.21%. PR #863 landed Phase 4B, eliminating `FallbackImmediateConversion` (1.4% $\rightarrow$ 0.00%). PR #873 landed Phase 4E, eliminating `CapExpansionLeafFull` (1.7% set / 2.8% map $\rightarrow$ 0.00%), closing the structural fallback floor. The post-4E sweep measures the consequence: **exactly zero lock fallbacks on every cell of every arm**, and every OLC gate cell `SCALES` across two runs (§10).
@@ -852,6 +854,192 @@ run; #912 approves them with a sourced override.
 The single run in §11.5 measured arm (c) on `1f465728`, before #907, #931 and #932
 changed the engine, and in the forward direction; it is not comparable cell for
 cell with this table.
+
+### 11.7 Arm (a) and `lock-padded` re-run on `726b01fc` — 2026-09-15 (Refs #930)
+
+**Why these two builds.** A `perf c2c` recording on `561f27d0` (`map`, W = 8,
+one thread per physical core) put the contended cache lines in
+`Shared<ExpanseMap>`: `NodeAlloc`'s `bytes_in_use` / `live_allocs` /
+`total_allocs` at about 33% of HITM, read in that report as true sharing;
+`WriterGate`'s `id` / `closed` on a line with `writers.slots[*]` at about 22%,
+read as false sharing; and the unpadded `tree_pop.shards` at about 6%. That
+recording is **observational and unsourced here** — it is not a committed
+artifact, and a HITM share names a structure without showing that removing it
+helps (AGENTS.md §8.20.3). The two builds below are the intervention: each
+removes sharing in a named structure, and the paired C(W) ratio decides.
+
+**What each build changes** (code at `726b01fc`):
+
+- `ablation-sharded-alloc` (METHODOLOGY §11 arm a, the feature §11.1 measured)
+  replaces the three `NodeAlloc` counters with `[AllocShard; MAX_WRITER_SLOTS]`,
+  each shard 64-byte aligned, indexed by `occ::writer_slot()` — one thread-local
+  read per allocation and free (`crates/expanse/src/alloc.rs`,
+  `crates/expanse/src/occ.rs`).
+- `lock-padded` aligns to 64 bytes every `Line<X>` field: in `Shared<T>` the
+  version word, `tree_pop` (its base and each shard), the writer mutex, the
+  `WriterGate`, and the `WriterTable` with each of its slots; in `Collector`,
+  `epoch` and `op_count` (`crates/expanse/src/sync.rs`,
+  `crates/expanse/src/occ.rs`). It changes several structures at once, including
+  two the recording did not name and the writer mutex the `str` arm takes on
+  every insert, so it does not separate them and `str` is not a null control
+  for it.
+
+Paired C(W) ratio, **variant ÷ default**, so above 1.0 means the variant build
+scales better; interleaved (build × W), 8 rounds, W ∈ {1, 2, 4, 8}, W = 1 the
+control *(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads,
+kernel 6.8, pin `0,2,4,6,8,10,12,14` (one thread per physical P-core), governor
+`powersave` on every pinned CPU; engine and harness at `726b01fc`;
+`ablation-sharded-alloc` CI runs
+[34981563847](https://github.com/orieg/expanse/actions/runs/34981563847) and
+[34981668043](https://github.com/orieg/expanse/actions/runs/34981668043),
+`results/ablation_alloc_writer_scaling_726b01fc.json`,
+`results/ablation_alloc_writer_scaling_726b01fc_run2.json`; `lock-padded` CI runs
+[34981615693](https://github.com/orieg/expanse/actions/runs/34981615693) and
+[34981721684](https://github.com/orieg/expanse/actions/runs/34981721684),
+`results/padded_writer_scaling_726b01fc.json`,
+`results/padded_writer_scaling_726b01fc_run2.json`; all four `workflow_dispatch`,
+concluded `success`)* (workload: concurrency_writer_scaling).
+
+**Host load (§8.17).** Every throughput cell of all four artifacts records at
+most 0.01 foreign busy CPUs. The one-minute load average peaks at 3.60 against a
+24-CPU host, and the largest shift between consecutive snapshots is 1.19. One
+phase snapshot in `lock-padded` run 1 (`arm:map:lock-padded`) records 0.32
+foreign core-equivalents since the snapshot before it; every cell records at
+most 0.01. No run meets a void condition.
+
+**Decision rule.** Per cell, METHODOLOGY §11: `SINGLE_RUN_PASS` if the BCa 95%
+lower bound exceeds 1.0, `REJECTED` if the upper bound is below 1.0,
+`INCONCLUSIVE` otherwise; a claim needs the same verdict on the same cell in both
+runs (`docs/BENCHMARKING.md` rule 18), and a cell whose two verdicts differ is
+`INCONCLUSIVE`. `ablation-sharded-alloc` is registered there. **`lock-padded` is
+not**: METHODOLOGY §11 names it only as Hypothesis B's comparison, so its labels
+below are the same rule, applied by the same instrument
+(`writer_scaling.py`, `compute_paired_scaling_ratios`), without a
+pre-registration behind them.
+
+#### `ablation-sharded-alloc` (arm a)
+
+| arm | W | run 1 | run 1 verdict | run 2 | run 2 verdict | intervals overlap | two-run verdict |
+|---|--:|---|---|---|---|---|---|
+| `map` | 2 | 1.0599 [1.0269, 1.0887] | `SINGLE_RUN_PASS` | 1.0441 [1.0149, 1.0687] | `SINGLE_RUN_PASS` | yes | `SINGLE_RUN_PASS` in both runs |
+| `map` | 4 | 1.0923 [1.0211, 1.1372] | `SINGLE_RUN_PASS` | 1.0971 [1.0579, 1.1365] | `SINGLE_RUN_PASS` | yes | `SINGLE_RUN_PASS` in both runs |
+| `map` | 8 | **1.1753 [1.1472, 1.2024]** | `SINGLE_RUN_PASS` | **1.2069 [1.1577, 1.2459]** | `SINGLE_RUN_PASS` | yes | `SINGLE_RUN_PASS` in both runs |
+| `set` | 2 | 1.1167 [1.0795, 1.1747] | `SINGLE_RUN_PASS` | 1.1420 [1.0896, 1.2124] | `SINGLE_RUN_PASS` | yes | `SINGLE_RUN_PASS` in both runs |
+| `set` | 4 | 1.1533 [1.1038, 1.2337] | `SINGLE_RUN_PASS` | 1.1654 [1.1040, 1.2549] | `SINGLE_RUN_PASS` | yes | `SINGLE_RUN_PASS` in both runs |
+| `set` | 8 | **1.1770 [1.1363, 1.2387]** | `SINGLE_RUN_PASS` | **1.2073 [1.1466, 1.2757]** | `SINGLE_RUN_PASS` | yes | `SINGLE_RUN_PASS` in both runs |
+| `str` | 2 | 1.0162 [0.9562, 1.0806] | `INCONCLUSIVE` | 1.0111 [0.9548, 1.1224] | `INCONCLUSIVE` | yes | `INCONCLUSIVE` |
+| `str` | 4 | 0.9957 [0.9756, 1.0203] | `INCONCLUSIVE` | 0.9892 [0.9676, 1.0161] | `INCONCLUSIVE` | yes | `INCONCLUSIVE` |
+| `str` | 8 | 1.0173 [1.0035, 1.0307] | `SINGLE_RUN_PASS` | 1.0049 [0.9694, 1.0376] | `INCONCLUSIVE` | yes | `INCONCLUSIVE` (verdicts differ) |
+
+`map` and `set` clear 1.0 at every W in both runs, with every pair of intervals
+overlapping. The `str` control spans 1.0 at W = 2 and W = 4 in both runs; at
+W = 8 run 1 clears 1.0 by a small margin and run 2 does not repeat it.
+
+#### `lock-padded`
+
+| arm | W | run 1 | run 1 verdict | run 2 | run 2 verdict | intervals overlap | two-run verdict |
+|---|--:|---|---|---|---|---|---|
+| `map` | 2 | 1.1353 [1.1021, 1.1598] | `SINGLE_RUN_PASS` | 1.1026 [1.0882, 1.1172] | `SINGLE_RUN_PASS` | yes | `SINGLE_RUN_PASS` in both runs |
+| `map` | 4 | 1.2128 [1.1558, 1.2595] | `SINGLE_RUN_PASS` | 1.2064 [1.1886, 1.2302] | `SINGLE_RUN_PASS` | yes | `SINGLE_RUN_PASS` in both runs |
+| `map` | 8 | 1.0535 [1.0300, 1.1052] | `SINGLE_RUN_PASS` | 1.0508 [1.0346, 1.0753] | `SINGLE_RUN_PASS` | yes | `SINGLE_RUN_PASS` in both runs |
+| `set` | 2 | 1.2070 [1.1985, 1.2214] | `SINGLE_RUN_PASS` | 1.1534 [1.0684, 1.1886] | `SINGLE_RUN_PASS` | **no** | `SINGLE_RUN_PASS` in both runs |
+| `set` | 4 | 1.5128 [1.4830, 1.5426] | `SINGLE_RUN_PASS` | 1.4480 [1.3494, 1.4954] | `SINGLE_RUN_PASS` | yes | `SINGLE_RUN_PASS` in both runs |
+| `set` | 8 | 1.3379 [1.3019, 1.3834] | `SINGLE_RUN_PASS` | 1.2538 [1.1506, 1.3008] | `SINGLE_RUN_PASS` | **no** | `SINGLE_RUN_PASS` in both runs |
+| `str` | 2 | 1.0400 [0.9980, 1.0714] | `INCONCLUSIVE` | 1.0234 [0.9589, 1.0828] | `INCONCLUSIVE` | yes | `INCONCLUSIVE` |
+| `str` | 4 | 1.0497 [1.0122, 1.0850] | `SINGLE_RUN_PASS` | 1.0204 [0.9875, 1.0435] | `INCONCLUSIVE` | yes | `INCONCLUSIVE` (verdicts differ) |
+| `str` | 8 | 1.0456 [1.0155, 1.1140] | `SINGLE_RUN_PASS` | 1.0477 [0.9997, 1.0661] | `INCONCLUSIVE` | yes | `INCONCLUSIVE` (verdicts differ) |
+
+`map` and `set` clear 1.0 at every W in both runs. On `set` the direction
+repeats and the size does not: at W = 2 and at W = 8 the two runs' intervals do
+not overlap, so no `set` magnitude is claimed beyond "above 1.0". `map` peaks at
+W = 4 and falls back to about 1.05 at W = 8 in both runs. The `str` control is
+not flat under this build: run 1 clears 1.0 at W = 4 and W = 8, and run 2's
+intervals reach down to 0.9875 and 0.9997.
+
+#### Throughput per build
+
+Writer throughput, M ops/s, mean [BCa 95%], W = 1 and W = 8 (workload: concurrency_writer_scaling):
+
+| build | arm | W | run 1 default | run 1 variant | run 2 default | run 2 variant |
+|---|---|--:|---|---|---|---|
+| `ablation-sharded-alloc` | `map` | 1 | 5.08 [5.01, 5.21] | 5.09 [5.07, 5.10] | 5.15 [5.07, 5.27] | 5.20 [5.12, 5.32] |
+| `ablation-sharded-alloc` | `map` | 8 | 11.39 [11.13, 11.60] | 13.39 [13.05, 13.72] | 11.37 [11.23, 11.59] | 13.85 [13.31, 14.30] |
+| `ablation-sharded-alloc` | `set` | 1 | 6.76 [6.68, 6.85] | 6.50 [6.16, 6.73] | 6.76 [6.68, 6.84] | 6.32 [5.96, 6.59] |
+| `ablation-sharded-alloc` | `set` | 8 | 13.36 [13.21, 13.53] | 15.07 [14.75, 15.31] | 13.59 [13.47, 13.72] | 15.27 [14.97, 15.60] |
+| `ablation-sharded-alloc` | `str` | 1 | 3.86 [3.71, 4.00] | 3.85 [3.71, 4.00] | 3.88 [3.72, 3.98] | 3.91 [3.78, 4.00] |
+| `ablation-sharded-alloc` | `str` | 8 | 0.44 [0.43, 0.46] | 0.45 [0.44, 0.46] | 0.45 [0.44, 0.46] | 0.46 [0.44, 0.49] |
+| `lock-padded` | `map` | 1 | 5.14 [5.07, 5.25] | 5.07 [5.03, 5.09] | 5.06 [4.99, 5.09] | 5.11 [5.08, 5.12] |
+| `lock-padded` | `map` | 8 | 11.49 [11.17, 11.66] | 11.92 [11.73, 12.10] | 11.34 [11.01, 11.52] | 12.01 [11.93, 12.09] |
+| `lock-padded` | `set` | 1 | 6.76 [6.67, 6.88] | 6.73 [6.66, 6.82] | 6.53 [6.10, 6.71] | 6.69 [6.59, 6.79] |
+| `lock-padded` | `set` | 8 | 13.39 [13.22, 13.54] | 17.84 [17.47, 18.30] | 13.62 [13.47, 13.85] | 17.47 [17.19, 17.71] |
+| `lock-padded` | `str` | 1 | 3.89 [3.75, 3.99] | 3.87 [3.72, 4.02] | 3.88 [3.73, 4.00] | 3.92 [3.79, 4.01] |
+| `lock-padded` | `str` | 8 | 0.45 [0.44, 0.46] | 0.47 [0.45, 0.48] | 0.44 [0.43, 0.44] | 0.46 [0.45, 0.47] |
+
+A C(W) ratio divides by each build's own W = 1 rate, so a variant that is slower
+at W = 1 scores a higher C(W) ratio for the same W = 8 rate. The paired
+throughput ratio T_variant ÷ T_default, per round, separates the two. It is
+*derived*, not a field of the artifacts: per-round `rounds_raw` rates paired by
+round index, BCa 95% by `scripts/bca_bootstrap.py` (workload: concurrency_writer_scaling):
+
+| build | arm | W | run 1 | run 2 |
+|---|---|--:|---|---|
+| `ablation-sharded-alloc` | `map` | 1 | 1.002 [0.976, 1.018] | 1.010 [1.005, 1.016] |
+| `ablation-sharded-alloc` | `map` | 8 | 1.176 [1.153, 1.199] | 1.219 [1.170, 1.259] |
+| `ablation-sharded-alloc` | `set` | 1 | 0.961 [0.916, 0.990] | 0.935 [0.876, 0.974] |
+| `ablation-sharded-alloc` | `set` | 8 | 1.128 [1.102, 1.141] | 1.123 [1.100, 1.144] |
+| `ablation-sharded-alloc` | `str` | 1 | 1.000 [0.995, 1.004] | 1.008 [1.000, 1.023] |
+| `ablation-sharded-alloc` | `str` | 8 | 1.017 [1.004, 1.033] | 1.012 [0.985, 1.047] |
+| `lock-padded` | `map` | 1 | 0.987 [0.966, 1.001] | 1.009 [1.001, 1.023] |
+| `lock-padded` | `map` | 8 | 1.039 [1.019, 1.073] | 1.060 [1.042, 1.084] |
+| `lock-padded` | `set` | 1 | 0.996 [0.992, 1.001] | 1.029 [0.998, 1.149] |
+| `lock-padded` | `set` | 8 | 1.333 [1.298, 1.376] | 1.284 [1.262, 1.311] |
+| `lock-padded` | `str` | 1 | 0.994 [0.966, 1.006] | 1.012 [1.001, 1.038] |
+| `lock-padded` | `str` | 8 | 1.038 [1.014, 1.068] | 1.059 [1.037, 1.071] |
+
+On `map` under `ablation-sharded-alloc` the W = 8 throughput ratio and the C(8)
+ratio agree, because W = 1 does not move. On `set` it does move: W = 1 falls in
+both runs, carried by 2 of 8 rounds in run 1 and 3 of 8 in run 2 at a per-round
+ratio of 0.88 or below (medians 0.993 and 0.986), cause unknown. So part of
+`set`'s C(8) ratio under this build is the smaller denominator, and its W = 8
+throughput gain is the 1.128 and 1.123 above, not the C(8) figure. Under
+`lock-padded` the `str` arm's W = 8 throughput rises in both runs, which is what
+padding the writer mutex it takes could produce, and is unmeasured as a cause.
+
+#### Verdicts
+
+- **`ablation-sharded-alloc`: `SINGLE_RUN_PASS` in both runs on `map` and `set`
+  at W ∈ {2, 4, 8}**, `str` `INCONCLUSIVE` at every W. This supersedes §11.1's
+  `REJECTED` for the current engine; §11.1 stays as the record of `e0b287f2`
+  (AGENTS.md §8.20.6). The two measurements are not comparable cell for cell:
+  engine and pin both differ (`e0b287f2` at `0-15`, `726b01fc` at one thread per
+  physical core).
+- **`lock-padded`: `SINGLE_RUN_PASS` in both runs on `map` and `set` at W ∈ {2,
+  4, 8}**, not pre-registered; `set` magnitude not repeated at W = 2 and W = 8;
+  `str` `INCONCLUSIVE` at W = 2 and verdicts differ at W = 4 and W = 8.
+
+#### What these results do not show
+
+- **No promotion decision.** Neither build is proposed as a default here.
+  AGENTS.md §2.7 asks for a configuration measured on the current engine, an
+  inverse feature, and the single-threaded Callgrind bound over every `sync_*`
+  and plain-tree arm met first; none of that exists for either build, and the
+  W = 1 `set` loss under `ablation-sharded-alloc` is unexplained.
+- **No combined build.** The two features have not been measured together, and
+  METHODOLOGY §11 registers that ablations are not additive: removing one
+  sharing point can move contention to another. Adding the two C(8) ratios
+  predicts nothing.
+- **Not a decomposition of the recording's shares.** `lock-padded` pads more
+  than the two structures the recording attributed to it, so its effect is not
+  attributed to `WriterGate` or `tree_pop.shards` alone, and neither ratio says
+  what fraction of the plateau its structure carried.
+- **`lock-padded`'s `str` control is not flat.** A build that moves the control
+  arm's throughput is not an isolated intervention on the multi-writer path.
+- **`set`'s W = 1 drop under `ablation-sharded-alloc`** is measured and
+  unexplained; until it is, the `set` C(W) ratios overstate the W = 8 throughput
+  gain.
+- **The #930 target is not reached.** No variant cell reaches 20 M ops/s at
+  W = 8 in either run; the highest upper bound is 18.30, `lock-padded` `set`
+  run 1.
 
 ## 12. Mixed read/write concurrency — `benches/concurrency.rs` (`results/baseline_concurrent_mixed.json`)
 
