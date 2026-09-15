@@ -686,7 +686,7 @@ void TestBatchScanApi() {
 // TestBatchScanApi above calls ScanBatch back to back and never calls Valid()
 // between the calls, which is the one shape that cannot see this defect:
 // Valid() is what runs RevalidatePosition(), and RevalidatePosition() is what
-// re-seeks. #769 gave Seek/Next/Prev/SeekToFirst/SeekToLast a CaptureAnchor()
+// re-seeks. #769 gave Seek/Next/Prev/SeekToFirst/SeekToLast an anchor capture
 // and left ScanBatch without one, so the cursor advanced while the anchor did
 // not; the next Valid() found a leaf whose version no longer matched the
 // anchor and seeked back to the entry the batch had started from. The loop

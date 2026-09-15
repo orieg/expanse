@@ -727,14 +727,55 @@ void ExpanseMemTableRep::SuggestCompactRange(Slice* begin, Slice* end) {
 ExpanseMemTableRep::IteratorImpl::IteratorImpl(const ExpanseMemTableRep* rep)
     : rep_(rep), current_leaf_(nullptr), current_slot_(-1), valid_(false) {}
 
-void ExpanseMemTableRep::IteratorImpl::CaptureAnchor() const {
-    if (!valid_ || current_leaf_ == nullptr || current_slot_ < 0) {
-        anchor_entry_ = nullptr;
-        anchor_version_ = 0;
-        return;
+void ExpanseMemTableRep::IteratorImpl::SetPosition(const LeafBlock* leaf, int slot, uint32_t version,
+                                                   const char* entry) {
+    current_leaf_ = leaf;
+    current_slot_ = slot;
+    valid_ = true;
+    anchor_version_ = version;
+    anchor_entry_ = entry;
+}
+
+void ExpanseMemTableRep::IteratorImpl::ClearPosition() {
+    current_leaf_ = nullptr;
+    current_slot_ = -1;
+    valid_ = false;
+    anchor_version_ = 0;
+    anchor_entry_ = nullptr;
+}
+
+bool ExpanseMemTableRep::IteratorImpl::PositionAtEdge(const LeafBlock* block, bool forward) {
+    while (block != nullptr) {
+        uint32_t v = 0;
+        uint32_t count = 0;
+        const char* entry = nullptr;
+        while (true) {
+            v = block->version.load(std::memory_order_acquire);
+            if (v & 1) {
+                std::this_thread::yield();
+                continue;
+            }
+            count = block->count.load(std::memory_order_acquire);
+            // Acquire: gain happens-before to this entry's key bytes before the
+            // cursor hands them out.
+            entry = (count > 0)
+                ? block->entries[forward ? 0 : count - 1].load(std::memory_order_acquire)
+                : nullptr;
+            // An acquire fence before a relaxed load, as in Seek.
+            std::atomic_thread_fence(std::memory_order_acquire);
+            if (block->version.load(std::memory_order_relaxed) == v && (count == 0 || entry != nullptr)) {
+                break;
+            }
+        }
+        if (count > 0) {
+            SetPosition(block, forward ? 0 : static_cast<int>(count) - 1, v, entry);
+            return true;
+        }
+        block = forward ? block->next_leaf.load(std::memory_order_acquire)
+                        : block->prev_leaf.load(std::memory_order_acquire);
     }
-    anchor_version_ = current_leaf_->version.load(std::memory_order_acquire);
-    anchor_entry_ = current_leaf_->entries[current_slot_].load(std::memory_order_acquire);
+    ClearPosition();
+    return false;
 }
 
 bool ExpanseMemTableRep::IteratorImpl::RevalidatePosition() const {
@@ -812,143 +853,139 @@ Slice ExpanseMemTableRep::IteratorImpl::value() const {
 
 bool ExpanseMemTableRep::IteratorImpl::Valid() const {
     if (!RevalidatePosition()) return false;
-    return current_slot_ < static_cast<int>(current_leaf_->count.load(std::memory_order_acquire));
+    EXPANSE_MEMTABLE_PARK(kValidAfterRevalidate);
+    // The anchor and its slot were read inside one validated bracket, so a
+    // position RevalidatePosition() accepted names the anchored entry. Reading
+    // the block's count here instead read a later state, and a split between
+    // the two reported a live cursor as ended.
+    return anchor_entry_ != nullptr;
 }
 
 const char* ExpanseMemTableRep::IteratorImpl::key() const {
-    if (!RevalidatePosition() ||
-        current_slot_ >= static_cast<int>(current_leaf_->count.load(std::memory_order_acquire))) {
+    if (!RevalidatePosition()) {
         return nullptr;
     }
-    // Acquire: the returned pointer is dereferenced for key bytes by the caller; acquire
-    // pairs with the release publication store to establish happens-before to those bytes.
-    return current_leaf_->entries[current_slot_].load(std::memory_order_acquire);
+    EXPANSE_MEMTABLE_PARK(kKeyAfterRevalidate);
+    // The anchored entry, not a reload of the slot: a shift after the
+    // revalidation puts a different entry in the slot.
+    return anchor_entry_;
 }
 
 void ExpanseMemTableRep::IteratorImpl::Next() {
-    // Recover the position before stepping off it, or the step is relative to
-    // a slot index a writer has already invalidated.
-    if (!RevalidatePosition()) {
-        valid_ = false;
-        return;
-    }
-    InvalidateCache();
-    current_slot_++;
-    uint32_t count = current_leaf_->count.load(std::memory_order_acquire);
-
-    // Software SIMD prefetch hint for sibling leaf block when processing latter entries
-    if (current_slot_ + 4 >= static_cast<int>(count)) {
-        LeafBlock* nxt = current_leaf_->next_leaf.load(std::memory_order_relaxed);
-        if (nxt != nullptr) {
-            expanse_rocksdb::Prefetch<0, 3>(nxt);
-            expanse_rocksdb::Prefetch<0, 3>(nxt->entries);
+    while (true) {
+        // Recover the position before stepping off it, or the step is relative
+        // to a slot index a writer has already invalidated.
+        if (!RevalidatePosition()) {
+            valid_ = false;
+            return;
         }
-    } else if (current_slot_ + 2 < static_cast<int>(count)) {
-        const char* future_entry = current_leaf_->entries[current_slot_ + 2].load(std::memory_order_relaxed);
-        if (future_entry != nullptr) {
-            expanse_rocksdb::Prefetch<0, 1>(future_entry);
-        }
-    }
+        InvalidateCache();
+        const LeafBlock* leaf = current_leaf_;
+        // The version RevalidatePosition() just matched: the step and its entry
+        // are read inside the bracket it opened, and validated against it
+        // below, so the new anchor is the entry the step chose.
+        const uint32_t v = anchor_version_;
+        const int slot = current_slot_ + 1;
+        const uint32_t count = leaf->count.load(std::memory_order_acquire);
+        const char* entry = (slot < static_cast<int>(count))
+            ? leaf->entries[slot].load(std::memory_order_acquire)
+            : nullptr;
 
-    if (current_slot_ >= static_cast<int>(count)) {
+        // Software SIMD prefetch hint for sibling leaf block when processing latter entries
+        if (slot + 4 >= static_cast<int>(count)) {
+            LeafBlock* nxt = leaf->next_leaf.load(std::memory_order_relaxed);
+            if (nxt != nullptr) {
+                expanse_rocksdb::Prefetch<0, 3>(nxt);
+                expanse_rocksdb::Prefetch<0, 3>(nxt->entries);
+            }
+        } else if (slot + 2 < static_cast<int>(count)) {
+            const char* future_entry = leaf->entries[slot + 2].load(std::memory_order_relaxed);
+            if (future_entry != nullptr) {
+                expanse_rocksdb::Prefetch<0, 1>(future_entry);
+            }
+        }
+
+        // An acquire fence before a relaxed load, as in Seek.
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (leaf->version.load(std::memory_order_relaxed) != v ||
+            (slot < static_cast<int>(count) && entry == nullptr)) {
+            continue;  // the block moved since it was revalidated: recover and step again
+        }
+        if (slot < static_cast<int>(count)) {
+            EXPANSE_MEMTABLE_PARK(kNextBeforeAnchor);
+            SetPosition(leaf, slot, v, entry);
+            return;
+        }
         // Advance directly via next_leaf intrusive pointer without re-seeking trie!
-        current_leaf_ = current_leaf_->next_leaf.load(std::memory_order_acquire);
-        while (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) == 0) {
-            current_leaf_ = current_leaf_->next_leaf.load(std::memory_order_acquire);
-        }
-        if (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) > 0) {
-            current_slot_ = 0;
-            valid_ = true;
+        if (PositionAtEdge(leaf->next_leaf.load(std::memory_order_acquire), true)) {
             LeafBlock* nxt_nxt = current_leaf_->next_leaf.load(std::memory_order_relaxed);
             if (nxt_nxt != nullptr) {
                 expanse_rocksdb::Prefetch<0, 3>(nxt_nxt);
             }
-        } else {
-            current_slot_ = -1;
-            valid_ = false;
         }
+        EXPANSE_MEMTABLE_PARK(kNextBeforeAnchor);
+        return;
     }
-    // Anchor the new position: the slot index alone does not survive a
-    // concurrent shift or split.
-    CaptureAnchor();
 }
 
 void ExpanseMemTableRep::IteratorImpl::Prev() {
-    // Recover the position before stepping off it, or the step is relative to
-    // a slot index a writer has already invalidated.
-    if (!RevalidatePosition()) {
-        valid_ = false;
+    while (true) {
+        // Recover the position before stepping off it, or the step is relative
+        // to a slot index a writer has already invalidated.
+        if (!RevalidatePosition()) {
+            valid_ = false;
+            return;
+        }
+        InvalidateCache();
+        const LeafBlock* leaf = current_leaf_;
+        // As in Next: read the step inside the bracket RevalidatePosition()
+        // matched, and validate it against that version.
+        const uint32_t v = anchor_version_;
+        const int slot = current_slot_ - 1;
+        const char* entry = (slot >= 0) ? leaf->entries[slot].load(std::memory_order_acquire) : nullptr;
+
+        // Prefetch prev sibling leaf when approaching beginning of leaf
+        if (slot < 4) {
+            LeafBlock* prv = leaf->prev_leaf.load(std::memory_order_relaxed);
+            if (prv != nullptr) {
+                expanse_rocksdb::Prefetch<0, 3>(prv);
+                expanse_rocksdb::Prefetch<0, 3>(prv->entries);
+            }
+        }
+
+        // An acquire fence before a relaxed load, as in Seek.
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (leaf->version.load(std::memory_order_relaxed) != v || (slot >= 0 && entry == nullptr)) {
+            continue;  // the block moved since it was revalidated: recover and step again
+        }
+        if (slot >= 0) {
+            EXPANSE_MEMTABLE_PARK(kPrevBeforeAnchor);
+            SetPosition(leaf, slot, v, entry);
+            return;
+        }
+        // Advance backwards via prev_leaf intrusive pointer!
+        PositionAtEdge(leaf->prev_leaf.load(std::memory_order_acquire), false);
+        EXPANSE_MEMTABLE_PARK(kPrevBeforeAnchor);
         return;
     }
-    InvalidateCache();
-    current_slot_--;
-
-    // Prefetch prev sibling leaf when approaching beginning of leaf
-    if (current_slot_ < 4) {
-        LeafBlock* prv = current_leaf_->prev_leaf.load(std::memory_order_relaxed);
-        if (prv != nullptr) {
-            expanse_rocksdb::Prefetch<0, 3>(prv);
-            expanse_rocksdb::Prefetch<0, 3>(prv->entries);
-        }
-    }
-
-    if (current_slot_ < 0) {
-        // Advance backwards via prev_leaf intrusive pointer!
-        current_leaf_ = current_leaf_->prev_leaf.load(std::memory_order_acquire);
-        while (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) == 0) {
-            current_leaf_ = current_leaf_->prev_leaf.load(std::memory_order_acquire);
-        }
-        if (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) > 0) {
-            current_slot_ = static_cast<int>(current_leaf_->count.load(std::memory_order_acquire)) - 1;
-            valid_ = true;
-        } else {
-            current_slot_ = -1;
-            valid_ = false;
-        }
-    }
-    // Anchor the new position: the slot index alone does not survive a
-    // concurrent shift or split.
-    CaptureAnchor();
 }
 
 void ExpanseMemTableRep::IteratorImpl::SeekToFirst() {
     InvalidateCache();
-    current_leaf_ = rep_->head_.load(std::memory_order_acquire);
-    while (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) == 0) {
-        current_leaf_ = current_leaf_->next_leaf.load(std::memory_order_acquire);
-    }
-    if (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) > 0) {
-        current_slot_ = 0;
-        valid_ = true;
-        const char* entry0 = current_leaf_->entries[0].load(std::memory_order_relaxed);
-        if (entry0) expanse_rocksdb::Prefetch<0, 1>(entry0);
+    // The position and its anchor are read inside the block's validated bracket.
+    if (PositionAtEdge(rep_->head_.load(std::memory_order_acquire), true)) {
+        expanse_rocksdb::Prefetch<0, 1>(anchor_entry_);
         LeafBlock* nxt = current_leaf_->next_leaf.load(std::memory_order_relaxed);
         if (nxt) expanse_rocksdb::Prefetch<0, 3>(nxt);
-    } else {
-        current_slot_ = -1;
-        valid_ = false;
     }
-    // Anchor the new position: the slot index alone does not survive a
-    // concurrent shift or split.
-    CaptureAnchor();
+    EXPANSE_MEMTABLE_PARK(kSeekToFirstBeforeAnchor);
 }
 
 void ExpanseMemTableRep::IteratorImpl::SeekToLast() {
     InvalidateCache();
-    current_leaf_ = rep_->tail_.load(std::memory_order_acquire);
-    while (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) == 0) {
-        current_leaf_ = current_leaf_->prev_leaf.load(std::memory_order_acquire);
-    }
-    if (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) > 0) {
-        current_slot_ = static_cast<int>(current_leaf_->count.load(std::memory_order_acquire)) - 1;
-        valid_ = true;
-    } else {
-        current_slot_ = -1;
-        valid_ = false;
-    }
-    // Anchor the new position: the slot index alone does not survive a
-    // concurrent shift or split.
-    CaptureAnchor();
+    // The position and its anchor are read inside the block's validated bracket.
+    PositionAtEdge(rep_->tail_.load(std::memory_order_acquire), false);
+    EXPANSE_MEMTABLE_PARK(kSeekToLastBeforeAnchor);
 }
 
 void ExpanseMemTableRep::IteratorImpl::Seek(const Slice& internal_key, const char* memtable_key) {
@@ -958,6 +995,8 @@ void ExpanseMemTableRep::IteratorImpl::Seek(const Slice& internal_key, const cha
         int left = 0;
         int right = 0;
         bool found = false;
+        const char* found_entry = nullptr;
+        uint32_t found_version = 0;
         while (true) {
             uint32_t v_start = block->version.load(std::memory_order_acquire);
             if (v_start & 1) {
@@ -990,6 +1029,15 @@ void ExpanseMemTableRep::IteratorImpl::Seek(const Slice& internal_key, const cha
             }
             if (retry) continue;
 
+            // The entry the cursor will anchor on, read inside this bracket:
+            // loading it after the bracket closed read whatever a later shift
+            // put in the slot.
+            const char* candidate = nullptr;
+            if (left < orig_right) {
+                candidate = block->entries[left].load(std::memory_order_acquire);
+                if (candidate == nullptr) continue;
+            }
+
             // An acquire *fence* before a relaxed load, not an acquire load.
             // An acquire load orders what follows it; this re-read has to be
             // ordered after the bracket's payload reads, which is the opposite
@@ -1000,26 +1048,21 @@ void ExpanseMemTableRep::IteratorImpl::Seek(const Slice& internal_key, const cha
             if (v_start == v_end) {
                 if (left < orig_right) {
                     found = true;
+                    found_entry = candidate;
+                    found_version = v_start;
                 }
                 break;
             }
         }
-        
+
         if (found) {
-            current_leaf_ = block;
-            current_slot_ = left;
-            valid_ = true;
-            CaptureAnchor();
+            EXPANSE_MEMTABLE_PARK(kSeekBeforeAnchor);
+            SetPosition(block, left, found_version, found_entry);
             return;
         }
         block = block->next_leaf.load(std::memory_order_acquire);
     }
-    current_leaf_ = nullptr;
-    current_slot_ = -1;
-    valid_ = false;
-    // Anchor the new position: the slot index alone does not survive a
-    // concurrent shift or split.
-    CaptureAnchor();
+    ClearPosition();
 }
 
 void ExpanseMemTableRep::IteratorImpl::SeekForPrev(const Slice& internal_key, const char* memtable_key) {
@@ -1034,9 +1077,10 @@ void ExpanseMemTableRep::IteratorImpl::SeekForPrev(const Slice& internal_key, co
     } else {
         SeekToLast();
     }
-    // Anchor the new position: the slot index alone does not survive a
-    // concurrent shift or split.
-    CaptureAnchor();
+    // Seek, Prev and SeekToLast each anchored the position they chose. A
+    // second capture here re-read the version and the slot after they had
+    // returned, and anchored on whatever a shift since had put in the slot.
+    EXPANSE_MEMTABLE_PARK(kSeekForPrevBeforeAnchor);
 }
 
 size_t ExpanseMemTableRep::IteratorImpl::ScanBatch(
@@ -1048,106 +1092,98 @@ size_t ExpanseMemTableRep::IteratorImpl::ScanBatch(
         return 0;
     }
 
-    // Recover the position before stepping off it, for the same reason Next()
-    // and Prev() do: the slot index alone does not survive a concurrent shift
-    // or split, and a batch that starts from a stale index extracts from
-    // wherever that index now points.
-    if (!RevalidatePosition()) {
-        valid_ = false;
-        return 0;
-    }
-
     InvalidateCache();
     size_t extracted = 0;
+    const char* taken[LeafBlock::kMaxCapacity];
 
-    while (extracted < max_keys && current_leaf_ != nullptr) {
-        uint32_t count = current_leaf_->count.load(std::memory_order_acquire);
-        if (current_slot_ >= static_cast<int>(count)) {
-            current_leaf_ = current_leaf_->next_leaf.load(std::memory_order_acquire);
-            while (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) == 0) {
-                current_leaf_ = current_leaf_->next_leaf.load(std::memory_order_acquire);
-            }
-            if (current_leaf_ == nullptr) {
-                current_slot_ = -1;
-                valid_ = false;
-                break;
-            }
-            current_slot_ = 0;
-            count = current_leaf_->count.load(std::memory_order_acquire);
+    while (extracted < max_keys) {
+        // Recover the position before stepping off it, for the same reason Next()
+        // and Prev() do: the slot index alone does not survive a concurrent shift
+        // or split, and a batch that starts from a stale index extracts from
+        // wherever that index now points.
+        if (!RevalidatePosition()) {
+            valid_ = false;
+            break;
+        }
+        const LeafBlock* leaf = current_leaf_;
+        // The chunk, and the entry the cursor moves to after it, are read inside
+        // the bracket RevalidatePosition() matched and validated against it, so
+        // neither the delivered entries nor the next anchor can come from a
+        // shifted slot.
+        const uint32_t v = anchor_version_;
+        const int slot = current_slot_;
+        const uint32_t count = leaf->count.load(std::memory_order_acquire);
+        const size_t take = (slot < static_cast<int>(count))
+            ? std::min(static_cast<size_t>(count - slot), max_keys - extracted)
+            : 0;
+        bool torn = false;
+        for (size_t i = 0; i < take && !torn; ++i) {
+            // Acquire: gain happens-before to this entry's bytes before decoding them.
+            taken[i] = leaf->entries[slot + i].load(std::memory_order_acquire);
+            torn = taken[i] == nullptr;
+        }
+        const int next_slot = slot + static_cast<int>(take);
+        const char* next_entry = nullptr;
+        if (!torn && next_slot < static_cast<int>(count)) {
+            next_entry = leaf->entries[next_slot].load(std::memory_order_acquire);
+            torn = next_entry == nullptr;
         }
 
-        size_t available = count - current_slot_;
-        size_t to_extract = std::min(available, max_keys - extracted);
-
         // Issue prefetch hint for next leaf block when scanning through current block
-        LeafBlock* nxt = current_leaf_->next_leaf.load(std::memory_order_relaxed);
+        LeafBlock* nxt = leaf->next_leaf.load(std::memory_order_relaxed);
         if (nxt != nullptr) {
             expanse_rocksdb::Prefetch<0, 3>(nxt);
             expanse_rocksdb::Prefetch<0, 3>(nxt->entries);
         }
 
-        for (size_t i = 0; i < to_extract; ++i) {
-            // Acquire: gain happens-before to this entry's bytes before decoding them.
-            const char* entry = current_leaf_->entries[current_slot_ + i].load(std::memory_order_acquire);
-            if (entry != nullptr) {
-                // Prefetch entry payload 2 slots ahead (relaxed: prefetch never dereferences)
-                if (i + 2 < to_extract) {
-                    const char* ahead = current_leaf_->entries[current_slot_ + i + 2].load(std::memory_order_relaxed);
-                    if (ahead) expanse_rocksdb::Prefetch<0, 1>(ahead);
-                }
+        // An acquire fence before a relaxed load, as in Seek.
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (torn || leaf->version.load(std::memory_order_relaxed) != v) {
+            continue;  // the block moved since it was revalidated: recover and read again
+        }
+        // A position RevalidatePosition() accepted has its slot below the
+        // block's count at the matched version, so a validated chunk is never
+        // empty.
+        assert(take > 0);
 
-                uint32_t ikey_len = 0;
-                const char* p = expanse_rocksdb::GetVarint32Ptr(entry, entry + 5, &ikey_len);
-                if (out_keys != nullptr && p != nullptr) {
-                    out_keys[extracted] = Slice(p, ikey_len);
-                }
-                if (out_values != nullptr && p != nullptr) {
-                    const char* val_p = p + ikey_len;
-                    uint32_t val_len = 0;
-                    const char* val_data = expanse_rocksdb::GetVarint32Ptr(val_p, val_p + 5, &val_len);
-                    if (val_data != nullptr) {
-                        out_values[extracted] = Slice(val_data, val_len);
-                    } else {
-                        out_values[extracted].clear();
-                    }
-                }
-                // Only a slot that was actually written counts as extracted.
-                // Incrementing outside this branch reported a null slot -- or
-                // one whose varint header failed to parse -- as extracted while
-                // leaving out_keys[extracted] untouched, so the caller read an
-                // unwritten Slice as if it were a key.
-                extracted++;
+        for (size_t i = 0; i < take; ++i) {
+            const char* entry = taken[i];
+            // Prefetch entry payload 2 slots ahead (prefetch never dereferences)
+            if (i + 2 < take) {
+                expanse_rocksdb::Prefetch<0, 1>(taken[i + 2]);
             }
+
+            uint32_t ikey_len = 0;
+            const char* p = expanse_rocksdb::GetVarint32Ptr(entry, entry + 5, &ikey_len);
+            if (out_keys != nullptr && p != nullptr) {
+                out_keys[extracted] = Slice(p, ikey_len);
+            }
+            if (out_values != nullptr && p != nullptr) {
+                const char* val_p = p + ikey_len;
+                uint32_t val_len = 0;
+                const char* val_data = expanse_rocksdb::GetVarint32Ptr(val_p, val_p + 5, &val_len);
+                if (val_data != nullptr) {
+                    out_values[extracted] = Slice(val_data, val_len);
+                } else {
+                    out_values[extracted].clear();
+                }
+            }
+            // Only a validated, non-null slot is taken, so every one counts.
+            extracted++;
         }
 
-        current_slot_ += to_extract;
-        if (current_slot_ >= static_cast<int>(count)) {
-            current_leaf_ = current_leaf_->next_leaf.load(std::memory_order_acquire);
-            while (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) == 0) {
-                current_leaf_ = current_leaf_->next_leaf.load(std::memory_order_acquire);
-            }
-            if (current_leaf_ != nullptr) {
-                current_slot_ = 0;
-                valid_ = true;
-            } else {
-                current_slot_ = -1;
-                valid_ = false;
-                break;
-            }
-        } else {
-            valid_ = true;
+        if (next_slot < static_cast<int>(count)) {
+            SetPosition(leaf, next_slot, v, next_entry);
+        } else if (!PositionAtEdge(leaf->next_leaf.load(std::memory_order_acquire), true)) {
+            break;
         }
     }
 
-    // Anchor the new position. ScanBatch advances the cursor exactly as Next()
-    // does, so it owes the same re-anchor: leaving the anchor on the entry the
-    // batch started from makes the next RevalidatePosition() see a version that
-    // no longer matches the leaf the cursor now sits in, and re-seek back to
-    // that starting entry. The documented `while (Valid()) ScanBatch(...)` loop
-    // then never advances -- it re-extracts the first batch forever (#769 added
-    // the anchor mechanism to Seek/Next/Prev but not here).
-    CaptureAnchor();
-
+    // The cursor is left anchored on the entry after the last one extracted,
+    // so the documented `while (Valid()) ScanBatch(...)` loop advances rather
+    // than re-extracting its first batch (#769 added the anchor mechanism to
+    // Seek/Next/Prev but not here).
+    EXPANSE_MEMTABLE_PARK(kScanBatchBeforeAnchor);
     return extracted;
 }
 

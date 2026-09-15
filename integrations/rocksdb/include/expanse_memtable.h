@@ -425,6 +425,19 @@ enum class ParkPoint : int {
     // Get, after a block's version bracket validated and its matches were
     // passed to the callback, before that block's next_leaf is loaded.
     kGetBeforeNextLeaf,
+    // The iterator: after each operation has chosen the position it moves the
+    // cursor to, and before the anchor on that position is captured.
+    kSeekBeforeAnchor,
+    kSeekForPrevBeforeAnchor,
+    kNextBeforeAnchor,
+    kPrevBeforeAnchor,
+    kSeekToFirstBeforeAnchor,
+    kSeekToLastBeforeAnchor,
+    kScanBatchBeforeAnchor,
+    // IteratorImpl::key() and Valid(), after RevalidatePosition() accepted the
+    // position and before the position is read.
+    kKeyAfterRevalidate,
+    kValidAfterRevalidate,
 };
 using ParkHook = void (*)(ParkPoint point);
 inline std::atomic<ParkHook> g_park_hook{nullptr};
@@ -539,9 +552,21 @@ public:
         mutable uint32_t anchor_version_{0};
         mutable const char* anchor_entry_{nullptr};
 
-        // Records the version and entry the cursor currently rests on. Called
-        // after every operation that establishes a position.
-        void CaptureAnchor() const;
+        // Puts the cursor on (leaf, slot), anchored on `entry` at `version`. The
+        // caller read the slot's entry and the version inside one validated
+        // version bracket, so the anchor names the entry the operation chose.
+        // Never reload either after the bracket: a shift in between anchors on
+        // a different entry.
+        void SetPosition(const LeafBlock* leaf, int slot, uint32_t version, const char* entry);
+
+        // No position: not valid, no anchor.
+        void ClearPosition();
+
+        // From `block` along next_leaf (forward) or prev_leaf (backward), the
+        // first block with an entry: the cursor goes to its first (forward) or
+        // last (backward) entry, read with the count inside that block's
+        // validated bracket. False, with no position, when there is none.
+        bool PositionAtEdge(const LeafBlock* block, bool forward);
 
         // True when the cursor still names the entry it was anchored on,
         // re-seeking to it first if the leaf changed underneath. False only
