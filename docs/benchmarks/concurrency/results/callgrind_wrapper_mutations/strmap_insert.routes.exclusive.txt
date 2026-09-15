@@ -1,0 +1,84 @@
+--------------------------------------------------------------------------------
+Profile data file '/t/iai/expanse-trie/instructions/cost/strmap_insert.routes/callgrind.strmap_insert.routes.out' (creator: callgrind-3.22.0)
+--------------------------------------------------------------------------------
+I1 cache: 32768 B, 64 B, 8-way associative
+D1 cache: 32768 B, 64 B, 8-way associative
+LL cache: 8388608 B, 64 B, 16-way associative
+Timerange: Basic block 0 - 21955419
+Trigger: Program termination
+Profiled target:  /t/release/deps/instructions-11b59920f9023368 --iai-run cost 25 0 instructions::cost::strmap_insert (PID 2212, part 1, thread 1)
+Events recorded:  Ir Dr Dw I1mr D1mr D1mw ILmr DLmr DLmw
+Events shown:     Ir Dr Dw I1mr D1mr D1mw ILmr DLmr DLmw
+Event sort order: Ir
+Thresholds:       100
+Include dirs:     
+User annotated:   
+Auto-annotation:  off
+
+--------------------------------------------------------------------------------
+Ir                  Dr                 Dw                 I1mr           D1mr             D1mw            ILmr         DLmr        DLmw            
+--------------------------------------------------------------------------------
+45,570,464 (100.0%) 9,618,068 (100.0%) 5,439,534 (100.0%) 5,757 (100.0%) 139,640 (100.0%) 22,086 (100.0%) 613 (100.0%) 27 (100.0%) 21,117 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                  Dr                 Dw                 I1mr           D1mr            D1mw            ILmr         DLmr       DLmw             file:function
+--------------------------------------------------------------------------------
+17,211,947 (37.77%) 3,631,336 (37.76%) 2,754,326 (50.64%)   365 ( 6.34%)    849 ( 0.61%)     10 ( 0.05%) 119 (19.41%) 6 (22.22%)      3 ( 0.01%)  ???:<expanse_trie::strmap::ExpanseStrMap>::insert [/t/release/deps/instructions-11b59920f9023368]
+ 7,990,283 (17.53%) 1,688,710 (17.56%)   260,640 ( 4.79%)   203 ( 3.53%)    104 ( 0.07%)      0           21 ( 3.43%) 6 (22.22%)      .           ???:expanse_trie::get::get_map_popcnt [/t/release/deps/instructions-11b59920f9023368]
+ 5,126,080 (11.25%)   982,717 (10.22%)   592,582 (10.89%)     4 ( 0.07%) 46,880 (33.57%)      6 ( 0.03%)   1 ( 0.16%) 0               6 ( 0.03%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+ 4,093,456 ( 8.98%) 1,045,391 (10.87%)   400,632 ( 7.37%)     1 ( 0.02%) 50,030 (35.83%)      0            1 ( 0.16%) .               .           ./malloc/./malloc/malloc.c:_int_free [/usr/lib/x86_64-linux-gnu/libc.so.6]
+ 2,745,036 ( 6.02%)   376,287 ( 3.91%)        64 ( 0.00%)    65 ( 1.13%)      0               0           23 ( 3.75%) .               .           ???:expanse_trie::leaf::search [/t/release/deps/instructions-11b59920f9023368]
+ 2,294,200 ( 5.03%)   434,963 ( 4.52%)   354,692 ( 6.52%) 2,577 (44.76%)    318 ( 0.23%)     33 ( 0.15%) 188 (30.67%) 6 (22.22%)      .           ???:expanse_trie::mutate_map::map_insert_with_path_flat::<false> [/t/release/deps/instructions-11b59920f9023368]
+ 1,577,920 ( 3.46%)   563,540 ( 5.86%)   338,126 ( 6.22%)     3 ( 0.05%)     38 ( 0.03%)      0            2 ( 0.33%) .               .           ./malloc/./malloc/malloc.c:free [/usr/lib/x86_64-linux-gnu/libc.so.6]
+ 1,378,837 ( 3.03%)   235,249 ( 2.45%)   131,087 ( 2.41%)   312 ( 5.42%)    169 ( 0.12%)  8,233 (37.28%)  19 ( 3.10%) 0           8,068 (38.21%)  ./malloc/./malloc/malloc.c:_int_malloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+ 1,100,050 ( 2.41%)   300,017 ( 3.12%)   200,016 ( 3.68%)     5 ( 0.09%) 37,508 (26.86%)      1 ( 0.00%)   5 ( 0.82%) .               .           ???:instructions::strmap_insert::__iai_callgrind_wrapper_mod::strmap_insert [/t/release/deps/instructions-11b59920f9023368]
+   564,120 ( 1.24%)   150,432 ( 1.56%)    75,196 ( 1.38%)     0              93 ( 0.07%)      1 ( 0.00%)   .          .               .           ./malloc/./malloc/malloc.c:malloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   496,970 ( 1.09%)    27,151 ( 0.28%)   237,301 ( 4.36%)    61 ( 1.06%)      1 ( 0.00%) 13,281 (60.13%)   0          0          12,993 (61.53%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   276,378 ( 0.61%)    54,030 ( 0.56%)    56,118 ( 1.03%)   293 ( 5.09%)    154 ( 0.11%)    128 ( 0.58%)  58 ( 9.46%) 3 (11.11%)      .           ???:expanse_trie::mutate_map::map_insert_with_path_flat::<false>'2 [/t/release/deps/instructions-11b59920f9023368]
+   231,435 ( 0.51%)    52,594 ( 0.55%)    24,555 ( 0.45%)   116 ( 2.01%)      0              63 ( 0.29%)   1 ( 0.16%) 0               4 ( 0.02%)  ./malloc/./malloc/malloc.c:calloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   169,059 ( 0.37%)         .                  .              .               .               .            .          .               .           ./malloc/./malloc/arena.c:free
+   138,188 ( 0.30%)    31,262 ( 0.33%)         0              6 ( 0.10%)  3,125 ( 2.24%)      0            6 ( 0.98%) .               .           ./string/../sysdeps/x86_64/multiarch/memcmp-avx2-movbe.S:__memcmp_avx2_movbe [/usr/lib/x86_64-linux-gnu/libc.so.6]
+    38,648 ( 0.08%)    19,324 ( 0.20%)         .              .               .               .            .          .               .           ./malloc/./malloc/malloc.c:alloc_perturb [/usr/lib/x86_64-linux-gnu/libc.so.6]
+    25,128 ( 0.06%)     4,500 ( 0.05%)     2,480 ( 0.05%)   161 ( 2.80%)     31 ( 0.02%)    219 ( 0.99%)   9 ( 1.47%) 1 ( 3.70%)      8 ( 0.04%)  ???:expanse_trie::mutate_map::read_map_leaf [/t/release/deps/instructions-11b59920f9023368]
+    24,800 ( 0.05%)     5,332 ( 0.06%)     2,480 ( 0.05%)    62 ( 1.08%)      1 ( 0.00%)      0            7 ( 1.14%) 1 ( 3.70%)      .           ???:expanse_trie::leaf::locate [/t/release/deps/instructions-11b59920f9023368]
+    12,556 ( 0.03%)         .                  .              .               .               .            .          .               .           ./malloc/./malloc/arena.c:malloc
+    10,506 ( 0.02%)         .                  .              .               .               .            .          .               .           ./malloc/../string/bits/string_fortified.h:calloc
+    10,407 ( 0.02%)     2,617 ( 0.03%)     2,378 ( 0.04%)   350 ( 6.08%)     67 ( 0.05%)     33 ( 0.15%)  30 ( 4.89%) .               .           ???:expanse_trie::mutate::upgrade_l7_to_b::<false> [/t/release/deps/instructions-11b59920f9023368]
+     7,424 ( 0.02%)     1,122 ( 0.01%)     1,485 ( 0.03%)   304 ( 5.28%)     61 ( 0.04%)      0           22 ( 3.59%) 2 ( 7.41%)      .           ???:expanse_trie::mutate_map::build_map_leaf::<false> [/t/release/deps/instructions-11b59920f9023368]
+     7,012 ( 0.02%)         .                  .              .               .               .            .          .               .           ./malloc/./malloc/arena.c:calloc
+     7,004 ( 0.02%)     3,502 ( 0.04%)         0              0               1 ( 0.00%)      .            .          .               .           ???:0x000000000489a740 [???]
+     5,267 ( 0.01%)       889 ( 0.01%)       411 ( 0.01%)    57 ( 0.99%)      0               0            5 ( 0.82%) .               .           ???:expanse_trie::mutate::linear_insert_slot [/t/release/deps/instructions-11b59920f9023368]
+     4,690 ( 0.01%)     1,190 ( 0.01%)       840 ( 0.02%)   114 ( 1.98%)      0               0            6 ( 0.98%) .               .           ./malloc/./malloc/malloc.c:_int_free_merge_chunk [/usr/lib/x86_64-linux-gnu/libc.so.6]
+     3,678 ( 0.01%)       469 ( 0.00%)       560 ( 0.01%)    38 ( 0.66%)      0              39 ( 0.18%)  10 ( 1.63%) 0              35 ( 0.17%)  ./malloc/./malloc/malloc.c:_int_memalign [/usr/lib/x86_64-linux-gnu/libc.so.6]
+     3,192 ( 0.01%)     1,368 ( 0.01%)       456 ( 0.01%)    40 ( 0.69%)      0               0            3 ( 0.49%) .               .           ./malloc/./malloc/malloc.c:unlink_chunk.isra.0 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+     2,958 ( 0.01%)       535 ( 0.01%)       155 ( 0.00%)   246 ( 4.27%)     62 ( 0.04%)      0           11 ( 1.79%) 2 ( 7.41%)      .           ???:expanse_trie::get::locate_slot_popcnt [/t/release/deps/instructions-11b59920f9023368]
+     2,761 ( 0.01%)     1,130 ( 0.01%)       735 ( 0.01%)    43 ( 0.75%)      7 ( 0.01%)      0            5 ( 0.82%) .               .           ./malloc/./malloc/malloc.c:_int_free_maybe_consolidate [/usr/lib/x86_64-linux-gnu/libc.so.6]
+     2,136 ( 0.00%)       804 ( 0.01%)     1,116 ( 0.02%)   112 ( 1.95%)     38 ( 0.03%)     34 ( 0.15%)  18 ( 2.94%) .               .           ???:expanse_trie::mutate::upgrade_l3_to_l7::<false> [/t/release/deps/instructions-11b59920f9023368]
+     2,069 ( 0.00%)       485 ( 0.01%)       354 ( 0.01%)    55 ( 0.96%)     61 ( 0.04%)      0            6 ( 0.98%) .               .           ./malloc/./malloc/malloc.c:malloc_consolidate [/usr/lib/x86_64-linux-gnu/libc.so.6]
+     1,715 ( 0.00%)       280 ( 0.00%)       175 ( 0.00%)    62 ( 1.08%)      0               2 ( 0.01%)   8 ( 1.31%) .               .           ./malloc/./malloc/malloc.c:_mid_memalign.isra.0 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+     1,425 ( 0.00%)       256 ( 0.00%)         0              3 ( 0.05%)      0               0            3 ( 0.49%) .               .           ???:expanse_trie::leaf::lower_bound_fixed::<7> [/t/release/deps/instructions-11b59920f9023368]
+     1,295 ( 0.00%)       210 ( 0.00%)       210 ( 0.00%)     4 ( 0.07%)      0               2 ( 0.01%)   3 ( 0.49%) .               .           ./malloc/./malloc/malloc.c:posix_memalign [/usr/lib/x86_64-linux-gnu/libc.so.6]
+       578 ( 0.00%)       102 ( 0.00%)       102 ( 0.00%)    12 ( 0.21%)      0               0            3 ( 0.49%) .               .           ???:__rustc::__rust_alloc_zeroed [/t/release/deps/instructions-11b59920f9023368]
+       496 ( 0.00%)       112 ( 0.00%)       152 ( 0.00%)    31 ( 0.54%)     10 ( 0.01%)      0            8 ( 1.31%) .               .           ???:expanse_trie::mutate::wrap_skip_level::<false> [/t/release/deps/instructions-11b59920f9023368]
+       300 ( 0.00%)        80 ( 0.00%)        50 ( 0.00%)    25 ( 0.43%)     30 ( 0.02%)      1 ( 0.00%)   .          .               .           ./misc/./misc/sbrk.c:sbrk [/usr/lib/x86_64-linux-gnu/libc.so.6]
+       120 ( 0.00%)        12 ( 0.00%)        22 ( 0.00%)    11 ( 0.19%)      0               0            5 ( 0.82%) .               .           ???:expanse_trie::mutate::write_decode [/t/release/deps/instructions-11b59920f9023368]
+       100 ( 0.00%)        30 ( 0.00%)        20 ( 0.00%)     9 ( 0.16%)      .               .            .          .               .           ./malloc/./malloc/morecore.c:__glibc_morecore [/usr/lib/x86_64-linux-gnu/libc.so.6]
+        70 ( 0.00%)         .                  .              .               .               .            .          .               .           ./malloc/./malloc/arena.c:_mid_memalign.isra.0
+        70 ( 0.00%)        20 ( 0.00%)        10 ( 0.00%)     .               .               .            .          .               .           ./misc/../sysdeps/unix/sysv/linux/brk.c:brk [/usr/lib/x86_64-linux-gnu/libc.so.6]
+        30 ( 0.00%)         7 ( 0.00%)         3 ( 0.00%)     3 ( 0.05%)      2 ( 0.00%)      0            3 ( 0.49%) .               .           ./malloc/./malloc/malloc.c:munmap_chunk [/usr/lib/x86_64-linux-gnu/libc.so.6]
+        30 ( 0.00%)        10 ( 0.00%)         4 ( 0.00%)     1 ( 0.02%)      0               0            1 ( 0.16%) .               .           ./malloc/./malloc/malloc.c:systrim.constprop.0 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+        20 ( 0.00%)         .                  .              .               .               .            .          .               .           ./misc/../sysdeps/unix/sysv/linux/brk_call.h:brk
+        14 ( 0.00%)         2 ( 0.00%)         1 ( 0.00%)     2 ( 0.03%)      0               0            2 ( 0.33%) .               .           ???:expanse_trie::bits::popcnt_rt::detect [/t/release/deps/instructions-11b59920f9023368]
+         6 ( 0.00%)         1 ( 0.00%)         0              1 ( 0.02%)      0               0            1 ( 0.16%) .               .           ./misc/../sysdeps/unix/syscall-template.S:munmap [/usr/lib/x86_64-linux-gnu/libc.so.6]
+         .                  .                  .              .               .               .            .          .               .           ./csu/../csu/libc-start.c:__libc_start_main@@GLIBC_2.34 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+         .                  .                  .              .               .               .            .          .               .           ./csu/../sysdeps/nptl/libc_start_call_main.h:(below main) [/usr/lib/x86_64-linux-gnu/libc.so.6]
+         .                  .                  .              .               .               .            .          .               .           ???:(below main) [/t/release/deps/instructions-11b59920f9023368]
+         .                  .                  .              .               .               .            .          .               .           ???:0x000000000001f540 [/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2]
+         .                  .                  .              .               .               .            .          .               .           ???:instructions::cost::__run [/t/release/deps/instructions-11b59920f9023368]
+         .                  .                  .              .               .               .            .          .               .           ???:instructions::main [/t/release/deps/instructions-11b59920f9023368]
+         .                  .                  .              .               .               .            .          .               .           ???:instructions::strmap_insert::routes [/t/release/deps/instructions-11b59920f9023368]
+         .                  .                  .              .               .               .            .          .               .           ???:main [/t/release/deps/instructions-11b59920f9023368]
+         .                  .                  .              .               .               .            .          .               .           ???:std::rt::lang_start::<()>::{closure#0} [/t/release/deps/instructions-11b59920f9023368]
+         .                  .                  .              .               .               .            .          .               .           ???:std::rt::lang_start_internal [/t/release/deps/instructions-11b59920f9023368]
+         .                  .                  .              .               .               .            .          .               .           ???:std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()> [/t/release/deps/instructions-11b59920f9023368]
+
