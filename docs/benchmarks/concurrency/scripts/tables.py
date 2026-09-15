@@ -25,6 +25,8 @@ Sections emitted, in README order:
   `scripts/c2c_ranking.py`
 - `12. Mixed read/write concurrency` from `results/baseline_concurrent_mixed.json`
   and its second run, `results/baseline_concurrent_mixed_run2.json`
+- `14. Wrapper mutation profiles` from the `callgrind_annotate` listings under
+  `results/callgrind_wrapper_mutations/` via `scripts/callgrind_wrapper_ranking.py`
 
 A missing artifact renders the section's rows as `pending` citing the open
 tracking issue, so the README is correct before the run exists and
@@ -823,6 +825,14 @@ def contention_ranking() -> list[str]:
     return c2c_ranking.render(runs, section="11.9")
 
 
+def wrapper_profiles() -> list[str]:
+    """README section 14, rendered by `scripts/callgrind_wrapper_ranking.py` (#929)."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import callgrind_wrapper_ranking
+
+    return callgrind_wrapper_ranking.render_committed()
+
+
 def main() -> int:
     import fine_grained_brackets_gate  # the §8 fine-grained write brackets verdicts, beside this file
     import multi_writer_olc_gate  # the §9 multi-writer OLC verdicts, beside this file
@@ -840,6 +850,7 @@ def main() -> int:
         writer_scaling_percell(),
         contention_ranking(),
         mixed_concurrency(),
+        wrapper_profiles(),
     ]
     print("\n\n".join("\n".join(b) for b in blocks))
     return 0
