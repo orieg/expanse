@@ -1002,3 +1002,75 @@ Threshold, margin, admissibility floor, method and round count are fixed here. C
 - **Mechanism:** of any ratio. The counters above are reported and decide nothing.
 - **32-bit targets:** the integration uses the 64-bit `expanse_map_t` and `expanse_sync_map_t` surface only.
 - **Another lock design:** a shared or reader-writer lock is not an arm here.
+
+#### 5.16.1 Amendment (2026-09-15) — the ThreadSanitizer ordering mechanism, and mutations 9–12
+
+Appended after §5.16 merged and before any optimistic-seek cell existed. §5.16's text above is not edited. This amendment replaces one mechanism §5.16 names and redefines the two mutations that test it. It records the implementation's verdicts on mutations 9 and 10. No gate, threshold, margin, admissibility floor, round count, cell, pin, run, estimator or voiding rule changes, and `scripts/rocksdb_locate_bound.py` computes nothing differently, so it is not edited (AGENTS.md §8.7, §8.19).
+
+**What §5.16 got wrong.** §5.16's "code-level fences instead" gives ThreadSanitizer the happens-before from a writer's publication of a block to a reader's loads of it through `std::atomic_thread_fence`. On the compiler the TSan lane uses, a fence is not instrumented:
+
+- **CI.** Under `-fsanitize=thread`, GCC warns at every fence. The TSan lane of `test-rocksdb-memtable` on `10876676`'s pull request ([run 35026035781](https://github.com/orieg/expanse/actions/runs/35026035781), job 104573249134, `ubuntu-latest`, libstdc++ 13 headers) printed 12 warnings. That is one per fence site in each of its two binaries:
+
+  ```
+  /usr/include/c++/13/bits/atomic_base.h:144:26: warning: ‘atomic_thread_fence’ is not supported with ‘-fsanitize=thread’ [-Wtsan]
+  ```
+
+- **The sites.** On `10876676` there are six fences, in `integrations/rocksdb/src/expanse_memtable.cc`:
+  - `SplitLeafBlock` (`:278`) and `Insert` (`:353`), release;
+  - `Contains` (`:424`), `Get` (`:553`), `GetAfterDelivered` (`:663`) and `IteratorImpl::Seek` (`:998`), acquire.
+
+  The optimistic-seek implementation as first built added three more: the two writer fences and the reader fence §5.16 places. GCC warned at all nine.
+- **Development evidence, not a committed artifact.** A two-thread program on the development x86_64 host:
+  - Setup: a writer constructs an object and publishes its address through `expanse_sync_map_insert`, and a reader loads a field of the object through a reader handle.
+  - Counts, over five runs each: 10 TSan reports with a release fence before the insert and an acquire fence after the read; 10 with neither; 0 when the address travels through a `std::atomic` release store and acquire load instead.
+  - Toolchains: the same three counts with g++ 13.3.0 (Ubuntu 24.04) and g++ 14.2.0 (Debian), each linked against a release `libexpanse.a`.
+- **Consequences.**
+  - The correct `kOptimistic` build with fences failed the TSan lane on the development host. There were 4 reports, all of one pair: a reader's `prev_leaf` load in `SettleSeekCandidate` against `SplitLeafBlock`'s construction of the block it loaded, from `TestHighConcurrencyOptimisticReaders` and G-O2 under `kOptimistic`.
+  - Deleting either fence, which is mutation 11 or 12 as §5.16 defines them, gave the same 4 reports, so neither mutation could show its fence was wired.
+  - The six fences already on `10876676` add no happens-before edge under TSan on this toolchain either. That concerns `kFullLocate` and `kTrieCall`, and this amendment does not change them.
+
+**The replacement: an atomic handoff.** It carries the ordering through an atomic that TSan instruments.
+
+- **Where it sits.** One `std::atomic<const LeafBlock*>` in the rep's `kOptimistic`-only state, the structure that also holds the sync map and the handle registry. It is not a member of the rep, so the layout and every `kFullLocate` and `kTrieCall` path are unchanged.
+- **Writer.** A release store of the block about to be published:
+  - in `SplitLeafBlock`, after the link stores and immediately before the split's `expanse_sync_map_insert`;
+  - in `Insert`, after the entry and count stores and immediately before the remap's `expanse_sync_map_insert`.
+- **Reader.** An acquire load of that atomic immediately after `expanse_sync_map_reader_prev_at_or_before` returns, before any load of the block it returned. Its value is not used.
+- **What it asserts.**
+  - The reader's load happens-before its loads of the block only because it follows the trie read.
+  - The writer's store happens-after the construction and link stores only because it precedes the insert that published the block.
+  - TSan models a release store to an atomic as publishing the writing thread's clock and an acquire load as absorbing it. The writer runs under `mutex_`, so a later store's clock dominates every earlier writer event, and one atomic serves every publication.
+  - Mutation 8 moves the insert away from the link and keeps the store immediately before the moved insert, so the edge exists only where the code's order does. That is the property §5.16 required of its fences.
+- **The fences it replaces** are removed from the `kOptimistic` paths. The six fences on `10876676` stay as they are.
+- **Cost.**
+  - **Store:** one per split or slot-0 insert, under `kOptimistic` only.
+  - **Load:** one per `kOptimistic` locate phase, on an atomic that each such store writes.
+  - **The default scope:** runs neither, which the single-threaded bound checks as before.
+  - **Wall clock:** what the load costs under a paced writer is part of what O1–O3 measure, and is not predicted.
+
+**Mutations 11 and 12, redefined.** They replace §5.16's items 11 and 12. Items 1–10 are unchanged.
+
+11. Delete the reader's acquire load and keep everything else: the TSan lane is expected to report.
+12. Delete both writer release stores and keep everything else: the TSan lane is expected to report.
+
+The correct build is expected to pass the TSan lane. A report on it is investigated, never suppressed, as §5.16 states.
+
+**Mutations 9 and 10: survivors, argued as not load-bearing.** Neither mutation was killed by G-O1–G-O6 or by the test aimed at mutation 8 in the implementation as first built. Under §5.16's survivor rule, each is recorded with the argument below. These are arguments, derived from the code and not tested, and no gate reads them.
+
+- **Mutation 9** stores `tail_` after the split's trie insert instead of before it.
+  - *Where `tail_` is read.* The locate phase reads `tail_` for one decision: whether `head_ == tail_`, in which case it returns `head_` without the trie read. `FindLeafBlockForInsert` reads it under `mutex_`, beside every writer.
+  - *Both branches are sound.* Returning `head_` is correct for any value of `tail_`, because `Get`, `Contains` and `IteratorImpl::Seek` step forward over `next_leaf` from wherever the locate ends. A split's link stores precede both its `tail_` store and its trie insert under either ordering, so every present key is reachable forward from `head_`. Consulting the trie is correct under either ordering too, because the trie's value names a block that is already linked.
+  - *Conclusion.* No read path relates the order of the `tail_` store to the order of the trie insert, so that ordering is not load-bearing for the locate phase. `IteratorImpl::SeekToLast` also reads `tail_`, but it does not read the trie, so this mutation does not change what it observes.
+- **Mutation 10** runs `Insert`'s slot-0 remap before its entry and count stores.
+  - *What the reader can then see.* A reader can read `p → B` while `B`'s smallest entry is still its old one, larger than the key being inserted.
+  - *The candidate is still a block in the chain.* `B` was linked before this insert began, and a remap names only the block `Insert` is writing. That is all `SettleSeekCandidate`'s invariants need of a candidate.
+  - *Invariant 3 still holds.* The block's `min_key` never increases: it is the old minimum until the store, then the smaller key.
+  - *The walk corrects the hint.* For a key committed before the read began that sorts below `B`'s current `min_key`, the backward walk steps to earlier blocks until one's `min_key` is at or below it, which mutation 1's kill shows is load-bearing. A key at or above it is in `B` or later and is reached forward. The key being inserted was not committed before the read began, so the read owes nothing for it, and `B`'s version bracket makes a scan of `B` retry across the stores.
+  - *Conclusion.* The remap's position relative to the entry stores is not load-bearing.
+
+**What does not change.**
+- §5.16's single-threaded bound, TLS relocation scan and call-graph check.
+- G-O1–G-O7, and mutations 1–10 as defined.
+- The survivor rule, the gates O1–O3 with their statistics, margin 0.02 and writer floor 0.99.
+- 78 rounds per cell, the pins and the four runs.
+- The artifacts, the voiding rules and what closure requires.
