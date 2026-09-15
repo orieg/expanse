@@ -102,6 +102,16 @@ applies METHODOLOGY section 5.12's acceptance rule over two runs. Nothing here
 chooses a shape after seeing the held-out cells; a shape that fails is
 reported, and the section says what follows.
 
+## Sizing the optimistic-seek arm
+
+METHODOLOGY section 5.16 gates `S_opt(7) / S_full(7)` on a direction, like
+section 5.14, and reports `S_opt(7) / S_trie(7)` without gating it.
+`optimistic_gate_sizing` fixes the rounds before any optimistic cell exists: the
+per-round spread of every round of the four section 5.15 runs
+(`optimistic_sizing_inputs`), a Student-t planning half-width
+(`sizing_relative_halfwidth`), and the fewest rounds at which a true gated
+ratio of `OPTIMISTIC_MDR_TARGET` would clear 1 (`rounds_for_detectable_ratio`).
+
 Usage:
     python3 scripts/rocksdb_locate_bound.py
     python3 scripts/rocksdb_locate_bound.py --writer-ops 1e6
@@ -431,6 +441,133 @@ def paired_ratio_relative_halfwidth(halfwidth_a: float, halfwidth_b: float) -> f
         if not (0.0 <= h < 1.0):
             raise ValueError(f"{name} must be in [0, 1), got {h!r}")
     return math.hypot(halfwidth_a, halfwidth_b)
+
+
+def _betacf(a: float, b: float, x: float) -> float:
+    """Continued fraction for the regularized incomplete beta function.
+
+    Modified Lentz evaluation, as in Press, Teukolsky, Vetterling & Flannery,
+    *Numerical Recipes*, 3rd ed. (2007), section 6.4 (`betacf`). Raises rather
+    than returning a partial sum when it does not converge (AGENTS.md 8.1).
+    """
+    fpmin = 1e-300
+    qab, qap, qam = a + b, a + 1.0, a - 1.0
+    c = 1.0
+    d = 1.0 - qab * x / qap
+    d = 1.0 / (d if abs(d) > fpmin else fpmin)
+    h = d
+    for m in range(1, 1001):
+        m2 = 2 * m
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        d = 1.0 / (d if abs(d) > fpmin else fpmin)
+        c = 1.0 + aa / c
+        c = c if abs(c) > fpmin else fpmin
+        h *= d * c
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        d = 1.0 / (d if abs(d) > fpmin else fpmin)
+        c = 1.0 + aa / c
+        c = c if abs(c) > fpmin else fpmin
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < 1e-15:
+            return h
+    raise ValueError(f"incomplete beta continued fraction did not converge (a={a}, b={b}, x={x})")
+
+
+def _regularized_incomplete_beta(a: float, b: float, x: float) -> float:
+    """`I_x(a, b)`, by the symmetry switch of *Numerical Recipes* 3rd ed. section 6.4."""
+    if not (a > 0 and b > 0):
+        raise ValueError(f"a and b must be positive, got {a!r}, {b!r}")
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    front = math.exp(math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b)
+                     + a * math.log(x) + b * math.log1p(-x))
+    if x < (a + 1.0) / (a + b + 2.0):
+        return front * _betacf(a, b, x) / a
+    return 1.0 - front * _betacf(b, a, 1.0 - x) / b
+
+
+def student_t_cdf(t: float, df: int) -> float:
+    """CDF of Student's t with `df` degrees of freedom.
+
+    `P(T <= t) = 1 - I_{df / (df + t^2)}(df / 2, 1 / 2) / 2` for `t >= 0`
+    (Abramowitz & Stegun, *Handbook of Mathematical Functions*, 26.7.1 with
+    26.5.27), and the reflection `1 - P(T <= -t)` below zero.
+    """
+    if df < 1:
+        raise ValueError(f"df must be >= 1, got {df!r}")
+    tail = 0.5 * _regularized_incomplete_beta(df / 2.0, 0.5, df / (df + t * t))
+    return 1.0 - tail if t >= 0 else tail
+
+
+def student_t_quantile(p: float, df: int) -> float:
+    """The `p` quantile of Student's t, by bisection on `student_t_cdf`.
+
+    Planning only: the gates are read on BCa intervals (AGENTS.md 8.4), and a
+    t interval over few rounds is wider than BCa's, so sizing with it errs on
+    the side of more rounds.
+    """
+    if not 0.5 <= p < 1.0:
+        raise ValueError(f"p must be in [0.5, 1), got {p!r}")
+    lo, hi = 0.0, 1.0
+    while student_t_cdf(hi, df) < p:
+        hi *= 2.0
+        if hi > 1e12:
+            raise ValueError(f"no bracket for the {p} quantile at df={df}")
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        if student_t_cdf(mid, df) < p:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
+def per_round_cv(values: list[float]) -> float:
+    """Sample coefficient of variation (`n - 1` standard deviation over the mean) of per-round values."""
+    if len(values) < 2:
+        raise ValueError(f"a spread needs at least two rounds, got {len(values)}")
+    mean = statistics.fmean(values)
+    if not mean > 0:
+        raise ValueError(f"per-round values must have a positive mean, got {mean!r}")
+    return statistics.stdev(values) / mean
+
+
+def sizing_relative_halfwidth(cv: float, rounds: int) -> float:
+    """Planning relative half-width of a mean of `rounds` per-round ratios with spread `cv`.
+
+    `t(0.975, rounds - 1) * cv / sqrt(rounds)`: the Student-t interval on a
+    mean, relative to the mean. The paired ratio is a mean over rounds, so its
+    relative half-width shrinks as `1 / sqrt(rounds)` at a fixed spread.
+    """
+    if cv < 0:
+        raise ValueError(f"cv must be non-negative, got {cv!r}")
+    if rounds < 3:
+        raise ValueError(f"BCa needs at least 3 rounds, got {rounds!r}")
+    return student_t_quantile(0.975, rounds - 1) * cv / math.sqrt(rounds)
+
+
+def rounds_for_detectable_ratio(cv: float, target_ratio: float, min_rounds: int = 3,
+                                max_rounds: int = 1000) -> int:
+    """Fewest rounds, at least `min_rounds`, whose projected lower bound clears 1 at `target_ratio`.
+
+    That is the smallest `n` with `min_detectable_ratio(sizing_relative_halfwidth(cv, n))`
+    at or below `target_ratio`. Raises when `max_rounds` does not reach it,
+    rather than returning the cap as if it did (AGENTS.md 8.1).
+    """
+    if not target_ratio > 1.0:
+        raise ValueError(f"target_ratio must be above 1, got {target_ratio!r}")
+    if min_rounds < 3:
+        raise ValueError(f"min_rounds must be >= 3, got {min_rounds!r}")
+    for n in range(min_rounds, max_rounds + 1):
+        h = sizing_relative_halfwidth(cv, n)
+        if h < 1.0 and min_detectable_ratio(h) <= target_ratio:
+            return n
+    raise ValueError(f"cv {cv!r} needs more than {max_rounds} rounds to resolve {target_ratio!r}")
 
 
 def queue_scaling(readers: int, locked_fraction: float, handoff: float,
@@ -794,6 +931,79 @@ NARROWED_CURVES = {label: (_RESULTS / f"baseline_concurrent_reads_narrowed_{labe
                    for label in NARROWED_PINS}
 NARROWED_RATIOS = ("T(1)", "S(2)", "S(4)", "S(7)")
 
+#: METHODOLOGY section 5.16 sizes the optimistic-seek arm from the four
+#: section 5.15 runs: the only committed artifacts that carry a scope other than
+#: `full`, and paired per-round ratios, for the gate cell (idle `R = 7`).
+OPTIMISTIC_SIZING_SOURCES = tuple(p for label in NARROWED_PINS for p in NARROWED_CURVES[label])
+#: The smallest true paired ratio section 5.16's gated ratio must be able to
+#: tell from 1. A choice, fixed before the sizing was computed, not a derivation.
+OPTIMISTIC_MDR_TARGET = 1.05
+#: The one ratio section 5.16 gates (O1). `opt/trie` (O2) is reported only and
+#: does not set the rounds.
+OPTIMISTIC_GATED_RATIO = "opt/full"
+#: Section 5.14's rounds per cell; section 5.16 never runs fewer.
+OPTIMISTIC_ROUNDS_FLOOR = 5
+
+
+def optimistic_sizing_inputs(path: Path) -> dict:
+    """Per-round spreads of the idle `R = 7` cell in one section 5.15 artifact, every round, no filtering.
+
+    `cv_full` and `cv_trie` are the per-round spreads of each scope's `S(7)`;
+    `cv_trie_over_full` is the spread of the paired per-round `S_trie(7) / S_full(7)`.
+    """
+    obj = json.loads(Path(path).read_text())
+    try:
+        full = obj["scaling_by_lock_scope"]["full"]["idle"]["S(7)"]["rounds_raw"]
+        trie = obj["scaling_by_lock_scope"]["trie"]["idle"]["S(7)"]["rounds_raw"]
+        ratio = obj["lock_scope_ratio"]["idle"]["S(7)"]["rounds_raw"]
+    except (KeyError, TypeError) as exc:
+        raise KeyError(f"{Path(path).name}: no idle S(7) per-round data for both scopes ({exc})") from exc
+    if not len(full) == len(trie) == len(ratio):
+        raise ValueError(f"{Path(path).name}: round counts differ (full {len(full)}, "
+                         f"trie {len(trie)}, ratio {len(ratio)})")
+    return {"name": Path(path).name, "rounds": len(ratio), "cv_full": per_round_cv(full),
+            "cv_trie": per_round_cv(trie), "cv_trie_over_full": per_round_cv(ratio)}
+
+
+def optimistic_gate_sizing(runs: list[dict], target: float = OPTIMISTIC_MDR_TARGET,
+                           floor: int = OPTIMISTIC_ROUNDS_FLOOR) -> dict:
+    """Planning spread, detectable ratio and rounds for section 5.16's gate and its reported ratio.
+
+    No run of the optimistic scope exists, so its per-round spread is stood in
+    for by the `trie` scope's, the other scope that does not hold `mutex_` over
+    the whole locate phase. That is an assumption, stated in section 5.16.
+
+    - `opt/full` (O1, the gated ratio): the larger, over every run, of the
+      measured paired spread of `trie/full` and the independent projection
+      `hypot(cv_trie, cv_full)`. It alone sets `rounds`.
+    - `opt/trie` (O2, reported and never gated): no paired analogue exists, so
+      the independent projection `hypot(cv_trie, cv_trie)`, the larger over
+      every run. Its detectable ratio at `rounds` is reported so that the
+      section can say what the reported interval can and cannot resolve.
+
+    `paired_ratio_relative_halfwidth` is the quadrature both projections use.
+    Independence is conservative for interleaved arms (its docstring), and the
+    largest run is taken, so the rounds are sized on the widest observed spread.
+    """
+    if not runs:
+        raise ValueError("sizing needs at least one run")
+    cvs = {
+        "opt/full": max(max(r["cv_trie_over_full"], paired_ratio_relative_halfwidth(r["cv_trie"], r["cv_full"]))
+                        for r in runs),
+        "opt/trie": max(paired_ratio_relative_halfwidth(r["cv_trie"], r["cv_trie"]) for r in runs),
+    }
+    out = {}
+    for name, cv in cvs.items():
+        h_floor = sizing_relative_halfwidth(cv, floor)
+        out[name] = {"cv": cv, "halfwidth_at_floor": h_floor,
+                     "mdr_at_floor": min_detectable_ratio(h_floor),
+                     "rounds_for_target": rounds_for_detectable_ratio(cv, target, min_rounds=floor)}
+    rounds = out[OPTIMISTIC_GATED_RATIO]["rounds_for_target"]
+    for v in out.values():
+        v["halfwidth_at_rounds"] = sizing_relative_halfwidth(v["cv"], rounds)
+        v["mdr_at_rounds"] = min_detectable_ratio(v["halfwidth_at_rounds"])
+    return {"target": target, "floor": floor, "rounds": rounds, "ratios": out}
+
 
 def load_locate_profile(path: Path) -> dict:
     """`locked_fraction` and `trie_fraction`, point and interval, from a locate profile.
@@ -946,6 +1156,7 @@ def render(arms: dict, writer_ops_per_s: float) -> str:
     lines.extend(render_model_check())
     lines.extend(render_gate_detectability())
     lines.extend(render_narrowed_verdicts())
+    lines.extend(render_optimistic_sizing())
     return "\n".join(lines)
 
 
@@ -1020,6 +1231,32 @@ def render_gate_detectability() -> list[str]:
         paired = paired_ratio_relative_halfwidth(h, h)
         out.append(f"    {path.name} {mode}: S(7) relative half-width {h:.2%} -> paired {paired:.2%}, "
                    f"lower bound clears 1 above a ratio of {min_detectable_ratio(paired):.4f}")
+    return out
+
+
+def render_optimistic_sizing() -> list[str]:
+    """Section 5.16's sizing, from every round of the four section 5.15 runs."""
+    out = ["", "  Optimistic-seek arm sizing (METHODOLOGY section 5.16), idle S(7), from section 5.15's runs:"]
+    missing = [p.name for p in OPTIMISTIC_SIZING_SOURCES if not p.is_file()]
+    if missing:
+        out.append(f"    not evaluable: missing {', '.join(missing)}")
+        return out
+    runs = [optimistic_sizing_inputs(p) for p in OPTIMISTIC_SIZING_SOURCES]
+    for r in runs:
+        out.append(f"    {r['name']}: {r['rounds']} rounds; per-round CV full {r['cv_full']:.4f}, "
+                   f"trie {r['cv_trie']:.4f}, paired trie/full {r['cv_trie_over_full']:.4f}; "
+                   f"hypot(trie, full) {paired_ratio_relative_halfwidth(r['cv_trie'], r['cv_full']):.4f}, "
+                   f"hypot(trie, trie) {paired_ratio_relative_halfwidth(r['cv_trie'], r['cv_trie']):.4f}")
+    s = optimistic_gate_sizing(runs)
+    for name, v in s["ratios"].items():
+        role = "gated (O1)" if name == OPTIMISTIC_GATED_RATIO else "reported, not gated (O2)"
+        out.append(f"    {name} [{role}]: planning CV {v['cv']:.4f}; at {s['floor']} rounds relative half-width "
+                   f"{v['halfwidth_at_floor']:.4f}, lower bound clears 1 above {v['mdr_at_floor']:.4f}; "
+                   f"{v['rounds_for_target']} rounds reach {s['target']:.2f}")
+    out.append(f"    rounds per cell: {s['rounds']} (set by {OPTIMISTIC_GATED_RATIO} alone); at that count " + "; ".join(
+        f"{name} clears 1 above {v['mdr_at_rounds']:.4f}" for name, v in s["ratios"].items()))
+    out.append(f"    t(0.975, {s['rounds'] - 1}) = {student_t_quantile(0.975, s['rounds'] - 1):.4f}; "
+               f"the gates themselves read BCa intervals")
     return out
 
 
@@ -1583,6 +1820,74 @@ def self_test() -> int:
             pass
         else:
             fails.append(f"{name}: did not raise")
+    # --- section 5.16 sizing ----------------------------------------------
+    # Student t 0.975 quantiles, against the standard table (Abramowitz &
+    # Stegun Table 26.10): df 1, 4, 9, 29.
+    check("t(0.975, 1)", student_t_quantile(0.975, 1), 12.7062047, tol=1e-6)
+    check("t(0.975, 4)", student_t_quantile(0.975, 4), 2.7764451, tol=1e-6)
+    check("t(0.975, 9)", student_t_quantile(0.975, 9), 2.2621572, tol=1e-6)
+    check("t(0.975, 29)", student_t_quantile(0.975, 29), 2.0452296, tol=1e-6)
+    check("t cdf is symmetric", student_t_cdf(-1.5, 7), 1.0 - student_t_cdf(1.5, 7), tol=1e-12)
+    check("t cdf at 0", student_t_cdf(0.0, 3), 0.5, tol=1e-12)
+    # per_round_cv by hand: [1, 2, 3] has mean 2 and n-1 sd 1.
+    check("per_round_cv([1, 2, 3])", per_round_cv([1.0, 2.0, 3.0]), 0.5, tol=1e-12)
+    # 2.7764451 * 0.05 / sqrt(5) = 0.0620832...
+    check("sizing_relative_halfwidth(0.05, 5)", sizing_relative_halfwidth(0.05, 5),
+          2.7764451 * 0.05 / math.sqrt(5.0), tol=1e-6)
+    n = rounds_for_detectable_ratio(0.05, 1.05, min_rounds=5)
+    if not (min_detectable_ratio(sizing_relative_halfwidth(0.05, n)) <= 1.05
+            < min_detectable_ratio(sizing_relative_halfwidth(0.05, n - 1))):
+        fails.append(f"rounds_for_detectable_ratio(0.05, 1.05) = {n} is not the fewest")
+    check("rounds floor holds", rounds_for_detectable_ratio(0.001, 1.05, min_rounds=5), 5)
+    for name, call in (
+        ("per_round_cv of one round", lambda: per_round_cv([1.0])),
+        ("sizing below 3 rounds", lambda: sizing_relative_halfwidth(0.05, 2)),
+        ("target at 1", lambda: rounds_for_detectable_ratio(0.05, 1.0)),
+        ("unreachable target", lambda: rounds_for_detectable_ratio(5.0, 1.0001, max_rounds=10)),
+    ):
+        try:
+            call()
+        except ValueError:
+            pass
+        else:
+            fails.append(f"{name}: did not raise")
+    # optimistic_gate_sizing takes the larger measured-or-projected spread for
+    # opt/full and the trie-trie projection for opt/trie, over every run.
+    runs = [{"name": "a", "rounds": 5, "cv_full": 0.03, "cv_trie": 0.04, "cv_trie_over_full": 0.06},
+            {"name": "b", "rounds": 5, "cv_full": 0.01, "cv_trie": 0.05, "cv_trie_over_full": 0.02}]
+    sz = optimistic_gate_sizing(runs)
+    check("opt/full planning cv", sz["ratios"]["opt/full"]["cv"], 0.06, tol=1e-12)
+    check("opt/trie planning cv", sz["ratios"]["opt/trie"]["cv"], math.hypot(0.05, 0.05), tol=1e-12)
+    # O1 alone sets the rounds; O2's wider spread must not.
+    check("rounds is the gated ratio's", sz["rounds"], sz["ratios"]["opt/full"]["rounds_for_target"])
+    if not sz["ratios"]["opt/trie"]["rounds_for_target"] > sz["rounds"]:
+        fails.append("the synthetic runs must make O2 need more rounds than O1, or the check above pins nothing")
+    check("O2 reported at O1's rounds", sz["ratios"]["opt/trie"]["halfwidth_at_rounds"],
+          sizing_relative_halfwidth(math.hypot(0.05, 0.05), sz["rounds"]), tol=1e-12)
+    # The committed sizing section 5.16 cites: 24 rounds for O1 at the 1.05 target.
+    committed_sizing = optimistic_gate_sizing([optimistic_sizing_inputs(p) for p in OPTIMISTIC_SIZING_SOURCES])
+    check("section 5.16 rounds", committed_sizing["rounds"], 24)
+    # The committed section 5.15 artifacts: every round is read.
+    committed = [optimistic_sizing_inputs(p) for p in OPTIMISTIC_SIZING_SOURCES]
+    check("section 5.15 runs read", len(committed), 4)
+    for r, p in zip(committed, OPTIMISTIC_SIZING_SOURCES):
+        raw = json.loads(p.read_text())["lock_scope_ratio"]["idle"]["S(7)"]["rounds_raw"]
+        check(f"{r['name']} rounds, unfiltered", r["rounds"], len(raw))
+        check(f"{r['name']} paired cv", r["cv_trie_over_full"], per_round_cv(raw), tol=1e-12)
+    import tempfile as _tempfile  # noqa: PLC0415 - self-test only
+    with _tempfile.TemporaryDirectory() as td:
+        bad = {"scaling_by_lock_scope": {"full": {"idle": {"S(7)": {"rounds_raw": [0.6, 0.61, 0.62]}}},
+                                         "trie": {"idle": {"S(7)": {"rounds_raw": [1.1, 1.0]}}}},
+               "lock_scope_ratio": {"idle": {"S(7)": {"rounds_raw": [1.8, 1.7, 1.9]}}}}
+        bp = Path(td) / "short.json"
+        bp.write_text(json.dumps(bad))
+        try:
+            optimistic_sizing_inputs(bp)
+        except ValueError:
+            pass
+        else:
+            fails.append("optimistic_sizing_inputs accepted scopes with different round counts")
+
     # load_locate_profile reads points and intervals, and refuses a share
     # without an interval.
     with tempfile.TemporaryDirectory() as td:
