@@ -1102,6 +1102,124 @@ class TestOrderedReadBounds(unittest.TestCase):
                 call()
 
 
+# --- #568 Step 2: sizing the 50/50 16-thread gate against the single-writer engine ---
+#
+# The gate (maintainer decision, 2026-09-14): the BCa 95% lower bound of the
+# per-round paired ratio head / baseline (`1edfa952`) of 50/50 total ops/s at
+# 16 threads is >= 1.5 on both `SyncExpanseMap` and `SyncExpanseSet`, in two
+# independent runs. The margin is a choice, not a derivation. These functions
+# only say how many rounds the instrument needs for that bound to be
+# resolvable, from the per-window spread the committed #935 artifacts carry.
+#
+# Source for the ratio spread: the delta method for a ratio of two random
+# variables (first-order Taylor expansion), e.g. Stuart & Ord, *Kendall's
+# Advanced Theory of Statistics*, Vol. 1: CV(A/B)^2 ~= CV_A^2 + CV_B^2
+# - 2 rho CV_A CV_B. The half-width uses the normal quantile as a planning
+# approximation; the gate itself is the BCa interval of the run (AGENTS.md §8.4).
+
+MIXED_ARTIFACTS = (
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "baseline_concurrent_mixed.json",
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "baseline_concurrent_mixed_run2.json",
+)
+STEP2_MARGIN = 1.5
+Z_95 = 1.959963984540054
+
+
+def ratio_cv(cv_a: float, cv_b: float, rho: float = 0.0) -> float:
+    """Coefficient of variation of A / B by the delta method (see the block comment)."""
+    if cv_a < 0 or cv_b < 0:
+        raise ValueError("coefficients of variation must be non-negative")
+    if not -1.0 <= rho <= 1.0:
+        raise ValueError("rho must be in [-1, 1]")
+    return math.sqrt(max(0.0, cv_a * cv_a + cv_b * cv_b - 2.0 * rho * cv_a * cv_b))
+
+
+def ratio_relative_halfwidth(cv: float, rounds: int, z: float = Z_95) -> float:
+    """Relative half-width of the mean of `rounds` paired ratios with spread `cv`."""
+    if cv < 0:
+        raise ValueError("cv must be non-negative")
+    if rounds < 2:
+        raise ValueError("rounds must be >= 2")
+    return z * cv / math.sqrt(rounds)
+
+
+def rounds_for_halfwidth(cv: float, halfwidth: float, z: float = Z_95) -> int:
+    """Fewest rounds whose relative half-width is at most `halfwidth`."""
+    if cv < 0:
+        raise ValueError("cv must be non-negative")
+    if not 0.0 < halfwidth < 1.0:
+        raise ValueError("halfwidth must be in (0, 1)")
+    return max(2, math.ceil((z * cv / halfwidth) ** 2))
+
+
+def ratio_needed_to_clear(bound: float, halfwidth: float) -> float:
+    """Smallest true ratio whose lower bound, at this relative half-width, reaches `bound`."""
+    if bound <= 0:
+        raise ValueError("bound must be positive")
+    if not 0.0 <= halfwidth < 1.0:
+        raise ValueError("halfwidth must be in [0, 1)")
+    return bound / (1.0 - halfwidth)
+
+
+def mixed_window_spread(engine_key: str, read_pct: int, threads: int, path: Path) -> dict[str, float]:
+    """Per-window total ops/s spread of one #935 mixed-concurrency cell (every window, no filtering)."""
+    data = json.loads(Path(path).read_text())
+    cells = [c for c in data["throughput"]
+             if c["engine_key"] == engine_key and c["read_pct"] == read_pct and c["threads"] == threads]
+    if len(cells) != 1:
+        raise ValueError(f"{path}: expected one {engine_key}/{read_pct}%/T={threads} cell, found {len(cells)}")
+    totals = [(r["read_ops"] + r["write_ops"]) / r["elapsed_s"] for r in cells[0]["rounds_raw"]]
+    if len(totals) < 2 or min(totals) <= 0:
+        raise ValueError(f"{path}: {engine_key}/{read_pct}%/T={threads} has no usable windows")
+    mean = statistics.fmean(totals)
+    sd = statistics.stdev(totals)
+    return {"n": len(totals), "mean": mean, "sd": sd, "cv": sd / mean}
+
+
+class TestStep2Sizing(unittest.TestCase):
+    def test_ratio_cv(self):
+        self.assertAlmostEqual(ratio_cv(0.25, 0.25), 0.3535533906, places=9)
+        self.assertAlmostEqual(ratio_cv(0.25, 0.25, rho=1.0), 0.0, places=12)
+        self.assertAlmostEqual(ratio_cv(0.03, 0.04), 0.05, places=12)
+
+    def test_halfwidth_and_rounds(self):
+        cv = ratio_cv(0.25, 0.25)
+        self.assertEqual(rounds_for_halfwidth(cv, 0.10), 49)
+        self.assertLessEqual(ratio_relative_halfwidth(cv, 49), 0.10)
+        self.assertGreater(ratio_relative_halfwidth(cv, 48), 0.10)
+        self.assertAlmostEqual(ratio_relative_halfwidth(0.05, 25), Z_95 * 0.01, places=12)
+
+    def test_ratio_needed_to_clear(self):
+        self.assertAlmostEqual(ratio_needed_to_clear(1.5, 0.10), 1.6666666667, places=9)
+        self.assertEqual(ratio_needed_to_clear(1.5, 0.0), 1.5)
+
+    def test_mixed_window_spread_reads_every_window(self):
+        rows = [{"read_ops": 50, "write_ops": 50, "elapsed_s": 1.0},
+                {"read_ops": 100, "write_ops": 100, "elapsed_s": 1.0},
+                {"read_ops": 150, "write_ops": 150, "elapsed_s": 1.0}]
+        art = {"throughput": [
+            {"engine_key": "map", "read_pct": 50, "threads": 16, "rounds_raw": rows},
+            {"engine_key": "map", "read_pct": 50, "threads": 1, "rounds_raw": rows[:2]},
+        ]}
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "a.json"
+            f.write_text(json.dumps(art))
+            got = mixed_window_spread("map", 50, 16, f)
+            self.assertEqual(got["n"], 3)
+            self.assertAlmostEqual(got["mean"], 200.0)
+            self.assertAlmostEqual(got["cv"], 0.5)
+            with self.assertRaises(ValueError):
+                mixed_window_spread("set", 50, 16, f)
+
+    def test_invalid_arguments_raise(self):
+        for call in (lambda: ratio_cv(-0.1, 0.1), lambda: ratio_cv(0.1, 0.1, rho=2.0),
+                     lambda: ratio_relative_halfwidth(0.1, 1), lambda: rounds_for_halfwidth(0.1, 0.0),
+                     lambda: rounds_for_halfwidth(0.1, 1.0), lambda: ratio_needed_to_clear(0.0, 0.1),
+                     lambda: ratio_needed_to_clear(1.5, 1.0)):
+            with self.assertRaises(ValueError):
+                call()
+
+
 def report() -> None:
     lt = line_transfer_ns()
     t_line = lt["median"]
@@ -1167,6 +1285,21 @@ def report() -> None:
         r = restart_ceiling(w, t_hold_set, 1e9 / 5.4e6)
         print(f"  restart ceiling at W={w} (measured set t_hold {t_hold_set:.1f} ns, t_op from 5.4 M/s, safety 2x): {r:.2f} restarts/op")
     print()
+    print()
+    print(f"#568 Step 2 sizing: 50/50 at 16 threads, gate = BCa lower bound of head/baseline >= {STEP2_MARGIN} (a choice)")
+    worst = 0.0
+    for path in MIXED_ARTIFACTS:
+        for eng in ("map", "set"):
+            for t in (1, 16):
+                sp = mixed_window_spread(eng, 50, t, path)
+                if t == 16:
+                    worst = max(worst, sp["cv"])
+                print(f"  {path.name} {eng} T={t}: {sp['n']} windows, mean {sp['mean']/1e6:.2f} M ops/s, per-window CV {sp['cv']:.3f}")
+    cv_r = ratio_cv(worst, worst)
+    print(f"  planning input: the largest T=16 CV ({worst:.3f}) for both builds, rho = 0 -> ratio CV {cv_r:.3f}")
+    for h in (0.15, 0.10):
+        n = rounds_for_halfwidth(cv_r, h)
+        print(f"  rounds for relative half-width {h:.2f}: {n}; a true ratio of {ratio_needed_to_clear(STEP2_MARGIN, h):.3f} clears the bound")
 
 
 if __name__ == "__main__":

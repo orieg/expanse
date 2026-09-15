@@ -586,3 +586,53 @@ The bound has no direction, so fewer instructions refute it just as more would. 
 On the reference host, the same change (#928) cost the 64-bit `SyncExpanseMap` reader throughput in `masstree_concurrent` with readers only, while instructions per read stayed flat. Per-thread reader counters placed the difference in `ld_blocks.store_forward` per read, and `perf record` on that event placed it in `walk_validated::<true>`. #949 inlines `walk_validated`, and its body carries the measurement: two interleaved runs with per-read counters. The figures are not repeated here because that measurement is diagnostic and has no committed artifact (AGENTS.md §8.7). What remains against the pre-#928 build after #949 has an unmeasured cause.
 
 **For the §12.4 runs.** Ordered reads go through the same `Shared::optimistic_read`. The P12.4 and P12.5 runs name the commit they measure relative to #949, and record `ld_blocks.store_forward` and cycles per read beside the §12.4 counters as diagnostics. They are not verdict inputs, and no bound or cell in §12.3–§12.5 changes.
+
+## 13. Pre-registration for #568 Steps 1–2 — the single-writer baseline and the 50/50 16-thread gate (appended 2026-09-14, locked before any baseline or gate run)
+
+#568's Gate section asks for a single-writer baseline on the stated workload shape (Step 1) and a pre-registered 50/50, 16-thread mixed-throughput gate whose BCa 95% lower bound clears that baseline by a stated margin (Step 2). Neither had text until this section. The bound functions are in `scripts/olc_bounds.py` (`ratio_cv`, `rounds_for_halfwidth`, `ratio_needed_to_clear`, `mixed_window_spread`), which read every input from the committed artifacts named below. Nothing here is rewritten in place once a run exists (AGENTS.md §8.7); a threshold, method or round count changed after a run relabels that run `INTERMEDIATE` (§8.19).
+
+### 13.1 What is compared
+
+- **Baseline build: `1edfa952`.** It is the last commit before `07f0de43`, which landed multi-writer optimistic lock coupling for `SyncExpanseSet` and `SyncExpanseMap`; `07f0de43` is its only descendant on that path (`git rev-list --count 1edfa952..07f0de43` is 1). Its measured half is Step 1's single-writer baseline.
+- **Head build:** `main` at run time, named in the artifact. It must contain #949, because the mixed cells include readers and #949 removes a reader stall the head would otherwise carry.
+- **One harness for both.** Both builds run the head's `crates/expanse/benches/concurrency.rs`; only `crates/expanse` differs. That file compiles unchanged against `1edfa952` (a `cargo bench -p expanse-trie --bench concurrency --no-run` build on the reference host).
+- **Arms and mix.** `map` (`SyncExpanseMap`) and `set` (`SyncExpanseSet`) at `EXPANSE_BENCH_WORKLOADS=50` (workload: `core_concurrency`): a 1M-draw prefill over a 2M keyspace; each operation reads with probability one half and otherwise inserts the drawn key when it is even and removes it when it is odd.
+
+### 13.2 Prior observations at lock time (mandatory disclosure)
+
+- **What was read.** #935's two head-only runs, `results/baseline_concurrent_mixed.json` and `results/baseline_concurrent_mixed_run2.json`, were read before this section was written. Their 50/50 cells at 16 threads averaged 62.52 and 62.23 M ops/s on `map` and 82.94 and 84.81 M ops/s on `set` *(measured: reference host — Intel Core i9-12900F, pin `0-15`, `76432c5c`; workload: `core_concurrency`)*. No baseline window of any kind has been measured, so no head/baseline ratio has been seen. Those artifacts size the rounds below and are not inputs to any verdict.
+- **An order effect in those runs.** In both runs and on both arms, the three lowest of the eighteen 16-thread windows are rounds 3, 9 and 15, and each of them opens its round directly after a 4-thread window (map 26–40 against 53–76 M ops/s for the other fifteen; set 56–64 against 67–106) (workload: `core_concurrency`; `results/baseline_concurrent_mixed.json`, `results/baseline_concurrent_mixed_run2.json`). The cause is unmeasured. The bench runs every window of a process over one prefilled structure, and head and baseline complete different numbers of operations per window, so an effect carried from one window to the next would not cancel in their ratio. That is why §13.3 gives every window its own process and prefill.
+
+### 13.3 Instrument and cells
+
+- **Two-build mode of `scripts/mixed_concurrency.py`**, landed and self-tested before any run. It builds the bench from the head tree and from `1edfa952` with the head's bench file, applies the core pin, and runs one process per window: `EXPANSE_BENCH_ENGINES` one arm, `EXPANSE_BENCH_THREADS` one thread count, `EXPANSE_BENCH_ROUNDS=1`, so every window starts from a fresh prefill.
+- **Cells.** Threads ∈ (1, 16) on `map` and `set`. 16 threads is the gate cell; 1 thread is the control.
+- **Rounds: 48 per run.** `rounds_for_halfwidth` gives 47 for a relative half-width of 0.10, taking the largest per-window CV of the 16-thread cells above (0.247) for both builds and no correlation between them (`python3 scripts/olc_bounds.py`); 48 is the next even count, so each build order occurs equally often.
+- **Order within a round.** Every (arm, threads, build) window once; the build order alternates between rounds (head first, then baseline first), and so does the thread order. A load snapshot is taken around every round (§8.17).
+- **Pin `0-15`,** as in the #935 runs, recorded in the artifact: sixteen threads on the eight P-cores' sixteen logical CPUs (AGENTS.md §8.20.5 step 0).
+- **Statistic.** Per arm and thread count, the per-round ratio head / baseline of total operations per second (read plus write operations over the window's own elapsed time), and the BCa 95% interval of its mean (`scripts/bca_bootstrap.py`, at least 1,000 resamples). Each build's own mean and BCa interval are published beside it; the baseline's is Step 1's figure.
+- **Two independent runs,** each in its own session from fresh builds (`docs/BENCHMARKING.md` rule 18).
+
+### 13.4 The gate and its verdicts
+
+- **Per arm, per run, at 16 threads:** `PASS` when the lower bound is at least 1.5; `REFUTED` when the upper bound is below 1.5; `INCONCLUSIVE` otherwise.
+- **#568's gate is met** when `map` and `set` both read `PASS` in both runs. A `REFUTED` on either arm in either run fails it. An `INCONCLUSIVE` leaves it unmet; a further run added to decide it is a change of sample size and relabels the result `INTERMEDIATE` (§8.19).
+- **The margin 1.5 is a choice fixed here, not a derivation.** At the planned relative half-width of 0.10 the true ratio must be at least 1.667 for the lower bound to reach 1.5 (`ratio_needed_to_clear`), so a real gain between 1.5 and about 1.67 can read `INCONCLUSIVE`. That is the instrument's resolution, stated before the runs.
+- **The 1-thread control** is reported with its interval and not gated: it is what the multi-writer path costs a single thread under this mix.
+- **P5.1–P5.4** stand as recorded in `docs/benchmarks/concurrency/README.md` §9; this section adds no P5 cell.
+
+### 13.5 What voids a cell
+
+§6 applies. In addition:
+
+- a round in which either build's process exits non-zero, or a window reports a thread count, arm or read percentage other than the one requested, is void;
+- a run is void if its head does not contain #949, if its baseline tree differs from `1edfa952` in anything but `crates/expanse/benches/concurrency.rs`, or if its artifact records a pin other than `0-15`.
+
+A run with any void round is discarded whole and re-run from fresh builds, and the discard is disclosed beside the result (§8.17).
+
+### 13.6 Explicitly not predicted
+
+- The 100% and 95% read mixes, and 2, 4 and 8 threads.
+- The string, bytes and blob wrappers (#929), and the `writer_scaling` throughput target (#930).
+- Any comparison with a third-party structure.
+- A magnitude beyond the gate's bound.
