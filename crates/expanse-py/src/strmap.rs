@@ -17,6 +17,7 @@ fn key_to_py(py: Python<'_>, bytes: &[u8]) -> Py<PyAny> {
     }
 }
 
+// abi-parity: expanse_strmap_free
 /// A sorted map from NUL-free byte strings / UTF-8 strings to 64-bit unsigned integers (compat: JudySL).
 ///
 /// Iteration order is byte-lexicographical. Keys are prefix-compressed across 8-byte word boundaries.
@@ -27,6 +28,7 @@ pub struct ExpanseStrMap {
 
 #[pymethods]
 impl ExpanseStrMap {
+    // abi-parity: expanse_strmap_new
     /// Creates an empty string map.
     #[new]
     pub fn new() -> Self {
@@ -35,6 +37,7 @@ impl ExpanseStrMap {
         }
     }
 
+    // abi-parity: expanse_strmap_len
     /// Number of strings stored in the map.
     pub fn __len__(&self) -> usize {
         self.inner.len() as usize
@@ -93,6 +96,7 @@ impl ExpanseStrMap {
         }
     }
 
+    // abi-parity: expanse_strmap_get
     /// Look up `key`, returning `default` (or None) if absent.
     #[pyo3(signature = (key, default=None))]
     pub fn get(&self, key: &Bound<'_, PyAny>, default: Option<u64>) -> PyResult<Option<u64>> {
@@ -100,12 +104,14 @@ impl ExpanseStrMap {
         Ok(self.inner.get(&k).or(default))
     }
 
+    // abi-parity: expanse_strmap_insert, expanse_strmap_slot, expanse_strmap_ins_slot
     /// Inserts `key -> val`; returns previous value, if any.
     pub fn insert(&mut self, key: &Bound<'_, PyAny>, val: u64) -> PyResult<Option<u64>> {
         let k = extract_str_key(key)?;
         Ok(self.inner.insert(&k, val))
     }
 
+    // abi-parity: expanse_strmap_remove
     /// Removes `key`; returns its value or None if missing.
     pub fn remove(&mut self, key: &Bound<'_, PyAny>) -> PyResult<Option<u64>> {
         let k = extract_str_key(key)?;
@@ -123,16 +129,19 @@ impl ExpanseStrMap {
         }
     }
 
+    // abi-parity: expanse_strmap_clear
     /// Removes all strings and frees allocated trie nodes.
     pub fn clear(&mut self) {
         self.inner.clear();
     }
 
+    // abi-parity: expanse_strmap_mem_used
     /// Heap bytes used by the prefix trie.
     pub fn mem_used(&self) -> usize {
         self.inner.mem_used()
     }
 
+    // abi-parity: expanse_strmap_first, expanse_strmap_first_ex
     /// Smallest entry `(key, value)` in byte-lexicographical order.
     ///
     /// The key is a `str` for UTF-8 keys, or `bytes` for non-UTF-8 keys.
@@ -143,6 +152,7 @@ impl ExpanseStrMap {
         Some((key_to_py(py, &bytes), val))
     }
 
+    // abi-parity: expanse_strmap_last, expanse_strmap_last_ex
     /// Largest entry `(key, value)` in byte-lexicographical order.
     ///
     /// The key is a `str` for UTF-8 keys, or `bytes` for non-UTF-8 keys.
@@ -176,6 +186,7 @@ impl ExpanseStrMap {
         }))
     }
 
+    // abi-parity: expanse_strmap_next_at_or_after, expanse_strmap_next_at_or_after_ex
     /// Smallest entry with key `>= key`.
     pub fn next_at_or_after(
         &mut self,
@@ -185,6 +196,7 @@ impl ExpanseStrMap {
         self.next(py, key, true)
     }
 
+    // abi-parity: expanse_strmap_next_after, expanse_strmap_next_after_ex
     /// Smallest entry with key `> key`.
     pub fn next_after(
         &mut self,
@@ -217,6 +229,7 @@ impl ExpanseStrMap {
         }))
     }
 
+    // abi-parity: expanse_strmap_prev_at_or_before, expanse_strmap_prev_at_or_before_ex
     /// Largest entry with key `<= key`.
     pub fn prev_at_or_before(
         &mut self,
@@ -226,6 +239,7 @@ impl ExpanseStrMap {
         self.prev(py, key, true)
     }
 
+    // abi-parity: expanse_strmap_prev_before, expanse_strmap_prev_before_ex
     /// Largest entry with key `< key`.
     pub fn prev_before(
         &mut self,

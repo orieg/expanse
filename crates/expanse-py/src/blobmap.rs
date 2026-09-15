@@ -6,6 +6,7 @@ use pyo3::exceptions::{PyIOError, PyKeyError, PyRuntimeError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
+// abi-parity: expanse_blob_map_free
 /// A high-performance map from 64-bit integer keys to arbitrary-length byte payloads
 /// backed by inline polymorphic 64-bit value slots and chunked slab arenas.
 #[pyclass(unsendable, module = "expanse_trie._expanse")]
@@ -15,6 +16,7 @@ pub struct ExpanseBlobMap {
 
 #[pymethods]
 impl ExpanseBlobMap {
+    // abi-parity: expanse_blob_map_new
     /// Creates an empty blob map, optionally with custom arena chunk size in bytes.
     #[new]
     #[pyo3(signature = (chunk_size=None))]
@@ -26,6 +28,7 @@ impl ExpanseBlobMap {
         Self { inner }
     }
 
+    // abi-parity: expanse_blob_map_len
     /// Number of entries stored in the map.
     pub fn __len__(&self) -> usize {
         self.inner.len() as usize
@@ -57,11 +60,13 @@ impl ExpanseBlobMap {
         self.inner.contains_key(key)
     }
 
+    // abi-parity: expanse_blob_map_contains_key
     /// Returns True if key exists in the map.
     pub fn contains_key(&self, key: u64) -> bool {
         self.inner.contains_key(key)
     }
 
+    // abi-parity: expanse_blob_map_insert
     /// Inserts a key-blob pair with optional 32-bit hot metadata.
     #[pyo3(signature = (key, data, hot_meta=0))]
     pub fn insert(&mut self, key: u64, data: &Bound<'_, PyAny>, hot_meta: u32) -> PyResult<()> {
@@ -71,6 +76,7 @@ impl ExpanseBlobMap {
             .map_err(|e| PyRuntimeError::new_err(format!("Blob allocation error: {e}")))
     }
 
+    // abi-parity: expanse_blob_map_get, expanse_blob_map_get_into
     /// Retrieves `(bytes_payload, hot_meta)` for a key, or None if absent.
     pub fn get<'py>(&self, py: Python<'py>, key: u64) -> Option<(Bound<'py, PyBytes>, u32)> {
         let (view, meta) = self.inner.get(key)?;
@@ -106,21 +112,25 @@ impl ExpanseBlobMap {
         }
     }
 
+    // abi-parity: expanse_blob_map_remove
     /// Removes a key from the map; returns True if key was present.
     pub fn remove(&mut self, key: u64) -> bool {
         self.inner.remove(key)
     }
 
+    // abi-parity: expanse_blob_map_clear
     /// Clears all entries and resets the slab arena.
     pub fn clear(&mut self) {
         self.inner.clear();
     }
 
+    // abi-parity: expanse_blob_map_mem_used
     /// Returns total heap memory used by index and slab arena.
     pub fn mem_used(&self) -> usize {
         self.inner.mem_used()
     }
 
+    // abi-parity: expanse_blob_map_compact
     /// Runs in-place garbage collection and compaction, returning
     /// `(live_bytes_before, live_bytes_after, total_allocated_before, total_allocated_after)`.
     pub fn compact(&mut self) -> PyResult<(usize, usize, usize, usize)> {
@@ -136,6 +146,7 @@ impl ExpanseBlobMap {
         ))
     }
 
+    // abi-parity: expanse_blob_map_scan_filtered
     /// Executes a range scan over keys in `[start_key, end_key]` with optional predicate filtering
     /// on 32-bit hot metadata.
     #[pyo3(signature = (start_key, end_key, predicate=None, callback=None))]

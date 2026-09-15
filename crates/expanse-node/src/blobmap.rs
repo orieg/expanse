@@ -8,6 +8,7 @@ use expanse_trie::slot::ValueSlot;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
+// abi-parity: expanse_blob_map_free
 /// A high-performance map from 64-bit integer keys to arbitrary-length byte payloads
 /// backed by inline polymorphic 64-bit value slots and chunked slab arenas.
 #[napi]
@@ -17,6 +18,7 @@ pub struct ExpanseBlobMap {
 
 #[napi]
 impl ExpanseBlobMap {
+    // abi-parity: expanse_blob_map_new
     /// Creates an empty blob map, optionally with custom arena chunk size in bytes.
     #[napi(constructor)]
     pub fn new(chunk_size: Option<u32>) -> Self {
@@ -27,6 +29,7 @@ impl ExpanseBlobMap {
         Self { inner }
     }
 
+    // abi-parity: expanse_blob_map_len
     /// Number of entries stored in the map.
     #[napi]
     pub fn size(&self) -> BigInt {
@@ -39,6 +42,7 @@ impl ExpanseBlobMap {
         self.inner.is_empty()
     }
 
+    // abi-parity: expanse_blob_map_contains_key
     /// Membership test `has(key)`. Returns `true` if `key` exists in the map.
     #[napi]
     pub fn has(&self, key: KeyInput) -> Result<bool> {
@@ -46,6 +50,7 @@ impl ExpanseBlobMap {
         Ok(self.inner.contains_key(k))
     }
 
+    // abi-parity: expanse_blob_map_insert
     /// Inserts a key-blob pair with optional 32-bit hot metadata.
     #[napi]
     pub fn set(&mut self, key: KeyInput, payload: BytesInput, hot_meta: Option<u32>) -> Result<()> {
@@ -57,6 +62,7 @@ impl ExpanseBlobMap {
             .map_err(|e| Error::new(Status::GenericFailure, format!("Blob insertion error: {e}")))
     }
 
+    // abi-parity: expanse_blob_map_get, expanse_blob_map_get_into
     /// Retrieves only the byte payload for `key`, or `null` if absent.
     #[napi]
     pub fn get(&self, key: KeyInput) -> Result<Option<Buffer>> {
@@ -78,6 +84,7 @@ impl ExpanseBlobMap {
         }))
     }
 
+    // abi-parity: expanse_blob_map_remove
     /// Deletes `key` from the map. Returns `true` if it was present, `false` otherwise.
     #[napi]
     pub fn delete(&mut self, key: KeyInput) -> Result<bool> {
@@ -85,18 +92,21 @@ impl ExpanseBlobMap {
         Ok(self.inner.remove(k))
     }
 
+    // abi-parity: expanse_blob_map_clear
     /// Clears all entries and resets the slab arena.
     #[napi]
     pub fn clear(&mut self) {
         self.inner.clear();
     }
 
+    // abi-parity: expanse_blob_map_mem_used
     /// Returns total heap memory used by index and slab arena.
     #[napi]
     pub fn mem_used(&self) -> BigInt {
         BigInt::from(self.inner.mem_used() as u64)
     }
 
+    // abi-parity: expanse_blob_map_scan_filtered
     /// Evaluates `predicate(key, hotMeta)` and deletes matching keys. Returns count of pruned entries.
     #[napi]
     pub fn prune(&mut self, predicate: Function<(BigInt, u32), bool>) -> Result<u32> {
@@ -120,6 +130,7 @@ impl ExpanseBlobMap {
         Ok(count)
     }
 
+    // abi-parity: expanse_blob_map_compact
     /// Runs in-place garbage collection and compaction, returning memory statistics.
     #[napi]
     pub fn compact(&mut self) -> Result<CompactionStatsResult> {

@@ -6,6 +6,7 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::sync::Arc;
 
+// abi-parity: expanse_sync_map_free
 /// A thread-safe concurrent 64-bit integer map with optimistic concurrency control (OCC).
 ///
 /// Lookups and scans execute on the optimistic path with epoch-based reclamation.
@@ -17,6 +18,7 @@ pub struct SyncExpanseMap {
 
 #[napi]
 impl SyncExpanseMap {
+    // abi-parity: expanse_sync_map_new
     /// Creates an empty concurrent map.
     #[napi(constructor)]
     pub fn new() -> Self {
@@ -25,6 +27,7 @@ impl SyncExpanseMap {
         }
     }
 
+    // abi-parity: expanse_sync_map_len
     /// Number of entries in the concurrent map.
     #[napi]
     pub fn size(&self) -> BigInt {
@@ -44,6 +47,7 @@ impl SyncExpanseMap {
         Ok(self.inner.get(k).is_some())
     }
 
+    // abi-parity: expanse_sync_map_insert
     /// Sets `map[key] = value`. Returns previous value if present, or `null`.
     #[napi]
     pub fn set(&self, key: KeyInput, value: KeyInput) -> Result<Option<BigInt>> {
@@ -52,6 +56,8 @@ impl SyncExpanseMap {
         Ok(self.inner.insert(k, v).map(BigInt::from))
     }
 
+    // abi-parity: expanse_sync_map_get, expanse_sync_map_reader_new
+    // abi-parity: expanse_sync_map_reader_free, expanse_sync_map_reader_get
     /// Optimistic retrieval of value for `key`, or `null` if absent.
     #[napi]
     pub fn get(&self, key: KeyInput) -> Result<Option<BigInt>> {
@@ -59,6 +65,7 @@ impl SyncExpanseMap {
         Ok(self.inner.get(k).map(BigInt::from))
     }
 
+    // abi-parity: expanse_sync_map_remove
     /// Deletes `key` from the map. Returns `true` if it was present, `false` otherwise.
     #[napi]
     pub fn delete(&self, key: KeyInput) -> Result<bool> {
@@ -190,6 +197,7 @@ impl Default for SyncExpanseMap {
     }
 }
 
+// abi-parity: expanse_sync_set_free
 /// A thread-safe concurrent 64-bit integer set with optimistic concurrency control (OCC).
 ///
 /// Membership lookups and scans execute on the optimistic path with epoch-based reclamation.
@@ -201,6 +209,7 @@ pub struct SyncExpanseSet {
 
 #[napi]
 impl SyncExpanseSet {
+    // abi-parity: expanse_sync_set_new
     /// Creates an empty concurrent set.
     #[napi(constructor)]
     pub fn new() -> Self {
@@ -209,6 +218,7 @@ impl SyncExpanseSet {
         }
     }
 
+    // abi-parity: expanse_sync_set_len
     /// Number of elements in the set.
     #[napi]
     pub fn size(&self) -> BigInt {
@@ -221,6 +231,8 @@ impl SyncExpanseSet {
         self.inner.is_empty()
     }
 
+    // abi-parity: expanse_sync_set_contains, expanse_sync_set_reader_new
+    // abi-parity: expanse_sync_set_reader_free, expanse_sync_set_reader_contains
     /// Optimistic membership test `has(key)`.
     #[napi]
     pub fn has(&self, key: KeyInput) -> Result<bool> {
@@ -228,6 +240,7 @@ impl SyncExpanseSet {
         Ok(self.inner.contains(k))
     }
 
+    // abi-parity: expanse_sync_set_insert
     /// Inserts `key` into the concurrent set. Returns `true` if newly inserted.
     #[napi]
     pub fn add(&self, key: KeyInput) -> Result<bool> {
@@ -235,6 +248,7 @@ impl SyncExpanseSet {
         Ok(self.inner.insert(k))
     }
 
+    // abi-parity: expanse_sync_set_remove
     /// Removes `key` from the concurrent set. Returns `true` if it was present.
     #[napi]
     pub fn remove(&self, key: KeyInput) -> Result<bool> {

@@ -5,6 +5,7 @@ use expanse_trie::bytesmap::ExpanseBytesMap as InnerBytesMap;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
+// abi-parity: expanse_bytesmap_free
 /// A sparse, dynamic map from arbitrary byte keys (including NUL bytes) to 64-bit unsigned integers (compat: JudyHS).
 #[napi]
 pub struct ExpanseBytesMap {
@@ -13,6 +14,7 @@ pub struct ExpanseBytesMap {
 
 #[napi]
 impl ExpanseBytesMap {
+    // abi-parity: expanse_bytesmap_new
     /// Creates an empty byte map.
     #[napi(constructor)]
     pub fn new() -> Self {
@@ -21,6 +23,7 @@ impl ExpanseBytesMap {
         }
     }
 
+    // abi-parity: expanse_bytesmap_len
     /// Number of entries stored in the map.
     #[napi]
     pub fn size(&self) -> BigInt {
@@ -40,6 +43,7 @@ impl ExpanseBytesMap {
         self.inner.contains_key(bytes)
     }
 
+    // abi-parity: expanse_bytesmap_insert, expanse_bytesmap_slot, expanse_bytesmap_ins_slot
     /// Sets `map[key] = value`. Returns previous value as BigInt if present, or `null`.
     #[napi]
     pub fn set(&mut self, key: BytesInput, value: KeyInput) -> Result<Option<BigInt>> {
@@ -48,6 +52,7 @@ impl ExpanseBytesMap {
         Ok(self.inner.insert(bytes, v).map(BigInt::from))
     }
 
+    // abi-parity: expanse_bytesmap_get
     /// Gets the value for `key`, or `null` if absent.
     #[napi]
     pub fn get(&self, key: BytesInput) -> Option<BigInt> {
@@ -55,6 +60,7 @@ impl ExpanseBytesMap {
         self.inner.get(bytes).map(BigInt::from)
     }
 
+    // abi-parity: expanse_bytesmap_remove
     /// Deletes `key` from the map. Returns `true` if it was present, `false` otherwise.
     #[napi]
     pub fn delete(&mut self, key: BytesInput) -> bool {
@@ -62,12 +68,14 @@ impl ExpanseBytesMap {
         self.inner.remove(bytes).is_some()
     }
 
+    // abi-parity: expanse_bytesmap_clear
     /// Removes all entries and releases memory.
     #[napi]
     pub fn clear(&mut self) {
         self.inner.clear();
     }
 
+    // abi-parity: expanse_bytesmap_mem_used
     /// Heap bytes used by the hash trie and buckets.
     #[napi]
     pub fn mem_used(&self) -> BigInt {

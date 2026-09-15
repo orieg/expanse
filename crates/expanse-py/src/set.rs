@@ -5,6 +5,7 @@ use expanse_trie::set::ExpanseSet as InnerSet;
 use pyo3::exceptions::PyKeyError;
 use pyo3::prelude::*;
 
+// abi-parity: expanse_set_free
 /// A sparse, dynamic 64-bit unsigned integer set (compat: Judy1).
 #[pyclass(unsendable, module = "expanse_trie._expanse")]
 pub struct ExpanseSet {
@@ -13,6 +14,7 @@ pub struct ExpanseSet {
 
 #[pymethods]
 impl ExpanseSet {
+    // abi-parity: expanse_set_new
     /// Creates an empty set, optionally initialized from an iterable of integers.
     #[new]
     #[pyo3(signature = (iterable=None))]
@@ -27,6 +29,7 @@ impl ExpanseSet {
         Ok(Self { inner: set })
     }
 
+    // abi-parity: expanse_set_len
     /// Number of elements in the set.
     pub fn __len__(&self) -> usize {
         self.inner.len() as usize
@@ -49,6 +52,7 @@ impl ExpanseSet {
         !self.inner.is_empty()
     }
 
+    // abi-parity: expanse_set_contains
     /// Membership test `key in set`.
     pub fn __contains__(&self, key: u64) -> bool {
         self.inner.contains(key)
@@ -59,6 +63,7 @@ impl ExpanseSet {
         self.inner.contains(key)
     }
 
+    // abi-parity: expanse_set_contains_batch
     /// Checks membership for a batch of keys, returning a list of bools.
     pub fn contains_batch(&self, keys: Vec<u64>) -> Vec<bool> {
         let mut out = vec![false; keys.len()];
@@ -66,6 +71,7 @@ impl ExpanseSet {
         out
     }
 
+    // abi-parity: expanse_set_insert
     /// Inserts `key` into the set; returns `True` if it was not present.
     pub fn insert(&mut self, key: u64) -> bool {
         self.inner.insert(key)
@@ -76,6 +82,7 @@ impl ExpanseSet {
         self.inner.insert(key)
     }
 
+    // abi-parity: expanse_set_remove
     /// Removes `key` from the set; returns `True` if it was present, `False` otherwise.
     pub fn remove(&mut self, key: u64) -> bool {
         self.inner.remove(key)
@@ -97,11 +104,13 @@ impl ExpanseSet {
         }
     }
 
+    // abi-parity: expanse_set_clear
     /// Removes all elements from the set.
     pub fn clear(&mut self) {
         self.inner.clear();
     }
 
+    // abi-parity: expanse_set_mem_used
     /// Heap bytes used by the set allocations.
     pub fn mem_used(&self) -> usize {
         self.inner.mem_used()
@@ -112,11 +121,13 @@ impl ExpanseSet {
         self.inner.total_node_allocs()
     }
 
+    // abi-parity: expanse_set_first
     /// Smallest element in the set.
     pub fn first(&self) -> Option<u64> {
         self.inner.first()
     }
 
+    // abi-parity: expanse_set_last
     /// Largest element in the set.
     pub fn last(&self) -> Option<u64> {
         self.inner.last()
@@ -132,11 +143,13 @@ impl ExpanseSet {
         }
     }
 
+    // abi-parity: expanse_set_next_at_or_after
     /// Smallest element with key `>= key`.
     pub fn next_at_or_after(&self, key: u64) -> Option<u64> {
         self.inner.next_at_or_after(key)
     }
 
+    // abi-parity: expanse_set_next_after
     /// Smallest element with key `> key`.
     pub fn next_after(&self, key: u64) -> Option<u64> {
         self.inner.next_after(key)
@@ -152,26 +165,31 @@ impl ExpanseSet {
         }
     }
 
+    // abi-parity: expanse_set_prev_at_or_before
     /// Largest element with key `<= key`.
     pub fn prev_at_or_before(&self, key: u64) -> Option<u64> {
         self.inner.prev_at_or_before(key)
     }
 
+    // abi-parity: expanse_set_prev_before
     /// Largest element with key `< key`.
     pub fn prev_before(&self, key: u64) -> Option<u64> {
         self.inner.prev_before(key)
     }
 
+    // abi-parity: expanse_set_count_below
     /// Number of keys strictly below `key` (rank).
     pub fn count_below(&self, key: u64) -> u64 {
         self.inner.count_below(key)
     }
 
+    // abi-parity: expanse_set_by_count
     /// The element with `index` keys below it (0-based select).
     pub fn by_count(&self, index: u64) -> Option<u64> {
         self.inner.by_count(index)
     }
 
+    // abi-parity: expanse_set_count_range
     /// Number of keys in the range `[start, end]`.
     pub fn count_range(&self, start: u64, end: u64) -> u64 {
         self.inner.count_range(start..=end)

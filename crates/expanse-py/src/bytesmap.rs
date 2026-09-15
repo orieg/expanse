@@ -7,6 +7,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use pyo3::types::PyDictMethods;
 
+// abi-parity: expanse_bytesmap_free
 /// A sparse, dynamic, unordered map from arbitrary byte keys (including NUL bytes) to 64-bit unsigned integers (compat: JudyHS).
 #[pyclass(unsendable, module = "expanse_trie._expanse")]
 pub struct ExpanseBytesMap {
@@ -15,6 +16,7 @@ pub struct ExpanseBytesMap {
 
 #[pymethods]
 impl ExpanseBytesMap {
+    // abi-parity: expanse_bytesmap_new
     /// Creates an empty byte map.
     #[new]
     pub fn new() -> Self {
@@ -23,6 +25,7 @@ impl ExpanseBytesMap {
         }
     }
 
+    // abi-parity: expanse_bytesmap_len
     /// Number of entries stored in the map.
     pub fn __len__(&self) -> usize {
         self.inner.len() as usize
@@ -81,6 +84,7 @@ impl ExpanseBytesMap {
         }
     }
 
+    // abi-parity: expanse_bytesmap_get
     /// Look up `key`, returning `default` (or None) if absent.
     #[pyo3(signature = (key, default=None))]
     pub fn get(&self, key: &Bound<'_, PyAny>, default: Option<u64>) -> PyResult<Option<u64>> {
@@ -88,12 +92,14 @@ impl ExpanseBytesMap {
         Ok(self.inner.get(&k).or(default))
     }
 
+    // abi-parity: expanse_bytesmap_insert, expanse_bytesmap_slot, expanse_bytesmap_ins_slot
     /// Inserts `key -> val`; returns previous value, if any.
     pub fn insert(&mut self, key: &Bound<'_, PyAny>, val: u64) -> PyResult<Option<u64>> {
         let k = extract_bytes_key(key)?;
         Ok(self.inner.insert(&k, val))
     }
 
+    // abi-parity: expanse_bytesmap_remove
     /// Removes `key`; returns its value or None if missing.
     pub fn remove(&mut self, key: &Bound<'_, PyAny>) -> PyResult<Option<u64>> {
         let k = extract_bytes_key(key)?;
@@ -111,11 +117,13 @@ impl ExpanseBytesMap {
         }
     }
 
+    // abi-parity: expanse_bytesmap_clear
     /// Removes all entries and releases memory.
     pub fn clear(&mut self) {
         self.inner.clear();
     }
 
+    // abi-parity: expanse_bytesmap_mem_used
     /// Heap bytes used by the hash trie and buckets.
     pub fn mem_used(&self) -> usize {
         self.inner.mem_used()

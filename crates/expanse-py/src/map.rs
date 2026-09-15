@@ -6,6 +6,7 @@ use pyo3::exceptions::PyKeyError;
 use pyo3::prelude::*;
 use pyo3::types::PyDictMethods;
 
+// abi-parity: expanse_map_free
 /// A sparse, dynamic 64-bit unsigned integer map (compat: JudyL).
 #[pyclass(unsendable, module = "expanse_trie._expanse")]
 pub struct ExpanseMap {
@@ -14,6 +15,7 @@ pub struct ExpanseMap {
 
 #[pymethods]
 impl ExpanseMap {
+    // abi-parity: expanse_map_new
     /// Creates an empty map, optionally initialized from a dict or iterable of `(key, value)` pairs.
     #[new]
     #[pyo3(signature = (items=None))]
@@ -37,6 +39,7 @@ impl ExpanseMap {
         Ok(Self { inner: map })
     }
 
+    // abi-parity: expanse_map_len
     /// Number of entries in the map.
     pub fn __len__(&self) -> usize {
         self.inner.len() as usize
@@ -92,12 +95,14 @@ impl ExpanseMap {
         }
     }
 
+    // abi-parity: expanse_map_get
     /// Look up `key`, returning `default` (or None) if absent.
     #[pyo3(signature = (key, default=None))]
     pub fn get(&self, key: u64, default: Option<u64>) -> Option<u64> {
         self.inner.get(key).or(default)
     }
 
+    // abi-parity: expanse_map_get_batch
     /// Looks up a batch of keys, returning a list of values (or None for absent keys).
     pub fn get_batch(&self, keys: Vec<u64>) -> Vec<Option<u64>> {
         let mut out = vec![None; keys.len()];
@@ -105,11 +110,13 @@ impl ExpanseMap {
         out
     }
 
+    // abi-parity: expanse_map_insert, expanse_map_slot, expanse_map_ins_slot
     /// Inserts `key -> val`; returns the previous value, if any.
     pub fn insert(&mut self, key: u64, val: u64) -> Option<u64> {
         self.inner.insert(key, val)
     }
 
+    // abi-parity: expanse_map_remove
     /// Removes `key`; returns its value or None if missing.
     pub fn remove(&mut self, key: u64) -> Option<u64> {
         self.inner.remove(key)
@@ -126,11 +133,13 @@ impl ExpanseMap {
         }
     }
 
+    // abi-parity: expanse_map_clear
     /// Removes all entries from the map.
     pub fn clear(&mut self) {
         self.inner.clear();
     }
 
+    // abi-parity: expanse_map_mem_used
     /// Heap bytes used by the map allocations.
     pub fn mem_used(&self) -> usize {
         self.inner.mem_used()
@@ -141,11 +150,13 @@ impl ExpanseMap {
         self.inner.total_node_allocs()
     }
 
+    // abi-parity: expanse_map_first
     /// Smallest entry `(key, value)` in the map.
     pub fn first(&self) -> Option<(u64, u64)> {
         self.inner.first()
     }
 
+    // abi-parity: expanse_map_last
     /// Largest entry `(key, value)` in the map.
     pub fn last(&self) -> Option<(u64, u64)> {
         self.inner.last()
@@ -161,11 +172,13 @@ impl ExpanseMap {
         }
     }
 
+    // abi-parity: expanse_map_next_at_or_after
     /// Smallest entry with key `>= key`.
     pub fn next_at_or_after(&self, key: u64) -> Option<(u64, u64)> {
         self.inner.next_at_or_after(key)
     }
 
+    // abi-parity: expanse_map_next_after
     /// Smallest entry with key `> key`.
     pub fn next_after(&self, key: u64) -> Option<(u64, u64)> {
         self.inner.next_after(key)
@@ -181,26 +194,31 @@ impl ExpanseMap {
         }
     }
 
+    // abi-parity: expanse_map_prev_at_or_before
     /// Largest entry with key `<= key`.
     pub fn prev_at_or_before(&self, key: u64) -> Option<(u64, u64)> {
         self.inner.prev_at_or_before(key)
     }
 
+    // abi-parity: expanse_map_prev_before
     /// Largest entry with key `< key`.
     pub fn prev_before(&self, key: u64) -> Option<(u64, u64)> {
         self.inner.prev_before(key)
     }
 
+    // abi-parity: expanse_map_count_below
     /// Number of keys strictly below `key` (rank).
     pub fn count_below(&self, key: u64) -> u64 {
         self.inner.count_below(key)
     }
 
+    // abi-parity: expanse_map_by_count
     /// The entry `(key, value)` with `index` keys below it (0-based select).
     pub fn by_count(&self, index: u64) -> Option<(u64, u64)> {
         self.inner.by_count(index)
     }
 
+    // abi-parity: expanse_map_count_range
     /// Number of keys in the range `[start, end]`.
     pub fn count_range(&self, start: u64, end: u64) -> u64 {
         self.inner.count_range(start..=end)

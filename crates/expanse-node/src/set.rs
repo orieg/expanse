@@ -5,6 +5,7 @@ use expanse_trie::set::ExpanseSet as InnerSet;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
+// abi-parity: expanse_set_free
 /// A sparse, dynamic 64-bit unsigned integer set (compat: Judy1).
 ///
 /// Built on a 256-ary adaptive digital trie with cache-line-tuned node
@@ -16,6 +17,7 @@ pub struct ExpanseSet {
 
 #[napi]
 impl ExpanseSet {
+    // abi-parity: expanse_set_new
     /// Creates an empty set, optionally initialized from an array of keys.
     #[napi(constructor)]
     pub fn new(keys: Option<Vec<KeyInput>>) -> Result<Self> {
@@ -29,6 +31,7 @@ impl ExpanseSet {
         Ok(Self { inner })
     }
 
+    // abi-parity: expanse_set_len
     /// Number of elements in the set.
     #[napi]
     pub fn size(&self) -> BigInt {
@@ -41,6 +44,7 @@ impl ExpanseSet {
         self.inner.is_empty()
     }
 
+    // abi-parity: expanse_set_contains
     /// Membership test `has(key)`. Returns `true` if `key` is present in the set.
     #[napi]
     pub fn has(&self, key: KeyInput) -> Result<bool> {
@@ -48,6 +52,7 @@ impl ExpanseSet {
         Ok(self.inner.contains(k))
     }
 
+    // abi-parity: expanse_set_contains_batch
     /// Checks membership for a batch of keys, returning an array of booleans.
     #[napi]
     pub fn contains_batch(&self, keys: Vec<KeyInput>) -> Result<Vec<bool>> {
@@ -60,6 +65,7 @@ impl ExpanseSet {
         Ok(out)
     }
 
+    // abi-parity: expanse_set_insert
     /// Inserts `key` into the set. Returns `true` if newly inserted, `false` if already present.
     #[napi]
     pub fn add(&mut self, key: KeyInput) -> Result<bool> {
@@ -67,6 +73,7 @@ impl ExpanseSet {
         Ok(self.inner.insert(k))
     }
 
+    // abi-parity: expanse_set_remove
     /// Removes `key` from the set. Returns `true` if it was present, `false` otherwise.
     #[napi]
     pub fn remove(&mut self, key: KeyInput) -> Result<bool> {
@@ -74,30 +81,35 @@ impl ExpanseSet {
         Ok(self.inner.remove(k))
     }
 
+    // abi-parity: expanse_set_clear
     /// Removes all elements from the set.
     #[napi]
     pub fn clear(&mut self) {
         self.inner.clear();
     }
 
+    // abi-parity: expanse_set_mem_used
     /// Heap bytes used by the trie allocations.
     #[napi]
     pub fn mem_used(&self) -> BigInt {
         BigInt::from(self.inner.mem_used() as u64)
     }
 
+    // abi-parity: expanse_set_first
     /// Smallest element in the set, or `null` if empty.
     #[napi]
     pub fn first(&self) -> Option<BigInt> {
         self.inner.first().map(BigInt::from)
     }
 
+    // abi-parity: expanse_set_last
     /// Largest element in the set, or `null` if empty.
     #[napi]
     pub fn last(&self) -> Option<BigInt> {
         self.inner.last().map(BigInt::from)
     }
 
+    // abi-parity: expanse_set_next_at_or_after, expanse_set_next_after
     /// Smallest element strictly `> key` (or `>= key` if `inclusive` is `true`).
     #[napi]
     pub fn next(&self, key: KeyInput, inclusive: Option<bool>) -> Result<Option<BigInt>> {
@@ -110,6 +122,7 @@ impl ExpanseSet {
         Ok(val.map(BigInt::from))
     }
 
+    // abi-parity: expanse_set_prev_at_or_before, expanse_set_prev_before
     /// Largest element strictly `< key` (or `<= key` if `inclusive` is `true`).
     #[napi]
     pub fn prev(&self, key: KeyInput, inclusive: Option<bool>) -> Result<Option<BigInt>> {
@@ -122,6 +135,7 @@ impl ExpanseSet {
         Ok(val.map(BigInt::from))
     }
 
+    // abi-parity: expanse_set_count_below
     /// Number of keys strictly below `key` (rank).
     #[napi]
     pub fn rank(&self, key: KeyInput) -> Result<BigInt> {
@@ -129,6 +143,7 @@ impl ExpanseSet {
         Ok(BigInt::from(self.inner.count_below(k)))
     }
 
+    // abi-parity: expanse_set_by_count
     /// The element with `k` keys below it (0-based select), or `null` if out of bounds.
     #[napi]
     pub fn select(&self, k: KeyInput) -> Result<Option<BigInt>> {
@@ -136,6 +151,7 @@ impl ExpanseSet {
         Ok(self.inner.by_count(idx).map(BigInt::from))
     }
 
+    // abi-parity: expanse_set_count_range
     /// Number of keys in the closed range `[start, end]`.
     #[napi(js_name = "countRange")]
     pub fn count_range(&self, start: KeyInput, end: KeyInput) -> Result<BigInt> {
