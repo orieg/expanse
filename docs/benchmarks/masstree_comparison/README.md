@@ -789,6 +789,12 @@ rounds is `docs/benchmarks/concurrency/README.md` §13. The ratio in that row
 also carries the page-size asymmetry METHODOLOGY §3.3 discloses — Masstree's
 nodes are huge-page backed, Expanse's arena is not — whose effect on the
 concurrent cells is unmeasured *(workload: `masstree_conc_str`)*.
+The native readers-only sweep for #730 has committed Expanse reader levels at
+`170a4bc3`, both pins and two runs each, in
+`docs/benchmarks/concurrency/README.md` §15. They come from another harness
+and probe mix (all probes hit, sorted prefill), so they do not re-measure this
+row, and no Masstree figure is compared with them *(workloads differ:
+`concurrency_readers_str` vs `masstree_conc_str`)*.
 
 #### H — protocol health, Expanse side only (occ-stats build; event ratios, never a timing)
 

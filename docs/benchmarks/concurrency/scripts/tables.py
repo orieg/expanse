@@ -27,6 +27,12 @@ Sections emitted, in README order:
   and its second run, `results/baseline_concurrent_mixed_run2.json`
 - `14. Wrapper mutation profiles` from the `callgrind_annotate` listings under
   `results/callgrind_wrapper_mutations/` via `scripts/callgrind_wrapper_ranking.py`
+- `15` the string-wrapper baselines at `170a4bc3`: the #929 writer arms from
+  `results/baseline_writer_scaling_170a4bc3_{pin0-15,percore}{,_run2}.json` and
+  the #730 readers-only sweep from
+  `results/baseline_readers_only_writer_scaling_170a4bc3_{pin0-15,percore}{,_run2}.json`,
+  with the per-reader cost and round checks from `scripts/reader_scaling_bounds.py`.
+  (`13` is `scripts/reader_scaling_bounds.py --table`, not this file.)
 
 A missing artifact renders the section's rows as `pending` citing the open
 tracking issue, so the README is correct before the run exists and
@@ -833,6 +839,253 @@ def wrapper_profiles() -> list[str]:
     return callgrind_wrapper_ranking.render_committed()
 
 
+# ---- 15. string-wrapper baselines at 170a4bc3 -------------------------------
+# PR 10 of the concurrency plan: the #929 writer arms and the #730 readers-only
+# sweep, two CI dispatches per suite per pin at one commit. A baseline: no gate
+# is evaluated and no verdict is printed. Cross-run and cross-pin columns state
+# a direction only where both runs agree (docs/BENCHMARKING.md rule 18), and
+# they never print a ratio of two unpaired levels, which would carry no interval.
+BASELINE_COMMIT = "170a4bc3"
+BASELINE_ROUNDS = 8
+# (pin as applied, file-name tag, how the README names it)
+BASELINE_PINS = (
+    ("0-15", "pin0-15", "`0-15`"),
+    ("0,2,4,6,8,10,12,14", "percore", "per-core"),
+)
+# (artifact stem, pin tag, run) -> CI run. The run URLs are not in the
+# artifacts, so they are named here beside the file each one produced.
+BASELINE_RUNS = {
+    ("baseline_writer_scaling", "pin0-15", 1): 35021552023,
+    ("baseline_writer_scaling", "pin0-15", 2): 35021581528,
+    ("baseline_writer_scaling", "percore", 1): 35021610717,
+    ("baseline_writer_scaling", "percore", 2): 35021636713,
+    ("baseline_readers_only_writer_scaling", "pin0-15", 1): 35021567680,
+    ("baseline_readers_only_writer_scaling", "pin0-15", 2): 35021596408,
+    ("baseline_readers_only_writer_scaling", "percore", 1): 35021624186,
+    ("baseline_readers_only_writer_scaling", "percore", 2): 35021650065,
+}
+BASELINE_WRITER_ARMS = ("map", "set", "str", "bytes", "blob")
+BASELINE_READER_ARMS = ("map", "set", "str")
+ISSUE_730 = "[#730](https://github.com/orieg/expanse/issues/730)"
+ISSUE_929 = "[#929](https://github.com/orieg/expanse/issues/929)"
+
+
+def _bl_name(stem: str, tag: str, run: int) -> str:
+    return f"{stem}_{BASELINE_COMMIT}_{tag}{'' if run == 1 else '_run2'}.json"
+
+
+def _bl_artifacts(stem: str) -> dict[tuple[str, int], dict] | None:
+    """Every (pin tag, run) artifact of one suite, or None if any is absent.
+
+    A present artifact at another commit, pin, isolation or round count is an
+    error (section 8.1), never a row.
+    """
+    out = {}
+    for pin, tag, _ in BASELINE_PINS:
+        for run in (1, 2):
+            name = _bl_name(stem, tag, run)
+            art = load(SUITE / "results" / name)
+            if art is None:
+                return None
+            prov = need(art, "provenance", name)
+            got = (prov.get("commit"), prov.get("core_pin"), prov.get("cell_isolation"))
+            if got != (BASELINE_COMMIT, pin, "process"):
+                raise SystemExit(f"{name}: (commit, core_pin, cell_isolation) = {got}; expected "
+                                 f"({BASELINE_COMMIT!r}, {pin!r}, 'process')")
+            for c in need(art, "throughput", name):
+                if c["rounds"] != BASELINE_ROUNDS or len(c["rounds_raw"]) != BASELINE_ROUNDS:
+                    raise SystemExit(f"{name}: {c['arm']} cell has {c['rounds']} rounds, "
+                                     f"expected {BASELINE_ROUNDS}")
+            out[(tag, run)] = art
+    return out
+
+
+def _bl_cell(art: dict, arm: str, key: str, n: int) -> dict:
+    hits = [c for c in art["throughput"] if c["arm"] == arm and c[key] == n]
+    if len(hits) != 1:
+        raise SystemExit(f"{len(hits)} cells for {arm} {key}={n}, expected 1")
+    return hits[0]
+
+
+def _bl_iv(c: dict, mean: str, lo: str, hi: str, method: str, digits: int) -> str:
+    return _pc_iv(need(c, mean, mean), need(c, lo, lo), need(c, hi, hi), digits,
+                  c.get(method) or "unlabelled")
+
+
+def _bl_overlap(a: tuple[float, float], b: tuple[float, float]) -> str:
+    return "yes" if a[0] <= b[1] and b[0] <= a[1] else "**no**"
+
+
+def _bl_vs(ivs: list[tuple[float, float]], ref: float) -> str:
+    """Where both runs' intervals sit against `ref`, stated only if they agree."""
+    if all(lo > ref for lo, _ in ivs):
+        return f"above {ref:g} in both runs"
+    if all(hi < ref for _, hi in ivs):
+        return f"below {ref:g} in both runs"
+    return "not the same in both runs"
+
+
+def _bl_pin_direction(pairs: list[tuple[tuple[float, float], tuple[float, float]]]) -> str:
+    """Per-core against `0-15`, per run: stated only where both runs' intervals are disjoint the same way."""
+    if all(pc[0] > p15[1] for pc, p15 in pairs):
+        return "per-core higher in both runs"
+    if all(pc[1] < p15[0] for pc, p15 in pairs):
+        return "per-core lower in both runs"
+    return "not the same in both runs"
+
+
+def _bl_ns_per_probe(cell: dict) -> tuple[list[float], dict]:
+    """Per round, each reader's own loop time over its probes, averaged over readers; with its BCa interval.
+
+    Each reader makes one probe per prefilled key at W = 0 (checked, not assumed).
+    """
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import reader_scaling_bounds
+
+    prefill, readers = int(cell["prefill"]), int(cell["readers"])
+    series = []
+    for r in sorted(cell["rounds_raw"], key=lambda x: x["round"]):
+        if int(r["reader_ops"]) != readers * prefill or len(r["reader_thread_elapsed_s"]) != readers:
+            raise SystemExit(f"{cell['arm']} R={readers} round {r['round']}: {r['reader_ops']} probes over "
+                             f"{len(r['reader_thread_elapsed_s'])} reader times, expected {readers} x {prefill}")
+        times = r["reader_thread_elapsed_s"]
+        series.append(sum(times) / len(times) * 1e9 / prefill)
+    return series, reader_scaling_bounds.per_arm_interval(series)
+
+
+def string_wrapper_baselines() -> list[str]:
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import reader_scaling_bounds
+
+    writers = _bl_artifacts("baseline_writer_scaling")
+    readers = _bl_artifacts("baseline_readers_only_writer_scaling")
+    if writers is None or readers is None:
+        return ["#### 15.1 Artifacts, runs and host load", "", "| suite | artifact |", "|---|---|",
+                f"| writer arms | pending ({ISSUE_929}) |", f"| readers-only | pending ({ISSUE_730}) |"]
+
+    out = ["#### 15.1 Artifacts, runs and host load", "",
+           "| suite | pin | run | artifact | CI run | load snapshots | `load1` at start, peak | largest `load1` shift "
+           "between consecutive snapshots | cell `foreign_busy_cpus`, min – max | governor on the pinned CPUs |",
+           "|---|---|--:|---|---|--:|---|--:|---|---|"]
+    for stem, suite, arts in (("baseline_writer_scaling", "`writer_scaling`", writers),
+                              ("baseline_readers_only_writer_scaling", "`writer_scaling_readers_only`", readers)):
+        for _, tag, label in BASELINE_PINS:
+            for run in (1, 2):
+                art = arts[(tag, run)]
+                name = _bl_name(stem, tag, run)
+                prov = art["provenance"]
+                loads = prov["loads"]
+                peak = max(l["load1"] for l in loads)
+                shift = max((abs(b["load1"] - a["load1"]) for a, b in zip(loads, loads[1:])), default=0.0)
+                fb = [need(c["load"], "foreign_busy_cpus", name) for c in art["throughput"]]
+                govs = sorted(set(prov["host"]["scaling_governor_by_cpu"].values()))
+                rid = BASELINE_RUNS[(stem, tag, run)]
+                out.append(f"| {suite} | {label} | {run} | `results/{name}` | "
+                           f"[{rid}](https://github.com/orieg/expanse/actions/runs/{rid}) | {len(loads)} | "
+                           f"{loads[0]['load1']:.2f}, {peak:.2f} | {shift:.2f} | {min(fb):.2f} – {max(fb):.2f} | "
+                           f"{', '.join(f'`{g}`' for g in govs)} |")
+    out.append("")
+
+    # Writer arms: the levels at W = 1 and W = 8, and C(W) at every W >= 2.
+    out += ["#### 15.2 Writer arms — levels and C(W)", "",
+            "| arm | workload | pin | run | W = 1 M ops/s [BCa 95%] | W = 8 M ops/s [BCa 95%] "
+            "| C(2) [paired BCa 95%] | C(4) [paired BCa 95%] | C(8) [paired BCa 95%] |",
+            "|---|---|---|--:|---|---|---|---|---|"]
+    for arm in BASELINE_WRITER_ARMS:
+        for _, tag, label in BASELINE_PINS:
+            for run in (1, 2):
+                art = writers[(tag, run)]
+                w1, w8 = _bl_cell(art, arm, "writers", 1), _bl_cell(art, arm, "writers", 8)
+                cols = [_bl_iv(c, "expanse_writer_mops_mean", "writer_ci_lower", "writer_ci_upper",
+                               "writer_ci_method", 2) for c in (w1, w8)]
+                cols += [_bl_iv(_bl_cell(art, arm, "writers", w), "scaling_factor_c_n_mean",
+                                "scaling_factor_c_n_ci_lower", "scaling_factor_c_n_ci_upper",
+                                "scaling_factor_c_n_ci_method", 3) for w in (2, 4, 8)]
+                out.append(f"| `{arm}` | `{w1['workload_id']}` | {label} | {run} | " + " | ".join(cols) + " |")
+    out.append("")
+
+    def w_iv(art: dict, arm: str, w: int, what: str) -> tuple[float, float]:
+        c = _bl_cell(art, arm, "writers", w)
+        if what == "level":
+            return c["writer_ci_lower"], c["writer_ci_upper"]
+        return c["scaling_factor_c_n_ci_lower"], c["scaling_factor_c_n_ci_upper"]
+
+    out += ["#### 15.3 Writer arms — run against run, and pin against pin", "",
+            "| arm | pin | W = 1 intervals overlap across runs | W = 8 intervals overlap across runs "
+            "| C(8) intervals overlap across runs | C(8) against 1.0 |",
+            "|---|---|---|---|---|---|"]
+    for arm in BASELINE_WRITER_ARMS:
+        for _, tag, label in BASELINE_PINS:
+            a1, a2 = writers[(tag, 1)], writers[(tag, 2)]
+            out.append(f"| `{arm}` | {label} | {_bl_overlap(w_iv(a1, arm, 1, 'level'), w_iv(a2, arm, 1, 'level'))} "
+                       f"| {_bl_overlap(w_iv(a1, arm, 8, 'level'), w_iv(a2, arm, 8, 'level'))} "
+                       f"| {_bl_overlap(w_iv(a1, arm, 8, 'c'), w_iv(a2, arm, 8, 'c'))} "
+                       f"| {_bl_vs([w_iv(a1, arm, 8, 'c'), w_iv(a2, arm, 8, 'c')], 1.0)} |")
+    out += ["", "| arm | W = 1 level, per-core against `0-15` | W = 8 level, per-core against `0-15` "
+            "| C(8), per-core against `0-15` |", "|---|---|---|---|"]
+    for arm in BASELINE_WRITER_ARMS:
+        cols = []
+        for w, what in ((1, "level"), (8, "level"), (8, "c")):
+            cols.append(_bl_pin_direction([(w_iv(writers[("percore", run)], arm, w, what),
+                                            w_iv(writers[("pin0-15", run)], arm, w, what)) for run in (1, 2)]))
+        out.append(f"| `{arm}` | " + " | ".join(cols) + " |")
+    out.append("")
+
+    # Readers-only: the levels at R = 1 and R = 8, S(8), and the per-reader cost.
+    out += ["#### 15.4 Readers-only — levels, S(8) and per-reader cost", "",
+            "| arm | workload | pin | run | R = 1 reader M ops/s [BCa 95%] | R = 8 reader M ops/s [BCa 95%] "
+            "| S(8) [paired BCa 95%] | ns per probe per reader, R = 1 [BCa 95%] | ns per probe per reader, R = 8 [BCa 95%] "
+            "| slowest over mean reader loop, R = 8 rounds (`max_over_mean_bias`), min – max "
+            "| R = 8 rounds beyond 3 MADs (`round_outliers`) |",
+            "|---|---|---|--:|---|---|---|---|---|---|---|"]
+    for arm in BASELINE_READER_ARMS:
+        for _, tag, label in BASELINE_PINS:
+            for run in (1, 2):
+                art = readers[(tag, run)]
+                r1, r8 = _bl_cell(art, arm, "readers", 1), _bl_cell(art, arm, "readers", 8)
+                cols = [_bl_iv(c, "reader_mops_mean", "reader_ci_lower", "reader_ci_upper", "reader_ci_method", 2)
+                        for c in (r1, r8)]
+                cols.append(_bl_iv(r8, "scaling_s_r", "scaling_s_r_ci_lower", "scaling_s_r_ci_upper",
+                                   "scaling_s_r_ci_method", 3))
+                for c in (r1, r8):
+                    _, iv = _bl_ns_per_probe(c)
+                    cols.append(_pc_iv(iv["mean"], iv["lo"], iv["hi"], 1, iv["method"]))
+                bias = [reader_scaling_bounds.max_over_mean_bias(r["reader_thread_elapsed_s"])
+                        for r in sorted(r8["rounds_raw"], key=lambda x: x["round"])]
+                cols.append(f"{min(bias) * 100:.2f}% – {max(bias) * 100:.2f}%")
+                mops = [float(r["reader_mops"]) for r in sorted(r8["rounds_raw"], key=lambda x: x["round"])]
+                cols.append(", ".join(str(i) for i in reader_scaling_bounds.round_outliers(mops)) or "none")
+                out.append(f"| `{arm}` | `{r1['workload_id']}` | {label} | {run} | " + " | ".join(cols) + " |")
+    out.append("")
+
+    def r_iv(art: dict, arm: str, r: int, what: str) -> tuple[float, float]:
+        c = _bl_cell(art, arm, "readers", r)
+        if what == "level":
+            return c["reader_ci_lower"], c["reader_ci_upper"]
+        return c["scaling_s_r_ci_lower"], c["scaling_s_r_ci_upper"]
+
+    out += ["#### 15.5 Readers-only — run against run, and pin against pin", "",
+            "| arm | pin | R = 1 intervals overlap across runs | R = 8 intervals overlap across runs "
+            "| S(8) intervals overlap across runs | S(8) against 8, the reader count |",
+            "|---|---|---|---|---|---|"]
+    for arm in BASELINE_READER_ARMS:
+        for _, tag, label in BASELINE_PINS:
+            a1, a2 = readers[(tag, 1)], readers[(tag, 2)]
+            out.append(f"| `{arm}` | {label} | {_bl_overlap(r_iv(a1, arm, 1, 'level'), r_iv(a2, arm, 1, 'level'))} "
+                       f"| {_bl_overlap(r_iv(a1, arm, 8, 'level'), r_iv(a2, arm, 8, 'level'))} "
+                       f"| {_bl_overlap(r_iv(a1, arm, 8, 's'), r_iv(a2, arm, 8, 's'))} "
+                       f"| {_bl_vs([r_iv(a1, arm, 8, 's'), r_iv(a2, arm, 8, 's')], 8.0)} |")
+    out += ["", "| arm | R = 1 level, per-core against `0-15` | R = 8 level, per-core against `0-15` "
+            "| S(8), per-core against `0-15` |", "|---|---|---|---|"]
+    for arm in BASELINE_READER_ARMS:
+        cols = []
+        for r, what in ((1, "level"), (8, "level"), (8, "s")):
+            cols.append(_bl_pin_direction([(r_iv(readers[("percore", run)], arm, r, what),
+                                            r_iv(readers[("pin0-15", run)], arm, r, what)) for run in (1, 2)]))
+        out.append(f"| `{arm}` | " + " | ".join(cols) + " |")
+    return out
+
+
 def main() -> int:
     import fine_grained_brackets_gate  # the §8 fine-grained write brackets verdicts, beside this file
     import multi_writer_olc_gate  # the §9 multi-writer OLC verdicts, beside this file
@@ -851,6 +1104,7 @@ def main() -> int:
         contention_ranking(),
         mixed_concurrency(),
         wrapper_profiles(),
+        string_wrapper_baselines(),
     ]
     print("\n\n".join("\n".join(b) for b in blocks))
     return 0
