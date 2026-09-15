@@ -247,99 +247,103 @@ The two-commit artifacts are not committed yet: pending ([#568](https://github.c
 
 ## 9. Multi-writer OLC gate (METHODOLOGY §10)
 
-Read against §10.2; every number is evaluated over two two-commit runs against baseline `1edfa952` and the head build's counters. A P5.1 or P5.2 verdict whose base half sits outside the registered `10cd755d` union of §10.1 is `VOID` (§10.4) and decides nothing; a base half sits outside when the interval its two runs' medians span shares no point with that union, edges inclusive.
+Read against §10.2; every number is evaluated over two two-commit runs against baseline `10cd755d` and the head build's counters. A P5.1 or P5.2 verdict whose base half sits outside the registered `10cd755d` union of §10.1 is `VOID` (§10.4) and decides nothing; a base half sits outside when the interval its two runs' medians span shares no point with that union, edges inclusive.
 
-The six rows now `VOID` — P5.1 and P5.2 at `hot_comparison` `map` W = 4 and W = 8, and at `masstree_comparison` `map` W = 4 — were previously published as `REFUTED`; those verdicts are withdrawn as `VOID` under METHODOLOGY §10.4, not re-estimated.
+This campaign measures head `58565660` against base `10cd755d`, the base §10.2 registers, in two two-commit runs per suite *(measured: reference host — Intel Core i9-12900F, core pin `0-15`; `docs/benchmarks/hot_comparison/results/multi_writer_olc/` and `docs/benchmarks/masstree_comparison/results/multi_writer_olc/`)*. It supersedes the campaign of head `c71fa4ba` against base `1edfa952`: those verdicts are replaced by the rows below, not re-estimated.
 
-**§10.4 — base halves against the registered `10cd755d` union** (M inserts/s; base halves to 4 decimals; 7 of 20 outside):
+**§10.4 is tighter than the spread between campaigns at its own base.** Nine of 20 base halves, measured at the registered base `10cd755d`, sit outside their §10.1 unions, by 0.26–1.92% of the nearer union edge. On those nine cells the unions are 0.00–0.05 M inserts/s wide at two decimals; they come from the two runs measured for #809. The cause of the spread is unmeasured. This is an observation about the pre-registration: §10.4 is not amended here, and no row is relabelled.
+
+The head `set` arm's W = 16 union lies above P5.4's contended-line ceiling; that is the `REFUTED` verdict below, and it is not explained here. The `masstree_comparison` `map` control reads inside its prediction in this campaign, and why that cell's position differs between campaigns is not explained here. The `masstree_comparison` `str` rows' harness validated every string key for NUL inside the timed loop, which #941 removed after these runs; both builds run the same harness and base `10cd755d` already takes `NulFreeStr`, so both halves carry that cost, but the absolute `str` M inserts/s include it.
+
+**§10.4 — base halves against the registered `10cd755d` union** (M inserts/s; base halves to 4 decimals; 9 of 20 outside):
 
 | suite | arm | W | base half, run 1 / 2 | base-half span | §10.1 union | reading |
 |---|---|--:|--:|--:|--:|---|
-| `hot_comparison` | `set` | 1 | 7.2128 / 7.2127 | [7.2127, 7.2128] | [7.19, 7.24] | overlaps |
-| `hot_comparison` | `set` | 2 | 4.1750 / 4.1490 | [4.1490, 4.1750] | [4.11, 4.16] | overlaps |
-| `hot_comparison` | `set` | 4 | 3.1707 / 3.1325 | [3.1325, 3.1707] | [3.17, 3.21] | overlaps |
-| `hot_comparison` | `set` | 8 | 2.5325 / 2.5889 | [2.5325, 2.5889] | [2.55, 2.57] | overlaps |
-| `hot_comparison` | `set` | 16 | 2.4012 / 2.3789 | [2.3789, 2.4012] | [2.35, 2.40] | overlaps |
-| `hot_comparison` | `map` | 1 | 5.0906 / 5.0826 | [5.0826, 5.0906] | [5.09, 5.09] | overlaps |
-| `hot_comparison` | `map` | 2 | 3.2701 / 3.3841 | [3.2701, 3.3841] | [3.32, 3.36] | overlaps |
-| `hot_comparison` | `map` | 4 | 2.7304 / 2.7605 | [2.7304, 2.7605] | [2.72, 2.73] | **outside** |
-| `hot_comparison` | `map` | 8 | 2.3930 / 2.3616 | [2.3616, 2.3930] | [2.34, 2.35] | **outside** |
-| `hot_comparison` | `map` | 16 | 2.0830 / 1.9453 | [1.9453, 2.0830] | [1.69, 2.12] | overlaps |
-| `masstree_comparison` | `map` | 1 | 5.5259 / 5.5154 | [5.5154, 5.5259] | [5.43, 5.44] | **outside** |
-| `masstree_comparison` | `map` | 2 | 3.4245 / 3.4507 | [3.4245, 3.4507] | [3.44, 3.47] | overlaps |
-| `masstree_comparison` | `map` | 4 | 2.7935 / 2.8287 | [2.7935, 2.8287] | [2.75, 2.76] | **outside** |
-| `masstree_comparison` | `map` | 8 | 2.3967 / 2.3464 | [2.3464, 2.3967] | [2.33, 2.40] | overlaps |
-| `masstree_comparison` | `map` | 16 | 2.2599 / 1.8523 | [1.8523, 2.2599] | [2.23, 2.23] | overlaps |
-| `masstree_comparison` | `str` | 1 | 3.8971 / 3.8730 | [3.8730, 3.8971] | [3.87, 3.88] | overlaps |
-| `masstree_comparison` | `str` | 2 | 2.3953 / 2.4156 | [2.3953, 2.4156] | [2.38, 2.39] | **outside** |
-| `masstree_comparison` | `str` | 4 | 2.2685 / 2.2761 | [2.2685, 2.2761] | [2.23, 2.25] | **outside** |
-| `masstree_comparison` | `str` | 8 | 1.9155 / 1.9717 | [1.9155, 1.9717] | [1.93, 2.04] | overlaps |
-| `masstree_comparison` | `str` | 16 | 0.4874 / 0.4861 | [0.4861, 0.4874] | [0.48, 0.48] | **outside** |
+| `hot_comparison` | `set` | 1 | 7.2251 / 7.1721 | [7.1721, 7.2251] | [7.19, 7.24] | overlaps |
+| `hot_comparison` | `set` | 2 | 4.1960 / 4.1708 | [4.1708, 4.1960] | [4.11, 4.16] | **outside** |
+| `hot_comparison` | `set` | 4 | 3.2360 / 3.2256 | [3.2256, 3.2360] | [3.17, 3.21] | **outside** |
+| `hot_comparison` | `set` | 8 | 2.5504 / 2.5284 | [2.5284, 2.5504] | [2.55, 2.57] | overlaps |
+| `hot_comparison` | `set` | 16 | 2.3878 / 2.4179 | [2.3878, 2.4179] | [2.35, 2.40] | overlaps |
+| `hot_comparison` | `map` | 1 | 5.0825 / 5.0906 | [5.0825, 5.0906] | [5.09, 5.09] | overlaps |
+| `hot_comparison` | `map` | 2 | 3.4033 / 3.2994 | [3.2994, 3.4033] | [3.32, 3.36] | overlaps |
+| `hot_comparison` | `map` | 4 | 2.7718 / 2.8214 | [2.7718, 2.8214] | [2.72, 2.73] | **outside** |
+| `hot_comparison` | `map` | 8 | 2.3536 / 2.3292 | [2.3292, 2.3536] | [2.34, 2.35] | overlaps |
+| `hot_comparison` | `map` | 16 | 2.0264 / 2.0084 | [2.0084, 2.0264] | [1.69, 2.12] | overlaps |
+| `masstree_comparison` | `map` | 1 | 5.4991 / 5.4840 | [5.4840, 5.4991] | [5.43, 5.44] | **outside** |
+| `masstree_comparison` | `map` | 2 | 3.3796 / 3.3683 | [3.3683, 3.3796] | [3.44, 3.47] | **outside** |
+| `masstree_comparison` | `map` | 4 | 2.8130 / 2.8167 | [2.8130, 2.8167] | [2.75, 2.76] | **outside** |
+| `masstree_comparison` | `map` | 8 | 2.3240 / 2.3477 | [2.3240, 2.3477] | [2.33, 2.40] | overlaps |
+| `masstree_comparison` | `map` | 16 | 2.2668 / 2.2581 | [2.2581, 2.2668] | [2.23, 2.23] | **outside** |
+| `masstree_comparison` | `str` | 1 | 3.8959 / 3.9004 | [3.8959, 3.9004] | [3.87, 3.88] | **outside** |
+| `masstree_comparison` | `str` | 2 | 2.3965 / 2.4070 | [2.3965, 2.4070] | [2.38, 2.39] | **outside** |
+| `masstree_comparison` | `str` | 4 | 2.2156 / 2.2513 | [2.2156, 2.2513] | [2.23, 2.25] | overlaps |
+| `masstree_comparison` | `str` | 8 | 2.0004 / 2.1125 | [2.0004, 2.1125] | [1.93, 2.04] | overlaps |
+| `masstree_comparison` | `str` | 16 | 0.4825 / 0.4761 | [0.4761, 0.4825] | [0.48, 0.48] | overlaps |
 
 **P5.1 — Writers scale on disjoint expanses** (gate: head union-lower at W ≥ 2 above W = 1 union-upper; M inserts/s):
 
 | suite | arm | W | base half, run 1 / 2 | §10.1 union | head W = 1 union | head half, run 1 / 2 | head union | verdict |
 |---|---|--:|--:|--:|--:|--:|--:|---|
-| `hot_comparison` | `set` | 2 | 4.1750 / 4.1490 | [4.11, 4.16] | [4.40, 4.40] | 2.33 / 2.33 | [2.33, 2.33] | **`REFUTED (writers still fall)`** |
-| `hot_comparison` | `set` | 4 | 3.1707 / 3.1325 | [3.17, 3.21] | [4.40, 4.40] | 1.99 / 1.99 | [1.99, 1.99] | **`REFUTED (writers still fall)`** |
-| `hot_comparison` | `set` | 8 | 2.5325 / 2.5889 | [2.55, 2.57] | [4.40, 4.40] | 1.79 / 1.77 | [1.77, 1.79] | **`REFUTED (writers still fall)`** |
-| `hot_comparison` | `set` | 16 | 2.4012 / 2.3789 | [2.35, 2.40] | [4.40, 4.40] | 0.33 / 0.32 | [0.32, 0.33] | **`REFUTED (writers still fall)`** |
-| `hot_comparison` | `map` | 2 | 3.2701 / 3.3841 | [3.32, 3.36] | [3.65, 3.65] | 2.30 / 2.28 | [2.28, 2.30] | **`REFUTED (writers still fall)`** |
-| `hot_comparison` | `map` | 4 | 2.7304 / 2.7605 | [2.72, 2.73] | [3.65, 3.65] | 1.95 / 1.95 | [1.95, 1.95] | **`VOID (base half outside the 10cd755d union, §10.4)`** |
-| `hot_comparison` | `map` | 8 | 2.3930 / 2.3616 | [2.34, 2.35] | [3.65, 3.65] | 1.83 / 1.81 | [1.81, 1.83] | **`VOID (base half outside the 10cd755d union, §10.4)`** |
-| `hot_comparison` | `map` | 16 | 2.0830 / 1.9453 | [1.69, 2.12] | [3.65, 3.65] | 0.40 / 0.38 | [0.38, 0.40] | **`REFUTED (writers still fall)`** |
-| `masstree_comparison` | `map` | 2 | 3.4245 / 3.4507 | [3.44, 3.47] | [3.81, 3.82] | 2.25 / 2.25 | [2.25, 2.25] | **`REFUTED (writers still fall; W = 1 comparator's base half outside the 10cd755d union)`** |
-| `masstree_comparison` | `map` | 4 | 2.7935 / 2.8287 | [2.75, 2.76] | [3.81, 3.82] | 1.95 / 1.95 | [1.95, 1.95] | **`VOID (base half outside the 10cd755d union, §10.4)`** |
-| `masstree_comparison` | `map` | 8 | 2.3967 / 2.3464 | [2.33, 2.40] | [3.81, 3.82] | 1.79 / 1.79 | [1.79, 1.79] | **`REFUTED (writers still fall; W = 1 comparator's base half outside the 10cd755d union)`** |
-| `masstree_comparison` | `map` | 16 | 2.2599 / 1.8523 | [2.23, 2.23] | [3.81, 3.82] | 0.35 / 0.35 | [0.35, 0.35] | **`REFUTED (writers still fall; W = 1 comparator's base half outside the 10cd755d union)`** |
-| `masstree_comparison` | `str` | 2 | 2.3953 / 2.4156 | [2.38, 2.39] | [3.80, 3.82] | 2.44 / 2.42 | [2.42, 2.44] | published (not a gate cell; tree bracket held) |
-| `masstree_comparison` | `str` | 4 | 2.2685 / 2.2761 | [2.23, 2.25] | [3.80, 3.82] | 2.19 / 2.16 | [2.16, 2.19] | published (not a gate cell; tree bracket held) |
-| `masstree_comparison` | `str` | 8 | 1.9155 / 1.9717 | [1.93, 2.04] | [3.80, 3.82] | 2.08 / 2.04 | [2.04, 2.08] | published (not a gate cell; tree bracket held) |
-| `masstree_comparison` | `str` | 16 | 0.4874 / 0.4861 | [0.48, 0.48] | [3.80, 3.82] | 0.48 / 0.48 | [0.48, 0.48] | published (not a gate cell; tree bracket held) |
+| `hot_comparison` | `set` | 2 | 4.1960 / 4.1708 | [4.11, 4.16] | [7.18, 7.18] | 8.34 / 8.33 | [8.33, 8.34] | **`VOID (base half outside the 10cd755d union, §10.4)`** |
+| `hot_comparison` | `set` | 4 | 3.2360 / 3.2256 | [3.17, 3.21] | [7.18, 7.18] | 9.90 / 9.86 | [9.86, 9.90] | **`VOID (base half outside the 10cd755d union, §10.4)`** |
+| `hot_comparison` | `set` | 8 | 2.5504 / 2.5284 | [2.55, 2.57] | [7.18, 7.18] | 13.11 / 13.16 | [13.11, 13.16] | `PASS` |
+| `hot_comparison` | `set` | 16 | 2.3878 / 2.4179 | [2.35, 2.40] | [7.18, 7.18] | 14.33 / 14.53 | [14.33, 14.53] | `PASS` |
+| `hot_comparison` | `map` | 2 | 3.4033 / 3.2994 | [3.32, 3.36] | [4.67, 4.67] | 6.44 / 6.44 | [6.44, 6.44] | `PASS` |
+| `hot_comparison` | `map` | 4 | 2.7718 / 2.8214 | [2.72, 2.73] | [4.67, 4.67] | 8.81 / 8.60 | [8.60, 8.81] | **`VOID (base half outside the 10cd755d union, §10.4)`** |
+| `hot_comparison` | `map` | 8 | 2.3536 / 2.3292 | [2.34, 2.35] | [4.67, 4.67] | 11.36 / 11.34 | [11.34, 11.36] | `PASS` |
+| `hot_comparison` | `map` | 16 | 2.0264 / 2.0084 | [1.69, 2.12] | [4.67, 4.67] | 10.64 / 10.50 | [10.50, 10.64] | `PASS` |
+| `masstree_comparison` | `map` | 2 | 3.3796 / 3.3683 | [3.44, 3.47] | [5.06, 5.07] | 6.68 / 6.65 | [6.65, 6.68] | **`VOID (base half outside the 10cd755d union, §10.4)`** |
+| `masstree_comparison` | `map` | 4 | 2.8130 / 2.8167 | [2.75, 2.76] | [5.06, 5.07] | 9.01 / 8.92 | [8.92, 9.01] | **`VOID (base half outside the 10cd755d union, §10.4)`** |
+| `masstree_comparison` | `map` | 8 | 2.3240 / 2.3477 | [2.33, 2.40] | [5.06, 5.07] | 11.43 / 11.47 | [11.43, 11.47] | `PASS (W = 1 comparator's base half outside the 10cd755d union)` |
+| `masstree_comparison` | `map` | 16 | 2.2668 / 2.2581 | [2.23, 2.23] | [5.06, 5.07] | 10.61 / 10.59 | [10.59, 10.61] | **`VOID (base half outside the 10cd755d union, §10.4)`** |
+| `masstree_comparison` | `str` | 2 | 2.3965 / 2.4070 | [2.38, 2.39] | [3.78, 3.83] | 2.44 / 2.38 | [2.38, 2.44] | published (not a gate cell; tree bracket held) |
+| `masstree_comparison` | `str` | 4 | 2.2156 / 2.2513 | [2.23, 2.25] | [3.78, 3.83] | 2.22 / 2.24 | [2.22, 2.24] | published (not a gate cell; tree bracket held) |
+| `masstree_comparison` | `str` | 8 | 2.0004 / 2.1125 | [1.93, 2.04] | [3.78, 3.83] | 2.07 / 2.06 | [2.06, 2.07] | published (not a gate cell; tree bracket held) |
+| `masstree_comparison` | `str` | 16 | 0.4825 / 0.4761 | [0.48, 0.48] | [3.78, 3.83] | 0.47 / 0.46 | [0.46, 0.47] | published (not a gate cell; tree bracket held) |
 
 **P5.2 — Pre-#809 levels recovered** (gate: head union-lower above pre-#809 base halves; M inserts/s):
 
 | suite | arm | W | base half, run 1 / 2 | §10.1 union | pre-#809 target | head half, run 1 / 2 | head union | verdict |
 |---|---|--:|--:|--:|--:|--:|--:|---|
-| `hot_comparison` | `set` | 4 | 3.1707 / 3.1325 | [3.17, 3.21] | [4.05, 4.09] | 1.99 / 1.99 | [1.99, 1.99] | **`REFUTED (below pre-#809 base halves)`** |
-| `hot_comparison` | `set` | 8 | 2.5325 / 2.5889 | [2.55, 2.57] | [3.41, 3.63] | 1.79 / 1.77 | [1.77, 1.79] | **`REFUTED (below pre-#809 base halves)`** |
-| `hot_comparison` | `map` | 4 | 2.7304 / 2.7605 | [2.72, 2.73] | [3.18, 3.25] | 1.95 / 1.95 | [1.95, 1.95] | **`VOID (base half outside the 10cd755d union, §10.4)`** |
-| `hot_comparison` | `map` | 8 | 2.3930 / 2.3616 | [2.34, 2.35] | [2.74, 2.75] | 1.83 / 1.81 | [1.81, 1.83] | **`VOID (base half outside the 10cd755d union, §10.4)`** |
-| `masstree_comparison` | `map` | 4 | 2.7935 / 2.8287 | [2.75, 2.76] | [3.22, 3.34] | 1.95 / 1.95 | [1.95, 1.95] | **`VOID (base half outside the 10cd755d union, §10.4)`** |
-| `masstree_comparison` | `map` | 8 | 2.3967 / 2.3464 | [2.33, 2.40] | [2.62, 2.75] | 1.79 / 1.79 | [1.79, 1.79] | **`REFUTED (below pre-#809 base halves)`** |
+| `hot_comparison` | `set` | 4 | 3.2360 / 3.2256 | [3.17, 3.21] | [4.05, 4.09] | 9.90 / 9.86 | [9.86, 9.90] | **`VOID (base half outside the 10cd755d union, §10.4)`** |
+| `hot_comparison` | `set` | 8 | 2.5504 / 2.5284 | [2.55, 2.57] | [3.41, 3.63] | 13.11 / 13.16 | [13.11, 13.16] | `PASS` |
+| `hot_comparison` | `map` | 4 | 2.7718 / 2.8214 | [2.72, 2.73] | [3.18, 3.25] | 8.81 / 8.60 | [8.60, 8.81] | **`VOID (base half outside the 10cd755d union, §10.4)`** |
+| `hot_comparison` | `map` | 8 | 2.3536 / 2.3292 | [2.34, 2.35] | [2.74, 2.75] | 11.36 / 11.34 | [11.34, 11.36] | `PASS` |
+| `masstree_comparison` | `map` | 4 | 2.8130 / 2.8167 | [2.75, 2.76] | [3.22, 3.34] | 9.01 / 8.92 | [8.92, 9.01] | **`VOID (base half outside the 10cd755d union, §10.4)`** |
+| `masstree_comparison` | `map` | 8 | 2.3240 / 2.3477 | [2.33, 2.40] | [2.62, 2.75] | 11.43 / 11.47 | [11.43, 11.47] | `PASS` |
 
 **P5.3 — Restarts stay bounded** (safety factor 2.0; per-arm measured t_hold from health rows):
 
 | suite | arm | W | t_hold (ns) | t_op (ns) | ceiling (restarts/op) | observed, run 1 / 2 | verdict |
 |---|---|--:|--:|--:|--:|--:|---|
-| `hot_comparison` | `set` | 2 | 14.0 | 227.5 | 0.131 | pending | pending |
-| `hot_comparison` | `set` | 4 | 14.0 | 227.5 | 0.419 | pending | pending |
-| `hot_comparison` | `set` | 8 | 14.0 | 227.5 | 1.118 | pending | pending |
-| `hot_comparison` | `set` | 16 | 14.0 | 227.5 | 3.178 | pending | pending |
-| `hot_comparison` | `map` | 2 | 45.0 | 274.2 | 0.393 | pending | pending |
-| `hot_comparison` | `map` | 4 | 45.0 | 274.2 | 1.424 | pending | pending |
-| `hot_comparison` | `map` | 8 | 45.0 | 274.2 | 5.013 | pending | pending |
-| `hot_comparison` | `map` | 16 | 45.0 | 274.2 | 27.418 | pending | pending |
-| `masstree_comparison` | `map` | 2 | 43.6 | 262.5 | 0.399 | pending | pending |
-| `masstree_comparison` | `map` | 4 | 43.6 | 262.5 | 1.450 | pending | pending |
-| `masstree_comparison` | `map` | 8 | 43.6 | 262.5 | 5.139 | pending | pending |
-| `masstree_comparison` | `map` | 16 | 43.6 | 262.5 | 28.567 | pending | pending |
+| `hot_comparison` | `set` | 2 | 42.0 | 139.2 | 0.864 | 0.000 / 0.000 | `PASS` |
+| `hot_comparison` | `set` | 4 | 42.0 | 139.2 | 3.876 | 0.001 / 0.001 | `PASS` |
+| `hot_comparison` | `set` | 8 | 42.0 | 139.2 | 22.723 | 0.003 / 0.003 | `PASS` |
+| `hot_comparison` | `set` | 16 | 42.0 | 139.2 | 435.711 | 0.006 / 0.006 | `PASS` |
+| `hot_comparison` | `map` | 2 | 24.4 | 214.3 | 0.257 | 0.002 / 0.002 | `PASS` |
+| `hot_comparison` | `map` | 4 | 24.4 | 214.3 | 0.875 | 0.004 / 0.004 | `PASS` |
+| `hot_comparison` | `map` | 8 | 24.4 | 214.3 | 2.665 | 0.009 / 0.010 | `PASS` |
+| `hot_comparison` | `map` | 16 | 24.4 | 214.3 | 10.281 | 0.022 / 0.022 | `PASS` |
+| `masstree_comparison` | `map` | 2 | 24.1 | 197.6 | 0.278 | 0.002 / 0.002 | `PASS` |
+| `masstree_comparison` | `map` | 4 | 24.1 | 197.6 | 0.955 | 0.004 / 0.004 | `PASS` |
+| `masstree_comparison` | `map` | 8 | 24.1 | 197.6 | 2.971 | 0.009 / 0.009 | `PASS` |
+| `masstree_comparison` | `map` | 16 | 24.1 | 197.6 | 12.072 | 0.022 / 0.022 | `PASS` |
 
 **P5.4 — Contended-line bound at W = 16** (ceiling = 1 / (k·t_line + t_hold); k = 2, t_line = 33.4 ns, per-arm t_hold):
 
 | suite | arm | t_hold (ns) | ceiling (M/s) | head union (M/s) | verdict |
 |---|---|--:|--:|--:|---|
-| `hot_comparison` | `set` | 14.0 | 12.39 | [0.32, 0.33] | `PASS (at or below contended-line ceiling)` |
-| `hot_comparison` | `map` | 45.0 | 8.95 | [0.38, 0.40] | `PASS (at or below contended-line ceiling)` |
-| `masstree_comparison` | `map` | 43.6 | 9.06 | [0.35, 0.35] | `PASS (at or below contended-line ceiling)` |
+| `hot_comparison` | `set` | 42.0 | 9.19 | [14.33, 14.53] | **`REFUTED (exceeded bound 9.19 M/s)`** |
+| `hot_comparison` | `map` | 24.4 | 10.97 | [10.50, 10.64] | `PASS (at or below contended-line ceiling)` |
+| `masstree_comparison` | `map` | 24.1 | 11.01 | [10.59, 10.61] | `PASS (at or below contended-line ceiling)` |
 
 **Controls — C2 readers alongside writers at W = 1 R = 8** (predicted inside [97, 104] ns; lower is faster):
 
 | suite | arm | target union (ns) | head half, run 1 / 2 (ns) | verdict |
 |---|---|--:|--:|---|
-| `hot_comparison` | `set` | [97.0, 104.0] | 94.4 / 95.0 | **`MOVED (faster: 94.4 / 95.0 ns vs [97.0, 104.0] ns)`** |
-| `hot_comparison` | `map` | [97.0, 104.0] | 94.0 / 94.3 | **`MOVED (faster: 94.0 / 94.3 ns vs [97.0, 104.0] ns)`** |
-| `masstree_comparison` | `map` | [97.0, 104.0] | 93.7 / 93.4 | **`MOVED (faster: 93.7 / 93.4 ns vs [97.0, 104.0] ns)`** |
+| `hot_comparison` | `set` | [97.0, 104.0] | 58.3 / 58.4 | **`MOVED (faster: 58.3 / 58.4 ns vs [97.0, 104.0] ns)`** |
+| `hot_comparison` | `map` | [97.0, 104.0] | 75.9 / 75.8 | **`MOVED (faster: 75.9 / 75.8 ns vs [97.0, 104.0] ns)`** |
+| `masstree_comparison` | `map` | [97.0, 104.0] | 97.8 / 97.8 | `PASS (inside #809 head-half union)` |
 
 ## 10. Writer scaling — the native Phase 1.5D sweep (`results/baseline_writer_scaling.json`)
 
