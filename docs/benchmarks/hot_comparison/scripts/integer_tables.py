@@ -131,8 +131,10 @@ def scan_share(lat: dict) -> str:
 # §11.5.3 logic as `masstree_comparison/scripts/tables.py` derives it for §6.3:
 # "rise with W" is evaluated per arm and per run on the restart-share medians,
 # strictly increasing across writer counts; the starvation half is the median
-# fallback share against 1%, and a zero is `PASS_categorical_by_design` because
-# a fallback needs 64 consecutive failed walks.
+# fallback share against 1%. A cell in which no round recorded a fallback is
+# `PASS_categorical_by_design` because a fallback needs 64 consecutive failed
+# walks; a cell in which a round did record one is a measured result, never
+# "fallback 0".
 
 HEALTH_RUNS = (("1", "baseline_concurrent.json"), ("2", "baseline_concurrent_run2.json"))
 
@@ -167,8 +169,13 @@ def stat_cell(c: dict, key: str, fmt: str) -> str:
 def health_verdict(c: dict, rising: bool | None) -> str:
     half1 = ("rise with W: n/a" if rising is None
              else "rise with W: `CONFIRMED`" if rising else "rise with W: **`REFUTED`**")
-    half2 = ("**STARVATION**" if c["starvation_flag"]
-             else "fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks)")
+    if c["starvation_flag"]:
+        half2 = "**STARVATION**"
+    elif c["read_fallbacks"]["max"] == 0:
+        half2 = "fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks)"
+    else:
+        half2 = (f"fallback {c['fallback_share']['median']:.4%} median, below 1% — `CONFIRMED` "
+                 f"(fallbacks recorded, at most {c['read_fallbacks']['max']:,} in a round)")
     return f"{half1}; {half2}"
 
 

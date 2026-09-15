@@ -263,6 +263,24 @@ def stat_cell(c: dict, key: str, fmt: str) -> str:
     return fmt.format(c[key]["median"])
 
 
+def fallback_verdict(c: dict) -> str:
+    """§6.3 half two, read from the counters rather than assumed.
+
+    A median fallback share of 1% or more is starvation. A cell in which no
+    round recorded a fallback is `PASS_categorical_by_design`: a fallback needs
+    64 consecutive failed walks, so the falsifier could not fire there. A cell
+    in which some round did record one had a reachable falsifier, and a median
+    below 1% there is a measured `CONFIRMED` — labelling it "fallback 0" would
+    state a zero the counters do not hold.
+    """
+    if c["starvation_flag"]:
+        return "**STARVATION**"
+    if c["read_fallbacks"]["max"] == 0:
+        return "fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks)"
+    return (f"fallback {c['fallback_share']['median']:.4%} median, below 1% — `CONFIRMED` "
+            f"(fallbacks recorded, at most {c['read_fallbacks']['max']:,} in a round)")
+
+
 def health_table(runs: list) -> str:
     """The H table over both concurrent runs (docs/BENCHMARKING.md rule 18).
 
@@ -296,8 +314,7 @@ def health_table(runs: list) -> str:
         spins = c["sample_spins"]["median"] / max(c["read_ops"]["median"], 1)
         rise = rising.get((run, c["arm"]))
         half1 = ("rise with W: `CONFIRMED`" if rise else "rise with W: **`REFUTED`**") if rise is not None else "rise with W: n/a"
-        half2 = ("**STARVATION**" if c["starvation_flag"]
-                 else "fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks)")
+        half2 = fallback_verdict(c)
         row = [c["arm"], str(c["writers"]), str(c["readers"]), run,
                f"{rs['median']:.2%} [{rs['min']:.2%}, {rs['max']:.2%}]", f"{fs['median']:.4%}",
                f"{spins:.2f}", stat_cell(c, "locked_share", "{:.2%}"),

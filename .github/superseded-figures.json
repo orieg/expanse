@@ -790,6 +790,63 @@
       "replacement": "docs/benchmarks/concurrency/README.md section 9, rendered by docs/benchmarks/concurrency/scripts/multi_writer_olc_gate.py from head 58565660 against base 10cd755d, two runs per suite (docs/benchmarks/hot_comparison/results/multi_writer_olc/, docs/benchmarks/masstree_comparison/results/multi_writer_olc/)",
       "provenance": "#568, #934",
       "rationale": "The P5 two-commit campaign of head c71fa4ba against base 1edfa952 ran against a base METHODOLOGY section 10.2 does not register, and was replaced by head 58565660 against the registered base 10cd755d. Its base halves, head halves, head W = 1 unions and C2 reader control figures no longer describe any committed artifact; quoted as current they would restore P5.1 REFUTED verdicts the replacement campaign does not give. Superseded, not re-estimated (section 8.7). The P5.4 ceilings 12.39, 8.95 and 9.06 M ops/s and the 7 of 20 count are deliberately not patterns: they are quoted in the frozen section 10.6 amendment. The string arm's head halves are not patterns either: `[0.48, 0.48]` is also a section 10.1 union."
+    },
+    {
+      "id": "hot_rowex_concurrent_single_writer_engine",
+      "patterns": [
+        "(?<![\\w.])1\\.558\\s*\\[1\\.546,\\s*1\\.575\\]",
+        "(?<![\\w.])1\\.756\\s*\\[1\\.703,\\s*1\\.798\\]",
+        "(?<![\\w.])0\\.084\\s*\\[0\\.083,\\s*0\\.085\\]",
+        "(?<![\\w.])0\\.130\\s*\\[0\\.126,\\s*0\\.136\\]",
+        "(?<![\\w.])0\\.140\\s*\\[0\\.136,\\s*0\\.142\\]",
+        "(?<![\\w.])1\\.707\\s*\\[1\\.648,\\s*1\\.744\\]",
+        "(?<![\\w.])1\\.220\\s*\\[1\\.198,\\s*1\\.264\\]",
+        "(?<![\\w.])2\\.8×\\s*[–-]\\s*11\\.9×",
+        "(?<![\\w.])0\\.084×\\s*/\\s*0\\.130×",
+        "(?<![\\w.])0\\.140\\s*[–-]\\s*0\\.142(?![\\d])",
+        "(?<![\\w.])150\\.3\\s+to\\s+15\\.4(?![\\d])"
+      ],
+      "context": [
+        "rowex",
+        "hot",
+        "writer",
+        "reader",
+        "expanse",
+        "sync"
+      ],
+      "replacement": "docs/benchmarks/hot_comparison/README.md section 7: results/baseline_concurrent.json and results/baseline_concurrent_run2.json, two runs at b868fb2e",
+      "provenance": "#692, #735, #568",
+      "rationale": "HOT-ROWEX concurrent levels measured on the single-writer engine (d3bc49c0 levels, 64f8a3af and a1982ff2 replication pairs). Superseded by the multi-writer engine's two runs at b868fb2e, where ROWEX wins writer throughput from W = 4, Expanse wins the map arm at W = 2, and Expanse wins every reader-under-writer cell."
+    },
+    {
+      "id": "masstree_concurrent_single_writer_engine",
+      "patterns": [
+        "(?<![\\w.])0\\.082\\s*\\[0\\.079,\\s*0\\.084\\]",
+        "(?<![\\w.])0\\.075\\s*\\[0\\.070,\\s*0\\.079\\]",
+        "(?<![\\w.])0\\.883\\s*\\[0\\.792,\\s*0\\.992\\]",
+        "(?<![\\w.])0\\.019\\s*\\[0\\.017,\\s*0\\.02[12]\\]",
+        "(?<![\\w.])2\\.420\\s*\\[2\\.341,\\s*2\\.478\\]",
+        "(?<![\\w.])1\\.134\\s*\\[1\\.097,\\s*1\\.169\\]",
+        "(?<![\\w.])0\\.450\\s*\\[0\\.431,\\s*0\\.501\\]",
+        "(?<![\\w.])0\\.450\\s*\\[0\\.394,\\s*0\\.480\\]",
+        "(?<![\\w.])2\\.372\\s*\\[2\\.296,\\s*2\\.407\\]",
+        "(?<![\\w.])0\\.066\\s*\\[0\\.048,\\s*0\\.123\\]",
+        "(?<![\\w.])0\\.057\\s*\\[0\\.051,\\s*0\\.062\\]",
+        "(?<![\\w.])142\\.8\\s+to\\s+18\\.7(?![\\d])",
+        "(?<![\\w.])43\\.2\\s+of\\s+(?:their\\s+)?58\\.4(?![\\d])",
+        "(?<![\\w.])5\\.66\\s+to\\s+1\\.86(?![\\d])"
+      ],
+      "context": [
+        "masstree",
+        "expanse",
+        "writer",
+        "reader",
+        "insert",
+        "sync"
+      ],
+      "replacement": "docs/benchmarks/masstree_comparison/README.md section 7: results/baseline_concurrent.json and results/baseline_concurrent_run2.json, two runs at b868fb2e",
+      "provenance": "#661, #760, #568",
+      "rationale": "Masstree concurrent levels measured on the single-writer engine (2ce92b7f levels, 64f8a3af and a1982ff2 pairs). Superseded by the multi-writer engine's two runs at b868fb2e: the integer single writer is BOUNDARY_RESULT, integer readers under writers go to Expanse, and the string arm still loses. The a1982ff2 artifacts remain at results/step0/ as the data of the concurrency suite's Step 0 and METHODOLOGY section 8 records, which quote reader nanoseconds and counters, not these ratios."
     }
   ]
 }

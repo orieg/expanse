@@ -5,8 +5,9 @@ committed artifacts (AGENTS.md section 8.2) — nothing here is typed.
 Sections emitted, in README order:
 
 - `2. Line-transfer matrix` from `results/line_transfer.json`
-- `3. Attribution — D1` from the two FFI suites' `baseline_concurrent*.json`
-  (throughput + health cells) and their `counters_<cell>.json`
+- `3. Attribution — D1` from the two FFI suites' `results/step0/baseline_concurrent*.json`
+  (throughput + health cells, the `a1982ff2` pair Step 0 was measured on) and
+  their `counters_<cell>.json`
 - `4. Attribution — D2` from the same
 - `5. The counter's own spread (P0.4)` from the H cells of both runs
 - `6. Ablations — padding the writer lock` from `results/ablations.json`
@@ -158,7 +159,7 @@ def d1() -> list[str]:
            "|---|--:|---|---|---|---|---|---|---|---|---|"]
     any_rows = False
     for label, results, arm, ccell in D1:
-        for run, fname in ((1, "baseline_concurrent.json"), (2, "baseline_concurrent_run2.json")):
+        for run, fname in ((1, "step0/baseline_concurrent.json"), (2, "step0/baseline_concurrent_run2.json")):
             art = load(results / fname)
             h = health_cell(art, arm, 1, 8) if art else None
             if not art or not h or "spin_time_share" not in h:
@@ -216,7 +217,7 @@ def d2() -> list[str]:
     any_rows = False
     for label, results, arm, w, ccell, note in D2:
         c = counters(results, ccell)
-        art = load(results / "baseline_concurrent.json")
+        art = load(results / "step0" / "baseline_concurrent.json")
         h = health_cell(art, arm, w, 8) if art else None  # H cells are R=8; handoffs at W>=2 there
         cs = role_event(c, "writer", "context-switches")
         rfo = role_event(c, "writer", "l2_rqsts.rfo_miss")
@@ -274,7 +275,7 @@ def spread() -> list[str]:
            "|---|---|--:|--:|--:|--:|--:|--:|--:|---|"]
     any_rows = False
     for name, results in (("hot_comparison", HOT), ("masstree_comparison", MT)):
-        a, b = load(results / "baseline_concurrent.json"), load(results / "baseline_concurrent_run2.json")
+        a, b = load(results / "step0" / "baseline_concurrent.json"), load(results / "step0" / "baseline_concurrent_run2.json")
         if not a or not b:
             continue
         for ha in a.get("health", []):

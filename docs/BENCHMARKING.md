@@ -659,7 +659,7 @@ Bench targets deliberately **not** reachable from a slash command:
     HOT-ROWEX arm was then run twice for the same reason and four of its ten
     C2 reader cells, and five of its ten C1 writer cells, did the same
     *(measured: reference host, `5232af74` and `134a0471`,
-    [`hot_comparison/README.md` §7.6](benchmarks/hot_comparison/README.md))*.
+    [`hot_comparison/METHODOLOGY.md` §12](benchmarks/hot_comparison/METHODOLOGY.md))*.
     In both arms **every direction and every verdict held**; it is the level
     that does not replicate.
 
