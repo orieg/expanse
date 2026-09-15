@@ -412,3 +412,41 @@ If you add a new node type, adjust promotion thresholds, or add benchmark arms:
 2. **Update JSON Dataset**: Add or update the values in [`docs/visualizer_data.json`](visualizer_data.json).
 3. **Update Visualizer HTML**: Update the constants in `docs/architecture_visualizer.html` (in `LADDER_SPEC`, `BENCHMARK_DATA`, or `POP_MILESTONES`).
 4. **Run Sync Test**: Verify that `cargo test --test test_visualizer_sync` passes before committing.
+
+---
+
+## 7. String Trie Prefix Descent & Traversal Cost Model (#813)
+
+`ExpanseStrMap` decomposes variable-length NUL-free byte strings into big-endian 8-byte chunks (`CHUNK = 8`), structuring the index as a digital radix trie where each intermediate node is a word-map (`MapCore`).
+
+### 7.1 Intermediate Node Traversal: Read-First vs Speculative Mutation
+In digital radix search trees, non-terminal chunks act as shared prefix highways. For strings sharing a common prefix of $p$ 8-byte chunks (such as hierarchical URLs or structured keys), an insertion incurs $p$ edge traversals followed by at most one divergence or suffix split step:
+
+$$\text{Cost} = p \cdot C_{\text{read}} + C_{\text{diverge}}$$
+
+Where:
+- $C_{\text{read}}$ is a lightweight read lookup via `MapCore::get(chunk)`: pointer chasing, SIMD/SWAR byte scans, and POPCNT ranks without stack allocation or mutation bookkeeping.
+- $C_{\text{diverge}}$ is the terminal leaf insertion or suffix split (`insert_pathless` / `split_suffix`), which constructs a `StrSuffix` or a new child node.
+
+**The Asymmetric Trade-off of Speculative Insertion (#813):**
+Attempting to eliminate double-descent on non-terminal misses by speculatively calling `ins_slot_pathless(chunk)` (Increment A) replaces $p \cdot C_{\text{read}}$ with $(p + 1) \cdot C_{\text{ins}}$, where $C_{\text{ins}}$ invokes `tree_insert::<true>` and eagerly allocates an `InsertPathMap` ancestor stack even when the chunk already exists.
+- On sparse, uniform-random keys ($p \approx 0$), speculative insertion saves a read miss ($C_{\text{ins}}$ vs $C_{\text{read\_miss}} + C_{\text{ins}}$), reducing instruction count by $\approx 14.5\%$.
+- On realistic prefix-dense keys ($p \ge 4$), the hit rate at intermediate levels exceeds $95\%$. Paying the mutation scaffolding on every shared prefix level ($p \cdot (C_{\text{ins}} - C_{\text{read}})$) adds $+27.16\text{M Ir}$ on `routes` (+12% to +17% regression).
+
+Therefore, non-terminal intermediate traversal in `ExpanseStrMap` must strictly remain on the zero-overhead read path (`node.map.get(chunk)`).
+
+### 7.2 Terminal Slot Insertion (Increment B)
+On the terminal chunk ($< 8$ bytes remaining), `ins_slot` must unconditionally return a writable slot, making `ins_slot_pathless` mandatory.
+Pre-existing implementations invoked `if !node.map.contains_key(chunk) { self.pop += 1; }` prior to `ins_slot_pathless`, executing two consecutive trie descents for every terminal entry.
+
+Increment B eliminates the redundant read descent by capturing `node.map.len()` before insertion:
+```rust
+let len_before = node.map.len();
+let slot = node.map.ins_slot_pathless(alloc, chunk);
+if node.map.len() > len_before {
+    self.pop += 1;
+}
+return slot;
+```
+Because `node.map.len()` is an $O(1)$ read of `MapCore`'s population counter, this eliminates an entire trie descent without altering traversal semantics or introducing mutation overhead.
+
