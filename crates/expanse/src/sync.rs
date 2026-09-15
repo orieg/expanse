@@ -12414,11 +12414,17 @@ mod ordered_read_tests {
             ),
         ];
         for (name, keys) in shapes {
-            let map = SyncExpanseMap::new();
+            let map = Arc::new(SyncExpanseMap::new());
             for &k in &keys {
                 map.insert(k, k.rotate_left(17) ^ 0xA5A5);
             }
             let rd = map.reader();
+            // The other two reader forms reach the same `map_next_with` /
+            // `map_prev_with`; each must answer as the borrowing reader does,
+            // for all six reads, and neither may register per call.
+            let owned = map.owned_reader();
+            let detached = map.detached_reader();
+            let regs = map.shared.collector.registrations();
             assert_eq!(
                 rd.first(),
                 map.with_locked(ExpanseMap::first),
@@ -12453,7 +12459,55 @@ mod ordered_read_tests {
                     map.with_locked(|m| m.prev_before(k)),
                     "{name}: prev_before({k:#x})"
                 );
+                let borrowing = (
+                    rd.next_at_or_after(k),
+                    rd.next_after(k),
+                    rd.prev_at_or_before(k),
+                    rd.prev_before(k),
+                );
+                assert_eq!(
+                    (
+                        owned.next_at_or_after(k),
+                        owned.next_after(k),
+                        owned.prev_at_or_before(k),
+                        owned.prev_before(k),
+                    ),
+                    borrowing,
+                    "{name}: OwnedMapReader at {k:#x}"
+                );
+                assert_eq!(
+                    (
+                        detached.next_at_or_after(&map, k),
+                        detached.next_after(&map, k),
+                        detached.prev_at_or_before(&map, k),
+                        detached.prev_before(&map, k),
+                    ),
+                    borrowing,
+                    "{name}: DetachedMapReader at {k:#x}"
+                );
             }
+            for (form, first, last) in [
+                ("owned", owned.first(), owned.last()),
+                ("detached", detached.first(&map), detached.last(&map)),
+            ] {
+                assert_eq!(first, rd.first(), "{name}: {form} first");
+                assert_eq!(last, rd.last(), "{name}: {form} last");
+            }
+            assert_eq!(
+                detached.next_after(&map, u64::MAX),
+                None,
+                "{name}: detached next_after(MAX)"
+            );
+            assert_eq!(
+                detached.prev_before(&map, 0),
+                None,
+                "{name}: detached prev_before(0)"
+            );
+            assert_eq!(
+                map.shared.collector.registrations(),
+                regs,
+                "{name}: owned and detached ordered reads must not register per call"
+            );
         }
     }
 }
