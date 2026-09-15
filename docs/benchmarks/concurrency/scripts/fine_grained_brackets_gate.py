@@ -3,8 +3,8 @@
 
 Inputs, per FFI suite (`docs/benchmarks/<suite>/results/`):
 
-- `baseline_concurrent.json` and `baseline_concurrent_run2.json`: the
-  committed pair at the base of the program (`a1982ff2`), whose union is the
+- `step0/baseline_concurrent.json` and `step0/baseline_concurrent_run2.json`:
+  the committed pair at the base of the program (`a1982ff2`), whose union is the
   baseline every threshold in §8.2 is derived from.
 - `baseline_concurrent_ab.json` and `baseline_concurrent_ab_run2.json`: two
   two-commit runs (`scripts/bench_ab.py`), each cell carrying a `base` and a
@@ -96,7 +96,7 @@ def evaluate(load) -> dict:
     arts = {}
     for suite in ("hot_comparison", "masstree_comparison"):
         arts[suite] = {
-            "base_pair": [load(suite, "baseline_concurrent.json"), load(suite, "baseline_concurrent_run2.json")],
+            "base_pair": [load(suite, "step0/baseline_concurrent.json"), load(suite, "step0/baseline_concurrent_run2.json")],
             "ab_pair": [load(suite, "baseline_concurrent_ab.json"), load(suite, "baseline_concurrent_ab_run2.json")],
         }
 
@@ -322,9 +322,9 @@ def _self_test() -> int:
         def load(suite, name):
             if suite != "masstree_comparison":
                 return None
-            if name == "baseline_concurrent.json":
+            if name == "step0/baseline_concurrent.json":
                 return base_pair[0]
-            if name == "baseline_concurrent_run2.json":
+            if name == "step0/baseline_concurrent_run2.json":
                 return base_pair[1]
             if name == "baseline_concurrent_ab.json":
                 return ab_pair[0]

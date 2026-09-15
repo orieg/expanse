@@ -278,7 +278,9 @@ SUITES = (
 )
 
 # The artifact filename families this gate governs, in a suite's `results/`
-# directory and in its `multi_writer_olc/` subdirectory.
+# directory and in its `multi_writer_olc/` and `step0/` subdirectories
+# (`step0/` holds the frozen `a1982ff2` concurrent pair #568 Step 0 and the
+# METHODOLOGY §8 gate read).
 #
 # `baseline_*` is a sweep. `ablation*` is the interventional arm measured
 # against one (section 8.20): it publishes a wall-clock ratio of a variant
@@ -679,7 +681,7 @@ def artifacts(bench: Path | None = None) -> list[Path]:
         res = (bench or BENCH) / suite / "results"
         if not res.is_dir():
             continue
-        for d in (res, res / "multi_writer_olc"):
+        for d in (res, res / "multi_writer_olc", res / "step0"):
             if not d.is_dir():
                 continue
             found: set[Path] = set()

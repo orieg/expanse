@@ -68,8 +68,10 @@ docs/benchmarks/masstree_comparison/run.sh --only-concurrent
 python3 scripts/bench_counters.py --cell masstree_conc_map_w1_r8 --repeats 7
 ```
 
-Their artifacts stay in their own suites (`results/baseline_concurrent*.json`,
-`results/counters_<cell>.json`); this page cites them.
+Their artifacts stay in their own suites (`results/step0/baseline_concurrent*.json`
+for the `a1982ff2` pair §3–§5 and §8 read, `results/counters_<cell>.json`); this
+page cites them. The suites' `results/baseline_concurrent*.json` at the top level
+are their current publication, not this experiment's data.
 
 The mixed read/write sweep in §12 has its own driver, which applies the core pin
 itself and refuses fewer than 15 rounds unless `--quick`:

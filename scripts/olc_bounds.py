@@ -953,8 +953,11 @@ def expected_attempts(attempt_failure_p: float, max_retries: int = MAX_READ_RETR
 
 #: Committed reader health cells for the concurrent map: 8 optimistic readers
 #: against 1-8 writers, HOT and Masstree FFI suites, one-thread-per-core pin `0-15`.
+#: The HOT cell is the frozen `a1982ff2` pair under `results/step0/`, which the
+#: projection in `docs/benchmarks/concurrency/METHODOLOGY.md` §12.1 is dated to;
+#: the suite's top-level `baseline_concurrent.json` is its current publication.
 ORDERED_HEALTH_ARTIFACTS = (
-    REPO_ROOT / "docs" / "benchmarks" / "hot_comparison" / "results" / "baseline_concurrent.json",
+    REPO_ROOT / "docs" / "benchmarks" / "hot_comparison" / "results" / "step0" / "baseline_concurrent.json",
     REPO_ROOT / "docs" / "benchmarks" / "hot_comparison" / "results" / "multi_writer_olc" / "baseline_concurrent_ab.json",
     REPO_ROOT / "docs" / "benchmarks" / "masstree_comparison" / "results" / "multi_writer_olc" / "baseline_concurrent_ab.json",
 )

@@ -846,7 +846,7 @@ Against §10.7:
 | Expanse wins `ownership` memory on `counter` and `short` (low-medium) | **CONFIRMED** on `counter`; **REFUTED** on `short` |
 | Expanse wins Arm D memory (high, categorical) | **CONFIRMED**, `PASS_categorical_by_design`, from N = 5,000 |
 | `λ_chunk` cascade near N ≈ 1.23 × 10⁵ (hypothesis) | consistent, not confirmed — §6.4 |
-## 7. The concurrent arm: the write-concurrency loss, measured
+## 7. The concurrent arm: HOT-ROWEX against the multi-writer engine
 
 Delivers [#692](https://github.com/orieg/expanse/issues/692): HOT's **ROWEX**
 variant (concurrent insert and lookup, no deletion) against `SyncExpanseSet`
@@ -856,26 +856,35 @@ measurement.
 
 > *(measured: reference host — Intel Core i9-12900F, 8P+8E/24 threads, 30 MiB L3,
 > Ubuntu 22.04, kernel 6.8; HOT `96bf6fb` with its pinned TBB 2018 `4c73c3b`,
-> built from the nested submodule, no system TBB; harness commit `d3bc49c0`;
-> `docs/benchmarks/hot_comparison/run.sh --only-concurrent`; benchmark shell
-> pinned to CPUs 0–15 and every row records `Cpus_allowed_list 0-15`;
+> built from the nested submodule, no system TBB; harness commit `b868fb2e`,
+> two runs; `docs/benchmarks/hot_comparison/run.sh --only-concurrent`; benchmark
+> shell pinned to CPUs 0–15 and every row records `Cpus_allowed_list 0-15`;
 > writers + readers ≤ 16; both arms `-C target-cpu=haswell` / `-march=haswell`,
-> both on glibc 2.35 `malloc`; load average 0.40 at start, 6.64 after with 5.83
-> cores busy across the sweep — its own threads, which is why it runs last and
-> is gated on the start snapshot; 15 rounds per cell, arms interleaved per round,
-> medians reported, BCa 95% bootstrap ratio intervals over 2,000 resamples and
-> every round in `rounds_raw`; the levels below are **run A** of the replication
-> pair §7.6 publishes; `results/baseline_concurrent.json`; workloads `hot_rowex_set_63bit`,
-> `hot_rowex_map_64bit`)*.
+> both on glibc 2.35 `malloc`; load average 1.04 and 1.29 at the two runs'
+> starts and at most 6.77 and 6.01 during them — the sweep's own threads — with a
+> load snapshot per cell putting foreign busy CPU at no more than
+> 0.02 core-equivalents in any cell of either run; 15 rounds per throughput
+> cell and 5 per health cell, arms interleaved per round, medians reported,
+> BCa 95% bootstrap ratio intervals over 2,000 resamples and every round in
+> `rounds_raw`; the levels in §7.1, §7.2 and §7.4 are **run 1**, §7.3 carries
+> both runs and §7.6 sets every ratio cell of the two side by side;
+> `results/baseline_concurrent.json`, `results/baseline_concurrent_run2.json`;
+> workloads `hot_rowex_set_63bit`, `hot_rowex_map_64bit`)*.
 >
 > Both arms are measured **below any external lock**, through their native
-> concurrent APIs (§8.16; `METHODOLOGY.md` §11.3 decision 4). Expanse's protocol
-> is optimistic lock coupling — one writer mutex, validated readers — and is
-> blocking by design (`AGENTS.md` §2.2). Ratios are **Expanse ÷ ROWEX
-> throughput**, so, as everywhere in this suite, **above 1.000 means Expanse is
-> faster.**
+> concurrent APIs (§8.16; `METHODOLOGY.md` §11.3 decision 4). `SyncExpanseSet`
+> and `SyncExpanseMap` admit concurrent writers through optimistic lock
+> coupling over per-node version words (`docs/ARCHITECTURE.md` §4.2), and the
+> protocol is blocking by design (`AGENTS.md` §2.2). Ratios are **Expanse ÷
+> ROWEX throughput**, so, as everywhere in this suite, **above 1.000 means
+> Expanse is faster.**
+>
+> The figures this section published before were measured on the single-writer
+> engine and are superseded. The `a1982ff2` pair among them is kept at
+> `results/step0/`, the data `docs/benchmarks/concurrency/README.md` §3–§5 and
+> §8 read.
 
-### 7.1 Writer throughput as writer count scales — the pre-registered loss, confirmed and wider than registered
+### 7.1 Writer throughput as writer count scales — ROWEX wins from four writers
 
 W writers each insert their slice of 2²⁰ fresh keys into a 2²⁰ prefill; fixed
 work, so both arms grow by exactly the same population every round.
@@ -884,34 +893,37 @@ work, so both arms grow by exactly the same population every round.
 
 | W | set: ROWEX M/s | set: Expanse M/s | ratio [BCa 95%] | verdict | map: ROWEX M/s | map: Expanse M/s | ratio [BCa 95%] | verdict |
 |--:|---:|---:|---|---|---:|---:|---|---|
-| 1 | 5.53 | **8.63** | 1.558 [1.546, 1.575] | Expanse | 2.97 | **5.23** | 1.756 [1.703, 1.798] | Expanse |
-| 2 | **9.01** | 5.16 | 0.573 [0.567, 0.577] | **ROWEX** | **4.89** | 3.70 | 0.752 [0.732, 0.767] | **ROWEX** |
-| 4 | **15.77** | 4.10 | 0.269 [0.264, 0.277] | **ROWEX** | **8.64** | 3.06 | 0.354 [0.348, 0.360] | **ROWEX** |
-| 8 | **26.27** | 3.80 | 0.146 [0.144, 0.151] | **ROWEX** | **13.85** | 2.56 | 0.180 [0.172, 0.186] | **ROWEX** |
-| 16 | **35.23** | 2.94 | 0.084 [0.083, 0.085] | **ROWEX** · *not pre-registered (SMT)* | **19.45** | 2.52 | 0.130 [0.126, 0.136] | **ROWEX** · *not pre-registered (SMT)* |
+| 1 | 5.30 | **7.45** | 1.403 [1.388, 1.418] | Expanse | 2.95 | **3.87** | 1.343 [1.288, 1.412] | Expanse |
+| 2 | 8.75 | 8.56 | 0.986 [0.977, 1.004] | `BOUNDARY_RESULT` | 5.07 | **5.45** | 1.096 [1.058, 1.135] | Expanse |
+| 4 | **15.14** | 9.98 | 0.665 [0.656, 0.674] | **ROWEX** | **8.86** | 8.04 | 0.896 [0.872, 0.917] | **ROWEX** |
+| 8 | **25.23** | 13.49 | 0.545 [0.533, 0.566] | **ROWEX** | **14.71** | 10.82 | 0.726 [0.701, 0.746] | **ROWEX** |
+| 16 | **33.39** | 14.49 | 0.442 [0.434, 0.450] | **ROWEX** · *not pre-registered (SMT)* | **21.79** | 10.28 | 0.466 [0.452, 0.477] | **ROWEX** · *not pre-registered (SMT)* |
 
-- **Expanse wins with one writer** — 1.56× (set) and 1.76× (map) —
-  **`CONFIRMED`** (§11.5.2, medium-high). The concurrent wrappers keep the
-  single-threaded insertion win of §2, at a smaller margin than the 2.52× /
-  3.55× measured without a wrapper *(different workload: `hot_latency` builds a
-  cold structure, this arm inserts into a 2²⁰ prefill — not comparable)*.
-- **The crossover is at W = 2**, inside the registered W\* ∈ [2, 4] —
-  **`CONFIRMED`** (§11.5.1, medium). ROWEX already wins at two writers on both
-  arms, with intervals clear of parity.
-- **At W ≥ 4 ROWEX wins by 2.8×–11.9×** — **`CONFIRMED`** (§11.5.1, high) and
-  wider than the registration argued for. Expanse's *aggregate* writer
-  throughput does not merely plateau at its single-writer rate: it **falls** as
-  writers are added — set 8.63 → 5.16 → 4.10 → 3.80 → 2.94 M inserts/s
-  (0.34× of one writer at sixteen), map 5.23 → 3.70 → 3.06 → 2.56 → 2.52
-  (0.48×). ROWEX scales 4.8× on the set arm and 4.7× on the map arm at W = 8, and 6.4× / 6.6× at W = 16,
-  where the sixteen threads occupy both SMT siblings of every P-core.
+- **Expanse wins with one writer** — 1.403 [1.388, 1.418] (set) and
+  1.343 [1.288, 1.412] (map) in run 1, 1.403 [1.388, 1.417] and
+  1.333 [1.280, 1.400] in run 2 — **`CONFIRMED`** (§11.5.2, medium-high).
+- **At two writers the arms split.** The map arm is Expanse's in both runs,
+  1.096 [1.058, 1.135] and 1.116 [1.077, 1.154] — **`REFUTED`** in
+  Expanse's favour, since §11.5.1 registered ROWEX or `BOUNDARY_RESULT`. The set
+  arm claims no winner in run 1, 0.986 [0.977, 1.004], and is ROWEX's in
+  run 2, 0.982 [0.970, 0.994]: the runs disagree on a winner, so under
+  `docs/BENCHMARKING.md` rule 18 the cell is direction-only. Both outcomes lie
+  inside the registered row, which is **`CONFIRMED`** on the set arm.
+- **The crossover lies inside the registered W\* ∈ [2, 4]** — **`CONFIRMED`**
+  (§11.5.1, medium): W\* = 4 on the map arm in both runs; on the set arm W\* = 2
+  in run 2 and 4 in run 1, where W = 2 claims no winner.
+- **At W ≥ 4 ROWEX wins every cell, by 1.11×–2.26×** across W = 4, 8 and 16 in
+  both runs — **`CONFIRMED`** (§11.5.1, high). Expanse's aggregate writer
+  throughput rises with writer count — set 7.45 → 8.56 → 9.98 → 13.49 → 14.49 M
+  inserts/s, map 3.87 → 5.45 → 8.04 → 10.82 → 10.28 in run 1 — reaching
+  1.94–1.99× (set) and 2.63–2.65× (map) its one-writer rate at sixteen
+  across the two runs. ROWEX scales 4.70–4.76× (set) and 4.96–4.98× (map) at W = 8
+  and 6.30–6.33× / 7.12–7.38× at W = 16, where the sixteen threads occupy both
+  SMT siblings of every P-core.
 
-Every insert on the Expanse side takes the same writer mutex, so the aggregate
-is bounded by the single-writer rate by construction; that it falls *below*
-that rate is the measured part. Which share of the fall is lock hand-off and
-which is the writers' cache-line traffic is **unmeasured** here — this arm
-carries no hardware counters (§8.9) — and no mechanism beyond the serialization
-itself is claimed.
+What limits Expanse's writer scaling, and what separates it from ROWEX's, is
+**unmeasured** here: this arm carries no hardware counters (§8.9), and no
+mechanism is claimed.
 
 ### 7.2 Readers alongside writers
 
@@ -926,41 +938,40 @@ two windows are the same length.
 
 | W | set: ROWEX M/s | set: Expanse M/s | ratio [BCa 95%] | verdict | map: ROWEX M/s | map: Expanse M/s | ratio [BCa 95%] | verdict |
 |--:|---:|---:|---|---|---:|---:|---|---|
-| 0 | 125.73 | **150.31** | 1.220 [1.198, 1.264] | Expanse | 72.96 | **126.95** | 1.707 [1.648, 1.744] | Expanse |
-| 1 | **109.74** | 15.42 | 0.140 [0.136, 0.142] | **ROWEX** | **57.49** | 15.94 | 0.271 [0.260, 0.281] | **ROWEX** |
-| 2 | **104.16** | 25.64 | 0.247 [0.238, 0.253] | **ROWEX** | **52.98** | 24.93 | 0.467 [0.448, 0.488] | **ROWEX** |
-| 4 | **93.00** | 19.63 | 0.216 [0.203, 0.228] | **ROWEX** | **45.81** | 22.85 | 0.493 [0.478, 0.507] | **ROWEX** |
-| 8 | **72.21** | 22.57 | 0.311 [0.306, 0.316] | **ROWEX** | **30.56** | 20.63 | 0.663 [0.638, 0.679] | **ROWEX** |
+| 0 | 125.65 | **150.87** | 1.197 [1.153, 1.224] | Expanse | 70.25 | **104.25** | 1.533 [1.490, 1.597] | Expanse |
+| 1 | 109.01 | **136.68** | 1.260 [1.254, 1.267] | Expanse | 55.10 | **97.28** | 1.763 [1.722, 1.808] | Expanse |
+| 2 | 102.09 | **124.18** | 1.218 [1.209, 1.236] | Expanse | 52.01 | **91.22** | 1.754 [1.714, 1.800] | Expanse |
+| 4 | 90.75 | **109.51** | 1.219 [1.198, 1.241] | Expanse | 44.72 | **80.62** | 1.844 [1.800, 1.899] | Expanse |
+| 8 | 70.09 | **80.10** | 1.157 [1.136, 1.178] | Expanse | 29.92 | **62.66** | 2.075 [1.987, 2.147] | Expanse |
 
 - **Reader-only (W = 0):** Expanse wins on both arms. The map row is
-  **`CONFIRMED`** (§11.5.2, medium). The set row was registered as
-  `BOUNDARY_RESULT` and landed as an Expanse win with the interval clear of
-  parity — recorded as a registered no-winner that resolved in Expanse's
-  favour, not as a confirmed prediction.
-- **Readers under any writer load: ROWEX wins every cell** — **`CONFIRMED`**
-  (§11.5.1, medium-high), and the size at W = 1 is the finding. **One writer
-  takes Expanse's eight readers from 150.3 to 15.4 M lookups/s on the set arm
-  (0.10× of their reader-only rate) while ROWEX's readers keep 109.7 (0.87×)**;
-  on the map arm 127.0 → 15.9 (0.13×) against 73.0 → 57.5 (0.79×). Expanse's
-  reader throughput then stays roughly flat as writers are added (15 → 26 → 20
-  → 23 set; 16 → 25 → 23 → 21 map) while ROWEX's declines as its writers take
-  more of the machine, which is why the ratio narrows toward W = 8 without
-  Expanse recovering. **The mechanism of the collapse is unmeasured.** The
-  restart share cannot account for a ten-fold drop — it sits in a 1–11% band
-  across both runs at every writer count (§7.3) — and `sample_spins` ÷
-  `read_ops`, about one wait per lookup there (0.58–1.30 over the two runs),
-  is the only counter this suite takes that speaks to it. No
-  hardware counter was taken on either arm, so nothing here attributes the fall
-  to a cache-line transfer, a futex or a bracket wait (§8.9 principle 1);
-  #737's shared `perf stat` wrapper is what would take one.
+  **`CONFIRMED`** (§11.5.2, medium), 1.533 [1.490, 1.597] and
+  1.526 [1.479, 1.592]. The set row was registered as `BOUNDARY_RESULT`
+  and landed as an Expanse win in both runs, 1.197 [1.153, 1.224] and
+  1.194 [1.190, 1.198] — recorded as a registered no-winner that resolved
+  in Expanse's favour, not as a confirmed prediction.
+- **Readers under writer load: Expanse wins every cell in both runs** —
+  1.157–1.274 on the set arm and 1.754–2.075 on the map arm across W = 1, 2,
+  4 and 8 — so the registered ROWEX win (§11.5.1, medium-high) is **`REFUTED`**
+  in Expanse's favour on all eight cells. With one writer, Expanse's eight
+  readers keep 0.91× (set) and 0.93–0.97× (map) of their reader-only rate
+  and ROWEX's keep 0.86–0.87× and 0.78×; with eight writers,
+  0.53–0.54× and 0.59–0.60× against 0.55–0.56× and 0.43× (the two runs'
+  range). One cell's level does not replicate — set W = 4, 1.219 [1.198, 1.241] then
+  1.164 [1.142, 1.187] (§7.6) — and is quoted as a direction and a range. What
+  sets these reader levels is **unmeasured**: no hardware counter was taken on
+  either arm (§8.9).
 - **Writers with readers present** *(not registered as a separate row;
-  reported)*: the Expanse single writer drops from 8.63 to 2.24 M inserts/s
-  (set) and 5.23 to 1.95 (map) when eight readers are probing; ROWEX's from
-  5.53 to 3.44 and 2.97 to 2.15. Writer ratios in these cells run 0.645
-  [0.636, 0.652] at W = 1 down to 0.091 [0.090, 0.092] at W = 8 (set) and
-  0.958 [0.877, 1.033] down to 0.140 [0.133, 0.146] (map) — ROWEX wins every
-  one except the map arm at W = 1, which claims no winner; without readers
-  Expanse won that cell outright.
+  reported)*: with eight readers probing, the Expanse single writer runs at
+  3.98 M inserts/s (set) and 2.76 (map), against 7.45 and 3.87 without
+  readers; ROWEX's at 3.45 and 2.14, against 5.30 and 2.95 (run 1).
+  Expanse wins the W = 1 writer cell on both arms — set
+  1.163 [1.143, 1.185] and 1.163 [1.085, 1.279], map
+  1.355 [1.274, 1.478] and 1.232 [1.157, 1.372] — and the map arm at
+  W = 2, 1.069 [1.025, 1.116] and 1.073 [1.035, 1.122]. The set arm's
+  W = 2 writer cell claims no winner in run 1 and is ROWEX's in run 2
+  (direction-only). ROWEX wins every writer cell at W ≥ 4: 0.578–0.715 (set)
+  and 0.742–0.928 (map).
 
 ### 7.3 Protocol health — event ratios from the diagnostic build
 
@@ -975,102 +986,104 @@ Nothing in this table is a timing. 5 rounds per cell; median with range.
 
 | Arm | W | R | run | restart share, median [min, max] | fallback share | `sample_spins` ÷ `read_ops` (ratio of medians) | `locked_reads` ÷ `read_ops` | unconditional lock share | handoffs ÷ write | branch replacements ÷ write | deep-cascade share | root-rewrite share | spin time ÷ reader wall | §11.5.3 |
 |---|--:|--:|--:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| set | 1 | 8 | 1 | 9.23% [9.12%, 9.46%] | 0.0000% | 2.52 | 0.00% | 0.00% | 0.000 | 0.034 | 1.71% | 0.00% | 52.76% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 1 | 8 | 2 | 13.39% [12.57%, 30.84%] | 0.0000% | 3.36 | 0.00% | 0.00% | 0.000 | 0.034 | 1.71% | 0.00% | 57.33% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 2 | 8 | 1 | 6.05% [5.85%, 6.08%] | 0.0000% | 1.77 | 0.00% | 0.00% | 0.127 | 0.034 | 1.71% | 0.00% | 48.48% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 2 | 8 | 2 | 5.89% [5.76%, 6.05%] | 0.0000% | 1.81 | 0.00% | 0.00% | 0.124 | 0.034 | 1.71% | 0.00% | 49.23% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 4 | 8 | 1 | 6.72% [5.80%, 8.02%] | 0.0000% | 1.85 | 0.00% | 0.00% | 0.280 | 0.034 | 1.71% | 0.00% | 48.36% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 4 | 8 | 2 | 8.30% [8.01%, 9.97%] | 0.0000% | 2.21 | 0.00% | 0.00% | 0.472 | 0.034 | 1.71% | 0.00% | 50.86% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 8 | 8 | 1 | 12.03% [11.39%, 12.87%] | 0.0000% | 2.39 | 0.00% | 0.00% | 0.546 | 0.034 | 1.71% | 0.00% | 52.14% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| set | 8 | 8 | 2 | 12.01% [11.46%, 12.37%] | 0.0000% | 2.52 | 0.00% | 0.00% | 0.532 | 0.034 | 1.71% | 0.00% | 51.73% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 1 | 8 | 1 | 10.15% [9.74%, 24.83%] | 0.0000% | 3.38 | 0.00% | 0.00% | 0.000 | 0.057 | 2.84% | 0.00% | 58.74% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 1 | 8 | 2 | 12.17% [11.88%, 23.81%] | 0.0000% | 3.64 | 0.00% | 0.00% | 0.000 | 0.057 | 2.84% | 0.00% | 59.91% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 2 | 8 | 1 | 5.31% [5.25%, 6.30%] | 0.0000% | 2.19 | 0.00% | 0.00% | 0.128 | 0.057 | 2.84% | 0.00% | 52.47% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 2 | 8 | 2 | 5.49% [5.25%, 5.54%] | 0.0000% | 2.16 | 0.00% | 0.00% | 0.137 | 0.057 | 2.84% | 0.00% | 52.00% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 4 | 8 | 1 | 7.36% [6.81%, 10.53%] | 0.0000% | 2.54 | 0.00% | 0.00% | 0.381 | 0.057 | 2.84% | 0.00% | 54.06% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 4 | 8 | 2 | 6.97% [6.41%, 7.34%] | 0.0000% | 2.55 | 0.00% | 0.00% | 0.385 | 0.057 | 2.84% | 0.00% | 52.85% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 8 | 8 | 1 | 5.75% [5.37%, 6.07%] | 0.0000% | 2.36 | 0.00% | 0.00% | 0.326 | 0.057 | 2.84% | 0.00% | 51.26% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| map | 8 | 8 | 2 | 6.99% [6.62%, 7.84%] | 0.0000% | 2.59 | 0.00% | 0.00% | 0.288 | 0.057 | 2.84% | 0.00% | 53.11% | rise with W: **`REFUTED`**; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 1 | 8 | 1 | 0.02% [0.02%, 0.02%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.034 | 1.71% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 1 | 8 | 2 | 0.02% [0.02%, 0.02%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.034 | 1.71% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 2 | 8 | 1 | 0.03% [0.02%, 0.03%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.035 | 1.71% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| set | 2 | 8 | 2 | 0.03% [0.03%, 0.03%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.035 | 1.71% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 1 in a round) |
+| set | 4 | 8 | 1 | 0.03% [0.03%, 0.04%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.036 | 1.71% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 1 in a round) |
+| set | 4 | 8 | 2 | 0.03% [0.03%, 0.04%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.036 | 1.71% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 1 in a round) |
+| set | 8 | 8 | 1 | 0.04% [0.04%, 0.05%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.038 | 1.71% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 1 in a round) |
+| set | 8 | 8 | 2 | 0.04% [0.04%, 0.05%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.038 | 1.71% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 1 in a round) |
+| map | 1 | 8 | 1 | 0.19% [0.18%, 0.24%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.057 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 6 in a round) |
+| map | 1 | 8 | 2 | 0.18% [0.18%, 0.18%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.057 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 2 in a round) |
+| map | 2 | 8 | 1 | 0.27% [0.25%, 0.32%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.058 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 34 in a round) |
+| map | 2 | 8 | 2 | 0.26% [0.25%, 0.27%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.058 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 4 in a round) |
+| map | 4 | 8 | 1 | 0.35% [0.34%, 0.39%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.061 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 9 in a round) |
+| map | 4 | 8 | 2 | 0.35% [0.34%, 0.37%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.061 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 20 in a round) |
+| map | 8 | 8 | 1 | 0.49% [0.44%, 0.51%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.067 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 4 in a round) |
+| map | 8 | 8 | 2 | 0.48% [0.44%, 0.49%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.067 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 5 in a round) |
 
-- **No reader ever took the writer mutex**: `read_fallbacks` is zero in every
-  round of every cell, so the §11.5.3 starvation falsifier (fallback share
-  ≥ 1%) did not fire — **`PASS_categorical_by_design`**, not `CONFIRMED`. A
-  fallback needs **64 consecutive failed optimistic walks**, and at the bracket
-  lengths a single writer holds, the probability of 64 in a row is negligible by
-  construction. The zero is a property of the construction, not a measured
-  property of the protocol: the falsifier could not have fired at these writer
-  counts whatever the engine did, and a falsifier that cannot fire is not a
-  measurement (AGENTS.md §8, C-b). METHODOLOGY §11.8 registers one that can.
-- **Whether the restart share rises with W is not settled by two runs.**
-  On the set arm run 1 rises monotonically (4.17 → 4.61 → 5.82 → 6.30%,
-  `CONFIRMED`) and run 2 does not (1.34 → 10.60 → 5.16 → 5.03%, `REFUTED`);
-  on the map arm neither run is monotonic. Under `docs/BENCHMARKING.md` rule
-  18 a cell whose two runs disagree is reported as direction-only: the share
-  sits in a 1–11% band across both runs and every writer count, and the
-  §11.5.3 rise hypothesis is neither `CONFIRMED` nor `REFUTED` across runs.
-  The table above carries each run's own verdict; the scorecard carries the
-  band.
-- The counters account for restarts and for spin iterations in
-  `SeqVersion::sample` (0.58–1.30 per read op over the two runs); they do not
-  time a spin — the `sample_spin_cycles` counter that does is
-  pre-registered in `docs/benchmarks/concurrency/METHODOLOGY.md`. The size
-  of the §7.2 reader collapse is therefore **not attributed** by this table —
-  the cause beyond the bracket wait itself is unmeasured.
+- **The restart share rises with W on both arms, in both runs** —
+  **`CONFIRMED`** (§11.5.3), and the two runs agree on the ordering, so the rise
+  is settled on this pair rather than direction-only. It sits at
+  0.02%–0.04% of walks on the set arm and 0.18%–0.49% on the map arm.
+- **Readers did take the writer mutex, and the starvation falsifier did not
+  fire.** A fallback was recorded in 13 of the 16 cells: at most 1 in a
+  round on the set arm, and at most 34 on the map arm (W = 2, run 1). The
+  median fallback share rounds to 0.0000% in every cell, far below the 1%
+  line of §11.5.3, so the second half is a measured **`CONFIRMED`** wherever a
+  fallback occurred. In the 3 cells where no round recorded one — the set arm
+  at W = 1 in both runs and at W = 2 in run 1 — the zero is
+  **`PASS_categorical_by_design`**: a fallback needs **64 consecutive failed
+  optimistic walks**, so the falsifier could not have fired there, and a
+  falsifier that cannot fire is not a measurement (AGENTS.md §8).
+  METHODOLOGY §11.8 registers one that can.
+- `sample_spins` reads zero at the median of every cell (the only non-zero
+  round is one spin at map W = 2, run 1), spin time ÷ reader wall reads 0.00%,
+  and the unconditional lock share reads 0.00%. These are event counts from the
+  counting build; nothing in this table attributes a §7.2 reader level to
+  them.
 
 ### 7.4 Memory — build-only, single writer, curve across λ
 
 Bytes held from the C allocator after a single-writer build (§11.3, decision 1),
 ROWEX against the `Sync*` wrapper, swept across the §9.6 occupancy targets.
-Deterministic byte counts, no interval. The census was re-validated with TBB
-linked (control allocation returns to zero; every ROWEX cell counted at least
-2N allocations on the map arm and N on the set arm — see `rowex_allocs` in the
-artifact). **Disclosed blind spot:** `libtbb.so`'s own per-thread state is
-allocated through the dynamic linker and is invisible to the link-time
-interposition; it is paid once per registering thread and is independent of N.
+Deterministic byte counts, no interval, byte-identical in both runs. Every ROWEX
+cell counted at least 2N allocations on the map arm and N on the set arm (see
+`hot_allocs` in the artifact). **Disclosed blind spot:** `libtbb.so`'s own
+per-thread state is allocated through the dynamic linker and is invisible to the
+link-time interposition; it is paid once per registering thread and is
+independent of N.
 
 | λ | set: ROWEX B/key | set: `SyncExpanseSet` B/key | winner | map: ROWEX B/key | map: `SyncExpanseMap` B/key | winner |
 |--:|---:|---:|---|---:|---:|---|
-| 1 | **12.91** | 14.14 | ROWEX 1.10× | 36.71 | **24.26** | Expanse 1.51× |
-| 2 | **12.40** | 13.25 | ROWEX 1.07× | 36.31 | **24.71** | Expanse 1.47× |
-| 4 | **12.00** | 12.12 | ROWEX 1.01× | 36.21 | **22.96** | Expanse 1.58× |
-| 8 | 11.88 | **9.85** | Expanse 1.21× | 36.16 | **19.36** | Expanse 1.87× |
-| 15 | 11.76 | **8.10** | Expanse 1.45× | 36.07 | **16.80** | Expanse 2.15× |
-| 23 | 11.73 | **8.12** | Expanse 1.44× | 36.09 | **16.36** | Expanse 2.21× |
-| 30 | **11.73** | 14.04 | ROWEX 1.20× | 36.05 | **20.35** | Expanse 1.77× |
-| 38 | **11.80** | 21.96 | ROWEX 1.86× | 36.15 | **25.92** | Expanse 1.40× |
-| 46 | **11.71** | 23.09 | ROWEX 1.97× | 36.09 | **26.78** | Expanse 1.35× |
-| 61 | **11.72** | 21.06 | ROWEX 1.80× | 36.05 | **25.62** | Expanse 1.41× |
+| 1 | **12.91** | 15.82 | ROWEX 1.22× | 36.71 | **25.51** | Expanse 1.44× |
+| 2 | **12.40** | 13.59 | ROWEX 1.10× | 36.31 | **24.85** | Expanse 1.46× |
+| 4 | **12.00** | 12.28 | ROWEX 1.02× | 36.21 | **23.03** | Expanse 1.57× |
+| 8 | 11.88 | **9.96** | Expanse 1.19× | 36.16 | **19.44** | Expanse 1.86× |
+| 15 | 11.76 | **8.73** | Expanse 1.35× | 36.07 | **17.95** | Expanse 2.01× |
+| 23 | 11.73 | **8.81** | Expanse 1.33× | 36.09 | **17.67** | Expanse 2.04× |
+| 30 | **11.73** | 14.31 | ROWEX 1.22× | 36.05 | **20.93** | Expanse 1.72× |
+| 38 | **11.80** | 21.98 | ROWEX 1.86× | 36.15 | **25.95** | Expanse 1.39× |
+| 46 | **11.71** | 23.07 | ROWEX 1.97× | 36.09 | **26.78** | Expanse 1.35× |
+| 61 | **11.72** | 21.06 | ROWEX 1.80× | 36.05 | **25.60** | Expanse 1.41× |
 
 - **Set arm:** the §1 story repeats with the concurrent types — ROWEX is flat
-  (11.71–12.91 B/key), Expanse wins only in the band λ ∈ [8, 23] and loses on
-  both sides of it. Both §11.5 memory rows for the set arm are **`CONFIRMED`**.
-- **Map arm:** Expanse wins at every occupancy, 1.35×–2.21× —
+  (11.71–12.91 B/key), Expanse wins only in the band λ ∈ [8, 23]
+  (1.19×–1.35×) and loses on both sides of it (1.02×–1.22× below,
+  1.22×–1.97× above). Both §11.5 memory rows for the set arm are
+  **`CONFIRMED`**.
+- **Map arm:** Expanse wins at every occupancy, 1.35×–2.04× —
   **`CONFIRMED`** and labelled **`PASS_categorical_by_design`**: ROWEX carries
   the same heap `std::pair` per entry as the single-threaded map arm.
 - The `SyncExpanseSet` cells differ from §1's `ExpanseSet` cells at the same
-  λ in both directions (14.14 against 16.17 at λ = 1; 21.06 against 20.29 at
-  λ = 61). The two are different types under the same instrument and the cause
-  of the gap is unmeasured; they are not set side by side as one quantity.
+  λ in both directions (15.82 against 17.05 at λ = 1; 21.06 against 20.28 at
+  λ = 61) *(workloads differ: `hot_rowex_set_63bit` vs `hot_memory_curve`,
+  harness commits `b868fb2e` and `ae9e716e`)*. The two are different types
+  under the same instrument and the cause of the gap is unmeasured; they are
+  not set side by side as one quantity.
 
 ### 7.5 Scorecard against the pre-registration
 
 20 throughput cells (10 writer, 10 reader, plus 8 writer-under-reader
-sub-cells), 8 health cells, 20 memory cells.
+sub-cells), 8 health cells per run, 20 memory cells; two runs of every
+wall-clock cell.
 
 | Registered (`METHODOLOGY.md` §11.5) | Outcome |
 |---|---|
-| ROWEX wins writer throughput at W ≥ 4 (high) | **CONFIRMED**, 2.8×–11.9× across W = 4, 8 and 16 |
-| Crossover writer count W\* ∈ [2, 4] (medium) | **CONFIRMED**, W\* = 2 on both arms |
-| ROWEX wins reader throughput under W ≥ 1 (medium-high) | **CONFIRMED**, every cell; 7.1× at W = 1 on the set arm |
-| Expanse wins writer throughput at W = 1 (medium-high) | **CONFIRMED**, 1.56× / 1.76× |
-| Expanse wins reader-only, map arm (medium) | **CONFIRMED**, 1.71× |
-| Reader-only, set arm: `BOUNDARY_RESULT` (low-medium) | registered no-winner; **measured Expanse win** 1.220 [1.198, 1.264] |
+| ROWEX wins writer throughput at W ≥ 4 (high) | **CONFIRMED**, 1.11×–2.26× across W = 4, 8 and 16, both runs |
+| ROWEX wins or `BOUNDARY_RESULT` at W = 2 (medium) | set **CONFIRMED** (`BOUNDARY_RESULT` in run 1, ROWEX in run 2; direction-only); map **REFUTED** in Expanse's favour, 1.096–1.116 |
+| Crossover writer count W\* ∈ [2, 4] (medium) | **CONFIRMED**: W\* = 4 on the map arm; 2 or 4 on the set arm |
+| ROWEX wins reader throughput under W ≥ 1 (medium-high) | **REFUTED** in Expanse's favour on all 8 cells in both runs, 1.157–2.075 |
+| Expanse wins writer throughput at W = 1 (medium-high) | **CONFIRMED**, 1.403 (set) / 1.333–1.343 (map) |
+| Expanse wins reader-only, map arm (medium) | **CONFIRMED**, 1.526–1.533 |
+| Reader-only, set arm: `BOUNDARY_RESULT` (low-medium) | registered no-winner; **measured Expanse win** 1.197 [1.153, 1.224] and 1.194 [1.190, 1.198] |
 | Memory, map arm, all λ (high) | **CONFIRMED**, `PASS_categorical_by_design` |
 | Memory, set arm: Expanse wins λ ∈ [8, 23], ROWEX outside (medium) | **CONFIRMED** on both sides |
-| Health: fallback share < 1% at all W (falsifier) | **`PASS_categorical_by_design`** — zero fallbacks; a fallback needs 64 consecutive failed walks, which cannot occur at these bracket lengths (§7.3) |
-| Health: restart share rises monotonically with W | direction-only (rule 18): set run 1 `CONFIRMED`, run 2 `REFUTED`; map both `REFUTED`; a 1–11% band across both runs (§7.3) |
-| W = 16 cells | `not pre-registered`; reported: 0.084 (set), 0.130 (map) |
-| Writers with readers present | `not pre-registered`; reported: ROWEX wins every cell but the map arm at W = 1, which claims no winner |
+| Health: fallback share < 1% at all W (falsifier) | did not fire: **`CONFIRMED`** in the 13 cells where a fallback was recorded, **`PASS_categorical_by_design`** in the 3 where none was (§7.3) |
+| Health: restart share rises monotonically with W | **CONFIRMED** on both arms in both runs (§7.3) |
+| W = 16 cells | `not pre-registered`; reported: 0.442 [0.434, 0.450] and 0.447 [0.440, 0.455] (set), 0.466 [0.452, 0.477] and 0.489 [0.473, 0.510] (map) |
+| Writers with readers present | `not pre-registered`; reported: Expanse wins at W = 1 on both arms and at W = 2 on the map arm, the set arm's W = 2 cell is direction-only, ROWEX wins at W ≥ 4 |
 
 No `UNPREDICTED LOSS`: every cell Expanse lost was registered as a loss.
 
@@ -1080,78 +1093,59 @@ lookup on uniform random integer keys only — no deletion, contended-key, scan 
 string claim; at most 16 threads on 8 physical performance cores with SMT; and no
 peer review.
 
-### 7.6 Between-run spread: the C2 cells are a direction and a range, not a level (#735)
+### 7.6 Between-run spread: two runs at one commit (#735)
 
-This arm has now been run twice on the reference host **at one commit**,
-`64f8a3af`, both under the P-core pin, worst busy-CPU delta 5.7 core-equivalents
-across each — the concurrent benchmark's own threads and no non-target process. Publishing the pair at a single commit is what the
-earlier pair could not do: the runs at `5232af74` and `134a0471` differed by the
-engine as well as by the run, and nothing separated the two. Here the binaries
-are identical, so the table below is run-to-run spread on this host and nothing
-else.
+The arm was run twice on the reference host **at one commit**, `b868fb2e`, both
+under the P-core pin with a load snapshot per cell. The binaries are identical,
+so the table below is run-to-run spread on this host and nothing else
+*(workloads: `hot_rowex_set_63bit`, `hot_rowex_map_64bit`)*.
 
-| Arm | W | R | run A | run B | intervals overlap |
-|---|--:|--:|---|---|---|
-| set | 0 | 8 | 1.183 [1.158, 1.196] | 1.206 [1.184, 1.268] | yes |
-| set | 1 | 8 | 0.138 [0.130, 0.141] | 0.145 [0.138, 0.149] | yes |
-| set | 2 | 8 | 0.234 [0.220, 0.242] | 0.281 [0.259, 0.298] | **no** |
-| set | 4 | 8 | 0.241 [0.236, 0.246] | 0.247 [0.239, 0.255] | yes |
-| set | 8 | 8 | 0.307 [0.297, 0.313] | 0.310 [0.298, 0.321] | yes |
-| map | 0 | 8 | 1.780 [1.733, 1.802] | 1.847 [1.788, 1.985] | yes |
-| map | 1 | 8 | 0.315 [0.301, 0.326] | 0.309 [0.298, 0.321] | yes |
-| map | 2 | 8 | 0.453 [0.424, 0.469] | 0.450 [0.440, 0.464] | yes |
-| map | 4 | 8 | 0.524 [0.513, 0.538] | 0.515 [0.502, 0.531] | yes |
-| map | 8 | 8 | 0.600 [0.576, 0.622] | 0.681 [0.655, 0.695] | **no** |
+| Arm | cell | W | R | run 1 | run 2 | intervals overlap | verdict |
+|---|---|--:|--:|---|---|---|---|
+| set | C1 writer | 1 | 0 | 1.403 [1.388, 1.418] | 1.403 [1.388, 1.417] | yes | Expanse |
+| set | C1 writer | 2 | 0 | 0.986 [0.977, 1.004] | 0.982 [0.970, 0.994] | yes | runs disagree (`BOUNDARY_RESULT` / ROWEX) — direction-only |
+| set | C1 writer | 4 | 0 | 0.665 [0.656, 0.674] | 0.665 [0.657, 0.678] | yes | ROWEX |
+| set | C1 writer | 8 | 0 | 0.545 [0.533, 0.566] | 0.554 [0.535, 0.577] | yes | ROWEX |
+| set | C1 writer | 16 | 0 | 0.442 [0.434, 0.450] | 0.447 [0.440, 0.455] | yes | ROWEX |
+| set | C2 reader | 0 | 8 | 1.197 [1.153, 1.224] | 1.194 [1.190, 1.198] | yes | Expanse |
+| set | C2 reader | 1 | 8 | 1.260 [1.254, 1.267] | 1.274 [1.258, 1.286] | yes | Expanse |
+| set | C2 writer | 1 | 8 | 1.163 [1.143, 1.185] | 1.163 [1.085, 1.279] | yes | Expanse |
+| set | C2 reader | 2 | 8 | 1.218 [1.209, 1.236] | 1.235 [1.216, 1.251] | yes | Expanse |
+| set | C2 writer | 2 | 8 | 0.965 [0.938, 1.006] | 0.954 [0.929, 0.987] | yes | runs disagree (`BOUNDARY_RESULT` / ROWEX) — direction-only |
+| set | C2 reader | 4 | 8 | 1.219 [1.198, 1.241] | 1.164 [1.142, 1.187] | **no** | Expanse |
+| set | C2 writer | 4 | 8 | 0.715 [0.705, 0.730] | 0.715 [0.702, 0.729] | yes | ROWEX |
+| set | C2 reader | 8 | 8 | 1.157 [1.136, 1.178] | 1.164 [1.130, 1.191] | yes | Expanse |
+| set | C2 writer | 8 | 8 | 0.578 [0.570, 0.588] | 0.597 [0.583, 0.633] | yes | ROWEX |
+| map | C1 writer | 1 | 0 | 1.343 [1.288, 1.412] | 1.333 [1.280, 1.400] | yes | Expanse |
+| map | C1 writer | 2 | 0 | 1.096 [1.058, 1.135] | 1.116 [1.077, 1.154] | yes | Expanse |
+| map | C1 writer | 4 | 0 | 0.896 [0.872, 0.917] | 0.901 [0.877, 0.925] | yes | ROWEX |
+| map | C1 writer | 8 | 0 | 0.726 [0.701, 0.746] | 0.737 [0.714, 0.759] | yes | ROWEX |
+| map | C1 writer | 16 | 0 | 0.466 [0.452, 0.477] | 0.489 [0.473, 0.510] | yes | ROWEX |
+| map | C2 reader | 0 | 8 | 1.533 [1.490, 1.597] | 1.526 [1.479, 1.592] | yes | Expanse |
+| map | C2 reader | 1 | 8 | 1.763 [1.722, 1.808] | 1.801 [1.753, 1.842] | yes | Expanse |
+| map | C2 writer | 1 | 8 | 1.355 [1.274, 1.478] | 1.232 [1.157, 1.372] | yes | Expanse |
+| map | C2 reader | 2 | 8 | 1.754 [1.714, 1.800] | 1.772 [1.723, 1.823] | yes | Expanse |
+| map | C2 writer | 2 | 8 | 1.069 [1.025, 1.116] | 1.073 [1.035, 1.122] | yes | Expanse |
+| map | C2 reader | 4 | 8 | 1.844 [1.800, 1.899] | 1.848 [1.812, 1.895] | yes | Expanse |
+| map | C2 writer | 4 | 8 | 0.922 [0.883, 0.966] | 0.928 [0.897, 0.955] | yes | ROWEX |
+| map | C2 reader | 8 | 8 | 2.075 [1.987, 2.147] | 2.061 [1.991, 2.141] | yes | Expanse |
+| map | C2 writer | 8 | 8 | 0.742 [0.712, 0.768] | 0.744 [0.716, 0.776] | yes | ROWEX |
 
-**2 of the 10 C2 reader cells moved past their own intervals** — set W = 2 from
-0.234 to 0.281 and map W = 8 from 0.600 to 0.681 — and 3 of the 10 C1 writer
-cells did the same (`map W = 16`, `set W = 4`, `set W = 8`), 5 of 20 in all.
-**Every direction and every verdict held in all 20 cells.** The concurrent
-memory cells are byte-identical between the runs, which is the control: a
-deterministic census taken by the same code on the same host reproduces
-exactly, so the wall-clock spread is not the instrument reading differently.
+**1 of the 28 ratio cells moved past its own interval** — the set arm's W = 4
+reader cell, 1.219 then 1.164 — and **in 2 cells the runs disagree on a
+winner**: set C1 W = 2 and the set W = 2 writer cell under eight readers, each
+`BOUNDARY_RESULT` in run 1 and ROWEX's in run 2, with overlapping intervals.
+Those 2 are direction-only; every other cell has the same verdict in both
+runs. The concurrent memory cells are byte-identical between the runs, which is
+the control: a deterministic census taken by the same code on the same host
+reproduces exactly, so the wall-clock spread is not the instrument reading
+differently.
 
-Five of twenty is the rate `docs/BENCHMARKING.md` rule 18 now records across
-this repository's suites — 13 of 72 and 24 of 144 on the single-threaded
-sweeps, 4 of 20 on the Masstree concurrent arm. It is the instrument's normal
-behaviour, not a fault of this pair.
+Per `docs/BENCHMARKING.md` rule 18 the claim ceiling on a concurrent cell is
+the union of its two runs' intervals, and a citation of a cell outside this
+suite states a direction and a range. The `masstree_comparison` arm's pair at
+the same commit is in its README §7.
 
-For the cells that moved, the between-run spread exceeds the within-run
-interval, so **a single run's level is not a settled figure**: every citation of
-a C2 cell outside this suite states a direction and a range. The
-`masstree_comparison` arm found the same thing on its own two runs (README §7,
-"Between-run spread"), which is why `docs/BENCHMARKING.md` carries the
-replication rule rather than leaving each arm to rediscover it: two runs for a
-concurrent cell, the claim ceiling is the union of the two intervals, and a cell
-whose runs do not overlap is reported as direction-only.
-
-The health counters move the same way, and §7.3 reads them as a band: the
-two runs do not agree on the ordering of the restart share across writer
-counts, so the registered rise is direction-only (run 1 monotonic on the set
-arm, run 2 not).
-
-**A second pair, at `a1982ff2`, for [#568](https://github.com/orieg/expanse/issues/568)
-Step 0.** The concurrent sweep was re-taken twice with a load snapshot per
-cell (foreign share ≤ 0.02 core-equivalents throughout) and health rows that
-carry the attribution counters and are summed from per-thread shards. Against
-the union of the `64f8a3af` pair, 24 of the 28 C1/C2 ratio cells overlap; the
-four that do not are all on the set arm — `C1 set W=4` (0.247–0.270 →
-0.273–0.304), `C2 set W=4 R=8 writer` (0.154–0.170 → 0.173–0.192), `C2 set W=8
-R=8 reader` (0.297–0.321 → 0.258–0.279) and `C2 set W=8 R=8 writer`
-(0.086–0.099 → 0.100–0.109). Within the new pair **14 of 28 cells separate**,
-the widest `C2 set W=1 R=8 reader` (0.254 → 0.141); **no direction and no
-verdict moved** in either pair. §7.3's table is the new pair; §7.1, §7.2, §7.4
-and §7.5 keep the `64f8a3af` levels, which the new pair replicates in
-direction everywhere and in level on 24 of 28 cells. Both runs are in
-`results/baseline_concurrent.json` and `results/baseline_concurrent_run2.json`
-with their own provenance.
-
-What explains the spread was the open question this table left, and #568's
-Step 0 has now measured the mechanism it left open — readers spending most of
-their time on the writer's open tree-level bracket, the writer's coherence
-cost with readers present — in
-[`docs/benchmarks/concurrency/README.md`](../concurrency/README.md). The
-run-to-run spread itself is still unattributed there too.
 ---
 
 ## 8. Reproducing
