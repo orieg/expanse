@@ -21,6 +21,7 @@ pub use set::ExpanseSet;
 pub use strmap::ExpanseStrMap;
 pub use sync::{SyncExpanseMap, SyncExpanseSet};
 
+// abi-parity: expanse_version
 /// Returns the Expanse library version string.
 #[napi_derive::napi]
 pub fn expanse_version() -> String {

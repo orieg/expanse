@@ -7,7 +7,11 @@ expanse_sync_set_reader_contains, expanse_sync_map_new, \
 expanse_sync_map_free, expanse_sync_map_insert, expanse_sync_map_get, \
 expanse_sync_map_remove, expanse_sync_map_len, \
 expanse_sync_map_reader_new, expanse_sync_map_reader_free, \
-expanse_sync_map_reader_get \
+expanse_sync_map_reader_get, expanse_sync_map_reader_first, \
+expanse_sync_map_reader_last, expanse_sync_map_reader_next_at_or_after, \
+expanse_sync_map_reader_next_after, \
+expanse_sync_map_reader_prev_at_or_before, \
+expanse_sync_map_reader_prev_before \
 \- concurrent sets and maps with optimistic readers (OCC)
 .SH SYNOPSIS
 .B #include <expanse.h>
@@ -74,6 +78,30 @@ expanse_sync_map_reader_get \
 .BI "bool expanse_sync_map_reader_get("
 .BI "    const expanse_sync_map_reader_t *" reader ", uint64_t " key ","
 .BI "    uint64_t *" value_out ");"
+.br
+.BI "bool expanse_sync_map_reader_first("
+.BI "    const expanse_sync_map_reader_t *" reader ","
+.BI "    uint64_t *" key_out ", uint64_t *" value_out ");"
+.br
+.BI "bool expanse_sync_map_reader_last("
+.BI "    const expanse_sync_map_reader_t *" reader ","
+.BI "    uint64_t *" key_out ", uint64_t *" value_out ");"
+.br
+.BI "bool expanse_sync_map_reader_next_at_or_after("
+.BI "    const expanse_sync_map_reader_t *" reader ", uint64_t " key ","
+.BI "    uint64_t *" key_out ", uint64_t *" value_out ");"
+.br
+.BI "bool expanse_sync_map_reader_next_after("
+.BI "    const expanse_sync_map_reader_t *" reader ", uint64_t " key ","
+.BI "    uint64_t *" key_out ", uint64_t *" value_out ");"
+.br
+.BI "bool expanse_sync_map_reader_prev_at_or_before("
+.BI "    const expanse_sync_map_reader_t *" reader ", uint64_t " key ","
+.BI "    uint64_t *" key_out ", uint64_t *" value_out ");"
+.br
+.BI "bool expanse_sync_map_reader_prev_before("
+.BI "    const expanse_sync_map_reader_t *" reader ", uint64_t " key ","
+.BI "    uint64_t *" key_out ", uint64_t *" value_out ");"
 .PP
 Link with \fI-lexpanse\fR.
 .SH DESCRIPTION
@@ -89,8 +117,10 @@ Readers execute an optimistic validation walk using seqlock version
 words and Epoch-Based Reclamation (EBR).
 The protocol is blocking optimistic lock coupling \(em a reader retries
 a bounded number of times and then takes the writer mutex \(em not lock-free.
-Readers never acquire mutexes on the common path, never block writers,
-and scale linearly across CPU cores.
+On the common path a reader acquires no mutex and does not block writers.
+A reader that exhausts its retries falls back to the writer-excluding path:
+it quiesces writers and takes the writer mutex, and writers wait until that
+read finishes.
 .SH READER HANDLES
 For optimal throughput in multithreaded readers, threads should instantiate a
 dedicated reader handle (\fBexpanse_sync_map_reader_new\fR) once per thread and
@@ -98,6 +128,36 @@ reuse it across queries.
 .PP
 The one-shot functions (\fBexpanse_sync_map_get\fR) implicitly register and
 deregister epoch participation on each invocation.
+.SH ORDERED READS
+.BR expanse_sync_map_reader_first ,
+.BR expanse_sync_map_reader_last ,
+.BR expanse_sync_map_reader_next_at_or_after ,
+.BR expanse_sync_map_reader_next_after ,
+.B expanse_sync_map_reader_prev_at_or_before
+and
+.B expanse_sync_map_reader_prev_before
+return the smallest entry, the largest, and the nearest entry at or after,
+after, at or before, and before
+.IR key .
+Each returns true with the entry written through
+.I key_out
+and
+.I value_out
+(either may be NULL), and false when there is no such entry \(em which
+includes a successor of
+.B UINT64_MAX
+and a predecessor of 0 \(em or when
+.I reader
+is NULL.
+.PP
+Each is one validated ordered search with the retry budget and fallback of
+.BR expanse_sync_map_reader_get :
+the entry returned was present, and every key the search passed over was
+absent, at one instant.
+Walking a range by calling
+.B expanse_sync_map_reader_next_after
+in a loop answers each step at its own instant, so the sequence is not a
+snapshot of the map.
 .SH EXAMPLES
 .nf
 #include <stdio.h>

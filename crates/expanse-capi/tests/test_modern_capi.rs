@@ -311,6 +311,213 @@ fn test_modern_capi_map_navigation() {
     }
 }
 
+/// The six ordered reads through a sync map reader handle (#900): found,
+/// absent, both ends of the key space, NULL out-pointers and a NULL reader,
+/// then the same reads against a live writer, where every probe has exactly
+/// one right answer or one of two named ones.
+#[test]
+fn test_sync_map_reader_ordered_reads() {
+    use expanse::modern::{
+        expanse_sync_map_free, expanse_sync_map_insert, expanse_sync_map_new,
+        expanse_sync_map_reader_first, expanse_sync_map_reader_free, expanse_sync_map_reader_last,
+        expanse_sync_map_reader_new, expanse_sync_map_reader_next_after,
+        expanse_sync_map_reader_next_at_or_after, expanse_sync_map_reader_prev_at_or_before,
+        expanse_sync_map_reader_prev_before, expanse_sync_map_remove,
+    };
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// Runs one ordered read into locals: `Some((key, value))` when it found
+    /// an entry. The receiver call runs before the tuple is built.
+    fn entry(read: impl FnOnce(*mut u64, *mut u64) -> bool) -> Option<(u64, u64)> {
+        let (mut k, mut v) = (0u64, 0u64);
+        read(&raw mut k, &raw mut v).then_some((k, v))
+    }
+
+    let e = |key: u64| Some((key, key ^ 0x5A5A));
+    // SAFETY: `m` is live until the final free and outlives the reader, which
+    // is freed first and used only from this thread; out-pointers are live
+    // locals or null; a null reader is a documented `false`.
+    unsafe {
+        let m = expanse_sync_map_new();
+        let r = expanse_sync_map_reader_new(m);
+        assert!(!r.is_null());
+
+        // Empty: nothing in either direction, from either end.
+        assert_eq!(entry(|k, v| expanse_sync_map_reader_first(r, k, v)), None);
+        assert_eq!(entry(|k, v| expanse_sync_map_reader_last(r, k, v)), None);
+        assert_eq!(
+            entry(|k, v| expanse_sync_map_reader_next_at_or_after(r, 0, k, v)),
+            None
+        );
+        assert_eq!(
+            entry(|k, v| expanse_sync_map_reader_prev_at_or_before(r, u64::MAX, k, v)),
+            None
+        );
+
+        for key in [0u64, 10, 20, 30, u64::MAX] {
+            assert!(expanse_sync_map_insert(
+                m,
+                key,
+                key ^ 0x5A5A,
+                core::ptr::null_mut()
+            ));
+        }
+
+        assert_eq!(entry(|k, v| expanse_sync_map_reader_first(r, k, v)), e(0));
+        assert_eq!(
+            entry(|k, v| expanse_sync_map_reader_last(r, k, v)),
+            e(u64::MAX)
+        );
+        assert_eq!(
+            entry(|k, v| expanse_sync_map_reader_next_at_or_after(r, 15, k, v)),
+            e(20)
+        );
+        assert_eq!(
+            entry(|k, v| expanse_sync_map_reader_next_at_or_after(r, 20, k, v)),
+            e(20)
+        );
+        assert_eq!(
+            entry(|k, v| expanse_sync_map_reader_next_after(r, 20, k, v)),
+            e(30)
+        );
+        assert_eq!(
+            entry(|k, v| expanse_sync_map_reader_next_after(r, 30, k, v)),
+            e(u64::MAX)
+        );
+        assert_eq!(
+            entry(|k, v| expanse_sync_map_reader_next_at_or_after(r, u64::MAX, k, v)),
+            e(u64::MAX)
+        );
+        assert_eq!(
+            entry(|k, v| expanse_sync_map_reader_next_after(r, u64::MAX, k, v)),
+            None
+        );
+        assert_eq!(
+            entry(|k, v| expanse_sync_map_reader_prev_at_or_before(r, 25, k, v)),
+            e(20)
+        );
+        assert_eq!(
+            entry(|k, v| expanse_sync_map_reader_prev_at_or_before(r, 20, k, v)),
+            e(20)
+        );
+        assert_eq!(
+            entry(|k, v| expanse_sync_map_reader_prev_before(r, 20, k, v)),
+            e(10)
+        );
+        assert_eq!(
+            entry(|k, v| expanse_sync_map_reader_prev_at_or_before(r, 0, k, v)),
+            e(0)
+        );
+        assert_eq!(
+            entry(|k, v| expanse_sync_map_reader_prev_before(r, 0, k, v)),
+            None
+        );
+
+        // Remove both ends: the searches that reached them now come up empty.
+        for key in [0u64, u64::MAX] {
+            assert!(expanse_sync_map_remove(m, key, core::ptr::null_mut()));
+        }
+        assert_eq!(
+            entry(|k, v| expanse_sync_map_reader_prev_at_or_before(r, 5, k, v)),
+            None
+        );
+        assert_eq!(
+            entry(|k, v| expanse_sync_map_reader_next_at_or_after(r, 31, k, v)),
+            None
+        );
+        assert_eq!(entry(|k, v| expanse_sync_map_reader_first(r, k, v)), e(10));
+        assert_eq!(entry(|k, v| expanse_sync_map_reader_last(r, k, v)), e(30));
+
+        // NULL out-pointers: the found flag alone. NULL reader: false.
+        assert!(expanse_sync_map_reader_next_after(
+            r,
+            10,
+            core::ptr::null_mut(),
+            core::ptr::null_mut()
+        ));
+        assert_eq!(
+            entry(|k, v| expanse_sync_map_reader_first(core::ptr::null(), k, v)),
+            None
+        );
+
+        expanse_sync_map_reader_free(r);
+        expanse_sync_map_free(m);
+    }
+
+    // Against a live writer. Even keys below N are inserted up front and never
+    // touched; the writer churns the odd keys between them, always with value
+    // `k * 3`. So an even probe's at-or-after / at-or-before answer is the probe
+    // itself, and its strict neighbour is the odd key (with its only value) or
+    // the next even key.
+    const N: u64 = 4096;
+    let m = expanse_sync_map_new();
+    for k in (0..N).step_by(2) {
+        // SAFETY: live handle; null `old_out`.
+        assert!(unsafe { expanse_sync_map_insert(m, k, k * 3, core::ptr::null_mut()) });
+    }
+    let m_addr = m as usize;
+    let stop = AtomicBool::new(false);
+    std::thread::scope(|s| {
+        for t in 0..2u64 {
+            let stop = &stop;
+            s.spawn(move || {
+                // SAFETY: the map outlives this scope; the reader is created,
+                // used and freed on this thread; out-pointers are locals.
+                unsafe {
+                    let r = expanse_sync_map_reader_new(m_addr as *const _);
+                    assert!(!r.is_null());
+                    let mut i = 0u64;
+                    while !stop.load(Ordering::Relaxed) || i < 20_000 {
+                        let even = ((i * 7919 + t) % N) & !1;
+                        let at = |key: u64| Some((key, key * 3));
+                        assert_eq!(
+                            entry(|k, v| expanse_sync_map_reader_next_at_or_after(r, even, k, v)),
+                            at(even)
+                        );
+                        assert_eq!(
+                            entry(|k, v| expanse_sync_map_reader_prev_at_or_before(r, even, k, v)),
+                            at(even)
+                        );
+                        if even + 2 < N {
+                            let got =
+                                entry(|k, v| expanse_sync_map_reader_next_after(r, even, k, v));
+                            assert!(got == at(even + 1) || got == at(even + 2), "{got:?}");
+                        }
+                        if even >= 2 {
+                            let got =
+                                entry(|k, v| expanse_sync_map_reader_prev_before(r, even, k, v));
+                            assert!(got == at(even - 1) || got == at(even - 2), "{got:?}");
+                        }
+                        assert_eq!(entry(|k, v| expanse_sync_map_reader_first(r, k, v)), at(0));
+                        i += 1;
+                    }
+                    expanse_sync_map_reader_free(r);
+                }
+            });
+        }
+        for round in 0..20u64 {
+            for k in (1..N).step_by(2) {
+                // SAFETY: live handle; writes serialize internally; null `old_out`.
+                unsafe {
+                    if (k + round) % 3 == 0 {
+                        expanse_sync_map_remove(m_addr as *const _, k, core::ptr::null_mut());
+                    } else {
+                        expanse_sync_map_insert(
+                            m_addr as *const _,
+                            k,
+                            k * 3,
+                            core::ptr::null_mut(),
+                        );
+                    }
+                }
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+    });
+    // SAFETY: every thread that held a reader has been joined and freed it.
+    unsafe { expanse_sync_map_free(m) };
+}
+
 #[test]
 fn test_modern_capi_set_navigation() {
     use expanse::modern::{

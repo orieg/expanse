@@ -119,6 +119,12 @@ public final class ExpanseNative {
     public static final MethodHandle MH_expanse_sync_map_reader_new;
     public static final MethodHandle MH_expanse_sync_map_reader_free;
     public static final MethodHandle MH_expanse_sync_map_reader_get;
+    public static final MethodHandle MH_expanse_sync_map_reader_first;
+    public static final MethodHandle MH_expanse_sync_map_reader_last;
+    public static final MethodHandle MH_expanse_sync_map_reader_next_at_or_after;
+    public static final MethodHandle MH_expanse_sync_map_reader_next_after;
+    public static final MethodHandle MH_expanse_sync_map_reader_prev_at_or_before;
+    public static final MethodHandle MH_expanse_sync_map_reader_prev_before;
 
     // BlobMap
     public static final MethodHandle MH_expanse_blob_map_new;
@@ -237,6 +243,12 @@ public final class ExpanseNative {
         MH_expanse_sync_map_reader_new = downcall("expanse_sync_map_reader_new", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
         MH_expanse_sync_map_reader_free = downcall("expanse_sync_map_reader_free", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
         MH_expanse_sync_map_reader_get = downcall("expanse_sync_map_reader_get", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_sync_map_reader_first = downcall("expanse_sync_map_reader_first", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        MH_expanse_sync_map_reader_last = downcall("expanse_sync_map_reader_last", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        MH_expanse_sync_map_reader_next_at_or_after = downcall("expanse_sync_map_reader_next_at_or_after", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        MH_expanse_sync_map_reader_next_after = downcall("expanse_sync_map_reader_next_after", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        MH_expanse_sync_map_reader_prev_at_or_before = downcall("expanse_sync_map_reader_prev_at_or_before", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        MH_expanse_sync_map_reader_prev_before = downcall("expanse_sync_map_reader_prev_before", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
 
         // BlobMap
         MH_expanse_blob_map_new = downcall("expanse_blob_map_new", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));

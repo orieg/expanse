@@ -112,15 +112,21 @@ var (
 
 // SyncMap
 var (
-	expanse_sync_map_new         func() uintptr
-	expanse_sync_map_free        func(mapPtr uintptr)
-	expanse_sync_map_insert      func(mapPtr uintptr, key, value uint64, oldOut *uint64) bool
-	expanse_sync_map_get         func(mapPtr uintptr, key uint64, valueOut *uint64) bool
-	expanse_sync_map_remove      func(mapPtr uintptr, key uint64, oldOut *uint64) bool
-	expanse_sync_map_len         func(mapPtr uintptr) uint64
-	expanse_sync_map_reader_new  func(mapPtr uintptr) uintptr
-	expanse_sync_map_reader_free func(reader uintptr)
-	expanse_sync_map_reader_get  func(reader uintptr, key uint64, valueOut *uint64) bool
+	expanse_sync_map_new                      func() uintptr
+	expanse_sync_map_free                     func(mapPtr uintptr)
+	expanse_sync_map_insert                   func(mapPtr uintptr, key, value uint64, oldOut *uint64) bool
+	expanse_sync_map_get                      func(mapPtr uintptr, key uint64, valueOut *uint64) bool
+	expanse_sync_map_remove                   func(mapPtr uintptr, key uint64, oldOut *uint64) bool
+	expanse_sync_map_len                      func(mapPtr uintptr) uint64
+	expanse_sync_map_reader_new               func(mapPtr uintptr) uintptr
+	expanse_sync_map_reader_free              func(reader uintptr)
+	expanse_sync_map_reader_get               func(reader uintptr, key uint64, valueOut *uint64) bool
+	expanse_sync_map_reader_first             func(reader uintptr, keyOut, valueOut *uint64) bool
+	expanse_sync_map_reader_last              func(reader uintptr, keyOut, valueOut *uint64) bool
+	expanse_sync_map_reader_next_at_or_after  func(reader uintptr, key uint64, keyOut, valueOut *uint64) bool
+	expanse_sync_map_reader_next_after        func(reader uintptr, key uint64, keyOut, valueOut *uint64) bool
+	expanse_sync_map_reader_prev_at_or_before func(reader uintptr, key uint64, keyOut, valueOut *uint64) bool
+	expanse_sync_map_reader_prev_before       func(reader uintptr, key uint64, keyOut, valueOut *uint64) bool
 )
 
 // BlobView layout matching ExpanseBlobView in expanse.h
@@ -277,6 +283,12 @@ func bindSymbols(h *LibraryHandle) error {
 		{&expanse_sync_map_reader_new, "expanse_sync_map_reader_new"},
 		{&expanse_sync_map_reader_free, "expanse_sync_map_reader_free"},
 		{&expanse_sync_map_reader_get, "expanse_sync_map_reader_get"},
+		{&expanse_sync_map_reader_first, "expanse_sync_map_reader_first"},
+		{&expanse_sync_map_reader_last, "expanse_sync_map_reader_last"},
+		{&expanse_sync_map_reader_next_at_or_after, "expanse_sync_map_reader_next_at_or_after"},
+		{&expanse_sync_map_reader_next_after, "expanse_sync_map_reader_next_after"},
+		{&expanse_sync_map_reader_prev_at_or_before, "expanse_sync_map_reader_prev_at_or_before"},
+		{&expanse_sync_map_reader_prev_before, "expanse_sync_map_reader_prev_before"},
 
 		// BlobMap
 		{&expanse_blob_map_new, "expanse_blob_map_new"},

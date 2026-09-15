@@ -96,6 +96,21 @@ static void sync32_smoke(void) {
     assert(expanse_sync32_map_writer_stats(w, &st, sizeof st) == EXPANSE_SYNC32_OK);
     assert(st.len == S32_STABLE && st.free_slots > expanse_sync32_mutation_headroom());
 
+    /* Ordered reads (#900) through reader 0 before its thread exists, so one
+     * execution context holds the handle; no bracket is open, so never BUSY. */
+    {
+        expanse_sync32_map_reader_t *r0 = expanse_sync32_map_reader(m, 0);
+        expanse_word_t k = 0, v = 0;
+        assert(expanse_sync32_map_reader_try_first(r0, &k, &v) == EXPANSE_SYNC32_OK && k == 0 && v == 0xABCDu);
+        assert(expanse_sync32_map_reader_try_last(r0, &k, &v) == EXPANSE_SYNC32_OK && k == S32_STABLE - 1);
+        assert(expanse_sync32_map_reader_try_next_at_or_after(r0, 7, &k, NULL) == EXPANSE_SYNC32_OK && k == 7);
+        assert(expanse_sync32_map_reader_try_next_after(r0, 7, &k, &v) == EXPANSE_SYNC32_OK && k == 8 && v == (8u ^ 0xABCDu));
+        assert(expanse_sync32_map_reader_try_prev_at_or_before(r0, 7, NULL, &v) == EXPANSE_SYNC32_OK && v == (7u ^ 0xABCDu));
+        assert(expanse_sync32_map_reader_try_prev_before(r0, 7, &k, NULL) == EXPANSE_SYNC32_OK && k == 6);
+        assert(expanse_sync32_map_reader_try_next_after(r0, S32_STABLE - 1, &k, &v) == EXPANSE_SYNC32_NOT_FOUND);
+        assert(expanse_sync32_map_reader_try_prev_before(r0, 0, &k, &v) == EXPANSE_SYNC32_NOT_FOUND);
+    }
+
     volatile int stop = 0;
     pthread_t tids[S32_READERS];
     struct s32_reader_arg args[S32_READERS];

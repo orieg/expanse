@@ -332,6 +332,32 @@ expanse_sync32_status_t expanse_sync32_map_reader_try_get(expanse_sync32_map_rea
 /* OK (len_out written) | BUSY | NULL_HANDLE. Interrupt-safe. */
 expanse_sync32_status_t expanse_sync32_map_reader_try_len(expanse_sync32_map_reader_t *r,
                                                           uint64_t *len_out);
+/*
+ * Ordered reads: the smallest entry, the largest, and the nearest entry
+ * at-or-after / after / at-or-before / before `key`. OK (entry written
+ * through key_out and value_out; either may be NULL) | NOT_FOUND (no such
+ * entry, including try_next_after(UINT32_MAX) and try_prev_before(0)) |
+ * BUSY | NULL_HANDLE. Single attempt, validated like _reader_try_get: never
+ * blocks, never allocates. Interrupt-safe.
+ */
+expanse_sync32_status_t expanse_sync32_map_reader_try_first(expanse_sync32_map_reader_t *r,
+                                                            expanse_word_t *key_out,
+                                                            expanse_word_t *value_out);
+expanse_sync32_status_t expanse_sync32_map_reader_try_last(expanse_sync32_map_reader_t *r,
+                                                           expanse_word_t *key_out,
+                                                           expanse_word_t *value_out);
+expanse_sync32_status_t expanse_sync32_map_reader_try_next_at_or_after(
+    expanse_sync32_map_reader_t *r, expanse_word_t key, expanse_word_t *key_out,
+    expanse_word_t *value_out);
+expanse_sync32_status_t expanse_sync32_map_reader_try_next_after(
+    expanse_sync32_map_reader_t *r, expanse_word_t key, expanse_word_t *key_out,
+    expanse_word_t *value_out);
+expanse_sync32_status_t expanse_sync32_map_reader_try_prev_at_or_before(
+    expanse_sync32_map_reader_t *r, expanse_word_t key, expanse_word_t *key_out,
+    expanse_word_t *value_out);
+expanse_sync32_status_t expanse_sync32_map_reader_try_prev_before(
+    expanse_sync32_map_reader_t *r, expanse_word_t key, expanse_word_t *key_out,
+    expanse_word_t *value_out);
 
 typedef struct expanse_sync32_set        expanse_sync32_set_t;
 typedef struct expanse_sync32_set_writer expanse_sync32_set_writer_t;
@@ -493,8 +519,12 @@ expanse_str_nav_status expanse_strmap_prev_before_ex(expanse_strmap_t *map, cons
 /*
  * The capability classic Judy has no answer for. Writers serialize
  * internally; readers run an optimistic validated walk with epoch-based
- * reclamation, so a reader never blocks a writer or dereferences freed
- * memory (docs/ARCHITECTURE.md §4, docs/BENCHMARKING.md for scaling).
+ * reclamation, so a reader never dereferences freed memory and, on the
+ * common path, takes no lock and does not block a writer. The protocol is
+ * blocking optimistic lock coupling, not lock-free: a read that exhausts its
+ * bounded retries falls back to the writer-excluding path (it quiesces
+ * writers and takes the writer mutex), and writers wait for that read to
+ * finish (docs/ARCHITECTURE.md §4, docs/BENCHMARKING.md for scaling).
  *
  * A handle is safe to use from any number of threads at once. Readers
  * SHOULD take a reader handle (expanse_sync_*_reader_new) once per
@@ -533,6 +563,31 @@ expanse_sync_map_reader_t *expanse_sync_map_reader_new(const expanse_sync_map_t 
 void                       expanse_sync_map_reader_free(expanse_sync_map_reader_t *reader);
 bool expanse_sync_map_reader_get(const expanse_sync_map_reader_t *reader, uint64_t key,
                                  uint64_t *value_out);
+
+/*
+ * Ordered reads through a reader handle: the smallest entry, the largest,
+ * and the nearest entry at-or-after / after / at-or-before / before `key`.
+ * They return true with the entry written through key_out and value_out
+ * (either may be NULL), and false when there is no such entry — including
+ * next_after(UINT64_MAX) and prev_before(0) — or the reader is NULL.
+ * Validated like _reader_get, with the same retry budget and fallback: the
+ * entry returned was present, and every key the search passed over was
+ * absent, at one instant.
+ */
+bool expanse_sync_map_reader_first(const expanse_sync_map_reader_t *reader, uint64_t *key_out,
+                                   uint64_t *value_out);
+bool expanse_sync_map_reader_last(const expanse_sync_map_reader_t *reader, uint64_t *key_out,
+                                  uint64_t *value_out);
+bool expanse_sync_map_reader_next_at_or_after(const expanse_sync_map_reader_t *reader,
+                                              uint64_t key, uint64_t *key_out,
+                                              uint64_t *value_out);
+bool expanse_sync_map_reader_next_after(const expanse_sync_map_reader_t *reader, uint64_t key,
+                                        uint64_t *key_out, uint64_t *value_out);
+bool expanse_sync_map_reader_prev_at_or_before(const expanse_sync_map_reader_t *reader,
+                                               uint64_t key, uint64_t *key_out,
+                                               uint64_t *value_out);
+bool expanse_sync_map_reader_prev_before(const expanse_sync_map_reader_t *reader, uint64_t key,
+                                         uint64_t *key_out, uint64_t *value_out);
 
 /* ---- ExpanseBlobMap: polymorphic large-value map with inline/arena backing ---- */
 

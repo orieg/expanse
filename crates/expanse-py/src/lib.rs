@@ -31,6 +31,7 @@ pub use sync::{
     SyncExpanseMapValueIter, SyncExpanseSet, SyncExpanseSetIter, SyncExpanseSetRangeIter,
 };
 
+// abi-parity: expanse_version
 /// The `_expanse` PyO3 module.
 #[pymodule]
 fn _expanse(m: &Bound<'_, PyModule>) -> PyResult<()> {

@@ -46,6 +46,7 @@ thread_local! {
 /// eagerly would put a scan on the hot path to reclaim tens of bytes.
 const READER_CACHE_SWEEP_AT: usize = 64;
 
+// abi-parity: expanse_sync_map_reader_new, expanse_sync_map_reader_free
 /// Runs `f` against this thread's cached reader for `map`, registering on first
 /// use. Every read path routes through here; see the caller list below.
 fn with_map_reader<R>(map: &Arc<InnerSyncMap>, f: impl FnOnce(&DetachedMapReader) -> R) -> R {
@@ -68,6 +69,7 @@ fn with_map_reader<R>(map: &Arc<InnerSyncMap>, f: impl FnOnce(&DetachedMapReader
     })
 }
 
+// abi-parity: expanse_sync_map_free
 /// A thread-safe, concurrent 64-bit integer map with optimistic concurrency control (OCC).
 ///
 /// Lookups, scans, and range queries execute on the optimistic path and release the Python GIL
@@ -80,6 +82,7 @@ pub struct SyncExpanseMap {
 
 #[pymethods]
 impl SyncExpanseMap {
+    // abi-parity: expanse_sync_map_new
     /// Creates an empty concurrent map.
     #[new]
     pub fn new() -> Self {
@@ -88,6 +91,7 @@ impl SyncExpanseMap {
         }
     }
 
+    // abi-parity: expanse_sync_map_len
     /// Number of entries in the concurrent map (GIL-free read).
     pub fn __len__(&self, py: Python<'_>) -> usize {
         py.detach(|| self.inner.len() as usize)
@@ -140,6 +144,7 @@ impl SyncExpanseMap {
         }
     }
 
+    // abi-parity: expanse_sync_map_get, expanse_sync_map_reader_get
     /// Look up `key` releasing the GIL, returning `default` (or None) if absent.
     #[pyo3(signature = (key, default=None))]
     pub fn get(&self, py: Python<'_>, key: u64, default: Option<u64>) -> Option<u64> {
@@ -147,11 +152,13 @@ impl SyncExpanseMap {
             .or(default)
     }
 
+    // abi-parity: expanse_sync_map_insert
     /// Inserts `key -> val` releasing the GIL; returns the previous value, if any.
     pub fn insert(&self, py: Python<'_>, key: u64, val: u64) -> Option<u64> {
         py.detach(|| self.inner.insert(key, val))
     }
 
+    // abi-parity: expanse_sync_map_remove
     /// Removes `key` releasing the GIL; returns its previous value, or `None` if absent.
     ///
     /// This mirrors `ExpanseMap.remove` (which returns an `Optional[int]`); use
@@ -179,39 +186,49 @@ impl SyncExpanseMap {
         });
     }
 
-    /// Smallest entry `(key, value)` releasing the GIL.
+    // The ordered reads run optimistically through this thread's cached reader
+    // (#900): no writer lock unless a read exhausts its retries, when it falls
+    // back to the writer-excluding path.
+
+    // abi-parity: expanse_sync_map_reader_first
+    /// Smallest entry `(key, value)` releasing the GIL (optimistic read).
     pub fn first(&self, py: Python<'_>) -> Option<(u64, u64)> {
-        py.detach(|| self.inner.with_locked(|m| m.first()))
+        py.detach(|| with_map_reader(&self.inner, |r| r.first(&self.inner)))
     }
 
-    /// Largest entry `(key, value)` releasing the GIL.
+    // abi-parity: expanse_sync_map_reader_last
+    /// Largest entry `(key, value)` releasing the GIL (optimistic read).
     pub fn last(&self, py: Python<'_>) -> Option<(u64, u64)> {
-        py.detach(|| self.inner.with_locked(|m| m.last()))
+        py.detach(|| with_map_reader(&self.inner, |r| r.last(&self.inner)))
     }
 
-    /// Smallest entry with key `> key` (or `>= key` if `inclusive=True`) releasing the GIL.
+    // abi-parity: expanse_sync_map_reader_next_at_or_after, expanse_sync_map_reader_next_after
+    /// Smallest entry with key `> key` (or `>= key` if `inclusive=True`) releasing the GIL
+    /// (optimistic read).
     #[pyo3(signature = (key, inclusive=false))]
     pub fn next(&self, py: Python<'_>, key: u64, inclusive: bool) -> Option<(u64, u64)> {
         py.detach(|| {
-            self.inner.with_locked(|m| {
+            with_map_reader(&self.inner, |r| {
                 if inclusive {
-                    m.next_at_or_after(key)
+                    r.next_at_or_after(&self.inner, key)
                 } else {
-                    m.next_after(key)
+                    r.next_after(&self.inner, key)
                 }
             })
         })
     }
 
-    /// Largest entry with key `< key` (or `<= key` if `inclusive=True`) releasing the GIL.
+    // abi-parity: expanse_sync_map_reader_prev_at_or_before, expanse_sync_map_reader_prev_before
+    /// Largest entry with key `< key` (or `<= key` if `inclusive=True`) releasing the GIL
+    /// (optimistic read).
     #[pyo3(signature = (key, inclusive=false))]
     pub fn prev(&self, py: Python<'_>, key: u64, inclusive: bool) -> Option<(u64, u64)> {
         py.detach(|| {
-            self.inner.with_locked(|m| {
+            with_map_reader(&self.inner, |r| {
                 if inclusive {
-                    m.prev_at_or_before(key)
+                    r.prev_at_or_before(&self.inner, key)
                 } else {
-                    m.prev_before(key)
+                    r.prev_before(&self.inner, key)
                 }
             })
         })
@@ -396,6 +413,7 @@ impl Default for SyncExpanseMap {
     }
 }
 
+// abi-parity: expanse_sync_set_free
 /// A thread-safe, concurrent 64-bit integer set with optimistic concurrency control (OCC).
 ///
 /// Lookups, scans, and range queries execute on the optimistic path and release the Python GIL
@@ -408,6 +426,7 @@ pub struct SyncExpanseSet {
 
 #[pymethods]
 impl SyncExpanseSet {
+    // abi-parity: expanse_sync_set_new
     /// Creates an empty concurrent set.
     #[new]
     pub fn new() -> Self {
@@ -416,6 +435,7 @@ impl SyncExpanseSet {
         }
     }
 
+    // abi-parity: expanse_sync_set_len
     /// Number of elements in the set releasing the GIL.
     pub fn __len__(&self, py: Python<'_>) -> usize {
         py.detach(|| self.inner.len() as usize)
@@ -438,6 +458,8 @@ impl SyncExpanseSet {
         py.detach(|| !self.inner.is_empty())
     }
 
+    // abi-parity: expanse_sync_set_contains, expanse_sync_set_reader_new
+    // abi-parity: expanse_sync_set_reader_free, expanse_sync_set_reader_contains
     /// Optimistic membership test `key in set` releasing the GIL.
     pub fn __contains__(&self, py: Python<'_>, key: u64) -> bool {
         py.detach(|| self.inner.contains(key))
@@ -449,6 +471,7 @@ impl SyncExpanseSet {
         py.detach(|| self.inner.contains(key))
     }
 
+    // abi-parity: expanse_sync_set_insert
     /// Inserts key releasing the GIL.
     pub fn insert(&self, py: Python<'_>, key: u64) -> bool {
         py.detach(|| self.inner.insert(key))
@@ -459,6 +482,7 @@ impl SyncExpanseSet {
         py.detach(|| self.inner.insert(key))
     }
 
+    // abi-parity: expanse_sync_set_remove
     /// Removes `key` from the set releasing the GIL; returns `True` if it was present.
     ///
     /// This mirrors `ExpanseSet.remove` (which returns a `bool`); use `discard` for the

@@ -5,6 +5,7 @@ use expanse_trie::strmap::ExpanseStrMap as InnerStrMap;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
+// abi-parity: expanse_strmap_free
 /// A sorted map from NUL-free UTF-8 strings to 64-bit unsigned integers (compat: JudySL).
 ///
 /// Iteration order is byte-lexicographical. Keys are prefix-compressed across 8-byte boundaries.
@@ -15,6 +16,7 @@ pub struct ExpanseStrMap {
 
 #[napi]
 impl ExpanseStrMap {
+    // abi-parity: expanse_strmap_new
     /// Creates an empty string map.
     #[napi(constructor)]
     pub fn new() -> Self {
@@ -23,6 +25,7 @@ impl ExpanseStrMap {
         }
     }
 
+    // abi-parity: expanse_strmap_len
     /// Number of strings stored in the map.
     #[napi]
     pub fn size(&self) -> BigInt {
@@ -42,6 +45,7 @@ impl ExpanseStrMap {
         Ok(self.inner.get(bytes).is_some())
     }
 
+    // abi-parity: expanse_strmap_insert, expanse_strmap_slot, expanse_strmap_ins_slot
     /// Sets `map[key] = value`. Returns previous value as BigInt if present, or `null`.
     #[napi]
     pub fn set(&mut self, key: String, value: KeyInput) -> Result<Option<BigInt>> {
@@ -50,6 +54,7 @@ impl ExpanseStrMap {
         Ok(self.inner.insert(bytes, v).map(BigInt::from))
     }
 
+    // abi-parity: expanse_strmap_get
     /// Gets the value for `key`, or `null` if absent.
     #[napi]
     pub fn get(&self, key: String) -> Result<Option<BigInt>> {
@@ -57,6 +62,7 @@ impl ExpanseStrMap {
         Ok(self.inner.get(bytes).map(BigInt::from))
     }
 
+    // abi-parity: expanse_strmap_remove
     /// Deletes `key` from the map. Returns `true` if it was present, `false` otherwise.
     #[napi]
     pub fn delete(&mut self, key: String) -> Result<bool> {
@@ -64,18 +70,21 @@ impl ExpanseStrMap {
         Ok(self.inner.remove(bytes).is_some())
     }
 
+    // abi-parity: expanse_strmap_clear
     /// Removes all strings and frees allocated trie nodes.
     #[napi]
     pub fn clear(&mut self) {
         self.inner.clear();
     }
 
+    // abi-parity: expanse_strmap_mem_used
     /// Heap bytes used by the prefix trie.
     #[napi]
     pub fn mem_used(&self) -> BigInt {
         BigInt::from(self.inner.mem_used() as u64)
     }
 
+    // abi-parity: expanse_strmap_first, expanse_strmap_first_ex
     /// Smallest entry `(key, value)` in byte-lexicographical order, or `null` if empty.
     #[napi]
     pub fn first(&mut self) -> Option<StrMapEntry> {
@@ -89,6 +98,7 @@ impl ExpanseStrMap {
         })
     }
 
+    // abi-parity: expanse_strmap_last, expanse_strmap_last_ex
     /// Largest entry `(key, value)` in byte-lexicographical order, or `null` if empty.
     #[napi]
     pub fn last(&mut self) -> Option<StrMapEntry> {
@@ -102,6 +112,8 @@ impl ExpanseStrMap {
         })
     }
 
+    // abi-parity: expanse_strmap_next_at_or_after, expanse_strmap_next_after
+    // abi-parity: expanse_strmap_next_at_or_after_ex, expanse_strmap_next_after_ex
     /// Smallest entry with key strictly `> key` (or `>= key` if `inclusive` is `true`).
     #[napi]
     pub fn next(&mut self, key: String, inclusive: Option<bool>) -> Result<Option<StrMapEntry>> {
@@ -121,6 +133,8 @@ impl ExpanseStrMap {
         }))
     }
 
+    // abi-parity: expanse_strmap_prev_at_or_before, expanse_strmap_prev_before
+    // abi-parity: expanse_strmap_prev_at_or_before_ex, expanse_strmap_prev_before_ex
     /// Largest entry with key strictly `< key` (or `<= key` if `inclusive` is `true`).
     #[napi]
     pub fn prev(&mut self, key: String, inclusive: Option<bool>) -> Result<Option<StrMapEntry>> {

@@ -5,6 +5,7 @@ use expanse_trie::map::ExpanseMap as InnerMap;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
+// abi-parity: expanse_map_free
 /// A sparse, dynamic 64-bit unsigned integer key/value map (compat: JudyL).
 ///
 /// Adaptive expanse-partitioned trie: memory stays near-proportional to population
@@ -16,6 +17,7 @@ pub struct ExpanseMap {
 
 #[napi]
 impl ExpanseMap {
+    // abi-parity: expanse_map_new
     /// Creates an empty integer map.
     #[napi(constructor)]
     pub fn new() -> Self {
@@ -24,6 +26,7 @@ impl ExpanseMap {
         }
     }
 
+    // abi-parity: expanse_map_len
     /// Number of entries in the map.
     #[napi]
     pub fn size(&self) -> BigInt {
@@ -43,6 +46,7 @@ impl ExpanseMap {
         Ok(self.inner.contains_key(k))
     }
 
+    // abi-parity: expanse_map_insert, expanse_map_slot, expanse_map_ins_slot
     /// Sets `map[key] = value`. Returns previous value as BigInt if present, or `null`.
     #[napi]
     pub fn set(&mut self, key: KeyInput, value: KeyInput) -> Result<Option<BigInt>> {
@@ -51,6 +55,7 @@ impl ExpanseMap {
         Ok(self.inner.insert(k, v).map(BigInt::from))
     }
 
+    // abi-parity: expanse_map_get
     /// Gets the value for `key`, or `null` if absent.
     #[napi]
     pub fn get(&self, key: KeyInput) -> Result<Option<BigInt>> {
@@ -58,6 +63,7 @@ impl ExpanseMap {
         Ok(self.inner.get(k).map(BigInt::from))
     }
 
+    // abi-parity: expanse_map_get_batch
     /// Gets values for a batch of keys, returning an array with BigInt values or null.
     #[napi]
     pub fn get_batch(&self, keys: Vec<KeyInput>) -> Result<Vec<Option<BigInt>>> {
@@ -70,6 +76,7 @@ impl ExpanseMap {
         Ok(out.into_iter().map(|opt| opt.map(BigInt::from)).collect())
     }
 
+    // abi-parity: expanse_map_remove
     /// Deletes `key` from the map. Returns `true` if it was present, `false` otherwise.
     #[napi]
     pub fn delete(&mut self, key: KeyInput) -> Result<bool> {
@@ -77,18 +84,21 @@ impl ExpanseMap {
         Ok(self.inner.remove(k).is_some())
     }
 
+    // abi-parity: expanse_map_clear
     /// Removes all entries from the map.
     #[napi]
     pub fn clear(&mut self) {
         self.inner.clear();
     }
 
+    // abi-parity: expanse_map_mem_used
     /// Heap bytes used by the trie allocations.
     #[napi]
     pub fn mem_used(&self) -> BigInt {
         BigInt::from(self.inner.mem_used() as u64)
     }
 
+    // abi-parity: expanse_map_first
     /// Smallest entry `(key, value)` in the map, or `null` if empty.
     #[napi]
     pub fn first(&self) -> Option<MapEntry> {
@@ -98,6 +108,7 @@ impl ExpanseMap {
         })
     }
 
+    // abi-parity: expanse_map_last
     /// Largest entry `(key, value)` in the map, or `null` if empty.
     #[napi]
     pub fn last(&self) -> Option<MapEntry> {
@@ -107,6 +118,7 @@ impl ExpanseMap {
         })
     }
 
+    // abi-parity: expanse_map_next_at_or_after, expanse_map_next_after
     /// Smallest entry with key strictly `> key` (or `>= key` if `inclusive` is `true`).
     #[napi]
     pub fn next(&self, key: KeyInput, inclusive: Option<bool>) -> Result<Option<MapEntry>> {
@@ -122,6 +134,7 @@ impl ExpanseMap {
         }))
     }
 
+    // abi-parity: expanse_map_prev_at_or_before, expanse_map_prev_before
     /// Largest entry with key strictly `< key` (or `<= key` if `inclusive` is `true`).
     #[napi]
     pub fn prev(&self, key: KeyInput, inclusive: Option<bool>) -> Result<Option<MapEntry>> {
@@ -137,6 +150,7 @@ impl ExpanseMap {
         }))
     }
 
+    // abi-parity: expanse_map_count_below
     /// Number of keys strictly below `key` (rank).
     #[napi]
     pub fn rank(&self, key: KeyInput) -> Result<BigInt> {
@@ -144,6 +158,7 @@ impl ExpanseMap {
         Ok(BigInt::from(self.inner.count_below(k)))
     }
 
+    // abi-parity: expanse_map_by_count
     /// The entry with `k` keys below it (0-based select), or `null` if out of bounds.
     #[napi]
     pub fn select(&self, k: KeyInput) -> Result<Option<MapEntry>> {
@@ -154,6 +169,7 @@ impl ExpanseMap {
         }))
     }
 
+    // abi-parity: expanse_map_count_range
     /// Number of keys in the closed range `[start, end]`.
     #[napi(js_name = "countRange")]
     pub fn count_range(&self, start: KeyInput, end: KeyInput) -> Result<BigInt> {

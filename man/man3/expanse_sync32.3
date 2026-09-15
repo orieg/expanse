@@ -5,6 +5,11 @@ expanse_sync32_map_reader, expanse_sync32_map_writer_try_insert, \
 expanse_sync32_map_writer_try_remove, expanse_sync32_map_writer_try_reclaim, \
 expanse_sync32_map_writer_get, expanse_sync32_map_writer_stats, \
 expanse_sync32_map_reader_try_get, expanse_sync32_map_reader_try_len, \
+expanse_sync32_map_reader_try_first, expanse_sync32_map_reader_try_last, \
+expanse_sync32_map_reader_try_next_at_or_after, \
+expanse_sync32_map_reader_try_next_after, \
+expanse_sync32_map_reader_try_prev_at_or_before, \
+expanse_sync32_map_reader_try_prev_before, \
 expanse_sync32_set_new, expanse_sync32_set_free, expanse_sync32_set_writer, \
 expanse_sync32_set_reader, expanse_sync32_set_writer_try_insert, \
 expanse_sync32_set_writer_try_remove, expanse_sync32_set_writer_try_reclaim, \
@@ -66,6 +71,30 @@ expanse_sync32_mutation_headroom, expanse_sync32_status_str \
 .br
 .BI "expanse_sync32_status_t expanse_sync32_map_reader_try_len("
 .BI "        expanse_sync32_map_reader_t *" r ", uint64_t *" len_out ");"
+.br
+.BI "expanse_sync32_status_t expanse_sync32_map_reader_try_first("
+.BI "        expanse_sync32_map_reader_t *" r ","
+.BI "        expanse_word_t *" key_out ", expanse_word_t *" value_out ");"
+.br
+.BI "expanse_sync32_status_t expanse_sync32_map_reader_try_last("
+.BI "        expanse_sync32_map_reader_t *" r ","
+.BI "        expanse_word_t *" key_out ", expanse_word_t *" value_out ");"
+.br
+.BI "expanse_sync32_status_t expanse_sync32_map_reader_try_next_at_or_after("
+.BI "        expanse_sync32_map_reader_t *" r ", expanse_word_t " key ","
+.BI "        expanse_word_t *" key_out ", expanse_word_t *" value_out ");"
+.br
+.BI "expanse_sync32_status_t expanse_sync32_map_reader_try_next_after("
+.BI "        expanse_sync32_map_reader_t *" r ", expanse_word_t " key ","
+.BI "        expanse_word_t *" key_out ", expanse_word_t *" value_out ");"
+.br
+.BI "expanse_sync32_status_t expanse_sync32_map_reader_try_prev_at_or_before("
+.BI "        expanse_sync32_map_reader_t *" r ", expanse_word_t " key ","
+.BI "        expanse_word_t *" key_out ", expanse_word_t *" value_out ");"
+.br
+.BI "expanse_sync32_status_t expanse_sync32_map_reader_try_prev_before("
+.BI "        expanse_sync32_map_reader_t *" r ", expanse_word_t " key ","
+.BI "        expanse_word_t *" key_out ", expanse_word_t *" value_out ");"
 .PP
 The
 .B expanse_sync32_set_*
@@ -173,6 +202,32 @@ bytes of an append-only struct: pass
 .BI "expanse_sync32_map_writer_try_remove(" w ", " key ", " old_out ")"
 Headroom is checked before the lookup, so an absent key can still be
 refused with a capacity status.
+.TP
+.BR expanse_sync32_map_reader_try_first " and the other ordered reads"
+The smallest entry
+.RB ( _try_first ),
+the largest
+.RB ( _try_last ),
+and the nearest entry at or after, after, at or before, and before
+.I key
+.RB ( _try_next_at_or_after ", " _try_next_after ","
+.BR _try_prev_at_or_before ", " _try_prev_before ).
+.B OK
+writes the entry through
+.I key_out
+and
+.I value_out
+(either may be NULL);
+.B NOT_FOUND
+means there is no such entry, including a successor of
+.B UINT32_MAX
+and a predecessor of 0.
+Each is a single validated attempt like
+.BR _reader_try_get :
+it returns
+.B BUSY
+instead of retrying, never blocks, never allocates, and is
+interrupt-safe.
 .SH EXAMPLES
 The canonical shape: the main task owns the writer; one interrupt context
 reads through its own handle and treats BUSY as "try again next time".

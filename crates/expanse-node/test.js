@@ -342,10 +342,39 @@ test('SyncExpanseMap concurrent map operations', () => {
   assert.deepStrictEqual(syncMap.first(), { key: 100n, value: 1000n });
   assert.deepStrictEqual(syncMap.last(), { key: 300n, value: 3000n });
   assert.deepStrictEqual(syncMap.next(100n), { key: 200n, value: 2000n });
+  assert.deepStrictEqual(syncMap.next(100n, true), { key: 100n, value: 1000n });
+  assert.deepStrictEqual(syncMap.next(150n, true), { key: 200n, value: 2000n });
+  assert.deepStrictEqual(syncMap.prev(300n), { key: 200n, value: 2000n });
+  assert.deepStrictEqual(syncMap.prev(300n, true), { key: 300n, value: 3000n });
+  assert.deepStrictEqual(syncMap.prev(250n, true), { key: 200n, value: 2000n });
+  assert.strictEqual(syncMap.next(300n), null);
+  assert.strictEqual(syncMap.prev(100n), null);
   assert.strictEqual(syncMap.countRange(150n, 350n), 2n);
 
   assert.strictEqual(syncMap.delete(200n), true);
   assert.strictEqual(syncMap.size(), 2n);
+  assert.deepStrictEqual(syncMap.next(100n), { key: 300n, value: 3000n });
+  assert.deepStrictEqual(syncMap.prev(300n), { key: 100n, value: 1000n });
+});
+
+test('SyncExpanseMap ordered reads at the ends of the key space', () => {
+  const top = 2n ** 64n - 1n;
+  const syncMap = new SyncExpanseMap();
+  assert.strictEqual(syncMap.first(), null);
+  assert.strictEqual(syncMap.last(), null);
+  assert.strictEqual(syncMap.next(0n, true), null);
+  assert.strictEqual(syncMap.prev(top, true), null);
+
+  syncMap.set(0n, 1n);
+  syncMap.set(top, 2n);
+  assert.deepStrictEqual(syncMap.first(), { key: 0n, value: 1n });
+  assert.deepStrictEqual(syncMap.last(), { key: top, value: 2n });
+  assert.deepStrictEqual(syncMap.next(0n), { key: top, value: 2n });
+  assert.deepStrictEqual(syncMap.prev(top), { key: 0n, value: 1n });
+  assert.deepStrictEqual(syncMap.next(top, true), { key: top, value: 2n });
+  assert.deepStrictEqual(syncMap.prev(0n, true), { key: 0n, value: 1n });
+  assert.strictEqual(syncMap.next(top), null);
+  assert.strictEqual(syncMap.prev(0n), null);
 });
 
 test('SyncExpanseSet concurrent set operations', () => {

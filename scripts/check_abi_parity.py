@@ -10,6 +10,11 @@ Verifies 100% symbol and feature parity of the modern libexpanse C API
   4. Node.js N-API (`crates/expanse-node/src/`)
   5. Go purego (`bindings/go/`)
 
+Java, .NET and Go call the C ABI, so their coverage is the symbol name itself.
+Python and Node bind the Rust API, so theirs is a per-symbol
+`// abi-parity: <symbol>` marker at the implementing site (see the comment
+above PYTHON_FEATURE_MAPPING).
+
 Enforces that the exported C ABI symbol count satisfies the pinned floor
 (baseline: MIN_C_SYMBOLS = 100). The floor constant is verified against the base
 ref (e.g. `origin/main`); any decrease in the constant or reduction in declared
@@ -63,254 +68,288 @@ class ParityReport:
     python_missing: Set[str] = field(default_factory=set)
     node_covered: Set[str] = field(default_factory=set)
     node_missing: Set[str] = field(default_factory=set)
+    # Marker/mapping inconsistencies (a marker naming an unknown symbol, or
+    # sitting in a file its mapping does not name). Always fatal.
+    python_errors: List[str] = field(default_factory=list)
+    node_errors: List[str] = field(default_factory=list)
     go_covered: Set[str] = field(default_factory=set)
     narrow_only: List[str] = field(default_factory=list)
     go_missing: Set[str] = field(default_factory=set)
     category_breakdown: Dict[str, Dict[str, int]] = field(default_factory=dict)
 
 
-# Mapping of C ABI symbols to expected Python PyO3 constructs / methods
-PYTHON_FEATURE_MAPPING = {
+# Python and Node do not call the C ABI: they bind the Rust API directly, so
+# there is no symbol name to find in their sources. Coverage is therefore
+# declared at the implementing site, by a line comment naming the symbol:
+#
+#     // abi-parity: expanse_map_first
+#     pub fn first(&self) -> Option<(u64, u64)> { ... }
+#
+# Each mapping below says which binding file must carry that marker. A symbol
+# is covered only when its own name appears in a marker in that file; a word
+# elsewhere in the file never counts. The mappings previously listed generic
+# name tokens ("new", "get", "prev", ...) and accepted any of them anywhere in
+# the file, so a new symbol mapped to ["prev"] read as covered by an unrelated
+# `prev` method while nothing bound it. `self_test` plants exactly that case.
+#
+# Whether a marker sits on the function that really provides the capability is
+# a review judgement; the check guarantees only that the claim is explicit,
+# per symbol, and in the named file.
+
+# Python PyO3: C ABI symbol -> file under crates/expanse-py/src carrying its marker.
+PYTHON_FEATURE_MAPPING: Dict[str, str] = {
     # Identity
-    "expanse_version": ("lib.rs", ["__version__", "version"]),
+    "expanse_version": "lib.rs",
 
     # Set (17 functions)
-    "expanse_set_new": ("set.rs", ["new", "__init__"]),
-    "expanse_set_free": ("set.rs", ["inner", "ExpanseSet"]),
-    "expanse_set_insert": ("set.rs", ["insert", "add"]),
-    "expanse_set_remove": ("set.rs", ["remove", "discard"]),
-    "expanse_set_contains": ("set.rs", ["__contains__", "contains"]),
-    "expanse_set_len": ("set.rs", ["__len__", "len"]),
-    "expanse_set_mem_used": ("set.rs", ["mem_used"]),
-    "expanse_set_clear": ("set.rs", ["clear"]),
-    "expanse_set_first": ("set.rs", ["first"]),
-    "expanse_set_last": ("set.rs", ["last"]),
-    "expanse_set_next_at_or_after": ("set.rs", ["next_at_or_after", "next"]),
-    "expanse_set_next_after": ("set.rs", ["next_after", "next"]),
-    "expanse_set_prev_at_or_before": ("set.rs", ["prev_at_or_before", "prev"]),
-    "expanse_set_prev_before": ("set.rs", ["prev_before", "prev"]),
-    "expanse_set_count_below": ("set.rs", ["count_below", "rank"]),
-    "expanse_set_count_range": ("set.rs", ["count_range"]),
-    "expanse_set_by_count": ("set.rs", ["by_count", "select"]),
-    "expanse_set_contains_batch": ("set.rs", ["contains_batch"]),
+    "expanse_set_new": "set.rs",
+    "expanse_set_free": "set.rs",
+    "expanse_set_insert": "set.rs",
+    "expanse_set_remove": "set.rs",
+    "expanse_set_contains": "set.rs",
+    "expanse_set_len": "set.rs",
+    "expanse_set_mem_used": "set.rs",
+    "expanse_set_clear": "set.rs",
+    "expanse_set_first": "set.rs",
+    "expanse_set_last": "set.rs",
+    "expanse_set_next_at_or_after": "set.rs",
+    "expanse_set_next_after": "set.rs",
+    "expanse_set_prev_at_or_before": "set.rs",
+    "expanse_set_prev_before": "set.rs",
+    "expanse_set_count_below": "set.rs",
+    "expanse_set_count_range": "set.rs",
+    "expanse_set_by_count": "set.rs",
+    "expanse_set_contains_batch": "set.rs",
 
     # Map (20 functions)
-    "expanse_map_new": ("map.rs", ["new", "__init__"]),
-    "expanse_map_free": ("map.rs", ["inner", "ExpanseMap"]),
-    "expanse_map_insert": ("map.rs", ["insert", "__setitem__"]),
-    "expanse_map_get": ("map.rs", ["get", "__getitem__"]),
-    "expanse_map_get_batch": ("map.rs", ["get_batch"]),
-    "expanse_map_remove": ("map.rs", ["remove", "__delitem__"]),
-    "expanse_map_len": ("map.rs", ["__len__", "len"]),
-    "expanse_map_mem_used": ("map.rs", ["mem_used"]),
-    "expanse_map_clear": ("map.rs", ["clear"]),
-    "expanse_map_slot": ("map.rs", ["insert", "get", "__getitem__"]),
-    "expanse_map_ins_slot": ("map.rs", ["insert", "__setitem__"]),
-    "expanse_map_first": ("map.rs", ["first"]),
-    "expanse_map_last": ("map.rs", ["last"]),
-    "expanse_map_next_at_or_after": ("map.rs", ["next_at_or_after", "next"]),
-    "expanse_map_next_after": ("map.rs", ["next_after", "next"]),
-    "expanse_map_prev_at_or_before": ("map.rs", ["prev_at_or_before", "prev"]),
-    "expanse_map_prev_before": ("map.rs", ["prev_before", "prev"]),
-    "expanse_map_count_below": ("map.rs", ["count_below", "rank"]),
-    "expanse_map_count_range": ("map.rs", ["count_range"]),
-    "expanse_map_by_count": ("map.rs", ["by_count", "select"]),
+    "expanse_map_new": "map.rs",
+    "expanse_map_free": "map.rs",
+    "expanse_map_insert": "map.rs",
+    "expanse_map_get": "map.rs",
+    "expanse_map_get_batch": "map.rs",
+    "expanse_map_remove": "map.rs",
+    "expanse_map_len": "map.rs",
+    "expanse_map_mem_used": "map.rs",
+    "expanse_map_clear": "map.rs",
+    "expanse_map_slot": "map.rs",
+    "expanse_map_ins_slot": "map.rs",
+    "expanse_map_first": "map.rs",
+    "expanse_map_last": "map.rs",
+    "expanse_map_next_at_or_after": "map.rs",
+    "expanse_map_next_after": "map.rs",
+    "expanse_map_prev_at_or_before": "map.rs",
+    "expanse_map_prev_before": "map.rs",
+    "expanse_map_count_below": "map.rs",
+    "expanse_map_count_range": "map.rs",
+    "expanse_map_by_count": "map.rs",
 
     # BytesMap (10 functions)
-    "expanse_bytesmap_new": ("bytesmap.rs", ["new", "__init__"]),
-    "expanse_bytesmap_free": ("bytesmap.rs", ["inner", "ExpanseBytesMap"]),
-    "expanse_bytesmap_insert": ("bytesmap.rs", ["insert", "__setitem__"]),
-    "expanse_bytesmap_get": ("bytesmap.rs", ["get", "__getitem__"]),
-    "expanse_bytesmap_remove": ("bytesmap.rs", ["remove", "__delitem__"]),
-    "expanse_bytesmap_slot": ("bytesmap.rs", ["insert", "get", "__getitem__"]),
-    "expanse_bytesmap_ins_slot": ("bytesmap.rs", ["insert", "__setitem__"]),
-    "expanse_bytesmap_len": ("bytesmap.rs", ["__len__", "len"]),
-    "expanse_bytesmap_mem_used": ("bytesmap.rs", ["mem_used"]),
-    "expanse_bytesmap_clear": ("bytesmap.rs", ["clear"]),
+    "expanse_bytesmap_new": "bytesmap.rs",
+    "expanse_bytesmap_free": "bytesmap.rs",
+    "expanse_bytesmap_insert": "bytesmap.rs",
+    "expanse_bytesmap_get": "bytesmap.rs",
+    "expanse_bytesmap_remove": "bytesmap.rs",
+    "expanse_bytesmap_slot": "bytesmap.rs",
+    "expanse_bytesmap_ins_slot": "bytesmap.rs",
+    "expanse_bytesmap_len": "bytesmap.rs",
+    "expanse_bytesmap_mem_used": "bytesmap.rs",
+    "expanse_bytesmap_clear": "bytesmap.rs",
 
     # StrMap (16 functions)
-    "expanse_strmap_new": ("strmap.rs", ["new", "__init__"]),
-    "expanse_strmap_free": ("strmap.rs", ["inner", "ExpanseStrMap"]),
-    "expanse_strmap_insert": ("strmap.rs", ["insert", "__setitem__"]),
-    "expanse_strmap_get": ("strmap.rs", ["get", "__getitem__"]),
-    "expanse_strmap_remove": ("strmap.rs", ["remove", "__delitem__"]),
-    "expanse_strmap_slot": ("strmap.rs", ["insert", "get", "__getitem__"]),
-    "expanse_strmap_ins_slot": ("strmap.rs", ["insert", "__setitem__"]),
-    "expanse_strmap_len": ("strmap.rs", ["__len__", "len"]),
-    "expanse_strmap_mem_used": ("strmap.rs", ["mem_used"]),
-    "expanse_strmap_clear": ("strmap.rs", ["clear"]),
-    "expanse_strmap_first": ("strmap.rs", ["first"]),
-    "expanse_strmap_last": ("strmap.rs", ["last"]),
-    "expanse_strmap_next_at_or_after": ("strmap.rs", ["next_at_or_after", "next"]),
-    "expanse_strmap_next_after": ("strmap.rs", ["next_after", "next"]),
-    "expanse_strmap_prev_at_or_before": ("strmap.rs", ["prev_at_or_before", "prev"]),
-    "expanse_strmap_prev_before": ("strmap.rs", ["prev_before", "prev"]),
+    "expanse_strmap_new": "strmap.rs",
+    "expanse_strmap_free": "strmap.rs",
+    "expanse_strmap_insert": "strmap.rs",
+    "expanse_strmap_get": "strmap.rs",
+    "expanse_strmap_remove": "strmap.rs",
+    "expanse_strmap_slot": "strmap.rs",
+    "expanse_strmap_ins_slot": "strmap.rs",
+    "expanse_strmap_len": "strmap.rs",
+    "expanse_strmap_mem_used": "strmap.rs",
+    "expanse_strmap_clear": "strmap.rs",
+    "expanse_strmap_first": "strmap.rs",
+    "expanse_strmap_last": "strmap.rs",
+    "expanse_strmap_next_at_or_after": "strmap.rs",
+    "expanse_strmap_next_after": "strmap.rs",
+    "expanse_strmap_prev_at_or_before": "strmap.rs",
+    "expanse_strmap_prev_before": "strmap.rs",
 
     # StrMap truncation-aware navigation (6 functions)
-    "expanse_strmap_first_ex": ("strmap.rs", ["first"]),
-    "expanse_strmap_last_ex": ("strmap.rs", ["last"]),
-    "expanse_strmap_next_at_or_after_ex": ("strmap.rs", ["next_at_or_after", "next"]),
-    "expanse_strmap_next_after_ex": ("strmap.rs", ["next_after", "next"]),
-    "expanse_strmap_prev_at_or_before_ex": ("strmap.rs", ["prev_at_or_before", "prev"]),
-    "expanse_strmap_prev_before_ex": ("strmap.rs", ["prev_before", "prev"]),
+    "expanse_strmap_first_ex": "strmap.rs",
+    "expanse_strmap_last_ex": "strmap.rs",
+    "expanse_strmap_next_at_or_after_ex": "strmap.rs",
+    "expanse_strmap_next_after_ex": "strmap.rs",
+    "expanse_strmap_prev_at_or_before_ex": "strmap.rs",
+    "expanse_strmap_prev_before_ex": "strmap.rs",
 
     # SyncSet (9 functions)
-    "expanse_sync_set_new": ("sync.rs", ["new", "SyncExpanseSet"]),
-    "expanse_sync_set_free": ("sync.rs", ["inner", "SyncExpanseSet"]),
-    "expanse_sync_set_insert": ("sync.rs", ["insert", "add"]),
-    "expanse_sync_set_remove": ("sync.rs", ["remove", "discard"]),
-    "expanse_sync_set_contains": ("sync.rs", ["__contains__", "contains"]),
-    "expanse_sync_set_len": ("sync.rs", ["__len__", "len"]),
-    "expanse_sync_set_reader_new": ("sync.rs", ["SyncExpanseSet", "detach"]),
-    "expanse_sync_set_reader_free": ("sync.rs", ["SyncExpanseSet", "detach"]),
-    "expanse_sync_set_reader_contains": ("sync.rs", ["__contains__", "contains"]),
+    "expanse_sync_set_new": "sync.rs",
+    "expanse_sync_set_free": "sync.rs",
+    "expanse_sync_set_insert": "sync.rs",
+    "expanse_sync_set_remove": "sync.rs",
+    "expanse_sync_set_contains": "sync.rs",
+    "expanse_sync_set_len": "sync.rs",
+    "expanse_sync_set_reader_new": "sync.rs",
+    "expanse_sync_set_reader_free": "sync.rs",
+    "expanse_sync_set_reader_contains": "sync.rs",
 
-    # SyncMap (9 functions)
-    "expanse_sync_map_new": ("sync.rs", ["new", "SyncExpanseMap"]),
-    "expanse_sync_map_free": ("sync.rs", ["inner", "SyncExpanseMap"]),
-    "expanse_sync_map_insert": ("sync.rs", ["insert", "__setitem__"]),
-    "expanse_sync_map_get": ("sync.rs", ["get", "__getitem__"]),
-    "expanse_sync_map_remove": ("sync.rs", ["remove", "__delitem__"]),
-    "expanse_sync_map_len": ("sync.rs", ["__len__", "len"]),
-    "expanse_sync_map_reader_new": ("sync.rs", ["SyncExpanseMap", "detach"]),
-    "expanse_sync_map_reader_free": ("sync.rs", ["SyncExpanseMap", "detach"]),
-    "expanse_sync_map_reader_get": ("sync.rs", ["get", "__getitem__"]),
+    # SyncMap (15 functions)
+    "expanse_sync_map_new": "sync.rs",
+    "expanse_sync_map_free": "sync.rs",
+    "expanse_sync_map_insert": "sync.rs",
+    "expanse_sync_map_get": "sync.rs",
+    "expanse_sync_map_remove": "sync.rs",
+    "expanse_sync_map_len": "sync.rs",
+    "expanse_sync_map_reader_new": "sync.rs",
+    "expanse_sync_map_reader_free": "sync.rs",
+    "expanse_sync_map_reader_get": "sync.rs",
+    "expanse_sync_map_reader_first": "sync.rs",
+    "expanse_sync_map_reader_last": "sync.rs",
+    "expanse_sync_map_reader_next_at_or_after": "sync.rs",
+    "expanse_sync_map_reader_next_after": "sync.rs",
+    "expanse_sync_map_reader_prev_at_or_before": "sync.rs",
+    "expanse_sync_map_reader_prev_before": "sync.rs",
 
     # BlobMap (11 functions)
-    "expanse_blob_map_new": ("blobmap.rs", ["new", "with_chunk_size"]),
-    "expanse_blob_map_free": ("blobmap.rs", ["inner", "ExpanseBlobMap"]),
-    "expanse_blob_map_insert": ("blobmap.rs", ["insert", "__setitem__"]),
-    "expanse_blob_map_remove": ("blobmap.rs", ["remove", "__delitem__"]),
-    "expanse_blob_map_get": ("blobmap.rs", ["get", "__getitem__", "get_bytes"]),
-    "expanse_blob_map_get_into": ("blobmap.rs", ["get", "__getitem__", "get_bytes"]),
-    "expanse_blob_map_scan_filtered": ("blobmap.rs", ["get", "len", "contains_key", "inner"]),
-    "expanse_blob_map_compact": ("blobmap.rs", ["compact", "inner"]),
-    "expanse_blob_map_len": ("blobmap.rs", ["__len__", "len"]),
-    "expanse_blob_map_mem_used": ("blobmap.rs", ["mem_used", "inner"]),
-    "expanse_blob_map_clear": ("blobmap.rs", ["clear", "inner"]),
-    "expanse_blob_map_contains_key": ("blobmap.rs", ["contains_key", "__contains__"]),
+    "expanse_blob_map_new": "blobmap.rs",
+    "expanse_blob_map_free": "blobmap.rs",
+    "expanse_blob_map_insert": "blobmap.rs",
+    "expanse_blob_map_remove": "blobmap.rs",
+    "expanse_blob_map_get": "blobmap.rs",
+    "expanse_blob_map_get_into": "blobmap.rs",
+    "expanse_blob_map_scan_filtered": "blobmap.rs",
+    "expanse_blob_map_compact": "blobmap.rs",
+    "expanse_blob_map_len": "blobmap.rs",
+    "expanse_blob_map_mem_used": "blobmap.rs",
+    "expanse_blob_map_clear": "blobmap.rs",
+    "expanse_blob_map_contains_key": "blobmap.rs",
 }
 
-# Mapping of C ABI symbols to expected Node.js N-API constructs / methods
-NODE_FEATURE_MAPPING = {
+# Node.js N-API: C ABI symbol -> file under crates/expanse-node/src carrying its marker.
+NODE_FEATURE_MAPPING: Dict[str, str] = {
     # Identity
-    "expanse_version": ("lib.rs", ["lib.rs", "napi"]),
+    "expanse_version": "lib.rs",
 
     # Set (17 functions)
-    "expanse_set_new": ("set.rs", ["new", "constructor"]),
-    "expanse_set_free": ("set.rs", ["inner", "ExpanseSet"]),
-    "expanse_set_insert": ("set.rs", ["add", "insert"]),
-    "expanse_set_remove": ("set.rs", ["remove", "delete"]),
-    "expanse_set_contains": ("set.rs", ["has", "contains"]),
-    "expanse_set_len": ("set.rs", ["size", "len"]),
-    "expanse_set_mem_used": ("set.rs", ["mem_used", "memUsed"]),
-    "expanse_set_clear": ("set.rs", ["clear"]),
-    "expanse_set_first": ("set.rs", ["first"]),
-    "expanse_set_last": ("set.rs", ["last"]),
-    "expanse_set_next_at_or_after": ("set.rs", ["next"]),
-    "expanse_set_next_after": ("set.rs", ["next"]),
-    "expanse_set_prev_at_or_before": ("set.rs", ["prev"]),
-    "expanse_set_prev_before": ("set.rs", ["prev"]),
-    "expanse_set_count_below": ("set.rs", ["rank", "count_below"]),
-    "expanse_set_count_range": ("set.rs", ["count_range", "countRange"]),
-    "expanse_set_by_count": ("set.rs", ["select", "by_count"]),
-    "expanse_set_contains_batch": ("set.rs", ["contains_batch", "containsBatch"]),
+    "expanse_set_new": "set.rs",
+    "expanse_set_free": "set.rs",
+    "expanse_set_insert": "set.rs",
+    "expanse_set_remove": "set.rs",
+    "expanse_set_contains": "set.rs",
+    "expanse_set_len": "set.rs",
+    "expanse_set_mem_used": "set.rs",
+    "expanse_set_clear": "set.rs",
+    "expanse_set_first": "set.rs",
+    "expanse_set_last": "set.rs",
+    "expanse_set_next_at_or_after": "set.rs",
+    "expanse_set_next_after": "set.rs",
+    "expanse_set_prev_at_or_before": "set.rs",
+    "expanse_set_prev_before": "set.rs",
+    "expanse_set_count_below": "set.rs",
+    "expanse_set_count_range": "set.rs",
+    "expanse_set_by_count": "set.rs",
+    "expanse_set_contains_batch": "set.rs",
 
     # Map (20 functions)
-    "expanse_map_new": ("map.rs", ["new", "constructor"]),
-    "expanse_map_free": ("map.rs", ["inner", "ExpanseMap"]),
-    "expanse_map_insert": ("map.rs", ["set", "insert"]),
-    "expanse_map_get": ("map.rs", ["get"]),
-    "expanse_map_get_batch": ("map.rs", ["get_batch", "getBatch"]),
-    "expanse_map_remove": ("map.rs", ["delete", "remove"]),
-    "expanse_map_len": ("map.rs", ["size", "len"]),
-    "expanse_map_mem_used": ("map.rs", ["mem_used", "memUsed"]),
-    "expanse_map_clear": ("map.rs", ["clear"]),
-    "expanse_map_slot": ("map.rs", ["set", "get"]),
-    "expanse_map_ins_slot": ("map.rs", ["set", "insert"]),
-    "expanse_map_first": ("map.rs", ["first"]),
-    "expanse_map_last": ("map.rs", ["last"]),
-    "expanse_map_next_at_or_after": ("map.rs", ["next"]),
-    "expanse_map_next_after": ("map.rs", ["next"]),
-    "expanse_map_prev_at_or_before": ("map.rs", ["prev"]),
-    "expanse_map_prev_before": ("map.rs", ["prev"]),
-    "expanse_map_count_below": ("map.rs", ["rank", "count_below"]),
-    "expanse_map_count_range": ("map.rs", ["count_range", "countRange"]),
-    "expanse_map_by_count": ("map.rs", ["select", "by_count"]),
+    "expanse_map_new": "map.rs",
+    "expanse_map_free": "map.rs",
+    "expanse_map_insert": "map.rs",
+    "expanse_map_get": "map.rs",
+    "expanse_map_get_batch": "map.rs",
+    "expanse_map_remove": "map.rs",
+    "expanse_map_len": "map.rs",
+    "expanse_map_mem_used": "map.rs",
+    "expanse_map_clear": "map.rs",
+    "expanse_map_slot": "map.rs",
+    "expanse_map_ins_slot": "map.rs",
+    "expanse_map_first": "map.rs",
+    "expanse_map_last": "map.rs",
+    "expanse_map_next_at_or_after": "map.rs",
+    "expanse_map_next_after": "map.rs",
+    "expanse_map_prev_at_or_before": "map.rs",
+    "expanse_map_prev_before": "map.rs",
+    "expanse_map_count_below": "map.rs",
+    "expanse_map_count_range": "map.rs",
+    "expanse_map_by_count": "map.rs",
 
     # BytesMap (10 functions)
-    "expanse_bytesmap_new": ("bytesmap.rs", ["new", "constructor"]),
-    "expanse_bytesmap_free": ("bytesmap.rs", ["inner", "ExpanseBytesMap"]),
-    "expanse_bytesmap_insert": ("bytesmap.rs", ["set", "insert"]),
-    "expanse_bytesmap_get": ("bytesmap.rs", ["get"]),
-    "expanse_bytesmap_remove": ("bytesmap.rs", ["delete", "remove"]),
-    "expanse_bytesmap_slot": ("bytesmap.rs", ["set", "get"]),
-    "expanse_bytesmap_ins_slot": ("bytesmap.rs", ["set", "insert"]),
-    "expanse_bytesmap_len": ("bytesmap.rs", ["size", "len"]),
-    "expanse_bytesmap_mem_used": ("bytesmap.rs", ["mem_used", "memUsed"]),
-    "expanse_bytesmap_clear": ("bytesmap.rs", ["clear"]),
+    "expanse_bytesmap_new": "bytesmap.rs",
+    "expanse_bytesmap_free": "bytesmap.rs",
+    "expanse_bytesmap_insert": "bytesmap.rs",
+    "expanse_bytesmap_get": "bytesmap.rs",
+    "expanse_bytesmap_remove": "bytesmap.rs",
+    "expanse_bytesmap_slot": "bytesmap.rs",
+    "expanse_bytesmap_ins_slot": "bytesmap.rs",
+    "expanse_bytesmap_len": "bytesmap.rs",
+    "expanse_bytesmap_mem_used": "bytesmap.rs",
+    "expanse_bytesmap_clear": "bytesmap.rs",
 
     # StrMap (16 functions)
-    "expanse_strmap_new": ("strmap.rs", ["new", "constructor"]),
-    "expanse_strmap_free": ("strmap.rs", ["inner", "ExpanseStrMap"]),
-    "expanse_strmap_insert": ("strmap.rs", ["set", "insert"]),
-    "expanse_strmap_get": ("strmap.rs", ["get"]),
-    "expanse_strmap_remove": ("strmap.rs", ["delete", "remove"]),
-    "expanse_strmap_slot": ("strmap.rs", ["set", "get"]),
-    "expanse_strmap_ins_slot": ("strmap.rs", ["set", "insert"]),
-    "expanse_strmap_len": ("strmap.rs", ["size", "len"]),
-    "expanse_strmap_mem_used": ("strmap.rs", ["mem_used", "memUsed"]),
-    "expanse_strmap_clear": ("strmap.rs", ["clear"]),
-    "expanse_strmap_first": ("strmap.rs", ["first"]),
-    "expanse_strmap_last": ("strmap.rs", ["last"]),
-    "expanse_strmap_next_at_or_after": ("strmap.rs", ["next"]),
-    "expanse_strmap_next_after": ("strmap.rs", ["next"]),
-    "expanse_strmap_prev_at_or_before": ("strmap.rs", ["prev"]),
-    "expanse_strmap_prev_before": ("strmap.rs", ["prev"]),
+    "expanse_strmap_new": "strmap.rs",
+    "expanse_strmap_free": "strmap.rs",
+    "expanse_strmap_insert": "strmap.rs",
+    "expanse_strmap_get": "strmap.rs",
+    "expanse_strmap_remove": "strmap.rs",
+    "expanse_strmap_slot": "strmap.rs",
+    "expanse_strmap_ins_slot": "strmap.rs",
+    "expanse_strmap_len": "strmap.rs",
+    "expanse_strmap_mem_used": "strmap.rs",
+    "expanse_strmap_clear": "strmap.rs",
+    "expanse_strmap_first": "strmap.rs",
+    "expanse_strmap_last": "strmap.rs",
+    "expanse_strmap_next_at_or_after": "strmap.rs",
+    "expanse_strmap_next_after": "strmap.rs",
+    "expanse_strmap_prev_at_or_before": "strmap.rs",
+    "expanse_strmap_prev_before": "strmap.rs",
 
     # StrMap truncation-aware navigation (6 functions)
-    "expanse_strmap_first_ex": ("strmap.rs", ["first"]),
-    "expanse_strmap_last_ex": ("strmap.rs", ["last"]),
-    "expanse_strmap_next_at_or_after_ex": ("strmap.rs", ["next"]),
-    "expanse_strmap_next_after_ex": ("strmap.rs", ["next"]),
-    "expanse_strmap_prev_at_or_before_ex": ("strmap.rs", ["prev"]),
-    "expanse_strmap_prev_before_ex": ("strmap.rs", ["prev"]),
+    "expanse_strmap_first_ex": "strmap.rs",
+    "expanse_strmap_last_ex": "strmap.rs",
+    "expanse_strmap_next_at_or_after_ex": "strmap.rs",
+    "expanse_strmap_next_after_ex": "strmap.rs",
+    "expanse_strmap_prev_at_or_before_ex": "strmap.rs",
+    "expanse_strmap_prev_before_ex": "strmap.rs",
 
     # SyncSet (9 functions)
-    "expanse_sync_set_new": ("sync.rs", ["new", "constructor"]),
-    "expanse_sync_set_free": ("sync.rs", ["inner", "SyncExpanseSet"]),
-    "expanse_sync_set_insert": ("sync.rs", ["add", "insert"]),
-    "expanse_sync_set_remove": ("sync.rs", ["remove", "delete"]),
-    "expanse_sync_set_contains": ("sync.rs", ["has", "contains"]),
-    "expanse_sync_set_len": ("sync.rs", ["size", "len"]),
-    "expanse_sync_set_reader_new": ("sync.rs", ["SyncExpanseSet", "inner"]),
-    "expanse_sync_set_reader_free": ("sync.rs", ["SyncExpanseSet", "inner"]),
-    "expanse_sync_set_reader_contains": ("sync.rs", ["has", "contains"]),
+    "expanse_sync_set_new": "sync.rs",
+    "expanse_sync_set_free": "sync.rs",
+    "expanse_sync_set_insert": "sync.rs",
+    "expanse_sync_set_remove": "sync.rs",
+    "expanse_sync_set_contains": "sync.rs",
+    "expanse_sync_set_len": "sync.rs",
+    "expanse_sync_set_reader_new": "sync.rs",
+    "expanse_sync_set_reader_free": "sync.rs",
+    "expanse_sync_set_reader_contains": "sync.rs",
 
-    # SyncMap (9 functions)
-    "expanse_sync_map_new": ("sync.rs", ["new", "constructor"]),
-    "expanse_sync_map_free": ("sync.rs", ["inner", "SyncExpanseMap"]),
-    "expanse_sync_map_insert": ("sync.rs", ["set", "insert"]),
-    "expanse_sync_map_get": ("sync.rs", ["get"]),
-    "expanse_sync_map_remove": ("sync.rs", ["delete", "remove"]),
-    "expanse_sync_map_len": ("sync.rs", ["size", "len"]),
-    "expanse_sync_map_reader_new": ("sync.rs", ["SyncExpanseMap", "inner"]),
-    "expanse_sync_map_reader_free": ("sync.rs", ["SyncExpanseMap", "inner"]),
-    "expanse_sync_map_reader_get": ("sync.rs", ["get"]),
+    # SyncMap (15 functions)
+    "expanse_sync_map_new": "sync.rs",
+    "expanse_sync_map_free": "sync.rs",
+    "expanse_sync_map_insert": "sync.rs",
+    "expanse_sync_map_get": "sync.rs",
+    "expanse_sync_map_remove": "sync.rs",
+    "expanse_sync_map_len": "sync.rs",
+    "expanse_sync_map_reader_new": "sync.rs",
+    "expanse_sync_map_reader_free": "sync.rs",
+    "expanse_sync_map_reader_get": "sync.rs",
+    "expanse_sync_map_reader_first": "sync.rs",
+    "expanse_sync_map_reader_last": "sync.rs",
+    "expanse_sync_map_reader_next_at_or_after": "sync.rs",
+    "expanse_sync_map_reader_next_after": "sync.rs",
+    "expanse_sync_map_reader_prev_at_or_before": "sync.rs",
+    "expanse_sync_map_reader_prev_before": "sync.rs",
 
     # BlobMap (11 functions)
-    "expanse_blob_map_new": ("blobmap.rs", ["new", "constructor"]),
-    "expanse_blob_map_free": ("blobmap.rs", ["inner", "ExpanseBlobMap"]),
-    "expanse_blob_map_insert": ("blobmap.rs", ["set", "insert"]),
-    "expanse_blob_map_remove": ("blobmap.rs", ["delete", "remove"]),
-    "expanse_blob_map_get": ("blobmap.rs", ["get", "get_with_meta", "getWithMeta"]),
-    "expanse_blob_map_get_into": ("blobmap.rs", ["get", "get_with_meta", "getWithMeta"]),
-    "expanse_blob_map_scan_filtered": ("blobmap.rs", ["prune", "index", "iter"]),
-    "expanse_blob_map_compact": ("blobmap.rs", ["compact"]),
-    "expanse_blob_map_len": ("blobmap.rs", ["size", "len"]),
-    "expanse_blob_map_mem_used": ("blobmap.rs", ["mem_used", "memUsed"]),
-    "expanse_blob_map_clear": ("blobmap.rs", ["clear"]),
-    "expanse_blob_map_contains_key": ("blobmap.rs", ["has", "contains_key"]),
+    "expanse_blob_map_new": "blobmap.rs",
+    "expanse_blob_map_free": "blobmap.rs",
+    "expanse_blob_map_insert": "blobmap.rs",
+    "expanse_blob_map_remove": "blobmap.rs",
+    "expanse_blob_map_get": "blobmap.rs",
+    "expanse_blob_map_get_into": "blobmap.rs",
+    "expanse_blob_map_scan_filtered": "blobmap.rs",
+    "expanse_blob_map_compact": "blobmap.rs",
+    "expanse_blob_map_len": "blobmap.rs",
+    "expanse_blob_map_mem_used": "blobmap.rs",
+    "expanse_blob_map_clear": "blobmap.rs",
+    "expanse_blob_map_contains_key": "blobmap.rs",
 }
 
 
@@ -430,60 +469,97 @@ def parse_dotnet_pinvoke(cs_path: Path) -> Set[str]:
     return symbols
 
 
-def verify_python_bindings(py_dir: Path, c_symbols: List[CSymbol]) -> Tuple[Set[str], Set[str]]:
-    """Verifies that all C functionality is mapped in Python PyO3 modules."""
+# `// abi-parity: expanse_a, expanse_b`. A `///` doc comment is not a marker:
+# PyO3 and napi render doc comments into the Python docstring / TypeScript
+# declaration, which is no place for a parity claim.
+_MARKER_RE = re.compile(r"(?<!/)//[ \t]*abi-parity:[ \t]*([^\n]*)")
+_MARKER_SYMBOL_RE = re.compile(r"^expanse_[a-z0-9_]+$")
+
+
+def parse_parity_markers(text: str) -> Tuple[Set[str], List[str]]:
+    """Returns the symbols named by `// abi-parity:` markers, and any malformed entries.
+
+    Entries are compared as whole names, so a marker for `expanse_strmap_first_ex`
+    never covers `expanse_strmap_first`.
+    """
+    names: Set[str] = set()
+    malformed: List[str] = []
+    for m in _MARKER_RE.finditer(text):
+        for part in m.group(1).split(","):
+            part = part.strip()
+            if _MARKER_SYMBOL_RE.match(part):
+                names.add(part)
+            else:
+                malformed.append(part)
+    return names, malformed
+
+
+def verify_marker_bindings(
+    binding_dir: Path,
+    c_symbols: List[CSymbol],
+    mapping: Dict[str, str],
+    label: str,
+) -> Tuple[Set[str], Set[str], List[str]]:
+    """Coverage of a Rust-API binding (Python, Node) by per-symbol markers.
+
+    A symbol is covered iff `mapping` names a file for it and that file carries
+    an `abi-parity` marker naming the symbol exactly. Returns (covered,
+    missing, errors); errors are inconsistencies that are fatal whatever the
+    coverage: a malformed marker, a marker naming something that is not a
+    wide-surface symbol, a marker in a file other than the one its mapping
+    names, and a mapping entry for a symbol the header does not declare.
+    """
     covered: Set[str] = set()
     missing: Set[str] = set()
+    errors: List[str] = []
 
-    file_contents: Dict[str, str] = {}
-    for rs_file in py_dir.glob("*.rs"):
-        file_contents[rs_file.name] = rs_file.read_text(encoding="utf-8")
+    markers: Dict[str, Set[str]] = {}
+    for rs_file in sorted(binding_dir.glob("*.rs")):
+        names, malformed = parse_parity_markers(rs_file.read_text(encoding="utf-8"))
+        markers[rs_file.name] = names
+        for bad in malformed:
+            errors.append(f"{label}: {rs_file.name}: malformed abi-parity marker entry {bad!r}")
 
+    declared = {s.name for s in c_symbols}
     for sym in c_symbols:
-        mapping = PYTHON_FEATURE_MAPPING.get(sym.name)
-        if not mapping:
-            # If no mapping entry defined, mark missing
-            missing.add(sym.name)
-            continue
-
-        rs_filename, keywords = mapping
-        content = file_contents.get(rs_filename, "")
-
-        # Check if keywords exist in file
-        found = any(kw in content for kw in keywords)
-        if found:
+        rs_filename = mapping.get(sym.name)
+        if rs_filename is not None and sym.name in markers.get(rs_filename, set()):
             covered.add(sym.name)
         else:
             missing.add(sym.name)
 
-    return covered, missing
+    for rs_filename, names in sorted(markers.items()):
+        for name in sorted(names):
+            if name not in declared:
+                errors.append(
+                    f"{label}: {rs_filename}: abi-parity marker names {name}, "
+                    "which is not a wide-surface symbol of include/expanse.h"
+                )
+            elif name not in mapping:
+                errors.append(f"{label}: {rs_filename}: abi-parity marker for {name}, which has no mapping entry")
+            elif mapping[name] != rs_filename:
+                errors.append(
+                    f"{label}: {rs_filename}: abi-parity marker for {name}, "
+                    f"but its mapping names {mapping[name]}"
+                )
+    for name in sorted(set(mapping) - declared):
+        errors.append(f"{label}: mapping entry {name} is not a wide-surface symbol of include/expanse.h")
+
+    return covered, missing, errors
 
 
-def verify_node_bindings(node_dir: Path, c_symbols: List[CSymbol]) -> Tuple[Set[str], Set[str]]:
-    """Verifies that all C functionality is mapped in Node.js N-API modules."""
-    covered: Set[str] = set()
-    missing: Set[str] = set()
+def verify_python_bindings(
+    py_dir: Path, c_symbols: List[CSymbol], mapping: Optional[Dict[str, str]] = None
+) -> Tuple[Set[str], Set[str], List[str]]:
+    """Verifies that all C functionality is bound in the Python PyO3 modules."""
+    return verify_marker_bindings(py_dir, c_symbols, PYTHON_FEATURE_MAPPING if mapping is None else mapping, "python")
 
-    file_contents: Dict[str, str] = {}
-    for rs_file in node_dir.glob("*.rs"):
-        file_contents[rs_file.name] = rs_file.read_text(encoding="utf-8")
 
-    for sym in c_symbols:
-        mapping = NODE_FEATURE_MAPPING.get(sym.name)
-        if not mapping:
-            missing.add(sym.name)
-            continue
-
-        rs_filename, keywords = mapping
-        content = file_contents.get(rs_filename, "")
-
-        found = any(kw in content for kw in keywords)
-        if found:
-            covered.add(sym.name)
-        else:
-            missing.add(sym.name)
-
-    return covered, missing
+def verify_node_bindings(
+    node_dir: Path, c_symbols: List[CSymbol], mapping: Optional[Dict[str, str]] = None
+) -> Tuple[Set[str], Set[str], List[str]]:
+    """Verifies that all C functionality is bound in the Node.js N-API modules."""
+    return verify_marker_bindings(node_dir, c_symbols, NODE_FEATURE_MAPPING if mapping is None else mapping, "node")
 
 
 def parse_go_purego(go_path: Path) -> Set[str]:
@@ -574,8 +650,8 @@ def build_parity_report(root: Path) -> Tuple[List[CSymbol], ParityReport]:
 
     java_symbols = parse_java_panama(java_path)
     dotnet_symbols = parse_dotnet_pinvoke(dotnet_path)
-    py_covered, py_missing = verify_python_bindings(py_dir, c_symbols)
-    node_covered, node_missing = verify_node_bindings(node_dir, c_symbols)
+    py_covered, py_missing, py_errors = verify_python_bindings(py_dir, c_symbols)
+    node_covered, node_missing, node_errors = verify_node_bindings(node_dir, c_symbols)
     go_symbols = parse_go_purego(go_path)
 
     report = ParityReport(
@@ -588,6 +664,8 @@ def build_parity_report(root: Path) -> Tuple[List[CSymbol], ParityReport]:
         python_missing=py_missing,
         node_covered=node_covered,
         node_missing=node_missing,
+        python_errors=py_errors,
+        node_errors=node_errors,
         go_covered=c_symbol_names.intersection(go_symbols),
         go_missing=c_symbol_names - go_symbols,
         narrow_only=narrow_only,
@@ -907,6 +985,79 @@ def self_test() -> int:
         assert errs, "non-git directory must fail closed"
         assert any("dangling-reference check could not run" in e for e in errs)
 
+    # 5. Python / Node coverage markers.
+    #
+    # The planted false match first: a binding file that carries the generic
+    # words `prev` and `prev_before` for another reason (a writer-excluding
+    # ordered read) and binds nothing for the reader-handle symbol. Under the
+    # old any-keyword-anywhere rule, a mapping of ["prev_before", "prev"]
+    # reported it covered.
+    planted = CSymbol("expanse_sync_map_reader_prev_before", "bool", "", "t", 1)
+    bound = CSymbol("expanse_sync_map_get", "bool", "", "t", 2)
+    symbols_under_test = [planted, bound]
+    mapping = {planted.name: "sync.rs", bound.name: "sync.rs"}
+    generic = (
+        "// abi-parity: expanse_sync_map_get\n"
+        "pub fn get(&self, key: u64) -> Option<u64> { self.inner.get(key) }\n"
+        "pub fn prev(&self, key: u64) -> Option<(u64, u64)> {\n"
+        "    // expanse_sync_map_reader_prev_before is not bound here\n"
+        "    self.inner.with_locked(|m| m.prev_before(key))\n"
+        "}\n"
+    )
+    with tempfile.TemporaryDirectory() as td:
+        d = Path(td)
+        sync_rs = d / "sync.rs"
+        for verify in (verify_python_bindings, verify_node_bindings):
+            sync_rs.write_text(generic)
+            covered, missing, errors = verify(d, symbols_under_test, mapping)
+            assert planted.name in missing, (
+                f"planted false match: {planted.name} reported covered by a generic token or a bare mention"
+            )
+            assert bound.name in covered and not errors, (covered, errors)
+
+            # Its own marker, and nothing else, covers it.
+            sync_rs.write_text(f"// abi-parity: {bound.name}, {planted.name}\n" + generic)
+            covered, missing, errors = verify(d, symbols_under_test, mapping)
+            assert covered == {planted.name, bound.name} and not missing and not errors, (covered, missing, errors)
+
+            # A doc comment is not a marker.
+            sync_rs.write_text(f"/// abi-parity: {planted.name}\n" + generic)
+            covered, missing, errors = verify(d, symbols_under_test, mapping)
+            assert planted.name in missing, "a /// doc comment must not count as a marker"
+
+            # A marker for a longer name does not cover the shorter one, and is
+            # itself an error (it names no declared symbol).
+            sync_rs.write_text(f"// abi-parity: {planted.name}_ex\n" + generic)
+            covered, missing, errors = verify(d, symbols_under_test, mapping)
+            assert planted.name in missing
+            assert any("not a wide-surface symbol" in e for e in errors), errors
+
+            # A marker in a file its mapping does not name covers nothing.
+            sync_rs.write_text(generic)
+            (d / "map.rs").write_text(f"// abi-parity: {planted.name}\n")
+            covered, missing, errors = verify(d, symbols_under_test, mapping)
+            assert planted.name in missing
+            assert any("its mapping names sync.rs" in e for e in errors), errors
+            (d / "map.rs").unlink()
+
+            # Malformed entries and mapping entries for undeclared symbols fail.
+            sync_rs.write_text("// abi-parity: expanse_map_first; oops\n" + generic)
+            _, _, errors = verify(d, symbols_under_test, {**mapping, "expanse_gone": "sync.rs"})
+            assert any("malformed" in e for e in errors), errors
+            assert any("mapping entry expanse_gone" in e for e in errors), errors
+
+    # The shipped mappings name a file only; the marker is the evidence.
+    for m in (PYTHON_FEATURE_MAPPING, NODE_FEATURE_MAPPING):
+        assert all(isinstance(v, str) and v.endswith(".rs") for v in m.values()), m
+
+    # The repository's own markers and mappings are consistent (coverage gaps
+    # are the main check's business; inconsistencies are never acceptable).
+    all_symbols = parse_c_header(root / "include" / "expanse.h")
+    wide = [s for s in all_symbols if not s.narrow_only]
+    for verify, sub in ((verify_python_bindings, "expanse-py"), (verify_node_bindings, "expanse-node")):
+        _, _, errors = verify(root / "crates" / sub / "src", wide)
+        assert not errors, errors
+
     print("check_abi_parity.py --self-test: all checks passed")
     return 0
 
@@ -976,8 +1127,16 @@ def main() -> int:
             "min_c_symbols_floor": effective_floor,
             "java": {"covered": len(report.java_covered), "missing": sorted(list(report.java_missing))},
             "dotnet": {"covered": len(report.dotnet_covered), "missing": sorted(list(report.dotnet_missing))},
-            "python": {"covered": len(report.python_covered), "missing": sorted(list(report.python_missing))},
-            "node": {"covered": len(report.node_covered), "missing": sorted(list(report.node_missing))},
+            "python": {
+                "covered": len(report.python_covered),
+                "missing": sorted(list(report.python_missing)),
+                "errors": report.python_errors,
+            },
+            "node": {
+                "covered": len(report.node_covered),
+                "missing": sorted(list(report.node_missing)),
+                "errors": report.node_errors,
+            },
             "go": {"covered": len(report.go_covered), "missing": sorted(list(report.go_missing))},
             "category_breakdown": report.category_breakdown,
         }
@@ -1000,8 +1159,13 @@ def main() -> int:
             print("  allow-symbol-shrink: <nonempty reason>")
             floor_violation = True
 
+    for err in report.python_errors + report.node_errors:
+        print(f"::error::{err}")
+
     has_errors = (
-        len(report.java_missing) > 0
+        len(report.python_errors) > 0
+        or len(report.node_errors) > 0
+        or len(report.java_missing) > 0
         or len(report.dotnet_missing) > 0
         or len(report.python_missing) > 0
         or len(report.node_missing) > 0

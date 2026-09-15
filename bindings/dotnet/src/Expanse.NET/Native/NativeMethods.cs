@@ -455,5 +455,29 @@ public static class NativeMethods
     [return: MarshalAs(UnmanagedType.I1)]
     public static extern bool expanse_sync_map_reader_get(SafeExpanseSyncMapReaderHandle reader, ulong key, out ulong value_out);
 
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_map_reader_first")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool expanse_sync_map_reader_first(SafeExpanseSyncMapReaderHandle reader, out ulong key_out, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_map_reader_last")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool expanse_sync_map_reader_last(SafeExpanseSyncMapReaderHandle reader, out ulong key_out, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_map_reader_next_at_or_after")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool expanse_sync_map_reader_next_at_or_after(SafeExpanseSyncMapReaderHandle reader, ulong key, out ulong key_out, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_map_reader_next_after")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool expanse_sync_map_reader_next_after(SafeExpanseSyncMapReaderHandle reader, ulong key, out ulong key_out, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_map_reader_prev_at_or_before")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool expanse_sync_map_reader_prev_at_or_before(SafeExpanseSyncMapReaderHandle reader, ulong key, out ulong key_out, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_map_reader_prev_before")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool expanse_sync_map_reader_prev_before(SafeExpanseSyncMapReaderHandle reader, ulong key, out ulong key_out, out ulong value_out);
+
     #endregion
 }

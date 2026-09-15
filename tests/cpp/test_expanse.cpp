@@ -619,6 +619,22 @@ void test_sync_map() {
         th.join();
     }
 
+    // Ordered reads through a reader handle (#900): keys 0..999, value k * 10.
+    {
+        auto reader = sm.make_reader();
+        using entry = std::pair<uint64_t, uint64_t>;
+        assert(reader.first() == entry(0, 0));
+        assert(reader.last() == entry(999, 9990));
+        assert(reader.next(10) == entry(11, 110));
+        assert(reader.next_at_or_after(10) == entry(10, 100));
+        assert(reader.prev(10) == entry(9, 90));
+        assert(reader.prev_at_or_before(10) == entry(10, 100));
+        assert(!reader.next(999).has_value());
+        assert(!reader.prev(0).has_value());
+        assert(!reader.next_at_or_after(1000).has_value());
+        assert(reader.prev_at_or_before(UINT64_MAX) == entry(999, 9990));
+    }
+
     // Erase
     uint64_t old = 0;
     assert(sm.erase(0, &old));

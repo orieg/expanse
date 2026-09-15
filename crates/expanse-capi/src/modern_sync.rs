@@ -280,3 +280,139 @@ pub unsafe extern "C" fn expanse_sync_map_reader_get(
     unsafe { put(value_out, v) };
     true
 }
+
+// ---- Ordered reads through a reader handle (#900) ----
+//
+// Each is one validated ordered search (`sync_nav`) under the reader's epoch
+// pin, with the same retry budget and writer-excluding fallback as
+// `expanse_sync_map_reader_get`: no lock on the common path, and a read that
+// exhausts its retries answers under the writer mutex after quiescing writers.
+
+/// Writes an ordered read's answer through the caller's out-pointers: true
+/// with both written when an entry was found, false (nothing written) when
+/// none was.
+///
+/// # Safety
+///
+/// `key_out` and `value_out` each null or writable.
+#[inline]
+unsafe fn put_entry(found: Option<(u64, u64)>, key_out: *mut u64, value_out: *mut u64) -> bool {
+    let Some((k, v)) = found else {
+        return false;
+    };
+    // SAFETY: out-pointers null or writable per this function's contract.
+    unsafe {
+        put(key_out, k);
+        put(value_out, v);
+    }
+    true
+}
+
+/// Smallest entry, through a registered reader.
+///
+/// # Safety
+///
+/// `reader` must be null or live (its map still alive), used from the thread
+/// that created it; `key_out` and `value_out` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_map_reader_first(
+    reader: *const SyncMapReader,
+    key_out: *mut u64,
+    value_out: *mut u64,
+) -> bool {
+    // SAFETY: null or live reader per contract.
+    let found = unsafe { reader.as_ref() }.and_then(|r| r.0.first());
+    // SAFETY: out-pointers null or writable per contract.
+    unsafe { put_entry(found, key_out, value_out) }
+}
+
+/// Largest entry, through a registered reader.
+///
+/// # Safety
+///
+/// Same contract as [`expanse_sync_map_reader_first`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_map_reader_last(
+    reader: *const SyncMapReader,
+    key_out: *mut u64,
+    value_out: *mut u64,
+) -> bool {
+    // SAFETY: null or live reader per contract.
+    let found = unsafe { reader.as_ref() }.and_then(|r| r.0.last());
+    // SAFETY: out-pointers null or writable per contract.
+    unsafe { put_entry(found, key_out, value_out) }
+}
+
+/// Smallest entry with key `>= key`, through a registered reader.
+///
+/// # Safety
+///
+/// Same contract as [`expanse_sync_map_reader_first`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_map_reader_next_at_or_after(
+    reader: *const SyncMapReader,
+    key: u64,
+    key_out: *mut u64,
+    value_out: *mut u64,
+) -> bool {
+    // SAFETY: null or live reader per contract.
+    let found = unsafe { reader.as_ref() }.and_then(|r| r.0.next_at_or_after(key));
+    // SAFETY: out-pointers null or writable per contract.
+    unsafe { put_entry(found, key_out, value_out) }
+}
+
+/// Smallest entry with key `> key`, through a registered reader; false for
+/// `key == u64::MAX`.
+///
+/// # Safety
+///
+/// Same contract as [`expanse_sync_map_reader_first`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_map_reader_next_after(
+    reader: *const SyncMapReader,
+    key: u64,
+    key_out: *mut u64,
+    value_out: *mut u64,
+) -> bool {
+    // SAFETY: null or live reader per contract.
+    let found = unsafe { reader.as_ref() }.and_then(|r| r.0.next_after(key));
+    // SAFETY: out-pointers null or writable per contract.
+    unsafe { put_entry(found, key_out, value_out) }
+}
+
+/// Largest entry with key `<= key`, through a registered reader.
+///
+/// # Safety
+///
+/// Same contract as [`expanse_sync_map_reader_first`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_map_reader_prev_at_or_before(
+    reader: *const SyncMapReader,
+    key: u64,
+    key_out: *mut u64,
+    value_out: *mut u64,
+) -> bool {
+    // SAFETY: null or live reader per contract.
+    let found = unsafe { reader.as_ref() }.and_then(|r| r.0.prev_at_or_before(key));
+    // SAFETY: out-pointers null or writable per contract.
+    unsafe { put_entry(found, key_out, value_out) }
+}
+
+/// Largest entry with key `< key`, through a registered reader; false for
+/// `key == 0`.
+///
+/// # Safety
+///
+/// Same contract as [`expanse_sync_map_reader_first`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_map_reader_prev_before(
+    reader: *const SyncMapReader,
+    key: u64,
+    key_out: *mut u64,
+    value_out: *mut u64,
+) -> bool {
+    // SAFETY: null or live reader per contract.
+    let found = unsafe { reader.as_ref() }.and_then(|r| r.0.prev_before(key));
+    // SAFETY: out-pointers null or writable per contract.
+    unsafe { put_entry(found, key_out, value_out) }
+}

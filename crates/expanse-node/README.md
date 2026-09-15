@@ -128,7 +128,15 @@ import { SyncExpanseMap, SyncExpanseSet } from '@orieg/expanse';
 const syncMap = new SyncExpanseMap();
 syncMap.set(1000n, 42n);
 console.log(syncMap.get(1000n)); // 42n
+console.log(syncMap.next(1000n, true)); // { key: 1000n, value: 42n }
 ```
+
+`SyncExpanseMap`'s `get`, `has`, `size`, `first`, `last`, `next` and `prev` run on
+the optimistic path: they take no writer lock unless a read exhausts its bounded
+retries, in which case it falls back to the writer-excluding path. The protocol is
+blocking optimistic lock coupling, not lock-free. `rank`, `select`, `countRange`,
+`keys`, `values` and `entries`, and the ordered reads of `SyncExpanseSet`, run with
+writers excluded.
 
 ## License
 

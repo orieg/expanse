@@ -7301,6 +7301,52 @@ impl DetachedMapReader {
     pub fn get(&self, map: &SyncExpanseMap, key: Key) -> Option<u64> {
         map_get_with(map, &self.reader, key)
     }
+
+    // The ordered reads of `map_reader_ordered_reads!`, taking the map at call
+    // time; the same `map` requirement as `get` applies to each. Hidden for
+    // the same reason (`docs/benchmarks/concurrency/METHODOLOGY.md` §12).
+
+    /// Smallest entry, without excluding writers.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn first(&self, map: &SyncExpanseMap) -> Option<(u64, u64)> {
+        map_next_with(map, &self.reader, 0)
+    }
+
+    /// Largest entry, without excluding writers.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn last(&self, map: &SyncExpanseMap) -> Option<(u64, u64)> {
+        map_prev_with(map, &self.reader, u64::MAX)
+    }
+
+    /// Smallest entry with key `>= key`, without excluding writers.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn next_at_or_after(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
+        map_next_with(map, &self.reader, key)
+    }
+
+    /// Smallest entry with key `> key`, without excluding writers.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn next_after(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
+        map_next_with(map, &self.reader, key.checked_add(1)?)
+    }
+
+    /// Largest entry with key `<= key`, without excluding writers.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn prev_at_or_before(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
+        map_prev_with(map, &self.reader, key)
+    }
+
+    /// Largest entry with key `< key`, without excluding writers.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn prev_before(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
+        map_prev_with(map, &self.reader, key.checked_sub(1)?)
+    }
 }
 
 impl MapReader<'_> {
@@ -8901,6 +8947,42 @@ mod tests {
             map.shared.collector.registrations(),
             regs_before_loop,
             "lookups through a detached reader must not call register()"
+        );
+
+        // The ordered reads (#900) answer as the writer-excluding reads do, at
+        // both ends of the key space, and register nothing either.
+        let probes = [0u64, 1, 250, 498, 499, 500, 9_999, u64::MAX];
+        let expected: Vec<_> = probes
+            .iter()
+            .map(|&p| {
+                map.with_locked(|m| {
+                    (
+                        m.next_at_or_after(p),
+                        m.next_after(p),
+                        m.prev_at_or_before(p),
+                        m.prev_before(p),
+                    )
+                })
+            })
+            .collect();
+        let regs_before_ordered = map.shared.collector.registrations();
+        for (&p, want) in probes.iter().zip(&expected) {
+            let got = (
+                reader.next_at_or_after(&map, p),
+                reader.next_after(&map, p),
+                reader.prev_at_or_before(&map, p),
+                reader.prev_before(&map, p),
+            );
+            assert_eq!(&got, want, "detached ordered reads disagree at {p}");
+        }
+        assert_eq!(reader.first(&map), Some((0, 0)));
+        assert_eq!(reader.last(&map), Some((499, 499 * 3)));
+        assert_eq!(reader.next_after(&map, u64::MAX), None);
+        assert_eq!(reader.prev_before(&map, 0), None);
+        assert_eq!(
+            map.shared.collector.registrations(),
+            regs_before_ordered,
+            "ordered reads through a detached reader must not call register()"
         );
 
         // The map drops while the reader is still alive. An owned reader could
@@ -12332,11 +12414,17 @@ mod ordered_read_tests {
             ),
         ];
         for (name, keys) in shapes {
-            let map = SyncExpanseMap::new();
+            let map = Arc::new(SyncExpanseMap::new());
             for &k in &keys {
                 map.insert(k, k.rotate_left(17) ^ 0xA5A5);
             }
             let rd = map.reader();
+            // The other two reader forms reach the same `map_next_with` /
+            // `map_prev_with`; each must answer as the borrowing reader does,
+            // for all six reads, and neither may register per call.
+            let owned = map.owned_reader();
+            let detached = map.detached_reader();
+            let regs = map.shared.collector.registrations();
             assert_eq!(
                 rd.first(),
                 map.with_locked(ExpanseMap::first),
@@ -12371,7 +12459,55 @@ mod ordered_read_tests {
                     map.with_locked(|m| m.prev_before(k)),
                     "{name}: prev_before({k:#x})"
                 );
+                let borrowing = (
+                    rd.next_at_or_after(k),
+                    rd.next_after(k),
+                    rd.prev_at_or_before(k),
+                    rd.prev_before(k),
+                );
+                assert_eq!(
+                    (
+                        owned.next_at_or_after(k),
+                        owned.next_after(k),
+                        owned.prev_at_or_before(k),
+                        owned.prev_before(k),
+                    ),
+                    borrowing,
+                    "{name}: OwnedMapReader at {k:#x}"
+                );
+                assert_eq!(
+                    (
+                        detached.next_at_or_after(&map, k),
+                        detached.next_after(&map, k),
+                        detached.prev_at_or_before(&map, k),
+                        detached.prev_before(&map, k),
+                    ),
+                    borrowing,
+                    "{name}: DetachedMapReader at {k:#x}"
+                );
             }
+            for (form, first, last) in [
+                ("owned", owned.first(), owned.last()),
+                ("detached", detached.first(&map), detached.last(&map)),
+            ] {
+                assert_eq!(first, rd.first(), "{name}: {form} first");
+                assert_eq!(last, rd.last(), "{name}: {form} last");
+            }
+            assert_eq!(
+                detached.next_after(&map, u64::MAX),
+                None,
+                "{name}: detached next_after(MAX)"
+            );
+            assert_eq!(
+                detached.prev_before(&map, 0),
+                None,
+                "{name}: detached prev_before(0)"
+            );
+            assert_eq!(
+                map.shared.collector.registrations(),
+                regs,
+                "{name}: owned and detached ordered reads must not register per call"
+            );
         }
     }
 }
