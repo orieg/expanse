@@ -130,7 +130,7 @@ use core_alloc::{boxed::Box, vec::Vec};
 use crate::map32::ExpanseMap32;
 use crate::occ32::SeqVersion32;
 use crate::set32::ExpanseSet32;
-use crate::trie32::{self, Arena, Torn};
+use crate::trie32::{self, Arena, Seek32, Torn};
 use crate::types32::{Edge32, Key32, Value32};
 
 /// Worst-case arena allocations (and retirements) a single mutation may
@@ -553,6 +553,50 @@ impl Writer32<'_, ExpanseMap32> {
     pub fn mem_used(&self) -> usize {
         self.inner().mem_used()
     }
+
+    // Ordered reads through the writer: exact, since no other handle
+    // mutates (#900). Hidden with the reader's `try_*` twins.
+    /// Smallest entry.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn first(&self) -> Option<(Key32, Value32)> {
+        self.inner().first()
+    }
+
+    /// Largest entry.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn last(&self) -> Option<(Key32, Value32)> {
+        self.inner().last()
+    }
+
+    /// Smallest entry with key `>= bound`.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn next_at_or_after(&self, bound: Key32) -> Option<(Key32, Value32)> {
+        self.inner().next_at_or_after(bound)
+    }
+
+    /// Smallest entry with key `> bound`.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn next_after(&self, bound: Key32) -> Option<(Key32, Value32)> {
+        self.inner().next_after(bound)
+    }
+
+    /// Largest entry with key `<= bound`.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn prev_at_or_before(&self, bound: Key32) -> Option<(Key32, Value32)> {
+        self.inner().prev_at_or_before(bound)
+    }
+
+    /// Largest entry with key `< bound`.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn prev_before(&self, bound: Key32) -> Option<(Key32, Value32)> {
+        self.inner().prev_before(bound)
+    }
 }
 
 impl Writer32<'_, ExpanseSet32> {
@@ -629,6 +673,65 @@ impl Reader32<'_, ExpanseMap32> {
                 Err(Busy)
             }
         })
+    }
+
+    // Ordered reads (#900), hidden while their soundness gates and
+    // measurements (`docs/benchmarks/concurrency/METHODOLOGY.md` §12) are
+    // outstanding.
+    /// One bounded optimistic ordered read; same contract as `try_get`.
+    fn try_seek(&mut self, seek: Seek32) -> Result<Option<(Key32, Value32)>, Busy> {
+        self.pinned(|owner| {
+            let Some(snap) = owner.version.0.try_sample() else {
+                return Err(Busy);
+            };
+            // SAFETY: as in `try_get`.
+            let m = unsafe { &*owner.inner.get() };
+            let root: Edge32 = m.root_edge();
+            if !owner.version.0.validate(snap) {
+                return Err(Busy);
+            }
+            let still_valid = || owner.version.0.validate(snap);
+            trie32::map_seek_validated(m.arena(), root, seek, &still_valid).map_err(|Torn| Busy)
+        })
+    }
+
+    /// Smallest entry, or [`Busy`]; never spins.
+    #[doc(hidden)]
+    pub fn try_first(&mut self) -> Result<Option<(Key32, Value32)>, Busy> {
+        self.try_seek(Seek32::First)
+    }
+
+    /// Largest entry, or [`Busy`]; never spins.
+    #[doc(hidden)]
+    pub fn try_last(&mut self) -> Result<Option<(Key32, Value32)>, Busy> {
+        self.try_seek(Seek32::Last)
+    }
+
+    /// Smallest entry with key `>= bound`, or [`Busy`]; never spins.
+    #[doc(hidden)]
+    pub fn try_next_at_or_after(&mut self, bound: Key32) -> Result<Option<(Key32, Value32)>, Busy> {
+        self.try_seek(bound.checked_sub(1).map_or(Seek32::First, Seek32::After))
+    }
+
+    /// Smallest entry with key `> bound`, or [`Busy`]; never spins.
+    #[doc(hidden)]
+    pub fn try_next_after(&mut self, bound: Key32) -> Result<Option<(Key32, Value32)>, Busy> {
+        self.try_seek(Seek32::After(bound))
+    }
+
+    /// Largest entry with key `<= bound`, or [`Busy`]; never spins.
+    #[doc(hidden)]
+    pub fn try_prev_at_or_before(
+        &mut self,
+        bound: Key32,
+    ) -> Result<Option<(Key32, Value32)>, Busy> {
+        self.try_seek(bound.checked_add(1).map_or(Seek32::Last, Seek32::Before))
+    }
+
+    /// Largest entry with key `< bound`, or [`Busy`]; never spins.
+    #[doc(hidden)]
+    pub fn try_prev_before(&mut self, bound: Key32) -> Result<Option<(Key32, Value32)>, Busy> {
+        self.try_seek(Seek32::Before(bound))
     }
 }
 
@@ -905,5 +1008,120 @@ mod tests {
                 let _ = w.try_insert(k, i);
             }
         }
+    }
+    /// Shapes for the quiescent ordered-read checks: empty, an immediate, a
+    /// few keys, dense low keys (bitmap leaves), a wide spread (branch
+    /// ladders), a full fan-out (uncompressed branch) and the key boundaries.
+    fn ordered_shapes() -> Vec<(&'static str, Vec<u32>)> {
+        let mut state = 0x0DDB_A110u32;
+        core_alloc::vec![
+            ("empty", Vec::new()),
+            ("immediate", core_alloc::vec![7]),
+            ("small", core_alloc::vec![3, 300, 70_000]),
+            ("dense low", (0..3000).collect()),
+            ("wide", (0..2500).map(|_| lcg_key(&mut state)).collect()),
+            (
+                "fan-out",
+                (0..256u32)
+                    .flat_map(|hi| (0..4u32).map(move |lo| (hi << 16) | lo))
+                    .collect(),
+            ),
+            (
+                "boundaries",
+                core_alloc::vec![0, 1, 0xFF, 0x100, 0xFFFF, 0x1_0000, u32::MAX - 1, u32::MAX],
+            ),
+        ]
+    }
+
+    /// G12.3 on the 32-bit surface: with no writer running, every `try_*`
+    /// ordered read answers what the writer's exact call does, and the writer
+    /// matches a `BTreeMap` model, across shapes and at the key boundaries.
+    #[test]
+    fn ordered_reads_match_the_single_threaded_map() {
+        use core_alloc::collections::BTreeMap;
+        let pair = |o: Option<(&u32, &u32)>| o.map(|(k, v)| (*k, *v));
+        for (name, keys) in ordered_shapes() {
+            let mut m = SyncExpanseMap32::with_capacity(16_384, 1);
+            let (mut w, mut pool) = m.split();
+            let mut r = pool.take().unwrap();
+            let mut model = BTreeMap::new();
+            for &k in &keys {
+                let v = k.rotate_left(9) ^ 0x5A5A;
+                w.try_insert(k, v).unwrap();
+                model.insert(k, v);
+            }
+            assert_eq!(w.first(), pair(model.first_key_value()), "{name}: first");
+            assert_eq!(r.try_first(), Ok(w.first()), "{name}: try_first");
+            assert_eq!(w.last(), pair(model.last_key_value()), "{name}: last");
+            assert_eq!(r.try_last(), Ok(w.last()), "{name}: try_last");
+            let mut state = 0x5EED_0032u32;
+            let mut probes = core_alloc::vec![0, 1, u32::MAX - 1, u32::MAX];
+            for &k in &keys {
+                probes.extend([k, k.wrapping_sub(1), k.wrapping_add(1)]);
+            }
+            probes.extend((0..256).map(|_| lcg_key(&mut state)));
+            for q in probes {
+                let want = pair(model.range(q..).next());
+                assert_eq!(
+                    w.next_at_or_after(q),
+                    want,
+                    "{name}: next_at_or_after({q:#x})"
+                );
+                assert_eq!(
+                    r.try_next_at_or_after(q),
+                    Ok(want),
+                    "{name}: try_next_at_or_after({q:#x})"
+                );
+                let want = q.checked_add(1).and_then(|s| pair(model.range(s..).next()));
+                assert_eq!(w.next_after(q), want, "{name}: next_after({q:#x})");
+                assert_eq!(
+                    r.try_next_after(q),
+                    Ok(want),
+                    "{name}: try_next_after({q:#x})"
+                );
+                let want = pair(model.range(..=q).next_back());
+                assert_eq!(
+                    w.prev_at_or_before(q),
+                    want,
+                    "{name}: prev_at_or_before({q:#x})"
+                );
+                assert_eq!(
+                    r.try_prev_at_or_before(q),
+                    Ok(want),
+                    "{name}: try_prev_at_or_before({q:#x})"
+                );
+                let want = q
+                    .checked_sub(1)
+                    .and_then(|s| pair(model.range(..=s).next_back()));
+                assert_eq!(w.prev_before(q), want, "{name}: prev_before({q:#x})");
+                assert_eq!(
+                    r.try_prev_before(q),
+                    Ok(want),
+                    "{name}: try_prev_before({q:#x})"
+                );
+            }
+        }
+    }
+
+    /// Every ordered read is single-attempt: an open writer bracket makes each
+    /// one report `Busy` rather than spin, and closing it restores answers.
+    #[test]
+    fn ordered_reads_report_busy_under_an_open_bracket() {
+        let mut m = SyncExpanseMap32::with_capacity(256, 1);
+        let (mut w, mut pool) = m.split();
+        let mut r = pool.take().unwrap();
+        w.try_insert(7, 42).unwrap();
+
+        m_version(&r).begin();
+        assert_eq!(r.try_first(), Err(Busy));
+        assert_eq!(r.try_last(), Err(Busy));
+        assert_eq!(r.try_next_at_or_after(0), Err(Busy));
+        assert_eq!(r.try_next_after(0), Err(Busy));
+        assert_eq!(r.try_prev_at_or_before(u32::MAX), Err(Busy));
+        assert_eq!(r.try_prev_before(u32::MAX), Err(Busy));
+        m_version(&r).end();
+        assert_eq!(r.try_first(), Ok(Some((7, 42))));
+        assert_eq!(r.try_prev_before(7), Ok(None));
+        assert_eq!(r.try_next_after(7), Ok(None));
     }
 }

@@ -2946,6 +2946,482 @@ pub(crate) fn set_contains_validated<F: Fn() -> bool>(
     Err(Torn)
 }
 
+/// The ordered question a validated map seek answers (#900): the smallest or
+/// largest entry, or the neighbour strictly after or strictly before a key.
+#[derive(Clone, Copy)]
+pub(crate) enum Seek32 {
+    First,
+    Last,
+    After(u32),
+    Before(u32),
+}
+
+/// Validated optimistic ordered read over a map tree a single
+/// seqlock-bracketed writer may be mutating concurrently (#900).
+///
+/// Same contract and discipline as [`map_get_validated`]. The tree-level
+/// version covers every node, so no read set is retained, unlike the 64-bit
+/// per-node protocol: a search that backtracks out of a subtree and descends a
+/// sibling is still covered by the one word, and the final seal ties the
+/// answer, and every subtree it passed over as empty, to the sample. Depth is
+/// bounded by the key bytes left (a branch with fewer than two is torn) and a
+/// branch visits at most its 256 digits, so the walk ends on any data.
+pub(crate) fn map_seek_validated<F: Fn() -> bool>(
+    a: &Arena,
+    root: Edge32,
+    seek: Seek32,
+    still_valid: &F,
+) -> Result<Option<(u32, u32)>, Torn> {
+    let found = match seek {
+        Seek32::First => seek_first(a, &root, 4, still_valid)?,
+        Seek32::Last => seek_last(a, &root, 4, still_valid)?,
+        Seek32::After(k) => seek_after(a, &root, 4, k, still_valid)?,
+        Seek32::Before(k) => seek_before(a, &root, 4, k, still_valid)?,
+    };
+    #[cfg(all(test, feature = "std"))]
+    if seek_hooks::skips_seal() {
+        return Ok(found);
+    }
+    seal(still_valid, found)
+}
+
+/// A map linear leaf's buffer, population and key-area offset, validated
+/// before any index into it, with every content-derived bound checked against
+/// the live allocation.
+fn seek_leaf<'a, F: Fn() -> bool>(
+    a: &'a Arena,
+    e: &Edge32,
+    kb: u8,
+    still_valid: &F,
+) -> Result<(&'a [u8], usize, usize), Torn> {
+    let pop = edge_pop(e);
+    let cap = cap_class(pop);
+    let NodeBox::Leaf(bx) = a.try_node(edge_handle(e))? else {
+        return Err(Torn);
+    };
+    let buf: &[u8] = bx;
+    if !still_valid() {
+        return Err(Torn);
+    }
+    #[cfg(all(test, feature = "std"))]
+    seek_hooks::before_leaf_keys();
+    let keys_off = 4usize.checked_mul(cap).ok_or(Torn)?;
+    let keys_len = pop.checked_mul(kb as usize).ok_or(Torn)?;
+    let keys_end = keys_off.checked_add(keys_len).ok_or(Torn)?;
+    if keys_end > buf.len() || pop > cap {
+        return Err(Torn);
+    }
+    Ok((buf, pop, keys_off))
+}
+
+/// A map bitmap leaf and a copy of its bitmap, validated.
+fn seek_bitmap<'a, F: Fn() -> bool>(
+    a: &'a Arena,
+    e: &Edge32,
+    still_valid: &F,
+) -> Result<(&'a LeafBitmapL32Data, [u64; 4]), Torn> {
+    let NodeBox::MapBitmap(bx) = a.try_node(edge_handle(e))? else {
+        return Err(Torn);
+    };
+    let b: &LeafBitmapL32Data = bx;
+    let bitmap = b.header.bitmap;
+    if !still_valid() {
+        return Err(Torn);
+    }
+    Ok((b, bitmap))
+}
+
+/// The entry at set `digit` of a map bitmap leaf whose validated bitmap copy
+/// is `bitmap`. The value subarray is validated before it is indexed.
+fn seek_bitmap_entry<F: Fn() -> bool>(
+    b: &LeafBitmapL32Data,
+    bitmap: &[u64; 4],
+    digit: u8,
+    still_valid: &F,
+) -> Result<(u32, u32), Torn> {
+    let rank = bitmap_sub_rank(bitmap[(digit >> 6) as usize], digit);
+    let Some(sb) = b.subarrays[(digit >> 5) as usize].as_ref() else {
+        return Err(Torn);
+    };
+    let vals: &[u32] = sb;
+    if !still_valid() {
+        return Err(Torn);
+    }
+    let Some(&v) = vals.get(rank) else {
+        return Err(Torn);
+    };
+    Ok((u32::from(digit), v))
+}
+
+/// The children of a linear branch whose validated digit and edge copies are
+/// `digits` and `edges`, in `lo..=hi`, ascending or descending, until `visit`
+/// answers.
+fn seek_linear<R, V: FnMut(u8, Edge32) -> Result<Option<R>, Torn>>(
+    digits: &[u8],
+    edges: &[Edge32],
+    forward: bool,
+    lo: u8,
+    hi: u8,
+    mut visit: V,
+) -> Result<Option<R>, Torn> {
+    let n = digits.len().min(edges.len());
+    for j in 0..n {
+        let i = if forward { j } else { n - 1 - j };
+        let d = digits[i];
+        if d < lo || d > hi {
+            continue;
+        }
+        if let Some(r) = visit(d, edges[i])? {
+            return Ok(Some(r));
+        }
+    }
+    Ok(None)
+}
+
+/// Follows the children of branch `e` whose digit lies in `lo..=hi`, in
+/// ascending order when `forward` and descending otherwise, until `visit`
+/// answers. Every child edge is validated before `visit` follows it.
+fn seek_children<F, R, V>(
+    a: &Arena,
+    e: &Edge32,
+    forward: bool,
+    lo: u8,
+    hi: u8,
+    still_valid: &F,
+    mut visit: V,
+) -> Result<Option<R>, Torn>
+where
+    F: Fn() -> bool,
+    V: FnMut(u8, Edge32) -> Result<Option<R>, Torn>,
+{
+    match (kind(e), a.try_node(edge_handle(e))?) {
+        (Kind::BranchL2, NodeBox::L2(bx)) => {
+            let b: &BranchL2_32 = bx;
+            let (n, digits, edges) = (b.header.num_edges as usize, b.digits, b.edges);
+            if !still_valid() {
+                return Err(Torn);
+            }
+            seek_linear(&digits[..n.min(2)], &edges, forward, lo, hi, visit)
+        }
+        (Kind::BranchL6, NodeBox::L6(bx)) => {
+            let b: &BranchL6_32 = bx;
+            let (n, digits, edges) = (b.header.num_edges as usize, b.digits, b.edges);
+            if !still_valid() {
+                return Err(Torn);
+            }
+            seek_linear(
+                &digits[..n.min(BRANCH_L6_CAP)],
+                &edges,
+                forward,
+                lo,
+                hi,
+                visit,
+            )
+        }
+        (Kind::BranchB, NodeBox::B(bx)) => {
+            let b: &BranchB32Data = bx;
+            let bitmap = b.header.bitmap;
+            if !still_valid() {
+                return Err(Torn);
+            }
+            let mut next = if forward {
+                bitmap_first_ge_raw(&bitmap, u16::from(lo))
+            } else {
+                bitmap_last_le_raw(&bitmap, i32::from(hi))
+            };
+            while let Some(d) = next {
+                if d < lo || d > hi {
+                    break;
+                }
+                let rank = bitmap_sub_rank(bitmap[(d >> 6) as usize], d);
+                let Some(sb) = b.subarrays[(d >> 5) as usize].as_ref() else {
+                    return Err(Torn);
+                };
+                let subs: &[Edge32] = sb;
+                if !still_valid() {
+                    return Err(Torn);
+                }
+                let Some(&c) = subs.get(rank) else {
+                    return Err(Torn);
+                };
+                if !still_valid() {
+                    return Err(Torn);
+                }
+                if let Some(r) = visit(d, c)? {
+                    return Ok(Some(r));
+                }
+                next = match (forward, d) {
+                    (true, 255) | (false, 0) => None,
+                    (true, _) => bitmap_first_ge_raw(&bitmap, u16::from(d) + 1),
+                    (false, _) => bitmap_last_le_raw(&bitmap, i32::from(d) - 1),
+                };
+            }
+            Ok(None)
+        }
+        (Kind::BranchU, NodeBox::U(bx)) => {
+            let b: &BranchU32 = bx;
+            if !still_valid() {
+                return Err(Torn);
+            }
+            let mut step = |d: u8| -> Result<Option<R>, Torn> {
+                let c = b.edges[d as usize];
+                if c.is_null() {
+                    return Ok(None);
+                }
+                if !still_valid() {
+                    return Err(Torn);
+                }
+                visit(d, c)
+            };
+            if forward {
+                for d in lo..=hi {
+                    if let Some(r) = step(d)? {
+                        return Ok(Some(r));
+                    }
+                }
+            } else {
+                for d in (lo..=hi).rev() {
+                    if let Some(r) = step(d)? {
+                        return Ok(Some(r));
+                    }
+                }
+            }
+            Ok(None)
+        }
+        _ => Err(Torn),
+    }
+}
+
+/// [`first_entry`] under the optimistic-read discipline.
+fn seek_first<F: Fn() -> bool>(
+    a: &Arena,
+    e: &Edge32,
+    kb: u8,
+    still_valid: &F,
+) -> Result<Option<(u32, u32)>, Torn> {
+    match kind(e) {
+        Kind::Null => Ok(None),
+        Kind::MapImmed { .. } => Ok(Some((map_immed_rem(e, kb), map_immed_val(e)))),
+        Kind::MapLeaf(_) => {
+            let (buf, pop, off) = seek_leaf(a, e, kb, still_valid)?;
+            if pop == 0 {
+                return Ok(None);
+            }
+            Ok(Some((
+                read_rem(&buf[off..], 0, kb as usize),
+                map_leaf_value(buf, 0),
+            )))
+        }
+        Kind::MapBitmap => {
+            let (b, bitmap) = seek_bitmap(a, e, still_valid)?;
+            let Some(d) = bitmap_first_ge_raw(&bitmap, 0) else {
+                return Ok(None);
+            };
+            seek_bitmap_entry(b, &bitmap, d, still_valid).map(Some)
+        }
+        Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
+            if kb < 2 {
+                return Err(Torn);
+            }
+            seek_children(a, e, true, 0, 255, still_valid, |d, c| {
+                Ok(seek_first(a, &c, kb - 1, still_valid)?.map(|(cr, v)| (combine(d, cr, kb), v)))
+            })
+        }
+        _ => Err(Torn),
+    }
+}
+
+/// [`last_entry`] under the optimistic-read discipline.
+fn seek_last<F: Fn() -> bool>(
+    a: &Arena,
+    e: &Edge32,
+    kb: u8,
+    still_valid: &F,
+) -> Result<Option<(u32, u32)>, Torn> {
+    match kind(e) {
+        Kind::Null => Ok(None),
+        Kind::MapImmed { .. } => Ok(Some((map_immed_rem(e, kb), map_immed_val(e)))),
+        Kind::MapLeaf(_) => {
+            let (buf, pop, off) = seek_leaf(a, e, kb, still_valid)?;
+            if pop == 0 {
+                return Ok(None);
+            }
+            Ok(Some((
+                read_rem(&buf[off..], pop - 1, kb as usize),
+                map_leaf_value(buf, pop - 1),
+            )))
+        }
+        Kind::MapBitmap => {
+            let (b, bitmap) = seek_bitmap(a, e, still_valid)?;
+            let Some(d) = bitmap_last_le_raw(&bitmap, 255) else {
+                return Ok(None);
+            };
+            seek_bitmap_entry(b, &bitmap, d, still_valid).map(Some)
+        }
+        Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
+            if kb < 2 {
+                return Err(Torn);
+            }
+            seek_children(a, e, false, 0, 255, still_valid, |d, c| {
+                Ok(seek_last(a, &c, kb - 1, still_valid)?.map(|(cr, v)| (combine(d, cr, kb), v)))
+            })
+        }
+        _ => Err(Torn),
+    }
+}
+
+/// [`next_entry`] under the optimistic-read discipline.
+fn seek_after<F: Fn() -> bool>(
+    a: &Arena,
+    e: &Edge32,
+    kb: u8,
+    after: u32,
+    still_valid: &F,
+) -> Result<Option<(u32, u32)>, Torn> {
+    match kind(e) {
+        Kind::Null => Ok(None),
+        Kind::MapImmed { .. } => {
+            let r = map_immed_rem(e, kb);
+            Ok((r > after).then(|| (r, map_immed_val(e))))
+        }
+        Kind::MapLeaf(_) => {
+            let (buf, pop, off) = seek_leaf(a, e, kb, still_valid)?;
+            let keys = &buf[off..];
+            let Some(i) = leaf_index_after(keys, pop, kb, after) else {
+                return Ok(None);
+            };
+            Ok(Some((
+                read_rem(keys, i, kb as usize),
+                map_leaf_value(buf, i),
+            )))
+        }
+        Kind::MapBitmap => {
+            if after >= 255 {
+                return Ok(None);
+            }
+            let (b, bitmap) = seek_bitmap(a, e, still_valid)?;
+            let Some(d) = bitmap_first_ge_raw(&bitmap, after as u16 + 1) else {
+                return Ok(None);
+            };
+            seek_bitmap_entry(b, &bitmap, d, still_valid).map(Some)
+        }
+        Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
+            if kb < 2 {
+                return Err(Torn);
+            }
+            let da = digit_at(after, kb);
+            let ca = child_rem(after, kb);
+            seek_children(a, e, true, da, 255, still_valid, |d, c| {
+                let hit = if d == da {
+                    seek_after(a, &c, kb - 1, ca, still_valid)?
+                } else {
+                    seek_first(a, &c, kb - 1, still_valid)?
+                };
+                Ok(hit.map(|(cr, v)| (combine(d, cr, kb), v)))
+            })
+        }
+        _ => Err(Torn),
+    }
+}
+
+/// [`prev_entry`] under the optimistic-read discipline.
+fn seek_before<F: Fn() -> bool>(
+    a: &Arena,
+    e: &Edge32,
+    kb: u8,
+    before: u32,
+    still_valid: &F,
+) -> Result<Option<(u32, u32)>, Torn> {
+    match kind(e) {
+        Kind::Null => Ok(None),
+        Kind::MapImmed { .. } => {
+            let r = map_immed_rem(e, kb);
+            Ok((r < before).then(|| (r, map_immed_val(e))))
+        }
+        Kind::MapLeaf(_) => {
+            let (buf, pop, off) = seek_leaf(a, e, kb, still_valid)?;
+            let keys = &buf[off..];
+            let i = leaf_lower_bound(keys, pop, kb, before).ok_or(Torn)?;
+            if i == 0 {
+                return Ok(None);
+            }
+            Ok(Some((
+                read_rem(keys, i - 1, kb as usize),
+                map_leaf_value(buf, i - 1),
+            )))
+        }
+        Kind::MapBitmap => {
+            if before == 0 {
+                return Ok(None);
+            }
+            let (b, bitmap) = seek_bitmap(a, e, still_valid)?;
+            let Some(d) = bitmap_last_le_raw(&bitmap, before.min(256) as i32 - 1) else {
+                return Ok(None);
+            };
+            seek_bitmap_entry(b, &bitmap, d, still_valid).map(Some)
+        }
+        Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
+            if kb < 2 {
+                return Err(Torn);
+            }
+            let db = digit_at(before, kb);
+            let cb = child_rem(before, kb);
+            seek_children(a, e, false, 0, db, still_valid, |d, c| {
+                let hit = if d == db {
+                    seek_before(a, &c, kb - 1, cb, still_valid)?
+                } else {
+                    seek_last(a, &c, kb - 1, still_valid)?
+                };
+                Ok(hit.map(|(cr, v)| (combine(d, cr, kb), v)))
+            })
+        }
+        _ => Err(Torn),
+    }
+}
+
+/// Test-only pause point and negative control for the validated map seek
+/// (#900). Armed per thread, like `sync::test_hooks`.
+#[cfg(all(test, feature = "std"))]
+pub(crate) mod seek_hooks {
+    use std::cell::{Cell, RefCell};
+    use std::sync::mpsc::{Receiver, SyncSender};
+
+    type Pause = (SyncSender<()>, Receiver<()>);
+
+    thread_local! {
+        static ARMED: RefCell<Option<Pause>> = const { RefCell::new(None) };
+        static SKIP_SEAL: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// The next time *this thread's* validated seek has validated a linear
+    /// leaf and is about to read its keys, it signals `parked` and waits for
+    /// `release` (once).
+    pub(crate) fn arm_leaf_keys(parked: SyncSender<()>, release: Receiver<()>) {
+        ARMED.with(|c| *c.borrow_mut() = Some((parked, release)));
+    }
+
+    /// Between a linear leaf's validation and the first read of its keys.
+    #[inline(always)]
+    pub(crate) fn before_leaf_keys() {
+        if let Some((parked, release)) = ARMED.with(|c| c.borrow_mut().take()) {
+            parked.send(()).expect("the test holds the parked receiver");
+            release.recv().expect("the test holds the release sender");
+        }
+    }
+
+    /// The negative control: while set, this thread's seeks return without
+    /// the final seal.
+    pub(crate) fn set_skip_seal(on: bool) {
+        SKIP_SEAL.with(|c| c.set(on));
+    }
+
+    /// Whether [`set_skip_seal`] is on for this thread.
+    #[inline(always)]
+    pub(crate) fn skips_seal() -> bool {
+        SKIP_SEAL.with(Cell::get)
+    }
+}
+
 pub(crate) fn first(a: &Arena, e: &Edge32, kb: u8) -> Option<u32> {
     match kind(e) {
         Kind::Null => None,
@@ -4753,5 +5229,84 @@ mod tests {
         assert_eq!(edge_handle(&e), h, "overwrite moved the node");
         assert_eq!(a.bytes_in_use(), bytes, "overwrite changed bytes");
         assert_eq!(map_get(&a, &e, kb, 15), Some(999));
+    }
+}
+
+/// The final seal of a validated ordered read (#900).
+#[cfg(all(test, feature = "std", not(miri)))]
+mod seek_tests {
+    use super::*;
+    use crate::sync32::{Busy, SyncExpanseMap32};
+    use std::sync::mpsc::sync_channel;
+    use std::time::Duration;
+
+    /// Thirteen keys: one root linear leaf, whose next insert stays inside
+    /// its capacity class and shifts every key right in place.
+    const PREFILL: u32 = 13;
+    const SMALLER: u32 = 0x0800;
+
+    fn prefill_key(i: u32) -> u32 {
+        0x1000 + 2 * i
+    }
+
+    /// A reader asks for the last entry and parks after validating the leaf,
+    /// before reading its keys. The writer inserts SMALLER, which shifts the
+    /// keys and values right in place. The reader then reads the new array
+    /// with the old population and lands on the second-largest key. The
+    /// largest prefill key is the last entry before and after the insert, so
+    /// that answer was never correct.
+    fn leaf_shift_interleaving(skip_seal: bool) -> Result<Option<(u32, u32)>, Busy> {
+        assert!(
+            (PREFILL as usize) < MAP_LEAF_MAX,
+            "the root must stay one linear leaf through the insert"
+        );
+        assert_eq!(
+            cap_class(PREFILL as usize),
+            cap_class(PREFILL as usize + 1),
+            "the insert must shift the leaf in place, not reallocate it"
+        );
+        let mut m = SyncExpanseMap32::with_capacity(256, 1);
+        let (mut w, mut pool) = m.split();
+        let mut r = pool.take().expect("reader slot");
+        for i in 0..PREFILL {
+            let k = prefill_key(i);
+            w.try_insert(k, !k).expect("prefill");
+        }
+        let (parked_tx, parked_rx) = sync_channel(0);
+        let (release_tx, release_rx) = sync_channel(0);
+        std::thread::scope(|s| {
+            let reader = s.spawn(move || {
+                seek_hooks::set_skip_seal(skip_seal);
+                seek_hooks::arm_leaf_keys(parked_tx, release_rx);
+                r.try_last()
+            });
+            parked_rx
+                .recv_timeout(Duration::from_secs(30))
+                .expect("the read never reached the leaf-key pause point: the root is no longer a linear leaf");
+            assert_eq!(w.try_insert(SMALLER, !SMALLER).expect("insert"), None);
+            release_tx.send(()).expect("the reader waits for release");
+            reader.join().expect("reader thread")
+        })
+    }
+
+    #[test]
+    fn ordered_read_reports_busy_when_its_leaf_shifts_under_it() {
+        assert_eq!(
+            leaf_shift_interleaving(false),
+            Err(Busy),
+            "the final seal must reject a read that overlapped the insert"
+        );
+    }
+
+    /// The negative control, which makes the test above discriminating.
+    #[test]
+    fn ordered_read_without_its_final_seal_returns_a_key_that_was_never_last() {
+        let second = prefill_key(PREFILL - 2);
+        assert_eq!(
+            leaf_shift_interleaving(true),
+            Ok(Some((second, !second))),
+            "{:#x} is the last key before and after the insert",
+            prefill_key(PREFILL - 1)
+        );
     }
 }
