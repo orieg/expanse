@@ -3,11 +3,15 @@
 //
 // test_expanse_memtable.cc — Comprehensive unit test suite for ExpanseMemTable.
 
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <iomanip>
 #include <iostream>
+#include <map>
+#include <memory>
 #include <random>
+#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -393,7 +397,12 @@ void TestSuggestCompactRange() {
 // leaf walk outside mutex_, concurrently with inserts and splits, and the TSan
 // lane is what checks it; see SettleSeekCandidate.
 static const char* ScopeName(ExpanseMemTableRep::SeekLockScope scope) {
-    return scope == ExpanseMemTableRep::SeekLockScope::kFullLocate ? "kFullLocate" : "kTrieCall";
+    switch (scope) {
+        case ExpanseMemTableRep::SeekLockScope::kFullLocate: return "kFullLocate";
+        case ExpanseMemTableRep::SeekLockScope::kTrieCall: return "kTrieCall";
+        case ExpanseMemTableRep::SeekLockScope::kOptimistic: return "kOptimistic";
+    }
+    return "unknown";
 }
 
 void TestMultiThreadedConcurrentOperations(ExpanseMemTableRep::SeekLockScope scope) {
@@ -542,6 +551,154 @@ void TestHighConcurrencyOptimisticReaders(ExpanseMemTableRep::SeekLockScope scop
     for (auto& t : readers) t.join();
 
     std::cout << "  -> PASSED" << std::endl;
+}
+
+// G-O2 of docs/benchmarks/rocksdb_memtable/METHODOLOGY.md section 5.16: a
+// concurrent neighbour and delivery check, under every seek lock scope.
+//
+// One writer inserts a fixed, shuffled entry set -- multi-version user keys,
+// keys sharing an 8-byte prefix, and keys with their own prefixes -- at leaf
+// capacity 8, so splits and trie remaps run throughout, and publishes a
+// committed count after each Insert returns. Readers sample the count (`c0`),
+// run a probe, and sample it again (`c1`). The memtable is insert-only, so an
+// entry committed before a read began is present for all of it:
+//
+//   - Seek lands on an entry of the set at or above the probe, inserted no
+//     later than `c1`, and no entry among the first `c0` committed lies at or
+//     above the probe and below where it landed;
+//   - a Get for a committed entry's user key and sequence delivers that entry,
+//     delivers no entry twice, and delivers in internal-key order; Contains
+//     finds the entry.
+//
+// This is a condition on this history, not a general linearizability checker,
+// and race timing decides how much of it overlaps a split; the park-point tests
+// are the deterministic check.
+[[noreturn]] static void FailGO2(const std::string& msg) {
+    std::cerr << "FAILED: " << msg << std::endl;
+    std::abort();
+}
+
+void TestConcurrentNeighbourAndDelivery(ExpanseMemTableRep::SeekLockScope scope) {
+    const std::string gate = std::string("G-O2 (") + ScopeName(scope) + ")";
+    std::cout << "[RUN] " << gate << " concurrent neighbour and delivery check" << std::endl;
+    TestBytewiseComparator cmp;
+    Arena arena(8 * 1024 * 1024);
+    ExpanseMemTableRep memtable(cmp, &arena, nullptr, nullptr, 8, scope);
+
+    std::mt19937_64 rng(0x5eed0002);
+    std::vector<const char*> order;
+    auto pad = [](const char* prefix, int n, int width) {
+        std::ostringstream ss;
+        ss << prefix << std::setw(width) << std::setfill('0') << n;
+        return ss.str();
+    };
+    for (int i = 0; i < 400; ++i) order.push_back(EncodeEntry(arena, pad("SHARED00", i, 4), 7, kTypeValue, "s"));
+    for (int i = 0; i < 1000; ++i) order.push_back(EncodeEntry(arena, pad("u", i * 3, 7), 7, kTypeValue, "u"));
+    for (int i = 0; i < 60; ++i) {
+        for (int v = 1; v <= 6; ++v) order.push_back(EncodeEntry(arena, pad("multi", i * 5, 3), 100 * v, kTypeValue, "m"));
+    }
+    std::shuffle(order.begin(), order.end(), rng);
+
+    // Insertion index of every entry, and the set in internal-key order.
+    std::map<const char*, size_t> index_of;
+    for (size_t i = 0; i < order.size(); ++i) index_of[order[i]] = i;
+    std::vector<const char*> sorted = order;
+    std::sort(sorted.begin(), sorted.end(), [&](const char* a, const char* b) { return cmp(a, b) < 0; });
+    // Absent probes between present keys, encoded once, before any thread starts.
+    std::vector<const char*> absent;
+    for (int i = 0; i < 200; ++i) absent.push_back(EncodeEntry(arena, pad("u", i * 15 + 1, 7), 7, kTypeValue, ""));
+    for (int i = 0; i < 50; ++i) absent.push_back(EncodeEntry(arena, pad("SHARED00", i * 8, 4) + "x", 7, kTypeValue, ""));
+
+    std::atomic<size_t> committed{0};
+    std::atomic<bool> done{false};
+    std::thread writer([&] {
+        for (size_t i = 0; i < order.size(); ++i) {
+            memtable.Insert(const_cast<char*>(order[i]));
+            committed.store(i + 1, std::memory_order_release);
+            if (i % 16 == 0) std::this_thread::yield();
+        }
+        done.store(true, std::memory_order_release);
+    });
+
+    const int num_readers = 3;
+    std::vector<std::thread> readers;
+    for (int t = 0; t < num_readers; ++t) {
+        readers.emplace_back([&, t] {
+            std::mt19937_64 trng(0x5eed0100 + t);
+            bool final_pass = false;
+            while (true) {
+                if (done.load(std::memory_order_acquire)) {
+                    if (final_pass) break;
+                    final_pass = true;
+                }
+                for (int step = 0; step < 32; ++step) {
+                    // --- Seek: the neighbour condition ---
+                    const char* probe = (trng() % 2 == 0) ? order[trng() % order.size()] : absent[trng() % absent.size()];
+                    const size_t c0 = committed.load(std::memory_order_acquire);
+                    std::unique_ptr<MemTableRep::Iterator> it(memtable.GetIterator());
+                    const Slice probe_ikey = expanse_rocksdb::GetLengthPrefixedSlice(probe);
+                    it->Seek(probe_ikey, probe);
+                    const char* landed = it->Valid() ? it->key() : nullptr;
+                    const size_t c1 = committed.load(std::memory_order_acquire);
+                    auto lo = std::lower_bound(sorted.begin(), sorted.end(), probe,
+                                               [&](const char* a, const char* b) { return cmp(a, b) < 0; });
+                    if (landed != nullptr) {
+                        auto found = index_of.find(landed);
+                        if (found == index_of.end()) FailGO2(gate + ": Seek landed on an entry that is not in the set");
+                        if (cmp(landed, probe) < 0) FailGO2(gate + ": Seek landed below its probe");
+                        if (found->second > c1) {
+                            FailGO2(gate + ": Seek landed on entry " + std::to_string(found->second) +
+                                    ", inserted after the read ended (committed " + std::to_string(c1) + ")");
+                        }
+                    }
+                    for (auto s = lo; s != sorted.end() && (landed == nullptr || cmp(*s, landed) < 0); ++s) {
+                        if (index_of[*s] < c0) {
+                            FailGO2(gate + ": Seek passed over entry " + std::to_string(index_of[*s]) +
+                                    ", committed before the read began (committed " + std::to_string(c0) +
+                                    "), and landed on " + (landed ? std::to_string(index_of[landed]) : "the end"));
+                        }
+                    }
+
+                    // --- Get and Contains on a committed entry ---
+                    const size_t c = committed.load(std::memory_order_acquire);
+                    if (c == 0) continue;
+                    const char* target = order[trng() % c];
+                    const Slice tikey = expanse_rocksdb::GetLengthPrefixedSlice(target);
+                    const Slice tukey(tikey.data(), tikey.size() - 8);
+                    uint64_t trailer = 0;
+                    for (int i = 0; i < 8; ++i) {
+                        trailer |= static_cast<uint64_t>(static_cast<unsigned char>(tikey.data()[tikey.size() - 8 + i])) << (i * 8);
+                    }
+                    LookupKey lk(tukey, trailer >> 8);
+                    std::vector<const char*> delivered;
+                    memtable.Get(lk, &delivered, [](void* arg, const char* entry) -> bool {
+                        static_cast<std::vector<const char*>*>(arg)->push_back(entry);
+                        return true;
+                    });
+                    bool saw_target = false;
+                    std::set<const char*> seen;
+                    for (size_t i = 0; i < delivered.size(); ++i) {
+                        if (!seen.insert(delivered[i]).second) FailGO2(gate + ": Get delivered an entry twice");
+                        if (i > 0 && cmp(delivered[i - 1], delivered[i]) >= 0) {
+                            FailGO2(gate + ": Get delivered entries out of internal-key order");
+                        }
+                        if (index_of.find(delivered[i]) == index_of.end()) FailGO2(gate + ": Get delivered an entry not in the set");
+                        saw_target = saw_target || delivered[i] == target;
+                    }
+                    if (!saw_target) FailGO2(gate + ": Get did not deliver a committed entry");
+                    if (!memtable.Contains(target)) FailGO2(gate + ": Contains missed a committed entry");
+                }
+            }
+        });
+    }
+    writer.join();
+    for (auto& r : readers) r.join();
+    if (memtable.Count() != order.size()) FailGO2(gate + ": count after the writer joined differs from the set");
+    std::cout << "  -> PASSED (" << order.size() << " entries";
+    if (scope == ExpanseMemTableRep::SeekLockScope::kOptimistic) {
+        std::cout << ", " << memtable.ReaderHandleCount() << " reader handles registered";
+    }
+    std::cout << ")" << std::endl;
 }
 
 void TestLargeVolumeRandomOperations() {
@@ -857,8 +1014,13 @@ int main() {
     TestSuggestCompactRange();
     TestMultiThreadedConcurrentOperations(ExpanseMemTableRep::SeekLockScope::kFullLocate);
     TestMultiThreadedConcurrentOperations(ExpanseMemTableRep::SeekLockScope::kTrieCall);
+    TestMultiThreadedConcurrentOperations(ExpanseMemTableRep::SeekLockScope::kOptimistic);
     TestHighConcurrencyOptimisticReaders(ExpanseMemTableRep::SeekLockScope::kFullLocate);
     TestHighConcurrencyOptimisticReaders(ExpanseMemTableRep::SeekLockScope::kTrieCall);
+    TestHighConcurrencyOptimisticReaders(ExpanseMemTableRep::SeekLockScope::kOptimistic);
+    TestConcurrentNeighbourAndDelivery(ExpanseMemTableRep::SeekLockScope::kFullLocate);
+    TestConcurrentNeighbourAndDelivery(ExpanseMemTableRep::SeekLockScope::kTrieCall);
+    TestConcurrentNeighbourAndDelivery(ExpanseMemTableRep::SeekLockScope::kOptimistic);
     TestLargeVolumeRandomOperations();
     TestBatchScanApi();
     TestBatchScanLoopTerminates();
