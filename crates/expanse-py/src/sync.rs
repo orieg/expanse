@@ -103,6 +103,13 @@ impl SyncExpanseMap {
         py.detach(|| self.inner.is_empty())
     }
 
+    // abi-parity: expanse_sync_map_mem_used
+    /// Heap bytes used by the map's nodes and leaves, read with writers
+    /// excluded (releases the GIL; makes concurrent writers wait for it).
+    pub fn mem_used(&self, py: Python<'_>) -> usize {
+        py.detach(|| self.inner.mem_used())
+    }
+
     /// Property returning True if empty.
     #[getter]
     pub fn empty(&self, py: Python<'_>) -> bool {

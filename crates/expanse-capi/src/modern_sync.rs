@@ -21,6 +21,16 @@ pub struct SyncSetReader(SetReader<'static>);
 /// A registered reader of a [`SyncExpanseMap`]. See [`SyncSetReader`].
 pub struct SyncMapReader(MapReader<'static>);
 
+// `include/expanse.h` documents that a reader handle may be freed from a thread
+// other than the one that created it. That holds because both handle types are
+// `Send`, which is auto-derived from their fields; assert it, so a future
+// `!Send` field breaks the build instead of the documented contract.
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    assert_send::<SyncSetReader>();
+    assert_send::<SyncMapReader>();
+};
+
 /// Creates an empty concurrent set.
 #[unsafe(no_mangle)]
 pub extern "C" fn expanse_sync_set_new() -> *mut SyncExpanseSet {
@@ -108,9 +118,13 @@ pub unsafe extern "C" fn expanse_sync_set_reader_new(
 
 /// Frees a reader handle.
 ///
+/// May be called from a thread other than the one that created the reader,
+/// once no call on it is in progress (`include/expanse.h`).
+///
 /// # Safety
 ///
-/// `reader` must come from `expanse_sync_set_reader_new`, unused after.
+/// `reader` must come from `expanse_sync_set_reader_new`, unused after,
+/// with no call on it in progress on any thread, and its set still alive.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expanse_sync_set_reader_free(reader: *mut SyncSetReader) {
     if !reader.is_null() {
@@ -229,6 +243,19 @@ pub unsafe extern "C" fn expanse_sync_map_len(map: *const SyncExpanseMap) -> u64
     unsafe { map.as_ref() }.map_or(0, SyncExpanseMap::len)
 }
 
+/// Heap bytes used by the map's nodes and leaves, read with writers excluded
+/// ([`SyncExpanseMap::mem_used`]); 0 for a null handle, as
+/// [`expanse_sync_map_len`].
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_map_mem_used(map: *const SyncExpanseMap) -> usize {
+    // SAFETY: null or live handle per contract.
+    unsafe { map.as_ref() }.map_or(0, SyncExpanseMap::mem_used)
+}
+
 /// Registers a reader handle for this thread. Free it before the map.
 ///
 /// # Safety
@@ -249,9 +276,13 @@ pub unsafe extern "C" fn expanse_sync_map_reader_new(
 
 /// Frees a reader handle.
 ///
+/// May be called from a thread other than the one that created the reader,
+/// once no call on it is in progress (`include/expanse.h`).
+///
 /// # Safety
 ///
-/// `reader` must come from `expanse_sync_map_reader_new`, unused after.
+/// `reader` must come from `expanse_sync_map_reader_new`, unused after,
+/// with no call on it in progress on any thread, and its map still alive.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expanse_sync_map_reader_free(reader: *mut SyncMapReader) {
     if !reader.is_null() {

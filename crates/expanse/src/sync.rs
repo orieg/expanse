@@ -7219,6 +7219,23 @@ impl SyncExpanseMap {
         self.len() == 0
     }
 
+    /// Heap bytes used by the map's nodes and leaves, as
+    /// [`ExpanseMap::mem_used`] counts them (consistent read under the writer
+    /// lock).
+    ///
+    /// Taken under the same writer-excluding read as
+    /// [`SyncExpanseBlobMap::mem_used`] and [`SyncExpanseBytesMap::mem_used`]:
+    /// writers are quiesced and the writer mutex is held, so the figure is the
+    /// tree's between two mutations, never one caught mid-way with a
+    /// replacement node counted and its predecessor not yet retired. Writers
+    /// wait for it, so it does not belong in a hot loop. Nodes already retired
+    /// to the epoch collector but not yet reclaimed are no longer counted,
+    /// although their allocations are still resident.
+    #[must_use]
+    pub fn mem_used(&self) -> usize {
+        self.shared.read_locked(ExpanseMap::mem_used)
+    }
+
     /// Runs `f` over the tree with all writers excluded — the escape
     /// hatch to the full single-threaded read API.
     pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseMap) -> R) -> R {
@@ -7290,6 +7307,20 @@ impl OwnedMapReader {
 pub struct DetachedMapReader {
     reader: Reader,
 }
+
+// `Send` is part of the reader types' contract: the C ABI documents that a
+// reader handle may be freed from a thread other than the one that created it
+// (`include/expanse.h`, `docs/COMPAT.md`), and the bindings move readers
+// between threads. The bound is auto-derived from the fields, so a future
+// `!Send` field would silently withdraw it; this turns that into a build error.
+// (`Sync` is deliberately not asserted: see `occ::Reader`.)
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    assert_send::<MapReader<'static>>();
+    assert_send::<OwnedMapReader>();
+    assert_send::<DetachedMapReader>();
+    assert_send::<SetReader<'static>>();
+};
 
 impl DetachedMapReader {
     /// Optimistic lookup against `map`, without the per-call registry lock

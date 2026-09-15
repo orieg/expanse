@@ -357,6 +357,16 @@ test('SyncExpanseMap concurrent map operations', () => {
   assert.deepStrictEqual(syncMap.prev(300n), { key: 100n, value: 1000n });
 });
 
+test('SyncExpanseMap memUsed grows with the population', () => {
+  const syncMap = new SyncExpanseMap();
+  const empty = syncMap.memUsed();
+  assert.strictEqual(typeof empty, 'bigint');
+  for (let k = 0n; k < 20000n; k += 3n) {
+    syncMap.set(k, k);
+  }
+  assert.ok(syncMap.memUsed() > empty);
+});
+
 test('SyncExpanseMap ordered reads at the ends of the key space', () => {
   const top = 2n ** 64n - 1n;
   const syncMap = new SyncExpanseMap();

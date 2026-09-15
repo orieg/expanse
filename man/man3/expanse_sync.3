@@ -5,7 +5,7 @@ expanse_sync_set_remove, expanse_sync_set_contains, expanse_sync_set_len, \
 expanse_sync_set_reader_new, expanse_sync_set_reader_free, \
 expanse_sync_set_reader_contains, expanse_sync_map_new, \
 expanse_sync_map_free, expanse_sync_map_insert, expanse_sync_map_get, \
-expanse_sync_map_remove, expanse_sync_map_len, \
+expanse_sync_map_remove, expanse_sync_map_len, expanse_sync_map_mem_used, \
 expanse_sync_map_reader_new, expanse_sync_map_reader_free, \
 expanse_sync_map_reader_get, expanse_sync_map_reader_first, \
 expanse_sync_map_reader_last, expanse_sync_map_reader_next_at_or_after, \
@@ -69,6 +69,9 @@ expanse_sync_map_reader_prev_before \
 .br
 .BI "uint64_t            expanse_sync_map_len(const expanse_sync_map_t *"
 .BI "map" ");"
+.br
+.BI "size_t              expanse_sync_map_mem_used(const expanse_sync_map_t *"
+.BI "map" ");"
 .PP
 .BI "expanse_sync_map_reader_t *expanse_sync_map_reader_new("
 .BI "    const expanse_sync_map_t *" map ");"
@@ -126,6 +129,17 @@ For optimal throughput in multithreaded readers, threads should instantiate a
 dedicated reader handle (\fBexpanse_sync_map_reader_new\fR) once per thread and
 reuse it across queries.
 .PP
+A reader handle owns a single epoch slot and its pins are not reentrant:
+calls on one handle from two threads at once are undefined.
+A handle may be passed to, and freed from, a thread other than the one that
+created it, once no call on it is in progress; every call releases its epoch
+pin before returning, and
+.B expanse_sync_map_reader_free
+deregisters through the container's registry lock without reading
+thread-local state.
+Freeing a handle while another thread is inside a call on it, or after its
+container has been freed, is undefined.
+.PP
 The one-shot functions (\fBexpanse_sync_map_get\fR) implicitly register and
 deregister epoch participation on each invocation.
 .SH ORDERED READS
@@ -158,6 +172,17 @@ Walking a range by calling
 .B expanse_sync_map_reader_next_after
 in a loop answers each step at its own instant, so the sequence is not a
 snapshot of the map.
+.SH MEMORY ACCOUNTING
+.B expanse_sync_map_mem_used
+returns the heap bytes used by the map's nodes and leaves, counted as
+.BR expanse_map_mem_used (3)
+counts them, and 0 when
+.I map
+is NULL.
+It reads with writers excluded: it quiesces writers and takes the writer
+mutex, so writers wait for it, and it does not belong in a hot loop.
+Nodes retired to the epoch collector but not yet reclaimed are no longer
+counted, although their allocations are still resident.
 .SH EXAMPLES
 .nf
 #include <stdio.h>

@@ -1943,6 +1943,7 @@ pub fn expanse_trie::sync::SyncExpanseMap::get(&self, expanse_trie::types::Key) 
 pub fn expanse_trie::sync::SyncExpanseMap::insert(&self, expanse_trie::types::Key, u64) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseMap::is_empty(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseMap::len(&self) -> u64
+pub fn expanse_trie::sync::SyncExpanseMap::mem_used(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseMap::new() -> Self
 pub fn expanse_trie::sync::SyncExpanseMap::owned_reader(&alloc::sync::Arc<Self>) -> expanse_trie::sync::OwnedMapReader
 pub fn expanse_trie::sync::SyncExpanseMap::reader(&self) -> expanse_trie::sync::MapReader<'_>

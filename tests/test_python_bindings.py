@@ -513,6 +513,20 @@ def test_sync_map_ordered_reads_under_concurrent_writer():
     assert errors == []
 
 
+def test_sync_map_mem_used():
+    """SyncExpanseMap.mem_used() is an int that grows with the population and
+    matches ExpanseMap's accounting for the same entries inserted in the same order."""
+    sm = SyncExpanseMap()
+    m = ExpanseMap()
+    empty = sm.mem_used()
+    assert isinstance(empty, int) and empty >= 0
+    for k in range(0, 20000, 3):
+        sm.insert(k, k)
+        m[k] = k
+    assert sm.mem_used() > empty
+    assert sm.mem_used() == m.mem_used()
+
+
 def test_sync_remove_returns_value_not_keyerror():
     """SyncExpanseMap.remove -> Optional[int]; SyncExpanseSet.remove -> bool (mirror non-sync)."""
     sm = SyncExpanseMap()

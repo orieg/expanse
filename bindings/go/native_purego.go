@@ -118,6 +118,7 @@ var (
 	expanse_sync_map_get                      func(mapPtr uintptr, key uint64, valueOut *uint64) bool
 	expanse_sync_map_remove                   func(mapPtr uintptr, key uint64, oldOut *uint64) bool
 	expanse_sync_map_len                      func(mapPtr uintptr) uint64
+	expanse_sync_map_mem_used                 func(mapPtr uintptr) uintptr
 	expanse_sync_map_reader_new               func(mapPtr uintptr) uintptr
 	expanse_sync_map_reader_free              func(reader uintptr)
 	expanse_sync_map_reader_get               func(reader uintptr, key uint64, valueOut *uint64) bool
@@ -280,6 +281,7 @@ func bindSymbols(h *LibraryHandle) error {
 		{&expanse_sync_map_get, "expanse_sync_map_get"},
 		{&expanse_sync_map_remove, "expanse_sync_map_remove"},
 		{&expanse_sync_map_len, "expanse_sync_map_len"},
+		{&expanse_sync_map_mem_used, "expanse_sync_map_mem_used"},
 		{&expanse_sync_map_reader_new, "expanse_sync_map_reader_new"},
 		{&expanse_sync_map_reader_free, "expanse_sync_map_reader_free"},
 		{&expanse_sync_map_reader_get, "expanse_sync_map_reader_get"},
