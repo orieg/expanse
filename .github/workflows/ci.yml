@@ -368,7 +368,7 @@ jobs:
 
       # The report scripts carry the §8.1 (fail-loud) and §8.2 (no hardcoded
       # findings prose) assertions as self-tests; run them so they cannot rot.
-      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / pin exposure / warmup ramp / bench pin / docs hygiene / ecosystem theme / bench suites / bench shapes / man pages / abi parity / deletions / test floors / miri shards / rocksdb locate bound / olc bounds)
+      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / pin exposure / warmup ramp / bench pin / docs hygiene / ecosystem theme / bench suites / bench shapes / man pages / abi parity / deletions / test floors / miri shards / rocksdb locate bound / olc bounds / c2c ranking)
         run: |
           python3 scripts/perf_report.py --self-test
           # Unit tests for perf_report.py, including that every Callgrind arm
@@ -431,6 +431,12 @@ jobs:
           # rounds and counter cells (#730); its self-test also holds
           # docs/benchmarks/concurrency/README.md §13 to its own output.
           python3 scripts/reader_scaling_bounds.py --self-test
+          # c2c_ranking.py ranks a writer_scaling_diagnostic artifact's perf c2c
+          # lines for README section 11.9 (#930). Its self-test pins the share
+          # arithmetic, the layout reading, the sharing labels and the symbol
+          # resolution on a fixture in the report's format, and checks that both
+          # committed diagnostic artifacts still render (AGENTS.md section 8.20.7).
+          python3 scripts/c2c_ranking.py --self-test
           # The #802 concurrent-arm driver: its CSV parsing, its duty-cycle
           # arithmetic, its PAIRED scaling ratio (an unpaired one smears the
           # ratio under round-to-round drift) and the artifact shape the
