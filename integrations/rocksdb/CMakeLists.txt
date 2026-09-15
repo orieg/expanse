@@ -61,6 +61,17 @@ add_executable(test_expanse_memtable
 )
 target_link_libraries(test_expanse_memtable PRIVATE rocksdb_expanse ${EXPANSE_LIB} pthread)
 
+# Park-point tests: deterministic interleavings. The park points live in
+# src/expanse_memtable.cc and exist only under EXPANSE_MEMTABLE_PARK_POINTS, so
+# this binary compiles the source itself with that definition instead of
+# linking rocksdb_expanse, which is built without it.
+add_executable(test_memtable_park_points
+    src/expanse_memtable.cc
+    tests/test_memtable_park_points.cc
+)
+target_compile_definitions(test_memtable_park_points PRIVATE EXPANSE_MEMTABLE_PARK_POINTS)
+target_link_libraries(test_memtable_park_points PRIVATE ${EXPANSE_LIB} pthread)
+
 # Benchmark executable
 add_executable(bench_memtable
     benches/bench_memtable.cc
@@ -70,3 +81,4 @@ target_link_libraries(bench_memtable PRIVATE rocksdb_expanse ${EXPANSE_LIB} pthr
 # CTest registration
 enable_testing()
 add_test(NAME test_expanse_memtable COMMAND test_expanse_memtable)
+add_test(NAME test_memtable_park_points COMMAND test_memtable_park_points)

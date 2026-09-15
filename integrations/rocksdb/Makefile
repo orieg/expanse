@@ -27,12 +27,13 @@ BUILD_DIR := build
 TARGET_LIB := $(BUILD_DIR)/librocksdb_expanse.a
 TEST_BIN := $(BUILD_DIR)/test_expanse_memtable
 TEST_DIFF_BIN := $(BUILD_DIR)/test_differential_memtable
+TEST_PARK_BIN := $(BUILD_DIR)/test_memtable_park_points
 BENCH_BIN := $(BUILD_DIR)/bench_memtable
 BENCH_CONC_BIN := $(BUILD_DIR)/bench_memtable_concurrent
 
 .PHONY: all test bench bench-concurrent clean build_cargo
 
-all: $(TARGET_LIB) $(TEST_BIN) $(TEST_DIFF_BIN) $(BENCH_BIN) $(BENCH_CONC_BIN)
+all: $(TARGET_LIB) $(TEST_BIN) $(TEST_DIFF_BIN) $(TEST_PARK_BIN) $(BENCH_BIN) $(BENCH_CONC_BIN)
 
 build_cargo:
 	@cd $(ROOT_DIR) && cargo build --release -p expanse-capi
@@ -52,17 +53,25 @@ $(TEST_BIN): tests/test_expanse_memtable.cc $(TARGET_LIB) | $(BUILD_DIR)
 $(TEST_DIFF_BIN): tests/test_differential_memtable.cc $(TARGET_LIB) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDE_DIRS) $< -L$(BUILD_DIR) -lrocksdb_expanse $(LIBEXPANSE) -o $@
 
+# The park points live in src/expanse_memtable.cc and exist only under
+# EXPANSE_MEMTABLE_PARK_POINTS, so this binary compiles the source with that
+# definition instead of linking $(TARGET_LIB), which is built without it.
+$(TEST_PARK_BIN): tests/test_memtable_park_points.cc src/expanse_memtable.cc include/expanse_memtable.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -DEXPANSE_MEMTABLE_PARK_POINTS $(INCLUDE_DIRS) src/expanse_memtable.cc $< $(LIBEXPANSE) -o $@
+
 $(BENCH_BIN): benches/bench_memtable.cc $(TARGET_LIB) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDE_DIRS) $< -L$(BUILD_DIR) -lrocksdb_expanse $(LIBEXPANSE) -o $@
 
 $(BENCH_CONC_BIN): benches/bench_memtable_concurrent.cc $(TARGET_LIB) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDE_DIRS) $< -L$(BUILD_DIR) -lrocksdb_expanse $(LIBEXPANSE) -o $@
 
-test: $(TEST_BIN) $(TEST_DIFF_BIN)
+test: $(TEST_BIN) $(TEST_DIFF_BIN) $(TEST_PARK_BIN)
 	@echo "Running Expanse RocksDB MemTable tests..."
 	@$(TEST_BIN)
 	@echo "Running Differential Fuzz tests..."
 	@$(TEST_DIFF_BIN)
+	@echo "Running park-point tests..."
+	@$(TEST_PARK_BIN)
 
 # Benchmark methodology: docs/BENCHMARKING.md (idle host, snapshot load
 # before/between arms). Links release libexpanse via LIB_DIR above.

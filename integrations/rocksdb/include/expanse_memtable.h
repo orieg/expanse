@@ -411,6 +411,34 @@ inline void Prefetch(const void* ptr) {
 #endif
 }
 
+#ifdef EXPANSE_MEMTABLE_PARK_POINTS
+// Park points: named places on the read and write paths where a test holds one
+// thread while another runs, so an interleaving a soundness argument depends on
+// is exercised deterministically instead of by race timing (AGENTS.md section
+// 2.1.5; docs/benchmarks/rocksdb_memtable/METHODOLOGY.md section 5.16).
+//
+// Compiled only under EXPANSE_MEMTABLE_PARK_POINTS, which must be defined for
+// every translation unit of one binary. Without it each park point expands to
+// nothing, so no production or benchmark build carries a call, a load or a
+// branch for them.
+enum class ParkPoint : int {
+    // Get, after a block's version bracket validated and its matches were
+    // passed to the callback, before that block's next_leaf is loaded.
+    kGetBeforeNextLeaf,
+};
+using ParkHook = void (*)(ParkPoint point);
+inline std::atomic<ParkHook> g_park_hook{nullptr};
+inline void Park(ParkPoint point) {
+    const ParkHook hook = g_park_hook.load(std::memory_order_acquire);
+    if (hook != nullptr) {
+        hook(point);
+    }
+}
+#define EXPANSE_MEMTABLE_PARK(point) ::expanse_rocksdb::Park(::expanse_rocksdb::ParkPoint::point)
+#else
+#define EXPANSE_MEMTABLE_PARK(point) ((void)0)
+#endif
+
 } // namespace expanse_rocksdb
 
 // ============================================================================
@@ -567,6 +595,13 @@ public:
 
     SeekLockScope seek_lock_scope() const { return seek_lock_scope_; }
 
+#ifdef EXPANSE_MEMTABLE_PARK_POINTS
+    // Blocks in the chain, walked from head_. For park-point tests only, which
+    // use it to check that a writer's inserts split the block a parked reader
+    // was in; never compiled into a production or benchmark build.
+    size_t LeafBlockCountForTest() const;
+#endif
+
 private:
     friend class IteratorImpl;
 
@@ -575,6 +610,11 @@ private:
     const LeafBlock* SettleSeekCandidate(const LeafBlock* candidate, const Slice& internal_key,
                                          const char* memtable_key) const;
     void SplitLeafBlock(LeafBlock* block);
+    // Get's scan of the blocks after one whose matches were passed to the
+    // callback, starting strictly after the last delivered entry.
+    [[gnu::noinline]] void GetAfterDelivered(const LeafBlock* block, const char* last_delivered,
+                                             const Slice& user_key, void* callback_args,
+                                             bool (*callback_func)(void* arg, const char* entry)) const;
 
     const MemTableRep::KeyComparator& compare_;
     const SliceTransform* transform_;
