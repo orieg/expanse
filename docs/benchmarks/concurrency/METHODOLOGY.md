@@ -587,6 +587,45 @@ On the reference host, the same change (#928) cost the 64-bit `SyncExpanseMap` r
 
 **For the §12.4 runs.** Ordered reads go through the same `Shared::optimistic_read`. The P12.4 and P12.5 runs name the commit they measure relative to #949, and record `ld_blocks.store_forward` and cycles per read beside the §12.4 counters as diagnostics. They are not verdict inputs, and no bound or cell in §12.3–§12.5 changes.
 
+### 12.9 Outcomes of P12.4 and P12.5 (appended 2026-09-15; §12.1–§12.8 are not edited)
+
+*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads; pin `0,2,4,6,8,10,12,14`; head `5228fc3a`; 8 rounds per cell in two independent runs, [34929950085](https://github.com/orieg/expanse/actions/runs/34929950085) and [34930077887](https://github.com/orieg/expanse/actions/runs/34930077887); `results/ordered_readers_writer_scaling.json` and `results/ordered_readers_writer_scaling_run2.json`; workload: `concurrency_ordered_readers_map_64bit`)*
+
+**§12.2 gates before any cell was read.** G12.1–G12.3 landed with #940 and G12.5 with #945. G12.4 holds on `5228fc3a`: Loom and ASan passed on that head's CI run [34929871313](https://github.com/orieg/expanse/actions/runs/34929871313), and TSan passed on nightly run [34930036976](https://github.com/orieg/expanse/actions/runs/34930036976) at the same head. The artifacts record the §12.4 pin, and neither run voids a cell (§12.5).
+
+**P12.4 — HOLDS in both runs.** Every `prev` cell's `read_fallbacks ÷ read_ops` is below 0.1%. The largest is `hotspot`, W = 4, R = 4 in run 2: 36 of 1,994,749 reads fell back.
+
+| cell | fallbacks / read ops, run 1 | run 2 | attempts per op, run 1 / run 2 | P12.4 |
+|---|---|---|---|---|
+| `uniform`, W = 0, R = 1 | 0 / 8,388,608 | 0 / 8,388,608 | 1.000 / 1.000 | holds |
+| `uniform`, W = 0, R = 4 | 0 / 33,554,432 | 0 / 33,554,432 | 1.000 / 1.000 | holds |
+| `uniform`, W = 1, R = 4 | 7 / 97,540,008 | 2 / 96,961,628 | 1.002 / 1.002 | holds |
+| `uniform`, W = 4, R = 4 | 10 / 46,721,061 | 8 / 45,313,985 | 1.004 / 1.004 | holds |
+| `hotspot`, W = 0, R = 1 | 0 / 8,388,608 | 0 / 8,388,608 | 1.000 / 1.000 | holds |
+| `hotspot`, W = 0, R = 4 | 0 / 33,554,432 | 0 / 33,554,432 | 1.000 / 1.000 | holds |
+| `hotspot`, W = 1, R = 4 | 29 / 2,758,371 | 29 / 2,879,230 | 1.721 / 1.725 | holds |
+| `hotspot`, W = 4, R = 4 | 10 / 1,997,823 | 36 / 1,994,749 | 2.053 / 2.027 | holds |
+
+Attempts per operation are reported and not gated (§12.3). The two `hotspot` cells with writers exceed 1.00–1.99, the range `scripts/olc_bounds.py` `ordered_projection` gives under per-node independence from the get-path health cells of `58565660` and `a1982ff2` at 4 writers. Those cells concentrate writes in the subtrees each search backtracks through, which is the case that hypothesis does not cover. Neither the attempts nor the fallbacks decide P12.4 beyond the ceiling above.
+
+**P12.5 — `SINGLE_RUN_PASS` in both runs, so the claim holds** (`docs/BENCHMARKING.md` rule 18). At W = 1, R = 4, `uniform`, the optimistic `prev_before` reads 91.81 [85.52, 96.74] and 89.47 [84.24, 93.75] times the throughput of the same probe stream through `with_locked`, per-round paired, BCa 95% (workload: `concurrency_ordered_readers_map_64bit`). The W = 0, R = 1 control reads 2.15 [2.14, 2.16] and 2.13 [2.12, 2.14]. Every `with_locked` call takes the fallback mutex, quiesces writers and takes the writer mutex (`Shared::with_locked`), so the gate cell's ratio includes the time the locked readers and the writer wait on each other. How the ratio splits between waiting and work per read is unmeasured.
+
+| cell | `prev` ÷ `prev_locked`, run 1 | run 2 | role |
+|---|---|---|---|
+| `uniform`, W = 0, R = 1 | 2.15 [2.14, 2.16] | 2.13 [2.12, 2.14] | control |
+| `uniform`, W = 0, R = 4 | 16.18 [15.86, 16.41] | 16.42 [16.27, 16.55] | reported |
+| `uniform`, W = 1, R = 4 | 91.81 [85.52, 96.74] | 89.47 [84.24, 93.75] | gate |
+| `uniform`, W = 4, R = 4 | 353.12 [331.88, 377.93] | 365.58 [352.44, 385.31] | reported |
+| `hotspot`, W = 0, R = 1 | 2.50 [2.50, 2.51] | 2.52 [2.49, 2.63] | reported |
+| `hotspot`, W = 0, R = 4 | 17.69 [17.24, 18.17] | 17.98 [17.64, 18.48] | reported |
+| `hotspot`, W = 1, R = 4 | 8.71 [8.20, 9.30] | 7.76 [7.47, 8.43] | reported |
+| `hotspot`, W = 4, R = 4 | 11.38 [10.07, 12.47] | 12.38 [11.14, 15.19] | reported |
+
+**The hotspot geometry,** fixed before the runs in #951, prefills offset 1 of every 256-key block of one 2^16 expanse and probes `prev_before` on those keys, so every probe begins with a sibling descent. Writers insert the other 65,280 keys; the 255 offset-0 keys of blocks 1–255 turn a probe into a same-block answer as they land. The share of probes still backtracking during a window is unmeasured.
+
+**What this leaves for #900:** the C ABI and bindings (step 8), the Python and Node reads (step 9), and the RocksDB consumer arm (step 10). No magnitude was predicted for P12.5 (§12.6), and none is claimed beyond the intervals above.
+
+
 ## 13. Pre-registration for #568 Steps 1–2 — the single-writer baseline and the 50/50 16-thread gate (appended 2026-09-14, locked before any baseline or gate run)
 
 #568's Gate section asks for a single-writer baseline on the stated workload shape (Step 1) and a pre-registered 50/50, 16-thread mixed-throughput gate whose BCa 95% lower bound clears that baseline by a stated margin (Step 2). Neither had text until this section. The bound functions are in `scripts/olc_bounds.py` (`ratio_cv`, `rounds_for_halfwidth`, `ratio_needed_to_clear`, `mixed_window_spread`), which read every input from the committed artifacts named below. Nothing here is rewritten in place once a run exists (AGENTS.md §8.7); a threshold, method or round count changed after a run relabels that run `INTERMEDIATE` (§8.19).
@@ -636,3 +675,34 @@ A run with any void round is discarded whole and re-run from fresh builds, and t
 - The string, bytes and blob wrappers (#929), and the `writer_scaling` throughput target (#930).
 - Any comparison with a third-party structure.
 - A magnitude beyond the gate's bound.
+
+### 13.7 Outcomes (appended 2026-09-15; §13.1–§13.6 are not edited)
+
+*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads; pin `0-15`; head `5228fc3a` against `1edfa952` with the head's `crates/expanse/benches/concurrency.rs`; 48 rounds of one-process windows per run in two independent runs, [34930107714](https://github.com/orieg/expanse/actions/runs/34930107714) and [34930136807](https://github.com/orieg/expanse/actions/runs/34930136807); `results/baseline_concurrent_step2_gate.json` and `results/baseline_concurrent_step2_gate_run2.json`; workload: `core_concurrency`)*
+
+**No cell is void (§13.5).** Both runs record a head that contains #949 and a baseline tree that differs from `1edfa952` in `crates/expanse/benches/concurrency.rs` alone. Both record pin `0-15`, and every window reports the arm, thread count and read percentage it was asked for. The largest foreign busy-CPU figure over any round is 0.01 in run 1 and 0.00 in run 2.
+
+**#568's gate is met: `PASS` on both arms in both runs (§13.4).** Per-round paired head ÷ baseline total operations per second at 16 threads, BCa 95% (workload: `core_concurrency`):
+
+| arm, 16 threads | run 1 | run 2 | verdicts |
+|---|---|---|---|
+| `SyncExpanseMap` | 4.08 [4.01, 4.25] | 4.12 [4.04, 4.30] | `PASS`, `PASS` |
+| `SyncExpanseSet` | 8.85 [8.31, 9.20] | 8.55 [7.98, 8.95] | `PASS`, `PASS` |
+
+Every lower bound clears the 1.5 margin, and the 1.667 that §13.4 names as the planned resolution. The margin was a choice fixed before the runs.
+
+**Step 1, the single-writer baseline, and the head beside it** (total M ops/s, mean [BCa 95%], workload: `core_concurrency`):
+
+| arm | threads | `1edfa952`, run 1 | `1edfa952`, run 2 | head, run 1 | head, run 2 |
+|---|---|---|---|---|---|
+| `SyncExpanseMap` | 1 | 26.96 [26.93, 26.99] | 27.00 [26.95, 27.03] | 24.93 [24.88, 24.97] | 24.92 [24.86, 24.97] |
+| `SyncExpanseMap` | 16 | 5.44 [5.41, 5.46] | 5.42 [5.38, 5.45] | 22.18 [21.79, 23.01] | 22.33 [21.87, 23.37] |
+| `SyncExpanseSet` | 1 | 44.37 [44.34, 44.40] | 44.34 [44.27, 44.38] | 41.47 [41.44, 41.50] | 41.37 [40.89, 41.48] |
+| `SyncExpanseSet` | 16 | 6.08 [6.03, 6.11] | 6.10 [6.06, 6.14] | 53.71 [50.49, 55.83] | 52.15 [48.63, 54.52] |
+
+**The 1-thread control, reported and not gated.** Head ÷ baseline reads 0.92 [0.92, 0.93] and 0.92 [0.92, 0.93] on `map`, and 0.93 [0.93, 0.94] and 0.93 [0.92, 0.94] on `set` (workload: `core_concurrency`). Under this mix a single thread runs slower on the multi-writer engine than on `1edfa952`. That cost is what the 16-thread gain is set against. Its cause is unmeasured.
+
+**Not established.**
+- Why `set` gains more than `map` at 16 threads.
+- The 2-, 4- and 8-thread cells, and the 100% and 95% read mixes (§13.6).
+- Whether the order effect disclosed in §13.2 would have moved these ratios. The instrument ran every window in its own process to keep any such effect out of them, so it does not measure that effect.
