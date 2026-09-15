@@ -15,8 +15,9 @@ fields dropping back out (AGENTS.md section 8.12).
 ## What is required, and of which artifacts
 
 Every committed `docs/benchmarks/*/results/` artifact whose name matches one of
-`ARTIFACT_GLOBS` — the `baseline_*` sweeps and the `ablation*` interventional
-arms measured against them — must carry `provenance.host`,
+`ARTIFACT_GLOBS` — the `baseline_*` sweeps, the `ablation*` interventional
+arms measured against them, the `ordered_readers_*` sweep and the `padded_*`
+`lock-padded` comparisons — must carry `provenance.host`,
 `provenance.estimators`, load snapshots with a busy-CPU delta and per-cell
 `rounds_raw`, **unless it is grandfathered below**.
 
@@ -304,7 +305,13 @@ SUITES = (
 # (`docs/benchmarks/concurrency/METHODOLOGY.md` §12.4). It publishes P12.5's
 # wall-clock ratio, so it is comparative in the same sense; its name also
 # carries `writer_scaling`, so it owes the concurrent attribution.
-ARTIFACT_GLOBS = ("baseline_*.json", "ablation*.json", "ordered_readers_*.json")
+#
+# `padded_*` is the `writer_scaling_padded` suite: the `lock-padded` build
+# against the default, the same interventional C(W) comparison as an
+# `ablation*` artifact under a name the `ablation*` glob does not match. Its
+# re-runs for #930 are committed as `padded_writer_scaling_<commit>[_run2].json`
+# and publish verdicts in `docs/benchmarks/concurrency/README.md` §11.7.
+ARTIFACT_GLOBS = ("baseline_*.json", "ablation*.json", "ordered_readers_*.json", "padded_*.json")
 
 # Keys under which an artifact holds its cells. `throughput_variant` is the
 # ablation artifacts' variant arm — the half of the comparison that is not the
@@ -926,10 +933,26 @@ def _self_test() -> int:
                  # the older #789 feature ablations, a different shape that the
                  # same glob covers and that passes the gate as committed
                  "ablations.json",
-                 "ablations_str.json"):
+                 "ablations_str.json",
+                 # the #930 re-runs of arm (a) on the current engine
+                 "ablation_alloc_writer_scaling_726b01fc.json",
+                 "ablation_alloc_writer_scaling_726b01fc_run2.json"):
         rel = f"concurrency/results/{name}"
         if not (BENCH / rel).is_file():
             failures.append(f"a named ablation artifact is missing: {rel}")
+        elif rel not in selected:
+            failures.append(f"artifacts() does not select {rel} — ARTIFACT_GLOBS is too narrow")
+
+    # THE HOLE THE `padded_*` GLOB CLOSES: the `writer_scaling_padded` suite
+    # writes `padded_writer_scaling.json`, which none of `baseline_*`,
+    # `ablation*` or `ordered_readers_*` matches, so its #930 re-runs — which
+    # publish README §11.7's `lock-padded` verdicts — would have been read by
+    # nothing. Pinned on the committed files, not a fixture, for the reason above.
+    for name in ("padded_writer_scaling_726b01fc.json",
+                 "padded_writer_scaling_726b01fc_run2.json"):
+        rel = f"concurrency/results/{name}"
+        if not (BENCH / rel).is_file():
+            failures.append(f"a named padded comparison artifact is missing: {rel}")
         elif rel not in selected:
             failures.append(f"artifacts() does not select {rel} — ARTIFACT_GLOBS is too narrow")
 
@@ -959,6 +982,9 @@ def _self_test() -> int:
                  "ablation_epoch_writer_scaling.json",
                  "ablation_freelist_writer_scaling.json",
                  "ablation_freelist_writer_scaling_run2.json",
+                 "ablation_alloc_writer_scaling_726b01fc.json",
+                 "padded_writer_scaling_726b01fc.json",
+                 "padded_writer_scaling_726b01fc_run2.json",
                  "ordered_readers_writer_scaling.json"):
         if not is_concurrent(f"concurrency/results/{name}"):
             failures.append(
