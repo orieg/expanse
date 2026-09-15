@@ -46,10 +46,12 @@ either end of the contract.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -1605,6 +1607,41 @@ def frequency_droop_by_writers(
     return out
 
 
+@contextlib.contextmanager
+def perf_control_fifos(prefix: str) -> Any:
+    """A (ctl, ack) FIFO pair in a temp dir, for perf's `--control=fifo:`.
+
+    The harness's `PerfControl` writes `enable` / `disable` to the ctl FIFO
+    around the barrier-to-join window and waits on the ack FIFO, so a perf
+    started with `--delay=-1` counts or samples only that window. A FIFO that
+    cannot be created is a refusal, never a silent whole-process recording,
+    which would fold workload generation, prefill and teardown into the
+    measurement (AGENTS.md §8.1).
+    """
+    with tempfile.TemporaryDirectory(prefix=prefix) as fifo_dir:
+        ctl_fifo = os.path.join(fifo_dir, "ctl.fifo")
+        ack_fifo = os.path.join(fifo_dir, "ack.fifo")
+        try:
+            os.mkfifo(ctl_fifo)
+            os.mkfifo(ack_fifo)
+        except (OSError, AttributeError) as exc:
+            raise RuntimeError(
+                f"could not create perf control FIFOs in {fifo_dir}: {exc}; refusing to "
+                "record without the measured-window control (AGENTS.md §8.1)"
+            ) from exc
+        yield ctl_fifo, ack_fifo
+
+
+def perf_control_args(ctl_fifo: str, ack_fifo: str) -> list[str]:
+    """perf's side of the FIFO handshake: start disabled, obey the ctl FIFO."""
+    return ["--delay=-1", f"--control=fifo:{ctl_fifo},{ack_fifo}"]
+
+
+def harness_control_args(ctl_fifo: str, ack_fifo: str) -> list[str]:
+    """The harness's side: `PerfControl` enables around the measured window."""
+    return ["--perf-ctl-fifo", ctl_fifo, "--perf-ack-fifo", ack_fifo]
+
+
 def run_pmu_pass(
     binary: Path,
     arm: str = "set",
@@ -1641,17 +1678,11 @@ def run_pmu_pass(
     for r in range(rounds):
         round_data[r] = {}
         for w in writers:
-            with tempfile.TemporaryDirectory(prefix=f"perf_fifo_r{r}_w{w}_") as fifo_dir:
-                ctl_fifo = os.path.join(fifo_dir, "ctl.fifo")
-                ack_fifo = os.path.join(fifo_dir, "ack.fifo")
-                os.mkfifo(ctl_fifo)
-                os.mkfifo(ack_fifo)
-
+            with perf_control_fifos(f"perf_fifo_r{r}_w{w}_") as (ctl_fifo, ack_fifo):
                 cmd = [
                     "perf",
                     "stat",
-                    "--delay=-1",
-                    f"--control=fifo:{ctl_fifo},{ack_fifo}",
+                    *perf_control_args(ctl_fifo, ack_fifo),
                     "-x,",
                     "-e",
                     event_arg,
@@ -1667,10 +1698,7 @@ def run_pmu_pass(
                     "1",
                     "--round",
                     str(r),
-                    "--perf-ctl-fifo",
-                    ctl_fifo,
-                    "--perf-ack-fifo",
-                    ack_fifo,
+                    *harness_control_args(ctl_fifo, ack_fifo),
                 ]
                 if quick:
                     cmd.append("--quick")
@@ -1724,13 +1752,38 @@ def run_pmu_pass(
     }
 
 
+# Rounds the c2c pass records. Each round contributes one barrier-to-join
+# window; everything between windows (per-round prefill, verification, drop)
+# is outside the recording. 8 is the harness's own default, and it is the round
+# count of the windowed recording that confirmed the control handshake on the
+# reference host (map, W = 8, pin 0,2,4,6,8,10,12,14): 8,168 HITM records, where
+# the whole-process single-round recording had about 1,100.
+C2C_ROUNDS = 8
+
+# The c2c block's statement of what the profile covers. A committed artifact
+# carries it so a reader never has to infer whether setup is in the shares.
+C2C_WINDOW = (
+    "measured barrier-to-join only (perf --delay=-1 --control=fifo, harness "
+    "--perf-ctl-fifo); setup and teardown excluded"
+)
+
+
+def c2c_total_records(report_text: str) -> int | None:
+    """`Total records` from a `perf c2c report --stdio` header, or None."""
+    m = re.search(r"Total records\s*:\s*(\d+)", report_text)
+    return int(m.group(1)) if m else None
+
+
 def run_c2c_pass(
     binary: Path,
     arm: str = "set",
     writers: int = 2,
     quick: bool = False,
     out_dir: Path | None = None,
+    rounds: int = C2C_ROUNDS,
 ) -> dict[str, Any]:
+    if rounds < 1:
+        raise ValueError(f"--c2c needs at least one round, got {rounds}")
     if platform.system() != "Linux":
         raise RuntimeError(
             f"--c2c requested but host reports {platform.system()} (Linux required per AGENTS.md §8.1)"
@@ -1745,34 +1798,42 @@ def run_c2c_pass(
     out_dir.mkdir(parents=True, exist_ok=True)
     c2c_data = out_dir / f"perf_c2c_{arm}_w{writers}.data"
 
-    cmd_record = [
-        "perf",
-        "c2c",
-        "record",
-        "-F",
-        "60000",
-        "-o",
-        str(c2c_data),
-        "--",
-        str(binary),
-        "--role",
-        "throughput",
-        "--arm",
-        arm,
-        "--writers",
-        str(writers),
-        "--rounds",
-        "1",
-    ]
-    if quick:
-        cmd_record.append("--quick")
-
     print("\n========================================================================")
-    print(f" Hardware perf c2c Cache Contention Recording ({arm} W={writers})")
+    print(f" Hardware perf c2c Cache Contention Recording ({arm} W={writers}, {rounds} rounds)")
+    print(f" Window: {C2C_WINDOW}")
     print(f" Output: {c2c_data.relative_to(REPO_ROOT)}")
     print("========================================================================")
 
-    proc = subprocess.run(cmd_record, check=False)
+    # Record only the harness's barrier-to-join windows: perf starts with its
+    # events disabled and the harness enables them around each round's
+    # measured region. A whole-process recording also samples workload
+    # generation (the prefill sort), prefill and teardown.
+    with perf_control_fifos(f"perf_c2c_fifo_{arm}_w{writers}_") as (ctl_fifo, ack_fifo):
+        cmd_record = [
+            "perf",
+            "c2c",
+            "record",
+            "-F",
+            "60000",
+            *perf_control_args(ctl_fifo, ack_fifo),
+            "-o",
+            str(c2c_data),
+            "--",
+            str(binary),
+            "--role",
+            "throughput",
+            "--arm",
+            arm,
+            "--writers",
+            str(writers),
+            "--rounds",
+            str(rounds),
+            *harness_control_args(ctl_fifo, ack_fifo),
+        ]
+        if quick:
+            cmd_record.append("--quick")
+
+        proc = subprocess.run(cmd_record, check=False)
     if proc.returncode != 0:
         raise RuntimeError(f"--c2c record failed (exit {proc.returncode}) (AGENTS.md §8.1)")
 
@@ -1780,9 +1841,21 @@ def run_c2c_pass(
     proc_rep = subprocess.run(cmd_report, capture_output=True, text=True, check=False)
     if proc_rep.returncode != 0:
         raise RuntimeError(
-            f"--c2c report failed (exit {proc_rep.returncode}): {proc_rep.stderr} (AGENTS.md §8.1)"
+            f"--c2c report failed (exit {proc_rep.returncode}): {proc_rep.stderr} "
+            "(an empty recording, e.g. the control handshake never enabled the "
+            "events, also fails here) (AGENTS.md §8.1)"
         )
     report_text = proc_rep.stdout
+    # With --delay=-1 nothing is sampled until the harness writes `enable`.
+    # Zero records therefore means the handshake did not open the window, and
+    # the profile would be empty rather than wrong -- still not a result.
+    total_records = c2c_total_records(report_text)
+    if not total_records:
+        raise RuntimeError(
+            f"--c2c recorded no samples inside the measured window (Total records: "
+            f"{total_records}); the perf control handshake did not enable recording, "
+            "and no whole-process recording is substituted (AGENTS.md §8.1)"
+        )
     report_file = out_dir / f"c2c_report_{arm}_w{writers}.txt"
     report_file.write_text(report_text)
     print(f"  [c2c Pass] Wrote c2c report to {report_file.relative_to(REPO_ROOT)}")
@@ -1818,6 +1891,11 @@ def run_c2c_pass(
     return {
         "arm": arm,
         "writers": writers,
+        # What the profile covers, so a reader never has to infer whether the
+        # HITM shares and symbol_profile include setup (they do not).
+        "window": C2C_WINDOW,
+        "rounds": rounds,
+        "total_records": total_records,
         "report_path": str(report_file.relative_to(REPO_ROOT)),
         "data_path": str(c2c_data.relative_to(REPO_ROOT)),
         "summary": "\n".join(summary_lines),
@@ -2146,9 +2224,133 @@ def _self_test_ordered_readers(throughput_bin: Path, counters_bin: Path, pin: st
     sys.stderr.write("Ordered-reader instrument PASSED\n")
 
 
+def _self_test_c2c_window() -> None:
+    """Pin that `run_c2c_pass` records only the barrier-to-join window.
+
+    Drives the production function with `perf` stubbed at `subprocess.run`, so
+    the assertions read the command `run_c2c_pass` actually built and the c2c
+    block it actually returned -- not a helper that the call site could stop
+    calling (AGENTS.md §8.20.7). A whole-process recording samples workload
+    generation, prefill and teardown: the committed diagnostic artifact's
+    symbol profile carries the prefill sort's `quicksort` at 3.53%.
+    """
+    import stat
+    from unittest import mock
+
+    eprintln = sys.stderr.write
+    eprintln("Testing the c2c pass records the measured window only...\n")
+
+    report = "\n".join([
+        "=================================================",
+        "            Trace Event Information              ",
+        "=================================================",
+        "  Total records                     :      54749",
+        "  Load Local HITM                   :       8168",
+        "",
+        "=================================================",
+        "           Shared Data Cache Line Table          ",
+        "=================================================",
+        "      0     1234   41.2%     1238     1238        0",
+    ])
+    out_dir = REPO_ROOT / "target" / "c2c-selftest"
+
+    def stub(report_text: str, seen: dict[str, Any]) -> Any:
+        def fake_run(cmd: list[str], *args: Any, **kwargs: Any) -> Any:
+            cmd = list(cmd)
+            if cmd[:3] == ["perf", "c2c", "record"]:
+                seen["record"] = cmd
+                # The FIFOs must exist, as FIFOs, while perf and the harness run.
+                for flag in ("--perf-ctl-fifo", "--perf-ack-fifo"):
+                    if flag in cmd:
+                        p = cmd[cmd.index(flag) + 1]
+                        seen[flag] = stat.S_ISFIFO(os.stat(p).st_mode)
+                return subprocess.CompletedProcess(cmd, 0)
+            if cmd[:3] == ["perf", "c2c", "report"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout=report_text, stderr="")
+            if cmd[:2] == ["perf", "report"]:
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="  65.52%  [.] olc_insert_map  writer_scaling\n", stderr=""
+                )
+            raise AssertionError(f"unexpected command in c2c self-test: {cmd}")
+        return fake_run
+
+    def drive(report_text: str, seen: dict[str, Any], **patches: Any) -> dict[str, Any]:
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(platform, "system", return_value="Linux"))
+            stack.enter_context(mock.patch.object(shutil, "which", return_value="/usr/bin/perf"))
+            stack.enter_context(
+                mock.patch.object(subprocess, "run", side_effect=stub(report_text, seen))
+            )
+            for name, value in patches.items():
+                stack.enter_context(mock.patch.object(os, name, side_effect=value))
+            return run_c2c_pass(
+                Path("/nonexistent/writer_scaling"), arm="map", writers=8, out_dir=out_dir
+            )
+
+    try:
+        seen: dict[str, Any] = {}
+        block = drive(report, seen)
+        cmd = seen.get("record")
+        assert cmd is not None, "run_c2c_pass never invoked perf c2c record"
+        sep = cmd.index("--")
+        perf_part, harness_part = cmd[:sep], cmd[sep + 1:]
+
+        # perf starts disabled and obeys the control FIFO ...
+        assert "--delay=-1" in perf_part, (
+            f"perf c2c record must start disabled (--delay=-1): {perf_part}"
+        )
+        controls = [a for a in perf_part if a.startswith("--control=fifo:")]
+        assert len(controls) == 1, f"perf c2c record needs one --control=fifo: {perf_part}"
+        # ... and the harness is told to drive that same pair.
+        for flag in ("--perf-ctl-fifo", "--perf-ack-fifo"):
+            assert flag in harness_part, f"harness command lacks {flag}: {harness_part}"
+            assert seen.get(flag) is True, f"{flag} was not a FIFO when perf ran: {seen}"
+        ctl = harness_part[harness_part.index("--perf-ctl-fifo") + 1]
+        ack = harness_part[harness_part.index("--perf-ack-fifo") + 1]
+        assert controls[0] == f"--control=fifo:{ctl},{ack}", (controls, ctl, ack)
+        assert not os.path.exists(ctl) and not os.path.exists(ack), "FIFOs outlived the pass"
+        assert harness_part[harness_part.index("--rounds") + 1] == str(C2C_ROUNDS), harness_part
+
+        # The artifact's c2c block says what the profile covers.
+        assert block.get("window") == C2C_WINDOW, block
+        assert "setup and teardown excluded" in block["window"], block
+        assert block.get("rounds") == C2C_ROUNDS, block
+        assert block.get("total_records") == 54749, block
+        assert block["hot_cache_lines"], block
+
+        # Negative control: a FIFO that cannot be created is a refusal, and no
+        # recording happens at all -- never a whole-process fallback (§8.1).
+        seen_fail: dict[str, Any] = {}
+        try:
+            drive(report, seen_fail, mkfifo=OSError("mkfifo denied"))
+        except RuntimeError as exc:
+            assert "AGENTS.md §8.1" in str(exc) and "FIFO" in str(exc), exc
+        else:
+            raise AssertionError("run_c2c_pass recorded although FIFO creation failed")
+        assert "record" not in seen_fail, f"perf ran without its control FIFOs: {seen_fail}"
+
+        # Negative control: an empty window (the handshake never enabled the
+        # events) is refused rather than reported as a contention-free profile.
+        empty = report.replace("54749", "0")
+        try:
+            drive(empty, {})
+        except RuntimeError as exc:
+            assert "handshake" in str(exc) and "AGENTS.md §8.1" in str(exc), exc
+        else:
+            raise AssertionError("run_c2c_pass accepted a recording with zero records")
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+    eprintln("c2c measured-window checks PASSED\n")
+
+
 def self_test() -> int:
     eprintln = sys.stderr.write
     eprintln("Running writer_scaling.py self-test...\n")
+
+    # 0. The c2c pass records the measured window only. Runs first: it needs no
+    #    build, so a regression here fails before minutes of cargo.
+    _self_test_c2c_window()
 
     # Build both binaries up front
     throughput_bin, counters_bin = build_binaries(verbose=True)
@@ -3015,12 +3217,15 @@ def main() -> int:
                 arm=args.pmu_arm,
                 writers=max(writers_list),
                 quick=args.quick,
+                rounds=max(args.rounds, C2C_ROUNDS),
             )
         except RuntimeError as exc:
             c2c_error = str(exc)
             c2c_results = {
-                "arm": "set",
-                "writers": 2,
+                "arm": args.pmu_arm,
+                "writers": max(writers_list),
+                "window": C2C_WINDOW,
+                "rounds": max(args.rounds, C2C_ROUNDS),
                 "error": c2c_error,
                 "verdict": "FAILED",
             }

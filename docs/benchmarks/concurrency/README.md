@@ -765,7 +765,13 @@ written:
   followed by sublinear growth, which is the shape of a fixed per-operation
   cost rather than an N² one. Frequency droop over the same rounds is 3.09%,
   4.47% and 7.65%: real, and far too small to account for the shortfall.
-- **`perf c2c`** puts 60.1% of all HITM on 13 sixty-four-byte-aligned lines
+- **`perf c2c`** *(recording scope: the committed pass recorded the whole
+  `writer_scaling` process over one round, so its HITM shares and symbol
+  profile include workload generation, prefill and teardown — 3.53% of that
+  profile is the prefill's `quicksort`. A pass run by the current script
+  records only the barrier-to-join window over 8 rounds and names that scope
+  in the artifact's `c2c.window`. The figures below are the whole-process
+  ones and have not been re-measured.)* puts 60.1% of all HITM on 13 sixty-four-byte-aligned lines
   inside one 3,072-byte span (8.7% more is kernel-side). That rules out trie
   node version words, which are allocated across size-class slabs and would be
   scattered over many pages. The store-heavy offsets in those lines resolve to
