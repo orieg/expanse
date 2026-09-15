@@ -299,7 +299,12 @@ SUITES = (
 # Both families carry host, estimators, busy-CPU deltas and per-cell
 # `rounds_raw` today, so neither is grandfathered and the older shape is
 # covered rather than excluded.
-ARTIFACT_GLOBS = ("baseline_*.json", "ablation*.json")
+#
+# `ordered_readers_*` is the #900 ordered-read sweep
+# (`docs/benchmarks/concurrency/METHODOLOGY.md` §12.4). It publishes P12.5's
+# wall-clock ratio, so it is comparative in the same sense; its name also
+# carries `writer_scaling`, so it owes the concurrent attribution.
+ARTIFACT_GLOBS = ("baseline_*.json", "ablation*.json", "ordered_readers_*.json")
 
 # Keys under which an artifact holds its cells. `throughput_variant` is the
 # ablation artifacts' variant arm — the half of the comparison that is not the
@@ -928,6 +933,20 @@ def _self_test() -> int:
         elif rel not in selected:
             failures.append(f"artifacts() does not select {rel} — ARTIFACT_GLOBS is too narrow")
 
+    # The #900 ordered-read sweep is selected by name before it is ever
+    # committed, so its first run cannot land outside the gate. A synthetic
+    # tree, because the artifact does not exist until the suite runs.
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        res = Path(tmp) / "concurrency" / "results"
+        res.mkdir(parents=True)
+        (res / "ordered_readers_writer_scaling.json").write_text("{}\n", encoding="utf-8")
+        if "ordered_readers_writer_scaling.json" not in {p.name for p in artifacts(Path(tmp))}:
+            failures.append(
+                "artifacts() does not select ordered_readers_writer_scaling.json — "
+                "ARTIFACT_GLOBS is too narrow"
+            )
+
     # The concurrent predicate, pinned the same way and for the same reason:
     # `findings_for` is name-agnostic, so a fixture cannot catch a predicate
     # that never selects the artifact. Every writer-scaling sweep and ablation
@@ -939,7 +958,8 @@ def _self_test() -> int:
                  "ablation_alloc_writer_scaling.json",
                  "ablation_epoch_writer_scaling.json",
                  "ablation_freelist_writer_scaling.json",
-                 "ablation_freelist_writer_scaling_run2.json"):
+                 "ablation_freelist_writer_scaling_run2.json",
+                 "ordered_readers_writer_scaling.json"):
         if not is_concurrent(f"concurrency/results/{name}"):
             failures.append(
                 f"is_concurrent() does not cover {name} — CONCURRENT_NAME_PARTS is too narrow"

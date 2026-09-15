@@ -187,6 +187,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "writer_scaling_ordered_readers",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Ordered readers on SyncExpanseMap: optimistic prev_before against with_locked over probe x (W, R) cells under the pin 0,2,4,6,8,10,12,14, with the P12.4 and P12.5 verdicts (#900, concurrency METHODOLOGY.md §12.4); outputs ordered_readers_writer_scaling.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "point_lookup_counters",
       "available": true,
       "kind": "counters",

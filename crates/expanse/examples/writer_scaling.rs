@@ -25,26 +25,96 @@
 //! cargo run --release -p expanse-trie --features occ-stats --example writer_scaling -- --role counters [--arm <map|set|str|all>] [--writers <1,2,4,8>] [--rounds <N>]
 //! ```
 //!
+//! ## Reader mode (#900, `docs/benchmarks/concurrency/METHODOLOGY.md` §12.4)
+//!
+//! `--readers R` with R > 0 runs ordered-read cells on the map arm only, one
+//! (W, R, `--read-op`, `--probe`) cell per invocation. The driver
+//! (`writer_scaling.py --ordered-readers`) interleaves the cells within each
+//! round and passes `--round` and `--position` so every row names its place.
+//! Without `--readers` (or with `--readers 0`) the output is the writer sweep
+//! above, row for row.
+//!
+//! ```text
+//! cargo run --release -p expanse-trie --example writer_scaling -- --arm map --writers <W> --readers <R> --read-op <get|prev_locked|prev> --probe <uniform|hotspot> [--round <r>] [--position <p>] [--quick]
+//! ```
+//!
+//! - `--writers 0` is accepted here and nowhere else.
+//! - `prev` is `prev_before` on the reader's own [`SyncExpanseMap::reader`]
+//!   handle (optimistic); `prev_locked` is the same call through
+//!   [`SyncExpanseMap::with_locked`], which excludes every writer; `get` is the
+//!   optimistic point read on the same handle.
+//! - With W ≥ 1 readers probe from the barrier until main has joined every
+//!   writer and raised a stop flag. With W = 0 each reader makes exactly as many
+//!   probes as the prefill holds: 2^20, or 4,096 under `--quick`.
+//! - `reader_elapsed_s` is measured by main, from the barrier release to the
+//!   join of the last reader. Prefill, workload generation, reader registration,
+//!   the answer check and teardown are outside it.
+//!
+//! **Probes.** Each reader walks its own Fisher–Yates permutation of the probe
+//! keys (the suite XorShift, seed `SEED_READER ^ (reader + 1) * φ64`), cycled.
+//! `prev` and `prev_locked` therefore see the identical stream.
+//!
+//! - `uniform`: the 2^20 present uniform prefill keys.
+//! - `hotspot`: 255 keys in the 2^16-wide expanse `[H, H + 2^16)`, where `H` is
+//!   the first draw of `SEED_HOTSPOT_BASE` with its low 16 bits cleared. Each
+//!   terminal byte `j` of the expanse (block `j`, 256 keys wide) holds one
+//!   prefill key, at offset 1: `H + 256·j + 1`. The probes are those keys for
+//!   `j ≥ 1`.
+//!   - **Why every probe backtracks.** `MapReader::prev_before(k)` searches
+//!     `k − 1 = H + 256·j`, offset 0 of block `j`. At a branch, `nav::prev`
+//!     (`crates/expanse/src/nav.rs`) first descends the child for the target's
+//!     digit and moves to a lower sibling only when that child returns nothing.
+//!     Block `j`'s only prefill key sits above the target, so its child returns
+//!     nothing, and the search descends the sibling for block `j − 1`, which
+//!     answers at its offset 1. Block 0 has no lower sibling inside the
+//!     expanse, so its key is prefilled and never probed.
+//!   - **Why the branch exists.** 256 prefill keys exceed `LEAF_CAP` (32,
+//!     `crates/expanse/src/types.rs:99`), the linear-leaf cap at levels 2–7
+//!     that map inserts apply to every multi-byte leaf
+//!     (`crates/expanse/src/mutate_map.rs:791`, `:1438`), so no two-byte leaf
+//!     can hold the expanse and a level-2 branch indexes its blocks. A
+//!     compile-time assertion below pins the relation.
+//!   - **Writes.** The hotspot writers insert the expanse's other 65,280 keys
+//!     (offsets 0 and 2–255 of every block), shuffled with `SEED_HOTSPOT_FRESH`
+//!     and split contiguously across W. Offsets 2–255 land in block `j`, where
+//!     a search fails, and in block `j − 1`, the sibling it descends into.
+//!   - **What erodes it.** An offset-0 insert gives its block a key at the
+//!     search target, so that block's probe answers without a sibling descent.
+//!     255 of the 65,280 fresh keys do this (block 0's offset 0 is never
+//!     searched). Every probe backtracks when a W ≥ 1 window opens, and the
+//!     share falls only as those keys arrive. At W = 0 every probe backtracks.
+//!   - **Why not offset 0.** Prefilling offset 0 (or every even key) forces no
+//!     sibling descent at all: the search for `k − 1` enters the block below
+//!     directly and answers at a key that block holds. That is 0 of 256 probes
+//!     at offset 0, and 0 of 128 per block for even keys.
+//!
+//! The 256 hotspot keys are prefilled in **every** reader-mode cell, uniform
+//! ones included, so the tree is the same across probe modes. A uniform cell's
+//! writers insert the 2^20 uniform fresh keys. Generation refuses to run if any
+//! uniform prefill or fresh key falls inside the hotspot expanse.
+//!
 //! # Workload shape
 //!
 //! | Property | Value |
 //! |---|---|
 //! | `workload_id` | `concurrency_writer_scaling` |
 //! | `group` | 5 |
-//! | `emits` | `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`, `concurrency_writer_str` |
-//! | `population` | prefill 2^20 keys (1M), plus 2^20 fresh keys inserted concurrently by W writers |
-//! | `insertion_order` | sorted — prefill ascending, matching expanse-hot-bench; fresh stream in generator draw order |
-//! | `probes_and_reuse` | none — pure writer scaling (R = 0), insert-only |
-//! | `hit_rate` | n/a — no read probes |
-//! | `miss_gen_method` | same-generator rejection sampling against prefill |
-//! | `value_dereference` | map arms check stored values against key-derived expectation |
-//! | `measured_region` | barrier release to last-writer join; prefill and teardown outside |
-//! | `arm_symmetry` | symmetric across thread counts; W in {1, 2, 4, 8} on physical P-cores |
-//! | `statistics` | throughput ops/sec emitted raw, paired bootstrap BCa 95% CI for C(N); lock fallbacks and their six causes (partition-checked per row) from the occ-stats counters pass |
+//! | `emits` | `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`, `concurrency_writer_str`, `concurrency_ordered_readers_map_64bit` |
+//! | `population` | prefill 2^20 keys (1M), plus 2^20 fresh keys inserted concurrently by W writers; reader mode (map only) adds 256 hotspot keys, one at offset 1 of every terminal byte of a 2^16-wide expanse, to every cell's prefill, and a hotspot cell's writers insert that expanse's other 65,280 keys instead of the 2^20 fresh keys |
+//! | `insertion_order` | sorted — prefill ascending (reader mode: the sorted union with the hotspot keys), matching expanse-hot-bench; fresh stream in generator draw order; hotspot fresh keys Fisher–Yates shuffled |
+//! | `probes_and_reuse` | writer mode: none (R = 0), insert-only. Reader mode: R readers, each cycling its own Fisher–Yates permutation of the present uniform prefill (`uniform`) or of the 255 hotspot keys above the expanse's first terminal byte (`hotspot`); `get` or `prev_before` on a reader handle, or `prev_before` under `with_locked`, over the identical stream |
+//! | `hit_rate` | writer mode: n/a. Reader mode: 100% — every probe is a present key; a hotspot `prev_before` fails in its own terminal byte and answers from the sibling below, until a writer inserts that byte's offset-0 key |
+//! | `miss_gen_method` | same-generator rejection sampling against prefill; reader probes draw no misses |
+//! | `value_dereference` | map arms check stored values against key-derived expectation; reader results fold key and value into a `black_box` accumulator |
+//! | `measured_region` | writer mode: barrier release to last-writer join. Reader mode: barrier release to the last writer join (writers) and to the last reader join (readers); with W ≥ 1 readers stop once the writers have joined, with W = 0 each makes 2^20 probes; prefill, workload generation, reader registration, answer checks and teardown outside |
+//! | `arm_symmetry` | symmetric across thread counts; W in {1, 2, 4, 8} on physical P-cores; reader mode: `prev` and `prev_locked` run the same per-reader probe stream over the same tree, interleaved within each round by the driver |
+//! | `statistics` | throughput ops/sec emitted raw, paired bootstrap BCa 95% CI for C(N); lock fallbacks and their six causes (partition-checked per row) from the occ-stats counters pass; reader mode: reader Mops/s with a BCa 95% CI per cell, the P12.5 per-round paired `prev` / `prev_locked` ratio with a BCa 95% CI, and P12.4's summed `read_fallbacks ÷ read_ops` from the counters pass |
 //! | `verdict` | pending measurement |
 
 use std::collections::HashSet;
+use std::hint::black_box;
 use std::sync::Barrier;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use expanse_trie::occ_stats::{self, Stat};
@@ -90,6 +160,15 @@ struct Counters {
     cap_expansion_remove: u64,
     retired: u64,
     total_allocs: Option<u64>,
+    /// Optimistic read calls (`Stat::ReadOps`). Reader rows only.
+    read_ops: u64,
+    /// Optimistic walk attempts (`Stat::ReadAttempts`). Reader rows only.
+    read_attempts: u64,
+    /// Retry-exhausted reads that fell back to `read_locked`. Reader rows only.
+    read_fallbacks: u64,
+    /// Reads under the writer mutex by any route: `read_locked` and
+    /// `with_locked` both count here (`Stat::LockedReads`). Reader rows only.
+    locked_reads: u64,
 }
 
 struct PerfControl {
@@ -186,7 +265,61 @@ impl Counters {
             cap_expansion_remove: snap[Stat::CapExpansionRemove as usize],
             retired: snap[Stat::Retired as usize],
             total_allocs: None,
+            read_ops: snap[Stat::ReadOps as usize],
+            read_attempts: snap[Stat::ReadAttempts as usize],
+            read_fallbacks: snap[Stat::ReadFallbacks as usize],
+            locked_reads: snap[Stat::LockedReads as usize],
         }
+    }
+
+    /// The reader counters of a reader-mode counters row.
+    fn reader_counters_json(&self) -> String {
+        format!(
+            "\"read_ops\":{},\"read_attempts\":{},\"read_fallbacks\":{},\"locked_reads\":{}",
+            self.read_ops, self.read_attempts, self.read_fallbacks, self.locked_reads
+        )
+    }
+
+    /// The identities a reader-mode counters row owes on top of [`Self::check`].
+    ///
+    /// An optimistic reader (`prev`, `get`) counts one `ReadOps` per call and
+    /// reaches the writer mutex only through a retry-exhausted fallback, which
+    /// bumps `ReadFallbacks` and then `LockedReads` inside `read_locked`. A
+    /// `prev_locked` reader never enters the optimistic protocol and bumps
+    /// `LockedReads` once per call inside `with_locked`.
+    fn check_reader(&self, op: ReadOp, reader_ops: u64, cell: &str) -> Result<(), String> {
+        match op {
+            ReadOp::Prev | ReadOp::Get => {
+                if self.read_ops != reader_ops {
+                    return Err(format!(
+                        "{cell}: read_ops = {}, readers made {reader_ops} calls",
+                        self.read_ops
+                    ));
+                }
+                if self.locked_reads != self.read_fallbacks {
+                    return Err(format!(
+                        "{cell}: locked_reads = {}, read_fallbacks = {} (an optimistic reader \
+                         reaches the writer mutex only by falling back)",
+                        self.locked_reads, self.read_fallbacks
+                    ));
+                }
+            }
+            ReadOp::PrevLocked => {
+                if self.read_ops != 0 {
+                    return Err(format!(
+                        "{cell}: read_ops = {} on a with_locked reader cell, expected 0",
+                        self.read_ops
+                    ));
+                }
+                if self.locked_reads != reader_ops {
+                    return Err(format!(
+                        "{cell}: locked_reads = {}, readers made {reader_ops} with_locked calls",
+                        self.locked_reads
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     fn causes_json(&self) -> String {
@@ -240,8 +373,13 @@ impl Counters {
     /// The exact identities a counters row must satisfy: one `Inserts`
     /// bump per public insert, causes summing to fallbacks, exact contention
     /// partition, exact branch split partition, and quiesce calls equal to
-    /// fallbacks in an insert-only workload.
-    fn check(&self, expected_inserts: u64, cell: &str) -> Result<(), String> {
+    /// fallbacks plus `locked_reads`.
+    ///
+    /// `Shared::read_locked` and `Shared::with_locked` both call
+    /// `quiesce_writers`, so every locked read quiesces once. An insert-only
+    /// row passes `locked_reads = 0`, which is the identity the writer sweep
+    /// has always checked.
+    fn check(&self, expected_inserts: u64, locked_reads: u64, cell: &str) -> Result<(), String> {
         if self.inserts != expected_inserts {
             return Err(format!(
                 "{cell}: Stat::Inserts = {}, expected {expected_inserts} (one per public insert)",
@@ -256,9 +394,9 @@ impl Counters {
                 self.lock_fallbacks as i128 - summed as i128
             ));
         }
-        if self.quiesce_calls != self.lock_fallbacks {
+        if self.quiesce_calls != self.lock_fallbacks + locked_reads {
             return Err(format!(
-                "{cell}: quiesce_calls = {}, lock_fallbacks = {}",
+                "{cell}: quiesce_calls = {}, lock_fallbacks = {}, locked_reads = {locked_reads}",
                 self.quiesce_calls, self.lock_fallbacks
             ));
         }
@@ -686,6 +824,684 @@ fn run_str_cell(
     (elapsed, final_pop, counters)
 }
 
+// ---------------------------------------------------------------------------
+// Reader mode (#900, docs/benchmarks/concurrency/METHODOLOGY.md §12.4)
+// ---------------------------------------------------------------------------
+
+/// Width of the hotspot expanse (§12.4): 2^16 keys.
+pub const HOTSPOT_WIDTH: u64 = 1 << 16;
+/// One terminal byte of the hotspot expanse.
+pub const HOTSPOT_BUCKET: u64 = 1 << 8;
+/// Terminal bytes in the hotspot expanse, which is also the hotspot prefill size.
+pub const HOTSPOT_BUCKETS: u64 = HOTSPOT_WIDTH / HOTSPOT_BUCKET;
+/// Offset of the one prefill key in each terminal byte. It must be above
+/// offset 0, so that `prev_before` of it searches its own terminal byte and
+/// fails there (see the module doc).
+pub const HOTSPOT_PREFILL_OFFSET: u64 = 1;
+
+// The hotspot prefill must not fit one linear leaf, or a two-byte leaf would
+// answer every probe in place and no search would reach a branch.
+// `LEAF_CAP` (crates/expanse/src/types.rs:99) caps linear leaves at levels
+// 2..=7, and map inserts apply it to every multi-byte leaf
+// (crates/expanse/src/mutate_map.rs:791, :1438).
+const _: () = assert!(
+    HOTSPOT_BUCKETS as usize > expanse_trie::types::LEAF_CAP,
+    "the hotspot prefill fits one linear leaf, so a level-2 branch is not guaranteed"
+);
+/// Seed whose first draw, with its low 16 bits cleared, is the hotspot base `H`.
+pub const SEED_HOTSPOT_BASE: u64 = SEED_PREFILL ^ 0x5EED_C0DE_0000_0900;
+/// Seed of the Fisher–Yates shuffle of the hotspot writers' fresh keys.
+pub const SEED_HOTSPOT_FRESH: u64 = SEED_PREFILL ^ 0x5EED_C0DE_0000_0901;
+/// Base of the per-reader probe shuffle seeds; see [`reader_seed`].
+pub const SEED_READER: u64 = SEED_PREFILL ^ 0x5EED_C0DE_0000_0902;
+
+/// What a reader thread asks on each probe.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ReadOp {
+    /// `MapReader::get`, optimistic.
+    Get,
+    /// `ExpanseMap::prev_before` under `SyncExpanseMap::with_locked`.
+    PrevLocked,
+    /// `MapReader::prev_before`, optimistic.
+    Prev,
+}
+
+impl ReadOp {
+    fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "get" => Ok(Self::Get),
+            "prev_locked" => Ok(Self::PrevLocked),
+            "prev" => Ok(Self::Prev),
+            other => Err(format!(
+                "unknown --read-op {other:?} (expected get, prev_locked or prev)"
+            )),
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Get => "get",
+            Self::PrevLocked => "prev_locked",
+            Self::Prev => "prev",
+        }
+    }
+}
+
+/// Where the probe keys come from.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Probe {
+    /// The present uniform prefill keys.
+    Uniform,
+    /// The offset-1 hotspot keys of every terminal byte above the first.
+    Hotspot,
+}
+
+impl Probe {
+    fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "uniform" => Ok(Self::Uniform),
+            "hotspot" => Ok(Self::Hotspot),
+            other => Err(format!(
+                "unknown --probe {other:?} (expected uniform or hotspot)"
+            )),
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Uniform => "uniform",
+            Self::Hotspot => "hotspot",
+        }
+    }
+}
+
+/// Fisher–Yates with the suite XorShift. The modulo reduction's bias is at
+/// most `len / 2^64`, below 2^-43 at the sizes used here.
+fn fisher_yates(keys: &mut [u64], seed: u64) {
+    assert_ne!(seed, 0, "XorShift64 has a fixed point at 0");
+    let mut rng = XorShift::new(seed);
+    for i in (1..keys.len()).rev() {
+        let j = (rng.next() % (i as u64 + 1)) as usize;
+        keys.swap(i, j);
+    }
+}
+
+/// Probe shuffle seed of reader `reader`: `SEED_READER ^ (reader + 1) * φ64`.
+fn reader_seed(reader: usize) -> u64 {
+    SEED_READER ^ (reader as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+}
+
+/// The 2^16-wide expanse the hotspot probes and the hotspot writers share.
+struct HotspotExpanse {
+    base: u64,
+    /// `H + 256·j + HOTSPOT_PREFILL_OFFSET` for every terminal byte `j`, ascending.
+    prefill: Vec<u64>,
+    /// The prefill keys of terminal bytes `j ≥ 1`: block 0 has no lower
+    /// sibling inside the expanse to backtrack into.
+    probes: Vec<u64>,
+    /// Every other key of every terminal byte, shuffled with `SEED_HOTSPOT_FRESH`.
+    fresh: Vec<u64>,
+}
+
+impl HotspotExpanse {
+    fn generate() -> Self {
+        // Clearing the low 16 bits leaves `base + HOTSPOT_WIDTH <= 2^64`.
+        let base = XorShift::new(SEED_HOTSPOT_BASE).next() & !(HOTSPOT_WIDTH - 1);
+        let prefill: Vec<u64> = (0..HOTSPOT_BUCKETS)
+            .map(|j| base + j * HOTSPOT_BUCKET + HOTSPOT_PREFILL_OFFSET)
+            .collect();
+        let probes = prefill[1..].to_vec();
+        let mut fresh = Vec::with_capacity((HOTSPOT_WIDTH - HOTSPOT_BUCKETS) as usize);
+        for j in 0..HOTSPOT_BUCKETS {
+            for offset in (0..HOTSPOT_BUCKET).filter(|&o| o != HOTSPOT_PREFILL_OFFSET) {
+                fresh.push(base + j * HOTSPOT_BUCKET + offset);
+            }
+        }
+        fisher_yates(&mut fresh, SEED_HOTSPOT_FRESH);
+        Self {
+            base,
+            prefill,
+            probes,
+            fresh,
+        }
+    }
+
+    fn contains(&self, k: u64) -> bool {
+        k.wrapping_sub(self.base) < HOTSPOT_WIDTH
+    }
+
+    /// Whether any prefill key lies in `[lo, hi]`.
+    fn prefill_in(&self, lo: u64, hi: u64) -> bool {
+        self.prefill.iter().any(|&p| lo <= p && p <= hi)
+    }
+
+    /// Checks, on the prefilled tree, that `prev_before` of every probe fails
+    /// in one terminal byte and must descend the sibling below it.
+    ///
+    /// Stated on the search target `t = k − 1`, which is what `nav::prev`
+    /// descends by, not on the probe's own terminal byte: for a probe at
+    /// offset 0, `t` is already in the byte below and answers there.
+    fn check_backtrack_geometry(&self) -> Result<(), String> {
+        if self.probes.len() as u64 != HOTSPOT_BUCKETS - 1 {
+            return Err(format!(
+                "{} hotspot probes, expected {}",
+                self.probes.len(),
+                HOTSPOT_BUCKETS - 1
+            ));
+        }
+        for &k in &self.probes {
+            let t = k
+                .checked_sub(1)
+                .ok_or_else(|| "a hotspot probe of 0 has no search target".to_string())?;
+            if !self.contains(t) {
+                return Err(format!(
+                    "probe {k:#x}: its search target leaves the expanse"
+                ));
+            }
+            let j = (t - self.base) / HOTSPOT_BUCKET;
+            if j == 0 {
+                return Err(format!(
+                    "probe {k:#x}: its search target is in terminal byte 0, which has no lower \
+                     sibling inside the expanse"
+                ));
+            }
+            let lo = self.base + j * HOTSPOT_BUCKET;
+            let hi = lo + HOTSPOT_BUCKET - 1;
+            if self.prefill_in(lo, t) {
+                return Err(format!(
+                    "probe {k:#x}: a prefill key in [{lo:#x}, {t:#x}] answers inside terminal \
+                     byte {j}, so the search makes no sibling descent"
+                ));
+            }
+            if t == hi || !self.prefill_in(t + 1, hi) {
+                return Err(format!(
+                    "probe {k:#x}: terminal byte {j} holds no prefill key above the target, so \
+                     there is no child for the search to fail in"
+                ));
+            }
+            if !self.prefill_in(lo - HOTSPOT_BUCKET, lo - 1) {
+                return Err(format!(
+                    "probe {k:#x}: terminal byte {} holds no prefill key for the sibling \
+                     descent to answer",
+                    j - 1
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A reader-mode workload: the writer sweep's map workload, the hotspot
+/// expanse, and one probe permutation per reader.
+struct ReaderWorkload {
+    uniform: WriterWorkload,
+    hotspot: HotspotExpanse,
+    /// Every prefilled key, sorted: the uniform prefill and the hotspot keys.
+    prefill_all: Vec<u64>,
+    /// One probe permutation per reader.
+    probes: Vec<Vec<u64>>,
+}
+
+impl ReaderWorkload {
+    fn generate(
+        n_prefill: usize,
+        m_fresh: usize,
+        probe: Probe,
+        readers: usize,
+    ) -> Result<Self, String> {
+        let uniform = WriterWorkload::generate(n_prefill, m_fresh, 64);
+        let hotspot = HotspotExpanse::generate();
+        let inside_prefill = uniform
+            .prefill
+            .iter()
+            .filter(|&&k| hotspot.contains(k))
+            .count();
+        let inside_fresh = uniform
+            .fresh_keys
+            .iter()
+            .filter(|&&k| hotspot.contains(k))
+            .count();
+        if inside_prefill + inside_fresh != 0 {
+            return Err(format!(
+                "the hotspot expanse at {:#x} overlaps the uniform workload: {inside_prefill} \
+                 prefill and {inside_fresh} fresh keys fall inside it",
+                hotspot.base
+            ));
+        }
+        let mut prefill_all = uniform.prefill.clone();
+        prefill_all.extend_from_slice(&hotspot.prefill);
+        prefill_all.sort_unstable();
+        let source = match probe {
+            Probe::Uniform => &uniform.prefill,
+            Probe::Hotspot => &hotspot.probes,
+        };
+        let probes = (0..readers)
+            .map(|r| {
+                let mut v = source.clone();
+                fisher_yates(&mut v, reader_seed(r));
+                v
+            })
+            .collect();
+        Ok(Self {
+            uniform,
+            hotspot,
+            prefill_all,
+            probes,
+        })
+    }
+
+    /// The keys the writers of a `probe` cell insert.
+    fn fresh(&self, probe: Probe) -> &[u64] {
+        match probe {
+            Probe::Uniform => &self.uniform.fresh_keys,
+            Probe::Hotspot => &self.hotspot.fresh,
+        }
+    }
+}
+
+/// One reader-mode cell.
+#[derive(Clone, Copy)]
+struct ReaderCell {
+    writers: usize,
+    readers: usize,
+    op: ReadOp,
+    probe: Probe,
+}
+
+/// What one reader-mode cell measured.
+struct ReaderOutcome {
+    /// `None` at W = 0.
+    writer_elapsed_s: Option<f64>,
+    reader_elapsed_s: f64,
+    reader_ops: u64,
+    fresh_keys: u64,
+    final_pop: u64,
+    counters: Counters,
+}
+
+/// Raises the stop flag when dropped, so a panicking writer join cannot leave
+/// the readers probing and the scope waiting on them forever.
+struct StopOnDrop<'a>(&'a AtomicBool);
+
+impl Drop for StopOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
+/// An ordered-read answer folded into the accumulator.
+#[inline(always)]
+fn fold_entry(e: Option<(u64, u64)>) -> u64 {
+    match e {
+        Some((k, v)) => k ^ v,
+        None => 0,
+    }
+}
+
+/// One reader's timed loop: exactly `limit` probes when given, otherwise
+/// until `stop` is raised. Every answer is folded into an accumulator that is
+/// `black_box`ed (AGENTS.md §8.6). Returns the probes made.
+#[inline(always)]
+fn probe_loop(
+    probes: &[u64],
+    limit: Option<u64>,
+    stop: &AtomicBool,
+    mut op: impl FnMut(u64) -> u64,
+) -> u64 {
+    let mut sink = 0u64;
+    let mut ops = 0u64;
+    let mut i = 0usize;
+    let len = probes.len();
+    match limit {
+        Some(n) => {
+            while ops < n {
+                sink = sink.wrapping_add(op(probes[i]));
+                i += 1;
+                if i == len {
+                    i = 0;
+                }
+                ops += 1;
+            }
+        }
+        None => {
+            while !stop.load(Ordering::Relaxed) {
+                sink = sink.wrapping_add(op(probes[i]));
+                i += 1;
+                if i == len {
+                    i = 0;
+                }
+                ops += 1;
+            }
+        }
+    }
+    black_box(sink);
+    ops
+}
+
+/// Checks a sample of `prev_before` answers, optimistic and locked, against
+/// the sorted prefill. Untimed, and only meaningful at W = 0, where the
+/// prefill is the whole tree.
+fn verify_prev_answers(
+    map: &SyncExpanseMap,
+    sorted: &[u64],
+    probes: &[u64],
+    round: usize,
+) -> Result<(), String> {
+    let reader = map.reader();
+    let step = (probes.len() / 512).max(1);
+    for &k in probes.iter().step_by(step) {
+        let Ok(i) = sorted.binary_search(&k) else {
+            return Err(format!("probe {k:#x} is not a prefilled key"));
+        };
+        let want = i.checked_sub(1).map(|j| (sorted[j], value_of(sorted[j])));
+        let optimistic = reader.prev_before(k);
+        let locked = map.with_locked(|m| m.prev_before(k));
+        if optimistic != want || locked != want {
+            return Err(format!(
+                "round {round}: prev_before({k:#x}) answered {optimistic:?} optimistically and \
+                 {locked:?} locked; the sorted prefill says {want:?}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn run_reader_cell(
+    wl: &ReaderWorkload,
+    cell: ReaderCell,
+    round: usize,
+    is_counters: bool,
+    perf_ctl: &mut PerfControl,
+) -> Result<ReaderOutcome, String> {
+    if wl.probes.len() != cell.readers {
+        return Err(format!(
+            "workload carries {} probe streams for {} readers",
+            wl.probes.len(),
+            cell.readers
+        ));
+    }
+    let map = SyncExpanseMap::new();
+    for &k in &wl.prefill_all {
+        map.insert(k, value_of(k));
+    }
+
+    let fresh = if cell.writers == 0 {
+        &[][..]
+    } else {
+        wl.fresh(cell.probe)
+    };
+    let per = fresh.len() / cell.writers.max(1);
+    let limit = (cell.writers == 0).then_some(wl.uniform.prefill.len() as u64);
+    let stop = AtomicBool::new(false);
+    let barrier = Barrier::new(cell.writers + cell.readers + 1);
+
+    let allocs_before = if is_counters {
+        map.with_locked(|inner| inner.total_node_allocs() as u64)
+    } else {
+        0
+    };
+
+    // Nothing but the cell's own threads runs between here and the snapshot:
+    // no `len`, no `with_locked`, no verification read.
+    if is_counters {
+        occ_stats::reset();
+    }
+
+    let (writer_elapsed_s, reader_elapsed_s, reader_ops) = std::thread::scope(|s| {
+        let writer_handles: Vec<_> = (0..cell.writers)
+            .map(|w| {
+                let lo = w * per;
+                let hi = if w + 1 == cell.writers {
+                    fresh.len()
+                } else {
+                    lo + per
+                };
+                let slice = &fresh[lo..hi];
+                let b = &barrier;
+                let m = &map;
+                s.spawn(move || {
+                    b.wait();
+                    for &k in slice {
+                        m.insert(k, value_of(k));
+                    }
+                })
+            })
+            .collect();
+        let reader_handles: Vec<_> = wl
+            .probes
+            .iter()
+            .map(|probes| {
+                let probes = probes.as_slice();
+                let b = &barrier;
+                let m = &map;
+                let stop = &stop;
+                s.spawn(move || match cell.op {
+                    ReadOp::Prev => {
+                        let rd = m.reader();
+                        b.wait();
+                        probe_loop(probes, limit, stop, |k| fold_entry(rd.prev_before(k)))
+                    }
+                    ReadOp::Get => {
+                        let rd = m.reader();
+                        b.wait();
+                        probe_loop(probes, limit, stop, |k| rd.get(k).unwrap_or(0))
+                    }
+                    ReadOp::PrevLocked => {
+                        b.wait();
+                        probe_loop(probes, limit, stop, |k| {
+                            fold_entry(m.with_locked(|t| t.prev_before(k)))
+                        })
+                    }
+                })
+            })
+            .collect();
+
+        perf_ctl.enable();
+        barrier.wait();
+        let start = Instant::now();
+        let guard = StopOnDrop(&stop);
+        let mut writer_elapsed = None;
+        if !writer_handles.is_empty() {
+            for h in writer_handles {
+                h.join().expect("writer thread panicked");
+            }
+            writer_elapsed = Some(start.elapsed().as_secs_f64());
+        }
+        drop(guard);
+        let mut ops = 0u64;
+        for h in reader_handles {
+            ops += h.join().expect("reader thread panicked");
+        }
+        (writer_elapsed, start.elapsed().as_secs_f64(), ops)
+    });
+    perf_ctl.disable();
+
+    let mut counters = Counters::read(is_counters);
+    if is_counters {
+        counters.total_allocs = Some(
+            map.with_locked(|inner| inner.total_node_allocs() as u64)
+                .saturating_sub(allocs_before),
+        );
+    }
+    let final_pop = map.len();
+    let expected_pop = (wl.prefill_all.len() + fresh.len()) as u64;
+    if final_pop != expected_pop {
+        return Err(format!(
+            "round {round}: population {final_pop} after the cell, expected {expected_pop}"
+        ));
+    }
+    if reader_ops == 0 {
+        return Err(format!(
+            "round {round}: the readers made no probes, so the cell has no reader throughput"
+        ));
+    }
+
+    // Untimed answer checks.
+    let reader = map.reader();
+    for &k in fresh.iter().step_by(10_000) {
+        if reader.get(k) != Some(value_of(k)) {
+            return Err(format!("round {round}: map missing fresh key {k:#x}"));
+        }
+    }
+    if cell.writers == 0 {
+        verify_prev_answers(&map, &wl.prefill_all, &wl.probes[0], round)?;
+    }
+
+    Ok(ReaderOutcome {
+        writer_elapsed_s,
+        reader_elapsed_s,
+        reader_ops,
+        fresh_keys: fresh.len() as u64,
+        final_pop,
+        counters,
+    })
+}
+
+/// `s` as a JSON string literal.
+fn json_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// The core pin the process inherited (`EXPANSE_BENCH_PIN_APPLIED`), or `null`.
+fn cpu_pin_json() -> String {
+    match std::env::var("EXPANSE_BENCH_PIN_APPLIED") {
+        Ok(v) if !v.is_empty() => json_str(&v),
+        _ => "null".to_string(),
+    }
+}
+
+fn opt_f64_json(v: Option<f64>) -> String {
+    v.map_or_else(|| "null".to_string(), |x| format!("{x:.6}"))
+}
+
+/// The value after `flag`: `Ok(None)` when the flag is absent, an error when
+/// it is the last argument.
+fn flag_value<'a>(args: &'a [String], flag: &str) -> Result<Option<&'a str>, String> {
+    match args.iter().position(|a| a == flag) {
+        None => Ok(None),
+        Some(i) => args
+            .get(i + 1)
+            .map(|s| Some(s.as_str()))
+            .ok_or_else(|| format!("{flag} needs a value")),
+    }
+}
+
+fn parse_flag<T: std::str::FromStr>(args: &[String], flag: &str) -> Result<Option<T>, String> {
+    flag_value(args, flag)?
+        .map(|s| {
+            s.parse()
+                .map_err(|_| format!("{flag} takes a non-negative integer, got {s:?}"))
+        })
+        .transpose()
+}
+
+/// Reader mode: one (W, R, read op, probe) cell over `--round` or `--rounds`.
+fn reader_main(args: &[String], is_counters: bool, readers: usize) -> Result<(), String> {
+    if let Some(arm) = flag_value(args, "--arm")?
+        && arm != "map"
+    {
+        return Err(format!(
+            "--readers {readers} runs the map arm only, got --arm {arm}"
+        ));
+    }
+    let writers: usize = parse_flag(args, "--writers")?
+        .ok_or_else(|| "reader mode needs --writers <W>, a single count (0 allowed)".to_string())?;
+    let op = ReadOp::parse(flag_value(args, "--read-op")?.unwrap_or("prev"))?;
+    let probe = Probe::parse(flag_value(args, "--probe")?.unwrap_or("uniform"))?;
+    let position: usize = parse_flag(args, "--position")?.unwrap_or(0);
+    let rounds: usize = parse_flag(args, "--rounds")?.unwrap_or(8);
+    let (round_start, round_end) = match parse_flag::<usize>(args, "--round")? {
+        Some(r) => (r, r + 1),
+        None => (0, rounds),
+    };
+    let is_quick = args.iter().any(|a| a == "--quick");
+    let (n0, m) = if is_quick {
+        (4096, 4096)
+    } else {
+        (N_PREFILL, M_FRESH)
+    };
+
+    let tsc_hz = occ_stats::cycles_hz(std::time::Duration::from_millis(200));
+    let mut perf_ctl = PerfControl::new(
+        flag_value(args, "--perf-ctl-fifo")?,
+        flag_value(args, "--perf-ack-fifo")?,
+    );
+
+    eprintln!(
+        "generating reader workload (prefill={n0}, fresh={m}, probe={}, readers={readers})...",
+        probe.name()
+    );
+    let wl = ReaderWorkload::generate(n0, m, probe, readers)?;
+    let cell = ReaderCell {
+        writers,
+        readers,
+        op,
+        probe,
+    };
+    let label = format!("map_w{writers}_r{readers}_{}_{}", op.name(), probe.name());
+    let pin = cpu_pin_json();
+    let (op_name, probe_name) = (op.name(), probe.name());
+    let (hotspot_prefill, hotspot_base) = (HOTSPOT_BUCKETS, wl.hotspot.base);
+
+    for round in round_start..round_end {
+        let out = run_reader_cell(&wl, cell, round, is_counters, &mut perf_ctl)?;
+        let fresh = out.fresh_keys;
+        let reader_ops = out.reader_ops;
+        let final_pop = out.final_pop;
+        if is_counters {
+            let ctx = format!("{label} round {round}");
+            out.counters.check(fresh, out.counters.locked_reads, &ctx)?;
+            out.counters.check_reader(op, reader_ops, &ctx)?;
+            println!(
+                "{{\"workload_id\":\"concurrency_ordered_readers_map_64bit\",\"role\":\"counters\",\
+                 \"arm\":\"expanse\",\"cell\":\"{label}\",\"keyspace_bits\":64,\
+                 \"prefill\":{n0},\"hotspot_prefill\":{hotspot_prefill},\"hotspot_base\":{hotspot_base},\
+                 \"fresh_keys\":{fresh},\"writers\":{writers},\"readers\":{readers},\
+                 \"read_op\":\"{op_name}\",\"probe\":\"{probe_name}\",\
+                 \"round\":{round},\"position\":{position},\"write_ops\":{fresh},\"reader_ops\":{reader_ops},\
+                 \"cpu_pin\":{pin},\"tsc_hz\":{tsc_hz},\
+                 \"lock_fallbacks\":{fb},\"inserts\":{ins},{extra},{reads},\
+                 \"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
+                fb = out.counters.lock_fallbacks,
+                ins = out.counters.inserts,
+                extra = out.counters.extra_counters_json(),
+                reads = out.counters.reader_counters_json(),
+                causes = out.counters.causes_json(),
+            );
+        } else {
+            let reader_elapsed_s = out.reader_elapsed_s;
+            let reader_mops = reader_ops as f64 / reader_elapsed_s / 1e6;
+            let writer_mops = out.writer_elapsed_s.map(|e| fresh as f64 / e / 1e6);
+            println!(
+                "{{\"workload_id\":\"concurrency_ordered_readers_map_64bit\",\"role\":\"throughput\",\
+                 \"arm\":\"expanse\",\"cell\":\"{label}\",\"keyspace_bits\":64,\
+                 \"prefill\":{n0},\"hotspot_prefill\":{hotspot_prefill},\"hotspot_base\":{hotspot_base},\
+                 \"fresh_keys\":{fresh},\"writers\":{writers},\"readers\":{readers},\
+                 \"read_op\":\"{op_name}\",\"probe\":\"{probe_name}\",\
+                 \"round\":{round},\"position\":{position},\"write_ops\":{fresh},\
+                 \"writer_elapsed_s\":{we},\"writer_mops\":{wm},\
+                 \"reader_ops\":{reader_ops},\"reader_elapsed_s\":{reader_elapsed_s:.6},\
+                 \"reader_mops\":{reader_mops:.6},\"cpu_pin\":{pin},\"tsc_hz\":{tsc_hz},\
+                 \"population_after\":{final_pop}}}",
+                we = opt_f64_json(out.writer_elapsed_s),
+                wm = opt_f64_json(writer_mops),
+            );
+        }
+    }
+    Ok(())
+}
+
 fn self_test(role_opt: Option<&str>) -> Result<(), String> {
     eprintln!("running writer_scaling self-test...");
     let n0 = 1024;
@@ -752,7 +1568,7 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
         if fb_map.total_allocs.unwrap_or(0) == 0 {
             return Err("counters test: expected fb_map.total_allocs > 0".into());
         }
-        fb_map.check(m as u64, "self-test map")?;
+        fb_map.check(m as u64, 0, "self-test map")?;
     } else if el_map <= 0.0 {
         return Err(format!("throughput test: invalid map elapsed {el_map}"));
     }
@@ -766,7 +1582,7 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
         if fb_set.total_allocs.unwrap_or(0) == 0 {
             return Err("counters test: expected fb_set.total_allocs > 0".into());
         }
-        fb_set.check(m as u64, "self-test set")?;
+        fb_set.check(m as u64, 0, "self-test set")?;
     } else if el_set <= 0.0 {
         return Err(format!("throughput test: invalid set elapsed {el_set}"));
     }
@@ -810,9 +1626,112 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
         if fb_str.total_allocs.is_some() {
             return Err("counters test: expected fb_str.total_allocs to be None (null)".into());
         }
-        fb_str.check(m as u64, "self-test str")?;
+        fb_str.check(m as u64, 0, "self-test str")?;
     } else if el_str <= 0.0 {
         return Err(format!("throughput test: invalid str elapsed {el_str}"));
+    }
+
+    // Reader mode (#900). First the hotspot geometry the §12.4 cells rest on.
+    let hot = HotspotExpanse::generate();
+    if hot.base & (HOTSPOT_WIDTH - 1) != 0 {
+        return Err(format!("hotspot base {:#x} has low bits set", hot.base));
+    }
+    if hot.prefill.len() as u64 != HOTSPOT_BUCKETS
+        || hot.fresh.len() as u64 != HOTSPOT_WIDTH - HOTSPOT_BUCKETS
+    {
+        return Err(format!(
+            "hotspot carries {} prefill and {} fresh keys, expected {HOTSPOT_BUCKETS} and {}",
+            hot.prefill.len(),
+            hot.fresh.len(),
+            HOTSPOT_WIDTH - HOTSPOT_BUCKETS
+        ));
+    }
+    let mut tiles: Vec<u64> = hot.prefill.iter().chain(&hot.fresh).copied().collect();
+    tiles.sort_unstable();
+    tiles.dedup();
+    if tiles.len() as u64 != HOTSPOT_WIDTH
+        || tiles.first() != Some(&hot.base)
+        || tiles.last() != Some(&(hot.base + HOTSPOT_WIDTH - 1))
+    {
+        return Err("hotspot prefill and fresh keys must tile the expanse exactly".into());
+    }
+    // On the prefilled tree, every hotspot probe's search fails in one terminal
+    // byte and descends the sibling below it. The relation that makes that a
+    // branch rather than one leaf is the compile-time assertion beside
+    // HOTSPOT_PREFILL_OFFSET.
+    hot.check_backtrack_geometry()
+        .map_err(|e| format!("hotspot geometry: {e}"))?;
+
+    // The reader identities must reject a wrong count, not only accept a right one.
+    let probe_counters = Counters {
+        read_ops: 10,
+        read_fallbacks: 1,
+        locked_reads: 1,
+        ..Counters::default()
+    };
+    if probe_counters
+        .check_reader(ReadOp::Prev, 10, "probe")
+        .is_err()
+        || probe_counters
+            .check_reader(ReadOp::Prev, 11, "probe")
+            .is_ok()
+        || probe_counters
+            .check_reader(ReadOp::PrevLocked, 1, "probe")
+            .is_ok()
+    {
+        return Err("check_reader accepted a mismatched count or refused a matching one".into());
+    }
+
+    // One cell per read op and probe, at W = 0 and W = 1, in this build's role.
+    for op in [ReadOp::Prev, ReadOp::PrevLocked, ReadOp::Get] {
+        for probe in [Probe::Uniform, Probe::Hotspot] {
+            let wl = ReaderWorkload::generate(n0, m, probe, 2)?;
+            for writers in [0usize, 1] {
+                let ctx = format!(
+                    "self-test reader {} {} W={writers}",
+                    op.name(),
+                    probe.name()
+                );
+                let cell = ReaderCell {
+                    writers,
+                    readers: 2,
+                    op,
+                    probe,
+                };
+                let out = run_reader_cell(&wl, cell, 0, is_counters, &mut dummy_ctl)
+                    .map_err(|e| format!("{ctx}: {e}"))?;
+                let expected_fresh = if writers == 0 {
+                    0
+                } else {
+                    wl.fresh(probe).len() as u64
+                };
+                if out.fresh_keys != expected_fresh {
+                    return Err(format!(
+                        "{ctx}: {} fresh keys, expected {expected_fresh}",
+                        out.fresh_keys
+                    ));
+                }
+                if writers == 0 && out.reader_ops != 2 * n0 as u64 {
+                    return Err(format!(
+                        "{ctx}: {} probes at W = 0, expected exactly {}",
+                        out.reader_ops,
+                        2 * n0
+                    ));
+                }
+                if is_counters {
+                    out.counters
+                        .check(expected_fresh, out.counters.locked_reads, &ctx)?;
+                    out.counters.check_reader(op, out.reader_ops, &ctx)?;
+                } else if out.reader_elapsed_s <= 0.0
+                    || (writers > 0) != out.writer_elapsed_s.is_some()
+                {
+                    return Err(format!(
+                        "{ctx}: invalid elapsed (readers {}, writers {:?})",
+                        out.reader_elapsed_s, out.writer_elapsed_s
+                    ));
+                }
+            }
+        }
     }
 
     let mode_str = if is_counters {
@@ -932,6 +1851,29 @@ fn main() {
         }
     };
 
+    // Reader mode (#900) is a separate row family; without `--readers` (or
+    // with `--readers 0`) everything below is the writer sweep, unchanged.
+    let readers = match parse_flag::<usize>(&args, "--readers") {
+        Ok(r) => r.unwrap_or(0),
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    };
+    if readers > 0 {
+        if let Err(e) = reader_main(&args, is_counters, readers) {
+            eprintln!("reader mode: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    for flag in ["--read-op", "--probe", "--position"] {
+        if args.iter().any(|a| a == flag) {
+            eprintln!("{flag} is a reader-mode flag and needs --readers > 0");
+            std::process::exit(1);
+        }
+    }
+
     let arm_arg = args
         .iter()
         .position(|a| a == "--arm")
@@ -977,6 +1919,11 @@ fn main() {
         .filter_map(|s| s.trim().parse().ok())
         .collect();
 
+    if writers_list.contains(&0) {
+        eprintln!("--writers 0 is accepted only in reader mode (--readers > 0)");
+        std::process::exit(1);
+    }
+
     let n_w = writers_list.len();
     if !n_w.is_multiple_of(2) || !rounds.is_multiple_of(n_w) {
         eprintln!(
@@ -1016,7 +1963,8 @@ fn main() {
                     run_map_cell(&wl, w, round, is_counters, &mut perf_ctl);
                 let write_ops = m;
                 if is_counters {
-                    if let Err(e) = counters.check(m as u64, &format!("map_w{w}_r0 round {round}"))
+                    if let Err(e) =
+                        counters.check(m as u64, 0, &format!("map_w{w}_r0 round {round}"))
                     {
                         eprintln!("counter identity violated: {e}");
                         std::process::exit(1);
@@ -1057,7 +2005,8 @@ fn main() {
                     run_set_cell(&wl, w, round, is_counters, &mut perf_ctl);
                 let write_ops = m;
                 if is_counters {
-                    if let Err(e) = counters.check(m as u64, &format!("set_w{w}_r0 round {round}"))
+                    if let Err(e) =
+                        counters.check(m as u64, 0, &format!("set_w{w}_r0 round {round}"))
                     {
                         eprintln!("counter identity violated: {e}");
                         std::process::exit(1);
@@ -1097,7 +2046,8 @@ fn main() {
                     run_str_cell(&wl, w, round, is_counters, &mut perf_ctl);
                 let write_ops = m;
                 if is_counters {
-                    if let Err(e) = counters.check(m as u64, &format!("str_w{w}_r0 round {round}"))
+                    if let Err(e) =
+                        counters.check(m as u64, 0, &format!("str_w{w}_r0 round {round}"))
                     {
                         eprintln!("counter identity violated: {e}");
                         std::process::exit(1);

@@ -54,6 +54,7 @@ on:
           - writer_scaling_padded
           - writer_scaling_ablation_alloc
           - writer_scaling_ablation_unstriped_freelist
+          - writer_scaling_ordered_readers
           - point_lookup_counters
           - search_instructions
           - smoke_instructions
@@ -966,6 +967,21 @@ jobs:
                   "--compare-ablation-${flag_arm}" \
                   --out "docs/benchmarks/concurrency/results/ablation_${arm}_writer_scaling.json" | tee writer_scaling.txt
                 ;;
+              "writer_scaling_ordered_readers")
+                # Ordered readers on the map (#900, concurrency METHODOLOGY.md
+                # §12.4). bench_pin.sh pinned this step's shell to the auto list
+                # (the whole cpu_core list, SMT siblings included), but §12.4
+                # fixes one thread per physical P-core and §12.5 voids any other
+                # pin. So this suite re-pins to 0,2,4,6,8,10,12,14 and drops the
+                # inherited marker, which the driver would otherwise refuse. A
+                # cpu_pin input naming another list is refused by the driver,
+                # never overridden.
+                env -u EXPANSE_BENCH_PIN_APPLIED \
+                  EXPANSE_BENCH_PIN="${EXPANSE_BENCH_PIN:-0,2,4,6,8,10,12,14}" \
+                  python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
+                  --ordered-readers \
+                  --out docs/benchmarks/concurrency/results/ordered_readers_writer_scaling.json | tee writer_scaling.txt
+                ;;
               "all")
                 if [ -f base-instructions.txt ]; then
                   cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
@@ -1507,6 +1523,7 @@ jobs:
             docs/benchmarks/concurrency/results/ablation_epoch_writer_scaling.json
             docs/benchmarks/concurrency/results/ablation_freelist_writer_scaling.json
             docs/benchmarks/concurrency/results/ablation_unstriped_freelist_writer_scaling.json
+            docs/benchmarks/concurrency/results/ordered_readers_writer_scaling.json
             docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json
             ycsb.txt
             comparative.txt
