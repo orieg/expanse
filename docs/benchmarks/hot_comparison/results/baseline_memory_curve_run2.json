@@ -1,0 +1,440 @@
+{
+  "provenance": {
+    "suite": "hot_comparison",
+    "issue": 660,
+    "commit": "ae9e716e",
+    "hot_commit": "96bf6fb",
+    "cpu": "x86_64",
+    "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "powersave",
+      "scaling_governor_by_cpu": {
+        "0": "powersave",
+        "1": "powersave",
+        "2": "powersave",
+        "3": "powersave",
+        "4": "powersave",
+        "5": "powersave",
+        "6": "powersave",
+        "7": "powersave",
+        "8": "powersave",
+        "9": "powersave",
+        "10": "powersave",
+        "11": "powersave",
+        "12": "powersave",
+        "13": "powersave",
+        "14": "powersave",
+        "15": "powersave"
+      },
+      "scaling_governor_pin_set": "0-15",
+      "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+      "transparent_hugepage": "always [madvise] never",
+      "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35"
+    },
+    "estimators": {
+      "ratio": "mean(HOT rounds) / mean(Expanse rounds) \u2014 or Expanse / ROWEX for throughput \u2014 with a two-sample BCa 95% interval (scripts/bca_bootstrap.py)",
+      "columns": "per-arm columns are medians of the same rounds; the ratio column is not the quotient of the two median columns beside it",
+      "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+    },
+    "rustflags": "-C target-cpu=haswell",
+    "cxx_flags": "-march=haswell -O3 -std=c++17 -DNDEBUG",
+    "core_pin": "0-15",
+    "loads": [
+      {
+        "label": "start",
+        "since": null,
+        "load1": 1.02,
+        "load5": 1.09,
+        "load15": 1.05,
+        "at": "2026-09-14T21:00:09Z",
+        "stat_busy_jiffies": 60313206,
+        "stat_total_jiffies": 7666376264,
+        "child_cpu_s": 0.016,
+        "monotonic_s": 3195205.243,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "after-sensitivity",
+        "since": "start",
+        "load1": 1.02,
+        "load5": 1.09,
+        "load15": 1.05,
+        "at": "2026-09-14T21:00:27Z",
+        "stat_busy_jiffies": 60315051,
+        "stat_total_jiffies": 7666420461,
+        "child_cpu_s": 18.309,
+        "monotonic_s": 3195223.662,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 0.99,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "after-memory",
+        "since": "after-sensitivity",
+        "load1": 1.02,
+        "load5": 1.08,
+        "load15": 1.05,
+        "at": "2026-09-14T21:00:32Z",
+        "stat_busy_jiffies": 60315495,
+        "stat_total_jiffies": 7666431091,
+        "child_cpu_s": 22.732,
+        "monotonic_s": 3195228.092,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "end",
+        "since": "after-memory",
+        "load1": 1.0,
+        "load5": 1.07,
+        "load15": 1.04,
+        "at": "2026-09-14T21:01:19Z",
+        "stat_busy_jiffies": 60320283,
+        "stat_total_jiffies": 7666545519,
+        "child_cpu_s": 68.201,
+        "monotonic_s": 3195275.781,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 0.95,
+        "foreign_busy_cpus_since_prev": 0.05
+      }
+    ],
+    "quick": false
+  },
+  "cells": [
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "order": "sorted",
+      "keyspace_bits": 63,
+      "population": 32768,
+      "lambda": 1.0,
+      "hot_alloc_bytes_per_key": 12.0625,
+      "expanse_alloc_bytes_per_key": 17.0542,
+      "expanse_mem_used_bytes_per_key": 15.0615,
+      "hot_allocs": 1620,
+      "expanse_allocs": 2445,
+      "lambda_target": 1.0
+    },
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "order": "sorted",
+      "keyspace_bits": 63,
+      "population": 65536,
+      "lambda": 2.0,
+      "hot_alloc_bytes_per_key": 11.8965,
+      "expanse_alloc_bytes_per_key": 14.8425,
+      "expanse_mem_used_bytes_per_key": 13.7551,
+      "hot_allocs": 3166,
+      "expanse_allocs": 3222,
+      "lambda_target": 2.0
+    },
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "order": "sorted",
+      "keyspace_bits": 63,
+      "population": 131072,
+      "lambda": 4.0,
+      "hot_alloc_bytes_per_key": 11.8151,
+      "expanse_alloc_bytes_per_key": 12.4482,
+      "expanse_mem_used_bytes_per_key": 11.8339,
+      "hot_allocs": 6271,
+      "expanse_allocs": 3096,
+      "lambda_target": 4.0
+    },
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "order": "sorted",
+      "keyspace_bits": 63,
+      "population": 262144,
+      "lambda": 8.0,
+      "hot_alloc_bytes_per_key": 11.7688,
+      "expanse_alloc_bytes_per_key": 9.9659,
+      "expanse_mem_used_bytes_per_key": 9.5677,
+      "hot_allocs": 12540,
+      "expanse_allocs": 3335,
+      "lambda_target": 8.0
+    },
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "order": "sorted",
+      "keyspace_bits": 63,
+      "population": 491520,
+      "lambda": 15.0,
+      "hot_alloc_bytes_per_key": 11.7064,
+      "expanse_alloc_bytes_per_key": 8.4964,
+      "expanse_mem_used_bytes_per_key": 8.2325,
+      "hot_allocs": 22673,
+      "expanse_allocs": 3716,
+      "lambda_target": 15.0
+    },
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "order": "sorted",
+      "keyspace_bits": 63,
+      "population": 753664,
+      "lambda": 23.0,
+      "hot_alloc_bytes_per_key": 11.6888,
+      "expanse_alloc_bytes_per_key": 8.5151,
+      "expanse_mem_used_bytes_per_key": 8.2996,
+      "hot_allocs": 35089,
+      "expanse_allocs": 5203,
+      "lambda_target": 23.0
+    },
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "order": "sorted",
+      "keyspace_bits": 63,
+      "population": 983040,
+      "lambda": 30.0,
+      "hot_alloc_bytes_per_key": 11.6952,
+      "expanse_alloc_bytes_per_key": 13.58,
+      "expanse_mem_used_bytes_per_key": 13.1957,
+      "hot_allocs": 45297,
+      "expanse_allocs": 16260,
+      "lambda_target": 30.0
+    },
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "order": "sorted",
+      "keyspace_bits": 63,
+      "population": 1245184,
+      "lambda": 38.0,
+      "hot_alloc_bytes_per_key": 11.7662,
+      "expanse_alloc_bytes_per_key": 20.6917,
+      "expanse_mem_used_bytes_per_key": 20.0684,
+      "hot_allocs": 61743,
+      "expanse_allocs": 35577,
+      "lambda_target": 38.0
+    },
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "order": "sorted",
+      "keyspace_bits": 63,
+      "population": 1507328,
+      "lambda": 46.0,
+      "hot_alloc_bytes_per_key": 11.6799,
+      "expanse_alloc_bytes_per_key": 21.9132,
+      "expanse_mem_used_bytes_per_key": 21.2392,
+      "hot_allocs": 70056,
+      "expanse_allocs": 43065,
+      "lambda_target": 46.0
+    },
+    {
+      "workload_id": "hot_set_63bit",
+      "arm": "set",
+      "order": "sorted",
+      "keyspace_bits": 63,
+      "population": 1998848,
+      "lambda": 61.0,
+      "hot_alloc_bytes_per_key": 11.6991,
+      "expanse_alloc_bytes_per_key": 20.2807,
+      "expanse_mem_used_bytes_per_key": 19.6699,
+      "hot_allocs": 92765,
+      "expanse_allocs": 47626,
+      "lambda_target": 61.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "order": "sorted",
+      "keyspace_bits": 64,
+      "population": 65536,
+      "lambda": 1.0,
+      "hot_alloc_bytes_per_key": 35.8815,
+      "expanse_alloc_bytes_per_key": 24.856,
+      "expanse_mem_used_bytes_per_key": 23.6472,
+      "hot_allocs": 68695,
+      "expanse_allocs": 5288,
+      "lambda_target": 1.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "order": "sorted",
+      "keyspace_bits": 64,
+      "population": 131072,
+      "lambda": 2.0,
+      "hot_alloc_bytes_per_key": 35.8004,
+      "expanse_alloc_bytes_per_key": 24.7891,
+      "expanse_mem_used_bytes_per_key": 24.0927,
+      "hot_allocs": 137352,
+      "expanse_allocs": 7018,
+      "lambda_target": 2.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "order": "sorted",
+      "keyspace_bits": 64,
+      "population": 262144,
+      "lambda": 4.0,
+      "hot_alloc_bytes_per_key": 35.746,
+      "expanse_alloc_bytes_per_key": 22.8019,
+      "expanse_mem_used_bytes_per_key": 22.2841,
+      "hot_allocs": 274598,
+      "expanse_allocs": 8462,
+      "lambda_target": 4.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "order": "sorted",
+      "keyspace_bits": 64,
+      "population": 524288,
+      "lambda": 8.0,
+      "hot_alloc_bytes_per_key": 35.7434,
+      "expanse_alloc_bytes_per_key": 19.0181,
+      "expanse_mem_used_bytes_per_key": 19.0694,
+      "hot_allocs": 549245,
+      "expanse_allocs": 34067,
+      "lambda_target": 8.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "order": "sorted",
+      "keyspace_bits": 64,
+      "population": 983040,
+      "lambda": 15.0,
+      "hot_alloc_bytes_per_key": 35.6976,
+      "expanse_alloc_bytes_per_key": 17.8424,
+      "expanse_mem_used_bytes_per_key": 17.5967,
+      "hot_allocs": 1028317,
+      "expanse_allocs": 93285,
+      "lambda_target": 15.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "order": "sorted",
+      "keyspace_bits": 64,
+      "population": 1507328,
+      "lambda": 23.0,
+      "hot_alloc_bytes_per_key": 35.6799,
+      "expanse_alloc_bytes_per_key": 17.5666,
+      "expanse_mem_used_bytes_per_key": 17.1784,
+      "hot_allocs": 1577366,
+      "expanse_allocs": 158091,
+      "lambda_target": 23.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "order": "sorted",
+      "keyspace_bits": 64,
+      "population": 1966080,
+      "lambda": 30.0,
+      "hot_alloc_bytes_per_key": 35.6919,
+      "expanse_alloc_bytes_per_key": 19.9809,
+      "expanse_mem_used_bytes_per_key": 19.4875,
+      "hot_allocs": 2056592,
+      "expanse_allocs": 216895,
+      "lambda_target": 30.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "order": "sorted",
+      "keyspace_bits": 64,
+      "population": 2490368,
+      "lambda": 38.0,
+      "hot_alloc_bytes_per_key": 35.7574,
+      "expanse_alloc_bytes_per_key": 23.988,
+      "expanse_mem_used_bytes_per_key": 23.3007,
+      "hot_allocs": 2613685,
+      "expanse_allocs": 267134,
+      "lambda_target": 38.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "order": "sorted",
+      "keyspace_bits": 64,
+      "population": 3014656,
+      "lambda": 46.0,
+      "hot_alloc_bytes_per_key": 35.6749,
+      "expanse_alloc_bytes_per_key": 24.7173,
+      "expanse_mem_used_bytes_per_key": 24.0077,
+      "hot_allocs": 3154633,
+      "expanse_allocs": 283994,
+      "lambda_target": 46.0
+    },
+    {
+      "workload_id": "hot_map_64bit",
+      "arm": "map",
+      "order": "sorted",
+      "keyspace_bits": 64,
+      "population": 3997696,
+      "lambda": 61.0,
+      "hot_alloc_bytes_per_key": 35.6939,
+      "expanse_alloc_bytes_per_key": 23.8262,
+      "expanse_mem_used_bytes_per_key": 23.1668,
+      "hot_allocs": 4182961,
+      "expanse_allocs": 294815,
+      "lambda_target": 61.0
+    }
+  ],
+  "payload_delta": {
+    "per_lambda": [
+      {
+        "lambda": 1.0,
+        "map_minus_set": 8.5857
+      },
+      {
+        "lambda": 2.0,
+        "map_minus_set": 10.3376
+      },
+      {
+        "lambda": 4.0,
+        "map_minus_set": 10.4502
+      },
+      {
+        "lambda": 8.0,
+        "map_minus_set": 9.5017
+      },
+      {
+        "lambda": 15.0,
+        "map_minus_set": 9.3642
+      },
+      {
+        "lambda": 23.0,
+        "map_minus_set": 8.8788
+      },
+      {
+        "lambda": 30.0,
+        "map_minus_set": 6.2918
+      },
+      {
+        "lambda": 38.0,
+        "map_minus_set": 3.2323
+      },
+      {
+        "lambda": 46.0,
+        "map_minus_set": 2.7685
+      },
+      {
+        "lambda": 61.0,
+        "map_minus_set": 3.4969
+      }
+    ],
+    "spread_bytes": 7.6817,
+    "note": "map - set at matched occupancy; expected \u2248 one value word and flat. Not a density check \u2014 the arms hold different payloads. The density falsifier is same-flavour cross-keyspace, measured by keyspace_density_probe."
+  }
+}

@@ -11,7 +11,7 @@ reached through a C++ FFI shim over the reference implementation.
 > their own provenance block.
 > *(measured: reference host — Intel Core i9-12900F, 8P+8E/24 threads, 30 MiB L3,
 > Ubuntu 22.04; HOT [`speedskater/hot`](https://github.com/speedskater/hot) `96bf6fb`,
-> ISC; harness commit `ae9e716e` for the integer arms (§1–§4), measured in two runs on the same host with the committed artifacts as run 1 — load average 0.01 / 0.29 / 0.35 / 0.69 at the start, after the sensitivity set, after the memory sweep and at the end of run 1, 1.02 / 1.02 / 1.02 / 1.00 for run 2, and at most 0.05 core-equivalents of busy CPU outside the benchmark between any two snapshots of either run; **the string arms (§6) were re-measured at `41dc7bfd` for [#723](https://github.com/orieg/expanse/issues/723)** with `run.sh strings`, at load 0.50 / 0.50 / 0.67 / 1.02 and a busy-CPU delta of 1.0-1.02 core-equivalents — the benchmark and nothing else — except §6.3's string insertion-order rows, re-measured at `64f8a3af` ([#772](https://github.com/orieg/expanse/issues/772)); `docs/benchmarks/hot_comparison/run.sh`; benchmark
+> ISC; harness commit `ae9e716e` for the integer arms (§1–§4), measured in two runs on the same host with the committed artifacts as run 1 and `results/baseline_latency_run2.json`, `baseline_memory_curve_run2.json` and `baseline_sensitivity_run2.json` as run 2 — load average 0.01 / 0.29 / 0.35 / 0.69 at the start, after the sensitivity set, after the memory sweep and at the end of run 1, 1.02 / 1.02 / 1.02 / 1.00 for run 2, and at most 0.05 core-equivalents of busy CPU outside the benchmark between any two snapshots of either run; **the string arms (§6, and §4.1's string insertion-order rows) were re-measured twice at `b868fb2e`** with `run.sh strings`, after [#941](https://github.com/orieg/expanse/issues/941) moved string-key NUL validation out of the timed loops — load average 1.21 / 1.21 / 1.09 / 1.06 / 1.00 at the start, after the gate, after the insertion-order set, after the memory sweep and at the end of run 1, 1.00 at every snapshot of run 2, and at most 0.01 core-equivalents of busy CPU outside the benchmark between any two snapshots of either run; the string tables are run 1, with run 2 quoted beside them; `docs/benchmarks/hot_comparison/run.sh`; benchmark
 > shell pinned to CPUs 0-15; both arms built for one ISA target —
 > `-C target-cpu=haswell` and `-march=haswell -O3 -std=c++17 -DNDEBUG`; 15 rounds per cell, the arm timed first
 > alternating per round (§12.1), median reported, BCa 95% bootstrap ratio intervals
@@ -236,7 +236,7 @@ the correction under the 100% hit table.
 
 Expanse wins all 24 insertion cells across the three populations in both runs —
 1.735 [1.706, 1.758] to 12.146 [12.084, 12.185] in run 1, 1.639 [1.310, 2.034] to
-12.205 [12.181, 12.271] in run 2 (`results/baseline_latency.json` is run 1). §5.2 registered this as a *weak*
+12.205 [12.181, 12.271] in run 2 (`results/baseline_latency.json` is run 1 and `results/baseline_latency_run2.json` run 2). §5.2 registered this as a *weak*
 prediction; it landed stronger than registered. Every one of these is a
 **sorted-order** cell — the shared generator hands both arms a sorted population
 — and §4.1 publishes what the same cells do on a shuffled permutation.
@@ -296,7 +296,7 @@ axes, and both are recorded as **`UNPREDICTED LOSS`**:
 
 The `map`/`random`/1M row is the exception and it reverses cleanly: Expanse wins
 every scan width there in both runs, 1.702 / 1.631 / 1.525 and 1.712 / 1.632 /
-1.518 (`results/baseline_latency.json` is run 1). At `5232af74`, with HOT timed
+1.518 (`results/baseline_latency.json` is run 1 and `results/baseline_latency_run2.json` run 2). At `5232af74`, with HOT timed
 first in every round, the row read 1.414 / 1.402 / 1.517, with no interval
 published beside it. Scan outcome therefore depends on population as well as
 on `k`, which is a second reason this suite does not publish single-population
@@ -365,7 +365,7 @@ and reconciling them against a different workload in place is what §8.7 forbids
 
 *(measured: reference host — Intel i9-12900F, CPUs 0-15; commit `ae9e716e`, two runs;
 `run.sh`; 15 rounds per cell, BCa 95%;
-[`results/baseline_sensitivity.json`](results/baseline_sensitivity.json) is run 1;
+[`results/baseline_sensitivity.json`](results/baseline_sensitivity.json) is run 1 and [`results/baseline_sensitivity_run2.json`](results/baseline_sensitivity_run2.json) run 2;
 workload: `hot_set_63bit` and `hot_map_64bit`)*. Run 2 reproduces the memory
 columns exactly and agrees on the direction of seven of the eight latency cells.
 The eighth, `map` · `shuffled` · `lookup_hit`, spans parity in run 1 at
@@ -383,32 +383,45 @@ winner is not established** (`docs/BENCHMARKING.md` rule 18), and it claims none
 
 | Arm | Order | HOT alloc B/key | Expanse alloc B/key | Expanse `mem_used` B/key | `lookup_hit` HOT ÷ Expanse | `insert` HOT ÷ Expanse |
 |---|---|---:|---:|---:|---:|---:|
-| C · str | `sorted` | 12.23 | 47.83 | **42.77** | 1.268 [1.265, 1.271] | 1.396 [1.355, 1.417] |
-| C · str | `shuffled` | 12.72 | 50.61 | **42.77** | 1.283 [1.280, 1.286] | 1.287 [1.280, 1.292] |
-| D · map | `sorted` | 36.29 | 47.83 | **42.77** | 1.912 [1.895, 1.942] | 1.558 [1.542, 1.574] |
-| D · map | `shuffled` | 36.83 | 50.60 | **42.77** | 1.911 [1.906, 1.916] | 1.773 [1.766, 1.781] |
+| C · str | `sorted` | 12.23 | 48.19 | **43.25** | 1.228 [1.225, 1.232] | 1.331 [1.313, 1.349] |
+| C · str | `shuffled` | 12.72 | 50.95 | **43.25** | 1.242 [1.237, 1.246] | 1.258 [1.250, 1.266] |
+| D · map | `sorted` | 36.29 | 48.19 | **43.25** | 1.856 [1.851, 1.860] | 1.494 [1.478, 1.510] |
+| D · map | `shuffled` | 36.83 | 50.93 | **43.25** | 1.878 [1.872, 1.885] | 1.720 [1.716, 1.724] |
 
 *(measured: reference host — Intel i9-12900F, 8P+8E / 24 threads, P-core pin;
-commit `64f8a3af`; `run.sh strings --only-sensitivity`; 15 rounds per cell,
-BCa 95%; busy-CPU delta 1.01 core-equivalents across every phase;
-[`results/baseline_string_sensitivity.json`](results/baseline_string_sensitivity.json))*.
+commit `b868fb2e`, two runs; `run.sh strings`; 15 rounds per cell, BCa 95%;
+busy CPU 1.00 core-equivalents across the insertion-order phase of each run,
+none of it outside the benchmark;
+[`results/baseline_string_sensitivity.json`](results/baseline_string_sensitivity.json)
+is run 1 and [`results/baseline_string_sensitivity_run2.json`](results/baseline_string_sensitivity_run2.json) run 2; workloads: `hot_str_ptr`, `hot_str_map`)*. The census columns are
+identical in run 2, and its ratios, row by row, are 1.227 [1.222, 1.231] /
+1.333 [1.316, 1.349], 1.228 [1.200, 1.245] / 1.252 [1.241, 1.260],
+1.876 [1.869, 1.882] / 1.492 [1.475, 1.509] and 1.878 [1.872, 1.884] /
+1.715 [1.709, 1.722], every winner the same.
+
+> **Correction: these rows are re-measured.** They were published from
+> `64f8a3af` at 47.83 / 50.61 / 50.60 B/key allocator and 42.77 `mem_used`, with
+> `lookup_hit` / `insert` ratios 1.268 / 1.396, 1.283 / 1.287, 1.912 / 1.558 and
+> 1.911 / 1.773. The Expanse census moved with §6.1's and HOT's columns are
+> unchanged; no cell changed winner, and the cause of the census move is
+> unmeasured.
 
 These replace the four rows withheld under
 [#772](https://github.com/orieg/expanse/issues/772), which were measured at
 `0f4fd40c` against the two-allocation `ExpanseStrMap` leaf that
 [#723](https://github.com/orieg/expanse/issues/723) replaced. The superseded
 Expanse columns (69.16 / 71.99 index, 50.77 `mem_used`) stay registered in
-`.github/superseded-figures.json`; the leaf change moved them to 47.83 / 50.61
-and 42.77.
+`.github/superseded-figures.json`; after the leaf change they read 48.19 / 50.95
+and 43.25 at `b868fb2e`.
 
 **`mem_used` is identical in both orders and the allocator figure is not** —
-42.77 either way against 47.83 sorted and 50.61 shuffled. That is the same
+43.25 either way against 48.19 sorted and 50.95 shuffled (50.93 on Arm D). That is the same
 split the integer rows show, and the reason the two instruments are published
 side by side rather than one standing for the other: a digital trie's node
 census is fixed by the key set, and only its allocator footprint depends on
 arrival order.
 - **`mem_used` is identical in both orders on every arm** — 17.58 B/key
-  for the integer map and 42.77 for the string arms — while the allocator
+  for the integer map and 43.25 for the string arms — while the allocator
   census moves on both arms. A digital trie's shape is fixed by the key set, not by the sequence
   the keys arrived in; the allocator's is not. That is the invariant
   `crates/expanse/tests/test_mem_used_order_invariant.rs` pins, and it is what
@@ -475,24 +488,35 @@ Stated before the numbers existed (§7) and unchanged by them:
 
 ## 6. String keys (#693): `ExpanseStrMap` and `ExpanseBytesMap` against HOT's C-string configuration
 
-> **Measured with the corrected probe builder.** The string builder's hit
-> sampling was fixed alongside the integer one ([#760](https://github.com/orieg/expanse/issues/760)), and this section's
-> artifacts were measured at `7fe02c0b`, which postdates that fix. These cells
-> need no re-measurement; §2's integer cells predated it and were re-run.
+> **Measured twice at `b868fb2e`, after key validation left the timed loops.**
+> Since [#810](https://github.com/orieg/expanse/issues/810) the string maps take
+> a NUL-free key type, and the harness had adapted by validating each key inside
+> the timed lookup, insert and scan loops while HOT received the pointer
+> unchecked. [#941](https://github.com/orieg/expanse/issues/941) validates every
+> key once, at construction, and this section was re-measured on a head that
+> includes it. The `7fe02c0b` artifacts it replaces predate #810, so neither
+> measurement carries the per-call validation. Both runs, and the `7fe02c0b`
+> artifact, agree on the winner of every N = 1M cell and every scan cell; five
+> 100%-hit lookup cells at N = 10,000 and 100,000 do not, and §6.6 names them.
+> The probe builder carries the [#760](https://github.com/orieg/expanse/issues/760)
+> hit-sampling fix in all three.
 
 > *(measured: reference host — Intel Core i9-12900F, 8P+8E/24 threads, 30 MiB L3,
-> Ubuntu 22.04 / kernel 6.8; HOT `96bf6fb`; harness commit `7fe02c0b`;
+> Ubuntu 22.04 / kernel 6.8; HOT `96bf6fb`; harness commit `b868fb2e`, two runs;
 > `docs/benchmarks/hot_comparison/run.sh strings`; benchmark shell pinned to CPUs
 > 0-15; both arms `-C target-cpu=haswell` / `-march=haswell -O3 -std=c++17
-> -DNDEBUG`; load average 0.57 / 0.57 / 0.98 / 0.99 / 1.00 at start, after the gate,
-> after the memory sweep and at the end; 15 rounds per cell, the arm timed first
-> alternating per round (§12.1), median reported,
+> -DNDEBUG`; load average 1.21 / 1.21 / 1.09 / 1.06 / 1.00 at start, after the
+> gate, after the insertion-order set, after the memory sweep and at the end of
+> run 1, and 1.00 at every snapshot of run 2; busy CPU 0.99–1.00 core-equivalents
+> between snapshots, of which at most 0.01 outside the benchmark; 15 rounds per
+> cell, the arm timed first alternating per round (§12.1), median reported,
 > BCa 95% bootstrap ratio intervals over 2,000 resamples;
-> `results/baseline_string_latency.json`, `results/baseline_string_memory.json`;
-> gate transcript `results/string_validate.log`)*. Pre-registration:
+> `results/baseline_string_latency.json`, `results/baseline_string_memory.json`
+> and gate transcript `results/string_validate.log` are run 1)*. Pre-registration:
 > [`METHODOLOGY.md` §10](METHODOLOGY.md#10-string-key-arms-693-pre-registration).
-> Tables in this section are the output of `scripts/string_tables.py` over those
-> two files. Internal work; no external peer review.
+> Tables in this section are curated from `scripts/string_tables.py` over those
+> files; where run 2 is quoted, it follows run 1. Internal work; no external peer
+> review.
 
 Three pairings (§10.2): **Arm C** `hot_str_ptr` — HOT's shipped string
 configuration, `HOTSingleThreaded<const char*, IdentityKeyExtractor>`, against
@@ -510,10 +534,12 @@ each; the census counts them on neither side (§10.3).
 
 **Ordered scan is still a loss in every cell, and it is still the largest loss
 in this suite — but it is roughly half the loss it was.** All 72 scan cells
-with a HOT column go to HOT; HOT ÷ Expanse runs from 0.637 [0.633, 0.641]
-(`counter`, Arm D, k = 10, N = 1M) down to 0.048 [0.048, 0.049] (`skewed`,
-Arm C, k = 1000, N = 100k). That is the pre-registered high-confidence loss
-(§10.7), **`CONFIRMED`** on all 72.
+with a HOT column go to HOT, in both runs; HOT ÷ Expanse runs from
+0.646 [0.643, 0.650] (`counter`, Arm D, k = 10, N = 1M) down to
+0.050 [0.049, 0.050] (`skewed`, Arm C, k = 1000, N = 100k), and run 2 reads
+0.646 [0.643, 0.649] and 0.049 [0.049, 0.050] on the same two cells
+*(workloads: `hot_str_ptr`, `hot_str_map`)*. That is the pre-registered
+high-confidence loss (§10.7), **`CONFIRMED`** on all 72.
 
 > **Re-measured after [#722](https://github.com/orieg/expanse/issues/722), and
 > the comparison it replaces was not symmetric.** This pillar drove
@@ -542,42 +568,61 @@ Arm C, k = 1000, N = 100k). That is the pre-registered high-confidence loss
 
 | Arm | Shape | N | k=10 | k=100 | k=1000 |
 |---|---|---:|---:|---:|---:|
-| C · ptr | `counter` | 1,000,000 | 0.507 [0.503, 0.511] | 0.135 [0.132, 0.139] | 0.077 [0.076, 0.078] |
-| C · ptr | `prefixed` | 1,000,000 | 0.455 [0.450, 0.459] | 0.173 [0.167, 0.178] | 0.100 [0.097, 0.103] |
-| C · ptr | `short` | 1,000,000 | 0.462 [0.458, 0.468] | 0.144 [0.139, 0.149] | 0.083 [0.081, 0.085] |
-| C · ptr | `skewed` | 998,150 | 0.369 [0.365, 0.373] | 0.104 [0.101, 0.108] | 0.059 [0.058, 0.061] |
-| D · map | `counter` | 1,000,000 | 0.637 [0.633, 0.641] | 0.173 [0.171, 0.176] | 0.093 [0.091, 0.094] |
-| D · map | `prefixed` | 1,000,000 | 0.566 [0.561, 0.570] | 0.242 [0.239, 0.246] | 0.131 [0.128, 0.134] |
-| D · map | `short` | 1,000,000 | 0.601 [0.597, 0.606] | 0.204 [0.201, 0.206] | 0.112 [0.111, 0.114] |
-| D · map | `skewed` | 998,150 | 0.476 [0.473, 0.480] | 0.150 [0.148, 0.152] | 0.080 [0.079, 0.082] |
-| C, D | `beyond` | any | Expanse 28–113 ns/element; HOT column withheld (§10.4) | | |
+| C · ptr | `counter` | 1,000,000 | 0.508 [0.502, 0.513] | 0.136 [0.132, 0.139] | 0.079 [0.078, 0.080] |
+| C · ptr | `prefixed` | 1,000,000 | 0.464 [0.459, 0.469] | 0.178 [0.172, 0.184] | 0.103 [0.100, 0.106] |
+| C · ptr | `short` | 1,000,000 | 0.454 [0.448, 0.460] | 0.145 [0.139, 0.151] | 0.085 [0.082, 0.087] |
+| C · ptr | `skewed` | 998,150 | 0.382 [0.378, 0.387] | 0.111 [0.107, 0.115] | 0.064 [0.062, 0.066] |
+| D · map | `counter` | 1,000,000 | 0.646 [0.643, 0.650] | 0.177 [0.175, 0.179] | 0.093 [0.092, 0.094] |
+| D · map | `prefixed` | 1,000,000 | 0.581 [0.577, 0.584] | 0.250 [0.246, 0.253] | 0.135 [0.133, 0.137] |
+| D · map | `short` | 1,000,000 | 0.598 [0.594, 0.601] | 0.204 [0.201, 0.206] | 0.117 [0.115, 0.118] |
+| D · map | `skewed` | 998,150 | 0.496 [0.493, 0.499] | 0.159 [0.157, 0.161] | 0.086 [0.085, 0.088] |
+| C, D | `beyond` | any | Expanse 27–108 ns/element in both runs; HOT column withheld (§10.4) | | |
 
-The 10k and 100k rows are in `results/baseline_string_latency.json`; none is
-above 0.22.
+Run 1; run 2 is within 0.01 of every N = 1M cell above. The 10k and 100k rows
+are in `results/baseline_string_latency.json`: at k = 10 they run 0.245–0.551
+(0.245–0.545 in run 2), and at k = 100 and k = 1000 none is above 0.18 in either
+run. **Correction:** this sentence previously read that none of the 10k and 100k
+rows was above 0.22; that holds only at k = 100 and k = 1000, and the k = 10
+cells were above it in the `7fe02c0b` artifact as well.
 
-**Memory ownership on `short` still goes to HOT; `skewed` no longer does.**
-§10.7 registered, at low-medium confidence, that Expanse would win the
-`ownership` column on `short` and `counter`. On `counter` it does; on `short`
-it does not — 36.23 against 47.83, a narrower margin than the one first
-published — and `skewed` has since crossed to Expanse, 41.28 against HOT's
-41.98 *(workload: `hot_str_ptr`)*:
+**Memory ownership on `short` still goes to HOT; `skewed` goes narrowly to
+Expanse.** §10.7 registered, at low-medium confidence, that Expanse would win the
+`ownership` column on `short` and `counter`. On `counter` it does; on `short` it
+does not — 36.23 against 48.19 — and on `skewed` Expanse holds 41.71 against
+HOT's 41.98 *(workload: `hot_str_ptr`)*:
 
 | Shape (Arm C, N = 1M) | external (exact) | HOT index | Expanse index | **HOT ownership** | **Expanse ownership** | Expanse `mem_used` |
 |---|---:|---:|---:|---:|---:|---:|
-| `short` | 24.00 (13.00) | 12.23 | 47.83 | **36.23** | 47.83 | 42.77 |
-| `skewed` | 29.76 (15.27) | 12.22 | 41.28 | 41.98 | **41.28** | 37.71 |
-| `counter` | 24.00 (13.00) | 11.42 | 20.53 | 35.42 | **20.53** | 19.56 |
-| `prefixed` | 136.00 (121.00) | 12.23 | 63.49 | 148.23 | **63.49** | 54.77 |
-| `beyond` | 280.00 (273.00) | withheld | 47.83 | withheld | 47.83 | 46.78 |
+| `short` | 24.00 (13.00) | 12.23 | 48.19 | **36.23** | 48.19 | 43.25 |
+| `skewed` | 29.76 (15.27) | 12.22 | 41.71 | 41.98 | **41.71** | 38.18 |
+| `counter` | 24.00 (13.00) | 11.42 | 20.54 | 35.42 | **20.54** | 19.56 |
+| `prefixed` | 136.00 (121.00) | 12.23 | 64.01 | 148.23 | **64.01** | 55.25 |
+| `beyond` | 280.00 (273.00) | withheld | 48.19 | withheld | 48.19 | 47.25 |
+
+*(Deterministic allocator census; the `ExpanseStrMap` arms are identical in both
+runs.)*
+
+> **Correction: the Expanse columns are re-measured.** Against the `7fe02c0b`
+> census, the allocator column moved 47.83 → 48.19 B/key on `short` and
+> `beyond`, 41.28 → 41.71 on `skewed`, 63.49 → 64.01 on `prefixed` and
+> 20.53 → 20.54 on `counter`; `mem_used` moved 42.77 → 43.25 on `short`,
+> 37.71 → 38.18 on `skewed`, 54.77 → 55.25 on `prefixed` and 46.78 → 47.25 on
+> `beyond` (the superseded figure first in each pair), and held at 19.56 on
+> `counter`. Allocations for 10⁶ keys fell
+> 1,065,010 → 1,049,567 on `short` and 160,627 → 141,423 on `counter`. HOT's
+> columns are unchanged to the digit, and no cell changed winner. Which engine
+> change between the two commits moved the Expanse side is not isolated here;
+> the cause is unmeasured.
 
 `ExpanseStrMap` holds a 12-byte key in about 48 bytes, and the gate's
-allocation counts are still what explains the gap: **115,916** allocations for
-100,000 `short` keys against HOT's 4,566 (`results/string_validate.log`), or
-roughly one per key against HOT's one per twenty-two. The engine's own
-`mem_used` (42.77 B/key) sits 5.1 B/key under the allocator column, which is
-the allocator's rounding on those allocations (§9.3 reason 1, now on the string
-path). The §10.7 prediction is still **`REFUTED`** on `short`, and it remains a
-finding about `ExpanseStrMap`'s leaf representation rather than about HOT.
+allocation counts show where they go: **111,244** allocations for 100,000
+`short` keys against HOT's 4,566 (`results/string_validate.log`, identical in
+both runs; the superseded `7fe02c0b` transcript read 115,916), or roughly one per key
+against HOT's one per twenty-two. The engine's own `mem_used` (43.25 B/key)
+sits 4.9 B/key under the allocator column, which is the allocator's rounding on
+those allocations (§9.3 reason 1, now on the string path). The §10.7 prediction
+is still **`REFUTED`** on `short`, and it remains a finding about
+`ExpanseStrMap`'s leaf representation rather than about HOT.
 
 > **This paragraph is the corrected form; the original figures are superseded,
 > not overwritten (§8.7).** When first published it read *a 13-byte key in
@@ -589,9 +634,9 @@ finding about `ExpanseStrMap`'s leaf representation rather than about HOT.
 > were re-measured on the reference host at the commit that did it. Two
 > corrections travel with the number: the shape's mean key length is **12.0**,
 > not 13 — the generator is `8 + rng % 9`, and both suites' artifacts report
-> 12.0 — and `mem_used`'s shortfall against the allocator column is 5.1 B/key
-> here, where the two-allocation leaf made it 18. The superseded figures are
-> registered in `.github/superseded-figures.json`.
+> 12.0 — and `mem_used`'s shortfall against the allocator column was 5.1 B/key
+> after that change (4.9 at `b868fb2e`), where the two-allocation leaf made it
+> 18. The superseded figures are registered in `.github/superseded-figures.json`.
 
 **The `index` column goes to HOT on every shape, categorically.** HOT holds
 11.4–12.2 B/key of index on every representable shape at N = 1M because it
@@ -600,67 +645,107 @@ bytes. Registered in §10.3 as **`PASS_categorical_by_design` in HOT's favour**
 and labelled so: the contest is the `ownership` column above, where HOT's
 external string table is added back.
 
-**`prefixed` point lookup on Arm C is HOT's, as registered.** 100% hit
-0.765 [0.763, 0.767]; 50/50 0.895 [0.885, 0.899] (N = 1M). This is the regime
-HOT is designed for — 96 shared bytes that its discriminative-bit selection
-skips and `ExpanseStrMap` descends one chunk at a time — and it is the one
-place in the string suite where the pre-registered loss on HOT's home ground
-landed as predicted. At N = 100,000 the 50/50 cell is 0.993 [0.957, 1.033].
+**`prefixed` point lookup on Arm C is HOT's at N = 1M and N = 10,000, as
+registered, and not at N = 100,000.** At N = 1M, 100% hit 0.797 [0.790, 0.800]
+and 50/50 0.930 [0.928, 0.933]; run 2 0.798 [0.795, 0.800] and
+0.933 [0.930, 0.937] *(workload: `hot_str_ptr`)*. This is the regime HOT is
+designed for — 96 shared bytes that its discriminative-bit selection skips and
+`ExpanseStrMap` descends one chunk at a time — and it is the one place in the
+string suite where the pre-registered loss on HOT's home ground landed as
+predicted. At N = 100,000 the 50/50 cell spans parity, 1.026 [0.989, 1.067]
+(run 2 1.032 [0.995, 1.074]), and the 100%-hit cell goes to Expanse in both
+runs, 1.063 [1.024, 1.108] and 1.049 [1.010, 1.095] — **`REFUTED`** at that
+population. **Correction:** the `7fe02c0b` artifact had that 100%-hit cell at
+parity, 1.018 [0.982, 1.058]; both runs here put it on Expanse's side, and the
+cause of the move is unmeasured.
 
-**`ExpanseBytesMap` (Arm E) loses insertion everywhere and most 100%-hit
-lookups, and its index is the heaviest thing measured here.** Insert:
-0.522 [0.520, 0.523] on `counter`, 0.638 [0.634, 0.642] on `short`,
-0.658 [0.655, 0.661] on `skewed`, 0.744 [0.740, 0.747] on `prefixed` (N = 1M).
-100% hit: HOT on `prefixed` 0.936 [0.932, 0.939], `short` 0.928 [0.925, 0.930],
-`skewed` 0.990 [0.981, 0.995]; Expanse only on `counter` 1.034 [1.030, 1.037].
-Its index costs 96.6–102.1 B/key on 12–15-byte keys and 192.7 B/key on
-`prefixed` — a hash-trie entry, a boxed collision bucket, the bucket's vector,
-and a boxed copy of the key. None of this was pre-registered (§10.7 declined to
+**`ExpanseBytesMap` (Arm E) loses insertion at every population and most
+100%-hit lookups at N = 1M, and its index is the heaviest thing measured here.**
+Insert at N = 1M: 0.515 [0.514, 0.517] on `counter`, 0.639 [0.633, 0.660] on
+`short`, 0.656 [0.652, 0.662] on `skewed`, 0.742 [0.741, 0.743] on `prefixed`
+(run 2 0.520 [0.518, 0.521], 0.637 [0.632, 0.652], 0.656 [0.651, 0.669],
+0.742 [0.740, 0.749]). 100% hit: HOT on `prefixed` 0.933 [0.928, 0.948],
+`short` 0.937 [0.933, 0.940], `skewed` 0.989 [0.986, 0.993]; Expanse only on
+`counter` 1.020 [1.017, 1.024] (run 2 0.930 [0.926, 0.934],
+0.937 [0.934, 0.939], 0.986 [0.984, 0.989] and 1.017 [1.014, 1.020], the same
+winners) *(workload: `hot_bytes_ptr`)*. Its index costs 97.7–103.2 B/key on
+12–15-byte keys and 193.7–193.8 B/key on `prefixed` at N = 1M across the two
+runs — a hash-trie entry, a boxed collision bucket, the bucket's vector, and a
+boxed copy of the key. None of this was pre-registered (§10.7 declined to
 predict Arm E); it is reported as `not pre-registered` and it is the largest
 per-entry footprint in either HOT suite. Arm E does win every 50/50 cell at
-N = 1M (1.104–1.170).
+N = 1M (1.117–1.215 across the two runs).
 
-**`UNPREDICTED LOSS`: `counter` 100%-hit lookup on Arm C at small N.** §10.7
-registered `counter` lookup as a high-confidence Expanse win. It is one at
-N = 1M (1.055 [1.051, 1.059]) and a HOT win at N = 10,000
-(0.856 [0.845, 0.868]) and N = 100,000 (0.875 [0.861, 0.887]). The
-prediction was stated without a population and was wrong below a million keys.
+**Arm E's census is the one memory figure in this section that differs between
+runs.** All 60 of its cells differ between run 1 and run 2 — by at most 2.90% in
+any cell, at small N, and by at most 0.08 B/key at N = 1M (`short` 97.74 against
+97.66) — while every `ExpanseStrMap` and HOT cell is identical in both. Its
+figures are therefore given as the range the two runs span; the cause of the
+difference is unmeasured. Against the `7fe02c0b` artifact its N = 1M index moved
+96.61 → 97.74 B/key on `short` and 96.61 → 97.77 on `counter` (run 1), and its
+allocations for 10⁶ keys fell from about 3,105,900 to about 3,097,300; the
+superseded range, 96.6–102.1 and 192.7 B/key, is registered in
+`.github/superseded-figures.json`.
+
+**`UNPREDICTED LOSS`: `counter` 100%-hit lookup on Arm C below a million keys.**
+§10.7 registered `counter` lookup as a high-confidence Expanse win. It is one at
+N = 1M (1.067 [1.063, 1.071]; run 2 1.061 [1.048, 1.075]) and a HOT win at
+N = 10,000 (0.855 [0.845, 0.866]; run 2 0.848 [0.837, 0.861]) and N = 100,000
+(0.864 [0.836, 0.875]; run 2 0.880 [0.862, 0.889]). The prediction was stated
+without a population and was wrong below a million keys. On Arm D the same cell
+is an Expanse win at N = 100,000 and 1M in both runs and spans parity at
+N = 10,000 (1.003 [0.989, 1.019]; run 2 1.055 [0.963, 1.186]). **Correction:**
+the `7fe02c0b` artifact had that Arm D cell as an Expanse win,
+1.057 [1.045, 1.094]; the cause of the move is unmeasured.
 
 ### 6.2 Where the pre-registration was refuted in Expanse's favour
 
 These are reported with the same prominence as the losses (§6 taxonomy). At
 N = 1M, HOT ÷ Expanse:
 
-| Cell | Registered (§10.7) | Measured | Label |
-|---|---|---:|---|
-| `skewed` 100% hit, Arm C | HOT wins (low) | 1.169 [1.165, 1.173] | **`REFUTED`** |
-| `skewed` 100% hit, Arm D | HOT wins (low) | 1.741 [1.737, 1.746] | **`REFUTED`** |
-| `skewed` 50/50, Arm C | HOT wins (low) | 1.370 [1.364, 1.375] | **`REFUTED`** |
-| `skewed` 50/50, Arm D | HOT wins (low) | 1.969 [1.962, 1.976] | **`REFUTED`** |
-| `prefixed` 100% hit, Arm D | HOT wins (medium-high) | 1.072 [1.070, 1.075] | **`REFUTED`** |
-| `prefixed` 50/50, Arm D | HOT wins (medium-high) | 1.244 [1.241, 1.248] | **`REFUTED`** |
-| `prefixed` insert, Arm C | HOT wins (medium) | 1.210 [1.207, 1.213] | **`REFUTED`** |
-| `prefixed` insert, Arm D | HOT wins (medium) | 1.298 [1.293, 1.303] | **`REFUTED`** |
+| Cell | Registered (§10.7) | Run 1 | Run 2 | Label |
+|---|---|---:|---:|---|
+| `skewed` 100% hit, Arm C | HOT wins (low) | 1.222 [1.218, 1.228] | 1.234 [1.221, 1.260] | **`REFUTED`** |
+| `skewed` 100% hit, Arm D | HOT wins (low) | 1.798 [1.793, 1.803] | 1.795 [1.790, 1.801] | **`REFUTED`** |
+| `skewed` 50/50, Arm C | HOT wins (low) | 1.381 [1.375, 1.386] | 1.376 [1.370, 1.382] | **`REFUTED`** |
+| `skewed` 50/50, Arm D | HOT wins (low) | 2.000 [1.993, 2.006] | 1.993 [1.987, 1.999] | **`REFUTED`** |
+| `prefixed` 100% hit, Arm D | HOT wins (medium-high) | 1.112 [1.110, 1.115] | 1.113 [1.110, 1.115] | **`REFUTED`** |
+| `prefixed` 50/50, Arm D | HOT wins (medium-high) | 1.266 [1.262, 1.269] | 1.265 [1.260, 1.269] | **`REFUTED`** |
+| `prefixed` insert, Arm C | HOT wins (medium) | 1.336 [1.334, 1.339] | 1.336 [1.334, 1.338] | **`REFUTED`** |
+| `prefixed` insert, Arm D | HOT wins (medium) | 1.431 [1.428, 1.433] | 1.431 [1.429, 1.434] | **`REFUTED`** |
+
+*(workloads: `hot_str_ptr`, `hot_str_map`)*
 
 The `skewed` row is the one §10.7 flagged as "registered because the issue
 expects it; the mechanism reading does not support it". The mechanism reading
 was right and the registration was wrong, in every population and on both
-`ExpanseStrMap` arms. On `prefixed`, the loss that held on Arm C reverses on
-Arm D exactly as the integer arms' uniform-random loss did (§2): HOT's
-per-entry heap pair costs more than the descent it saves.
+`ExpanseStrMap` arms. `prefixed` insertion is refuted at every population on
+both arms. On `prefixed` point lookup, the loss that holds on Arm C at N = 1M
+reverses on Arm D at N = 100,000 and 1M, and spans parity there at N = 10,000
+in both runs; that HOT's per-entry heap pair is what reverses it is a
+hypothesis, not a measurement. **Correction:** this paragraph previously
+likened the reversal to the integer arms' uniform-random loss reversing on the
+map arm (§2); since §2 was re-measured at `ae9e716e` the integer map's
+uniform-random hit cell is a HOT win, so the likeness is withdrawn.
 
 ### 6.3 Confirmed wins, and the rest
 
 `counter` at N = 1M is Expanse's on both `ExpanseStrMap` arms: 100% hit
-1.055 [1.051, 1.059] (C) and 1.560 [1.554, 1.568] (D); insert
-1.467 [1.463, 1.471] (C) and 1.723 [1.718, 1.727] (D) — **`CONFIRMED`**, with
-the small-N caveat of §6.1. `short` 100% hit on Arm C is 1.166 [1.162, 1.170],
-**`CONFIRMED`**. Arm D's memory is `PASS_categorical_by_design` for Expanse on
-every representable shape (HOT ownership 59.4–172.2 B/key against Expanse
-20.5–71.8), as §10.7 registered. The cells §10.7 declined to predict — 50/50
-lookups on `short` and `skewed`, insertion on `short` and `skewed`, and all of
-Arm E — are `not pre-registered`; at N = 1M the `ExpanseStrMap` ones are
-Expanse's (1.14–2.08), the Arm E ones split as described above.
+1.067 [1.063, 1.071] (C) and 1.565 [1.560, 1.571] (D); insert
+1.406 [1.403, 1.409] (C) and 1.661 [1.655, 1.667] (D) — **`CONFIRMED`**, with
+the small-N caveats of §6.1 (run 2 1.061 [1.048, 1.075], 1.573 [1.566, 1.579],
+1.403 [1.399, 1.407] and 1.661 [1.655, 1.667]). `short` 100% hit on Arm C is
+1.243 [1.239, 1.246] (run 2 1.232 [1.228, 1.236]), **`CONFIRMED`**, and an
+Expanse win at N = 10,000 and 100,000 in both runs too. Arm D's memory is
+`PASS_categorical_by_design` for Expanse on every representable shape from
+N = 5,000 (at N = 1M, HOT ownership 59.4–172.2 B/key against Expanse
+20.5–64.0), as §10.7 registered; at N = 1,000 HOT's ownership is the smaller on
+`short`, `counter` and `skewed`, and at N = 2,000 on `short`, in both runs and
+in the `7fe02c0b` census *(workload: `hot_str_map`)*. The cells §10.7 declined
+to predict — 50/50 lookups on `short` and `skewed`, insertion on `short` and
+`skewed`, and all of Arm E — are `not pre-registered`; at N = 1M the
+`ExpanseStrMap` ones are Expanse's (1.33–2.15 across both runs), the Arm E ones
+split as described above.
 
 ![String keys, latency at N = 1M](results/chart_string_latency.svg)
 
@@ -670,28 +755,34 @@ Expanse's (1.14–2.08), the Arm E ones split as described above.
 
 | N | `counter` HOT / Expanse | `short` HOT / Expanse | `skewed` HOT / Expanse | `prefixed` HOT / Expanse | `beyond` — / Expanse |
 |---:|---:|---:|---:|---:|---:|
-| 1,000 | 44.7 / 91.2 | 44.8 / 85.0 | 51.2 / 78.8 | 157.5 / 101.3 | — / 86.2 |
-| 10,000 | 36.6 / 27.5 | 37.0 / 54.3 | 42.7 / 47.6 | 149.1 / 70.2 | — / 54.4 |
-| 100,000 | 35.5 / 21.1 | 36.1 / 42.5 | 42.0 / 41.3 | 148.1 / 58.0 | — / 42.6 |
-| 125,000 | 35.5 / 21.0 | 36.4 / 46.5 | 42.0 / 41.3 | 148.4 / 62.2 | — / 46.6 |
-| 150,000 | 35.5 / 20.9 | 36.7 / 49.8 | 42.0 / 41.3 | 148.7 / 65.4 | — / 49.7 |
-| 200,000 | 35.5 / 20.8 | 36.5 / 50.5 | 42.0 / 41.3 | 148.5 / 66.0 | — / 50.5 |
-| 1,000,000 | 35.4 / 20.5 | 36.2 / 47.8 | 42.0 / 41.3 | 148.2 / 63.5 | — / 47.8 |
+| 1,000 | 44.7 / 90.8 | 44.8 / 86.4 | 51.2 / 80.3 | 157.5 / 102.5 | — / 87.0 |
+| 10,000 | 36.6 / 27.5 | 37.0 / 54.4 | 42.7 / 47.9 | 149.1 / 70.6 | — / 54.5 |
+| 100,000 | 35.5 / 21.1 | 36.1 / 43.6 | 41.9 / 37.0 | 148.1 / 59.3 | — / 43.6 |
+| 125,000 | 35.5 / 21.0 | 36.4 / 47.0 | 42.2 / 40.6 | 148.4 / 63.0 | — / 47.0 |
+| 150,000 | 35.5 / 20.9 | 36.7 / 50.1 | 42.5 / 43.6 | 148.7 / 66.0 | — / 50.0 |
+| 200,000 | 35.5 / 20.8 | 36.5 / 51.2 | 42.3 / 44.6 | 148.5 / 66.9 | — / 51.2 |
+| 1,000,000 | 35.4 / 20.5 | 36.2 / 48.2 | 42.0 / 41.7 | 148.2 / 64.0 | — / 48.2 |
 
-Arm C ownership, B/key; the 2k, 5k, 20k and 500k rows are in
-`results/baseline_string_memory.json`. **HOT is flat again** — 35.4–36.7 B/key
-on every 12–15-byte shape from 10k to 1M, the string analogue of the integer
-arms' 11.68–12.06 — and `counter` is the only shape where Expanse's line drops
-under it.
+Arm C ownership, B/key, identical in both runs *(workload: `hot_str_ptr`)*; the
+2k, 5k, 20k, 50k and 500k rows are in `results/baseline_string_memory.json`.
+**HOT is flat again** — 35.4–37.0 B/key on `short` and `counter` and 41.8–42.7
+on `skewed` from 10k to 1M, the string analogue of the integer arms'
+11.68–12.06 — and Expanse's line drops under it on `counter` from N = 5,000 and
+on `skewed` at 50k–125k and at 1M. **Correction:** this paragraph previously
+gave HOT's range as 35.4–36.7 B/key and named `counter` as the only shape under
+it; `skewed` dips under HOT in the `7fe02c0b` census as well.
 
 **The registered chunk-occupancy hypothesis is consistent with the sweep and
 not confirmed by it.** §10.5 predicted a `LEAF_CAP` cascade in the
 discriminating chunk map near N ≈ 1.23 × 10⁵ for the random-alphanumeric
 shapes and none for `counter`. Between 100k and 150k the Expanse line rises
-on exactly those shapes — `short` 64.0 → 68.0 → 71.2, `prefixed`
-66.6 → 70.8 → 73.9, `skewed` 42.5 → 46.6 → 49.7 — and `counter` does not
-move (21.1 → 21.0 → 20.9). The step is about +11%, not the 2.7× swing of the
-integer arm, because stored key bytes dominate the per-key cost. The
+on exactly those shapes — `short` 43.6 → 47.0 → 50.1, `prefixed`
+59.3 → 63.0 → 66.0, `skewed` 37.0 → 40.6 → 43.6, `beyond` 43.6 → 47.0 → 50.0 —
+and `counter` does not move (21.1 → 21.0 → 20.9). The step is +11% to +18%, not
+the 2.6× swing of the integer arm (§1). That stored key bytes dilute it is a
+reading, not a measurement. **Correction:** the rows quoted here previously were
+figures from before [#723](https://github.com/orieg/expanse/issues/723) that
+disagreed with the table above them, and put the step at about +11%. The
 single-variable test that would confirm the mechanism — changing the alphabet
 width and watching the step move — was not run, so the rows stay on a
 population axis and the re-expression against `λ_chunk` §10.5 conditionally
@@ -709,34 +800,51 @@ build that reports success**, the same class as the integer arms' §3.1. Every
 `beyond` cell therefore publishes the Expanse figure alone with the HOT column
 withheld (45 latency cells, 36 memory cells), never a HOT number over a smaller
 population. The Expanse side is unrestricted: `ExpanseStrMap` holds all 10⁶
-272-byte keys at 47.83 B/key and `ExpanseBytesMap` at 352.26 B/key *(workload:
-`hot_string_memory`)*; their 100%-hit lookups at N = 1M take 346.16 ns and
-326.92 ns respectively *(workload: `hot_string_latency`)*.
+272-byte keys at 48.19 B/key, identically in both runs, and `ExpanseBytesMap`
+at 353.36–353.42 B/key *(workload: `hot_string_memory`)*; their 100%-hit
+lookups at N = 1M take 334.77 ns and 329.95 ns respectively, and 333.87 ns and
+329.59 ns in run 2 *(workload: `hot_string_latency`)*. The figures previously
+printed here (47.83 and 352.26 B/key; 346.16 and 326.92 ns) are superseded.
 
 ### 6.6 Scorecard
 
 225 latency cells, 180 memory cells. Latency cells with a HOT column: 180.
 
-| | Count |
+| | Count, each run |
 |---|---:|
-| HOT wins (CI excludes parity) | 98 — of which 72 are scan cells |
+| HOT wins (CI excludes parity) | 96 — of which 72 are scan cells |
 | Expanse wins (CI excludes parity) | 77 — none is a scan cell |
 | `BOUNDARY_RESULT` | 7 |
 | HOT column withheld (`beyond`, §10.4) | 45 |
+
+The counts are identical in the two runs but not cell for cell. Six of the seven
+`BOUNDARY_RESULT` cells are the same in both — Arm C `prefixed` 50/50 at
+N = 100,000; Arm D `counter` 100% hit, `prefixed` 100% hit and `prefixed` 50/50
+at N = 10,000; Arm E `prefixed` 50/50 at N = 10,000 and 100,000 — and the
+seventh is Arm E `short` 100% hit at N = 10,000 in run 1 and Arm E `skewed`
+100% hit at N = 10,000 in run 2, each a HOT win in the other run.
+
+> **Correction: the scorecard is re-counted.** It previously read 98 HOT wins,
+> which with 77 and 7 summed to 182 of 180 cells; the `7fe02c0b` artifact holds
+> 98 / 77 / 5. Against that artifact three cells changed class in both runs —
+> Arm C `prefixed` 100% hit at N = 100,000 (`BOUNDARY_RESULT` → Expanse), Arm D
+> `prefixed` 100% hit at N = 10,000 (HOT → `BOUNDARY_RESULT`) and Arm D `counter`
+> 100% hit at N = 10,000 (Expanse → `BOUNDARY_RESULT`) — and none at N = 1M or on
+> any scan cell. The causes are unmeasured.
 
 Against §10.7:
 
 | Registered | Outcome |
 |---|---|
-| HOT wins ordered scan, every k, every shape (high) | **CONFIRMED**, 72 of 72 — still, after [#722](https://github.com/orieg/expanse/issues/722) moved every cell 1.38×–11.21× in Expanse's favour |
-| HOT wins `prefixed` point lookup (medium-high) | **CONFIRMED** on Arm C; **REFUTED** on Arm D |
-| HOT wins `prefixed` insert (medium) | **REFUTED** on both arms |
+| HOT wins ordered scan, every k, every shape (high) | **CONFIRMED**, 72 of 72 in both runs — still, after [#722](https://github.com/orieg/expanse/issues/722) moved every cell 1.38×–11.21× in Expanse's favour |
+| HOT wins `prefixed` point lookup (medium-high) | **CONFIRMED** on Arm C at N = 10k and 1M; **REFUTED** on Arm C's 100%-hit cell at 100k; **REFUTED** on Arm D at 100k and 1M, `BOUNDARY_RESULT` at 10k |
+| HOT wins `prefixed` insert (medium) | **REFUTED** on both arms, at every population |
 | HOT wins the `index` memory column on long and skewed keys (high, categorical) | **CONFIRMED**, `PASS_categorical_by_design` in HOT's favour, on every shape |
 | HOT wins `skewed` point lookup (low) | **REFUTED** on both arms, at every population |
-| Expanse wins `counter` lookup and insert (high) | **CONFIRMED** at N = 1M; **UNPREDICTED LOSS** on 100%-hit lookup at 10k and 100k |
-| Expanse wins `short` 100%-hit lookup, Arm C (medium) | **CONFIRMED** |
+| Expanse wins `counter` lookup and insert (high) | **CONFIRMED** at N = 1M; **UNPREDICTED LOSS** on Arm C's 100%-hit lookup at 10k and 100k; `BOUNDARY_RESULT` on Arm D's at 10k |
+| Expanse wins `short` 100%-hit lookup, Arm C (medium) | **CONFIRMED**, at every population |
 | Expanse wins `ownership` memory on `counter` and `short` (low-medium) | **CONFIRMED** on `counter`; **REFUTED** on `short` |
-| Expanse wins Arm D memory (high, categorical) | **CONFIRMED**, `PASS_categorical_by_design` |
+| Expanse wins Arm D memory (high, categorical) | **CONFIRMED**, `PASS_categorical_by_design`, from N = 5,000 |
 | `λ_chunk` cascade near N ≈ 1.23 × 10⁵ (hypothesis) | consistent, not confirmed — §6.4 |
 ## 7. The concurrent arm: the write-concurrency loss, measured
 
