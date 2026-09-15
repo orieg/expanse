@@ -440,6 +440,17 @@ bool ExpanseMemTableRep::Contains(const char* key) const {
     return false;
 }
 
+#ifdef EXPANSE_MEMTABLE_PARK_POINTS
+size_t ExpanseMemTableRep::LeafBlockCountForTest() const {
+    size_t n = 0;
+    for (const LeafBlock* b = head_.load(std::memory_order_acquire); b != nullptr;
+         b = b->next_leaf.load(std::memory_order_acquire)) {
+        ++n;
+    }
+    return n;
+}
+#endif
+
 void ExpanseMemTableRep::MarkReadOnly() {
     // MemTable marked immutable for flush
 }
@@ -462,7 +473,7 @@ void ExpanseMemTableRep::Get(
     const char* memtable_key = k.memtable_key().data();
 
     const LeafBlock* block = FindLeafBlockForSeek(internal_key, memtable_key);
-    
+
     while (block != nullptr) {
         bool retry_block = false;
         bool out_of_bounds = false;
@@ -555,7 +566,121 @@ void ExpanseMemTableRep::Get(
         if (out_of_bounds) {
             return;
         }
-        
+
+        EXPANSE_MEMTABLE_PARK(kGetBeforeNextLeaf);
+        if (num_matches > 0) {
+            // The callbacks ran after this block validated and before its
+            // next_leaf is loaded, and nothing holds mutex_ there under any
+            // scope. A split in that window moves the delivered entries into
+            // the successor, so scanning it from the lookup key again would
+            // deliver them twice (METHODOLOGY section 5.16, G-O6). The rest of
+            // the scan starts strictly after the last delivered entry instead.
+            // It is a separate function so the loop above, which every Get
+            // whose matches do not reach a block's end runs, is the loop it
+            // was.
+            GetAfterDelivered(block->next_leaf.load(std::memory_order_acquire), matches[num_matches - 1],
+                              user_key, callback_args, callback_func);
+            return;
+        }
+        block = block->next_leaf.load(std::memory_order_acquire);
+    }
+}
+
+// Get's continuation once a block's matches have reached the callback: each
+// block's scan starts at the first entry strictly after `last_delivered`.
+// Entries are write-once and sorted, and memtable internal keys are unique, so
+// every undelivered match lies after it wherever a split has moved them.
+void ExpanseMemTableRep::GetAfterDelivered(
+    const LeafBlock* block,
+    const char* last_delivered,
+    const Slice& user_key,
+    void* callback_args,
+    bool (*callback_func)(void* arg, const char* entry)
+) const {
+    while (block != nullptr) {
+        bool retry_block = false;
+        bool out_of_bounds = false;
+        // Sized to the block, as in Get.
+        const char* matches[LeafBlock::kMaxCapacity];
+        size_t num_matches = 0;
+
+        while (true) {
+            uint32_t v_start = block->version.load(std::memory_order_acquire);
+            if (v_start & 1) {
+                std::this_thread::yield();
+                continue;
+            }
+
+            retry_block = false;
+            out_of_bounds = false;
+            num_matches = 0;
+
+            int left = 0;
+            int right = static_cast<int>(block->count.load(std::memory_order_acquire));
+            int count = right;
+
+            // An upper bound on the last delivered entry.
+            while (left < right) {
+                int mid = left + (right - left) / 2;
+                // Acquire: gain happens-before to this entry's key bytes (published via a
+                // release store) before the comparator reads them.
+                const char* mid_entry = block->entries[mid].load(std::memory_order_acquire);
+                if (mid_entry == nullptr) {
+                    retry_block = true;
+                    break;
+                }
+                if (compare_(mid_entry, last_delivered) > 0) {
+                    right = mid;
+                } else {
+                    left = mid + 1;
+                }
+            }
+            if (retry_block) continue;
+
+            for (int i = left; i < count; ++i) {
+                // Acquire: gain happens-before to this entry's key bytes before decoding them.
+                const char* entry = block->entries[i].load(std::memory_order_acquire);
+                if (entry == nullptr) {
+                    retry_block = true;
+                    break;
+                }
+                Slice entry_ikey = expanse_rocksdb::GetLengthPrefixedSlice(entry);
+                if (entry_ikey.size() < 8) {
+                    out_of_bounds = true;
+                    break;
+                }
+                Slice entry_ukey(entry_ikey.data(), entry_ikey.size() - 8);
+                if (entry_ukey != user_key) {
+                    out_of_bounds = true;
+                    break;
+                }
+                assert(num_matches < LeafBlock::kMaxCapacity);
+                matches[num_matches++] = entry;
+            }
+            if (retry_block) continue;
+
+            // An acquire fence before a relaxed load, as in Get.
+            std::atomic_thread_fence(std::memory_order_acquire);
+            uint32_t v_end = block->version.load(std::memory_order_relaxed);
+            if (v_start == v_end) {
+                break;
+            }
+        }
+
+        for (size_t i = 0; i < num_matches; ++i) {
+            if (!callback_func(callback_args, matches[i])) {
+                return;
+            }
+        }
+
+        if (out_of_bounds) {
+            return;
+        }
+        if (num_matches > 0) {
+            last_delivered = matches[num_matches - 1];
+        }
+
+        EXPANSE_MEMTABLE_PARK(kGetBeforeNextLeaf);
         block = block->next_leaf.load(std::memory_order_acquire);
     }
 }
