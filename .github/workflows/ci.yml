@@ -448,6 +448,12 @@ jobs:
           # ratio under round-to-round drift) and the artifact shape the
           # provenance gate reads are all checkable without the reference host.
           python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py --self-test
+          # The optimistic-seek arm's single-threaded bound (METHODOLOGY section
+          # 5.16): the Callgrind parser's inclusive and call counts, the TLS
+          # relocation scan read from readelf and objdump, and the bound's
+          # verdict over synthetic rows. The measurement itself runs in the
+          # rocksdb-locate-ir-bound job.
+          python3 docs/benchmarks/rocksdb_memtable/scripts/locate_ir_bound.py --self-test
           # The same arm's verdicts, read against METHODOLOGY section 5.9 from
           # the two committed runs: the run checks that refuse a deviating pin,
           # H1's gateability on the R = 7 cell, the section 5.3 thresholds and
@@ -2526,6 +2532,110 @@ jobs:
           /tmp/test_differential_tsan
 
 
+  # METHODOLOGY section 5.16's single-threaded bound on the optimistic-seek
+  # arm: Callgrind inclusive Ir per ExpanseMemTable entry point, collection
+  # toggled to the timed loop, from three independent builds -- the base
+  # twice (the control) and the head -- each with its own release libexpanse.
+  # docs/benchmarks/rocksdb_memtable/scripts/locate_ir_bound.py builds,
+  # measures and applies the bound, the TLS relocation scan and the call-graph
+  # zero-call check.
+  #
+  # On a pull request the head is the PR head (the merge ref's second parent)
+  # and the base is its merge base with the target branch. The bound is fatal
+  # only when the change touches the memtable's source or header: inclusive Ir
+  # counts libexpanse's calls, so an engine change moves these entry points
+  # without saying anything about the scope branch, and there the table is
+  # reported and a notice says the bound was not applied. On a push the head is
+  # the pushed commit and the base its first parent, reported the same way.
+  rocksdb-locate-ir-bound:
+    name: Integrations / RocksDB Optimistic-Seek Callgrind Bound
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|rocksdb-locate-ir-bound|')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install valgrind
+        timeout-minutes: 8
+        run: |
+          if timeout 120 sudo apt-get install -y valgrind; then exit 0; fi
+          for i in 1 2 3; do
+            timeout 120 sudo apt-get update || true
+            if timeout 120 sudo apt-get install -y valgrind; then exit 0; fi
+            echo "apt attempt $i failed; retrying in 15s"
+            sleep 15
+          done
+          exit 1
+
+      - name: Check Out Base Twice and Head
+        id: refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            head=$(git rev-parse HEAD^2)
+            base=$(git merge-base HEAD^1 HEAD^2)
+          else
+            head=$(git rev-parse HEAD)
+            base=$(git rev-parse HEAD^1)
+          fi
+          # Directory names of equal length, so no path string a build embeds
+          # differs in length between the three builds.
+          root="$RUNNER_TEMP/bound"
+          mkdir -p "$root"
+          git worktree add --detach "$root/base-a" "$base"
+          git worktree add --detach "$root/base-b" "$base"
+          git worktree add --detach "$root/head-x" "$head"
+          touched=$(git diff --name-only "$base" "$head" -- \
+            integrations/rocksdb/src/expanse_memtable.cc integrations/rocksdb/include/expanse_memtable.h | wc -l)
+          echo "base=$base head=$head memtable files changed: $touched"
+          echo "root=$root" >> "$GITHUB_OUTPUT"
+          echo "fatal=$([ "${{ github.event_name }}" = "pull_request" ] && [ "$touched" -gt 0 ] && echo 1 || echo 0)" >> "$GITHUB_OUTPUT"
+
+      - name: Measure and Apply the Bound
+        shell: bash
+        run: |
+          set -uo pipefail
+          root="${{ steps.refs.outputs.root }}"
+          python3 "$root/head-x/docs/benchmarks/rocksdb_memtable/scripts/locate_ir_bound.py" run \
+            --base-a "$root/base-a" --base-b "$root/base-b" --head "$root/head-x" --out-dir "$root/out" \
+            > "$root/bound.txt" 2>&1
+          rc=$?
+          cat "$root/bound.txt"
+          if [ -f "$root/out/locate_ir_bound.md" ]; then
+            cat "$root/out/locate_ir_bound.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # A bound that did not produce its artifact is a failure in every
+          # case: the instrument broke, and nothing was measured (AGENTS.md
+          # section 8.1).
+          if [ ! -f "$root/out/locate_ir_bound.json" ]; then
+            echo "::error::locate_ir_bound.py produced no artifact (exit $rc)"
+            exit 1
+          fi
+          if [ "$rc" -ne 0 ]; then
+            if [ "${{ steps.refs.outputs.fatal }}" = "1" ]; then
+              echo "::error::METHODOLOGY section 5.16's single-threaded bound is unmet on this pull request"
+              exit 1
+            fi
+            echo "::notice::the bound is unmet, but this change does not touch the memtable source or header, so it is reported and not applied"
+          fi
+
+      - name: Upload the Bound Artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rocksdb-locate-ir-bound
+          path: |
+            ${{ runner.temp }}/bound/out/locate_ir_bound.json
+            ${{ runner.temp }}/bound/out/locate_ir_bound.md
+            ${{ runner.temp }}/bound/out/*/*.callgrind.out
+          if-no-files-found: warn
+
   test-ruby:
     name: Bindings / Ruby (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -2902,6 +3012,7 @@ jobs:
       - test-java
       - pack-java
       - test-rocksdb-memtable
+      - rocksdb-locate-ir-bound
       - test-ruby
       - test-wasm
       - test-wasm64

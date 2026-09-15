@@ -16,6 +16,7 @@ pack-java
 php-judy-compat
 php-judy-windows
 public-api
+rocksdb-locate-ir-bound
 supply-chain
 test
 test-aarch64
