@@ -578,3 +578,11 @@ The bound has no direction, so fewer instructions refute it just as more would. 
 - **Not established.**
   - How the 141,113 splits between the exit layout and the stack slot. Per-instruction execution counts (`--dump-instr=yes`) were not collected.
   - Why the code generator chose the different layout.
+
+### 12.8 Addendum to §12.7 (appended 2026-09-14; §12.1–§12.7 are not edited)
+
+**P12.2's map verdict is an instruction-count verdict.** §12.3 states P12.2 over Callgrind instruction counts, and §12.7's "holds" on `sync_map_get/random` is a statement on that instrument. P12.2 made no wall-clock prediction, and neither verdict in §12.7 changes.
+
+On the reference host, the same change (#928) cost the 64-bit `SyncExpanseMap` reader throughput in `masstree_concurrent` with readers only, while instructions per read stayed flat. Per-thread reader counters placed the difference in `ld_blocks.store_forward` per read, and `perf record` on that event placed it in `walk_validated::<true>`. #949 inlines `walk_validated`, and its body carries the measurement: two interleaved runs with per-read counters. The figures are not repeated here because that measurement is diagnostic and has no committed artifact (AGENTS.md §8.7). What remains against the pre-#928 build after #949 has an unmeasured cause.
+
+**For the §12.4 runs.** Ordered reads go through the same `Shared::optimistic_read`. The P12.4 and P12.5 runs name the commit they measure relative to #949, and record `ld_blocks.store_forward` and cycles per read beside the §12.4 counters as diagnostics. They are not verdict inputs, and no bound or cell in §12.3–§12.5 changes.
