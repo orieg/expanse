@@ -20,12 +20,12 @@
 //!
 //! Run (throughput — default build, no occ-stats):
 //! ```text
-//! cargo run --release -p expanse-trie --example writer_scaling -- [--role throughput] [--arm <map|set|str|all>] [--writers <1,2,4,8>] [--rounds <N>]
+//! cargo run --release -p expanse-trie --example writer_scaling -- [--role throughput] [--arm <map|set|str|bytes|blob|all>] [--writers <1,2,4,8>] [--rounds <N>]
 //! ```
 //!
 //! Run (counters — occ-stats build only):
 //! ```text
-//! cargo run --release -p expanse-trie --features occ-stats --example writer_scaling -- --role counters [--arm <map|set|str|all>] [--writers <1,2,4,8>] [--rounds <N>]
+//! cargo run --release -p expanse-trie --features occ-stats --example writer_scaling -- --role counters [--arm <map|set|str|bytes|blob|all>] [--writers <1,2,4,8>] [--rounds <N>]
 //! ```
 //!
 //! ## One timed cell per process (`docs/benchmarks/concurrency/METHODOLOGY.md` §15)

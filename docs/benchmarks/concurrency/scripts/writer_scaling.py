@@ -2400,8 +2400,15 @@ def run_c2c_pass(
     report_file.write_text(report_text)
     print(f"  [c2c Pass] Wrote c2c report to {report_file.relative_to(REPO_ROOT)}")
 
-    summary_lines = report_text.splitlines()[:20]
-    hot_lines = c2c_hot_cache_lines(report_text)
+    summary_lines = report_text.splitlines()[:C2C_SUMMARY_ROWS]
+    hot_lines, capture = c2c_hot_cache_lines(report_text)
+    capture["summary"] = {"rows_kept": len(summary_lines), "cap": C2C_SUMMARY_ROWS,
+                          "scope": "the report's leading rows: its trace-event totals"}
+    pd = capture["pareto_detail"]
+    print(
+        f"  [c2c Pass] line table: {capture['line_table']['data_rows']} lines, whole; Pareto detail: "
+        f"{pd['rows_kept']} of {pd['rows_total']} rows" + (" (capped)" if pd["capped"] else "")
+    )
 
     # `perf c2c report` pads the symbol column to a fixed width and truncates
     # Rust v0 manglings inside it -- run 34727964001 returned
@@ -2416,10 +2423,13 @@ def run_c2c_pass(
     ]
     proc_sym = subprocess.run(cmd_sym, capture_output=True, text=True, check=False)
     if proc_sym.returncode == 0:
-        sym_rows = [
+        all_sym = [
             ln.rstrip() for ln in proc_sym.stdout.splitlines()
             if ln.strip() and not ln.lstrip().startswith("#")
-        ][:40]
+        ]
+        sym_rows = all_sym[:C2C_SYMBOL_MAX_ROWS]
+        capture["symbol_profile"] = {"rows_total": len(all_sym), "rows_kept": len(sym_rows),
+                                     "cap": C2C_SYMBOL_MAX_ROWS, "capped": len(all_sym) > len(sym_rows)}
     else:
         # Not fatal: the c2c measurement above already succeeded and is the
         # gate's subject. Say so rather than dropping it silently (§8.1).
@@ -2427,6 +2437,8 @@ def run_c2c_pass(
             f"  [c2c Pass] ::notice:: perf report symbol pass failed "
             f"(exit {proc_sym.returncode}); cache lines captured, symbols not"
         )
+        capture["symbol_profile"] = {"rows_total": None, "rows_kept": 0, "cap": C2C_SYMBOL_MAX_ROWS,
+                                     "capped": False, "error": f"perf report exited {proc_sym.returncode}"}
 
     return {
         "arm": arm,
@@ -2448,47 +2460,90 @@ def run_c2c_pass(
         # committed run can say WHICH line bounced (run 34722607239 measured
         # 7.54 snoop-forwards per insert at W=8 and could not name one).
         "hot_cache_lines": hot_lines,
+        # Per section: rows the report had and rows kept. The line table is
+        # never capped; the Pareto detail and symbol profile may be.
+        "capture": capture,
     }
 
 
-def c2c_hot_cache_lines(report_text: str, max_rows: int = 160) -> list[str]:
-    """The shared-cache-line table out of a `perf c2c report --stdio` dump.
+C2C_TABLE_HEAD = "Shared Data Cache Line Table"
+C2C_PARETO_HEAD = "Shared Cache Line Distribution Pareto"
+# Rows of per-offset Pareto detail a c2c block carries. The line table is never
+# capped: a table missing lines has no readable share of the remainder, and
+# `scripts/c2c_ranking.py` refuses it.
+C2C_PARETO_MAX_ROWS = 160
+# Rows of `perf report --sort symbol,dso` a c2c block carries.
+C2C_SYMBOL_MAX_ROWS = 40
+# The report's leading rows kept as `summary`: its trace-event totals.
+C2C_SUMMARY_ROWS = 20
 
-    `perf` prints a "Shared Data Cache Line Table" (older builds: "Shared Cache
-    Line Distribution Pareto") listing the contended lines by HITM count, with
-    the symbol and offset that touched each. That table is the measurement; the
-    trace-event totals above it only say how much traffic there was.
 
-    Returns the table's lines, capped, or an empty list when the report has no
-    such section -- a zero-contention run legitimately has none, and this is a
-    reporting helper, so an empty list is a real answer and not a silent
-    failure. The caller still records the full report path.
+def _first_row_with(lines: list[str], head: str, start: int = 0) -> int | None:
+    return next((i for i in range(start, len(lines)) if head in lines[i]), None)
 
-    The cap covers the address table AND the per-line detail that follows it,
-    because the addresses alone cannot name a structure. Run 34727050294
-    attributed 60.1% of HITM to 13 sixty-four-byte-aligned lines inside one
-    3,072-byte span -- unmistakably a padded per-slot array rather than trie
-    node version words, which would be scattered across the heap -- and still
-    could not say which array. The symbols live in the detail rows.
+
+def c2c_hot_cache_lines(
+    report_text: str, pareto_max_rows: int = C2C_PARETO_MAX_ROWS
+) -> tuple[list[str], dict[str, Any]]:
+    """The shared-cache-line table and its Pareto detail out of a `perf c2c report --stdio` dump.
+
+    `perf` prints a "Shared Data Cache Line Table" listing the contended lines
+    by HITM count, then a "Shared Cache Line Distribution Pareto" with the
+    offsets and symbols that touched each line. The table is the measurement;
+    the trace-event totals above it only say how much traffic there was.
+
+    Returns `(rows, capture)`. `rows` is the whole line table, then the Pareto
+    section's heading and column header, then at most `pareto_max_rows` rows
+    of its detail. A table is never cut: a string-wrapper recording lists
+    about 150 lines, and a single cap over table and detail together cut the
+    table itself, leaving no readable share. `capture` records, per section,
+    how many rows the report had and how many were kept, so a capped section
+    is visible in the artifact rather than inferred (AGENTS.md §8.1).
+
+    A report with neither section yields no rows -- a zero-contention run
+    legitimately has none, and the caller still records the full report path.
+
+    The per-line detail is carried because the addresses alone cannot name a
+    structure. Run 34727050294 attributed 60.1% of HITM to 13
+    sixty-four-byte-aligned lines inside one 3,072-byte span -- unmistakably a
+    padded per-slot array rather than trie node version words, which would be
+    scattered across the heap -- and still could not say which array. The
+    symbols live in the detail rows.
     """
-    heads = (
-        "Shared Data Cache Line Table",
-        "Shared Cache Line Distribution Pareto",
-    )
     lines = report_text.splitlines()
-    start = None
-    for i, ln in enumerate(lines):
-        if any(h in ln for h in heads):
-            start = i
-            break
-    if start is None:
-        return []
-    out: list[str] = []
-    for ln in lines[start:]:
-        if len(out) >= max_rows:
-            break
-        out.append(ln)
-    return out
+    t = _first_row_with(lines, C2C_TABLE_HEAD)
+    p = _first_row_with(lines, C2C_PARETO_HEAD, t or 0)
+
+    table: list[str] = []
+    if t is not None:
+        # Up to the Pareto heading, including the banner that closes the table.
+        table = lines[t:p if p is not None else len(lines)]
+    data_rows = sum(
+        1 for r in table if r.strip() and not r.lstrip().startswith(("#", "=")) and C2C_TABLE_HEAD not in r
+    )
+
+    preamble: list[str] = []
+    detail: list[str] = []
+    if p is not None:
+        j = p + 1
+        while j < len(lines) and (lines[j].startswith("=") or lines[j].lstrip().startswith("#")):
+            j += 1
+        preamble, detail = lines[p:j], lines[j:]
+        while detail and not detail[-1].strip():
+            detail.pop()
+    kept = detail[:pareto_max_rows]
+
+    capture = {
+        "line_table": {"present": t is not None, "rows": len(table), "data_rows": data_rows, "capped": False},
+        "pareto_detail": {
+            "present": p is not None,
+            "rows_total": len(detail),
+            "rows_kept": len(kept),
+            "cap": pareto_max_rows,
+            "capped": len(detail) > len(kept),
+        },
+    }
+    return table + preamble + kept, capture
 
 
 def _assert_fallbacks_counted(arm: str, fallbacks: list) -> None:
@@ -3063,13 +3118,16 @@ def _self_test_per_cell_isolation(throughput_bin: Path, counters_bin: Path) -> N
         rnd = flag(cmd, "--round")
         rounds = [int(rnd)] if rnd is not None else range(int(flag(cmd, "--rounds") or 8))
         pos_flag = flag(cmd, "--position")
+        # The arm the invocation named, so a bytes or blob cell prints that
+        # arm's workload id and cell label, as the real harness does.
+        arm = flag(cmd, "--arm") or "map"
         lines = []
         for r in rounds:
             order = [writers[i] for i in williams_positions(len(writers), r)]
             for i, w in enumerate(order):
                 row = {
-                    "workload_id": "concurrency_writer_map_64bit", "role": "throughput",
-                    "arm": "expanse", "cell": f"map_w{w}_r0", "keyspace_bits": 64,
+                    "workload_id": WRITER_WORKLOAD_IDS[arm], "role": "throughput",
+                    "arm": "expanse", "cell": f"{arm}_w{w}_r0", "keyspace_bits": 64,
                     "prefill": 4096, "fresh_keys": 4096, "writers": w, "readers": 0,
                     "round": r, "position": int(pos_flag) if pos_flag is not None else i,
                     "write_ops": 4096, "writer_elapsed_s": 0.001,
@@ -3080,9 +3138,13 @@ def _self_test_per_cell_isolation(throughput_bin: Path, counters_bin: Path) -> N
                 lines.append(json.dumps(row))
         return "\n".join(lines) + "\n"
 
-    def fake_subprocess(timed: list[tuple[str, list[str]]], counters: list[list[str]], tamper: Any) -> Any:
+    def fake_subprocess(timed: list[tuple[str, list[str]]], counters: list[list[str]], tamper: Any,
+                        perf: Any = None) -> Any:
         def fake_run(cmd: Any, *args: Any, **kwargs: Any) -> Any:
             argv = [str(c) for c in cmd]
+            if argv[:1] == ["perf"]:
+                assert perf is not None, f"main() ran perf in a self-test that stubs none: {argv}"
+                return perf(argv)
             if argv and argv[0] in fake_builds:
                 build = fake_builds[argv[0]]
                 assert flag(argv, "--role") == "throughput", f"a fake throughput binary was run as {argv}"
@@ -3117,8 +3179,22 @@ def _self_test_per_cell_isolation(throughput_bin: Path, counters_bin: Path) -> N
         def __getattr__(self, name: str) -> Any:
             return getattr(time, name)
 
+    real_pmu_pass, real_c2c_pass = run_pmu_pass, run_c2c_pass
+
+    def as_linux(fn: Any, **overrides: Any) -> Any:
+        """`fn` with the host reported as Linux with `perf` on PATH, for its own call only.
+
+        Scoped to the pass rather than to `main()`, so the sweep and the core
+        pin still see the real host.
+        """
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            with mock.patch.object(platform, "system", return_value="Linux"), \
+                    mock.patch.object(shutil, "which", return_value="/usr/bin/perf"):
+                return fn(*args, **{**kwargs, **overrides})
+        return wrapped
+
     def drive_main(argv: list[str], tamper: Any = lambda row: None, summarize: Any = None,
-                   clock: Any = None) -> dict[str, Any]:
+                   clock: Any = None, perf: Any = None, c2c_out: Path | None = None) -> dict[str, Any]:
         timed: list[tuple[str, list[str]]] = []
         counters: list[list[str]] = []
         err: BaseException | None = None
@@ -3129,8 +3205,16 @@ def _self_test_per_cell_isolation(throughput_bin: Path, counters_bin: Path) -> N
                 if clock is not None:
                     stack.enter_context(mock.patch.object(sys.modules["bench_provenance"], "time", clock))
                 stack.enter_context(mock.patch.object(
-                    subprocess, "run", side_effect=fake_subprocess(timed, counters, tamper)))
+                    subprocess, "run", side_effect=fake_subprocess(timed, counters, tamper, perf)))
                 stack.enter_context(mock.patch.object(module, "build_binaries", side_effect=fake_build))
+                if perf is not None:
+                    # The production passes, reached through main(); only the
+                    # host check is stubbed, and the c2c files go to a scratch
+                    # directory so a self-test never overwrites a real report.
+                    stack.enter_context(mock.patch.object(
+                        module, "run_pmu_pass", side_effect=as_linux(real_pmu_pass)))
+                    stack.enter_context(mock.patch.object(
+                        module, "run_c2c_pass", side_effect=as_linux(real_c2c_pass, out_dir=c2c_out)))
                 if summarize is not None:
                     stack.enter_context(mock.patch.object(module, "summarize_arm", side_effect=summarize))
                 stack.enter_context(mock.patch.object(
@@ -3141,6 +3225,9 @@ def _self_test_per_cell_isolation(throughput_bin: Path, counters_bin: Path) -> N
                     assert rc == 0, f"main({argv}) returned {rc}"
                 except (RuntimeError, ValueError, AssertionError) as exc:
                     err = exc
+                except SystemExit as exc:
+                    # argparse refusing an argument exits; report it, do not end the self-test.
+                    err = AssertionError(f"main({argv}) exited during argument parsing (code {exc.code})")
             if out.exists():
                 art = json.loads(out.read_text())
         return {"timed": timed, "counters": counters, "err": err, "artifact": art}
@@ -3374,6 +3461,94 @@ def _self_test_per_cell_isolation(throughput_bin: Path, counters_bin: Path) -> N
     assert pmu["cell_isolation"] == CELL_ISOLATION, pmu
     assert pmu["frequency_droop"]["by_writers"]["8"]["n_measured"] == 4, pmu["frequency_droop"]
 
+    # 5b. The PMU and c2c passes on the #929 bytes and blob arms, through
+    #     main(): `--pmu-arm` must parse, and main() must hand that arm to both
+    #     passes. Read off the argv the passes built and the artifact main()
+    #     wrote, so a hard-coded arm at either call site fails here.
+    import stat as stat_mod
+
+    c2c_report = "\n".join([
+        "  Total records                     :      31337",
+        "           Shared Data Cache Line Table          ",
+        "      0     1234   41.2%     1238     1238        0",
+    ])
+
+    def arm_perf(rec: dict[str, list[Any]]) -> Any:
+        def run(argv: list[str]) -> Any:
+            if argv[:2] == ["perf", "list"]:
+                return subprocess.CompletedProcess(argv, 0, stdout="cycles\nref-cycles\n", stderr="")
+            if argv[:2] == ["perf", "stat"]:
+                harness = argv[argv.index("--") + 1:]
+                rec["stat"].append(harness)
+                return subprocess.CompletedProcess(
+                    argv, 0, stdout=harness_stdout(harness, fake_builds[harness[0]], lambda row: None),
+                    stderr="990,,cycles,1,100.00,,\n1000,,ref-cycles,1,100.00,,\n")
+            if argv[:3] == ["perf", "c2c", "record"]:
+                rec["c2c"].append(argv)
+                rec["fifos"].extend(
+                    os.path.exists(argv[argv.index(f) + 1]) and stat_mod.S_ISFIFO(os.stat(argv[argv.index(f) + 1]).st_mode)
+                    for f in ("--perf-ctl-fifo", "--perf-ack-fifo"))
+                return subprocess.CompletedProcess(argv, 0)
+            if argv[:3] == ["perf", "c2c", "report"]:
+                return subprocess.CompletedProcess(argv, 0, stdout=c2c_report, stderr="")
+            if argv[:2] == ["perf", "report"]:
+                return subprocess.CompletedProcess(argv, 0, stdout="  41.20%  [.] selftest_sym  writer_scaling\n",
+                                                   stderr="")
+            raise AssertionError(f"unexpected perf command in the PMU/c2c arm self-test: {argv}")
+        return run
+
+    c2c_out =REPO_ROOT / "target" / "c2c-selftest-arms"
+    try:
+        for arm in ("bytes", "blob"):
+            ctx = f"--pmu-arm {arm}"
+            rec: dict[str, list[Any]] = {"stat": [], "c2c": [], "fifos": []}
+            res = drive_main(["--arm", arm, "--writers", "1,8", "--rounds", "4",
+                              "--pmu", "--pmu-arm", arm, "--c2c"], perf=arm_perf(rec), c2c_out=c2c_out)
+            if res["err"] is not None:
+                raise AssertionError(f"{ctx}: main() did not complete: {res['err']}") from res["err"]
+            assert {flag(c, "--arm") for _, c in res["timed"]} == {arm}, (ctx, res["timed"][:1])
+
+            # The PMU pass: one perf stat process per (W, round) cell of the
+            # named arm, 8 rounds x W in {1, 8}, each under the control FIFOs.
+            stat_cmds = rec["stat"]
+            assert len(stat_cmds) == 8 * 2, f"{ctx}: {len(stat_cmds)} perf stat processes, expected 16"
+            assert {flag(h, "--arm") for h in stat_cmds} == {arm}, (
+                f"{ctx}: the PMU pass ran the harness with --arm {sorted({flag(h, '--arm') for h in stat_cmds})}")
+            assert_one_w_per_process([(DEFAULT_BUILD, h) for h in stat_cmds], f"PMU pass ({arm})")
+            assert collections.Counter(flag(h, "--writers") for h in stat_cmds) == {"1": 8, "8": 8}, ctx
+            assert all("--perf-ctl-fifo" in h and "--perf-ack-fifo" in h for h in stat_cmds), ctx
+
+            # The c2c pass: one recording of the named arm at the largest W.
+            assert len(rec["c2c"]) == 1, f"{ctx}: {len(rec['c2c'])} perf c2c recordings, expected 1"
+            record = rec["c2c"][0]
+            harness = record[record.index("--") + 1:]
+            assert (flag(harness, "--role"), flag(harness, "--arm"), flag(harness, "--writers"),
+                    flag(harness, "--rounds")) == ("throughput", arm, "8", str(C2C_ROUNDS)), (ctx, harness)
+            assert "--delay=-1" in record[:record.index("--")], (ctx, record)
+            assert rec["fifos"] == [True, True], f"{ctx}: control FIFOs absent while perf c2c ran: {rec['fifos']}"
+
+            # The artifact main() wrote carries both blocks, for that arm, usable.
+            art = res["artifact"]
+            assert art is not None, f"{ctx}: main() wrote no artifact"
+            assert {c["arm"] for c in art["throughput"]} == {arm}, (ctx, art["throughput"][:1])
+            pmu_block = art.get("pmu")
+            assert pmu_block is not None and pmu_block["arm"] == arm, f"{ctx}: pmu block {pmu_block!r}"
+            assert pmu_block["writers"] == [1, 8] and pmu_block["cell_isolation"] == CELL_ISOLATION, pmu_block
+            droop8 = pmu_block["frequency_droop"]["by_writers"]["8"]
+            assert droop8["n_measured"] == 8 and "verdict" in droop8, f"{ctx}: droop at W=8 unusable: {droop8}"
+            assert sorted(pmu_block["raw_counts"], key=int) == [str(r) for r in range(8)], pmu_block["raw_counts"]
+            assert all(sorted(v, key=int) == ["1", "8"] for v in pmu_block["raw_counts"].values()), ctx
+            c2c_block = art.get("c2c")
+            assert c2c_block is not None and c2c_block["arm"] == arm, f"{ctx}: c2c block {c2c_block!r}"
+            assert "error" not in c2c_block, f"{ctx}: the c2c pass failed: {c2c_block.get('error')}"
+            assert (c2c_block["writers"], c2c_block["rounds"], c2c_block["window"], c2c_block["total_records"]) == (
+                8, C2C_ROUNDS, C2C_WINDOW, 31337), (ctx, c2c_block)
+            assert c2c_block["hot_cache_lines"] and c2c_block["symbol_profile"], f"{ctx}: c2c block carries no lines"
+            assert c2c_block["data_path"].endswith(f"perf_c2c_{arm}_w8.data"), (ctx, c2c_block["data_path"])
+            assert c2c_block["report_path"].endswith(f"c2c_report_{arm}_w8.txt"), (ctx, c2c_block["report_path"])
+    finally:
+        shutil.rmtree(c2c_out, ignore_errors=True)
+
     # 6. The real harness honours --position and refuses it where it cannot hold.
     real_cell = {"round": 1, "position": 3, "writers": 2, "build": DEFAULT_BUILD}
     row = run_writer_cell(throughput_bin, "map", real_cell, quick=True)
@@ -3387,13 +3562,173 @@ def _self_test_per_cell_isolation(throughput_bin: Path, counters_bin: Path) -> N
     eprintln("One process per timed writer cell PASSED\n")
 
 
+def _c2c_long_report(n_lines: int = 300, n_blocks: int = 60, n_symbols: int = 50) -> str:
+    """A `perf c2c report --stdio` text longer than any row cap: `n_lines` table rows.
+
+    Rows come from `c2c_ranking`'s own format builders, whose layout that tool's
+    self-test pins against the committed reference-host artifacts. Total HITM
+    is 100,000 local samples; line i holds p_i x 10 of them and prints p_i/100
+    percent, p_i = 1 + (n_lines - 1 - i) // 10, so every printed share is exact.
+    Each of the first `n_blocks` lines has a six-row Pareto block.
+    """
+    import c2c_ranking as cr  # noqa: PLC0415 -- the parser whose format the fixture must match
+
+    rows = [
+        "=================================================",
+        "            Trace Event Information              ",
+        "=================================================",
+        "  Total records                     :     500000",
+        "  Load Local HITM                   :     100000",
+        "  Load Remote HITM                  :          0",
+        *[f"  Filler event {k:<20}:          0" for k in range(20)],
+        "",
+        "=================================================",
+        f"           {C2C_TABLE_HEAD}          ",
+        "=================================================",
+        "#", cr._HDR, cr._COLS, "# .....", "#",
+    ]
+    addrs, lcls = [], []
+    for i in range(n_lines):
+        p = 1 + (n_lines - 1 - i) // 10
+        addrs.append(0x5CAC_0000_0000 + i * 0x2000)
+        lcls.append(p * 10)
+        rows.append(cr._trow(i, addrs[i], f"{p / 100:.2f}%", lcls[i], 0, lcls[i] + 5, 4))
+    rows += ["", "=================================================",
+             f"      {C2C_PARETO_HEAD}      ",
+             "=================================================", "#", cr._PHDR, "# .....", "#"]
+    dash = "  ----------------------------------------------------------------------"
+    for i in range(n_blocks):
+        rows += [dash, f"      {i}        0      {lcls[i]}        4        0        0      {addrs[i]:#x}", dash,
+                 cr._prow("0.00", "60.00", "50.00", 0x28, cr._SYM_A[:26]),
+                 cr._prow("0.00", "40.00", "50.00", 0x30, cr._SYM_B[:26]), ""]
+    return "\n".join(rows) + "\n"
+
+
+def _self_test_c2c_line_table_complete() -> None:
+    """A c2c block's line table is whole, however long, and `c2c_ranking.py` can read it.
+
+    Drives `run_c2c_pass` with `perf` stubbed over a 300-line report -- the
+    string wrapper's recordings list about 150 lines, and a 160-row cap over
+    table and detail together cut their table -- and hands the block the pass
+    returned to the ranking tool's own parser (AGENTS.md §8.20.7). Then
+    re-captures the committed map recordings and requires the same ranking.
+    """
+    import io
+    from unittest import mock
+
+    import c2c_ranking as cr  # noqa: PLC0415
+
+    sys.stderr.write("Testing the c2c line table is carried whole...\n")
+    n_lines, n_blocks, n_symbols = 300, 60, 50
+    report = _c2c_long_report(n_lines, n_blocks, n_symbols)
+    profile = "\n".join(f"  {50 - k:>5}.00%  [.] selftest_sym_{k}  writer_scaling  -  -" for k in range(n_symbols))
+
+    def fake_run(cmd: list[str], *args: Any, **kwargs: Any) -> Any:
+        cmd = list(cmd)
+        if cmd[:3] == ["perf", "c2c", "record"]:
+            return subprocess.CompletedProcess(cmd, 0)
+        if cmd[:3] == ["perf", "c2c", "report"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=report, stderr="")
+        if cmd[:2] == ["perf", "report"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=profile, stderr="")
+        raise AssertionError(f"unexpected command in the c2c line-table self-test: {cmd}")
+
+    out_dir = REPO_ROOT / "target" / "c2c-selftest-long"
+    try:
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(platform, "system", return_value="Linux"))
+            stack.enter_context(mock.patch.object(shutil, "which", return_value="/usr/bin/perf"))
+            stack.enter_context(mock.patch.object(subprocess, "run", side_effect=fake_run))
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            block = run_c2c_pass(Path("/nonexistent/writer_scaling"), arm="str", writers=8, out_dir=out_dir)
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+    try:
+        analysis = cr.analyse(block)
+    except cr.C2CFormatError as exc:
+        raise AssertionError(
+            f"the c2c block's line table is not usable: scripts/c2c_ranking.py refuses a "
+            f"{n_lines}-line report's capture: {exc}"
+        ) from exc
+    assert len(analysis.lines) == n_lines, (
+        f"the c2c block carries {len(analysis.lines)} of the report's {n_lines} line-table rows")
+    cap = block.get("capture", {})
+    # rows: the heading, its banner and five header rows, the data rows, and
+    # the blank row and banner that close the table.
+    assert cap.get("line_table") == {"present": True, "rows": 7 + n_lines + 2, "data_rows": n_lines,
+                                     "capped": False}, cap.get("line_table")
+    # rows_total: six rows per block, less the report's trailing blank row,
+    # which the capture strips.
+    assert cap.get("pareto_detail") == {"present": True, "rows_total": 6 * n_blocks - 1, "rows_kept": C2C_PARETO_MAX_ROWS,
+                                        "cap": C2C_PARETO_MAX_ROWS, "capped": True}, cap.get("pareto_detail")
+    # 160 detail rows are 26 whole six-row blocks and four rows of a 27th.
+    assert (analysis.blocks_carried, analysis.blocks_partial) == (27, 1), (
+        analysis.blocks_carried, analysis.blocks_partial)
+    assert cap.get("symbol_profile") == {"rows_total": n_symbols, "rows_kept": C2C_SYMBOL_MAX_ROWS,
+                                         "cap": C2C_SYMBOL_MAX_ROWS, "capped": True}, cap.get("symbol_profile")
+    assert len(block["symbol_profile"]) == C2C_SYMBOL_MAX_ROWS, len(block["symbol_profile"])
+    assert cap.get("summary", {}).get("rows_kept") == C2C_SUMMARY_ROWS, cap.get("summary")
+    assert abs(analysis.unlisted_share - (1 - sum(lcl for lcl in (10 * (1 + (n_lines - 1 - i) // 10)
+                                                                  for i in range(n_lines))) / 100_000)) < 1e-12
+
+    # The committed map recordings, re-captured from the report rows they
+    # carry, rank exactly as they did: the new capture changes nothing a
+    # map-arm table that already fitted.
+    results = REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results"
+    for name in ("diagnostic_writer_scaling_ac8f1c6d.json", "diagnostic_writer_scaling_ac8f1c6d_run2.json"):
+        old = json.loads((results / name).read_text())["c2c"]
+        text = "\n".join([*old["summary"].splitlines(), "", *old["hot_cache_lines"]])
+        rows, recap = c2c_hot_cache_lines(text)
+        new = {**old, "hot_cache_lines": rows}
+        a_old, a_new = cr.analyse(old), cr.analyse(new)
+        assert [(x.index, x.addr, x.hitm) for x in a_new.lines] == [(x.index, x.addr, x.hitm) for x in a_old.lines], name
+        assert [(g.key, g.hitm, g.sharing) for g in a_new.groups] == [(g.key, g.hitm, g.sharing) for g in a_old.groups], name
+        assert (a_new.blocks_carried, a_new.blocks_partial) == (a_old.blocks_carried, a_old.blocks_partial), name
+        assert not recap["line_table"]["capped"] and not recap["pareto_detail"]["capped"], (name, recap)
+    sys.stderr.write("c2c line table completeness PASSED\n")
+
+
+def _self_test_pmu_arm_choices() -> None:
+    """`--pmu-arm` selects exactly the writer arms the sweep runs (#929).
+
+    Reads the parser `main()` parses with, so a second literal list at the call
+    site fails here rather than on the reference host.
+    """
+    import io
+
+    sys.stderr.write("Testing --pmu-arm accepts every writer arm...\n")
+    action = next((a for a in build_parser()._actions if "--pmu-arm" in a.option_strings), None)
+    assert action is not None, "build_parser() defines no --pmu-arm"
+    assert tuple(action.choices) == ALL_WRITER_ARMS, (
+        f"--pmu-arm accepts {tuple(action.choices)!r}, but the sweep's writer arms are {ALL_WRITER_ARMS!r}: "
+        "an arm the sweep runs that the PMU and c2c passes cannot select (#929)"
+    )
+    assert action.default in ALL_WRITER_ARMS, action.default
+    for arm in ALL_WRITER_ARMS:
+        assert build_parser().parse_args(["--pmu-arm", arm]).pmu_arm == arm, arm
+    # Negative control: a sweep selector is not an arm a PMU pass can measure.
+    for not_an_arm in ("all", "both"):
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                build_parser().parse_args(["--pmu-arm", not_an_arm])
+        except SystemExit as exc:
+            assert exc.code == 2, (not_an_arm, exc.code)
+        else:
+            raise AssertionError(f"--pmu-arm {not_an_arm} was accepted")
+    sys.stderr.write("--pmu-arm choices PASSED\n")
+
+
 def self_test() -> int:
     eprintln = sys.stderr.write
     eprintln("Running writer_scaling.py self-test...\n")
 
-    # 0. The c2c pass records the measured window only. Runs first: it needs no
-    #    build, so a regression here fails before minutes of cargo.
+    # 0. The c2c pass records the measured window only, and `--pmu-arm` offers
+    #    every writer arm. Run first: they need no build, so a regression here
+    #    fails before minutes of cargo.
     _self_test_c2c_window()
+    _self_test_c2c_line_table_complete()
+    _self_test_pmu_arm_choices()
 
     # Build both binaries up front
     throughput_bin, counters_bin = build_binaries(verbose=True)
@@ -3774,19 +4109,25 @@ def self_test() -> int:
         "      0     1234   41.2%     1238     1238        0",
         "      1      567   19.0%      571      571        0",
     ])
-    _hot = c2c_hot_cache_lines(_c2c_sample)
+    _hot, _cap = c2c_hot_cache_lines(_c2c_sample)
     assert _hot, "hot-line table must be extracted when the report has one"
     assert any("Shared Data Cache Line Table" in ln for ln in _hot), _hot
     assert any("41.2%" in ln for ln in _hot), _hot
-    # the older perf heading is recognised too
+    assert _cap["line_table"]["data_rows"] == 2 and not _cap["pareto_detail"]["present"], _cap
+    # a Pareto section alone is recognised too
     _pareto = _c2c_sample.replace("Shared Data Cache Line Table",
                                   "Shared Cache Line Distribution Pareto")
-    assert c2c_hot_cache_lines(_pareto), "the Pareto heading must also match"
+    assert c2c_hot_cache_lines(_pareto)[0], "the Pareto heading must also match"
     # a report with no contended lines yields an empty list, not a crash
-    assert c2c_hot_cache_lines("Trace Event Information\n  Total records : 0") == []
-    # and the cap is honoured
-    _long = "Shared Data Cache Line Table\n" + "\n".join(f"row {i}" for i in range(100))
-    assert len(c2c_hot_cache_lines(_long, max_rows=5)) == 5
+    assert c2c_hot_cache_lines("Trace Event Information\n  Total records : 0")[0] == []
+    # the cap applies to the Pareto detail and never to the table
+    _long = ("Shared Data Cache Line Table\n" + "\n".join(f"  {i} row" for i in range(300))
+             + "\nShared Cache Line Distribution Pareto\n#   Num\n" + "\n".join(f"  detail {i}" for i in range(100)))
+    _rows, _cap = c2c_hot_cache_lines(_long, pareto_max_rows=5)
+    assert _cap["line_table"] == {"present": True, "rows": 301, "data_rows": 300, "capped": False}, _cap
+    assert _cap["pareto_detail"] == {"present": True, "rows_total": 100, "rows_kept": 5, "cap": 5,
+                                     "capped": True}, _cap
+    assert len(_rows) == 301 + 2 + 5 and _rows[-1] == "  detail 4", _rows[-3:]
 
     # No event keys at all: the summary is empty rather than fabricated.
     d_none = frequency_droop_by_writers(rd, None, None, [1, 2, 4], 8)
@@ -3955,7 +4296,8 @@ def self_test() -> int:
     return 0
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The driver's command line, built apart from `main()` so the self-test reads the real parser."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=str, help="Output path for JSON artifact")
     parser.add_argument(
@@ -4033,19 +4375,21 @@ def main() -> int:
     parser.add_argument(
         "--pmu",
         action="store_true",
-        help="Run separate hardware PMU pass via perf stat on set W=1 vs W=2",
+        help="Run separate hardware PMU pass via perf stat on --pmu-arm at the sweep's writer counts",
     )
     parser.add_argument(
         "--pmu-arm",
         default="map",
-        choices=("map", "set", "str"),
+        # Every writer arm the sweep runs, from the one list: a second literal
+        # here left the #929 bytes and blob arms unselectable (§8.1).
+        choices=ALL_WRITER_ARMS,
         help="Arm the PMU and c2c passes measure (default: map, where the "
              "multi-writer sweep's between-run spread appears)",
     )
     parser.add_argument(
         "--c2c",
         action="store_true",
-        help="Run separate perf c2c cacheline contention pass on set W=2",
+        help="Run separate perf c2c cacheline contention pass on --pmu-arm at the sweep's largest W",
     )
     parser.add_argument(
         "--diagnostic",
@@ -4067,7 +4411,11 @@ def main() -> int:
         action="store_true",
         help="Run self-test and exit",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
 
     if args.self_test:
         return self_test()
