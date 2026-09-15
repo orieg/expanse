@@ -1099,7 +1099,8 @@ P124_CEILING = (1, 1000)
 P125_GATE = ("uniform", 1, 4)
 P125_CONTROL = ("uniform", 0, 1)
 READER_COUNTER_FIELDS = ("read_ops", "read_attempts", "read_fallbacks", "locked_reads")
-READER_TIMING_FIELDS = ("reader_elapsed_s", "reader_mops", "writer_elapsed_s", "writer_mops")
+READER_TIMING_FIELDS = ("reader_elapsed_s", "reader_mops", "writer_elapsed_s", "writer_mops",
+                        "reader_thread_elapsed_s")
 
 
 def committed_result_paths() -> tuple[Path, ...]:
@@ -1110,6 +1111,7 @@ def committed_result_paths() -> tuple[Path, ...]:
         PADDED_RESULTS_PATH.resolve(),
         *(p.resolve() for p in ABLATION_RESULTS_PATHS),
         ORDERED_READERS_RESULTS_PATH.resolve(),
+        READERS_ONLY_RESULTS_PATH.resolve(),
     )
 
 
@@ -1669,6 +1671,315 @@ def run_ordered_readers(args: argparse.Namespace) -> int:
     for reason in report["void"]:
         sys.stderr.write(f"::warning:: this run is void as a §12.4 measurement: {reason}\n")
 
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(artifact, indent=2) + "\n")
+    print(f"\nWrote artifact to {out_path}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Readers-only scaling (#730): W = 0, R in {1, 2, 4, 8}, map / set / str
+# ---------------------------------------------------------------------------
+
+READERS_ONLY_RESULTS_PATH = (
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "baseline_readers_only_writer_scaling.json"
+)
+READERS_ONLY_ARMS = ("map", "set", "str")
+READERS_ONLY_READERS = (1, 2, 4, 8)
+# The harness's row family per arm. The map arm's readers-only cell is reader
+# mode's W = 0 `get` cell, so it keeps reader mode's workload id.
+READERS_ONLY_WORKLOAD_IDS = {
+    "map": ORDERED_READERS_WORKLOAD_ID,
+    "set": "concurrency_readers_set_63bit",
+    "str": "concurrency_readers_str",
+}
+READERS_ONLY_SCHEDULE = (
+    "each round runs one block per arm, the arm order rotating by round; within a block the four R "
+    "cells follow that round's row of a Williams design over R; one harness process per cell; the "
+    "throughput pass runs every round before the counters pass"
+)
+# No pre-registration names this instrument yet. The #730 pre-registration
+# fills this in with the METHODOLOGY section it appends; until then an artifact
+# from this sweep is a baseline and carries no verdict.
+READERS_ONLY_PREREGISTRATION_NOTE = (
+    "none yet: the #730 pre-registration will name the docs/benchmarks/concurrency/METHODOLOGY.md "
+    "section this artifact is read against; until it exists the artifact carries no verdict"
+)
+
+
+def readers_only_schedule(rounds: int) -> list[dict[str, Any]]:
+    """Every harness invocation of a readers-only sweep, in execution order.
+
+    Round r runs one block per arm, in `READERS_ONLY_ARMS` rotated by r. Within
+    a block the four R cells follow row r of a Williams design over
+    `READERS_ONLY_READERS`, so over 4 rounds each R holds each position of its
+    arm's block once and each ordered pair of R cells is adjacent once.
+    `position` is the index within the block.
+    """
+    n_arms, n_r = len(READERS_ONLY_ARMS), len(READERS_ONLY_READERS)
+    out: list[dict[str, Any]] = []
+    for r in range(rounds):
+        arms = READERS_ONLY_ARMS[r % n_arms:] + READERS_ONLY_ARMS[:r % n_arms]
+        for block, arm in enumerate(arms):
+            for pos, idx in enumerate(williams_positions(n_r, r)):
+                out.append({
+                    "round": r, "block": block, "arm": arm, "position": pos,
+                    "writers": 0, "readers": READERS_ONLY_READERS[idx],
+                    "read_op": "get", "probe": "uniform",
+                })
+    return out
+
+
+def readers_only_argv(binary: Path, role: str, run: dict[str, Any], quick: bool) -> list[str]:
+    """The harness command for one readers-only cell."""
+    cmd = [
+        str(binary), "--role", role, "--arm", run["arm"],
+        "--writers", "0", "--readers", str(run["readers"]),
+        "--read-op", run["read_op"], "--probe", run["probe"],
+        "--round", str(run["round"]), "--position", str(run["position"]),
+    ]
+    if quick:
+        cmd.append("--quick")
+    return cmd
+
+
+def run_readers_only_invocation(binary: Path, role: str, run: dict[str, Any], quick: bool) -> dict[str, Any]:
+    """One readers-only cell from the harness, checked against the schedule entry that asked for it."""
+    proc = subprocess.run(readers_only_argv(binary, role, run, quick), capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"writer_scaling readers-only cell ({role}, {run}) failed (exit {proc.returncode}):\n{proc.stderr}"
+        )
+    want_id = READERS_ONLY_WORKLOAD_IDS[run["arm"]]
+    rows = []
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if line.startswith("{") and line.endswith("}"):
+            row = json.loads(line)
+            if row.get("role") == role and row.get("workload_id") == want_id:
+                rows.append(row)
+    if len(rows) != 1:
+        raise RuntimeError(f"readers-only cell ({role}, {run}) emitted {len(rows)} {want_id} rows, expected 1")
+    row = rows[0]
+    for key in ("round", "position", "read_op", "probe", "writers", "readers"):
+        if row.get(key) != run[key]:
+            raise RuntimeError(
+                f"readers-only cell ({role}, {run}): the row carries {key}={row.get(key)!r}, "
+                f"the schedule ran {run[key]!r}"
+            )
+    row["block"] = run["block"]
+    row["wrapper"] = run["arm"]
+    return row
+
+
+def check_readers_only_rows(t: dict[str, Any], c: dict[str, Any]) -> None:
+    """What a readers-only (throughput, counters) pair owes beyond reader mode's own row checks.
+
+    W = 0 inserts nothing, every reader makes exactly one probe per prefilled
+    key, and the throughput row names one loop time per reader thread.
+    """
+    ctx = f"{t.get('cell')} round {t.get('round')}"
+    check_reader_throughput_row(t)
+    check_reader_counters_row(c)
+    readers, prefill = int(t["readers"]), int(t["prefill"])
+    for role, row in (("throughput", t), ("counters", c)):
+        if int(row["reader_ops"]) != readers * prefill:
+            raise ValueError(
+                f"{ctx}: {role} row made {row['reader_ops']} probes, expected {readers} x {prefill} "
+                "(one per prefilled key per reader at W = 0)"
+            )
+    if int(c["inserts"]) != 0 or int(c["write_ops"]) != 0:
+        raise ValueError(f"{ctx}: a W = 0 cell inserted {c['inserts']} keys ({c['write_ops']} write_ops)")
+    per_thread = t.get("reader_thread_elapsed_s")
+    if (not isinstance(per_thread, list) or len(per_thread) != readers
+            or any(not isinstance(x, (int, float)) or isinstance(x, bool) or x <= 0 for x in per_thread)):
+        raise ValueError(
+            f"{ctx}: reader_thread_elapsed_s = {per_thread!r}, expected {readers} positive loop times"
+        )
+
+
+def summarize_readers_only(
+    throughput_rows: list[dict[str, Any]],
+    counters_rows: list[dict[str, Any]],
+    rounds: int,
+    load: dict[str, Any],
+    throughput_target: Path = THROUGHPUT_TARGET,
+) -> list[dict[str, Any]]:
+    """One cell per (arm, R), each carrying every round of both roles.
+
+    S(R) = reader_mops(R) / reader_mops(1) is paired within each round, as C(W)
+    is. A cell missing a round in either role, or holding one twice, is refused.
+    """
+    import reader_scaling_bounds  # noqa: PLC0415 -- the #730 bounds module owns the estimator
+
+    if rounds < 3:
+        raise ValueError(f"need at least 3 rounds for a BCa interval, got {rounds}")
+
+    def rows_for(rows: list[dict[str, Any]], arm: str, r: int, role: str) -> list[dict[str, Any]]:
+        got = sorted((x for x in rows if x.get("wrapper") == arm and int(x["readers"]) == r),
+                     key=lambda x: int(x["round"]))
+        seen = [int(x["round"]) for x in got]
+        if seen != list(range(rounds)):
+            raise ValueError(
+                f"{arm} R={r}: {role} rows cover rounds {seen}, expected each of 0..{rounds - 1} once"
+            )
+        return got
+
+    cells: list[dict[str, Any]] = []
+    for arm in READERS_ONLY_ARMS:
+        base = rows_for(throughput_rows, arm, 1, "throughput")
+        for r in READERS_ONLY_READERS:
+            t = rows_for(throughput_rows, arm, r, "throughput")
+            c = rows_for(counters_rows, arm, r, "counters")
+            for tr, cr in zip(t, c):
+                check_readers_only_rows(tr, cr)
+            mops = [float(x["reader_mops"]) for x in t]
+            mean, lo, hi, method = bca_bootstrap_ci_with_method(mops, confidence=0.95)
+            if r == 1:
+                s_mean, s_lo, s_hi, s_method = 1.0, 1.0, 1.0, None
+            else:
+                ratios = [float(x["reader_mops"]) / float(b["reader_mops"]) for x, b in zip(t, base)]
+                s_mean, s_lo, s_hi, s_method = bca_bootstrap_ci_with_method(ratios, confidence=0.95)
+            prefill = int(t[0]["prefill"])
+            bias = [reader_scaling_bounds.max_over_mean_bias(x["reader_thread_elapsed_s"]) for x in t]
+            thread_ns = [statistics_mean(x["reader_thread_elapsed_s"]) * 1e9 / prefill for x in t]
+            join_ns = [float(x["reader_elapsed_s"]) * 1e9 / prefill for x in t]
+            totals = {k: sum(int(x[k]) for x in c) for k in (*READER_COUNTER_FIELDS, "reader_ops")}
+            read_ops = totals["read_ops"]
+            cells.append({
+                "workload_id": t[0]["workload_id"],
+                "arm": arm,
+                "writers": 0,
+                "readers": r,
+                "read_op": "get",
+                "probe": "uniform",
+                "prefill": prefill,
+                "rounds": rounds,
+                "cpu_pin": t[0]["cpu_pin"],
+                "reader_mops_mean": round(mean, 6),
+                "reader_ci_lower": round(lo, 6),
+                "reader_ci_upper": round(hi, 6),
+                "reader_ci_method": method,
+                "reader_mops_median": round(sorted(mops)[len(mops) // 2], 6),
+                "scaling_s_r": round(s_mean, 6),
+                "scaling_s_r_ci_lower": round(s_lo, 6),
+                "scaling_s_r_ci_upper": round(s_hi, 6),
+                # `None` at R = 1: S(1) is 1.0 by definition, nothing was resampled.
+                "scaling_s_r_ci_method": s_method,
+                "reader_ns_per_probe_thread_mean": round(sum(thread_ns) / len(thread_ns), 4),
+                "reader_ns_per_probe_to_last_join": round(sum(join_ns) / len(join_ns), 4),
+                "slowest_over_mean_thread_by_round": [round(b, 6) for b in bias],
+                "read_counters_total": totals,
+                "attempts_per_op": round(totals["read_attempts"] / read_ops, 6) if read_ops else None,
+                "fallback_rate": (totals["read_fallbacks"] / read_ops) if read_ops else None,
+                "build_provenance": {
+                    "throughput": f"{throughput_target.relative_to(REPO_ROOT)}/release/examples/writer_scaling",
+                    "counters": f"{COUNTERS_TARGET.relative_to(REPO_ROOT)}/release/examples/writer_scaling (--features occ-stats)",
+                },
+                "rounds_raw": [
+                    {k: x.get(k) for k in (
+                        "round", "block", "position", "reader_ops", "reader_elapsed_s",
+                        "reader_thread_elapsed_s", "reader_mops", "population_after", "cpu_pin", "tsc_hz",
+                    )}
+                    for x in t
+                ],
+                "counters_raw": [
+                    {k: x.get(k) for k in (
+                        "round", "block", "position", "reader_ops", "write_ops", "inserts",
+                        *READER_COUNTER_FIELDS, "lock_fallbacks", "quiesce_calls", "fallback_causes",
+                        "population_after", "cpu_pin",
+                    )}
+                    for x in c
+                ],
+                "load": load,
+            })
+    return cells
+
+
+def statistics_mean(values: list[float]) -> float:
+    if not values:
+        raise ValueError("mean of no values")
+    return sum(float(v) for v in values) / len(values)
+
+
+def build_readers_only_artifact(
+    prov: dict[str, Any], cells: list[dict[str, Any]], rounds: int, applied_pin: str, quick: bool
+) -> dict[str, Any]:
+    """The committed shape: provenance and the (arm, R) cells. No verdict: nothing is pre-registered on it yet."""
+    void = ["--quick population: a smoke run of the instrument, not a baseline"] if quick else []
+    return {
+        "provenance": {**prov, "cell_isolation": CELL_ISOLATION},
+        "throughput": cells,
+        "readers_only": {
+            "issue": 730,
+            "preregistration": None,
+            "preregistration_note": READERS_ONLY_PREREGISTRATION_NOTE,
+            "rounds": rounds,
+            "pin_applied": applied_pin,
+            "quick": quick,
+            "schedule": READERS_ONLY_SCHEDULE,
+            "void": void,
+        },
+    }
+
+
+def run_readers_only(args: argparse.Namespace) -> int:
+    """`--readers-only`: the (arm, R) cells at W = 0, both roles, one process per cell."""
+    out_path = Path(args.out) if args.out else READERS_ONLY_RESULTS_PATH
+    applied = bench_pin.apply("writer_scaling.py --readers-only")
+    throughput_bin, counters_bin = build_binaries(verbose=True)
+    ratio = "S(R): mean over rounds of reader_mops(R) / reader_mops(1), paired within each round, BCa 95% interval"
+    prov = new_provenance(
+        suite="concurrency",
+        issue=730,
+        ratio=ratio,
+        repo_root=REPO_ROOT,
+        core_pin=applied,
+        estimators=estimators(
+            ratio,
+            columns="per-cell reader_mops_mean is the mean over rounds with a BCa 95% interval; "
+                    "reader_mops_median is auxiliary; reader_ns_per_probe_thread_mean divides each reader's own "
+                    "loop time by its probes, reader_ns_per_probe_to_last_join divides the barrier-to-last-join "
+                    "time by one reader's probes; counters are summed over rounds",
+        ),
+    )
+    schedule = readers_only_schedule(args.rounds)
+    print("========================================================================")
+    print(" Readers-only scaling, W = 0 (#730): map / set / str at R in {1, 2, 4, 8}")
+    print(f" Cells: {len(READERS_ONLY_ARMS) * len(READERS_ONLY_READERS)} | Rounds: {args.rounds} | "
+          f"Pin: {applied} | Quick: {bool(args.quick)}")
+    print("========================================================================")
+    block = len(READERS_ONLY_READERS) * len(READERS_ONLY_ARMS)
+    try:
+        start = begin_cell(prov, "readers_only:throughput")
+        t_rows = []
+        for i, run in enumerate(schedule):
+            t_rows.append(run_readers_only_invocation(throughput_bin, "throughput", run, args.quick))
+            if (i + 1) % block == 0:
+                print(f"  [throughput] {i + 1}/{len(schedule)} cells")
+        load = end_cell(start)
+        c_rows = []
+        for i, run in enumerate(schedule):
+            c_rows.append(run_readers_only_invocation(counters_bin, "counters", run, args.quick))
+            if (i + 1) % block == 0:
+                print(f"  [counters] {i + 1}/{len(schedule)} cells")
+        check_row_pins(t_rows + c_rows, applied)
+        cells = summarize_readers_only(t_rows, c_rows, args.rounds, load)
+        artifact = build_readers_only_artifact(prov, cells, args.rounds, applied, bool(args.quick))
+    except (RuntimeError, ValueError) as exc:
+        sys.stderr.write(f"readers-only sweep failed: {exc} (AGENTS.md §8.1)\n")
+        return 1
+
+    for c in cells:
+        rate = "n/a" if c["fallback_rate"] is None else f"{c['fallback_rate'] * 100:.4f}%"
+        print(
+            f"  {c['arm']:>3} R={c['readers']} | reader Mops/s {c['reader_mops_mean']:.4f} "
+            f"[{c['reader_ci_lower']:.4f}, {c['reader_ci_upper']:.4f}] | S(R) {c['scaling_s_r']:.4f} "
+            f"[{c['scaling_s_r_ci_lower']:.4f}, {c['scaling_s_r_ci_upper']:.4f}] | attempts/op "
+            f"{c['attempts_per_op']} | fallbacks {rate}"
+        )
+    for reason in artifact["readers_only"]["void"]:
+        sys.stderr.write(f"::warning:: this run is not a baseline: {reason}\n")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(artifact, indent=2) + "\n")
     print(f"\nWrote artifact to {out_path}")
@@ -2428,7 +2739,8 @@ def _self_test_ordered_readers(throughput_bin: Path, counters_bin: Path, pin: st
 
     # The harness refuses what reader mode cannot measure, by name.
     for extra, needle in (
-        (["--arm", "set", "--writers", "1", "--readers", "2"], "map arm only"),
+        (["--arm", "set", "--writers", "1", "--readers", "2"], "--writers 0 only"),
+        (["--arm", "bytes", "--writers", "0", "--readers", "2"], "runs the map, set and str arms"),
         (["--arm", "map", "--writers", "1", "--readers", "2", "--read-op", "bogus"], "unknown --read-op"),
         (["--arm", "map", "--writers", "1", "--readers", "2", "--probe", "bogus"], "unknown --probe"),
         (["--arm", "map", "--writers", "0"], "--writers 0 is accepted only in reader mode"),
@@ -2437,6 +2749,149 @@ def _self_test_ordered_readers(throughput_bin: Path, counters_bin: Path, pin: st
                               capture_output=True, text=True, check=False)
         assert proc.returncode != 0 and needle in proc.stderr, (extra, proc.returncode, proc.stderr)
     sys.stderr.write("Ordered-reader instrument PASSED\n")
+
+
+def _synthetic_readers_only_rows(
+    rounds: int, mops: Any, pin: str, prefill: int = 4096
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Rows in the harness's readers-only schema for every scheduled run, every identity holding."""
+    t_rows: list[dict[str, Any]] = []
+    c_rows: list[dict[str, Any]] = []
+    for run in readers_only_schedule(rounds):
+        r = run["readers"]
+        base = {
+            "workload_id": READERS_ONLY_WORKLOAD_IDS[run["arm"]], "arm": "expanse",
+            "cell": f"{run['arm']}_w0_r{r}_get_uniform", "prefill": prefill, "fresh_keys": 0,
+            "write_ops": 0, "reader_ops": r * prefill, "cpu_pin": pin, "tsc_hz": 1,
+            "population_after": prefill, "wrapper": run["arm"],
+            **{k: run[k] for k in ("round", "block", "position", "writers", "readers", "read_op", "probe")},
+        }
+        t_rows.append({
+            **base, "role": "throughput", "writer_elapsed_s": None, "writer_mops": None,
+            "reader_elapsed_s": 1.0, "reader_thread_elapsed_s": [0.9 + 0.01 * i for i in range(r)],
+            "reader_mops": mops(run),
+        })
+        c_rows.append({
+            **base, "role": "counters", "read_ops": r * prefill, "read_attempts": r * prefill,
+            "read_fallbacks": 0, "locked_reads": 0, "lock_fallbacks": 0, "inserts": 0, "quiesce_calls": 0,
+            "fallback_causes": {name: 0 for name in CAUSE_NAMES},
+        })
+    return t_rows, c_rows
+
+
+def _self_test_readers_only(throughput_bin: Path, counters_bin: Path, pin: str) -> None:
+    """The readers-only instrument (#730): schedule, reduction, refusals, and the real entry point."""
+    import check_bench_provenance as cbp  # noqa: PLC0415 -- the gate's own functions judge the artifact
+
+    sys.stderr.write("Testing the readers-only instrument (#730)...\n")
+    n_r = len(READERS_ONLY_READERS)
+
+    # The schedule: over 4 rounds each R holds each position of its arm's block
+    # once, and each ordered pair of R cells is adjacent once.
+    sched = readers_only_schedule(4)
+    assert len(sched) == 4 * len(READERS_ONLY_ARMS) * n_r, len(sched)
+    for arm in READERS_ONLY_ARMS:
+        positions = {r: [0] * n_r for r in READERS_ONLY_READERS}
+        pairs: dict[tuple[int, int], int] = {}
+        for rnd in range(4):
+            block = sorted((x for x in sched if x["round"] == rnd and x["arm"] == arm), key=lambda x: x["position"])
+            order = [x["readers"] for x in block]
+            assert sorted(order) == list(READERS_ONLY_READERS), order
+            for i, r in enumerate(order):
+                positions[r][i] += 1
+            for a, b in zip(order, order[1:]):
+                pairs[(a, b)] = pairs.get((a, b), 0) + 1
+        assert all(v == [1] * n_r for v in positions.values()), (arm, positions)
+        assert len(pairs) == n_r * (n_r - 1) and all(v == 1 for v in pairs.values()), (arm, pairs)
+    assert all(x["writers"] == 0 and x["read_op"] == "get" and x["probe"] == "uniform" for x in sched)
+
+    # The reduction: rounds differ eightfold in level, and S(R) is paired within
+    # the round, so it lands on R^0.9 exactly; an unpaired statistic would not.
+    rounds = 8
+    load = {"since": "readers_only:throughput", "wall_s": 1.0, "busy_cpus_since_prev": 1.0,
+            "own_busy_cpus": 1.0, "foreign_busy_cpus": 0.0}
+    level = [1.0, 5.0, 2.0, 8.0, 3.0, 7.0, 4.0, 6.0]
+    t, c = _synthetic_readers_only_rows(rounds, lambda run: level[run["round"]] * run["readers"] ** 0.9, pin)
+    cells = summarize_readers_only(t, c, rounds, load)
+    assert [(x["arm"], x["readers"]) for x in cells] == [
+        (a, r) for a in READERS_ONLY_ARMS for r in READERS_ONLY_READERS], cells
+    for x in cells:
+        assert abs(x["scaling_s_r"] - x["readers"] ** 0.9) < 1e-6, x
+        assert len(x["rounds_raw"]) == rounds and len(x["counters_raw"]) == rounds, x
+        assert len(x["rounds_raw"][0]["reader_thread_elapsed_s"]) == x["readers"], x["rounds_raw"][0]
+        assert x["reader_ci_method"] in CI_METHODS, x
+        assert (x["scaling_s_r_ci_method"] is None) == (x["readers"] == 1), x
+        want_bias = 0.0 if x["readers"] == 1 else (0.9 + 0.01 * (x["readers"] - 1)) / (0.9 + 0.005 * (x["readers"] - 1)) - 1
+        assert abs(x["slowest_over_mean_thread_by_round"][0] - want_bias) < 1e-6, x
+        assert x["attempts_per_op"] == 1.0 and x["fallback_rate"] == 0.0, x
+
+    # Refusals, each by name: a missing round, a pin mismatch, a broken counter
+    # identity, a timing field in a counters row, a probe count that is not one
+    # per key per reader, a missing per-thread time, an insert at W = 0.
+    _expect_value_error(lambda: summarize_readers_only(t, c[1:], rounds, load), "counters rows cover rounds")
+    _expect_value_error(lambda: summarize_readers_only(t[1:], c, rounds, load), "throughput rows cover rounds")
+    _expect_value_error(lambda: check_row_pins([*t, {**t[0], "cpu_pin": "0-15"}], pin), "cpu_pin")
+    tampered = [dict(x) for x in c]
+    tampered[0]["locked_reads"] += 1
+    _expect_value_error(lambda: summarize_readers_only(t, tampered, rounds, load), "quiesce_calls")
+    leaked = [dict(x) for x in c]
+    leaked[0]["reader_thread_elapsed_s"] = [1.0]
+    _expect_value_error(lambda: summarize_readers_only(t, leaked, rounds, load), "timing field")
+    short = [dict(x) for x in t]
+    short[0]["reader_ops"] -= 1
+    _expect_value_error(lambda: summarize_readers_only(short, c, rounds, load), "one per prefilled key")
+    no_threads = [dict(x) for x in t]
+    no_threads[0]["reader_thread_elapsed_s"] = no_threads[0]["reader_thread_elapsed_s"][1:] or []
+    _expect_value_error(lambda: summarize_readers_only(no_threads, c, rounds, load), "reader_thread_elapsed_s")
+    inserted = [dict(x) for x in c]
+    inserted[0]["inserts"] = inserted[0]["write_ops"] = 1
+    _expect_value_error(lambda: summarize_readers_only(t, inserted, rounds, load), "inserted")
+
+    # The real entry point, end to end: `main()` builds nothing new here (the
+    # binaries above), runs every cell through both harness binaries at the
+    # --quick population, and writes the artifact. Its shape is what a baseline
+    # rests on, so it is asserted field by field (AGENTS.md §8.20.7), and the
+    # provenance gate's own function judges it.
+    from unittest import mock  # noqa: PLC0415
+    import io  # noqa: PLC0415
+
+    module = sys.modules[__name__]
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "baseline_readers_only_writer_scaling.json"
+        argv = ["writer_scaling.py", "--readers-only", "--quick", "--rounds", "3", "--out", str(out)]
+        with mock.patch.object(module, "build_binaries", return_value=(throughput_bin, counters_bin)), \
+                mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
+            rc = main()
+        assert rc == 0, f"main({argv}) returned {rc}"
+        art = json.loads(out.read_text())
+    assert art["provenance"]["cell_isolation"] == CELL_ISOLATION, art["provenance"]
+    assert art["readers_only"]["preregistration"] is None and art["readers_only"]["void"], art["readers_only"]
+    got = [(x["arm"], x["readers"]) for x in art["throughput"]]
+    assert got == [(a, r) for a in READERS_ONLY_ARMS for r in READERS_ONLY_READERS], got
+    for x in art["throughput"]:
+        ctx = f"{x['arm']} R={x['readers']}"
+        assert x["workload_id"] == READERS_ONLY_WORKLOAD_IDS[x["arm"]], ctx
+        assert x["prefill"] == 4096 and x["reader_mops_mean"] > 0, (ctx, x["reader_mops_mean"])
+        assert len(x["rounds_raw"]) == 3 and len(x["counters_raw"]) == 3, ctx
+        for tr, cr in zip(x["rounds_raw"], x["counters_raw"]):
+            assert tr["reader_ops"] == x["readers"] * 4096 == cr["reader_ops"] == cr["read_ops"], (ctx, tr, cr)
+            assert len(tr["reader_thread_elapsed_s"]) == x["readers"], (ctx, tr)
+            assert cr["inserts"] == 0 and cr["locked_reads"] == cr["read_fallbacks"], (ctx, cr)
+        assert isinstance(x["load"].get("foreign_busy_cpus"), (int, float)) or x["load"].get("foreign_busy_cpus") is None, ctx
+    rel = READERS_ONLY_RESULTS_PATH.relative_to(cbp.BENCH).as_posix()
+    assert any(Path(rel).match(g) for g in cbp.ARTIFACT_GLOBS), (rel, cbp.ARTIFACT_GLOBS)
+    assert str(REPO_ROOT) not in json.dumps(art), "absolute repo path leaked into the artifact (AGENTS.md §7)"
+
+    # The harness refuses what the readers-only cells do not measure, by name.
+    for extra, needle in (
+        (["--arm", "str", "--writers", "1", "--readers", "2"], "--writers 0 only"),
+        (["--arm", "set", "--writers", "0", "--readers", "2", "--read-op", "prev"], "--read-op get only"),
+        (["--arm", "str", "--writers", "0", "--readers", "2", "--probe", "hotspot"], "--probe uniform only"),
+    ):
+        proc = subprocess.run([str(throughput_bin), "--role", "throughput", *extra, "--quick"],
+                              capture_output=True, text=True, check=False)
+        assert proc.returncode != 0 and needle in proc.stderr, (extra, proc.returncode, proc.stderr)
+    sys.stderr.write("Readers-only instrument PASSED\n")
 
 
 def _self_test_c2c_window() -> None:
@@ -3435,6 +3890,7 @@ def self_test() -> int:
 
     # 10. The ordered-reader instrument (#900).
     _self_test_ordered_readers(throughput_bin, counters_bin, pin)
+    _self_test_readers_only(throughput_bin, counters_bin, pin)
 
     eprintln("writer_scaling.py self-test PASSED\n")
     return 0
@@ -3502,6 +3958,13 @@ def main() -> int:
         help="Shorthand for --compare ablation-unstriped-freelist (Hypothesis D arm c unstriped)",
     )
     comparison.add_argument(
+        "--readers-only",
+        action="store_true",
+        help="Readers-only scaling (#730): map, set and str at W = 0, R in {1, 2, 4, 8}, one process per "
+             "cell, both roles, under whatever pin is applied (default output "
+             "baseline_readers_only_writer_scaling.json)",
+    )
+    comparison.add_argument(
         "--ordered-readers",
         action="store_true",
         help="Ordered readers on the map (#900, METHODOLOGY.md §12.4): probe x (W, R) x read_op cells "
@@ -3549,6 +4012,32 @@ def main() -> int:
 
     if args.self_test:
         return self_test()
+
+    if args.readers_only:
+        # A sweep of its own, as --ordered-readers is.
+        conflicts = [
+            flag for flag, on in (
+                ("--diagnostic", args.diagnostic), ("--pmu", args.pmu), ("--c2c", args.c2c),
+                ("--features", args.features is not None), ("--arm", args.arm != "all"),
+                ("--writers", args.writers != "1,2,4,8"),
+            ) if on
+        ]
+        if conflicts:
+            sys.stderr.write(f"error: --readers-only does not combine with {', '.join(conflicts)}\n")
+            return 1
+        if args.rounds < 3:
+            sys.stderr.write("error: --rounds must be >= 3 for BCa bootstrap confidence intervals\n")
+            return 1
+        if not args.out:
+            args.out = str(READERS_ONLY_RESULTS_PATH)
+        if (args.quick and Path(args.out).resolve() in committed_result_paths()
+                and not args.force_quick_out):
+            sys.stderr.write(
+                "error: --quick output cannot overwrite committed results path "
+                f"{Path(args.out).resolve()} without --force-quick-out\n"
+            )
+            return 1
+        return run_readers_only(args)
 
     if args.ordered_readers:
         # A sweep of its own: none of the writer sweep's selectors apply, and

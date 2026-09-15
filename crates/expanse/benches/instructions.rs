@@ -46,7 +46,7 @@ use expanse_trie::bytesmap::ExpanseBytesMap;
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
 use expanse_trie::strmap::ExpanseStrMap;
-use expanse_trie::sync::{SyncExpanseMap, SyncExpanseSet};
+use expanse_trie::sync::{SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap};
 use expanse_trie::{ExpanseBlobMap32, ExpanseMap32, ExpanseSet32, Key32, Value32};
 #[cfg(target_os = "linux")]
 use iai_callgrind::main;
@@ -1047,6 +1047,118 @@ fn sync_set_remove(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
     black_box(removed)
 }
 
+// ---- The string wrapper's reader on `short` keys (#730) ------------------
+//
+// `short` is the key shape of the `masstree_conc_str` cell and of the
+// `writer_scaling` `str` arm: random alphanumerics, 8 to 16 bytes. The
+// route-shaped `str_keys` above share long prefixes and cross more sub-tries
+// per key, so they are a different descent. `sync_strmap_get_short` minus
+// `strmap_get_short` is the wrapper's per-probe instruction overhead on that
+// shape at POP = 50,000 (pin, version sample, validated cascade), and a lower
+// bound for a 2^20 population: trie depth, and with it the validations per
+// hop, grows with population. One thread, no writer, so no restart is taken.
+
+/// `short` string keys: random alphanumerics, 8..=16 bytes, the file's
+/// XorShift, duplicates dropped in draw order so the population is exactly
+/// `POP` distinct keys. NUL-free by construction.
+fn short_keys(_dist: &str) -> Vec<Vec<u8>> {
+    const ALNUM: &[u8; 62] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let mut rng = XorShift(0x0DDB_1A5E_5EED_0730);
+    let mut seen = std::collections::HashSet::with_capacity(POP);
+    let mut out = Vec::with_capacity(POP);
+    while out.len() < POP {
+        let n = 8 + (rng.next() % 9) as usize;
+        let k: Vec<u8> = (0..n).map(|_| ALNUM[(rng.next() % 62) as usize]).collect();
+        if seen.insert(k.clone()) {
+            out.push(k);
+        }
+    }
+    out
+}
+
+/// A probe order that is not the build order, for string keys.
+fn shuffled_bytes(ks: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+    let mut probes = ks;
+    let mut rng = XorShift(0x9E37_79B9);
+    for i in (1..probes.len()).rev() {
+        probes.swap(i, (rng.next() % (i as u64 + 1)) as usize);
+    }
+    probes
+}
+
+fn built_strmap_short(dist: &str) -> (ExpanseStrMap, Vec<Vec<u8>>) {
+    let ks = short_keys(dist);
+    let mut map = ExpanseStrMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(tk(k), i as u64);
+    }
+    (map, shuffled_bytes(ks))
+}
+
+fn built_sync_strmap_short(dist: &str) -> (SyncExpanseStrMap, Vec<Vec<u8>>) {
+    let ks = short_keys(dist);
+    let map = SyncExpanseStrMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(tk(k), i as u64);
+    }
+    (map, shuffled_bytes(ks))
+}
+
+#[library_benchmark]
+#[bench::short(args = ("short",), setup = built_strmap_short)]
+fn strmap_get_short(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        sink ^= map.get(black_box(tk(k))).unwrap_or(0);
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::short(args = ("short",), setup = built_sync_strmap_short)]
+fn sync_strmap_get_short(built: (SyncExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let rd = map.reader();
+    let mut sink = 0u64;
+    for k in &probes {
+        sink ^= rd.get(black_box(tk(k))).unwrap_or(0);
+    }
+    // Both leaked — see `sync_map_get`.
+    core::mem::forget(rd);
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::short(args = ("short",), setup = short_keys)]
+fn sync_strmap_insert_short(ks: Vec<Vec<u8>>) -> u64 {
+    let map = SyncExpanseStrMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(black_box(tk(k)), black_box(i as u64));
+    }
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
+}
+
+// The `strmap_churn` ladder through the wrapper: same-key reinsert, remove,
+// reinsert, each under the writer mutex and the tree-level bracket.
+#[library_benchmark]
+#[bench::short(args = ("short",), setup = built_sync_strmap_short)]
+fn sync_strmap_churn_short(built: (SyncExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        sink ^= map.insert(black_box(tk(k)), black_box(7)).unwrap_or(0);
+        sink ^= map.remove(black_box(tk(k))).unwrap_or(0);
+        map.insert(black_box(tk(k)), black_box(9));
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 /// Callgrind simulator settings for this harness.
 ///
 /// **`--cache-sim=yes` is stated here, not inherited.** iai-callgrind's runner
@@ -1137,7 +1249,11 @@ library_benchmark_group!(
         sync_map_churn,
         sync_map_remove,
         sync_set_churn,
-        sync_set_remove
+        sync_set_remove,
+        strmap_get_short,
+        sync_strmap_get_short,
+        sync_strmap_insert_short,
+        sync_strmap_churn_short
 );
 
 library_benchmark_group!(

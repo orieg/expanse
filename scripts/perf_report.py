@@ -114,6 +114,12 @@ BENCH_N_MAP: Dict[str, int] = {
     "bytesmap_insert": 50_000,
     "bytesmap_get": 50_000,
     "bytesmap_churn": 50_000,
+    # `short` string keys (#730): one pass over `short_keys` (POP = 50,000),
+    # plain and through `SyncExpanseStrMap` on one thread.
+    "strmap_get_short": 50_000,
+    "sync_strmap_get_short": 50_000,
+    "sync_strmap_insert_short": 50_000,
+    "sync_strmap_churn_short": 50_000,
     # C ABI vs Stock Judy
     "judyl_insert": 50_000,
     "judyl_get": 50_000,
@@ -153,6 +159,8 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "judysl_get",
             "strmap_get",
             "bytesmap_get",
+            "strmap_get_short",
+            "sync_strmap_get_short",
         },
     ),
     (
@@ -203,6 +211,8 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "strmap_churn",
             "bytesmap_insert",
             "bytesmap_churn",
+            "sync_strmap_insert_short",
+            "sync_strmap_churn_short",
         },
     ),
 ]

@@ -86,6 +86,18 @@ python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --step2-gate   
 python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --step2-gate --run2   # run 2
 ```
 
+The readers-only instrument for #730 (§13) runs `SyncExpanseMap`,
+`SyncExpanseSet` and `SyncExpanseStrMap` readers with no writer at
+R ∈ {1, 2, 4, 8}, one harness process per cell, and records the pin it ran
+under rather than imposing one. It has published no baseline yet, and no
+verdict is read from it before the #730 pre-registration exists:
+
+```bash
+python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --readers-only \
+    --out docs/benchmarks/concurrency/results/baseline_readers_only_writer_scaling.json
+python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --readers-only --quick --out results/quick/readers_only.json
+```
+
 ## 2. Line-transfer matrix (`results/line_transfer.json`)
 
 One-way cache-line transfer between every pair of physical performance

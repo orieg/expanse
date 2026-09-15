@@ -113,22 +113,39 @@
 //! writers insert the 2^20 uniform fresh keys. Generation refuses to run if any
 //! uniform prefill or fresh key falls inside the hotspot expanse.
 //!
+//! ## Readers-only mode on the set and string arms (#730)
+//!
+//! `--arm set` and `--arm str` with `--readers R` run the readers-only cell:
+//! `--writers 0`, `--read-op get` (`contains` on the set), `--probe uniform`,
+//! and nothing else is accepted. The prefill is the arm's writer-sweep
+//! prefill (2^20 keys over 63 bits for `set`, 2^20 `short` alphanumeric keys
+//! of 8–16 bytes for `str`), and each reader walks its own Fisher–Yates
+//! permutation of it once, so every probe is a present key. The map arm's
+//! readers-only cell is reader mode's W = 0 `get` cell. Every reader-mode
+//! throughput row also carries `reader_thread_elapsed_s`, each reader's own
+//! loop time, beside `reader_elapsed_s`, which runs to the last join.
+//! `writer_scaling.py --readers-only` drives the three arms at R ∈ {1, 2, 4, 8}.
+//!
+//! ```text
+//! cargo run --release -p expanse-trie --example writer_scaling -- --arm <map|set|str> --writers 0 --readers <R> --read-op get --probe uniform [--round <r>] [--position <p>] [--quick]
+//! ```
+//!
 //! # Workload shape
 //!
 //! | Property | Value |
 //! |---|---|
 //! | `workload_id` | `concurrency_writer_scaling` |
 //! | `group` | 5 |
-//! | `emits` | `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`, `concurrency_writer_str`, `concurrency_ordered_readers_map_64bit` |
-//! | `population` | prefill 2^20 keys (1M), plus 2^20 fresh keys inserted concurrently by W writers; reader mode (map only) adds 256 hotspot keys, one at offset 1 of every terminal byte of a 2^16-wide expanse, to every cell's prefill, and a hotspot cell's writers insert that expanse's other 65,280 keys instead of the 2^20 fresh keys |
+//! | `emits` | `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`, `concurrency_writer_str`, `concurrency_ordered_readers_map_64bit`, `concurrency_readers_set_63bit`, `concurrency_readers_str` |
+//! | `population` | prefill 2^20 keys (1M), plus 2^20 fresh keys inserted concurrently by W writers; reader mode (map only) adds 256 hotspot keys, one at offset 1 of every terminal byte of a 2^16-wide expanse, to every cell's prefill, and a hotspot cell's writers insert that expanse's other 65,280 keys instead of the 2^20 fresh keys; readers-only mode (set, str) prefills the arm's 2^20-key writer-sweep prefill and inserts nothing |
 //! | `insertion_order` | sorted — prefill ascending (reader mode: the sorted union with the hotspot keys), matching expanse-hot-bench; fresh stream in generator draw order; hotspot fresh keys Fisher–Yates shuffled |
-//! | `probes_and_reuse` | writer mode: none (R = 0), insert-only. Reader mode: R readers, each cycling its own Fisher–Yates permutation of the present uniform prefill (`uniform`) or of the 255 hotspot keys above the expanse's first terminal byte (`hotspot`); `get` or `prev_before` on a reader handle, or `prev_before` under `with_locked`, over the identical stream |
-//! | `hit_rate` | writer mode: n/a. Reader mode: 100% — every probe is a present key; a hotspot `prev_before` fails in its own terminal byte and answers from the sibling below, until a writer inserts that byte's offset-0 key |
+//! | `probes_and_reuse` | writer mode: none (R = 0), insert-only. Reader mode: R readers, each cycling its own Fisher–Yates permutation of the present uniform prefill (`uniform`) or of the 255 hotspot keys above the expanse's first terminal byte (`hotspot`); `get` or `prev_before` on a reader handle, or `prev_before` under `with_locked`, over the identical stream. Readers-only mode (set, str): R readers, each walking its own Fisher–Yates permutation of the prefill once, `contains` or `get` on a reader handle |
+//! | `hit_rate` | writer mode: n/a. Reader mode: 100% — every probe is a present key; a hotspot `prev_before` fails in its own terminal byte and answers from the sibling below, until a writer inserts that byte's offset-0 key. Readers-only mode: 100% |
 //! | `miss_gen_method` | same-generator rejection sampling against prefill; reader probes draw no misses |
 //! | `value_dereference` | map arms check stored values against key-derived expectation; reader results fold key and value into a `black_box` accumulator |
-//! | `measured_region` | writer mode: barrier release to last-writer join. Reader mode: barrier release to the last writer join (writers) and to the last reader join (readers); with W ≥ 1 readers stop once the writers have joined, with W = 0 each makes 2^20 probes; prefill, workload generation, reader registration, answer checks and teardown outside |
-//! | `arm_symmetry` | symmetric across thread counts; W in {1, 2, 4, 8} on physical P-cores; reader mode: `prev` and `prev_locked` run the same per-reader probe stream over the same tree, interleaved within each round by the driver |
-//! | `statistics` | throughput ops/sec emitted raw, paired bootstrap BCa 95% CI for C(N); lock fallbacks and their six causes (partition-checked per row) from the occ-stats counters pass; reader mode: reader Mops/s with a BCa 95% CI per cell, the P12.5 per-round paired `prev` / `prev_locked` ratio with a BCa 95% CI, and P12.4's summed `read_fallbacks ÷ read_ops` from the counters pass |
+//! | `measured_region` | writer mode: barrier release to last-writer join. Reader mode: barrier release to the last writer join (writers) and to the last reader join (readers); with W ≥ 1 readers stop once the writers have joined, with W = 0 each makes 2^20 probes; prefill, workload generation, reader registration, answer checks and teardown outside; every reader-mode throughput row also records each reader's own loop time |
+//! | `arm_symmetry` | symmetric across thread counts; W in {1, 2, 4, 8} on physical P-cores; reader mode: `prev` and `prev_locked` run the same per-reader probe stream over the same tree, interleaved within each round by the driver; readers-only mode: the map (reader mode W = 0 `get`), set and str arms at R in {1, 2, 4, 8}, the R cells of each arm interleaved within each round by the driver |
+//! | `statistics` | throughput ops/sec emitted raw, paired bootstrap BCa 95% CI for C(N); lock fallbacks and their six causes (partition-checked per row) from the occ-stats counters pass; reader mode: reader Mops/s with a BCa 95% CI per cell, the P12.5 per-round paired `prev` / `prev_locked` ratio with a BCa 95% CI, and P12.4's summed `read_fallbacks ÷ read_ops` from the counters pass; readers-only mode: reader Mops/s with a BCa 95% CI per (arm, R), S(R) = T(R) / T(1) paired within each round with a BCa 95% CI, slowest-over-mean reader loop time per round, and summed read counters |
 //! | `verdict` | pending measurement |
 
 use std::collections::HashSet;
@@ -1133,6 +1150,10 @@ struct ReaderOutcome {
     /// `None` at W = 0.
     writer_elapsed_s: Option<f64>,
     reader_elapsed_s: f64,
+    /// Each reader thread's own probe-loop time, from its return from the
+    /// barrier to the end of its loop, in reader order. `reader_elapsed_s` is
+    /// the slowest reader plus the join; these give the mean beside it.
+    thread_elapsed_s: Vec<f64>,
     reader_ops: u64,
     fresh_keys: u64,
     final_pop: u64,
@@ -1267,73 +1288,89 @@ fn run_reader_cell(
         occ_stats::reset();
     }
 
-    let (writer_elapsed_s, reader_elapsed_s, reader_ops) = std::thread::scope(|s| {
-        let writer_handles: Vec<_> = (0..cell.writers)
-            .map(|w| {
-                let lo = w * per;
-                let hi = if w + 1 == cell.writers {
-                    fresh.len()
-                } else {
-                    lo + per
-                };
-                let slice = &fresh[lo..hi];
-                let b = &barrier;
-                let m = &map;
-                s.spawn(move || {
-                    b.wait();
-                    for &k in slice {
-                        m.insert(k, value_of(k));
-                    }
+    let (writer_elapsed_s, reader_elapsed_s, reader_ops, thread_elapsed_s) =
+        std::thread::scope(|s| {
+            let writer_handles: Vec<_> = (0..cell.writers)
+                .map(|w| {
+                    let lo = w * per;
+                    let hi = if w + 1 == cell.writers {
+                        fresh.len()
+                    } else {
+                        lo + per
+                    };
+                    let slice = &fresh[lo..hi];
+                    let b = &barrier;
+                    let m = &map;
+                    s.spawn(move || {
+                        b.wait();
+                        for &k in slice {
+                            m.insert(k, value_of(k));
+                        }
+                    })
                 })
-            })
-            .collect();
-        let reader_handles: Vec<_> = wl
-            .probes
-            .iter()
-            .map(|probes| {
-                let probes = probes.as_slice();
-                let b = &barrier;
-                let m = &map;
-                let stop = &stop;
-                s.spawn(move || match cell.op {
-                    ReadOp::Prev => {
-                        let rd = m.reader();
-                        b.wait();
-                        probe_loop(probes, limit, stop, |k| fold_entry(rd.prev_before(k)))
-                    }
-                    ReadOp::Get => {
-                        let rd = m.reader();
-                        b.wait();
-                        probe_loop(probes, limit, stop, |k| rd.get(k).unwrap_or(0))
-                    }
-                    ReadOp::PrevLocked => {
-                        b.wait();
-                        probe_loop(probes, limit, stop, |k| {
-                            fold_entry(m.with_locked(|t| t.prev_before(k)))
-                        })
-                    }
+                .collect();
+            let reader_handles: Vec<_> = wl
+                .probes
+                .iter()
+                .map(|probes| {
+                    let probes = probes.as_slice();
+                    let b = &barrier;
+                    let m = &map;
+                    let stop = &stop;
+                    s.spawn(move || match cell.op {
+                        ReadOp::Prev => {
+                            let rd = m.reader();
+                            b.wait();
+                            let t0 = Instant::now();
+                            let n =
+                                probe_loop(probes, limit, stop, |k| fold_entry(rd.prev_before(k)));
+                            (n, t0.elapsed().as_secs_f64())
+                        }
+                        ReadOp::Get => {
+                            let rd = m.reader();
+                            b.wait();
+                            let t0 = Instant::now();
+                            let n = probe_loop(probes, limit, stop, |k| rd.get(k).unwrap_or(0));
+                            (n, t0.elapsed().as_secs_f64())
+                        }
+                        ReadOp::PrevLocked => {
+                            b.wait();
+                            let t0 = Instant::now();
+                            let n = probe_loop(probes, limit, stop, |k| {
+                                fold_entry(m.with_locked(|t| t.prev_before(k)))
+                            });
+                            (n, t0.elapsed().as_secs_f64())
+                        }
+                    })
                 })
-            })
-            .collect();
+                .collect();
 
-        perf_ctl.enable();
-        barrier.wait();
-        let start = Instant::now();
-        let guard = StopOnDrop(&stop);
-        let mut writer_elapsed = None;
-        if !writer_handles.is_empty() {
-            for h in writer_handles {
-                h.join().expect("writer thread panicked");
+            perf_ctl.enable();
+            barrier.wait();
+            let start = Instant::now();
+            let guard = StopOnDrop(&stop);
+            let mut writer_elapsed = None;
+            if !writer_handles.is_empty() {
+                for h in writer_handles {
+                    h.join().expect("writer thread panicked");
+                }
+                writer_elapsed = Some(start.elapsed().as_secs_f64());
             }
-            writer_elapsed = Some(start.elapsed().as_secs_f64());
-        }
-        drop(guard);
-        let mut ops = 0u64;
-        for h in reader_handles {
-            ops += h.join().expect("reader thread panicked");
-        }
-        (writer_elapsed, start.elapsed().as_secs_f64(), ops)
-    });
+            drop(guard);
+            let mut ops = 0u64;
+            let mut per_thread = Vec::with_capacity(cell.readers);
+            for h in reader_handles {
+                let (n, secs) = h.join().expect("reader thread panicked");
+                ops += n;
+                per_thread.push(secs);
+            }
+            (
+                writer_elapsed,
+                start.elapsed().as_secs_f64(),
+                ops,
+                per_thread,
+            )
+        });
     perf_ctl.disable();
 
     let mut counters = Counters::read(is_counters);
@@ -1370,11 +1407,191 @@ fn run_reader_cell(
     Ok(ReaderOutcome {
         writer_elapsed_s,
         reader_elapsed_s,
+        thread_elapsed_s,
         reader_ops,
         fresh_keys: fresh.len() as u64,
         final_pop,
         counters,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Readers-only cells on the set and string arms (#730)
+// ---------------------------------------------------------------------------
+
+/// The key population of a readers-only cell, and each reader's probe order.
+///
+/// Probes are indices into `prefill`, one Fisher–Yates permutation per reader
+/// with the reader-mode seeds, so every probe is a present key and the three
+/// arms draw their orders from one generator.
+struct ReadersOnlyWorkload<K> {
+    prefill: Vec<K>,
+    probes: Vec<Vec<u64>>,
+}
+
+impl<K> ReadersOnlyWorkload<K> {
+    fn new(prefill: Vec<K>, readers: usize) -> Self {
+        let probes = (0..readers)
+            .map(|r| {
+                let mut v: Vec<u64> = (0..prefill.len() as u64).collect();
+                fisher_yates(&mut v, reader_seed(r));
+                v
+            })
+            .collect();
+        Self { prefill, probes }
+    }
+}
+
+/// `readers` threads behind one barrier, W = 0, each making exactly one
+/// probe per prefilled key. `body(r, barrier)` registers its reader, waits on
+/// the barrier and returns its probe count and its own loop time. Main's clock
+/// runs from the barrier release to the last join.
+fn timed_readers<F>(readers: usize, perf_ctl: &mut PerfControl, body: F) -> (f64, u64, Vec<f64>)
+where
+    F: Fn(usize, &Barrier) -> (u64, f64) + Sync,
+{
+    let barrier = Barrier::new(readers + 1);
+    std::thread::scope(|s| {
+        let handles: Vec<_> = (0..readers)
+            .map(|r| {
+                let b = &barrier;
+                let body = &body;
+                s.spawn(move || body(r, b))
+            })
+            .collect();
+        perf_ctl.enable();
+        barrier.wait();
+        let start = Instant::now();
+        let mut ops = 0u64;
+        let mut per_thread = Vec::with_capacity(readers);
+        for h in handles {
+            let (n, secs) = h.join().expect("reader thread panicked");
+            ops += n;
+            per_thread.push(secs);
+        }
+        let elapsed = start.elapsed().as_secs_f64();
+        perf_ctl.disable();
+        (elapsed, ops, per_thread)
+    })
+}
+
+/// A readers-only cell on [`SyncExpanseSet`]: `contains` on a reader handle.
+fn run_set_readers_cell(
+    wl: &ReadersOnlyWorkload<u64>,
+    round: usize,
+    is_counters: bool,
+    perf_ctl: &mut PerfControl,
+) -> Result<ReaderOutcome, String> {
+    let set = SyncExpanseSet::new();
+    for &k in &wl.prefill {
+        set.insert(k);
+    }
+    let limit = Some(wl.prefill.len() as u64);
+    let stop = AtomicBool::new(false);
+    if is_counters {
+        occ_stats::reset();
+    }
+    let (reader_elapsed_s, reader_ops, thread_elapsed_s) =
+        timed_readers(wl.probes.len(), perf_ctl, |r, b| {
+            let rd = set.reader();
+            let keys = wl.prefill.as_slice();
+            b.wait();
+            let t0 = Instant::now();
+            let n = probe_loop(&wl.probes[r], limit, &stop, |i| {
+                u64::from(rd.contains(keys[i as usize]))
+            });
+            (n, t0.elapsed().as_secs_f64())
+        });
+    let counters = Counters::read(is_counters);
+    let final_pop = set.len();
+    if final_pop != wl.prefill.len() as u64 {
+        return Err(format!(
+            "round {round}: set population {final_pop}, expected {}",
+            wl.prefill.len()
+        ));
+    }
+    let reader = set.reader();
+    let step = (wl.prefill.len() / 512).max(1);
+    for &k in wl.prefill.iter().step_by(step) {
+        if !reader.contains(k) {
+            return Err(format!("round {round}: set missing prefilled key {k:#x}"));
+        }
+    }
+    Ok(ReaderOutcome {
+        writer_elapsed_s: None,
+        reader_elapsed_s,
+        thread_elapsed_s,
+        reader_ops,
+        fresh_keys: 0,
+        final_pop,
+        counters,
+    })
+}
+
+/// A readers-only cell on [`SyncExpanseStrMap`]: `get` on a reader handle.
+fn run_str_readers_cell(
+    wl: &ReadersOnlyWorkload<Vec<u8>>,
+    round: usize,
+    is_counters: bool,
+    perf_ctl: &mut PerfControl,
+) -> Result<ReaderOutcome, String> {
+    // Validated once, outside the timed window: the probe loop measures the
+    // descent, not the NUL scan.
+    let nks: Vec<&NulFreeStr> = wl
+        .prefill
+        .iter()
+        .map(|k| NulFreeStr::new(k).expect("alnum bytes are NUL-free"))
+        .collect();
+    let map = SyncExpanseStrMap::new();
+    for (nk, k) in nks.iter().zip(&wl.prefill) {
+        map.insert(nk, str_value_of(k));
+    }
+    let limit = Some(wl.prefill.len() as u64);
+    let stop = AtomicBool::new(false);
+    if is_counters {
+        occ_stats::reset();
+    }
+    let (reader_elapsed_s, reader_ops, thread_elapsed_s) =
+        timed_readers(wl.probes.len(), perf_ctl, |r, b| {
+            let rd = map.reader();
+            let keys = nks.as_slice();
+            b.wait();
+            let t0 = Instant::now();
+            let n = probe_loop(&wl.probes[r], limit, &stop, |i| {
+                rd.get(keys[i as usize]).unwrap_or(0)
+            });
+            (n, t0.elapsed().as_secs_f64())
+        });
+    let counters = Counters::read(is_counters);
+    let final_pop = map.len();
+    if final_pop != wl.prefill.len() as u64 {
+        return Err(format!(
+            "round {round}: string map population {final_pop}, expected {}",
+            wl.prefill.len()
+        ));
+    }
+    let reader = map.reader();
+    let step = (wl.prefill.len() / 512).max(1);
+    for (nk, k) in nks.iter().zip(&wl.prefill).step_by(step) {
+        if reader.get(nk) != Some(str_value_of(k)) {
+            return Err(format!("round {round}: string map missing a prefilled key"));
+        }
+    }
+    Ok(ReaderOutcome {
+        writer_elapsed_s: None,
+        reader_elapsed_s,
+        thread_elapsed_s,
+        reader_ops,
+        fresh_keys: 0,
+        final_pop,
+        counters,
+    })
+}
+
+/// Per-thread loop times as a JSON array.
+fn f64_array_json(v: &[f64]) -> String {
+    let items: Vec<String> = v.iter().map(|x| format!("{x:.6}")).collect();
+    format!("[{}]", items.join(","))
 }
 
 /// `s` as a JSON string literal.
@@ -1428,12 +1645,14 @@ fn parse_flag<T: std::str::FromStr>(args: &[String], flag: &str) -> Result<Optio
 
 /// Reader mode: one (W, R, read op, probe) cell over `--round` or `--rounds`.
 fn reader_main(args: &[String], is_counters: bool, readers: usize) -> Result<(), String> {
-    if let Some(arm) = flag_value(args, "--arm")?
-        && arm != "map"
-    {
-        return Err(format!(
-            "--readers {readers} runs the map arm only, got --arm {arm}"
-        ));
+    match flag_value(args, "--arm")?.unwrap_or("map") {
+        "map" => {}
+        arm @ ("set" | "str") => return readers_only_main(args, is_counters, readers, arm),
+        other => {
+            return Err(format!(
+                "--readers {readers} runs the map, set and str arms, got --arm {other}"
+            ));
+        }
     }
     let writers: usize = parse_flag(args, "--writers")?
         .ok_or_else(|| "reader mode needs --writers <W>, a single count (0 allowed)".to_string())?;
@@ -1512,10 +1731,135 @@ fn reader_main(args: &[String], is_counters: bool, readers: usize) -> Result<(),
                  \"round\":{round},\"position\":{position},\"write_ops\":{fresh},\
                  \"writer_elapsed_s\":{we},\"writer_mops\":{wm},\
                  \"reader_ops\":{reader_ops},\"reader_elapsed_s\":{reader_elapsed_s:.6},\
+                 \"reader_thread_elapsed_s\":{te},\
                  \"reader_mops\":{reader_mops:.6},\"cpu_pin\":{pin},\"tsc_hz\":{tsc_hz},\
                  \"population_after\":{final_pop}}}",
                 we = opt_f64_json(out.writer_elapsed_s),
                 wm = opt_f64_json(writer_mops),
+                te = f64_array_json(&out.thread_elapsed_s),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Readers-only mode on the set and string arms (#730): W = 0, `get`
+/// (`contains` on the set), uniform probes over the prefill, one cell per
+/// invocation. Anything else is refused by name rather than run as something
+/// the row would not describe.
+fn readers_only_main(
+    args: &[String],
+    is_counters: bool,
+    readers: usize,
+    arm: &str,
+) -> Result<(), String> {
+    let writers: usize = parse_flag(args, "--writers")?
+        .ok_or_else(|| format!("--arm {arm} in reader mode needs --writers 0"))?;
+    if writers != 0 {
+        return Err(format!(
+            "--arm {arm} in reader mode is the readers-only cell: --writers 0 only, got --writers {writers}"
+        ));
+    }
+    let op = ReadOp::parse(flag_value(args, "--read-op")?.unwrap_or("get"))?;
+    if op != ReadOp::Get {
+        return Err(format!(
+            "--arm {arm} in reader mode takes --read-op get only, got --read-op {}",
+            op.name()
+        ));
+    }
+    let probe = Probe::parse(flag_value(args, "--probe")?.unwrap_or("uniform"))?;
+    if probe != Probe::Uniform {
+        return Err(format!(
+            "--arm {arm} in reader mode takes --probe uniform only, got --probe {}",
+            probe.name()
+        ));
+    }
+    let position: usize = parse_flag(args, "--position")?.unwrap_or(0);
+    let rounds: usize = parse_flag(args, "--rounds")?.unwrap_or(8);
+    let (round_start, round_end) = match parse_flag::<usize>(args, "--round")? {
+        Some(r) => (r, r + 1),
+        None => (0, rounds),
+    };
+    let n0 = if args.iter().any(|a| a == "--quick") {
+        4096
+    } else {
+        N_PREFILL
+    };
+
+    let tsc_hz = occ_stats::cycles_hz(std::time::Duration::from_millis(200));
+    let mut perf_ctl = PerfControl::new(
+        flag_value(args, "--perf-ctl-fifo")?,
+        flag_value(args, "--perf-ack-fifo")?,
+    );
+    let label = format!("{arm}_w0_r{readers}_get_uniform");
+    let pin = cpu_pin_json();
+    eprintln!("generating {arm} readers-only workload (prefill={n0}, readers={readers})...");
+
+    let (workload_id, shape_field, outcomes) = if arm == "set" {
+        let wl = ReadersOnlyWorkload::new(WriterWorkload::generate(n0, 0, 63).prefill, readers);
+        let mut v = Vec::with_capacity(round_end - round_start);
+        for round in round_start..round_end {
+            v.push((
+                round,
+                run_set_readers_cell(&wl, round, is_counters, &mut perf_ctl)?,
+            ));
+        }
+        ("concurrency_readers_set_63bit", "\"keyspace_bits\":63", v)
+    } else {
+        let wl = ReadersOnlyWorkload::new(WriterStrWorkload::generate(n0, 0).prefill, readers);
+        let mut v = Vec::with_capacity(round_end - round_start);
+        for round in round_start..round_end {
+            v.push((
+                round,
+                run_str_readers_cell(&wl, round, is_counters, &mut perf_ctl)?,
+            ));
+        }
+        ("concurrency_readers_str", "\"dist\":\"short\"", v)
+    };
+
+    for (round, out) in outcomes {
+        let reader_ops = out.reader_ops;
+        let final_pop = out.final_pop;
+        if reader_ops != readers as u64 * n0 as u64 {
+            return Err(format!(
+                "{label} round {round}: {reader_ops} probes, expected exactly {}",
+                readers as u64 * n0 as u64
+            ));
+        }
+        if is_counters {
+            let ctx = format!("{label} round {round}");
+            out.counters.check(0, out.counters.locked_reads, &ctx)?;
+            out.counters.check_reader(ReadOp::Get, reader_ops, &ctx)?;
+            println!(
+                "{{\"workload_id\":\"{workload_id}\",\"role\":\"counters\",\
+                 \"arm\":\"expanse\",\"cell\":\"{label}\",{shape_field},\
+                 \"prefill\":{n0},\"fresh_keys\":0,\"writers\":0,\"readers\":{readers},\
+                 \"read_op\":\"get\",\"probe\":\"uniform\",\
+                 \"round\":{round},\"position\":{position},\"write_ops\":0,\"reader_ops\":{reader_ops},\
+                 \"cpu_pin\":{pin},\"tsc_hz\":{tsc_hz},\
+                 \"lock_fallbacks\":{fb},\"inserts\":{ins},{extra},{reads},\
+                 \"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
+                fb = out.counters.lock_fallbacks,
+                ins = out.counters.inserts,
+                extra = out.counters.extra_counters_json(),
+                reads = out.counters.reader_counters_json(),
+                causes = out.counters.causes_json(),
+            );
+        } else {
+            let reader_elapsed_s = out.reader_elapsed_s;
+            let reader_mops = reader_ops as f64 / reader_elapsed_s / 1e6;
+            println!(
+                "{{\"workload_id\":\"{workload_id}\",\"role\":\"throughput\",\
+                 \"arm\":\"expanse\",\"cell\":\"{label}\",{shape_field},\
+                 \"prefill\":{n0},\"fresh_keys\":0,\"writers\":0,\"readers\":{readers},\
+                 \"read_op\":\"get\",\"probe\":\"uniform\",\
+                 \"round\":{round},\"position\":{position},\"write_ops\":0,\
+                 \"writer_elapsed_s\":null,\"writer_mops\":null,\
+                 \"reader_ops\":{reader_ops},\"reader_elapsed_s\":{reader_elapsed_s:.6},\
+                 \"reader_thread_elapsed_s\":{te},\
+                 \"reader_mops\":{reader_mops:.6},\"cpu_pin\":{pin},\"tsc_hz\":{tsc_hz},\
+                 \"population_after\":{final_pop}}}",
+                te = f64_array_json(&out.thread_elapsed_s),
             );
         }
     }
@@ -1751,6 +2095,43 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
                     ));
                 }
             }
+        }
+    }
+
+    // Readers-only cells on the set and string arms (#730): exactly one probe
+    // per prefilled key per reader, one loop time per reader thread, and the
+    // counters build's identities at W = 0.
+    let wl_set_ro = ReadersOnlyWorkload::new(WriterWorkload::generate(n0, 0, 63).prefill, 2);
+    let wl_str_ro = ReadersOnlyWorkload::new(WriterStrWorkload::generate(n0, 0).prefill, 2);
+    let set_ro = run_set_readers_cell(&wl_set_ro, 0, is_counters, &mut dummy_ctl)
+        .map_err(|e| format!("self-test set readers-only: {e}"))?;
+    let str_ro = run_str_readers_cell(&wl_str_ro, 0, is_counters, &mut dummy_ctl)
+        .map_err(|e| format!("self-test str readers-only: {e}"))?;
+    for (name, out) in [("set", &set_ro), ("str", &str_ro)] {
+        let ctx = format!("self-test {name} readers-only");
+        if out.reader_ops != 2 * n0 as u64 || out.final_pop != n0 as u64 {
+            return Err(format!(
+                "{ctx}: {} probes over a population of {}, expected {} over {n0}",
+                out.reader_ops,
+                out.final_pop,
+                2 * n0
+            ));
+        }
+        if out.thread_elapsed_s.len() != 2 {
+            return Err(format!(
+                "{ctx}: {} per-thread loop times for 2 readers",
+                out.thread_elapsed_s.len()
+            ));
+        }
+        if is_counters {
+            out.counters.check(0, out.counters.locked_reads, &ctx)?;
+            out.counters
+                .check_reader(ReadOp::Get, out.reader_ops, &ctx)?;
+        } else if out.reader_elapsed_s <= 0.0 || out.thread_elapsed_s.iter().any(|&t| t <= 0.0) {
+            return Err(format!(
+                "{ctx}: invalid elapsed (readers {}, threads {:?})",
+                out.reader_elapsed_s, out.thread_elapsed_s
+            ));
         }
     }
 
