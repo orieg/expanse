@@ -66,6 +66,71 @@ class BusyCpus(unittest.TestCase):
         self.assertIsNone(bp.busy_cpus(snap(0, 25_000), 0, 24_000, ncpu=24))
 
 
+class MinimumWindow(unittest.TestCase):
+    """A window too short to resolve has no busy-CPU number (section 8.1).
+
+    Two snapshots taken back to back differ by rounding over a wall time of
+    almost nothing, and the quotient is then any value at all: an own figure
+    below zero and a foreign remainder above the 1.0 void boundary.
+    """
+
+    def test_the_minimum_is_ten_jiffies(self):
+        self.assertEqual(bp.MIN_WINDOW_JIFFIES, 10)
+        self.assertAlmostEqual(bp.MIN_WINDOW_S, 10 / bp.USER_HZ)
+        self.assertGreater(bp.USER_HZ, 0)
+
+    def test_host_busy_below_the_minimum_is_none(self):
+        # 24 CPUs accrue 24 total jiffies per jiffy of wall time.
+        below = 24 * bp.MIN_WINDOW_JIFFIES - 1
+        self.assertIsNone(bp.busy_cpus(snap(0, 0), 0, below, ncpu=24))
+        self.assertIsNone(bp.busy_cpus(snap(0, 0), 1, 24, ncpu=24))  # one jiffy: read 24.0 before
+
+    def test_host_busy_at_the_minimum_is_a_number(self):
+        at = 24 * bp.MIN_WINDOW_JIFFIES
+        self.assertEqual(bp.busy_cpus(snap(0, 0), bp.MIN_WINDOW_JIFFIES, at, ncpu=24), 1.0)
+
+    def test_own_below_the_minimum_is_none_and_so_is_foreign(self):
+        prev = {"child_cpu_s": 68.39, "monotonic_s": 100.0}
+        # Sub-millisecond window with the stored operand's rounding in it.
+        own = bp.own_busy_cpus(prev, 68.3895, 100.0006)
+        self.assertIsNone(own)
+        self.assertIsNone(bp.foreign_busy_cpus(0.0, own))
+        self.assertIsNone(bp.own_busy_cpus(prev, 68.39, 100.0 + bp.MIN_WINDOW_S * 0.99))
+
+    def test_own_at_and_above_the_minimum_is_a_number(self):
+        prev = {"child_cpu_s": 10.0, "monotonic_s": 100.0}
+        self.assertEqual(bp.own_busy_cpus(prev, 11.0, 101.0), 1.0)
+        # Just above the minimum (1% over, clear of float round-off).
+        just = bp.MIN_WINDOW_S * 1.01
+        self.assertIsNotNone(bp.own_busy_cpus(prev, 10.0 + just, 100.0 + just))
+        self.assertEqual(bp.foreign_busy_cpus(1.5, 1.0), 0.5)
+
+    def test_back_to_back_snapshots_carry_no_figures(self):
+        # The production call path: `begin_cell` twice with nothing between.
+        prov = {"loads": []}
+        bp.begin_cell(prov, "first")
+        second = bp.begin_cell(prov, "second")
+        for k in ("busy_cpus_since_prev", "own_busy_cpus_since_prev", "foreign_busy_cpus_since_prev"):
+            self.assertIsNone(second[k], f"{k} = {second[k]} over a back-to-back window")
+        load = bp.end_cell(second)
+        for k in ("busy_cpus_since_prev", "own_busy_cpus", "foreign_busy_cpus"):
+            self.assertIsNone(load[k], f"end_cell {k} = {load[k]} over a back-to-back window")
+
+    def test_a_long_enough_window_still_attributes(self):
+        # The same call path over a window above the minimum, with the start
+        # snapshot's clock moved back rather than a sleep in a unit test.
+        start = bp.load_snapshot("start")
+        start["monotonic_s"] -= 1.0
+        if start["stat_total_jiffies"] is not None:
+            start["stat_total_jiffies"] -= (bp.os.cpu_count() or 1) * bp.USER_HZ
+        load = bp.end_cell(start)
+        if start["child_cpu_s"] is not None:
+            self.assertIsNotNone(load["own_busy_cpus"])
+        if start["stat_total_jiffies"] is not None and start["child_cpu_s"] is not None:
+            self.assertIsNotNone(load["busy_cpus_since_prev"])
+            self.assertIsNotNone(load["foreign_busy_cpus"])
+
+
 class CpuJiffies(unittest.TestCase):
     def test_reads_a_pair_or_a_pair_of_nones(self):
         busy, total = bp.cpu_jiffies()
