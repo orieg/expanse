@@ -88,6 +88,7 @@ CI_METHODS = frozenset(
     if k.startswith("CI_METHOD_") and isinstance(v, str)
 )
 from bench_provenance import (  # noqa: E402
+    MIN_WINDOW_S,
     begin_cell,
     end_cell,
     estimators,
@@ -1022,8 +1023,12 @@ def run_comparison(
     all_t_rows_default: list[dict[str, Any]] = []
     all_t_rows_variant: list[dict[str, Any]] = []
 
-    start_snap_def = begin_cell(prov, f"arm:{arm}:default")
-    start_snap_var = begin_cell(prov, f"arm:{arm}:{variant_name}")
+    # One load window for the arm, covering both builds. The builds alternate
+    # cell by cell inside it, so a per-build phase window cannot separate them;
+    # and a second `begin_cell` taken back to back with the first opens a
+    # window of well under a millisecond, whose busy-CPU quotient is rounding
+    # divided by almost nothing. Both builds' cells carry this one attribution.
+    start_snap = begin_cell(prov, f"arm:{arm}:comparison")
 
     binaries = {DEFAULT_BUILD: bin_default, variant_name: bin_variant}
     schedule = writer_cell_schedule(writers_list, rounds, builds=(DEFAULT_BUILD, variant_name))
@@ -1034,8 +1039,7 @@ def run_comparison(
         all_t_rows_default + all_t_rows_variant, schedule, f"{arm} default vs {variant_name}"
     )
 
-    load_def = end_cell(start_snap_def)
-    load_var = end_cell(start_snap_var)
+    load = end_cell(start_snap)
 
     print(f"  [Pass 2/2] Diagnostic counters (default) — {arm} arm across W ∈ {writers_list} (occ-stats build)")
     c_rows_def = run_pass(counters_bin_default, "counters", arm, writers_list, rounds=rounds, quick=quick)
@@ -1051,10 +1055,10 @@ def run_comparison(
     tp_target_var = bin_variant.parent.parent
 
     cells_default = summarize_arm(
-        arm, writers_list, rounds, all_t_rows_default, c_rows_def, load_def, throughput_target=tp_target_def
+        arm, writers_list, rounds, all_t_rows_default, c_rows_def, dict(load), throughput_target=tp_target_def
     )
     cells_variant = summarize_arm(
-        arm, writers_list, rounds, all_t_rows_variant, c_rows_var, load_var, throughput_target=tp_target_var
+        arm, writers_list, rounds, all_t_rows_variant, c_rows_var, dict(load), throughput_target=tp_target_var
     )
     for c in cells_variant:
         c["variant"] = variant_name
@@ -2568,6 +2572,7 @@ def _self_test_per_cell_isolation(throughput_bin: Path, counters_bin: Path) -> N
     The counters pass still reaches the real counters binary.
     """
     import io
+    import time
     from unittest import mock
 
     eprintln = sys.stderr.write
@@ -2621,7 +2626,29 @@ def _self_test_per_cell_isolation(throughput_bin: Path, counters_bin: Path) -> N
     def fake_build(features: str | None = None, verbose: bool = True) -> tuple[Path, Path]:
         return (fake_default if features is None else fake_variant), counters_bin
 
-    def drive_main(argv: list[str], tamper: Any = lambda row: None, summarize: Any = None) -> dict[str, Any]:
+    class SteppingClock:
+        """`time` for `bench_provenance`, whose `monotonic()` advances 1 ms more per read.
+
+        With the builds stubbed, snapshots the driver takes back to back sit
+        well under a millisecond apart, and a stored snapshot's clock is
+        rounded to 1 ms, so their difference can come out zero or negative --
+        which the accounting refuses on that ground alone. The extra step
+        makes every such window positive and still far below the minimum, so
+        the window assertion below is decided by the minimum, every run.
+        """
+
+        def __init__(self) -> None:
+            self.reads = 0
+
+        def monotonic(self) -> float:
+            self.reads += 1
+            return time.monotonic() + 0.001 * self.reads
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(time, name)
+
+    def drive_main(argv: list[str], tamper: Any = lambda row: None, summarize: Any = None,
+                   clock: Any = None) -> dict[str, Any]:
         timed: list[tuple[str, list[str]]] = []
         counters: list[list[str]] = []
         err: BaseException | None = None
@@ -2629,6 +2656,8 @@ def _self_test_per_cell_isolation(throughput_bin: Path, counters_bin: Path) -> N
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "selftest_per_cell_writer_scaling.json"
             with contextlib.ExitStack() as stack:
+                if clock is not None:
+                    stack.enter_context(mock.patch.object(sys.modules["bench_provenance"], "time", clock))
                 stack.enter_context(mock.patch.object(
                     subprocess, "run", side_effect=fake_subprocess(timed, counters, tamper)))
                 stack.enter_context(mock.patch.object(module, "build_binaries", side_effect=fake_build))
@@ -2744,13 +2773,51 @@ def _self_test_per_cell_isolation(throughput_bin: Path, counters_bin: Path) -> N
 
     # 2. The comparison: every (build, W) cell of a round in its own process,
     #    Williams-balanced over the 2 x len(W) cells.
-    comp = drive_main(["--compare", variant, "--arm", "map", "--writers", "1,2,4,8", "--rounds", "8"])
+    comp = drive_main(["--compare", variant, "--arm", "map", "--writers", "1,2,4,8", "--rounds", "8"],
+                      clock=SteppingClock())
     assert_one_w_per_process(comp["timed"], "comparison pass")
     if comp["err"] is not None:
         raise comp["err"]
     assert_balance(comp["timed"], (DEFAULT_BUILD, variant), writers, 8, "comparison pass")
     assert_artifact_matches(comp, "comparison pass")
     assert comp["artifact"]["comparison"][0]["per_writer"]["8"]["paired_ratios_raw"], comp["artifact"]["comparison"]
+
+    # 2b. The comparison's load window, read off the artifact main() wrote.
+    #     The builds alternate cell by cell, so one phase window per arm covers
+    #     both, and a second snapshot taken back to back with the first opens
+    #     a window too short for any busy-CPU figure to mean anything.
+    loads = comp["artifact"]["provenance"]["loads"]
+    phase = [s["label"] for s in loads if s["label"].startswith("arm:map:")]
+    assert phase == ["arm:map:comparison"], (
+        f"comparison pass: provenance.loads carries phase snapshots {phase} for the map arm, expected "
+        f"exactly ['arm:map:comparison']: two phase snapshots for one arm taken back to back leave the "
+        f"second a window too short to measure"
+    )
+    for key in ("throughput", "throughput_variant"):
+        for cell in comp["artifact"][key]:
+            assert cell["load"]["since"] == "arm:map:comparison", (
+                f"comparison pass: a `{key}` cell's load window opens at {cell['load']['since']!r}, not "
+                f"at the arm's one comparison snapshot"
+            )
+    # Every snapshot's window is either long enough to measure or carries no
+    # figure. `monotonic_s` is stored to 1 ms, so a window is only judged
+    # sub-minimum when it is short by more than that rounding.
+    short = 0
+    for prev, snap in zip(loads, loads[1:]):
+        window = snap["monotonic_s"] - prev["monotonic_s"]
+        if window >= MIN_WINDOW_S - 0.001:
+            continue
+        short += 1
+        for k in ("busy_cpus_since_prev", "own_busy_cpus_since_prev", "foreign_busy_cpus_since_prev"):
+            assert snap[k] is None, (
+                f"comparison pass: snapshot {snap['label']!r} carries {k} = {snap[k]} over a "
+                f"{window * 1000:.1f} ms window, below the {MIN_WINDOW_S:.3f} s minimum the jiffy "
+                f"accounting can resolve (bench_provenance.MIN_WINDOW_S): it must carry no number"
+            )
+    assert short, (
+        "comparison pass: no snapshot window fell below the minimum, so the assertion that a "
+        "sub-minimum window carries no number was never exercised"
+    )
 
     # 3. A row whose position disagrees with the invocation that printed it is
     #    refused, and nothing is written.

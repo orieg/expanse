@@ -29,7 +29,8 @@ part the P-core mask includes SMT siblings, so `W + R = 16` on an eight-P-core
 host runs two threads per physical core, and no interval says so.
 
 **`busy_cpus_since_prev`** — the host's busy CPU between two load snapshots,
-in core-equivalents, from `/proc/stat` jiffies. The one-minute load average
+in core-equivalents, from `/proc/stat` jiffies. A window shorter than
+`MIN_WINDOW_S` reads `None`, not a number: see that constant. The one-minute load average
 lags a heavy process by about thirty seconds, which is how a documented 2.2x
 baseline shift happened on this project despite a load pre-check passing. The
 jiffy delta between two snapshots is exact over the interval it covers, the
@@ -71,10 +72,40 @@ except ImportError:  # not a POSIX host: no child CPU accounting, recorded as No
     resource = None
 
 __all__ = [
+    "USER_HZ", "MIN_WINDOW_JIFFIES", "MIN_WINDOW_S",
     "cpu_jiffies", "child_cpu_seconds", "load_snapshot", "add_load", "begin_cell",
     "end_cell", "host_facts", "scaling_governor_by_cpu", "expand_cpu_list", "pin_set",
     "raw_rounds", "estimators", "git_sha", "new_provenance", "attach", "body", "rewrite",
 ]
+
+
+def _user_hz() -> int:
+    """The unit `/proc/stat` counts CPU time in, ticks per second (`USER_HZ`)."""
+    try:
+        hz = os.sysconf("SC_CLK_TCK")
+    except (AttributeError, ValueError, OSError):
+        hz = -1
+    return hz if hz > 0 else 100  # 100 is USER_HZ on every Linux ABI
+
+
+USER_HZ = _user_hz()
+# The shortest window a busy-CPU figure is computed over. A figure is a count
+# divided by a wall time, and the coarsest count is the jiffy: `/proc/stat`
+# reports CPU time in units of 1/USER_HZ seconds, so one unit of one CPU over a
+# window of `w` seconds is 1/(USER_HZ * w) core-equivalents. Ten units makes
+# that step 0.1 core-equivalent -- a tenth of the foreign-busy void boundary of
+# 1.0 (AGENTS.md section 8.17) -- which is 0.1 s at USER_HZ = 100. The other
+# operands are finer: `getrusage` reports microseconds, and the 1 ms rounding of
+# a stored snapshot's `monotonic_s` and `child_cpu_s` moves a figure over this
+# window by at most 0.01 core-equivalent. Below the minimum the quotient is
+# rounding divided by almost nothing -- two snapshots taken back to back can
+# yield an own figure below zero and a foreign remainder above 1.0 over a window
+# the artifact records as 0 ms, which a void rule would read as contamination.
+# The minimum makes a figure resolvable, not exact: above it,
+# every CPU whose counter advances inside the window still contributes its own
+# counting step.
+MIN_WINDOW_JIFFIES = 10
+MIN_WINDOW_S = MIN_WINDOW_JIFFIES / USER_HZ
 
 
 def cpu_jiffies() -> tuple[int | None, int | None]:
@@ -102,7 +133,9 @@ def busy_cpus(prev: dict | None, busy: int | None, total: int | None,
     `(busy - prev.busy) / (total - prev.total)` is the fraction of the host's
     total capacity that was not idle over the interval; multiplying by the CPU
     count expresses it in cores. Returns `None` when there is no previous
-    snapshot, when either side is off Linux, or when no time passed.
+    snapshot, when either side is off Linux, or when the interval is shorter
+    than `MIN_WINDOW_JIFFIES` of wall time: `total` accrues one jiffy per CPU
+    per tick, so the wall interval in jiffies is `(total - prev.total) / ncpu`.
     """
     if not prev or busy is None or total is None:
         return None
@@ -110,9 +143,9 @@ def busy_cpus(prev: dict | None, busy: int | None, total: int | None,
     if p_busy is None or p_total is None:
         return None
     dt = total - p_total
-    if dt <= 0:
-        return None
     n = ncpu if ncpu is not None else (os.cpu_count() or 1)
+    if dt <= 0 or dt < MIN_WINDOW_JIFFIES * n:
+        return None
     return round((busy - p_busy) / dt * n, 2)
 
 
@@ -134,7 +167,8 @@ def own_busy_cpus(prev: dict | None, child_cpu_s: float | None, monotonic_s: flo
 
     `(child CPU seconds now - then) / (wall seconds now - then)`. `None` when
     there is no previous snapshot, when either side lacks the accounting, or
-    when no wall time passed.
+    when the wall interval is shorter than `MIN_WINDOW_S`: a window too short
+    to measure has no number, not a small or a negative one (section 8.1).
     """
     if not prev or child_cpu_s is None:
         return None
@@ -142,7 +176,7 @@ def own_busy_cpus(prev: dict | None, child_cpu_s: float | None, monotonic_s: flo
     if p_child is None or p_mono is None:
         return None
     wall = monotonic_s - p_mono
-    if wall <= 0:
+    if wall < MIN_WINDOW_S:
         return None
     return round((child_cpu_s - p_child) / wall, 2)
 
