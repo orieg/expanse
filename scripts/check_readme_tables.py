@@ -14,8 +14,15 @@ collapsed so a re-wrap of a cell's padding is not a finding but a changed digit
 is. Headings are skipped — the READMEs demote the generator's heading level on
 purpose — and so are HTML comments and the trailing load-average footer, which
 name the run rather than a result. Prose the generator emits must appear too,
-matched against the README with all whitespace collapsed, so a caption may be
-re-wrapped but not reworded.
+matched against the README with all whitespace collapsed and leading blockquote
+markers dropped, so a caption may be re-wrapped, or sit in a `>` block, but not
+be reworded. A generator may emit a fragment of a paragraph rather than all of
+it; the hand-maintained remainder is then unchecked, and the generator says
+which parts those are.
+
+A suite README may be fed by more than one generator. `hot_comparison` is: the
+concurrent arm's §7.1, §7.2 and §7.6 come from `concurrent_tables.py` and are
+enforced, while its string section is declared and not enforced (below).
 
 ## Why `--write` only ever replaces table runs
 
@@ -24,14 +31,18 @@ paragraph during the Masstree re-measurement (`83b0027f` -> `51c770c1`). A
 splice that replaces everything between a heading and the last table row of its
 section can do that again. So `--write` finds the maximal runs of consecutive
 table lines inside a matched section and replaces them pairwise with the
-generator's runs; it never writes a line that is not a table row, and it
-refuses (non-zero) when the run counts differ rather than guessing. Prose is
-fixed by hand, and this script tells you which caption drifted.
+generator's runs; it never writes a line that is not a table row. Runs pair by
+position when the counts agree. A section that also holds a hand-maintained
+table (HOT §7.2 sets the current runs against a superseded pair whose artifacts
+are gone) has more README runs than generated ones; then each generated run
+pairs with the one README run whose header row is identical, and the splice
+refuses (non-zero) when a header matches none or several rather than guessing.
+Prose is fixed by hand, and this script tells you which caption drifted.
 
-## Why one suite is declared and not enforced
+## Why one generator is declared and not enforced
 
 `masstree_comparison`'s README is a verbatim paste and matches its generator
-row for row. `hot_comparison`'s is not: its string section (README §6)
+row for row. `hot_comparison`'s string section is not: README §6
 reorganises the generator's flat per-pillar tables into narrative subsections,
 keeps the N = 1,000,000 rows, folds the two withheld `beyond` cells into one
 row and annotates a scorecard count. That is a curated presentation of the same
@@ -64,23 +75,34 @@ FOOTER_PREFIXES = ("load average across the run", "load average across the main 
 
 
 class Suite:
-    """One declared suite: a generator, the README it feeds, and its status."""
+    """One declared generator, the README it feeds, and its status.
+
+    A suite README may be fed by more than one generator; each is declared on
+    its own, and `scope` names the part of the README it owns so the report
+    says which one is enforced.
+    """
 
     def __init__(self, name: str, generator: str, enforce: bool, pending_issue: int | None = None,
-                 reason: str = ""):
+                 reason: str = "", scope: str = ""):
         self.name = name
         self.generator = BENCH / name / "scripts" / generator
         self.readme = BENCH / name / "README.md"
         self.enforce = enforce
         self.pending_issue = pending_issue
         self.reason = reason
+        self.scope = scope
+
+    @property
+    def label(self) -> str:
+        return f"{self.name} {self.scope} ({self.generator.name})" if self.scope else self.name
 
 
 SUITES = [
     Suite("masstree_comparison", "tables.py", enforce=True),
     Suite("concurrency", "tables.py", enforce=True),
+    Suite("hot_comparison", "concurrent_tables.py", enforce=True, scope="§7.1/§7.2/§7.6"),
     Suite(
-        "hot_comparison", "string_tables.py", enforce=False, pending_issue=733,
+        "hot_comparison", "string_tables.py", enforce=False, pending_issue=733, scope="§6",
         reason="README section 6 curates the generator's flat per-pillar tables into "
                "narrative subsections; the curation moves into the generator when the "
                "suite is re-spliced from its re-measured artifacts",
@@ -91,6 +113,11 @@ SUITES = [
 def norm(line: str) -> str:
     """Collapse internal whitespace so cell padding is not a finding."""
     return " ".join(line.split())
+
+
+def unquote(line: str) -> str:
+    """Drop a leading blockquote marker, so a caption may sit in a `>` block."""
+    return re.sub(r"^\s*>\s?", "", line)
 
 
 def is_table_row(line: str) -> bool:
@@ -144,7 +171,7 @@ def check(suite: Suite, generated: str) -> list[str]:
     """Returns a list of findings, first drifted section first."""
     readme = suite.readme.read_text()
     readme_rows = {norm(l) for l in readme.splitlines() if is_table_row(l)}
-    readme_blob = " ".join(readme.split())
+    readme_blob = " ".join(" ".join(unquote(l) for l in readme.splitlines()).split())
 
     findings: list[str] = []
     for heading, body in sections(generated):
@@ -153,7 +180,7 @@ def check(suite: Suite, generated: str) -> list[str]:
         for line in body:
             if skippable(line):
                 continue
-            n = norm(line)
+            n = norm(line) if is_table_row(line) else norm(unquote(line))
             if is_table_row(line):
                 rows += 1
                 if n not in readme_rows:
@@ -166,7 +193,7 @@ def check(suite: Suite, generated: str) -> list[str]:
         if first_bad:
             where = heading or "(preamble)"
             findings.append(
-                f"{suite.name}: section {where!r} drifted "
+                f"{suite.label}: section {where!r} drifted "
                 f"({missing_rows} of {rows} rows absent) — {first_bad}"
             )
     return findings
@@ -187,12 +214,41 @@ def table_runs(lines: list[str]) -> list[tuple[int, int]]:
     return runs
 
 
+def pair_runs(suite: Suite, heading: str, region: list[str], want: list[str],
+              r_runs: list[tuple[int, int]], g_runs: list[tuple[int, int]]) -> list[tuple[tuple[int, int], tuple[int, int]]]:
+    """Pairs README table runs with generated ones, never by guessing.
+
+    Equal counts pair by position, as before. A section that also holds a
+    hand-maintained table has more README runs than generated ones; then each
+    generated run pairs with the one README run whose header row is the same,
+    and a header that matches no run, or more than one, is refused.
+    """
+    if len(r_runs) == len(g_runs):
+        return list(zip(r_runs, g_runs))
+    if len(r_runs) > len(g_runs):
+        pairs = []
+        for g in g_runs:
+            header = norm(want[g[0]])
+            hits = [r for r in r_runs if norm(region[r[0]]) == header]
+            if len(hits) != 1:
+                break
+            pairs.append((hits[0], g))
+        else:
+            if len({r for r, _ in pairs}) == len(pairs):
+                return pairs
+    raise SystemExit(
+        f"{suite.label}: section {heading!r} has {len(r_runs)} table run(s) in the "
+        f"README and {len(g_runs)} in the generator, and their header rows do not pair "
+        f"one to one; refusing to guess which replaces which — fix the section by hand"
+    )
+
+
 def splice(suite: Suite, generated: str) -> int:
     """Replaces each README table run with the generator's, prose untouched.
 
     Returns the number of runs rewritten. Refuses (SystemExit) when a matched
-    section's run count differs from the generator's, rather than guessing which
-    table replaces which.
+    section's runs cannot be paired with the generator's (`pair_runs`), rather
+    than guessing which table replaces which.
     """
     readme_lines = suite.readme.read_text().splitlines()
     rewritten = 0
@@ -214,13 +270,8 @@ def splice(suite: Suite, generated: str) -> int:
         region = readme_lines[idx + 1:end]
         want = [b for b in body]
         r_runs, g_runs = table_runs(region), table_runs(want)
-        if len(r_runs) != len(g_runs):
-            raise SystemExit(
-                f"{suite.name}: section {heading!r} has {len(r_runs)} table run(s) in the "
-                f"README and {len(g_runs)} in the generator; refusing to guess which "
-                f"replaces which — fix the section by hand"
-            )
-        for (rs, re_), (gs, ge) in zip(reversed(r_runs), reversed(g_runs)):
+        pairs = pair_runs(suite, heading, region, want, r_runs, g_runs)
+        for (rs, re_), (gs, ge) in sorted(pairs, reverse=True):
             region[rs:re_] = want[gs:ge]
             rewritten += 1
         readme_lines[idx + 1:end] = region
@@ -320,15 +371,42 @@ def _self_test() -> int:
     if check(stale, _GEN):
         failures.append("a spliced README still reports drift")
 
-    # 6. A section whose run count disagrees is refused, never guessed.
-    two_runs = make(_README_OK.replace(
-        "Some prose that the generator does not emit and must survive a splice.",
-        "| extra | table |\n|---|---|\n| run | here |"))
+    # 6. A section whose runs cannot be paired one to one is refused, never
+    #    guessed. (a) An extra hand-maintained table with its own header pairs
+    #    the generated run by header and is left alone. (b) An extra table
+    #    sharing the generated header is ambiguous. (c) More generated runs
+    #    than README runs cannot pair.
+    hand = "| hand | kept |\n|---|---|\n| 1 | 2 |"
+    with_hand = make(_README_STALE.replace(marker, f"{marker}\n\n{hand}"))
     try:
-        splice(two_runs, _GEN)
-        failures.append("a mismatched table-run count was spliced instead of refused")
+        n = splice(with_hand, _GEN)
+        after = with_hand.readme.read_text()
+        if n != 1 or hand not in after or "23.87" in after or marker not in after:
+            failures.append("a hand-maintained second table was not left alone while the generated run was spliced")
+    except SystemExit as e:
+        failures.append(f"a hand-maintained table with its own header was refused: {e}")
+    same_header = make(_README_OK.replace(
+        marker, "| Distribution | N | Masstree | Expanse |\n|---|---:|---:|---:|\n| `x` | 1 | 2 | 3 |"))
+    try:
+        splice(same_header, _GEN)
+        failures.append("two README runs sharing the generated header were spliced instead of refused")
     except SystemExit:
         pass
+    two_gen = _GEN.replace("load average across the run",
+                           "| extra | table |\n|---|---|\n| run | here |\n\nload average across the run")
+    try:
+        splice(make(_README_OK), two_gen)
+        failures.append("more generated runs than README runs were spliced instead of refused")
+    except SystemExit:
+        pass
+
+    # 7. A caption may sit, re-wrapped, in a blockquote; reworded, it may not.
+    quoted = _README_OK.replace("`allocator` is what the process holds from the C\nallocator.",
+                                "> `allocator` is what the process holds\n> from the C allocator.")
+    if check(make(quoted), _GEN):
+        failures.append("a caption re-wrapped inside a blockquote was reported as drifted")
+    if not check(make(quoted.replace("holds\n> from", "holds\n> in")), _GEN):
+        failures.append("a caption reworded inside a blockquote passed")
 
     for msg in failures:
         print(f"  FAIL {msg}")
@@ -354,7 +432,7 @@ def main() -> int:
         generated = run_generator(suite)
         if args.write and suite.enforce:
             n = splice(suite, generated)
-            print(f"check_readme_tables.py: {suite.name}: rewrote {n} table run(s)")
+            print(f"check_readme_tables.py: {suite.label}: rewrote {n} table run(s)")
         result = check(suite, generated)
         if not suite.enforce:
             # Never rendered as a pass (AGENTS.md section 8.1): the degradation
@@ -364,7 +442,7 @@ def main() -> int:
         findings.extend(result)
 
     for suite, result in degraded:
-        print(f"::notice::check_readme_tables.py: {suite.name} is DECLARED, NOT ENFORCED — "
+        print(f"::notice::check_readme_tables.py: {suite.label} is DECLARED, NOT ENFORCED — "
               f"{len(result)} section(s) differ from its generator. {suite.reason}. "
               f"Tracked by #{suite.pending_issue}.")
         for line in result:
@@ -377,7 +455,7 @@ def main() -> int:
               f"regenerate with --write, or fix the caption by hand")
         return 1
 
-    enforced = [s.name for s in SUITES if s.enforce]
+    enforced = [s.label for s in SUITES if s.enforce]
     print(f"check_readme_tables.py: {len(enforced)} suite(s) enforced and in sync "
           f"({', '.join(enforced)}); {len(degraded)} declared and not enforced")
     return 0
