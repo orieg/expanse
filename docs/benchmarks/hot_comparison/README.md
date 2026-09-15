@@ -29,7 +29,7 @@ Per-key cost for an expanse-partitioned trie is governed by **expanse occupancy*
 sawtooth rather than a curve (`METHODOLOGY.md` §9.4). So this suite publishes
 memory as a **curve across λ** and refuses to publish a single cell (§9.6).
 
-The reason is visible in the result. **Arm A's winner changes three times.**
+The reason is visible in the result. **Arm A's winner changes twice**: HOT below λ ≈ 8, Expanse from λ ≈ 8 through 23, and HOT again from λ ≈ 30. Arm B's never changes.
 
 ![Memory across expanse occupancy](results/chart_memory_curve.svg)
 
@@ -343,7 +343,7 @@ Against the pre-registration:
 | Expanse wins insertion (§5.2, weak) | **CONFIRMED**, stronger than registered |
 | Expanse wins sequential and sparse point lookup (§5.2, medium) | **CONFIRMED** |
 | Scan losing at k=1000 and on `sparse` | **UNPREDICTED LOSS** |
-| Arm A memory winner flipping three times across λ | **not pre-registered** |
+| Arm A memory winner changing twice across λ | **not pre-registered** |
 
 ### 4.1 The insert verdicts above are sorted-order verdicts (§12.2)
 

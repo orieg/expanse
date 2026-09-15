@@ -176,5 +176,5 @@
 <text class="t-legend" x="792" y="134">HOT map (Arm B)</text>
 <rect x="414.0" y="66" width="174.7" height="300" fill="#16a34a" opacity="0.07"/>
 <text class="t-note" x="501.3" y="58" text-anchor="middle">Arm A: Expanse wins only here</text>
-<text class="t-note" x="70" y="416">HOT is flat across the range; Expanse crosses the LEAF_CAP cascade. Winner changes three times.</text>
+<text class="t-note" x="70" y="416">HOT is flat across the range; Expanse crosses the LEAF_CAP cascade. Arm A's winner changes twice.</text>
 </svg>

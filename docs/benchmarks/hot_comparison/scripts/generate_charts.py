@@ -11,8 +11,8 @@ reaches 22.
 Two charts:
 
   chart_memory_curve.svg — bytes/key against expanse occupancy, both arms. This
-  is the suite's headline: Arm A's winner changes three times across the range,
-  which a table states and a plot shows.
+  is the suite's headline: Arm A's winner changes across the range, which a table
+  states and a plot shows. The footer counts those changes from the data.
 
   chart_latency_1m.svg — the latency pillars at N = 1,000,000, as a ratio per
   cell with its BCa interval.
@@ -162,9 +162,14 @@ def memory_curve() -> str:
             f"Arm A: Expanse wins only here</text>"
         )
 
+    # How many times Arm A's winner changes along λ — counted from the same
+    # cell-by-cell comparison as the band above, never written by hand (§8.2).
+    winners = [c["expanse_alloc_bytes_per_key"] < c["hot_alloc_bytes_per_key"] for c in set_pts]
+    changes = sum(1 for a, b in zip(winners, winners[1:]) if a != b)
+    count = {0: "never changes", 1: "changes once", 2: "changes twice"}.get(changes, f"changes {changes} times")
     out.append(
         f'<text class="t-note" x="{PAD_L}" y="{H-4}">HOT is flat across the range; Expanse crosses the '
-        f"LEAF_CAP cascade. Winner changes three times.</text>"
+        f"LEAF_CAP cascade. Arm A's winner {count}.</text>"
     )
     out.append("</svg>")
     return "\n".join(out)
