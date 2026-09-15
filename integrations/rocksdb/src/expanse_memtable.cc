@@ -49,6 +49,67 @@ int MemTableRep::KeyComparator::operator()(const Slice& key1, const char* prefix
 // ExpanseMemTableRep Implementation
 // ============================================================================
 
+namespace {
+
+// Each kOptimistic rep takes a generation from this process-wide counter at
+// construction, and no generation is issued twice, so a per-thread cache entry
+// can only match the rep that created its handle. Keying by the rep's address
+// would let a rep constructed where a destroyed one lived match the destroyed
+// rep's freed handle (METHODOLOGY section 5.16, R3). 0 marks an empty entry.
+std::atomic<uint64_t> g_next_rep_generation{1};
+
+// K = 8 is a registered choice (section 5.16, R4), not derived from a RocksDB
+// configuration: a thread that reads more than 8 kOptimistic reps in rotation
+// takes a rep's registry mutex on every miss.
+constexpr size_t kReaderHandleCacheSize = 8;
+
+struct ReaderHandleCacheEntry {
+    uint64_t generation;
+    expanse_sync_map_reader_t* handle;
+};
+
+// Trivially destructible and constant-initialised, so no thread-local
+// constructor or destructor exists: thread exit frees nothing and cannot free
+// a handle twice. The cache does not own its entries; the rep that registered
+// a handle frees it (section 5.16, R2 and R5).
+struct ReaderHandleCache {
+    ReaderHandleCacheEntry entries[kReaderHandleCacheSize];
+    uint32_t next_victim;
+};
+
+// The only thread-local in this file. It is read only inside
+// ExpanseMemTableRep::OptimisticReaderHandle, which is noinline and called
+// only on the kOptimistic branch, so the other scopes' paths gain no
+// thread-local access (section 5.16, R7).
+constinit thread_local ReaderHandleCache t_reader_handles{};
+
+#ifdef EXPANSE_MEMTABLE_PARK_POINTS
+std::atomic<long> g_unfreed_handles_at_map_free{-1};
+#endif
+
+}  // namespace
+
+// kOptimistic's trie and the reader handles registered on it.
+struct ExpanseMemTableRep::OptimisticIndex {
+    expanse_sync_map_t* map = nullptr;
+    uint64_t generation = 0;
+    // Used only by FindLeafBlockForInsert, under mutex_. Calls on it run on
+    // whichever thread holds mutex_, never two at once (section 5.16, R6).
+    expanse_sync_map_reader_t* writer_handle = nullptr;
+    // The atomic handoff (section 5.16.1): the writer release-stores the block
+    // it is about to publish to the sync map, under mutex_, and a reader
+    // acquire-loads it after its trie read. It carries ThreadSanitizer's
+    // happens-before from the writer's stores of a block to the reader's loads
+    // of it; no code reads its value.
+    std::atomic<const LeafBlock*> published{nullptr};
+    // Guards `handles`. A reader takes it only on a cache miss, holding no
+    // other rep lock; the writer path never takes it.
+    std::mutex registry_mutex;
+    // One handle per thread that has run a locate phase on this rep (R1),
+    // keyed by thread id and freed only by the rep's destructor (R2).
+    std::vector<std::pair<std::thread::id, expanse_sync_map_reader_t*>> handles;
+};
+
 ExpanseMemTableRep::ExpanseMemTableRep(
     const MemTableRep::KeyComparator& compare,
     Allocator* allocator,
@@ -62,7 +123,10 @@ ExpanseMemTableRep::ExpanseMemTableRep(
     logger_(logger),
     leaf_capacity_(leaf_capacity > 0 ? std::min(leaf_capacity, LeafBlock::kMaxCapacity) : LeafBlock::kMaxCapacity),
     seek_lock_scope_(seek_lock_scope),
-    trie_index_(expanse_map_new())
+    // The trie's type is chosen here. kFullLocate and kTrieCall keep
+    // expanse_map_t, so their insert path does not take on the sync map's
+    // write protocol; kOptimistic leaves trie_index_ null and builds opt_.
+    trie_index_(seek_lock_scope == SeekLockScope::kOptimistic ? nullptr : expanse_map_new())
 {
     (void)logger_;
     // Retained for the prefix-seek path that does not exist yet: the
@@ -72,6 +136,12 @@ ExpanseMemTableRep::ExpanseMemTableRep(
     if (!allocator_) {
         own_arena_ = std::make_unique<Arena>(4096);
         allocator_ = own_arena_.get();
+    }
+    if (seek_lock_scope_ == SeekLockScope::kOptimistic) {
+        opt_ = new OptimisticIndex();
+        opt_->map = expanse_sync_map_new();
+        opt_->generation = g_next_rep_generation.fetch_add(1, std::memory_order_relaxed);
+        opt_->writer_handle = expanse_sync_map_reader_new(opt_->map);
     }
     LeafBlock* root = new LeafBlock();
     head_.store(root, std::memory_order_release);
@@ -90,6 +160,35 @@ ExpanseMemTableRep::~ExpanseMemTableRep() {
         expanse_map_free(trie_index_);
         trie_index_ = nullptr;
     }
+    if (opt_ != nullptr) {
+        // Every registered reader handle, then the writer's, then the map: a
+        // handle must be freed before its container. RocksDB destroys a
+        // memtable only after every reader has released it, so no call on any
+        // handle is in progress here, which is the condition under which a
+        // handle may be freed from a thread other than the one that created it
+        // (include/expanse.h, reader-handle ownership; section 5.16, R2 and P1).
+        long unfreed = 0;
+        {
+            std::lock_guard<std::mutex> lock(opt_->registry_mutex);
+            unfreed = static_cast<long>(opt_->handles.size());
+            for (auto& entry : opt_->handles) {
+                expanse_sync_map_reader_free(entry.second);
+                entry.second = nullptr;
+                --unfreed;
+            }
+            opt_->handles.clear();
+        }
+        expanse_sync_map_reader_free(opt_->writer_handle);
+        opt_->writer_handle = nullptr;
+#ifdef EXPANSE_MEMTABLE_PARK_POINTS
+        g_unfreed_handles_at_map_free.store(unfreed, std::memory_order_release);
+#else
+        (void)unfreed;
+#endif
+        expanse_sync_map_free(opt_->map);
+        delete opt_;
+        opt_ = nullptr;
+    }
 }
 
 ExpanseMemTableRep::LeafBlock* ExpanseMemTableRep::FindLeafBlockForInsert(const char* entry) {
@@ -104,9 +203,23 @@ ExpanseMemTableRep::LeafBlock* ExpanseMemTableRep::FindLeafBlockForInsert(const 
     uint64_t out_v = 0;
 
     LeafBlock* candidate = h;
+    // Under kOptimistic trie_index_ is null, which expanse_map_prev_at_or_before
+    // answers with false ("`map` must be null or a live handle",
+    // crates/expanse-capi/src/modern.rs), so the sync map is read in the else
+    // arm, through the writer's handle and under mutex_ like every trie write.
+    // The arms are ordered, and the sync read is out of line and recomputes the
+    // prefix from `entry`, so kFullLocate's and kTrieCall's common path runs
+    // the instructions it ran before kOptimistic existed: nothing it had no
+    // use for after the trie call is kept alive across it, and it reaches the
+    // else arm only for a key below every mapped prefix (section 5.16's
+    // single-threaded bound).
     if (expanse_map_prev_at_or_before(trie_index_, prefix, &out_k, &out_v)) {
         if (out_v != 0) {
             candidate = reinterpret_cast<LeafBlock*>(static_cast<uintptr_t>(out_v));
+        }
+    } else if (opt_ != nullptr) {
+        if (LeafBlock* mapped = OptimisticInsertCandidate(entry)) {
+            candidate = mapped;
         }
     }
 
@@ -158,6 +271,9 @@ const ExpanseMemTableRep::LeafBlock* ExpanseMemTableRep::FindLeafBlockForSeek(
         }
         return SettleSeekCandidate(candidate, internal_key, memtable_key);
     }
+    if (seek_lock_scope_ == SeekLockScope::kOptimistic) {
+        return FindLeafBlockForSeekOptimistic(internal_key, memtable_key);
+    }
 
     // kTrieCall: the prefix is computed before the lock and the walk runs
     // after it, so mutex_ covers only what expanse_map_t needs.
@@ -179,7 +295,104 @@ const ExpanseMemTableRep::LeafBlock* ExpanseMemTableRep::FindLeafBlockForSeek(
             }
         }
     }
+    EXPANSE_MEMTABLE_PARK(kLocateAfterTrieRead);
     return SettleSeekCandidate(candidate, internal_key, memtable_key);
+}
+
+// kOptimistic's locate phase, which takes no lock (METHODOLOGY section 5.16).
+//
+// head_ is stored once, in the constructor. tail_ is stored only by
+// SplitLeafBlock, in a release store after the new block's entries, count and
+// own links. A reader that loads tail_ before that store sees h == t and
+// returns the head, and Get, Contains and IteratorImpl::Seek step forward over
+// next_leaf from wherever the locate ends.
+//
+// The trie read returns a block that was linked into the chain when the trie
+// held that value: SplitLeafBlock inserts a new block's prefix after the
+// release store that links it, and Insert maps a prefix only to the block it
+// has just written. SettleSeekCandidate's invariants need exactly that, a
+// block in the chain, and invariant 1 keeps it valid for the rep's lifetime.
+// That is an argument, not a proof; the soundness gates in section 5.16 check
+// it.
+const ExpanseMemTableRep::LeafBlock* ExpanseMemTableRep::FindLeafBlockForSeekOptimistic(
+    const Slice& internal_key,
+    const char* memtable_key
+) const {
+    const LeafBlock* h = head_.load(std::memory_order_acquire);
+    const LeafBlock* t = tail_.load(std::memory_order_acquire);
+    if (!h || h == t) {
+        return h;
+    }
+    EXPANSE_MEMTABLE_PARK(kLocateAfterTailLoad);
+
+    const uint64_t prefix = SeekPrefix(internal_key, memtable_key);
+    uint64_t out_k = 0;
+    uint64_t out_v = 0;
+    const bool mapped =
+        expanse_sync_map_reader_prev_at_or_before(OptimisticReaderHandle(), prefix, &out_k, &out_v);
+    // The reader half of the atomic handoff (METHODOLOGY section 5.16.1). The
+    // block pointer arrives from the sync map, which ThreadSanitizer does not
+    // instrument, and GCC does not instrument std::atomic_thread_fence under
+    // -fsanitize=thread. An acquire load of `published` is instrumented: it
+    // runs after the trie read, the writer's release store of `published`
+    // runs immediately before the insert that published the block, so the
+    // loads of the block below carry a happens-before edge from every store
+    // the writer made to it -- the edge mutex_ supplies under the other
+    // scopes. The value is not used; outside a TSan build the load may be
+    // discarded.
+    static_cast<void>(opt_->published.load(std::memory_order_acquire));
+    const LeafBlock* candidate = h;
+    if (mapped && out_v != 0) {
+        candidate = reinterpret_cast<const LeafBlock*>(static_cast<uintptr_t>(out_v));
+    }
+    EXPANSE_MEMTABLE_PARK(kLocateAfterTrieRead);
+    return SettleSeekCandidate(candidate, internal_key, memtable_key);
+}
+
+[[gnu::noinline, gnu::cold]]
+ExpanseMemTableRep::LeafBlock* ExpanseMemTableRep::OptimisticInsertCandidate(const char* entry) const {
+    uint64_t out_k = 0;
+    uint64_t out_v = 0;
+    if (expanse_sync_map_reader_prev_at_or_before(opt_->writer_handle, expanse_rocksdb::ExtractKeyPrefix64(entry),
+                                                  &out_k, &out_v) &&
+        out_v != 0) {
+        return reinterpret_cast<LeafBlock*>(static_cast<uintptr_t>(out_v));
+    }
+    return nullptr;
+}
+
+[[gnu::noinline]]
+const expanse_sync_map_reader_t* ExpanseMemTableRep::OptimisticReaderHandle() const {
+    const uint64_t generation = opt_->generation;
+    ReaderHandleCache& cache = t_reader_handles;
+    for (const ReaderHandleCacheEntry& entry : cache.entries) {
+        if (entry.generation == generation) {
+            return entry.handle;
+        }
+    }
+    // A miss: find or create this thread's handle under the registry mutex.
+    // No other rep lock is held here, and expanse_sync_map_reader_new
+    // registers under the collector's registry lock, so each pair of locks is
+    // taken in one order. A thread id the runtime reuses finds the handle its
+    // exited predecessor left, which no call is using.
+    expanse_sync_map_reader_t* handle = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(opt_->registry_mutex);
+        const std::thread::id self = std::this_thread::get_id();
+        for (const auto& registered : opt_->handles) {
+            if (registered.first == self) {
+                handle = registered.second;
+                break;
+            }
+        }
+        if (handle == nullptr) {
+            handle = expanse_sync_map_reader_new(opt_->map);
+            opt_->handles.emplace_back(self, handle);
+        }
+    }
+    cache.entries[cache.next_victim] = ReaderHandleCacheEntry{generation, handle};
+    cache.next_victim = (cache.next_victim + 1) % kReaderHandleCacheSize;
+    return handle;
 }
 
 // The leaf walk from the trie's candidate to the block a seek starts in.
@@ -307,7 +520,21 @@ void ExpanseMemTableRep::SplitLeafBlock(LeafBlock* block) {
     if (new_block->count.load(std::memory_order_relaxed) > 0) {
         const char* first_entry = new_block->entries[0].load(std::memory_order_relaxed);
         uint64_t pfx = expanse_rocksdb::ExtractKeyPrefix64(first_entry);
-        expanse_map_insert(trie_index_, pfx, reinterpret_cast<uintptr_t>(new_block), nullptr);
+        if (opt_ == nullptr) {
+            expanse_map_insert(trie_index_, pfx, reinterpret_cast<uintptr_t>(new_block), nullptr);
+        } else {
+            // The writer half of the atomic handoff (METHODOLOGY section
+            // 5.16.1): a release store after the link stores and immediately
+            // before the insert that publishes new_block to readers that take
+            // no lock. A reader's acquire load after its trie read is ordered
+            // after this store only because the store precedes the insert, so
+            // ThreadSanitizer sees the reader's loads of new_block as ordered
+            // exactly where this code orders them. mutex_ is held, so every
+            // later store carries this one's history.
+            opt_->published.store(new_block, std::memory_order_release);
+            EXPANSE_MEMTABLE_PARK(kSplitBetweenLinkAndTrieInsert);
+            expanse_sync_map_insert(opt_->map, pfx, reinterpret_cast<uintptr_t>(new_block), nullptr);
+        }
     }
 
     block->version.fetch_add(1, std::memory_order_release);
@@ -316,6 +543,7 @@ void ExpanseMemTableRep::SplitLeafBlock(LeafBlock* block) {
 void ExpanseMemTableRep::Insert(KeyHandle handle) {
     const char* entry = static_cast<const char*>(handle);
     std::lock_guard<std::mutex> lock(mutex_);
+    EXPANSE_MEMTABLE_PARK(kInsertAfterLock);
 
     LeafBlock* block = FindLeafBlockForInsert(entry);
     if (!block) {
@@ -366,7 +594,15 @@ void ExpanseMemTableRep::Insert(KeyHandle handle) {
 
     if (left == 0) {
         uint64_t pfx = expanse_rocksdb::ExtractKeyPrefix64(entry);
-        expanse_map_insert(trie_index_, pfx, reinterpret_cast<uintptr_t>(block), nullptr);
+        if (opt_ == nullptr) {
+            expanse_map_insert(trie_index_, pfx, reinterpret_cast<uintptr_t>(block), nullptr);
+        } else {
+            // The atomic handoff's release store, after the entry and count
+            // stores and immediately before the remap, for the reason
+            // SplitLeafBlock's precedes its trie insert.
+            opt_->published.store(block, std::memory_order_release);
+            expanse_sync_map_insert(opt_->map, pfx, reinterpret_cast<uintptr_t>(block), nullptr);
+        }
     }
 
     if (block->count.load(std::memory_order_relaxed) >= leaf_capacity_) {
@@ -380,6 +616,7 @@ void ExpanseMemTableRep::InsertConcurrently(KeyHandle handle) {
 
 bool ExpanseMemTableRep::Contains(const char* key) const {
     const LeafBlock* block = FindLeafBlockForSeek(Slice(), key);
+    EXPANSE_MEMTABLE_PARK(kAfterLocate);
     while (block != nullptr) {
         bool match = false;
         bool retry = false;
@@ -440,6 +677,14 @@ bool ExpanseMemTableRep::Contains(const char* key) const {
     return false;
 }
 
+size_t ExpanseMemTableRep::ReaderHandleCount() const {
+    if (opt_ == nullptr) {
+        return 0;
+    }
+    std::lock_guard<std::mutex> lock(opt_->registry_mutex);
+    return opt_->handles.size();
+}
+
 #ifdef EXPANSE_MEMTABLE_PARK_POINTS
 size_t ExpanseMemTableRep::LeafBlockCountForTest() const {
     size_t n = 0;
@@ -449,15 +694,55 @@ size_t ExpanseMemTableRep::LeafBlockCountForTest() const {
     }
     return n;
 }
+
+const expanse_sync_map_reader_t* ExpanseMemTableRep::ReaderHandleForTest() const {
+    return opt_ != nullptr ? OptimisticReaderHandle() : nullptr;
+}
+
+size_t ExpanseMemTableRep::TrieBlockIndexForTest(uint64_t prefix) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    uint64_t out_k = 0;
+    uint64_t out_v = 0;
+    const bool mapped = (opt_ != nullptr)
+        ? expanse_sync_map_reader_prev_at_or_before(opt_->writer_handle, prefix, &out_k, &out_v)
+        : expanse_map_prev_at_or_before(trie_index_, prefix, &out_k, &out_v);
+    if (!mapped || out_v == 0) {
+        return SIZE_MAX;
+    }
+    const LeafBlock* target = reinterpret_cast<const LeafBlock*>(static_cast<uintptr_t>(out_v));
+    size_t index = 0;
+    for (const LeafBlock* b = head_.load(std::memory_order_acquire); b != nullptr;
+         b = b->next_leaf.load(std::memory_order_acquire), ++index) {
+        if (b == target) {
+            return index;
+        }
+    }
+    return SIZE_MAX - 1;  // the trie names a block that is not in the chain
+}
+
+long ExpanseMemTableRep::UnfreedHandlesAtLastMapFreeForTest() {
+    return g_unfreed_handles_at_map_free.load(std::memory_order_acquire);
+}
 #endif
 
 void ExpanseMemTableRep::MarkReadOnly() {
     // MemTable marked immutable for flush
 }
 
+size_t ExpanseMemTableRep::OptimisticTrieBytes() const {
+    // A writer-excluding read: it takes the sync map's fallback mutex,
+    // quiesces writers and takes their lock (include/expanse.h,
+    // expanse_sync_map_mem_used). Called under mutex_, the order Insert takes
+    // the two in (METHODOLOGY section 5.16).
+    return opt_ != nullptr ? expanse_sync_map_mem_used(opt_->map) : 0;
+}
+
 size_t ExpanseMemTableRep::ApproximateMemoryUsage() {
     std::lock_guard<std::mutex> lock(mutex_);
-    size_t trie_bytes = trie_index_ ? expanse_map_mem_used(trie_index_) : 0;
+    // Under kOptimistic trie_index_ is null, so its sync map is counted in the
+    // arm that kFullLocate and kTrieCall never take and their path runs the
+    // instructions it ran before (section 5.16's single-threaded bound).
+    size_t trie_bytes = trie_index_ ? expanse_map_mem_used(trie_index_) : OptimisticTrieBytes();
     size_t leaf_bytes = total_allocated_bytes_.load(std::memory_order_relaxed);
     size_t arena_bytes = own_arena_ ? own_arena_->ApproximateMemoryUsage() : 0;
     return sizeof(ExpanseMemTableRep) + trie_bytes + leaf_bytes + arena_bytes;
@@ -473,6 +758,7 @@ void ExpanseMemTableRep::Get(
     const char* memtable_key = k.memtable_key().data();
 
     const LeafBlock* block = FindLeafBlockForSeek(internal_key, memtable_key);
+    EXPANSE_MEMTABLE_PARK(kAfterLocate);
 
     while (block != nullptr) {
         bool retry_block = false;
@@ -991,6 +1277,7 @@ void ExpanseMemTableRep::IteratorImpl::SeekToLast() {
 void ExpanseMemTableRep::IteratorImpl::Seek(const Slice& internal_key, const char* memtable_key) {
     InvalidateCache();
     const LeafBlock* block = rep_->FindLeafBlockForSeek(internal_key, memtable_key);
+    EXPANSE_MEMTABLE_PARK(kAfterLocate);
     while (block != nullptr) {
         int left = 0;
         int right = 0;

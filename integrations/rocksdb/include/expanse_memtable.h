@@ -438,6 +438,24 @@ enum class ParkPoint : int {
     // position and before the position is read.
     kKeyAfterRevalidate,
     kValidAfterRevalidate,
+    // FindLeafBlockForSeek under kOptimistic, after head_ and tail_ were loaded
+    // and found different, before the trie read.
+    kLocateAfterTailLoad,
+    // FindLeafBlockForSeek, after the trie read and before SettleSeekCandidate,
+    // holding no lock: under kOptimistic after the reader's fence, under
+    // kTrieCall after mutex_ is released. kFullLocate walks under the lock and
+    // has no such point; see kAfterLocate.
+    kLocateAfterTrieRead,
+    // Get, Contains and IteratorImpl::Seek, after FindLeafBlockForSeek
+    // returned and before the first block is scanned. Under kFullLocate this
+    // is the first point after the reader has left mutex_.
+    kAfterLocate,
+    // Insert, after mutex_ is taken and before any version bracket opens or
+    // any trie call runs.
+    kInsertAfterLock,
+    // SplitLeafBlock under kOptimistic, between the store that links the new
+    // block and the trie insert that publishes its prefix.
+    kSplitBetweenLinkAndTrieInsert,
 };
 using ParkHook = void (*)(ParkPoint point);
 inline std::atomic<ParkHook> g_park_hook{nullptr};
@@ -457,6 +475,12 @@ inline void Park(ParkPoint point) {
 // ============================================================================
 // ExpanseMemTableRep & ExpanseMemTableRepFactory Classes
 // ============================================================================
+
+// Defined when ExpanseMemTableRep::SeekLockScope has kOptimistic, so code that
+// must also compile against a header from before it (the single-threaded
+// Callgrind bound builds one harness against both) can test for it.
+#define EXPANSE_MEMTABLE_HAS_OPTIMISTIC_SEEK 1
+
 namespace rocksdb {
 
 class ExpanseMemTableRep : public MemTableRep {
@@ -588,7 +612,15 @@ public:
     // that follows reads only atomics (SettleSeekCandidate says why that is
     // sound). kTrieCall is the #802 narrowed-mutex arm, measured under
     // docs/benchmarks/rocksdb_memtable/METHODOLOGY.md; it is not the default.
-    enum class SeekLockScope { kFullLocate, kTrieCall };
+    //
+    // kOptimistic takes no lock in the locate phase. The trie is an
+    // expanse_sync_map_t, read through the calling thread's reader handle, and
+    // head_/tail_ are acquire-loaded. The reader handle runs a validated walk
+    // under an epoch pin and falls back to the writer-excluding path after its
+    // retry budget: blocking optimistic lock coupling, not lock-free. Insert
+    // still holds mutex_ for its whole body. Pre-registered in METHODOLOGY
+    // section 5.16; it is not the default.
+    enum class SeekLockScope { kFullLocate, kTrieCall, kOptimistic };
 
     ExpanseMemTableRep(
         const MemTableRep::KeyComparator& compare,
@@ -620,26 +652,58 @@ public:
 
     SeekLockScope seek_lock_scope() const { return seek_lock_scope_; }
 
+    // Reader handles this rep has registered and not yet freed: one for each
+    // distinct thread that has run a kOptimistic locate phase on it, not
+    // counting the writer's handle. 0 under the other scopes. Takes the handle
+    // registry's mutex, so not for a hot loop. A thread that exits leaves its
+    // handle registered until the rep is destroyed; the concurrent harness
+    // reports this count per cell (METHODOLOGY section 5.16).
+    size_t ReaderHandleCount() const;
+
 #ifdef EXPANSE_MEMTABLE_PARK_POINTS
-    // Blocks in the chain, walked from head_. For park-point tests only, which
-    // use it to check that a writer's inserts split the block a parked reader
-    // was in; never compiled into a production or benchmark build.
+    // Test hooks, compiled only with the park points; never in a production
+    // or benchmark build.
+    //
+    // Blocks in the chain, walked from head_. Used to check that a writer's
+    // inserts split the block a parked reader was in.
     size_t LeafBlockCountForTest() const;
+    // The calling thread's reader handle, through the lookup a kOptimistic
+    // locate phase uses; nullptr under the other scopes.
+    const expanse_sync_map_reader_t* ReaderHandleForTest() const;
+    // Chain position (0 is head_) of the block the trie maps the largest
+    // prefix at or below `prefix` to, or SIZE_MAX when it maps none. Takes
+    // mutex_, so it never runs beside Insert.
+    size_t TrieBlockIndexForTest(uint64_t prefix) const;
+    // The unfreed-handle count the most recent kOptimistic destructor read
+    // immediately before expanse_sync_map_free, or -1 before any has run.
+    static long UnfreedHandlesAtLastMapFreeForTest();
 #endif
 
 private:
     friend class IteratorImpl;
+    struct OptimisticIndex;
 
     LeafBlock* FindLeafBlockForInsert(const char* entry);
     const LeafBlock* FindLeafBlockForSeek(const Slice& internal_key, const char* memtable_key) const;
+    const LeafBlock* FindLeafBlockForSeekOptimistic(const Slice& internal_key, const char* memtable_key) const;
     const LeafBlock* SettleSeekCandidate(const LeafBlock* candidate, const Slice& internal_key,
                                          const char* memtable_key) const;
     void SplitLeafBlock(LeafBlock* block);
+    size_t OptimisticTrieBytes() const;
+    // kOptimistic's trie read for Insert, through the writer's handle, under
+    // mutex_. Out of line so the default scopes' insert path keeps nothing
+    // alive across its own trie call for it.
+    [[gnu::noinline, gnu::cold]] LeafBlock* OptimisticInsertCandidate(const char* entry) const;
     // Get's scan of the blocks after one whose matches were passed to the
     // callback, starting strictly after the last delivered entry.
     [[gnu::noinline]] void GetAfterDelivered(const LeafBlock* block, const char* last_delivered,
                                              const Slice& user_key, void* callback_args,
                                              bool (*callback_func)(void* arg, const char* entry)) const;
+
+    // The calling thread's reader handle on this rep's sync map. Out of line
+    // and reached only from the kOptimistic branch, so no other scope's path
+    // carries the thread-local access inside it (METHODOLOGY section 5.16, R7).
+    [[gnu::noinline]] const expanse_sync_map_reader_t* OptimisticReaderHandle() const;
 
     const MemTableRep::KeyComparator& compare_;
     const SliceTransform* transform_;
@@ -653,8 +717,12 @@ private:
     std::atomic<uint64_t> total_keys_{0};
     std::atomic<size_t> total_allocated_bytes_{0};
 
-    // Expanse Digital Trie Index (JudyL / expanse_map_t) over 64-bit chunk prefixes
+    // Expanse Digital Trie Index (JudyL / expanse_map_t) over 64-bit chunk
+    // prefixes. kFullLocate and kTrieCall only; null under kOptimistic.
     expanse_map_t* trie_index_{nullptr};
+    // kOptimistic's sync-map trie and its reader-handle registry; null under
+    // the other scopes. Owned: freed by the destructor.
+    OptimisticIndex* opt_{nullptr};
 
 
     // Fallback arena if no allocator was passed
