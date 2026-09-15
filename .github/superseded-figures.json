@@ -1013,6 +1013,25 @@
       "replacement": "docs/benchmarks/masstree_comparison/README.md section 7 (corrections in sections 1 and 2): results/baseline_concurrent.json and results/baseline_concurrent_run2.json, two runs at 6f8d6ba5 (after #949)",
       "provenance": "#661, #747, #928, #949",
       "rationale": "Masstree concurrent figures from the two runs at b868fb2e, which contains #928 and not #949, whose SyncExpanseMap reader took the store-forwarding blocks #949 removed (ld_blocks.store_forward per read, measured in #949 on the readers-only cell). At 6f8d6ba5 all five integer reader cells moved up in both runs (2.200-2.259 alone, 2.261-2.546 under writers, from 1.829-1.853 and 1.924-1.987); the string reader-only cell moved down in both runs to direction-only; the string single writer is BOUNDARY_RESULT in both runs where both earlier runs had a Masstree win. Also retires 0.865 [0.853, 0.886], an older reader-only string figure that section 1 still carried and that neither pair supports."
+    },
+    {
+      "id": "masstree_readers_only_string_82966aae",
+      "patterns": [
+        "(?<![\\w.])0\\.856\\s*\\[0\\.850,\\s*0\\.876\\]",
+        "(?<![\\w.])31\\.45\\s*M(?![A-Za-z])",
+        "(?<![\\w.])36\\.99\\s*M(?![A-Za-z])",
+        "Masstree['’]s\\s+36\\.99(?![\\d])",
+        "(?<![\\w.])254\\s*ns\\b"
+      ],
+      "context": [
+        "reader",
+        "string",
+        "concurrent",
+        "masstree_conc_str"
+      ],
+      "replacement": "No level for the W = 0, R = 8 `masstree_conc_str` Expanse reader cell is published in its place: the committed artifacts hold levels from two procedures, one harness process running every round of a cell (docs/benchmarks/masstree_comparison/results/step0/baseline_concurrent.json and its run 2 at a1982ff2; results/baseline_concurrent.json and its run 2 at 6f8d6ba5) and one process per round (results/baseline_concurrent_ab.json and its run 2). Pending re-measurement (#730).",
+      "provenance": "#661, #730",
+      "rationale": "The readers-only string figures #730 was opened on (the ratio 0.856 [0.850, 0.876], 31.45 against 36.99 M lookups/s, and 254 ns per reader probe, attributed to harness commit 82966aae) match no committed artifact at any commit. Formally retracted as unsourced, pending re-measurement under #730. The sibling headline 0.865 [0.853, 0.886] is already retired by masstree_concurrent_pre_6f8d6ba5 and is not repeated here. The patterns are context-gated on the reader, string and concurrent vocabulary because the bare digits recur in unrelated per-op artifacts."
     }
   ]
 }

@@ -67,6 +67,7 @@ on:
           - writer_scaling_ablation_alloc
           - writer_scaling_ablation_unstriped_freelist
           - writer_scaling_ordered_readers
+          - writer_scaling_readers_only
           - point_lookup_counters
           - search_instructions
           - smoke_instructions
@@ -1031,6 +1032,15 @@ jobs:
                   --ordered-readers \
                   --out docs/benchmarks/concurrency/results/ordered_readers_writer_scaling.json | tee writer_scaling.txt
                 ;;
+              "writer_scaling_readers_only")
+                # Readers-only scaling at W = 0 (#730): map, set and str at
+                # R in {1, 2, 4, 8}. Unlike the ordered-reader sweep this
+                # suite takes whatever pin the step applied (the auto list or
+                # the cpu_pin input) and records it; dispatch once per pin.
+                python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
+                  --readers-only \
+                  --out docs/benchmarks/concurrency/results/baseline_readers_only_writer_scaling.json | tee writer_scaling.txt
+                ;;
               "all")
                 if [ -f base-instructions.txt ]; then
                   cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
@@ -1573,6 +1583,7 @@ jobs:
             docs/benchmarks/concurrency/results/ablation_freelist_writer_scaling.json
             docs/benchmarks/concurrency/results/ablation_unstriped_freelist_writer_scaling.json
             docs/benchmarks/concurrency/results/ordered_readers_writer_scaling.json
+            docs/benchmarks/concurrency/results/baseline_readers_only_writer_scaling.json
             docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json
             docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json
             ycsb.txt

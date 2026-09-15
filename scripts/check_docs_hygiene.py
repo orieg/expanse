@@ -807,6 +807,25 @@ def self_test() -> int:
     fatal, _ = scan_text("t.md", "ExpanseBlobMap achieves 13.2 Mops/s on YCSB Workload E range scan.\n", deny, False, reg)
     assert fatal >= 1, "unretracted 13.2 Mops Workload E must fail"
 
+    # The #730 readers-only string figures (registry id
+    # `masstree_readers_only_string_82966aae`), pinned in the issue's own
+    # phrasing: they match no committed artifact and are formally retracted.
+    # One figure per sentence, so each pattern is pinned on its own: the sweep
+    # reports at most one hit per registry entry per sentence.
+    for figure_730 in (
+        "At W = 0, R = 8 the concurrent string readers run at 0.856 [0.850, 0.876] of Masstree.",
+        "At W = 0, R = 8 the Expanse string readers make 31.45 M lookups/s on the concurrent cell.",
+        "The concurrent string readers on Masstree make 36.99 M lookups/s at W = 0.",
+        "The Expanse string readers lose to Masstree's 36.99 on the concurrent cell.",
+        "Per reader that is 254 ns per probe on the concurrent string cell.",
+    ):
+        fatal, _ = scan_text("t.md", figure_730 + "\n", deny, False, reg)
+        assert fatal == 1, f"unretracted #730 readers-only string figure must fail: {figure_730!r}"
+    fatal, _ = scan_text("t.md", "Retracted: the readers-only string cell's 0.856 [0.850, 0.876] and 254 ns per reader probe match no committed artifact.\n", deny, False, reg)
+    assert fatal == 0, "retracted #730 readers-only string figures with marker must pass"
+    fatal, _ = scan_text("t.md", "The single-threaded build takes 254 ns per key at N = 10^6.\n", deny, False, reg)
+    assert fatal == 0, "254 ns outside the reader/string/concurrent context must pass (context gate)"
+
     # Pending issue validation
     _ISSUE_STATUS_CACHE[384] = "CLOSED"
     _ISSUE_STATUS_CACHE[382] = "OPEN"

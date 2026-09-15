@@ -203,6 +203,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "writer_scaling_readers_only",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Readers-only scaling at W = 0 (#730): SyncExpanseMap, SyncExpanseSet and SyncExpanseStrMap readers at R in {1, 2, 4, 8}, one process per cell, throughput and occ-stats counters passes, under the applied pin; outputs baseline_readers_only_writer_scaling.json. No verdict until the #730 pre-registration exists.",
+      "suite": "concurrency"
+    },
+    {
       "name": "point_lookup_counters",
       "available": true,
       "kind": "counters",
