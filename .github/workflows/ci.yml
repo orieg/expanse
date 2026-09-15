@@ -368,7 +368,7 @@ jobs:
 
       # The report scripts carry the §8.1 (fail-loud) and §8.2 (no hardcoded
       # findings prose) assertions as self-tests; run them so they cannot rot.
-      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / pin exposure / warmup ramp / bench pin / docs hygiene / ecosystem theme / bench suites / bench shapes / man pages / abi parity / deletions / test floors / miri shards / rocksdb locate bound / olc bounds / c2c ranking)
+      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / pin exposure / warmup ramp / bench pin / docs hygiene / ecosystem theme / bench suites / bench shapes / man pages / abi parity / deletions / test floors / miri shards / rocksdb locate bound / olc bounds / c2c ranking / callgrind wrapper ranking)
         run: |
           python3 scripts/perf_report.py --self-test
           # Unit tests for perf_report.py, including that every Callgrind arm
@@ -437,6 +437,12 @@ jobs:
           # resolution on a fixture in the report's format, and checks that both
           # committed diagnostic artifacts still render (AGENTS.md section 8.20.7).
           python3 scripts/c2c_ranking.py --self-test
+          # callgrind_wrapper_ranking.py ranks the #929 wrapper-mutation Callgrind
+          # listings for README section 14. Its self-test pins the parse, the
+          # three-way Ir reconciliation, the per-symbol categories and the
+          # like-for-like pair check on fixtures, and reconciles every committed
+          # listing under results/callgrind_wrapper_mutations/.
+          python3 scripts/callgrind_wrapper_ranking.py --self-test
           # The #802 concurrent-arm driver: its CSV parsing, its duty-cycle
           # arithmetic, its PAIRED scaling ratio (an unpaired one smears the
           # ratio under round-to-round drift) and the artifact shape the

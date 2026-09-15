@@ -1,0 +1,54 @@
+--------------------------------------------------------------------------------
+Profile data file '/t/iai/expanse-trie/instructions/cost/strmap_churn.routes/callgrind.strmap_churn.routes.out' (creator: callgrind-3.22.0)
+--------------------------------------------------------------------------------
+I1 cache: 32768 B, 64 B, 8-way associative
+D1 cache: 32768 B, 64 B, 8-way associative
+LL cache: 8388608 B, 64 B, 16-way associative
+Timerange: Basic block 0 - 48262556
+Trigger: Program termination
+Profiled target:  /t/release/deps/instructions-11b59920f9023368 --iai-run cost 27 0 instructions::cost::strmap_churn (PID 2214, part 1, thread 1)
+Events recorded:  Ir Dr Dw I1mr D1mr D1mw ILmr DLmr DLmw
+Events shown:     Ir Dr Dw I1mr D1mr D1mw ILmr DLmr DLmw
+Event sort order: Ir
+Thresholds:       100
+Include dirs:     
+User annotated:   
+Auto-annotation:  off
+
+--------------------------------------------------------------------------------
+Ir                   Dr                  Dw                  I1mr        D1mr             D1mw        ILmr        DLmr DLmw 
+--------------------------------------------------------------------------------
+125,138,622 (100.0%) 26,464,263 (100.0%) 12,842,865 (100.0%) 61 (100.0%) 729,416 (100.0%) 13 (100.0%) 60 (100.0%) .          .           PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                   Dr                  Dw                  I1mr        D1mr             D1mw        ILmr        DLmr DLmw  file:function
+--------------------------------------------------------------------------------
+125,138,622 (100.0%) 26,464,263 (100.0%) 12,842,865 (100.0%) 61 (100.0%) 729,416 (100.0%) 13 (100.0%) 60 (100.0%) .          .           ./csu/../csu/libc-start.c:__libc_start_main@@GLIBC_2.34 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+125,138,622 (100.0%) 26,464,263 (100.0%) 12,842,865 (100.0%) 61 (100.0%) 729,416 (100.0%) 13 (100.0%) 60 (100.0%) .          .           ./csu/../sysdeps/nptl/libc_start_call_main.h:(below main) [/usr/lib/x86_64-linux-gnu/libc.so.6]
+125,138,622 (100.0%) 26,464,263 (100.0%) 12,842,865 (100.0%) 61 (100.0%) 729,416 (100.0%) 13 (100.0%) 60 (100.0%) .          .           ???:(below main) [/t/release/deps/instructions-11b59920f9023368]
+125,138,622 (100.0%) 26,464,263 (100.0%) 12,842,865 (100.0%) 61 (100.0%) 729,416 (100.0%) 13 (100.0%) 60 (100.0%) .          .           ???:0x000000000001f540 [/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2]
+125,138,622 (100.0%) 26,464,263 (100.0%) 12,842,865 (100.0%) 61 (100.0%) 729,416 (100.0%) 13 (100.0%) 60 (100.0%) .          .           ???:instructions::cost::__run [/t/release/deps/instructions-11b59920f9023368]
+125,138,622 (100.0%) 26,464,263 (100.0%) 12,842,865 (100.0%) 61 (100.0%) 729,416 (100.0%) 13 (100.0%) 60 (100.0%) .          .           ???:instructions::main [/t/release/deps/instructions-11b59920f9023368]
+125,138,622 (100.0%) 26,464,263 (100.0%) 12,842,865 (100.0%) 61 (100.0%) 729,416 (100.0%) 13 (100.0%) 60 (100.0%) .          .           ???:instructions::strmap_churn::__iai_callgrind_wrapper_mod::strmap_churn [/t/release/deps/instructions-11b59920f9023368]
+125,138,622 (100.0%) 26,464,263 (100.0%) 12,842,865 (100.0%) 61 (100.0%) 729,416 (100.0%) 13 (100.0%) 60 (100.0%) .          .           ???:instructions::strmap_churn::routes [/t/release/deps/instructions-11b59920f9023368]
+125,138,622 (100.0%) 26,464,263 (100.0%) 12,842,865 (100.0%) 61 (100.0%) 729,416 (100.0%) 13 (100.0%) 60 (100.0%) .          .           ???:main [/t/release/deps/instructions-11b59920f9023368]
+125,138,622 (100.0%) 26,464,263 (100.0%) 12,842,865 (100.0%) 61 (100.0%) 729,416 (100.0%) 13 (100.0%) 60 (100.0%) .          .           ???:std::rt::lang_start::<()>::{closure#0} [/t/release/deps/instructions-11b59920f9023368]
+125,138,622 (100.0%) 26,464,263 (100.0%) 12,842,865 (100.0%) 61 (100.0%) 729,416 (100.0%) 13 (100.0%) 60 (100.0%) .          .           ???:std::rt::lang_start_internal [/t/release/deps/instructions-11b59920f9023368]
+125,138,622 (100.0%) 26,464,263 (100.0%) 12,842,865 (100.0%) 61 (100.0%) 729,416 (100.0%) 13 (100.0%) 60 (100.0%) .          .           ???:std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()> [/t/release/deps/instructions-11b59920f9023368]
+ 68,186,927 (54.49%) 13,392,780 (50.61%)  6,170,200 (48.04%)  3 ( 4.92%) 546,765 (74.96%)  9 (69.23%)  2 ( 3.33%) .          .           ???:<expanse_trie::strmap::ExpanseStrMap>::insert [/t/release/deps/instructions-11b59920f9023368]
+ 49,151,488 (39.28%) 10,621,424 (40.13%)  5,572,620 (43.39%) 44 (72.13%)  45,523 ( 6.24%)  3 (23.08%) 44 (73.33%) .          .           ???:<expanse_trie::strmap::ExpanseStrMap>::remove [/t/release/deps/instructions-11b59920f9023368]
+ 40,091,328 (32.04%)  7,507,920 (28.37%)  1,042,800 ( 8.12%)  0          156,641 (21.47%)  1 ( 7.69%)  .          .          .           ???:expanse_trie::get::get_map_popcnt [/t/release/deps/instructions-11b59920f9023368]
+ 13,325,089 (10.65%)  3,087,524 (11.67%)  2,050,021 (15.96%)  0          143,121 (19.62%)  .           .          .          .           ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+ 12,112,128 ( 9.68%)  1,675,920 ( 6.33%)          0           0           45,079 ( 6.18%)  .           .          .          .           ???:expanse_trie::leaf::search [/t/release/deps/instructions-11b59920f9023368]
+  9,550,072 ( 7.63%)  2,700,018 (10.20%)  1,350,011 (10.51%)  6 ( 9.84%)  99,632 (13.66%)  1 ( 7.69%)  6 (10.00%) .          .           ./malloc/./malloc/malloc.c:free [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  6,450,000 ( 5.15%)  1,700,000 ( 6.42%)    750,000 ( 5.84%)  0           49,815 ( 6.83%)  1 ( 7.69%)  .          .          .           ./malloc/./malloc/malloc.c:_int_free [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  5,700,212 ( 4.56%)  1,350,034 ( 5.10%)  1,100,020 ( 8.57%)  7 (11.48%)      16 ( 0.00%)  3 (23.08%)  7 (11.67%) .          .           ???:<alloc::raw_vec::RawVec<(u64, usize)>>::grow_one [/t/release/deps/instructions-11b59920f9023368]
+  4,500,212 ( 3.60%)  1,000,034 ( 3.78%)    850,020 ( 6.62%)  5 ( 8.20%)      16 ( 0.00%)  2 (15.38%)  5 ( 8.33%) .          .           ???:<alloc::raw_vec::RawVecInner>::finish_grow [/t/release/deps/instructions-11b59920f9023368]
+  2,250,212 ( 1.80%)    600,034 ( 2.27%)    350,020 ( 2.73%)  0               15 ( 0.00%)  1 ( 7.69%)  .          .          .           ./malloc/./malloc/malloc.c:malloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+    300,000 ( 0.24%)          .                   .           .                .           .           .          .          .           ./malloc/./malloc/arena.c:free
+        210 ( 0.00%)         34 ( 0.00%)         22 ( 0.00%)  0                9 ( 0.00%)  1 ( 7.69%)  .          .          .           ./malloc/./malloc/malloc.c:_int_malloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+         36 ( 0.00%)          8 ( 0.00%)          3 ( 0.00%)  4 ( 6.56%)       2 ( 0.00%)  0           4 ( 6.67%) .          .           ./malloc/./malloc/malloc.c:munmap_chunk [/usr/lib/x86_64-linux-gnu/libc.so.6]
+         21 ( 0.00%)          9 ( 0.00%)          3 ( 0.00%)  0                2 ( 0.00%)  .           .          .          .           ./malloc/./malloc/malloc.c:unlink_chunk.isra.0 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+          6 ( 0.00%)          1 ( 0.00%)          0           1 ( 1.64%)       0           0           1 ( 1.67%) .          .           ./misc/../sysdeps/unix/syscall-template.S:munmap [/usr/lib/x86_64-linux-gnu/libc.so.6]
+          2 ( 0.00%)          .                   .           .                .           .           .          .          .           ./malloc/./malloc/arena.c:malloc
+

@@ -1,0 +1,30 @@
+{
+  "description": "Single-threaded Callgrind profiles of the SyncExpanseStrMap, SyncExpanseBytesMap and SyncExpanseBlobMap mutation arms of crates/expanse/benches/instructions.rs and of their plain-map counterparts (Refs #929, step 2, Callgrind half). Read by scripts/callgrind_wrapper_ranking.py.",
+  "provenance": {
+    "commit": "9b5a6d05e1e96c15ad3894e21ae6971276c0884e",
+    "source": "git archive of the commit, unmodified",
+    "platform": "x86_64 Linux, Docker container (Ubuntu 24.04.4 LTS, glibc 2.39-0ubuntu8.9) on a development host, not the reference benchmark host",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+    "valgrind": "valgrind-3.22.0 (Ubuntu 1:3.22.0-0ubuntu3)",
+    "iai_callgrind": "0.16.1",
+    "iai_callgrind_runner": "0.16.1",
+    "build_profile": "bench profile as committed; no CARGO_PROFILE_* or EXPANSE_* override (EXPANSE_BRANCH_SIM unset, so no branch simulation); the build CI's instruction-counts job runs",
+    "callgrind_args": "iai-callgrind defaults plus the harness's --cache-sim=yes (bench_config in instructions.rs)",
+    "container": "docker run --rm --security-opt seccomp=unconfined -e CARGO_TARGET_DIR=/t -e CARGO_TERM_COLOR=never -w /w <ubuntu:24.04 image with rustup 1.98.1, valgrind, iai-callgrind-runner 0.16.1>",
+    "commands": [
+      "cargo bench --bench instructions -p expanse-trie",
+      "callgrind_annotate --inclusive=no --threshold=100 --auto=no --sort=Ir <target>/iai/expanse-trie/instructions/cost/<arm>.<id>/callgrind.<arm>.<id>.out > <arm>.<id>.exclusive.txt",
+      "callgrind_annotate --inclusive=yes --threshold=100 --auto=no --sort=Ir <target>/iai/expanse-trie/instructions/cost/<arm>.<id>/callgrind.<arm>.<id>.out > <arm>.<id>.inclusive.txt",
+      "cp <target>/iai/expanse-trie/instructions/cost/<arm>.<id>/callgrind.<arm>.<id>.log <arm>.<id>.callgrind.log"
+    ],
+    "what_is_counted": "Ir: instructions retired inside the benchmark function (the region iai-callgrind collects; setup excluded). Deterministic for a given binary and environment; no interval (AGENTS.md section 8.4). The ranking reads Ir only.",
+    "cache_columns": "Left as callgrind wrote them and not read by the ranking. Each log records valgrind deriving the LL simulation from the host's L3 (a 48,234,496 B, 23-way simulated LL), while the listing header prints an 8,388,608 B, 16-way LL; the two disagree, so no LL column is interpreted.",
+    "ci_counts": "These are the development container's counts, not the CI instruction-counts job's. The canonical regression figures stay CI's."
+  },
+  "files_per_arm": [
+    "<arm>.<id>.exclusive.txt",
+    "<arm>.<id>.inclusive.txt",
+    "<arm>.<id>.callgrind.log"
+  ]
+}
