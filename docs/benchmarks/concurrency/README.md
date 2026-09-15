@@ -1518,3 +1518,86 @@ Artifacts: run 1 `baseline_concurrent_mixed.json` at `76432c5c`, pin `0-15`, 18 
 | run 2 | 10k/s | 1 | 51.5 [51.4, 51.7] | 0.010 [0.010, 0.010] | 0.156% | 0 |
 | run 2 | 10k/s | 4 | 201 [200, 201] | 0.010 [0.010, 0.010] | 0.119% | 0 |
 | run 2 | 10k/s | 16 | 491 [489, 493] | 0.010 [0.010, 0.010] | 0.113% | 0 |
+
+## 13. The readers-only string cell — a reduction of the committed rounds (Refs #730)
+
+The W = 0, R = 8 `masstree_conc_str` reader cell is pending re-measurement (#730).
+This section publishes no new measurement. Every figure below is
+`scripts/reader_scaling_bounds.py` reducing artifacts already committed under
+`docs/benchmarks/masstree_comparison/results/`, and the block is that script's
+`--table` output, which its self-test compares byte for byte (`scripts/gate.sh`
+and CI's `lint` job run it). The #730 pre-registration is not written yet; it
+will invoke these functions rather than restate them. Nothing here claims a
+level, evaluates a prediction or names a mechanism.
+
+What the tables show, and no more:
+
+- **The two committed level families come from two procedures, and neither
+  procedure's two runs moves as far as the gap between them.** One harness
+  process running every round of the cell gives the higher family; one process
+  per round, from `scripts/bench_ab.py`, gives the lower. The two families also
+  differ in harness and engine commit, so the tables cannot say which of
+  procedure, harness or engine separates them.
+- **Rounds are not exchangeable in every artifact.** Round 1 is the lowest
+  round in three of the four one-process artifacts, and lies beyond three
+  scaled MADs of the median in each of those three. A BCa interval over i.i.d.
+  resamples of the rounds does not model a round like that.
+- **The per-thread counter pair accounts for part of the R = 1 to R = 8
+  growth and leaves most of it unexplained.** `instructions` per probe fall
+  from R = 1 to R = 8 with non-overlapping intervals, so the extra cost is not
+  extra work. The fall in `cycles ÷ ref-cycles` accounts for the share of the
+  `task-clock` growth the table states. The `xsnp_hitm` and
+  `l2_rqsts.rfo_miss` ceilings rest on a hypothesised per-event cost (a
+  bracket around one measured line transfer from `results/line_transfer.json`,
+  not a measured event cost), and the growth they cannot cover at its upper
+  end is unexplained. It is not assigned to any mechanism by subtraction
+  (AGENTS.md §8.20.4).
+
+*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads; the
+committed artifacts each row names, at the engine commits it names; reduction:
+`scripts/reader_scaling_bounds.py`; workload: `masstree_conc_str`)*
+
+<!-- BEGIN GENERATED: scripts/reader_scaling_bounds.py --table -->
+
+**Levels.** Expanse reader throughput of the W = 0, R = 8 string cell, M lookups/s, per artifact half; mean over rounds with its BCa 95% interval.
+
+| source | engine commit | procedure | rounds | mean [95%] | construction | per-round sd | lowest round | rounds beyond 3 MADs | two-arm MDE (80% power) |
+|---|---|---|--:|---|---|--:|---|---|--:|
+| `step0/baseline_concurrent.json` (a1982ff2 run 1) | `a1982ff2` | one process, every round | 15 | 34.888 [34.085, 35.230] | `bca` | 0.995 | 1 (31.796) | 1, 13 | 1.018 |
+| `step0/baseline_concurrent_run2.json` (a1982ff2 run 2) | `a1982ff2` | one process, every round | 15 | 34.895 [33.926, 35.230] | `bca` | 1.059 | 1 (31.315) | 1 | 1.083 |
+| `baseline_concurrent.json` (6f8d6ba5 run 1) | `6f8d6ba5` | one process, every round | 15 | 33.982 [33.265, 34.307] | `bca` | 0.922 | 1 (31.537) | 1, 4, 8, 11 | 0.943 |
+| `baseline_concurrent_run2.json` (6f8d6ba5 run 2) | `6f8d6ba5` | one process, every round | 15 | 34.454 [34.410, 34.500] | `bca` | 0.092 | 2 (34.289) | 9 | 0.094 |
+| `baseline_concurrent_ab.json` (ab run 1, base 55b511df) | `55b511df` | one process per round | 15 | 28.554 [28.460, 28.640] | `bca` | 0.188 | 5 (28.224) | none | 0.192 |
+| `baseline_concurrent_ab.json` (ab run 1, head 38fb2b1e) | `38fb2b1e` | one process per round | 15 | 28.748 [28.717, 28.779] | `bca` | 0.064 | 12 (28.640) | none | 0.066 |
+| `baseline_concurrent_ab_run2.json` (ab run 2, base 55b511df) | `55b511df` | one process per round | 15 | 28.681 [28.622, 28.740] | `bca` | 0.118 | 5 (28.486) | none | 0.121 |
+| `baseline_concurrent_ab_run2.json` (ab run 2, head 38fb2b1e) | `38fb2b1e` | one process per round | 15 | 28.745 [28.699, 28.783] | `bca` | 0.086 | 9 (28.573) | 9, 12 | 0.088 |
+
+**Between two runs of one procedure on one tree** (difference of the means over all rounds):
+
+| pair | run 1 mean | run 2 mean | difference |
+|---|--:|--:|--:|
+| a1982ff2, one process | 34.888 | 34.895 | 0.007 |
+| 6f8d6ba5, one process | 33.982 | 34.454 | 0.472 |
+| ab, both halves pooled | 28.651 | 28.713 | 0.062 |
+
+**Per-thread counters, R = 1 against R = 8** (`counters_masstree_conc_str_w0_r{1,8}.json`, tree `a1982ff2`, means per probe):
+
+| quantity | value |
+|---|--:|
+| reader cycles per probe, R = 1 / R = 8 | 916.74 / 1052.89 |
+| cycles growth per probe | 136.15 |
+| reader `task-clock` ns per probe, R = 1 / R = 8 | 186.19 / 229.18 |
+| fall in `cycles ÷ ref-cycles` (`frequency_share`) | 6.70% |
+| ns of the growth the clock accounts for | 15.35 of 43.00 (35.7%) |
+| instructions per probe, R = 1 / R = 8 | 477.17 / 476.54 |
+| R = 8 instructions interval entirely below R = 1's | yes |
+| `LLC-load-misses` per probe, R = 1 / R = 8 | 2.579 / 2.383 |
+| `xsnp_hitm` growth at 100–400 cycles per event (hypothesis) | 7.80–31.18 cycles |
+| `l2_rqsts.rfo_miss` growth at 100–400 cycles per event (hypothesis) | 0.081–0.325 cycles |
+| growth no listed counter covers at the upper cost (`unexplained_cycles`) | ≥ 104.64 cycles |
+| one measured line transfer at the R = 8 clock (`line_transfer_cycles`) | 153.3 cycles |
+| slowest over mean reader `task-clock`, R = 8, across rounds (`max_over_mean_bias`) | 0.52%–0.84% |
+| aggregate rate the R = 8 `task-clock` implies (`implied_reader_mops`) | 34.91 M/s |
+| single-threaded `strmap_get` cycles per probe, 4 KiB / huge pages (`hugepage_ceiling`, `b1868813`) | 670.08 / 594.79 (-11.2%) |
+
+<!-- END GENERATED: scripts/reader_scaling_bounds.py --table -->

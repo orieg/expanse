@@ -143,6 +143,9 @@ CI_METHOD_PRODUCERS = {
     "scripts/line_transfer_matrix.py",
     "scripts/perf_counters.py",
     "scripts/pin_exposure.py",
+    # The #730 reduction: per-arm intervals over committed rounds, written into
+    # docs/benchmarks/concurrency/README.md §13 with their construction label.
+    "scripts/reader_scaling_bounds.py",
 }
 
 # Importers that are not producers, each with the reason. Exemption is by

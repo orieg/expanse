@@ -784,7 +784,8 @@ Its committed Expanse reader levels come from two procedures: one harness
 process running every round of the cell (this table's pair at `6f8d6ba5`, and
 the `a1982ff2` pair kept at `results/step0/`), and one process per round
 (`results/baseline_concurrent_ab.json` and its run 2, from `scripts/bench_ab.py`).
-No level is compared across the two procedures here. The ratio in that row
+No level is compared across the two procedures here; the reduction of their
+rounds is `docs/benchmarks/concurrency/README.md` §13. The ratio in that row
 also carries the page-size asymmetry METHODOLOGY §3.3 discloses — Masstree's
 nodes are huge-page backed, Expanse's arena is not — whose effect on the
 concurrent cells is unmeasured *(workload: `masstree_conc_str`)*.
