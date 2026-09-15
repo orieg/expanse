@@ -675,3 +675,34 @@ A run with any void round is discarded whole and re-run from fresh builds, and t
 - The string, bytes and blob wrappers (#929), and the `writer_scaling` throughput target (#930).
 - Any comparison with a third-party structure.
 - A magnitude beyond the gate's bound.
+
+### 13.7 Outcomes (appended 2026-09-15; §13.1–§13.6 are not edited)
+
+*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads; pin `0-15`; head `5228fc3a` against `1edfa952` with the head's `crates/expanse/benches/concurrency.rs`; 48 rounds of one-process windows per run in two independent runs, [34930107714](https://github.com/orieg/expanse/actions/runs/34930107714) and [34930136807](https://github.com/orieg/expanse/actions/runs/34930136807); `results/baseline_concurrent_step2_gate.json` and `results/baseline_concurrent_step2_gate_run2.json`; workload: `core_concurrency`)*
+
+**No cell is void (§13.5).** Both runs record a head that contains #949 and a baseline tree that differs from `1edfa952` in `crates/expanse/benches/concurrency.rs` alone. Both record pin `0-15`, and every window reports the arm, thread count and read percentage it was asked for. The largest foreign busy-CPU figure over any round is 0.01 in run 1 and 0.00 in run 2.
+
+**#568's gate is met: `PASS` on both arms in both runs (§13.4).** Per-round paired head ÷ baseline total operations per second at 16 threads, BCa 95% (workload: `core_concurrency`):
+
+| arm, 16 threads | run 1 | run 2 | verdicts |
+|---|---|---|---|
+| `SyncExpanseMap` | 4.08 [4.01, 4.25] | 4.12 [4.04, 4.30] | `PASS`, `PASS` |
+| `SyncExpanseSet` | 8.85 [8.31, 9.20] | 8.55 [7.98, 8.95] | `PASS`, `PASS` |
+
+Every lower bound clears the 1.5 margin, and the 1.667 that §13.4 names as the planned resolution. The margin was a choice fixed before the runs.
+
+**Step 1, the single-writer baseline, and the head beside it** (total M ops/s, mean [BCa 95%], workload: `core_concurrency`):
+
+| arm | threads | `1edfa952`, run 1 | `1edfa952`, run 2 | head, run 1 | head, run 2 |
+|---|---|---|---|---|---|
+| `SyncExpanseMap` | 1 | 26.96 [26.93, 26.99] | 27.00 [26.95, 27.03] | 24.93 [24.88, 24.97] | 24.92 [24.86, 24.97] |
+| `SyncExpanseMap` | 16 | 5.44 [5.41, 5.46] | 5.42 [5.38, 5.45] | 22.18 [21.79, 23.01] | 22.33 [21.87, 23.37] |
+| `SyncExpanseSet` | 1 | 44.37 [44.34, 44.40] | 44.34 [44.27, 44.38] | 41.47 [41.44, 41.50] | 41.37 [40.89, 41.48] |
+| `SyncExpanseSet` | 16 | 6.08 [6.03, 6.11] | 6.10 [6.06, 6.14] | 53.71 [50.49, 55.83] | 52.15 [48.63, 54.52] |
+
+**The 1-thread control, reported and not gated.** Head ÷ baseline reads 0.92 [0.92, 0.93] and 0.92 [0.92, 0.93] on `map`, and 0.93 [0.93, 0.94] and 0.93 [0.92, 0.94] on `set` (workload: `core_concurrency`). Under this mix a single thread runs slower on the multi-writer engine than on `1edfa952`. That cost is what the 16-thread gain is set against. Its cause is unmeasured.
+
+**Not established.**
+- Why `set` gains more than `map` at 16 threads.
+- The 2-, 4- and 8-thread cells, and the 100% and 95% read mixes (§13.6).
+- Whether the order effect disclosed in §13.2 would have moved these ratios. The instrument ran every window in its own process to keep any such effect out of them, so it does not measure that effect.
