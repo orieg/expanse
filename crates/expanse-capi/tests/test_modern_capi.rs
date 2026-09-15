@@ -680,3 +680,116 @@ fn test_map_slot_calls_on_a_warm_insert_path() {
         expanse_map_free(m);
     }
 }
+
+/// A reader handle may be freed from a thread other than the one that created
+/// it, once no call on it is in progress (`include/expanse.h`, reader-handle
+/// ownership). Worker threads each create a map and a set reader handle, read
+/// through them, and send them back; the main thread frees every handle — while
+/// a writer thread churns other keys, so epoch advances run against the
+/// registry the frees deregister from — and only then frees the containers.
+/// The `Send` bound this relies on is pinned at compile time in `modern_sync.rs`.
+#[test]
+fn test_sync_reader_handles_freed_on_another_thread() {
+    use expanse::modern::{
+        expanse_sync_map_free, expanse_sync_map_insert, expanse_sync_map_new,
+        expanse_sync_map_reader_free, expanse_sync_map_reader_get, expanse_sync_map_reader_new,
+        expanse_sync_map_remove, expanse_sync_set_free, expanse_sync_set_insert,
+        expanse_sync_set_new, expanse_sync_set_reader_contains, expanse_sync_set_reader_free,
+        expanse_sync_set_reader_new, expanse_sync_set_remove,
+    };
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    const THREADS: u64 = 8;
+    const N: u64 = 2048;
+
+    let m = expanse_sync_map_new();
+    let s = expanse_sync_set_new();
+    for k in 0..N {
+        // SAFETY: live handles; null `old_out`.
+        unsafe {
+            assert!(expanse_sync_map_insert(m, k, k * 7, core::ptr::null_mut()));
+            assert!(expanse_sync_set_insert(s, k));
+        }
+    }
+    // Raw pointers are not `Send`; the addresses cross threads as integers.
+    let (m_addr, s_addr) = (m as usize, s as usize);
+
+    // Phase 1: each worker creates its handles, reads every stable key through
+    // them, and returns the handles' addresses to the main thread.
+    let handles: Vec<(usize, usize)> = std::thread::scope(|sc| {
+        let workers: Vec<_> = (0..THREADS)
+            .map(|_| {
+                sc.spawn(move || {
+                    // SAFETY: both containers outlive every handle (freed last,
+                    // below); each handle is used only by this thread until it
+                    // is returned, and no call on it is in progress afterwards.
+                    unsafe {
+                        let r = expanse_sync_map_reader_new(m_addr as *const _);
+                        let rs = expanse_sync_set_reader_new(s_addr as *const _);
+                        assert!(!r.is_null() && !rs.is_null());
+                        for k in 0..N {
+                            let mut v = 0u64;
+                            assert!(expanse_sync_map_reader_get(r, k, &raw mut v));
+                            assert_eq!(v, k * 7);
+                            assert!(expanse_sync_set_reader_contains(rs, k));
+                        }
+                        assert!(!expanse_sync_map_reader_get(r, N, core::ptr::null_mut()));
+                        assert!(!expanse_sync_set_reader_contains(rs, N));
+                        (r as usize, rs as usize)
+                    }
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .map(|w| w.join().expect("reader thread panicked"))
+            .collect()
+    });
+    assert_eq!(handles.len(), THREADS as usize);
+
+    // Phase 2: free every handle on the main thread while a writer churns keys
+    // at and above N, retiring nodes and advancing epochs.
+    let stop = AtomicBool::new(false);
+    std::thread::scope(|sc| {
+        let stop = &stop;
+        sc.spawn(move || {
+            let mut i = 0u64;
+            while !stop.load(Ordering::Relaxed) || i < 50_000 {
+                let k = N + (i % 4096);
+                // SAFETY: live handles; writes serialize internally.
+                unsafe {
+                    if i.is_multiple_of(2) {
+                        expanse_sync_map_insert(m_addr as *const _, k, k, core::ptr::null_mut());
+                        expanse_sync_set_insert(s_addr as *const _, k);
+                    } else {
+                        expanse_sync_map_remove(m_addr as *const _, k, core::ptr::null_mut());
+                        expanse_sync_set_remove(s_addr as *const _, k);
+                    }
+                }
+                i += 1;
+            }
+        });
+        for &(r, rs) in &handles {
+            // SAFETY: each handle came from `_reader_new`, its creating thread
+            // has returned (no call on it is in progress), it is freed exactly
+            // once, and its container is still alive.
+            unsafe {
+                expanse_sync_map_reader_free(r as *mut _);
+                expanse_sync_set_reader_free(rs as *mut _);
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+    });
+
+    // A reader registered after the frees still reads the stable keys.
+    // SAFETY: live containers; the reader is freed before them.
+    unsafe {
+        let r = expanse_sync_map_reader_new(m);
+        let mut v = 0u64;
+        assert!(expanse_sync_map_reader_get(r, N - 1, &raw mut v));
+        assert_eq!(v, (N - 1) * 7);
+        expanse_sync_map_reader_free(r);
+        expanse_sync_set_free(s);
+        expanse_sync_map_free(m);
+    }
+}

@@ -1861,13 +1861,33 @@ fn free_raw(ptr: NonNull<u8>, bytes: usize, align: usize) {
     unsafe { dealloc(ptr.as_ptr(), layout) };
 }
 
-/// A registered reader handle. Cheap to pin/unpin per operation; not
-/// `Sync` — one per reading thread.
+/// A registered reader handle. Cheap to pin/unpin per operation.
+///
+/// **`Send`, and pinned as such.** A `Reader` may be moved to, and dropped on,
+/// a thread other than the one that registered it: its fields are two `Arc`s,
+/// and its [`Drop`] deregisters through the collector's registry mutex without
+/// reading any thread-local. The C ABI relies on this (a reader handle may be
+/// freed from another thread, `include/expanse.h`), so the bound is asserted at
+/// compile time below rather than left to auto-derivation.
+///
+/// **`Sync` by its fields, which does not make shared use sound.** The reader
+/// owns a single epoch slot, and dropping *any* [`Pin`] unpins it entirely (see
+/// [`Self::pin`]), so two threads pinning one `Reader` at once can strip each
+/// other's protection. The type does not rule that out; the rule is one
+/// `Reader` per reading thread, used by one thread at a time.
 #[cfg(feature = "std")]
 pub struct Reader {
     pub(crate) collector: Arc<Collector>,
     slot: Arc<Slot>,
 }
+
+// See `Reader`'s doc comment: a future `!Send` field must fail the build, not
+// silently withdraw a bound the C ABI documents.
+#[cfg(feature = "std")]
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    assert_send::<Reader>();
+};
 
 #[cfg(feature = "std")]
 impl Reader {

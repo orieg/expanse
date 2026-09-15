@@ -259,6 +259,19 @@ stay `uint64_t` at both widths — they are populations, not keys.
 
 Modern features (optimistic concurrent reads, iterators, arena controls) are exposed through the native Rust API and through the `expanse_*` C API in `expanse.h`. Existing `Judy*` symbols never change semantics. Swapping in libexpanse must be a pure substitution.
 
+### Reader-handle ownership (64-bit `expanse_sync_*`)
+
+The contract for `expanse_sync_set_reader_t` and `expanse_sync_map_reader_t`, stated next to the declarations in `include/expanse.h` and in `expanse_sync(3)`:
+
+| Operation | Contract |
+|---|---|
+| Use | One handle per reading thread. A handle owns one epoch slot and its pins are not reentrant, so calls on one handle from two threads at once are undefined. |
+| Free from another thread | Allowed, once no call on the handle is in progress. Every call releases its epoch pin before returning, and `_reader_free` deregisters through the container's registry lock without reading thread-local state. |
+| Free while another thread is inside a call on it | Undefined. |
+| Free after the container | Undefined. Free every reader handle before `expanse_sync_*_free`. |
+
+The cross-thread free rests on the handle types being `Send`. That bound is auto-derived from their fields, so it is asserted at compile time on the C handle types (`crates/expanse-capi/src/modern_sync.rs`), on `MapReader`, `OwnedMapReader`, `DetachedMapReader` and `SetReader` (`crates/expanse/src/sync.rs`) and on `occ::Reader` (`crates/expanse/src/occ.rs`): a future `!Send` field fails the build. `test_sync_reader_handles_freed_on_another_thread` (`crates/expanse-capi/tests/test_modern_capi.rs`) creates handles on worker threads, reads through them, and frees them on the main thread before the containers. The 32-bit `expanse_sync32_*` family has its own, index-addressed reader contract (see the 32-bit concurrent story above).
+
 ## Acceptance gates ("in-place replacement" is proven, not claimed)
 
 | Gate | Check |

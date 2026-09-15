@@ -7291,6 +7291,20 @@ pub struct DetachedMapReader {
     reader: Reader,
 }
 
+// `Send` is part of the reader types' contract: the C ABI documents that a
+// reader handle may be freed from a thread other than the one that created it
+// (`include/expanse.h`, `docs/COMPAT.md`), and the bindings move readers
+// between threads. The bound is auto-derived from the fields, so a future
+// `!Send` field would silently withdraw it; this turns that into a build error.
+// (`Sync` is deliberately not asserted: see `occ::Reader`.)
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    assert_send::<MapReader<'static>>();
+    assert_send::<OwnedMapReader>();
+    assert_send::<DetachedMapReader>();
+    assert_send::<SetReader<'static>>();
+};
+
 impl DetachedMapReader {
     /// Optimistic lookup against `map`, without the per-call registry lock
     /// [`SyncExpanseMap::get`] pays.

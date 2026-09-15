@@ -126,6 +126,17 @@ For optimal throughput in multithreaded readers, threads should instantiate a
 dedicated reader handle (\fBexpanse_sync_map_reader_new\fR) once per thread and
 reuse it across queries.
 .PP
+A reader handle owns a single epoch slot and its pins are not reentrant:
+calls on one handle from two threads at once are undefined.
+A handle may be passed to, and freed from, a thread other than the one that
+created it, once no call on it is in progress; every call releases its epoch
+pin before returning, and
+.B expanse_sync_map_reader_free
+deregisters through the container's registry lock without reading
+thread-local state.
+Freeing a handle while another thread is inside a call on it, or after its
+container has been freed, is undefined.
+.PP
 The one-shot functions (\fBexpanse_sync_map_get\fR) implicitly register and
 deregister epoch participation on each invocation.
 .SH ORDERED READS

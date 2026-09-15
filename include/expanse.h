@@ -526,11 +526,23 @@ expanse_str_nav_status expanse_strmap_prev_before_ex(expanse_strmap_t *map, cons
  * writers and takes the writer mutex), and writers wait for that read to
  * finish (docs/ARCHITECTURE.md §4, docs/BENCHMARKING.md for scaling).
  *
- * A handle is safe to use from any number of threads at once. Readers
- * SHOULD take a reader handle (expanse_sync_*_reader_new) once per
+ * A container handle is safe to use from any number of threads at once.
+ * Readers SHOULD take a reader handle (expanse_sync_*_reader_new) once per
  * thread and reuse it: the one-shot _contains/_get calls register and
- * drop a reader on every call. A reader handle belongs to the thread
- * that created it and must be freed before its parent container.
+ * drop a reader on every call.
+ *
+ * Reader-handle ownership:
+ *  - One handle per reading thread. A handle owns a single epoch slot and
+ *    its pins are not reentrant, so calls on ONE handle from two threads at
+ *    once are undefined; give each reading thread its own.
+ *  - A handle may be passed to, and freed (_reader_free) from, a thread
+ *    other than the one that created it, once no call on it is in progress:
+ *    every call releases its epoch pin before returning, and freeing
+ *    deregisters the handle through the container's registry lock, reading
+ *    no thread-local state.
+ *  - Freeing a handle while another thread is inside a call on it is
+ *    undefined. Freeing it after its parent container is undefined: free
+ *    every reader handle before the container.
  */
 
 typedef struct expanse_sync_set expanse_sync_set_t;
