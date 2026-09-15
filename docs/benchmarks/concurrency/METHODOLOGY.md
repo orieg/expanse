@@ -884,3 +884,459 @@ Which piece of process-wide state carries over is unmeasured.
   - the `hot_comparison` and `masstree_comparison` concurrent cells and `ablations.py` without `--processes`, where one process runs every round of a cell.
 
   They are follow-ups, not changed here.
+
+## 16. Pre-registration for #730 — the readers-only string cell's per-reader cost (appended 2026-09-15, locked before any engine change on the wrapper's read path)
+
+**Status: commit 2 of the three-commit cadence (AGENTS.md §8.8), locked before any
+#730 engine change and before any run toward the gate.** It carries no
+measurement of its own. Every figure quoted below is read from an artifact
+already committed by #974 and named beside it. Commit 1 is
+`scripts/reader_scaling_bounds.py`, whose functions this section invokes rather
+than restates, and the readers-only instrument in
+`docs/benchmarks/concurrency/scripts/writer_scaling.py` and
+`crates/expanse/examples/writer_scaling.rs`. Nothing here is rewritten in place
+once a run exists (AGENTS.md §8.7); a threshold, statistic, pin or round count
+changed after a run relabels that run `INTERMEDIATE` (§8.19). Outcomes are
+appended to `README.md` with their verdict labels, and amendments are appended
+here as dated subsections.
+
+Tracking issue: [#730](https://github.com/orieg/expanse/issues/730) (open).
+§1–§15 are not edited.
+
+### 16.1 What is registered, and what #730 leaves undetermined
+
+**The claim this gate would license, in full:** *on the reference host, at the
+registered pins and round count, eight `SyncExpanseStrMap` readers with no
+writer present cost less per probe than they cost at `170a4bc3`, by at least
+the registered margin, and the single-reader cell does not regress.* Nothing
+wider. It is a statement about an outcome on one cell of one arm, not about a
+mechanism, not about any other structure, and not about any competitor.
+
+Three things #730 asks for are already instruments rather than open work, and
+the gate is written against them:
+
+- The W = 0 sweep at R ∈ {1, 2, 4, 8} exists natively, for `map`, `set` and
+  `str`, one harness process per cell (`writer_scaling_readers_only`, §15), and
+  its levels at `170a4bc3` are published in `README.md` §15.4.
+- Restart and fallback shares for these cells are recorded: the counters pass
+  writes `attempts_per_op` and `fallback_rate` per cell, and every readers-only
+  cell of the four committed artifacts records `attempts_per_op` 1.0 and
+  `fallback_rate` 0.
+- The per-reader cost has a committed estimator and a committed interval
+  construction (`reader_scaling_bounds.per_arm_interval`), so the gate needs no
+  new statistic.
+
+**Two things #730 does not determine, and this section does not invent:**
+
+1. **Which change is made.** The issue names two candidate locations for the
+   cost — a per-probe cost in the wrapper's read path, and reader–reader
+   sharing that grows with R — and states that nothing was measured between the
+   endpoints. It proposes no specific engine change. So what is registered here
+   is an **outcome gate**: any candidate change on the wrapper's read path is
+   evaluated against it, and the gate neither names nor credits a mechanism.
+   A change that meets the gate has met the gate; what moved is a separate
+   question with its own instrument and its own pre-registration.
+2. **The floor the issue itself states.** #730's Gate section sets the R = 8
+   per-reader cost against a figure from the FFI `masstree_conc_str` cell that
+   is formally retracted as unsourced (`.github/superseded-figures.json`,
+   `masstree_readers_only_string_82966aae`). A retracted figure is not an input to
+   anything, so the floor is **re-derived here from the committed
+   `concurrency_readers_str` levels at `170a4bc3`** (§16.3). That is a
+   different cell from the one #730 was opened on — a different harness, and a
+   probe stream in which every probe hits *(workloads differ:
+   `concurrency_readers_str` vs `masstree_conc_str`)* — so this gate does not
+   restore the issue's original comparison, and no ratio against a competitor
+   is formed anywhere in this section.
+
+### 16.2 The gate
+
+Stated verbatim, and evaluated per cell:
+
+> **The #730 readers-only gate.** Let *c* be the per-reader cost of the
+> `str` readers-only cell at W = 0, R = 8: per round, the mean over the
+> round's eight readers of each reader's own loop time, divided by that
+> reader's probe count; over the round series, the mean and its BCa 95%
+> interval from `reader_scaling_bounds.per_arm_interval` (2,000 resamples,
+> seed 42). A cell **PASSES** iff the **upper** bound of that interval is
+> strictly below the floor registered for its pin in §16.3 — 259.198 ns at
+> pin `0-15`, 261.062 ns at pin `0,2,4,6,8,10,12,14` — **and** the same
+> artifact's R = 1 `str` cell does not regress: the lower bound of its
+> interval, constructed identically, is not above the R = 1 reference for
+> that pin in §16.3. **The gate is met at a head** when all four cells pass:
+> two pins × two independent runs. Any cell whose interval contains its
+> floor is `INCONCLUSIVE`; any cell whose interval lies wholly above its
+> floor is `REFUTED`.
+
+**Why the upper bound and not the lower.** AGENTS.md §8.4 passes a continuous
+claim iff the interval's bound on the *unfavourable* side clears the floor. The
+gate statistic is a cost, so smaller is better and the unfavourable side is the
+upper bound. On the R = 1 side condition the direction inverts again: a
+regression is a *rise*, so the side condition fails only when the R = 1
+interval lies confidently above the reference, which is its lower bound being
+above it.
+
+**Every input, and the artifact field it is read from.** All paths are relative
+to `docs/benchmarks/concurrency/`.
+
+| gate input | where it is read from |
+|---|---|
+| the cell | the element of `throughput` with `arm` `str`, `writers` 0 and `readers` 8 (R = 1 for the side condition) |
+| the per-round series | for each element of that cell's `rounds_raw`, in `round` order: `mean(reader_thread_elapsed_s) × 1e9 ÷ prefill` — the same reduction `scripts/tables.py::_bl_ns_per_probe` applies for `README.md` §15.4 |
+| the point estimate | the cell's `reader_ns_per_probe_thread_mean`, which the series above reproduces |
+| the interval | `reader_scaling_bounds.per_arm_interval` over that series; its `method` must read `bca` |
+| the round count | the cell's `rounds`, and `readers_only.rounds` |
+| the pin | `provenance.core_pin`, and the cell's `cpu_pin` |
+| the engine commit | `provenance.commit` |
+| cell isolation | `provenance.cell_isolation`, which must read `process` (§15) |
+| the void list | `readers_only.void`, which must be empty |
+| host load | each cell's `load`, and `provenance.loads` (§16.7) |
+| reported beside the verdict, not gated | `reader_mops_mean` with `reader_ci_lower` / `reader_ci_upper`, `scaling_s_r` with its interval, `reader_ns_per_probe_to_last_join`, `slowest_over_mean_thread_by_round`, `attempts_per_op`, `fallback_rate` |
+
+**Why the per-thread mean and not the aggregate.** The cell carries two
+estimators of the same quantity, and they separate. `reader_ns_per_probe_thread_mean`
+divides each reader's own loop time by its probes; `reader_ns_per_probe_to_last_join`
+divides the barrier-to-last-join time by one reader's probes, so it reads the
+slowest reader. On the four committed `str` R = 8 cells the second is 1.8% and
+1.8% above the first at pin `0-15` and 5.3% and 4.8% above it at one thread per
+physical core *(workload: `concurrency_readers_str`; `results/baseline_readers_only_writer_scaling_170a4bc3_*.json`)*.
+The gate takes the per-thread mean because a straggler is a property of the
+round's scheduling rather than of the read path, and because the choice is made
+here, before any run, rather than after seeing which estimator flatters a head.
+The last-join figure is reported beside every verdict.
+
+**The single-threaded side condition is deterministic, and is not this gate.**
+#730 also asks that the single-threaded `short` lookup not regress. That is
+already gated exactly, per commit, by the Callgrind arms `strmap_get_short` and
+`sync_strmap_get_short` in `crates/expanse/benches/instructions.rs`, registered
+in `scripts/perf_report.py` and enforced by the `instruction-counts` job under
+AGENTS.md §6. No wall-clock baseline is invented for it here. Those counts are
+exact integers on a different instrument and a different workload from the
+readers-only cell *(workloads differ: `core_instructions` vs
+`concurrency_readers_str`)*, so they are a precondition of a change, never a
+term in the interval arithmetic above.
+
+### 16.3 The baseline, and the floors derived from it
+
+The gate is measured against the #974 levels at engine, harness and driver
+commit `170a4bc3`: two pins, two independent runs each, 8 rounds per cell, one
+harness process per timed cell. These are the four artifacts `README.md` §15
+publishes; the columns below are read from them, not retyped from §15's tables.
+
+*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads, kernel
+6.8, governor `powersave` on every pinned CPU, transparent huge pages
+`madvise`; engine, harness and driver at `170a4bc3`; workload:
+`concurrency_readers_str`; reduction: `reader_scaling_bounds.per_arm_interval`
+over the series §16.2 names)*
+
+| pin | run | artifact under `results/` | CI run | R = 8 ns per probe per reader [BCa 95%] | R = 1 ns per probe per reader [BCa 95%] |
+|---|--:|---|---|---|---|
+| `0-15` | 1 | `baseline_readers_only_writer_scaling_170a4bc3_pin0-15.json` | [35021567680](https://github.com/orieg/expanse/actions/runs/35021567680) | 272.840 [272.545, 273.354] | 217.561 [217.225, 217.813] |
+| `0-15` | 2 | `baseline_readers_only_writer_scaling_170a4bc3_pin0-15_run2.json` | [35021596408](https://github.com/orieg/expanse/actions/runs/35021596408) | 273.351 [272.886, 274.206] | 218.123 [217.471, 219.890] |
+| `0,2,4,6,8,10,12,14` | 1 | `baseline_readers_only_writer_scaling_170a4bc3_percore.json` | [35021624186](https://github.com/orieg/expanse/actions/runs/35021624186) | 275.371 [273.867, 277.264] | 217.211 [216.902, 217.501] |
+| `0,2,4,6,8,10,12,14` | 2 | `baseline_readers_only_writer_scaling_170a4bc3_percore_run2.json` | [35021650065](https://github.com/orieg/expanse/actions/runs/35021650065) | 274.802 [273.545, 276.899] | 217.439 [217.255, 217.690] |
+
+**The floors, derived.** Per pin, the floor is the **lower** of that pin's two
+committed R = 8 means, reduced by the registered margin of 5%:
+
+- pin `0-15`: min(272.8396, 273.3511) = 272.8396 ns, so the floor is
+  0.95 × 272.8396 = **259.198 ns**;
+- pin `0,2,4,6,8,10,12,14`: min(275.3707, 274.8021) = 274.8021 ns, so the floor
+  is 0.95 × 274.8021 = **261.062 ns**.
+
+Taking the lower of the two runs is the strict choice: a head must beat the
+most favourable baseline reading at its pin, not the average of the two. The
+pins are never pooled, and the floors are never recomputed against a later
+baseline — a re-measured baseline is a new pre-registration, not an edit to
+this one (AGENTS.md §8.7).
+
+**The R = 1 references, for the side condition,** are the **higher** of that
+pin's two committed R = 1 means, which is the lenient choice on a condition
+whose job is to catch a regression rather than to certify an improvement:
+**218.1226 ns** at `0-15` and **217.4392 ns** at one thread per physical core.
+
+**The margin of 5% is a choice, not a derivation.** What §16.4 establishes is
+only that it is resolvable at the registered round count. Two facts bound it
+from below and are stated before any run: the largest two-arm minimum
+detectable difference among the four committed `str` R = 8 cells is 1.36%, and
+the observed spread between the two runs of a pin is 0.19% at `0-15` and 0.21%
+at one thread per physical core.
+
+### 16.4 Math-first audit: is the gate resolvable at 8 rounds?
+
+AGENTS.md §8.8's commit 1 and the repo's rule on executable bounds require the
+detectability check to be computed by a committed, unit-tested function rather
+than narrated. It is: `reader_scaling_bounds.mde_from_rounds` implements the
+two-sample minimum detectable difference at a two-sided 5% test and 80% power
+(Cohen 1988, ch. 2), `(z_{1-α/2} + z_{1-β}) · σ · sqrt(2/n)`, with σ the
+per-round standard deviation and n the round count. Its hand-checkable
+reference value is pinned in `SyntheticTests.test_mde_hand_value`, and
+`scripts/gate.sh` and CI's `lint` job run that suite.
+
+Applied to the per-round series of the four committed `str` cells, n = 8:
+
+| pin | run | R | per-round σ (ns) | MDE (ns) | MDE, relative |
+|---|--:|--:|--:|--:|--:|
+| `0-15` | 1 | 8 | 0.5970 | 0.836 | 0.31% |
+| `0-15` | 2 | 8 | 0.9635 | 1.350 | 0.49% |
+| `0,2,4,6,8,10,12,14` | 1 | 8 | 2.6648 | 3.733 | 1.36% |
+| `0,2,4,6,8,10,12,14` | 2 | 8 | 2.4338 | 3.409 | 1.24% |
+| `0-15` | 1 | 1 | 0.4632 | 0.649 | 0.30% |
+| `0-15` | 2 | 1 | 1.6065 | 2.250 | 1.03% |
+| `0,2,4,6,8,10,12,14` | 1 | 1 | 0.4572 | 0.641 | 0.29% |
+| `0,2,4,6,8,10,12,14` | 2 | 1 | 0.3204 | 0.449 | 0.21% |
+
+**The audit's conclusion.** The effect the gate asks for is 5%. The largest
+effect the instrument cannot resolve at the registered round count is 1.36%,
+on the noisier of the two pins. The gate therefore asks for an effect 3.69× the
+worst detectable one, and the experiment is not under-powered against its own
+threshold. The check is the one AGENTS.md's math-first rule requires before a
+gate is locked: *had* the margin been set at or below about 1.4%, the design
+would have been rejected as undetectable at 8 rounds rather than run.
+
+**What the audit does not establish.** That any change reaches the floor; that
+σ on an evaluated head resembles σ on `170a4bc3` — a head with wider per-round
+spread resolves less finely at the registered count, and the count does not
+change for it (§8.19); and anything about statistical power against an effect
+between 1.36% and 5%, where a real improvement can still read `INCONCLUSIVE`.
+
+**Why `map` and `set` are reported and not gated.** The same function on their
+R = 8 series gives a relative MDE reaching 7.49% (`map`, one thread per
+physical core, run 1) and 4.08% (`set`, same pin, run 1)
+*(`results/baseline_readers_only_writer_scaling_170a4bc3_percore.json`)*. Cells
+that cannot resolve 5% cannot carry a 5% gate, so they are controls with their
+levels published and no threshold attached.
+
+**One quantity in #730's plan has no committed bound function, and is not
+gated here.** The issue's third scope item asks for `LLC-load-misses` and
+`mem_load_l3_hit_retired.xsnp_hitm` per probe at R = 1 and R = 8. The module
+has `event_cycle_ceiling` and `unexplained_cycles`, but both convert an event
+count into cycles through a *hypothesised* per-event cost that no committed
+artifact prices, and the module labels every ceiling built on it a hypothesis.
+No counter figure is therefore an input to this gate, and no counter threshold
+is registered. Counters taken on an evaluated head are diagnostic and are
+reported as such (AGENTS.md §8.9).
+
+### 16.5 Rounds, pins, runs and cells
+
+- **8 rounds per cell.** This is the driver's default (`--rounds`, default 8)
+  and the count every one of the four committed baseline artifacts recorded, so
+  the evaluation is reduced exactly as the baseline was. §16.4 shows 8 rounds
+  resolves the registered margin with room. The count is fixed: adding rounds
+  to decide an `INCONCLUSIVE` cell changes the sample size and relabels that
+  evaluation `INTERMEDIATE` (§8.19).
+- **Both pins, never pooled.** `0-15` is the 8 P-cores with SMT, so at R = 8
+  two readers may share one physical core; `0,2,4,6,8,10,12,14` is one reader
+  per physical P-core (AGENTS.md §8.20.5 step 0). The baseline was taken at
+  both and the two are not interchangeable: the `str` R = 8 level and S(8) read
+  lower per-core than at `0-15` in both runs, with disjoint intervals in each
+  (`README.md` §15.5). Requiring both keeps the claim to what both placements
+  measure, as §14.1 requires of the writer target, at the cost of twice the
+  runs.
+- **Two independent runs per pin, each a fresh dispatch, all four at one head**
+  (`docs/BENCHMARKING.md` rule 18). A within-run BCa interval does not bound
+  between-run spread, so no cross-run statement is made from one run.
+- **The dispatch** is `bench_baremetal.yml` with
+  `benchmark_suite=writer_scaling_readers_only`, `ref` naming the head being
+  evaluated, and `cpu_pin` set to the pin. The suite takes the applied pin and
+  records it; one dispatch per pin per run, four per evaluation. No workflow or
+  driver change is needed to take a run, and none is registered here beyond
+  §16.7's snapshot.
+- **The gate cells are the `str` R = 8 cells only**, with the `str` R = 1 cells
+  as the registered side condition. The `map` and `set` arms and R ∈ {2, 4} run
+  as the suite runs them and are reported.
+- **The artifact records which pre-registration it was read against.** The
+  driver currently writes `readers_only.preregistration` as `null` with a note
+  saying no pre-registration exists. The run that evaluates this gate records
+  that field as `METHODOLOGY.md §16`; a run whose artifact still reads `null`
+  is a baseline, not an evaluation, and carries no verdict.
+- **When a run is taken.** Only after a candidate change on the wrapper's read
+  path exists, or when the maintainer asks for one. Every evaluation is
+  appended to `README.md` whatever its verdicts, so the number of evaluations
+  is visible and a head that passes on a later attempt cannot be reported as
+  though it were the first.
+
+### 16.6 Rounds are not exchangeable, and the sensitivity the gate carries
+
+This is a fact about the instrument at the moment of locking, disclosed here so
+the gate is not silently sensitive to it.
+
+`README.md` §15 records that **8 of the 12 R = 8 readers-only cells hold at
+least one round beyond three scaled MADs of the median** — that count is over
+the per-round `reader_mops` series, which is the aggregate estimator. On the
+per-round series the gate actually uses, the four `str` R = 8 cells flag round
+2 at pin `0-15` in both runs and flag nothing at one thread per physical core
+*(`results/baseline_readers_only_writer_scaling_170a4bc3_*.json`)*. A BCa
+interval over i.i.d. resamples of the rounds does not model a round like that,
+as `README.md` §13 found for the committed FFI levels. The cause is unmeasured.
+
+The gate handles it by declaring the sensitivity in advance rather than by
+discarding rounds:
+
+- **The primary verdict uses all 8 rounds.** No round is dropped from it, ever.
+- **A sensitivity verdict is computed beside it** on the series with every round
+  `reader_scaling_bounds.round_outliers` flags on that same series removed, the
+  interval reconstructed by `per_arm_interval` on what remains. If fewer than 3
+  rounds remain, the sensitivity verdict is `NOT_EVALUABLE` — the function
+  refuses fewer than 3 — and that is reported.
+- **A cell whose two verdicts disagree is `INTERMEDIATE_outlier_sensitive`,**
+  and the gate is not met at that head. The primary verdict is still reported,
+  labelled, and never presented alone.
+- **The trimmed interval is never the headline** and never replaces the
+  registered statistic. It exists so that a `PASS` resting on one favourable
+  round is visible as such.
+
+For calibration, the same procedure applied to the committed baseline moves the
+`0-15` R = 8 mean by 0.167 ns (run 1) and 0.284 ns (run 2), both far inside the
+registered 5% margin, and drops nothing at all per-core
+*(workload: `concurrency_readers_str`)*. That is a property of the baseline, not
+a prediction about a head.
+
+`slowest_over_mean_thread_by_round` is published per cell beside every verdict,
+so the spread across a round's readers is visible next to the number the gate
+reads.
+
+### 16.7 Host load, and the one thing the evaluation run must add
+
+AGENTS.md §8.17 makes quietness a property of the artifact. For the readers-only
+sweep the picture at lock is the one `README.md` §15 discloses, and it has a
+limit worth stating exactly, because the gate depends on it.
+
+**What the committed artifacts do carry.** Each cell's `load` window opens at
+the `readers_only:throughput` label and closes when the throughput pass ends. It
+is a real busy-CPU delta over a 57.4–57.5 s window, and it reads
+`foreign_busy_cpus` 0.01 on every cell of all four artifacts, with
+`own_busy_cpus` 1.26–1.27. So §8.17's non-lagging instrument — a busy-CPU delta
+rather than a load average alone — is satisfied, and no void rule of §6 applies
+to any of the four.
+
+**What they do not carry.** `provenance.loads` holds two snapshots taken back to
+back at the start of the sweep, with identical jiffy counters and the same
+timestamp. One busy-CPU window therefore covers the whole throughput pass, every
+cell of a run carries the same `foreign_busy_cpus`, and **no load average is
+recorded after the pass**. The writer artifacts take one window per arm; the
+readers-only ones do not.
+
+**Is that acceptable for this gate?** Yes, for the comparison it makes, and the
+reasons are specific rather than general:
+
+- The quantity gated is a *within-cell* per-thread mean over 8 rounds, not a
+  cross-arm ratio, so a window that does not isolate one cell does not confound
+  the statistic.
+- The window that exists covers the whole measured pass at a foreign-busy level
+  two orders of magnitude below §8.17's ~1.0 core-equivalent bar, on every cell
+  of every run.
+- The baseline and the evaluation are reduced from the same instrument, so any
+  residual coarseness applies symmetrically to both sides of the comparison.
+
+**What the evaluation run must nevertheless do differently.** It must record a
+**post-pass snapshot in `provenance.loads`** — an `end_cell` label appended to
+the list rather than folded only into each cell's `load`. That costs nothing
+inside the measured region and changes no timing; it makes two things checkable
+that are not checkable today: whether the load average moved across the pass,
+and whether the two runs of a pin ended as close as they started. §6's
+"load shift above 2 between the two runs of a pair" can otherwise be applied at
+run start only, and that is the whole of what the load evidence would say.
+
+An evaluation run that omits it is **not void** — voiding it would make it
+uncomparable with a baseline that has no such snapshot either — but its load
+evidence is then start-only, and that limitation is disclosed beside the result
+rather than left for a reader to notice (AGENTS.md §8.1). A run that omits it
+*and* whose start snapshot is more than 2 apart from its pair's is void under
+§6, as before.
+
+Per-arm or per-block windows, which would let a single cell be voided on its own
+load, are a further improvement and are not registered as a requirement here.
+
+### 16.8 Expected losses
+
+Pre-registered before any run, so that an unwelcome outcome is a recorded
+expectation rather than a later rationalisation (AGENTS.md §8.7).
+
+| cell or condition | expectation at lock | what a loss looks like | consequence |
+|---|---|---|---|
+| `str` R = 8, pin `0-15` | **not predicted** — no level, direction or magnitude is predicted for any head | interval above the floor | `REFUTED`; the gate is not met at that head |
+| `str` R = 8, one thread per physical core | **not predicted**, and this is the cell most likely to read `INCONCLUSIVE` at a true improvement near the floor: its MDE is 1.24–1.36% against 0.31–0.49% at `0-15` (§16.4) | interval straddling the floor while the `0-15` cells pass | `INCONCLUSIVE` on that cell; the gate is not met, and the asymmetry is reported rather than resolved by dropping the pin |
+| `str` R = 1 side condition | expected unchanged: a change aimed at reader scaling need not touch the single-reader path, and need not spare it either | R = 1 interval confidently above the reference | the cell fails even if its R = 8 half passes — an R = 8 gain bought by making one reader slower is not what is registered |
+| `strmap_get_short`, `sync_strmap_get_short` Callgrind arms | expected flat or lower | a rise above AGENTS.md §6's 0.1% review threshold | a review blocker on the change, decided on the `instruction-counts` job; it is a precondition, not a term in this gate |
+| `map` and `set` readers-only arms | expected roughly unchanged; they are controls | either arm moving while `str` moves | reported, no verdict: at 4.08–7.49% MDE these cells cannot resolve a 5% move, so their silence is uninformative and their movement is not attributable here |
+| the two runs of a pin | expected to overlap, as all four baseline pairs do (`README.md` §15.5) | the two runs of one pin disagreeing on a cell's verdict | the gate is not met; the cell is reported direction-only (`docs/BENCHMARKING.md` rule 18) |
+| the outlier sensitivity (§16.6) | expected to agree with the primary verdict | primary and trimmed verdicts disagreeing | `INTERMEDIATE_outlier_sensitive`; the gate is not met |
+
+### 16.9 Verdicts
+
+Per cell — four of them, two pins × two runs — using this suite's existing
+vocabulary (§14.4):
+
+- **`PASS`** — the R = 8 interval's upper bound is strictly below the pin's
+  floor, and the R = 1 side condition holds.
+- **`REFUTED`** — the R = 8 interval lies wholly above the pin's floor.
+- **`INCONCLUSIVE`** — the interval contains the floor. This is AGENTS.md
+  §8.4's `INTERMEDIATE_floor_within_ci` under this suite's vocabulary; the two
+  names denote the same outcome and no third label is introduced.
+- **`INTERMEDIATE_outlier_sensitive`** — primary and trimmed verdicts disagree
+  (§16.6).
+- **`INTERMEDIATE`** — any threshold, statistic, pin, estimator or round count
+  differed from the registration (§8.19).
+- **`NOT_EVALUABLE`** — an input the gate names is absent, or the sensitivity
+  verdict has fewer than 3 rounds left. Never reported as a pass, never as 0.
+
+**The gate is met at a head only when all four cells read `PASS`.** One
+`REFUTED` means not met at that head. An `INCONCLUSIVE` leaves it unmet; a
+further run added to decide it changes the sample size and relabels the
+evaluation `INTERMEDIATE`. A later head is evaluated with the same threshold,
+statistic, pins and round count. At a true cost exactly at the floor each
+cell's nominal chance of a false `PASS` is 2.5%; the four cells share a head and
+a host and are not independent, so no joint rate is claimed, and repeated
+evaluations raise the chance that some head passes by chance — which is why
+every evaluation is recorded (§16.5).
+
+### 16.10 What voids a cell
+
+§6 applies in full, and §15's cell-isolation requirement applies: an artifact
+whose `provenance.cell_isolation` is not `process` measured its cells in shared
+harness processes and is not comparable cell-for-cell with the `170a4bc3`
+baseline. §14.5's void items apply where they name something this suite also
+records — a wrong or unrecorded pin, a `--quick` population, a round count other
+than the registered one, an interval whose method is not `bca`, timings from an
+`occ-stats` build, and the four runs of one evaluation differing in `crates/` or
+in `docs/benchmarks/concurrency/scripts/writer_scaling.py`.
+
+Only what those sections do not already cover is added here:
+
+- a non-empty `readers_only.void` list (the driver populates it; a `--quick`
+  smoke run lands there);
+- a `str` R = 8 or R = 1 cell whose `rounds_raw` does not hold each of rounds
+  0..7 exactly once, or whose `reader_thread_elapsed_s` does not hold exactly
+  `readers` entries — the driver refuses both, so this is listed for
+  completeness;
+- an artifact whose `readers_only.preregistration` names a section other than
+  this one while being reported as an evaluation of it.
+
+A void run is discarded whole, replaced by a fresh dispatch at the same head,
+and the discard is disclosed beside the result (AGENTS.md §8.17). Replacing a
+void run does not change the sample size.
+
+### 16.11 Explicitly not claimed
+
+- **No mechanism.** #730's two candidate locations for the cost are not
+  distinguished by this gate and nothing here attributes the cost to either, or
+  to any line, structure or event. A change that meets the gate is credited with
+  meeting the gate. Whether the R = 1 level now published bears on the question
+  is an analysis this section does not perform.
+- **No comparison with Masstree or HOT.** Those readers-only competitor cells
+  are pending re-measurement (#730), no competitor arm is dispatched by this
+  suite, and no ratio against one is formed *(workloads differ:
+  `concurrency_readers_str` vs `masstree_conc_str`)*.
+- **Nothing read from the retracted figure.** The floors are derived only from
+  the four `170a4bc3` artifacts.
+- **No prediction of any level, direction or magnitude** for any head, and none
+  that a change will be found at all.
+- **No claim about the `map` or `set` readers-only arms,** about R ∈ {2, 4},
+  about S(R), or about which pin reads lower on an evaluated head.
+- **No claim about the string wrapper's writers,** which are #929's arms and a
+  different instrument.
+- **No counter threshold,** and no cycles-per-event figure: the module's event
+  ceilings rest on a hypothesised per-event cost that no committed artifact
+  prices (§16.4).
+- **No statement about the cause of the non-exchangeable rounds** (§16.6), which
+  is unmeasured.
