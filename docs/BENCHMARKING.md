@@ -144,7 +144,7 @@ The suites below are declared once, in [`.github/bench-suites.json`](../.github/
 | `comparative` | wall-clock | Wall-clock head-to-head against hashbrown / BTreeMap, with the `bench_report.py --quick` markdown table. |
 | `ycsb` | wall-clock | YCSB core workloads on the 64-bit map. |
 | `concurrency` | wall-clock | `Sync*` mixed read/write instrument (`benches/concurrency.rs` through `mixed_concurrency.py`): interleaved barrier-started rounds with BCa intervals on a reduced thread/workload sweep; report-only until a gate is pre-registered on it. |
-| `mixed_concurrency_step2_gate` | wall-clock | #568 Step 2 gate run (`METHODOLOGY.md` §13) through `mixed_concurrency.py --step2-gate`: the head against `1edfa952` built with the head's `benches/concurrency.rs`, one process per window, `map` and `set` at 50/50 on 1 and 16 threads, 48 rounds, pin `0-15`; writes `step2_single_writer_gate.json`. |
+| `mixed_concurrency_step2_gate` | wall-clock | #568 Step 2 gate run (`METHODOLOGY.md` §13) through `mixed_concurrency.py --step2-gate`: the head against `1edfa952` built with the head's `benches/concurrency.rs`, one process per window, `map` and `set` at 50/50 on 1 and 16 threads, 48 rounds, pin `0-15`; writes `baseline_concurrent_step2_gate.json`. |
 | `writer_scaling` | wall-clock | Expanse-native multi-writer scaling sweep W in {1, 2, 4, 8} on physical cores; no third-party link. |
 | `writer_scaling_diagnostic` | `perf stat` | Expanse multi-writer scaling diagnostic suite with hardware PMU frequency droop and perf c2c cache contention passes (Phase 1.5D, Refs #568); outputs diagnostic_writer_scaling.json. |
 | `writer_scaling_padded` | wall-clock | Expanse multi-writer scaling with lock-padded comparison (Hypothesis B, Refs #568); outputs padded_writer_scaling.json. |
@@ -1600,7 +1600,7 @@ builds the head and `1edfa952`, the latter with the head's
 `benches/concurrency.rs`. It runs every 50/50 window of `map` and `set` at 1 and
 16 threads in its own process with a fresh prefill, and writes the per-round
 head / baseline ratio with its BCa interval and §13.4's per-run verdict to
-`results/step2_single_writer_gate.json`.
+`results/baseline_concurrent_step2_gate.json`.
 
 Every arm probes a bounded keyspace (`2 × POP`) since
 [#375](https://github.com/orieg/expanse/issues/375), so it measures descent

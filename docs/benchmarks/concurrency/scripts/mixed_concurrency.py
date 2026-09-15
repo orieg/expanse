@@ -67,9 +67,9 @@ is unchanged when `--step2-gate` is absent. The Step 2 mode:
   upper bound is below it, `INCONCLUSIVE` otherwise. The 1-thread control is
   reported with its interval and `NOT_GATED`. The gate block covers this run
   only; §13.4's two-run decision is read from two artifacts;
-- writes `results/step2_single_writer_gate.json`, or with `--run2`
-  `results/step2_single_writer_gate_run2.json`. Under `--quick` it writes
-  `results/quick/step2_single_writer_gate.json`. A quick run may shorten the
+- writes `results/baseline_concurrent_step2_gate.json`, or with `--run2`
+  `results/baseline_concurrent_step2_gate_run2.json`. Under `--quick` it writes
+  `results/quick/baseline_concurrent_step2_gate.json`. A quick run may shorten the
   rounds and pick other thread counts, since a host with fewer than 16 CPUs
   drops the 16-thread window.
 
@@ -512,9 +512,9 @@ STEP2_BUILDS = ("head", "baseline")
 # against it, so the two copies must stay equal. `step2_margin_problems` checks
 # that before every run and in the self-test.
 STEP2_GATE_MARGIN = 1.5
-STEP2_DEFAULT_OUT = DEFAULT_OUT.with_name("step2_single_writer_gate.json")
-STEP2_RUN2_OUT = DEFAULT_OUT.with_name("step2_single_writer_gate_run2.json")
-STEP2_QUICK_OUT = QUICK_OUT.with_name("step2_single_writer_gate.json")
+STEP2_DEFAULT_OUT = DEFAULT_OUT.with_name("baseline_concurrent_step2_gate.json")
+STEP2_RUN2_OUT = DEFAULT_OUT.with_name("baseline_concurrent_step2_gate_run2.json")
+STEP2_QUICK_OUT = QUICK_OUT.with_name("baseline_concurrent_step2_gate.json")
 STEP2_METHODOLOGY = "docs/benchmarks/concurrency/METHODOLOGY.md section 13"
 STEP2_RATIO = (
     "per-round ratio head / baseline of total operations per second, (read_ops + write_ops) "
@@ -913,11 +913,12 @@ def summarize_step2(windows: list[dict[str, Any]], round_loads: list[dict[str, A
 def step2_artifact_problems(path: Path, artifact: dict[str, Any], quick: bool) -> list[str]:
     """The provenance gate's findings, plus per-cell attribution on a committed run.
 
-    `check_bench_provenance.py` applies attribution only to file names it
-    recognises as concurrent, and `step2_single_writer_gate*.json` is not one
-    of them. Every window here runs up to 16 threads, so a committed run has
-    to meet the attribution requirement anyway. A quick run is exempt because
-    it may run where `/proc` does not exist.
+    The committed name `baseline_concurrent_step2_gate*.json` falls under
+    `check_bench_provenance.py`'s `baseline_*` glob and its concurrent-name
+    rule, so CI applies the same attribution check to the committed file.
+    Running it here as well refuses a failing run on the host, before it is
+    written. A quick run is exempt because it may run where `/proc` does not
+    exist.
     """
     problems = artifact_problems(path, artifact)
     if not quick:

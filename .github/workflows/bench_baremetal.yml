@@ -950,7 +950,7 @@ jobs:
                 # 48 rounds and writes the per-run gate artifact. A second run
                 # is a second dispatch, committed as the _run2 artifact.
                 python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --step2-gate \
-                  --out docs/benchmarks/concurrency/results/step2_single_writer_gate.json | tee concurrency.txt
+                  --out docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json | tee concurrency.txt
                 ;;
               "writer_scaling")
                 # Expanse-native multi-writer scaling sweep (Phase 1.5D, Refs #568)
@@ -1536,7 +1536,7 @@ jobs:
             docs/benchmarks/concurrency/results/ablation_unstriped_freelist_writer_scaling.json
             docs/benchmarks/concurrency/results/ordered_readers_writer_scaling.json
             docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json
-            docs/benchmarks/concurrency/results/step2_single_writer_gate.json
+            docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json
             ycsb.txt
             comparative.txt
             bytes-per-key.txt
