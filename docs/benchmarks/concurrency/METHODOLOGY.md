@@ -707,6 +707,82 @@ Every lower bound clears the 1.5 margin, and the 1.667 that §13.4 names as the 
 - The 2-, 4- and 8-thread cells, and the 100% and 95% read mixes (§13.6).
 - Whether the order effect disclosed in §13.2 would have moved these ratios. The instrument ran every window in its own process to keep any such effect out of them, so it does not measure that effect.
 
+## 14. Pre-registration for #930 — `SyncExpanseMap` and `SyncExpanseSet` writer throughput ≥ 20 M ops/s at W = 8 (appended 2026-09-15, locked before any run toward the target)
+
+#930's first step asks for the target to be registered before any run. This section fixes the threshold, statistic, pins, round count and void rules. It predicts no outcome. The sizing functions are in `scripts/olc_bounds.py`: `w8_round_spread`, `planning_cv`, `rounds_for_williams`, `mean_needed_to_clear`, `mean_needed_with_probability` and `writer_target_verdict`. Their inputs are frozen in `W8_SPREAD_AT_LOCK`, because the `writer_scaling` dispatch rewrites `results/baseline_writer_scaling.json` in place (AGENTS.md §8.7). Nothing here is rewritten once a run exists. A threshold, statistic, pin or round count changed after a run relabels that run `INTERMEDIATE` (§8.19).
+
+### 14.1 The target
+
+- **Arms and workloads.** `map` (`SyncExpanseMap`, workload `concurrency_writer_map_64bit`) and `set` (`SyncExpanseSet`, workload `concurrency_writer_set_63bit`) in `crates/expanse/examples/writer_scaling.rs`: a 2^20-key prefill, then 2^20 fresh keys inserted by W writers. Inserts only.
+- **The gate cell is W = 8.** Its statistic is the one the driver already writes. `expanse_writer_mops_mean` is the mean of the run's per-round `writer_mops`, and `writer_ci_lower` and `writer_ci_upper` are its BCa 95% interval (`scripts/bca_bootstrap.py`, 2,000 resamples).
+- **The threshold, 20 M ops/s, is #930's choice, not a derivation.** The issue's USL table is stated there as reasoning, not a prediction, and nothing in this section depends on it.
+- **Both pins are part of the gate:** `0-15` and `0,2,4,6,8,10,12,14`. A cell is never pooled across pins.
+  - `0-15` is the pin of #930's table and of every committed writer-sweep artifact except #912's pair. At W = 8 it lets two writers share one physical core's SMT siblings, and the effect of that on the W = 8 cells is unmeasured (`README.md` §10).
+  - `0,2,4,6,8,10,12,14` places one writer per physical P-core (AGENTS.md §8.20.5 step 0), and #912's gate was measured under it.
+  - §11.5's one-per-core re-run moved no C(W) interval, but it measured C(W), not absolute W = 8 throughput, on an engine that predates #912. So which pin reads higher at W = 8 on the measured head is unknown.
+  - **Why both, not each reported separately.** The target is a statement about writer throughput at W = 8, and it names no placement. If one pin were the gate and the other only reported, #930 could close on a `PASS` under one placement beside a `REFUTED` under the other. Requiring both keeps the claim to what both placements measure. The cost is twice the runs.
+
+### 14.2 Prior observations at lock time (mandatory disclosure)
+
+- **#930's own table.** Two runs at pin `0-15`, CI runs [34766142088](https://github.com/orieg/expanse/actions/runs/34766142088) (`270f87f1`) and [34766103296](https://github.com/orieg/expanse/actions/runs/34766103296) (`cb308f71`), both before #912. At W = 8: `map` 10.40 [10.16, 10.62] and 10.31 [10.11, 10.48] M ops/s (workload: `concurrency_writer_map_64bit`); `set` 12.58 [12.45, 12.74] and 12.55 [12.38, 12.65] M ops/s (workload: `concurrency_writer_set_63bit`). No committed artifact holds these runs. They are quoted from the issue and are not inputs to any function above.
+- **Every committed `writer_scaling` artifact was read:** the fifteen writer-sweep files in `results/` and the two `ordered_readers_*` files, which hold reader cells only. They hold 48 W = 8 `map` and `set` cells, default and variant builds alike: 40 at pin `0-15` (engines `e0b287f2` to `1f465728`) and 8 at `0,2,4,6,8,10,12,14` (`5cf94b17`). `python3 scripts/olc_bounds.py` lists each cell with its mean and per-round CV. The highest W = 8 means at each pin:
+  - **Pin `0-15`.** The `ablation-striped-epoch` builds at `1f465728`, the build §11.5 describes becoming the default: `map` 10.55 [10.29, 10.77] and 10.40 [10.12, 10.65] M ops/s (workload: `concurrency_writer_map_64bit`); `set` 12.38 [12.30, 12.48] and 12.33 [12.17, 12.51] M ops/s (workload: `concurrency_writer_set_63bit`). *(measured: reference host, `1f465728`; `results/ablation_epoch_writer_scaling_post4e.json`, `results/ablation_epoch_writer_scaling_post4e_run2.json`)*
+  - **Pin `0,2,4,6,8,10,12,14`.** The default (per-stripe freelist) builds at `5cf94b17`: `map` 11.48 [11.24, 11.76] and 11.38 [11.21, 11.66] M ops/s (workload: `concurrency_writer_map_64bit`); `set` 13.47 [13.25, 13.61] and 13.39 [13.19, 13.57] M ops/s (workload: `concurrency_writer_set_63bit`). *(measured: reference host, `5cf94b17`; `results/ablation_unstriped_freelist_writer_scaling.json`, `results/ablation_unstriped_freelist_writer_scaling_run2.json`)*
+- **Main is far below the target, and no committed artifact measures main at lock.** 20 M ops/s is 1.74–1.76× the newest `map` means above and 1.49× the newest `set` means (target ÷ mean, `python3 scripts/olc_bounds.py`), and 1.92× and 1.59× #930's table. `5cf94b17` is the head #912 was measured at. It is not an ancestor of #912's merge commit `228ef94d`, and `crates/expanse/src/occ.rs` differs between the two. Since `228ef94d`, #928, #938, #940, #945 and #949 have changed `crates/expanse/src`. Their effect on the W = 8 writer cells is unmeasured.
+- **What this section is, then:** a target fixed for engine changes that have not been made. It does not replace their gates. Each change on #930's path is still gated by its own paired C(W) ratio (AGENTS.md §8.20.2) and its Callgrind bounds, as #930's "Work, in order" states. A change is never credited with progress because a W = 8 level moved.
+- **The sizing inputs are old engines.** The largest CV at `0-15`, 0.0783, is a default build at `10ce2f9d`, before the epoch bins were striped. It sizes the round count conservatively and says nothing about the spread on a future head.
+- **The competitor suites, as context only.** #952 re-published the HOT and Masstree concurrent arms at harness commit `6f8d6ba5` (run 1 of two, pin `0-15`, 15 rounds). They are a different binary (`crates/expanse-hot-bench`) and a different harness, report a ratio against a competitor, and are not an input here. At W = 8, Masstree inserts at 32.73 M ops/s against `SyncExpanseMap`'s 11.56, ratio 0.350 [0.344, 0.355] (workload: `masstree_conc_map_64bit`; `docs/benchmarks/masstree_comparison/results/baseline_concurrent.json`). HOT-ROWEX inserts at 24.97 against `SyncExpanseSet`'s 13.50, ratio 0.546 [0.531, 0.560] (workload: `hot_rowex_set_63bit`), and at 15.04 against `SyncExpanseMap`'s 10.94, ratio 0.715 [0.693, 0.733] (workload: `hot_rowex_map_64bit`; `docs/benchmarks/hot_comparison/results/baseline_concurrent.json`).
+
+### 14.3 Instrument and cells
+
+- **The `writer_scaling` suite, with its driver and harness unchanged.** Throughput comes from the uninstrumented build, with W ∈ {1, 2, 4, 8} interleaved within each round in the driver's Williams order. The `map`, `set` and `str` arms run as the suite runs them, and the `occ-stats` counters pass runs as usual. Only the W = 8 `map` and `set` cells are verdict inputs.
+- **One dispatch per pin per run.** The `cpu_pin` input is `0-15` or `0,2,4,6,8,10,12,14`, and the artifact records the applied pin in `provenance.core_pin`.
+- **Rounds: 40 per run, at both pins.** The relative half-width 0.025 is a choice. `rounds_for_williams` rounds `rounds_for_halfwidth` up to a multiple of the four writer counts, so the driver's Williams design is complete.
+  - At `0-15` the largest frozen per-round CV is 0.0783, which needs 38 rounds, so 40.
+  - At `0,2,4,6,8,10,12,14` it is 0.0356, which needs 8.
+  - One count serves both pins, the larger.
+- **The dispatch cannot run this yet.** The `writer_scaling` case in `.github/workflows/bench_baremetal.yml` passes no `--rounds`, so today it runs the driver's default of 8. A run under this section needs the dispatch to pass `--rounds 40`, landed before the first such run and changing nothing else in the driver or harness. At 8 rounds the `0-15` planning CV resolves only to a relative half-width of 0.0542, which would need a true mean of 21.15 M ops/s. That configuration is not the one registered.
+- **Resolution, stated before any run.** At a relative half-width of 0.025, a true mean of 20.513 M ops/s reaches the bound in about half of runs (`mean_needed_to_clear`) and 21.039 in 97.5% of runs (`mean_needed_with_probability`). Both figures count within-run spread only. A real level between 20 and about 21 M ops/s can therefore read `INCONCLUSIVE`.
+- **Load.** The driver takes a snapshot around every arm (`begin_cell`, `end_cell`), recorded in `provenance.loads` and in each cell's `load` (AGENTS.md §8.17).
+- **Two independent runs per pin** (`docs/BENCHMARKING.md` rule 18), each a fresh dispatch, all four at one head.
+- **When a run is taken.** An evaluation is run only after an engine change that claims progress toward the target has met its own §8.20.2 gate, or when the maintainer asks for one. Every evaluation is appended as an outcome subsection whatever its verdicts, so the number of evaluations is visible.
+
+### 14.4 The gate and its verdicts
+
+- **Per arm, per pin, per run, at W = 8** (`writer_target_verdict`):
+  - `PASS` when `writer_ci_lower` is at least 20.0 M ops/s;
+  - `REFUTED` when `writer_ci_upper` is below 20.0;
+  - `INCONCLUSIVE` otherwise.
+- **The target is met at a head** when all eight cells read `PASS`: two arms × two pins × two runs. A `REFUTED` on any cell means the target is not met at that head. An `INCONCLUSIVE` leaves it unmet, and a further run added to decide it changes the sample size, which relabels that evaluation `INTERMEDIATE` (§8.19). #930 closes when the target is met.
+- **An evaluation that does not meet the target changes nothing in this section.** A later head is evaluated with the same threshold, statistic, pins and round count.
+  - At a true mean of exactly 20 M ops/s, each cell's nominal chance of a false `PASS` is 2.5%.
+  - The eight cells share a head and a host and are not independent, so no joint rate is claimed.
+  - Repeated evaluations raise the chance that some head passes by chance, which is why every evaluation is recorded (§14.3).
+- **Reported, not gated:** the W = 1, 2 and 4 cells, C(W) and its paired interval, the `str` arm, and the counters pass.
+
+### 14.5 What voids a cell
+
+§6 applies. In addition, a run is void if:
+
+- its `provenance.core_pin` is not the pin it was dispatched for, or is neither `0-15` nor `0,2,4,6,8,10,12,14`;
+- it is a quick run: a W = 8 `map` or `set` cell records `prefill` or `fresh_keys` other than 1,048,576 (`--quick` uses 4,096);
+- a W = 8 `map` or `set` cell records `rounds` other than 40, or a `writer_ci_method` other than `bca`;
+- any cell's `load.foreign_busy_cpus` is above 1.0 core-equivalents, any snapshot in `provenance.loads` has a load average above 12 (half the host's 24 logical CPUs), or the two runs at one pin start at load averages more than 2 apart (§6, AGENTS.md §8.17);
+- its `provenance.commit` does not contain the engine change the evaluation is taken for (`git merge-base --is-ancestor <change> <commit>`);
+- the four runs of one evaluation differ in `crates/` or in `docs/benchmarks/concurrency/scripts/writer_scaling.py` (`git diff --quiet <a> <b> -- crates/ docs/benchmarks/concurrency/scripts/writer_scaling.py`);
+- its timings come from an `occ-stats` build. The driver refuses to produce one, so this is listed for completeness.
+
+A void run is discarded whole and replaced by a fresh dispatch at the same head, and the discard is disclosed beside the result (§8.17). Replacing a void run does not change the sample size.
+
+### 14.6 Explicitly not predicted
+
+- That any particular change reaches the target, #930's steps 3 and 4 included, or by how much any change moves the W = 8 level.
+- C(W) at any W, and throughput at W ∈ {1, 2, 4}. Each change's own paired C(W) gate stands (AGENTS.md §8.20.2).
+- Which pin reads higher at W = 8.
+- The `str` arm, and the string, bytes and blob wrappers' writers (#929).
+- Remove-heavy or mixed writer scaling. `writer_scaling` measures inserts only.
+- Any comparison with HOT-ROWEX or Masstree. #930's step 5 re-runs those suites, and no competitor figure is an input to §14.
+
 ## 15. One harness process per timed writer-scaling cell (appended 2026-09-15; §1–§13 are not edited)
 
 Refs #930 and #958. §14 is left to the open pre-registration in #958, so neither section renumbers the other.
