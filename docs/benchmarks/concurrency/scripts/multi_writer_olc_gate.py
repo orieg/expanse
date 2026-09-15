@@ -4,7 +4,7 @@
 Inputs, per FFI suite (`docs/benchmarks/<suite>/results/`):
 
 - `multi_writer_olc/baseline_concurrent_ab.json` and `_run2.json`: two
-  two-commit runs (`scripts/bench_ab.py`) against baseline `1edfa952`, each
+  two-commit runs (`scripts/bench_ab.py`) against baseline `10cd755d`, each
   cell carrying a `base` and a `head` reduction.
 - `multi_writer_olc/counters_<cell>.json`: the head build's per-thread counters at the
   P5.1 multi-writer cells (`scripts/bench_counters.py --out-dir`).
@@ -22,7 +22,8 @@ the registered `10cd755d` union of §10.1 is `VOID` and decides nothing. A base
 half sits outside when the closed interval its two runs' medians span shares no
 point with the closed registered union — edges inclusive, medians as the
 artifacts record them. That reading reproduces the count of §10.6 item 1 (7 of
-20 base halves against `1edfa952`), and the self-test pins it there.
+20 base halves against `1edfa952`); those runs are superseded, and the self-test
+pins the count on a fixture carrying their base halves.
 
 Self-test: `python3 docs/benchmarks/concurrency/scripts/multi_writer_olc_gate.py --self-test`.
 """
@@ -584,6 +585,7 @@ def _ab_loader(base: dict | None = None):
     halves scale with W, so every gate verdict the fixture can reach is PASS.
     """
     base = base or {}
+    # A (run 1, run 2) pair gives the two runs different base halves.
 
     def load(suite, name):
         thru = []
@@ -592,6 +594,8 @@ def _ab_loader(base: dict | None = None):
                 continue
             for w, (lo, hi) in by_w.items():
                 b = base.get((suite, arm, w), (lo + hi) / 2)
+                if isinstance(b, tuple):
+                    b = b[1 if name.endswith("_run2.json") else 0]
                 thru.append({
                     "arm": arm, "writers": w, "readers": 0,
                     "base": None if b is None else {"expanse_writer_mops_median": b},
@@ -658,43 +662,81 @@ def _self_test() -> int:
     r_def = evaluate()
     set_row = next(x for x in r_def["p54"] if x["suite"] == "hot_comparison" and x["arm"] == "set")
     map_row = next(x for x in r_def["p54"] if x["suite"] == "hot_comparison" and x["arm"] == "map")
-    check("set t_hold is ~14.0 ns", 13.9 <= set_row["t_hold_ns"] <= 14.1)
-    check("map t_hold is ~45.0 ns", 44.0 <= map_row["t_hold_ns"] <= 46.0)
-    check("set P5.4 default ceiling is ~12.4 M/s (k=2)", 12.3 <= set_row["ceiling_mops"] <= 12.5)
-    check("map P5.4 default ceiling is ~8.95 M/s (k=2)", 8.9 <= map_row["ceiling_mops"] <= 9.1)
+    check("committed runs are head 58565660 against base 10cd755d", r_def["base_commit"] == "10cd755d")
+    check("set t_hold is ~42.0 ns", 41.9 <= set_row["t_hold_ns"] <= 42.1)
+    check("map t_hold is ~24.4 ns", 24.3 <= map_row["t_hold_ns"] <= 24.5)
+    check("set P5.4 default ceiling is ~9.19 M/s (k=2)", 9.15 <= set_row["ceiling_mops"] <= 9.25)
+    check("map P5.4 default ceiling is ~10.97 M/s (k=2)", 10.9 <= map_row["ceiling_mops"] <= 11.05)
+    check("P5.4 is REFUTED on HOT set and PASS on both maps", [x["verdict"].split(" ")[0] for x in r_def["p54"]]
+          == ["REFUTED", "PASS", "PASS"])
 
-    # §10.6 item 1, against the committed artifacts: 7 of 20 base halves measured
-    # against `1edfa952` sit outside §10.1's union, Masstree map W = 1 among them.
+    # §10.4 against the committed artifacts: 9 of 20 base halves measured at
+    # `10cd755d` sit outside §10.1's union.
     outside_cells = {(x["suite"], x["arm"], x["writers"]) for x in r_def["base_halves"] if x["reading"] == "outside"}
     check("all 20 committed base halves are read",
           len(r_def["base_halves"]) == 20 and not any(x["reading"] == "pending" for x in r_def["base_halves"]))
-    check("7 of 20 committed base halves sit outside the union (§10.6 item 1)", len(outside_cells) == 7)
-    check("the seven outside cells are the recomputed set", outside_cells == {
+    check("9 of 20 committed base halves sit outside the union", len(outside_cells) == 9)
+    check("the nine outside cells are the recomputed set", outside_cells == {
+        ("hot_comparison", "set", 2), ("hot_comparison", "set", 4), ("hot_comparison", "map", 4),
+        ("masstree_comparison", "map", 1), ("masstree_comparison", "map", 2), ("masstree_comparison", "map", 4),
+        ("masstree_comparison", "map", 16), ("masstree_comparison", "str", 1), ("masstree_comparison", "str", 2),
+    })
+    check("P5.1 VOID rows are exactly the recomputed set", cells(r_def["p51"], "VOID") == {
+        ("hot_comparison", "set", 2), ("hot_comparison", "set", 4), ("hot_comparison", "map", 4),
+        ("masstree_comparison", "map", 2), ("masstree_comparison", "map", 4), ("masstree_comparison", "map", 16),
+    })
+    check("P5.2 VOID rows are exactly W = 4 on every arm", cells(r_def["p52"], "VOID") == {
+        ("hot_comparison", "set", 4), ("hot_comparison", "map", 4), ("masstree_comparison", "map", 4),
+    })
+    check("the string arm's rows stay published, never a verdict",
+          all(x["verdict"].startswith("published") for x in r_def["p51"] if not x["is_gate"]))
+    mt_map = [x for x in r_def["p51"]
+              if (x["suite"], x["arm"]) == ("masstree_comparison", "map") and not x["verdict"].startswith("VOID")]
+    check("the Masstree map P5.1 row read names its outside W = 1 comparator",
+          len(mt_map) == 1 and all("W = 1 comparator's base half outside" in x["verdict"] for x in mt_map))
+    check("no HOT P5.1 row names its comparator",
+          not any("comparator" in x["verdict"] for x in r_def["p51"] if x["suite"] == "hot_comparison"))
+    committed = render()
+    check("committed render carries nine VOID rows", sum(f"**`{VOID_BASE_HALF}`**" in line for line in committed) == 9)
+    check("committed render states 9 of 20 outside", any("9 of 20 outside" in line for line in committed))
+
+    # §10.6 item 1: the superseded runs against `1edfa952` put 7 of 20 base halves
+    # outside §10.1's union. Their base halves, to four decimals as README §9
+    # published them, reproduce that count under the same predicate.
+    superseded = {
+        ("hot_comparison", "set", 1): (7.2128, 7.2127), ("hot_comparison", "set", 2): (4.1750, 4.1490),
+        ("hot_comparison", "set", 4): (3.1707, 3.1325), ("hot_comparison", "set", 8): (2.5325, 2.5889),
+        ("hot_comparison", "set", 16): (2.4012, 2.3789),
+        ("hot_comparison", "map", 1): (5.0906, 5.0826), ("hot_comparison", "map", 2): (3.2701, 3.3841),
+        ("hot_comparison", "map", 4): (2.7304, 2.7605), ("hot_comparison", "map", 8): (2.3930, 2.3616),
+        ("hot_comparison", "map", 16): (2.0830, 1.9453),
+        ("masstree_comparison", "map", 1): (5.5259, 5.5154), ("masstree_comparison", "map", 2): (3.4245, 3.4507),
+        ("masstree_comparison", "map", 4): (2.7935, 2.8287), ("masstree_comparison", "map", 8): (2.3967, 2.3464),
+        ("masstree_comparison", "map", 16): (2.2599, 1.8523),
+        ("masstree_comparison", "str", 1): (3.8971, 3.8730), ("masstree_comparison", "str", 2): (2.3953, 2.4156),
+        ("masstree_comparison", "str", 4): (2.2685, 2.2761), ("masstree_comparison", "str", 8): (1.9155, 1.9717),
+        ("masstree_comparison", "str", 16): (0.4874, 0.4861),
+    }
+    r_old = evaluate(_ab_loader(superseded))
+    old_outside = {(x["suite"], x["arm"], x["writers"]) for x in r_old["base_halves"] if x["reading"] == "outside"}
+    check("7 of 20 superseded base halves sit outside the union (§10.6 item 1)", len(old_outside) == 7)
+    check("the seven outside cells are the recomputed set", old_outside == {
         ("hot_comparison", "map", 4), ("hot_comparison", "map", 8),
         ("masstree_comparison", "map", 1), ("masstree_comparison", "map", 4),
         ("masstree_comparison", "str", 2), ("masstree_comparison", "str", 4), ("masstree_comparison", "str", 16),
     })
     affected = {("hot_comparison", "map", 4), ("hot_comparison", "map", 8), ("masstree_comparison", "map", 4)}
-    check("P5.1 VOID rows are exactly HOT map W = 4, 8 and Masstree map W = 4", cells(r_def["p51"], "VOID") == affected)
-    check("P5.2 VOID rows are exactly HOT map W = 4, 8 and Masstree map W = 4", cells(r_def["p52"], "VOID") == affected)
-    check("the string arm's rows stay published, never a verdict",
-          all(x["verdict"].startswith("published") for x in r_def["p51"] if not x["is_gate"]))
-    mt_map = [x for x in r_def["p51"]
-              if (x["suite"], x["arm"]) == ("masstree_comparison", "map") and not x["verdict"].startswith("VOID")]
-    check("Masstree map P5.1 rows name their outside W = 1 comparator",
-          len(mt_map) == 3 and all("W = 1 comparator's base half outside" in x["verdict"] for x in mt_map))
-    check("no HOT P5.1 row names its comparator",
-          not any("comparator" in x["verdict"] for x in r_def["p51"] if x["suite"] == "hot_comparison"))
-    committed = render()
-    check("committed render carries six VOID rows", sum(f"**`{VOID_BASE_HALF}`**" in line for line in committed) == 6)
-    check("committed render states 7 of 20 outside", any("7 of 20 outside" in line for line in committed))
+    check("superseded P5.1 VOID rows are exactly HOT map W = 4, 8 and Masstree map W = 4",
+          cells(r_old["p51"], "VOID") == affected)
+    check("superseded P5.2 VOID rows are exactly HOT map W = 4, 8 and Masstree map W = 4",
+          cells(r_old["p52"], "VOID") == affected)
 
     # Reference value check with padded k=1 override
     r_pad = evaluate(k_lines=1)
     set_pad = next(x for x in r_pad["p54"] if x["suite"] == "hot_comparison" and x["arm"] == "set")
     map_pad = next(x for x in r_pad["p54"] if x["suite"] == "hot_comparison" and x["arm"] == "map")
-    check("set P5.4 padded ceiling is ~21.1 M/s (k=1)", 21.0 <= set_pad["ceiling_mops"] <= 21.2)
-    check("map P5.4 padded ceiling is ~12.8 M/s (k=1)", 12.6 <= map_pad["ceiling_mops"] <= 12.9)
+    check("set P5.4 padded ceiling is ~13.26 M/s (k=1)", 13.2 <= set_pad["ceiling_mops"] <= 13.3)
+    check("map P5.4 padded ceiling is ~17.30 M/s (k=1)", 17.2 <= map_pad["ceiling_mops"] <= 17.4)
 
     # Synthetic fixture test for PASS verdicts: base halves inside their unions
     r_mock = evaluate(_ab_loader())
