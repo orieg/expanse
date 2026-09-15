@@ -452,22 +452,18 @@ arrival order.
 
 ## 5. What this suite does not claim
 
-Stated before the numbers existed (§7) and unchanged by them:
+Stated before the numbers existed (`METHODOLOGY.md` §7), as amended by §10.9
+for the string arms and §11.6 for the concurrent arm:
 
-1. **Single-threaded only.** No concurrency claim follows from this suite; HOT's
-   ROWEX variant is separate scope.
+1. **§1–§4 and §6 are single-threaded.** No concurrency claim follows from
+   them. The concurrent arm is §7, measured against HOT's ROWEX variant, and it
+   carries its own, narrower ceiling (`METHODOLOGY.md` §11.6).
 2. **Integer keys in §1–§4.** Arm A is restricted to a 63-bit domain because
    HOT's inline value payload is 63 bits wide (§9.4), and is labelled
    `hot_set_63bit` throughout. String keys are §6, under their own ceiling
-   (§10.9): claims attach to HOT's C-string configuration only, never to keys
-   longer than 255 bytes, and an `ExpanseBytesMap` cell is a hash-indexed
-   structure against a trie, not a trie comparison.
-1. **§1–§4 are single-threaded.** No concurrency claim follows from them. The
-   concurrent arm is §6, measured against HOT's ROWEX variant, and it carries
-   its own, narrower ceiling (`METHODOLOGY.md` §11.6).
-2. **Integer keys.** Arm A is restricted to a 63-bit domain because HOT's inline
-   value payload is 63 bits wide (§9.4), and is labelled `hot_set_63bit`
-   throughout. No string-key claim.
+   (`METHODOLOGY.md` §10.9): claims attach to HOT's C-string configuration only,
+   never to keys longer than 254 bytes, and an `ExpanseBytesMap` cell is a
+   hash-indexed structure against a trie, not a trie comparison.
 3. **x86-64 with AVX2 and BMI2 only.** HOT does not build on aarch64.
 4. **One HOT implementation at one commit** — `speedskater/hot` `96bf6fb` built as
    documented, not "HOT" as a design, and not the SIGMOD paper's figures, which

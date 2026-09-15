@@ -6,8 +6,14 @@
 # runners are called directly (not through their run.sh) so the lock is
 # taken once here rather than refused by a nested runner.
 #
-# Two runs of every FFI sweep (rule 18): the first lands in
-# results/baseline_concurrent.json, the second in *_run2.json.
+# Two runs of every FFI sweep (rule 18) land in each suite's results/step0/,
+# the inputs concurrency README §3-§5 and §8 and scripts/olc_bounds.py read:
+# the first as step0/baseline_concurrent.json, the second as
+# step0/baseline_concurrent_run2.json. The suite runners write their output
+# to the top-level results/baseline_concurrent.json, which is each suite's
+# current publication; the campaign saves that file before its sweeps and
+# restores it after moving its own runs into step0/, so re-running Step 0
+# never overwrites the publication.
 #
 #   nohup docs/benchmarks/concurrency/scripts/step0_campaign.sh > campaign.log 2>&1 &
 #
@@ -40,6 +46,27 @@ HOT="${REPO_ROOT}/docs/benchmarks/hot_comparison"
 MT="${REPO_ROOT}/docs/benchmarks/masstree_comparison"
 mkdir -p "${CONC}"
 
+# Two concurrent sweeps of one suite into its results/step0/, with the suite's
+# top-level publication saved first and restored afterwards (also on failure).
+step0_sweep() {
+  local suite="$1" res="$1/results" saved=""
+  mkdir -p "${res}/step0"
+  if [ -e "${res}/baseline_concurrent.json" ]; then
+    saved="$(mktemp "${res}/.baseline_concurrent.saved.XXXXXX")"
+    cp -p "${res}/baseline_concurrent.json" "${saved}"
+  fi
+  restore() {
+    if [ -n "${saved}" ] && [ -e "${saved}" ]; then
+      mv "${saved}" "${res}/baseline_concurrent.json"
+    fi
+  }
+  python3 "${suite}/scripts/run_all.py" --only-concurrent || { restore; return 1; }
+  mv "${res}/baseline_concurrent.json" "${res}/step0/baseline_concurrent.json"
+  python3 "${suite}/scripts/run_all.py" --only-concurrent || { restore; return 1; }
+  mv "${res}/baseline_concurrent.json" "${res}/step0/baseline_concurrent_run2.json"
+  restore
+}
+
 stamp "1/6 line-transfer matrix + pause calibration"
 cargo build --release -p expanse-trie --example line_transfer
 python3 scripts/line_transfer_matrix.py --out "${CONC}/line_transfer.json"
@@ -56,18 +83,10 @@ python3 scripts/bench_counters.py --repeats 7 \
 stamp "3/6 #789 ablations on C1 W=1 and C2 W=1 R=8"
 python3 docs/benchmarks/concurrency/scripts/ablations.py --out "${CONC}/ablations.json"
 
-stamp "4/6 masstree concurrent sweep, run 1 then run 2"
-python3 "${MT}/scripts/run_all.py" --only-concurrent
-mv "${MT}/results/baseline_concurrent.json" "${MT}/results/baseline_concurrent_run1.tmp.json"
-python3 "${MT}/scripts/run_all.py" --only-concurrent
-mv "${MT}/results/baseline_concurrent.json" "${MT}/results/baseline_concurrent_run2.json"
-mv "${MT}/results/baseline_concurrent_run1.tmp.json" "${MT}/results/baseline_concurrent.json"
+stamp "4/6 masstree concurrent sweep, run 1 then run 2, into results/step0/"
+step0_sweep "${MT}"
 
-stamp "5/6 HOT-ROWEX concurrent sweep, run 1 then run 2"
-python3 "${HOT}/scripts/run_all.py" --only-concurrent
-mv "${HOT}/results/baseline_concurrent.json" "${HOT}/results/baseline_concurrent_run1.tmp.json"
-python3 "${HOT}/scripts/run_all.py" --only-concurrent
-mv "${HOT}/results/baseline_concurrent.json" "${HOT}/results/baseline_concurrent_run2.json"
-mv "${HOT}/results/baseline_concurrent_run1.tmp.json" "${HOT}/results/baseline_concurrent.json"
+stamp "5/6 HOT-ROWEX concurrent sweep, run 1 then run 2, into results/step0/"
+step0_sweep "${HOT}"
 
 stamp "6/6 done"
