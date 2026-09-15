@@ -188,6 +188,7 @@ impl Cover<'_> {
 /// `NodeAlloc` switched to deferred reclamation, and the caller must hold
 /// an epoch pin for the whole call: every pointer loaded under a
 /// still-valid cover then references EBR-live memory.
+#[inline(always)]
 pub(crate) unsafe fn walk_validated<const MAP: bool>(
     root: RootSnapshot,
     key: Key,
