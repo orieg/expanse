@@ -428,6 +428,22 @@ impl NodeAlloc {
         Layout::from_size_align(bytes, align).expect("valid node layout")
     }
 
+    /// The accounting shard an allocation or free on this handle counts in
+    /// (`ablation-sharded-alloc`, Refs #930): the calling thread's
+    /// `writer_slot()` on a tree with a collector, which the collector's
+    /// freelist stripe and retire bin read anyway, so the slot is read once and
+    /// handed to both; shard 0 otherwise, so a tree without a collector reads
+    /// no thread-local (AGENTS.md §2.1.5).
+    #[cfg(feature = "ablation-sharded-alloc")]
+    #[inline(always)]
+    fn shard_slot<const OCC: bool>(&self) -> usize {
+        #[cfg(feature = "std")]
+        if OCC && self.deferred.get().is_some() {
+            return crate::occ::writer_slot();
+        }
+        0
+    }
+
     /// Allocates `bytes` of zeroed memory at `align`.
     ///
     /// **Every free must pass the same `align`** — `dealloc` requires the
@@ -451,8 +467,9 @@ impl NodeAlloc {
             self.total_allocs.fetch_add(1, Ordering::Relaxed);
         }
         #[cfg(feature = "ablation-sharded-alloc")]
+        let slot = self.shard_slot::<OCC>();
+        #[cfg(feature = "ablation-sharded-alloc")]
         {
-            let slot = crate::occ::writer_slot();
             self.shards[slot]
                 .bytes_in_use
                 .fetch_add(accounted_size as isize, Ordering::Relaxed);
@@ -467,6 +484,9 @@ impl NodeAlloc {
         if let Some(class) = class_for(bytes, align) {
             #[cfg(feature = "std")]
             if OCC && let Some(c) = self.deferred.get() {
+                #[cfg(feature = "ablation-sharded-alloc")]
+                let raw = c.pop_freelist_at(slot, class);
+                #[cfg(not(feature = "ablation-sharded-alloc"))]
                 let raw = c.pop_freelist(class);
                 if !raw.is_null() {
                     // SAFETY: zero out the reused memory before returning.
@@ -588,8 +608,9 @@ impl NodeAlloc {
             self.live_allocs.fetch_sub(1, Ordering::Relaxed);
         }
         #[cfg(feature = "ablation-sharded-alloc")]
+        let slot = self.shard_slot::<OCC>();
+        #[cfg(feature = "ablation-sharded-alloc")]
         {
-            let slot = crate::occ::writer_slot();
             self.shards[slot]
                 .bytes_in_use
                 .fetch_sub(accounted_size as isize, Ordering::Relaxed);
@@ -604,6 +625,9 @@ impl NodeAlloc {
             // but pinned readers may — reclamation waits out the grace
             // period. The alignment travels with the pointer, because the
             // collector frees it later and elsewhere.
+            #[cfg(feature = "ablation-sharded-alloc")]
+            c.retire_at(slot, ptr, bytes, align);
+            #[cfg(not(feature = "ablation-sharded-alloc"))]
             c.retire(ptr, bytes, align);
             return;
         }
@@ -729,9 +753,12 @@ impl NodeAlloc {
                     .fetch_sub(accounted_size, Ordering::Relaxed);
                 self.live_allocs.fetch_sub(1, Ordering::Relaxed);
             }
+            // A collector is attached here, so this is the slot its freelist
+            // stripe reads: read once (Refs #930).
+            #[cfg(feature = "ablation-sharded-alloc")]
+            let slot = crate::occ::writer_slot();
             #[cfg(feature = "ablation-sharded-alloc")]
             {
-                let slot = crate::occ::writer_slot();
                 self.shards[slot]
                     .bytes_in_use
                     .fetch_sub(accounted_size as isize, Ordering::Relaxed);
@@ -740,8 +767,16 @@ impl NodeAlloc {
                     .fetch_sub(1, Ordering::Relaxed);
             }
 
+            #[cfg(feature = "ablation-sharded-alloc")]
             // SAFETY: ptr was never published and matches bytes/RAW_ALIGN contract.
-            unsafe { c.recycle_unpublished(ptr, bytes, RAW_ALIGN) };
+            unsafe {
+                c.recycle_unpublished_at(slot, ptr, bytes, RAW_ALIGN)
+            };
+            #[cfg(not(feature = "ablation-sharded-alloc"))]
+            // SAFETY: ptr was never published and matches bytes/RAW_ALIGN contract.
+            unsafe {
+                c.recycle_unpublished(ptr, bytes, RAW_ALIGN)
+            };
             return;
         }
 
@@ -784,9 +819,12 @@ impl NodeAlloc {
                     .fetch_sub(accounted_size, Ordering::Relaxed);
                 self.live_allocs.fetch_sub(1, Ordering::Relaxed);
             }
+            // A collector is attached here, so this is the slot its freelist
+            // stripe reads: read once (Refs #930).
+            #[cfg(feature = "ablation-sharded-alloc")]
+            let slot = crate::occ::writer_slot();
             #[cfg(feature = "ablation-sharded-alloc")]
             {
-                let slot = crate::occ::writer_slot();
                 self.shards[slot]
                     .bytes_in_use
                     .fetch_sub(accounted_size as isize, Ordering::Relaxed);
@@ -795,8 +833,16 @@ impl NodeAlloc {
                     .fetch_sub(1, Ordering::Relaxed);
             }
 
+            #[cfg(feature = "ablation-sharded-alloc")]
             // SAFETY: ptr was never published and matches bytes/align contract.
-            unsafe { c.recycle_unpublished(ptr.cast::<u8>(), bytes, align) };
+            unsafe {
+                c.recycle_unpublished_at(slot, ptr.cast::<u8>(), bytes, align)
+            };
+            #[cfg(not(feature = "ablation-sharded-alloc"))]
+            // SAFETY: ptr was never published and matches bytes/align contract.
+            unsafe {
+                c.recycle_unpublished(ptr.cast::<u8>(), bytes, align)
+            };
             return;
         }
 
@@ -1181,14 +1227,15 @@ mod tests {
     use core_alloc::sync::Arc;
     use core_alloc::vec::Vec;
 
-    /// Each stripe's allocations are counted in that stripe's shard, a free
-    /// on another stripe is netted in the freeing stripe's shard, and the
-    /// totals still balance. A shard index that ignored the stripe would put
-    /// every count in one shard.
+    /// On a tree with a collector, each stripe's allocations are counted in
+    /// that stripe's shard, a free on another stripe is netted in the freeing
+    /// stripe's shard, and the totals still balance. A shard index that ignored
+    /// the stripe would put every count in one shard.
     #[test]
     #[cfg(all(feature = "std", feature = "ablation-sharded-alloc"))]
     fn ablation_sharded_alloc_counts_per_stripe() {
         let a = NodeAlloc::new();
+        a.defer_to(Arc::new(crate::occ::Collector::new()));
         let stripes = [0, 5, NUM_ALLOC_SHARDS - 1];
         let mut ptrs = Vec::new();
         for &s in &stripes {
@@ -1212,6 +1259,30 @@ mod tests {
         assert_eq!(a.live_allocs(), 0);
         assert_eq!(a.bytes_in_use(), 0);
         assert_eq!(a.total_allocs(), stripes.len());
+    }
+
+    /// A tree without a collector counts every allocation and free in shard 0
+    /// whatever the thread's writer slot: it reads no thread-local
+    /// (AGENTS.md §2.1.5, Refs #930). A shard index read from `writer_slot()`
+    /// on this path would put the counts in shard 5.
+    #[test]
+    #[cfg(all(feature = "std", feature = "ablation-sharded-alloc"))]
+    fn ablation_sharded_alloc_plain_tree_counts_in_shard_zero() {
+        let a = NodeAlloc::new();
+        crate::occ::set_writer_slot(5);
+        let p = a.alloc_bytes(32);
+        let q = a.alloc_bytes_plain(32);
+        assert_eq!(a.shards[0].live_allocs.load(Ordering::Relaxed), 2);
+        assert_eq!(a.shards[5].live_allocs.load(Ordering::Relaxed), 0);
+        // SAFETY: `p` came from `alloc_bytes(32)` and `q` from
+        // `alloc_bytes_plain(32)` on this handle, and neither is used again.
+        unsafe {
+            a.free_bytes(p, 32);
+            a.free_bytes_plain(q, 32);
+        }
+        assert_eq!(a.shards[0].live_allocs.load(Ordering::Relaxed), 0);
+        assert_eq!(a.shards[5].live_allocs.load(Ordering::Relaxed), 0);
+        assert_eq!(a.bytes_in_use(), 0);
     }
 
     #[test]

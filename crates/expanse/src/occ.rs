@@ -1544,6 +1544,9 @@ impl Collector {
 
     /// Pops a reclaimed block from this collector's size-class freelist.
     #[inline(never)]
+    // The sharded-accounting build pops through `pop_freelist_at`; the unit
+    // tests below still exercise this entry point in every build.
+    #[cfg_attr(feature = "ablation-sharded-alloc", allow(dead_code))]
     pub(crate) fn pop_freelist(&self, class: usize) -> *mut u8 {
         let mut head = self
             .alloc_freelist(class)
@@ -1560,6 +1563,75 @@ impl Collector {
         // SAFETY: zero out the reused memory before returning.
         unsafe { core::ptr::write_bytes(block.cast::<u8>(), 0, bytes) };
         block.cast::<u8>()
+    }
+
+    /// The freelist `class` pops from on stripe `slot`, where the caller has
+    /// already read `writer_slot()` (`ablation-sharded-alloc`, Refs #930).
+    #[cfg(feature = "ablation-sharded-alloc")]
+    #[inline(always)]
+    fn alloc_freelist_at(&self, slot: usize, class: usize) -> &Mutex<FreeListHead> {
+        #[cfg(feature = "ablation-unstriped-freelist")]
+        {
+            let _ = slot;
+            &self.freelists[class]
+        }
+        #[cfg(not(feature = "ablation-unstriped-freelist"))]
+        {
+            &self.freelists[slot % NUM_FREELIST_STRIPES].0[class]
+        }
+    }
+
+    /// [`Self::pop_freelist`] on the stripe of a `writer_slot()` the caller
+    /// already read, so an allocation that also shards its accounting reads
+    /// the thread-local once (`ablation-sharded-alloc`, Refs #930).
+    #[cfg(feature = "ablation-sharded-alloc")]
+    pub(crate) fn pop_freelist_at(&self, slot: usize, class: usize) -> *mut u8 {
+        let mut head = self
+            .alloc_freelist_at(slot, class)
+            .lock()
+            .expect("freelist poisoned");
+        let block = head.0;
+        if block.is_null() {
+            return core::ptr::null_mut();
+        }
+        // SAFETY: block points to a valid FreeBlock in this size class.
+        head.0 = unsafe { (*block).next };
+        drop(head);
+        let bytes = CLASS_SPECS[class].0;
+        // SAFETY: zero out the reused memory before returning.
+        unsafe { core::ptr::write_bytes(block.cast::<u8>(), 0, bytes) };
+        block.cast::<u8>()
+    }
+
+    /// [`Self::recycle_unpublished`] on the stripe of a `writer_slot()` the
+    /// caller already read (`ablation-sharded-alloc`, Refs #930).
+    ///
+    /// # Safety
+    ///
+    /// As [`Self::recycle_unpublished`].
+    #[cfg(feature = "ablation-sharded-alloc")]
+    pub(crate) unsafe fn recycle_unpublished_at(
+        &self,
+        slot: usize,
+        ptr: NonNull<u8>,
+        bytes: usize,
+        align: usize,
+    ) {
+        if let Some(class) = class_for(bytes, align) {
+            let block = ptr.as_ptr().cast::<FreeBlock>();
+            let mut head = self
+                .alloc_freelist_at(slot, class)
+                .lock()
+                .expect("freelist poisoned");
+            // SAFETY: block was allocated matching this size class, was never published, and caller relinquishes ownership.
+            unsafe {
+                (*block).next = head.0;
+            }
+            head.0 = block;
+        } else {
+            // SAFETY: ptr was never published and matches layout contract.
+            free_raw(ptr, bytes, align);
+        }
     }
 
     /// Immediately recycles an unpublished allocation back into this collector's size-class freelist,
@@ -1607,6 +1679,28 @@ impl Collector {
             collector: Arc::clone(self),
             slot,
         }
+    }
+
+    /// [`Self::retire`] on the stripe of a `writer_slot()` the caller already
+    /// read. `slot` must be the calling thread's `writer_slot()`: the stripe
+    /// bound an advance scans is raised when that slot is claimed
+    /// (`ablation-sharded-alloc`, Refs #930).
+    #[cfg(feature = "ablation-sharded-alloc")]
+    pub(crate) fn retire_at(&self, slot: usize, ptr: NonNull<u8>, bytes: usize, align: usize) {
+        crate::occ_stats::bump(crate::occ_stats::Stat::Retired);
+        // S4 store-buffer pairing, as in `retire`.
+        fence(Ordering::SeqCst);
+        let e = self.epoch.load(Ordering::Relaxed);
+        let g = Garbage { ptr, bytes, align };
+        let stripe = slot % NUM_EPOCH_STRIPES;
+        let p_bin = &self.bins[e % BINS][stripe];
+        let mut garbage = p_bin.garbage.lock().expect("garbage bin poisoned");
+        self.retained_bytes[stripe]
+            .0
+            .fetch_add(bytes, Ordering::Relaxed);
+        garbage.push(g);
+        p_bin.nonempty.store(true, Ordering::Relaxed);
+        crate::occ_stats::record_retire(bytes);
     }
 
     /// Queues an allocation for deferred freeing (writer side).
