@@ -292,7 +292,7 @@ fn dispose_tree(root: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
             if !is_terminal(k) {
                 if is_suffix_ptr(v) {
                     dispose_suffix(unpack_suffix(v), defer);
-                } else {
+                } else if v != 0 {
                     stack.push(unpack_child(v));
                 }
             }
@@ -804,7 +804,7 @@ impl StrNode {
                         // One block: header plus the inline bytes, which is
                         // exactly what `dispose_suffix` will hand back.
                         bytes += suffix_layout(len).size() as u64;
-                    } else {
+                    } else if v != 0 {
                         stack.push(unpack_child(v));
                     }
                 }
@@ -1290,10 +1290,15 @@ impl ExpanseStrMap {
         loop {
             let (chunk, terminal) = chunk_at(key, off);
             if terminal {
-                if !node.map.contains_key(chunk) {
+                // Increment B (#813): $O(1)$ len check before and after ins_slot_pathless
+                // eliminates redundant contains_key lookup. The `v == 0` sentinel
+                // MUST NOT be used here, as 0 is a valid terminal value.
+                let len_before = node.map.len();
+                let slot = node.map.ins_slot_pathless(alloc, chunk);
+                if node.map.len() > len_before {
                     self.pop += 1;
                 }
-                return node.map.ins_slot_pathless(alloc, chunk);
+                return slot;
             }
             match node.map.get(chunk) {
                 None => {
@@ -2328,5 +2333,160 @@ mod tests {
         assert_eq!(map.get(tk(key1)), Some(100));
         assert_eq!(map.get(tk(key3)), Some(300));
         assert_eq!(map.len(), 2);
+    }
+
+    #[test]
+    fn test_ins_slot_model_and_invariants() {
+        let mut map = ExpanseStrMap::new();
+        let mut model: BTreeMap<Vec<u8>, u64> = BTreeMap::new();
+
+        // 1. Boundary key checks: empty key, exact 8-byte, exact 16-byte keys.
+        let empty_key = b"";
+        let slot_empty = map.ins_slot(tk(empty_key));
+        // SAFETY: slot is valid until next mutation.
+        unsafe {
+            assert_eq!(*slot_empty.as_ptr(), 0);
+            *slot_empty.as_ptr() = 42;
+        }
+        model.insert(empty_key.to_vec(), 42);
+        assert_eq!(map.len(), model.len() as u64);
+        assert_eq!(map.get(tk(empty_key)), Some(42));
+
+        // Tightest boundary pair: 7-byte terminal ("foobarb") vs 8-byte non-terminal ("foobarba").
+        // "foobarb" packs into chunk "foobarb\0" (with one zero byte).
+        // "foobarba" packs into chunk "foobarba" (no zero bytes).
+        // They differ only in the final byte; directly verifies chunk-collision impossibility.
+        let k7 = b"foobarb";
+        let k8 = b"foobarba";
+        let s7 = map.ins_slot(tk(k7));
+        // SAFETY: slot is valid until next mutation.
+        unsafe {
+            assert_eq!(*s7.as_ptr(), 0);
+            *s7.as_ptr() = 70;
+        }
+        model.insert(k7.to_vec(), 70);
+        assert_eq!(map.len(), model.len() as u64);
+
+        let s8 = map.ins_slot(tk(k8));
+        // SAFETY: slot is valid until next mutation.
+        unsafe {
+            assert_eq!(*s8.as_ptr(), 0);
+            *s8.as_ptr() = 80;
+        }
+        model.insert(k8.to_vec(), 80);
+        assert_eq!(map.len(), model.len() as u64);
+        assert_eq!(map.get(tk(k7)), Some(70));
+        assert_eq!(map.get(tk(k8)), Some(80));
+
+        // Exact 16-byte key (2 full non-terminal chunks, empty suffix).
+        let k16 = b"12345678abcdefgh";
+        let s16 = map.ins_slot(tk(k16));
+        // SAFETY: slot is valid until next mutation.
+        unsafe {
+            assert_eq!(*s16.as_ptr(), 0);
+            *s16.as_ptr() = 160;
+        }
+        model.insert(k16.to_vec(), 160);
+        assert_eq!(map.len(), model.len() as u64);
+        assert_eq!(map.get(tk(k16)), Some(160));
+
+        // 2. Terminal key with existing value 0 (must NOT be treated as absent).
+        let term_zero_key = b"term0";
+        // First ins_slot initializes to 0. We leave value as 0.
+        let s_tz = map.ins_slot(tk(term_zero_key));
+        // SAFETY: slot is valid until next mutation.
+        unsafe {
+            assert_eq!(*s_tz.as_ptr(), 0);
+        }
+        model.insert(term_zero_key.to_vec(), 0);
+        assert_eq!(map.len(), model.len() as u64);
+        // Second ins_slot on the same terminal key holding 0:
+        // Must return slot to existing value 0 and NOT increment map.len().
+        let s_tz2 = map.ins_slot(tk(term_zero_key));
+        // SAFETY: slot is valid until next mutation.
+        unsafe {
+            assert_eq!(*s_tz2.as_ptr(), 0);
+        }
+        assert_eq!(map.len(), model.len() as u64);
+
+        // 3. Forced suffix splits across shared prefixes (lengths 1..32).
+        let base_prefix = b"prefix_split_test_shared_base_0123456789";
+        for split_len in 1..=32 {
+            let mut k = base_prefix[..split_len].to_vec();
+            k.extend_from_slice(b"_branch_a");
+            let s_a = map.ins_slot(tk(&k));
+            // SAFETY: slot is valid until next mutation.
+            unsafe {
+                assert_eq!(*s_a.as_ptr(), 0);
+                *s_a.as_ptr() = split_len as u64 * 10;
+            }
+            model.insert(k.clone(), split_len as u64 * 10);
+            assert_eq!(map.len(), model.len() as u64);
+
+            let mut k_b = base_prefix[..split_len].to_vec();
+            k_b.extend_from_slice(b"_branch_b");
+            let s_b = map.ins_slot(tk(&k_b));
+            // SAFETY: slot is valid until next mutation.
+            unsafe {
+                assert_eq!(*s_b.as_ptr(), 0);
+                *s_b.as_ptr() = split_len as u64 * 10 + 1;
+            }
+            model.insert(k_b.clone(), split_len as u64 * 10 + 1);
+            assert_eq!(map.len(), model.len() as u64);
+
+            assert_eq!(map.get(tk(&k)), Some(split_len as u64 * 10));
+            assert_eq!(map.get(tk(&k_b)), Some(split_len as u64 * 10 + 1));
+        }
+
+        // 4. Random operations against model oracle (scaled for Miri).
+        let ops = if cfg!(miri) { 50 } else { 4000 };
+        let mut rng = XorShift(0x813_57A0_B123_4567 | 1);
+        for _ in 0..ops {
+            let k = keygen(&mut rng);
+            let action = rng.next() % 5;
+            match action {
+                0..=2 => {
+                    // ins_slot
+                    let already_present = model.contains_key(&k);
+                    let slot = map.ins_slot(tk(&k));
+                    // SAFETY: slot is valid until next mutation.
+                    let old_v = unsafe { *slot.as_ptr() };
+                    if already_present {
+                        let expected = *model.get(&k).unwrap();
+                        assert_eq!(
+                            old_v, expected,
+                            "existing value must be preserved for {k:?}"
+                        );
+                    } else {
+                        assert_eq!(old_v, 0, "new slot must be initialized to 0 for {k:?}");
+                    }
+                    // Write new value through the slot.
+                    let new_val = rng.next();
+                    // SAFETY: slot is valid until next mutation.
+                    unsafe { *slot.as_ptr() = new_val };
+                    model.insert(k.clone(), new_val);
+                    assert_eq!(map.len(), model.len() as u64, "len mismatch after ins_slot");
+                }
+                3 => {
+                    // get check
+                    let got = map.get(tk(&k));
+                    let want = model.get(&k).copied();
+                    assert_eq!(got, want, "get mismatch for {k:?}");
+                }
+                _ => {
+                    // remove
+                    let got = map.remove(tk(&k));
+                    let want = model.remove(&k);
+                    assert_eq!(got, want, "remove mismatch for {k:?}");
+                    assert_eq!(map.len(), model.len() as u64, "len mismatch after remove");
+                }
+            }
+        }
+
+        // Final verification: all entries in model match map.
+        assert_eq!(map.len(), model.len() as u64);
+        for (k, v) in &model {
+            assert_eq!(map.get(tk(k)), Some(*v), "final map mismatch for {k:?}");
+        }
     }
 }
