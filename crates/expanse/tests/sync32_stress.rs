@@ -162,13 +162,22 @@ fn ord_expected(state: &BTreeMap<u32, u32>, q: Ord32) -> Option<(u32, u32)> {
 /// when it ended (there is one writer), so the read's state is one of rounds
 /// `t0..=t1 + 1`. After the run the log is replayed and each answer must match
 /// some state in that window.
+///
+/// The writer runs at least `MIN_ROUNDS` and keeps churning until the readers
+/// report the coverage the oracle needs (`MIN_OVERLAP` reads taken while it
+/// ran, `MIN_CHURN_ANSWERS` answers that are writer keys), up to `MAX_ROUNDS`.
+/// A fixed round count let a fast writer finish before slow readers had
+/// anything to check.
 #[test]
 fn map_ordered_reads_return_a_committed_neighbour_under_writer_churn() {
     const SPAN: u32 = 4_096;
     const STRIDE: u32 = 16;
-    const ROUNDS: usize = 40_000;
+    const MIN_ROUNDS: usize = 40_000;
+    const MAX_ROUNDS: usize = 400_000;
     const READERS: u32 = 3;
     const MAX_READS: usize = 40_000;
+    const MIN_OVERLAP: usize = 1_000;
+    const MIN_CHURN_ANSWERS: usize = 100;
     let mut m = SyncExpanseMap32::with_capacity(16_384, READERS as usize);
     let (mut w, mut pool) = m.split();
     let mut initial = BTreeMap::new();
@@ -178,6 +187,8 @@ fn map_ordered_reads_return_a_committed_neighbour_under_writer_churn() {
     }
     let committed = AtomicUsize::new(0);
     let done = AtomicBool::new(false);
+    let live_overlap = AtomicUsize::new(0);
+    let live_churn_answers = AtomicUsize::new(0);
     let start = Barrier::new(READERS as usize + 1);
 
     let (log, reads, busy) = std::thread::scope(|s| {
@@ -185,6 +196,7 @@ fn map_ordered_reads_return_a_committed_neighbour_under_writer_churn() {
             .map(|id| {
                 let mut r = pool.take().expect("reader slot");
                 let (committed, done, start) = (&committed, &done, &start);
+                let (live_overlap, live_churn_answers) = (&live_overlap, &live_churn_answers);
                 s.spawn(move || {
                     let mut state = 17 + id;
                     let mut out = Vec::new();
@@ -211,7 +223,13 @@ fn map_ordered_reads_return_a_committed_neighbour_under_writer_churn() {
                         };
                         let t1 = committed.load(Ordering::SeqCst);
                         match got {
-                            Ok(answer) => out.push((q, answer, t0, t1)),
+                            Ok(answer) => {
+                                live_overlap.fetch_add(1, Ordering::Relaxed);
+                                if matches!(answer, Some((k, _)) if k % STRIDE != 0) {
+                                    live_churn_answers.fetch_add(1, Ordering::Relaxed);
+                                }
+                                out.push((q, answer, t0, t1));
+                            }
                             Err(Busy) => busy += 1,
                         }
                     }
@@ -222,9 +240,9 @@ fn map_ordered_reads_return_a_committed_neighbour_under_writer_churn() {
 
         // Churn keys never coincide with a prefilled multiple of STRIDE.
         start.wait();
-        let mut log = Vec::with_capacity(ROUNDS);
+        let mut log = Vec::with_capacity(MIN_ROUNDS);
         let mut state = 0x0BAD_5EEDu32;
-        for i in 0..ROUNDS {
+        for i in 0..MAX_ROUNDS {
             let k =
                 (lcg(&mut state) % (SPAN / STRIDE)) * STRIDE + 1 + lcg(&mut state) % (STRIDE - 1);
             let applied = if i % 3 == 2 {
@@ -242,6 +260,12 @@ fn map_ordered_reads_return_a_committed_neighbour_under_writer_churn() {
             };
             log.push(applied);
             committed.store(i + 1, Ordering::SeqCst);
+            if i + 1 >= MIN_ROUNDS
+                && live_overlap.load(Ordering::Relaxed) >= MIN_OVERLAP
+                && live_churn_answers.load(Ordering::Relaxed) >= MIN_CHURN_ANSWERS
+            {
+                break;
+            }
         }
         done.store(true, Ordering::SeqCst);
         let mut reads = Vec::new();
@@ -255,29 +279,31 @@ fn map_ordered_reads_return_a_committed_neighbour_under_writer_churn() {
     });
 
     // The oracle only checks something if reads overlapped the churn and saw
-    // the writer's keys.
-    let during = reads.iter().filter(|r| r.2 < ROUNDS).count();
+    // the writer's keys. The writer extends its run until the live counters
+    // meet these floors, so failing them here means it hit MAX_ROUNDS.
+    let rounds = log.len();
+    let during = reads.iter().filter(|r| r.2 < rounds).count();
     let churn_answers = reads
         .iter()
-        .filter(|r| r.2 < ROUNDS && matches!(r.1, Some((k, _)) if k % STRIDE != 0))
+        .filter(|r| r.2 < rounds && matches!(r.1, Some((k, _)) if k % STRIDE != 0))
         .count();
     assert!(
-        during >= 1_000,
-        "only {during} reads overlapped the writer (busy {busy})"
+        during >= MIN_OVERLAP,
+        "only {during} reads overlapped the writer in {rounds} rounds (busy {busy})"
     );
     assert!(
-        churn_answers >= 100,
-        "only {churn_answers} answers were writer keys; the oracle would check nothing"
+        churn_answers >= MIN_CHURN_ANSWERS,
+        "only {churn_answers} answers were writer keys in {rounds} rounds; the oracle would check nothing"
     );
 
-    let mut by_start: Vec<Vec<usize>> = vec![Vec::new(); ROUNDS + 1];
+    let mut by_start: Vec<Vec<usize>> = vec![Vec::new(); rounds + 1];
     for (i, r) in reads.iter().enumerate() {
         by_start[r.2].push(i);
     }
     let mut satisfied = vec![false; reads.len()];
     let mut active: Vec<usize> = Vec::new();
     let mut state = initial;
-    for t in 0..=ROUNDS {
+    for t in 0..=rounds {
         active.extend(by_start[t].iter().copied());
         active.retain(|&i| {
             let (q, answer, _, t1) = reads[i];
@@ -285,9 +311,9 @@ fn map_ordered_reads_return_a_committed_neighbour_under_writer_churn() {
                 satisfied[i] = true;
                 return false;
             }
-            t < (t1 + 1).min(ROUNDS)
+            t < (t1 + 1).min(rounds)
         });
-        if t < ROUNDS
+        if t < rounds
             && let Some((k, v)) = log[t]
         {
             match v {
