@@ -1191,6 +1191,125 @@ def optimistic_closure(verdicts: dict) -> str:
     return "#802 stays open: " + "; ".join(short)
 
 
+#: Section 5.16's runs, one pair per pin, read separately and never pooled.
+OPTIMISTIC_PINS = dict(NARROWED_PINS)
+OPTIMISTIC_CURVES = {label: (_RESULTS / f"baseline_concurrent_reads_optimistic_{label}.json",
+                             _RESULTS / f"baseline_concurrent_reads_optimistic_{label}_run2.json")
+                     for label in OPTIMISTIC_PINS}
+#: The cells section 5.16 fixes: `rocksdb_concurrent_optimistic`.
+OPTIMISTIC_ROUNDS = 78
+OPTIMISTIC_SETTINGS = {"window_seconds": 2.0, "paced_rate_ops_per_s": 250000.0, "readers": [1, 2, 4, 7],
+                       "modes": ["idle", "paced"], "lock_scopes": ["full", "trie", "opt"]}
+#: The paired ratios the artifact carries (`scope_pair_ratios`), and the keys each must hold.
+OPTIMISTIC_PAIRS = ("opt/full", "opt/trie", "trie/full")
+OPTIMISTIC_RATIO_KEYS = ("T(1)", "T(2)", "T(4)", "T(7)", "S(2)", "S(4)", "S(7)")
+#: What voids a run (section 5.16): foreign busy CPU above 1.0 core-equivalent in
+#: any cell, or `load1` above 12 on the reference host's 24 logical CPUs at any
+#: snapshot.
+OPTIMISTIC_FOREIGN_BUSY_CEILING = 1.0
+OPTIMISTIC_LOAD1_CEILING = 12.0
+
+
+def optimistic_problems(obj: dict, pin: str) -> dict:
+    """Why a driver artifact is not one of the runs METHODOLOGY section 5.16 fixes for `pin`.
+
+    Returns `{"run": [...], "O3": [...]}`. A `run` problem refuses the whole run:
+    pin, pin source, window, offered rate, reader counts, modes, scopes, rounds,
+    pairs per ratio, a cell without its handle count, or the load ceilings. An
+    `O3` problem (`paced_writer_problems` over `opt` and `trie`) leaves O3
+    `NOT_EVALUABLE` under that pin and voids nothing else.
+    """
+    run = []
+    p = obj.get("provenance", {})
+    if p.get("core_pin") != pin:
+        run.append(f"core_pin {p.get('core_pin')!r}, expected {pin}")
+    if p.get("host", {}).get("scaling_governor_pin_source") != "EXPANSE_BENCH_PIN_APPLIED":
+        run.append("the pin was not verified as applied (EXPANSE_BENCH_PIN_APPLIED)")
+    s = obj.get("settings", {})
+    for key, want in OPTIMISTIC_SETTINGS.items():
+        if s.get(key) != want:
+            run.append(f"settings.{key} {s.get(key)!r}, expected {want!r}")
+    cells = obj.get("cells", [])
+    want_cells = (len(OPTIMISTIC_SETTINGS["lock_scopes"]) * len(OPTIMISTIC_SETTINGS["modes"])
+                  * len(OPTIMISTIC_SETTINGS["readers"]) * OPTIMISTIC_ROUNDS)
+    if len(cells) != want_cells:
+        run.append(f"{len(cells)} cells, expected {want_cells}")
+    rounds = sorted({c.get("round") for c in cells})
+    if rounds != list(range(OPTIMISTIC_ROUNDS)):
+        run.append(f"rounds {rounds[:3]}..{rounds[-3:] if rounds else []}, expected 0..{OPTIMISTIC_ROUNDS - 1}")
+    pairs = obj.get("scope_pair_ratios", {})
+    for pair in OPTIMISTIC_PAIRS:
+        for mode in OPTIMISTIC_SETTINGS["modes"]:
+            for key in OPTIMISTIC_RATIO_KEYS:
+                cell = pairs.get(pair, {}).get(mode, {}).get(key)
+                if not cell or cell.get("ci") is None:
+                    run.append(f"no {mode} {key} {pair} ratio with an interval")
+                elif cell.get("n") != OPTIMISTIC_ROUNDS:
+                    run.append(f"{mode} {key} {pair} pairs {cell.get('n')} rounds, expected {OPTIMISTIC_ROUNDS}")
+    handles = obj.get("reader_handles_by_cell", [])
+    if len(handles) != want_cells or any(not isinstance(h.get("reader_handles"), int) for h in handles):
+        run.append("the artifact does not carry every cell's registered reader-handle count")
+    busy = [c.get("cell") for c in cells
+            if not isinstance((c.get("load") or {}).get("foreign_busy_cpus"), (int, float))
+            or c["load"]["foreign_busy_cpus"] > OPTIMISTIC_FOREIGN_BUSY_CEILING]
+    if busy:
+        run.append(f"{len(busy)} cell(s) with no busy-CPU delta or foreign busy CPU above "
+                   f"{OPTIMISTIC_FOREIGN_BUSY_CEILING} core-equivalent (first: {busy[0]})")
+    loaded = [snap.get("label") for snap in p.get("loads", [])
+              if isinstance(snap.get("load1"), (int, float)) and snap["load1"] > OPTIMISTIC_LOAD1_CEILING]
+    if loaded:
+        run.append(f"load1 above {OPTIMISTIC_LOAD1_CEILING} at {len(loaded)} snapshot(s) (first: {loaded[0]})")
+    return {"run": run, "O3": paced_writer_problems(obj, ("opt", "trie"))}
+
+
+def optimistic_pin_verdicts(objs: list[dict], pin: str) -> dict:
+    """Each section 5.16 gate's verdict under one pin, from that pin's two runs.
+
+    Raises when a run is refused; O3 reads `NOT_EVALUABLE` when either run's
+    paced writers are not admissible.
+    """
+    if len(objs) != 2:
+        raise ValueError(f"a pin's gates read its two runs, got {len(objs)}")
+    probs = [optimistic_problems(o, pin) for o in objs]
+    refused = [pr["run"] for pr in probs if pr["run"]]
+    if refused:
+        raise ValueError(f"pin {pin}: a run is not a section 5.16 run: " + "; ".join(refused[0]))
+    out = {}
+    for gate, spec in OPTIMISTIC_GATES.items():
+        if gate == "O3" and any(pr["O3"] for pr in probs):
+            out[gate] = {"verdict": "NOT_EVALUABLE", "why": next(pr["O3"] for pr in probs if pr["O3"])}
+            continue
+        pair = f"{spec['a']}/{spec['b']}"
+        cell = [o["scope_pair_ratios"][pair][spec["mode"]] for o in objs]
+        out[gate] = optimistic_gate_verdict([tuple(c["S(7)"]["ci"]) for c in cell],
+                                            [tuple(c["T(7)"]["ci"]) for c in cell],
+                                            [tuple(c["T(1)"]["ci"]) for c in cell])
+    return out
+
+
+def render_optimistic_verdicts() -> list[str]:
+    """Section 5.16's gates per pin, once both of that pin's runs are committed."""
+    out = ["", "  Optimistic-seek arm gates (METHODOLOGY section 5.16):"]
+    verdicts = {}
+    for label, pin in OPTIMISTIC_PINS.items():
+        present = [p for p in OPTIMISTIC_CURVES[label] if p.is_file()]
+        if len(present) < 2:
+            out.append(f"    {label}: {len(present)} of 2 runs committed; dispatch "
+                       f"`rocksdb_concurrent_optimistic` with cpu_pin={pin}")
+            continue
+        try:
+            per = optimistic_pin_verdicts([json.loads(p.read_text()) for p in present], pin)
+        except ValueError as exc:
+            out.append(f"    {label}: {exc}")
+            continue
+        verdicts[pin] = {g: v["verdict"] for g, v in per.items()}
+        for gate, v in per.items():
+            out.append(f"    {label} {gate}: {v['verdict']} ({', '.join(f'{k} {x}' for k, x in v.items() if k != 'verdict')})")
+    if len(verdicts) == len(OPTIMISTIC_PINS):
+        out.append(f"    {optimistic_closure(verdicts)}")
+    return out
+
+
 def ir_budget_per_call(inclusive_ir: int, calls: int, fraction: float = 0.001) -> tuple[float, float]:
     """`(per-call inclusive Ir, the per-call Ir a `fraction` budget allows)`.
 
@@ -1362,6 +1481,7 @@ def render(arms: dict, writer_ops_per_s: float) -> str:
     lines.extend(render_gate_detectability())
     lines.extend(render_narrowed_verdicts())
     lines.extend(render_optimistic_sizing())
+    lines.extend(render_optimistic_verdicts())
     return "\n".join(lines)
 
 
@@ -2224,6 +2344,74 @@ def self_test() -> int:
         pass
     else:
         fails.append("optimistic_closure accepted a pin with no O2 verdict")
+
+    # optimistic_problems and optimistic_pin_verdicts: a synthetic section 5.16 run.
+    def optimistic_run(pin: str = "0-15") -> dict:
+        cells, handles = [], []
+        for scope in OPTIMISTIC_SETTINGS["lock_scopes"]:
+            for mode in OPTIMISTIC_SETTINGS["modes"]:
+                for readers in OPTIMISTIC_SETTINGS["readers"]:
+                    for rd in range(OPTIMISTIC_ROUNDS):
+                        label = f"cell:{scope}:{mode}:R{readers}:round{rd}"
+                        cells.append({"cell": label, "round": rd, "lock_scope": scope, "writer_mode": mode,
+                                      "readers": readers, "load": {"foreign_busy_cpus": 0.02}})
+                        handles.append({"cell": label, "reader_handles": readers if scope == "opt" else 0})
+        ratio = {"point": 1.1, "ci": [1.05, 1.15], "n": OPTIMISTIC_ROUNDS}
+        pairs = {pair: {mode: {key: dict(ratio) for key in OPTIMISTIC_RATIO_KEYS}
+                        for mode in OPTIMISTIC_SETTINGS["modes"]} for pair in OPTIMISTIC_PAIRS}
+        writer = {"offered_ops_per_s": 250000.0, "flags": [],
+                  "per_readers": {str(r): {"achieved_min_ops_per_s": 249980.0} for r in (1, 2, 4, 7)}}
+        return {"provenance": {"core_pin": pin, "host": {"scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED"},
+                               "loads": [{"label": "start", "load1": 1.2}, {"label": "end", "load1": 2.9}]},
+                "settings": json.loads(json.dumps(OPTIMISTIC_SETTINGS)), "cells": cells,
+                "scope_pair_ratios": pairs, "reader_handles_by_cell": handles,
+                "paced_rate_check_by_lock_scope": {"opt": writer, "trie": json.loads(json.dumps(writer)),
+                                                   "full": json.loads(json.dumps(writer))}}
+
+    good_run = optimistic_run()
+    check("a section 5.16 run is admissible", optimistic_problems(good_run, "0-15"), {"run": [], "O3": []})
+    for name, mutate, needle in (
+            ("another pin", lambda o: o["provenance"].update(core_pin="0,2,4,6,8,10,12,14"), "core_pin"),
+            ("a shorter window", lambda o: o["settings"].update(window_seconds=1.0), "window_seconds"),
+            ("two scopes", lambda o: o["settings"].update(lock_scopes=["full", "trie"]), "lock_scopes"),
+            ("24 rounds per ratio", lambda o: o["scope_pair_ratios"]["opt/trie"]["paced"]["S(7)"].update(n=24),
+             "pairs 24 rounds"),
+            ("a missing absolute ratio", lambda o: o["scope_pair_ratios"]["opt/full"]["idle"].pop("T(7)"),
+             "no idle T(7) opt/full"),
+            ("a busy foreign process", lambda o: o["cells"][5]["load"].update(foreign_busy_cpus=1.5),
+             "foreign busy CPU"),
+            ("load1 above 12", lambda o: o["provenance"]["loads"][1].update(load1=12.5), "load1 above"),
+            ("a cell without its handle count", lambda o: o["reader_handles_by_cell"][3].pop("reader_handles"),
+             "reader-handle count"),
+            ("a missing round", lambda o: o["cells"].pop(), "cells")):
+        bad = optimistic_run()
+        mutate(bad)
+        got = optimistic_problems(bad, "0-15")
+        if not any(needle in p for p in got["run"]):
+            fails.append(f"optimistic_problems did not refuse {name}: {got}")
+    slow = optimistic_run()
+    slow["paced_rate_check_by_lock_scope"]["trie"]["per_readers"]["7"]["achieved_min_ops_per_s"] = 240000.0
+    got = optimistic_problems(slow, "0-15")
+    check("a slow trie writer voids nothing", got["run"], [])
+    check("a slow trie writer names O3", len(got["O3"]), 1)
+    v = optimistic_pin_verdicts([good_run, optimistic_run()], "0-15")
+    check("gates over two admissible runs", {g: x["verdict"] for g, x in v.items()},
+          {"O1": "PASS", "O2": "PASS", "O3": "PASS"})
+    v = optimistic_pin_verdicts([good_run, slow], "0-15")
+    check("an inadmissible writer leaves O3 not evaluable, and O1 and O2 read",
+          {g: x["verdict"] for g, x in v.items()}, {"O1": "PASS", "O2": "PASS", "O3": "NOT_EVALUABLE"})
+    refused = optimistic_run()
+    refused["settings"]["window_seconds"] = 1.0
+    try:
+        optimistic_pin_verdicts([good_run, refused], "0-15")
+    except ValueError:
+        pass
+    else:
+        fails.append("optimistic_pin_verdicts read a refused run")
+    low_control = optimistic_run()
+    low_control["scope_pair_ratios"]["opt/full"]["idle"]["T(1)"].update(ci=[0.95, 0.97])
+    check("a slower single opt reader keeps O1 from passing",
+          optimistic_pin_verdicts([low_control, low_control], "0-15")["O1"]["verdict"], "BOUNDARY_RESULT")
 
     # ir_budget_per_call: 2,500,000 Ir over 50,000 calls is 50 Ir a call, 0.05 Ir of budget.
     check("per-call Ir", ir_budget_per_call(2_500_000, 50_000)[0], 50.0)

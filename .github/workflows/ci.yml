@@ -2384,11 +2384,31 @@ jobs:
           /tmp/bench_memtable_concurrent --mode idle --readers 1 --window-seconds 0.05 --lock trie > /tmp/bench-concurrent-lock.csv
           grep -qx '# lock_scope=trie' /tmp/bench-concurrent-lock.csv \
             || { echo "::error::bench_memtable_concurrent --lock trie did not echo its scope:"; cat /tmp/bench-concurrent-lock.csv; exit 1; }
+          grep -qx '# reader_handles=0' /tmp/bench-concurrent-lock.csv \
+            || { echo "::error::--lock trie registers no reader handle, and the row must say 0:"; cat /tmp/bench-concurrent-lock.csv; exit 1; }
+          # --lock opt is METHODOLOGY section 5.16's scope: its locate phase
+          # reads the sync map through one reader handle per reader thread, so
+          # a paced cell at R = 2 must report two, and the driver must parse
+          # the row and its handle count.
+          /tmp/bench_memtable_concurrent --mode paced --readers 2 --window-seconds 0.05 --paced-rate 1000 \
+            --lock opt > /tmp/bench-concurrent-opt.csv
+          python3 - <<'EOF'
+          import sys
+          sys.path.insert(0, "docs/benchmarks/rocksdb_memtable/scripts")
+          from concurrent_read_scaling import parse_row
+          row = parse_row(open("/tmp/bench-concurrent-opt.csv").read())
+          want = {"lock_scope": "opt", "writer_mode": "paced", "readers": 2, "reader_handles": 2, "writer_exhausted": 0}
+          got = {k: row[k] for k in want}
+          if got != want or row["read_ops"] <= 0 or row["write_ops"] <= 0:
+              sys.exit(f"::error::bench_memtable_concurrent --lock opt row does not match its arguments: want {want} "
+                       f"with read_ops and write_ops > 0, got {row}")
+          print(f"bench_memtable_concurrent --lock opt row parsed: {row}")
+          EOF
           if /tmp/bench_memtable_concurrent --mode idle --readers 1 --lock rw > /tmp/bench-concurrent-lock-refusal.txt 2>&1; then
             echo "::error::bench_memtable_concurrent accepted --lock rw; an unknown lock scope must be refused, never run"
             exit 1
           fi
-          grep -qF -e "--lock must be full or trie (got 'rw')" /tmp/bench-concurrent-lock-refusal.txt \
+          grep -qF -e "--lock must be full, trie or opt (got 'rw')" /tmp/bench-concurrent-lock-refusal.txt \
             || { echo "::error::--lock refusal did not name the scope:"; cat /tmp/bench-concurrent-lock-refusal.txt; exit 1; }
 
           # Counters mode, the protocol scripts/bench_counters.py drives: per

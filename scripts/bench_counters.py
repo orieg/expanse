@@ -158,6 +158,22 @@ THREAD_EVENTS = [
 # requested only when its own preflight opens it, and its absence is recorded.
 FUTEX_EVENT = "syscalls:sys_enter_futex"
 
+# The events METHODOLOGY section 5.16 adds on its optimistic-seek cells only.
+# `ld_blocks.store_forward` is the counter section 12.8 of the concurrency
+# suite found moving under #928 while instructions per read stayed flat, which
+# Callgrind cannot see. Checked against `perf list` on the reference host
+# (perf 6.8.12) before it was written here. Other cells do not request it, so
+# their event sets are unchanged.
+OPTIMISTIC_EXTRA_EVENTS = ["ld_blocks.store_forward"]
+# Section 5.16's read-fallback rate needs the engine's `ReadFallbacks` over
+# `ReadOps` from an `occ-stats` build. The C ABI exports no occ-stats counter, so
+# the C++ harness cannot read it, and every optimistic-seek cell reports it
+# unavailable by name rather than leaving it absent.
+OPTIMISTIC_UNAVAILABLE = {
+    "ReadFallbacks/ReadOps": "the C ABI (crates/expanse-capi) exports no occ-stats counter, so the "
+                             "C++ harness cannot read the engine's ReadFallbacks or ReadOps",
+}
+
 # Events served by the kernel's software PMU rather than a core PMU: they are
 # never PMU-qualified, and on a hybrid host perf returns them unqualified.
 SOFTWARE_EVENTS = {"task-clock", "context-switches", "page-faults", "cpu-clock",
@@ -191,7 +207,8 @@ class Cell:
                  features: list[str], concurrent: bool = False, note: str = "",
                  blocked: str = "", arm: str = "", c2c: bool = False,
                  layout: bool = False, builder: str = "cargo", exe: str = "",
-                 cwd: str = ""):
+                 cwd: str = "", extra_events: list[str] | None = None,
+                 unavailable: dict | None = None):
         self.name = name
         self.issue = issue
         self.suite = suite
@@ -210,6 +227,10 @@ class Cell:
         self.builder = builder
         self.exe = exe
         self.cwd = cwd
+        # Events this cell requests beyond its mode's set, and counters it
+        # names as unavailable, with the reason.
+        self.extra_events = list(extra_events or [])
+        self.unavailable = dict(unavailable or {})
 
     @property
     def mode(self) -> str:
@@ -217,8 +238,8 @@ class Cell:
 
     def events(self) -> list[str]:
         if self.concurrent:
-            return list(THREAD_EVENTS)
-        return list(BASE_EVENTS)
+            return list(THREAD_EVENTS) + self.extra_events
+        return list(BASE_EVENTS) + self.extra_events
 
 
 def _conc(name: str, issue: int, suite: str, binary: str, args: list[str],
@@ -227,10 +248,15 @@ def _conc(name: str, issue: int, suite: str, binary: str, args: list[str],
                 arm="expanse", note=note, **kw)
 
 
-def _rocks(name: str, mode: str, readers: int, note: str, **kw) -> Cell:
-    """A #802 cell: the RocksDB MemTable's concurrent harness, built by make."""
+def _rocks(name: str, mode: str, readers: int, note: str, lock: str = "", **kw) -> Cell:
+    """A #802 cell: the RocksDB MemTable's concurrent harness, built by make.
+
+    `lock` selects the seek lock scope (`--lock`); empty keeps the harness's
+    default, which is every cell's scope from before section 5.16.
+    """
+    args = ["--mode", mode, "--readers", str(readers)] + (["--lock", lock] if lock else [])
     return Cell(name, 802, "rocksdb_memtable", "bench_memtable_concurrent",
-                ["--mode", mode, "--readers", str(readers)], [], concurrent=True,
+                args, [], concurrent=True,
                 arm="expanse", note=note, builder="make",
                 exe="integrations/rocksdb/build/bench_memtable_concurrent",
                 cwd="integrations/rocksdb", **kw)
@@ -344,6 +370,17 @@ CELLS = [
     _rocks("rocksdb_conc_paced_r2", "paced", 2, "two readers, paced writer"),
     _rocks("rocksdb_conc_paced_r7", "paced", 7, "seven readers, paced writer — section 5.10's H1 "
            "cell, whose writer runs short; also a `perf c2c` cell", c2c=True),
+    # --- #802: the optimistic-seek arm's paced cells (METHODOLOGY section 5.16) ---
+    #
+    # Paced R = 1 and R = 7 under each of the three seek lock scopes, reported
+    # and never gated, beside each scope's achieved writer rate in this harness.
+    # `ld_blocks.store_forward` is added on these cells only, and the engine's
+    # read-fallback rate is named unavailable (OPTIMISTIC_UNAVAILABLE).
+    *[_rocks(f"rocksdb_opt_paced_{scope}_r{readers}", "paced", readers,
+             f"{'one reader' if readers == 1 else 'seven readers'}, paced writer, seek lock scope "
+             f"`{scope}` — section 5.16's counters cell", lock=scope,
+             extra_events=OPTIMISTIC_EXTRA_EVENTS, unavailable=OPTIMISTIC_UNAVAILABLE)
+      for scope in ("full", "trie", "opt") for readers in (1, 7)],
 ]
 
 BY_NAME = {c.name: c for c in CELLS}
@@ -871,6 +908,7 @@ def collect_per_thread(cell: Cell, rounds: int, requested: list[str], events: li
         "primary_role": primary,
         "roles": roles,
         "events": flat,
+        "unavailable_counters": cell.unavailable,
         "rounds_raw": out,
     }
 
@@ -1132,8 +1170,9 @@ def _self_test() -> int:
     # The gate names four cells from #724/#725/#730 plus the HOT lookup cell,
     # and #568 adds sixteen per-thread cells (ten attribution cells, three
     # readers-alone controls, and three PR 5 multi-writer mechanism cells).
-    # #802 adds six: idle and paced writers at R = 1, 2 and 7.
-    for issue, want in ((724, 2), (725, 3), (730, 2), (737, 1), (568, 16), (802, 6)):
+    # #802 adds six: idle and paced writers at R = 1, 2 and 7, and METHODOLOGY
+    # section 5.16 six more: paced R = 1 and R = 7 under each seek lock scope.
+    for issue, want in ((724, 2), (725, 3), (730, 2), (737, 1), (568, 16), (802, 12)):
         got = sum(1 for c in CELLS if c.issue == issue)
         if got != want:
             failures.append(f"expected {want} cell(s) for #{issue}, found {got}")
@@ -1145,8 +1184,33 @@ def _self_test() -> int:
             failures.append(f"{c.name} is still marked blocked; `read_ops` exists now")
         if c.mode != "per-thread" or not c.arm:
             failures.append(f"{c.name} is concurrent but has no per-thread arm")
-        if c.events() != THREAD_EVENTS:
+        if c.events() != THREAD_EVENTS + c.extra_events:
             failures.append(f"{c.name} does not request the per-thread event set")
+    # Section 5.16's cells: one per (scope, R), each naming its scope, requesting
+    # store_forward on top of the per-thread set, and naming the unavailable
+    # read-fallback rate; no other cell's event set changes.
+    opt_cells = sorted(c.name for c in CELLS if c.name.startswith("rocksdb_opt_paced_"))
+    want_opt = sorted(f"rocksdb_opt_paced_{s}_r{r}" for s in ("full", "trie", "opt") for r in (1, 7))
+    if opt_cells != want_opt:
+        failures.append(f"section 5.16's counters cells are {opt_cells}, want {want_opt}")
+    for name in want_opt:
+        c = BY_NAME.get(name)
+        if c is None:
+            continue
+        scope, readers = name.split("_")[3], name.split("_r")[-1]
+        if c.args != ["--mode", "paced", "--readers", readers, "--lock", scope]:
+            failures.append(f"{name} runs {c.args}")
+        if c.extra_events != OPTIMISTIC_EXTRA_EVENTS or "ld_blocks.store_forward" not in c.events():
+            failures.append(f"{name} does not request ld_blocks.store_forward")
+        if "ReadFallbacks/ReadOps" not in c.unavailable:
+            failures.append(f"{name} does not name the read-fallback rate unavailable")
+        if c.c2c:
+            failures.append(f"{name} must not add a perf c2c round")
+    if any(c.extra_events for c in CELLS if not c.name.startswith("rocksdb_opt_paced_")):
+        failures.append("a cell outside section 5.16 requests an extra event")
+    argv = harness_argv(BY_NAME["rocksdb_opt_paced_opt_r7"], ["taskset", "-c", "0,2"], 5)
+    if "--lock" not in argv or argv[argv.index("--lock") + 1] != "opt":
+        failures.append(f"the opt counters cell does not pass --lock opt: {argv}")
     for name in ("masstree_conc_map_w1_r8", "hot_conc_map_w1_r8"):
         if not (BY_NAME[name].c2c and BY_NAME[name].layout):
             failures.append(f"{name} is not the c2c + layout cell")
@@ -1311,7 +1375,8 @@ def main() -> int:
     env = dict(os.environ)
     env["RUSTFLAGS"] = env.get("RUSTFLAGS", "") + " -C target-cpu=haswell"
 
-    order = BASE_EVENTS + [e for e in THREAD_EVENTS if e not in BASE_EVENTS]
+    order = (BASE_EVENTS + [e for e in THREAD_EVENTS if e not in BASE_EVENTS]
+             + [e for e in OPTIMISTIC_EXTRA_EVENTS if e not in BASE_EVENTS + THREAD_EVENTS])
     events = sorted({e for c in cells for e in c.events()}, key=order.index)
     try:
         pmu, why, pin, available, unavailable = preflight(events)
