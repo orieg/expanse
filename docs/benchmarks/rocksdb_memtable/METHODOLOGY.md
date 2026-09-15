@@ -747,145 +747,213 @@ Each cell is run 1 · run 2 of the trie/full paired ratio.
 
 ### 5.16 Pre-registration — the optimistic-seek arm (appended 2026-09-15, locked before any optimistic-seek code or cell)
 
-This is step 10 of [#900](https://github.com/orieg/expanse/issues/900), the RocksDB consumer of the ordered reads pre-registered in [`docs/benchmarks/concurrency/METHODOLOGY.md`](../concurrency/METHODOLOGY.md) §12, and the arm §5.14 names next for [#802](https://github.com/orieg/expanse/issues/802). It was written after §5.15 and §12.9 had been read, so it is **not blind** to the `full` and `trie` curves or to the ordered-read outcomes (disclosure below). What it fixes before any code or cell: the prerequisites, the change, the soundness gates, the single-threaded bound, the gate and the ratio reported beside it, the rounds, the cells, what voids a run, and what each outcome decides (AGENTS.md §8.19). §5.1–§5.15 are not edited.
-
-The ordered reads it consumes are the reader-handle calls `expanse_sync_map_reader_{first,last,next_at_or_after,next_after,prev_at_or_before,prev_before}`, provided by [#956](https://github.com/orieg/expanse/pull/956), which is open. Citations of that C ABI below are to the branch of #956. Nothing in this section builds against it; the implementation cannot land before #956 does.
+This is step 10 of [#900](https://github.com/orieg/expanse/issues/900), the RocksDB consumer of the ordered reads pre-registered in [`docs/benchmarks/concurrency/METHODOLOGY.md`](../concurrency/METHODOLOGY.md) §12, and the arm §5.14 names next for [#802](https://github.com/orieg/expanse/issues/802). It was written after §5.15 and §12.9 had been read, so it is **not blind** to the `full` and `trie` curves or to the ordered-read outcomes (disclosure below). What it fixes before any code or cell: the prerequisites, the change, the soundness gates, the single-threaded bound, the gates, the rounds, the cells, what voids a run, and what each outcome decides (AGENTS.md §8.19). §5.1–§5.15 are not edited.
 
 **What `mutex_` covers in a seek today, and what replaces it.** Line numbers are `integrations/rocksdb/src/expanse_memtable.cc` unless another file is named.
 
 | locked work in `FindLeafBlockForSeek` | `kFullLocate` | `kTrieCall` | why it is under the lock | `kOptimistic` |
 |---|---|---|---|---|
 | `head_` / `tail_` loads and the `h == t` return (`:146`–`:150`, `:168`–`:172`) | locked | locked | consistency with the trie: under the lock, `h == t` means one block exists and the trie is not consulted | acquire loads, no lock. `head_` is stored once, in the constructor (`:77`); `tail_` only by `SplitLeafBlock` (`:302`), a release store after the new block's entries, count and own links are stored (`:280`–`:296`). A reader that loads `tail_` before that store returns the head, and `Get`, `Contains` and `IteratorImpl::Seek` already step forward over `next_leaf` from wherever the locate ends (`:559`, `:438`, `:890`) |
-| `expanse_map_prev_at_or_before` on `trie_index_` (`:154`, `:176`) | locked | locked | the one thing `kTrieCall` still needs the lock for: `expanse_map_t` is not safe for a read concurrent with `expanse_map_insert`, which `Insert` (`:369`) and `SplitLeafBlock` (`:310`) call under `mutex_` (`:318`) | `trie_index_` is an `expanse_sync_map_t`, read with `expanse_sync_map_reader_prev_at_or_before` (#956, `include/expanse.h:586`) through the calling thread's reader handle. Its contract: "the entry returned was present, and every key the search passed over was absent, at one instant" (#956, `include/expanse.h:567`–`:576`) |
+| `expanse_map_prev_at_or_before` on `trie_index_` (`:154`, `:176`) | locked | locked | the one thing `kTrieCall` still needs the lock for: `expanse_map_t` is not safe for a read concurrent with `expanse_map_insert`, which `Insert` (`:369`) and `SplitLeafBlock` (`:310`) call under `mutex_` (`:318`) | `trie_index_` is an `expanse_sync_map_t`, read with `expanse_sync_map_reader_prev_at_or_before` (`include/expanse.h:606`) through the calling thread's reader handle. Its contract: "the entry returned was present, and every key the search passed over was absent, at one instant" (`include/expanse.h:587`–`:596`) |
 | the leaf walk, `SettleSeekCandidate` (`:210`–`:253`) | locked | not locked | — | not locked, unchanged |
 
-- **Why the walk's argument carries over.** The four invariants beside `SettleSeekCandidate` (`:191`–`:201`) need the candidate to be a block in the chain, not a candidate taken from a writer-quiescent trie. Every value the trie can hold at any instant names a linked block: `SplitLeafBlock` inserts the new block's prefix (`:310`) after the release store that links it (`:305`), and `Insert` maps a prefix only to the block it just wrote (`:369`). Invariant 1 keeps that block valid for the rep's lifetime. This is an argument, not a proof; the gates below are what check it.
-- **The writer.** `Insert` still holds `mutex_` for its whole body. Under `kOptimistic`, its two trie inserts become `expanse_sync_map_insert`. The ordered read in `FindLeafBlockForInsert` (`:107`) goes through the writing thread's reader handle, under `mutex_`, so no other trie writer runs beside it.
-- **Lock order.** The sync map's fallback read quiesces writers and takes the sync map's writer lock (#956, `include/expanse.h:519`–`:527`). No reader holds `mutex_`, and the writer path takes `mutex_` before the sync map's writer lock on every path, so the scope introduces one lock order and no inversion. That is derived from the code above, not tested.
-- **Not lock-free.** The optimistic read takes no lock on its common path and falls back to the writer-excluding path after its retry budget (#956). AGENTS.md §2.2 applies as written.
-- **Other `mutex_` holders.** `ApproximateMemoryUsage` calls `expanse_map_mem_used` under `mutex_` (`:449`). `SyncExpanseMap` exposes no `mem_used` today (`crates/expanse/src/sync.rs`, `impl SyncExpanseMap`), so prerequisite P2 below adds one, and under `kOptimistic` `ApproximateMemoryUsage` calls `expanse_sync_map_mem_used` in its place. `SuggestCompactRange` (`:585`–`:596`) does not touch the trie and is unchanged. Nothing in this section is gated on memory.
+- **Why the walk's argument carries over.** The four invariants beside `SettleSeekCandidate` (`:191`–`:201`) need the candidate to be a block in the chain, not a candidate taken from a writer-quiescent trie. Every value the trie can hold at any instant names a linked block: `SplitLeafBlock` inserts the new block's prefix (`:310`) after the release store that links it (`:305`), and `Insert` maps a prefix only to the block it just wrote (`:369`). Invariant 1 keeps that block valid for the rep's lifetime. This is an argument, not a proof. The gates below check it, and three of the mutations below are aimed at it directly.
+- **The writer.** `Insert` still holds `mutex_` for its whole body. Under `kOptimistic`, its two trie inserts become `expanse_sync_map_insert`, and the ordered read in `FindLeafBlockForInsert` (`:107`) goes through the rep's writer handle (R6), under `mutex_`, so no other trie writer runs beside it.
+- **Lock order.** The sync map's fallback read takes its fallback mutex, quiesces writers and takes its writer lock (`include/expanse.h:519`–`:527`; `crates/expanse/src/sync.rs:1815`–`:1825`). No reader holds `mutex_`. The writer path takes `mutex_` and then the sync map's locks, on every path, and uses the rep's own writer handle (R6), so it never takes the handle registry's mutex (R2). A reader takes that registry mutex only on a cache miss, holding no other rep lock, and the handle it creates registers under the collector's registry lock. That is one order per lock pair and no inversion, derived from the code and the handle design below, not tested.
+- **Not lock-free.** The optimistic read takes no lock on its common path and falls back to the writer-excluding path after its retry budget. AGENTS.md §2.2 applies as written.
+- **Other `mutex_` holders.** `SuggestCompactRange` (`:585`–`:596`) does not touch the trie and is unchanged. `ApproximateMemoryUsage` (`:447`–`:453`) is below.
 
-**Prerequisites.** Each lands in its own PR, before the implementation.
+**`ApproximateMemoryUsage` under `kOptimistic`.** It calls `expanse_map_mem_used` under `mutex_` today (`:449`). Under `kOptimistic` it calls `expanse_sync_map_mem_used` instead, still under `mutex_`.
 
-- **P0.** #956 merged: the ordered reads on the sync map reader handles.
-- **P1.** The C ABI states and tests that an `expanse_sync_map_reader_t` may be freed from a thread other than the one that created it, once the creating thread no longer uses it. The rep's destructor relies on exactly that (R2 below).
-- **P2.** `SyncExpanseMap::mem_used`, read under the lock as `with_locked` reads, and an `expanse_sync_map_mem_used` C symbol. **The implementation PR does not start before P2 merges.**
+- **What that call costs.** It is a writer-excluding read: it takes the sync map's fallback mutex, quiesces writers and takes the writer lock (`crates/expanse/src/sync.rs:7235`–`:7237` through `read_locked`, `:1815`–`:1825`; the header says so at `include/expanse.h:573`–`:580`). Its lock order is `mutex_` first, the same as `Insert`'s.
+- **Where it runs.** #802 records that RocksDB calls `ApproximateMemoryUsage` on its write path. So under `kOptimistic` a production write pays that locked read on each call. The concurrent harness never calls it, so no cell here measures that cost under concurrency.
+- **What is measured.** Its per-call inclusive `Ir` under both `kFullLocate` and `kOptimistic`, in the single-threaded instrument below: bounded for the default scope, reported for `kOptimistic`. Nothing in this section is gated on memory, and the byte counts are P2's (`test_sync_map_mem_used`, `crates/expanse-capi/tests/test_modern_capi.rs:802`).
 
-**Construction and the reader handles.**
+**Prerequisites.**
 
-- `SeekLockScope` (`integrations/rocksdb/include/expanse_memtable.h:538`) gains `kOptimistic`. The default stays `kFullLocate` (`:546`), and `ExpanseMemTableRepFactory` (`:610`) is unchanged.
-- The trie's type is chosen at construction. `kFullLocate` and `kTrieCall` keep `expanse_map_t`, so their insert path does not take on the sync map's write protocol.
-- A reader handle "belongs to the thread that created it and must be freed before its parent container" (#956, `include/expanse.h:532`–`:533`), and one handle's epoch pins are not reentrant (`crates/expanse/src/sync.rs:7261`). Fixed requirements:
-  - **R1.** One handle per (rep, thread), never used by two threads.
-  - **R2.** The rep keeps a registry of the handles it created, one per thread, and its destructor frees every one of them before `expanse_sync_map_free`, on whichever thread destroys the rep. The rep is destroyed only after every thread has stopped reading it, which RocksDB's memtable lifetime already requires.
-  - **R3.** The handle lookup, and any thread-local access it needs, is reached through an out-of-line call on the `kOptimistic` branch only. `kFullLocate`'s and `kTrieCall`'s paths gain no thread-local access (AGENTS.md §2.1.5).
-- **R2 relies on a cross-thread free,** so the destructor frees handles created by other threads. #956's header says only that a handle "belongs to the thread that created it and must be freed before its parent container" (`include/expanse.h:532`–`:533`). P1 is what makes that free part of the contract. The Rust side already permits it:
-  - **The handle is `Send`.** `expanse_sync_map_reader_t` is `SyncMapReader(MapReader<'static>)` (`crates/expanse-capi/src/modern_sync.rs:22`), and `MapReader` is `{ map: &SyncExpanseMap, reader: Reader }` (`crates/expanse/src/sync.rs:7230`). `Reader` is `{ collector: Arc<Collector>, slot: Arc<Slot> }` (`crates/expanse/src/occ.rs:1867`–`:1870`), with `Slot = AtomicUsize` (`:1097`), and `SyncExpanseMap` is `Sync` through `Shared`'s `unsafe impl Sync` (`sync.rs:1413`). None of the three declares `Send` by hand, and none opts out. A compile check that `SyncExpanseMap`, `occ::Reader`, `MapReader<'static>`, `OwnedMapReader` and `DetachedMapReader` are all `Send` builds at `726b01fc`. That check is a local probe, not a committed test; P1 commits one.
-  - **The drop touches no per-thread state.** Neither `SyncMapReader` nor `MapReader` implements `Drop`, and `expanse_sync_map_reader_free` is a `Box` drop (`modern_sync.rs:256`). `Reader`'s drop (`occ.rs:1910`–`:1920`) takes the collector's reader-registry mutex and removes its slot. It reads no thread-local; `writer_slot()` is on the writer's retire path (`occ.rs:1623`), not here.
-  - **No pin outlives a call.** `Reader::pin` (`occ.rs:1889`) returns a `Pin<'_>` that borrows the reader's slot (`:1925`), and every C call drops it before returning. A free that starts after the creating thread's last call has returned cannot race a pin.
-  - **`Sync` is not the rule to lean on.** `Reader` is also `Sync` by its fields (the same probe builds `is_sync::<Reader>()`), although its doc comment calls it "not `Sync` — one per reading thread" (`occ.rs:1864`–`:1865`). One handle per thread is a usage rule about non-reentrant pins that the type does not enforce, which is why R1 is stated here and tested in G-O4.
-  - **What stays unsound, and stays forbidden:** freeing a handle while another thread is still inside a call on it, or after `expanse_sync_map_free`.
-- The concurrent harness's `--lock` gains `opt`, and the driver's `LOCK_SCOPES` (`docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py:65`) gains `opt`.
+- **P0, merged.** #956 (`4412db44`): the ordered reads on the sync map reader handles.
+- **P1, merged.** #962 (`7eb97e3a`): a reader handle may be passed to, and freed from, another thread once no call on it is in progress; freeing it during a call, or after its container, is undefined (`include/expanse.h:534`–`:545`, `docs/COMPAT.md` "Reader-handle ownership"). Tested by `test_sync_reader_handles_freed_on_another_thread` (`crates/expanse-capi/tests/test_modern_capi.rs:692`). The registry below relies on it.
+- **P2, merged.** #962 (`7eb97e3a`): `SyncExpanseMap::mem_used` and `expanse_sync_map_mem_used` (`include/expanse.h:580`).
 
-**Soundness gates, before any measurement.** No cell below is read until every gate passes on the head being measured, mirroring `docs/benchmarks/concurrency/METHODOLOGY.md` §12.2 and §5.14's TSan note.
+**Construction.** `SeekLockScope` (`integrations/rocksdb/include/expanse_memtable.h:538`) gains `kOptimistic`. The default stays `kFullLocate` (`:546`), and `ExpanseMemTableRepFactory` (`:610`) is unchanged. The trie's type is chosen at construction: `kFullLocate` and `kTrieCall` keep `expanse_map_t`, so their insert path does not take on the sync map's write protocol.
 
-- **G-O1 — differential under quiescence.** `integrations/rocksdb/tests/test_differential_memtable.cc` runs its fuzz once per scope. On every probe, `Get` (the matched entries), `Contains`, `IteratorImpl::Seek` and `SeekForPrev` (the entry landed on) agree across the three scopes and with `ReferenceMemTable`. The key sets must include keys that share their first 8 bytes across a block boundary, so the trie's answer lands after the target and the backward walk runs, and a rep with a single block, so the `h == t` return runs.
-- **G-O2 — concurrent neighbour check.** A new test, run under all three scopes.
-  - Setup: one writer inserts a fixed, shuffled key set and publishes a committed count after each `Insert` returns. Readers sample the count (`c0`), `Seek` a probe `k`, and sample again.
-  - Checks: a landed entry is at or above `k` and is a key from the set; no key among the first `c0` committed lies at or above `k` and below the landed entry; a probe equal to one of those keys is found by `Get` and by `Contains`.
-  - Why that is a linearizability condition: the memtable is insert-only, so a key committed before a read began is present for all of it. It is a condition on this history, not a general checker.
-- **G-O3 — a deterministic reproducer** (AGENTS.md §2.1.5: race timing is never the primary check). A park point compiled only under a test macro sits between the trie read and `SettleSeekCandidate` under `kOptimistic`. The test parks a reader after the trie returns block `B`, has the writer split `B` so the target moves into `B`'s new successor, resumes the reader, and requires `Get`, `Contains` and `Seek` to find the target.
-- **G-O4 — handle lifecycle.** Deterministic tests:
+**The reader handles.** One handle's pins are not reentrant, so calls on one handle from two threads at once are undefined (`include/expanse.h:535`–`:537`). One RocksDB `Get` probes the active memtable and then each immutable one, each a separate rep, so one thread holds handles on several live reps at once. Fixed requirements:
+
+- **R1 — one handle per (rep, thread).** Never used by two threads at once.
+- **R2 — the rep owns its handles.** The rep keeps a registry of the handles it created, keyed by `std::thread::id` and guarded by its own registry mutex. Only the rep's destructor frees a handle. It frees every registered handle, then the writer handle (R6), then calls `expanse_sync_map_free`. RocksDB destroys a memtable only after every reader has released it, so no call on any handle is in progress then, which is P1's condition for a cross-thread free.
+- **R3 — keyed by a generation, never by address.** Each rep takes a generation id at construction from a process-wide atomic counter, and no generation is issued twice. A thread's cache is keyed by that id. Keying by the rep's address would let a rep constructed where a destroyed one lived match the destroyed rep's cached handle: a use after free.
+- **R4 — a multi-entry per-thread cache.** Each thread keeps a fixed array of `K` = 8 entries of (generation, handle pointer). The array is trivially destructible and constant-initialised. A lookup scans it for the rep's generation; on a miss it takes the rep's registry mutex, finds or creates this thread's handle, and replaces one cache entry in rotation. **`K` = 8 is a registered choice**, not derived from a RocksDB configuration: a thread that reads more than 8 reps in rotation takes the registry mutex on every miss.
+- **R5 — rep destruction and thread exit, in either order.** The cache does not own its entries, and nothing frees a handle at thread exit, so there is no thread-local destructor that could free twice.
+  - **Rep first:** the destructor frees every handle. A live thread's cache entry now names a generation no rep will carry again, so it is never matched.
+  - **Thread first:** its handle stays in the registry and is freed once, by the destructor.
+- **R6 — the writer's handle.** The rep owns one more handle, used only by `FindLeafBlockForInsert` under `mutex_`. Calls on it run on whichever thread holds `mutex_`, never two at once, which P1 permits.
+- **R7 — out of line, on one branch.** The lookup is a `noinline` function, called only on the `kOptimistic` branch. `kFullLocate`'s and `kTrieCall`'s paths gain no thread-local access (AGENTS.md §2.1.5). The single-threaded bound checks this.
+- **The cost of handles left behind, disclosed.** A thread that exits before the rep is destroyed leaves its handle registered: one slot in the collector's reader registry. `Collector::try_advance` scans every registered slot under the registry mutex on each advance (`crates/expanse/src/occ.rs:1671`–`:1679`), so that scan grows with the number of distinct threads that read the rep over its lifetime. A thread id the runtime reuses finds and reuses the handle. That cost is not bounded here; G-O4 reports the registered count, and the concurrent harness reports it per cell.
+
+The concurrent harness's `--lock` gains `opt`, and the driver's `LOCK_SCOPES` (`docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py:65`) gains `opt`.
+
+**A pre-existing window in `Get`, found by reading, not reproduced.** `Get` validates a block, collects the entries from the target's lower bound whose user key matches, runs the callback on them, and only then loads `next_leaf` (`:511`–`:559`). When the matches run to the end of the block, a split of that block between its validation (`:542`–`:546`) and that load (`:559`) moves the block's upper half into a new successor, links it (`:305`), and `Get` then scans the successor and runs the callback again on the moved entries that it already delivered. Nothing in that path takes `mutex_` under any scope, so the window, if the reading is right, exists under `kFullLocate` and `kTrieCall` today. A callback that returns `false` on its first entry, as both harnesses' do, does not observe it. A callback that accumulates several versions of one user key would receive one version twice; whether RocksDB's own `Get` callback does so is not verified against RocksDB here. G-O6 is the check. If it fails under `kFullLocate` or `kTrieCall`, the defect predates this arm: its fix lands in its own PR before the implementation, and that fix changes a path §5.15 measured (AGENTS.md §8.7), which this arm re-measures at its own head anyway.
+
+**Soundness gates, before any measurement.** No cell below is read until every gate passes on the head being measured, mirroring `docs/benchmarks/concurrency/METHODOLOGY.md` §12.2 and §5.14's TSan note. Race timing is never the primary check (AGENTS.md §2.1.5): each concurrency property has a deterministic park-point test, and the randomised tests are secondary.
+
+- **G-O1 — differential under quiescence.** `integrations/rocksdb/tests/test_differential_memtable.cc` runs its fuzz once per scope. On every probe, `Get`, `Contains`, `IteratorImpl::Seek` and `SeekForPrev` agree across the three scopes and with `ReferenceMemTable`. For `Get`, the sequence of entries passed to the callback must equal the reference's: each entry once, in internal-key order, with a callback that returns `true` so every match is delivered. The key sets must include:
+  - keys that share their first 8 bytes across a block boundary, so the trie's answer lands after the target and the backward walk runs;
+  - one user key with more versions than half a block's capacity, so its versions span a split;
+  - a rep with a single block, so the `h == t` return runs.
+- **G-O2 — concurrent neighbour and delivery check.** A new test, run under all three scopes.
+  - Setup: one writer inserts a fixed, shuffled key set, including multi-version user keys and keys sharing an 8-byte prefix, and publishes a committed count after each `Insert` returns. Readers sample the count (`c0`), run a probe, and sample again.
+  - Checks: a `Seek` lands on an entry at or above the probe that is in the set; no entry among the first `c0` committed lies at or above the probe and below the landed entry; a probe equal to one of those entries is found by `Get` and by `Contains`; and a `Get` delivers no entry twice and delivers its entries in internal-key order.
+  - Why that is a linearizability condition: the memtable is insert-only, so an entry committed before a read began is present for all of it. It is a condition on this history, not a general checker.
+- **G-O3 — park points on the locate path.** Each park point is compiled only under a test macro. Every test requires `Get`, `Contains`, `Seek` and `SeekForPrev` to find the targets after the resume.
+  - **(a) Between the trie read and `SettleSeekCandidate`,** `kOptimistic` only. Park a reader after the trie returns block `B`; the writer splits `B` so the target moves into `B`'s new successor.
+  - **(b) Between the `tail_` load and the trie call,** `kOptimistic` only. Park a reader that loaded `head_ != tail_`; the writer splits the block that holds the target, and then splits the new tail.
+  - **(c) The prefix remap.** Keys share one 8-byte prefix `p`. Park a reader after its trie read returned block `B` for `p`. The writer first inserts a smaller key with prefix `p` at slot 0 of an earlier block `A`, which remaps `p` to `A` (`:367`–`:369`), and then fills `A` until a split remaps `p` to a later block (`:307`–`:310`). A second test runs the two remaps in the opposite order. Under `kTrieCall` and `kFullLocate` the same sequence runs with the reader parked after it has left the lock.
+- **G-O4 — handle lifecycle.** Deterministic tests, run in the standard and ASan/UBSan lanes:
   - two threads reading one rep hold different handles (R1);
-  - a counter of the handles a rep registered and has not freed reads 0 before the sync map is freed (R2);
+  - the registry's count of unfreed handles reads 0 before `expanse_sync_map_free` (R2);
   - the destructor, run on a thread that never read the rep, frees handles created by reader threads that are still alive but have stopped reading it (R2, P1);
-  - a thread that read from one rep, then from a second rep created after the first was destroyed, holds a new handle for the second.
-- **§2.3 fail-then-pass mutations**, each recorded in the implementation PR with the failing test's name:
-  - delete `SettleSeekCandidate`'s backward walk: G-O1 fails;
-  - under the G-O3 park point, replace `Get`'s `next_leaf` step (`:559`) with a return: G-O3 fails;
-  - give every thread one shared handle: G-O4 fails;
-  - skip freeing handles in the destructor: G-O4 fails.
-- **G-O5 — lanes.** The standard, ASan/UBSan and TSan lanes of `test-rocksdb-memtable` (`.github/workflows/ci.yml:2226`) run G-O1–G-O4 under all three scopes. The engine side is held to §12.2's G12.1–G12.5 on the measured head, with #956 merged.
+  - **address reuse (R3):** a thread reads rep `A`; `A` is destroyed; rep `B` is constructed by placement new in `A`'s storage; the same thread reads `B`, and `B`'s registry gains a handle while ASan reports nothing;
+  - **eviction (R4):** one thread reads `K + 1` reps in rotation, twice round, with correct results and one registered handle per rep;
+  - **thread exit first (R5):** a reader thread exits, then the rep is destroyed; LSan and ASan report nothing;
+  - **rep first (R5):** a rep is destroyed while its reader thread lives, the thread then reads a new rep and exits; ASan reports nothing.
+- **G-O5 — no `mutex_` on the read path.** A park point inside `Insert`, after `mutex_` is taken (`:318`) and before any version bracket opens or any trie call runs, holds a writer there. Under `kOptimistic`, `Get`, `Contains` and `Seek` on present keys return correct results while it is parked, and the test joins them before releasing the writer. The test has no timing in its passing path.
+- **G-O6 — duplicate delivery.** A park point in `Get`, after a block's validation succeeds and before its `next_leaf` load, holds a reader whose matches run to the block's end. The writer inserts into that block until it splits. On resume, the entries delivered to the callback contain no entry twice. Run under all three scopes.
+- **G-O7 — lanes.** The standard, ASan/UBSan and TSan lanes of `test-rocksdb-memtable` (`.github/workflows/ci.yml:2226`) run G-O1–G-O6 under every scope each applies to. The engine side is held to §12.2's G12.1–G12.5 on the measured head.
 
-**What TSan can and cannot see here.** The lane links `libexpanse.a` from `cargo build --release -p expanse-capi` with no sanitizer (`.github/workflows/ci.yml:2246`–`:2247`, `:2474`–`:2478`).
+**The skip-the-mutex twin, and what rules it out.** A twin that takes `mutex_` in the locate phase only when a writer could be inside `Insert`, and skips it otherwise, behaves exactly like `kOptimistic` when no writer exists. The idle cells spawn no writer (`integrations/rocksdb/benches/bench_memtable_concurrent.cc:242`, `:409`), so no idle cell can tell the two apart, and O1 alone cannot beat that twin. Two things in this section can:
+
+- **G-O5, deterministically.** With a writer parked inside `Insert` holding `mutex_`, the twin's reader waits for the lock and the test does not complete. Mutation 7 below builds the twin.
+- **O3, by measurement.** Under a paced writer the twin takes the lock that `kTrieCall` or `kFullLocate` takes. Against `kTrieCall` at the same achieved writer rate it therefore has no lock work to remove, and §5.15 measured `kFullLocate` below `kTrieCall` under that writer. That is an argument about the twin, not a measurement of it; G-O5 is the check that does not depend on it.
+
+**§2.3 fail-then-pass mutations**, each recorded in the implementation PR with the failing test's name:
+
+1. delete `SettleSeekCandidate`'s backward walk: G-O1 fails;
+2. under G-O3 (a), replace `Get`'s `next_leaf` step (`:559`) with a return: G-O3 (a) fails;
+3. give every thread one shared handle: G-O4's R1 test fails;
+4. skip freeing handles in the destructor: G-O4's registry count, and LSan, fail;
+5. key the per-thread cache by the rep's address: G-O4's address-reuse test fails under ASan;
+6. also free the thread's handles from a thread-local destructor: G-O4's thread-exit tests fail under ASan;
+7. the skip-the-mutex twin — under `kOptimistic`, take `mutex_` in the locate phase whenever a writer has entered `Insert`: G-O5 does not complete, and the lane's timeout records the failure;
+8. move `SplitLeafBlock`'s trie insert (`:307`–`:311`) before the block link (`:298`–`:305`), with the writer's fence (below) still immediately before the moved insert. The test aimed at it parks the writer between the moved insert and the link, while a reader runs `Get`, `Seek`, `SeekForPrev` and `Prev` from keys in both halves of the split block, in the TSan and standard lanes;
+9. move the `tail_` store (`:302`) after the trie insert: G-O3 (b) is the test aimed at it;
+10. let `Insert`'s remap (`:367`–`:369`) run before its entry stores (`:355`–`:364`): G-O3 (c) is the test aimed at it;
+11. delete the reader-side fence below and keep everything else: the TSan lane reports;
+12. delete the writer-side fence below and keep everything else: the TSan lane reports.
+
+**A mutation that survives.** Mutations 8–10 are aimed at the soundness argument above, and this section does not predict whether any gate kills them. A mutation that no gate kills blocks the dispatches until either a test that kills it is added, or the implementation PR argues that the mutated ordering is not load-bearing. That argument is labelled as an argument, and the survivor is recorded with it.
+
+**What TSan can and cannot see here.** The lane links `libexpanse.a` from `cargo build --release -p expanse-capi` with no sanitizer (`.github/workflows/ci.yml:2246`–`:2247`, `:2472`–`:2478`).
 
 - **A race inside the sync map** is invisible to this lane.
-- **The ordering the sync map provides** is invisible too: the happens-before from a writer's `expanse_sync_map_insert` to the block pointer a reader's call returns.
-  - §5.14 records that TSan caught its mutation only because the block pointer stopped arriving under `mutex_`. Under `kOptimistic` it never arrives under `mutex_`.
-  - So, before any TSan run of this scope: the lane is expected to report the same pair on a correct build, the walk's `prev_leaf` load against `SplitLeafBlock`'s construction of a new block. That is an expectation read from §5.14's report, not an observation, and on its own the lane cannot tell a correct build from that mutation.
-- **Compensation.**
-  - **The annotation.** In TSan builds only, the rep annotates the ordering the sync map provides on the trie's address (`sanitizer/tsan_interface.h`): `__tsan_release` after each sync-map insert under `mutex_`, and `__tsan_acquire` after each reader call returns. The implementation PR shows the annotation is wired by a fail-then-pass: without the reader-side call, the lane reports.
-  - **What the annotation costs.** It asserts the engine's contract, so with it the lane checks the integration's own atomics and not the trie. The contract is checked where the engine is instrumented: §12.2's G12.1–G12.4, the nightly TSan job built with `-Zsanitizer=thread` and `-Zbuild-std` (`.github/workflows/nightly.yml:174`), and #956's C ABI tests.
-  - **What runs uninstrumented.** G-O2 and G-O3 run in the standard lane as well, at uninstrumented timing.
+- **The ordering the sync map provides** is invisible too: the happens-before from a writer's `expanse_sync_map_insert` to the block pointer a reader's call returns. §5.14 records that TSan caught its mutation only because the block pointer stopped arriving under `mutex_`. Under `kOptimistic` it never arrives under `mutex_`.
+- **Why not annotate the trie's address.** A `__tsan_release` after each sync-map insert and a `__tsan_acquire` after each reader call would assert exactly that happens-before, wherever the calls sit. With it, moving the trie insert before the link would still look ordered to TSan. No `__tsan_*` annotation is used.
+- **Code-level fences instead, where the ordering is.**
+  - **Writer:** a release fence, spelled as `SplitLeafBlock` and `Insert` already spell theirs (`:278`, `:353`), after the link stores (`:298`–`:305`) and immediately before the split's trie insert, and after the entry and count stores (`:361`–`:364`) and immediately before `Insert`'s remap.
+  - **Reader:** an acquire fence, spelled as `Contains` and `Get` spell theirs (`:424`, `:542`), immediately after `expanse_sync_map_reader_prev_at_or_before` returns.
+  - **What the fences assert.** The reader's fence runs after the writer's in the execution only because the writer's fence precedes the insert that published the block, so the happens-before TSan records from them exists only where the code's order does. Mutations 11 and 12 show each fence is wired. Mutation 8 moves the insert away from the link, and mutation 8's park point makes that ordering deterministic.
+  - **Cost.** The fences run under `kOptimistic` only. The default path gains none, which the single-threaded bound checks.
+- **What TSan's report on a correct build will be** is not predicted. A report is investigated, never suppressed.
+- **The engine's contract** is checked where the engine is instrumented: §12.2's G12.1–G12.4, the nightly TSan job built with `-Zsanitizer=thread` and `-Zbuild-std` (`.github/workflows/nightly.yml:174`), and #956's and #962's C ABI tests.
 
 **The single-threaded bound, before any wall-clock run** (AGENTS.md §2.7 item 4, #923).
 
-- **Cells.** The four `ExpanseMemTable` phases of `integrations/rocksdb/benches/bench_memtable.cc`, whose rep is built with the default scope (`:481`): `fillrandom` (`Insert`, `:488`), `readrandom` (`Get`, `:539`), `seekrandom` (`IteratorImpl::Seek`, `:601`), `prefixscan` (`IteratorImpl::Next`, `:646`, and `ScanBatch`, `:660`). `memory` is a byte census and is not in the bound.
-- **Instrument.** Callgrind `Ir`, inclusive, of those entry points (`callgrind_annotate --inclusive=yes`), from one `bench_memtable --arm <phase> --round 0` process per phase.
-  - Base and head are built and run in the same CI job on x86_64 Linux, with the Makefile's flags and the same release `libexpanse`.
-  - Base is the implementation PR's merge base, which contains #956.
-  - The instrument lands before the change, with a base-against-base control. The control must show no difference on any cell. If it does, the instrument cannot resolve the bound, and the bound is reported unmet rather than widened.
-- **Bound.** No cell's inclusive `Ir` rises by more than 0.1%, the AGENTS.md §6 review threshold. Any change beyond ±0.1%, in either direction, is attributed per function (AGENTS.md §6) in the PR body before any wall-clock run.
-- **Disassembly.** In the head build, `objdump -d -C` of `FindLeafBlockForSeek`, `SettleSeekCandidate`, `Insert`, `FindLeafBlockForInsert`, `Get`, `Contains` and `IteratorImpl::Seek` shows no `%fs:` access (R3).
-- **Reported, not bounded.** The same four cells with a `kOptimistic` rep, through a scope flag on `bench_memtable`. No sign is predicted. `kTrieCall` has no single-threaded cell.
+- **Cells.** The four `ExpanseMemTable` phases of `integrations/rocksdb/benches/bench_memtable.cc`, whose rep is built with the default scope (`:481`): `fillrandom` (`Insert`, `:488`), `readrandom` (`Get`, `:539`), `seekrandom` (`IteratorImpl::Seek`, `:601`), `prefixscan` (`IteratorImpl::Next`, `:646`, and `ScanBatch`, `:660`). Also `ApproximateMemoryUsage`, which every process calls once after its phase (`:710`).
+- **Instrument.** Callgrind `Ir`, inclusive, per entry point, from one `bench_memtable --arm <phase> --round 0` process per phase, run with `--collect-atstart=no`.
+  - **Collection covers the timed region only.** In `--arm` mode the fixture fill runs in every process (`:477`), so an unrestricted `Insert` count would include the fill in the read phases. `CALLGRIND_TOGGLE_COLLECT` requests (`valgrind/callgrind.h`), compiled only under a bench macro, bracket the timed loop of the selected phase and, separately, the `ApproximateMemoryUsage` call.
+  - **Base and head are built independently.** Each comes from its own checkout in its own directory, with its own build of the release `libexpanse`, in the same CI job on x86_64 Linux and with the Makefile's flags. Base is the implementation PR's merge base.
+  - **The control.** Two independent builds of the base, run as separate processes, must give identical inclusive `Ir` per entry point. Callgrind is deterministic, so this control checks the pipeline — build, run, annotate and parse — and says nothing about resolving a small change. A non-zero control means the build or the run is not reproducible, and the bound is reported unmet rather than widened.
+  - **What is published per entry point:** calls, inclusive `Ir`, `Ir` per call, and the `Ir` per call that the 0.1% budget admits (`ir_budget_per_call` in `scripts/rocksdb_locate_bound.py`), beside the head-minus-base difference. That pair is what says how large a change the bound can see.
+- **Bound.** No entry point's inclusive `Ir` rises by more than 0.1%, the AGENTS.md §6 review threshold. Any change beyond ±0.1%, in either direction, is attributed per function (AGENTS.md §6) in the PR body before any wall-clock run.
+- **No thread-local access on the default paths (R7).** Disassembling for `%fs:` cannot answer this: a C++ `thread_local` with dynamic initialisation or a destructor is reached through `_ZTW`/`_ZTH` wrappers, position-independent code reaches TLS through `__tls_get_addr` or TLS descriptors, and a linked executable has already resolved local-exec offsets. The checks instead:
+  - **Relocations, on the object file.** `objdump -dr` and `readelf -rW` of `expanse_memtable.o`, compiled with the bench flags: every TLS relocation (`R_X86_64_TPOFF32`, `R_X86_64_GOTTPOFF`, `R_X86_64_TLSGD`, `R_X86_64_TLSLD`, `R_X86_64_DTPOFF32`, `R_X86_64_GOTPC32_TLSDESC`, `R_X86_64_TLSDESC_CALL`), and every call to `__tls_get_addr`, a `_ZTW*` or a `_ZTH*` symbol, lies inside the symbol range of the `noinline` lookup function (R7). None lies in any other function.
+  - **The call graph, from Callgrind.** In every default-scope cell, the lookup function and every `expanse_sync_map_reader_*` symbol have 0 calls in `callgrind.out`'s call records. Deterministic.
+  - **What neither sees:** a branch inside one function. The scope branch itself is covered by the `Ir` bound.
+- **Reported, not bounded.** The same cells and `ApproximateMemoryUsage` with a `kOptimistic` rep, through a scope flag on `bench_memtable`. No sign is predicted. `kTrieCall` has no single-threaded cell.
 - **Order.** Bound met, then the soundness gates, then the dispatches. A failed bound dispatches nothing: the implementation is changed and re-measured at a new head, and the bound does not move (AGENTS.md §8.19).
 
-**The gate** (`directional_verdict` in `scripts/rocksdb_locate_bound.py`, AGENTS.md §8.20.2). The gated statistic, and the reported O2 beside it, is a paired per-round ratio under an idle writer: `(T_a(7) / T_a(1)) / (T_b(7) / T_b(1))`, from that round's four cells, with a BCa 95% interval over the rounds. The gate is read per pin over that pin's two runs:
+**The gates.** Each gate reads one pin's two runs of one paired ratio `a / b` in one writer mode, through three statistics, each a per-round ratio from that round's cells with a BCa 95% interval over the rounds (`optimistic_gate_verdict` in `scripts/rocksdb_locate_bound.py`, AGENTS.md §8.20.2):
 
-- `PASS` when both runs' lower bounds are above 1;
-- `REFUTED` when both runs' upper bounds are below 1;
-- `BOUNDARY_RESULT` otherwise, including a bound exactly at 1.
+| statistic | per round | test (`directional_verdict`, `noninferiority_verdict`) |
+|---|---|---|
+| scaling | `(T_a(7) / T_a(1)) / (T_b(7) / T_b(1))` | directional: `PASS` when both runs' lower bounds are above 1, `REFUTED` when both upper bounds are below 1 |
+| absolute | `T_a(7) / T_b(7)` | directional, as above |
+| control | `T_a(1) / T_b(1)` | non-inferiority: `PASS` when both runs' lower bounds are above 1 − 0.02 |
 
-Pins `0,2,4,6,8,10,12,14` and `0-15` are read separately and never pooled (AGENTS.md §8.20.5 step 0).
+- **A gate `PASS`es** only when all three do. It reads `REFUTED` only when the scaling and absolute statistics are both `REFUTED`, and `BOUNDARY_RESULT` otherwise, including any bound exactly on its floor. Pins `0,2,4,6,8,10,12,14` and `0-15` are read separately and never pooled (AGENTS.md §8.20.5 step 0).
+- **Why three statistics.** The scaling ratio divides by the `R = 1` control, so a slower single `kOptimistic` reader raises it without any reader getting faster. The absolute ratio at `R = 7` must clear 1 as well, and the control's margin caps what a slower single reader can contribute at a factor of 1 / (1 − 0.02).
+- **The margin, 0.02, is a registered choice** (`OPTIMISTIC_NI_MARGIN`), fixed before the sizing was computed.
 
-- **O1 (gated): `S_opt(7) / S_full(7)`.** The locate phase no longer takes `mutex_`, against the scope every earlier cell measured.
-- **O2 (reported, never gated): `S_opt(7) / S_trie(7)`**, same estimator, read with the same `directional_verdict` wording but deciding nothing.
-  - **What §5.15 left.** Under `kTrieCall` the idle curve still falls after `R = 2` or `R = 4`. Idle `S_trie(7)` was 1.139 [1.083, 1.191] and 1.119 [1.062, 1.176] under `0,2,4,6,8,10,12,14`, and 1.110 [1.013, 1.198] and 1.098 [1.021, 1.177] under `0-15` (workload: `rocksdb_memtable_concurrent_read_scaling`; `results/baseline_concurrent_reads_narrowed_*.json`).
-  - **What differs between the two scopes.** `kTrieCall` still serialises the trie call, which §5.12's profile put at 0.1158 [0.1149, 0.1167] and 0.1142 [0.1104, 0.1171] of an idle `R = 1` `Get`. `kOptimistic` replaces that lock with a validated walk and an epoch pin, whose cost on this path is unmeasured.
-  - **Why no direction is predicted.** §5.13 rejected all six curve shapes, so no model supplies one.
-  - **Why it is reported, not gated.** Neither #802 nor #900 depends on it, and it does not set the rounds. A later default proposal that names one of `kTrieCall` and `kOptimistic` over the other needs its own pre-registered comparison; these intervals inform that proposal and do not decide it.
-- **Expected outcome, stated before the cells.**
-  - **O1:** `PASS` under both pins. `kOptimistic` takes no `mutex_` in its locate phase, and §5.15 measured `S_trie(7) / S_full(7)` above 1 in all four runs with the lock still around the trie call. The expectation comes from having seen §5.15, so a `PASS` is weaker evidence than a blind one.
-  - **O2:** no outcome predicted.
-- **Reported, never gated:**
-  - the `R = 1` controls `T_opt(1) / T_full(1)` and `T_opt(1) / T_trie(1)`, idle and paced;
-  - idle `R = 2` and `R = 4` for both ratios;
-  - `S_trie(R) / S_full(R)`, re-measured at the new head and not compared with §5.15 (§8.7);
-  - every paced ratio, with each scope's achieved writer rate per `R`. Paced cells are not gated, for §5.14's reason: the scopes' paced writers are not held to one achieved rate.
-- **A control whose interval excludes 1** in both runs is reported as a single-reader effect of the scope. The gated ratio divides it out and still decides.
+The three gates:
 
-**How small an effect the gate can see, and the rounds that follow** (`python3 scripts/rocksdb_locate_bound.py`, `optimistic_gate_sizing`).
+- **O1 — idle, `opt / full`.** The locate phase no longer takes `mutex_`, against the scope every earlier cell measured, with no writer. It is kept as the idle control: no insert, split or retry runs in any of its cells, so on its own it cannot separate `kOptimistic` from the skip-the-mutex twin.
+- **O2 — idle, `opt / trie`.** Same estimator. §5.15 left `kTrieCall`'s idle curve falling after `R = 2` or `R = 4`, with idle `S_trie(7)` 1.139 [1.083, 1.191] and 1.119 [1.062, 1.176] under `0,2,4,6,8,10,12,14`, and 1.110 [1.013, 1.198] and 1.098 [1.021, 1.177] under `0-15` (workload: `rocksdb_memtable_concurrent_read_scaling`; `results/baseline_concurrent_reads_narrowed_*.json`). `kTrieCall` still serialises the trie call, which §5.12's profile put at 0.1158 [0.1149, 0.1167] and 0.1142 [0.1104, 0.1171] of an idle `R = 1` `Get`. `kOptimistic` replaces that lock with a validated walk and an epoch pin, whose cost on this path is unmeasured.
+- **O3 — paced, `opt / trie`.** The gated cell with a writer running: 250,000 inserts/s offered, so inserts, splits and optimistic retries run during the measured window.
+  - **Writer admissibility** (`paced_writer_problems`). In every round, both scopes' writers must reach at least 0.99 of the offered rate at `R = 1` and `R = 7`, with no flagged cell (§5.9). **0.99 is a registered choice.** In §5.15 the `trie` writer reached 249,974–249,994 inserts/s at every `R` in all four runs, which the rule admits, and the `full` writer 135,750–216,810 at `R = 7`, which it refuses (`python3 scripts/rocksdb_locate_bound.py`, pinned by its `--self-test`).
+  - **Why `trie` and not `full`.** §5.14 left paced cells ungated because the two scopes' writers ran at different rates. The admissibility rule holds both writers of O3 within 1% of one rate. It would refuse every §5.15 `full` run, so a paced `opt / full` ratio stays reported.
+  - **A run that fails admissibility** leaves O3 `NOT_EVALUABLE` under that pin. It voids nothing else, and no replacement run is dispatched on that account; what follows is decided in the issue.
 
-- **Inputs.** Every round of the idle `R = 7` cell in the four §5.15 artifacts, read with no filtering: `scaling_by_lock_scope.{full,trie}.idle.S(7).rounds_raw` and `lock_scope_ratio.idle.S(7).rounds_raw`.
+**What closes #802, and what O2 decides** (`optimistic_closure`).
+
+- **#802 closes when O1 and O3 both `PASS` under both pins**, two runs each. Its first "Done when" branch is then measured: a locate phase that does not take `mutex_`, and a concurrent arm that shows the difference with BCa intervals on the reference host, with the writer running and against the idle control. An O1 `PASS` alone does not close it.
+- **O2 decides no closure.** It is gated because the rounds O3 needs resolve it (below). An O2 `PASS` under both pins lets a later default proposal name `kOptimistic` over `kTrieCall` for idle reads; anything else means no proposal may claim that. #802's closure does not choose between `kTrieCall` and `kOptimistic` in the idle regime. O3 is the one statement this section makes between them, under a paced writer.
+- **O1 or O3 `PASS` under one pin only:** the effect is pin-sensitive and reported as such; #802 stays open.
+- **O1 or O3 `BOUNDARY_RESULT`, `REFUTED` or `NOT_EVALUABLE`:** #802's second branch, keeping the mutex with its measurement recorded, is decided in the issue on these runs.
+- **The default changes in no case.** Making any scope the default is a separate change under AGENTS.md §2.7: it has its own single-threaded bound, keeps `kFullLocate` selectable, and migrates every consumer (`ExpanseMemTableRepFactory`, the harnesses and the tests).
+- **#900:** step 10 is done when this section's outcomes are appended, in any direction. Neither an O1, O2 nor O3 `REFUTED` reopens §12.9.
+
+**No outcome is predicted for any gate.** O1's regime is the one where §5.15 measured `trie / full` above 1 in all four runs, so an O1 `PASS` would be weaker evidence than a blind one. That is part of why O1 does not close #802 alone.
+
+**Reported, never gated:**
+
+- `S_trie(R) / S_full(R)`, re-measured at the new head and not compared with §5.15 (§8.7);
+- every ratio at `R = 2` and `R = 4`;
+- every paced ratio against `full`, with each scope's achieved writer rate per `R`;
+- a control whose interval excludes 1 in both runs, as a single-reader effect of the scope.
+
+**How small an effect each gate can see, and the rounds that follow** (`python3 scripts/rocksdb_locate_bound.py`, `optimistic_gate_sizing`).
+
+- **Inputs.** Every round of the four §5.15 artifacts, read with no filtering from each cell's `read_mops`: per writer mode, the per-round spread of `S(7)`, `T(7)` and `T(1)` for each scope, and of the paired `trie / full` ratio. The self-test checks the paired spreads against the driver's own per-round ratios.
 - **The assumption.** No `kOptimistic` round exists, so its per-round spread is taken to be `kTrieCall`'s, the other scope that does not hold the lock over the whole locate phase.
-- **Planning spread** (per-round coefficient of variation):
-  - `opt/full`: the larger, over the four runs, of the measured paired `trie/full` spread and the independent projection `hypot(cv_trie, cv_full)`;
-  - `opt/trie`: the largest over the four runs of `hypot(cv_trie, cv_trie)`.
+- **Planning spread** (`planning_cv`), per mode and statistic:
+  - `opt / full`: the larger, over the four runs, of the measured paired `trie / full` spread and the independent projection `hypot(cv_trie, cv_full)`;
+  - `opt / trie`: the largest over the four runs of `hypot(cv_trie, cv_trie)`.
 - **Half-width:** `t(0.975, n − 1) × cv / √n`. It is wider than a BCa interval over few rounds, so it errs toward more rounds.
-- **Target:** a true O1 ratio of 1.05 must clear 1 at the lower bound. That is a choice, fixed before the sizing was computed, not a derivation. O2 does not set the rounds; its detectable ratio at those rounds is reported.
+- **Targets.** A directional statistic must clear 1 at a true ratio of 1.05, and a control must resolve the 0.02 margin at a true ratio of 1. The 1.05 target is a choice fixed before the first sizing was computed, kept unchanged in this revision.
+- **The rounds are the largest any gated statistic needs.** All nine are gated, so none is under-powered against its target.
 
-| source run | CV `full` | CV `trie` | CV paired `trie/full` | `hypot(trie, full)` | `hypot(trie, trie)` |
+| gate | statistic | planning CV | at 5 rounds, relative half-width | rounds needed | at 78 rounds |
 |---|---|---|---|---|---|
-| `baseline_concurrent_reads_narrowed_pin_one_sibling.json` | 0.0305 | 0.0634 | 0.0517 | 0.0704 | 0.0897 |
-| `…_pin_one_sibling_run2.json` | 0.0026 | 0.0676 | 0.0672 | 0.0676 | 0.0956 |
-| `…_pin_0-15.json` | 0.0192 | 0.1094 | 0.0925 | 0.1111 | 0.1547 |
-| `…_pin_0-15_run2.json` | 0.0394 | 0.0914 | 0.1122 | 0.0996 | 0.1293 |
+| O1 idle `opt / full` | scaling `S(7)` | 0.1122 | 0.1393 | 24 | clears 1 above 1.0259 |
+| O1 | absolute `T(7)` | 0.1121 | 0.1392 | 24 | clears 1 above 1.0259 |
+| O1 | control `T(1)` | 0.0155 | 0.0193 | 5 | half-width 0.0035 |
+| O2 idle `opt / trie` | scaling `S(7)` | 0.1547 | 0.1921 | 43 | clears 1 above 1.0361 |
+| O2 | absolute `T(7)` | 0.1562 | 0.1940 | 44 | clears 1 above 1.0365 |
+| O2 | control `T(1)` | 0.0054 | 0.0067 | 5 | half-width 0.0012 |
+| O3 paced `opt / trie` | scaling `S(7)` | 0.2105 | 0.2613 | **78** | clears 1 above 1.0498 |
+| O3 | absolute `T(7)` | 0.2091 | 0.2597 | 77 | clears 1 above 1.0495 |
+| O3 | control `T(1)` | 0.0087 | 0.0108 | 5 | half-width 0.0020 |
 
-| ratio | role | planning CV | at 5 rounds, the lower bound clears 1 above | rounds to reach 1.05 | at 24 rounds, clears 1 above |
-|---|---|---|---|---|---|
-| `opt/full` | O1, gated | 0.1122 | 1.1618 | 24 | 1.0497 |
-| `opt/trie` | O2, reported | 0.1547 | 1.2377 | 43 | 1.0699 |
+- **Rounds per cell: 78**, set by O3's paced scaling ratio. Its planning spread is `hypot(0.1488, 0.1488)`, from the paced `trie` `S(7)` of `…_pin_0-15_run2.json`. At 78 rounds, `t(0.975, 77)` = 1.9913.
+- **What remains undetectable.** At 78 rounds a true O3 ratio below 1.0498 may read `BOUNDARY_RESULT`, and so may a true O1 ratio below 1.0259 or O2 ratio below 1.0361. These are projections, not predictions of the outcome.
+- **What the rounds cost.** 78 rounds × 24 cells is 1,872 cells per run, against 576 at the 24 rounds this section's previous draft registered. The cell set is unchanged from that draft.
 
-- **Rounds per cell: 24**, set by O1 alone. At §5.14's 5 rounds, a true O1 ratio below the projected 1.1618 could read `BOUNDARY_RESULT` however real it is.
-- **What remains undetectable.** At 24 rounds, a true O1 ratio below 1.0497 may read `BOUNDARY_RESULT`, and an O2 interval cannot separate a true ratio below 1.0699 from 1. These are projections, not predictions of the outcome.
+**Counters on the paced cells, reported and never gated.** Counters are observational and decide nothing (AGENTS.md §8.20.3).
+
+- **Cells:** paced `R = 1` and `R = 7`, each of the three scopes, 5 rounds per cell, one run per pin, taken through `scripts/bench_counters.py` over the harness's counters mode. Never in the timing runs.
+- **Per read op, per scope:**
+  - read fallbacks: the engine's `ReadFallbacks` over `ReadOps` (`crates/expanse/src/occ_stats.rs:57`, `crates/expanse/src/sync.rs:1901`–`:1914`), from a separate `occ-stats` build of `libexpanse` that no timing run uses. `LockedReads` is not the counter, because it also counts `mem_used`'s locked reads (`sync.rs:1815`–`:1820`). If the instrument PR cannot read the counter from the C++ harness, it is reported unavailable, by name;
+  - `ld_blocks.store_forward`, the counter §12.8 found moving under #928 while instructions per read stayed flat, and which Callgrind cannot see. It is added to the event list after being checked against `perf list` on the reference host.
+- **Per reader thread:** `context-switches`, and `syscalls:sys_enter_futex` where its preflight opens it (`scripts/bench_counters.py:152`, `:159`).
+- **Frequency:** `cycles` and `ref-cycles` per thread (`scripts/bench_counters.py:148`–`:149`).
+- **What they describe.** §5.11 found that the counters harness does not reproduce the wall-clock arm's paced `R = 7` regime under `0,2,4,6,8,10,12,14`. So these counters describe the counters harness's regime, and they are reported beside each scope's achieved writer rate in that harness.
 
 **The cells, fixed here.**
 
-- **Suite:** `rocksdb_concurrent_optimistic`, which runs `concurrent_read_scaling.py --lock-scopes full,trie,opt --modes idle,paced --readers 1,2,4,7 --rounds 24`.
-  - Lock scope × writer mode × `R` interleave within each round: 24 cells per round, 576 per run.
+- **Suite:** `rocksdb_concurrent_optimistic`, which runs `concurrent_read_scaling.py --lock-scopes full,trie,opt --modes idle,paced --readers 1,2,4,7 --rounds 78`.
+  - Lock scope × writer mode × `R` interleave within each round: 24 cells per round, 1,872 per run.
   - 2.0 s window, paced writer offered 250,000 inserts/s, estimator as §5.2.
-  - The artifact adds paired ratios for `opt/full`, `opt/trie` and `trie/full`. The instrument PR fixes their key names.
-  - An `optimistic_problems` check in `scripts/rocksdb_locate_bound.py` refuses a run whose pin, pin source, window, offered rate, reader counts, modes, scopes, rounds or pairs per ratio differ from these. It lands with the instrument, before any run.
+  - The artifact carries, per writer mode, the paired scaling, absolute and control ratios for `opt / full`, `opt / trie` and `trie / full`, each with its BCa interval and `rounds_raw`, the achieved writer rate per scope and `R`, and the registered handle count per cell. The instrument PR fixes the key names.
+  - An `optimistic_problems` check in `scripts/rocksdb_locate_bound.py` refuses a run whose pin, pin source, window, offered rate, reader counts, modes, scopes, rounds or pairs per ratio differ from these. It lands with the instrument, before any run, and calls `paced_writer_problems` for O3.
 - **Wiring (AGENTS.md §2.7 item 3):**
   - the `.github/bench-suites.json` entry;
   - the `bench_baremetal.yml` dispatch `case`, mirroring `rocksdb_concurrent_narrowed`, including its one-cell smoke run with `--lock opt`;
@@ -894,28 +962,19 @@ Pins `0,2,4,6,8,10,12,14` and `0-15` are read separately and never pooled (AGENT
   - `python3 scripts/check_bench_suites.py --write`;
   - `--lock opt` in the `test-rocksdb-memtable` smoke step;
   - the README's related-links entry.
-- **Commit:** the `main` commit the implementation lands on, recorded in each artifact. It contains #956.
+- **Commit:** the `main` commit the implementation lands on, recorded in each artifact.
 - **Runs:** four dispatches of `bench_baremetal.yml` with `benchmark_suite=rocksdb_concurrent_optimistic`, each after the previous completes: two with `cpu_pin=0,2,4,6,8,10,12,14`, then two with `cpu_pin=0-15`.
 - **Artifacts:** `results/baseline_concurrent_reads_optimistic_pin_one_sibling.json` and `_run2`, then `results/baseline_concurrent_reads_optimistic_pin_0-15.json` and `_run2`.
 - **Pooling:** no round from §5.7–§5.15 is pooled in.
 
 **What voids a run.** In addition to AGENTS.md §6:
 
-- it was dispatched before the single-threaded bound was met, or read before G-O1–G-O5 passed, on the measured head;
+- it was dispatched before the single-threaded bound was met, or read before G-O1–G-O7 passed, on the measured head;
 - `optimistic_problems` refuses it;
 - in any cell the foreign busy CPU exceeds 1.0 core-equivalent, or `load1` exceeds 12 on the 24 logical CPUs at any snapshot (AGENTS.md §8.17). The run is discarded whole, and the discard is disclosed;
 - it was dispatched before the previous run of the same sequence completed.
 
-Threshold, method and round count are fixed here. Changing any of them after a run relabels that run `INTERMEDIATE`, with fresh runs (AGENTS.md §8.19). A paced cell that is flagged or whose writer ran out of keys is reported and voids nothing, because no paced cell is gated.
-
-**What each outcome decides.**
-
-- **O1 `PASS` under both pins, two runs each:** #802 closes. Its first "Done when" branch is then measured: a locate phase that does not take `mutex_`, and a concurrent arm that shows the difference with BCa intervals on the reference host. The default does not change here.
-  - **Making any scope the default is a separate change** under AGENTS.md §2.7. It has its own single-threaded bound, keeps `kFullLocate` selectable, and migrates every consumer (`ExpanseMemTableRepFactory`, the harnesses and the tests).
-- **O1 `PASS` under one pin only:** the effect is pin-sensitive, reported as such, and the default is unchanged.
-- **O1 `BOUNDARY_RESULT` or `REFUTED`:** the default is unchanged, and #802's second branch, keeping the mutex with its measurement recorded, is decided in the issue on these runs.
-- **O2:** reported with its intervals and decides nothing. It closes no issue and routes no default.
-- **#900:** step 10 is done when this section's outcomes are appended, in any direction. Its other open steps, 8 and 9, are #956. Once #956 has merged and these outcomes are appended, no step of #900's plan remains. Neither an O1 nor an O2 `REFUTED` reopens §12.9.
+Threshold, margin, admissibility floor, method and round count are fixed here. Changing any of them after a run relabels that run `INTERMEDIATE`, with fresh runs (AGENTS.md §8.19). A paced cell outside O3 that is flagged, or whose writer ran out of keys, is reported and voids nothing.
 
 **Prior observations at lock time (disclosure).**
 
@@ -923,23 +982,23 @@ Threshold, method and round count are fixed here. Changing any of them after a r
   - under `0,2,4,6,8,10,12,14`: 1.8692 [1.7927, 1.9379] and 1.7589 [1.6694, 1.8487];
   - under `0-15`: 1.7731 [1.6436, 1.8943] and 1.7892 [1.6154, 1.9183];
   - the idle `T(1)` control: 1.0109 [1.0061, 1.0170] and 1.0132 [1.0032, 1.0269] under `0,2,4,6,8,10,12,14`, and 1.0082 [1.0049, 1.0108] and 1.0103 [1.0074, 1.0133] under `0-15`.
-  - Every one of the section's per-round values also feeds the sizing above.
+  - Every one of the section's per-round cells also feeds the sizing above, and its writer rates feed the admissibility pin.
 - **§5.12's locate profile** at idle `R = 1` under `0,2,4,6,8,10,12,14`:
   - `locked_fraction` 0.5094 [0.5045, 0.5162] and 0.5052 [0.5014, 0.5114];
   - `trie_fraction` 0.1158 [0.1149, 0.1167] and 0.1142 [0.1104, 0.1171].
 - **§5.11's `perf c2c`** under `0,2,4,6,8,10,12,14` at idle `R = 7` attributes 63–67% of the load HITMs on the harness's shared user-space line to `pthread_mutex_lock`. That counter is observational and decides nothing here (§8.20.3).
 - **§12.9's P12.5:** at W = 1, R = 4, the optimistic `prev_before` read 91.81 [85.52, 96.74] and 89.47 [84.24, 93.75] times the throughput of `with_locked`, and the W = 0, R = 1 control read 2.15 [2.14, 2.16] and 2.13 [2.12, 2.14] (workloads differ: `concurrency_ordered_readers_map_64bit` vs `rocksdb_memtable_concurrent_read_scaling`).
-  - **Why that ratio does not transfer.** Its denominator takes the fallback mutex, quiesces writers and takes the writer mutex on every read (`Shared::with_locked`). A `kFullLocate` or `kTrieCall` seek holds one `std::mutex` around one `expanse_map_t` call and never quiesces a writer. The denominators are different operations, so no magnitude carries over, and O1 and O2 are directional.
-- **§12.8:** #928 cost the 64-bit `SyncExpanseMap` readers throughput in `masstree_concurrent` while instructions per read stayed flat, with the difference in `ld_blocks.store_forward`. The ordered reads go through the same `Shared::optimistic_read`. That was measured on another workload and no prediction is drawn from it.
+  - **Why that ratio does not transfer.** Its denominator takes the fallback mutex, quiesces writers and takes the writer mutex on every read (`Shared::with_locked`). A `kFullLocate` or `kTrieCall` seek holds one `std::mutex` around one `expanse_map_t` call and never quiesces a writer. The denominators are different operations, so no magnitude carries over, and every gate is directional.
+- **§12.8:** #928 cost the 64-bit `SyncExpanseMap` readers throughput in `masstree_concurrent` while instructions per read stayed flat, with the difference in `ld_blocks.store_forward`. The ordered reads go through the same `Shared::optimistic_read`. That was measured on another workload and no prediction is drawn from it; it is why that counter is reported above.
 
 **Explicitly not predicted, and not covered.**
 
-- **Magnitudes:** of O1 and O2, and the sign of O2.
-- **Reported cells:** the `R = 1` controls, the paced cells, `S(2)` and `S(4)`.
-- **Other operations:** the cells time `Get`; G-O1 and G-O2 cover `Contains`, `IteratorImpl::Seek` and `SeekForPrev` for correctness only.
+- **Outcomes and magnitudes:** of O1, O2 and O3, and the sign of any reported ratio.
+- **Other operations:** the cells time `Get`; G-O1–G-O6 cover `Contains`, `IteratorImpl::Seek` and `SeekForPrev` for correctness only.
 - **Writers:** the free writer, and multiple writers. `InsertConcurrently` is still `Insert` under `mutex_` (`:377`–`:379`).
-- **`kOptimistic`'s single-threaded cost:** reported, not bounded.
-- **Memory:** no memory figure is measured or gated for any scope. P2 tests `expanse_sync_map_mem_used` itself.
-- **Mechanism:** of any ratio. No counters are collected on this arm.
+- **`kOptimistic`'s single-threaded cost**, and `ApproximateMemoryUsage`'s under `kOptimistic`: reported, not bounded. Its cost under concurrency, on RocksDB's write path: not measured.
+- **Handles left behind by exited threads:** their scan cost in `try_advance` is disclosed and not bounded.
+- **Memory:** no memory figure is measured or gated for any scope.
+- **Mechanism:** of any ratio. The counters above are reported and decide nothing.
 - **32-bit targets:** the integration uses the 64-bit `expanse_map_t` and `expanse_sync_map_t` surface only.
 - **Another lock design:** a shared or reader-writer lock is not an arm here.
