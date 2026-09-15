@@ -425,6 +425,19 @@ enum class ParkPoint : int {
     // Get, after a block's version bracket validated and its matches were
     // passed to the callback, before that block's next_leaf is loaded.
     kGetBeforeNextLeaf,
+    // The iterator: after each operation has chosen the position it moves the
+    // cursor to, and before the anchor on that position is captured.
+    kSeekBeforeAnchor,
+    kSeekForPrevBeforeAnchor,
+    kNextBeforeAnchor,
+    kPrevBeforeAnchor,
+    kSeekToFirstBeforeAnchor,
+    kSeekToLastBeforeAnchor,
+    kScanBatchBeforeAnchor,
+    // IteratorImpl::key() and Valid(), after RevalidatePosition() accepted the
+    // position and before the position is read.
+    kKeyAfterRevalidate,
+    kValidAfterRevalidate,
 };
 using ParkHook = void (*)(ParkPoint point);
 inline std::atomic<ParkHook> g_park_hook{nullptr};
