@@ -259,6 +259,12 @@ NO_ROUNDS = {
     "hot_comparison/results/baseline_string_memory.json",
     "masstree_comparison/results/baseline_memory.json",
     "masstree_comparison/results/baseline_string_memory.json",
+    # Run 2 of the same censuses, committed so the between-run statements in the
+    # suite READMEs resolve to an artifact; same deterministic schema.
+    "hot_comparison/results/baseline_memory_curve_run2.json",
+    "hot_comparison/results/baseline_string_memory_run2.json",
+    "masstree_comparison/results/baseline_memory_run2.json",
+    "masstree_comparison/results/baseline_string_memory_run2.json",
 }
 
 # The comparative suites this gate governs: the ones whose runners drive an

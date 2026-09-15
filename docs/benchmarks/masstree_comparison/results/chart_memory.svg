@@ -95,42 +95,42 @@
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
   <text x="30" y="108" class="t-bar-label">λ ≈ 8 · integer map</text>
   <text x="30" y="122" class="t-sub">N = 524,288 · allocator instrument</text>
-  <rect x="300" y="92" width="172.2" height="11" rx="2" class="b-expanse"/>
-  <text x="480.2" y="101" class="t-val-accent">18.99</text>
-  <rect x="300" y="109" width="217.8" height="11" rx="2" class="b-masstree"/>
-  <text x="525.8" y="118" class="t-val-blue">24.02</text>
+  <rect x="300" y="92" width="172.4" height="11" rx="2" class="b-expanse"/>
+  <text x="480.4" y="101" class="t-val-accent">19.02</text>
+  <rect x="300" y="109" width="217.7" height="11" rx="2" class="b-masstree"/>
+  <text x="525.7" y="118" class="t-val-blue">24.02</text>
   <rect x="800" y="100" width="130" height="20" rx="3" class="badge-win"/>
   <text x="865" y="114" class="badge-win-text">Expanse 1.26x</text>
   <text x="30" y="164" class="t-bar-label">λ ≈ 15 · integer map</text>
   <text x="30" y="178" class="t-sub">N = 983,040 · allocator instrument</text>
-  <rect x="300" y="148" width="151.5" height="11" rx="2" class="b-expanse"/>
-  <text x="459.5" y="157" class="t-val-accent">16.72</text>
-  <rect x="300" y="165" width="212.9" height="11" rx="2" class="b-masstree"/>
-  <text x="520.9" y="174" class="t-val-blue">23.48</text>
+  <rect x="300" y="148" width="161.7" height="11" rx="2" class="b-expanse"/>
+  <text x="469.7" y="157" class="t-val-accent">17.84</text>
+  <rect x="300" y="165" width="212.8" height="11" rx="2" class="b-masstree"/>
+  <text x="520.8" y="174" class="t-val-blue">23.48</text>
   <rect x="800" y="156" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="170" class="badge-win-text">Expanse 1.40x</text>
+  <text x="865" y="170" class="badge-win-text">Expanse 1.32x</text>
   <text x="30" y="220" class="t-bar-label">λ ≈ 23 · integer map</text>
   <text x="30" y="234" class="t-sub">N = 1,507,328 · allocator instrument</text>
-  <rect x="300" y="204" width="147.4" height="11" rx="2" class="b-expanse"/>
-  <text x="455.4" y="213" class="t-val-accent">16.26</text>
-  <rect x="300" y="221" width="214.5" height="11" rx="2" class="b-masstree"/>
-  <text x="522.5" y="230" class="t-val-blue">23.66</text>
+  <rect x="300" y="204" width="159.2" height="11" rx="2" class="b-expanse"/>
+  <text x="467.2" y="213" class="t-val-accent">17.57</text>
+  <rect x="300" y="221" width="214.4" height="11" rx="2" class="b-masstree"/>
+  <text x="522.4" y="230" class="t-val-blue">23.66</text>
   <rect x="800" y="212" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="226" class="badge-win-text">Expanse 1.45x</text>
+  <text x="865" y="226" class="badge-win-text">Expanse 1.35x</text>
   <text x="30" y="276" class="t-bar-label">λ ≈ 30 · integer map</text>
   <text x="30" y="290" class="t-sub">N = 1,966,080 · allocator instrument</text>
-  <rect x="300" y="260" width="175.8" height="11" rx="2" class="b-expanse"/>
-  <text x="483.8" y="269" class="t-val-accent">19.39</text>
-  <rect x="300" y="277" width="212.8" height="11" rx="2" class="b-masstree"/>
-  <text x="520.8" y="286" class="t-val-blue">23.47</text>
+  <rect x="300" y="260" width="181.1" height="11" rx="2" class="b-expanse"/>
+  <text x="489.1" y="269" class="t-val-accent">19.98</text>
+  <rect x="300" y="277" width="212.7" height="11" rx="2" class="b-masstree"/>
+  <text x="520.7" y="286" class="t-val-blue">23.47</text>
   <rect x="800" y="268" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="282" class="badge-win-text">Expanse 1.21x</text>
+  <text x="865" y="282" class="badge-win-text">Expanse 1.17x</text>
   <text x="30" y="332" class="t-bar-label">λ ≈ 46 · integer map</text>
   <text x="30" y="346" class="t-sub">N = 3,014,656 · allocator instrument</text>
   <rect x="300" y="316" width="224.0" height="11" rx="2" class="b-expanse"/>
-  <text x="532.0" y="325" class="t-val-accent">24.71</text>
-  <rect x="300" y="333" width="208.2" height="11" rx="2" class="b-masstree"/>
-  <text x="516.2" y="342" class="t-val-blue">22.96</text>
+  <text x="532.0" y="325" class="t-val-accent">24.72</text>
+  <rect x="300" y="333" width="208.1" height="11" rx="2" class="b-masstree"/>
+  <text x="516.1" y="342" class="t-val-blue">22.96</text>
   <rect x="800" y="324" width="130" height="20" rx="3" class="badge-loss"/>
   <text x="865" y="338" class="badge-loss-text">Masstree 1.08x</text>
 </svg>

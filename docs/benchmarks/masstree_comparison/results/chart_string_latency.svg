@@ -94,54 +94,54 @@
 <line class="grid" x1="730.0" y1="60" x2="730.0" y2="270"/>
 <text class="t-axis-label" x="730.0" y="286.0" text-anchor="middle">2×</text>
 <line class="axis" x1="436.5" y1="60" x2="436.5" y2="270"/>
-<line x1="272.4" y1="74.5" x2="273.8" y2="74.5" stroke="#2563eb" stroke-width="2" opacity="0.55"/>
-<circle cx="273.0" cy="74.5" r="3.2" fill="#2563eb"/>
+<line x1="268.4" y1="74.5" x2="271.6" y2="74.5" stroke="#2563eb" stroke-width="2" opacity="0.55"/>
+<circle cx="270.0" cy="74.5" r="3.2" fill="#2563eb"/>
 <text class="t-axis-label" x="135" y="77.5" text-anchor="end">insert · counter</text>
-<text class="t-legend" x="744" y="78.5" fill="#2563eb">0.443×</text>
-<line x1="417.2" y1="91.5" x2="420.4" y2="91.5" stroke="#2563eb" stroke-width="2" opacity="0.55"/>
-<circle cx="418.9" cy="91.5" r="3.2" fill="#2563eb"/>
+<text class="t-legend" x="744" y="78.5" fill="#2563eb">0.433×</text>
+<line x1="424.5" y1="91.5" x2="427.2" y2="91.5" stroke="#2563eb" stroke-width="2" opacity="0.55"/>
+<circle cx="425.9" cy="91.5" r="3.2" fill="#2563eb"/>
 <text class="t-axis-label" x="135" y="94.5" text-anchor="end">insert · prefixed</text>
-<text class="t-legend" x="744" y="95.5" fill="#2563eb">0.940×</text>
-<line x1="281.5" y1="108.5" x2="287.1" y2="108.5" stroke="#2563eb" stroke-width="2" opacity="0.55"/>
-<circle cx="284.0" cy="108.5" r="3.2" fill="#2563eb"/>
+<text class="t-legend" x="744" y="95.5" fill="#2563eb">0.964×</text>
+<line x1="281.6" y1="108.5" x2="285.2" y2="108.5" stroke="#2563eb" stroke-width="2" opacity="0.55"/>
+<circle cx="283.5" cy="108.5" r="3.2" fill="#2563eb"/>
 <text class="t-axis-label" x="135" y="111.5" text-anchor="end">insert · short</text>
-<text class="t-legend" x="744" y="112.5" fill="#2563eb">0.480×</text>
-<line x1="325.9" y1="125.5" x2="328.6" y2="125.5" stroke="#2563eb" stroke-width="2" opacity="0.55"/>
-<circle cx="327.2" cy="125.5" r="3.2" fill="#2563eb"/>
+<text class="t-legend" x="744" y="112.5" fill="#2563eb">0.479×</text>
+<line x1="328.1" y1="125.5" x2="330.3" y2="125.5" stroke="#2563eb" stroke-width="2" opacity="0.55"/>
+<circle cx="329.2" cy="125.5" r="3.2" fill="#2563eb"/>
 <text class="t-axis-label" x="135" y="128.5" text-anchor="end">insert · skewed</text>
-<text class="t-legend" x="744" y="129.5" fill="#2563eb">0.628×</text>
-<line x1="428.0" y1="142.5" x2="436.6" y2="142.5" stroke="#d97706" stroke-width="2" opacity="0.55"/>
-<circle cx="430.0" cy="142.5" r="3.2" fill="#d97706"/>
+<text class="t-legend" x="744" y="129.5" fill="#2563eb">0.634×</text>
+<line x1="421.1" y1="142.5" x2="423.6" y2="142.5" stroke="#2563eb" stroke-width="2" opacity="0.55"/>
+<circle cx="422.5" cy="142.5" r="3.2" fill="#2563eb"/>
 <text class="t-axis-label" x="135" y="145.5" text-anchor="end">lookup_hit · counter</text>
-<text class="t-legend" x="744" y="146.5" fill="#d97706">0.978×</text>
-<line x1="463.4" y1="159.5" x2="466.8" y2="159.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="465.9" cy="159.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="744" y="146.5" fill="#2563eb">0.952×</text>
+<line x1="470.7" y1="159.5" x2="472.2" y2="159.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="471.5" cy="159.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="135" y="162.5" text-anchor="end">lookup_hit · prefixed</text>
-<text class="t-legend" x="744" y="163.5" fill="#16a34a">1.100×</text>
-<line x1="530.0" y1="176.5" x2="532.2" y2="176.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="531.0" cy="176.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="744" y="163.5" fill="#16a34a">1.119×</text>
+<line x1="531.1" y1="176.5" x2="533.2" y2="176.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="532.1" cy="176.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="135" y="179.5" text-anchor="end">lookup_hit · short</text>
-<text class="t-legend" x="744" y="180.5" fill="#16a34a">1.322×</text>
-<line x1="570.0" y1="193.5" x2="572.8" y2="193.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="571.4" cy="193.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="744" y="180.5" fill="#16a34a">1.326×</text>
+<line x1="571.7" y1="193.5" x2="575.1" y2="193.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="573.6" cy="193.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="135" y="196.5" text-anchor="end">lookup_hit · skewed</text>
-<text class="t-legend" x="744" y="197.5" fill="#16a34a">1.460×</text>
-<line x1="395.4" y1="210.5" x2="397.4" y2="210.5" stroke="#2563eb" stroke-width="2" opacity="0.55"/>
-<circle cx="396.4" cy="210.5" r="3.2" fill="#2563eb"/>
+<text class="t-legend" x="744" y="197.5" fill="#16a34a">1.467×</text>
+<line x1="396.3" y1="210.5" x2="398.3" y2="210.5" stroke="#2563eb" stroke-width="2" opacity="0.55"/>
+<circle cx="397.2" cy="210.5" r="3.2" fill="#2563eb"/>
 <text class="t-axis-label" x="135" y="213.5" text-anchor="end">lookup_miss · counter</text>
-<text class="t-legend" x="744" y="214.5" fill="#2563eb">0.863×</text>
-<line x1="492.4" y1="227.5" x2="493.8" y2="227.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="493.1" cy="227.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="744" y="214.5" fill="#2563eb">0.866×</text>
+<line x1="499.2" y1="227.5" x2="501.2" y2="227.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="500.4" cy="227.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="135" y="230.5" text-anchor="end">lookup_miss · prefixed</text>
-<text class="t-legend" x="744" y="231.5" fill="#16a34a">1.193×</text>
-<line x1="585.8" y1="244.5" x2="587.8" y2="244.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="586.7" cy="244.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="744" y="231.5" fill="#16a34a">1.218×</text>
+<line x1="585.7" y1="244.5" x2="588.3" y2="244.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="587.0" cy="244.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="135" y="247.5" text-anchor="end">lookup_miss · short</text>
-<text class="t-legend" x="744" y="248.5" fill="#16a34a">1.512×</text>
-<line x1="590.8" y1="261.5" x2="601.2" y2="261.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
-<circle cx="598.5" cy="261.5" r="3.2" fill="#16a34a"/>
+<text class="t-legend" x="744" y="248.5" fill="#16a34a">1.513×</text>
+<line x1="595.5" y1="261.5" x2="598.6" y2="261.5" stroke="#16a34a" stroke-width="2" opacity="0.55"/>
+<circle cx="597.0" cy="261.5" r="3.2" fill="#16a34a"/>
 <text class="t-axis-label" x="135" y="264.5" text-anchor="end">lookup_miss · skewed</text>
-<text class="t-legend" x="744" y="265.5" fill="#16a34a">1.552×</text>
+<text class="t-legend" x="744" y="265.5" fill="#16a34a">1.547×</text>
 <text class="t-note" x="143" y="316">Amber = interval spans parity (BOUNDARY_RESULT); blue = Masstree faster; green = Expanse faster.</text>
 <text class="t-note" x="143" y="330">Masstree column withheld on beyond: keys exceed MASSTREE_MAXKEYLEN (§3.4); Expanse measured alone.</text>
 </svg>
