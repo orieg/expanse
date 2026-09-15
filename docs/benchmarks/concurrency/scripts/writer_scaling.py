@@ -2,7 +2,7 @@
 """Expanse-native writer scaling driver across physical P-cores (Refs #568, Phase 1.5D).
 
 Runs `crates/expanse/examples/writer_scaling.rs` across W in {1, 2, 4, 8} on physical
-P-cores for map (64-bit), set (63-bit), and str arms.
+P-cores for the map (64-bit), set (63-bit), str, bytes and blob (64-bit) arms.
 
 Two builds, never one (AGENTS.md §6 / hot_concurrent.rs:36-42):
 - Pass 1 (throughput): uninstrumented release build, interleaved across W within each round,
@@ -29,7 +29,8 @@ Computes:
 - expanse_writer_mops_median as auxiliary field for historical continuity
 - scaling factor C(N) = T(W) / T(1) with paired bootstrap BCa 95% CI across interleaved rounds
 - lock fallbacks and fallback rate from the diagnostic occ-stats pass
-- str arm as the alpha=1 coarse-mutex reference curve (0 lock fallbacks by construction)
+- str arm as the alpha=1 coarse-mutex reference curve (0 lock fallbacks by construction);
+  the bytes and blob arms (#929) serialise on the same writer mutex and read 0 as well
 
 `--ordered-readers` (#900, `METHODOLOGY.md` §12.3-§12.5) is a separate sweep on
 the map arm:
@@ -129,6 +130,20 @@ ABLATION_ARMS = {
 # and the ablation variant represents the unstriped/unoptimized baseline.
 # For these, the reported scaling ratio is C_default(W) / C_variant(W) (§8.20.7).
 INVERSE_ABLATIONS = {"ablation-unstriped-freelist"}
+
+# Every writer-mode arm, in sweep order, for `--arm all`. `map` and `set` run
+# optimistic lock coupling; `str`, `bytes` and `blob` serialise every insert on
+# the writer mutex (#929), so they read 0 lock fallbacks by construction.
+ALL_WRITER_ARMS = ("map", "set", "str", "bytes", "blob")
+MUTEX_WRITER_ARMS = ("str", "bytes", "blob")
+# The workload id each writer-mode arm's rows carry.
+WRITER_WORKLOAD_IDS = {
+    "map": "concurrency_writer_map_64bit",
+    "set": "concurrency_writer_set_63bit",
+    "str": "concurrency_writer_str",
+    "bytes": "concurrency_writer_bytes",
+    "blob": "concurrency_writer_blob_64bit",
+}
 
 # METHODOLOGY.md §15: every timed writer-mode cell runs in a harness process of
 # its own. Recorded in every artifact this driver writes, and required by
@@ -3226,6 +3241,20 @@ def _self_test_per_cell_isolation(throughput_bin: Path, counters_bin: Path) -> N
     # The counters pass times nothing and may run every cell in one process.
     assert sweep["counters"] and all(flag(c, "--role") == "counters" for c in sweep["counters"]), sweep["counters"]
 
+    # 1b. `--arm all` reaches every writer arm, the #929 wrappers included, in
+    #     both the timed pass and the counters pass: read off the argv main()
+    #     built, so an arm the sweep silently stops running fails here.
+    every = drive_main(["--arm", "all", "--writers", "1,2", "--rounds", "3"])
+    if every["err"] is not None:
+        raise every["err"]
+    timed_arms = [flag(c, "--arm") for _, c in every["timed"]]
+    assert sorted(set(timed_arms)) == sorted(ALL_WRITER_ARMS), (
+        f"--arm all timed {sorted(set(timed_arms))}, expected every writer arm {sorted(ALL_WRITER_ARMS)}")
+    assert all(timed_arms.count(a) == 2 * 3 for a in ALL_WRITER_ARMS), timed_arms
+    counted_arms = sorted({flag(c, "--arm") for c in every["counters"]})
+    assert counted_arms == sorted(ALL_WRITER_ARMS), counted_arms
+    assert sorted({c["arm"] for c in every["artifact"]["throughput"]}) == sorted(ALL_WRITER_ARMS), every["artifact"]
+
     # 2. The comparison: every (build, W) cell of a round in its own process,
     #    Williams-balanced over the 2 x len(W) cells.
     comp = drive_main(["--compare", variant, "--arm", "map", "--writers", "1,2,4,8", "--rounds", "8"],
@@ -3464,6 +3493,36 @@ def self_test() -> int:
     assert cells_str[0]["total_allocs_per_insert"] is None
     assert cells_str[1]["total_allocs"] is None
     assert cells_str[1]["total_allocs_per_insert"] is None
+
+    # The bytes and blob arms (#929 step 1), through the same two production
+    # passes a sweep runs: the timed pass one harness process per cell with its
+    # row checks, the counters pass, and the reduction. Both serialise on the
+    # writer mutex, so they read 0 fallbacks by construction, and neither
+    # counts node allocations.
+    eprintln("Testing the bytes and blob writer arms (#929)...")
+    assert set(MUTEX_WRITER_ARMS) <= set(ALL_WRITER_ARMS) and set(WRITER_WORKLOAD_IDS) == set(ALL_WRITER_ARMS)
+    for arm in ("bytes", "blob"):
+        t_rows_arm, sched_arm = run_throughput_pass(throughput_bin, arm, [1, 2], 3, quick=True)
+        assert len(t_rows_arm) == 6 and len(sched_arm) == 6, (arm, len(t_rows_arm))
+        assert {r["workload_id"] for r in t_rows_arm} == {WRITER_WORKLOAD_IDS[arm]}, (arm, t_rows_arm[0])
+        assert all(r["build"] == DEFAULT_BUILD and float(r["writer_mops"]) > 0 for r in t_rows_arm), arm
+        assert all(int(r["population_after"]) == 8192 for r in t_rows_arm), (arm, t_rows_arm[0])
+        c_rows_arm = run_pass(counters_bin, "counters", arm, [1, 2], 3, quick=True)
+        assert len(c_rows_arm) == 6 and {r["workload_id"] for r in c_rows_arm} == {WRITER_WORKLOAD_IDS[arm]}, arm
+        assert all(r["lock_fallbacks"] == 0 and r["inserts"] == r["write_ops"] == 4096 for r in c_rows_arm), (
+            arm, [(r["lock_fallbacks"], r["inserts"]) for r in c_rows_arm])
+        cells_arm = summarize_arm(arm, [1, 2], 3, t_rows_arm, c_rows_arm, load)
+        assert [c["writers"] for c in cells_arm] == [1, 2], cells_arm
+        for c in cells_arm:
+            assert c["workload_id"] == WRITER_WORKLOAD_IDS[arm], c
+            assert c["total_allocs"] is None and c["fallback_rate"] == 0.0, c
+            assert len(c["rounds_raw"]) == 3 and len(c["counters_raw"]) == 3, c
+            assert c["writer_ci_method"] in CI_METHODS, c
+        check_artifact_against_schedule(
+            {"provenance": {"cell_isolation": CELL_ISOLATION}, "throughput": cells_arm},
+            expected_cells(arm, sched_arm),
+        )
+    eprintln("bytes and blob writer arms PASSED\n")
 
     # 5. Reduction test
     cells = summarize_arm("map", [1, 2], 3, t_rows_map, c_rows_map, load)
@@ -3906,7 +3965,7 @@ def main() -> int:
         "--arm",
         type=str,
         default="all",
-        choices=["map", "set", "str", "both", "all"],
+        choices=["map", "set", "str", "bytes", "blob", "both", "all"],
         help="Arm to sweep (default: all)",
     )
     parser.add_argument(
@@ -4116,7 +4175,7 @@ def main() -> int:
     core_pin = bench_pin.apply("writer_scaling.py")
 
     if args.arm in ("all", "both"):
-        arms = ["map", "set", "str"] if args.arm == "all" else ["map", "set"]
+        arms = list(ALL_WRITER_ARMS) if args.arm == "all" else ["map", "set"]
     else:
         arms = [args.arm]
 

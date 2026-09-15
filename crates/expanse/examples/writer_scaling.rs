@@ -1,7 +1,10 @@
 //! Expanse-native multi-writer OLC scaling instrument (Refs #568, Phase 1.5D).
 //!
-//! Measures writer throughput of [`SyncExpanseMap`], [`SyncExpanseSet`], and
-//! [`SyncExpanseStrMap`] as writer count scales across physical P-cores (W in {1, 2, 4, 8}, R = 0).
+//! Measures writer throughput of [`SyncExpanseMap`], [`SyncExpanseSet`],
+//! [`SyncExpanseStrMap`], [`SyncExpanseBytesMap`] and [`SyncExpanseBlobMap`] as writer
+//! count scales across physical P-cores (W in {1, 2, 4, 8}, R = 0). The last three
+//! serialise every insert on the writer mutex (#929), so they are the coarse-mutex
+//! reference curves beside the two optimistic-lock-coupling arms.
 //!
 //! Decoupled from `crates/expanse-hot-bench`: links no third-party competitor
 //! trees, requiring zero C++ submodules. Uses the shared XorShift64 seeds and
@@ -136,13 +139,13 @@
 //! |---|---|
 //! | `workload_id` | `concurrency_writer_scaling` |
 //! | `group` | 5 |
-//! | `emits` | `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`, `concurrency_writer_str`, `concurrency_ordered_readers_map_64bit`, `concurrency_readers_set_63bit`, `concurrency_readers_str` |
-//! | `population` | prefill 2^20 keys (1M), plus 2^20 fresh keys inserted concurrently by W writers; reader mode (map only) adds 256 hotspot keys, one at offset 1 of every terminal byte of a 2^16-wide expanse, to every cell's prefill, and a hotspot cell's writers insert that expanse's other 65,280 keys instead of the 2^20 fresh keys; readers-only mode (set, str) prefills the arm's 2^20-key writer-sweep prefill and inserts nothing |
+//! | `emits` | `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`, `concurrency_writer_str`, `concurrency_writer_bytes`, `concurrency_writer_blob_64bit`, `concurrency_ordered_readers_map_64bit`, `concurrency_readers_set_63bit`, `concurrency_readers_str` |
+//! | `population` | prefill 2^20 keys (1M), plus 2^20 fresh keys inserted concurrently by W writers; reader mode (map only) adds 256 hotspot keys, one at offset 1 of every terminal byte of a 2^16-wide expanse, to every cell's prefill, and a hotspot cell's writers insert that expanse's other 65,280 keys instead of the 2^20 fresh keys; readers-only mode (set, str) prefills the arm's 2^20-key writer-sweep prefill and inserts nothing. Writer mode's `bytes` arm uses the `str` arm's `short` keys under a fixed-key SipHash hasher; its `blob` arm uses the map arm's 64-bit keys with a 32-byte key-derived arena payload and non-zero 24-bit metadata |
 //! | `insertion_order` | sorted — prefill ascending (reader mode: the sorted union with the hotspot keys), matching expanse-hot-bench; fresh stream in generator draw order; hotspot fresh keys Fisher–Yates shuffled |
 //! | `probes_and_reuse` | writer mode: none (R = 0), insert-only. Reader mode: R readers, each cycling its own Fisher–Yates permutation of the present uniform prefill (`uniform`) or of the 255 hotspot keys above the expanse's first terminal byte (`hotspot`); `get` or `prev_before` on a reader handle, or `prev_before` under `with_locked`, over the identical stream. Readers-only mode (set, str): R readers, each walking its own Fisher–Yates permutation of the prefill once, `contains` or `get` on a reader handle |
 //! | `hit_rate` | writer mode: n/a. Reader mode: 100% — every probe is a present key; a hotspot `prev_before` fails in its own terminal byte and answers from the sibling below, until a writer inserts that byte's offset-0 key. Readers-only mode: 100% |
 //! | `miss_gen_method` | same-generator rejection sampling against prefill; reader probes draw no misses |
-//! | `value_dereference` | map arms check stored values against key-derived expectation; reader results fold key and value into a `black_box` accumulator |
+//! | `value_dereference` | map arms check stored values against key-derived expectation; the blob arm checks payload bytes and metadata; reader results fold key and value into a `black_box` accumulator |
 //! | `measured_region` | writer mode: barrier release to last-writer join. Reader mode: barrier release to the last writer join (writers) and to the last reader join (readers); with W ≥ 1 readers stop once the writers have joined, with W = 0 each makes 2^20 probes; prefill, workload generation, reader registration, answer checks and teardown outside; every reader-mode throughput row also records each reader's own loop time |
 //! | `arm_symmetry` | symmetric across thread counts; W in {1, 2, 4, 8} on physical P-cores; reader mode: `prev` and `prev_locked` run the same per-reader probe stream over the same tree, interleaved within each round by the driver; readers-only mode: the map (reader mode W = 0 `get`), set and str arms at R in {1, 2, 4, 8}, the R cells of each arm interleaved within each round by the driver |
 //! | `statistics` | throughput ops/sec emitted raw, paired bootstrap BCa 95% CI for C(N); lock fallbacks and their six causes (partition-checked per row) from the occ-stats counters pass; reader mode: reader Mops/s with a BCa 95% CI per cell, the P12.5 per-round paired `prev` / `prev_locked` ratio with a BCa 95% CI, and P12.4's summed `read_fallbacks ÷ read_ops` from the counters pass; readers-only mode: reader Mops/s with a BCa 95% CI per (arm, R), S(R) = T(R) / T(1) paired within each round with a BCa 95% CI, slowest-over-mean reader loop time per round, and summed read counters |
@@ -156,7 +159,9 @@ use std::time::Instant;
 
 use expanse_trie::occ_stats::{self, Stat};
 use expanse_trie::strmap::NulFreeStr;
-use expanse_trie::sync::{SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap};
+use expanse_trie::sync::{
+    SyncExpanseBlobMap, SyncExpanseBytesMap, SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap,
+};
 
 /// The six fallback causes. They partition `Stat::LockFallbacks` exactly —
 /// every fallback carries one cause (`tests/test_fallback_attribution.rs`) —
@@ -855,6 +860,168 @@ fn run_str_cell(
             val,
             Some(str_value_of(k)),
             "str missing fresh key at round {round}"
+        );
+    }
+
+    (elapsed, final_pop, counters)
+}
+
+// ---------------------------------------------------------------------------
+// The byte-string and blob wrappers (#929 step 1)
+// ---------------------------------------------------------------------------
+
+/// The bytes arm's hasher: SipHash-1-3 with fixed zero keys, so every process
+/// lays out the same hash trie. `SyncExpanseBytesMap::new` seeds per process,
+/// and a per-process layout would add a between-process variance the
+/// one-process-per-cell design exists to expose, not to create.
+type DetHasher = std::hash::BuildHasherDefault<std::collections::hash_map::DefaultHasher>;
+
+/// Payload length of the blob arm. Above the 7-byte inline limit, so every
+/// value is an arena payload (`ExpanseBlobMap::insert`).
+pub const BLOB_PAYLOAD_LEN: usize = 32;
+
+/// The blob arm's payload for `k`: four rotations of the map arm's value.
+fn blob_payload(k: u64) -> [u8; BLOB_PAYLOAD_LEN] {
+    let v = value_of(k);
+    let mut out = [0u8; BLOB_PAYLOAD_LEN];
+    for i in 0..BLOB_PAYLOAD_LEN / 8 {
+        out[8 * i..8 * (i + 1)].copy_from_slice(&v.rotate_left(13 * i as u32).to_le_bytes());
+    }
+    out
+}
+
+/// The blob arm's 24-bit hot metadata for `k`. Never zero, so an insert never
+/// takes the metadata-free compressed-inline path and always reaches the arena.
+fn blob_meta(k: u64) -> u32 {
+    ((value_of(k) >> 40) as u32 & 0x00FF_FFFF) | 1
+}
+
+fn run_bytes_cell(
+    workload: &WriterStrWorkload,
+    writers: usize,
+    round: usize,
+    is_counters: bool,
+    perf_ctl: &mut PerfControl,
+) -> (f64, u64, Counters) {
+    let map = SyncExpanseBytesMap::with_hasher(DetHasher::default());
+    for k in &workload.prefill {
+        map.insert(k, str_value_of(k));
+    }
+
+    let per = workload.fresh_keys.len() / writers.max(1);
+    let barrier = Barrier::new(writers + 1);
+
+    if is_counters {
+        occ_stats::reset();
+    }
+
+    let start = std::thread::scope(|s| {
+        for w in 0..writers {
+            let lo = w * per;
+            let hi = if w + 1 == writers {
+                workload.fresh_keys.len()
+            } else {
+                lo + per
+            };
+            let slice = &workload.fresh_keys[lo..hi];
+            let b = &barrier;
+            let m = &map;
+            s.spawn(move || {
+                b.wait();
+                for k in slice {
+                    m.insert(k, str_value_of(k));
+                }
+            });
+        }
+
+        perf_ctl.enable();
+        barrier.wait();
+        Instant::now()
+    });
+    perf_ctl.disable();
+
+    let elapsed = if is_counters {
+        0.0
+    } else {
+        start.elapsed().as_secs_f64()
+    };
+    let counters = Counters::read(is_counters);
+    let final_pop = map.len();
+
+    // Verify samples
+    let reader = map.reader();
+    for k in workload.fresh_keys.iter().step_by(10_000) {
+        assert_eq!(
+            reader.get(k),
+            Some(str_value_of(k)),
+            "bytes missing fresh key at round {round}"
+        );
+    }
+
+    (elapsed, final_pop, counters)
+}
+
+fn run_blob_cell(
+    workload: &WriterWorkload,
+    writers: usize,
+    round: usize,
+    is_counters: bool,
+    perf_ctl: &mut PerfControl,
+) -> (f64, u64, Counters) {
+    let map = SyncExpanseBlobMap::new();
+    for &k in &workload.prefill {
+        map.insert(k, &blob_payload(k), blob_meta(k))
+            .expect("blob prefill insert");
+    }
+
+    let per = workload.fresh_keys.len() / writers.max(1);
+    let barrier = Barrier::new(writers + 1);
+
+    if is_counters {
+        occ_stats::reset();
+    }
+
+    let start = std::thread::scope(|s| {
+        for w in 0..writers {
+            let lo = w * per;
+            let hi = if w + 1 == writers {
+                workload.fresh_keys.len()
+            } else {
+                lo + per
+            };
+            let slice = &workload.fresh_keys[lo..hi];
+            let b = &barrier;
+            let m = &map;
+            s.spawn(move || {
+                b.wait();
+                for &k in slice {
+                    m.insert(k, &blob_payload(k), blob_meta(k))
+                        .expect("blob insert");
+                }
+            });
+        }
+
+        perf_ctl.enable();
+        barrier.wait();
+        Instant::now()
+    });
+    perf_ctl.disable();
+
+    let elapsed = if is_counters {
+        0.0
+    } else {
+        start.elapsed().as_secs_f64()
+    };
+    let counters = Counters::read(is_counters);
+    let final_pop = map.with_locked(|m| m.len());
+
+    // Verify samples: payload bytes and metadata both round-trip.
+    let mut reader = map.reader();
+    for &k in workload.fresh_keys.iter().step_by(10_000) {
+        assert_eq!(
+            reader.get(k),
+            Some((blob_payload(k).to_vec(), blob_meta(k))),
+            "blob missing or corrupt fresh key {k} at round {round}"
         );
     }
 
@@ -1995,6 +2162,36 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
         return Err(format!("throughput test: invalid str elapsed {el_str}"));
     }
 
+    // The bytes and blob arms (#929 step 1) serialise every insert on the
+    // writer mutex, as the str arm does, so they owe the same: every key
+    // present, no lock fallback, no allocator count, the identities checked.
+    let (el_bytes, pop_bytes, fb_bytes) =
+        run_bytes_cell(&wl_str, 2, 0, is_counters, &mut dummy_ctl);
+    let wl_blob = WriterWorkload::generate(n0, m, 64);
+    let (el_blob, pop_blob, fb_blob) = run_blob_cell(&wl_blob, 2, 0, is_counters, &mut dummy_ctl);
+    for (name, el, pop, fb) in [
+        ("bytes", el_bytes, pop_bytes, fb_bytes),
+        ("blob", el_blob, pop_blob, fb_blob),
+    ] {
+        if pop != (n0 + m) as u64 {
+            return Err(format!("{name} expected pop {}, got {pop}", n0 + m));
+        }
+        if is_counters {
+            if fb.lock_fallbacks != 0 || fb.total_allocs.is_some() {
+                return Err(format!(
+                    "counters test: {name} expected 0 lock fallbacks and no allocator count, got {} and {:?}",
+                    fb.lock_fallbacks, fb.total_allocs
+                ));
+            }
+            fb.check(m as u64, 0, &format!("self-test {name}"))?;
+        } else if el <= 0.0 {
+            return Err(format!("throughput test: invalid {name} elapsed {el}"));
+        }
+    }
+    if blob_meta(0) == 0 || blob_payload(1) == blob_payload(2) {
+        return Err("blob workload: metadata must be non-zero and payloads key-derived".into());
+    }
+
     // Reader mode (#900). First the hotspot geometry the §12.4 cells rest on.
     let hot = HotspotExpanse::generate();
     if hot.base & (HOTSPOT_WIDTH - 1) != 0 {
@@ -2357,6 +2554,8 @@ fn main() {
     let run_map = arm_arg == "map" || arm_arg == "all" || arm_arg == "both";
     let run_set = arm_arg == "set" || arm_arg == "all" || arm_arg == "both";
     let run_str = arm_arg == "str" || arm_arg == "all";
+    let run_bytes = arm_arg == "bytes" || arm_arg == "all";
+    let run_blob = arm_arg == "blob" || arm_arg == "all";
 
     let tsc_hz = occ_stats::cycles_hz(std::time::Duration::from_millis(200));
 
@@ -2493,6 +2692,93 @@ fn main() {
                     println!(
                         "{{\"workload_id\":\"concurrency_writer_str\",\"role\":\"throughput\",\
                          \"arm\":\"expanse\",\"cell\":\"str_w{w}_r0\",\"dist\":\"short\",\
+                         \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
+                         \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\"writer_elapsed_s\":{elapsed_s:.6},\
+                         \"writer_mops\":{writer_mops:.4},\"tsc_hz\":{tsc_hz},\"population_after\":{final_pop}}}"
+                    );
+                }
+            }
+        }
+    }
+
+    if run_bytes {
+        eprintln!("generating bytes workload (prefill={n0}, fresh={m})...");
+        let wl = WriterStrWorkload::generate(n0, m);
+        for round in round_start..round_end {
+            let round_writers = williams_order(&writers_list, round);
+            for (pos, &w) in round_writers.iter().enumerate() {
+                let pos = position_opt.unwrap_or(pos);
+                let (elapsed_s, final_pop, counters) =
+                    run_bytes_cell(&wl, w, round, is_counters, &mut perf_ctl);
+                let write_ops = m;
+                if is_counters {
+                    if let Err(e) =
+                        counters.check(m as u64, 0, &format!("bytes_w{w}_r0 round {round}"))
+                    {
+                        eprintln!("counter identity violated: {e}");
+                        std::process::exit(1);
+                    }
+                    println!(
+                        "{{\"workload_id\":\"concurrency_writer_bytes\",\"role\":\"counters\",\
+                         \"arm\":\"expanse\",\"cell\":\"bytes_w{w}_r0\",\"dist\":\"short\",\
+                         \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
+                         \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\"tsc_hz\":{tsc_hz},\
+                         \"lock_fallbacks\":{fb},\"inserts\":{ins},{extra},\"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
+                        fb = counters.lock_fallbacks,
+                        ins = counters.inserts,
+                        extra = counters.extra_counters_json(),
+                        causes = counters.causes_json(),
+                    );
+                } else {
+                    let writer_mops = (write_ops as f64) / elapsed_s / 1e6;
+                    println!(
+                        "{{\"workload_id\":\"concurrency_writer_bytes\",\"role\":\"throughput\",\
+                         \"arm\":\"expanse\",\"cell\":\"bytes_w{w}_r0\",\"dist\":\"short\",\
+                         \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
+                         \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\"writer_elapsed_s\":{elapsed_s:.6},\
+                         \"writer_mops\":{writer_mops:.4},\"tsc_hz\":{tsc_hz},\"population_after\":{final_pop}}}"
+                    );
+                }
+            }
+        }
+    }
+
+    if run_blob {
+        eprintln!("generating blob 64-bit workload (prefill={n0}, fresh={m})...");
+        let wl = WriterWorkload::generate(n0, m, 64);
+        let bits = wl.keyspace_bits;
+        for round in round_start..round_end {
+            let round_writers = williams_order(&writers_list, round);
+            for (pos, &w) in round_writers.iter().enumerate() {
+                let pos = position_opt.unwrap_or(pos);
+                let (elapsed_s, final_pop, counters) =
+                    run_blob_cell(&wl, w, round, is_counters, &mut perf_ctl);
+                let write_ops = m;
+                if is_counters {
+                    if let Err(e) =
+                        counters.check(m as u64, 0, &format!("blob_w{w}_r0 round {round}"))
+                    {
+                        eprintln!("counter identity violated: {e}");
+                        std::process::exit(1);
+                    }
+                    println!(
+                        "{{\"workload_id\":\"concurrency_writer_blob_64bit\",\"role\":\"counters\",\
+                         \"arm\":\"expanse\",\"cell\":\"blob_w{w}_r0\",\"keyspace_bits\":{bits},\
+                         \"payload_bytes\":{BLOB_PAYLOAD_LEN},\
+                         \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
+                         \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\"tsc_hz\":{tsc_hz},\
+                         \"lock_fallbacks\":{fb},\"inserts\":{ins},{extra},\"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
+                        fb = counters.lock_fallbacks,
+                        ins = counters.inserts,
+                        extra = counters.extra_counters_json(),
+                        causes = counters.causes_json(),
+                    );
+                } else {
+                    let writer_mops = (write_ops as f64) / elapsed_s / 1e6;
+                    println!(
+                        "{{\"workload_id\":\"concurrency_writer_blob_64bit\",\"role\":\"throughput\",\
+                         \"arm\":\"expanse\",\"cell\":\"blob_w{w}_r0\",\"keyspace_bits\":{bits},\
+                         \"payload_bytes\":{BLOB_PAYLOAD_LEN},\
                          \"prefill\":{n0},\"fresh_keys\":{m},\"writers\":{w},\"readers\":0,\
                          \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops},\"writer_elapsed_s\":{elapsed_s:.6},\
                          \"writer_mops\":{writer_mops:.4},\"tsc_hz\":{tsc_hz},\"population_after\":{final_pop}}}"
