@@ -29,6 +29,17 @@ on:
         # separates a scaling plateau from sibling sharing.
         description: 'EXPANSE_BENCH_PIN for this run (CPU list, or "off"). Empty = auto.'
         required: false
+      rounds:
+        # Rounds per cell, handed to the `writer_scaling` suite as
+        # `writer_scaling.py --rounds`. Empty keeps the driver's default and
+        # runs exactly the command that suite always ran. A non-empty value
+        # must be a positive integer, and any other suite refuses it rather
+        # than silently ignoring it (AGENTS.md section 8.1). #930's target runs
+        # pass 8, which is also the driver's default; the input stays so the
+        # count is explicit in the dispatch and a re-sizing needs no workflow
+        # change (docs/benchmarks/concurrency/METHODOLOGY.md section 14.3).
+        description: 'Rounds per cell for the writer_scaling suite; empty = driver default'
+        required: false
       benchmark_suite:
         # Kept in lockstep with `.github/bench-suites.json` by
         # `scripts/check_bench_suites.py` (run it with `--write` to regenerate
@@ -607,6 +618,9 @@ jobs:
           # Empty string leaves the auto pin in place; bench_pin treats an
           # unset and an empty value identically.
           EXPANSE_BENCH_PIN: ${{ inputs.cpu_pin }}
+          # Empty on every trigger except a dispatch that sets it; validated
+          # below before any suite runs.
+          ROUNDS: ${{ inputs.rounds }}
           # Anonymized CPU/kernel description derived in `sysinfo` (never a
           # hostname) plus this run's URL: the two provenance fields §8.7
           # requires on every published wall-clock number.
@@ -638,6 +652,24 @@ jobs:
             echo "::error::generic suite '$SUITE' has no package/target in .github/bench-suites.json"
             echo "fail_reason=bad_descriptor" >> "$GITHUB_OUTPUT"
             exit 1
+          fi
+
+          # The `rounds` dispatch input. Empty changes nothing. Otherwise it
+          # must be a positive integer, and only `writer_scaling` takes it: a
+          # value another suite would silently ignore is refused, before
+          # anything is built (AGENTS.md section 8.1). The value is not echoed
+          # into the workflow-command line.
+          if [ -n "${ROUNDS:-}" ]; then
+            if ! [[ "$ROUNDS" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::the rounds input must be a positive integer (digits only, no leading zero)"
+              echo "fail_reason=bad_rounds" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            if [ "$SUITE" != "writer_scaling" ]; then
+              echo "::error::the rounds input is accepted only by the writer_scaling suite, not '$SUITE'"
+              echo "fail_reason=bad_rounds" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
           fi
 
           # Fail fast if the suite needs Callgrind and the host lacks the
@@ -953,9 +985,15 @@ jobs:
                   --out docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json | tee concurrency.txt
                 ;;
               "writer_scaling")
-                # Expanse-native multi-writer scaling sweep (Phase 1.5D, Refs #568)
-                python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
-                  --out docs/benchmarks/concurrency/results/baseline_writer_scaling.json | tee writer_scaling.txt
+                # Expanse-native multi-writer scaling sweep (Phase 1.5D, Refs #568).
+                # `--rounds` is added only when the `rounds` input is set
+                # (validated above); empty runs the same argv as before. The
+                # command is printed before it runs, so the log shows what ran.
+                WS_CMD=(python3 docs/benchmarks/concurrency/scripts/writer_scaling.py)
+                if [ -n "${ROUNDS:-}" ]; then WS_CMD+=(--rounds "$ROUNDS"); fi
+                WS_CMD+=(--out docs/benchmarks/concurrency/results/baseline_writer_scaling.json)
+                printf 'writer_scaling command:'; printf ' %q' "${WS_CMD[@]}"; printf '\n'
+                "${WS_CMD[@]}" | tee writer_scaling.txt
                 ;;
               "writer_scaling_diagnostic")
                 # Expanse multi-writer scaling diagnostic suite with PMU and c2c passes (Refs #568)
@@ -1722,6 +1760,9 @@ jobs:
               } else if (reason === 'missing_perf_counters') {
                 label = 'refused';
                 cause = `The run was **refused before any benchmark started**: suite \`${suite}\` reads hardware performance counters, but \`perf stat -e instructions\` could not open one on the runner. Grant the capability (\`sudo setcap cap_perfmon,cap_sys_ptrace,cap_syslog=ep $(command -v perf)\`) or lower \`kernel.perf_event_paranoid\`, then re-trigger. A virtualised host may expose no PMU at all, in which case the counters have to come from bare metal. No numbers were produced.`;
+              } else if (reason === 'bad_rounds') {
+                label = 'refused';
+                cause = `The run was **refused before any benchmark started**: the \`rounds\` dispatch input must be a positive integer and is accepted only by the \`writer_scaling\` suite (this run: \`${suite}\`). Leave it empty for the driver's default, or re-dispatch \`writer_scaling\` with a valid count. No numbers were produced.`;
               } else if (reason.startsWith('missing_tool:')) {
                 label = 'refused';
                 const tool = reason.slice('missing_tool:'.length);

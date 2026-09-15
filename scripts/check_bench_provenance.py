@@ -16,8 +16,8 @@ fields dropping back out (AGENTS.md section 8.12).
 
 Every committed `docs/benchmarks/*/results/` artifact whose name matches one of
 `ARTIFACT_GLOBS` — the `baseline_*` sweeps, the `ablation*` interventional
-arms measured against them, the `ordered_readers_*` sweep and the `padded_*`
-`lock-padded` comparisons — must carry `provenance.host`,
+arms measured against them, the `ordered_readers_*` sweep, the `padded_*`
+`lock-padded` comparisons and the `sizing*` pre-registration sizing sweeps — must carry `provenance.host`,
 `provenance.estimators`, load snapshots with a busy-CPU delta and per-cell
 `rounds_raw`, **unless it is grandfathered below**.
 
@@ -331,8 +331,15 @@ SUITES = (
 # `lock-padded` against the default, from the #930 one-process-per-cell re-run
 # (`combined_alloc_padded_writer_scaling_<commit>[_run2].json`, README §11.8):
 # the same comparison again, under a name no other glob matches.
+#
+# `sizing*` is a sweep committed as a pre-registration's sizing input rather
+# than as a published result: #958's four `sizing958_writer_scaling_*` runs,
+# whose per-round spread sets METHODOLOGY.md §14's round count and whose W = 8
+# levels §14.2 quotes. A sizing input is a wall-clock measurement a registered
+# number rests on, so it owes the same load snapshots and raw rounds, and none
+# of the other globs matches its name.
 ARTIFACT_GLOBS = ("baseline_*.json", "ablation*.json", "ordered_readers_*.json", "padded_*.json",
-                  "combined_*.json")
+                  "combined_*.json", "sizing*.json")
 
 # Keys under which an artifact holds its cells. `throughput_variant` is the
 # ablation artifacts' variant arm — the half of the comparison that is not the
@@ -1080,6 +1087,25 @@ def _self_test() -> int:
             failures.append(f"artifacts() does not select {rel} — ARTIFACT_GLOBS is too narrow")
         elif not owes_cell_isolation(rel):
             failures.append(f"owes_cell_isolation() misses {rel}")
+
+    # THE HOLE THE `sizing*` GLOB CLOSES: METHODOLOGY.md §14 sizes #930's round
+    # count from four `sizing958_writer_scaling_*` sweeps, and none of the other
+    # globs matches that name, so the files a registered number rests on would
+    # have been read by nothing. Pinned on the committed files, and they must
+    # also be concurrent and owe cell isolation.
+    for name in ("sizing958_writer_scaling_bad1bd3d_pin0-15.json",
+                 "sizing958_writer_scaling_bad1bd3d_pin0-15_run2.json",
+                 "sizing958_writer_scaling_bad1bd3d_percore.json",
+                 "sizing958_writer_scaling_bad1bd3d_percore_run2.json"):
+        rel = f"concurrency/results/{name}"
+        if not (BENCH / rel).is_file():
+            failures.append(f"a named sizing artifact is missing: {rel}")
+        elif rel not in selected:
+            failures.append(f"artifacts() does not select {rel} — ARTIFACT_GLOBS is too narrow")
+        if not is_concurrent(rel):
+            failures.append(f"is_concurrent() does not cover {name} — CONCURRENT_NAME_PARTS is too narrow")
+        if not owes_cell_isolation(rel):
+            failures.append(f"owes_cell_isolation() misses the sizing artifact {name}")
 
     # The #900 ordered-read sweep is selected by name before it is ever
     # committed, so its first run cannot land outside the gate. A synthetic

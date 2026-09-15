@@ -1220,6 +1220,361 @@ class TestStep2Sizing(unittest.TestCase):
                 call()
 
 
+# --- #930: sizing the W = 8 writer-throughput target ---
+#
+# The target (#930, a maintainer choice, not a derivation): on `writer_scaling`,
+# `SyncExpanseMap` (`map`) and `SyncExpanseSet` (`set`) insert at >= 20 M ops/s
+# with W = 8 writers, read as the BCa 95% lower bound of the mean of per-round
+# `writer_mops` the driver computes, in two independent runs. These functions
+# only size the round count that bound needs, from the per-round spread of
+# absolute W = 8 throughput in four sizing sweeps of main at `bad1bd3d`, each
+# measured with the per-cell driver the evaluation uses (METHODOLOGY.md §15). The
+# half-width uses the normal quantile as a planning approximation, as
+# `ratio_relative_halfwidth` does; the gate is the run's BCa interval
+# (AGENTS.md §8.4). A within-run interval does not bound between-run spread
+# (docs/BENCHMARKING.md rule 18), which is why the target needs two runs.
+#
+# The inputs are frozen in `W8_SPREAD_AT_LOCK`, so the registered sizing cannot
+# move with a later edit to the files it was read from (AGENTS.md §8.7).
+# `check_frozen_spread` reproduces every frozen row from the committed files
+# whose artifact still records the frozen commit, and lists any sizing artifact
+# whose timed cells did not run one harness process each.
+#
+# The first sizing, before #958 locked, read the 48 W = 8 cells of the 17
+# writer-sweep artifacts committed before `bad1bd3d`. Every one of those ran all
+# the W cells of a round in one harness process. METHODOLOGY.md §15 found a
+# cell's throughput moving with the cell run before it in the same process, so
+# their spread includes position-dependent carryover and may not describe the
+# per-cell instrument the target is evaluated with.
+
+WRITER_TARGET_MOPS = 20.0
+WRITER_TARGET_WRITERS = 8
+PIN_CPU_CORE = "0-15"
+PIN_ONE_PER_CORE = "0,2,4,6,8,10,12,14"
+#: The relative half-width the round count is sized for: a choice, fixed in
+#: `docs/benchmarks/concurrency/METHODOLOGY.md` §14 before any run.
+WRITER_TARGET_HALFWIDTH = 0.025
+#: The sweep's writer counts, W in {1, 2, 4, 8}. The driver balances position and
+#: carryover with a Williams design that is complete only when the round count
+#: is a multiple of the number of writer counts (`writer_scaling.py` main()).
+WRITER_SWEEP_WRITER_COUNTS = 4
+CONCURRENCY_RESULTS = REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results"
+#: The sizing sweeps: default build, `writer_scaling.py` without `--compare`,
+#: 8 rounds, one harness process per timed cell, engine, harness and driver at
+#: `bad1bd3d`, two runs per registered pin on the reference host.
+WRITER_SIZING_ARTIFACTS = tuple(CONCURRENCY_RESULTS / name for name in (
+    "sizing958_writer_scaling_bad1bd3d_percore.json",
+    "sizing958_writer_scaling_bad1bd3d_percore_run2.json",
+    "sizing958_writer_scaling_bad1bd3d_pin0-15.json",
+    "sizing958_writer_scaling_bad1bd3d_pin0-15_run2.json",
+))
+#: The `provenance.cell_isolation` a sizing artifact must record (METHODOLOGY.md §15).
+SIZING_CELL_ISOLATION = "process"
+
+#: `w8_round_spread` over `WRITER_SIZING_ARTIFACTS`: artifact, engine commit,
+#: `provenance.core_pin`, section, arm, rounds, mean `writer_mops` (M ops/s) and
+#: per-round CV, the last two rounded to six places. Every round of every W = 8
+#: `map` and `set` cell; nothing filtered. The sweeps ran the default build only,
+#: so every row is the `throughput` section.
+W8_SPREAD_AT_LOCK: tuple[tuple[str, str, str, str, str, int, float, float], ...] = (
+    ("sizing958_writer_scaling_bad1bd3d_percore.json", "bad1bd3d", "0,2,4,6,8,10,12,14", "throughput", "map", 8, 11.386225, 0.02318),
+    ("sizing958_writer_scaling_bad1bd3d_percore.json", "bad1bd3d", "0,2,4,6,8,10,12,14", "throughput", "set", 8, 13.263113, 0.0185),
+    ("sizing958_writer_scaling_bad1bd3d_percore_run2.json", "bad1bd3d", "0,2,4,6,8,10,12,14", "throughput", "map", 8, 11.50715, 0.011937),
+    ("sizing958_writer_scaling_bad1bd3d_percore_run2.json", "bad1bd3d", "0,2,4,6,8,10,12,14", "throughput", "set", 8, 13.319437, 0.014878),
+    ("sizing958_writer_scaling_bad1bd3d_pin0-15.json", "bad1bd3d", "0-15", "throughput", "map", 8, 11.512037, 0.004952),
+    ("sizing958_writer_scaling_bad1bd3d_pin0-15.json", "bad1bd3d", "0-15", "throughput", "set", 8, 13.381488, 0.016333),
+    ("sizing958_writer_scaling_bad1bd3d_pin0-15_run2.json", "bad1bd3d", "0-15", "throughput", "map", 8, 11.405862, 0.027706),
+    ("sizing958_writer_scaling_bad1bd3d_pin0-15_run2.json", "bad1bd3d", "0-15", "throughput", "set", 8, 13.25375, 0.02939),
+)
+_SPREAD_KEYS = ("artifact", "commit", "pin", "section", "arm", "n", "mean", "cv")
+
+
+def w8_round_spread(path: Path, writers: int = WRITER_TARGET_WRITERS) -> list[dict]:
+    """Per-round spread of absolute `writer_mops` in every `map` and `set`
+    writer-sweep cell at `writers`, from the default (`throughput`) and variant
+    (`throughput_variant`) sections of one `writer_scaling` artifact.
+
+    Every round in `rounds_raw` is read and none is filtered. Cells with
+    `readers` > 0 belong to the ordered-reader sweep, not the writer sweep, and
+    are not read. An artifact with no writer-sweep cell at `writers` returns [].
+    """
+    path = Path(path)
+    data = json.loads(path.read_text())
+    prov = data.get("provenance", {})
+    rows = []
+    for section in ("throughput", "throughput_variant"):
+        for cell in data.get(section, []):
+            if cell.get("arm") not in ("map", "set") or cell.get("writers") != writers or cell.get("readers", 0) != 0:
+                continue
+            vals = [float(r["writer_mops"]) for r in cell.get("rounds_raw") or []]
+            if len(vals) < 2 or min(vals) <= 0.0:
+                raise ValueError(f"{path.name}: {section} {cell['arm']} W={writers} has no usable rounds")
+            mean = statistics.fmean(vals)
+            rows.append({
+                "artifact": path.name,
+                "commit": str(prov.get("commit", "unknown"))[:8],
+                "pin": prov.get("core_pin"),
+                "section": section,
+                "arm": cell["arm"],
+                "n": len(vals),
+                "mean": mean,
+                "cv": statistics.stdev(vals) / mean,
+            })
+    return rows
+
+
+def frozen_spread_rows() -> list[dict]:
+    """`W8_SPREAD_AT_LOCK` as dicts with `w8_round_spread`'s keys."""
+    return [dict(zip(_SPREAD_KEYS, row)) for row in W8_SPREAD_AT_LOCK]
+
+
+def cell_isolation(path: Path) -> str | None:
+    """`provenance.cell_isolation` of one `writer_scaling` artifact, or None."""
+    prov = json.loads(Path(path).read_text()).get("provenance", {})
+    return prov.get("cell_isolation") if isinstance(prov, dict) else None
+
+
+def check_frozen_spread(paths: tuple[Path, ...] = WRITER_SIZING_ARTIFACTS,
+                        frozen: list[dict] | None = None, tol: float = 5e-6) -> dict:
+    """Reproduce the frozen rows from the committed artifacts.
+
+    An artifact whose `provenance.commit` differs from its frozen rows' commit
+    has been replaced since lock (the `writer_scaling` dispatch writes
+    `baseline_writer_scaling.json` in place); it is listed under `replaced` and
+    its frozen rows stand. An absent file is listed under `absent`. A file at
+    the frozen commit whose cells differ from the frozen rows is `mismatched`,
+    which is a defect in the frozen table or the reader. A present file whose
+    `provenance.cell_isolation` is not `SIZING_CELL_ISOLATION` is listed under
+    `not_isolated`: its cells shared a harness process (METHODOLOGY.md §15), so
+    it cannot size a target evaluated one process per cell.
+    """
+    frozen = frozen_spread_rows() if frozen is None else frozen
+    out: dict = {"checked": 0, "replaced": [], "absent": [], "empty": [], "mismatched": [],
+                 "not_isolated": []}
+    for path in paths:
+        path = Path(path)
+        want = [r for r in frozen if r["artifact"] == path.name]
+        if not path.exists():
+            out["absent"].append(path.name)
+            continue
+        if cell_isolation(path) != SIZING_CELL_ISOLATION:
+            out["not_isolated"].append(path.name)
+        live = w8_round_spread(path)
+        if not live and not want:
+            out["empty"].append(path.name)
+            continue
+        if live and want and live[0]["commit"] != want[0]["commit"]:
+            out["replaced"].append(path.name)
+            continue
+        live_by = {(r["section"], r["arm"]): r for r in live}
+        want_by = {(r["section"], r["arm"]): r for r in want}
+        if live_by.keys() != want_by.keys():
+            out["mismatched"].append(path.name)
+            continue
+        for key, w in want_by.items():
+            got = live_by[key]
+            if ((got["pin"], got["n"]) != (w["pin"], w["n"])
+                    or abs(got["mean"] - w["mean"]) > tol or abs(got["cv"] - w["cv"]) > tol):
+                out["mismatched"].append(f"{path.name}:{key[0]}:{key[1]}")
+            else:
+                out["checked"] += 1
+    return out
+
+
+def planning_cv(rows: list[dict], pin: str) -> dict:
+    """The row with the largest per-round CV among `rows` at `pin`: the
+    conservative planning input, as #568 Step 2 took its largest window CV."""
+    at = [r for r in rows if r["pin"] == pin]
+    if not at:
+        raise ValueError(f"no W=8 rows at pin {pin!r}")
+    return max(at, key=lambda r: r["cv"])
+
+
+def rounds_for_williams(cv: float, halfwidth: float, writer_counts: int = WRITER_SWEEP_WRITER_COUNTS) -> int:
+    """`rounds_for_halfwidth`, rounded up to a multiple of `writer_counts` so the
+    driver's Williams design is complete."""
+    if writer_counts < 1:
+        raise ValueError(f"writer_counts must be >= 1, got {writer_counts}")
+    n = rounds_for_halfwidth(cv, halfwidth)
+    return writer_counts * math.ceil(n / writer_counts)
+
+
+def mean_needed_to_clear(bound: float, halfwidth: float) -> float:
+    """Smallest true mean whose lower bound, at this relative half-width, reaches
+    `bound` when the run's mean lands on the true mean: `bound / (1 - h)`. Such a
+    run clears the bound about half the time."""
+    return ratio_needed_to_clear(bound, halfwidth)
+
+
+def mean_needed_with_probability(bound: float, halfwidth: float, prob: float, z: float = Z_95) -> float:
+    """Smallest true mean whose lower bound reaches `bound` with probability `prob`
+    in one run, within-run spread only.
+
+    With a relative half-width h = z * CV / sqrt(n), the run's mean is roughly
+    normal with relative sd h / z, and its lower bound is about mean * (1 - h).
+    So P(lower >= bound) = prob when mu * (1 - h) * (1 - z_p * h / z) = bound,
+    z_p being the standard normal quantile at `prob`. At prob = 0.5 this is
+    `mean_needed_to_clear`; at prob = 0.975 it is bound / (1 - h)^2. Between-run
+    spread is not in it (docs/BENCHMARKING.md rule 18).
+    """
+    if bound <= 0.0:
+        raise ValueError("bound must be positive")
+    if not 0.0 <= halfwidth < 1.0:
+        raise ValueError("halfwidth must be in [0, 1)")
+    if not 0.0 < prob < 1.0:
+        raise ValueError("prob must be in (0, 1)")
+    shrink = 1.0 - statistics.NormalDist().inv_cdf(prob) * halfwidth / z
+    if shrink <= 0.0:
+        raise ValueError(f"no mean reaches the bound with probability {prob} at half-width {halfwidth}")
+    return bound / ((1.0 - halfwidth) * shrink)
+
+
+def writer_target_verdict(ci_lower: float, ci_upper: float, target: float = WRITER_TARGET_MOPS) -> str:
+    """One cell's verdict (METHODOLOGY §14): `PASS` when the lower bound is at least
+    the target, `REFUTED` when the upper bound is below it, `INCONCLUSIVE` otherwise."""
+    if ci_lower > ci_upper:
+        raise ValueError(f"ci_lower ({ci_lower}) exceeds ci_upper ({ci_upper})")
+    if ci_lower >= target:
+        return "PASS"
+    if ci_upper < target:
+        return "REFUTED"
+    return "INCONCLUSIVE"
+
+
+class TestWriterTarget930(unittest.TestCase):
+    @staticmethod
+    def _cell(arm: str, writers: int, mops: list[float], readers: int = 0) -> dict:
+        return {"arm": arm, "writers": writers, "readers": readers,
+                "rounds_raw": [{"writer_mops": m} for m in mops]}
+
+    def test_w8_round_spread_reads_every_round(self):
+        art = {
+            "provenance": {"commit": "abcdef123456", "core_pin": "0-15"},
+            "throughput": [
+                self._cell("map", 8, [9.0, 10.0, 11.0]),
+                self._cell("map", 4, [1.0, 2.0]),
+                self._cell("str", 8, [1.0, 2.0]),
+                self._cell("map", 8, [1.0, 2.0], readers=4),
+            ],
+            "throughput_variant": [self._cell("set", 8, [4.0, 6.0])],
+        }
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "a.json"
+            f.write_text(json.dumps(art))
+            rows = w8_round_spread(f)
+            self.assertEqual(len(rows), 2)
+            self.assertEqual((rows[0]["artifact"], rows[0]["commit"], rows[0]["pin"], rows[0]["section"],
+                              rows[0]["arm"], rows[0]["n"]), ("a.json", "abcdef12", "0-15", "throughput", "map", 3))
+            self.assertAlmostEqual(rows[0]["mean"], 10.0)
+            self.assertAlmostEqual(rows[0]["cv"], 0.1)
+            self.assertEqual((rows[1]["section"], rows[1]["arm"], rows[1]["n"]), ("throughput_variant", "set", 2))
+            self.assertAlmostEqual(rows[1]["cv"], math.sqrt(2.0) / 5.0)
+            f.write_text(json.dumps({"provenance": {}, "throughput": [self._cell("map", 8, [5.0])]}))
+            with self.assertRaises(ValueError):
+                w8_round_spread(f)
+            f.write_text(json.dumps({"provenance": {}, "throughput": [self._cell("map", 4, [5.0, 6.0])]}))
+            self.assertEqual(w8_round_spread(f), [])
+
+    def test_check_frozen_spread_classifies(self):
+        art = {"provenance": {"commit": "abcdef123456", "core_pin": "0-15", "cell_isolation": "process"},
+               "throughput": [self._cell("map", 8, [9.0, 10.0, 11.0])]}
+        frozen = [dict(zip(_SPREAD_KEYS, ("a.json", "abcdef12", "0-15", "throughput", "map", 3, 10.0, 0.1)))]
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "a.json"
+            f.write_text(json.dumps(art))
+            got = check_frozen_spread((f, Path(d) / "gone.json"), frozen)
+            self.assertEqual((got["checked"], got["absent"], got["mismatched"], got["not_isolated"]),
+                             (1, ["gone.json"], [], []))
+            # A sizing artifact whose cells shared a harness process is listed,
+            # whether the field is absent or names another isolation.
+            for isolation in (None, "round"):
+                if isolation is None:
+                    art["provenance"].pop("cell_isolation")
+                else:
+                    art["provenance"]["cell_isolation"] = isolation
+                f.write_text(json.dumps(art))
+                self.assertEqual(check_frozen_spread((f,), frozen)["not_isolated"], ["a.json"])
+            art["provenance"]["cell_isolation"] = "process"
+            art["provenance"]["commit"] = "0123456789"
+            f.write_text(json.dumps(art))
+            self.assertEqual(check_frozen_spread((f,), frozen)["replaced"], ["a.json"])
+            art["provenance"]["commit"] = "abcdef123456"
+            art["throughput"][0]["rounds_raw"][0]["writer_mops"] = 8.0
+            f.write_text(json.dumps(art))
+            self.assertEqual(check_frozen_spread((f,), frozen)["mismatched"], ["a.json:throughput:map"])
+
+    def test_frozen_rows_reproduce_from_committed_artifacts(self):
+        frozen = frozen_spread_rows()
+        self.assertEqual(len(frozen), 8)
+        self.assertEqual({r["artifact"] for r in frozen}, {p.name for p in WRITER_SIZING_ARTIFACTS})
+        self.assertTrue(all(r["n"] == 8 and r["commit"] == "bad1bd3d" and r["section"] == "throughput"
+                            for r in frozen))
+        got = check_frozen_spread()
+        self.assertEqual((got["checked"], got["mismatched"], got["replaced"], got["absent"], got["empty"]),
+                         (8, [], [], [], []))
+        # Every sizing artifact ran one harness process per timed cell (METHODOLOGY.md §15).
+        self.assertEqual(got["not_isolated"], [])
+
+    def test_planning_inputs_at_lock(self):
+        rows = frozen_spread_rows()
+        self.assertEqual(sum(r["pin"] == PIN_CPU_CORE for r in rows), 4)
+        self.assertEqual(sum(r["pin"] == PIN_ONE_PER_CORE for r in rows), 4)
+        core = planning_cv(rows, PIN_CPU_CORE)
+        one = planning_cv(rows, PIN_ONE_PER_CORE)
+        self.assertEqual((core["artifact"], core["commit"], core["section"], core["arm"]),
+                         ("sizing958_writer_scaling_bad1bd3d_pin0-15_run2.json", "bad1bd3d", "throughput", "set"))
+        self.assertAlmostEqual(core["cv"], 0.02939, places=6)
+        self.assertEqual((one["artifact"], one["commit"], one["section"], one["arm"]),
+                         ("sizing958_writer_scaling_bad1bd3d_percore.json", "bad1bd3d", "throughput", "map"))
+        self.assertAlmostEqual(one["cv"], 0.02318, places=6)
+        # (1.96 x 0.02939 / 0.025)^2 = 5.31 -> 6 rounds -> 8, a multiple of 4.
+        self.assertEqual(rounds_for_halfwidth(core["cv"], WRITER_TARGET_HALFWIDTH), 6)
+        self.assertEqual(rounds_for_williams(core["cv"], WRITER_TARGET_HALFWIDTH), 8)
+        # (1.96 x 0.02318 / 0.025)^2 = 3.30 -> 4 rounds, already a multiple of 4.
+        self.assertEqual(rounds_for_halfwidth(one["cv"], WRITER_TARGET_HALFWIDTH), 4)
+        self.assertEqual(rounds_for_williams(one["cv"], WRITER_TARGET_HALFWIDTH), 4)
+        # One count for both pins, the larger: 8.
+        rounds = max(rounds_for_williams(core["cv"], WRITER_TARGET_HALFWIDTH),
+                     rounds_for_williams(one["cv"], WRITER_TARGET_HALFWIDTH))
+        self.assertEqual(rounds, 8)
+        # At 8 rounds the 0-15 planning CV resolves to a relative half-width of 2.04%.
+        h8 = ratio_relative_halfwidth(core["cv"], rounds)
+        self.assertAlmostEqual(h8, 0.020366, places=6)
+        self.assertAlmostEqual(mean_needed_to_clear(WRITER_TARGET_MOPS, h8), 20.415785, places=6)
+        self.assertAlmostEqual(mean_needed_with_probability(WRITER_TARGET_MOPS, h8, 0.975), 20.840214, places=6)
+        # Context: the first sizing's 40 rounds, with these CVs.
+        self.assertAlmostEqual(ratio_relative_halfwidth(core["cv"], 40), 0.009108, places=6)
+        self.assertAlmostEqual(ratio_relative_halfwidth(one["cv"], 40), 0.007183, places=6)
+        with self.assertRaises(ValueError):
+            planning_cv(rows, "0-23")
+
+    def test_reference_values(self):
+        # (1.96 x 0.05 / 0.02)^2 = 24.01 -> 25 rounds; a multiple of 4 -> 28.
+        self.assertEqual(rounds_for_williams(0.05, 0.02, writer_counts=1), 25)
+        self.assertEqual(rounds_for_williams(0.05, 0.02), 28)
+        self.assertAlmostEqual(mean_needed_to_clear(20.0, 0.025), 20.0 / 0.975, places=12)
+        self.assertAlmostEqual(mean_needed_with_probability(20.0, 0.025, 0.5), 20.0 / 0.975, places=9)
+        self.assertAlmostEqual(mean_needed_with_probability(20.0, 0.025, 0.975), 20.0 / 0.975 ** 2, places=9)
+        self.assertAlmostEqual(20.0 / 0.975 ** 2, 21.038790, places=6)
+
+    def test_writer_target_verdict(self):
+        self.assertEqual(writer_target_verdict(20.0, 21.0), "PASS")
+        self.assertEqual(writer_target_verdict(19.0, 19.99), "REFUTED")
+        self.assertEqual(writer_target_verdict(19.5, 20.5), "INCONCLUSIVE")
+        self.assertEqual(writer_target_verdict(18.0, 20.0), "INCONCLUSIVE")
+
+    def test_invalid_arguments_raise(self):
+        for call in (lambda: rounds_for_williams(0.1, 0.05, writer_counts=0),
+                     lambda: mean_needed_with_probability(20.0, 0.025, 1.0),
+                     lambda: mean_needed_with_probability(20.0, 0.025, 0.0),
+                     lambda: mean_needed_with_probability(0.0, 0.025, 0.9),
+                     lambda: mean_needed_with_probability(20.0, 1.0, 0.9),
+                     lambda: mean_needed_with_probability(20.0, 0.9, 0.999999),
+                     lambda: writer_target_verdict(21.0, 20.0)):
+            with self.assertRaises(ValueError):
+                call()
+
+
 def report() -> None:
     lt = line_transfer_ns()
     t_line = lt["median"]
@@ -1300,6 +1655,50 @@ def report() -> None:
     for h in (0.15, 0.10):
         n = rounds_for_halfwidth(cv_r, h)
         print(f"  rounds for relative half-width {h:.2f}: {n}; a true ratio of {ratio_needed_to_clear(STEP2_MARGIN, h):.3f} clears the bound")
+    print()
+    print(f"#930 sizing: map and set writer throughput at W={WRITER_TARGET_WRITERS}, gate = BCa 95% lower bound "
+          f">= {WRITER_TARGET_MOPS:.0f} M ops/s (the threshold is the issue's choice)")
+    print("  inputs frozen at lock in W8_SPREAD_AT_LOCK; every round of every W=8 map/set cell of the per-cell "
+          "sizing sweeps at bad1bd3d, no filtering")
+    check = check_frozen_spread()
+    for name in check["not_isolated"]:
+        print(f"  {name}: NOT ISOLATED — provenance.cell_isolation is not {SIZING_CELL_ISOLATION!r}")
+    for name in check["empty"]:
+        print(f"  {name}: read; no W={WRITER_TARGET_WRITERS} writer-sweep cell (reader cells only)")
+    for name in check["replaced"]:
+        print(f"  {name}: replaced since lock; its frozen rows stand")
+    for name in check["absent"]:
+        print(f"  {name}: absent; its frozen rows stand")
+    frozen = frozen_spread_rows()
+    print(f"  frozen rows reproduced from the committed artifacts: {check['checked']} of {len(frozen)}"
+          f"{'' if not check['mismatched'] else ' — MISMATCHED: ' + ', '.join(check['mismatched'])}")
+    for r in frozen:
+        print(f"  {r['artifact']} @{r['commit']} pin {r['pin']} {r['section']} {r['arm']}: {r['n']} rounds, "
+              f"mean {r['mean']:.2f} M ops/s, per-round CV {r['cv']:.4f}, target / mean {WRITER_TARGET_MOPS / r['mean']:.2f}")
+    h = WRITER_TARGET_HALFWIDTH
+    counts = {}
+    for pin in (PIN_CPU_CORE, PIN_ONE_PER_CORE):
+        top = planning_cv(frozen, pin)
+        counts[pin] = (top, rounds_for_williams(top["cv"], h))
+        cells = sum(r["pin"] == pin for r in frozen)
+        print(f"  pin {pin}: {cells} cells; planning CV = largest, {top['cv']:.4f} "
+              f"({top['artifact']} @{top['commit']} {top['section']} {top['arm']})")
+        for hw in (0.05, h):
+            print(f"    relative half-width {hw:.3f}: {rounds_for_halfwidth(top['cv'], hw)} rounds, "
+                  f"{rounds_for_williams(top['cv'], hw)} as a multiple of {WRITER_SWEEP_WRITER_COUNTS}")
+        for n in (8, 40):
+            hn = ratio_relative_halfwidth(top['cv'], n)
+            print(f"    {n} rounds: relative half-width {hn:.5f}, true mean needed {mean_needed_to_clear(WRITER_TARGET_MOPS, hn):.3f} "
+                  f"M ops/s (half of runs), {mean_needed_with_probability(WRITER_TARGET_MOPS, hn, 0.975):.3f} (97.5%)")
+    rounds = max(n for _, n in counts.values())
+    top = max((t for t, _ in counts.values()), key=lambda t: t["cv"])
+    hr = ratio_relative_halfwidth(top["cv"], rounds)
+    print(f"  one count for both pins, the larger: {rounds} rounds; at the largest planning CV {top['cv']:.6f} that is "
+          f"relative half-width {hr:.5f}, true mean needed {mean_needed_to_clear(WRITER_TARGET_MOPS, hr):.3f} M ops/s "
+          f"(half of runs), {mean_needed_with_probability(WRITER_TARGET_MOPS, hr, 0.975):.3f} (97.5%)")
+    print(f"  at relative half-width {h:.3f}: a true mean of {mean_needed_to_clear(WRITER_TARGET_MOPS, h):.3f} M ops/s "
+          f"reaches the bound in about half of runs; {mean_needed_with_probability(WRITER_TARGET_MOPS, h, 0.975):.3f} "
+          f"in 97.5% of runs (within-run spread only)")
 
 
 if __name__ == "__main__":
