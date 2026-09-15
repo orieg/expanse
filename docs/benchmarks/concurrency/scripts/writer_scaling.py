@@ -2630,11 +2630,11 @@ def _self_test_per_cell_isolation(throughput_bin: Path, counters_bin: Path) -> N
         """`time` for `bench_provenance`, whose `monotonic()` advances 1 ms more per read.
 
         With the builds stubbed, snapshots the driver takes back to back sit
-        well under a millisecond apart, and a stored snapshot's clock is
-        rounded to 1 ms, so their difference can come out zero or negative --
-        which the accounting refuses on that ground alone. The extra step
-        makes every such window positive and still far below the minimum, so
-        the window assertion below is decided by the minimum, every run.
+        microseconds apart, close enough that two readings can coincide and
+        the accounting refuses the window for having no length at all. The
+        extra step makes every such window positive and still far below the
+        minimum, so the window assertion below is decided by the minimum,
+        every run.
         """
 
         def __init__(self) -> None:

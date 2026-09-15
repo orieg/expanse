@@ -72,7 +72,7 @@ except ImportError:  # not a POSIX host: no child CPU accounting, recorded as No
     resource = None
 
 __all__ = [
-    "USER_HZ", "MIN_WINDOW_JIFFIES", "MIN_WINDOW_S",
+    "USER_HZ", "MIN_WINDOW_JIFFIES", "MIN_WINDOW_S", "Snapshot",
     "cpu_jiffies", "child_cpu_seconds", "load_snapshot", "add_load", "begin_cell",
     "end_cell", "host_facts", "scaling_governor_by_cpu", "expand_cpu_list", "pin_set",
     "raw_rounds", "estimators", "git_sha", "new_provenance", "attach", "body", "rewrite",
@@ -95,17 +95,46 @@ USER_HZ = _user_hz()
 # window of `w` seconds is 1/(USER_HZ * w) core-equivalents. Ten units makes
 # that step 0.1 core-equivalent -- a tenth of the foreign-busy void boundary of
 # 1.0 (AGENTS.md section 8.17) -- which is 0.1 s at USER_HZ = 100. The other
-# operands are finer: `getrusage` reports microseconds, and the 1 ms rounding of
-# a stored snapshot's `monotonic_s` and `child_cpu_s` moves a figure over this
-# window by at most 0.01 core-equivalent. Below the minimum the quotient is
-# rounding divided by almost nothing -- two snapshots taken back to back can
-# yield an own figure below zero and a foreign remainder above 1.0 over a window
-# the artifact records as 0 ms, which a void rule would read as contamination.
+# operands are finer: `getrusage` reports microseconds, and a snapshot is
+# differenced on its unrounded readings (`Snapshot.raw`); only a snapshot read
+# back from an artifact falls back to its 1 ms-rounded fields, which move a
+# figure over this window by at most 0.01 core-equivalent. Raw readings do not
+# make a sub-minimum window measurable: children's CPU time advances only when
+# a child is reaped and jiffies only at a tick, so over a window of a few
+# milliseconds the quotient is a count step divided by almost nothing, and a
+# foreign remainder of that size is what a void rule reads as contamination.
 # The minimum makes a figure resolvable, not exact: above it,
 # every CPU whose counter advances inside the window still contributes its own
 # counting step.
 MIN_WINDOW_JIFFIES = 10
 MIN_WINDOW_S = MIN_WINDOW_JIFFIES / USER_HZ
+
+
+class Snapshot(dict):
+    """A load snapshot: the fields an artifact stores, plus the readings they were rounded from.
+
+    `monotonic_s` and `child_cpu_s` are stored rounded to 1 ms. Differencing a
+    later *unrounded* reading against those rounded fields puts the two
+    operands on different grids, and over a short window the grid offset is the
+    whole quotient. So the unrounded readings ride on the object (`raw`), where
+    `json.dumps` does not see them, and every difference is taken raw against
+    raw; the artifact still carries only the rounded fields. A snapshot read
+    back from JSON is a plain `dict` with no `raw`, and is differenced on its
+    stored fields.
+    """
+
+    __slots__ = ("raw",)
+
+    def __init__(self, *args, raw: dict | None = None, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.raw = raw or {}
+
+
+def _reading(snap: dict, key: str):
+    """`snap`'s unrounded reading of `key` where it carries one, else the stored field."""
+    raw = getattr(snap, "raw", None) or {}
+    value = raw.get(key)
+    return value if value is not None else snap.get(key)
 
 
 def cpu_jiffies() -> tuple[int | None, int | None]:
@@ -172,7 +201,8 @@ def own_busy_cpus(prev: dict | None, child_cpu_s: float | None, monotonic_s: flo
     """
     if not prev or child_cpu_s is None:
         return None
-    p_child, p_mono = prev.get("child_cpu_s"), prev.get("monotonic_s")
+    # Raw against raw where `prev` still carries its readings (see `Snapshot`).
+    p_child, p_mono = _reading(prev, "child_cpu_s"), _reading(prev, "monotonic_s")
     if p_child is None or p_mono is None:
         return None
     wall = monotonic_s - p_mono
@@ -210,7 +240,7 @@ def load_snapshot(label: str, prev: dict | None = None) -> dict:
     mono = time.monotonic()
     host = busy_cpus(prev, busy, total)
     own = own_busy_cpus(prev, child, mono)
-    return {
+    return Snapshot({
         "label": label,
         "since": prev.get("label") if prev else None,
         "load1": round(one, 2), "load5": round(five, 2), "load15": round(fifteen, 2),
@@ -221,7 +251,7 @@ def load_snapshot(label: str, prev: dict | None = None) -> dict:
         "busy_cpus_since_prev": host,
         "own_busy_cpus_since_prev": own,
         "foreign_busy_cpus_since_prev": foreign_busy_cpus(host, own),
-    }
+    }, raw={"monotonic_s": mono, "child_cpu_s": child})
 
 
 def add_load(prov: dict, label: str) -> None:
@@ -256,9 +286,10 @@ def end_cell(start: dict) -> dict:
     mono = time.monotonic()
     host = busy_cpus(start, busy, total)
     own = own_busy_cpus(start, child, mono)
+    start_mono = _reading(start, "monotonic_s")
     return {
         "since": start.get("label"),
-        "wall_s": round(mono - start["monotonic_s"], 3),
+        "wall_s": None if start_mono is None else round(mono - start_mono, 3),
         "busy_cpus_since_prev": host,
         "own_busy_cpus": own,
         "foreign_busy_cpus": foreign_busy_cpus(host, own),

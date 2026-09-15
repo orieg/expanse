@@ -105,6 +105,41 @@ class MinimumWindow(unittest.TestCase):
         self.assertIsNotNone(bp.own_busy_cpus(prev, 10.0 + just, 100.0 + just))
         self.assertEqual(bp.foreign_busy_cpus(1.5, 1.0), 0.5)
 
+    def test_the_published_shapes_carry_no_figures(self):
+        # The two shapes phase snapshots published: stored fields rounded to
+        # 1 ms, differenced against unrounded readings over a sub-millisecond
+        # window. Stored child 68.39 is 0.4 ms below the reading it came from,
+        # stored clock 100.0 is 0.4 ms below its own, and 0.15 ms later...
+        prev = {"child_cpu_s": 68.39, "monotonic_s": 100.0,
+                "stat_busy_jiffies": 5_000, "stat_total_jiffies": 50_000}
+        child_now, mono_now = 68.3905, 100.00055
+        # ... the grid offset alone is 0.5 ms / 0.55 ms = 0.91 core, and with a
+        # jiffy total that did not move the host figure is 0.0 (foreign = -own)
+        # or, with nothing to difference, None (a numeric own beside a null
+        # foreign). Neither may carry a number.
+        self.assertIsNone(bp.own_busy_cpus(prev, child_now, mono_now))
+        self.assertIsNone(bp.busy_cpus(prev, 5_000, 50_001, ncpu=24))
+        self.assertIsNone(bp.foreign_busy_cpus(0.0, bp.own_busy_cpus(prev, child_now, mono_now)))
+        self.assertIsNone(bp.foreign_busy_cpus(None, bp.own_busy_cpus(prev, child_now, mono_now)))
+
+    def test_a_snapshot_is_differenced_on_its_unrounded_readings(self):
+        # Stored fields rounded in opposite directions: child 0.4 ms down, clock
+        # 0.4 ms up. Raw window 0.11 s (clear of the minimum), raw child delta
+        # 0.11 s: 1.0 core. Differenced on the stored fields it reads
+        # 0.1104 / 0.1096 = 1.0073, published as 1.01.
+        prev = bp.Snapshot({"child_cpu_s": 10.0, "monotonic_s": 101.0},
+                           raw={"child_cpu_s": 10.0004, "monotonic_s": 100.9996})
+        self.assertEqual(bp.own_busy_cpus(prev, 10.1104, 101.1096), 1.0)
+        self.assertEqual(bp.own_busy_cpus(dict(prev), 10.1104, 101.1096), 1.01)
+        # The raw readings never reach the artifact.
+        self.assertEqual(json.loads(json.dumps(prev)), {"child_cpu_s": 10.0, "monotonic_s": 101.0})
+
+    def test_load_snapshot_carries_its_raw_readings(self):
+        s = bp.load_snapshot("start")
+        self.assertIsInstance(s, bp.Snapshot)
+        self.assertEqual(round(s.raw["monotonic_s"], 3), s["monotonic_s"])
+        self.assertNotIn("raw", json.loads(json.dumps(s)))
+
     def test_back_to_back_snapshots_carry_no_figures(self):
         # The production call path: `begin_cell` twice with nothing between.
         prov = {"loads": []}
@@ -118,8 +153,10 @@ class MinimumWindow(unittest.TestCase):
 
     def test_a_long_enough_window_still_attributes(self):
         # The same call path over a window above the minimum, with the start
-        # snapshot's clock moved back rather than a sleep in a unit test.
-        start = bp.load_snapshot("start")
+        # snapshot's clock moved back rather than a sleep in a unit test. A
+        # plain-dict copy, as read back from an artifact, so the stored fields
+        # are the ones differenced.
+        start = dict(bp.load_snapshot("start"))
         start["monotonic_s"] -= 1.0
         if start["stat_total_jiffies"] is not None:
             start["stat_total_jiffies"] -= (bp.os.cpu_count() or 1) * bp.USER_HZ
