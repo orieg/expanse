@@ -779,6 +779,16 @@ cell in this suite was measured on.
 | 4 | 21.21 | 4.98 | 0.234 [0.224, 0.246] | Masstree — `CONFIRMED` | 8.21 | 1.56 | 0.181 [0.169, 0.191] |
 | 8 | 17.18 | 4.81 | 0.281 [0.272, 0.289] | Masstree — `CONFIRMED` | 15.05 | 1.54 | 0.105 [0.098, 0.112] |
 
+The W = 0 row is the readers-only string cell, which is pending re-measurement (#730).
+Its committed Expanse reader levels come from two procedures: one harness
+process running every round of the cell (this table's pair at `6f8d6ba5`, and
+the `a1982ff2` pair kept at `results/step0/`), and one process per round
+(`results/baseline_concurrent_ab.json` and its run 2, from `scripts/bench_ab.py`).
+No level is compared across the two procedures here. The ratio in that row
+also carries the page-size asymmetry METHODOLOGY §3.3 discloses — Masstree's
+nodes are huge-page backed, Expanse's arena is not — whose effect on the
+concurrent cells is unmeasured *(workload: `masstree_conc_str`)*.
+
 #### H — protocol health, Expanse side only (occ-stats build; event ratios, never a timing)
 
 | Arm | W | R | run | restart share, median [min, max] | fallback share, median | `sample_spins` ÷ `read_ops` (medians) | `locked_reads` ÷ `read_ops` | unconditional lock share | handoffs ÷ write | branch replacements ÷ write | deep-cascade share | root-rewrite share | spin time ÷ reader wall | §6.3 |
