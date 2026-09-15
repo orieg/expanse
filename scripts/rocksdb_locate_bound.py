@@ -102,6 +102,21 @@ applies METHODOLOGY section 5.12's acceptance rule over two runs. Nothing here
 chooses a shape after seeing the held-out cells; a shape that fails is
 reported, and the section says what follows.
 
+## Sizing the optimistic-seek arm
+
+METHODOLOGY section 5.16 reads three gates (`OPTIMISTIC_GATES`): idle
+`opt/full` (O1), idle `opt/trie` (O2) and paced `opt/trie` (O3). Each is a
+directional scaling ratio `S(7)`, a directional absolute ratio `T(7)`, and a
+non-inferiority control `T(1)` (`optimistic_gate_verdict`); a paced gate also
+needs its writers at the offered rate (`paced_writer_problems`), and
+`optimistic_closure` says what the verdicts decide for #802.
+`optimistic_gate_sizing` fixes the rounds before any optimistic cell exists: the
+per-round spread of every round of the four section 5.15 runs
+(`optimistic_sizing_inputs`), a Student-t planning half-width
+(`sizing_relative_halfwidth`), and the fewest rounds at which every gated
+statistic resolves its target (`rounds_for_detectable_ratio`,
+`rounds_for_noninferiority`).
+
 Usage:
     python3 scripts/rocksdb_locate_bound.py
     python3 scripts/rocksdb_locate_bound.py --writer-ops 1e6
@@ -431,6 +446,133 @@ def paired_ratio_relative_halfwidth(halfwidth_a: float, halfwidth_b: float) -> f
         if not (0.0 <= h < 1.0):
             raise ValueError(f"{name} must be in [0, 1), got {h!r}")
     return math.hypot(halfwidth_a, halfwidth_b)
+
+
+def _betacf(a: float, b: float, x: float) -> float:
+    """Continued fraction for the regularized incomplete beta function.
+
+    Modified Lentz evaluation, as in Press, Teukolsky, Vetterling & Flannery,
+    *Numerical Recipes*, 3rd ed. (2007), section 6.4 (`betacf`). Raises rather
+    than returning a partial sum when it does not converge (AGENTS.md 8.1).
+    """
+    fpmin = 1e-300
+    qab, qap, qam = a + b, a + 1.0, a - 1.0
+    c = 1.0
+    d = 1.0 - qab * x / qap
+    d = 1.0 / (d if abs(d) > fpmin else fpmin)
+    h = d
+    for m in range(1, 1001):
+        m2 = 2 * m
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        d = 1.0 / (d if abs(d) > fpmin else fpmin)
+        c = 1.0 + aa / c
+        c = c if abs(c) > fpmin else fpmin
+        h *= d * c
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        d = 1.0 / (d if abs(d) > fpmin else fpmin)
+        c = 1.0 + aa / c
+        c = c if abs(c) > fpmin else fpmin
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < 1e-15:
+            return h
+    raise ValueError(f"incomplete beta continued fraction did not converge (a={a}, b={b}, x={x})")
+
+
+def _regularized_incomplete_beta(a: float, b: float, x: float) -> float:
+    """`I_x(a, b)`, by the symmetry switch of *Numerical Recipes* 3rd ed. section 6.4."""
+    if not (a > 0 and b > 0):
+        raise ValueError(f"a and b must be positive, got {a!r}, {b!r}")
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    front = math.exp(math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b)
+                     + a * math.log(x) + b * math.log1p(-x))
+    if x < (a + 1.0) / (a + b + 2.0):
+        return front * _betacf(a, b, x) / a
+    return 1.0 - front * _betacf(b, a, 1.0 - x) / b
+
+
+def student_t_cdf(t: float, df: int) -> float:
+    """CDF of Student's t with `df` degrees of freedom.
+
+    `P(T <= t) = 1 - I_{df / (df + t^2)}(df / 2, 1 / 2) / 2` for `t >= 0`
+    (Abramowitz & Stegun, *Handbook of Mathematical Functions*, 26.7.1 with
+    26.5.27), and the reflection `1 - P(T <= -t)` below zero.
+    """
+    if df < 1:
+        raise ValueError(f"df must be >= 1, got {df!r}")
+    tail = 0.5 * _regularized_incomplete_beta(df / 2.0, 0.5, df / (df + t * t))
+    return 1.0 - tail if t >= 0 else tail
+
+
+def student_t_quantile(p: float, df: int) -> float:
+    """The `p` quantile of Student's t, by bisection on `student_t_cdf`.
+
+    Planning only: the gates are read on BCa intervals (AGENTS.md 8.4), and a
+    t interval over few rounds is wider than BCa's, so sizing with it errs on
+    the side of more rounds.
+    """
+    if not 0.5 <= p < 1.0:
+        raise ValueError(f"p must be in [0.5, 1), got {p!r}")
+    lo, hi = 0.0, 1.0
+    while student_t_cdf(hi, df) < p:
+        hi *= 2.0
+        if hi > 1e12:
+            raise ValueError(f"no bracket for the {p} quantile at df={df}")
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        if student_t_cdf(mid, df) < p:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
+def per_round_cv(values: list[float]) -> float:
+    """Sample coefficient of variation (`n - 1` standard deviation over the mean) of per-round values."""
+    if len(values) < 2:
+        raise ValueError(f"a spread needs at least two rounds, got {len(values)}")
+    mean = statistics.fmean(values)
+    if not mean > 0:
+        raise ValueError(f"per-round values must have a positive mean, got {mean!r}")
+    return statistics.stdev(values) / mean
+
+
+def sizing_relative_halfwidth(cv: float, rounds: int) -> float:
+    """Planning relative half-width of a mean of `rounds` per-round ratios with spread `cv`.
+
+    `t(0.975, rounds - 1) * cv / sqrt(rounds)`: the Student-t interval on a
+    mean, relative to the mean. The paired ratio is a mean over rounds, so its
+    relative half-width shrinks as `1 / sqrt(rounds)` at a fixed spread.
+    """
+    if cv < 0:
+        raise ValueError(f"cv must be non-negative, got {cv!r}")
+    if rounds < 3:
+        raise ValueError(f"BCa needs at least 3 rounds, got {rounds!r}")
+    return student_t_quantile(0.975, rounds - 1) * cv / math.sqrt(rounds)
+
+
+def rounds_for_detectable_ratio(cv: float, target_ratio: float, min_rounds: int = 3,
+                                max_rounds: int = 1000) -> int:
+    """Fewest rounds, at least `min_rounds`, whose projected lower bound clears 1 at `target_ratio`.
+
+    That is the smallest `n` with `min_detectable_ratio(sizing_relative_halfwidth(cv, n))`
+    at or below `target_ratio`. Raises when `max_rounds` does not reach it,
+    rather than returning the cap as if it did (AGENTS.md 8.1).
+    """
+    if not target_ratio > 1.0:
+        raise ValueError(f"target_ratio must be above 1, got {target_ratio!r}")
+    if min_rounds < 3:
+        raise ValueError(f"min_rounds must be >= 3, got {min_rounds!r}")
+    for n in range(min_rounds, max_rounds + 1):
+        h = sizing_relative_halfwidth(cv, n)
+        if h < 1.0 and min_detectable_ratio(h) <= target_ratio:
+            return n
+    raise ValueError(f"cv {cv!r} needs more than {max_rounds} rounds to resolve {target_ratio!r}")
 
 
 def queue_scaling(readers: int, locked_fraction: float, handoff: float,
@@ -794,6 +936,279 @@ NARROWED_CURVES = {label: (_RESULTS / f"baseline_concurrent_reads_narrowed_{labe
                    for label in NARROWED_PINS}
 NARROWED_RATIOS = ("T(1)", "S(2)", "S(4)", "S(7)")
 
+#: METHODOLOGY section 5.16 sizes the optimistic-seek arm from the four
+#: section 5.15 runs: the only committed artifacts that carry a scope other than
+#: `full`, and paired per-round ratios, for the gate cell (idle `R = 7`).
+OPTIMISTIC_SIZING_SOURCES = tuple(p for label in NARROWED_PINS for p in NARROWED_CURVES[label])
+#: The smallest true paired ratio each directional statistic section 5.16 gates
+#: must be able to tell from 1. A choice, fixed before the sizing was computed,
+#: not a derivation.
+OPTIMISTIC_MDR_TARGET = 1.05
+#: The non-inferiority margin on the single-reader control `T_a(1) / T_b(1)`: the
+#: gate needs its lower bound above `1 - OPTIMISTIC_NI_MARGIN`. A choice, fixed
+#: before the sizing was computed. It caps how much a slower single reader can
+#: inflate a scaling ratio that divides by it, at `1 / (1 - margin)`.
+OPTIMISTIC_NI_MARGIN = 0.02
+#: A paced cell is admissible for a gate only when its writer achieved at least
+#: this share of the offered rate. A choice: section 5.15's `trie` writer held
+#: at least 0.9998 of the offered rate at every `R`, and its `full` writer fell
+#: to 0.54-0.87 at `R = 7`.
+OPTIMISTIC_WRITER_RATE_FLOOR = 0.99
+#: The reader counts a gated paced cell reads, and so the ones the writer-rate
+#: rule applies to.
+OPTIMISTIC_GATED_READERS = (1, 7)
+#: Section 5.14's rounds per cell; section 5.16 never runs fewer.
+OPTIMISTIC_ROUNDS_FLOOR = 5
+#: The gates section 5.16 reads, each a paired ratio `a / b` in one writer mode,
+#: and whether a `PASS` is needed to close #802. Every gate reads three
+#: statistics (`OPTIMISTIC_GATE_STATISTICS`), and every one of them sizes the
+#: rounds.
+OPTIMISTIC_GATES = {
+    "O1": {"mode": "idle", "a": "opt", "b": "full", "closes_802": True},
+    "O2": {"mode": "idle", "a": "opt", "b": "trie", "closes_802": False},
+    "O3": {"mode": "paced", "a": "opt", "b": "trie", "closes_802": True},
+}
+#: `(statistic, test)`: the scaling ratio and the absolute throughput ratio at
+#: the gated reader count are directional; the single-reader control is
+#: non-inferiority.
+OPTIMISTIC_GATE_STATISTICS = (("S(7)", "directional"), ("T(7)", "directional"), ("T(1)", "noninferiority"))
+
+
+def optimistic_sizing_inputs(path: Path) -> dict:
+    """Per-round spreads of one section 5.15 artifact's cells, every round, no filtering.
+
+    For each writer mode and each of `S(7) = T(7) / T(1)`, `T(7)` and `T(1)`:
+    each scope's per-round spread, and the spread of the paired per-round
+    `trie / full` ratio. Read from the artifact's per-cell `read_mops`, so the
+    absolute ratios the scaling keys do not carry are read the same way as the
+    scaling ones. `cv_full`, `cv_trie` and `cv_trie_over_full` keep the idle
+    `S(7)` spreads under their earlier names.
+    """
+    obj = json.loads(Path(path).read_text())
+    name = Path(path).name
+    cells: dict = {}
+    for c in obj.get("cells", []):
+        cells.setdefault((c["lock_scope"], c["writer_mode"], c["readers"]), {})[c["round"]] = float(c["read_mops"])
+    modes = {}
+    rounds = None
+    for mode in ("idle", "paced"):
+        per = {}
+        keys = [(scope, mode, r) for scope in ("full", "trie") for r in (1, 7)]
+        missing = [k for k in keys if k not in cells]
+        if missing:
+            raise KeyError(f"{name}: no cells for {missing}")
+        rs = sorted(cells[keys[0]])
+        if any(sorted(cells[k]) != rs for k in keys):
+            raise ValueError(f"{name}: {mode} cells do not share one set of rounds")
+        rounds = len(rs) if rounds is None else rounds
+        if len(rs) != rounds:
+            raise ValueError(f"{name}: the idle and paced cells ran different round counts")
+        series = {}
+        for scope in ("full", "trie"):
+            t1 = [cells[(scope, mode, 1)][i] for i in rs]
+            t7 = [cells[(scope, mode, 7)][i] for i in rs]
+            series[scope] = {"T(1)": t1, "T(7)": t7, "S(7)": [b / a for a, b in zip(t1, t7)]}
+        for stat in ("S(7)", "T(7)", "T(1)"):
+            per[stat] = {"cv_full": per_round_cv(series["full"][stat]),
+                         "cv_trie": per_round_cv(series["trie"][stat]),
+                         "cv_trie_over_full": per_round_cv(
+                             [t / f for t, f in zip(series["trie"][stat], series["full"][stat])])}
+        modes[mode] = per
+    idle = modes["idle"]["S(7)"]
+    return {"name": name, "rounds": rounds, "cv_full": idle["cv_full"], "cv_trie": idle["cv_trie"],
+            "cv_trie_over_full": idle["cv_trie_over_full"], "modes": modes}
+
+
+def planning_cv(runs: list[dict], mode: str, stat: str, b: str) -> float:
+    """Section 5.16's planning spread for `opt / b` on one statistic.
+
+    No run of the optimistic scope exists, so its per-round spread is stood in
+    for by the `trie` scope's, the other scope that does not hold `mutex_` over
+    the whole locate phase. That is an assumption, stated in section 5.16.
+
+    - `b = "full"`: the larger, over every run, of the measured paired spread of
+      `trie / full` and the independent projection `hypot(cv_trie, cv_full)`.
+    - `b = "trie"`: no paired analogue exists, so the independent projection
+      `hypot(cv_trie, cv_trie)`, the larger over every run.
+
+    `paired_ratio_relative_halfwidth` is the quadrature both use. Independence is
+    conservative for interleaved arms (its docstring), and the largest run is
+    taken, so the rounds are sized on the widest observed spread.
+    """
+    if not runs:
+        raise ValueError("sizing needs at least one run")
+    if b == "full":
+        return max(max(r["modes"][mode][stat]["cv_trie_over_full"],
+                       paired_ratio_relative_halfwidth(r["modes"][mode][stat]["cv_trie"],
+                                                       r["modes"][mode][stat]["cv_full"]))
+                   for r in runs)
+    if b == "trie":
+        return max(paired_ratio_relative_halfwidth(r["modes"][mode][stat]["cv_trie"],
+                                                   r["modes"][mode][stat]["cv_trie"]) for r in runs)
+    raise ValueError(f"no planning rule for a ratio over {b!r}")
+
+
+def rounds_for_noninferiority(cv: float, margin: float, min_rounds: int = 3, max_rounds: int = 1000) -> int:
+    """Fewest rounds, at least `min_rounds`, whose projected lower bound clears `1 - margin` at a true ratio of 1.
+
+    The projected lower bound of a true ratio `r` is `r (1 - h)`, the same
+    reading `min_detectable_ratio` inverts. At `r = 1` it clears `1 - margin`
+    exactly when `h <= margin`. Raises when `max_rounds` does not reach it.
+    """
+    if not 0.0 < margin < 1.0:
+        raise ValueError(f"margin must be in (0, 1), got {margin!r}")
+    if min_rounds < 3:
+        raise ValueError(f"min_rounds must be >= 3, got {min_rounds!r}")
+    for n in range(min_rounds, max_rounds + 1):
+        if sizing_relative_halfwidth(cv, n) <= margin:
+            return n
+    raise ValueError(f"cv {cv!r} needs more than {max_rounds} rounds to resolve a margin of {margin!r}")
+
+
+def optimistic_gate_sizing(runs: list[dict], target: float = OPTIMISTIC_MDR_TARGET,
+                           margin: float = OPTIMISTIC_NI_MARGIN,
+                           floor: int = OPTIMISTIC_ROUNDS_FLOOR) -> dict:
+    """Planning spread and rounds for every statistic of every gate section 5.16 reads.
+
+    Each directional statistic needs `rounds_for_detectable_ratio` at `target`,
+    and each non-inferiority control `rounds_for_noninferiority` at `margin`.
+    The rounds per cell are the largest of those, so no gated statistic is
+    under-powered against its own target. At that count, each directional
+    statistic reports the true ratio its lower bound clears 1 above, and each
+    control the half-width its bound carries.
+    """
+    if not runs:
+        raise ValueError("sizing needs at least one run")
+    stats = {}
+    for gate, g in OPTIMISTIC_GATES.items():
+        for stat, test in OPTIMISTIC_GATE_STATISTICS:
+            cv = planning_cv(runs, g["mode"], stat, g["b"])
+            h_floor = sizing_relative_halfwidth(cv, floor)
+            need = (rounds_for_detectable_ratio(cv, target, min_rounds=floor) if test == "directional"
+                    else rounds_for_noninferiority(cv, margin, min_rounds=floor))
+            stats[(gate, stat)] = {"gate": gate, "stat": stat, "test": test, "mode": g["mode"],
+                                   "ratio": f"{g['a']}/{g['b']}", "cv": cv, "halfwidth_at_floor": h_floor,
+                                   "rounds_needed": need}
+    # The first statistic, in declaration order, that needs the most rounds.
+    binding = max(stats.values(), key=lambda v: v["rounds_needed"])
+    rounds = binding["rounds_needed"]
+    for v in stats.values():
+        v["halfwidth_at_rounds"] = sizing_relative_halfwidth(v["cv"], rounds)
+        v["mdr_at_rounds"] = min_detectable_ratio(v["halfwidth_at_rounds"])
+    return {"target": target, "margin": margin, "floor": floor, "rounds": rounds,
+            "binding": (binding["gate"], binding["stat"]), "stats": stats}
+
+
+def noninferiority_verdict(intervals: list[tuple[float, float]], margin: float = OPTIMISTIC_NI_MARGIN) -> str:
+    """Section 5.16's single-reader control over one pin's runs.
+
+    `PASS` when every run's lower bound is above `1 - margin`, `REFUTED` when
+    every run's upper bound is below it, `BOUNDARY_RESULT` otherwise. It is
+    `directional_verdict` with the floor moved to `1 - margin`.
+    """
+    if not 0.0 < margin < 1.0:
+        raise ValueError(f"margin must be in (0, 1), got {margin!r}")
+    return directional_verdict(intervals, floor=1.0 - margin)
+
+
+def optimistic_gate_verdict(scaling: list[tuple[float, float]], absolute: list[tuple[float, float]],
+                            control: list[tuple[float, float]], margin: float = OPTIMISTIC_NI_MARGIN) -> dict:
+    """One gate of section 5.16 under one pin, from its two runs' intervals.
+
+    `scaling` is `S_a(7) / S_b(7)`, `absolute` is `T_a(7) / T_b(7)` and
+    `control` is `T_a(1) / T_b(1)`. `PASS` needs all three: the scaling ratio
+    and the absolute ratio each `PASS` `directional_verdict`, and the control
+    `PASS`es `noninferiority_verdict`. `REFUTED` needs the scaling and the
+    absolute ratio both `REFUTED`. Anything else is `BOUNDARY_RESULT`. The
+    component verdicts are returned beside it, so a report names which failed.
+    """
+    parts = {"scaling": directional_verdict(scaling), "absolute": directional_verdict(absolute),
+             "control": noninferiority_verdict(control, margin)}
+    if all(v == "PASS" for v in parts.values()):
+        verdict = "PASS"
+    elif parts["scaling"] == "REFUTED" and parts["absolute"] == "REFUTED":
+        verdict = "REFUTED"
+    else:
+        verdict = "BOUNDARY_RESULT"
+    return {"verdict": verdict, **parts}
+
+
+def paced_writer_problems(obj: dict, scopes: tuple[str, ...], offered: float = 250000.0,
+                          floor: float = OPTIMISTIC_WRITER_RATE_FLOOR,
+                          readers: tuple[int, ...] = OPTIMISTIC_GATED_READERS) -> list[str]:
+    """Why a run's paced cells are not admissible for a gate over `scopes`.
+
+    Every round of every paced cell at `readers`, for every scope the gate
+    reads, must have its writer achieve at least `floor * offered`
+    (`achieved_min_ops_per_s`), and none may be flagged (achieved above the
+    offered rate, or out of keys: section 5.9). Reads the driver's
+    `paced_rate_check_by_lock_scope`.
+    """
+    if not 0.0 < floor <= 1.0:
+        raise ValueError(f"floor must be in (0, 1], got {floor!r}")
+    problems = []
+    by_scope = obj.get("paced_rate_check_by_lock_scope", {})
+    for scope in scopes:
+        report = by_scope.get(scope)
+        if report is None:
+            problems.append(f"no paced rate report for scope {scope!r}")
+            continue
+        if report.get("offered_ops_per_s") != offered:
+            problems.append(f"[{scope}] offered {report.get('offered_ops_per_s')!r}, expected {offered!r}")
+        for r in readers:
+            e = report.get("per_readers", {}).get(str(r))
+            if e is None:
+                problems.append(f"[{scope}] no paced R={r} rate")
+                continue
+            if e["achieved_min_ops_per_s"] < floor * offered:
+                problems.append(f"[{scope}] paced R={r} writer reached {e['achieved_min_ops_per_s']:,.0f} "
+                                f"inserts/s, below {floor} x {offered:,.0f}")
+        flagged = [f for f in report.get("flags", []) if f.get("readers") in readers]
+        if flagged:
+            problems.append(f"[{scope}] {len(flagged)} flagged paced cell(s) at R in {list(readers)}")
+    return problems
+
+
+def optimistic_closure(verdicts: dict) -> str:
+    """What section 5.16 says the gate verdicts decide for #802.
+
+    `verdicts` maps each pin to `{gate: verdict}`, where a gate's verdict is
+    `PASS`, `REFUTED`, `BOUNDARY_RESULT` or `NOT_EVALUABLE`. #802 closes only
+    when every gate marked `closes_802` reads `PASS` under every pin. O2 routes
+    only which scope a later default proposal may name.
+    """
+    if not verdicts:
+        raise ValueError("closure needs the verdicts of at least one pin")
+    needed = [g for g, spec in OPTIMISTIC_GATES.items() if spec["closes_802"]]
+    for pin, per in verdicts.items():
+        absent = [g for g in OPTIMISTIC_GATES if g not in per]
+        if absent:
+            raise ValueError(f"pin {pin}: no verdict for {absent}")
+    if all(per[g] == "PASS" for per in verdicts.values() for g in needed):
+        return "#802 closes: " + " and ".join(needed) + " PASS under every pin"
+    short = sorted({f"{g} {per[g]} under {pin}" for pin, per in verdicts.items() for g in needed
+                    if per[g] != "PASS"})
+    return "#802 stays open: " + "; ".join(short)
+
+
+def ir_budget_per_call(inclusive_ir: int, calls: int, fraction: float = 0.001) -> tuple[float, float]:
+    """`(per-call inclusive Ir, the per-call Ir a `fraction` budget allows)`.
+
+    Section 5.16's single-threaded bound is 0.1% of an entry point's inclusive
+    `Ir` (AGENTS.md section 6). Callgrind's counts are exact, so the budget is
+    exact too; published beside the per-call count, it says how many
+    instructions per call the bound admits, which is what a reader needs to
+    judge whether a change of a given size could be seen.
+    """
+    if not isinstance(inclusive_ir, int) or inclusive_ir < 0:
+        raise ValueError(f"inclusive_ir must be a non-negative int, got {inclusive_ir!r}")
+    if not isinstance(calls, int) or calls < 1:
+        raise ValueError(f"calls must be an int >= 1, got {calls!r}")
+    if not 0.0 < fraction < 1.0:
+        raise ValueError(f"fraction must be in (0, 1), got {fraction!r}")
+    per_call = inclusive_ir / calls
+    return per_call, per_call * fraction
+
 
 def load_locate_profile(path: Path) -> dict:
     """`locked_fraction` and `trie_fraction`, point and interval, from a locate profile.
@@ -946,6 +1361,7 @@ def render(arms: dict, writer_ops_per_s: float) -> str:
     lines.extend(render_model_check())
     lines.extend(render_gate_detectability())
     lines.extend(render_narrowed_verdicts())
+    lines.extend(render_optimistic_sizing())
     return "\n".join(lines)
 
 
@@ -1020,6 +1436,43 @@ def render_gate_detectability() -> list[str]:
         paired = paired_ratio_relative_halfwidth(h, h)
         out.append(f"    {path.name} {mode}: S(7) relative half-width {h:.2%} -> paired {paired:.2%}, "
                    f"lower bound clears 1 above a ratio of {min_detectable_ratio(paired):.4f}")
+    return out
+
+
+def render_optimistic_sizing() -> list[str]:
+    """Section 5.16's sizing, from every round of the four section 5.15 runs."""
+    out = ["", "  Optimistic-seek arm sizing (METHODOLOGY section 5.16), from section 5.15's runs:"]
+    missing = [p.name for p in OPTIMISTIC_SIZING_SOURCES if not p.is_file()]
+    if missing:
+        out.append(f"    not evaluable: missing {', '.join(missing)}")
+        return out
+    runs = [optimistic_sizing_inputs(p) for p in OPTIMISTIC_SIZING_SOURCES]
+    for r in runs:
+        out.append(f"    {r['name']}: {r['rounds']} rounds")
+        for mode, per in r["modes"].items():
+            out.append(f"      {mode}: " + "; ".join(
+                f"{stat} CV full {v['cv_full']:.4f}, trie {v['cv_trie']:.4f}, paired trie/full "
+                f"{v['cv_trie_over_full']:.4f}" for stat, v in per.items()))
+    s = optimistic_gate_sizing(runs)
+    for v in s["stats"].values():
+        role = "closes #802" if OPTIMISTIC_GATES[v["gate"]]["closes_802"] else "routes a default proposal only"
+        need = (f"{v['rounds_needed']} rounds reach {s['target']:.2f}" if v["test"] == "directional"
+                else f"{v['rounds_needed']} rounds resolve a margin of {s['margin']:.2f}")
+        out.append(f"    {v['gate']} {v['mode']} {v['ratio']} {v['stat']} [{v['test']}, {role}]: planning CV "
+                   f"{v['cv']:.4f}; at {s['floor']} rounds relative half-width {v['halfwidth_at_floor']:.4f}; {need}")
+    out.append(f"    rounds per cell: {s['rounds']}, set by {s['binding'][0]} {s['binding'][1]}; at that count:")
+    for v in s["stats"].values():
+        at = (f"lower bound clears 1 above {v['mdr_at_rounds']:.4f}" if v["test"] == "directional"
+              else f"relative half-width {v['halfwidth_at_rounds']:.4f} against a margin of {s['margin']:.2f}")
+        out.append(f"      {v['gate']} {v['stat']}: {at}")
+    out.append(f"    t(0.975, {s['rounds'] - 1}) = {student_t_quantile(0.975, s['rounds'] - 1):.4f}; "
+               f"the gates themselves read BCa intervals")
+    for p in OPTIMISTIC_SIZING_SOURCES:
+        o = json.loads(p.read_text())
+        for scope in ("full", "trie"):
+            probs = paced_writer_problems(o, (scope,))
+            out.append(f"    {p.name} [{scope}] paced writer at R in {list(OPTIMISTIC_GATED_READERS)}: "
+                       + ("admissible" if not probs else "; ".join(probs)))
     return out
 
 
@@ -1583,6 +2036,208 @@ def self_test() -> int:
             pass
         else:
             fails.append(f"{name}: did not raise")
+    # --- section 5.16 sizing ----------------------------------------------
+    # Student t 0.975 quantiles, against the standard table (Abramowitz &
+    # Stegun Table 26.10): df 1, 4, 9, 29.
+    check("t(0.975, 1)", student_t_quantile(0.975, 1), 12.7062047, tol=1e-6)
+    check("t(0.975, 4)", student_t_quantile(0.975, 4), 2.7764451, tol=1e-6)
+    check("t(0.975, 9)", student_t_quantile(0.975, 9), 2.2621572, tol=1e-6)
+    check("t(0.975, 29)", student_t_quantile(0.975, 29), 2.0452296, tol=1e-6)
+    check("t cdf is symmetric", student_t_cdf(-1.5, 7), 1.0 - student_t_cdf(1.5, 7), tol=1e-12)
+    check("t cdf at 0", student_t_cdf(0.0, 3), 0.5, tol=1e-12)
+    # per_round_cv by hand: [1, 2, 3] has mean 2 and n-1 sd 1.
+    check("per_round_cv([1, 2, 3])", per_round_cv([1.0, 2.0, 3.0]), 0.5, tol=1e-12)
+    # 2.7764451 * 0.05 / sqrt(5) = 0.0620832...
+    check("sizing_relative_halfwidth(0.05, 5)", sizing_relative_halfwidth(0.05, 5),
+          2.7764451 * 0.05 / math.sqrt(5.0), tol=1e-6)
+    n = rounds_for_detectable_ratio(0.05, 1.05, min_rounds=5)
+    if not (min_detectable_ratio(sizing_relative_halfwidth(0.05, n)) <= 1.05
+            < min_detectable_ratio(sizing_relative_halfwidth(0.05, n - 1))):
+        fails.append(f"rounds_for_detectable_ratio(0.05, 1.05) = {n} is not the fewest")
+    check("rounds floor holds", rounds_for_detectable_ratio(0.001, 1.05, min_rounds=5), 5)
+    for name, call in (
+        ("per_round_cv of one round", lambda: per_round_cv([1.0])),
+        ("sizing below 3 rounds", lambda: sizing_relative_halfwidth(0.05, 2)),
+        ("target at 1", lambda: rounds_for_detectable_ratio(0.05, 1.0)),
+        ("unreachable target", lambda: rounds_for_detectable_ratio(5.0, 1.0001, max_rounds=10)),
+    ):
+        try:
+            call()
+        except ValueError:
+            pass
+        else:
+            fails.append(f"{name}: did not raise")
+    # rounds_for_noninferiority: the fewest n with t(0.975, n-1) cv / sqrt(n) <= margin.
+    n = rounds_for_noninferiority(0.05, 0.02, min_rounds=5)
+    if not (sizing_relative_halfwidth(0.05, n) <= 0.02 < sizing_relative_halfwidth(0.05, n - 1)):
+        fails.append(f"rounds_for_noninferiority(0.05, 0.02) = {n} is not the fewest")
+    check("non-inferiority floor holds", rounds_for_noninferiority(0.001, 0.02, min_rounds=5), 5)
+    for name, call in (
+        ("margin 0", lambda: rounds_for_noninferiority(0.05, 0.0)),
+        ("margin 1", lambda: rounds_for_noninferiority(0.05, 1.0)),
+        ("unreachable margin", lambda: rounds_for_noninferiority(5.0, 0.001, max_rounds=10)),
+    ):
+        try:
+            call()
+        except ValueError:
+            pass
+        else:
+            fails.append(f"{name}: did not raise")
+
+    # optimistic_gate_sizing: opt/full takes the larger measured-or-projected
+    # spread, opt/trie the trie-trie projection, over every run, per mode and
+    # statistic; and the rounds are the largest any gated statistic needs.
+    def synth_run(name, idle_s7, paced_s7, t1=(0.004, 0.004, 0.005)):
+        def block(full, trie, paired):
+            return {"cv_full": full, "cv_trie": trie, "cv_trie_over_full": paired}
+        return {"name": name, "rounds": 5,
+                "modes": {"idle": {"S(7)": block(*idle_s7), "T(7)": block(*idle_s7), "T(1)": block(*t1)},
+                          "paced": {"S(7)": block(*paced_s7), "T(7)": block(*paced_s7), "T(1)": block(*t1)}}}
+    runs = [synth_run("a", (0.03, 0.04, 0.06), (0.02, 0.05, 0.05)),
+            synth_run("b", (0.01, 0.05, 0.02), (0.02, 0.09, 0.08))]
+    check("opt/full planning cv", planning_cv(runs, "idle", "S(7)", "full"), 0.06, tol=1e-12)
+    check("opt/full planning cv, projection wins", planning_cv(runs[1:], "idle", "S(7)", "full"),
+          math.hypot(0.05, 0.01), tol=1e-12)
+    check("opt/trie planning cv", planning_cv(runs, "idle", "S(7)", "trie"), math.hypot(0.05, 0.05), tol=1e-12)
+    check("paced opt/trie planning cv", planning_cv(runs, "paced", "S(7)", "trie"), math.hypot(0.09, 0.09),
+          tol=1e-12)
+    sz = optimistic_gate_sizing(runs)
+    check("every gate x statistic is sized", len(sz["stats"]), len(OPTIMISTIC_GATES) * len(OPTIMISTIC_GATE_STATISTICS))
+    check("rounds are the largest any gated statistic needs", sz["rounds"],
+          max(v["rounds_needed"] for v in sz["stats"].values()))
+    check("the paced gate binds on the synthetic runs", sz["binding"], ("O3", "S(7)"))
+    check("O3 S(7) needs the rounds of its planning cv", sz["stats"][("O3", "S(7)")]["rounds_needed"],
+          rounds_for_detectable_ratio(math.hypot(0.09, 0.09), OPTIMISTIC_MDR_TARGET, min_rounds=5))
+    check("O1 reported at the binding rounds", sz["stats"][("O1", "S(7)")]["halfwidth_at_rounds"],
+          sizing_relative_halfwidth(0.06, sz["rounds"]), tol=1e-12)
+    check("a control is sized by non-inferiority", sz["stats"][("O1", "T(1)")]["rounds_needed"],
+          rounds_for_noninferiority(max(0.005, math.hypot(0.004, 0.004)), OPTIMISTIC_NI_MARGIN, min_rounds=5))
+    for bad_b in ("opt", "none"):
+        try:
+            planning_cv(runs, "idle", "S(7)", bad_b)
+        except ValueError:
+            pass
+        else:
+            fails.append(f"planning_cv over {bad_b!r}: did not raise")
+    # The committed sizing section 5.16 cites: 78 rounds, set by O3's paced S(7)
+    # at the 1.05 target, and every other gated statistic resolved at that count.
+    committed = [optimistic_sizing_inputs(p) for p in OPTIMISTIC_SIZING_SOURCES]
+    committed_sizing = optimistic_gate_sizing(committed)
+    check("section 5.16 rounds", committed_sizing["rounds"], 78)
+    check("section 5.16 binding statistic", committed_sizing["binding"], ("O3", "S(7)"))
+    check("section 5.16 O2 S(7) rounds", committed_sizing["stats"][("O2", "S(7)")]["rounds_needed"], 43)
+    check("section 5.16 O1 S(7) rounds", committed_sizing["stats"][("O1", "S(7)")]["rounds_needed"], 24)
+    check("section 5.16 O3 S(7) planning cv", round(committed_sizing["stats"][("O3", "S(7)")]["cv"], 4), 0.2105)
+    for key, v in committed_sizing["stats"].items():
+        if v["test"] == "directional" and not v["mdr_at_rounds"] <= OPTIMISTIC_MDR_TARGET:
+            fails.append(f"{key} is under-powered at the committed rounds: {v['mdr_at_rounds']}")
+        if v["test"] == "noninferiority" and not v["halfwidth_at_rounds"] <= OPTIMISTIC_NI_MARGIN:
+            fails.append(f"{key} cannot resolve the margin at the committed rounds: {v['halfwidth_at_rounds']}")
+    # The committed section 5.15 artifacts: every round is read, and the
+    # per-cell spreads agree with the driver's own per-round ratios.
+    check("section 5.15 runs read", len(committed), 4)
+    for r, p in zip(committed, OPTIMISTIC_SIZING_SOURCES):
+        obj = json.loads(p.read_text())
+        for mode in ("idle", "paced"):
+            raw = obj["lock_scope_ratio"][mode]["S(7)"]["rounds_raw"]
+            check(f"{r['name']} {mode} rounds, unfiltered", r["rounds"], len(raw))
+            check(f"{r['name']} {mode} paired S(7) cv from cells", r["modes"][mode]["S(7)"]["cv_trie_over_full"],
+                  per_round_cv(raw), tol=1e-9)
+            raw_t1 = obj["lock_scope_ratio"][mode]["T(1)"]["rounds_raw"]
+            check(f"{r['name']} {mode} paired T(1) cv from cells", r["modes"][mode]["T(1)"]["cv_trie_over_full"],
+                  per_round_cv(raw_t1), tol=1e-9)
+        # section 5.15's writers: trie held the rate at R = 1 and 7, full did not at R = 7.
+        check(f"{r['name']} trie paced writer admissible", paced_writer_problems(obj, ("trie",)), [])
+        got = paced_writer_problems(obj, ("full",))
+        if len(got) != 1 or "R=7" not in got[0]:
+            fails.append(f"{r['name']}: the full writer's R=7 shortfall must be the one problem, got {got!r}")
+    import tempfile as _tempfile  # noqa: PLC0415 - self-test only
+    with _tempfile.TemporaryDirectory() as td:
+        cells = [{"lock_scope": s, "writer_mode": m, "readers": rr, "round": i, "read_mops": 1.0 + i}
+                 for s in ("full", "trie") for m in ("idle", "paced") for rr in (1, 7) for i in range(3)]
+        short = [c for c in cells if not (c["lock_scope"] == "trie" and c["round"] == 2 and c["readers"] == 7)]
+        bp = Path(td) / "short.json"
+        bp.write_text(json.dumps({"cells": short}))
+        try:
+            optimistic_sizing_inputs(bp)
+        except ValueError:
+            pass
+        else:
+            fails.append("optimistic_sizing_inputs accepted cells with different round sets")
+        np_ = Path(td) / "noscope.json"
+        np_.write_text(json.dumps({"cells": [c for c in cells if c["lock_scope"] == "full"]}))
+        try:
+            optimistic_sizing_inputs(np_)
+        except KeyError:
+            pass
+        else:
+            fails.append("optimistic_sizing_inputs accepted an artifact with no trie cells")
+
+    # paced_writer_problems: the floor, a flagged cell, a missing scope.
+    rep = {"offered_ops_per_s": 250000.0, "flags": [],
+           "per_readers": {"1": {"achieved_min_ops_per_s": 247500.0}, "7": {"achieved_min_ops_per_s": 247499.0}}}
+    got = paced_writer_problems({"paced_rate_check_by_lock_scope": {"opt": rep}}, ("opt",))
+    if len(got) != 1 or "R=7" not in got[0]:
+        fails.append(f"paced_writer_problems at 0.99 x offered exactly and just below: {got!r}")
+    flagged = json.loads(json.dumps(rep))
+    flagged["per_readers"]["7"]["achieved_min_ops_per_s"] = 250000.0
+    flagged["flags"] = [{"readers": 7, "round": 3, "reasons": ["above_offered"]}]
+    got = paced_writer_problems({"paced_rate_check_by_lock_scope": {"opt": flagged}}, ("opt",))
+    if len(got) != 1 or "flagged" not in got[0]:
+        fails.append(f"paced_writer_problems must name a flagged gated cell: {got!r}")
+    flagged["flags"] = [{"readers": 4, "round": 3, "reasons": ["above_offered"]}]
+    check("a flag outside the gated reader counts is not a problem",
+          paced_writer_problems({"paced_rate_check_by_lock_scope": {"opt": flagged}}, ("opt",)), [])
+    got = paced_writer_problems({"paced_rate_check_by_lock_scope": {"opt": flagged}}, ("opt", "trie"))
+    if len(got) != 1 or "'trie'" not in got[0]:
+        fails.append(f"paced_writer_problems must name a missing scope: {got!r}")
+
+    # noninferiority_verdict and optimistic_gate_verdict.
+    check("non-inferior", noninferiority_verdict([(0.985, 1.0), (0.981, 1.01)]), "PASS")
+    check("inferior", noninferiority_verdict([(0.95, 0.979), (0.90, 0.97)]), "REFUTED")
+    check("non-inferiority bound exactly at the margin", noninferiority_verdict([(0.98, 1.0), (0.99, 1.0)]),
+          "BOUNDARY_RESULT")
+    ok, above, below, span = [(1.1, 1.2)] * 2, [(1.02, 1.05)] * 2, [(0.8, 0.9)] * 2, [(0.97, 1.03)] * 2
+    check("all three pass", optimistic_gate_verdict(ok, above, [(0.99, 1.01)] * 2)["verdict"], "PASS")
+    # A slower single reader inflates the scaling ratio; the control stops it passing.
+    v = optimistic_gate_verdict(ok, above, [(0.90, 0.95)] * 2)
+    check("a slower single reader cannot pass", (v["verdict"], v["control"]), ("BOUNDARY_RESULT", "REFUTED"))
+    v = optimistic_gate_verdict(ok, span, [(0.99, 1.01)] * 2)
+    check("the absolute ratio must clear 1 too", (v["verdict"], v["absolute"]), ("BOUNDARY_RESULT", "BOUNDARY_RESULT"))
+    check("refuted on both directional statistics", optimistic_gate_verdict(below, below, span)["verdict"], "REFUTED")
+    check("refuted on one only is a boundary", optimistic_gate_verdict(below, span, span)["verdict"],
+          "BOUNDARY_RESULT")
+
+    # optimistic_closure: O1 and O3 under every pin; O2 never closes or blocks it.
+    both = {"0,2,4,6,8,10,12,14": {"O1": "PASS", "O2": "BOUNDARY_RESULT", "O3": "PASS"},
+            "0-15": {"O1": "PASS", "O2": "REFUTED", "O3": "PASS"}}
+    if not optimistic_closure(both).startswith("#802 closes"):
+        fails.append(f"O1 and O3 PASS under both pins must close #802: {optimistic_closure(both)!r}")
+    idle_only = json.loads(json.dumps(both))
+    idle_only["0-15"]["O3"] = "NOT_EVALUABLE"
+    got = optimistic_closure(idle_only)
+    if not got.startswith("#802 stays open") or "O3 NOT_EVALUABLE under 0-15" not in got:
+        fails.append(f"an idle-only PASS must not close #802: {got!r}")
+    try:
+        optimistic_closure({"0-15": {"O1": "PASS", "O3": "PASS"}})
+    except ValueError:
+        pass
+    else:
+        fails.append("optimistic_closure accepted a pin with no O2 verdict")
+
+    # ir_budget_per_call: 2,500,000 Ir over 50,000 calls is 50 Ir a call, 0.05 Ir of budget.
+    check("per-call Ir", ir_budget_per_call(2_500_000, 50_000)[0], 50.0)
+    check("per-call budget at 0.1%", ir_budget_per_call(2_500_000, 50_000)[1], 0.05)
+    for name, call in (("zero calls", lambda: ir_budget_per_call(10, 0)),
+                       ("float Ir", lambda: ir_budget_per_call(10.0, 1)),
+                       ("fraction 1", lambda: ir_budget_per_call(10, 1, 1.0))):
+        try:
+            call()
+        except ValueError:
+            pass
+        else:
+            fails.append(f"ir_budget_per_call {name}: did not raise")
+
     # load_locate_profile reads points and intervals, and refuses a share
     # without an interval.
     with tempfile.TemporaryDirectory() as td:
