@@ -19,6 +19,10 @@ Sections emitted, in README order:
   from `results/{combined_alloc_padded,ablation_alloc,padded}_writer_scaling_bad1bd3d{,_run2}.json`,
   beside the `726b01fc` multi-cell artifacts of §11.7 for the position and
   `str` W = 1 comparisons
+- `11.9` the `perf c2c` contention ranking, the frequency droop at W = 8 and
+  the host load of the two `writer_scaling_diagnostic` runs at `ac8f1c6d`,
+  from `results/diagnostic_writer_scaling_ac8f1c6d{,_run2}.json` via
+  `scripts/c2c_ranking.py`
 - `12. Mixed read/write concurrency` from `results/baseline_concurrent_mixed.json`
   and its second run, `results/baseline_concurrent_mixed_run2.json`
 
@@ -790,6 +794,35 @@ def writer_scaling_percell() -> list[str]:
     return out
 
 
+# ---- 11.9 contention ranking at ac8f1c6d (perf c2c, one thread per P-core) ----
+# Two `writer_scaling_diagnostic` CI dispatches (#930). The run URLs are not in
+# the artifacts, so they are named here beside the file each one produced.
+DIAGNOSTIC_COMMIT = "ac8f1c6d"
+DIAGNOSTIC_RUNS = (
+    ("diagnostic_writer_scaling_ac8f1c6d.json", "https://github.com/orieg/expanse/actions/runs/35015212785"),
+    ("diagnostic_writer_scaling_ac8f1c6d_run2.json", "https://github.com/orieg/expanse/actions/runs/35015232548"),
+)
+ISSUE_930 = "[#930](https://github.com/orieg/expanse/issues/930)"
+
+
+def contention_ranking() -> list[str]:
+    """README section 11.9, rendered by `scripts/c2c_ranking.py` from both runs."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import c2c_ranking
+
+    runs = []
+    for name, url in DIAGNOSTIC_RUNS:
+        art = load(SUITE / "results" / name)
+        if art is None:
+            return ["#### 11.9.1 The recordings", "", "| | run 1 | run 2 |", "|---|---|---|",
+                    f"| artifact | pending ({ISSUE_930}) | pending ({ISSUE_930}) |"]
+        commit = need(need(art, "provenance", name), "commit", name)
+        if commit != DIAGNOSTIC_COMMIT:
+            raise SystemExit(f"{name}: measured at {commit}, section 11.9 reads {DIAGNOSTIC_COMMIT}")
+        runs.append((name, url, art))
+    return c2c_ranking.render(runs, section="11.9")
+
+
 def main() -> int:
     import fine_grained_brackets_gate  # the §8 fine-grained write brackets verdicts, beside this file
     import multi_writer_olc_gate  # the §9 multi-writer OLC verdicts, beside this file
@@ -805,6 +838,7 @@ def main() -> int:
         multi_writer_olc_gate.render(),
         writer_scaling(),
         writer_scaling_percell(),
+        contention_ranking(),
         mixed_concurrency(),
     ]
     print("\n\n".join("\n".join(b) for b in blocks))

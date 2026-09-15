@@ -163,6 +163,7 @@ python3 scripts/set_algebra_bounds.py
 python3 scripts/set_domain_bounds.py
 python3 scripts/olc_bounds.py --self-test
 python3 scripts/reader_scaling_bounds.py --self-test
+python3 scripts/c2c_ranking.py --self-test
 python3 scripts/fit_usl.py --self-test
 python3 scripts/rocksdb_locate_bound.py --self-test
 python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py --self-test

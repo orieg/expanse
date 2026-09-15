@@ -341,8 +341,16 @@ SUITES = (
 # levels §14.2 quotes. A sizing input is a wall-clock measurement a registered
 # number rests on, so it owes the same load snapshots and raw rounds, and none
 # of the other globs matches its name.
+#
+# `diagnostic_*` is the `writer_scaling_diagnostic` suite: a writer-scaling
+# sweep with its PMU frequency-droop pass and its `perf c2c` pass. README
+# §11.9's contention ranking and droop intervals are read from
+# `diagnostic_writer_scaling_<commit>[_run2].json` by `scripts/c2c_ranking.py`,
+# and the droop is a wall-clock-derived interval published beside the sweep's
+# C(W), so the artifact owes what a sweep owes. None of the other globs matches
+# the name.
 ARTIFACT_GLOBS = ("baseline_*.json", "ablation*.json", "ordered_readers_*.json", "padded_*.json",
-                  "combined_*.json", "sizing*.json")
+                  "combined_*.json", "sizing*.json", "diagnostic_*.json")
 
 # Keys under which an artifact holds its cells. `throughput_variant` is the
 # ablation artifacts' variant arm — the half of the comparison that is not the
@@ -377,6 +385,9 @@ CELL_ISOLATION_VALUE = "process"
 # entry is a deliberate edit.
 CELL_ISOLATION_GRANDFATHERED: dict[str, tuple[str, ...]] = {
     "concurrency/results/ablation_alloc_writer_scaling.json": ("e0b287f2",),
+    # Selected since the `diagnostic_*` glob; measured before the driver ran one
+    # process per timed cell, and published nowhere since the ac8f1c6d runs.
+    "concurrency/results/diagnostic_writer_scaling.json": ("1f465728",),
     "concurrency/results/ablation_alloc_writer_scaling_726b01fc.json": ("726b01fc",),
     "concurrency/results/ablation_alloc_writer_scaling_726b01fc_run2.json": ("726b01fc",),
     "concurrency/results/ablation_epoch_writer_scaling.json": ("4f94d0d1",),
@@ -1109,6 +1120,25 @@ def _self_test() -> int:
             failures.append(f"is_concurrent() does not cover {name} — CONCURRENT_NAME_PARTS is too narrow")
         if not owes_cell_isolation(rel):
             failures.append(f"owes_cell_isolation() misses the sizing artifact {name}")
+
+    # THE HOLE THE `diagnostic_*` GLOB CLOSES: README §11.9 publishes a
+    # contention ranking and the PMU pass's droop intervals from two
+    # `writer_scaling_diagnostic` runs, committed as
+    # `diagnostic_writer_scaling_<commit>[_run2].json`. None of the other globs
+    # matches that name, so the artifacts behind them would have been read by
+    # nothing. Pinned on the committed files; they are concurrent and owe cell
+    # isolation like every other writer-scaling sweep.
+    for name in ("diagnostic_writer_scaling_ac8f1c6d.json",
+                 "diagnostic_writer_scaling_ac8f1c6d_run2.json"):
+        rel = f"concurrency/results/{name}"
+        if not (BENCH / rel).is_file():
+            failures.append(f"a named diagnostic artifact is missing: {rel}")
+        elif rel not in selected:
+            failures.append(f"artifacts() does not select {rel} — ARTIFACT_GLOBS is too narrow")
+        if not is_concurrent(rel):
+            failures.append(f"is_concurrent() does not cover {name} — CONCURRENT_NAME_PARTS is too narrow")
+        if not owes_cell_isolation(rel):
+            failures.append(f"owes_cell_isolation() misses the diagnostic artifact {name}")
 
     # The #900 ordered-read sweep is selected by name before it is ever
     # committed, so its first run cannot land outside the gate. A synthetic
