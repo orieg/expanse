@@ -126,6 +126,9 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/art_comparison/scripts/recompute_and_patch_json.py",
     "docs/benchmarks/concurrency/scripts/ablations.py",
     "docs/benchmarks/concurrency/scripts/mixed_concurrency.py",
+    # README §11.8's paired throughput ratio: the interval goes into the README
+    # table, which names the construction whenever it is not BCa.
+    "docs/benchmarks/concurrency/scripts/tables.py",
     "docs/benchmarks/concurrency/scripts/writer_scaling.py",
     "docs/benchmarks/hot_comparison/scripts/run_all.py",
     "docs/benchmarks/hot_comparison/scripts/run_strings.py",
@@ -323,7 +326,13 @@ SUITES = (
 # `ablation*` artifact under a name the `ablation*` glob does not match. Its
 # re-runs for #930 are committed as `padded_writer_scaling_<commit>[_run2].json`
 # and publish verdicts in `docs/benchmarks/concurrency/README.md` §11.7.
-ARTIFACT_GLOBS = ("baseline_*.json", "ablation*.json", "ordered_readers_*.json", "padded_*.json")
+#
+# `combined_*` is the build carrying both `ablation-sharded-alloc` and
+# `lock-padded` against the default, from the #930 one-process-per-cell re-run
+# (`combined_alloc_padded_writer_scaling_<commit>[_run2].json`, README §11.8):
+# the same comparison again, under a name no other glob matches.
+ARTIFACT_GLOBS = ("baseline_*.json", "ablation*.json", "ordered_readers_*.json", "padded_*.json",
+                  "combined_*.json")
 
 # Keys under which an artifact holds its cells. `throughput_variant` is the
 # ablation artifacts' variant arm — the half of the comparison that is not the
@@ -1043,12 +1052,34 @@ def _self_test() -> int:
     # publish README §11.7's `lock-padded` verdicts — would have been read by
     # nothing. Pinned on the committed files, not a fixture, for the reason above.
     for name in ("padded_writer_scaling_726b01fc.json",
-                 "padded_writer_scaling_726b01fc_run2.json"):
+                 "padded_writer_scaling_726b01fc_run2.json",
+                 "padded_writer_scaling_bad1bd3d.json",
+                 "padded_writer_scaling_bad1bd3d_run2.json"):
         rel = f"concurrency/results/{name}"
         if not (BENCH / rel).is_file():
             failures.append(f"a named padded comparison artifact is missing: {rel}")
         elif rel not in selected:
             failures.append(f"artifacts() does not select {rel} — ARTIFACT_GLOBS is too narrow")
+
+    # THE HOLE THE `combined_*` GLOB CLOSES: the #930 one-process-per-cell
+    # re-run compares a build with both `ablation-sharded-alloc` and
+    # `lock-padded` against the default, committed as
+    # `combined_alloc_padded_writer_scaling_<commit>[_run2].json`. None of the
+    # other globs matches that name, so the artifacts behind README §11.8's
+    # combined-build verdicts would have been read by nothing — the `padded_*`
+    # hole again, one build later. The arm (a) re-runs at the same commit are
+    # pinned beside them: `ablation*` covers them today, and nothing else says so.
+    for name in ("combined_alloc_padded_writer_scaling_bad1bd3d.json",
+                 "combined_alloc_padded_writer_scaling_bad1bd3d_run2.json",
+                 "ablation_alloc_writer_scaling_bad1bd3d.json",
+                 "ablation_alloc_writer_scaling_bad1bd3d_run2.json"):
+        rel = f"concurrency/results/{name}"
+        if not (BENCH / rel).is_file():
+            failures.append(f"a named two-build comparison artifact is missing: {rel}")
+        elif rel not in selected:
+            failures.append(f"artifacts() does not select {rel} — ARTIFACT_GLOBS is too narrow")
+        elif not owes_cell_isolation(rel):
+            failures.append(f"owes_cell_isolation() misses {rel}")
 
     # The #900 ordered-read sweep is selected by name before it is ever
     # committed, so its first run cannot land outside the gate. A synthetic
@@ -1079,6 +1110,10 @@ def _self_test() -> int:
                  "ablation_alloc_writer_scaling_726b01fc.json",
                  "padded_writer_scaling_726b01fc.json",
                  "padded_writer_scaling_726b01fc_run2.json",
+                 "padded_writer_scaling_bad1bd3d.json",
+                 "ablation_alloc_writer_scaling_bad1bd3d.json",
+                 "combined_alloc_padded_writer_scaling_bad1bd3d.json",
+                 "combined_alloc_padded_writer_scaling_bad1bd3d_run2.json",
                  "ordered_readers_writer_scaling.json"):
         if not is_concurrent(f"concurrency/results/{name}"):
             failures.append(
