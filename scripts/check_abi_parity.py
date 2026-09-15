@@ -192,7 +192,7 @@ PYTHON_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_sync_set_reader_free": "sync.rs",
     "expanse_sync_set_reader_contains": "sync.rs",
 
-    # SyncMap (9 functions)
+    # SyncMap (15 functions)
     "expanse_sync_map_new": "sync.rs",
     "expanse_sync_map_free": "sync.rs",
     "expanse_sync_map_insert": "sync.rs",
@@ -202,6 +202,12 @@ PYTHON_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_sync_map_reader_new": "sync.rs",
     "expanse_sync_map_reader_free": "sync.rs",
     "expanse_sync_map_reader_get": "sync.rs",
+    "expanse_sync_map_reader_first": "sync.rs",
+    "expanse_sync_map_reader_last": "sync.rs",
+    "expanse_sync_map_reader_next_at_or_after": "sync.rs",
+    "expanse_sync_map_reader_next_after": "sync.rs",
+    "expanse_sync_map_reader_prev_at_or_before": "sync.rs",
+    "expanse_sync_map_reader_prev_before": "sync.rs",
 
     # BlobMap (11 functions)
     "expanse_blob_map_new": "blobmap.rs",
@@ -314,7 +320,7 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_sync_set_reader_free": "sync.rs",
     "expanse_sync_set_reader_contains": "sync.rs",
 
-    # SyncMap (9 functions)
+    # SyncMap (15 functions)
     "expanse_sync_map_new": "sync.rs",
     "expanse_sync_map_free": "sync.rs",
     "expanse_sync_map_insert": "sync.rs",
@@ -324,6 +330,12 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_sync_map_reader_new": "sync.rs",
     "expanse_sync_map_reader_free": "sync.rs",
     "expanse_sync_map_reader_get": "sync.rs",
+    "expanse_sync_map_reader_first": "sync.rs",
+    "expanse_sync_map_reader_last": "sync.rs",
+    "expanse_sync_map_reader_next_at_or_after": "sync.rs",
+    "expanse_sync_map_reader_next_after": "sync.rs",
+    "expanse_sync_map_reader_prev_at_or_before": "sync.rs",
+    "expanse_sync_map_reader_prev_before": "sync.rs",
 
     # BlobMap (11 functions)
     "expanse_blob_map_new": "blobmap.rs",

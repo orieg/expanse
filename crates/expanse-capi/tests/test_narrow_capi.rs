@@ -70,9 +70,12 @@ mod sync32_surface {
     use core::ffi::CStr;
     use expanse::modern_sync32::{
         ExpanseSync32Stats, ExpanseSync32Status, expanse_sync32_map_free, expanse_sync32_map_new,
-        expanse_sync32_map_reader, expanse_sync32_map_reader_try_get,
-        expanse_sync32_map_reader_try_len, expanse_sync32_map_writer,
-        expanse_sync32_map_writer_get, expanse_sync32_map_writer_stats,
+        expanse_sync32_map_reader, expanse_sync32_map_reader_try_first,
+        expanse_sync32_map_reader_try_get, expanse_sync32_map_reader_try_last,
+        expanse_sync32_map_reader_try_len, expanse_sync32_map_reader_try_next_after,
+        expanse_sync32_map_reader_try_next_at_or_after,
+        expanse_sync32_map_reader_try_prev_at_or_before, expanse_sync32_map_reader_try_prev_before,
+        expanse_sync32_map_writer, expanse_sync32_map_writer_get, expanse_sync32_map_writer_stats,
         expanse_sync32_map_writer_try_insert, expanse_sync32_map_writer_try_reclaim,
         expanse_sync32_map_writer_try_remove, expanse_sync32_mutation_headroom,
         expanse_sync32_set_free, expanse_sync32_set_new, expanse_sync32_set_reader,
@@ -210,6 +213,168 @@ mod sync32_surface {
         }
     }
 
+    /// Runs one ordered read into locals: `Some((key, value))` for `OK`,
+    /// `None` for `NOT_FOUND`, and a panic for any other status.
+    fn entry(read: impl FnOnce(*mut u32, *mut u32) -> ExpanseSync32Status) -> Option<(u32, u32)> {
+        let (mut k, mut v) = (0u32, 0u32);
+        match read(&raw mut k, &raw mut v) {
+            ExpanseSync32Status::Ok => Some((k, v)),
+            ExpanseSync32Status::NotFound => None,
+            other => panic!("unexpected status {other:?}"),
+        }
+    }
+
+    /// The six single-attempt ordered reads (#900) on a quiescent map: found,
+    /// absent, both ends of the key space, NULL out-pointers and a NULL
+    /// handle. No writer bracket is open here, so `BUSY` cannot occur; the
+    /// churn test below exercises the same reads against a live writer.
+    #[test]
+    fn map_reader_ordered_reads() {
+        let e = |key: u32| Some((key, !key));
+        // SAFETY: `m` is live until the final free; reader 0 and the writer
+        // are used from this thread only; out-pointers are live locals or null.
+        unsafe {
+            let m = expanse_sync32_map_new(4096, 1);
+            assert!(!m.is_null());
+            let w = expanse_sync32_map_writer(m);
+            let r = expanse_sync32_map_reader(m, 0);
+
+            // Empty: nothing in either direction, from either end.
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_first(r, k, v)),
+                None
+            );
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_last(r, k, v)),
+                None
+            );
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_next_at_or_after(r, 0, k, v)),
+                None
+            );
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_prev_at_or_before(r, u32::MAX, k, v)),
+                None
+            );
+
+            for key in [0u32, 10, 20, 30, u32::MAX] {
+                assert_eq!(
+                    expanse_sync32_map_writer_try_insert(
+                        w,
+                        key,
+                        !key,
+                        core::ptr::null_mut(),
+                        core::ptr::null_mut()
+                    ),
+                    ExpanseSync32Status::Ok
+                );
+            }
+
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_first(r, k, v)),
+                e(0)
+            );
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_last(r, k, v)),
+                e(u32::MAX)
+            );
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_next_at_or_after(r, 15, k, v)),
+                e(20)
+            );
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_next_at_or_after(r, 20, k, v)),
+                e(20)
+            );
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_next_after(r, 20, k, v)),
+                e(30)
+            );
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_next_after(r, 30, k, v)),
+                e(u32::MAX)
+            );
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_next_at_or_after(r, u32::MAX, k, v)),
+                e(u32::MAX)
+            );
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_next_after(r, u32::MAX, k, v)),
+                None
+            );
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_prev_at_or_before(r, 25, k, v)),
+                e(20)
+            );
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_prev_at_or_before(r, 20, k, v)),
+                e(20)
+            );
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_prev_before(r, 20, k, v)),
+                e(10)
+            );
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_prev_at_or_before(r, 0, k, v)),
+                e(0)
+            );
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_prev_before(r, 0, k, v)),
+                None
+            );
+
+            // Remove both ends: the searches that reached them now come up empty.
+            for key in [0u32, u32::MAX] {
+                assert_eq!(
+                    expanse_sync32_map_writer_try_remove(w, key, core::ptr::null_mut()),
+                    ExpanseSync32Status::Ok
+                );
+            }
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_prev_at_or_before(r, 5, k, v)),
+                None
+            );
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_next_at_or_after(r, 31, k, v)),
+                None
+            );
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_first(r, k, v)),
+                e(10)
+            );
+            assert_eq!(
+                entry(|k, v| expanse_sync32_map_reader_try_last(r, k, v)),
+                e(30)
+            );
+
+            // NULL out-pointers: the status alone.
+            assert_eq!(
+                expanse_sync32_map_reader_try_next_after(
+                    r,
+                    10,
+                    core::ptr::null_mut(),
+                    core::ptr::null_mut()
+                ),
+                ExpanseSync32Status::Ok
+            );
+
+            // Null handles are a status, never a crash, in release builds.
+            if cfg!(not(debug_assertions)) {
+                assert_eq!(
+                    entry(|k, v| expanse_sync32_map_reader_try_prev_before(
+                        core::ptr::null_mut(),
+                        30,
+                        k,
+                        v
+                    ))
+                    .map(|_| ()),
+                    None
+                );
+            }
+            expanse_sync32_map_free(m);
+        }
+    }
+
     #[test]
     fn set_flow() {
         // SAFETY: as in the map flow.
@@ -285,13 +450,72 @@ mod sync32_surface {
                     let (mut ok, mut busy) = (0u32, 0u32);
                     let mut k = 0u32;
                     while !stop.load(Ordering::Relaxed) || ok < 10_000 {
-                        let mut v = 0u32;
-                        // SAFETY: handle contract above.
-                        match unsafe {
-                            expanse_sync32_map_reader_try_get(r, k % STABLE, &raw mut v)
-                        } {
+                        // Stable keys are 0..STABLE and the churn range starts
+                        // at STABLE, so each read below has exactly one right
+                        // answer whatever the writer is doing. The ordered
+                        // reads (#900) rotate in with the point read; `k`
+                        // steps by 7, so `k % 6` visits every arm.
+                        let s = k % STABLE;
+                        let (mut got, mut v) = (s, 0u32);
+                        // SAFETY: handle contract above; out-pointers are locals.
+                        let (status, want) = unsafe {
+                            match k % 6 {
+                                0 => (expanse_sync32_map_reader_try_get(r, s, &raw mut v), s),
+                                1 => (
+                                    expanse_sync32_map_reader_try_next_at_or_after(
+                                        r,
+                                        s,
+                                        &raw mut got,
+                                        &raw mut v,
+                                    ),
+                                    s,
+                                ),
+                                2 => {
+                                    let t = s.min(STABLE - 2);
+                                    (
+                                        expanse_sync32_map_reader_try_next_after(
+                                            r,
+                                            t,
+                                            &raw mut got,
+                                            &raw mut v,
+                                        ),
+                                        t + 1,
+                                    )
+                                }
+                                3 => (
+                                    expanse_sync32_map_reader_try_prev_at_or_before(
+                                        r,
+                                        s,
+                                        &raw mut got,
+                                        &raw mut v,
+                                    ),
+                                    s,
+                                ),
+                                4 => {
+                                    let u = s.max(1);
+                                    (
+                                        expanse_sync32_map_reader_try_prev_before(
+                                            r,
+                                            u,
+                                            &raw mut got,
+                                            &raw mut v,
+                                        ),
+                                        u - 1,
+                                    )
+                                }
+                                _ => (
+                                    expanse_sync32_map_reader_try_first(
+                                        r,
+                                        &raw mut got,
+                                        &raw mut v,
+                                    ),
+                                    0,
+                                ),
+                            }
+                        };
+                        match status {
                             ExpanseSync32Status::Ok => {
-                                assert_eq!(v, (k % STABLE) ^ 0xABCD, "stable key torn");
+                                assert_eq!((got, v), (want, want ^ 0xABCD), "stable entry torn");
                                 ok += 1;
                             }
                             ExpanseSync32Status::Busy => busy += 1,

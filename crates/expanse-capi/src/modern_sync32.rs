@@ -476,6 +476,175 @@ pub unsafe extern "C" fn expanse_sync32_map_reader_try_get(
     }
 }
 
+// ---- ordered reads through the map reader handle (#900) ----
+//
+// Each is one bounded validated search under the tree version
+// (`Reader32::try_*`): the same single-attempt, BUSY-instead-of-spin contract
+// as `expanse_sync32_map_reader_try_get`, and equally interrupt-safe.
+
+/// Maps a single-attempt ordered read to its status, writing the entry
+/// through the caller's out-pointers on `OK`.
+///
+/// # Safety
+///
+/// `key_out` and `value_out` each null or writable.
+#[inline]
+unsafe fn put_try_entry(
+    read: Result<Option<(CWord, CWord)>, Busy>,
+    key_out: *mut CWord,
+    value_out: *mut CWord,
+) -> ExpanseSync32Status {
+    match read {
+        Ok(Some((k, v))) => {
+            // SAFETY: out-pointers null or writable per this function's contract.
+            unsafe {
+                crate::modern::put(key_out, k);
+                crate::modern::put(value_out, v);
+            }
+            ExpanseSync32Status::Ok
+        }
+        Ok(None) => ExpanseSync32Status::NotFound,
+        Err(Busy) => ExpanseSync32Status::Busy,
+    }
+}
+
+/// Single-attempt smallest entry: `OK` with `key_out`/`value_out` written,
+/// `NOT_FOUND`, `BUSY`, or `NULL_HANDLE`. Never blocks, never allocates.
+///
+/// # Safety
+///
+/// `r` must be null or a live reader handle used from one execution
+/// context; `key_out` and `value_out` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync32_map_reader_try_first(
+    r: *mut SyncMap32Reader,
+    key_out: *mut CWord,
+    value_out: *mut CWord,
+) -> ExpanseSync32Status {
+    debug_assert!(!r.is_null(), "expanse_sync32: null reader");
+    // SAFETY: null or live per contract.
+    let Some(r) = (unsafe { r.as_mut() }) else {
+        return ExpanseSync32Status::NullHandle;
+    };
+    let read = r.0.try_first();
+    // SAFETY: out-pointers null or writable per contract.
+    unsafe { put_try_entry(read, key_out, value_out) }
+}
+
+/// Single-attempt largest entry; statuses as
+/// [`expanse_sync32_map_reader_try_first`].
+///
+/// # Safety
+///
+/// Same contract as [`expanse_sync32_map_reader_try_first`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync32_map_reader_try_last(
+    r: *mut SyncMap32Reader,
+    key_out: *mut CWord,
+    value_out: *mut CWord,
+) -> ExpanseSync32Status {
+    debug_assert!(!r.is_null(), "expanse_sync32: null reader");
+    // SAFETY: null or live per contract.
+    let Some(r) = (unsafe { r.as_mut() }) else {
+        return ExpanseSync32Status::NullHandle;
+    };
+    let read = r.0.try_last();
+    // SAFETY: out-pointers null or writable per contract.
+    unsafe { put_try_entry(read, key_out, value_out) }
+}
+
+/// Single-attempt smallest entry with key `>= key`; statuses as
+/// [`expanse_sync32_map_reader_try_first`].
+///
+/// # Safety
+///
+/// Same contract as [`expanse_sync32_map_reader_try_first`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync32_map_reader_try_next_at_or_after(
+    r: *mut SyncMap32Reader,
+    key: CWord,
+    key_out: *mut CWord,
+    value_out: *mut CWord,
+) -> ExpanseSync32Status {
+    debug_assert!(!r.is_null(), "expanse_sync32: null reader");
+    // SAFETY: null or live per contract.
+    let Some(r) = (unsafe { r.as_mut() }) else {
+        return ExpanseSync32Status::NullHandle;
+    };
+    let read = r.0.try_next_at_or_after(key);
+    // SAFETY: out-pointers null or writable per contract.
+    unsafe { put_try_entry(read, key_out, value_out) }
+}
+
+/// Single-attempt smallest entry with key `> key` (`NOT_FOUND` for
+/// `key == UINT32_MAX`); statuses as [`expanse_sync32_map_reader_try_first`].
+///
+/// # Safety
+///
+/// Same contract as [`expanse_sync32_map_reader_try_first`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync32_map_reader_try_next_after(
+    r: *mut SyncMap32Reader,
+    key: CWord,
+    key_out: *mut CWord,
+    value_out: *mut CWord,
+) -> ExpanseSync32Status {
+    debug_assert!(!r.is_null(), "expanse_sync32: null reader");
+    // SAFETY: null or live per contract.
+    let Some(r) = (unsafe { r.as_mut() }) else {
+        return ExpanseSync32Status::NullHandle;
+    };
+    let read = r.0.try_next_after(key);
+    // SAFETY: out-pointers null or writable per contract.
+    unsafe { put_try_entry(read, key_out, value_out) }
+}
+
+/// Single-attempt largest entry with key `<= key`; statuses as
+/// [`expanse_sync32_map_reader_try_first`].
+///
+/// # Safety
+///
+/// Same contract as [`expanse_sync32_map_reader_try_first`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync32_map_reader_try_prev_at_or_before(
+    r: *mut SyncMap32Reader,
+    key: CWord,
+    key_out: *mut CWord,
+    value_out: *mut CWord,
+) -> ExpanseSync32Status {
+    debug_assert!(!r.is_null(), "expanse_sync32: null reader");
+    // SAFETY: null or live per contract.
+    let Some(r) = (unsafe { r.as_mut() }) else {
+        return ExpanseSync32Status::NullHandle;
+    };
+    let read = r.0.try_prev_at_or_before(key);
+    // SAFETY: out-pointers null or writable per contract.
+    unsafe { put_try_entry(read, key_out, value_out) }
+}
+
+/// Single-attempt largest entry with key `< key` (`NOT_FOUND` for
+/// `key == 0`); statuses as [`expanse_sync32_map_reader_try_first`].
+///
+/// # Safety
+///
+/// Same contract as [`expanse_sync32_map_reader_try_first`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync32_map_reader_try_prev_before(
+    r: *mut SyncMap32Reader,
+    key: CWord,
+    key_out: *mut CWord,
+    value_out: *mut CWord,
+) -> ExpanseSync32Status {
+    debug_assert!(!r.is_null(), "expanse_sync32: null reader");
+    // SAFETY: null or live per contract.
+    let Some(r) = (unsafe { r.as_mut() }) else {
+        return ExpanseSync32Status::NullHandle;
+    };
+    let read = r.0.try_prev_before(key);
+    // SAFETY: out-pointers null or writable per contract.
+    unsafe { put_try_entry(read, key_out, value_out) }
+}
+
 // ---- set-specific entry points ----
 
 /// Inserts `key` inside one write bracket. `OK` (with `inserted_out`

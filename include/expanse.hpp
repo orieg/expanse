@@ -1421,6 +1421,55 @@ public:
     }
 
     [[nodiscard]] expanse_sync_map_reader_t* native_handle() noexcept { return ptr_; }
+    // Ordered reads through this handle (#900); `next`/`prev` are strict, as on `map`.
+    [[nodiscard]] std::optional<std::pair<uint64_t, uint64_t>> first() const noexcept {
+        uint64_t k = 0, v = 0;
+        if (expanse_sync_map_reader_first(ptr_, &k, &v)) {
+            return std::pair<uint64_t, uint64_t>{k, v};
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::optional<std::pair<uint64_t, uint64_t>> last() const noexcept {
+        uint64_t k = 0, v = 0;
+        if (expanse_sync_map_reader_last(ptr_, &k, &v)) {
+            return std::pair<uint64_t, uint64_t>{k, v};
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::optional<std::pair<uint64_t, uint64_t>> next(uint64_t key) const noexcept {
+        uint64_t k = 0, v = 0;
+        if (expanse_sync_map_reader_next_after(ptr_, key, &k, &v)) {
+            return std::pair<uint64_t, uint64_t>{k, v};
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::optional<std::pair<uint64_t, uint64_t>> next_at_or_after(uint64_t key) const noexcept {
+        uint64_t k = 0, v = 0;
+        if (expanse_sync_map_reader_next_at_or_after(ptr_, key, &k, &v)) {
+            return std::pair<uint64_t, uint64_t>{k, v};
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::optional<std::pair<uint64_t, uint64_t>> prev(uint64_t key) const noexcept {
+        uint64_t k = 0, v = 0;
+        if (expanse_sync_map_reader_prev_before(ptr_, key, &k, &v)) {
+            return std::pair<uint64_t, uint64_t>{k, v};
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::optional<std::pair<uint64_t, uint64_t>> prev_at_or_before(uint64_t key) const noexcept {
+        uint64_t k = 0, v = 0;
+        if (expanse_sync_map_reader_prev_at_or_before(ptr_, key, &k, &v)) {
+            return std::pair<uint64_t, uint64_t>{k, v};
+        }
+        return std::nullopt;
+    }
+
     [[nodiscard]] const expanse_sync_map_reader_t* native_handle() const noexcept { return ptr_; }
 
 private:

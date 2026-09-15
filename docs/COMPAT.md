@@ -121,19 +121,23 @@ one that does not link, and a link error names the gap at build time.
 
 | Configuration | Cargo invocation | Exported C symbols |
 |---|---|---|
-| 64-bit, `std` (default) | `cargo build -p expanse-capi` | 145 |
+| 64-bit, `std` (default) | `cargo build -p expanse-capi` | 151 |
 | 64-bit, `no_std` | `--no-default-features` | 127 |
-| 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 56 |
+| 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 62 |
 
 (Counts measured from `llvm-nm --defined-only` on the built artifacts — the
 64-bit rows at commit `5e8147ae`, the 32-bit row re-measured each time the
 narrow surface grew: 31 for the ordered core plus `expanse_map_remove_range`,
 55 when the `expanse_sync32_*` surface landed for #573, 56 when
-`expanse_map_for_each_range` landed for #614. Reproduce with the invocations
-above; the 32-bit row needs `--features embedded-panic-handler`, as the CI
-job does.)
+`expanse_map_for_each_range` landed for #614, 62 when the reader-handle
+ordered reads landed for #900. That change also added six 64-bit symbols: the
+64-bit `std` row was re-measured then with `nm -gU` on an arm64 macOS dylib,
+145 before and 151 after, and the 64-bit `no_std` row is unchanged by
+construction, because the concurrent entry points compile only with `std`.
+Reproduce with the invocations above; the 32-bit row needs
+`--features embedded-panic-handler`, as the CI job does.)
 
-**64-bit `no_std` drops only the concurrent containers** — the 18
+**64-bit `no_std` drops only the concurrent containers** — the 24
 `expanse_sync_*` entry points. `expanse_trie::sync` needs `std::sync`, so a
 bare-metal 64-bit build has no one-writer/many-reader surface. Everything
 else, the entire legacy `Judy*` drop-in included, is present and unchanged.
@@ -148,7 +152,7 @@ bidirectional range navigation:
 | identity | `expanse_version` |
 | `expanse_set_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_remove`, `_contains`, `_contains_batch`, `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
 | `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_get`, `_remove`, `_remove_range` and `_for_each_range` (both 32-bit-only, see below), `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
-| `expanse_sync32_map_t` / `expanse_sync32_set_t` (32-bit-only, provisional) | `_new`, `_free`, `_writer`, `_reader`, `_writer_try_insert`, `_writer_try_remove`, `_writer_try_reclaim`, `_writer_get` / `_writer_contains`, `_writer_stats`, `_reader_try_get` / `_reader_try_contains`, `_reader_try_len`; plus `expanse_sync32_mutation_headroom`, `expanse_sync32_status_str` |
+| `expanse_sync32_map_t` / `expanse_sync32_set_t` (32-bit-only, provisional) | `_new`, `_free`, `_writer`, `_reader`, `_writer_try_insert`, `_writer_try_remove`, `_writer_try_reclaim`, `_writer_get` / `_writer_contains`, `_writer_stats`, `_reader_try_get` / `_reader_try_contains`, `_reader_try_len`; map only, the ordered reads `_reader_try_first`, `_reader_try_last`, `_reader_try_next_at_or_after`, `_reader_try_next_after`, `_reader_try_prev_at_or_before`, `_reader_try_prev_before`; plus `expanse_sync32_mutation_headroom`, `expanse_sync32_status_str` |
 
 The cause is engine surface, not a deliberate reduction: `ExpanseMap32` /
 `ExpanseSet32` are real tries, but they carry no `count_below`/`by_count`,
@@ -188,7 +192,7 @@ The 32-bit engine's concurrent wrapper — the Rust `sync32` module
 `split(&mut)`, validated single-attempt optimistic reads returning `Busy`,
 deferred reclamation drained at reader quiescence) — reaches C as the
 **`expanse_sync32_*` family**,
-24 symbols declared in the `!EXPANSE_WIDE_SURFACE` block and present in every
+30 symbols declared in the `!EXPANSE_WIDE_SURFACE` block and present in every
 32-bit build, std or not (`EXPANSE_HAS_SYNC32` announces it). It is a
 different protocol from the 64-bit `expanse_sync_*` family and says so in the
 header: **blocking optimistic lock coupling, single attempt, no mutex
@@ -287,12 +291,12 @@ Expanse provides 100% C ABI symbol coverage across all high-level language bindi
 | Container / Feature | C ABI (`expanse.h`) | Rust (`expanse-trie`) | Java 22+ (`expanse-java`) | .NET 9 (`Orieg.Expanse`) | Python (`expanse-trie`) | Node.js (`@orieg/expanse`) | PHP (`orieg/expanse`) | Ruby (`expanse`) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **`ExpanseSet` (Judy1)** | `expanse_set_*` (17 fns) | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `Set` / `ExpanseSet` | `Expanse::Set` |
-| **`ExpanseMap` (JudyL)** | `expanse_map_*` (19 fns + 1 32-bit-only; `expanse_sync32_*` 24 fns 32-bit-only, provisional) | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `Map` / `ExpanseMap` | `Expanse::Map` |
+| **`ExpanseMap` (JudyL)** | `expanse_map_*` (19 fns + 1 32-bit-only; `expanse_sync32_*` 30 fns 32-bit-only, provisional) | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `Map` / `ExpanseMap` | `Expanse::Map` |
 | **`ExpanseBytesMap` (JudyHS)** | `expanse_bytesmap_*` (10 fns) | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `BytesMap` / `ExpanseBytesMap` | `Expanse::BytesMap` |
 | **`ExpanseStrMap` (JudySL)** | `expanse_strmap_*` (16 fns) | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `StrMap` / `ExpanseStrMap` | `Expanse::StrMap` |
 | **StrMap truncation-aware nav** | `expanse_strmap_*_ex` (6 fns) | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `StrMap` | `Expanse::StrMap` |
 | **`SyncExpanseSet` (OCC Set)**| `expanse_sync_set_*` (9 fns) | `SyncExpanseSet` | `SyncExpanseSet` | `SyncExpanseSet` | `SyncExpanseSet` | `SyncExpanseSet` | `SyncSet` | Via C ABI |
-| **`SyncExpanseMap` (OCC Map)**| `expanse_sync_map_*` (9 fns) | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncMap` | Via C ABI |
+| **`SyncExpanseMap` (OCC Map)**| `expanse_sync_map_*` (15 fns, 6 of them reader-handle ordered reads) | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncMap` | Via C ABI |
 | **`ExpanseBlobMap` (Large-Value)**| `expanse_blob_map_*` (11 fns) | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `BlobMap` / `ExpanseBlobMap` | `Expanse::BlobMap` |
 | **Rank/Select (`by_count`)** | ✅ All ordered types | ✅ `count_below`/`by_count` | ✅ `rank`/`select` | ✅ `Rank`/`ByCount` | ✅ `count_below`/`by_count` | ✅ `countRange`/`byCount` | ✅ `rank`/`select` | ✅ `rank`/`select` |
 | **Metadata Filtering** | ✅ Predicate callbacks | ✅ SWAR vector kernels | ✅ Functional predicates | ✅ Delegated predicates | ✅ Predicate callbacks | ✅ Predicate callbacks | ✅ Callback predicates | ✅ Hot metadata |
