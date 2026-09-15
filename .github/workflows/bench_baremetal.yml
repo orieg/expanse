@@ -35,7 +35,9 @@ on:
         # runs exactly the command that suite always ran. A non-empty value
         # must be a positive integer, and any other suite refuses it rather
         # than silently ignoring it (AGENTS.md section 8.1). #930's target runs
-        # pass 40 (docs/benchmarks/concurrency/METHODOLOGY.md section 14.3).
+        # pass 8, which is also the driver's default; the input stays so the
+        # count is explicit in the dispatch and a re-sizing needs no workflow
+        # change (docs/benchmarks/concurrency/METHODOLOGY.md section 14.3).
         description: 'Rounds per cell for the writer_scaling suite; empty = driver default'
         required: false
       benchmark_suite:
