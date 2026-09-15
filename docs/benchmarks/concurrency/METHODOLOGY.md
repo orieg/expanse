@@ -706,3 +706,82 @@ Every lower bound clears the 1.5 margin, and the 1.667 that §13.4 names as the 
 - Why `set` gains more than `map` at 16 threads.
 - The 2-, 4- and 8-thread cells, and the 100% and 95% read mixes (§13.6).
 - Whether the order effect disclosed in §13.2 would have moved these ratios. The instrument ran every window in its own process to keep any such effect out of them, so it does not measure that effect.
+
+## 15. One harness process per timed writer-scaling cell (appended 2026-09-15; §1–§13 are not edited)
+
+Refs #930 and #958. §14 is left to the open pre-registration in #958, so neither section renumbers the other.
+
+### 15.1 What changed
+
+Before this change, `writer_scaling.py` ran the writer-mode throughput pass as one harness process per round (`--writers 1,2,4,8 --round r`). The harness then ran every W cell of that round, in Williams order, inside that one process. The interleaved comparison did the same once per build per round, alternating which build's process went first. Each cell built and dropped its own tree, but process-wide state carried over from one cell to the next.
+
+Every timed writer-mode cell now runs in a harness process of its own (`--writers W --round r --position p`):
+
+- **Single-build sweep.** Within round r the W cells follow row r of the Williams design over the writer counts. That is the order the multi-W invocation used.
+- **Comparison** (`--compare`, `--variants`, the ablation shorthands). Within round r, the 2 × len(W) (build, W) cells follow row r of a Williams design over those cells, indexed (default, W1), (variant, W1), (default, W2), …. Over 2 × len(W) rounds, which is 8 at the default four writer counts and the default round count:
+  - every (build, W) cell holds every position once;
+  - every ordered pair of cells is adjacent once;
+  - each build holds each position in half the rounds.
+- **Frequency-droop pass** (`--pmu`). It already ran one W per process. It now follows the same Williams order and passes `--position`.
+
+Three things are not changed:
+
+- **Counters pass.** It times nothing and still runs every cell of an arm in one process. Its fallback counts depend on how the writers interleave, and whether they also carry over between cells is not measured.
+- **`perf c2c` pass.** It stays one recording over one process that runs the same W in every round. It therefore has no cross-W carryover. Its rounds after the first follow a cell of the same W, and that is not measured either.
+- **The multi-W harness invocation.** It stays available for manual use.
+
+The driver checks what it records at three levels, and refuses to write an artifact that disagrees:
+
+- each row against the invocation that produced it (round, position, W);
+- each pass's rows against its schedule (build, round, position, W);
+- the artifact's `rounds_raw` against the schedule, before writing.
+
+Rows carry `build`. The provenance carries `cell_isolation: "process"` and a `cell_schedule` statement. `scripts/check_bench_provenance.py` requires `cell_isolation == "process"` of every `concurrency` `*writer_scaling*` artifact that is not grandfathered at the commit it was measured at.
+
+### 15.2 Why
+
+**Diagnostic probes, unsourced.** The raw rows are not committed, so these figures are not publishable measurements (§8.7). They come from the reference host, pinned one thread per P-core (`0,2,4,6,8,10,12,14`), on the `map` arm at `4412db44`. Each figure is the median of W = 8 `writer_mops` (workload: `concurrency_writer_map_64bit`).
+
+| harness invocation | `ablation-sharded-alloc,lock-padded` build | default build |
+|---|---|---|
+| `--writers 8 --round 0` | 24.3 | 11.5 |
+| `--writers 4,8 --round 0` | 21.7 | 11.5 |
+| `--writers 2,8 --round 0` | 17.6 | 11.4 |
+| `--writers 1,8 --round 0` | 14.5 | 11.0 |
+
+The same W = 8 cell read lower the smaller the cell that ran before it in the same process. The default build shows the same ordering, much weaker. Run as `--writers 8,1`, W = 8 read 24.1 on the combined build.
+
+The candidate mechanism is the allocator's per-thread arenas, and it is a hypothesis:
+
+- `MALLOC_ARENA_MAX=1` removed the difference, but both builds dropped to about 5.5.
+- `malloc_trim(0)` between cells changed nothing.
+- Transparent hugepages were `madvise`, with no anonymous huge pages in use.
+- Whole-process `perf stat` of `1,8` against `8,1` counted more page faults and more `cpu_core/dTLB-load-misses`. That covers the whole process, not the cell.
+
+Which piece of process-wide state carries over is unmeasured.
+
+**W = 1 control cells are affected too.** Two committed artifacts show it: `results/ablation_alloc_writer_scaling_726b01fc.json` and `results/ablation_alloc_writer_scaling_726b01fc_run2.json`, both at pin `0,2,4,6,8,10,12,14`. On the `set` arm, the per-round variant ÷ default W = 1 `writer_mops` reads as follows (workload: `concurrency_writer_set_63bit`; per-round samples, not an interval claim):
+
+- **Rounds 3 and 7.** The Williams row there is W8, W1, W4, W2, so W = 1 runs right after a W = 8 cell in the same process. Readings: 0.872 and 0.878 in run 1, 0.880 and 0.876 in run 2.
+- **The other rounds.** 0.968–1.001 in run 1.
+- **Run 2, round 2.** 0.796. Here W = 1 follows W = 2, not W = 8, so this reading is not explained by following a W = 8 cell. Run 2's remaining rounds read 0.972–0.993.
+
+### 15.3 What this means for artifacts measured before the change (§8.19)
+
+- **Earlier artifacts mix carryover states.** Every `writer_scaling` throughput and comparison artifact committed before this change ran its timed cells in multi-cell processes. Any cell after the first in its process followed other cells. Which cells it followed depends on that round's Williams row, so each cell mixes carryover states across its rounds.
+  - These cells are not comparable cell-for-cell with cells measured one process per cell.
+  - They are not relabelled in place. `CELL_ISOLATION_GRANDFATHERED` in `scripts/check_bench_provenance.py` pins them at their commits.
+- **Published readings that came from multi-cell processes** include §11's Hypothesis D verdicts, the arm (a) and `lock-padded` verdicts in `README.md` §11.7, and the W = 1 control readings beside them. The `set` W = 1 drop under `ablation-sharded-alloc` that #961 records as unexplained, beside making no promotion decision, is one of those W = 1 control readings. A per-round C(W) ratio divides the W ratio by the W = 1 ratio (`compute_paired_scaling_ratios`), so a W = 1 cell that reads low in a round also raises that round's C(W) ratio at every W (derived). Whether any of these readings or verdicts would stand under one process per cell is not established.
+- **#958's spread inputs predate this change.** #958 (open) pre-registers W = 8 writer throughput of at least 20 M ops/s. It sizes its rounds from the per-round spread of the committed `writer_scaling` artifacts, all of them from multi-cell processes. That spread includes position-dependent carryover, so it may not describe the spread of cells measured one process each. This section does not amend #958.
+- **The §12 ordered-reader artifacts** already ran one process per cell. They carry the field from their next run.
+
+### 15.4 Explicitly not established
+
+- Which process-wide state carries over.
+- Whether any committed verdict changes under one process per cell.
+- Whether the counters pass, or the `perf c2c` pass's same-W rounds, carry over.
+- The same pattern in other concurrency drivers. These run several timed cells, or several timed rounds, inside one process:
+  - `mixed_concurrency.py`'s default sweep, where one bench process runs every thread count;
+  - the `hot_comparison` and `masstree_comparison` concurrent cells and `ablations.py` without `--processes`, where one process runs every round of a cell.
+
+  They are follow-ups, not changed here.
