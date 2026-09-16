@@ -349,8 +349,13 @@ SUITES = (
 # and the droop is a wall-clock-derived interval published beside the sweep's
 # C(W), so the artifact owes what a sweep owes. None of the other globs matches
 # the name.
+# README §16's per-wrapper contention ranking is read from
+# `c2c_<arm>_writer_scaling_<commit>[_run2].json` by `scripts/c2c_ranking.py`.
+# Those artifacts carry the same writer-scaling sweep and the same PMU droop
+# intervals as a `diagnostic_*` run, under a name none of the globs above
+# matches — the `padded_*` and `combined_*` hole again, one suite later.
 ARTIFACT_GLOBS = ("baseline_*.json", "ablation*.json", "ordered_readers_*.json", "padded_*.json",
-                  "combined_*.json", "sizing*.json", "diagnostic_*.json")
+                  "combined_*.json", "sizing*.json", "diagnostic_*.json", "c2c_*.json")
 
 # Keys under which an artifact holds its cells. `throughput_variant` is the
 # ablation artifacts' variant arm — the half of the comparison that is not the
@@ -1139,6 +1144,31 @@ def _self_test() -> int:
             failures.append(f"is_concurrent() does not cover {name} — CONCURRENT_NAME_PARTS is too narrow")
         if not owes_cell_isolation(rel):
             failures.append(f"owes_cell_isolation() misses the diagnostic artifact {name}")
+
+    # THE HOLE THE `c2c_*` GLOB CLOSES: README §16 publishes a per-wrapper
+    # contention ranking, the PMU droop intervals and the host load of six
+    # `perf c2c` recordings of the `str`, `bytes` and `blob` writer arms,
+    # committed as `c2c_<arm>_writer_scaling_<commit>[_run2].json`. None of the
+    # globs above matches that name, so — exactly as with `padded_*`,
+    # `combined_*` and `diagnostic_*` before it — the artifacts behind a
+    # published section would have been read by nothing. Pinned on the
+    # committed files: `findings_for` is path-agnostic and would have passed
+    # them without ever being handed them, so the selection is the assertion.
+    for name in ("c2c_str_writer_scaling_0c6b7832.json",
+                 "c2c_str_writer_scaling_0c6b7832_run2.json",
+                 "c2c_bytes_writer_scaling_0c6b7832.json",
+                 "c2c_bytes_writer_scaling_0c6b7832_run2.json",
+                 "c2c_blob_writer_scaling_0c6b7832.json",
+                 "c2c_blob_writer_scaling_0c6b7832_run2.json"):
+        rel = f"concurrency/results/{name}"
+        if not (BENCH / rel).is_file():
+            failures.append(f"a named wrapper c2c artifact is missing: {rel}")
+        elif rel not in selected:
+            failures.append(f"artifacts() does not select {rel} — ARTIFACT_GLOBS is too narrow")
+        if not is_concurrent(rel):
+            failures.append(f"is_concurrent() does not cover {name} — CONCURRENT_NAME_PARTS is too narrow")
+        if not owes_cell_isolation(rel):
+            failures.append(f"owes_cell_isolation() misses the wrapper c2c artifact {name}")
 
     # The #900 ordered-read sweep is selected by name before it is ever
     # committed, so its first run cannot land outside the gate. A synthetic
