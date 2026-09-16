@@ -109,26 +109,33 @@
  },
  "aggregate_ir_delta": {
   "sharded": {
-   "total": 9044678,
-   "sync": 5362207,
-   "non_sync": 3682471
+   "total": 7996711,
+   "sync": 4312834,
+   "non_sync": 3683877
+  },
+  "c5a": {
+   "total": -3195394,
+   "sync": -1603073,
+   "non_sync": -1592321
   },
   "c5b": {
-   "total": 16708335,
-   "sync": 10569133,
-   "non_sync": 6139202
+   "total": 15303126,
+   "sync": 9162011,
+   "non_sync": 6141115
   },
   "c6": {
-   "total": 20299828,
-   "sync": 21139666,
-   "non_sync": -839838
+   "total": 18266246,
+   "sync": 19104998,
+   "non_sync": -838752
   },
   "c7": {
-   "total": 22008223,
-   "sync": 21202797,
-   "non_sync": 805426
+   "total": 19781289,
+   "sync": 18974650,
+   "non_sync": 806639
   },
-  "verdict": "on the sync_* aggregate c6 (+21,139,666) and c7 (+21,202,797) are indistinguishable \u2014 a 0.3% difference. The Once-state load was NOT the cost. Both remain ~4x inline sharding's sync cost (+5,362,207). c7 also gives back c6's negative non-sync aggregate (-839,838 -> +805,426)."
+  "basis": "reproducible arms only: 126 of 129. The three *_short string arms are excluded because two builds of the identical tree differ by up to 2,800 Ir on them (see noise_floor and build_reproducibility). Including them put ~2.03 M Ir of build noise into c6's sync total.",
+  "correction": "SUPERSEDES the aggregates first published in #991, which summed all 129 arms including the three this artifact declares non-reproducible. The published c6 sync figure was +21,139,666; measured over reproducible arms only it is +19,104,998. Re-extracting 686dd6cb and rebuilding base and c6 in a fresh batch reproduced 126/129 arms bit-for-bit, with only those three moving and by no more than 1,454 Ir, so the instrument is sound and the defect was in the aggregation, not the measurement.",
+  "verdict": "on the sync_* aggregate c6 (+19,104,998) and c7 (+18,974,650) are indistinguishable \u2014 a 0.7% difference. The Once-state load was NOT the cost. Both remain ~4.4x inline sharding's sync cost (+4,312,834)."
  },
  "gate_decomposition": {
   "reference": "c5base4, pristine 686dd6cb built in the same batch",
@@ -167,14 +174,25 @@
    }
   },
   "decomposition": {
-   "gate_alone_ir": 12266903,
-   "indirection_alone_ir": 3510556,
-   "ratio_gate_over_indirection": 3.49
+   "basis": "reproducible arms only (126 of 129), recomputed from the per-arm iai-callgrind totals",
+   "sharded_sync_ir": 4312834,
+   "c8_sync_ir": 15723340,
+   "c9_sync_ir": 16412392,
+   "c6_sync_ir": 19104998,
+   "gate_alone_ir": 11410506,
+   "indirection_alone_ir": 3381658,
+   "ratio_gate_over_indirection": 3.37,
+   "correction": "supersedes the all-arm figures now under decomposition_superseded_all_arm (gate +12,266,903, indirection +3,510,556, ratio 3.49x). The conclusion is unchanged \u2014 the gate costs ~3.4x the indirection \u2014 and the per-arm bound published in README section 11.10 was computed per-arm on reproducible arms and is unaffected."
   },
   "prediction": "c8 sync aggregate near sharded (+5 to +8 M)",
   "falsifier": "c8 at +18 M or worse => the cost is the GATE, not the indirection",
   "outcome": "REFUTED. c8 = +17.63 M, at the falsifier and 2.2x the top of the predicted band. The gate costs +12.27 M; the indirection costs +3.51 M. The gate is 3.5x the indirection.",
-  "c9_finding": "c9 does NOT take both wins. At 1,024 B of shards it still perturbs the read arms by +2.188% (vs 4,096 B's +2.191%) and its sync aggregate is WORSE than c8's. The read-arm perturbation is therefore not proportional to the array's size \u2014 1 KiB perturbs as much as 4 KiB \u2014 which points at the alignment change to 64 and the field-offset shift, not the magnitude."
+  "c9_finding": "c9 does NOT take both wins. At 1,024 B of shards it still perturbs the read arms by +2.188% (vs 4,096 B's +2.191%) and its sync aggregate is WORSE than c8's. The read-arm perturbation is therefore not proportional to the array's size \u2014 1 KiB perturbs as much as 4 KiB \u2014 which points at the alignment change to 64 and the field-offset shift, not the magnitude.",
+  "decomposition_superseded_all_arm": {
+   "gate_alone_ir": 12266903,
+   "indirection_alone_ir": 3510556,
+   "ratio_gate_over_indirection": 3.49
+  }
  },
  "winner": {
   "design": "c6",

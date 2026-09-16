@@ -1660,17 +1660,34 @@ because it bounds what relocating the array alone can do.
 Two further cells separate the deferred check from the pointer hop: one pays
 the gate with the array inline, one pays the indirection with no gate.
 
-- gate alone: **+12,266,903 Ir**
-- indirection alone: **+3,510,556 Ir**
+- gate alone: **+11,410,506 Ir**
+- indirection alone: **+3,381,658 Ir**
 
-The check costs **3.5×** the pointer hop. A 16-stripe variant (1,024 B of
+The check costs **3.4×** the pointer hop. A 16-stripe variant (1,024 B of
 shards) still perturbs the read arms by +2.188 %, against 4,096 B's +2.191 %,
 so the perturbation is not proportional to the array's size.
+
+**Corrected, with the superseded figures stated (§8.7, §8.10).** As first
+published these were +12,266,903 and +3,510,556, a ratio of 3.5×. Those
+aggregates summed all 129 arms, including the three this artifact itself
+declares non-reproducible; `sync_strmap_churn_short` alone contributed about
+2.03 M Ir of build noise to c6's total. The figures above are the same
+subtraction over the 126 reproducible arms. Re-extracting `686dd6cb` and
+rebuilding `base` and c6 in a fresh batch reproduced **126 of 129 arms
+bit-for-bit**, with only those three moving and by no more than 1,454 Ir
+against a ~2,800 Ir floor — so the instrument is sound and the defect was in
+the aggregation. The per-arm counts in §11.10.2 and the bound in §11.10.6 were
+computed per-arm over reproducible arms and are unaffected.
 
 A prediction is recorded here as refuted rather than removed (§8.7): the
 inline-with-gate cell was predicted to land near the un-gated sharded cell at
 +5 M to +8 M on the `sync_*` aggregate, with +18 M named in advance as the
-falsifier. It measured **+17.63 M**.
+falsifier. It measured **+15.72 M** on the corrected basis — nearly twice the
+top of the predicted band, so the prediction is refuted; but the pre-registered
+falsifier value of +18 M is **not** reached, where the contaminated aggregate
+(+17.63 M) put it at that threshold. The conclusion does not rest on the
+falsifier: gate-alone and indirection-alone are direct subtractions between
+cells, and both are unaffected by which arms enter an aggregate.
 
 #### 11.10.4 The deferred-gated design under wall clock
 
@@ -1734,7 +1751,7 @@ in either run.
 - **The Callgrind cells were not measured on the reference host** and took no
   bench lock. No wall-clock claim rests on them.
 - **The gate's cost is not attributed to a microarchitectural cause.** What is
-  measured is an instruction count; why the check costs 3.5× the indirection is
+  measured is an instruction count; why the check costs 3.4× the indirection is
   not established here.
 - **Hoisting the deferred check out of the per-allocation path is unmeasured.**
   It is what the decomposition indicates and it is not in any cell above.
