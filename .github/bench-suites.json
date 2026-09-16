@@ -154,18 +154,36 @@
     },
     {
       "name": "writer_scaling_padded",
+      "available": false,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Expanse multi-writer scaling with lock-padded comparison (Hypothesis B, Refs #568); outputs padded_writer_scaling.json. Landed in production standard.",
+      "reason": "The padded writer state landed as the production default (Refs #568, #930). Use writer_scaling_ablation_unpadded_lock to measure the packed layout it replaced.",
+      "suite": "concurrency"
+    },
+    {
+      "name": "writer_scaling_ablation_unpadded_lock",
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "Expanse multi-writer scaling with lock-padded comparison (Hypothesis B, Refs #568); outputs padded_writer_scaling.json.",
+      "summary": "Expanse multi-writer scaling, default build vs the unpadded writer state (inverse of the promoted padding, Refs #568, #930); outputs ablation_unpadded_lock_writer_scaling.json.",
       "suite": "concurrency"
     },
     {
       "name": "writer_scaling_ablation_alloc",
+      "available": false,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Expanse multi-writer scaling, default build vs sharded allocator accounting counters (Hypothesis D arm a, Refs #568); outputs ablation_alloc_writer_scaling.json. Landed in production standard.",
+      "reason": "Arm (a) sharded allocator accounting counters landed as the production default (Refs #568, #930). Use writer_scaling_ablation_unsharded_alloc to measure the shared counters they replaced.",
+      "suite": "concurrency"
+    },
+    {
+      "name": "writer_scaling_ablation_unsharded_alloc",
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "Expanse multi-writer scaling, default build vs sharded allocator accounting counters (Hypothesis D arm a, Refs #568); outputs ablation_alloc_writer_scaling.json.",
+      "summary": "Expanse multi-writer scaling, default build vs shared allocator accounting counters (Hypothesis D arm a inverse, Refs #568, #930); outputs ablation_unsharded_alloc_writer_scaling.json.",
       "suite": "concurrency"
     },
     {

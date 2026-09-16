@@ -50,7 +50,7 @@ from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
 from bench_provenance import add_load, host_facts, load_snapshot, git_sha  # noqa: E402
 
 CRATE = REPO_ROOT / "crates" / "expanse-hot-bench" / "Cargo.toml"
-VARIANTS = ("default", "lock-padded", "advance-every-4096", "advance-never")
+VARIANTS = ("default", "ablation-unpadded-lock", "advance-every-4096", "advance-never")
 CELLS = ((1, 0), (1, 8))
 # The harness arm each run measures and the workload id its rows carry. The
 # map arm is the #789 ablation set; the string arm is the #568 PR 3 falsifier

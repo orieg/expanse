@@ -93,10 +93,12 @@ if [ "$QUICK" -eq 0 ]; then
   # `test` job's extra step.
   echo "  + occ-stats tests (feature is off in the default build)"
   bash scripts/test_occ_stats.sh
-  # Same as the CI `test` job's ablation step: the Hypothesis D features are
-  # off by default, so their tests are absent from the run above.
-  echo "  + concurrency ablation tests (features are off in the default build)"
-  ABL=ablation-sharded-alloc,ablation-striped-epoch,ablation-unstriped-freelist
+  # Same as the CI `test` job's ablation step. The Hypothesis D mechanisms are
+  # the default now, so these are the inverse features (AGENTS.md §2.7): they
+  # restore the state each mechanism replaced, and their tests are absent from
+  # the run above.
+  echo "  + concurrency ablation tests (the inverse features are off by default)"
+  ABL=ablation-unsharded-alloc,ablation-unpadded-lock,ablation-unstriped-freelist
   cargo test -p expanse-trie --lib --features "$ABL" -- ablation_ 2>&1 | tee "${TMPDIR:-/tmp}/gate-ablation-unit.log"
   grep -Eq 'test result: ok\. [1-9][0-9]* passed' "${TMPDIR:-/tmp}/gate-ablation-unit.log" \
     || { echo "the ablation_ filter ran zero unit tests" >&2; exit 1; }
@@ -195,7 +197,7 @@ if [ "$MIRI" -eq 1 ]; then
   # CASes spuriously, so a single-attempt try-lock must use a strong CAS.
   cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types:: \
     blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots map::tests::occ_engine_single_thread_under_miri map::tests::slot_calls_on_a_warm_insert_path map::tests::warm_insert_path_across_a_move set::tests::occ_engine_single_thread_under_miri set::tests::warm_insert_path_across_a_move occ::tests::
-  cargo miri test -p expanse-trie --lib --features ablation-sharded-alloc,ablation-striped-epoch,ablation-unstriped-freelist -- ablation_
+  cargo miri test -p expanse-trie --lib --features ablation-unsharded-alloc,ablation-unpadded-lock,ablation-unstriped-freelist -- ablation_
 else
   step "6/6 Miri — skipped (pass --miri for the Tier-1 filter; CI runs it on every PR)"
 fi

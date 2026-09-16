@@ -116,20 +116,29 @@ COMMITTED_RESULTS_PATH = (
 DIAGNOSTIC_RESULTS_PATH = (
     REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "diagnostic_writer_scaling.json"
 )
+# Retired suite output (Refs #568, #930): the padded writer state is the default
+# now, so nothing writes this path. Kept in the `--quick` guard so a stray run
+# cannot overwrite the committed artifacts measured under the old spelling.
 PADDED_RESULTS_PATH = (
     REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "padded_writer_scaling.json"
 )
 # Hypothesis D arms (METHODOLOGY.md §11): each shorthand flag compares one
-# ablation feature against the default build.
+# ablation feature against the default build. Every arm is a production default
+# now, so each feature is the *inverse* — it restores the state the promoted
+# mechanism replaced (AGENTS.md §2.7).
 ABLATION_ARMS = {
-    "compare_ablation_alloc": "ablation-sharded-alloc",
-    "compare_ablation_epoch": "ablation-striped-epoch",
+    "compare_ablation_unsharded_alloc": "ablation-unsharded-alloc",
+    "compare_ablation_unpadded_lock": "ablation-unpadded-lock",
     "compare_ablation_unstriped_freelist": "ablation-unstriped-freelist",
 }
 # Inverse ablations where the default build represents the promoted optimization
-# and the ablation variant represents the unstriped/unoptimized baseline.
+# and the ablation variant represents the unstriped/unpadded/unsharded baseline.
 # For these, the reported scaling ratio is C_default(W) / C_variant(W) (§8.20.7).
-INVERSE_ABLATIONS = {"ablation-unstriped-freelist"}
+INVERSE_ABLATIONS = {
+    "ablation-unstriped-freelist",
+    "ablation-unsharded-alloc",
+    "ablation-unpadded-lock",
+}
 
 # Every writer-mode arm, in sweep order, for `--arm all`. `map` and `set` run
 # optimistic lock coupling; `str`, `bytes` and `blob` serialise every insert on
@@ -181,9 +190,18 @@ def ratio_description(variant_list: list[str]) -> str:
     ]
     return "Expanse paired scaling ratio per variant; " + "; ".join(clauses)
 
+# The live inverse arms plus the committed artifacts of the retired ones: a
+# `--quick` run must not overwrite either (Refs #568, #930).
 ABLATION_RESULTS_PATHS = tuple(
     REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / f"ablation_{arm}_writer_scaling.json"
-    for arm in ("alloc", "epoch", "freelist", "unstriped_freelist")
+    for arm in (
+        "alloc",
+        "epoch",
+        "freelist",
+        "unstriped_freelist",
+        "unsharded_alloc",
+        "unpadded_lock",
+    )
 )
 
 
@@ -4320,7 +4338,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--features",
         type=str,
         default=None,
-        help="Cargo features for single-build throughput pass (e.g. lock-padded)",
+        help="Cargo features for single-build throughput pass (e.g. ablation-unpadded-lock)",
     )
     # One comparison selector per run: combining two would otherwise keep
     # one and silently drop the rest.
@@ -4335,7 +4353,8 @@ def build_parser() -> argparse.ArgumentParser:
     comparison.add_argument(
         "--compare-padded",
         action="store_true",
-        help="Shorthand for --compare lock-padded (Hypothesis B)",
+        help="Retired spelling of --compare-ablation-unpadded-lock: the padded writer state is the "
+             "default now, so the comparison runs against the unpadded inverse (Refs #568, #930)",
     )
     comparison.add_argument(
         "--variants",
@@ -4344,14 +4363,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated feature variants to compare against default (or via BENCH_VARIANTS env var)",
     )
     comparison.add_argument(
-        "--compare-ablation-alloc",
+        "--compare-ablation-unsharded-alloc",
         action="store_true",
-        help="Shorthand for --compare ablation-sharded-alloc (Hypothesis D arm a)",
+        help="Shorthand for --compare ablation-unsharded-alloc (Hypothesis D arm a inverse: "
+             "restores the shared allocator accounting counters the default shards)",
     )
     comparison.add_argument(
-        "--compare-ablation-epoch",
+        "--compare-ablation-unpadded-lock",
         action="store_true",
-        help="Shorthand for --compare ablation-striped-epoch (Hypothesis D arm b)",
+        help="Shorthand for --compare ablation-unpadded-lock (restores the packed writer state "
+             "the default pads onto its own cache lines)",
     )
     comparison.add_argument(
         "--compare-ablation-unstriped-freelist",
@@ -4483,7 +4504,7 @@ def main() -> int:
     if args.variants:
         variant_list.extend(v.strip() for v in args.variants.split(",") if v.strip())
     elif args.compare_padded:
-        variant_list.append("lock-padded")
+        variant_list.append("ablation-unpadded-lock")
     elif args.compare:
         variant_list.append(args.compare)
     elif selected := [feature for flag, feature in ABLATION_ARMS.items() if getattr(args, flag)]:

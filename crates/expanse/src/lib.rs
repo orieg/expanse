@@ -42,6 +42,27 @@ compile_error!(
      To measure unstriped freelists, use ablation-unstriped-freelist."
 );
 
+#[cfg(feature = "ablation-sharded-alloc")]
+compile_error!(
+    "ablation-sharded-alloc is retired; sharded allocator accounting counters are now the \
+     production default. To measure the shared counters they replaced, use \
+     ablation-unsharded-alloc."
+);
+
+#[cfg(feature = "lock-padded")]
+compile_error!(
+    "lock-padded is retired; the writer mutex, writer gate, tree population counter and version \
+     word are on their own cache lines by default. To measure the packed layout, use \
+     ablation-unpadded-lock."
+);
+
+#[cfg(feature = "ablation-striped-epoch")]
+compile_error!(
+    "ablation-striped-epoch is retired; striped epoch bins are the production default. It was \
+     previously a no-op alias, which compared the default with itself. To measure multi-writer \
+     scaling on the default build, use the writer_scaling suite."
+);
+
 #[cfg(target_pointer_width = "64")]
 mod algebra;
 #[cfg(target_pointer_width = "64")]

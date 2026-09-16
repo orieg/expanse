@@ -1,9 +1,14 @@
-//! Integration tests for the concurrency ablation arms (Hypothesis D):
-//! - Arm (a): sharded allocator accounting counters (`ablation-sharded-alloc`)
-//! - Arm (b): striped epoch garbage bins and sharded retained bytes (`ablation-striped-epoch`)
-//! - Arm (c): unstriped collector freelists (`ablation-unstriped-freelist`)
+//! Integration tests for the concurrency ablation arms (Hypothesis D). Arms
+//! (a), (b) and (c) are all production defaults now, each with an inverse
+//! feature that restores the state it replaced (AGENTS.md §2.7):
+//! - Arm (a): per-writer-slot allocator accounting counters, the default since
+//!   #568/#930; `ablation-unsharded-alloc` restores the shared counters
+//! - Arm (b): striped epoch garbage bins and sharded retained bytes, the
+//!   default since #568
+//! - Arm (c): per-stripe collector freelists, the default since #568;
+//!   `ablation-unstriped-freelist` restores the single shared array
 //!
-//! These check that each ablated build stays correct under real threads,
+//! These check that each build stays correct under real threads,
 //! and CI also runs them under ASan. Which stripe a thread lands on is
 //! pinned by the `ablation_` unit tests in `alloc::tests` and `occ::tests`,
 //! which can choose it.
@@ -14,14 +19,14 @@
 #![cfg(not(miri))]
 #![cfg(feature = "std")]
 
-#[cfg(feature = "ablation-sharded-alloc")]
+#[cfg(not(feature = "ablation-unsharded-alloc"))]
 use expanse_trie::alloc::NodeAlloc;
 use expanse_trie::occ::Collector;
 use expanse_trie::sync::SyncExpanseMap;
-#[cfg(feature = "ablation-sharded-alloc")]
+#[cfg(not(feature = "ablation-unsharded-alloc"))]
 use std::ptr::NonNull;
 use std::sync::Arc;
-#[cfg(feature = "ablation-sharded-alloc")]
+#[cfg(not(feature = "ablation-unsharded-alloc"))]
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -86,10 +91,10 @@ fn ablated_map_stays_correct_under_concurrent_writers() {
     }
 }
 
-#[cfg(feature = "ablation-sharded-alloc")]
+#[cfg(not(feature = "ablation-unsharded-alloc"))]
 struct SendPtr(NonNull<u8>);
 // SAFETY: SendPtr is a test-only wrapper transferring raw heap allocations across test threads.
-#[cfg(feature = "ablation-sharded-alloc")]
+#[cfg(not(feature = "ablation-unsharded-alloc"))]
 unsafe impl Send for SendPtr {}
 
 /// Arm (a)'s property: the per-writer-slot counters sum to the exact totals
@@ -106,7 +111,7 @@ unsafe impl Send for SendPtr {}
 /// else: each thread still takes its own slot, so the shards this sums over
 /// are still populated by four different threads.
 #[test]
-#[cfg(feature = "ablation-sharded-alloc")]
+#[cfg(not(feature = "ablation-unsharded-alloc"))]
 fn test_node_alloc_sharded_counters_cross_thread() {
     let alloc = Arc::new(NodeAlloc::new());
     let gate = Arc::new(Mutex::new(()));

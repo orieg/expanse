@@ -38,7 +38,7 @@ occ-stats = ["expanse-trie/occ-stats"]
 # engine (#789): a padded writer lock and version word, and two epoch-advance
 # intervals. `docs/benchmarks/concurrency/scripts/ablations.py` builds one
 # variant per target directory and runs the same concurrent cells on each.
-lock-padded = ["expanse-trie/lock-padded"]
+ablation-unpadded-lock = ["expanse-trie/ablation-unpadded-lock"]
 advance-every-4096 = ["expanse-trie/advance-every-4096"]
 advance-never = ["expanse-trie/advance-never"]
 

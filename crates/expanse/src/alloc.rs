@@ -187,10 +187,10 @@ pub(crate) const fn accounted_size(bytes: usize, align: usize) -> usize {
     (bytes + (align - 1)) & !(align - 1)
 }
 
-#[cfg(feature = "ablation-sharded-alloc")]
+#[cfg(not(feature = "ablation-unsharded-alloc"))]
 pub(crate) const NUM_ALLOC_SHARDS: usize = crate::occ::MAX_WRITER_SLOTS;
 
-#[cfg(feature = "ablation-sharded-alloc")]
+#[cfg(not(feature = "ablation-unsharded-alloc"))]
 #[derive(Debug)]
 #[repr(align(64))]
 pub(crate) struct AllocShard {
@@ -199,7 +199,7 @@ pub(crate) struct AllocShard {
     pub(crate) total_allocs: AtomicUsize,
 }
 
-#[cfg(feature = "ablation-sharded-alloc")]
+#[cfg(not(feature = "ablation-unsharded-alloc"))]
 impl AllocShard {
     pub(crate) fn new() -> Self {
         Self {
@@ -219,11 +219,11 @@ impl AllocShard {
 /// counters order nothing — the OCC read protocol carries the fences.
 #[derive(Debug)]
 pub struct NodeAlloc {
-    #[cfg(not(feature = "ablation-sharded-alloc"))]
+    #[cfg(feature = "ablation-unsharded-alloc")]
     bytes_in_use: AtomicUsize,
-    #[cfg(not(feature = "ablation-sharded-alloc"))]
+    #[cfg(feature = "ablation-unsharded-alloc")]
     live_allocs: AtomicUsize,
-    #[cfg(feature = "ablation-sharded-alloc")]
+    #[cfg(not(feature = "ablation-unsharded-alloc"))]
     shards: [AllocShard; NUM_ALLOC_SHARDS],
     /// Phase 7: when set, frees are retired to the collector instead of
     /// released — concurrent readers may still hold the pointers.
@@ -246,7 +246,7 @@ pub struct NodeAlloc {
     /// separate the engine's own node/leaf allocations from incidental
     /// scratch allocations elsewhere in a code path — see
     /// `tests/no_heap_churn.rs`.
-    #[cfg(not(feature = "ablation-sharded-alloc"))]
+    #[cfg(feature = "ablation-unsharded-alloc")]
     total_allocs: AtomicUsize,
     /// Per-size-class free blocks, and the 4 KiB slab pages carved to
     /// pre-populate them.
@@ -271,11 +271,11 @@ pub struct NodeAlloc {
 impl Default for NodeAlloc {
     fn default() -> Self {
         Self {
-            #[cfg(not(feature = "ablation-sharded-alloc"))]
+            #[cfg(feature = "ablation-unsharded-alloc")]
             bytes_in_use: AtomicUsize::new(0),
-            #[cfg(not(feature = "ablation-sharded-alloc"))]
+            #[cfg(feature = "ablation-unsharded-alloc")]
             live_allocs: AtomicUsize::new(0),
-            #[cfg(feature = "ablation-sharded-alloc")]
+            #[cfg(not(feature = "ablation-unsharded-alloc"))]
             shards: core::array::from_fn(|_| AllocShard::new()),
             #[cfg(feature = "std")]
             deferred: OnceLock::new(),
@@ -283,7 +283,7 @@ impl Default for NodeAlloc {
             engine_covers_root: core::sync::atomic::AtomicBool::new(false),
             #[cfg(feature = "std")]
             tree_word: AtomicPtr::new(core::ptr::null_mut()),
-            #[cfg(not(feature = "ablation-sharded-alloc"))]
+            #[cfg(feature = "ablation-unsharded-alloc")]
             total_allocs: AtomicUsize::new(0),
             freelists: [const { AtomicPtr::new(core::ptr::null_mut()) }; NUM_CLASSES],
             slab_pages: AtomicPtr::new(core::ptr::null_mut()),
@@ -368,11 +368,11 @@ impl NodeAlloc {
     /// Bytes currently allocated through this handle.
     #[must_use]
     pub fn bytes_in_use(&self) -> usize {
-        #[cfg(not(feature = "ablation-sharded-alloc"))]
+        #[cfg(feature = "ablation-unsharded-alloc")]
         {
             self.bytes_in_use.load(Ordering::Relaxed)
         }
-        #[cfg(feature = "ablation-sharded-alloc")]
+        #[cfg(not(feature = "ablation-unsharded-alloc"))]
         {
             let mut sum: isize = 0;
             for s in &self.shards {
@@ -385,11 +385,11 @@ impl NodeAlloc {
     /// Number of live allocations (diagnostics / leak assertions in tests).
     #[must_use]
     pub fn live_allocs(&self) -> usize {
-        #[cfg(not(feature = "ablation-sharded-alloc"))]
+        #[cfg(feature = "ablation-unsharded-alloc")]
         {
             self.live_allocs.load(Ordering::Relaxed)
         }
-        #[cfg(feature = "ablation-sharded-alloc")]
+        #[cfg(not(feature = "ablation-unsharded-alloc"))]
         {
             let mut sum: isize = 0;
             for s in &self.shards {
@@ -405,11 +405,11 @@ impl NodeAlloc {
     /// the same code path.
     #[must_use]
     pub fn total_allocs(&self) -> usize {
-        #[cfg(not(feature = "ablation-sharded-alloc"))]
+        #[cfg(feature = "ablation-unsharded-alloc")]
         {
             self.total_allocs.load(Ordering::Relaxed)
         }
-        #[cfg(feature = "ablation-sharded-alloc")]
+        #[cfg(not(feature = "ablation-unsharded-alloc"))]
         {
             let mut sum: usize = 0;
             for s in &self.shards {
@@ -443,14 +443,14 @@ impl NodeAlloc {
             "plain allocator path (OCC=false) invoked on an allocator with deferred reclamation enabled"
         );
         let accounted_size = accounted_size(bytes, align);
-        #[cfg(not(feature = "ablation-sharded-alloc"))]
+        #[cfg(feature = "ablation-unsharded-alloc")]
         {
             self.bytes_in_use
                 .fetch_add(accounted_size, Ordering::Relaxed);
             self.live_allocs.fetch_add(1, Ordering::Relaxed);
             self.total_allocs.fetch_add(1, Ordering::Relaxed);
         }
-        #[cfg(feature = "ablation-sharded-alloc")]
+        #[cfg(not(feature = "ablation-unsharded-alloc"))]
         {
             let slot = crate::occ::writer_slot();
             self.shards[slot]
@@ -581,13 +581,13 @@ impl NodeAlloc {
             "plain free path (OCC=false) invoked on an allocator with deferred reclamation enabled"
         );
         let accounted_size = accounted_size(bytes, align);
-        #[cfg(not(feature = "ablation-sharded-alloc"))]
+        #[cfg(feature = "ablation-unsharded-alloc")]
         {
             self.bytes_in_use
                 .fetch_sub(accounted_size, Ordering::Relaxed);
             self.live_allocs.fetch_sub(1, Ordering::Relaxed);
         }
-        #[cfg(feature = "ablation-sharded-alloc")]
+        #[cfg(not(feature = "ablation-unsharded-alloc"))]
         {
             let slot = crate::occ::writer_slot();
             self.shards[slot]
@@ -723,13 +723,13 @@ impl NodeAlloc {
         #[cfg(feature = "std")]
         if let Some(c) = self.deferred.get() {
             let accounted_size = accounted_size(bytes, RAW_ALIGN);
-            #[cfg(not(feature = "ablation-sharded-alloc"))]
+            #[cfg(feature = "ablation-unsharded-alloc")]
             {
                 self.bytes_in_use
                     .fetch_sub(accounted_size, Ordering::Relaxed);
                 self.live_allocs.fetch_sub(1, Ordering::Relaxed);
             }
-            #[cfg(feature = "ablation-sharded-alloc")]
+            #[cfg(not(feature = "ablation-unsharded-alloc"))]
             {
                 let slot = crate::occ::writer_slot();
                 self.shards[slot]
@@ -778,13 +778,13 @@ impl NodeAlloc {
         #[cfg(feature = "std")]
         if let Some(c) = self.deferred.get() {
             let accounted_size = accounted_size(bytes, align);
-            #[cfg(not(feature = "ablation-sharded-alloc"))]
+            #[cfg(feature = "ablation-unsharded-alloc")]
             {
                 self.bytes_in_use
                     .fetch_sub(accounted_size, Ordering::Relaxed);
                 self.live_allocs.fetch_sub(1, Ordering::Relaxed);
             }
-            #[cfg(feature = "ablation-sharded-alloc")]
+            #[cfg(not(feature = "ablation-unsharded-alloc"))]
             {
                 let slot = crate::occ::writer_slot();
                 self.shards[slot]
@@ -1181,12 +1181,38 @@ mod tests {
     use core_alloc::sync::Arc;
     use core_alloc::vec::Vec;
 
+    /// AGENTS.md §2.7: a promoted mechanism must stay ablatable, and its inverse
+    /// must never be a no-op. The default build carries one 64-byte-aligned
+    /// accounting shard per writer slot; `ablation-unsharded-alloc` restores the
+    /// three shared words. `NodeAlloc`'s size and alignment therefore differ by
+    /// build, and a no-op inverse would fail one of these branches.
+    #[test]
+    #[cfg(feature = "std")]
+    fn ablation_alloc_accounting_shape_follows_the_build() {
+        let n = core::mem::size_of::<NodeAlloc>();
+        #[cfg(not(feature = "ablation-unsharded-alloc"))]
+        {
+            assert_eq!(core::mem::align_of::<NodeAlloc>(), 64);
+            assert!(
+                n >= NUM_ALLOC_SHARDS * 64,
+                "default build must carry {NUM_ALLOC_SHARDS} cache-line shards, got {n} bytes"
+            );
+        }
+        #[cfg(feature = "ablation-unsharded-alloc")]
+        {
+            assert!(
+                n < 64 * 64,
+                "ablation-unsharded-alloc must restore the shared counters, got {n} bytes"
+            );
+        }
+    }
+
     /// Each stripe's allocations are counted in that stripe's shard, a free
     /// on another stripe is netted in the freeing stripe's shard, and the
     /// totals still balance. A shard index that ignored the stripe would put
     /// every count in one shard.
     #[test]
-    #[cfg(all(feature = "std", feature = "ablation-sharded-alloc"))]
+    #[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
     fn ablation_sharded_alloc_counts_per_stripe() {
         let a = NodeAlloc::new();
         let stripes = [0, 5, NUM_ALLOC_SHARDS - 1];
