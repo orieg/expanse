@@ -1,5 +1,13 @@
 # Expanse vs. Masstree: Empirical Benchmark Suite
 
+> **Every Expanse arm here is pending re-measurement (#930, AGENTS.md §8.7).**
+> The Expanse arms are built from the default engine build, and the sharded
+> allocator accounting counters and the padded writer state were promoted into
+> that default (Refs #568, #930;
+> [`../concurrency/README.md`](../concurrency/README.md) §11.10), so these
+> figures describe a build that no longer exists. The promoting PR runs no
+> benchmarks, so nothing here is re-measured in it.
+
 Head-to-head evaluation of `ExpanseMap`, `ExpanseStrMap`, `SyncExpanseMap` and
 `SyncExpanseStrMap` against **Masstree**
 ([Mao, Kohler & Morris, EuroSys 2012](https://doi.org/10.1145/2168836.2168855)),

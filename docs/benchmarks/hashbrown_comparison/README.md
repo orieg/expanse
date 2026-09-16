@@ -1,5 +1,15 @@
 # Expanse vs. Hashbrown vs. BTreeMap: Empirical Comparative Benchmark Suite
 
+> **Every Expanse arm here is pending re-measurement (#930, AGENTS.md §8.7).**
+> The `ExpanseMap` arm is built from the default engine build, and the sharded
+> allocator accounting counters were promoted into that default (Refs #568,
+> #930; [`../concurrency/README.md`](../concurrency/README.md) §11.10), so these
+> figures describe a build that no longer exists. The promoting PR runs no
+> benchmarks, so nothing here is re-measured in it. The live-heap footprint arm
+> is the most exposed: the promoted counters add fixed per-tree bytes a global
+> allocator hook sees even though `mem_used()` does not (derived from the struct
+> definitions, not measured here).
+
 This directory contains the reproducible benchmark suite, raw measurements, methodology specifications, and dual-theme visualization assets comparing **Expanse** (`ExpanseMap`), **Hashbrown / Google SwissTable** (`hashbrown::HashMap`), and **B-Tree** (`std::collections::BTreeMap`).
 
 ---

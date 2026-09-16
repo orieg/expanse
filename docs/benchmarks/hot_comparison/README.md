@@ -1,5 +1,18 @@
 # Expanse vs. HOT (Height Optimized Trie): Empirical Benchmark Suite
 
+> **Every Expanse arm here is pending re-measurement (#930, AGENTS.md §8.7).**
+> The Expanse arms are built from the default engine build, and the sharded
+> allocator accounting counters and the padded writer state were promoted into
+> that default (Refs #568, #930;
+> [`../concurrency/README.md`](../concurrency/README.md) §11.10). These figures
+> therefore describe a build that no longer exists. The promoting PR runs no
+> benchmarks, so nothing here is re-measured in it. The memory arms are the ones
+> most exposed: both mechanisms add fixed per-tree bytes (an accounting-shard
+> array per tree, padded per-writer arrays per `Sync*` wrapper), which an
+> allocator census sees even though `mem_used()` does not — §1's and §7.4's
+> low-λ cells are where that lands hardest (derived from the struct
+> definitions, not measured here).
+
 Head-to-head evaluation of `ExpanseSet` and `ExpanseMap` — and, for string keys,
 `ExpanseStrMap` and `ExpanseBytesMap` (§6) — against **HOT**
 ([Binna, Zangerle, Pichl, Specht & Leis, SIGMOD 2018](https://dl.acm.org/doi/10.1145/3506692)),

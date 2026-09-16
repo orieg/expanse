@@ -1,5 +1,17 @@
 # RocksDB MemTable suite: results and how to read them
 
+> **Every Expanse arm here is pending re-measurement (#930, AGENTS.md §8.7).**
+> `ExpanseMemTable` wraps `expanse_sync_map_t`, built from the default engine
+> build, and the sharded allocator accounting counters and the padded writer
+> state were promoted into that default (Refs #568, #930;
+> [`../concurrency/README.md`](../concurrency/README.md) §11.10), so these
+> figures describe a build that no longer exists. The promoting PR runs no
+> benchmarks, so nothing here is re-measured in it. Two cells deserve naming:
+> the key-density figures, because both mechanisms add fixed per-tree bytes an
+> allocator census sees, and the optimistic-seek control, whose measured value
+> sits close enough to its pre-registered floor that a small shift could change
+> its verdict.
+
 *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8, run [33398474866](https://github.com/orieg/expanse/actions/runs/33398474866), commit `6cb64b45`; `benches/bench_memtable.cc` built `-O3` against release `libexpanse.so`; 100,000 keys, 16-byte key, 64-byte value payload; **5 rounds, mean with BCa 95% bootstrap intervals** (2,000 resamples, seed 42) harvested by `scripts/rocksdb_bench_harvest.py` into [`results/baseline_rocksdb.json`](results/baseline_rocksdb.json); every bracketed pair is that arm's interval, and each ratio is a two-sample BCa interval whose **lower bound** clears 1.0. SkipList arm = the fair variable-height baseline. Memory row: deterministic seeded byte accounting, re-measured with the fair variable-height baseline at the #372 fix commit (Apple M1, 8 cores, Apple clang 21, `-O3`; reproduced twice; Expanse/VectorRep cells reproduce the reference-host values byte-for-byte). `SkipListRep`/`VectorRep` are the in-file reference implementations, not stock RocksDB.)*
 
 ![RocksDB MemTable Benchmark: ExpanseMemTable vs SkipList vs VectorRep](results/bench_rocksdb.svg)

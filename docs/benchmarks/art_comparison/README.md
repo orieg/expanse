@@ -1,5 +1,15 @@
 # Expanse vs. Adaptive Radix Tree (ART): Empirical Benchmark Suite
 
+> **Every Expanse arm here is pending re-measurement (#930, AGENTS.md §8.7).**
+> The `ExpanseMap` arm is built from the default engine build, and the sharded
+> allocator accounting counters were promoted into that default (Refs #568,
+> #930; [`../concurrency/README.md`](../concurrency/README.md) §11.10), so these
+> figures describe a build that no longer exists. The promoting PR runs no
+> benchmarks, so nothing here is re-measured in it. The memory census is the
+> most exposed arm: the promoted counters add fixed per-tree bytes that a
+> `TrackingAlloc` census sees even though `mem_used()` does not (derived from
+> the struct definitions, not measured here).
+
 This benchmark suite delivers a reproducible, empirical head-to-head evaluation of **`ExpanseMap`** against the **Adaptive Radix Tree (ART)**, evaluated using pure-Rust **`blart` (v0.5.0)**, alongside **`std::collections::BTreeMap`** and **`hashbrown::HashMap`**.
 
 > **Tracking & Provenance.** Delivers the ART comparison arm of [#387](https://github.com/orieg/expanse/issues/387) and closes the undelivered ART baseline tracking gap from [#122](https://github.com/orieg/expanse/issues/122). All measurements below were captured with full population scaling ($N \in [10\text{k}, 100\text{k}, 1\text{M}]$ for latency; $N \in [1\text{k}, 10\text{k}, 100\text{k}, 1\text{M}]$ for memory census) under isolated execution *(measured: reference host — Intel Core i9-12900F, 8P+8E/24 threads, 30 MiB L3, Ubuntu 22.04, Linux 6.8.0-136-generic; harness commit `b447dbc`; `docs/benchmarks/art_comparison/run.sh` on the host; load average 0.90 at start, 1.25 at end transcribed from run log; 15 rounds/cell, median; BCa 95% CIs in results/)*.
