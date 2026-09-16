@@ -1514,12 +1514,14 @@ within the tool's cluster gap.
 | `_RINvNtCsfHnohCjqgYz_12exp` | `expanse_trie::mutate_map::build_map_leaf`; `expanse_trie::mutate_map::map_insert_with_path_occ`; `expanse_trie::mutate::upgrade_l7_to_b`; `expanse_trie::mutate::upgrade_l3_to_l7` | ambiguous, 4 candidates |
 | `_RNvMsk_NtCsfHnohCjqgYz_12` | `expanse_trie::sync::SyncExpanseMap::olc_insert_map` | unique |
 
-#### 11.9.5 Frequency droop at W = 8 beside the same cell's C(8)
+#### 11.9.5 1 − (cycles/ref-cycles at W = 8) ÷ (at W = 1), beside the same cell's C(8)
 
-| | droop at W = 8, BCa 95% | droop verdict | rounds | `map` C(8), throughput pass | C(8) rounds |
+| | 1 − (cycles/ref-cycles) ratio at W = 8, BCa 95% | harness verdict | rounds | `map` C(8), throughput pass | C(8) rounds |
 |---|--:|---|--:|--:|--:|
 | run 1 | 7.66% [7.59%, 7.72%] bca | `SINGLE_RUN_PASS` | 8 | 2.23 [2.21, 2.25] bca | 8 |
 | run 2 | 7.54% [7.37%, 7.68%] bca | `SINGLE_RUN_PASS` | 8 | 2.28 [2.27, 2.30] bca | 8 |
+
+The harness names this field `pmu.frequency_droop`, and it is a frequency only where the cells compared retire work the same way; where writers serialise on one mutex they need not, so what a large reading mixes is not established here (see this section's closing discussion).
 
 #### 11.9.6 Host load
 
@@ -2519,12 +2521,14 @@ Two things these artifacts do **not** carry, and neither is repaired here:
 | `_RNvMNtNtNtNtCs9k3SxhrAWiO` | — | unresolved |
 | `_RNvMsB_NtCsfHnohCjqgYz_12` | `expanse_trie::sync::SyncExpanseStrMap::insert` | unique |
 
-#### 16.1.5 Frequency droop at W = 8 beside the same cell's C(8)
+#### 16.1.5 1 − (cycles/ref-cycles at W = 8) ÷ (at W = 1), beside the same cell's C(8)
 
-| | droop at W = 8, BCa 95% | droop verdict | rounds | `str` C(8), throughput pass | C(8) rounds |
+| | 1 − (cycles/ref-cycles) ratio at W = 8, BCa 95% | harness verdict | rounds | `str` C(8), throughput pass | C(8) rounds |
 |---|--:|---|--:|--:|--:|
 | run 1 | 81.07% [80.81%, 81.39%] bca | `SINGLE_RUN_PASS` | 8 | 0.11 [0.11, 0.12] bca | 8 |
 | run 2 | 81.41% [81.12%, 81.69%] bca | `SINGLE_RUN_PASS` | 8 | 0.11 [0.11, 0.11] bca | 8 |
+
+The harness names this field `pmu.frequency_droop`, and it is a frequency only where the cells compared retire work the same way; where writers serialise on one mutex they need not, so what a large reading mixes is not established here (see this section's closing discussion).
 
 #### 16.1.6 Host load
 
@@ -2668,12 +2672,14 @@ Two things these artifacts do **not** carry, and neither is repaired here:
 | `_RNvMNtNtNtNtCs9k3SxhrAWiO` | — | unresolved |
 | `_RNvMsG_NtCsfHnohCjqgYz_12` | — | unresolved |
 
-#### 16.2.5 Frequency droop at W = 8 beside the same cell's C(8)
+#### 16.2.5 1 − (cycles/ref-cycles at W = 8) ÷ (at W = 1), beside the same cell's C(8)
 
-| | droop at W = 8, BCa 95% | droop verdict | rounds | `bytes` C(8), throughput pass | C(8) rounds |
+| | 1 − (cycles/ref-cycles) ratio at W = 8, BCa 95% | harness verdict | rounds | `bytes` C(8), throughput pass | C(8) rounds |
 |---|--:|---|--:|--:|--:|
 | run 1 | 77.12% [75.60%, 78.91%] bca | `SINGLE_RUN_PASS` | 8 | 0.16 [0.15, 0.16] bca | 8 |
 | run 2 | 80.32% [78.99%, 81.21%] bca | `SINGLE_RUN_PASS` | 8 | 0.19 [0.14, 0.35] bca | 8 |
+
+The harness names this field `pmu.frequency_droop`, and it is a frequency only where the cells compared retire work the same way; where writers serialise on one mutex they need not, so what a large reading mixes is not established here (see this section's closing discussion).
 
 #### 16.2.6 Host load
 
@@ -2833,12 +2839,14 @@ Two things these artifacts do **not** carry, and neither is repaired here:
 | `_RNvMsr_NtCsfHnohCjqgYz_12` | `expanse_trie::sync::SyncExpanseBlobMap::insert` | unique |
 | `_RNvNtCsfHnohCjqgYz_12expa` | `expanse_trie::mutate_map::read_map_leaf` | unique |
 
-#### 16.3.5 Frequency droop at W = 8 beside the same cell's C(8)
+#### 16.3.5 1 − (cycles/ref-cycles at W = 8) ÷ (at W = 1), beside the same cell's C(8)
 
-| | droop at W = 8, BCa 95% | droop verdict | rounds | `blob` C(8), throughput pass | C(8) rounds |
+| | 1 − (cycles/ref-cycles) ratio at W = 8, BCa 95% | harness verdict | rounds | `blob` C(8), throughput pass | C(8) rounds |
 |---|--:|---|--:|--:|--:|
 | run 1 | 7.68% [7.60%, 7.76%] bca | `SINGLE_RUN_PASS` | 8 | 0.55 [0.53, 0.57] bca | 8 |
 | run 2 | 7.98% [7.70%, 9.03%] bca | `SINGLE_RUN_PASS` | 8 | 0.52 [0.51, 0.56] bca | 8 |
+
+The harness names this field `pmu.frequency_droop`, and it is a frequency only where the cells compared retire work the same way; where writers serialise on one mutex they need not, so what a large reading mixes is not established here (see this section's closing discussion).
 
 #### 16.3.6 Host load
 

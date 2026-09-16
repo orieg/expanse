@@ -703,9 +703,10 @@ def render(runs: list[tuple[str, str, dict]], section: str = "11.9",
         raise C2CFormatError(
             f"the runs of one section must be recordings of one arm; got {sorted(arms)}")
     arm = arms.pop()
-    out += [f"#### {section}.5 Frequency droop at W = 8 beside the same cell's C(8)", "",
-            f"| | droop at W = 8, BCa 95% | droop verdict | rounds | `{arm}` C(8), throughput pass "
-            "| C(8) rounds |",
+    out += [f"#### {section}.5 1 − (cycles/ref-cycles at W = 8) ÷ (at W = 1), "
+            "beside the same cell's C(8)", "",
+            "| | 1 − (cycles/ref-cycles) ratio at W = 8, BCa 95% | harness verdict | rounds "
+            f"| `{arm}` C(8), throughput pass | C(8) rounds |",
             "|---|--:|---|--:|--:|--:|"]
     for lb, (_, _, art) in zip(labels, runs):
         d = art["pmu"]["frequency_droop"]["by_writers"]["8"]
@@ -718,6 +719,10 @@ def render(runs: list[tuple[str, str, dict]], section: str = "11.9",
               f"{cell['scaling_factor_c_n_ci_upper']:.2f}] {cell['scaling_factor_c_n_ci_method']}")
         out.append(f"| {lb} | {_iv(d['droop_mean'], d['droop_ci_lower'], d['droop_ci_upper'], d['droop_ci_method'])} "
                    f"| `{d['verdict']}` | {d['n_measured']} | {c8} | {len(cell['rounds_raw'])} |")
+    out += ["", "The harness names this field `pmu.frequency_droop`, and it is a frequency only "
+            "where the cells compared retire work the same way; where writers serialise on one "
+            "mutex they need not, so what a large reading mixes is not established here (see this "
+            "section's closing discussion)."]
     out.append("")
 
     # -- load snapshots (section 8.17)
@@ -958,7 +963,17 @@ def _self_test() -> int:
     wrapper["throughput"][0]["arm"] = "blob"
     wtext = "\n".join(render([("w.json", "d", wrapper)], section="16.3", run_label="recording"))
     expect("| `blob` C(8), throughput pass |" in wtext, "the droop header names the recorded arm")
-    expect("#### 16.3.5 Frequency droop" in wtext, "the section number reaches the droop heading")
+    expect("#### 16.3.5 1 − (cycles/ref-cycles at W = 8)" in wtext,
+           "the section number reaches the ratio heading")
+    # The heading and column name the quantity computed, not a frequency reading:
+    # `1 - (cycles/ref-cycles at W) / (at W = 1)` reads ~81% on the str and bytes
+    # wrapper arms, which as a bare "frequency droop" asserts a core clock that
+    # did not happen. Revert either label and this goes red.
+    expect("Frequency droop" not in wtext, "the heading still asserts a frequency reading")
+    expect("| 1 − (cycles/ref-cycles) ratio at W = 8, BCa 95% | harness verdict |" in wtext,
+           "the column names the computed ratio")
+    expect("it is a frequency only where the cells compared retire work the same way" in wtext,
+           "the table carries its qualifying sentence")
     expect("| recording | d |" in wtext, "run_label names the row a CI dispatch did not produce")
     expect("2.23 [2.21, 2.25] bca" in wtext, "the recorded arm's own C(8) cell is the one read")
     # An artifact with no throughput cell for the arm it recorded is refused,
