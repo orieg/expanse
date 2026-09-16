@@ -363,6 +363,25 @@ static const char* BenchEncodeEntry(
 static std::string g_arm;          // empty => every phase (human-readable mode)
 static bool g_csv = false;
 static int g_round = 0;
+// The seek lock scope the ExpanseMemTable rep is built with. `full` (the
+// default) is the scope every published cell was measured under; `opt` is
+// METHODOLOGY section 5.16's kOptimistic, whose single-threaded cost is
+// reported, not bounded. It exists only against a header that has it, so the
+// section 5.16 bound can build this one harness against the base checkout too.
+static ExpanseMemTableRep::SeekLockScope g_scope = ExpanseMemTableRep::SeekLockScope::kFullLocate;
+
+// Callgrind collection, for the section 5.16 single-threaded bound only.
+// Compiled only under EXPANSE_BENCH_CALLGRIND, and run under
+// `valgrind --tool=callgrind --collect-atstart=no`: each request brackets one
+// ExpanseMemTable timed loop of the selected phase, or its
+// ApproximateMemoryUsage call, so the fixture fill every `--arm` process runs
+// is not counted in a read phase. Without the definition it expands to nothing.
+#ifdef EXPANSE_BENCH_CALLGRIND
+#include <valgrind/callgrind.h>
+#define BENCH_TOGGLE_COLLECT() CALLGRIND_TOGGLE_COLLECT
+#else
+#define BENCH_TOGGLE_COLLECT() ((void)0)
+#endif
 
 // True when the named phase is to be timed and reported this invocation.
 static bool want(const char* arm) { return g_arm.empty() || g_arm == arm; }
@@ -412,11 +431,27 @@ int main(int argc, char** argv) {
             g_csv = true;
         } else if (a == "--round" && i + 1 < argc) {
             g_round = std::atoi(argv[++i]);
+        } else if (a == "--scope" && i + 1 < argc) {
+            const std::string scope = argv[++i];
+            if (scope == "full") {
+                g_scope = ExpanseMemTableRep::SeekLockScope::kFullLocate;
+#ifdef EXPANSE_MEMTABLE_HAS_OPTIMISTIC_SEEK
+            } else if (scope == "opt") {
+                g_scope = ExpanseMemTableRep::SeekLockScope::kOptimistic;
+#endif
+            } else {
+                std::cerr << "unknown --scope " << scope << " (this build accepts full"
+#ifdef EXPANSE_MEMTABLE_HAS_OPTIMISTIC_SEEK
+                          << " or opt"
+#endif
+                          << ")\n";
+                return 2;
+            }
         } else {
             std::cerr << "unknown argument: " << a << "\n"
                       << "usage: bench_memtable [--arm <"
                       << "fillrandom|readrandom|seekrandom|prefixscan|memory"
-                      << "> [--round N]]\n";
+                      << "> [--round N]] [--scope full|opt]\n";
             return 2;
         }
     }
@@ -478,15 +513,19 @@ int main(int argc, char** argv) {
     // Timed in every mode; reported only when it is the selected arm.
     if (!g_csv) std::cout << "\n--- Benchmark 1: fillrandom (N = " << N << ") ---" << std::endl;
 
-    ExpanseMemTableRep expanse_rep(cmp, &arena_expanse, nullptr, nullptr, 64);
+    ExpanseMemTableRep expanse_rep(cmp, &arena_expanse, nullptr, nullptr, 64, g_scope);
     ReferenceSkipListRep skiplist_rep(cmp, &arena_skiplist);
     ReferenceVectorRep vector_rep(cmp, &arena_vector);
 
-    // Expanse Insert
+    // Expanse Insert. The fill runs in every process; it is collected only
+    // when it is the selected phase.
+    const bool collect_fill = g_csv && want("fillrandom");
     auto t0 = std::chrono::high_resolution_clock::now();
+    if (collect_fill) BENCH_TOGGLE_COLLECT();
     for (int i = 0; i < N; ++i) {
         expanse_rep.Insert(const_cast<char*>(expanse_entries[i]));
     }
+    if (collect_fill) BENCH_TOGGLE_COLLECT();
     auto t1 = std::chrono::high_resolution_clock::now();
     double expanse_insert_sec = std::chrono::duration<double>(t1 - t0).count();
     double expanse_insert_mops = (N / expanse_insert_sec) / 1e6;
@@ -535,12 +574,14 @@ int main(int argc, char** argv) {
     // Expanse Read
     t0 = std::chrono::high_resolution_clock::now();
     uint64_t expanse_found = 0;
+    BENCH_TOGGLE_COLLECT();
     for (int i = 0; i < query_count; ++i) {
         expanse_rep.Get(queries[i], &expanse_found, [](void* arg, const char*) -> bool {
             (*static_cast<uint64_t*>(arg))++;
             return false;
         });
     }
+    BENCH_TOGGLE_COLLECT();
     t1 = std::chrono::high_resolution_clock::now();
     double expanse_read_sec = std::chrono::duration<double>(t1 - t0).count();
     double expanse_read_mops = (query_count / expanse_read_sec) / 1e6;
@@ -597,9 +638,11 @@ int main(int argc, char** argv) {
 
     if (want("seekrandom")) {
     t0 = std::chrono::high_resolution_clock::now();
+    BENCH_TOGGLE_COLLECT();
     for (int i = 0; i < query_count; ++i) {
         it_expanse->Seek(queries[i].internal_key(), queries[i].memtable_key().data());
     }
+    BENCH_TOGGLE_COLLECT();
     t1 = std::chrono::high_resolution_clock::now();
     double expanse_seek_sec = std::chrono::duration<double>(t1 - t0).count();
     double expanse_seek_mops = (query_count / expanse_seek_sec) / 1e6;
@@ -639,28 +682,32 @@ int main(int argc, char** argv) {
 
     if (want("prefixscan")) {
     t0 = std::chrono::high_resolution_clock::now();
+    BENCH_TOGGLE_COLLECT();
     it_expanse->SeekToFirst();
     uint64_t expanse_scan_count = 0;
     while (it_expanse->Valid()) {
         expanse_scan_count++;
         it_expanse->Next();
     }
+    BENCH_TOGGLE_COLLECT();
     t1 = std::chrono::high_resolution_clock::now();
     double expanse_scan_sec = std::chrono::duration<double>(t1 - t0).count();
     double expanse_scan_mops = (expanse_scan_count / expanse_scan_sec) / 1e6;
 
     // Expanse Batch Scan (1024 keys per batch)
     t0 = std::chrono::high_resolution_clock::now();
-    it_expanse->SeekToFirst();
-    uint64_t expanse_batch_scan_count = 0;
     constexpr size_t kBatchSize = 1024;
     std::vector<Slice> batch_keys(kBatchSize);
     std::vector<Slice> batch_vals(kBatchSize);
+    BENCH_TOGGLE_COLLECT();
+    it_expanse->SeekToFirst();
+    uint64_t expanse_batch_scan_count = 0;
     while (it_expanse->Valid()) {
         size_t n = ScanBatch(it_expanse.get(), kBatchSize, batch_keys.data(), batch_vals.data());
         if (n == 0) break;
         expanse_batch_scan_count += n;
     }
+    BENCH_TOGGLE_COLLECT();
     t1 = std::chrono::high_resolution_clock::now();
     double expanse_batch_sec = std::chrono::duration<double>(t1 - t0).count();
     double expanse_batch_mops = (expanse_batch_scan_count / expanse_batch_sec) / 1e6;
@@ -707,7 +754,11 @@ int main(int argc, char** argv) {
     // ------------------------------------------------------------------------
     // Always computed: deterministic allocator accounting, no timed window.
     if (!g_csv) std::cout << "\n--- Memory Density & Footprint Analysis ---" << std::endl;
+    // Collected on its own in every `--arm` process: the section 5.16 bound
+    // reads ApproximateMemoryUsage's inclusive Ir once per phase.
+    if (g_csv) BENCH_TOGGLE_COLLECT();
     size_t mem_expanse = expanse_rep.ApproximateMemoryUsage();
+    if (g_csv) BENCH_TOGGLE_COLLECT();
     size_t mem_skiplist = skiplist_rep.ApproximateMemoryUsage();
     size_t mem_vector = vector_rep.ApproximateMemoryUsage();
 

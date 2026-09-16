@@ -93,6 +93,8 @@ on:
           - rocksdb_concurrent_counters
           - rocksdb_concurrent_heldout
           - rocksdb_concurrent_narrowed
+          - rocksdb_concurrent_optimistic_counters
+          - rocksdb_concurrent_optimistic
           - embedded
           - embedded_memtable
           - batch_lookup
@@ -1184,6 +1186,24 @@ jobs:
                   --out baseline-rocksdb_concurrent_narrowed.json \
                   | tee rocksdb-concurrent-narrowed.txt
                 ;;
+              "rocksdb_concurrent_optimistic")
+                # The #802 optimistic-seek arm, pre-registered in
+                # docs/benchmarks/rocksdb_memtable/METHODOLOGY.md section 5.16:
+                # three seek lock scopes (full, trie and opt, whose locate phase
+                # takes no lock) interleaved within each round, idle and paced
+                # writers, 78 rounds per cell, so each round's paired opt/full,
+                # opt/trie and trie/full ratios share its drift. Dispatched once
+                # per cpu_pin, only after the single-threaded bound and the
+                # soundness gates G-O1..G-O7 passed on the measured head.
+                make --no-print-directory -C integrations/rocksdb bench-concurrent \
+                  BENCH_CONC_ARGS="--mode idle --readers 1 --window-seconds 0.2 --lock opt" \
+                  > rocksdb-concurrent-smoke.txt 2>&1 \
+                  || { echo "::error::concurrent bench binary failed to build or run"; cat rocksdb-concurrent-smoke.txt; exit 1; }
+                python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py \
+                  --lock-scopes full,trie,opt --modes idle,paced --readers 1,2,4,7 --rounds 78 \
+                  --out baseline-rocksdb_concurrent_optimistic.json \
+                  | tee rocksdb-concurrent-optimistic.txt
+                ;;
               "rocksdb_locate_profile")
                 # Where one idle reader's time goes inside the #802 locked region:
                 # FindLeafBlockForSeek's inclusive time less its mutex calls, and
@@ -1198,6 +1218,26 @@ jobs:
                 EXPANSE_BENCH_COMMIT="$(git rev-parse HEAD)" \
                   python3 docs/benchmarks/rocksdb_memtable/scripts/locate_profile.py --rounds 5 --out-dir . \
                   | tee rocksdb-locate-profile.txt
+                ;;
+              "rocksdb_concurrent_optimistic_counters")
+                # METHODOLOGY section 5.16's counters on the optimistic-seek
+                # arm, reported and never gated: paced R = 1 and R = 7 under
+                # each seek lock scope, 5 rounds per cell, through
+                # scripts/bench_counters.py over the harness's counters mode.
+                # The cells add ld_blocks.store_forward and name the engine's
+                # read-fallback rate unavailable. Dispatched once per cpu_pin,
+                # and never in a timing run. Output lands in the workspace root,
+                # where the hardware-counter upload below collects it.
+                make --no-print-directory -C integrations/rocksdb bench-concurrent \
+                  BENCH_CONC_ARGS="--mode idle --readers 1 --window-seconds 0.2 --lock opt" \
+                  > rocksdb-concurrent-smoke.txt 2>&1 \
+                  || { echo "::error::concurrent bench binary failed to build or run"; cat rocksdb-concurrent-smoke.txt; exit 1; }
+                EXPANSE_BENCH_COMMIT="$(git rev-parse HEAD)" \
+                  python3 scripts/bench_counters.py --skip-build --repeats 5 --out-dir . \
+                  --cell rocksdb_opt_paced_full_r1 --cell rocksdb_opt_paced_full_r7 \
+                  --cell rocksdb_opt_paced_trie_r1 --cell rocksdb_opt_paced_trie_r7 \
+                  --cell rocksdb_opt_paced_opt_r1 --cell rocksdb_opt_paced_opt_r7 \
+                  | tee rocksdb-concurrent-optimistic-counters.txt
                 ;;
               "rocksdb_concurrent_counters")
                 # Per-thread hardware counters on the #802 concurrent arm
@@ -1596,6 +1636,8 @@ jobs:
             rocksdb-locate-profile.txt
             rocksdb-concurrent-heldout.txt
             rocksdb-concurrent-narrowed.txt
+            rocksdb-concurrent-optimistic.txt
+            rocksdb-concurrent-optimistic-counters.txt
             python-concurrency.txt
             docs/benchmarks/llm_inference/results/bench_grammar_masks.json
             bytes-per-key-32.txt

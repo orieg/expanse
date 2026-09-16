@@ -43,7 +43,7 @@ graph TD
 
 ## 2. Job Catalog (rolled up by the CI Gate)
 
-`ci.yml` defines **43 jobs** — 42 verification jobs plus the `ci-gate` rollup. They are grouped below by role. Each job gates on `detect-changes` so an unaffected subsystem's job cleanly skips (counting as passing) on a scoped PR, while `main` pushes and non-PR events run everything.
+`ci.yml` defines **44 jobs** — 43 verification jobs plus the `ci-gate` rollup. They are grouped below by role. Each job gates on `detect-changes` so an unaffected subsystem's job cleanly skips (counting as passing) on a scoped PR, while `main` pushes and non-PR events run everything.
 
 > `bench-baremetal` appears in the Performance table below for completeness but lives in `bench_baremetal.yml`; it is `/bench`-triggered and is **not** one of `ci-gate`'s dependencies.
 
@@ -120,7 +120,8 @@ graph TD
 ### Integrations
 | Job | Name | Role |
 |---|---|---|
-| `test-rocksdb-memtable` | Integrations / RocksDB MemTable (matrix) | Builds/tests `ExpanseMemTableRep` across `sanitizer: [none, asan-ubsan, tsan]` (TSan excluded on macOS); includes a differential test vs reference structures. The `none` cells also compile both benches with the Makefile's warning flags and smoke their CLIs: `benches/bench_memtable.cc` through its `--arm memory` census and an unknown-arm refusal, and `benches/bench_memtable_concurrent.cc` through one `idle` cell read back by the driver's `parse_row` plus its `--mode` and unknown-argument refusals. Refusals are checked by diagnostic string, not exit code alone; no timing from either is read. |
+| `test-rocksdb-memtable` | Integrations / RocksDB MemTable (matrix) | Builds/tests `ExpanseMemTableRep` across `sanitizer: [none, asan-ubsan, tsan]` (TSan excluded on macOS) under all three seek lock scopes; includes a differential test vs reference structures (TSan lane too) and `test_memtable_park_points`, built with `-DEXPANSE_MEMTABLE_PARK_POINTS`, which forces the interleavings and handle lifecycles of the optimistic-seek arm's soundness gates (G-O3–G-O6, `docs/benchmarks/rocksdb_memtable/METHODOLOGY.md` §5.16). The `none` cells also compile both benches with the Makefile's warning flags and smoke their CLIs: `benches/bench_memtable.cc` through its `--arm memory` census and an unknown-arm refusal, and `benches/bench_memtable_concurrent.cc` through one `idle` cell read back by the driver's `parse_row` plus its `--mode` and unknown-argument refusals. Refusals are checked by diagnostic string, not exit code alone; no timing from either is read. |
+| `rocksdb-locate-ir-bound` | Integrations / RocksDB Optimistic-Seek Callgrind Bound | The single-threaded bound of `docs/benchmarks/rocksdb_memtable/METHODOLOGY.md` §5.16: `docs/benchmarks/rocksdb_memtable/scripts/locate_ir_bound.py` builds the base twice (the control, which must match exactly) and the head in sibling worktrees, each with its own release `libexpanse`, runs one `bench_memtable --arm <phase>` process per phase under `valgrind --tool=callgrind --collect-atstart=no` with collection toggled to the timed loop, and compares inclusive `Ir` per `ExpanseMemTable` entry point against a 0.1% budget. It also checks that every TLS relocation in `expanse_memtable.o` lies in the handle lookup, and that no default-scope cell calls it or an `expanse_sync_map_reader_*` symbol. On a pull request the base is the PR head's merge base; the bound is fatal only when the change touches `integrations/rocksdb/src/expanse_memtable.cc` or its header, because inclusive `Ir` also counts `libexpanse`, and otherwise the table is reported with a notice. The table goes to the job summary and the artifact `rocksdb-locate-ir-bound`. |
 
 ### Rollup gate
 | Job | Name | Role |

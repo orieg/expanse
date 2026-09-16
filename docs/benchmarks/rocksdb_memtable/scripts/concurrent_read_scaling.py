@@ -61,8 +61,10 @@ CSV_FIELDS = ("round", "writer_mode", "readers", "read_ops", "write_ops", "elaps
               "read_mops", "writer_exhausted")
 #: `ExpanseMemTableRep::SeekLockScope`, as the binary's `--lock` spells it:
 #: `full` holds `mutex_` for the whole locate phase, `trie` only around
-#: `expanse_map_prev_at_or_before` (the #802 narrowed-mutex arm).
-LOCK_SCOPES = ("full", "trie")
+#: `expanse_map_prev_at_or_before` (the #802 narrowed-mutex arm), and `opt`
+#: takes no lock in the locate phase, reading the trie through a per-thread
+#: sync-map reader handle (METHODOLOGY section 5.16).
+LOCK_SCOPES = ("full", "trie", "opt")
 
 
 def parse_row(text: str) -> dict:
@@ -85,6 +87,11 @@ def parse_row(text: str) -> dict:
     locks = [ln.split("=", 1)[1].strip() for ln in text.splitlines() if ln.startswith("# lock_scope=")]
     if len(locks) != 1 or locks[0] not in LOCK_SCOPES:
         raise RuntimeError(f"expected one `# lock_scope=` line naming one of {LOCK_SCOPES}, got {locks}")
+    # The reader handles the rep registered over the cell (section 5.16 has the
+    # artifact carry it per cell): one per reader thread under `opt`, 0 otherwise.
+    handles = [ln.split("=", 1)[1].strip() for ln in text.splitlines() if ln.startswith("# reader_handles=")]
+    if len(handles) != 1 or not handles[0].isdigit():
+        raise RuntimeError(f"expected one `# reader_handles=<count>` line, got {handles}")
     return {
         "round": int(out["round"]),
         "writer_mode": out["writer_mode"],
@@ -99,6 +106,7 @@ def parse_row(text: str) -> dict:
         # would corrupt the duty cycle.
         "writer_exhausted": int(out["writer_exhausted"]),
         "lock_scope": locks[0],
+        "reader_handles": int(handles[0]),
     }
 
 
@@ -277,6 +285,55 @@ def lock_scope_ratios(rows: list[dict], mode: str, variant: str = "trie",
     return out
 
 
+#: The paired scope ratios METHODOLOGY section 5.16 has the artifact carry, as
+#: `variant/default`: O1 reads `opt/full`, O2 and O3 `opt/trie`, and `trie/full`
+#: is reported beside them.
+SCOPE_PAIRS = (("opt", "full"), ("opt", "trie"), ("trie", "full"))
+
+
+def scope_pair_ratios(rows: list[dict], mode: str, variant: str, default: str) -> dict:
+    """Section 5.16's three statistics for `variant/default`, per reader count.
+
+    For each `R`, from each round's cells only:
+
+    - `T(R)`: the absolute ratio `T_variant(R) / T_default(R)`; `T(1)` is the
+      single-reader control, `T(7)` the gated absolute ratio;
+    - `S(R)` for `R >= 2`: the scaling ratio `(T_v(R) / T_v(1)) / (T_d(R) / T_d(1))`,
+      the same quotient `lock_scope_ratios` computes.
+
+    Each carries a BCa 95% interval over the rounds and its `rounds_raw`, or no
+    interval and the reason when fewer than 3 rounds pair.
+    """
+    by: dict[tuple[str, int], dict[int, float]] = {}
+    for r in rows:
+        if r["writer_mode"] == mode:
+            by.setdefault((r.get("lock_scope", "full"), r["round"]), {})[r["readers"]] = r["read_mops"]
+    rounds = sorted({rd for _, rd in by})
+    out: dict[str, dict] = {}
+
+    def summarise(key: str, per_round: list[float]) -> None:
+        if len(per_round) < 3:
+            out[key] = {"point": None, "ci": None, "n": len(per_round),
+                        "why_no_interval": "fewer than 3 paired rounds"}
+            return
+        point, lo, hi, ci_method = bca_bootstrap_ci_with_method(per_round)
+        out[key] = {"point": point, "ci": [lo, hi], "ci_method": ci_method,
+                    "n": len(per_round), "rounds_raw": per_round}
+
+    for R in sorted({r["readers"] for r in rows if r["writer_mode"] == mode}):
+        absolute, scaling = [], []
+        for rd in rounds:
+            v, d = by.get((variant, rd), {}), by.get((default, rd), {})
+            if v.get(R, 0.0) > 0.0 and d.get(R, 0.0) > 0.0:
+                absolute.append(v[R] / d[R])
+            if R != 1 and all(cell.get(k, 0.0) > 0.0 for cell in (v, d) for k in (1, R)):
+                scaling.append((v[R] / v[1]) / (d[R] / d[1]))
+        summarise(f"T({R})", absolute)
+        if R != 1:
+            summarise(f"S({R})", scaling)
+    return out
+
+
 def preflight(bench: Path) -> None:
     """Run one throwaway cell so a broken binary reports before the sweep.
 
@@ -407,6 +464,17 @@ def build_artifact(rows: list[dict], provenance: dict, insert_ns: float,
             for s in scopes}
         if {"full", "trie"} <= set(scopes):
             payload["lock_scope_ratio"] = {mode: lock_scope_ratios(rows, mode) for mode in modes_run}
+        # METHODOLOGY section 5.16: every pair among the scopes that ran, each
+        # with the absolute ratio `T(R)` beside the scaling ratio `S(R)`.
+        pairs = [f"{v}/{d}" for v, d in SCOPE_PAIRS if {v, d} <= set(scopes)]
+        if "opt" in scopes:
+            payload["scope_pair_ratios"] = {
+                pair: {mode: scope_pair_ratios(rows, mode, *pair.split("/")) for mode in modes_run}
+                for pair in pairs}
+            payload["reader_handles_by_cell"] = [
+                {"cell": r.get("cell"), "lock_scope": r["lock_scope"], "writer_mode": r["writer_mode"],
+                 "readers": r["readers"], "round": r["round"], "reader_handles": r.get("reader_handles")}
+                for r in rows]
     # `attach` RETURNS the carrying dict; it does not mutate in place. Dropping
     # the return shipped an artifact with no provenance block at all, which the
     # self-test below is what caught.
@@ -424,8 +492,25 @@ def self_test() -> int:
     good = ("# rocksdb_memtable_concurrent_read_scaling\n"
             "round,writer_mode,readers,read_ops,write_ops,elapsed_s,read_mops,writer_exhausted\n"
             "# lock_scope=full\n"
+            "# reader_handles=0\n"
             "2,paced,4,123456,6789,2.001000,0.0617,0\n")
     row = parse_row(good)
+    check("reader_handles", row["reader_handles"], 0)
+    opt_row = parse_row(good.replace("=full", "=opt").replace("# reader_handles=0", "# reader_handles=4"))
+    check("lock_scope opt", opt_row["lock_scope"], "opt")
+    check("reader_handles opt", opt_row["reader_handles"], 4)
+    for name, text in (("no reader_handles line", good.replace("# reader_handles=0\n", "")),
+                       ("two reader_handles lines", good.replace("# reader_handles=0\n",
+                                                                 "# reader_handles=0\n# reader_handles=1\n")),
+                       ("non-numeric reader_handles", good.replace("=0\n2,", "=x\n2,"))):
+        try:
+            parse_row(text)
+        except RuntimeError:
+            pass
+        except Exception as exc:  # noqa: BLE001
+            fails.append(f"{name}: raised {type(exc).__name__}, expected RuntimeError")
+        else:
+            fails.append(f"{name}: did not raise")
     check("writer_exhausted", row["writer_exhausted"], 0)
     check("writer_exhausted parses 1",
           parse_row(good.replace(",0.0617,0", ",0.0617,1"))["writer_exhausted"], 1)
@@ -458,6 +543,47 @@ def self_test() -> int:
             fails.append(f"{name}: raised {type(exc).__name__}, expected RuntimeError")
         else:
             fails.append(f"{name}: did not raise")
+
+    # --- section 5.16's scope pairs ---------------------------------------
+    # Five rounds; per round opt reads 2x full at R=1 and 3x at R=7, and trie
+    # reads 1.5x full at R=7. Scaling T(7)/T(1) is 2 for full and 3 for both
+    # trie and opt. So opt/full: T(1)=2, T(7)=3, S(7)=1.5; opt/trie: T(1)=2,
+    # T(7)=2, S(7)=1; trie/full: T(1)=1, T(7)=1.5, S(7)=1.5.
+    pair_rows = []
+    for rd in range(5):
+        base = 1.0 + 0.1 * rd
+        for lock, t1, t7 in (("full", base, 2 * base), ("trie", base, 3 * base), ("opt", 2 * base, 6 * base)):
+            pair_rows.append({"round": rd, "writer_mode": "idle", "readers": 1, "read_mops": t1,
+                              "lock_scope": lock})
+            pair_rows.append({"round": rd, "writer_mode": "idle", "readers": 7, "read_mops": t7,
+                              "lock_scope": lock})
+    for (v, d), want in {("opt", "full"): {"T(1)": 2.0, "T(7)": 3.0, "S(7)": 1.5},
+                         ("opt", "trie"): {"T(1)": 2.0, "T(7)": 2.0, "S(7)": 1.0},
+                         ("trie", "full"): {"T(1)": 1.0, "T(7)": 1.5, "S(7)": 1.5}}.items():
+        got = scope_pair_ratios(pair_rows, "idle", v, d)
+        for key, value in want.items():
+            if got.get(key, {}).get("point") is None or abs(got[key]["point"] - value) > 1e-9:
+                fails.append(f"scope_pair_ratios {v}/{d} {key}: got {got.get(key)}, want {value}")
+            elif len(got[key].get("rounds_raw", [])) != 5:
+                fails.append(f"scope_pair_ratios {v}/{d} {key} carries {len(got[key].get('rounds_raw', []))} rounds_raw")
+    thin = scope_pair_ratios([r for r in pair_rows if r["round"] < 2], "idle", "opt", "full")
+    if thin["T(7)"]["ci"] is not None or "fewer than 3" not in thin["T(7)"].get("why_no_interval", ""):
+        fails.append(f"two paired rounds must carry no interval and say why: {thin['T(7)']}")
+    # The call site: a three-scope artifact carries every pair and every cell's handle count.
+    art_rows = [dict(r, read_ops=1, write_ops=0, elapsed_s=1.0, writer_exhausted=0, reader_handles=7 if r["readers"] == 7 and r["lock_scope"] == "opt" else 0,
+                     cell=f"cell:{r['lock_scope']}:idle:R{r['readers']}:round{r['round']}",
+                     load={"since": "start", "wall_s": 1.0, "busy_cpus_since_prev": 1.0,
+                           "own_busy_cpus": 1.0, "foreign_busy_cpus": 0.0}) for r in pair_rows]
+    p3 = prov.new_provenance("rocksdb_concurrent", 802, "T(R)/T(1)", repo_root=REPO_ROOT)
+    art3 = build_artifact(art_rows, p3, 226.142, 2.0, PACED_RATE)
+    check("three-scope artifact pairs", sorted(art3.get("scope_pair_ratios", {})), ["opt/full", "opt/trie", "trie/full"])
+    check("three-scope artifact T(7) opt/trie", round(art3["scope_pair_ratios"]["opt/trie"]["idle"]["T(7)"]["point"], 9), 2.0)
+    check("handle count per cell", sorted({(c["lock_scope"], c["readers"], c["reader_handles"])
+                                           for c in art3.get("reader_handles_by_cell", [])}),
+          [("full", 1, 0), ("full", 7, 0), ("opt", 1, 0), ("opt", 7, 7), ("trie", 1, 0), ("trie", 7, 0)])
+    two = build_artifact([r for r in art_rows if r["lock_scope"] != "opt"], p3, 226.142, 2.0, PACED_RATE)
+    if "scope_pair_ratios" in two:
+        fails.append("a run without opt must not carry section 5.16's scope pairs")
 
     # --- duty cycle, from the ACHIEVED rate -------------------------------
     # 250,000 inserts in 1 s at 226.142 ns each = 5.654% of wall time.

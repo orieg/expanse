@@ -517,6 +517,22 @@
       "suite": "rocksdb_memtable"
     },
     {
+      "name": "rocksdb_concurrent_optimistic_counters",
+      "available": true,
+      "kind": "counters",
+      "runner": "builtin",
+      "summary": "Per-thread hardware counters on the #802 optimistic-seek arm: paced writer at R = 1 and R = 7 under the `full`, `trie` and `opt` seek lock scopes, 5 rounds per cell, with `ld_blocks.store_forward` added (METHODOLOGY section 5.16). Reported and never gated; the engine's read-fallback rate is named unavailable. Dispatch once per `cpu_pin`, never beside a timing run.",
+      "suite": "rocksdb_memtable"
+    },
+    {
+      "name": "rocksdb_concurrent_optimistic",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "RocksDB pluggable MemTable concurrent read scaling under three seek lock scopes, interleaved per round: `full`, `trie` and `opt` (the locate phase takes no lock and reads an `expanse_sync_map_t` through a per-thread reader handle), idle and paced writers, readers 1, 2, 4, 7, 78 rounds per cell. The #802 optimistic-seek arm, pre-registered in the suite's METHODOLOGY section 5.16. Dispatch once per `cpu_pin`, after the single-threaded bound and the soundness gates pass on the measured head.",
+      "suite": "rocksdb_memtable"
+    },
+    {
       "name": "embedded",
       "available": true,
       "kind": "wallclock",

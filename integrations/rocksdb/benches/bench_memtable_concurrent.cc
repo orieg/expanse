@@ -75,14 +75,19 @@
 // Threads are named `reader-N` and `writer-0` in both modes, before the gate:
 // the kernel's `comm`, which `perf stat --per-thread` keys its rows on.
 //
-// ## Seek lock scope (`--lock full|trie`)
+// ## Seek lock scope (`--lock full|trie|opt`)
 //
 // `--lock trie` builds the rep with `SeekLockScope::kTrieCall`, the #802
 // narrowed-mutex arm: `mutex_` covers only `expanse_map_prev_at_or_before` in a
-// seek, and the leaf walk runs outside it. `--lock full` (the default) is
-// every earlier measurement's scope. The CSV mode prints `# lock_scope=<scope>`
-// before its row and counters mode adds `lock_scope` to its JSON, so a driver
-// can check the scope it asked for is the one that ran.
+// seek, and the leaf walk runs outside it. `--lock opt` builds it with
+// `SeekLockScope::kOptimistic` (METHODOLOGY section 5.16): the locate phase
+// takes no lock and reads an `expanse_sync_map_t` through one reader handle per
+// reader thread. `--lock full` (the default) is every earlier measurement's
+// scope. The CSV mode prints `# lock_scope=<scope>` before its row and counters
+// mode adds `lock_scope` to its JSON, so a driver can check the scope it asked
+// for is the one that ran. Both also carry the rep's registered reader-handle
+// count (`# reader_handles=<n>`, `reader_handles`), read after the threads
+// join: the reader count under `opt`, 0 under the other scopes.
 
 #include <algorithm>
 #include <atomic>
@@ -213,7 +218,12 @@ std::string CpusAllowed() {
 }
 
 const char* LockScopeName(ExpanseMemTableRep::SeekLockScope scope) {
-    return scope == ExpanseMemTableRep::SeekLockScope::kFullLocate ? "full" : "trie";
+    switch (scope) {
+        case ExpanseMemTableRep::SeekLockScope::kFullLocate: return "full";
+        case ExpanseMemTableRep::SeekLockScope::kTrieCall: return "trie";
+        case ExpanseMemTableRep::SeekLockScope::kOptimistic: return "opt";
+    }
+    return "unknown";
 }
 
 struct CellArgs {
@@ -232,7 +242,7 @@ struct CellArgs {
 // agrees with (AGENTS.md section 8.9 principle 5). Its elapsed fields are the
 // round's window, not a published timing.
 void CountersRow(const CellArgs& cell, int round, uint64_t read_ops, uint64_t write_ops,
-                 double elapsed_s, bool exhausted) {
+                 double elapsed_s, bool exhausted, size_t reader_handles) {
     const char* pin = std::getenv("EXPANSE_BENCH_PIN_APPLIED");
     std::ostringstream o;
     o << std::fixed << std::setprecision(6)
@@ -251,6 +261,7 @@ void CountersRow(const CellArgs& cell, int round, uint64_t read_ops, uint64_t wr
         o << elapsed_s;
     }
     o << ",\"writer_exhausted\":" << (exhausted ? 1 : 0)
+      << ",\"reader_handles\":" << reader_handles
       << ",\"population_start\":" << kPopulation
       << ",\"population_after\":" << (static_cast<uint64_t>(kPopulation) + write_ops)
       << ",\"window_s\":" << cell.window_s << ",\"paced_rate\":" << cell.paced_rate
@@ -462,13 +473,18 @@ int RunCell(const CellArgs& cell, int round) {
 
     const bool exhausted = (mode != WriterMode::kIdle)
                            && fresh_cursor.load(std::memory_order_relaxed) >= fresh.size();
+    // Reader handles the rep registered over the cell: one per reader thread
+    // under --lock opt, 0 under the scopes that have none. Read after every
+    // thread joined, outside the measured region.
+    const size_t reader_handles = rep.ReaderHandleCount();
     if (!cell.counters) {
         std::cout << "# lock_scope=" << LockScopeName(cell.lock_scope) << "\n";
+        std::cout << "# reader_handles=" << reader_handles << "\n";
         std::cout << round << "," << ModeName(mode) << "," << readers << "," << read_ops << ","
                   << write_ops << "," << std::fixed << std::setprecision(6) << elapsed_s << ","
                   << std::setprecision(4) << mops << "," << (exhausted ? 1 : 0) << "\n";
     } else {
-        CountersRow(cell, round, read_ops, write_ops, elapsed_s, exhausted);
+        CountersRow(cell, round, read_ops, write_ops, elapsed_s, exhausted, reader_handles);
     }
 
     // A PACED writer that ran dry stopped inserting before the window closed, so
@@ -531,7 +547,7 @@ int main(int argc, char** argv) {
             std::cerr << "unknown argument: " << a << "\n"
                       << "usage: bench_memtable_concurrent --mode <idle|paced|free> --readers R\n"
                       << "       [--round N] [--window-seconds S] [--paced-rate OPS]\n"
-                      << "       [--header] [--quick] [--lock full|trie]\n"
+                      << "       [--header] [--quick] [--lock full|trie|opt]\n"
                       << "       bench_memtable_concurrent --mode M --readers R --arm expanse\n"
                       << "       [--rounds N] [--wait-stdin] [--window-seconds S] [--paced-rate OPS]\n"
                       << "One cell per invocation; the driver owns the rounds and the order.\n"
@@ -561,8 +577,9 @@ int main(int argc, char** argv) {
     ExpanseMemTableRep::SeekLockScope lock_scope;
     if (lock_arg == "full") lock_scope = ExpanseMemTableRep::SeekLockScope::kFullLocate;
     else if (lock_arg == "trie") lock_scope = ExpanseMemTableRep::SeekLockScope::kTrieCall;
+    else if (lock_arg == "opt") lock_scope = ExpanseMemTableRep::SeekLockScope::kOptimistic;
     else {
-        std::cerr << "--lock must be full or trie (got '" << lock_arg << "')\n";
+        std::cerr << "--lock must be full, trie or opt (got '" << lock_arg << "')\n";
         return 2;
     }
 
