@@ -3437,18 +3437,54 @@ mod tests {
             .collect();
         let write_pat = "ancestors[anc_depth].write(";
         let inc_pat = "anc_depth += 1;";
-        let is_code = |l: &str| {
-            let t = l.trim_start();
-            !t.starts_with("//") && !t.starts_with("/*") && !t.starts_with('*')
-        };
-        let writes = lines
+        // Strip comments before matching (§5 item 2d). A predicate that tests only the
+        // start of a trimmed line treats a block-commented statement and a trailing
+        // `// ancestors[anc_depth].write(` decoy as live code, so the census stays at 7
+        // while the guarded write is disabled — the scanner passes with the code it
+        // guards dead. This stripper fails closed: a mis-parse moves the counts and
+        // turns the test red rather than silently green.
+        let mut in_block = false;
+        let code: Vec<String> = lines
             .iter()
-            .filter(|l| is_code(l) && l.contains(write_pat))
-            .count();
-        let incs = lines
-            .iter()
-            .filter(|l| is_code(l) && l.contains(inc_pat))
-            .count();
+            .map(|line| {
+                let mut rest: &str = line;
+                let mut out = String::new();
+                loop {
+                    if in_block {
+                        match rest.find("*/") {
+                            Some(end) => {
+                                in_block = false;
+                                rest = &rest[end + 2..];
+                            }
+                            None => break,
+                        }
+                    } else {
+                        match (rest.find("//"), rest.find("/*")) {
+                            (Some(l), Some(b)) if l < b => {
+                                out.push_str(&rest[..l]);
+                                break;
+                            }
+                            (Some(l), None) => {
+                                out.push_str(&rest[..l]);
+                                break;
+                            }
+                            (_, Some(b)) => {
+                                out.push_str(&rest[..b]);
+                                in_block = true;
+                                rest = &rest[b + 2..];
+                            }
+                            (None, None) => {
+                                out.push_str(rest);
+                                break;
+                            }
+                        }
+                    }
+                }
+                out
+            })
+            .collect();
+        let writes = code.iter().filter(|l| l.contains(write_pat)).count();
+        let incs = code.iter().filter(|l| l.contains(inc_pat)).count();
         assert_eq!(
             writes, 7,
             "expected exactly 7 ancestor write sites in mutate.rs, found {writes}"
@@ -3457,14 +3493,12 @@ mod tests {
             incs, 7,
             "expected exactly 7 anc_depth increments in mutate.rs, found {incs}"
         );
-        for (i, line) in lines.iter().enumerate() {
-            if is_code(line) && line.contains(inc_pat) {
+        for (i, line) in code.iter().enumerate() {
+            if line.contains(inc_pat) {
                 let start = i.saturating_sub(4);
-                let window = &lines[start..i];
+                let window = &code[start..i];
                 assert!(
-                    window
-                        .iter()
-                        .any(|prev| is_code(prev) && prev.contains(write_pat)),
+                    window.iter().any(|prev| prev.contains(write_pat)),
                     "anc_depth += 1 at line {} is not preceded by active {} within 4 lines",
                     i + 1,
                     write_pat
