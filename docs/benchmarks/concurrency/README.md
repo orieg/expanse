@@ -1756,6 +1756,80 @@ in either run.
 - **Hoisting the deferred check out of the per-allocation path is unmeasured.**
   It is what the decomposition indicates and it is not in any cell above.
 
+#### 11.10.7 The deferred-gated design against #930's own gate, at both pins (Refs #930)
+
+[#930](https://github.com/orieg/expanse/issues/930) pre-registers its target as
+`map` and `set` at **≥ 20 M ops/s at W = 8** on `writer_scaling`, judged on the
+**BCa 95 % lower bound** over **two runs**, with both pins recommended:
+`0-15` (which every published artifact uses) and `0,2,4,6,8,10,12,14` (one
+writer per physical P-core). §11.10.4's sweep answered the per-core pin; this
+adds `0-15`, so the gate can be read at both.
+
+Workloads, populations and rounds are the ones the issue names —
+`concurrency_writer_map_64bit` and `concurrency_writer_set_63bit`, 2²⁰ prefill
+plus 2²⁰ fresh keys, 8 rounds, one harness process per timed cell
+(workload: concurrency_writer_scaling)
+*(measured: reference host — Intel Core i9-12900F, `686dd6cb`;
+`results/ablation_deferred_shards_writer_scaling_686dd6cb_run{1,2}.json` and
+`..._pin0to15_686dd6cb_run{1,2}.json`)*.
+
+| pin | build | arm | run 1 (M ops/s) | run 2 (M ops/s) |
+|---|---|---|---|---|
+| `0,2,4,6,8,10,12,14` | default | `map` | 11.56 [11.42, 11.74] | 11.46 [11.30, 11.59] |
+| `0,2,4,6,8,10,12,14` | gated | `map` | 24.07 [23.07, 24.51] | 23.95 [23.46, 24.39] |
+| `0,2,4,6,8,10,12,14` | default | `set` | 13.37 [13.17, 13.48] | 13.39 [13.25, 13.53] |
+| `0,2,4,6,8,10,12,14` | gated | `set` | 32.55 [32.39, 32.73] | 31.67 [29.65, 32.42] |
+| `0-15` | default | `map` | 11.47 [11.19, 11.61] | 11.51 [11.25, 11.72] |
+| `0-15` | gated | `map` | 20.66 **[19.64**, 21.60] | 22.33 [21.43, 22.94] |
+| `0-15` | default | `set` | 13.35 [13.25, 13.55] | 13.18 [13.00, 13.34] |
+| `0-15` | gated | `set` | 31.20 [29.71, 32.08] | 30.75 [29.06, 32.17] |
+
+**Verdict against the pre-registered floor.**
+
+| arm | pin `0,2,4,6,8,10,12,14` | pin `0-15` |
+|---|---|---|
+| `set` | **PASS** — lower bounds 32.39 and 29.65 | **PASS** — lower bounds 29.71 and 29.06 |
+| `map` | **PASS** — lower bounds 23.07 and 23.46 | **`INTERMEDIATE_floor_within_ci`** |
+
+`map` at `0-15` is **not** a pass. Run 1's interval is **[19.64, 21.60] and
+contains the floor**, so "true rate < 20" cannot be rejected on that run, even
+though its point estimate of 20.66 sits above it (§8.4). Run 2 clears at 21.43.
+One run clearing and one straddling is an `INTERMEDIATE`, and it is recorded as
+one.
+
+**The cell is left open rather than resolved by more samples.** Adding a third
+run, or raising the round count, *after* seeing an interval straddle the floor
+is a sample-size change made in response to the result, which §8.19 answers
+with an `INTERMEDIATE` relabel and fresh seeds. The two legitimate routes are a
+freshly pre-registered campaign at a higher round count, run from fresh seeds,
+or leaving this verdict standing. Nothing here moves the bound.
+
+The default build is far from the floor at both pins — 11.5 and 13.2–13.4 M
+ops/s — so the gate is not close to met without the mechanism.
+
+**C(8) is lower at `0-15` than at the per-core pin** for both arms: `map` 1.7988
+[1.7080, 1.8988] and 1.9426 [1.8241, 2.0203] against 2.0841 and 2.0842; `set`
+2.3569 [2.2515, 2.4372] and 2.3401 [2.2045, 2.4706] against 2.4591 and 2.3880.
+The direction is what §8.20.5 step 0 asks a reader to expect when W = 8 writers
+share sixteen SMT siblings instead of owning eight physical cores, and it is why
+that section requires every published cell to name its pin. No mechanism is
+attributed: nothing here measures SMT contention (§8.9).
+
+**Two arms carry no claim.** `bytes` at W = 8 disagrees between runs — 1.0373
+[0.9328, 1.1269] against 1.6682 [1.2209, 2.3507] — and `str` at W = 8 spans 1.0
+in run 1 (1.2128 [0.9862, 1.7214]). Both are `INCONCLUSIVE`; neither a gain nor
+a loss is claimed on them.
+
+**Host load.** Non-benchmark busy CPU — the host's busy core-equivalents over an
+interval minus the runner's own children's — peaks at **0.01** core-equivalents
+in run 1 and **0.07** in run 2, across every interval. No §8.17 void condition is
+met.
+
+**What this does not show.** This is the gated ablation build, not a promoted
+default; §11.8's hold stands and §11.10.6's bound is unchanged. Meeting #930's
+throughput target says nothing about the §2.7 single-threaded instruction bound,
+which §11.10.6 shows is not reachable in this design.
+
 ## 12. Mixed read/write concurrency — `benches/concurrency.rs` (`results/baseline_concurrent_mixed.json`)
 
 The `Sync*` read/write sweep, with the four properties
