@@ -179,18 +179,67 @@ fn pack_child(p: *mut StrNode) -> u64 {
     p as u64
 }
 
-/// One trie level: a word-map core over the next 8-byte chunk.
+/// One trie level: a word-map core over the next 8-byte chunk, headed by
+/// the **cover word** for that core's root state.
 ///
-/// Deliberately just the engine core (issue #363 Step A): the backing
-/// allocator is the string map's **single shared [`NodeAlloc`]**, passed
-/// in per call, and there is no per-node insert-path cache — which is
-/// what shrinks a node from ~700 bytes (embedded allocator + path cache)
-/// to the bare root word, so a descent chain stays cache-resident.
-/// `StrNode` has no `Drop`: teardown must route through
-/// [`dispose_node`]/[`dispose_tree`] with the shared allocator.
+/// Deliberately just the engine core plus that one word (issue #363 Step
+/// A): the backing allocator is the string map's **single shared
+/// [`NodeAlloc`]**, passed in per call, and there is no per-node
+/// insert-path cache — which is what shrinks a node from ~700 bytes
+/// (embedded allocator + path cache) to the root word pair, so a descent
+/// chain stays cache-resident. `StrNode` has no `Drop`: teardown must
+/// route through [`dispose_node`]/[`dispose_tree`] with the shared
+/// allocator.
+///
+/// # The cover word (Refs #929)
+///
+/// `cover` is a per-node OCC version word of **exactly the kind every
+/// branch header already carries** (`node::BranchHeader::version` and its
+/// siblings): a plain `u32`, even when stable and odd while one frame
+/// stores into the node, addressed through [`crate::occ::version_cell`]
+/// and bracketed by the same [`crate::occ::version_begin`] /
+/// [`crate::occ::version_end`] pair. It exists because the sub-map root
+/// state inside this node — the `Root` variant, a root leaf, the top edge
+/// — has no word of its own: `MapCore`'s root state is covered by the
+/// *tree-level* word, which the engine reaches through
+/// `NodeAlloc::bind_tree_word`, and `ExpanseStrMap` shares **one**
+/// `NodeAlloc` across every sub-trie. One allocator is one bound word, so
+/// without this field every `StrNode` in the meta-trie would contend on a
+/// single tree word (`docs/benchmarks/concurrency/METHODOLOGY.md` §17.2.1).
+///
+/// It heads the struct, at offset 0 under `#[repr(C)]`, for the same
+/// reason the tree word heads `sync::Shared`: a reader or writer that
+/// holds only the `*mut StrNode` it decoded from a parent's tagged
+/// continuation entry reaches the word at a fixed zero offset, with no
+/// field arithmetic and on the line it is about to read the map root from.
+///
+/// **Nothing bumps it yet.** This is the groundwork half of #929's string
+/// design: the word is allocated, pinned and reachable, the write path
+/// still serialises on `sync::Shared::write`, and routing stores and the
+/// readers' cross-hop validation onto it is the behaviour change that
+/// follows (§17.2.2). Obsolete-marking an unlinked node's word before it
+/// is retired (property S3) belongs to that change too, and
+/// [`dispose_node`] does not do it today because no reader validates
+/// against this word yet.
+#[repr(C)]
 struct StrNode {
+    /// Per-node cover for this node's sub-map root state. See the type
+    /// docs: even is stable, odd is a store in progress, and nothing
+    /// bumps it until #929's write path lands.
+    cover: u32,
     map: MapCore,
 }
+
+// The cover word's offset is load-bearing (see the type docs), and
+// reordering the two fields would still compile. Checked at compile time
+// rather than trusted (AGENTS.md §6.5).
+const _: () = {
+    assert!(
+        core::mem::offset_of!(StrNode, cover) == 0,
+        "the cover word must head `StrNode`: the OCC protocol reaches it \
+         from a bare `*mut StrNode` at a fixed zero offset"
+    );
+};
 
 /// Disposes an unlinked suffix: freed immediately when not shared, retired
 /// through the epoch collector when it is — a reader that validated the
@@ -470,8 +519,29 @@ impl std::error::Error for NulInKey {}
 impl StrNode {
     fn new() -> Self {
         Self {
+            // Even: stable, no store in progress. Every branch header the
+            // engine allocates starts its version at 0 the same way.
+            cover: 0,
             map: MapCore::new(),
         }
+    }
+
+    /// The address of this node's cover word, in the form the OCC protocol
+    /// addresses a branch header's version (`occ::version_cell`,
+    /// `occ::node_sample`, `Cover::Node`).
+    ///
+    /// Read-only provenance on purpose: nothing bumps this word yet, and a
+    /// writer that will (Refs #929) reaches the node through the raw
+    /// `*mut StrNode` it decoded from its parent's continuation entry, so
+    /// it derives `&raw mut (*node).cover` there with write provenance
+    /// rather than casting one out of a shared borrow (AGENTS.md §5,
+    /// Stacked/Tree Borrows hygiene).
+    // Reachable-but-unrouted by construction: this PR lands the word and
+    // its plumbing, and #929's write path is what calls this.
+    #[allow(dead_code)]
+    #[inline(always)]
+    fn cover_addr(&self) -> *const u32 {
+        &raw const self.cover
     }
 
     /// # Safety
@@ -1155,6 +1225,47 @@ impl ExpanseStrMap {
     pub(crate) unsafe fn bind_tree_word(&self, word: *const crate::occ::SeqVersion) {
         // SAFETY: forwarded contract.
         unsafe { self.alloc.bind_tree_word(word) };
+    }
+
+    /// The cover word of the meta-trie root node, or null when the map has
+    /// no root (Refs #929).
+    ///
+    /// The first hop of every descent enters the root `StrNode`'s sub-map,
+    /// so this is the word that would cover that hop's stores and the word
+    /// a reader would sample before loading the root node's entry — the
+    /// per-node counterpart of `NodeAlloc::tree_cover_addr`, which on this
+    /// map names the one word shared by every sub-trie (see [`StrNode`]).
+    ///
+    /// Null is the map's genuine "no root state to cover" answer, not a
+    /// failure: the root's own creation and removal (T11 and T10 of
+    /// `docs/benchmarks/concurrency/METHODOLOGY.md` §17.2.1) are registered
+    /// as staying behind the blocking fallback, where the tree-level word
+    /// is what covers them.
+    // As `StrNode::cover_addr`: landed here, routed by #929's write path.
+    #[allow(dead_code)]
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    pub(crate) fn root_cover_addr(&self) -> *const u32 {
+        self.root
+            .as_deref()
+            .map_or(core::ptr::null(), StrNode::cover_addr)
+    }
+
+    /// The **value** of the meta-trie root node's cover word, or `None`
+    /// when the map has no root (Refs #929).
+    ///
+    /// The safe counterpart of [`Self::root_cover_addr`], for callers that
+    /// want to observe the word rather than hand its address to the OCC
+    /// protocol — which today means the tests that pin "nothing bumps it".
+    /// Reading the value needs no raw pointer, so it stays out of
+    /// `unsafe` entirely.
+    // As its two siblings: the lib target has no caller until #929's write
+    // path lands, and the tests that pin the word are `cfg(test)`.
+    #[allow(dead_code)]
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    pub(crate) fn root_cover(&self) -> Option<u32> {
+        self.root.as_deref().map(|r| r.cover)
     }
 
     /// Number of strings stored.
@@ -2147,17 +2258,118 @@ mod tests {
         drop(collector);
     }
 
-    /// #363 Step A regression guard: a sub-trie node is exactly the map
-    /// engine core — no embedded allocator, no per-node insert-path
+    /// #363 Step A regression guard, re-argued for #929's cover word: a
+    /// sub-trie node is the map engine core **plus one OCC version word**
+    /// and nothing else — no embedded allocator, no per-node insert-path
     /// cache. Re-embedding either (the pre-#363 layout was ~700 bytes)
     /// fails here before it shows up as a descent-locality regression.
+    ///
+    /// The bound is **derived, not a literal** (AGENTS.md §2.1.6): the
+    /// cover is a `u32` at offset 0 and `MapCore` aligns to 8, so the word
+    /// and its padding cost exactly one `align_of::<MapCore>()` prefix. If
+    /// `MapCore` ever aligns differently this tracks it instead of decaying
+    /// into a stale constant.
+    ///
+    /// The `<= 64` half is the one #363 cared about and it still holds with
+    /// room to spare: a node stays inside one cache line, so a descent hop
+    /// touches one line for the cover and the map root together — which is
+    /// why the word heads the struct.
     #[test]
-    fn str_node_is_just_the_map_core() {
-        assert_eq!(size_of::<StrNode>(), size_of::<crate::map::MapCore>());
+    fn str_node_is_the_map_core_plus_its_cover_word() {
+        assert_eq!(
+            size_of::<StrNode>(),
+            size_of::<crate::map::MapCore>() + align_of::<crate::map::MapCore>(),
+            "StrNode must be the map core plus exactly the cover word and \
+             its alignment padding; got {} for a {}-byte core",
+            size_of::<StrNode>(),
+            size_of::<crate::map::MapCore>()
+        );
         assert!(
             size_of::<StrNode>() <= 64,
-            "StrNode grew: {}",
+            "StrNode grew past one cache line: {}",
             size_of::<StrNode>()
+        );
+    }
+
+    /// #929 groundwork: the cover word heads the node, so the OCC protocol
+    /// reaches it from a bare `*mut StrNode` with no field arithmetic.
+    /// `offset_of!` is already asserted at compile time; this pins the
+    /// consequence the protocol actually relies on — that the address the
+    /// map hands out *is* the node address.
+    #[test]
+    fn deferred_str_node_cover_word_heads_the_node() {
+        let mut m = ExpanseStrMap::new();
+        assert!(
+            m.root_cover_addr().is_null(),
+            "an empty map has no root node and so no root cover word"
+        );
+        m.insert(tk("alpha"), 1);
+        let root = m.root.as_deref().expect("root present after an insert");
+        assert_eq!(
+            m.root_cover_addr().cast::<StrNode>(),
+            core::ptr::from_ref(root),
+            "the cover word must sit at offset 0 of the node"
+        );
+    }
+
+    /// #929 groundwork, and the claim this PR rests on: the word is
+    /// allocated and reachable, and **nothing bumps it**. Writers still
+    /// serialise on `sync::Shared::write`, so every cover word stays at its
+    /// initial even value across inserts, replaces, splits and removes.
+    ///
+    /// This is the test that turns red first when a later change starts
+    /// routing stores onto the per-node covers — which is the point: that
+    /// change is a behaviour change and must arrive with the readers'
+    /// cross-hop validation moved with it (METHODOLOGY §17.2.2), not
+    /// silently.
+    #[test]
+    fn deferred_str_node_cover_words_stay_even_and_unbumped() {
+        let mut m = ExpanseStrMap::new();
+        // Shared prefixes force continuation entries, suffix splits and
+        // child nodes — T2, T3, T4 and T5 of METHODOLOGY §17.2.1.
+        let keys: [&[u8]; 6] = [
+            b"prefix_aaaaaaaa_one",
+            b"prefix_aaaaaaaa_two",
+            b"prefix_bbbbbbbb_one",
+            b"prefix_aaaaaaaa",
+            b"short",
+            b"prefix_aaaaaaaa_one_longer_still",
+        ];
+        for (i, k) in keys.iter().enumerate() {
+            m.insert(tk(*k), i as u64);
+        }
+        // T3: an in-place value replace over a live entry.
+        m.insert(tk(b"prefix_aaaaaaaa_one"), 99);
+        // T7/T8/T9: removals, including one that prunes an emptied child.
+        m.remove(tk(b"prefix_bbbbbbbb_one"));
+        m.remove(tk(b"short"));
+
+        let mut unbumped = 0usize;
+        let mut stack: Vec<*const StrNode> = match m.root.as_deref() {
+            Some(r) => vec![core::ptr::from_ref(r)],
+            None => Vec::new(),
+        };
+        assert!(!stack.is_empty(), "the fixture must leave a populated tree");
+        while let Some(p) = stack.pop() {
+            // SAFETY: `p` is the root or a continuation child of a node
+            // already visited, so it is a live node this map owns.
+            let node = unsafe { &*p };
+            assert_eq!(
+                node.cover, 0,
+                "a cover word moved: nothing writes it until #929's write \
+                 path lands, and a reader's cross-hop validation must move \
+                 with it when it does"
+            );
+            unbumped += 1;
+            for (k, v) in node.map.iter() {
+                if !is_terminal(k) && !is_suffix_ptr(v) {
+                    stack.push(unpack_child(v));
+                }
+            }
+        }
+        assert!(
+            unbumped >= 2,
+            "the fixture must build a multi-node meta-trie; saw {unbumped}"
         );
     }
 
