@@ -139,6 +139,25 @@ BENCH_N_MAP: Dict[str, int] = {
     "judy1_test": 50_000,
     "judysl_insert": 10_000,
     "judysl_get": 10_000,
+    # Search suite (`search_instructions.rs`): one arm is one whole set-algebra
+    # call over a prepared pair, so N = 1 is the ops count and `Ins / Op` reads
+    # as instructions per operation. Declared, not left to the fallback in
+    # `get_bench_n`, which cannot tell a one-operation arm from an arm nobody
+    # registered (§8.1). `scripts/check_bench_shapes.py` fails on an arm that
+    # reaches that fallback.
+    "expanse_composed_and": 1,
+    "expanse_composed_andnot": 1,
+    "expanse_composed_or": 1,
+    "expanse_materialize": 1,
+    "expanse_native_and": 1,
+    "expanse_native_andnot": 1,
+    "expanse_native_or": 1,
+    "expanse_wand": 1,
+    "roaring_and": 1,
+    "roaring_andnot": 1,
+    "roaring_materialize": 1,
+    "roaring_or": 1,
+    "roaring_wand": 1,
 }
 
 SMOKE_BENCH_N_MAP: Dict[str, int] = {
@@ -1419,6 +1438,15 @@ def get_bench_n(bench_name: str, is_smoke: bool = False) -> int:
             return int(val_str[:-1]) * 1_000
         elif val_str.isdigit() and int(val_str) > 1:
             return int(val_str)
+    # Fail-open with a named notice (§8.11.5): the report still renders, but an
+    # unregistered arm no longer passes as "one operation per invocation". A
+    # genuinely one-op arm is declared with an explicit `1` above.
+    print(
+        f"::notice::perf_report: no ops entry for '{bench_name}' — `Ins / Op` "
+        "shows the raw count (N = 1). Register it in BENCH_N_MAP or "
+        "SMOKE_BENCH_N_MAP; scripts/check_bench_shapes.py fails on this.",
+        file=sys.stderr,
+    )
     return 1
 
 
