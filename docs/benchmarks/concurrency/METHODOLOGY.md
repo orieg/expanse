@@ -399,6 +399,17 @@ reference host.
 
 ## 11. Hypothesis D — shared allocator and reclamation state (appended 2026-09-11, locked before any ablation run)
 
+> **Feature names below are the ones locked on 2026-09-11 and are not edited
+> (AGENTS.md §8.7: a pre-registration is never reconciled in place).** All three
+> arms have since been promoted to the production default, so this section's
+> closing clause — "the default build compiles all three out" — describes the
+> engine at lock time, not the engine today. `ablation-sharded-alloc`,
+> `ablation-striped-epoch` and `ablation-striped-freelist` are now
+> `compile_error!`; the inverse features that restore each arm's prior state are
+> `ablation-unsharded-alloc`, `ablation-unpadded-lock` and
+> `ablation-unstriped-freelist` (AGENTS.md §2.7). Arm (a)'s promotion, jointly
+> with the padded writer state, is recorded in §18 and `README.md` §11.10.
+
 The question (#568): at W ≥ 2, is per-insert cost inflated by state that every
 writer of a tree shares in its allocator and its epoch collector? Each arm is a
 build feature that removes one sharing mechanism and changes nothing else; the
@@ -1916,3 +1927,84 @@ void run does not change the sample size.
   not attempt them concurrently, not because they cannot be done.
 - **No counter threshold.** Counters taken on an evaluated head are diagnostic
   and reported as such (AGENTS.md §8.9).
+
+## 18. Pre-registration — the single-threaded bound for promoting the sharded allocator counters and the padded writer state (appended 2026-09-16; §1–§17 are not edited)
+
+Refs #568, #930. AGENTS.md §2.7 clause 4 requires the single-threaded bound to be
+**pre-registered over every `sync_*` Callgrind arm and every plain-tree arm, and
+satisfied first** — it is deterministic and cheap to re-measure, and the
+concurrency runs are neither. This section is that registration. It is locked
+before the `instruction-counts` job runs on the promoting branch's own head.
+
+### 18.1 Why a single-threaded bound gates a multi-writer promotion
+
+The configuration promoted is the two features measured together at `3fa6a2f2`
+(`README.md` §11.10). Neither mechanism is confined to the concurrent wrappers:
+
+- `NodeAlloc` is an **inline field of every tree**, plain or wrapped. The
+  promoted accounting shards therefore change the allocation and free path of
+  single-threaded `ExpanseSet` and `ExpanseMap` as well: each allocation and
+  free gains one thread-local read (`occ::writer_slot()`) and indexes a shard,
+  and `bytes_in_use()`, `live_allocs()` and `total_allocs()` become summations
+  over `MAX_WRITER_SLOTS` = 64 shards instead of one relaxed load. `mem_used()`
+  calls that summation.
+- The promoted padding changes `Shared`'s and `Collector`'s field offsets, so
+  the wrapper arms' access patterns change even with one thread.
+
+A promotion that bought multi-writer scaling at an unmeasured single-threaded
+cost would be charging every build, concurrent or not, for a concurrent win.
+
+### 18.2 The bound, and its falsifier
+
+For every arm in §18.3, the Callgrind instruction count of the promoting head
+against its merge base must not regress by more than **0.1%** — AGENTS.md §6's
+review threshold, not the automated gate's 5% / 0.5% thresholds.
+
+- **Falsifier.** Any arm regressing by more than 0.1%.
+- **Verdict.** `MET` if no arm exceeds +0.1%; `NOT_MET` otherwise.
+- **`NOT_MET` is a stop, not an override.** This pre-registration authorises no
+  `allow-regression:` line. If the bound is not met the promotion does not
+  proceed on this evidence; the result is reported and the change is either
+  reworked and re-measured against this same bound, or the rejection is
+  recorded (AGENTS.md §8.19).
+
+Threshold, instrument and arm set are fixed here. Changing any of them after
+reading a result relabels that result `INTERMEDIATE` (AGENTS.md §8.19).
+
+### 18.3 The arms
+
+Every arm the `instruction-counts` job reports, which is every arm registered in
+`scripts/perf_report.py`. That set includes all 22 `sync_*` arms —
+`sync_map_insert`, `sync_set_insert`, `sync_map_get`, `sync_map_prev_locked`,
+`sync_map_prev`, `sync_set_contains`, `sync_map_churn`, `sync_map_remove`,
+`sync_set_churn`, `sync_set_remove`, `sync_strmap_get_short`,
+`sync_strmap_insert_short`, `sync_strmap_churn_short`, `sync_strmap_insert`,
+`sync_strmap_remove`, `sync_strmap_churn`, `sync_bytesmap_insert`,
+`sync_bytesmap_remove`, `sync_bytesmap_churn`, `sync_blobmap_insert`,
+`sync_blobmap_remove`, `sync_blobmap_churn` — **and** the plain-tree arms, which
+are the ones the inline `NodeAlloc` change reaches without any wrapper.
+
+### 18.4 The instrument
+
+The `instruction-counts` CI job on the promoting branch's own head, read through
+`scripts/perf_report.py`. Callgrind counts are exact integers with zero variance,
+so this bound is evaluated against the deterministic threshold contract and
+carries no confidence interval (AGENTS.md §8.4).
+
+### 18.5 What voids the reading
+
+- A run that did not reach its regression-guard step with every earlier step
+  green: it may have measured nothing.
+- A head not reachable from the PR head (a rebase or force-push rewrote it).
+- A table read from any head other than the one being promoted.
+
+### 18.6 Explicitly not predicted, and not claimed
+
+- **No direction or magnitude is predicted** for any arm. The mechanism adds
+  work per allocation and free and removes none, so a regression is possible;
+  this registration takes no position on whether one occurs.
+- **No wall-clock claim** is registered here. This bound is about retired
+  instructions only.
+- **Nothing about the multi-writer cells.** §11.10's C(W) ratios are a separate
+  instrument and are not gated by this section.
+- **No mechanism is attributed** for whatever the arms read (AGENTS.md §8.9).
