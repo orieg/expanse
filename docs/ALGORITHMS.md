@@ -421,21 +421,73 @@ If you add a new node type, adjust promotion thresholds, or add benchmark arms:
 
 `ExpanseStrMap` decomposes variable-length NUL-free byte strings into big-endian 8-byte chunks (`CHUNK = 8`), structuring the index as a digital radix trie where each intermediate node is a word-map (`MapCore`).
 
-### 7.1 Intermediate Node Traversal: Read-First vs Speculative Mutation
-In digital radix search trees, non-terminal chunks act as shared prefix highways. For strings sharing a common prefix of $p$ 8-byte chunks (such as hierarchical URLs or structured keys), an insertion incurs $p$ edge traversals followed by at most one divergence or suffix split step:
+### 7.1 Intermediate Node Traversal: One Read Descent, Then One Insert Descent on a Miss
+
+For strings sharing a common prefix of $p$ 8-byte chunks, an insertion traverses $p$
+intermediate nodes and then takes one divergence step:
 
 $$\text{Cost} = p \cdot C_{\text{read}} + C_{\text{diverge}}$$
 
-Where:
-- $C_{\text{read}}$ is a lightweight read lookup via `MapCore::get(chunk)`: pointer chasing, SIMD/SWAR byte scans, and POPCNT ranks without stack allocation or mutation bookkeeping.
-- $C_{\text{diverge}}$ is the terminal leaf insertion or suffix split (`insert_pathless` / `split_suffix`), which constructs a `StrSuffix` or a new child node.
+- $C_{\text{read}}$ is `MapCore::get(chunk)` (`crates/expanse/src/map.rs`): for a sub-map
+  whose root is a leaf (≤ `ROOT_LEAF_CAP` = 31 entries) a bounded search of one
+  allocation; for a tree root, the shared read kernel `get::walk_map_impl`
+  (`crates/expanse/src/get.rs`), whose dispatch loop performs no stores.
+- $C_{\text{diverge}}$ is the terminal-chunk slot insertion, a suffix split, or — on a
+  **non-terminal miss** — a second, full descent of the same sub-map by
+  `MapCore::insert_pathless`, which enters `map_insert_with_path_flat`
+  (`crates/expanse/src/mutate_map.rs`) from the root.
 
-**The Asymmetric Trade-off of Speculative Insertion (Refs #813):**
-Attempting to eliminate double-descent on non-terminal misses by speculatively calling `ins_slot_pathless(chunk)` (Increment A) replaces $p \cdot C_{\text{read}}$ with $(p + 1) \cdot C_{\text{ins}}$, where $C_{\text{ins}}$ invokes `tree_insert::<true>` and eagerly allocates an `InsertPathMap` ancestor stack even when the chunk already exists.
-- On sparse, uniform-random keys ($p \approx 0$), speculative insertion saves a read miss ($C_{\text{ins}}$ vs $C_{\text{read\_miss}} + C_{\text{ins}}$), reducing instruction count by $\approx 14.5\%$ on `judysl_insert_expanse_dl/random` *(measured: run 34981797516, 3b550481)*.
-- On realistic prefix-dense keys ($p \ge 4$), the hit rate at intermediate levels reaches 98.41% (62 of 63 non-terminal chunk lookups across 16-key tenant blocks in `/api/v2/tenants/{:06}/resources/{:04}`). Paying the mutation scaffolding on every shared prefix level ($p \cdot (C_{\text{ins}} - C_{\text{read}})$) adds $+27.16\text{M Ir}$ across `strmap_churn/routes` (+17.15%) and `strmap_insert/routes` (+12.52%) *(measured: run 34981797516, 3b550481)*.
+**The non-terminal miss pays two descents of one sub-map.** This is the mechanism behind
+the one losing cell in the stock comparison, and it is a property of the string layer's
+read-then-insert shape, not of expanse partitioning: the same sub-map's read walk is at
+parity with stock (`judysl_get_expanse_dl/random` 14,655,544 vs 14,888,389 Ir, 0.984×;
+workload: capi_vs_stock) *(measured: GitHub-hosted x86-64 runner, CI run 35055840295,
+3fa6a2f2)*.
 
-Therefore, non-terminal intermediate traversal in `ExpanseStrMap` strictly remains on the zero-overhead read path (`node.map.get(chunk)`).
+| `vs_stock` arm | `libexpanse` Ir | stock Ir | ratio |
+|---|---:|---:|---:|
+| `judysl_insert_expanse_dl/random` | 44,883,081 | 40,591,272 | 1.106× |
+| `judysl_insert_expanse_dl/sequential` | 26,252,283 | 32,237,677 | 0.814× |
+| `judysl_insert_expanse_dl/clustered` | 30,140,978 | 37,922,927 | 0.795× |
+
+*(all rows measured: GitHub-hosted x86-64 runner, CI run 35055840295, 3fa6a2f2; workload:
+capi_vs_stock)*
+
+Why only `random` loses: its keys are `/k/{:016x}` over a uniform 64-bit key, so chunk 0
+carries five hex digits of entropy (2^20 buckets for 30,000 keys). Almost every key misses
+at chunk 0 (the profile at 3fa6a2f2 shows 408 suffix splits against 29,968 read descents),
+and each miss re-descends a 30,000-entry sub-map: the read descent costs 6,211,725 Ir
+inclusive, and the whole deficit against stock is 4,750,553 Ir *(measured: x86-64 Docker
+container, Callgrind 3.24 via iai-callgrind 0.16.1, 3fa6a2f2; workload: capi_vs_stock)*.
+`sequential` and `clustered` miss at deeper chunks whose sub-maps are small, so the second
+descent is cheap there.
+
+**What was tried, and why the cost stands (Refs #813).**
+
+- *Single mutation walk per chunk* (`ins_slot_pathless` on every non-terminal chunk,
+  3b550481): `judysl_insert_expanse_dl/random` fell to 38,075,741 Ir (0.938× stock) but
+  prefix-dense workloads paid the mutation walk's hit path on every shared level:
+  `strmap_insert/routes` 45,570,494 → 51,276,834 (+12.52 %) and `strmap_churn/routes`
+  125,138,622 → 146,599,519 (+17.15 %) *(measured: GitHub-hosted x86-64 runner, CI run
+  34981797516, 3b550481; workload: core_instructions)*. On `routes`, 62 of every 63
+  non-terminal lookups per 16-key tenant block are hits (derived from the key shape), so
+  a design that spends anything on a hit loses there. Rejected on the §6 review threshold.
+- *Read-first with miss-resume* (a `RESUME` instantiation of the read kernel, the insert
+  walk re-entered at the recorded edge, ancestor `pop0` bumped in a miss-only pass): scoped
+  and pre-registered but not built. Its removable work is bounded by the insert walk's
+  descent share, 4.95-9.03 M Ir of the 15.5 M the walk spends on this arm, against a
+  bump-pass budget of about 1.8 M, so the predicted outcome straddles parity
+  (0.93×-1.03×); it would add a third descent entry where the two walks already decode
+  different tag surfaces, and it would invalidate the transition table of the locked
+  `SyncExpanseStrMap` pre-registration (`docs/benchmarks/concurrency/METHODOLOGY.md` §17).
+  The full pre-registration, per-arm predictions and falsifier are recorded on #813.
+
+The non-terminal path therefore stays `node.map.get(chunk)` followed by
+`insert_pathless` on a miss, and the 1.106× on `judysl_insert_expanse_dl/random` is a
+known, understood cost rather than an open defect. Reopening it is an engine-level
+question — making the flat insert walk's hit path cost what the read walk costs, which
+would also benefit every insert of a present key — and belongs to its own issue with its
+own benchmark arm.
 
 ### 7.2 Terminal Slot Insertion (Increment B)
 On the terminal chunk ($< 8$ bytes remaining), `ins_slot` must unconditionally return a writable slot, making `ins_slot_pathless` mandatory.
