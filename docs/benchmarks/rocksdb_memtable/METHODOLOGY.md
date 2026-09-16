@@ -1074,3 +1074,116 @@ The correct build is expected to pass the TSan lane. A report on it is investiga
 - The survivor rule, the gates O1–O3 with their statistics, margin 0.02 and writer floor 0.99.
 - 78 rounds per cell, the pins and the four runs.
 - The artifacts, the voiding rules and what closure requires.
+
+### 5.17 Outcomes of the optimistic-seek arm
+
+*(measured: reference host — Intel i9-12900F, 8P+8E / 24 threads, `Linux-6.8.0-136-generic-x86_64-with-glibc2.35`, `intel_pstate` driver, `powersave` governor on every pinned CPU; commit `d5839c01`; suite `rocksdb_concurrent_optimistic`, lock scopes `full`, `trie` and `opt` interleaved with idle and paced writers at `R` = 1, 2, 4, 7, 78 rounds per cell, 2.0 s window, paced writer offered 250,000 inserts/s, 1,872 cells per run; four runs dispatched in sequence, each after the previous completed — `0,2,4,6,8,10,12,14`: [35040060624](https://github.com/orieg/expanse/actions/runs/35040060624), [35044889994](https://github.com/orieg/expanse/actions/runs/35044889994); `0-15`: [35049520714](https://github.com/orieg/expanse/actions/runs/35049520714), [35054023609](https://github.com/orieg/expanse/actions/runs/35054023609); pin source `EXPANSE_BENCH_PIN_APPLIED`; artifacts [`results/baseline_concurrent_reads_optimistic_pin_one_sibling.json`](results/baseline_concurrent_reads_optimistic_pin_one_sibling.json), [`…_pin_one_sibling_run2.json`](results/baseline_concurrent_reads_optimistic_pin_one_sibling_run2.json), [`…_pin_0-15.json`](results/baseline_concurrent_reads_optimistic_pin_0-15.json), [`…_pin_0-15_run2.json`](results/baseline_concurrent_reads_optimistic_pin_0-15_run2.json); workload: `rocksdb_memtable_concurrent_read_scaling`; every verdict below is what `python3 scripts/rocksdb_locate_bound.py` returns, not a reading of the intervals.)*
+
+These outcomes are read against §5.16 and §5.16.1 as merged. No threshold, margin, admissibility floor, method, round count, cell, pin or voiding rule was changed after the runs, and no round from §5.7–§5.15 is pooled in. §5.16 and §5.16.1 are not edited (AGENTS.md §8.7). This section is step 10 of [#900](https://github.com/orieg/expanse/issues/900); appending it completes that step, in whatever direction the gates read.
+
+**All four runs are admissible.** `optimistic_problems` returns no `run` problem for any of them, so none is void under §5.16's rules or AGENTS.md §6.
+
+| run | pin | checked-out commit | cells | rounds | peak foreign busy CPU | peak `load1` | `load1` at `start` |
+|---|---|---|---:|---:|---:|---:|---:|
+| [35040060624](https://github.com/orieg/expanse/actions/runs/35040060624) | `0,2,4,6,8,10,12,14` | `d5839c01` | 1,872 | 78 | 0.15 | 3.46 | 0.22 |
+| [35044889994](https://github.com/orieg/expanse/actions/runs/35044889994) | `0,2,4,6,8,10,12,14` | `d5839c01` | 1,872 | 78 | 0.17 | 3.49 | 1.10 |
+| [35049520714](https://github.com/orieg/expanse/actions/runs/35049520714) | `0-15` | `d5839c01` | 1,872 | 78 | 0.09 | 3.59 | 1.07 |
+| [35054023609](https://github.com/orieg/expanse/actions/runs/35054023609) | `0-15` | `d5839c01` | 1,872 | 78 | 0.20 | 3.68 | 1.12 |
+
+- **Load, as the artifacts record it** (AGENTS.md §8.17). Every one of the 1,872 cells in each run carries a `foreign_busy_cpus` delta, and each run carries 1,874 `load1` snapshots. The ceilings §5.16 fixes are 1.0 core-equivalent of foreign busy CPU in any cell and `load1` of 12 at any snapshot; the peaks above are the largest observed, and no cell or snapshot in any run reached either ceiling. No run was discarded, so there is no discard to disclose.
+- **Each run was dispatched after the previous completed:** run 1 ran 00:27:15–01:38:20Z, run 2 was created 01:38:37Z, ran to 02:49:51Z, run 3 was created 02:50:24Z, ran to 04:01:28Z, and run 4 was created 04:01:49Z. All four concluded `success`.
+- **The commit under test is the same in all four.** Each run's checkout step resolved the dispatched ref to `d5839c01` verbatim, and each artifact records `provenance.commit` `d5839c01`. The three later runs carry a workflow `head_sha` of the `main` tip at dispatch time (`a4687a43`, `eb35e465`, `eb35e465`), which is the ref the *workflow file* was read from and not what was built.
+- **Absences, stated as absences.** The artifacts' `provenance` carries no `run_url` field, so the run links above come from the dispatch record rather than from the artifact. `host` carries `platform` and no separate operating-system, cache or memory field. The driver stamps its own generic labels — `provenance.suite` reads `rocksdb_concurrent` and `provenance.pre_registration` reads `…METHODOLOGY.md section 5` — rather than the suite name `rocksdb_concurrent_optimistic` or §5.16; `optimistic_problems` checks neither field, and the settings, cells, rounds, pins and ratios it does check all match the registration. `verdicts` is `null` in every artifact by construction, with `why_no_verdicts` recording that the driver decides nothing. No string in any of the four artifacts matched a hostname, home path or private address, so nothing was redacted.
+- **No counter was collected on these runs.** §5.16's counters are a separate suite (`rocksdb_concurrent_optimistic_counters`) and none was dispatched here, so no counter figure is reported and none could be: counters are observational and gate nothing (AGENTS.md §8.20.3).
+
+**The gates.** Each gate reads one pin's two runs through three statistics; a gate `PASS`es only when all three do, and reads `REFUTED` only when scaling and absolute are both `REFUTED`. The two pins are read separately and never pooled.
+
+| pin | gate | verdict | scaling `S(7)` | absolute `T(7)` | control `T(1)` |
+|---|---|---|---|---|---|
+| `0,2,4,6,8,10,12,14` | **O1** idle `opt/full` | **`BOUNDARY_RESULT`** | `PASS` | `PASS` | **`REFUTED`** |
+| `0,2,4,6,8,10,12,14` | **O2** idle `opt/trie` | **`BOUNDARY_RESULT`** | `PASS` | `PASS` | **`REFUTED`** |
+| `0,2,4,6,8,10,12,14` | **O3** paced `opt/trie` | **`PASS`** | `PASS` | `PASS` | `PASS` |
+| `0-15` | **O1** idle `opt/full` | **`BOUNDARY_RESULT`** | `PASS` | `PASS` | **`REFUTED`** |
+| `0-15` | **O2** idle `opt/trie` | **`BOUNDARY_RESULT`** | `PASS` | `PASS` | **`REFUTED`** |
+| `0-15` | **O3** paced `opt/trie` | **`PASS`** | `PASS` | `PASS` | `PASS` |
+
+The three statistics per gate, each a per-round ratio with a BCa 95% interval over the 78 rounds, run 1 · run 2 of that pin (workload: `rocksdb_memtable_concurrent_read_scaling`):
+
+| pin | gate | scaling `S(7)` | absolute `T(7)` | control `T(1)` |
+|---|---|---|---|---|
+| `0,2,4,6,8,10,12,14` | O1 | 10.3094 [10.2375, 10.3835] · 10.2996 [10.2236, 10.3800] | 9.9714 [9.9002, 10.0405] · 9.9736 [9.9004, 10.0567] | 0.9672 [0.9660, 0.9686] · 0.9683 [0.9669, 0.9707] |
+| `0,2,4,6,8,10,12,14` | O2 | 5.7960 [5.6961, 5.9101] · 5.7872 [5.6854, 5.8912] | 5.5726 [5.4746, 5.6839] · 5.5691 [5.4717, 5.6700] | 0.9613 [0.9602, 0.9625] · 0.9624 [0.9610, 0.9642] |
+| `0,2,4,6,8,10,12,14` | O3 | 3.2019 [3.1188, 3.2837] · 3.1185 [3.0347, 3.2035] | 4.0081 [3.9029, 4.1131] · 3.9080 [3.8049, 4.0154] | 1.2518 [1.2496, 1.2540] · 1.2532 [1.2506, 1.2556] |
+| `0-15` | O1 | 10.3984 [10.3181, 10.4925] · 10.2955 [10.2267, 10.3724] | 10.0542 [9.9772, 10.1373] · 9.9698 [9.9035, 10.0413] | 0.9670 [0.9630, 0.9688] · 0.9684 [0.9673, 0.9698] |
+| `0-15` | O2 | 5.8892 [5.7831, 6.0115] · 5.6798 [5.5997, 5.7818] | 5.6445 [5.5449, 5.7647] · 5.4571 [5.3807, 5.5557] | 0.9585 [0.9541, 0.9599] · 0.9608 [0.9596, 0.9622] |
+| `0-15` | O3 | 3.3027 [3.2106, 3.3999] · 3.2966 [3.2072, 3.3904] | 4.1386 [4.0215, 4.2581] · 4.1364 [4.0255, 4.2535] | 1.2529 [1.2505, 1.2555] · 1.2549 [1.2521, 1.2582] |
+
+- **What decides O1 and O2 is the control, not the scaling or the absolute ratio.** Both directional statistics `PASS` in all four runs under both pins, by a wide margin against §5.16's registered detectability floors (1.0259 for O1, 1.0361 for O2). The non-inferiority control fails: with one reader and no writer, `opt` delivers 0.958–0.969 of what `full` and `trie` deliver, and every one of those eight intervals lies entirely below the floor of 1 − 0.02 = 0.98, which is `REFUTED` rather than `BOUNDARY_RESULT` on that statistic. §5.16 fixed the margin at 0.02 before the sizing was computed and it is not moved here (AGENTS.md §8.19). Why a single `opt` reader is slower is not measured; no mechanism is attributed.
+- **O3 is evaluable under both pins.** `paced_writer_problems` reports nothing for `opt` or `trie` in any of the four runs: both scopes' writers held between 249,962 and 249,995 inserts/s at every `R`, against the floor of 0.99 × 250,000 = 247,500, and no paced cell at `R` = 1 or 7 was flagged. O3 therefore reads a verdict rather than `NOT_EVALUABLE` under either pin.
+- **Pin sensitivity:** every gate reads the same verdict under both pins, and the two pins' intervals overlap on all three statistics of all three gates. No pin effect on a gated ratio is claimed (`docs/BENCHMARKING.md` rule 18).
+- **Against §5.16's expectation:** §5.16 predicted no outcome for any gate, so there is nothing to score the direction against.
+
+**What this closes, and what it does not.** `optimistic_closure` returns, verbatim:
+
+```
+#802 stays open: O1 BOUNDARY_RESULT under 0,2,4,6,8,10,12,14; O1 BOUNDARY_RESULT under 0-15
+```
+
+- **[#802](https://github.com/orieg/expanse/issues/802) does not close.** Its first branch needs O1 *and* O3 `PASS` under both pins, two runs each. O3 meets that; O1 does not, under either pin. An O3 `PASS` alone does not close it, exactly as an O1 `PASS` alone would not have.
+- **What follows is #802's second branch** — keeping the mutex with its measurement recorded — which §5.16 leaves to be decided in the issue on these runs, not here. Closing or re-scoping the issue is the maintainer's action.
+- **O2 decides no closure, and its `BOUNDARY_RESULT` forbids one claim.** Only an O2 `PASS` under both pins would let a later default proposal name `kOptimistic` over `kTrieCall` for idle reads. O2 did not `PASS`, so no proposal may claim that. #802's closure does not choose between the two scopes in the idle regime in any case.
+- **The default changes in no case,** and nothing here proposes one. Making any scope the default is a separate change under AGENTS.md §2.7.
+- **[#900](https://github.com/orieg/expanse/issues/900) step 10 is done** by appending this section. Neither an O1, O2 nor O3 verdict in any direction reopens §12.9.
+
+**Reported, never gated.** These decide nothing; they are recorded because §5.16 registered them as reported.
+
+- **`S_trie(R) / S_full(R)`, re-measured at this head.** Idle `S(7)`, run 1 · run 2: **1.7905** [1.7555, 1.8250] · **1.7902** [1.7568, 1.8214] under `0,2,4,6,8,10,12,14`, and **1.7786** [1.7412, 1.8120] · **1.8216** [1.7899, 1.8503] under `0-15`. Per §5.16 and AGENTS.md §8.7 these are **not** compared with §5.15's figures: that arm was measured at `ed2a02b9` and this one at `d5839c01`, so the two are different experiments and no delta between them is computed or claimed here.
+- **Every ratio at `R` = 2 and `R` = 4**, run 1 · run 2 of each pin:
+
+| pin | pair | writer | `S(2)` | `S(4)` | `T(2)` | `T(4)` |
+|---|---|---|---|---|---|---|
+| `0,2,4,6,8,10,12,14` | `opt/full` | idle | 2.5761 [2.5596, 2.5971] · 2.5598 [2.5421, 2.5792] | 5.6379 [5.5908, 5.6862] · 5.5487 [5.5152, 5.5868] | 2.4916 [2.4760, 2.5118] · 2.4786 [2.4621, 2.4964] | 5.4529 [5.4073, 5.4974] · 5.3726 [5.3430, 5.4101] |
+| `0,2,4,6,8,10,12,14` | `opt/trie` | idle | 1.3758 [1.3366, 1.4144] · 1.3812 [1.3444, 1.4227] | 2.8071 [2.7237, 2.8886] · 2.8641 [2.7903, 2.9374] | 1.3225 [1.2850, 1.3595] · 1.3291 [1.2942, 1.3684] | 2.6986 [2.6175, 2.7762] · 2.7569 [2.6842, 2.8285] |
+| `0,2,4,6,8,10,12,14` | `opt/trie` | paced | 1.2068 [1.1877, 1.2278] · 1.1987 [1.1793, 1.2201] | 1.8439 [1.7979, 1.8925] · 1.8280 [1.7796, 1.8738] | 1.5105 [1.4865, 1.5368] · 1.5020 [1.4775, 1.5283] | 2.3083 [2.2509, 2.3704] · 2.2909 [2.2294, 2.3496] |
+| `0-15` | `opt/full` | idle | 2.5891 [2.5692, 2.6110] · 2.5785 [2.5600, 2.5998] | 5.6164 [5.5725, 5.6722] · 5.5755 [5.5390, 5.6178] | 2.5035 [2.4842, 2.5253] · 2.4970 [2.4803, 2.5184] | 5.4302 [5.3916, 5.4781] · 5.3993 [5.3647, 5.4410] |
+| `0-15` | `opt/trie` | idle | 1.3989 [1.3587, 1.4362] · 1.3804 [1.3442, 1.4175] | 2.8035 [2.7230, 2.8968] · 2.8184 [2.7300, 2.8971] | 1.3404 [1.3024, 1.3756] · 1.3264 [1.2912, 1.3618] | 2.6861 [2.6115, 2.7724] · 2.7079 [2.6224, 2.7827] |
+| `0-15` | `opt/trie` | paced | 1.2252 [1.2031, 1.2462] · 1.2132 [1.1923, 1.2319] | 1.8190 [1.7733, 1.8694] · 1.8530 [1.8029, 1.9042] | 1.5349 [1.5079, 1.5600] · 1.5222 [1.4963, 1.5455] | 2.2787 [2.2221, 2.3410] · 2.3255 [2.2616, 2.3904] |
+
+- **Every paced ratio against `full`, with each scope's achieved writer rate.** §5.16 keeps these reported rather than gated because the admissibility rule would refuse the `full` arm: under a paced writer at `R` = 7 the `full` writer reached 132,217–147,261 inserts/s under `0,2,4,6,8,10,12,14` and 162,027–223,376 under `0-15`, all below the 247,500 floor, while `opt` held 249,965–249,995 and `trie` 249,966–249,994 at every `R` in every run. A paced ratio against `full` therefore compares two scopes carrying different writer loads.
+
+| pin | pair | `T(1)` | `S(7)` | `T(7)` |
+|---|---|---|---|---|
+| `0,2,4,6,8,10,12,14` | `opt/full` paced | 1.3349 [1.3324, 1.3373] · 1.3372 [1.3349, 1.3396] | 10.1901 [10.1438, 10.2399] · 10.1606 [10.1114, 10.2068] | 13.6020 [13.5407, 13.6650] · 13.5854 [13.5243, 13.6410] |
+| `0,2,4,6,8,10,12,14` | `trie/full` paced | 1.0664 [1.0646, 1.0681] · 1.0671 [1.0651, 1.0692] | 3.2256 [3.1433, 3.3123] · 3.3024 [3.2188, 3.3835] | 3.4396 [3.3513, 3.5316] · 3.5237 [3.4336, 3.6086] |
+| `0-15` | `opt/full` paced | 1.3360 [1.3331, 1.3395] · 1.3364 [1.3340, 1.3389] | 8.3706 [8.3142, 8.4465] · 8.4032 [8.3420, 8.4801] | 11.1810 [11.1142, 11.2796] · 11.2290 [11.1522, 11.3328] |
+| `0-15` | `trie/full` paced | 1.0663 [1.0640, 1.0689] · 1.0650 [1.0624, 1.0674] | 2.5726 [2.4972, 2.6435] · 2.5868 [2.5176, 2.6545] | 2.7435 [2.6632, 2.8204] · 2.7549 [2.6805, 2.8257] |
+
+- **Controls whose interval excludes 1, in both runs, as a single-reader effect of the scope** (§5.16's fourth reported item). Idle `opt/full` `T(1)` and idle `opt/trie` `T(1)` exclude 1 from *below* in all four runs (0.9585–0.9684, the gate-deciding statistic above). Paced `opt/trie` `T(1)` and paced `opt/full` `T(1)` exclude 1 from *above* in all four runs (1.2518–1.2549 and 1.3349–1.3372), as does idle `trie/full` `T(1)` (1.0061–1.0089) and paced `trie/full` `T(1)` (1.0650–1.0671). Each is a one-reader comparison between scopes at this head; no cause is measured for any of them.
+
+**What the scope does to the curve** (aggregate read Mops/s, mean of 78 rounds, run 1 of each pin; the paired `S(7)` intervals for both runs are in the gate tables above).
+
+| pin | scope | writer | `R=1` | `R=2` | `R=4` | `R=7` |
+|---|---|---|---:|---:|---:|---:|
+| `0,2,4,6,8,10,12,14` | `full` | idle | 4.061 | 3.069 | 2.734 | 2.504 |
+| `0,2,4,6,8,10,12,14` | `trie` | idle | 4.086 | 5.868 | 5.612 | 4.507 |
+| `0,2,4,6,8,10,12,14` | `opt` | idle | 3.928 | 7.639 | 14.891 | 24.945 |
+| `0,2,4,6,8,10,12,14` | `full` | paced | 1.333 | 0.974 | 0.984 | 0.833 |
+| `0,2,4,6,8,10,12,14` | `trie` | paced | 1.422 | 2.305 | 2.943 | 2.863 |
+| `0,2,4,6,8,10,12,14` | `opt` | paced | 1.780 | 3.462 | 6.699 | 11.324 |
+| `0-15` | `full` | idle | 4.059 | 3.042 | 2.736 | 2.486 |
+| `0-15` | `trie` | idle | 4.095 | 5.763 | 5.624 | 4.457 |
+| `0-15` | `opt` | idle | 3.925 | 7.606 | 14.840 | 24.967 |
+| `0-15` | `full` | paced | 1.329 | 0.961 | 0.962 | 1.015 |
+| `0-15` | `trie` | paced | 1.417 | 2.271 | 2.978 | 2.784 |
+| `0-15` | `opt` | paced | 1.776 | 3.464 | 6.687 | 11.343 |
+
+- **The `opt` curve rises across the whole reader range measured,** idle and paced, under both pins, where `trie`'s falls after `R` = 2 or `R` = 4 and `full`'s is retrograde. What bounds the `opt` curve beyond `R` = 7 is not measured: no reader count above 7 is a cell here.
+- **The single-reader cell is the one where `opt` is behind,** idle, in every run — the control that keeps O1 and O2 off `PASS`.
+- **Registered reader handles** ranged from 0 to 7 per cell in all four runs, consistent with one handle per reader thread and none left behind by an exited thread within a run. §5.16 leaves that count reported and unbounded.
+
+**What is not established.**
+
+- **Mechanism:** none, for any ratio or for the single-reader control. No counter was collected on these runs, and §5.16 forbids gating on one in any case.
+- **Correctness of `kOptimistic`:** what G-O1–G-O7 and the §2.3 mutations establish, and no more. These cells time `Get` only; `Contains`, `IteratorImpl::Seek` and `SeekForPrev` are covered for correctness by the soundness gates and are not timed here.
+- **`ApproximateMemoryUsage` under `kOptimistic` on a production write path,** the free and multi-writer regimes, memory under any scope, and 32-bit targets: all outside this arm, as §5.16 states.
+- **Reader counts above 7, and any comparison with §5.15's head.**
