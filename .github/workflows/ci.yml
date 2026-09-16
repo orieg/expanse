@@ -2620,6 +2620,14 @@ jobs:
       - name: Measure and Apply the Bound
         shell: bash
         run: |
+          # `shell: bash` runs `bash -eo pipefail`, and `set -uo pipefail` adds
+          # -u without clearing -e. An unmet bound exits non-zero, so -e killed
+          # this step here — before `rc=$?`, before the report was echoed, and
+          # before the fatal/non-fatal branch below. The documented path ("the
+          # bound is unmet, but this change does not touch the memtable source
+          # or header, so it is reported and not applied") was unreachable, and
+          # every unmet bound failed regardless of what the PR touched.
+          set +e
           set -uo pipefail
           root="${{ steps.refs.outputs.root }}"
           python3 "$root/head-x/docs/benchmarks/rocksdb_memtable/scripts/locate_ir_bound.py" run \
