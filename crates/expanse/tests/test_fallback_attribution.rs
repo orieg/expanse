@@ -41,6 +41,80 @@ const CAUSES: [Stat; 6] = [
     Stat::FallbackUnknownTag,
 ];
 
+/// Strips `//` line comments and `/* */` block comments, leaving string literals
+/// intact, so a structural census counts code and not prose (AGENTS.md §5: a
+/// structural scanner must turn red when the code it guards is commented out).
+///
+/// Works on bytes and rebuilds a `String` at the end: every delimiter it looks for
+/// is ASCII and UTF-8 is self-synchronising, so multi-byte characters inside
+/// comments or literals pass through unchanged.
+///
+/// Residual gaps, stated rather than papered over: a character literal holding a
+/// quote or a slash (`'"'`, `'/'`) is read as ordinary text, and a raw string
+/// literal (`r"…"`, `r#"…"#`) is treated as an ordinary string rather than being
+/// exempted from escape handling. Both are sound for this census because
+/// `sync.rs` contains no such literal, and no pattern counted below appears
+/// inside one.
+fn strip_comments(src: &str) -> String {
+    let b = src.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(b.len());
+    let mut i = 0usize;
+    let mut in_str = false;
+    let mut in_line = false;
+    let mut block = 0usize;
+    while i < b.len() {
+        let c = b[i];
+        let next = b.get(i + 1).copied();
+        if in_line {
+            if c == b'\n' {
+                in_line = false;
+                out.push(c);
+            }
+            i += 1;
+        } else if block > 0 {
+            if c == b'*' && next == Some(b'/') {
+                block -= 1;
+                i += 2;
+            } else if c == b'/' && next == Some(b'*') {
+                block += 1;
+                i += 2;
+            } else {
+                if c == b'\n' {
+                    out.push(c);
+                }
+                i += 1;
+            }
+        } else if in_str {
+            if c == b'\\' {
+                out.push(c);
+                if let Some(n) = next {
+                    out.push(n);
+                }
+                i += 2;
+                continue;
+            }
+            if c == b'"' {
+                in_str = false;
+            }
+            out.push(c);
+            i += 1;
+        } else if c == b'/' && next == Some(b'/') {
+            in_line = true;
+            i += 2;
+        } else if c == b'/' && next == Some(b'*') {
+            block = 1;
+            i += 2;
+        } else {
+            if c == b'"' {
+                in_str = true;
+            }
+            out.push(c);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).expect("stripping ASCII delimiters preserves UTF-8 boundaries")
+}
+
 #[test]
 fn fallback_causes_account_for_every_fallback() {
     let map = SyncExpanseMap::new();
@@ -424,14 +498,18 @@ fn fallback_causes_account_for_every_fallback() {
         Some(pos) => &full_sync_src[..pos],
         None => full_sync_src,
     };
+    // Then strip comments, so prose and commented-out code cannot satisfy the census
+    // (AGENTS.md §5: a structural scanner must turn red when the guarded code is disabled).
+    let prod_sync_code = strip_comments(prod_sync_src);
+    let full_sync_code = strip_comments(full_sync_src);
     let raw_pattern = "OlcOutcome::Fallback(FallbackCause::CapExpansion)";
-    let count = prod_sync_src.matches(raw_pattern).count();
+    let count = prod_sync_code.matches(raw_pattern).count();
     assert_eq!(
         count, 1,
         "only fn cap_expansion may return raw Fallback(FallbackCause::CapExpansion)"
     );
     assert_eq!(
-        prod_sync_src.matches("cap_expansion(").count(),
+        prod_sync_code.matches("cap_expansion(").count(),
         2,
         "cap_expansion must be called at exactly 2 exit sites in production sync.rs (AGENTS.md §2.3)"
     );
@@ -443,7 +521,7 @@ fn fallback_causes_account_for_every_fallback() {
         "CapExpansionKind::Remove",
     ] {
         assert!(
-            full_sync_src.contains(kind),
+            full_sync_code.contains(kind),
             "CapExpansionKind::{kind} must be used or tested in sync.rs"
         );
     }
@@ -452,7 +530,7 @@ fn fallback_causes_account_for_every_fallback() {
     // olc_insert_map have zero FallbackCause::ImmediateConversion returns.
     // Exactly 2 remain in production sync.rs: 2 in Null-slot non-BranchU insertion (Phase 4F eliminated the 1 in olc_remove_map).
     assert_eq!(
-        prod_sync_src
+        prod_sync_code
             .matches("OlcOutcome::Fallback(FallbackCause::ImmediateConversion)")
             .count(),
         2,
