@@ -1893,6 +1893,126 @@ combined ratio of 2.09, which is at most 1.14; the four cells are therefore
 reported as three measured configurations, and the excess as **unexplained**
 (§8.20.4) rather than as a decomposition of the gain.
 
+#### 11.10.8 What the multi-writer gain is actually made of (Refs #930)
+
+§11.10.1 measured two mechanisms apart and together and could not attribute the
+result. This section measures four more configurations to find out **which
+property of the sharded accounting produces the gain** — and closes the
+rearrangement design space by measuring every remaining way to reduce the
+counters' cost without sharding them.
+
+All cells at `686dd6cb`, one thread per physical P-core (`0,2,4,6,8,10,12,14`),
+8 rounds, one harness process per timed cell, two independent runs, paired
+against each run's own default half (workload: concurrency_writer_scaling)
+*(measured: reference host — Intel Core i9-12900F, `686dd6cb`;
+`results/ablation_no_diag_counters_writer_scaling_686dd6cb_run{1,2}.json`,
+`results/ablation_no_diag_counters_padded_writer_scaling_686dd6cb_run{1,2}.json`,
+`results/ablation_padded_counters_writer_scaling_686dd6cb_run{1,2}.json`,
+`results/ablation_padded_counters_lockpad_writer_scaling_686dd6cb_run{1,2}.json`)*.
+
+**The counters.** `NodeAlloc` maintains three — `bytes_in_use`, `live_allocs`,
+`total_allocs` — with an atomic read-modify-write on every allocation and every
+free. A consumer audit by visibility (§8.22 rule 1) finds `bytes_in_use` load
+bearing (the C ABI's `JudyLMemUsed`, the density docs, the memory-budget gate),
+`live_allocs` with no caller outside tests, and `total_allocs` reachable from
+Python as `total_node_allocs()` with published stubs. The measured field
+offsets put all three on **one** cache line — 512, 520 and 536 in a 560-byte
+`NodeAlloc` — sharing it with `tree_word` (528) and `slab_pages` (544).
+
+#### 11.10.8.1 `map` at W = 8, every measured configuration
+
+| configuration | C(8) run 1 / run 2 | M ops/s run 1 / run 2 |
+|---|---|---|
+| counters deleted, unpadded | 1.0289 [1.0089, 1.0465] / 1.0295 [1.0025, 1.0513] | 12.35 / 12.22 |
+| counters given their own line, unpadded | 0.9725 [0.9586, 0.9845] `REJECTED` / 0.9806 [0.9635, 1.0012] | 10.69 / 10.61 |
+| `lock-padded` alone (§11.10.1) | 1.0426 / 1.0369 | — |
+| counters given their own line **+ padded** | 1.1180 [1.1050, 1.1298] / 1.0630 [1.0528, 1.0776] | 12.16 / 11.68 |
+| counters deleted **+ padded** | 1.3189 [1.3080, 1.3291] / 1.3152 [1.2987, 1.3382] | 15.61 / 15.68 |
+| sharded **+ padded** (§11.10.4) | 2.0841 / 2.0842 | 24.07 / 23.95 |
+
+`set` follows the same ordering: deleted-unpadded 0.9911 / 0.9847
+(`INCONCLUSIVE` both runs), deleted-padded 1.5755 / 1.5698, sharded-padded
+2.4591 / 2.3880.
+
+#### 11.10.8.2 Padding is a precondition for anything else to be visible
+
+Deleting two of the three counters is worth **nothing** on an unpadded build —
+1.029 on `map`, and `INCONCLUSIVE` spanning 1.0 on `set` — and **1.32 / 1.57**
+once the writer state is padded. The same intervention, the same commit, two
+verdicts.
+
+This is the masking §8.20.6 describes, measured directly: while writers
+serialise on an unpadded mutex, a cost behind that serialisation cannot be
+observed. It has a consequence for how every cell in §11.10 is read — **an
+unpadded cell measures an upper bound on nothing**, and a mechanism dismissed
+on one is not dismissed.
+
+#### 11.10.8.3 Line ownership is not what the sharding buys
+
+Giving the three counters their own 64-byte line — grouped in both arms, with
+only `repr(align(64))` gated, so cache-line ownership is the single variable —
+does not reproduce deletion's effect. Marginal values over `lock-padded` alone
+on `map`: isolation ≈ 1.05, deletion ≈ 1.27, sharding ≈ 2.01.
+
+So the cost is not mainly that the counters share a line with `tree_word` and
+`slab_pages`; removing that false sharing is worth a fraction of removing the
+writes. What orders these configurations is **how many writers touch the same
+counter line**: eight on one line (default and isolated), eight on one line with
+fewer writes (deleted), one per line (sharded).
+
+Unpadded, isolation measures 0.97 / 0.98 — at or below the default. The cell
+carries a confound stated before it ran: `repr(align(64))` also takes
+`NodeAlloc` from 560 B / align 8 to 640 B / align 64 and moves every field
+after the counters, which is the same class of change that cost the inline
+sharded layout its 27 plain arms (§11.10.2).
+
+#### 11.10.8.4 `perf c2c`: the sharded build removes almost all of the HITM
+
+Cross-core HITM at W = 8, default against `lock-padded,ablation-sharded-alloc`,
+two runs each, line table uncapped (asserted by the driver)
+*(measured: reference host — Intel Core i9-12900F, `686dd6cb`;
+`results/c2c_930_{default,sharded_padded}_{map,set}_run{1,2}_686dd6cb.json`)*:
+
+| build | `map` | `set` |
+|---|--:|--:|
+| default | 5,795 / 5,666 | 4,533 / 4,623 |
+| sharded + padded | **381 / 548** | **235 / 274** |
+
+A **12× reduction on `map` and 18× on `set`**. The mechanism is coherency
+traffic, now observed rather than argued.
+
+One feature of the profile does not fit the simple reading and is recorded
+rather than smoothed: in the default build the HITM is **diffuse**, not
+concentrated on one line. `map` has 83 contended lines with the top carrying
+3.01 % and the top five 20 %; `set` has 72, top line 7.71 %, top five 42 %. If
+the counter line were the dominant contended object, one line should dominate.
+It does not. So the sharded build removes ~92 % of a distributed HITM profile,
+and which lines leave it is not established here — `perf c2c` localises and
+does not establish causality (§8.20.3).
+
+#### 11.10.8.5 What is now closed, and what is not
+
+**Closed.** Every way of reducing the counters' cost *without* per-writer
+sharding has been measured: delete two of three (±padding), give them their own
+line (±padding), shrink the shard array to 16 (§11.10.2's `c9` and the ungated
+twin), box the array, merge the gate's `OnceLock`, hoist the writer slot, pad
+the struct back. On `map` the best of them reaches 15.68 M ops/s against
+#930's floor of 20; only the sharded configuration clears it.
+
+**Not closed.** Why sharding removes a *diffuse* HITM profile. The counters are
+one line of 83; removing their sharing removes far more traffic than their
+share of the profile suggests. No mechanism is attributed for that (§8.9), and
+the §8.20.4 time-budget decomposition, a USL refit per cell, and address-to-field
+attribution on the c2c line table are all unrun.
+
+**Predictions recorded before the runs, and how they came out.** Two panels
+predicted counter deletion at 1.30–1.50 and ≈1.12 on `map`; the pre-registered
+falsifier was below 1.15 across both runs. Measured unpadded, it is 1.03 and the
+falsifier fires. Measured padded, it is 1.32 — inside the first band. **The
+falsifier fired on a configuration that could not show the effect**, which is
+the §8.22 rule-2 defect (a cost and a benefit measured on different builds)
+committed by the cell that went looking for it.
+
 ## 12. Mixed read/write concurrency — `benches/concurrency.rs` (`results/baseline_concurrent_mixed.json`)
 
 The `Sync*` read/write sweep, with the four properties
