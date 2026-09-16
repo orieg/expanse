@@ -1765,6 +1765,17 @@ in either run.
 writer per physical P-core). §11.10.4's sweep answered the per-core pin; this
 adds `0-15`, so the gate can be read at both.
 
+**What the measured build is.** Every cell below, and every cell in §11.10.4,
+compares the default against **`lock-padded,ablation-deferred-shards`** — the
+deferred-gated accounting *and* the padded writer state, as one configuration.
+That is the pair §11.8 held and [#990](https://github.com/orieg/expanse/pull/990)
+proposed promoting, so it is the right unit for this gate. It is **not** the
+sharded accounting alone: §11.10.1 measures that arm at 1.2499 / 1.2340 on
+`map`, which against the same default is ≈ 14.5 M ops/s and does not reach the
+floor. The artifacts carry the feature list in `comparison[].variant_name`; the
+`gated` column below is that pair throughout, and no cell here attributes the
+result to either mechanism on its own.
+
 Workloads, populations and rounds are the ones the issue names —
 `concurrency_writer_map_64bit` and `concurrency_writer_set_63bit`, 2²⁰ prefill
 plus 2²⁰ fresh keys, 8 rounds, one harness process per timed cell
@@ -1829,6 +1840,16 @@ met.
 default; §11.8's hold stands and §11.10.6's bound is unchanged. Meeting #930's
 throughput target says nothing about the §2.7 single-threaded instruction bound,
 which §11.10.6 shows is not reachable in this design.
+
+Two limits of the pairing, stated rather than left to be inferred. The gate
+above is met by the **pair**, and the Callgrind cells of §11.10.2 carry the
+accounting half only — **no cell measures `lock-padded`'s instruction cost**, so
+the single-threaded price of the configuration that produces these throughputs
+is unmeasured. And §11.10.1's excess over the product of the single-change
+ratios (1.60–1.71 at W = 8) exceeds what an additive-overhead model admits for a
+combined ratio of 2.09, which is at most 1.14; the four cells are therefore
+reported as three measured configurations, and the excess as **unexplained**
+(§8.20.4) rather than as a decomposition of the gain.
 
 ## 12. Mixed read/write concurrency — `benches/concurrency.rs` (`results/baseline_concurrent_mixed.json`)
 
