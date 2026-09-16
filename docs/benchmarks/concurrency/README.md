@@ -1602,7 +1602,7 @@ replacement design.
 
 Nothing here is promoted either. §11.8's hold stands.
 
-#### 11.10.1 The gain is an interaction at W = 8, not a sum of two effects
+#### 11.10.1 The two mechanisms measured apart and together — and an excess neither explains
 
 Three comparisons, each run twice, each with its own in-run default half,
 interleaved within a run so drift reaches all three alike. `686dd6cb`, one
@@ -1620,13 +1620,55 @@ process per timed cell. Paired C(W) ratio, variant ÷ default
 
 The product of the two single-change ratios is ≈ 1.30 (`map`) and ≈ 1.48–1.50
 (`set`); the combination measures ≈ 2.07 and ≈ 2.56. The excess over the
-product is **1.60–1.71 at W = 8**. At W = 2 the same arithmetic gives 1.03,
-and at W = 4 it gives 1.05–1.09 — consistent with the two changes being
-independent there. The interaction is a W = 8 effect and appears at no lower
-writer count.
+product is **1.60–1.71 at W = 8**, against 1.03 at W = 2 and 1.05–1.09 at W = 4.
 
-No mechanism is attributed for it (§8.9). It is an arithmetic relation between
-measured ratios, not an observation of any microarchitectural event.
+**That excess is larger than an additive-overhead model permits, and is
+published here as unexplained (§8.20.4).** Write throughput as
+$X(W) = W \cdot X(1) / D(W)$ with $D$ carrying the overhead terms, so a paired
+ratio is $D_{\text{default}} / D_{\text{variant}}$. If one change removes $a$
+from $D$ and the other removes $b$, independently and additively, the excess
+over the product is $1 + ab / (D_d \cdot D_{12})$ — so *some* super-additivity
+is expected, and is not itself evidence that the two changes act on different
+terms. But $a + b$ is fixed by the measured combined ratio $\rho$, and
+$ab \le ((a+b)/2)^2$, which bounds the excess at
+
+$$E_{\max} = 1 + (\rho - 1)^2 / (4\rho)$$
+
+| cell | $\rho$ (both together) | product | excess observed | $E_{\max}$ | over the ceiling |
+|---|--:|--:|--:|--:|--:|
+| `map` run 1 | 2.0882 | 1.3032 | 1.602 | 1.142 | **4.25×** |
+| `map` run 2 | 2.0491 | 1.2795 | 1.601 | 1.134 | **4.48×** |
+| `set` run 1 | 2.5606 | 1.4788 | 1.731 | 1.238 | **3.08×** |
+| `set` run 2 | 2.5500 | 1.5023 | 1.697 | 1.236 | **2.96×** |
+
+No fixed pair of contention and coherency coefficients reproduces the shape
+either: fitting the excess at W = 2 and W = 8 over-predicts W = 4 by a factor
+of three, and fitting W = 4 and W = 8 under-predicts W = 8 by more than an
+order of magnitude. A flat excess through W = 4 followed by a jump at W = 8 is
+a regime change, not a polynomial in the writer count.
+
+**Consequence for how this table is read.** These are three measured
+configurations, not a decomposition of the gain into two attributable parts.
+The single-change cells are consistent with **masking** — with the writer state
+unpadded, writers serialise and counter contention is largely invisible, so
+"sharded counters alone = 1.25×" may be measuring a mechanism whose cost is
+hidden by a larger one, which §8.20.6 warns expires the moment the larger cost
+is removed. What the data supports is the marginal statement: sharding *given*
+padding is worth 2.003× on `map` and 1.939× on `set`; padding *given* sharding
+is worth 1.671× and 2.286×. It does not support "the sharded counters are worth
+1.25×" as a property of the counters.
+
+No mechanism is attributed to the excess (§8.9). It is an arithmetic relation
+between measured ratios that exceeds its own model's ceiling, and it is
+recorded as unexplained rather than resolved. Discriminating masking from the
+alternatives needs the §8.20.4 time-budget decomposition, a USL refit per cell,
+or PMU snoop counts — none of which was run here.
+
+**Supersedes** the framing first published in
+[#991](https://github.com/orieg/expanse/pull/991), which titled this section
+"The gain is an interaction at W = 8, not a sum of two effects" and presented
+the three cells as a decomposition. The measurements are unchanged; the reading
+of them is corrected.
 
 #### 11.10.2 The cost is the struct, not the accounting
 
