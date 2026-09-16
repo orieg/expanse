@@ -1916,3 +1916,283 @@ void run does not change the sample size.
   not attempt them concurrently, not because they cannot be done.
 - **No counter threshold.** Counters taken on an evaluated head are diagnostic
   and reported as such (AGENTS.md §8.9).
+
+
+## 18. Pre-registration for #730's readers-only measurement — the FFI string cell's R-curve (appended 2026-09-15, locked before any cell of the sweep runs)
+
+**Status: commit 2 of the three-commit cadence (AGENTS.md §8.8), locked before
+any cell of the R sweep runs.** It carries no measurement of its own. Every
+figure quoted below is read from an artifact already committed and named beside
+it, or from the reduction `README.md` §13 publishes, which this section invokes
+rather than restates. Commit 1 is `scripts/reader_scaling_bounds.py`. The data
+commit that follows names the SHA at which this section was pushed. Nothing here
+is rewritten in place once a run exists (AGENTS.md §8.7); a threshold, statistic,
+pin, estimator or round count changed after a run relabels that run
+`INTERMEDIATE` (§8.19). §1–§17 are not edited.
+
+Tracking issue: [#730](https://github.com/orieg/expanse/issues/730) (open).
+
+**This section registers a measurement, not a gate.** It registers what the R
+sweep on the FFI string cell predicts, what refutes each prediction, what
+controls run beside it, what voids a cell, and what the design cannot answer.
+It registers nothing that licenses shipping a change. §16 owns #730's fix gate
+and is not restated, extended or competed with here (§18.1).
+
+### 18.1 §16 owns the fix gate; this section does not re-register it
+
+§16 locks #730's fix gate as an **outcome** gate: the `str` readers-only cell's
+per-reader cost interval upper bound below a floor registered per pin —
+259.198 ns at pin `0-15`, 261.062 ns at one thread per physical P-core — with an
+R = 1 non-regression side condition, over two pins × two independent runs
+*(workload: `concurrency_readers_str`)*. That gate is met or not met entirely
+within §16. **No cell of this section's sweep is an input to it, and no verdict
+here can meet, fail or amend it.**
+
+Two things follow, and both are deliberate.
+
+**This sweep measures a different cell from the one §16 gates.** §16's gate
+reads the native readers-only instrument (`writer_scaling_readers_only`, one
+harness process per timed cell, the `str` arm's own prefill and a probe stream in
+which every probe hits). This section's sweep reads the FFI cell
+`masstree_conc_str`, which is a different harness, a different probe mix and a
+different process layout *(workloads differ: `concurrency_readers_str` vs
+`masstree_conc_str`)*. The two are not interchangeable and no figure from one is
+compared with a figure from the other anywhere in this section.
+
+**Where this section's source plan carried a gate, that gate is not registered.**
+The plan this section is adapted from stated its own fix gate, and it differed
+from §16 in two respects that are recorded here so the divergence is visible
+rather than silently resolved:
+
+- **A Masstree-parity clause.** The plan's gate required, as a second
+  condition, that the R = 8 per-reader cost be at or below the Masstree twin's
+  on the same run pair — the issue's competitive claim restated as parity on
+  symmetric pages. **§16 carries no such clause**, and §16.11 states in terms
+  that no comparison with Masstree or HOT is made and no ratio against a
+  competitor is formed. This section does not add one. A competitor ratio is
+  not registered here, is not a prediction here, and does not become a gate
+  condition by appearing in a measurement this section governs.
+- **A W = 1, R = 8 non-regression floor.** The plan's gate carried one. §16's
+  side condition is the R = 1 cell, and §16 registers no W = 1 floor. This
+  section does not add one either; the W = 1, R = 8 cells it runs are controls
+  (§18.6), reported with their per-round series and attached to no threshold.
+
+The plan also referenced a suite README section by a number that section no
+longer holds. Where it did, this section names the artifact instead.
+
+### 18.2 What is already decided, and what is not
+
+`README.md` §13 publishes the free reduction of the committed rounds
+(`scripts/reader_scaling_bounds.py --table`, byte-compared by that module's own
+self-test). It is the prior observation set for this registration and is cited,
+not restated. What it settles *(workload: `masstree_conc_str`)*:
+
+- **The two committed level families come from two procedures**, and the
+  between-run spread within a procedure is far smaller than the gap between
+  them: 34.888 and 34.895 M lookups/s for one harness process running every
+  round, against 28.651 and 28.713 pooled for one process per round. Which of
+  procedure, harness or engine separates the families is **not** decided by the
+  committed data.
+- **Rounds are not exchangeable in every artifact.** Round 1 is the lowest round
+  in three of the four one-process artifacts and lies beyond three scaled MADs
+  of the median in each.
+- **36% of the R = 1 → R = 8 growth in ns is the core clock**: 15.35 ns of
+  43.00 ns, from `frequency_share` on the committed counter pair. Cross-R
+  thresholds in this section are therefore stated on **cycles**, never on ns.
+- **Instructions fall** from R = 1 to R = 8, 477.17 to 476.54 per probe, with
+  the R = 8 interval entirely below R = 1's.
+- **The counter budget does not close.** `LLC-load-misses` per probe fall
+  (2.579 → 2.383); the `xsnp_hitm` and `l2_rqsts.rfo_miss` growths can cover at
+  most 7.80–31.18 and 0.081–0.325 cycles of the 136.15-cycle growth, and those
+  ceilings rest on a **hypothesised** per-event cost that no committed artifact
+  prices. At the upper end of that hypothesis ≥ 104.64 cycles per probe are
+  left with no counter behind them. That residue is reported as unexplained and
+  is assigned to no mechanism by subtraction (AGENTS.md §8.20.4).
+- **The reader-slot line hypothesis is refuted by arithmetic before any run**:
+  the read path stores to shared memory twice per probe, `l2_rqsts.rfo_miss`
+  grows by 0.0008 per probe, and the only reader of another thread's slot is
+  reachable only from a write path, which nothing calls at W = 0.
+
+Undecided, and what this sweep addresses: which level is current and why the
+families differ; whether the R-growth survives on cycles once the clock is held
+fixed; and the concurrent magnitude of the page-size asymmetry
+`METHODOLOGY.md` §3.3 already discloses.
+
+### 18.3 Instrument audit — what exists, and what a prediction waits on
+
+Every field, helper and selector named by a threshold below was opened before
+the threshold was registered. A threshold registered against an instrument that
+does not exist is unrunnable, so each row states its status and each prediction
+in §18.4 is labelled **runnable** or **contingent** accordingly. Nothing missing
+is substituted.
+
+| instrument the plan names | status | evidence |
+|---|---|---|
+| `reader_scaling_bounds.per_arm_interval` | **exists** | `scripts/reader_scaling_bounds.py:193` |
+| `reader_scaling_bounds.mde_from_rounds` | **exists** | `scripts/reader_scaling_bounds.py:225` |
+| `reader_scaling_bounds.frequency_share` | **exists** | `scripts/reader_scaling_bounds.py:239` |
+| `reader_scaling_bounds.unexplained_cycles` | **exists** | `scripts/reader_scaling_bounds.py:277` |
+| `reader_scaling_bounds.max_over_mean_bias` | **exists** | `scripts/reader_scaling_bounds.py:295` |
+| `reader_scaling_bounds.hugepage_ceiling` | **exists** | `scripts/reader_scaling_bounds.py:306` |
+| `reader_scaling_bounds.round_outliers` | **exists** | `scripts/reader_scaling_bounds.py:206` |
+| `reader_scaling_bounds.threshold_a` | **absent** | no definition anywhere under `scripts/`, `crates/` or `docs/` |
+| `hitm_cycle_ceiling` / `rfo_cycle_ceiling` | **absent under those names** | the generic `event_cycle_ceiling(per_probe_r1, per_probe_rk, cost_cycles)` exists at `scripts/reader_scaling_bounds.py:266` and takes the per-event cost as an argument |
+| `instructions`, `cycles`, `ref-cycles`, `task-clock`, `LLC-load-misses`, `l2_rqsts.rfo_miss`, `mem_load_l3_hit_retired.xsnp_hitm`, `context-switches` per thread | **exist** | `scripts/bench_counters.py:147-156`; the eight `reader/*` keys of `results/counters_masstree_conc_str_w0_r{1,8}.json` |
+| `cycle_activity.stalls_l3_miss` | **absent from the per-thread set** | not in `THREAD_EVENTS`, `scripts/bench_counters.py:147-156`; absent from both committed cells' `events` |
+| `dTLB-load-misses` per thread | **absent from the per-thread set** | present in `BASE_EVENTS` (process mode) at `scripts/bench_counters.py:132`, not in `THREAD_EVENTS`; absent from both committed cells' `events` |
+| `mem_load_l3_hit_retired.xsnp_{fwd,none,miss}` | **absent** | only `xsnp_hitm` is registered, `scripts/bench_counters.py:139` |
+| `machine_clears.memory_ordering` | **absent** | not in any registered event set |
+| per-cell extra events | **mechanism exists, unused by #730** | `Cell.extra_events` and `Cell.events()` at `scripts/bench_counters.py:238-242`; the precedent is `OPTIMISTIC_EXTRA_EVENTS` at `:169`. No #730 cell requests any extra event today |
+| `_masstree` counter cells (`masstree_conc_str_w0_r{1,8}_masstree`) | **absent** | `_conc` hardcodes `arm="expanse"`, `scripts/bench_counters.py:248`; the registry holds only `masstree_conc_str_w0_r1` and `_r8` at `:287`, `:290` |
+| harness `--arm <expanse\|masstree>` | **exists** | `crates/expanse-hot-bench/src/bin/masstree_concurrent.rs:540`, documented at `:42` |
+| `masstree_conc_str_w0_r{2,4}` counter cells | **absent** | not in the registry |
+| W = 0 at R ∈ {2, 4} in the throughput driver | **absent** | `CONCURRENT_MIXED_READERS = 8` is a scalar, `docs/benchmarks/masstree_comparison/scripts/run_all.py:66`; the C2 grid is W ∈ {0, 1, 2, 4, 8} × R = 8, so R = 1, 2 and 4 at W = 0 are not driver cells. R = 1 exists only as a `bench_counters.py` cell |
+| `run_all.py --cells` | **absent** | `main()` at `docs/benchmarks/masstree_comparison/scripts/run_all.py:681` selects with `--quick`, `--concurrent`, `--only-concurrent`, `--ab-base-bin`, `--ab-base-commit` and `--self-test` only |
+| `scripts/perf_counters.py` with `--arms strmap_get --pops --hit-pcts --runs` | **exists** | flags at `scripts/perf_counters.py:813-817`; `strmap_get` is a documented `EXPANSE_PERF_ARM` value at `crates/expanse/examples/perf_point_lookup.rs:39`, read at `:242`, unknown arms refused at `:341` |
+| `GLIBC_TUNABLES=glibc.malloc.hugetlb=1`, verified by `AnonHugePages` | **exists as committed practice** | `docs/benchmarks/masstree_comparison/README.md:597-600`, verified before interpretation |
+| `load.foreign_busy_cpus_since_prev` | **exists** | `scripts/check_bench_provenance.py:924`, `:927`; per-cell `load.foreign_busy_cpus` required at `:514-541` |
+| `EXPANSE_BENCH_PIN`, one thread per physical P-core | **exists** | `scripts/bench_pin.sh` |
+
+**What this audit costs the campaign.** Two of the five predictions are
+contingent on instrument work that has not landed, and the R ∈ {2, 4} arm of the
+curve needs both a cell selector and an R-list generalisation in the driver
+before it can be dispatched at all. Those are named as preconditions below, not
+worked around.
+
+### 18.4 Predictions, each with its refuter
+
+The source plan labelled these P11.0–P11.4; they are renumbered to this section.
+Every cross-R threshold is on **cycles per probe**; same-R thresholds are on ns.
+Thresholds are fixed here: 1.15×, 50%, 25%, 0.1, 8%, 4%, 0.01 and the control's
+1.15. Any later change to one of them is an `INTERMEDIATE` relabel with fresh
+rounds (§8.19).
+
+- **P18.0 — which level is current, and why the families differ. Runnable.**
+  Observations: **L** (the `a1982ff2` tree under its own harness and procedure,
+  re-run), **P** (head tree, the `sweep_concurrent` procedure, the single W = 0
+  R = 8 string cell), **B** and **H** (the base and head halves of a two-commit
+  AB artifact), **I** (instructions per probe at head against the committed
+  476.54 [476.50, 476.65]). Predicted: P ≈ H, so the procedure is not the cause;
+  L high and B low, so harness or engine is; I unchanged, in which case the
+  engine branch needs cycles rather than counts to survive. **REFUTED as
+  "engine"** if B overlaps H with I unchanged and L ≈ P. **REFUTED as
+  "harness"** if P and H separate, in which case the procedure is the cause and
+  both committed families are right about different instruments. **Any verdict
+  read without L, P and I is void.** Because the per-process layout mode is
+  bimodal at the sibling cell, L and P run at least 15 rounds each and their
+  per-round series is published; a bimodal series is reported as bimodal, never
+  as a mean.
+- **P18.1 — the cost is mostly per-probe. Contingent on `threshold_a`.**
+  The prediction is that the head R = 1 reader cycles-per-probe interval lower
+  bound is at or above `reader_scaling_bounds.threshold_a(...)`, instantiated
+  from the hit = 50 `strmap_get` comparator's interval upper bound and committed
+  before the R ≥ 2 cells are read. **REFUTED** if the head R = 1 cycles interval
+  upper bound is within 1.15× of the comparator's lower bound. `threshold_a`
+  does not exist (§18.3); this prediction is registered as contingent on it
+  landing in `scripts/reader_scaling_bounds.py` with a pinned reference value,
+  and **is not evaluated until it does**. No substitute statistic is registered
+  in its place. The comparator run itself is runnable today.
+- **P18.2 — the R-growth is loaded memory latency rather than line transfer.
+  Contingent on three absent instruments.** Registered on cycles:
+  `cycle_activity.stalls_l3_miss ÷ read_ops` grows monotonically over R with
+  non-overlapping intervals and accounts for at least 50% of the cycles growth
+  by `event_cycle_ceiling` and `unexplained_cycles`; `xsnp_hitm` growth stays at
+  or below 25% of it at the highest plausible per-event cost; `LLC-load-misses`
+  does not rise; and the Masstree twin's R = 8 ÷ R = 1 reader cycles ratio is
+  within 0.1 of Expanse's. **REFUTED** if `xsnp_fwd` + `xsnp_hitm` growth
+  explains at least 50% of the cycles growth at the *lowest* plausible cost, or
+  if a `PA cnt == 1`-filtered c2c report names an engine line with the sample
+  floor met. Confidence: medium on the sign, low on the share. This prediction
+  waits on `cycle_activity.stalls_l3_miss` and the `xsnp_{fwd,none,miss}`
+  breakdown being added to the per-thread event set, and on the `_masstree`
+  counter cells existing; all three are absent (§18.3). Until then it is
+  registered and **not evaluated**. The per-event cost in every ceiling remains
+  a stated hypothesis, not a measurement.
+- **P18.3 — instructions do not grow with R. Runnable.** Single criterion: the
+  head R = 8 `instructions ÷ read_ops` interval upper bound is at or below the
+  R = 1 interval upper bound. **REFUTED** if it is above. The committed prior
+  shows a 0.6-instruction fall with non-overlapping intervals, so a fall
+  confirms.
+- **P18.4 — the concurrent magnitude of the page-size asymmetry. Partly
+  contingent.** Read on the single-arm counter cells, where the process-wide
+  tunable reaches one engine at a time: R = 1 reader cycles per probe fall by at
+  least 8%, `dTLB-load-misses` per probe fall below 0.01, instructions are
+  unchanged, and the R = 8 ÷ R = 1 cycles ratio does not rise. **REFUTED** if
+  R = 1 cycles fall by less than 4% with `AnonHugePages` verified non-zero. The
+  cycles and instructions clauses are runnable; the `dTLB-load-misses` clause is
+  **contingent** on that event being added to the per-thread set, and is not
+  evaluated until it is. The single-threaded prior for the treatment is a −11.2%
+  change in cycles per probe *(workloads differ: `strmap_get` single-threaded at
+  `b1868813` vs `masstree_conc_str`)*, which is a prior and not a prediction for
+  a concurrent cell. On the two-arm throughput sweep the tunable also reaches the
+  competitor's incidental allocations, so the ratio under it is published as
+  paired-process rather than as a one-arm delta.
+
+### 18.5 Counters here are diagnostic, and are not gate inputs
+
+§16 registered **no counter threshold** and labelled counters taken on an
+evaluated head diagnostic, because the module's event ceilings convert counts to
+cycles through a per-event cost that no committed artifact prices. P18.1, P18.2
+and P18.4 read counters and attach thresholds to them. That is consistent with
+§16 and does not amend it: **a threshold on a diagnostic prediction is not a gate
+input.** Stated so no later reader mistakes one for the other —
+
+- a **refuted P18.2 is not a failed gate**, and a confirmed P18.2 is not a met
+  one. §16's gate reads per-reader cost on a different cell and reads no counter
+  at all;
+- no verdict in this section makes §16's gate met, unmet, harder or easier;
+- every cycles ceiling quoted here carries its hypothesised per-event cost, and
+  the unexplained remainder stays unexplained (AGENTS.md §8.20.4);
+- the counter figures are exact per-round counts reduced to means and intervals;
+  where a figure is a deterministic count it carries no interval, which is
+  correct rather than missing.
+
+### 18.6 Controls
+
+- The integer cells at W = 0 over the same R values, both suites, with an
+  R = 8 ÷ R = 1 cycles ratio at or below 1.15 — the control that separates a
+  string-specific effect from a host-wide one.
+- **The Masstree twin's own R-curve**, run in the same sweep. It is the free
+  symmetric baseline (AGENTS.md §8.3): if the competitor's R = 8 ÷ R = 1 cycles
+  ratio degrades by the same factor, the degradation is the machine and the
+  differential explanation is dead. It is a control on a mechanism question, and
+  it is **not** a gate condition and forms no published competitive ratio
+  (§18.1).
+- Every existing Callgrind arm at 0.00%: this campaign changes no engine code,
+  so any movement is an instrument defect, not a result.
+- The W = 1, R = 8 string throughput and health cells, reported with their
+  per-round series and attached to no threshold.
+
+### 18.7 What voids a cell
+
+§6 applies in full. In addition:
+
+- any verdict on P18.0 read without all three of L, P and I;
+- any cell whose `load.foreign_busy_cpus_since_prev` exceeds 1.0, or a load
+  shift above 2 between the halves of a pair;
+- a c2c round taken from an `occ-stats` build;
+- thread placement not recorded, or not one thread per physical P-core;
+- a bimodal per-round series reduced to a mean;
+- any threshold evaluated on a median, or on ns across R rather than cycles;
+- an evaluation of a prediction §18.3 marks contingent, taken before the
+  instrument it names exists.
+
+A void cell is discarded whole and the discard is disclosed beside the result
+(AGENTS.md §8.17), never silently.
+
+### 18.8 What this design cannot answer
+
+- **The scaling coefficient behind reader–reader sharing is not identifiable on
+  an eight-P-core pin.** The clock term at R = 4 is a large share of the
+  discriminating quantity, and the retrograde point of a pure-coherency model
+  lies outside the pin. R ∈ {2, 4} are published as the curve and are used in no
+  threshold.
+- **A closed loop with no think time and R at or below the core count measures
+  the saturation asymptote and locates no knee.**
+- **Nothing about the fix.** Whether any change meets #730's gate is §16's
+  question on §16's cell, and no measurement registered here answers it.
+- **No competitive claim.** No ratio against Masstree or HOT is formed, and the
+  retracted readers-only string figures remain retracted and are not restored,
+  re-derived or replaced by anything in this section.
+- **Not predicted:** writer-count cells, the bytes and blob wrappers, any other
+  host, and any level, direction or magnitude for a future head.
