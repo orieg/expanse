@@ -237,8 +237,10 @@ When introducing fine-grained metric attribution, split counters, or state-based
      a. **Condition pairing**: Each occurrence of `if <condition>` is followed within a tightly bounded line window ($\le 4$ lines) by the state mutation (`flag = value;`).
      b. **Exclusivity**: The state mutation (`flag = value;`) occurs *nowhere else* in the source file.
      c. **Call-site count**: The classification helper is called at exactly the expected number of exit sites.
+     d. **A source scanner is only as good as its mutation test.** Matching raw source counts the pattern inside comments, doc prose and string literals, so a scanner can stay green while the code it guards is disabled — the same self-satisfying failure that *String-Gated Inverted Assertions for Negative Controls & Canary Tests* (below in this section) forbids for exit codes. Every structural scanner MUST be demonstrated to turn red when the guarded code is commented out, and that demonstration recorded. **A filter is not the demonstration**: a predicate that tests only the *start* of a trimmed line still counts a trailing `foo(); // pattern(`, and a whole-file `.matches()` census counts every occurrence in doc prose. Filtering is a means to pass the mutation test, never a substitute for running it.
 3. **Decision-Point Mutation for §2.3 Fail-Then-Pass**:
    - The §2.3 fail-then-pass demonstration MUST break the attribution decision point (e.g. delete one of the `flag = value;` assignments or invert the condition) and observe a deterministic test failure. Breaking only the pure mapping function is insufficient.
+   - **One negative control per clause.** A compound gate — an exact site count AND a proximity line window, a threshold AND a freshness check — MUST be shown to fail on each clause independently: violate the count and observe the count assertion fail; violate the window and observe the window assertion fail. A compound assertion exercised under one failure mode leaves the other clause decorative.
 4. **Partition Sum Identity Signposting**:
    - Exact sum identities ($\sum \text{subsets} == \text{primary\_counter}$) prove accounting completeness and absence of double-counting, but mathematically cannot detect a mislabeled category.
    - PR descriptions and documentation must explicitly signpost whether per-site category assignments are verified by runtime discriminators or by code review.
@@ -261,6 +263,11 @@ When introducing fine-grained metric attribution, split counters, or state-based
 - When allocating raw node or value buffers by hand in unit test fixtures (e.g. `alloc.alloc_bytes(...)`):
   - Always bind the raw allocation to an RAII guard struct whose `Drop` implementation calls `alloc.free_bytes(...)`.
   - This guarantees that both normal test completion and panic unwinding (`#[should_panic]`) return the memory to the allocator/collector, preventing LeakSanitizer failures in CI ASan runs.
+
+### Unsafe Views over Partially Initialised Storage
+When building a view with `core::slice::from_raw_parts` over the initialised prefix of a fixed array:
+1. **Soundness rests on the caller contract**, documented in `# Safety` and verified under Miri's uninitialised-memory detector. An indexing panic elsewhere in the function does not establish it: reading more elements than were written is undefined regardless.
+2. **Match the register to the claim.** `debug_assert!` for an internal invariant already pinned by the contract and its tests. A release `assert!` is not described as a hot-path cost without an isolating instruction measurement (§6 *Profile First, Measure Every Increment, Record the Negatives*; §8.9 items 1–2); unmeasured, that is a candidate, not a finding.
 
 ### `#![no_std]` Algorithmic Fallbacks & Security Property Signposting
 - When providing `#![no_std]` fallbacks for standard library primitives that carry security guarantees (such as process-randomized `std::hash::RandomState` for hash-flooding DoS resistance):
