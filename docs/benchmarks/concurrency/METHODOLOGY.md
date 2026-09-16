@@ -1340,3 +1340,579 @@ void run does not change the sample size.
   prices (§16.4).
 - **No statement about the cause of the non-exchangeable rounds** (§16.6), which
   is unmeasured.
+
+## 17. Pre-registration for #929 — the `SyncExpanseStrMap` multi-writer design (appended 2026-09-15, locked before any engine code on the string wrapper's write path)
+
+**Status: commit 2 of the three-commit cadence (AGENTS.md §8.8), locked before
+any #929 engine change and before any run toward the gate.** It carries no
+measurement of its own. Every figure quoted below is read from an artifact
+already committed by #974 and #979 and named beside it, or derived here with
+its arithmetic shown. Commit 1 is `scripts/reader_scaling_bounds.py`, whose
+`mde_from_rounds` §17.6 invokes rather than restates, and the `str` writer arm
+of `crates/expanse/examples/writer_scaling.rs` and
+`docs/benchmarks/concurrency/scripts/writer_scaling.py`. Nothing here is
+rewritten in place once a run exists (AGENTS.md §8.7); a threshold, statistic,
+pin, estimator or round count changed after a run relabels that run
+`INTERMEDIATE` (§8.19). Outcomes are appended to `README.md` with their verdict
+labels, and amendments are appended here as dated subsections.
+
+Tracking issue: [#929](https://github.com/orieg/expanse/issues/929) (open).
+§1–§16 are not edited.
+
+**Scope: the string wrapper only.** `SyncExpanseBytesMap` and
+`SyncExpanseBlobMap` are #929's other two wrappers and get their own
+registrations, informed by whether this design works. In particular
+`SyncExpanseBlobMap::compact` and what an arena-backed value must exclude are
+**deferred to the blob registration**, and nothing in this section binds that
+choice: no threshold, instrument, verdict or design statement here applies to
+either wrapper.
+
+### 17.1 The claim this gate would license, in full
+
+*On the reference host, at the registered pins, round count and workload,
+`SyncExpanseStrMap`'s writers scale better with writer count than they do on
+the mutex build this gate is measured against, by the paired C(W) ratio at
+W ∈ {2, 4, 8}, in two independent runs at each of two pins.* Nothing wider.
+
+It is a statement about an outcome on named cells of one arm. It is **not** a
+statement about a mechanism: a head that meets the gate is credited with
+meeting the gate, and which structure stopped contending is a separate question
+with its own instrument. It is not a statement about `SyncExpanseBytesMap`,
+`SyncExpanseBlobMap`, the string wrapper's readers (#730, open), any competitor
+tree, any other host, or remove-heavy or mixed workloads — `writer_scaling`
+measures inserts only.
+
+### 17.2 The design, registered before it is written
+
+#929 step 3 asks three questions of each wrapper. They are answered here for
+`str`, from the code at `a969689a`, with `file:line` anchors rather than from
+recollection. Where the code does not settle a question, §17.2.4 says so
+instead of filling the gap.
+
+#### 17.2.1 The node forms, the transitions, and what covers each store
+
+**The encoding.** A key is cut into 8-byte big-endian chunks
+(`chunk_at`, `crates/expanse/src/strmap.rs:321`). A chunk with fewer than eight
+bytes remaining is *terminal* and its entry holds the user value directly; a
+non-terminal chunk's entry is a tagged word — tag 0 a `*mut StrNode` child
+(`pack_child`/`unpack_child`, `strmap.rs:171`, `:177`), tag 1 a `*mut StrSuffix`
+leaf (`pack_suffix`/`unpack_suffix`, `strmap.rs:161`, `:166`); module doc
+`strmap.rs:22-27`.
+
+**The two node forms.**
+
+- `StrNode { map: MapCore }` (`strmap.rs:191-193`) — a meta-trie branch is
+  exactly one word-map engine core, and nothing else. Its size is pinned equal
+  to `MapCore` and at most 64 bytes by `str_node_is_just_the_map_core`
+  (`strmap.rs:2153-2160`).
+- `StrSuffix { value, len }` with the remaining key bytes inline in the same
+  allocation (`strmap.rs:78-81`, bytes at `SUFFIX_BYTES`, `strmap.rs:104`).
+  Header and bytes are write-once after publication; only `value` mutates in
+  place (`strmap.rs:70-76`).
+
+**Every transition a mutation can take**, enumerated from the entry points:
+
+| # | entry point | transition | the store, and where it lands |
+|---|---|---|---|
+| T1 | `insert` `strmap.rs:1217` | terminal chunk | `MapCore::insert_pathless` into this node's sub-map (`:1232`) |
+| T2 | `insert` | continuation absent | `new_suffix` (`:113`) then `insert_pathless` of the tagged word (`:1240-1241`) |
+| T3 | `insert` | suffix present, remainder equal | in-place replace of the value word (`:1259`) — the only in-place payload mutation |
+| T4 | `insert` | suffix present, remainder diverges | `split_suffix` (`:1188-1213`): a private child `StrNode` is built and populated (`:1201`, `:1207`), published with one `insert_pathless` over the suffix entry (`:1211`), and the old suffix disposed (`:1212`) |
+| T5 | `insert` | child present | descend (`:1268`) — no store |
+| T6 | `ins_slot` `strmap.rs:1278` | terminal chunk | `ins_slot_pathless` (`:1297`); otherwise T2/T3/T4/T5 (`:1306`, `:1313-1331`) |
+| T7 | `remove` `strmap.rs:1489` → `StrNode::remove` `:720` | terminal chunk | `remove_pathless` (`:737`) |
+| T8 | `remove` | suffix match | `remove_pathless` then `dispose_suffix` (`:745-751`) |
+| T9 | `remove` unwind | emptied child pruned | `remove_pathless` on the **parent** then `dispose_node` (`:771-777`) — the one transition that propagates upward |
+| T10 | `remove` | meta-trie root emptied | `self.root.take()` then `dispose_node` (`strmap.rs:1497-1505`) |
+| T11 | `insert`/`ins_slot` | meta-trie root absent | a root `StrNode` is created (`strmap.rs:1225-1227`, `:1286-1288`) |
+| T12 | `clear` `strmap.rs:1584` | whole tree | `dispose_tree` (`:283`) |
+
+**What covers each store today.** Every one of T1–T12 runs inside
+`Shared::write` (`crates/expanse/src/sync.rs:1654`), reached from
+`SyncExpanseStrMap::insert` (`:8019`), `remove` (`:8025`), `clear` (`:8030`) and
+`with_locked_mut` (`:8093`). That function takes the writer mutex and holds the
+**one tree version word** open across the whole operation, and the wrapper's
+sub-tries run the engine's nested mode (`docs/ARCHITECTURE.md` §4.1).
+
+**Which of them could be mutated under a node version lock.** T1, T7 and the
+sub-map half of T2, T4, T8 and T9 are ordinary word-map mutations inside a
+`MapCore`, and the engine's Phase 4A–4F paths already perform that class under
+a parent branch's version word when the sub-map's root is a tree
+(`docs/ARCHITECTURE.md` §4.2). T3 is a single covered word write. What none of
+them can do today is take a *per-sub-map* cover, for two structural reasons
+that are properties of the code and not of this design:
+
+1. **A sub-map's root state carries no version word.** `Root::Empty`,
+   `Root::Leaf` and `Root::Tree` (`crates/expanse/src/map.rs:831`, `:837`,
+   `:848`) are covered by the tree-level word; only branch headers carry a word
+   of their own (`docs/ARCHITECTURE.md` §4.1). A `StrNode` whose sub-map is
+   empty or a root leaf therefore has no word anywhere to lock.
+2. **The cover word is reached through the allocator, and the string map has
+   one allocator for every sub-trie.** The engine finds its word through
+   `NodeAlloc::bind_tree_word` / `tree_cover_addr`
+   (`crates/expanse/src/alloc.rs:922`, `:936`, `:951`), bound once per
+   allocator; `ExpanseStrMap` deliberately shares a single `NodeAlloc` across
+   every sub-trie (`strmap.rs:11-14`, `defer_to` `:1129`, `:1137`), which is
+   what keeps a `StrNode` at one map root instead of ~700 bytes. One allocator
+   is one bound word.
+
+**The design registered, therefore:** a **per-`StrNode` cover word**, covering
+that node's sub-map root state and its tagged continuation entries, with the
+engine's existing per-node words covering the sub-map interior when that
+sub-map is a tree; writers enter through the wrapper's writer-entry path
+(`Shared::enter_writer_blocking`, `sync.rs:1579`) and couple hand-over-hand
+down the chunk chain, one cover per hop. Reaching a per-node word requires the
+engine to take its cover per operation rather than from the allocator binding
+above — which of the two available shapes (a word passed down the descent, or
+a second binding mechanism) is an implementation choice this section does not
+fix, because the gate is an outcome gate and neither shape is measured here.
+
+**Two consequences of that word, named now rather than discovered later
+(AGENTS.md §2.3).** A `StrNode` gaining a version word grows past
+`size_of::<MapCore>()`, so `str_node_is_just_the_map_core`
+(`strmap.rs:2153-2160`) fails and is part of the change, with its ≤ 64-byte
+bound re-argued rather than deleted; and `ExpanseStrMap` does not implement
+`RootState` today (the only impls are `ExpanseMap`, `sync.rs:1353`, and
+`ExpanseSet`, `:1360`), so `write_root_covered` (`sync.rs:1713`) and the whole
+`olc_*` route are not reachable for the string wrapper at all until it does.
+
+#### 17.2.2 What a writer must hold for the suffix, and how readers validate
+
+**The writer.** A suffix block is write-once after publication except its value
+word (`strmap.rs:70-76`). A writer that publishes one must allocate it
+(`new_suffix`, `:113`), store the tagged word into the parent `StrNode`'s
+sub-map under that node's cover (T2, T4), and retire the superseded block
+through the epoch collector (`dispose_suffix`, `:205-224`) — never free it
+inline, since a reader that validated the old tagged word may still be reading
+the header and bytes under its pin. T3's in-place value write is the one store
+that mutates a published block, and it stays a single word under the cover of
+the node holding the entry that points at it.
+
+**The reader, and the hazard this design creates.** `StrReader::get`
+(`sync.rs:8117`) calls `ExpanseStrMap::get_validated` (`strmap.rs:1396`), which
+walks one sub-map per chunk. Each hop enters `walk_validated::<true>`
+(`sync.rs:192`) with `Cover::Tree(ver, snap)` (`sync.rs:158-176`, `:198`) and
+moves to `Cover::Node` inside the sub-map; **between hops, and on the suffix
+arm before returning, the reader re-validates the tree version**
+(`strmap.rs:1440-1447`). A design in which writers no longer bump the tree word
+therefore leaves those checks validating a word nobody moves, which is the
+precise failure the reader half of this design must prevent: the cross-hop
+check and the suffix arm's check move to the cover word of the `StrNode` whose
+entry was read, sampled before the entry is loaded and re-validated after it,
+as `walk_validated` already does within a sub-map. `SyncExpanseStrMap::len`
+(`sync.rs:8059`) keeps the tree word, and `with_locked` / `read_locked`
+(`sync.rs:1844`, `:1815`) keep closing the gate and quiescing writers.
+
+This is the first item of the §2.3 five-subsystem audit, and it is the reason
+the coverage in §17.5 is registered as a precondition rather than a follow-up.
+
+#### 17.2.3 What stays behind a bounded fallback, and the rate registered
+
+Registered as staying behind the blocking fallback (`write_root_covered`
+behind `fallback_mutex`, `sync.rs:1732`, which quiesces writers and serialises):
+
+- **T11**, creation of the meta-trie root, and **T10**, its removal — root-state
+  transitions of the wrapper itself.
+- **T12**, `clear`, which is a whole-tree disposal.
+- **T9**, the upward prune of an emptied child, which mutates a node the
+  descent has already left.
+- Whatever the engine's own OLC path already falls back on inside a sub-map:
+  the `FallbackCause` set is `CapExpansion`, `ImmediateConversion`,
+  `BranchSplit`, `RootGrowth`, `Contention`, `UnknownTag` (`sync.rs:1967-1987`),
+  and a sub-map in `Root::Empty` or `Root::Leaf` state raises `RootGrowth`.
+
+**The rate registered, and its derivation.** The declared workload is
+`concurrency_writer_str`: a 2^20-key prefill, then 2^20 fresh keys inserted by
+W writers over contiguous disjoint slices (`writer_scaling.rs:800-867`,
+generator `:600-643`). Keys are alphanumeric over a 62-symbol alphabet
+(`fill_alnum`, `:543-548`) with length `8 + rng % 9`, so every key is 8 to 16
+bytes.
+
+- A key of at least 8 bytes never presents a terminal first chunk (`chunk_at`,
+  `strmap.rs:321`), so **T1 cannot occur at the meta-trie root** on this
+  workload.
+- Two keys share a first chunk only if their first 8 bytes agree. Over
+  2^21 = 2,097,152 keys drawn from 62^8 ≈ 2.1834 × 10^14 first chunks, the
+  expected number of colliding pairs is
+  C(2^21, 2) ÷ 62^8 ≈ 2.1990 × 10^12 ÷ 2.1834 × 10^14 ≈ **0.0101** (derived).
+- So essentially every fresh insert is **T2**: one suffix allocation plus one
+  `insert_pathless` of a tagged word into the *root* `StrNode`'s sub-map, which
+  holds about 2^20 entries and is in tree root state. T4, T5, T9 and T10 occur
+  on this workload only at that rate, and T11 exactly once per cell —
+  1 ÷ 1,048,576 ≈ 9.5 × 10^-7 of inserts (derived).
+
+The prediction, fixed before any run: **the structural fallback rate
+(`fallback_causes_total` less `contention`, over `write_ops`) is below
+1 × 10^-3 at every W ∈ {1, 2, 4, 8}, and the total `fallback_rate` is below
+1 × 10^-2 at every W.** A head above either is `REFUTED` on that prediction and
+the outcome is published whatever the throughput cells say, because a design
+whose fallbacks are common is not the design registered here. The comparison
+band this sits in: the `map` arm, whose insert into a 2^20-key word map is the
+same engine work the dominant T2 path performs, records `fallback_rate` 0.0 in
+three of the four committed W = 8 cells and 1 × 10^-6 in the fourth
+*(workloads differ: `concurrency_writer_map_64bit` vs `concurrency_writer_str`;
+`results/baseline_writer_scaling_170a4bc3_*.json`)*.
+
+#### 17.2.4 What the code does not settle, and is not invented here
+
+- **Whether each of T1–T9 can be performed without a structural fallback under
+  a per-`StrNode` cover is not decidable from the code alone**, because the
+  cover does not exist yet: §17.2.1's two structural facts mean the answer
+  depends on how the engine is given a per-node word, and no committed artifact
+  prices either shape. What is registered is the outcome gate and the fallback
+  rate; the per-transition answer is reported by the implementation with its own
+  counters (the `fallback_causes_total` partition the driver already checks) and
+  is not predicted here.
+- **The per-insert suffix allocation is not addressed by this design.** T2
+  allocates outside the shared `NodeAlloc` on every insert, and the `allocation`
+  category is 20.13% of `sync_strmap_insert`'s exclusive Ir
+  *(measured: x86_64 Linux in a container, `9b5a6d05`; `README.md` §14.3;
+  workload: `core_instructions`)*. Whether W concurrent allocators help or hurt
+  at W = 8 is **unmeasured**, and §15.2 records that process-wide allocator
+  state moves writer cells by an amount it labels a hypothesis with the carrying
+  mechanism unmeasured. No prediction is registered on it.
+- **Which structure, if any, stops contending** — see §17.9.
+
+### 17.3 The gate
+
+Stated verbatim, and evaluated per cell:
+
+> **The #929 `str` multi-writer gate.** For a build *b* and writer count W, let
+> C_b(W, r) = `writer_mops`(b, W, r) ÷ `writer_mops`(b, 1, r) be the paired
+> per-round scaling factor of the `str` arm, taken within round *r* of one
+> interleaved comparison run. Let the per-round gate statistic be
+> R(W, r) = C_head(W, r) ÷ C_main(W, r), and let its interval be the BCa 95%
+> interval over the round series (2,000 resamples). A cell — one (W, pin, run)
+> — **PASSES** iff the **lower** bound of that interval is strictly above 1.0.
+> The gate cells are W ∈ {2, 4, 8}; W = 1 is the control cell, and it fails if
+> the BCa 95% interval of the per-round ratio
+> `writer_mops`(head, 1, r) ÷ `writer_mops`(main, 1, r) lies wholly below 1.0.
+> **The gate is met at a head** when all twelve gate cells pass — three writer
+> counts × two pins (`0-15` and `0,2,4,6,8,10,12,14`) × two independent runs —
+> and no control cell fails. A cell whose interval contains 1.0 is
+> `INCONCLUSIVE`; a cell whose interval lies wholly below 1.0 is `REFUTED`.
+>
+> **Single-threaded Callgrind, a precondition and not a term in the interval
+> arithmetic above.** On the head's own `instruction-counts` job: each of
+> `sync_strmap_insert`, `sync_strmap_remove`, `sync_strmap_churn`,
+> `sync_strmap_insert_short`, `sync_strmap_churn_short` and
+> `sync_strmap_get_short` at most +5.0% against main, and each of the
+> plain-tree arms `strmap_insert`, `strmap_get`, `strmap_churn` and
+> `strmap_get_short` at most +0.1%, AGENTS.md §6's review threshold. This
+> registration pre-authorises no `allow-regression:` override.
+
+**Why W ∈ {2, 4, 8} and not W = 8 alone.** #929's Gates section asks for the
+paired ratio's lower bound above 1.0 "at W ≥ 2". Reading that as *every* W ≥ 2
+the suite measures is the strict reading, and it is fixed here, before any run,
+so that a head cannot later be reported as meeting the gate on the one writer
+count that moved. The cost is that a head which improves W = 8 while leaving
+W = 2 unchanged does not meet the gate; §17.8 records that as an expected loss
+rather than a surprise.
+
+**Why the ratio of ratios, and not the W = 8 level.** AGENTS.md §8.20.2: an
+optimisation is not a concurrency improvement because it made the
+single-threaded baseline faster. Dividing by each build's own W = 1 cell,
+within the round, is what separates the two; the W = 1 control is published
+beside every verdict so a head that only moved the baseline is visible as such.
+
+**Every input, and the artifact field it is read from.** All paths are relative
+to `docs/benchmarks/concurrency/`.
+
+| gate input | where it is read from |
+|---|---|
+| the cells | elements of `throughput` (build `default`, the main build) and `throughput_variant` (the head build) with `arm` `str` and `writers` ∈ {1, 2, 4, 8} |
+| the per-round series | each cell's `rounds_raw`, in `round` order, field `writer_mops`, matched round for round between the two builds |
+| the interval | BCa 95% over the round series of R(W, r), 2,000 resamples (`scripts/bca_bootstrap.py`, the construction the driver uses for `scaling_factor_c_n_ci_*`) |
+| reported beside it, not gated | `expanse_writer_mops_mean` with `writer_ci_lower` / `writer_ci_upper`, `scaling_factor_c_n_mean` with its interval, `lock_fallbacks`, `fallback_rate`, `fallback_causes_total`, `contention_subsets_total`, `lock_restarts_per_insert`, `gate_blocked_entries_per_insert`, `gate_wait_cycles_per_insert`, `retired_per_insert` |
+| the fallback prediction (§17.2.3) | `fallback_rate` and `fallback_causes_total`, over `write_ops` — which is the harness's fresh-key count, not `Stat::WriteOps` (`scripts/writer_scaling.py:604-605`, `writer_scaling.rs:2671`) |
+| the round count | each cell's `rounds` |
+| the pin | `provenance.core_pin`, and each cell's `cpu_pin` |
+| the commits | `provenance.commit`, and the comparison run's per-build commit fields |
+| cell isolation | `provenance.cell_isolation`, which must read `process` (§15) |
+| host load | each cell's `load`, and `provenance.loads` |
+
+### 17.4 The baseline this is measured against
+
+The mutex build the gate compares against is the `str` arm as it stands, whose
+committed levels are the #974 baselines at engine, harness and driver commit
+`170a4bc3`: two pins, two independent runs each, 8 rounds per cell, one harness
+process per timed cell. The rows below are read from the four artifacts
+programmatically, not retyped from `README.md` §15.2.
+
+*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads, kernel
+6.8, governor `powersave` on every pinned CPU, transparent huge pages
+`madvise`; engine, harness and driver at `170a4bc3`; workload:
+`concurrency_writer_str`; `results/baseline_writer_scaling_170a4bc3_pin0-15.json`,
+`_pin0-15_run2.json`, `_percore.json`, `_percore_run2.json`)*
+
+| pin | run | W = 1 M ops/s [BCa 95%] | W = 2 [BCa 95%] | W = 4 [BCa 95%] | W = 8 [BCa 95%] |
+|---|--:|---|---|---|---|
+| `0-15` | 1 | 4.0558 [4.0457, 4.0647] | 2.5843 [2.5508, 2.6243] | 2.3470 [2.3096, 2.3838] | 2.1297 [1.9531, 2.2266] |
+| `0-15` | 2 | 4.0801 [4.0722, 4.0855] | 2.6981 [2.5816, 2.9040] | 2.3216 [2.2961, 2.3533] | 1.8702 [1.4479, 2.1116] |
+| `0,2,4,6,8,10,12,14` | 1 | 4.0821 [4.0736, 4.0875] | 2.6600 [2.5765, 2.8718] | 2.3461 [2.3123, 2.3961] | 0.4657 [0.4613, 0.4723] |
+| `0,2,4,6,8,10,12,14` | 2 | 4.0821 [4.0673, 4.0913] | 2.8690 [2.7290, 3.0109] | 2.3408 [2.3040, 2.3814] | 0.4650 [0.4611, 0.4698] |
+
+| pin | run | C(2) [paired BCa 95%] | C(4) [paired BCa 95%] | C(8) [paired BCa 95%] | `fallback_rate` |
+|---|--:|---|---|---|--:|
+| `0-15` | 1 | 0.6372 [0.6281, 0.6471] | 0.5787 [0.5692, 0.5886] | 0.5251 [0.4815, 0.5489] | 0.0 |
+| `0-15` | 2 | 0.6612 [0.6331, 0.7107] | 0.5690 [0.5637, 0.5766] | 0.4585 [0.3552, 0.5185] | 0.0 |
+| `0,2,4,6,8,10,12,14` | 1 | 0.6516 [0.6313, 0.7032] | 0.5748 [0.5664, 0.5877] | 0.1141 [0.1129, 0.1157] | 0.0 |
+| `0,2,4,6,8,10,12,14` | 2 | 0.7027 [0.6702, 0.7372] | 0.5734 [0.5649, 0.5829] | 0.1139 [0.1129, 0.1152] | 0.0 |
+
+**`fallback_rate` 0.0 here does not mean "no fallbacks".** The string wrapper
+has no optimistic path to fall back *from*: every mutation takes
+`Shared::write` (`sync.rs:1654`), which bumps `Stat::WriteOps` and never
+`Stat::LockFallbacks`. The column becomes informative only once the design
+lands, which is why §17.2.3's prediction is registered against it now.
+
+**Both pins, never pooled, and the pin decides the comparison
+(AGENTS.md §8.20.5 step 0).** `str` is the arm where the two placements
+separate most: `README.md` §15.3 records its W = 8 level and C(8) lower
+per-core than at `0-15` in both runs, and the intervals above are disjoint —
+C(8) 0.5251 [0.4815, 0.5489] and 0.4585 [0.3552, 0.5185] at `0-15` against
+0.1141 [0.1129, 0.1157] and 0.1139 [0.1129, 0.1152] one thread per physical
+P-core *(workload: `concurrency_writer_str`)*. A cell is comparable only
+against a cell under the same pin; the gate requires both, and every prediction
+in §17.8 names the pin it is evaluated on. Neither placement is the "true" one
+and which reads higher on an evaluated head is not predicted.
+
+### 17.5 Coverage each new transition must carry, as a precondition
+
+Registered now so a head cannot arrive with the gate met and the coverage
+deferred. None of these is a term in §17.3's arithmetic; a head missing any of
+them is not evaluated.
+
+- **Loom.** One model per new concurrent transition class, each with the line
+  whose deletion turns it red, beside the existing models in
+  `crates/expanse/src/occ.rs:2635-3308` and
+  `crates/expanse/src/sync.rs:12161`, and run by the `loom` CI job
+  (`.github/workflows/ci.yml:1909-1930`). At minimum: two writers publishing
+  into one `StrNode`'s sub-map entry are mutually excluded; a superseded suffix
+  or child is marked and retired only after the entry pointing at it is
+  rewritten (the S3 property, for the tagged word); and a reader's cross-hop
+  check validates the word the writer actually bumps — the hazard §17.2.2
+  names, whose negative control is a model that is red when the cross-hop check
+  is left on the tree word.
+- **Tier-1 Miri.** A deterministic single-threaded test of every new transition,
+  named so the per-PR filter selects it. That filter is a literal list
+  (`.github/workflows/ci.yml:1379`, mirrored in AGENTS.md §5), so either the
+  new tests sit under a prefix it already selects — `strmap::tests::deferred`,
+  `occ::tests::` — or the filter and `scripts/check_miri_shards.py`'s
+  module-to-shard map are updated in the same change. No Miri is run on the
+  laptop; the CI jobs are the authority.
+- **Linearizability.** `crates/expanse/tests/linearizability.rs` covers
+  `SyncExpanseMap` and `SyncExpanseSet` only (`:8`). A `SyncExpanseStrMap`
+  history test is added with the same per-key checker shape, at W ≥ 2, plus the
+  disjoint-writer census check that `test_multi_writer_parallel_disjoint_and_census`
+  (`:468`) performs for the two integer wrappers.
+- **The §2.3 five-subsystem audit** accompanies the change, including the two
+  consequences §17.2.1 names.
+
+### 17.6 Math-first audit: can the registered rounds resolve the gate?
+
+AGENTS.md §8.8's commit 1 requires the detectability check to be computed by a
+committed, unit-tested function rather than narrated. It is:
+`reader_scaling_bounds.mde_from_rounds` implements the two-sample minimum
+detectable difference at a two-sided 5% test and 80% power (Cohen 1988, ch. 2),
+`(z_{1-α/2} + z_{1-β}) · σ · sqrt(2/n)`, with σ the per-round standard
+deviation and n the round count; its hand-checkable reference value is pinned
+in `SyntheticTests.test_mde_hand_value`, which `scripts/gate.sh` and CI's
+`lint` job run. No new script and no new bound function is added for this
+registration.
+
+Applied to the per-round C(W) series of the four committed `str` cells — the
+series §17.3 gates on, taken on the mutex build, with the equal-spread
+assumption the function's docstring states:
+
+| pin | run | W | per-round σ of C(W) | MDE | MDE, relative |
+|---|--:|--:|--:|--:|--:|
+| `0-15` | 1 | 2 | 0.01497 | 0.02096 | 3.29% |
+| `0-15` | 1 | 4 | 0.01437 | 0.02012 | 3.48% |
+| `0-15` | 1 | 8 | 0.04737 | 0.06636 | 12.64% |
+| `0-15` | 2 | 2 | 0.05445 | 0.07628 | 11.54% |
+| `0-15` | 2 | 4 | 0.00985 | 0.01380 | 2.42% |
+| `0-15` | 2 | 8 | 0.11869 | 0.16626 | 36.26% |
+| `0,2,4,6,8,10,12,14` | 1 | 2 | 0.04903 | 0.06868 | 10.54% |
+| `0,2,4,6,8,10,12,14` | 1 | 4 | 0.01591 | 0.02229 | 3.88% |
+| `0,2,4,6,8,10,12,14` | 1 | 8 | 0.00210 | 0.00294 | 2.58% |
+| `0,2,4,6,8,10,12,14` | 2 | 2 | 0.05245 | 0.07348 | 10.46% |
+| `0,2,4,6,8,10,12,14` | 2 | 4 | 0.01362 | 0.01908 | 3.33% |
+| `0,2,4,6,8,10,12,14` | 2 | 8 | 0.00187 | 0.00262 | 2.30% |
+
+**The audit's conclusion, and it is not uniform across the pins.** The gate
+asks for a ratio confidently above 1.0, so the effect it must resolve is the
+improvement in C(W). At one thread per physical P-core the instrument resolves
+2.3%–10.5% at 8 rounds, and the W = 8 cell — the one where the mutex build is
+furthest from scaling, C(8) ≈ 0.114 — is its most sensitive at 2.30%–2.58%. At
+`0-15` the W = 8 cell is the *least* sensitive of the twelve, at 12.64% and
+36.26%: an improvement smaller than about a third of C(8) cannot be
+distinguished there at this round count. The experiment is therefore not
+under-powered against a design that removes a single serialising mutex, where
+the change sought is a multiple rather than a few percent — the mutex build's
+C(8) is 0.114 per-core against `map`'s 2.24–2.28 on the same runs
+*(workloads differ: `concurrency_writer_str` vs `concurrency_writer_map_64bit`)*
+— but it **is** under-powered at `0-15`, W = 8 against a modest improvement,
+and that asymmetry is declared here rather than discovered when a cell reads
+`INCONCLUSIVE`.
+
+**What the audit does not establish.** That any change reaches the gate; that
+σ on an evaluated head resembles σ on the mutex build — a head with wider
+per-round spread resolves less finely at the registered count, and the count
+does not change for it (§8.19); and anything about power against an effect
+between the MDE and the gate, where a real improvement can still read
+`INCONCLUSIVE`. It also assumes equal spread in the two builds of a comparison
+run, which is the function's stated assumption and is not verified in advance.
+
+### 17.7 Rounds, pins, runs, cells, and the instrument prerequisites
+
+- **8 rounds per cell**, the driver's default and the count every committed
+  `str` cell records, so the evaluation is reduced exactly as the baseline was.
+  Fixed: adding rounds to decide an `INCONCLUSIVE` cell relabels that
+  evaluation `INTERMEDIATE` (§8.19).
+- **Both pins, never pooled**, two independent runs per pin, each a fresh
+  dispatch, all four at one head (`docs/BENCHMARKING.md` rule 18). A within-run
+  BCa interval does not bound between-run spread, so no cross-run statement is
+  made from one run.
+- **One harness process per timed cell** (§15); `provenance.cell_isolation`
+  must read `process`.
+- **The comparison must be interleaved within rounds.** §17.3's statistic is a
+  paired ratio of two builds, which requires both builds' cells inside one run,
+  in the Williams order §15.1 fixes for comparison mode. Two separate
+  single-build runs at two commits do not produce it and are not an evaluation
+  of this gate.
+
+**Instrument prerequisites, registered before any run.** Each is a change to
+the instrument, not to the engine, and each must land before a run counts:
+
+1. **The head exposes the new write path behind a build feature**, so the
+   evaluation is one interleaved two-build comparison run per pin per run, the
+   way the #568 ablation arms were measured. Without it the driver has no
+   variant build to interleave.
+2. **A suite entry** in `.github/bench-suites.json` and the hand-listed places
+   in `.github/workflows/bench_baremetal.yml` (the suite list at `:64-70` and
+   the case block at `:990-999`), synced with
+   `python3 scripts/check_bench_suites.py --write`.
+3. **The gate statistic is computed by committed code** before the run that it
+   judges. The driver writes `scaling_factor_c_n_*` per build; the ratio of the
+   two builds' C(W) is not a field it emits today, so the reduction §17.3 names
+   is committed with the suite entry and reads `rounds_raw` of both builds.
+4. **The driver's counters-pass identities must still hold on the head.** It
+   refuses a row where the fallback causes do not sum to `lock_fallbacks`
+   (`writer_scaling.py:615-618`), where `Stat::Inserts` differs from the
+   harness's insert count (`:620-623`), or where `quiesce_calls` differs from
+   `lock_fallbacks` (`:626-629`); the harness checks the same identities
+   (`writer_scaling.rs:424-441`). A design whose fallback path does not quiesce
+   exactly once per fallback breaks the third, and that is a change to the
+   instrument's invariant which is disclosed and re-argued, never silently
+   relaxed.
+5. **The artifact records which pre-registration it was read against**, as the
+   ordered-reader artifacts do (`writer_scaling.py:1595`). A run whose artifact
+   does not name this section is a baseline, not an evaluation, and carries no
+   verdict.
+
+**The dispatch** is `bench_baremetal.yml` with the suite entry from
+prerequisite 2, `ref` naming the head being evaluated, `rounds=8` and `cpu_pin`
+set to the pin — one dispatch per pin per run, four per evaluation.
+
+**When a run is taken.** Only after a candidate change on the string wrapper's
+write path exists and carries §17.5's coverage, or when the maintainer asks for
+one. Every evaluation is appended to `README.md` whatever its verdicts, so the
+number of evaluations is visible and a head that passes on a later attempt
+cannot be reported as though it were the first.
+
+### 17.8 Expected losses
+
+Pre-registered before any run, so an unwelcome outcome is a recorded
+expectation rather than a later rationalisation (AGENTS.md §8.7).
+
+| cell or condition | expectation at lock | what a loss looks like | consequence |
+|---|---|---|---|
+| `str` W = 8, one thread per physical P-core | **not predicted** — no level, direction or magnitude is predicted for any head; this is the most sensitive gate cell (§17.6) | interval containing or below 1.0 | `INCONCLUSIVE` or `REFUTED`; the gate is not met at that head |
+| `str` W = 8, pin `0-15` | **not predicted**, and this is the cell most likely to read `INCONCLUSIVE` at a real improvement: its MDE is 12.64% and 36.26% against 2.30%–2.58% per-core (§17.6) | interval straddling 1.0 while the per-core cells pass | `INCONCLUSIVE` on that cell; the gate is not met, and the asymmetry is reported rather than resolved by dropping the pin |
+| `str` W = 2 and W = 4 | expected to be the hardest of the three to move: the mutex build already reaches C(2) 0.637–0.703 and C(4) 0.569–0.579, so less of the curve is available there than at W = 8 *(workload: `concurrency_writer_str`)* | W ∈ {2, 4} straddling 1.0 while W = 8 passes | the gate is not met; the outcome is published with all three writer counts, and §17.3's "every W ≥ 2" reading is not revisited after the fact |
+| W = 1 control | expected unchanged: the design targets writers under contention, and need not touch the single-writer path — nor need it spare it | W = 1 ratio wholly below 1.0 | the control fails; a W ≥ 2 gain bought by making the single writer slower is not what is registered |
+| the structural fallback rate (§17.2.3) | below 1 × 10^-3 at every W; total below 1 × 10^-2 | either exceeded | `REFUTED` on that prediction, published whatever the throughput cells say |
+| the `sync_strmap_*` Callgrind arms | expected to move — they carry the protocol — and to stay inside +5.0% | any arm above its bound | a precondition failure on the change, decided on the `instruction-counts` job; never traded against a throughput cell |
+| the plain-tree `strmap_*` arms | expected flat: concurrency-only code stays out of the shared inlined paths (AGENTS.md §2.2, #929's constraints) | any arm above +0.1% | a review blocker under AGENTS.md §6 |
+| the two runs of a pin | expected to agree, as all four baseline pairs do (`README.md` §15.3) | the two runs of one pin disagreeing on a cell's verdict | the gate is not met; the cell is reported direction-only (`docs/BENCHMARKING.md` rule 18) |
+| the `map` and `set` arms in the same sweep | expected unchanged; they are controls, and this design does not touch their path | either moving while `str` moves | reported, and a reason to suspect the run rather than to credit the change |
+
+### 17.9 Verdicts
+
+Per cell, using this suite's existing vocabulary (§14.4, §16.9) with no new
+label introduced:
+
+- **`PASS`** — the cell's interval lower bound is strictly above 1.0.
+- **`REFUTED`** — the interval lies wholly below 1.0.
+- **`INCONCLUSIVE`** — the interval contains 1.0. This is AGENTS.md §8.4's
+  `INTERMEDIATE_floor_within_ci` under this suite's vocabulary.
+- **`INTERMEDIATE`** — any threshold, statistic, pin, estimator or round count
+  differed from this registration (§8.19).
+- **`NOT_EVALUABLE`** — an input the gate names is absent, or §17.5's coverage
+  is missing. Never reported as a pass, never as 0.
+
+**The gate is met at a head only when all twelve gate cells read `PASS` and no
+control cell fails.** One `REFUTED` means not met at that head. An
+`INCONCLUSIVE` leaves it unmet, and a further run added to decide it changes
+the sample size, which relabels the evaluation `INTERMEDIATE`. A later head is
+evaluated with the same threshold, statistic, pins and round count. At a true
+ratio of exactly 1.0 each cell's nominal chance of a false `PASS` is 2.5%; the
+twelve cells share a head and a host and are not independent, so no joint rate
+is claimed, and repeated evaluations raise the chance that some head passes by
+chance — which is why every evaluation is recorded (§17.7).
+
+### 17.10 What voids a cell
+
+§6 applies in full, and §14.5's void items apply where they name something this
+suite also records: a wrong or unrecorded pin, a `--quick` population (a W cell
+recording `prefill` or `fresh_keys` other than 1,048,576), a round count other
+than 8, an interval whose method is not `bca`, a `provenance.cell_isolation`
+other than `process` (§15), timings from an `occ-stats` build, a
+`provenance.commit` that does not contain the change the evaluation is taken
+for, and the four runs of one evaluation differing in `crates/` or in
+`docs/benchmarks/concurrency/scripts/writer_scaling.py`. §16.10's rule that an
+artifact naming a different pre-registration is not an evaluation of this one
+applies here too.
+
+A void run is discarded whole, replaced by a fresh dispatch at the same head,
+and the discard is disclosed beside the result (AGENTS.md §8.17). Replacing a
+void run does not change the sample size.
+
+### 17.11 Explicitly not claimed
+
+- **Nothing follows from the c2c ranking.** `README.md` §16.1 is observational
+  (AGENTS.md §8.20.3): it ranks cache lines by HITM load samples in two
+  recordings and establishes no cause. Over half its samples are on lines the
+  report did not list — 51.66% and 52.03% *(workload:
+  `concurrency_writer_str`)* — so what it does locate is a minority of the
+  traffic; its top group is kernel addresses; the one Rust symbol it resolves
+  is `SyncExpanseStrMap::insert`, and the symbol at the most-contended offset
+  of its second group is unresolved. This design is **not** presented as
+  following from it. The ranking is why the writer path was the place to look;
+  only the interventional step — this gate — decides anything, and a met gate
+  credits no line, structure or event.
+- **No mechanism claim.** Neither the level of any cell nor its movement is
+  attributed here to lock transfer, coherency traffic, allocator behaviour or
+  frequency. `README.md` §16.1.5's 81.07% and 81.41% cycles-over-ref-cycles
+  readings are reported there as not interpretable as a frequency where writers
+  serialise, and they are not an input to anything in this section.
+- **No prediction of any level, direction or magnitude** for any head, and none
+  that a design meeting the gate will be found at all.
+- **No claim about `SyncExpanseBytesMap` or `SyncExpanseBlobMap`.** Their
+  designs are separate registrations. `SyncExpanseBlobMap::compact` and what an
+  arena-backed value must exclude are deferred to the blob registration
+  entirely, and no statement here constrains them — including §17.2's per-node
+  cover, which is registered for the string wrapper's `StrNode` and for nothing
+  else.
+- **No claim about the string wrapper's readers**, which are #730's gate
+  (open, §16) and a different instrument. §17.2.2's reader change is a
+  correctness precondition of this design, not a performance claim, and no
+  reader cell is gated here.
+- **No comparison with Masstree or HOT.** No competitor arm is dispatched by
+  this suite and no ratio against one is formed *(workloads differ:
+  `concurrency_writer_str` vs `masstree_conc_str`)*.
+- **No claim that the registered fallback set is minimal.** T9, T10, T11 and
+  T12 are registered as staying behind the fallback because this design does
+  not attempt them concurrently, not because they cannot be done.
+- **No counter threshold.** Counters taken on an evaluated head are diagnostic
+  and reported as such (AGENTS.md §8.9).
