@@ -430,12 +430,12 @@ Where:
 - $C_{\text{read}}$ is a lightweight read lookup via `MapCore::get(chunk)`: pointer chasing, SIMD/SWAR byte scans, and POPCNT ranks without stack allocation or mutation bookkeeping.
 - $C_{\text{diverge}}$ is the terminal leaf insertion or suffix split (`insert_pathless` / `split_suffix`), which constructs a `StrSuffix` or a new child node.
 
-**The Asymmetric Trade-off of Speculative Insertion (#813):**
+**The Asymmetric Trade-off of Speculative Insertion (Refs #813):**
 Attempting to eliminate double-descent on non-terminal misses by speculatively calling `ins_slot_pathless(chunk)` (Increment A) replaces $p \cdot C_{\text{read}}$ with $(p + 1) \cdot C_{\text{ins}}$, where $C_{\text{ins}}$ invokes `tree_insert::<true>` and eagerly allocates an `InsertPathMap` ancestor stack even when the chunk already exists.
-- On sparse, uniform-random keys ($p \approx 0$), speculative insertion saves a read miss ($C_{\text{ins}}$ vs $C_{\text{read\_miss}} + C_{\text{ins}}$), reducing instruction count by $\approx 14.5\%$.
-- On realistic prefix-dense keys ($p \ge 4$), the hit rate at intermediate levels exceeds $95\%$. Paying the mutation scaffolding on every shared prefix level ($p \cdot (C_{\text{ins}} - C_{\text{read}})$) adds $+27.16\text{M Ir}$ on `routes` (+12% to +17% regression).
+- On sparse, uniform-random keys ($p \approx 0$), speculative insertion saves a read miss ($C_{\text{ins}}$ vs $C_{\text{read\_miss}} + C_{\text{ins}}$), reducing instruction count by $\approx 14.5\%$ on `judysl_insert_expanse_dl/random` *(measured: run 34981797516, 3b550481)*.
+- On realistic prefix-dense keys ($p \ge 4$), the hit rate at intermediate levels reaches 98.41% (62 of 63 non-terminal chunk lookups across 16-key tenant blocks in `/api/v2/tenants/{:06}/resources/{:04}`). Paying the mutation scaffolding on every shared prefix level ($p \cdot (C_{\text{ins}} - C_{\text{read}})$) adds $+27.16\text{M Ir}$ across `strmap_churn/routes` (+17.15%) and `strmap_insert/routes` (+12.52%) *(measured: run 34981797516, 3b550481)*.
 
-Therefore, non-terminal intermediate traversal in `ExpanseStrMap` must strictly remain on the zero-overhead read path (`node.map.get(chunk)`).
+Therefore, non-terminal intermediate traversal in `ExpanseStrMap` strictly remains on the zero-overhead read path (`node.map.get(chunk)`).
 
 ### 7.2 Terminal Slot Insertion (Increment B)
 On the terminal chunk ($< 8$ bytes remaining), `ins_slot` must unconditionally return a writable slot, making `ins_slot_pathless` mandatory.

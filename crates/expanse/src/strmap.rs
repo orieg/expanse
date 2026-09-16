@@ -292,7 +292,8 @@ fn dispose_tree(root: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
             if !is_terminal(k) {
                 if is_suffix_ptr(v) {
                     dispose_suffix(unpack_suffix(v), defer);
-                } else if v != 0 {
+                } else {
+                    debug_assert_ne!(v, 0);
                     stack.push(unpack_child(v));
                 }
             }
@@ -804,7 +805,8 @@ impl StrNode {
                         // One block: header plus the inline bytes, which is
                         // exactly what `dispose_suffix` will hand back.
                         bytes += suffix_layout(len).size() as u64;
-                    } else if v != 0 {
+                    } else {
+                        debug_assert_ne!(v, 0);
                         stack.push(unpack_child(v));
                     }
                 }

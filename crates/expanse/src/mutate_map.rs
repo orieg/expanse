@@ -432,6 +432,20 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool, con
     }
 }
 
+/// Slices the initialized prefix of the ancestor stack.
+///
+/// # Safety
+/// Caller guarantees that `ancestors[..anc_depth]` were initialized during branch descent.
+#[inline(always)]
+unsafe fn valid_ancestors(
+    ancestors: &[core::mem::MaybeUninit<(*mut Edge, u8)>; 8],
+    anc_depth: usize,
+) -> &[(*mut Edge, u8)] {
+    debug_assert!(anc_depth <= 8);
+    // SAFETY: caller guarantees ancestors[..anc_depth] were initialized during branch descent.
+    unsafe { core::slice::from_raw_parts(ancestors.as_ptr().cast::<(*mut Edge, u8)>(), anc_depth) }
+}
+
 /// Iterative flat descent without function recursion or version checks for single-threaded maps.
 #[inline(always)]
 unsafe fn map_insert_with_path_flat<const KEEP: bool>(
@@ -442,7 +456,8 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
     mut level: u8,
     path: &mut InsertPathMap,
 ) -> (Option<u64>, *mut u64) {
-    let mut ancestors: [(*mut Edge, u8); 8] = [(core::ptr::null_mut(), 0); 8];
+    let mut ancestors: [core::mem::MaybeUninit<(*mut Edge, u8)>; 8] =
+        [core::mem::MaybeUninit::uninit(); 8];
     let mut anc_depth = 0;
     loop {
         debug_assert!((1..=8).contains(&level));
@@ -465,7 +480,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                 // SAFETY: write 1-key immediate; ancestors array is valid.
                 unsafe {
                     *edge = Edge::new_immed_single_map(kb, k, val);
-                    for &(anc, al) in ancestors.iter().take(anc_depth) {
+                    for &(anc, al) in valid_ancestors(&ancestors, anc_depth) {
                         bump_pop0(anc, al, 1);
                         path.record_ancestor(anc, al);
                     }
@@ -497,7 +512,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         None
                     };
                     if let Some(slot) = found {
-                        ancestors[anc_depth] = (edge, bl);
+                        ancestors[anc_depth].write((edge, bl));
                         anc_depth += 1;
                         edge = &raw mut (*b_ptr).edges[slot];
                         level = bl - 1;
@@ -516,7 +531,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                     );
                     (*b_ptr).hdr.num += 1;
                     (*b_ptr).hdr.add_presence(d);
-                    ancestors[anc_depth] = (edge, bl);
+                    ancestors[anc_depth].write((edge, bl));
                     anc_depth += 1;
                     edge = &raw mut (*b_ptr).edges[slot];
                     level = bl - 1;
@@ -538,7 +553,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                     }
                     let d = digit(key, bl);
                     if let Some(slot) = (*b_ptr).hdr.find(d) {
-                        ancestors[anc_depth] = (edge, bl);
+                        ancestors[anc_depth].write((edge, bl));
                         anc_depth += 1;
                         edge = &raw mut (*b_ptr).edges[slot];
                         level = bl - 1;
@@ -554,7 +569,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         linear_insert_slot(&mut (*b_ptr).hdr.digits, &mut (*b_ptr).edges, num, d);
                     (*b_ptr).hdr.num += 1;
                     (*b_ptr).hdr.add_presence(d);
-                    ancestors[anc_depth] = (edge, bl);
+                    ancestors[anc_depth].write((edge, bl));
                     anc_depth += 1;
                     edge = &raw mut (*b_ptr).edges[slot];
                     level = bl - 1;
@@ -581,7 +596,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                 let b = unsafe { &mut *(*edge).node_ptr().cast::<BranchB>() };
                 if let Some(slot) = b.bitmap.test_and_subexpanse_rank(d) {
                     let sub = b.subarrays[(d >> 5) as usize];
-                    ancestors[anc_depth] = (edge, bl);
+                    ancestors[anc_depth].write((edge, bl));
                     anc_depth += 1;
                     // SAFETY: sub points to valid live subarray; slot is in-bounds.
                     edge = unsafe { sub.add(slot) };
@@ -639,7 +654,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                 }
                 b.pop_counts[sub] = (old_n + 1) as u16;
                 b.bitmap.set(d);
-                ancestors[anc_depth] = (edge, bl);
+                ancestors[anc_depth].write((edge, bl));
                 anc_depth += 1;
                 // SAFETY: sub is valid subarray with old_n + 1 edges; rank is in-bounds.
                 edge = unsafe { b.subarrays[sub].add(rank) };
@@ -652,7 +667,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                 let d = digit(key, level);
                 // SAFETY: edge is a live BranchU node.
                 let b = unsafe { &mut *(*edge).node_ptr().cast::<BranchU>() };
-                ancestors[anc_depth] = (edge, level);
+                ancestors[anc_depth].write((edge, level));
                 anc_depth += 1;
                 edge = &raw mut b.edges[d as usize];
                 level -= 1;
@@ -733,7 +748,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                 let slot = unsafe { node.values[sub].add(rank) };
                 // SAFETY: ancestors contains valid parent edges.
                 unsafe {
-                    for &(anc, al) in ancestors.iter().take(anc_depth) {
+                    for &(anc, al) in valid_ancestors(&ancestors, anc_depth) {
                         bump_pop0(anc, al, 1);
                         path.record_ancestor(anc, al);
                     }
@@ -812,7 +827,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                             }
                             // SAFETY: ancestors array is valid.
                             unsafe {
-                                for &(anc, al) in ancestors.iter().take(anc_depth) {
+                                for &(anc, al) in valid_ancestors(&ancestors, anc_depth) {
                                     bump_pop0(anc, al, 1);
                                     path.record_ancestor(anc, al);
                                 }
@@ -851,7 +866,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                             }
                             // SAFETY: ancestors array is valid.
                             unsafe {
-                                for &(anc, al) in ancestors.iter().take(anc_depth) {
+                                for &(anc, al) in valid_ancestors(&ancestors, anc_depth) {
                                     bump_pop0(anc, al, 1);
                                     path.record_ancestor(anc, al);
                                 }
@@ -939,7 +954,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                                 core::ptr::NonNull::new(old_ptr).expect("leaf ptr"),
                                 old_size,
                             );
-                            for &(anc, al) in ancestors.iter().take(anc_depth) {
+                            for &(anc, al) in valid_ancestors(&ancestors, anc_depth) {
                                 bump_pop0(anc, al, 1);
                                 path.record_ancestor(anc, al);
                             }
@@ -1000,7 +1015,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                             *edge = Edge::new_node(vals.as_ptr().cast(), 0);
                             (*edge).set_aux_bytes(new_aux);
                             (*edge).set_tag(new_im.as_u8());
-                            for &(anc, al) in ancestors.iter().take(anc_depth) {
+                            for &(anc, al) in valid_ancestors(&ancestors, anc_depth) {
                                 bump_pop0(anc, al, 1);
                                 path.record_ancestor(anc, al);
                             }
@@ -1011,7 +1026,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         // SAFETY: build fresh map leaf and update ancestors.
                         unsafe {
                             build_map_leaf::<false>(a, &mut *edge, kb, &entries);
-                            for &(anc, al) in ancestors.iter().take(anc_depth) {
+                            for &(anc, al) in valid_ancestors(&ancestors, anc_depth) {
                                 bump_pop0(anc, al, 1);
                                 path.record_ancestor(anc, al);
                             }
@@ -1058,7 +1073,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                                 ImmedType::new(kb, (n + 1) as u8).expect("immediate capacity");
                             (*edge).set_aux_bytes(new_aux);
                             (*edge).set_tag(new_im.as_u8());
-                            for &(anc, al) in ancestors.iter().take(anc_depth) {
+                            for &(anc, al) in valid_ancestors(&ancestors, anc_depth) {
                                 bump_pop0(anc, al, 1);
                                 path.record_ancestor(anc, al);
                             }
@@ -1092,7 +1107,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         *edge = Edge::new_node(new_vals.as_ptr().cast(), 0);
                         (*edge).set_aux_bytes(new_aux);
                         (*edge).set_tag(new_im.as_u8());
-                        for &(anc, al) in ancestors.iter().take(anc_depth) {
+                        for &(anc, al) in valid_ancestors(&ancestors, anc_depth) {
                             bump_pop0(anc, al, 1);
                             path.record_ancestor(anc, al);
                         }
@@ -1134,7 +1149,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                     );
                     *edge = Edge::new_node(ptr.as_ptr(), EdgeType::Leaf1 as u8 + (kb - 1));
                     (*edge).set_pop0(kb, n as u64);
-                    for &(anc, al) in ancestors.iter().take(anc_depth) {
+                    for &(anc, al) in valid_ancestors(&ancestors, anc_depth) {
                         bump_pop0(anc, al, 1);
                         path.record_ancestor(anc, al);
                     }
@@ -2864,5 +2879,51 @@ mod tests {
         assert_eq!(edge.pop0(1), 3);
         #[cfg(debug_assertions)]
         assert!(crate::alloc::bracket_stack::open().is_empty());
+    }
+
+    /// Structural attribution pinning (§5, Refs #813): asserts that every `anc_depth += 1`
+    /// in the flat insert descent is paired with an immediately preceding `ancestors[anc_depth].write(`.
+    #[test]
+    fn structural_ancestor_writes_are_paired_with_increments() {
+        let lines: Vec<&str> = include_str!("mutate_map.rs")
+            .lines()
+            .take_while(|line| !line.starts_with("#[cfg(test)]"))
+            .collect();
+        let write_pat = "ancestors[anc_depth].write(";
+        let inc_pat = "anc_depth += 1;";
+        let is_code = |l: &str| {
+            let t = l.trim_start();
+            !t.starts_with("//") && !t.starts_with("/*") && !t.starts_with('*')
+        };
+        let writes = lines
+            .iter()
+            .filter(|l| is_code(l) && l.contains(write_pat))
+            .count();
+        let incs = lines
+            .iter()
+            .filter(|l| is_code(l) && l.contains(inc_pat))
+            .count();
+        assert_eq!(
+            writes, 7,
+            "expected exactly 7 ancestor write sites in mutate_map.rs, found {writes}"
+        );
+        assert_eq!(
+            incs, 7,
+            "expected exactly 7 anc_depth increments in mutate_map.rs, found {incs}"
+        );
+        for (i, line) in lines.iter().enumerate() {
+            if is_code(line) && line.contains(inc_pat) {
+                let start = i.saturating_sub(4);
+                let window = &lines[start..i];
+                assert!(
+                    window
+                        .iter()
+                        .any(|prev| is_code(prev) && prev.contains(write_pat)),
+                    "anc_depth += 1 at line {} is not preceded by active {} within 4 lines",
+                    i + 1,
+                    write_pat
+                );
+            }
+        }
     }
 }
