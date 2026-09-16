@@ -2013,6 +2013,77 @@ falsifier fired on a configuration that could not show the effect**, which is
 the §8.22 rule-2 defect (a cost and a benefit measured on different builds)
 committed by the cell that went looking for it.
 
+#### 11.10.9 Promotion: the deferred-gated shards and the padded writer state (Refs #568, #930)
+
+This is the configuration §11.10.4 measured, promoted to the default. It is
+**not** the configuration [#990](https://github.com/orieg/expanse/pull/990)
+proposed: that one carried the shard array inline and was withdrawn on §2.7's
+single-threaded bound (§11.10.2).
+
+**What ships.** `NodeAlloc` keeps its three inline atomics and gains one word —
+an `OnceLock<Box<[AllocShard; 64]>>` whose array is allocated cold in
+`defer_to`, before `deferred` is set. Four accounting sites become
+`if OCC && let Some(sh) = self.shards.get()`, with an else arm byte-identical to
+the old code. A tree that never becomes concurrent takes that else arm and never
+reads `writer_slot()`. `occ::Line<X>` becomes the padded wrapper in every build,
+putting the writer mutex, writer gate, tree population counter and version word
+on their own lines.
+
+`size_of::<ExpanseMap>()` moves **712 → 728 B, align 8 throughout** — one word,
+not the inline layout's 4,864 B / align 64.
+
+**Why this variant.** Both reach the same multi-writer gain; they differ in what
+they cost single-threaded (§11.10.2, Callgrind, 126 reproducible arms):
+
+| candidate | `map` C(8) | arms > 0.5 % | of those, plain | `ExpanseMap` |
+|---|---|--:|--:|---|
+| inline shards + padded (#990) | 2.0882 / 2.0491 | 35 | **27** | 4,864 B / align 64 |
+| **deferred-gated + padded (this)** | **2.0841 / 2.0842** | **16** | **2** | **728 B / align 8** |
+
+Plain-tree damage falls from 27 arms to 2, which is what §2.1 invariant 5
+protects.
+
+**The gate this meets.** [#930](https://github.com/orieg/expanse/issues/930)
+pre-registers `map` and `set` at ≥ 20 M ops/s at W = 8 on the BCa 95 % lower
+bound, two runs, both pins (§11.10.7):
+
+| pin | arm | default | promoted |
+|---|---|--:|--:|
+| `0,2,4,6,8,10,12,14` | `map` | 11.56 / 11.46 | **24.07 [23.07, 24.51] / 23.95 [23.46, 24.39]** |
+| `0,2,4,6,8,10,12,14` | `set` | 13.37 / 13.39 | **32.55 [32.39, 32.73] / 31.67 [29.65, 32.42]** |
+| `0-15` | `set` | 13.35 / 13.18 | **31.20 [29.71, 32.08] / 30.75 [29.06, 32.17]** |
+| `0-15` | `map` | 11.47 / 11.51 | 20.66 [19.64, 21.60] / 22.33 [21.43, 22.94] |
+
+`set` passes at both pins; `map` passes at the per-core pin. **`map` at `0-15`
+remains `INTERMEDIATE`** — run 1's interval contains the floor — and this
+promotion does not change that label (§11.10.7).
+
+**What it costs, and why it is being paid.** Sixteen reproducible Callgrind arms
+regress above 0.5 %, fourteen of them `sync_*` — the concurrent wrappers measured
+single-threaded — worst `sync_blobmap_remove/random` +2.449 %. The bound is not
+reachable: §11.10.8 measured every way of reducing the accounting's cost without
+per-writer sharding — delete the two diagnostic counters (±padding), give the
+counters their own line (±padding), S = 16, boxed, merged `OnceLock`, slot
+hoisted, padded back — and on `map` the best of them reaches 15.68 M ops/s
+against a floor of 20. With neither the gate nor the boxing present, 13 of the
+16 failing arms are already over (§11.10.2). The accounting itself is the floor.
+
+`perf c2c` says what the promotion buys at the hardware level: cross-core HITM
+at W = 8 falls **12× on `map` (5,795 / 5,666 → 381 / 548) and 18× on `set`**
+(§11.10.8.4).
+
+**What is still not explained.** The default HITM profile is diffuse — 83
+contended lines on `map`, top line 3.01 % — so the promoted build removes ~92 %
+of a distributed profile and *which* lines leave it is not established. No
+mechanism is attributed (§8.9), and `perf c2c` localises without establishing
+causality (§8.20.3).
+
+**Ablating the default.** `ablation-unsharded-alloc` never allocates the shards,
+restoring the shared atomics; `ablation-unpadded-lock` makes `Line<X>` a
+transparent alias again. Neither is a no-op, and the retired names
+(`ablation-sharded-alloc`, `lock-padded`) are `compile_error!`s naming their
+replacements (§2.7).
+
 ## 12. Mixed read/write concurrency — `benches/concurrency.rs` (`results/baseline_concurrent_mixed.json`)
 
 The `Sync*` read/write sweep, with the four properties

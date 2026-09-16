@@ -702,15 +702,17 @@ jobs:
         shell: bash
         run: bash scripts/test_occ_stats.sh
 
-      # The Hypothesis D ablation features (METHODOLOGY.md §11): the stripe
-      # unit tests, then the real-thread integration tests. Separate
-      # invocations, since a positional filter applies to every selected
-      # binary (AGENTS.md §8.11.8); the grep fails a filter that matched none.
+      # The Hypothesis D inverse features (METHODOLOGY.md §11, AGENTS.md §2.7):
+      # every arm is a production default now, so these features restore the
+      # state each replaced and keep the default ablatable. The stripe unit
+      # tests, then the real-thread integration tests. Separate invocations,
+      # since a positional filter applies to every selected binary
+      # (AGENTS.md §8.11.8); the grep fails a filter that matched none.
       - name: Test concurrency ablations
         shell: bash
         run: |
           set -o pipefail
-          F=ablation-sharded-alloc,ablation-striped-epoch,ablation-unstriped-freelist
+          F=ablation-unsharded-alloc,ablation-unpadded-lock,ablation-unstriped-freelist
           cargo test -p expanse-trie --lib --features "$F" -- ablation_ 2>&1 | tee ablation-unit.log
           grep -Eq 'test result: ok\. [1-9][0-9]* passed' ablation-unit.log \
             || { echo "::error::the ablation_ filter ran zero unit tests"; exit 1; }
@@ -981,10 +983,10 @@ jobs:
       - name: Check RV32IMAC Core
         run: cargo check -p expanse-trie --no-default-features --target riscv32imac-unknown-none-elf
 
-      # The diagnostic ablation features are additive and public, so they
+      # The diagnostic inverse features are additive and public, so they
       # must build wherever the crate does, `std` or not.
-      - name: Check RV32IMAC Core with the ablation features
-        run: cargo check -p expanse-trie --no-default-features --target riscv32imac-unknown-none-elf --features ablation-sharded-alloc,ablation-striped-epoch,ablation-unstriped-freelist
+      - name: Check RV32IMAC Core with the inverse ablation features
+        run: cargo check -p expanse-trie --no-default-features --target riscv32imac-unknown-none-elf --features ablation-unsharded-alloc,ablation-unpadded-lock,ablation-unstriped-freelist
 
   test-rv32-zbb:
     name: Cross / RV32IMAC + Zbb Cross-Compile (Bare-Metal)
@@ -1380,7 +1382,7 @@ jobs:
       - name: Miri (concurrency diagnostic ablations — per-stripe accounting, epoch bins and freelists)
         run: |
           set -o pipefail
-          cargo miri test -p expanse-trie --lib --features ablation-sharded-alloc,ablation-striped-epoch,ablation-unstriped-freelist -- ablation_ 2>&1 | tee ablation-miri.log
+          cargo miri test -p expanse-trie --lib --features ablation-unsharded-alloc,ablation-unpadded-lock,ablation-unstriped-freelist -- ablation_ 2>&1 | tee ablation-miri.log
           grep -Eq 'test result: ok\. [1-9][0-9]* passed' ablation-miri.log \
             || { echo "::error::the ablation_ filter ran zero tests under Miri"; exit 1; }
 
@@ -1402,7 +1404,7 @@ jobs:
         env:
           RUSTFLAGS: "-Zsanitizer=address"
       - name: Run concurrency ablations under AddressSanitizer
-        run: cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --features ablation-sharded-alloc,ablation-striped-epoch,ablation-unstriped-freelist --test test_concurrency_ablations
+        run: cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --features ablation-unsharded-alloc,ablation-unpadded-lock,ablation-unstriped-freelist --test test_concurrency_ablations
         env:
           RUSTFLAGS: "-Zsanitizer=address"
 
@@ -1924,8 +1926,8 @@ jobs:
         env:
           RUSTFLAGS: --cfg loom
 
-      - name: Loom model checks with the striped epoch and freelist ablations
-        run: cargo test -p expanse-trie --release --features ablation-striped-epoch,ablation-unstriped-freelist loom_
+      - name: Loom model checks with the unstriped-freelist ablation
+        run: cargo test -p expanse-trie --release --features ablation-unstriped-freelist loom_
         env:
           RUSTFLAGS: --cfg loom
 

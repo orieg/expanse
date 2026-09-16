@@ -147,8 +147,8 @@ The suites below are declared once, in [`.github/bench-suites.json`](../.github/
 | `mixed_concurrency_step2_gate` | wall-clock | #568 Step 2 gate run (`METHODOLOGY.md` §13) through `mixed_concurrency.py --step2-gate`: the head against `1edfa952` built with the head's `benches/concurrency.rs`, one process per window, `map` and `set` at 50/50 on 1 and 16 threads, 48 rounds, pin `0-15`; writes `baseline_concurrent_step2_gate.json`. |
 | `writer_scaling` | wall-clock | Expanse-native multi-writer scaling sweep W in {1, 2, 4, 8} on physical cores; no third-party link. |
 | `writer_scaling_diagnostic` | `perf stat` | Expanse multi-writer scaling diagnostic suite with hardware PMU frequency droop and perf c2c cache contention passes (Phase 1.5D, Refs #568); outputs diagnostic_writer_scaling.json. |
-| `writer_scaling_padded` | wall-clock | Expanse multi-writer scaling with lock-padded comparison (Hypothesis B, Refs #568); outputs padded_writer_scaling.json. |
-| `writer_scaling_ablation_alloc` | wall-clock | Expanse multi-writer scaling, default build vs sharded allocator accounting counters (Hypothesis D arm a, Refs #568); outputs ablation_alloc_writer_scaling.json. |
+| `writer_scaling_ablation_unpadded_lock` | wall-clock | Expanse multi-writer scaling, default build vs the unpadded writer state (inverse of the promoted padding, Refs #568, #930); outputs ablation_unpadded_lock_writer_scaling.json. |
+| `writer_scaling_ablation_unsharded_alloc` | wall-clock | Expanse multi-writer scaling, default build vs shared allocator accounting counters (Hypothesis D arm a inverse, Refs #568, #930); outputs ablation_unsharded_alloc_writer_scaling.json. |
 | `writer_scaling_ablation_unstriped_freelist` | wall-clock | Expanse multi-writer scaling, default build vs unstriped collector freelists (Hypothesis D arm c unstriped, Refs #568); outputs ablation_unstriped_freelist_writer_scaling.json. |
 | `writer_scaling_ordered_readers` | wall-clock | Ordered readers on SyncExpanseMap: optimistic prev_before against with_locked over probe x (W, R) cells under the pin 0,2,4,6,8,10,12,14, with the P12.4 and P12.5 verdicts (#900, concurrency METHODOLOGY.md §12.4); outputs ordered_readers_writer_scaling.json. |
 | `writer_scaling_readers_only` | wall-clock | Readers-only scaling at W = 0 (#730): SyncExpanseMap, SyncExpanseSet and SyncExpanseStrMap readers at R in {1, 2, 4, 8}, one process per cell, throughput and occ-stats counters passes, under the applied pin; outputs baseline_readers_only_writer_scaling.json. No verdict until the #730 pre-registration exists. |
@@ -195,6 +195,8 @@ Bench targets deliberately **not** reachable from a slash command:
 
 | Target | Why |
 |---|---|
+| `writer_scaling_padded` | The padded writer state landed as the production default (Refs #568, #930). Use writer_scaling_ablation_unpadded_lock to measure the packed layout it replaced. |
+| `writer_scaling_ablation_alloc` | Arm (a) sharded allocator accounting counters landed as the production default (Refs #568, #930). Use writer_scaling_ablation_unsharded_alloc to measure the shared counters they replaced. |
 | `writer_scaling_ablation_epoch` | Arm (b) slot-striped epoch bins landed as the production default standard with S=16 stripes and thread-exit slot recycling (Refs #568). Use writer_scaling to measure multi-writer performance on the reference host. |
 | `writer_scaling_ablation_freelist` | Arm (c) per-stripe collector freelists landed as the production default standard (Refs #568). Use writer_scaling_ablation_unstriped_freelist to measure unstriped freelist contention. |
 | `leaf_cap_cascaded_wallclock` | the measurement is a pair — the shipped `LEAF_CAP` against a `LEAF_CAP = 48` build-time patch — interleaved A/B/A/B under one lock and pin with a same-build A/A repeat; a single `cargo bench` measures one build and cannot produce it. Driven by `docs/benchmarks/hot_comparison/scripts/leaf_cap_cascaded_wallclock.sh` on the reference host. |
