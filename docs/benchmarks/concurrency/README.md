@@ -2043,6 +2043,23 @@ they cost single-threaded (§11.10.2, Callgrind, 126 reproducible arms):
 Plain-tree damage falls from 27 arms to 2, which is what §2.1 invariant 5
 protects.
 
+**That comparison is x86 only, and the invariant is not fully held.** Both
+columns above come from one Callgrind census on one x86 development box. CI
+measures three targets, and the plain arms regress on the other two:
+
+| gate | arms > 0.5 % | plain among them | worst |
+|---|--:|--:|---|
+| Callgrind deterministic (x86) | 16 | **0** | `sync_blobmap_remove/random` +2.50 % |
+| Callgrind smoke (x86) | 2 | **2** | `judyl_insert/sequential` +1.37 % |
+| aarch64, Neoverse N2 | 4 | **4** | `judyl_insert/sequential` +2.57 % |
+| wasm fuel (wasm32 + wasm64) | 4 | **4** | `set_remove/random` +4.63 % |
+
+So a plain tree pays up to **+2.57 % on aarch64** and a wasm build pays up to
+**+4.63 %**, on a target where `writer_slot()` is a compile-time constant and
+the shards can never be exercised. §2.1 invariant 5 is met on x86 and is **not**
+met on aarch64 or wasm. That is a cost of this promotion, not a rounding error,
+and removing it rather than excusing it is tracked as a follow-up.
+
 **The gate this meets.** [#930](https://github.com/orieg/expanse/issues/930)
 pre-registers `map` and `set` at ≥ 20 M ops/s at W = 8 on the BCa 95 % lower
 bound, two runs, both pins (§11.10.7):
