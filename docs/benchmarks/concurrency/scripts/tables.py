@@ -33,6 +33,10 @@ Sections emitted, in README order:
   `results/baseline_readers_only_writer_scaling_170a4bc3_{pin0-15,percore}{,_run2}.json`,
   with the per-reader cost and round checks from `scripts/reader_scaling_bounds.py`.
   (`13` is `scripts/reader_scaling_bounds.py --table`, not this file.)
+- `16` the per-wrapper `perf c2c` contention ranking at `0c6b7832`, one
+  subsection per writer arm, from
+  `results/c2c_{str,bytes,blob}_writer_scaling_0c6b7832{,_run2}.json` via
+  `scripts/c2c_ranking.py`
 
 A missing artifact renders the section's rows as `pending` citing the open
 tracking issue, so the README is correct before the run exists and
@@ -1086,6 +1090,45 @@ def string_wrapper_baselines() -> list[str]:
     return out
 
 
+# ---- 16. per-wrapper contention ranking at 0c6b7832 -------------------------
+# The #929 step-2 `perf c2c` recordings of the `str`, `bytes` and `blob` writer
+# wrappers, two per arm. Not CI dispatches: the driver ran on the reference
+# host directly, so the recordings table names what produced them rather than
+# a run URL. One `render` call per arm, so each arm's six tables sit under its
+# own subsection and are read the way §11.9 reads the map/set pair.
+WRAPPER_C2C_COMMIT = "0c6b7832"
+WRAPPER_C2C_ARMS = (("str", "16.1"), ("bytes", "16.2"), ("blob", "16.3"))
+WRAPPER_C2C_SOURCE = "driver on the reference host (not a CI dispatch)"
+ISSUE_929 = "[#929](https://github.com/orieg/expanse/issues/929)"
+
+
+def wrapper_contention_ranking() -> list[str]:
+    """README section 16, rendered by `scripts/c2c_ranking.py`, one call per arm (#929)."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import c2c_ranking
+
+    out: list[str] = []
+    for arm, section in WRAPPER_C2C_ARMS:
+        names = (f"c2c_{arm}_writer_scaling_{WRAPPER_C2C_COMMIT}.json",
+                 f"c2c_{arm}_writer_scaling_{WRAPPER_C2C_COMMIT}_run2.json")
+        runs = []
+        for name in names:
+            art = load(SUITE / "results" / name)
+            if art is None:
+                out += [f"#### {section}.1 The recordings", "", "| | run 1 | run 2 |",
+                        "|---|---|---|",
+                        f"| artifact | pending ({ISSUE_929}) | pending ({ISSUE_929}) |", ""]
+                break
+            commit = need(need(art, "provenance", name), "commit", name)
+            if commit != WRAPPER_C2C_COMMIT:
+                raise SystemExit(f"{name}: measured at {commit}, section {section} reads "
+                                 f"{WRAPPER_C2C_COMMIT}")
+            runs.append((name, WRAPPER_C2C_SOURCE, art))
+        else:
+            out += c2c_ranking.render(runs, section=section, run_label="recording") + [""]
+    return out
+
+
 def main() -> int:
     import fine_grained_brackets_gate  # the §8 fine-grained write brackets verdicts, beside this file
     import multi_writer_olc_gate  # the §9 multi-writer OLC verdicts, beside this file
@@ -1105,6 +1148,7 @@ def main() -> int:
         mixed_concurrency(),
         wrapper_profiles(),
         string_wrapper_baselines(),
+        wrapper_contention_ranking(),
     ]
     print("\n\n".join("\n".join(b) for b in blocks))
     return 0

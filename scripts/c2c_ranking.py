@@ -585,8 +585,14 @@ def _layout_text(g: Group) -> str:
     }[g.layout]
 
 
-def render(runs: list[tuple[str, str, dict]], section: str = "11.9") -> list[str]:
-    """Markdown for the README section, from (artifact name, run URL, artifact) pairs."""
+def render(runs: list[tuple[str, str, dict]], section: str = "11.9",
+           run_label: str = "CI run") -> list[str]:
+    """Markdown for the README section, from (artifact name, run URL, artifact) pairs.
+
+    `run_label` names the second row of the recordings table. It is `CI run`
+    for a dispatch and is set by the caller for a recording taken another way,
+    so the row never says `CI run` of something no CI run produced.
+    """
     if not runs:
         raise ValueError("render needs at least one run")
     analyses = [analyse(art["c2c"]) for _, _, art in runs]
@@ -602,7 +608,7 @@ def render(runs: list[tuple[str, str, dict]], section: str = "11.9") -> list[str
         out.append(f"| {name} | " + " | ".join(cells) + " |")
 
     row("artifact", [f"`results/{n}`" for n, _, _ in runs])
-    row("CI run", [u for _, u, _ in runs])
+    row(run_label, [u for _, u, _ in runs])
     row("commit", [f"`{art['provenance']['commit']}`" for _, _, art in runs])
     row("pin", [f"`{art['provenance']['core_pin']}`" for _, _, art in runs])
     row("arm, W", [f"`{art['c2c']['arm']}`, {art['c2c']['writers']}" for _, _, art in runs])
@@ -687,12 +693,27 @@ def render(runs: list[tuple[str, str, dict]], section: str = "11.9") -> list[str
     out.append("")
 
     # -- frequency droop and the same cell's scaling factor (section 8.20.2, step 3)
+    # The arm is the one the recording was taken on, read from the c2c block
+    # and never a fixed name: the wrapper recordings are `str`, `bytes` and
+    # `blob`, and a hardcoded `map` raised on them rather than printing a
+    # number. The runs of one section are the runs of one arm, so a section
+    # whose artifacts disagree is refused rather than rendered from the first.
+    arms = {art["c2c"]["arm"] for _, _, art in runs}
+    if len(arms) != 1:
+        raise C2CFormatError(
+            f"the runs of one section must be recordings of one arm; got {sorted(arms)}")
+    arm = arms.pop()
     out += [f"#### {section}.5 Frequency droop at W = 8 beside the same cell's C(8)", "",
-            "| | droop at W = 8, BCa 95% | droop verdict | rounds | `map` C(8), throughput pass | C(8) rounds |",
+            f"| | droop at W = 8, BCa 95% | droop verdict | rounds | `{arm}` C(8), throughput pass "
+            "| C(8) rounds |",
             "|---|--:|---|--:|--:|--:|"]
     for lb, (_, _, art) in zip(labels, runs):
         d = art["pmu"]["frequency_droop"]["by_writers"]["8"]
-        cell = next(c for c in art["throughput"] if c["arm"] == "map" and c["writers"] == 8)
+        cell = next((c for c in art["throughput"]
+                     if c["arm"] == arm and c["writers"] == 8), None)
+        if cell is None:
+            raise C2CFormatError(
+                f"the artifact carries no `{arm}` W = 8 throughput cell to set the droop against")
         c8 = (f"{cell['scaling_factor_c_n_mean']:.2f} [{cell['scaling_factor_c_n_ci_lower']:.2f}, "
               f"{cell['scaling_factor_c_n_ci_upper']:.2f}] {cell['scaling_factor_c_n_ci_method']}")
         out.append(f"| {lb} | {_iv(d['droop_mean'], d['droop_ci_lower'], d['droop_ci_upper'], d['droop_ci_method'])} "
@@ -925,6 +946,35 @@ def _self_test() -> int:
     expect("7.66% [7.59%, 7.72%] bca" in text, "droop interval")
     expect("| run 1 | 0.01 – 0.01 | 2.50 |" in text and "| none |" in text, "load row")
     expect("ambiguous, 2 candidates" in text and "| unique |" in text, "symbol resolution rows")
+
+    # THE DEFECT THIS PINS: the droop table looked up a `map` W = 8 throughput
+    # cell by a fixed name. On the `str`, `bytes` and `blob` wrapper recordings
+    # there is no such cell, so `render` raised `StopIteration` — and a lookup
+    # that found some other arm's cell would have printed a wrong number
+    # instead. The assertion is on the rendered text, not on a helper: revert
+    # the arm to a literal and this goes red.
+    wrapper = json.loads(json.dumps(art))
+    wrapper["c2c"]["arm"] = "blob"
+    wrapper["throughput"][0]["arm"] = "blob"
+    wtext = "\n".join(render([("w.json", "d", wrapper)], section="16.3", run_label="recording"))
+    expect("| `blob` C(8), throughput pass |" in wtext, "the droop header names the recorded arm")
+    expect("#### 16.3.5 Frequency droop" in wtext, "the section number reaches the droop heading")
+    expect("| recording | d |" in wtext, "run_label names the row a CI dispatch did not produce")
+    expect("2.23 [2.21, 2.25] bca" in wtext, "the recorded arm's own C(8) cell is the one read")
+    # An artifact with no throughput cell for the arm it recorded is refused,
+    # never rendered from a neighbouring arm's cell.
+    mismatched = json.loads(json.dumps(art))
+    mismatched["c2c"]["arm"] = "bytes"
+    raises(lambda: render([("m.json", "d", mismatched)]),
+           "no `bytes` W = 8 throughput cell",
+           "a recording whose arm has no throughput cell")
+    # Two recordings of different arms are not one section.
+    other = json.loads(json.dumps(art))
+    other["c2c"]["arm"] = "blob"
+    other["throughput"][0]["arm"] = "blob"
+    raises(lambda: render([("a.json", "d", wrapper), ("b.json", "d", json.loads(json.dumps(art)))]),
+           "recordings of one arm",
+           "two runs of different arms rendered as one section")
 
     # 6. The committed artifacts are usable for the question (section 8.20.7):
     # the line table is whole, the top line's Pareto block is complete, and the
