@@ -1364,6 +1364,39 @@ impl RootState for ExpanseSet {
     }
 }
 
+/// The string wrapper's answer is a constant `false`, and it is the
+/// literally correct one (Refs #929).
+///
+/// `ExpanseMap` and `ExpanseSet` answer this from their own `Root` enum:
+/// `true` means the engine's per-node brackets already cover every store
+/// the operation can make, so [`Shared::write_root_covered`] need not hold
+/// the tree word. `ExpanseStrMap`'s root is not an engine `Root` at all —
+/// it is an `Option<Box<StrNode>>` naming the meta-trie's first node — so
+/// it is never a level-8 trie, and the two transitions that change it
+/// (creating the root node, and taking it when the last key leaves; T11
+/// and T10 of `docs/benchmarks/concurrency/METHODOLOGY.md` §17.2.1) carry
+/// no bracket of their own.
+///
+/// Answering `false` is therefore both true and sound: it keeps the
+/// tree-level bracket open across the whole fallback operation, which is
+/// exactly what §17.2.3 registers as covering T9–T12. The cheaper answer
+/// — `self.root.is_some()` — would skip that bracket and leave the root
+/// take uncovered; it becomes available only once those two transitions
+/// bracket themselves, which is not this change.
+///
+/// What this impl buys today is reachability, which was the blocker: with
+/// no `RootState` for the string map, `write_root_covered` and the whole
+/// `olc_*` route could not be instantiated for `SyncExpanseStrMap` at all.
+/// It is instantiable now. Nothing routes through it yet —
+/// `SyncExpanseStrMap`'s `insert`, `remove`, `clear` and `with_locked_mut`
+/// still take `Shared::write` and its one writer mutex.
+impl RootState for ExpanseStrMap {
+    #[inline(always)]
+    fn root_is_tree(&self) -> bool {
+        false
+    }
+}
+
 /// The shared writer/reader state behind every wrapper. `repr(C)` and
 /// line-aligned, and always boxed (see [`Shared::new`]): the tree-level
 /// version word heads the struct, on the cache line the root snapshot
@@ -9340,6 +9373,54 @@ mod tests {
             h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
         }
         h
+    }
+
+    /// #929 groundwork: `ExpanseStrMap` implements `RootState` now, so
+    /// `Shared::write_root_covered` and the whole `olc_*` route are
+    /// instantiable for this wrapper — but **nothing routes through them**.
+    /// Every mutation still takes `Shared::write` and its one writer mutex,
+    /// which is what leaves the meta-trie root's per-node cover word at its
+    /// initial even value across a mixed insert / replace / remove
+    /// workload driven through the concurrent wrapper itself.
+    ///
+    /// The plain-tree twin is
+    /// `strmap::tests::deferred_str_node_cover_words_stay_even_and_unbumped`,
+    /// which walks every node; this one pins the same claim through the
+    /// wrapper's own write path, and pins `root_is_tree`'s constant answer
+    /// (see the `RootState` impl for why `false` is the correct one).
+    #[test]
+    fn sync_strmap_writes_leave_the_per_node_cover_untouched() {
+        let m = SyncExpanseStrMap::new();
+        for i in 0..64u64 {
+            let k = str_key_of(i);
+            m.insert(tk(&k), str_val_of(&k));
+        }
+        // A replace over a live entry, then a removal.
+        let k0 = str_key_of(0);
+        let k1 = str_key_of(1);
+        assert_eq!(m.insert(tk(&k0), 7), Some(str_val_of(&k0)));
+        assert_eq!(m.remove(tk(&k1)), Some(str_val_of(&k1)));
+
+        m.with_locked(|inner| {
+            assert!(
+                !RootState::root_is_tree(inner),
+                "the string map's root is an `Option<Box<StrNode>>`, never \
+                 an engine `Root::Tree`, so the fallback keeps the \
+                 tree-level bracket open across the whole operation"
+            );
+            // The safe read: `root_cover` returns the word by value, so
+            // pinning this needs no raw pointer. `Some(0)` also asserts the
+            // fixture left a root node at all.
+            assert_eq!(
+                inner.root_cover(),
+                Some(0),
+                "a writer bumped the root cover word (or the fixture left \
+                 no root): this wrapper still serialises on \
+                 `Shared::write`, and routing stores onto the per-node \
+                 covers is the behaviour change #929 registers"
+            );
+        });
+        assert_eq!(m.get(tk(&k0)), Some(7));
     }
 
     #[test]
