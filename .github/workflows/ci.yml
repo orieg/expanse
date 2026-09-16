@@ -1926,8 +1926,8 @@ jobs:
         env:
           RUSTFLAGS: --cfg loom
 
-      - name: Loom model checks with the striped epoch and freelist ablations
-        run: cargo test -p expanse-trie --release --features ablation-striped-epoch,ablation-unstriped-freelist loom_
+      - name: Loom model checks with the unstriped-freelist ablation
+        run: cargo test -p expanse-trie --release --features ablation-unstriped-freelist loom_
         env:
           RUSTFLAGS: --cfg loom
 
