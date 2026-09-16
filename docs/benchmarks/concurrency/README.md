@@ -1590,6 +1590,155 @@ The harness names this field `pmu.frequency_droop`, and it is a frequency only w
   runs and a control arm.
 - Resolve what sits in the `mapping head` lines.
 
+### 11.10 Where the combination's gain comes from, and what a deferred gate costs — `686dd6cb` (Refs #930)
+
+§11.8 measured `ablation-sharded-alloc,lock-padded` as one configuration and
+held it. [#990](https://github.com/orieg/expanse/pull/990) proposed promoting
+it and was withdrawn: the configuration does not meet AGENTS.md §2.7's first
+requirement, that the single-threaded bound is met before a promotion. This
+section carries the measurements that decided it — a four-cell decomposition of
+the gain, a Callgrind attribution of the cost, and a wall-clock sweep of the
+replacement design.
+
+Nothing here is promoted either. §11.8's hold stands.
+
+#### 11.10.1 The gain is an interaction at W = 8, not a sum of two effects
+
+Three comparisons, each run twice, each with its own in-run default half,
+interleaved within a run so drift reaches all three alike. `686dd6cb`, one
+thread per physical P-core (`0,2,4,6,8,10,12,14`), 8 rounds, one harness
+process per timed cell. Paired C(W) ratio, variant ÷ default
+(workload: concurrency_writer_scaling)
+*(measured: reference host — Intel Core i9-12900F, `686dd6cb`;
+`results/ablation_fourcell_{padded,sharded,both}_writer_scaling_686dd6cb_run{1,2}.json`)*.
+
+| cell | `map` W = 8 run 1 | run 2 | `set` W = 8 run 1 | run 2 |
+|---|---|---|---|---|
+| `lock-padded` alone | 1.0426 [1.0119, 1.0624] | 1.0369 [1.0136, 1.0773] | 1.3206 [1.2449, 1.3628] | 1.2996 [1.2832, 1.3157] |
+| `ablation-sharded-alloc` alone | 1.2499 [1.2221, 1.2813] | 1.2340 [1.1895, 1.2525] | 1.1199 [1.1033, 1.1362] | 1.1560 [1.1229, 1.1859] |
+| both together | 2.0882 [2.0352, 2.1778] | 2.0491 [1.9719, 2.1051] | 2.5606 [2.3748, 2.7913] | 2.5500 [2.5182, 2.5756] |
+
+The product of the two single-change ratios is ≈ 1.30 (`map`) and ≈ 1.48–1.50
+(`set`); the combination measures ≈ 2.07 and ≈ 2.56. The excess over the
+product is **1.60–1.71 at W = 8**. At W = 2 the same arithmetic gives 1.03,
+and at W = 4 it gives 1.05–1.09 — consistent with the two changes being
+independent there. The interaction is a W = 8 effect and appears at no lower
+writer count.
+
+No mechanism is attributed for it (§8.9). It is an arithmetic relation between
+measured ratios, not an observation of any microarchitectural event.
+
+#### 11.10.2 The cost is the struct, not the accounting
+
+Callgrind, 129 arms, of which 126 are reproducible — two builds of the
+identical extracted tree differ by up to 2,800 Ir on three `*_short` string
+arms, so any delta on those below that is build noise
+*(measured: development box, 72-core x86_64 — **not** the reference host, no
+bench lock taken; `686dd6cb`;
+`results/callgrind_alloc_shard_cells_686dd6cb.json`)*. Ir counts are exact
+integers and carry no interval (§8.4).
+
+| cell | layout | bit-identical | > 0.5 % | worst arm |
+|---|---|--:|--:|---|
+| `ablation-sharded-alloc` | inline `[AllocShard; 64]`, 4,864 B / align 64 | 38 / 126 | 35 | `judyl_insert/sequential` +6.816 % |
+| size-only control | same size and alignment, `writer_slot()` never called | 39 / 126 | 11 | `judy1_set/sequential` +5.292 % |
+| boxed | array behind a `Box`, 696 B / align 8 | 67 / 126 | 39 | `set_insert/sequential` +3.437 % |
+| deferred-gated | `OnceLock<Box<[AllocShard; 64]>>`, 728 B / align 8 | **75 / 126** | **16** | `sync_blobmap_remove/random` +2.449 % |
+
+The size-only control carries the struct growth and none of the sharded
+accounting, and it reproduces the read-arm regression. The cost of the inline
+layout is therefore the growth of `ExpanseMap` from 712 B / align 8 to
+4,864 B / align 64, not the sharded counters.
+
+The boxed cell removes the read-arm cost and is not offered as the remedy: its
+aggregate over the `sync_*` arms is +16.71 M Ir against the inline layout's
++9.04 M, and those are the arms the mechanism exists to serve. It is recorded
+because it bounds what relocating the array alone can do.
+
+#### 11.10.3 The remaining cost is the gate, not the indirection
+
+Two further cells separate the deferred check from the pointer hop: one pays
+the gate with the array inline, one pays the indirection with no gate.
+
+- gate alone: **+12,266,903 Ir**
+- indirection alone: **+3,510,556 Ir**
+
+The check costs **3.5×** the pointer hop. A 16-stripe variant (1,024 B of
+shards) still perturbs the read arms by +2.188 %, against 4,096 B's +2.191 %,
+so the perturbation is not proportional to the array's size.
+
+A prediction is recorded here as refuted rather than removed (§8.7): the
+inline-with-gate cell was predicted to land near the un-gated sharded cell at
++5 M to +8 M on the `sync_*` aggregate, with +18 M named in advance as the
+falsifier. It measured **+17.63 M**.
+
+#### 11.10.4 The deferred-gated design under wall clock
+
+`NodeAlloc` keeps its three inline atomics and gains one word, an
+`OnceLock<Box<[AllocShard; 64]>>` whose array is allocated cold in `defer_to`
+before `deferred` is set. Four accounting sites become
+`if OCC && let Some(sh) = self.shards.get()`, with an else arm byte-identical
+to base; with the feature off, all 126 reproducible arms are bit-identical to
+base.
+
+Same commit, pin, rounds and cell isolation as §11.10.1
+(workload: concurrency_writer_scaling)
+*(measured: reference host — Intel Core i9-12900F, `686dd6cb`;
+`results/ablation_deferred_shards_writer_scaling_686dd6cb_run{1,2}.json`)*.
+
+| arm | W | run 1 | run 2 | two-run reading |
+|---|--:|---|---|---|
+| `map` | 2 | 1.1736 [1.1621, 1.1938] | 1.1533 [1.1461, 1.1596] | `SINGLE_RUN_PASS` in both runs |
+| `map` | 4 | 1.4333 [1.3907, 1.4579] | 1.4390 [1.4168, 1.4729] | `SINGLE_RUN_PASS` in both runs |
+| `map` | 8 | 2.0841 [2.0246, 2.1226] | 2.0842 [2.0316, 2.1374] | `SINGLE_RUN_PASS` in both runs |
+| `set` | 2 | 1.2450 [1.1813, 1.2814] | 1.2824 [1.2560, 1.3310] | `SINGLE_RUN_PASS` in both runs |
+| `set` | 4 | 1.8102 [1.7777, 1.8331] | 1.8027 [1.7764, 1.8327] | `SINGLE_RUN_PASS` in both runs |
+| `set` | 8 | 2.4591 [2.4334, 2.4937] | 2.3880 [2.2556, 2.4640] | `SINGLE_RUN_PASS` in both runs |
+| `str` | 2 | 1.0597 [1.0368, 1.0799] | 1.0637 [0.9993, 1.1059] | `INCONCLUSIVE` (verdicts differ) |
+| `str` | 4 | 1.0480 [1.0296, 1.0608] | 1.0370 [1.0150, 1.0632] | `SINGLE_RUN_PASS` in both runs |
+| `str` | 8 | 1.0620 [1.0421, 1.0891] | 1.0380 [1.0224, 1.0587] | `SINGLE_RUN_PASS` in both runs |
+| `bytes` | 2 | 1.1108 [1.0496, 1.1857] | 1.1093 [1.0255, 1.1610] | `SINGLE_RUN_PASS` in both runs |
+| `bytes` | 4 | 1.0462 [1.0295, 1.0605] | 1.0514 [1.0269, 1.0731] | `SINGLE_RUN_PASS` in both runs |
+| `bytes` | 8 | 1.0161 [0.9489, 1.1070] | 0.8182 [0.5510, 1.0070] | `INCONCLUSIVE` in both runs |
+| `blob` | 2 | 0.9989 [0.9772, 1.0442] | 1.0086 [0.9964, 1.0183] | `INCONCLUSIVE` in both runs |
+| `blob` | 4 | 1.0313 [1.0115, 1.0562] | 1.0285 [1.0161, 1.0567] | `SINGLE_RUN_PASS` in both runs |
+| `blob` | 8 | 1.0873 [1.0098, 1.1420] | 1.0424 [0.9712, 1.1209] | `INCONCLUSIVE` (verdicts differ) |
+
+Against the inline combination measured in §11.10.1 at the same commit:
+
+- **`map` W = 8 is indistinguishable** — 2.0841 / 2.0842 gated against
+  2.0882 / 2.0491 inline.
+- **`set` W = 8 is lower under the gate in all four pairings** — 2.4591 /
+  2.3880 against 2.5606 / 2.5500, a mean of 2.424 against 2.555. The direction
+  is the same in two independent runs of each design, which is what
+  [`BENCHMARKING.md`](../../BENCHMARKING.md) rule 18 asks before a cross-run
+  delta is claimed.
+- **`bytes` W = 8 and `blob` W = 8 are not established either way.** Both
+  `bytes` cells span 1.0 with wide intervals; the `blob` cells disagree
+  between runs. Neither a gain nor a loss is claimed on them.
+
+#### 11.10.5 Host load
+
+Non-benchmark busy CPU — the host's busy core-equivalents over an interval
+minus the runner's own children's — is **≈ 0.01 in every interval of both
+gated runs**. `load1` at run 2's start reads 1.06 because the one-minute mean
+still carries run 1's own threads; §8.17 introduced the busy-CPU delta for
+exactly that lag, and it reports the host quiet. No §8.17 void condition is met
+in either run.
+
+#### 11.10.6 What these results do not show
+
+- **No promotion.** The deferred-gated design is a candidate. Sixteen
+  reproducible arms remain above 0.5 %, which the automated gate fails on, and
+  14 of those 16 are `sync_*` arms.
+- **The Callgrind cells were not measured on the reference host** and took no
+  bench lock. No wall-clock claim rests on them.
+- **The gate's cost is not attributed to a microarchitectural cause.** What is
+  measured is an instruction count; why the check costs 3.5× the indirection is
+  not established here.
+- **Hoisting the deferred check out of the per-allocation path is unmeasured.**
+  It is what the decomposition indicates and it is not in any cell above.
+
 ## 12. Mixed read/write concurrency — `benches/concurrency.rs` (`results/baseline_concurrent_mixed.json`)
 
 The `Sync*` read/write sweep, with the four properties

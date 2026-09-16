@@ -1,0 +1,4056 @@
+{
+ "suite": "concurrency",
+ "issue": "#930",
+ "metric": "Callgrind retired instructions (Ir), exact integers, no interval (AGENTS.md 8.4)",
+ "commit": "686dd6cb",
+ "question": "where the single-threaded cost of sharded allocator accounting sits, and which layout removes it",
+ "provenance": {
+  "measured_commit": "686dd6cb",
+  "date": "2026-09-16",
+  "host": "development box, 72-core x86_64 (NOT the reference host; no bench lock taken)",
+  "container_image": "cg968-noble",
+  "toolchain": "ubuntu 24.04 / valgrind 3.22.0 / rustc 1.98.1 / iai-callgrind-runner 0.16.1",
+  "source": "git archive 686dd6cb into a scratch tree; the repository's tracked files were not modified",
+  "per_cell_target_dirs": "used throughout, per the Cargo metadata-hash trap found in the fifth cell",
+  "reference": "c5base2, built and measured in the SAME batch as c6",
+  "reference_arm": "each cell is compared against a base built in the SAME batch",
+  "not_the_reference_host": "measured on a development box; no bench lock was taken and no wall-clock claim is made from this artifact"
+ },
+ "build_reproducibility": {
+  "test": "c5base vs c5base2: two independent builds of the identical extracted tree",
+  "arms_differing": 3,
+  "deltas_ir": {
+   "strmap_get_short/short": -474,
+   "sync_strmap_get_short/short": -146,
+   "sync_strmap_churn_short/short": 2800
+  },
+  "verdict": "the build is NOT bit-reproducible for these three *_short string arms; 126/129 are. Any delta on them below ~3,000 Ir is build noise. The other 126 arms are exactly reproducible."
+ },
+ "noise_floor": {
+  "arms": [
+   "strmap_get_short/short",
+   "sync_strmap_churn_short/short",
+   "sync_strmap_get_short/short"
+  ],
+  "measured": "two builds of the identical tree differ by up to 2,800 Ir on these three; any delta on them below that is build noise, not a code effect"
+ },
+ "cells": {
+  "sharded": "inline 64-shard array, unconditional (4864 B / align 64)",
+  "c5a": "size-only dummy array, no writer_slot() (4864 B / align 64)",
+  "c5b": "sharded with the array boxed out of line (696 B / align 8)",
+  "c6": "deferred-gated lazy shards behind OnceLock<Box<..>> (728 B / align 8)",
+  "c7": "deferred-gated lazy shards behind AtomicPtr, Release/Acquire (720 B / align 8)"
+ },
+ "measured_type_sizes": {
+  "ExpanseMap": {
+   "size": 728,
+   "align": 8
+  },
+  "base": {
+   "size": 712,
+   "align": 8
+  },
+  "sharded": {
+   "size": 4864,
+   "align": 64
+  }
+ },
+ "census": {
+  "sharded": {
+   "arms_reproducible": 126,
+   "bit_identical": 38,
+   "over_0_5_pct": 35,
+   "over_0_1_pct": 47,
+   "improved_over_0_1_pct": 12,
+   "over_0_5_pct_all_arms": 36,
+   "worst_arm": "expanse-capi::smoke_instructions::smoke_capi_cost::judyl_insert/sequential",
+   "worst_pct": 6.816
+  },
+  "c5a": {
+   "arms_reproducible": 126,
+   "bit_identical": 39,
+   "over_0_5_pct": 11,
+   "over_0_1_pct": 15,
+   "improved_over_0_1_pct": 38,
+   "over_0_5_pct_all_arms": 11,
+   "worst_arm": "expanse-capi::smoke_instructions::smoke_capi_cost::judy1_set/sequential",
+   "worst_pct": 5.292
+  },
+  "c5b": {
+   "arms_reproducible": 126,
+   "bit_identical": 67,
+   "over_0_5_pct": 39,
+   "over_0_1_pct": 48,
+   "improved_over_0_1_pct": 4,
+   "over_0_5_pct_all_arms": 40,
+   "worst_arm": "expanse-trie::instructions::cost::set_insert/sequential",
+   "worst_pct": 3.437
+  },
+  "c6": {
+   "arms_reproducible": 126,
+   "bit_identical": 75,
+   "over_0_5_pct": 16,
+   "over_0_1_pct": 19,
+   "improved_over_0_1_pct": 11,
+   "over_0_5_pct_all_arms": 17,
+   "worst_arm": "expanse-trie::instructions::cost::sync_blobmap_remove/random",
+   "worst_pct": 2.449
+  },
+  "c7": {
+   "arms_reproducible": 126,
+   "bit_identical": 77,
+   "over_0_5_pct": 22,
+   "over_0_1_pct": 26,
+   "improved_over_0_1_pct": 10,
+   "over_0_5_pct_all_arms": 23,
+   "worst_arm": "expanse-capi::smoke_instructions::smoke_capi_cost::judyl_insert/sequential",
+   "worst_pct": 3.649
+  }
+ },
+ "aggregate_ir_delta": {
+  "sharded": {
+   "total": 9044678,
+   "sync": 5362207,
+   "non_sync": 3682471
+  },
+  "c5b": {
+   "total": 16708335,
+   "sync": 10569133,
+   "non_sync": 6139202
+  },
+  "c6": {
+   "total": 20299828,
+   "sync": 21139666,
+   "non_sync": -839838
+  },
+  "c7": {
+   "total": 22008223,
+   "sync": 21202797,
+   "non_sync": 805426
+  },
+  "verdict": "on the sync_* aggregate c6 (+21,139,666) and c7 (+21,202,797) are indistinguishable \u2014 a 0.3% difference. The Once-state load was NOT the cost. Both remain ~4x inline sharding's sync cost (+5,362,207). c7 also gives back c6's negative non-sync aggregate (-839,838 -> +805,426)."
+ },
+ "gate_decomposition": {
+  "reference": "c5base4, pristine 686dd6cb built in the same batch",
+  "cells": {
+   "sharded": {
+    "layout": "inline [AllocShard;64], 4864/64",
+    "gate": "none",
+    "sync_ir": 5361139,
+    "non_sync_ir": 3683543,
+    "rows_over_0.5pct": 36,
+    "worst_pct": 6.816
+   },
+   "c8": {
+    "layout": "inline [AllocShard;64], 4864/64",
+    "gate": "deferred",
+    "sync_ir": 17628042,
+    "non_sync_ir": -694772,
+    "rows_over_0.5pct": 28,
+    "worst_pct": 5.391
+   },
+   "c6": {
+    "layout": "OnceLock<Box<[AllocShard;64]>>, 728/8",
+    "gate": "deferred",
+    "sync_ir": 21138598,
+    "non_sync_ir": -838766,
+    "rows_over_0.5pct": 17,
+    "worst_pct": 2.449
+   },
+   "c9": {
+    "layout": "inline [AllocShard;16], 1792/64",
+    "gate": "deferred",
+    "sync_ir": 18452105,
+    "non_sync_ir": -944111,
+    "rows_over_0.5pct": 25,
+    "worst_pct": 3.969
+   }
+  },
+  "decomposition": {
+   "gate_alone_ir": 12266903,
+   "indirection_alone_ir": 3510556,
+   "ratio_gate_over_indirection": 3.49
+  },
+  "prediction": "c8 sync aggregate near sharded (+5 to +8 M)",
+  "falsifier": "c8 at +18 M or worse => the cost is the GATE, not the indirection",
+  "outcome": "REFUTED. c8 = +17.63 M, at the falsifier and 2.2x the top of the predicted band. The gate costs +12.27 M; the indirection costs +3.51 M. The gate is 3.5x the indirection.",
+  "c9_finding": "c9 does NOT take both wins. At 1,024 B of shards it still perturbs the read arms by +2.188% (vs 4,096 B's +2.191%) and its sync aggregate is WORSE than c8's. The read-arm perturbation is therefore not proportional to the array's size \u2014 1 KiB perturbs as much as 4 KiB \u2014 which points at the alignment change to 64 and the field-offset shift, not the magnitude."
+ },
+ "winner": {
+  "design": "c6",
+  "why": "the only cell with bit-identical read arms (0 Ir), the best non-sync aggregate (-838,766), the fewest rows over 0.5% (17) and the lowest worst case (+2.449%). c8 and c9 both reinstate the plain-arm cost and neither recovers the sync aggregate.",
+  "caveat": "the sync-arm cost is dominated by the GATE, which c6/c8/c9 all share, so the wall-clock question is about the gate. Hoisting the deferred check out of the per-allocation path is the indicated fix and is NOT in this patch."
+ },
+ "arms": [
+  {
+   "arm": "expanse-capi::smoke_instructions::smoke_capi_cost::judy1_set/clustered",
+   "base_ir": 2323985,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 2423216,
+    "delta_ir": 99231,
+    "pct": 4.2698640481758705
+   },
+   "c5a": {
+    "ir": 2375797,
+    "delta_ir": 51812,
+    "pct": 2.229446403483671
+   },
+   "c5b": {
+    "ir": 2342035,
+    "delta_ir": 18050,
+    "pct": 0.7766831541511671
+   },
+   "c6": {
+    "ir": 2324337,
+    "delta_ir": 352,
+    "pct": 0.015146397244388411
+   },
+   "c7": {
+    "ir": 2324318,
+    "delta_ir": 333,
+    "pct": 0.014328836029492444
+   }
+  },
+  {
+   "arm": "expanse-capi::smoke_instructions::smoke_capi_cost::judy1_set/random",
+   "base_ir": 6493352,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 6677670,
+    "delta_ir": 184318,
+    "pct": 2.838564735132178
+   },
+   "c5a": {
+    "ir": 6545074,
+    "delta_ir": 51722,
+    "pct": 0.7965377512261772
+   },
+   "c5b": {
+    "ir": 6654773,
+    "delta_ir": 161421,
+    "pct": 2.4859425455450435
+   },
+   "c6": {
+    "ir": 6493719,
+    "delta_ir": 367,
+    "pct": 0.00565193447082493
+   },
+   "c7": {
+    "ir": 6493700,
+    "delta_ir": 348,
+    "pct": 0.005359327509120097
+   }
+  },
+  {
+   "arm": "expanse-capi::smoke_instructions::smoke_capi_cost::judy1_set/sequential",
+   "base_ir": 978557,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1037769,
+    "delta_ir": 59212,
+    "pct": 6.050950532263323
+   },
+   "c5a": {
+    "ir": 1030339,
+    "delta_ir": 51782,
+    "pct": 5.291669264028564
+   },
+   "c5b": {
+    "ir": 986315,
+    "delta_ir": 7758,
+    "pct": 0.792800010627894
+   },
+   "c6": {
+    "ir": 979114,
+    "delta_ir": 557,
+    "pct": 0.05692054729566086
+   },
+   "c7": {
+    "ir": 979057,
+    "delta_ir": 500,
+    "pct": 0.051095643891975635
+   }
+  },
+  {
+   "arm": "expanse-capi::smoke_instructions::smoke_capi_cost::judy1_test/clustered",
+   "base_ir": 1056077,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1056077,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 1056077,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 1056077,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 1056077,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1056077,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-capi::smoke_instructions::smoke_capi_cost::judy1_test/random",
+   "base_ir": 1261629,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1261629,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 1261629,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 1261629,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 1261629,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1261629,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-capi::smoke_instructions::smoke_capi_cost::judy1_test/sequential",
+   "base_ir": 1173024,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1173024,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 1173024,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 1173024,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 1173024,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1173024,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-capi::smoke_instructions::smoke_capi_cost::judyl_get/clustered",
+   "base_ir": 1237860,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1237860,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 1237860,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 1237860,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 1237860,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1237860,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-capi::smoke_instructions::smoke_capi_cost::judyl_get/random",
+   "base_ir": 1340334,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1340334,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 1340334,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 1340334,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 1340334,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1340334,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-capi::smoke_instructions::smoke_capi_cost::judyl_get/sequential",
+   "base_ir": 1538887,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1538887,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 1538887,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 1538887,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 1538887,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1538887,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-capi::smoke_instructions::smoke_capi_cost::judyl_insert/clustered",
+   "base_ir": 3572879,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 3658865,
+    "delta_ir": 85986,
+    "pct": 2.4066306191729416
+   },
+   "c5a": {
+    "ir": 3624412,
+    "delta_ir": 51533,
+    "pct": 1.4423382375949478
+   },
+   "c5b": {
+    "ir": 3619498,
+    "delta_ir": 46619,
+    "pct": 1.3048020937736766
+   },
+   "c6": {
+    "ir": 3573296,
+    "delta_ir": 417,
+    "pct": 0.01167126006786124
+   },
+   "c7": {
+    "ir": 3613317,
+    "delta_ir": 40438,
+    "pct": 1.1318043516167213
+   }
+  },
+  {
+   "arm": "expanse-capi::smoke_instructions::smoke_capi_cost::judyl_insert/random",
+   "base_ir": 7718951,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 7831209,
+    "delta_ir": 112258,
+    "pct": 1.4543167847548197
+   },
+   "c5a": {
+    "ir": 7770403,
+    "delta_ir": 51452,
+    "pct": 0.6665672576493878
+   },
+   "c5b": {
+    "ir": 7818384,
+    "delta_ir": 99433,
+    "pct": 1.2881672652151828
+   },
+   "c6": {
+    "ir": 7719270,
+    "delta_ir": 319,
+    "pct": 0.004132685905118455
+   },
+   "c7": {
+    "ir": 7759294,
+    "delta_ir": 40343,
+    "pct": 0.5226487381510778
+   }
+  },
+  {
+   "arm": "expanse-capi::smoke_instructions::smoke_capi_cost::judyl_insert/sequential",
+   "base_ir": 2158863,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 2306008,
+    "delta_ir": 147145,
+    "pct": 6.815856309548128
+   },
+   "c5a": {
+    "ir": 2252211,
+    "delta_ir": 93348,
+    "pct": 4.3239427420822905
+   },
+   "c5b": {
+    "ir": 2204192,
+    "delta_ir": 45329,
+    "pct": 2.0996700578035754
+   },
+   "c6": {
+    "ir": 2188819,
+    "delta_ir": 29956,
+    "pct": 1.387582259735796
+   },
+   "c7": {
+    "ir": 2237650,
+    "delta_ir": 78787,
+    "pct": 3.6494673353519884
+   }
+  },
+  {
+   "arm": "expanse-capi::smoke_instructions::smoke_capi_cost::judysl_get/routes",
+   "base_ir": 7024178,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 7024178,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 7024178,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 7024178,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 7024178,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 7024178,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-capi::smoke_instructions::smoke_capi_cost::judysl_insert/routes",
+   "base_ir": 9143535,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 9302632,
+    "delta_ir": 159097,
+    "pct": 1.7399944332252242
+   },
+   "c5a": {
+    "ir": 9215199,
+    "delta_ir": 71664,
+    "pct": 0.7837668910328445
+   },
+   "c5b": {
+    "ir": 9263213,
+    "delta_ir": 119678,
+    "pct": 1.308881083738401
+   },
+   "c6": {
+    "ir": 9203989,
+    "delta_ir": 60454,
+    "pct": 0.6611666056946247
+   },
+   "c7": {
+    "ir": 9250460,
+    "delta_ir": 106925,
+    "pct": 1.169405487046312
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::blobmap32_scan/ipv4_routes",
+   "base_ir": 347893,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 347893,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 347893,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 347893,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 347893,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 347893,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::bytesmap_churn/routes",
+   "base_ir": 192444962,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 192442336,
+    "delta_ir": -2626,
+    "pct": -0.0013645459838018518
+   },
+   "c5a": {
+    "ir": 192045364,
+    "delta_ir": -399598,
+    "pct": -0.20764274411091105
+   },
+   "c5b": {
+    "ir": 193061468,
+    "delta_ir": 616506,
+    "pct": 0.32035445022457903
+   },
+   "c6": {
+    "ir": 192194962,
+    "delta_ir": -250000,
+    "pct": -0.12990727187755635
+   },
+   "c7": {
+    "ir": 192444962,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::bytesmap_get/routes",
+   "base_ir": 29361529,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 29361928,
+    "delta_ir": 399,
+    "pct": 0.0013589210561888653
+   },
+   "c5a": {
+    "ir": 29361928,
+    "delta_ir": 399,
+    "pct": 0.0013589210561888653
+   },
+   "c5b": {
+    "ir": 29361529,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 29361529,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 29361529,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::bytesmap_insert/routes",
+   "base_ir": 99222977,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 99070226,
+    "delta_ir": -152751,
+    "pct": -0.1539472051922006
+   },
+   "c5a": {
+    "ir": 99023837,
+    "delta_ir": -199140,
+    "pct": -0.20069948112925498
+   },
+   "c5b": {
+    "ir": 99390217,
+    "delta_ir": 167240,
+    "pct": 0.16854966969999297
+   },
+   "c6": {
+    "ir": 99073122,
+    "delta_ir": -149855,
+    "pct": -0.15102852638658484
+   },
+   "c7": {
+    "ir": 99173206,
+    "delta_ir": -49771,
+    "pct": -0.05016076064720372
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_for_each_range/clustered",
+   "base_ir": 214487,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 214487,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 214487,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 214487,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 214487,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 214487,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_for_each_range/random",
+   "base_ir": 98720,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 98720,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 98720,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 98720,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 98720,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 98720,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_for_each_range/sequential",
+   "base_ir": 144307,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 144307,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 144307,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 144307,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 144307,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 144307,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_get/can_dispatch",
+   "base_ir": 106341,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 106341,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 106341,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 106341,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 106341,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 106341,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_insert/sensor_timestamps",
+   "base_ir": 5278762,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 5278762,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 5278762,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 5278762,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 5278762,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 5278762,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_iterate/clustered",
+   "base_ir": 293258,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 293258,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 293258,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 293258,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 293258,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 293258,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_iterate/random",
+   "base_ir": 332895,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 332895,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 332895,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 332895,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 332895,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 332895,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_iterate/sequential",
+   "base_ir": 188808,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 188808,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 188808,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 188808,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 188808,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 188808,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_nav/clustered",
+   "base_ir": 2309574,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 2309574,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 2309574,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 2309574,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 2309574,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 2309574,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_nav/random",
+   "base_ir": 5287138,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 5287138,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 5287138,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 5287138,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 5287138,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 5287138,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_nav/sequential",
+   "base_ir": 1185721,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1185721,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 1185721,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 1185721,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 1185721,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1185721,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_prev/clustered",
+   "base_ir": 2443497,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 2443497,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 2443497,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 2443497,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 2443497,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 2443497,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_prev/random",
+   "base_ir": 5133048,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 5133048,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 5133048,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 5133048,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 5133048,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 5133048,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_prev/sequential",
+   "base_ir": 1183618,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1183618,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 1183618,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 1183618,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 1183618,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1183618,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_range/clustered",
+   "base_ir": 293267,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 293267,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 293267,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 293267,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 293267,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 293267,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_range/random",
+   "base_ir": 167483,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 167483,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 167483,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 167483,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 167483,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 167483,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_range/sequential",
+   "base_ir": 188817,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 188817,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 188817,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 188817,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 188817,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 188817,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_remove/clustered",
+   "base_ir": 1987181,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1987181,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 1987181,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 1987181,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 1987181,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1987181,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_remove/random",
+   "base_ir": 1408447,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1408447,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 1408447,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 1408447,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 1408447,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1408447,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map32_remove/sequential",
+   "base_ir": 1481318,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1481318,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 1481318,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 1481318,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 1481318,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1481318,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_churn/random",
+   "base_ir": 61869922,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 62279263,
+    "delta_ir": 409341,
+    "pct": 0.6616155100373329
+   },
+   "c5a": {
+    "ir": 61620310,
+    "delta_ir": -249612,
+    "pct": -0.40344644365318577
+   },
+   "c5b": {
+    "ir": 62952070,
+    "delta_ir": 1082148,
+    "pct": 1.74906960445174
+   },
+   "c6": {
+    "ir": 61869922,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 61869922,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_get/clustered",
+   "base_ir": 5619910,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 5620297,
+    "delta_ir": 387,
+    "pct": 0.0068862312741663125
+   },
+   "c5a": {
+    "ir": 5620297,
+    "delta_ir": 387,
+    "pct": 0.0068862312741663125
+   },
+   "c5b": {
+    "ir": 5619910,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 5619910,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 5619910,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_get/dense_leaf",
+   "base_ir": 11111358,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 11111745,
+    "delta_ir": 387,
+    "pct": 0.0034829226094596176
+   },
+   "c5a": {
+    "ir": 11111745,
+    "delta_ir": 387,
+    "pct": 0.0034829226094596176
+   },
+   "c5b": {
+    "ir": 11111358,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 11111358,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 11111358,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_get/linear_leaf",
+   "base_ir": 9954403,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 9954790,
+    "delta_ir": 387,
+    "pct": 0.003887726868200936
+   },
+   "c5a": {
+    "ir": 9954790,
+    "delta_ir": 387,
+    "pct": 0.003887726868200936
+   },
+   "c5b": {
+    "ir": 9954403,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 9954403,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 9954403,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_get/random",
+   "base_ir": 6262177,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 6262564,
+    "delta_ir": 387,
+    "pct": 0.006179959461382199
+   },
+   "c5a": {
+    "ir": 6262564,
+    "delta_ir": 387,
+    "pct": 0.006179959461382199
+   },
+   "c5b": {
+    "ir": 6262177,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 6262177,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 6262177,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_get/sequential",
+   "base_ir": 6950214,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 6950601,
+    "delta_ir": 387,
+    "pct": 0.0055681738720563135
+   },
+   "c5a": {
+    "ir": 6950601,
+    "delta_ir": 387,
+    "pct": 0.0055681738720563135
+   },
+   "c5b": {
+    "ir": 6950214,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 6950214,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 6950214,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_get_batch/random",
+   "base_ir": 8495851,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 8682035,
+    "delta_ir": 186184,
+    "pct": 2.1914696950311394
+   },
+   "c5a": {
+    "ir": 8682035,
+    "delta_ir": 186184,
+    "pct": 2.1914696950311394
+   },
+   "c5b": {
+    "ir": 8495851,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 8495851,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 8495851,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_ins_slot/random",
+   "base_ir": 25163433,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 25310997,
+    "delta_ir": 147564,
+    "pct": 0.5864223693166191
+   },
+   "c5a": {
+    "ir": 25114128,
+    "delta_ir": -49305,
+    "pct": -0.1959390835105846
+   },
+   "c5b": {
+    "ir": 25431475,
+    "delta_ir": 268042,
+    "pct": 1.0652044178550677
+   },
+   "c6": {
+    "ir": 25163447,
+    "delta_ir": 14,
+    "pct": 5.5636287783149464e-05
+   },
+   "c7": {
+    "ir": 25113508,
+    "delta_ir": -49925,
+    "pct": -0.19840297625526693
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_insert/clustered",
+   "base_ir": 18320094,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 18438198,
+    "delta_ir": 118104,
+    "pct": 0.6446691812825851
+   },
+   "c5a": {
+    "ir": 18270801,
+    "delta_ir": -49293,
+    "pct": -0.26906521331167843
+   },
+   "c5b": {
+    "ir": 18539982,
+    "delta_ir": 219888,
+    "pct": 1.2002558502156158
+   },
+   "c6": {
+    "ir": 18320250,
+    "delta_ir": 156,
+    "pct": 0.000851524015106036
+   },
+   "c7": {
+    "ir": 18320149,
+    "delta_ir": 55,
+    "pct": 0.0003002168001976409
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_insert/dense_leaf",
+   "base_ir": 24488448,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 24490847,
+    "delta_ir": 2399,
+    "pct": 0.0097964558635974
+   },
+   "c5a": {
+    "ir": 24439171,
+    "delta_ir": -49277,
+    "pct": -0.20122549211775284
+   },
+   "c5b": {
+    "ir": 24520529,
+    "delta_ir": 32081,
+    "pct": 0.13100462716134562
+   },
+   "c6": {
+    "ir": 24488604,
+    "delta_ir": 156,
+    "pct": 0.000637035062409835
+   },
+   "c7": {
+    "ir": 24488503,
+    "delta_ir": 55,
+    "pct": 0.00022459569508039056
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_insert/linear_leaf",
+   "base_ir": 26239825,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 26324861,
+    "delta_ir": 85036,
+    "pct": 0.32407228325646226
+   },
+   "c5a": {
+    "ir": 26190537,
+    "delta_ir": -49288,
+    "pct": -0.18783661857500955
+   },
+   "c5b": {
+    "ir": 26418754,
+    "delta_ir": 178929,
+    "pct": 0.6818986026011987
+   },
+   "c6": {
+    "ir": 26239981,
+    "delta_ir": 156,
+    "pct": 0.0005945161600734761
+   },
+   "c7": {
+    "ir": 26239880,
+    "delta_ir": 55,
+    "pct": 0.00020960505643616146
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_insert/random",
+   "base_ir": 26190972,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 26328834,
+    "delta_ir": 137862,
+    "pct": 0.5263722171135916
+   },
+   "c5a": {
+    "ir": 26141679,
+    "delta_ir": -49293,
+    "pct": -0.1882060734515695
+   },
+   "c5b": {
+    "ir": 26496431,
+    "delta_ir": 305459,
+    "pct": 1.1662759213365583
+   },
+   "c6": {
+    "ir": 26191128,
+    "delta_ir": 156,
+    "pct": 0.0005956250879119721
+   },
+   "c7": {
+    "ir": 26191027,
+    "delta_ir": 55,
+    "pct": 0.00020999602458434915
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_insert/sequential",
+   "base_ir": 10333132,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 10141884,
+    "delta_ir": -191248,
+    "pct": -1.8508231579737877
+   },
+   "c5a": {
+    "ir": 10245192,
+    "delta_ir": -87940,
+    "pct": -0.8510488397902979
+   },
+   "c5b": {
+    "ir": 10488330,
+    "delta_ir": 155198,
+    "pct": 1.5019453927424908
+   },
+   "c6": {
+    "ir": 10365346,
+    "delta_ir": 32214,
+    "pct": 0.3117544612804714
+   },
+   "c7": {
+    "ir": 10385644,
+    "delta_ir": 52512,
+    "pct": 0.5081905466803288
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_insert/small",
+   "base_ir": 25670532,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 25759986,
+    "delta_ir": 89454,
+    "pct": 0.34846959930553834
+   },
+   "c5a": {
+    "ir": 25621239,
+    "delta_ir": -49293,
+    "pct": -0.19202173137666176
+   },
+   "c5b": {
+    "ir": 25847670,
+    "delta_ir": 177138,
+    "pct": 0.6900441330939304
+   },
+   "c6": {
+    "ir": 25670688,
+    "delta_ir": 156,
+    "pct": 0.0006077006896467904
+   },
+   "c7": {
+    "ir": 25670587,
+    "delta_ir": 55,
+    "pct": 0.00021425344827290686
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_iterate/random",
+   "base_ir": 5260549,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 5344631,
+    "delta_ir": 84082,
+    "pct": 1.598350286253393
+   },
+   "c5a": {
+    "ir": 5344631,
+    "delta_ir": 84082,
+    "pct": 1.598350286253393
+   },
+   "c5b": {
+    "ir": 5260549,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 5260549,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 5260549,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_nav/clustered",
+   "base_ir": 15993748,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 15994135,
+    "delta_ir": 387,
+    "pct": 0.002419695496015068
+   },
+   "c5a": {
+    "ir": 15994135,
+    "delta_ir": 387,
+    "pct": 0.002419695496015068
+   },
+   "c5b": {
+    "ir": 15993748,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 15993748,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 15993748,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_nav/random",
+   "base_ir": 15675593,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 15675980,
+    "delta_ir": 387,
+    "pct": 0.0024688061242723004
+   },
+   "c5a": {
+    "ir": 15675980,
+    "delta_ir": 387,
+    "pct": 0.0024688061242723004
+   },
+   "c5b": {
+    "ir": 15675593,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 15675593,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 15675593,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_nav/sequential",
+   "base_ir": 22350212,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 22350599,
+    "delta_ir": 387,
+    "pct": 0.0017315271998314826
+   },
+   "c5a": {
+    "ir": 22350599,
+    "delta_ir": 387,
+    "pct": 0.0017315271998314826
+   },
+   "c5b": {
+    "ir": 22350212,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 22350212,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 22350212,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_prev/clustered",
+   "base_ir": 16625667,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 16626054,
+    "delta_ir": 387,
+    "pct": 0.0023277261597985815
+   },
+   "c5a": {
+    "ir": 16626054,
+    "delta_ir": 387,
+    "pct": 0.0023277261597985815
+   },
+   "c5b": {
+    "ir": 16625667,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 16625667,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 16625667,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_prev/random",
+   "base_ir": 21880845,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 21881232,
+    "delta_ir": 387,
+    "pct": 0.001768670268447128
+   },
+   "c5a": {
+    "ir": 21881232,
+    "delta_ir": 387,
+    "pct": 0.001768670268447128
+   },
+   "c5b": {
+    "ir": 21880845,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 21880845,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 21880845,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_prev/sequential",
+   "base_ir": 23399767,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 23400154,
+    "delta_ir": 387,
+    "pct": 0.0016538626217944819
+   },
+   "c5a": {
+    "ir": 23400154,
+    "delta_ir": 387,
+    "pct": 0.0016538626217944819
+   },
+   "c5b": {
+    "ir": 23399767,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 23399767,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 23399767,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::map_remove/random",
+   "base_ir": 24096041,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 24381299,
+    "delta_ir": 285258,
+    "pct": 1.1838376271023112
+   },
+   "c5a": {
+    "ir": 24046423,
+    "delta_ir": -49618,
+    "pct": -0.2059176443134372
+   },
+   "c5b": {
+    "ir": 24625514,
+    "delta_ir": 529473,
+    "pct": 2.1973443687284564
+   },
+   "c6": {
+    "ir": 24106609,
+    "delta_ir": 10568,
+    "pct": 0.043857827101140806
+   },
+   "c7": {
+    "ir": 24107153,
+    "delta_ir": 11112,
+    "pct": 0.04611545938189597
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::set32_insert/sensor_timestamps",
+   "base_ir": 5108017,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 5108017,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 5108017,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 5108017,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 5108017,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 5108017,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::set32_iterate/clustered",
+   "base_ir": 260258,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 260258,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 260258,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 260258,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 260258,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 260258,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::set32_iterate/random",
+   "base_ir": 293012,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 293012,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 293012,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 293012,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 293012,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 293012,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::set32_iterate/sequential",
+   "base_ir": 133597,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 133597,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 133597,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 133597,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 133597,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 133597,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::set32_range/clustered",
+   "base_ir": 260267,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 260267,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 260267,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 260267,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 260267,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 260267,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::set32_range/random",
+   "base_ir": 147668,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 147668,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 147668,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 147668,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 147668,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 147668,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::set32_range/sequential",
+   "base_ir": 133606,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 133606,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 133606,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 133606,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 133606,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 133606,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::set32_remove/clustered",
+   "base_ir": 1823467,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1823467,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 1823467,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 1823467,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 1823467,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1823467,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::set32_remove/random",
+   "base_ir": 1158397,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1158397,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 1158397,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 1158397,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 1158397,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1158397,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::set32_remove/sequential",
+   "base_ir": 1094709,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1094709,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5a": {
+    "ir": 1094709,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 1094709,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 1094709,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1094709,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::set_contains/random",
+   "base_ir": 6139090,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 6139478,
+    "delta_ir": 388,
+    "pct": 0.006320154941530422
+   },
+   "c5a": {
+    "ir": 6139478,
+    "delta_ir": 388,
+    "pct": 0.006320154941530422
+   },
+   "c5b": {
+    "ir": 6139090,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 6139090,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 6139090,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::set_contains_batch/random",
+   "base_ir": 8500037,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 8550424,
+    "delta_ir": 50387,
+    "pct": 0.5927856549330315
+   },
+   "c5a": {
+    "ir": 8550424,
+    "delta_ir": 50387,
+    "pct": 0.5927856549330315
+   },
+   "c5b": {
+    "ir": 8500037,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 8500037,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 8500037,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::set_insert/clustered",
+   "base_ir": 11030460,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 11256187,
+    "delta_ir": 225727,
+    "pct": 2.046396977097963
+   },
+   "c5a": {
+    "ir": 10831143,
+    "delta_ir": -199317,
+    "pct": -1.8069690656599997
+   },
+   "c5b": {
+    "ir": 11069155,
+    "delta_ir": 38695,
+    "pct": 0.3508013265085953
+   },
+   "c6": {
+    "ir": 10930646,
+    "delta_ir": -99814,
+    "pct": -0.9048942655156721
+   },
+   "c7": {
+    "ir": 10930688,
+    "delta_ir": -99772,
+    "pct": -0.9045135017034648
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::set_insert/dense_leaf",
+   "base_ir": 18436402,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 18670708,
+    "delta_ir": 234306,
+    "pct": 1.2708878879946315
+   },
+   "c5a": {
+    "ir": 18237149,
+    "delta_ir": -199253,
+    "pct": -1.0807585992104098
+   },
+   "c5b": {
+    "ir": 18698282,
+    "delta_ir": 261880,
+    "pct": 1.4204506931450074
+   },
+   "c6": {
+    "ir": 18336620,
+    "delta_ir": -99782,
+    "pct": -0.5412227396647133
+   },
+   "c7": {
+    "ir": 18336662,
+    "delta_ir": -99740,
+    "pct": -0.5409949294878686
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::set_insert/linear_leaf",
+   "base_ir": 19277470,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 19625882,
+    "delta_ir": 348412,
+    "pct": 1.8073533508287136
+   },
+   "c5a": {
+    "ir": 19078173,
+    "delta_ir": -199297,
+    "pct": -1.0338337966548514
+   },
+   "c5b": {
+    "ir": 19615823,
+    "delta_ir": 338353,
+    "pct": 1.7551732670314102
+   },
+   "c6": {
+    "ir": 19177666,
+    "delta_ir": -99804,
+    "pct": -0.5177235394478632
+   },
+   "c7": {
+    "ir": 19177691,
+    "delta_ir": -99779,
+    "pct": -0.5175938543802687
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::set_insert/random",
+   "base_ir": 21180754,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 21528404,
+    "delta_ir": 347650,
+    "pct": 1.6413485563356243
+   },
+   "c5a": {
+    "ir": 20981437,
+    "delta_ir": -199317,
+    "pct": -0.9410288226755289
+   },
+   "c5b": {
+    "ir": 21512626,
+    "delta_ir": 331872,
+    "pct": 1.5668564018070368
+   },
+   "c6": {
+    "ir": 21080940,
+    "delta_ir": -99814,
+    "pct": -0.47124856839374085
+   },
+   "c7": {
+    "ir": 21080953,
+    "delta_ir": -99801,
+    "pct": -0.4711871919196078
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::set_insert/sequential",
+   "base_ir": 3345150,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 3425607,
+    "delta_ir": 80457,
+    "pct": 2.405183624052733
+   },
+   "c5a": {
+    "ir": 3329214,
+    "delta_ir": -15936,
+    "pct": -0.476391193220035
+   },
+   "c5b": {
+    "ir": 3460112,
+    "delta_ir": 114962,
+    "pct": 3.436676980105526
+   },
+   "c6": {
+    "ir": 3337802,
+    "delta_ir": -7348,
+    "pct": -0.2196613006890573
+   },
+   "c7": {
+    "ir": 3338232,
+    "delta_ir": -6918,
+    "pct": -0.20680686964710102
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::strmap_churn/routes",
+   "base_ir": 125138622,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 124939012,
+    "delta_ir": -199610,
+    "pct": -0.15951110601169957
+   },
+   "c5a": {
+    "ir": 125139012,
+    "delta_ir": 390,
+    "pct": 0.00031165438276921413
+   },
+   "c5b": {
+    "ir": 124838622,
+    "delta_ir": -300000,
+    "pct": -0.23973414059170317
+   },
+   "c6": {
+    "ir": 125038622,
+    "delta_ir": -100000,
+    "pct": -0.07991138019723439
+   },
+   "c7": {
+    "ir": 125788622,
+    "delta_ir": 650000,
+    "pct": 0.5194239712820236
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::strmap_get/routes",
+   "base_ir": 35263981,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 35264368,
+    "delta_ir": 387,
+    "pct": 0.0010974370704203817
+   },
+   "c5a": {
+    "ir": 35264368,
+    "delta_ir": 387,
+    "pct": 0.0010974370704203817
+   },
+   "c5b": {
+    "ir": 35263981,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 35263981,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 35263981,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::strmap_get_short/short",
+   "base_ir": 20439268,
+   "nonreproducible": true,
+   "sharded": {
+    "ir": 20437862,
+    "delta_ir": -1406,
+    "pct": -0.006878915624571291
+   },
+   "c5a": {
+    "ir": 20438782,
+    "delta_ir": 1323,
+    "pct": 0.006473407481820514
+   },
+   "c5b": {
+    "ir": 20437355,
+    "delta_ir": -1913,
+    "pct": -0.009359434985636472
+   },
+   "c6": {
+    "ir": 20438182,
+    "delta_ir": -1086,
+    "pct": -0.005313301826660328
+   },
+   "c7": {
+    "ir": 20438055,
+    "delta_ir": -1213,
+    "pct": -0.005934654802706242
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::strmap_insert/routes",
+   "base_ir": 45475773,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 45614516,
+    "delta_ir": 138743,
+    "pct": 0.30509212014933756
+   },
+   "c5a": {
+    "ir": 45476415,
+    "delta_ir": 642,
+    "pct": 0.0014117407086186309
+   },
+   "c5b": {
+    "ir": 45715940,
+    "delta_ir": 240167,
+    "pct": 0.5281207644342846
+   },
+   "c6": {
+    "ir": 45513851,
+    "delta_ir": 38078,
+    "pct": 0.08373249642177605
+   },
+   "c7": {
+    "ir": 45685127,
+    "delta_ir": 209354,
+    "pct": 0.4603638073397895
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_blobmap_churn/random",
+   "base_ir": 129545291,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 130287325,
+    "delta_ir": 742034,
+    "pct": 0.5727988985720832
+   },
+   "c5a": {
+    "ir": 129395291,
+    "delta_ir": -150000,
+    "pct": -0.11578961986352711
+   },
+   "c5b": {
+    "ir": 130735304,
+    "delta_ir": 1190013,
+    "pct": 0.9186076860177033
+   },
+   "c6": {
+    "ir": 132490906,
+    "delta_ir": 2945615,
+    "pct": 2.2738109407620226
+   },
+   "c7": {
+    "ir": 132536231,
+    "delta_ir": 2990940,
+    "pct": 2.308798704230785
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_blobmap_insert/random",
+   "base_ir": 55398502,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 55691712,
+    "delta_ir": 293210,
+    "pct": 0.5292742392204035
+   },
+   "c5a": {
+    "ir": 55301819,
+    "delta_ir": -96683,
+    "pct": -0.17452276958680218
+   },
+   "c5b": {
+    "ir": 55903201,
+    "delta_ir": 504699,
+    "pct": 0.9110336593577928
+   },
+   "c6": {
+    "ir": 56736762,
+    "delta_ir": 1338260,
+    "pct": 2.4156970887046727
+   },
+   "c7": {
+    "ir": 56851551,
+    "delta_ir": 1453049,
+    "pct": 2.6229030525049217
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_blobmap_remove/random",
+   "base_ir": 42427487,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 43047578,
+    "delta_ir": 620091,
+    "pct": 1.4615312945591146
+   },
+   "c5a": {
+    "ir": 42477479,
+    "delta_ir": 49992,
+    "pct": 0.11782927421555747
+   },
+   "c5b": {
+    "ir": 43158031,
+    "delta_ir": 730544,
+    "pct": 1.7218648844321136
+   },
+   "c6": {
+    "ir": 43466597,
+    "delta_ir": 1039110,
+    "pct": 2.449143405547446
+   },
+   "c7": {
+    "ir": 43362083,
+    "delta_ir": 934596,
+    "pct": 2.2028078165459104
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_bytesmap_churn/routes",
+   "base_ir": 263258298,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 263236333,
+    "delta_ir": -21965,
+    "pct": -0.008343516678057382
+   },
+   "c5a": {
+    "ir": 262858284,
+    "delta_ir": -400014,
+    "pct": -0.1519473471639629
+   },
+   "c5b": {
+    "ir": 264136017,
+    "delta_ir": 877719,
+    "pct": 0.33340601480299775
+   },
+   "c6": {
+    "ir": 266440513,
+    "delta_ir": 3182215,
+    "pct": 1.208780511070538
+   },
+   "c7": {
+    "ir": 266133940,
+    "delta_ir": 2875642,
+    "pct": 1.0923272017811192
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_bytesmap_insert/routes",
+   "base_ir": 115675406,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 115425368,
+    "delta_ir": -250038,
+    "pct": -0.2161548497180118
+   },
+   "c5a": {
+    "ir": 115477073,
+    "delta_ir": -198333,
+    "pct": -0.17145649784881672
+   },
+   "c5b": {
+    "ir": 115734911,
+    "delta_ir": 59505,
+    "pct": 0.051441358243428166
+   },
+   "c6": {
+    "ir": 116870678,
+    "delta_ir": 1195272,
+    "pct": 1.033298296787478
+   },
+   "c7": {
+    "ir": 116689334,
+    "delta_ir": 1013928,
+    "pct": 0.8765285855145388
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_bytesmap_remove/routes",
+   "base_ir": 119611216,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 120280991,
+    "delta_ir": 669775,
+    "pct": 0.5599600291664956
+   },
+   "c5a": {
+    "ir": 119561249,
+    "delta_ir": -49967,
+    "pct": -0.04177451051078688
+   },
+   "c5b": {
+    "ir": 120501699,
+    "delta_ir": 890483,
+    "pct": 0.7444811864465954
+   },
+   "c6": {
+    "ir": 120811312,
+    "delta_ir": 1200096,
+    "pct": 1.003330657553051
+   },
+   "c7": {
+    "ir": 120706950,
+    "delta_ir": 1095734,
+    "pct": 0.9160796425646237
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_map_churn/random",
+   "base_ir": 114962239,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 115996088,
+    "delta_ir": 1033849,
+    "pct": 0.8992944196224293
+   },
+   "c5a": {
+    "ir": 114962584,
+    "delta_ir": 345,
+    "pct": 0.00030009853931254764
+   },
+   "c5b": {
+    "ir": 116705490,
+    "delta_ir": 1743251,
+    "pct": 1.5163683442177913
+   },
+   "c6": {
+    "ir": 117122162,
+    "delta_ir": 2159923,
+    "pct": 1.8788108328335533
+   },
+   "c7": {
+    "ir": 116708475,
+    "delta_ir": 1746236,
+    "pct": 1.518964848970974
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_map_get/random",
+   "base_ir": 14978263,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 14928263,
+    "delta_ir": -50000,
+    "pct": -0.33381707878944306
+   },
+   "c5a": {
+    "ir": 14928263,
+    "delta_ir": -50000,
+    "pct": -0.33381707878944306
+   },
+   "c5b": {
+    "ir": 14978263,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 14978263,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 14978263,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_map_insert/random",
+   "base_ir": 47906731,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 48282641,
+    "delta_ir": 375910,
+    "pct": 0.784670529909461
+   },
+   "c5a": {
+    "ir": 47884654,
+    "delta_ir": -22077,
+    "pct": -0.04608329464183227
+   },
+   "c5b": {
+    "ir": 48700019,
+    "delta_ir": 793288,
+    "pct": 1.655900921313124
+   },
+   "c6": {
+    "ir": 48601496,
+    "delta_ir": 694765,
+    "pct": 1.450245060553182
+   },
+   "c7": {
+    "ir": 48483965,
+    "delta_ir": 577234,
+    "pct": 1.2049121030612588
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_map_prev/random",
+   "base_ir": 32210442,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 32160442,
+    "delta_ir": -50000,
+    "pct": -0.15522916450510055
+   },
+   "c5a": {
+    "ir": 32160442,
+    "delta_ir": -50000,
+    "pct": -0.15522916450510055
+   },
+   "c5b": {
+    "ir": 32210442,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 32210442,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 32210442,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_map_prev_locked/random",
+   "base_ir": 57129828,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 57029826,
+    "delta_ir": -100002,
+    "pct": -0.17504341164828993
+   },
+   "c5a": {
+    "ir": 57029826,
+    "delta_ir": -100002,
+    "pct": -0.17504341164828993
+   },
+   "c5b": {
+    "ir": 57129828,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 57129828,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 57129828,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_map_remove/random",
+   "base_ir": 59815162,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 60097749,
+    "delta_ir": 282587,
+    "pct": 0.47243372842491005
+   },
+   "c5a": {
+    "ir": 59575335,
+    "delta_ir": -239827,
+    "pct": -0.40094683685718346
+   },
+   "c5b": {
+    "ir": 60518775,
+    "delta_ir": 703613,
+    "pct": 1.1763121196595605
+   },
+   "c6": {
+    "ir": 60876706,
+    "delta_ir": 1061544,
+    "pct": 1.7747072222256959
+   },
+   "c7": {
+    "ir": 60772520,
+    "delta_ir": 957358,
+    "pct": 1.6005273044316088
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_set_churn/random",
+   "base_ir": 90143263,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 90418036,
+    "delta_ir": 274773,
+    "pct": 0.30481812046231344
+   },
+   "c5a": {
+    "ir": 90141320,
+    "delta_ir": -1943,
+    "pct": -0.002155457807201854
+   },
+   "c5b": {
+    "ir": 90535468,
+    "delta_ir": 392205,
+    "pct": 0.4350907510414838
+   },
+   "c6": {
+    "ir": 90850330,
+    "delta_ir": 707067,
+    "pct": 0.7843814129515148
+   },
+   "c7": {
+    "ir": 90767020,
+    "delta_ir": 623757,
+    "pct": 0.6919618607549185
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_set_contains/random",
+   "base_ir": 14624957,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 14574957,
+    "delta_ir": -50000,
+    "pct": -0.3418813470699435
+   },
+   "c5a": {
+    "ir": 14574957,
+    "delta_ir": -50000,
+    "pct": -0.3418813470699435
+   },
+   "c5b": {
+    "ir": 14624957,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 14624957,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 14624957,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_set_insert/random",
+   "base_ir": 41204897,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 41382088,
+    "delta_ir": 177191,
+    "pct": 0.4300241303843084
+   },
+   "c5a": {
+    "ir": 41209418,
+    "delta_ir": 4521,
+    "pct": 0.01097199684785039
+   },
+   "c5b": {
+    "ir": 41447072,
+    "delta_ir": 242175,
+    "pct": 0.5877335405061199
+   },
+   "c6": {
+    "ir": 41667221,
+    "delta_ir": 462324,
+    "pct": 1.122012269561067
+   },
+   "c7": {
+    "ir": 41609090,
+    "delta_ir": 404193,
+    "pct": 0.9809343777755348
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_set_remove/random",
+   "base_ir": 53792475,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 53080263,
+    "delta_ir": -712212,
+    "pct": -1.3239993140304476
+   },
+   "c5a": {
+    "ir": 53534551,
+    "delta_ir": -257924,
+    "pct": -0.47947970417795427
+   },
+   "c5b": {
+    "ir": 53619753,
+    "delta_ir": -172722,
+    "pct": -0.32108952042083955
+   },
+   "c6": {
+    "ir": 53988376,
+    "delta_ir": 195901,
+    "pct": 0.3641791904908633
+   },
+   "c7": {
+    "ir": 54181661,
+    "delta_ir": 389186,
+    "pct": 0.7234952472441545
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_strmap_churn/routes",
+   "base_ir": 135500168,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 135400168,
+    "delta_ir": -100000,
+    "pct": -0.0738006465054715
+   },
+   "c5a": {
+    "ir": 135500168,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c5b": {
+    "ir": 135300168,
+    "delta_ir": -200000,
+    "pct": -0.147601293010943
+   },
+   "c6": {
+    "ir": 135500126,
+    "delta_ir": -42,
+    "pct": -3.099627153229803e-05
+   },
+   "c7": {
+    "ir": 136150126,
+    "delta_ir": 649958,
+    "pct": 0.4796732060140324
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_strmap_churn_short/short",
+   "base_ir": 147757676,
+   "nonreproducible": true,
+   "sharded": {
+    "ir": 148806810,
+    "delta_ir": 1049134,
+    "pct": 0.7100368849872815
+   },
+   "c5a": {
+    "ir": 147969748,
+    "delta_ir": 211994,
+    "pct": 0.14347402708896076
+   },
+   "c5b": {
+    "ir": 149164406,
+    "delta_ir": 1406730,
+    "pct": 0.9520520612411365
+   },
+   "c6": {
+    "ir": 149792146,
+    "delta_ir": 2034470,
+    "pct": 1.3768963177249756
+   },
+   "c7": {
+    "ir": 149985772,
+    "delta_ir": 2228096,
+    "pct": 1.5079392558935483
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_strmap_get_short/short",
+   "base_ir": 27588024,
+   "nonreproducible": true,
+   "sharded": {
+    "ir": 27588263,
+    "delta_ir": 239,
+    "pct": 0.0008663179356375796
+   },
+   "c5a": {
+    "ir": 27588614,
+    "delta_ir": 103,
+    "pct": 0.0003733438169243712
+   },
+   "c5b": {
+    "ir": 27588416,
+    "delta_ir": 392,
+    "pct": 0.0014209064048951096
+   },
+   "c6": {
+    "ir": 27588222,
+    "delta_ir": 198,
+    "pct": 0.0007177027249215094
+   },
+   "c7": {
+    "ir": 27588075,
+    "delta_ir": 51,
+    "pct": 0.00018486282308584334
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_strmap_insert/routes",
+   "base_ir": 57381451,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 57599865,
+    "delta_ir": 218414,
+    "pct": 0.3806351986463361
+   },
+   "c5a": {
+    "ir": 57384246,
+    "delta_ir": 2795,
+    "pct": 0.004870912030439941
+   },
+   "c5b": {
+    "ir": 57702021,
+    "delta_ir": 320570,
+    "pct": 0.5586648549546089
+   },
+   "c6": {
+    "ir": 57984429,
+    "delta_ir": 602978,
+    "pct": 1.0508238977783952
+   },
+   "c7": {
+    "ir": 58091068,
+    "delta_ir": 709617,
+    "pct": 1.2366661832932737
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_strmap_insert_short/short",
+   "base_ir": 69623567,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 70190507,
+    "delta_ir": 566940,
+    "pct": 0.8142932406781169
+   },
+   "c5a": {
+    "ir": 69625637,
+    "delta_ir": 2070,
+    "pct": 0.002973131210011116
+   },
+   "c5b": {
+    "ir": 70276472,
+    "delta_ir": 652905,
+    "pct": 0.9377643636098104
+   },
+   "c6": {
+    "ir": 70979656,
+    "delta_ir": 1356089,
+    "pct": 1.9477442171269392
+   },
+   "c7": {
+    "ir": 71026182,
+    "delta_ir": 1402615,
+    "pct": 2.014569290883933
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::cost::sync_strmap_remove/routes",
+   "base_ir": 74094480,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 74486757,
+    "delta_ir": 392277,
+    "pct": 0.5294281031461453
+   },
+   "c5a": {
+    "ir": 74098454,
+    "delta_ir": 3974,
+    "pct": 0.005363422484374005
+   },
+   "c5b": {
+    "ir": 74528243,
+    "delta_ir": 433763,
+    "pct": 0.5854187788348066
+   },
+   "c6": {
+    "ir": 75058361,
+    "delta_ir": 963881,
+    "pct": 1.3008809833067188
+   },
+   "c7": {
+    "ir": 75245087,
+    "delta_ir": 1150607,
+    "pct": 1.552891659405667
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::range_cost::map_range/clustered",
+   "base_ir": 351385,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 343082,
+    "delta_ir": -8303,
+    "pct": -2.362935241971057
+   },
+   "c5a": {
+    "ir": 343082,
+    "delta_ir": -8303,
+    "pct": -2.362935241971057
+   },
+   "c5b": {
+    "ir": 351385,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 351385,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 351385,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::range_cost::map_range/random",
+   "base_ir": 68995,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 69203,
+    "delta_ir": 208,
+    "pct": 0.3014711210957316
+   },
+   "c5a": {
+    "ir": 69203,
+    "delta_ir": 208,
+    "pct": 0.3014711210957316
+   },
+   "c5b": {
+    "ir": 68995,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 68995,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 68995,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::range_cost::map_range/sequential",
+   "base_ir": 410706,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 400824,
+    "delta_ir": -9882,
+    "pct": -2.406100714379629
+   },
+   "c5a": {
+    "ir": 400824,
+    "delta_ir": -9882,
+    "pct": -2.406100714379629
+   },
+   "c5b": {
+    "ir": 410706,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 410706,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 410706,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::range_cost::set_range/clustered",
+   "base_ir": 267897,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 268285,
+    "delta_ir": 388,
+    "pct": 0.14483178236411756
+   },
+   "c5a": {
+    "ir": 268285,
+    "delta_ir": 388,
+    "pct": 0.14483178236411756
+   },
+   "c5b": {
+    "ir": 267897,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 267897,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 267897,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::range_cost::set_range/random",
+   "base_ir": 73270,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 73658,
+    "delta_ir": 388,
+    "pct": 0.5295482462126382
+   },
+   "c5a": {
+    "ir": 73658,
+    "delta_ir": 388,
+    "pct": 0.5295482462126382
+   },
+   "c5b": {
+    "ir": 73270,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 73270,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 73270,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::instructions::range_cost::set_range/sequential",
+   "base_ir": 205434,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 205822,
+    "delta_ir": 388,
+    "pct": 0.18886844436656056
+   },
+   "c5a": {
+    "ir": 205822,
+    "delta_ir": 388,
+    "pct": 0.18886844436656056
+   },
+   "c5b": {
+    "ir": 205434,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 205434,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 205434,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::bytesmap_churn/routes",
+   "base_ir": 36475897,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 36502112,
+    "delta_ir": 26215,
+    "pct": 0.07186937719447996
+   },
+   "c5a": {
+    "ir": 36436295,
+    "delta_ir": -39602,
+    "pct": -0.1085703252205148
+   },
+   "c5b": {
+    "ir": 36567918,
+    "delta_ir": 92021,
+    "pct": 0.25227892270887814
+   },
+   "c6": {
+    "ir": 36445897,
+    "delta_ir": -30000,
+    "pct": -0.0822460925361205
+   },
+   "c7": {
+    "ir": 36475897,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::bytesmap_get/routes",
+   "base_ir": 5812173,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 5812572,
+    "delta_ir": 399,
+    "pct": 0.006864902335150726
+   },
+   "c5a": {
+    "ir": 5812572,
+    "delta_ir": 399,
+    "pct": 0.006864902335150726
+   },
+   "c5b": {
+    "ir": 5812173,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 5812173,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 5812173,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::bytesmap_insert/routes",
+   "base_ir": 22924582,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 22912487,
+    "delta_ir": -12095,
+    "pct": -0.05275995872029422
+   },
+   "c5a": {
+    "ir": 22885397,
+    "delta_ir": -39185,
+    "pct": -0.17093005229059358
+   },
+   "c5b": {
+    "ir": 22988774,
+    "delta_ir": 64192,
+    "pct": 0.2800138296960006
+   },
+   "c6": {
+    "ir": 22894727,
+    "delta_ir": -29855,
+    "pct": -0.1302313821905237
+   },
+   "c7": {
+    "ir": 22914818,
+    "delta_ir": -9764,
+    "pct": -0.042591834389826604
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::map_churn/random",
+   "base_ir": 12083558,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 12118261,
+    "delta_ir": 34703,
+    "pct": 0.28719190159057456
+   },
+   "c5a": {
+    "ir": 12033946,
+    "delta_ir": -49612,
+    "pct": -0.41057443511257197
+   },
+   "c5b": {
+    "ir": 12254535,
+    "delta_ir": 170977,
+    "pct": 1.4149557605466867
+   },
+   "c6": {
+    "ir": 12083558,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 12083558,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::map_get/clustered",
+   "base_ir": 1017687,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1018050,
+    "delta_ir": 363,
+    "pct": 0.03566912026978825
+   },
+   "c5a": {
+    "ir": 1018074,
+    "delta_ir": 387,
+    "pct": 0.03802740921324533
+   },
+   "c5b": {
+    "ir": 1017663,
+    "delta_ir": -24,
+    "pct": -0.0023582889434570747
+   },
+   "c6": {
+    "ir": 1017687,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1017687,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::map_get/random",
+   "base_ir": 1144094,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1144457,
+    "delta_ir": 363,
+    "pct": 0.03172816219646288
+   },
+   "c5a": {
+    "ir": 1144481,
+    "delta_ir": 387,
+    "pct": 0.03382589192846042
+   },
+   "c5b": {
+    "ir": 1144070,
+    "delta_ir": -24,
+    "pct": -0.0020977297319975455
+   },
+   "c6": {
+    "ir": 1144094,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1144094,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::map_get/sequential",
+   "base_ir": 1231057,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1231420,
+    "delta_ir": 363,
+    "pct": 0.029486855604573956
+   },
+   "c5a": {
+    "ir": 1231444,
+    "delta_ir": 387,
+    "pct": 0.031436399776777195
+   },
+   "c5b": {
+    "ir": 1231033,
+    "delta_ir": -24,
+    "pct": -0.0019495441722032368
+   },
+   "c6": {
+    "ir": 1231057,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1231057,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::map_ins_slot/random",
+   "base_ir": 7538712,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 7590272,
+    "delta_ir": 51560,
+    "pct": 0.6839364602335253
+   },
+   "c5a": {
+    "ir": 7529363,
+    "delta_ir": -9349,
+    "pct": -0.1240132266625917
+   },
+   "c5b": {
+    "ir": 7627882,
+    "delta_ir": 89170,
+    "pct": 1.1828280480803617
+   },
+   "c6": {
+    "ir": 7538726,
+    "delta_ir": 14,
+    "pct": 0.00018570811565689205
+   },
+   "c7": {
+    "ir": 7528787,
+    "delta_ir": -9925,
+    "pct": -0.1316537891353324
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::map_insert/clustered",
+   "base_ir": 3588639,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 3623055,
+    "delta_ir": 34416,
+    "pct": 0.959026527884248
+   },
+   "c5a": {
+    "ir": 3579346,
+    "delta_ir": -9293,
+    "pct": -0.2589561112165364
+   },
+   "c5b": {
+    "ir": 3646615,
+    "delta_ir": 57976,
+    "pct": 1.6155428283535904
+   },
+   "c6": {
+    "ir": 3588795,
+    "delta_ir": 156,
+    "pct": 0.004347051904635713
+   },
+   "c7": {
+    "ir": 3588694,
+    "delta_ir": 55,
+    "pct": 0.001532614453557463
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::map_insert/random",
+   "base_ir": 7658138,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 7790006,
+    "delta_ir": 131868,
+    "pct": 1.7219329293883188
+   },
+   "c5a": {
+    "ir": 7648812,
+    "delta_ir": -9326,
+    "pct": -0.12177894939997164
+   },
+   "c5b": {
+    "ir": 7858953,
+    "delta_ir": 200815,
+    "pct": 2.622243161457785
+   },
+   "c6": {
+    "ir": 7658294,
+    "delta_ir": 156,
+    "pct": 0.0020370486925150736
+   },
+   "c7": {
+    "ir": 7658193,
+    "delta_ir": 55,
+    "pct": 0.0007181902441559554
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::map_insert/sequential",
+   "base_ir": 2153691,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 2118128,
+    "delta_ir": -35563,
+    "pct": -1.6512582352807343
+   },
+   "c5a": {
+    "ir": 2136836,
+    "delta_ir": -16855,
+    "pct": -0.7826099472951319
+   },
+   "c5b": {
+    "ir": 2187462,
+    "delta_ir": 33771,
+    "pct": 1.568052241477538
+   },
+   "c6": {
+    "ir": 2160117,
+    "delta_ir": 6426,
+    "pct": 0.2983714934036498
+   },
+   "c7": {
+    "ir": 2164006,
+    "delta_ir": 10315,
+    "pct": 0.4789452154464127
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::set_contains/clustered",
+   "base_ir": 906296,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 906660,
+    "delta_ir": 364,
+    "pct": 0.040163478598603544
+   },
+   "c5a": {
+    "ir": 906684,
+    "delta_ir": 388,
+    "pct": 0.04281162004466532
+   },
+   "c5b": {
+    "ir": 906272,
+    "delta_ir": -24,
+    "pct": -0.0026481414460617723
+   },
+   "c6": {
+    "ir": 906296,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 906296,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::set_contains/random",
+   "base_ir": 1111724,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1112088,
+    "delta_ir": 364,
+    "pct": 0.03274193954614635
+   },
+   "c5a": {
+    "ir": 1112112,
+    "delta_ir": 388,
+    "pct": 0.03490074874699116
+   },
+   "c5b": {
+    "ir": 1111700,
+    "delta_ir": -24,
+    "pct": -0.002158809200844814
+   },
+   "c6": {
+    "ir": 1111724,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1111724,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::set_contains/sequential",
+   "base_ir": 1023119,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 1023483,
+    "delta_ir": 364,
+    "pct": 0.03557748414407317
+   },
+   "c5a": {
+    "ir": 1023507,
+    "delta_ir": 388,
+    "pct": 0.03792325232939668
+   },
+   "c5b": {
+    "ir": 1023095,
+    "delta_ir": -24,
+    "pct": -0.002345768185323506
+   },
+   "c6": {
+    "ir": 1023119,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 1023119,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::set_insert/clustered",
+   "base_ir": 2143690,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 2181851,
+    "delta_ir": 38161,
+    "pct": 1.7801547798422346
+   },
+   "c5a": {
+    "ir": 2104373,
+    "delta_ir": -39317,
+    "pct": -1.8340804873839034
+   },
+   "c5b": {
+    "ir": 2151573,
+    "delta_ir": 7883,
+    "pct": 0.3677304087811204
+   },
+   "c6": {
+    "ir": 2123876,
+    "delta_ir": -19814,
+    "pct": -0.9242940910299531
+   },
+   "c7": {
+    "ir": 2123918,
+    "delta_ir": -19772,
+    "pct": -0.9223348525206536
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::set_insert/random",
+   "base_ir": 6313015,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 6436266,
+    "delta_ir": 123251,
+    "pct": 1.952331809761263
+   },
+   "c5a": {
+    "ir": 6273698,
+    "delta_ir": -39317,
+    "pct": -0.6227927543337058
+   },
+   "c5b": {
+    "ir": 6464325,
+    "delta_ir": 151310,
+    "pct": 2.3967945585429464
+   },
+   "c6": {
+    "ir": 6293201,
+    "delta_ir": -19814,
+    "pct": -0.3138595425482119
+   },
+   "c7": {
+    "ir": 6293214,
+    "delta_ir": -19801,
+    "pct": -0.31365361875427195
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::set_insert/sequential",
+   "base_ir": 753277,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 769842,
+    "delta_ir": 16565,
+    "pct": 2.1990582481610352
+   },
+   "c5a": {
+    "ir": 749833,
+    "delta_ir": -3444,
+    "pct": -0.4572023306167585
+   },
+   "c5b": {
+    "ir": 777803,
+    "delta_ir": 24526,
+    "pct": 3.2559071895199243
+   },
+   "c6": {
+    "ir": 751551,
+    "delta_ir": -1726,
+    "pct": -0.22913217846821288
+   },
+   "c7": {
+    "ir": 751669,
+    "delta_ir": -1608,
+    "pct": -0.2134672902531207
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::strmap_churn/routes",
+   "base_ir": 23982128,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 23962516,
+    "delta_ir": -19612,
+    "pct": -0.08177756369242963
+   },
+   "c5a": {
+    "ir": 24002516,
+    "delta_ir": 20388,
+    "pct": 0.08501330657562998
+   },
+   "c5b": {
+    "ir": 23922128,
+    "delta_ir": -60000,
+    "pct": -0.2501863054020894
+   },
+   "c6": {
+    "ir": 23962128,
+    "delta_ir": -20000,
+    "pct": -0.0833954351340298
+   },
+   "c7": {
+    "ir": 24112128,
+    "delta_ir": 130000,
+    "pct": 0.5420703283711937
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::strmap_get/routes",
+   "base_ir": 6744256,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 6744642,
+    "delta_ir": 386,
+    "pct": 0.00572338891050399
+   },
+   "c5a": {
+    "ir": 6744642,
+    "delta_ir": 386,
+    "pct": 0.00572338891050399
+   },
+   "c5b": {
+    "ir": 6744256,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c6": {
+    "ir": 6744256,
+    "delta_ir": 0,
+    "pct": 0.0
+   },
+   "c7": {
+    "ir": 6744256,
+    "delta_ir": 0,
+    "pct": 0.0
+   }
+  },
+  {
+   "arm": "expanse-trie::smoke_instructions::smoke_cost::strmap_insert/routes",
+   "base_ir": 8837125,
+   "nonreproducible": false,
+   "sharded": {
+    "ir": 8867971,
+    "delta_ir": 30846,
+    "pct": 0.3490501718601921
+   },
+   "c5a": {
+    "ir": 8837767,
+    "delta_ir": 642,
+    "pct": 0.0072648061445323
+   },
+   "c5b": {
+    "ir": 8889424,
+    "delta_ir": 52299,
+    "pct": 0.591810119241269
+   },
+   "c6": {
+    "ir": 8845171,
+    "delta_ir": 8046,
+    "pct": 0.09104771065250293
+   },
+   "c7": {
+    "ir": 8878988,
+    "delta_ir": 41863,
+    "pct": 0.47371741375164433
+   }
+  }
+ ]
+}
