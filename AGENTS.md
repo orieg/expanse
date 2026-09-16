@@ -767,3 +767,43 @@ Review time should go to what the author could not check, not to what the author
 8. **Answer a comparison from the repo's own measurements first.** Before stating how Expanse compares with a competitor, read the suite that measured the pair, and check whether its tables predate engine changes on the compared path — a fix on a measured path makes the published figure stale (§8.7). A figure recalled from the literature is labelled unsourced unless it is cited.
 
 The handoff states the audit's outcome ("claims: N verified, M derived, K labelled"). An independent verifier pass — an agent whose only job is to take each claim to its source and report what does not resolve — is a cheap way to run it; it checks provenance and is not a substitute for review.
+
+### 8.22 Pre-Flight Discipline for Hot-Path Optimization
+
+§8.20 governs how a contention mechanism is *decided*; §8.21 governs what a handoff *claims*. This governs what is checked **before the first measurement of a hot-path restructuring** — sharding, striping, padding, or otherwise adding machinery to reduce contention on a shared field. Every rule here was paid for in #930, where three cells were built before the binding question was asked.
+
+1. **Audit consumers by visibility first, `grep` second — and gate before you shard.**
+   - Classify every accessor of every field being restructured. **A `pub` item is a consumer**: it has callers you cannot `grep`, and a language binding or C ABI entry point can carry it further. Read `.github/public-api/*.txt`, the binding crates and `bindings/` *before* concluding a field is internal.
+   - **A field whose only consumers are tests or diagnostics comes off the hot path before any machinery is added to make it cheap.** Gate it — `#[cfg(test)]` for in-crate unit tests, `#[cfg(debug_assertions)]` for invariant checks, a cargo feature where integration tests, examples or benchmarks need it in a release profile. The precedent is `occ_stats`, compiled out by default with `scripts/test_occ_stats.sh` failing any gated binary that runs zero tests.
+   - **Measure the removal before building the remedy.** Removing work is rewarded by the instruction gate; distributing it is not. A counter that only a test reads, maintained with an atomic RMW on every allocation, is a test concern complected into the production data path, and every downstream cost — shards, signed arithmetic, clamping, thread-local reads, struct growth — is incurred to preserve that complection.
+   - **Gating a `pub` item is an API removal**, so it needs a `scripts/check_public_api.py --write` snapshot update and, under the Cargo 0.x rule where `^0.6` spans every 0.6.x, a minor bump.
+
+   *Evidence, including this rule's own first application. #930 sharded `live_allocs` and `total_allocs` into 64 per-writer slots — growing `NodeAlloc` to 4,864 B, adding signed arithmetic and a thread-local read per allocation — on the finding that neither had a production consumer. The audit that produced that finding was a `grep` whose pathspec silently missed `crates/expanse-py/`, and it was published as verified. `total_allocs` is in fact reachable from Python as `total_node_allocs()`, a `#[pymethods]` method on both wrappers with published stubs in `bindings/python/expanse_trie/__init__.pyi`. One counter was unconsumed; the other was shipped API. Two independent review panels then built a unanimous recommendation on the wrong half.*
+
+2. **A cost measurement and a benefit measurement in one analysis must describe the same build.**
+   Identical features, `cfg` gates and struct layout. Where they do not, the analysis names each build separately, states plainly that the cost of the benefit build is unmeasured (or the reverse), and draws no conclusion that requires comparing across them. A table that puts them side by side implies a parity that was not measured.
+
+   *Evidence: #930. The Callgrind regression table measured `ablation-sharded-alloc`; the throughput table measured `ablation-sharded-alloc,lock-padded`. The single-threaded cost of the configuration that produced 24 M ops/s was never measured, and both tables were published in one section before a review caught it.*
+
+3. **A restructuring must not clamp away the signal its own invariant exists to catch.**
+   Sharding a counter across writers forces signed per-shard values, because a free lands on a different shard than its allocation. The summing accessor must then not map an error state onto the success state: `if sum < 0 { 0 }` under a leak invariant of `assert_eq!(counter, 0)` reports a clean zero for an over-free — the exact defect the assertion exists to catch, and a silent failure where the unsharded counter wrapped to a conspicuous value (§8.1). Use `debug_assert!(sum >= 0)`: panic in debug, trust the invariant in release.
+
+4. **A factorial decomposition is only an attribution if the mechanisms are independent, and there is a cheap test for when they are not.**
+   Write throughput as $X(W) = W \cdot X(1)/D(W)$, so a paired ratio is $D_{\text{default}}/D_{\text{variant}}$. If the interventions remove $a$ and $b$ from $D$ additively and independently, the combined ratio exceeds the product of the single ratios by $1 + ab/(D_d \cdot D_{12})$ — so **some** super-additivity is expected and is never by itself evidence that two interventions act on different terms. Because $a+b$ is fixed by the measured combined ratio $\rho$ and $ab \le ((a+b)/2)^2$, that excess is bounded:
+
+   $$E_{\max} = 1 + (\rho - 1)^2 / (4\rho)$$
+
+   where $\rho$ is the **measured combined ratio** and $E$ is the **excess**, $\rho$ divided by the product of the single-intervention ratios.
+
+   - **If $E > E_{\max}$, the additive-overhead model does not hold, and the per-intervention cells are not an attribution.** Report the excess as unexplained (§8.20.4). Masking is the leading candidate — §8.20.6's case, where one mechanism's cost hides another's until it is removed — but exceeding the ceiling does **not** establish masking, and naming it as the cause without a discriminating instrument is the §8.9.1 anti-pattern this section otherwise enforces. A baseline that drifted between cells, or a lock crossing from spin to park between two load points, produces the same signature.
+   - **What the data still supports** is each intervention's marginal value *given* the other. Publish those and the combined ratio; do not publish "intervention A is worth X" as a property of A.
+   - **To attribute, invert the design**: take the combined build as the baseline and ablate back to single-intervention variants, measuring the loss from removing each. Discriminating masking needs §8.20.4's time-budget decomposition, a USL refit per cell, or PMU snoop counts.
+
+   *Evidence: #930. Padding alone ≈ 1.04×, sharding alone ≈ 1.25×, both ≈ 2.09×. The excess of 1.602 exceeded $E_{\max} = 1.142$ by 4.25×, and no fixed contention/coherency pair reproduced the shape across W ∈ {2, 4, 8}.*
+
+5. **A verdict's stated reason expires separately from the verdict, and a correct verdict with a wrong reason is the more dangerous of the two.**
+   §8.20.6 re-runs an arm when a dominant cost is removed, because the *verdict* may have expired. That check is triggered by the verdict looking stale. Nothing triggers it when the verdict is still right and only its **cause** was wrong — so the wrong cause survives, gets cited, and directs the next investigation.
+   - When an arm is re-measured under §8.20.6, **re-derive its stated cause too**, and mark cause and verdict superseded independently.
+   - A rejection that names a mechanism is making two claims. Cite the measurement for each, or state the cause as unmeasured.
+
+   *Evidence: #930. §2.6 recorded sharded allocator counters as rejected because "a per-writer stripe costs a thread-local read on every allocation and free". The verdict held under re-measurement; the reason did not — the floor is the accounting itself, with 13 of 16 failing arms already over the threshold with neither the gate nor the indirection present. Three cells (c10, c11, c12) were built to hoist that thread-local read before a control showed it was never the binding cost.*
