@@ -1564,9 +1564,17 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | Group | Benchmark | Arms | `N` per arm |
 |---|---|---|---:|
 | `cost` | `blobmap32_scan` | `ipv4_routes` | 2,000 |
+| `cost` | `blobmap_churn` | `random` | 50,000 |
+| `cost` | `blobmap_get` | `random` | 50,000 |
+| `cost` | `blobmap_insert` | `random` | 50,000 |
+| `cost` | `blobmap_insert_inline` | `random` | 50,000 |
+| `cost` | `blobmap_overwrite` | `random` | 50,000 |
+| `cost` | `blobmap_remove` | `random` | 50,000 |
 | `cost` | `bytesmap_churn` | `routes` | 50,000 |
 | `cost` | `bytesmap_get` | `routes` | 50,000 |
 | `cost` | `bytesmap_insert` | `routes` | 50,000 |
+| `cost` | `bytesmap_overwrite` | `routes` | 50,000 |
+| `cost` | `bytesmap_remove` | `routes` | 50,000 |
 | `cost` | `map32_for_each_range` | `sequential`, `clustered`, `random` | `sequential` 2,000, `clustered` 2,000, `random` 1,007 |
 | `cost` | `map32_get` | `can_dispatch` | 500 |
 | `cost` | `map32_insert` | `sensor_timestamps` | 10,000 |
@@ -1596,10 +1604,14 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `strmap_get_short` | `short` | 50,000 |
 | `cost` | `strmap_insert` | `routes` | 50,000 |
 | `cost` | `sync_blobmap_churn` | `random` | 50,000 |
+| `cost` | `sync_blobmap_get` | `random` | 50,000 |
 | `cost` | `sync_blobmap_insert` | `random` | 50,000 |
+| `cost` | `sync_blobmap_overwrite` | `random` | 50,000 |
 | `cost` | `sync_blobmap_remove` | `random` | 50,000 |
 | `cost` | `sync_bytesmap_churn` | `routes` | 50,000 |
+| `cost` | `sync_bytesmap_get` | `routes` | 50,000 |
 | `cost` | `sync_bytesmap_insert` | `routes` | 50,000 |
+| `cost` | `sync_bytesmap_overwrite` | `routes` | 50,000 |
 | `cost` | `sync_bytesmap_remove` | `routes` | 50,000 |
 | `cost` | `sync_map_churn` | `random` | 50,000 |
 | `cost` | `sync_map_get` | `random` | 50,000 |
