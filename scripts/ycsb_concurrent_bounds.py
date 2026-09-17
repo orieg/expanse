@@ -7,6 +7,15 @@ keys, how often two threads aim at one key or at one leaf, and what 8 rounds
 can resolve. The pre-registration invokes these functions; it does not restate
 their outputs from memory.
 
+Also here, added with the draft's revision: the cover-unit coincidence (a
+linear leaf's value store is bracketed by its parent's version word, so the
+unit threads meet on is wider than a leaf), a first-order ceiling on what
+coinciding targets can cost (`coincidence_loss_bound`, the registered
+prediction P-A), the hottest stripe of a striped lock under the law, the
+identity L(T) = P * C(T) between a level statistic, a single-thread price and
+a scaling factor, checked round by round against the published #929 cells, and
+the unclamped coherency term of a linearised USL fit on the committed curves.
+
 Scope, stated once. Every probability here is a property of the request stream
 at one instant: W threads each holding one independently drawn target. None of
 them is a contention rate, a retry rate or a throughput prediction -- those
@@ -76,6 +85,7 @@ import itertools
 import json
 import math
 import sys
+import tempfile
 import unittest
 from functools import lru_cache
 from pathlib import Path
@@ -93,12 +103,34 @@ POPULATION = 1 << 20
 # Populated 2-byte-prefix expanses of a uniform 64-bit population that large
 # (`density_poisson.EXPANSES_64`), so 16 keys per expanse on average.
 LEAF_BINS_64 = 1 << 16
+# Version words that cover a value store at that population. A linear leaf
+# carries no version word of its own: a store into it is bracketed by its
+# parent's (`crates/expanse/src/mutate_map.rs`, the present-key branches:
+# "A value store readers validate against the parent's word"). With the top two
+# key bytes saturated the parent of a 2-byte-prefix leaf is the branch over the
+# second byte, one per top-byte value. Stated as the model's input, not as a
+# census: no function here walks a tree.
+COVER_BINS_64 = 1 << 8
+# The DRAM-resident population of the ungated anchor cells (METHODOLOGY §20.4).
+POPULATION_DRAM = 1 << 24
+# Stripes of the external RMW lock the pre-registration recommends (D1).
+RMW_STRIPES = 1 << 10
 WRITERS = (2, 4, 8)
 ROUNDS = 8
 
 # The committed uniform-stream writer sweeps (README §15), whose per-round
 # spread is the only measured stand-in for a cell that does not exist yet.
 RESULTS = REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results"
+# The second #929 gate's artifacts at `1abfb7ff` (README §18.2): the only
+# committed cells that publish a level statistic, a price and a scaling factor
+# from one round series, which is what `level_identity_residual` needs.
+LEVEL_GATE_ARTIFACTS: tuple[Path, ...] = tuple(
+    RESULTS / name for name in (
+        "gate_929_str_v2_writer_scaling_pin0to15_1abfb7ff_run1.json",
+        "gate_929_str_v2_writer_scaling_pin0to15_1abfb7ff_run2.json",
+        "gate_929_str_v2_writer_scaling_1abfb7ff_run1.json",
+        "gate_929_str_v2_writer_scaling_1abfb7ff_run2.json",
+    ))
 UNIFORM_BASELINES: tuple[tuple[str, int, Path], ...] = (
     ("0-15", 1, RESULTS / "baseline_writer_scaling_170a4bc3_pin0-15.json"),
     ("0-15", 2, RESULTS / "baseline_writer_scaling_170a4bc3_pin0-15_run2.json"),
@@ -342,6 +374,178 @@ def same_leaf_any_contiguous(w: int, n: int, theta: float, leaf_pop: int) -> flo
     return any_collision_from_power_sums(sums, w)
 
 
+def hottest_stripe_share(n: int, theta: float, stripes: int) -> float:
+    """Expected share of a Zipfian stream that lands on the stripe holding the hottest key.
+
+    A striped lock sends key k to stripe hash(k) mod S. The hottest key's stripe
+    takes that key's whole mass p_1, plus, in expectation over the hash, 1/S of
+    everything else: p_1 + (1 - p_1) / S. It is at least p_1 for every S, so
+    adding stripes cannot thin the hottest stripe below the hottest key -- the
+    figure that matters for a lock, and not the C(W, 2) / S a uniform draw over
+    stripes would suggest.
+    """
+    _check_law(n, theta)
+    if stripes < 1:
+        raise ValueError(f"stripes must be at least 1, got {stripes}")
+    p1 = zipf_pmf(1, n, theta)
+    return p1 + (1.0 - p1) / stripes
+
+
+def write_pair_fraction(w: float) -> float:
+    """P(both threads of a pair are inside a write) at write fraction w: w^2.
+
+    Operation counts stand in for time: a write is assumed to take as long as a
+    read. Where writes are slower the true fraction is higher; the assumption
+    is stated wherever the result is used.
+    """
+    if not 0.0 <= w <= 1.0:
+        raise ValueError(f"w must be in [0, 1], got {w}")
+    return w * w
+
+
+def write_involving_pair_fraction(w: float) -> float:
+    """P(at least one thread of a pair is inside a write): 1 - (1 - w)^2.
+
+    The pairs in which an optimistic reader can be made to retry, as well as
+    those in which a writer can be made to wait.
+    """
+    if not 0.0 <= w <= 1.0:
+        raise ValueError(f"w must be in [0, 1], got {w}")
+    return 1.0 - (1.0 - w) ** 2
+
+
+def coincidence_loss_bound(threads: int, pair_fraction: float, pair_probability: float,
+                           hold: float = 1.0) -> float:
+    """First-order ceiling on the throughput fraction lost to threads meeting on one target.
+
+    Derivation. At an instant, a thread can be stalled by another only if the
+    two form a coinciding pair: both in the relevant kind of operation
+    (`pair_fraction`), both aimed at one target (`pair_probability`), and the
+    other actually holding it (`hold`, the fraction of an operation spent
+    holding, at most 1). The expected number of such pairs among T threads is
+    C(T, 2) * pair_fraction * pair_probability * hold (linearity; no
+    independence between pairs is needed), each pair stalls at most one thread,
+    so the stalled share of the T threads is at most
+        (T - 1) / 2 * pair_fraction * pair_probability * hold.
+    First order: a stalled thread is assumed to cost one operation's worth of
+    time and not to raise the coincidence rate by lingering. Both assumptions
+    fail together when the bound is large, so it is a ceiling only while small.
+    Clamped to 1.
+    """
+    if threads < 1:
+        raise ValueError(f"threads must be at least 1, got {threads}")
+    for name, v in (("pair_fraction", pair_fraction), ("pair_probability", pair_probability), ("hold", hold)):
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(f"{name} must be in [0, 1], got {v}")
+    return min(1.0, (threads - 1) / 2.0 * pair_fraction * pair_probability * hold)
+
+
+# ---------------------------------------------------------------------------
+# (b') Level, price and scaling: one identity
+# ---------------------------------------------------------------------------
+
+def level_from_price_and_scaling(price: float, scaling: float) -> float:
+    """L(T) = P * C(T), where the control's best cell is its T = 1 cell.
+
+    With L(T) = X_arm(T) / max_T' X_ctl(T'), P = X_arm(1) / X_ctl(1) and
+    C(T) = X_arm(T) / X_arm(1): if the maximum is at T' = 1 then
+    L(T) = [X_arm(1) / X_ctl(1)] * [X_arm(T) / X_arm(1)] = P * C(T), exactly and
+    round by round. If the control peaks elsewhere its best cell is larger, so
+    L(T) <= P * C(T) always.
+    """
+    if price <= 0.0 or scaling <= 0.0:
+        raise ValueError("price and scaling must be positive")
+    return price * scaling
+
+
+def price_floor_implied_by_level(scaling: float) -> float:
+    """The single-thread price below which a level gate L(T) > 1 cannot pass: 1 / C(T).
+
+    From L(T) <= P * C(T): L(T) > 1 needs P > 1 / C(T). A separate price floor
+    below this value is not binding; the level gate at the smallest T is.
+    """
+    if scaling <= 0.0:
+        raise ValueError(f"scaling must be positive, got {scaling}")
+    return 1.0 / scaling
+
+
+def level_identity_residual(path: Path) -> dict[str, float]:
+    """Largest |L(W, r) - P(r) * C_head(W, r)| over a `gate_929_str_v2` artifact's rounds.
+
+    Reads the published per-round series (`g2_level.cells[W].paired_ratios_raw`,
+    `g3_price.paired_ratios_raw`) and the head build's `rounds_raw`. Refuses an
+    artifact in which the serialised build's best cell is not W = 1 in every
+    round, where the identity is an inequality instead.
+    """
+    data = json.loads(path.read_text())
+    gate = data["gate_929_str_v2"]
+    head = {c["writers"]: {int(r["round"]): float(r["writer_mops"]) for r in c["rounds_raw"]}
+            for c in data["throughput"] if c.get("arm") == "str"}
+    price = [float(x) for x in gate["g3_price"]["paired_ratios_raw"]]
+    worst = 0.0
+    cells = 0
+    for w_key, cell in gate["g2_level"]["cells"].items():
+        w = int(w_key)
+        if any(b != 1 for b in cell["best_serial_w_by_round"]):
+            raise ValueError(f"{path.name}: the serialised build's best cell is not W = 1 in every round")
+        for r, level in enumerate(cell["paired_ratios_raw"]):
+            worst = max(worst, abs(float(level) - price[r] * head[w][r] / head[1][r]))
+            cells += 1
+    if not cells:
+        raise ValueError(f"{path.name}: no level cells")
+    return {"max_abs_residual": worst, "cells": float(cells)}
+
+
+def peak_series(path: Path, arm: str, high: int = 8, low: int = 4) -> list[float]:
+    """Per-round X(high) / X(low) of one arm: the model-free "is it still rising" statistic."""
+    data = json.loads(path.read_text())
+    by_w = {}
+    for w in (low, high):
+        cells = [c for c in data["throughput"] if c.get("arm") == arm and c.get("writers") == w
+                 and c.get("readers", 0) == 0]
+        if len(cells) != 1:
+            raise ValueError(f"{path.name}: expected one {arm} W={w} cell, found {len(cells)}")
+        by_w[w] = {int(r["round"]): float(r["writer_mops"]) for r in cells[0]["rounds_raw"]}
+    if sorted(by_w[low]) != sorted(by_w[high]) or not by_w[low]:
+        raise ValueError(f"{path.name}: {arm} W={low} and W={high} do not share their rounds")
+    return [by_w[high][r] / by_w[low][r] for r in sorted(by_w[low])]
+
+
+def usl_unclamped_beta(n_vals: list[float], x_vals: list[float]) -> float:
+    """The coherency term of Gunther's linearised USL fit, before any beta >= 0 clamp.
+
+    N / X(N) = c0 + c1 (N - 1) + c2 N (N - 1), least squares; returns c2 / c0.
+    `scripts/fit_usl.py::fit_usl_ols` solves the same system and returns
+    max(0, c2 / c0); this is that quantity unclamped, so a negative value says
+    the constraint binds. With four load points and three parameters there is
+    one residual degree of freedom.
+    """
+    import fit_usl  # noqa: PLC0415 -- optional scipy import lives there; only this function needs it
+
+    if len(n_vals) != len(x_vals) or len(n_vals) < 3:
+        raise ValueError("need at least 3 matched points")
+    a = [[0.0] * 3 for _ in range(3)]
+    b = [0.0] * 3
+    for n, x in zip(n_vals, x_vals):
+        z = [1.0, n - 1.0, n * (n - 1.0)]
+        for r in range(3):
+            b[r] += z[r] * n / x
+            for c in range(3):
+                a[r][c] += z[r] * z[c]
+    c0, _c1, c2 = fit_usl._solve_3x3(a, b)
+    return c2 / c0
+
+
+def cell_means(path: Path, arm: str, field: str = "expanse_writer_mops_mean") -> tuple[list[float], list[float]]:
+    """(W, mean throughput) of one arm of a writer-sweep artifact, W ascending."""
+    data = json.loads(path.read_text())
+    cells = sorted((c for c in data["throughput"] if c.get("arm") == arm and c.get("readers", 0) == 0),
+                   key=lambda c: c["writers"])
+    if len(cells) < 3:
+        raise ValueError(f"{path.name}: fewer than three {arm} cells")
+    return [float(c["writers"]) for c in cells], [float(c[field]) for c in cells]
+
+
 # ---------------------------------------------------------------------------
 # (c) Workload D: where monotonic inserts land. A derivation, not a function.
 # ---------------------------------------------------------------------------
@@ -456,6 +660,39 @@ def render_table(n: int = POPULATION, theta: float = THETA) -> str:
             f"| {w} | {same_key_any_collision(w, n, theta):.6f} | {same_key_any_collision(w, n, 0.0):.3e} "
             f"| {scattered:.6f} | {same_leaf_any_contiguous(w, n, theta, 16):.6f} "
             f"| {same_leaf_any_contiguous(w, n, theta, 256):.6f} |")
+    lines += ["", "Cover units (the version word that brackets a value store), scattered ranks:",
+              f"pair on one of {COVER_BINS_64} covers, Zipfian: "
+              f"{same_leaf_pair_scattered(n, theta, COVER_BINS_64):.6e}",
+              f"pair on one of {COVER_BINS_64} covers, uniform: "
+              f"{same_leaf_pair_scattered(n, 0.0, COVER_BINS_64):.6e}",
+              f"hottest key p_1: {zipf_pmf(1, n, theta):.6f}",
+              f"hottest of {RMW_STRIPES} stripes: {hottest_stripe_share(n, theta, RMW_STRIPES):.6f}",
+              f"pair on one of {RMW_STRIPES} stripes: {same_leaf_pair_scattered(n, theta, RMW_STRIPES):.6e}", ""]
+    lines += ["| family | w | T | writer-writer ceiling, key | writer-writer ceiling, cover "
+              "| write-involving ceiling, cover | same, uniform twin |", "|---|--:|--:|--:|--:|--:|--:|"]
+    key_p = pair_collision_probability(n, theta)
+    cover_z = same_leaf_pair_scattered(n, theta, COVER_BINS_64)
+    cover_u = same_leaf_pair_scattered(n, 0.0, COVER_BINS_64)
+    for fam, w in (("A, F", 0.5), ("B, D", 0.05)):
+        for t in WRITERS:
+            lines.append(
+                f"| {fam} | {w} | {t} | {coincidence_loss_bound(t, write_pair_fraction(w), key_p):.6f} "
+                f"| {coincidence_loss_bound(t, write_pair_fraction(w), cover_z):.6f} "
+                f"| {coincidence_loss_bound(t, write_involving_pair_fraction(w), cover_z):.6f} "
+                f"| {coincidence_loss_bound(t, write_involving_pair_fraction(w), cover_u):.6f} |")
+    lines += ["", f"N = {POPULATION_DRAM}: H = {generalized_harmonic(POPULATION_DRAM, theta):.6f}, "
+              f"p_1 = {zipf_pmf(1, POPULATION_DRAM, theta):.6f}, "
+              f"top-256 (generator) = {gray_top_k_share(256, POPULATION_DRAM, theta):.6f}, "
+              f"pair on one key = {pair_collision_probability(POPULATION_DRAM, theta):.6e}"]
+    lines += ["", "| arm | pin | run | C(2) | price floor implied by L(2) > 1 | X(8)/X(4) mean | its MDE, relative "
+              "| unclamped USL beta |", "|---|---|--:|--:|--:|--:|--:|--:|"]
+    for pin, run, path in UNIFORM_BASELINES:
+        c2 = baseline_scaling_mde(path, "map", 2)
+        c2_mean = c2["mde"] / c2["relative"]
+        peak = mde_from_rounds(peak_series(path, "map"))
+        beta = usl_unclamped_beta(*cell_means(path, "map"))
+        lines.append(f"| `map` | `{pin}` | {run} | {c2_mean:.4f} | {price_floor_implied_by_level(c2_mean):.4f} "
+                     f"| {peak['mde'] / peak['relative']:.4f} | {peak['relative']:.2%} | {beta:+.5f} |")
     lines += ["", f"MDE per unit sigma at {ROUNDS} rounds: {mde_per_unit_sigma(ROUNDS):.5f}"]
     for effect in (0.05, 0.10, 0.25):
         lines.append(f"largest per-round CV resolving a {effect:.0%} effect: "
@@ -664,6 +901,111 @@ class ArtifactTests(unittest.TestCase):
             scaling_series(UNIFORM_BASELINES[0][2], "no_such_arm", 2)
 
 
+class StripeAndLossTests(unittest.TestCase):
+    def test_hottest_stripe_hand_values(self):
+        # N = 2, theta = 0.5: p_1 = 0.58579. One stripe takes everything; two
+        # stripes: 0.58579 + 0.41421 / 2 = 0.79289.
+        self.assertEqual(hottest_stripe_share(2, 0.5, 1), 1.0)
+        self.assertAlmostEqual(hottest_stripe_share(2, 0.5, 2), 0.79289, places=5)
+        # Uniform: 1/n + (1 - 1/n)/S.
+        self.assertAlmostEqual(hottest_stripe_share(100, 0.0, 10), 0.01 + 0.99 / 10, places=15)
+
+    def test_hottest_stripe_never_falls_below_the_hottest_key(self):
+        p1 = zipf_pmf(1, POPULATION, THETA)
+        for s in (1, 16, RMW_STRIPES, 1 << 20, 1 << 40):
+            self.assertGreaterEqual(hottest_stripe_share(POPULATION, THETA, s), p1)
+        self.assertAlmostEqual(hottest_stripe_share(POPULATION, THETA, RMW_STRIPES), 0.065654, places=6)
+        # The figure the first draft used, C(8, 2) / S for uniform draws over
+        # stripes, is a different and smaller quantity than the hottest stripe.
+        self.assertAlmostEqual(math.comb(8, 2) / RMW_STRIPES, 0.02734, places=5)
+
+    def test_pair_fractions(self):
+        self.assertEqual(write_pair_fraction(0.5), 0.25)
+        self.assertEqual(write_involving_pair_fraction(0.5), 0.75)
+        self.assertAlmostEqual(write_involving_pair_fraction(0.05), 0.0975, places=12)
+        self.assertEqual(write_involving_pair_fraction(1.0), 1.0)
+
+    def test_loss_bound_hand_value_and_reference(self):
+        # T = 8, w^2 = 0.25, pair = 0.01, hold = 1: 3.5 * 0.25 * 0.01 = 0.00875.
+        self.assertAlmostEqual(coincidence_loss_bound(8, 0.25, 0.01), 0.00875, places=15)
+        self.assertAlmostEqual(coincidence_loss_bound(8, 0.25, 0.01, hold=0.5), 0.004375, places=15)
+        self.assertEqual(coincidence_loss_bound(1, 1.0, 1.0), 0.0)
+        self.assertEqual(coincidence_loss_bound(64, 1.0, 1.0), 1.0)
+        # Family A at T = 8, the pre-registration's P-A inputs.
+        cover = same_leaf_pair_scattered(POPULATION, THETA, COVER_BINS_64)
+        self.assertAlmostEqual(cover, 0.010854, places=6)
+        self.assertAlmostEqual(same_leaf_pair_scattered(POPULATION, 0.0, COVER_BINS_64), 0.003907, places=6)
+        self.assertAlmostEqual(coincidence_loss_bound(8, write_pair_fraction(0.5), cover), 0.009497, places=6)
+        self.assertAlmostEqual(coincidence_loss_bound(8, write_involving_pair_fraction(0.5), cover), 0.028491, places=6)
+        key = pair_collision_probability(POPULATION, THETA)
+        self.assertAlmostEqual(coincidence_loss_bound(8, write_pair_fraction(0.5), key), 0.006103, places=6)
+
+    def test_dram_population_reference(self):
+        self.assertAlmostEqual(zipf_pmf(1, POPULATION_DRAM, THETA), 0.053545, places=6)
+
+
+class LevelIdentityTests(unittest.TestCase):
+    def test_identity_hand_value(self):
+        # README §18.2, pin 0-15 run 1, W = 2: 0.9518 * (6.294 / 3.789) = 1.581.
+        self.assertAlmostEqual(level_from_price_and_scaling(0.9518, 6.294 / 3.789), 1.581, places=3)
+        self.assertAlmostEqual(price_floor_implied_by_level(2.0), 0.5, places=15)
+        self.assertAlmostEqual(price_floor_implied_by_level(1.3136), 0.76127, places=5)
+
+    def test_identity_holds_round_by_round_in_the_published_cells(self):
+        # Four artifacts x three W x eight rounds; the published series are
+        # rounded to six places, so the residual is rounding and nothing else.
+        for path in LEVEL_GATE_ARTIFACTS:
+            res = level_identity_residual(path)
+            self.assertEqual(res["cells"], 24.0)
+            self.assertLess(res["max_abs_residual"], 5e-5)
+
+    def test_identity_refuses_a_control_that_peaks_elsewhere(self):
+        # Where the control's best cell is not W = 1 the identity is an
+        # inequality, and the reducer must say so instead of reporting a residual.
+        data = json.loads(LEVEL_GATE_ARTIFACTS[0].read_text())
+        data["gate_929_str_v2"]["g2_level"]["cells"]["2"]["best_serial_w_by_round"][3] = 2
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "peaks_elsewhere.json"
+            path.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "not W = 1 in every round"):
+                level_identity_residual(path)
+
+    def test_half_price_cannot_pass_the_level_gate_at_the_published_c2(self):
+        # The arithmetic behind D4: at the uniform `map` C(2), a single-thread
+        # price of 0.50 gives a level of about 0.65, below 1.0 in every cell.
+        for _pin, _run, path in UNIFORM_BASELINES:
+            m = baseline_scaling_mde(path, "map", 2)
+            c2 = m["mde"] / m["relative"]
+            self.assertLess(level_from_price_and_scaling(0.50, c2), 0.70)
+            self.assertGreater(price_floor_implied_by_level(c2), 0.76)
+            self.assertLess(price_floor_implied_by_level(c2), 0.78)
+
+
+class PeakAndUslTests(unittest.TestCase):
+    def test_peak_series_reference(self):
+        series = peak_series(UNIFORM_BASELINES[0][2], "map")
+        self.assertEqual(len(series), ROUNDS)
+        # README table 15.2, `map`, 0-15, run 1: C(8) / C(4) = 2.242 / 1.720 = 1.303.
+        self.assertAlmostEqual(math.fsum(series) / ROUNDS, 1.303, delta=0.005)
+        with self.assertRaises(ValueError):
+            peak_series(UNIFORM_BASELINES[0][2], "map", high=3)
+
+    def test_usl_beta_hand_value(self):
+        # An exact USL curve returns its own beta: gamma 1, alpha 0.1, beta 0.01.
+        ns = [1.0, 2.0, 4.0, 8.0]
+        xs = [n / (1 + 0.1 * (n - 1) + 0.01 * n * (n - 1)) for n in ns]
+        self.assertAlmostEqual(usl_unclamped_beta(ns, xs), 0.01, places=10)
+
+    def test_published_curves_put_the_usl_fit_on_its_constraint(self):
+        # Four load points, three parameters: on the committed `map` cells and on
+        # the #929 head's `str` cells the unclamped coherency term is negative,
+        # so a beta >= 0 fit sits on its bound. The reason no USL fit is gated.
+        for _pin, _run, path in UNIFORM_BASELINES:
+            self.assertLess(usl_unclamped_beta(*cell_means(path, "map")), 0.0)
+        for path in LEVEL_GATE_ARTIFACTS:
+            self.assertLess(usl_unclamped_beta(*cell_means(path, "str")), 0.0)
+
+
 class ArgumentTests(unittest.TestCase):
     def test_invalid_arguments_raise(self):
         for call in (
@@ -682,6 +1024,14 @@ class ArgumentTests(unittest.TestCase):
             lambda: expected_colliding_pairs(2, 1.5),
             lambda: same_leaf_pair_scattered(5, 0.5, 0),
             lambda: leaf_masses_contiguous(5, 0.5, 0),
+            lambda: hottest_stripe_share(5, 0.5, 0),
+            lambda: write_pair_fraction(1.5),
+            lambda: write_involving_pair_fraction(-0.1),
+            lambda: coincidence_loss_bound(0, 0.5, 0.5),
+            lambda: coincidence_loss_bound(8, 0.5, 1.5),
+            lambda: level_from_price_and_scaling(0.0, 1.0),
+            lambda: price_floor_implied_by_level(0.0),
+            lambda: usl_unclamped_beta([1.0, 2.0], [1.0, 2.0]),
             lambda: mde_per_unit_sigma(7),
             lambda: largest_resolvable_cv(0.0, 8),
         ):
