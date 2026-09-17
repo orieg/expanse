@@ -479,8 +479,18 @@ pub(crate) fn version_end(v: &VersionCell) {
 /// using a strong `compare_exchange` (a single attempt, so a spurious weak-CAS
 /// failure would misreport an unlocked node as held).
 ///
-/// On success, executes an acquire fence to ensure subsequent node reads and writes
-/// do not reorder prior to lock acquisition.
+/// The CAS is an acquire, so the node's reads and writes that follow it are
+/// not reordered before the acquisition (S8), and a successful one is
+/// followed by a **release fence**, so the odd word is visible before any
+/// store the holder makes under it — [`version_begin`]'s construction, and
+/// the half the reader protocol needs: a reader that loaded a store made
+/// under the lock and then re-reads the word with an acquire fence
+/// synchronises with this fence and sees the word odd, so it restarts
+/// instead of returning the torn read (S1, S12).
+/// `loom_str_suffix_value_read_validates_the_node_cover` and
+/// `loom_str_prune_locks_the_child_before_unlinking_it` are red without
+/// it: an acquire CAS orders nothing for a thread that never touches the
+/// word between the lock and the store it reads.
 ///
 /// Returns `Ok(even_version)` on successful lock acquisition, or `Err(current_version)`
 /// if the lock was already held, obsolete, or if the CAS failed.
@@ -491,7 +501,9 @@ pub(crate) fn version_try_lock(v: &VersionCell) -> Result<u32, u32> {
     if !cur.is_multiple_of(2) || (cur & OBSOLETE != 0) {
         return Err(cur);
     }
-    v.compare_exchange(cur, cur + 1, Ordering::Acquire, Ordering::Relaxed)
+    let old = v.compare_exchange(cur, cur + 1, Ordering::Acquire, Ordering::Relaxed)?;
+    fence(Ordering::Release);
+    Ok(old)
 }
 
 /// Attempts to acquire an exclusive write lock on a node's version word, verifying
@@ -502,14 +514,17 @@ pub(crate) fn version_try_lock(v: &VersionCell) -> Result<u32, u32> {
 /// meantime, the CAS fails, protecting against concurrent shifts and subarray reallocations.
 ///
 /// Returns `Ok(expected)` on success, or `Err(current_version)` if the version changed,
-/// was odd, obsolete, or if CAS failed.
+/// was odd, obsolete, or if CAS failed. The release fence after a successful
+/// CAS is [`version_try_lock`]'s, for the same reason.
 #[cfg_attr(not(feature = "std"), allow(dead_code))]
 #[inline]
 pub(crate) fn version_try_lock_expect(v: &VersionCell, expected: u32) -> Result<u32, u32> {
     if !expected.is_multiple_of(2) || (expected & OBSOLETE != 0) {
         return Err(expected);
     }
-    v.compare_exchange(expected, expected + 1, Ordering::Acquire, Ordering::Relaxed)
+    let old = v.compare_exchange(expected, expected + 1, Ordering::Acquire, Ordering::Relaxed)?;
+    fence(Ordering::Release);
+    Ok(old)
 }
 
 /// Marks an actively locked node as [`OBSOLETE`].
@@ -3351,6 +3366,157 @@ mod loom_tests {
                 c.try_advance();
             }
             assert_eq!(c.retained_bytes(), 0);
+        });
+    }
+    // ----------------------------------------------------------------------
+    // The string wrapper's per-`StrNode` cover word (Refs #929, METHODOLOGY
+    // §17.5): three models on the protocol's primitives, each with the line
+    // whose deletion turns it red, and the negative control §17.5 names.
+    // ----------------------------------------------------------------------
+
+    /// Two writers read a `StrNode`'s continuation entry under one cover
+    /// snapshot and both try to publish over it — a split, or a value
+    /// replace. `version_try_lock_expect` at that snapshot lets exactly one
+    /// through; the other restarts and re-reads the entry. Red when the
+    /// lock becomes a load and a store, or is deleted: both writers enter
+    /// the section, and both publish.
+    #[test]
+    fn loom_str_cover_lock_serialises_entry_writers() {
+        loom::model(|| {
+            let cover = Arc::new(VersionCell::new(0));
+            let inside = Arc::new(AtomicUsize::new(0));
+            let published = Arc::new(AtomicUsize::new(0));
+            let snap = node_sample(&cover).expect("even at start");
+            let writers: Vec<_> = (0..2)
+                .map(|_| {
+                    let (c, i, p) = (
+                        Arc::clone(&cover),
+                        Arc::clone(&inside),
+                        Arc::clone(&published),
+                    );
+                    loom::thread::spawn(move || {
+                        if let Ok(old) = version_try_lock_expect(&c, snap) {
+                            assert_eq!(
+                                i.fetch_add(1, Ordering::Relaxed),
+                                0,
+                                "two writers publishing over one entry at once"
+                            );
+                            p.fetch_add(1, Ordering::Relaxed);
+                            i.fetch_sub(1, Ordering::Relaxed);
+                            version_unlock(&c, old, true);
+                        }
+                    })
+                })
+                .collect();
+            for w in writers {
+                w.join().unwrap();
+            }
+            assert_eq!(
+                published.load(Ordering::Relaxed),
+                1,
+                "exactly one writer publishes from a snapshot; the other must restart"
+            );
+        });
+    }
+
+    /// The reader half of §17.2.2: a suffix value is replaced in place (T3)
+    /// under the `StrNode` cover, and a reader that loaded it validates that
+    /// word. The suffix is two words the writer changes together; a
+    /// validated read never sees them disagree. `word_is_cover` selects
+    /// which word the reader validates: the cover the writer bumps, or the
+    /// tree word it no longer does.
+    fn str_suffix_value_model(reader_validates_cover: bool) {
+        loom::model(move || {
+            let cover = Arc::new(VersionCell::new(0));
+            let tree = Arc::new(VersionCell::new(0));
+            let value = Arc::new(AtomicU64::new(1));
+            let check = Arc::new(AtomicU64::new(1));
+            let (cw, vw, kw) = (Arc::clone(&cover), Arc::clone(&value), Arc::clone(&check));
+            let writer = loom::thread::spawn(move || {
+                let old = version_try_lock(&cw).expect("uncontended");
+                vw.store(2, Ordering::Relaxed);
+                kw.store(2, Ordering::Relaxed);
+                version_unlock(&cw, old, true);
+            });
+            let word = if reader_validates_cover {
+                &cover
+            } else {
+                &tree
+            };
+            if let Some(s) = node_sample(word) {
+                let v = value.load(Ordering::Relaxed);
+                let k = check.load(Ordering::Relaxed);
+                if node_validate(word, s) {
+                    assert_eq!(
+                        v, k,
+                        "validated read of a suffix value is torn: value {v}, check {k}"
+                    );
+                }
+            }
+            writer.join().unwrap();
+        });
+    }
+
+    /// Red when the writer's bracket around the two stores is deleted, or
+    /// when the reader's final validate is.
+    #[test]
+    fn loom_str_suffix_value_read_validates_the_node_cover() {
+        str_suffix_value_model(true);
+    }
+
+    /// The negative control §17.5 asks for: a reader that keeps validating
+    /// the tree word — which the string wrapper's writers no longer bump —
+    /// returns a torn suffix. Red by construction, on the same model.
+    #[test]
+    #[should_panic(expected = "validated read of a suffix value is torn")]
+    fn loom_str_suffix_value_read_on_the_tree_word_is_torn() {
+        str_suffix_value_model(false);
+    }
+
+    /// Property S3 for a pruned `StrNode` (T9): the emptied child is locked
+    /// — odd, so no reader validates through it — before its parent's entry
+    /// is rewritten, marked obsolete through that lock, and only then
+    /// disposed. A reader that loaded the parent's entry before the unlink
+    /// never returns what it read from the disposed child. Red when the
+    /// child's lock and mark are deleted, so the dispose runs on an even
+    /// word a reader can still validate.
+    #[test]
+    fn loom_str_prune_locks_the_child_before_unlinking_it() {
+        loom::model(|| {
+            let parent = Arc::new(VersionCell::new(0));
+            let child = Arc::new(VersionCell::new(0));
+            // 1: the parent's entry names the child; 0: unlinked.
+            let slot = Arc::new(AtomicU64::new(1));
+            let payload = Arc::new(AtomicU64::new(0xA));
+            let (pw, cw, sw, dw) = (
+                Arc::clone(&parent),
+                Arc::clone(&child),
+                Arc::clone(&slot),
+                Arc::clone(&payload),
+            );
+            let writer = loom::thread::spawn(move || {
+                let _child_lock = version_try_lock(&cw).expect("uncontended");
+                let p_old = version_try_lock(&pw).expect("uncontended");
+                sw.store(0, Ordering::Relaxed);
+                version_obsolete_locked(&cw);
+                dw.store(0xDEAD, Ordering::Relaxed);
+                version_unlock(&pw, p_old, true);
+            });
+            if let Some(ps) = node_sample(&parent) {
+                let s = slot.load(Ordering::Relaxed);
+                if node_validate(&parent, ps) && s == 1 {
+                    if let Some(cs) = node_sample(&child) {
+                        let v = payload.load(Ordering::Relaxed);
+                        if node_validate(&child, cs) {
+                            assert_ne!(
+                                v, 0xDEAD,
+                                "validated read through a pruned node returned its disposed contents"
+                            );
+                        }
+                    }
+                }
+            }
+            writer.join().unwrap();
         });
     }
 }
