@@ -430,11 +430,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
             .map(|(_, v)| NonNull::from(v))
     }
 
-    /// Inserts `key` with value 0 if absent — an existing value is kept
-    /// untouched — and returns a **writable pointer to its value slot**:
-    /// the compat `JudyHSIns` contract. Valid until the next structural
-    /// mutation.
-    pub fn ins_slot(&mut self, key: &[u8]) -> NonNull<u64> {
+    fn insert_slot_inner(&mut self, key: &[u8], init_val: u64) -> (NonNull<u64>, Option<u64>) {
         let defer = self.defer_handle();
         let h = self.hasher.hash_one(key);
         let slot = self.map.ins_slot(h);
@@ -447,7 +443,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
             // publish it with one word store — a concurrent reader sees
             // either 0 (treated as retry-worthy mid-publication state)
             // or the fully initialized bucket.
-            let bucket: Bucket = vec![(key.into(), 0)];
+            let bucket: Bucket = vec![(key.into(), init_val)];
             let raw = Box::into_raw(Box::new(bucket));
             // SAFETY: the slot stays valid until the next structural
             // trie mutation; none happens between `ins_slot` and here.
@@ -456,7 +452,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
             self.extra_bytes += BUCKET_OVERHEAD + key.len() + ENTRY_OVERHEAD;
             // SAFETY: freshly allocated above; entry 0 exists.
             let fresh: &mut Bucket = unsafe { &mut *raw };
-            return NonNull::from(&mut fresh[0].1);
+            return (NonNull::from(&mut fresh[0].1), None);
         }
         let old = word as *mut Bucket;
         // SAFETY: live bucket owned by this map; read-only search.
@@ -466,7 +462,8 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
             // SAFETY: as above; the slot pointer stays valid until the
             // next structural mutation.
             let live: &mut Bucket = unsafe { &mut *old };
-            return NonNull::from(&mut live[at].1);
+            let old_val = live[at].1;
+            return (NonNull::from(&mut live[at].1), Some(old_val));
         }
         // 64-bit hash collision: publish a replacement bucket holding
         // the moved-over entries plus the new key, then dispose of the
@@ -481,7 +478,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
             // of below without running the moved entries' Drop.
             bucket.push(unsafe { core::ptr::read((*old).as_ptr().add(i)) });
         }
-        bucket.push((key.into(), 0));
+        bucket.push((key.into(), init_val));
         let raw = Box::into_raw(Box::new(bucket));
         // Publish the replacement — the single word store that unlinks
         // the old bucket — then retire the old allocation.
@@ -492,20 +489,26 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         self.extra_bytes += key.len() + ENTRY_OVERHEAD;
         // SAFETY: freshly allocated above; the appended entry exists.
         let fresh: &mut Bucket = unsafe { &mut *raw };
-        NonNull::from(&mut fresh[old_len].1)
+        (NonNull::from(&mut fresh[old_len].1), None)
+    }
+
+    /// Inserts `key` with value 0 if absent — an existing value is kept
+    /// untouched — and returns a **writable pointer to its value slot**:
+    /// the compat `JudyHSIns` contract. Valid until the next structural
+    /// mutation.
+    pub fn ins_slot(&mut self, key: &[u8]) -> NonNull<u64> {
+        self.insert_slot_inner(key, 0).0
     }
 
     /// Inserts `key → val`; returns the replaced value if the key was
     /// already present.
     pub fn insert(&mut self, key: &[u8], val: u64) -> Option<u64> {
-        let had = self.contains_key(key);
-        let slot = self.ins_slot(key);
-        // SAFETY: fresh slot from ins_slot, valid until next mutation.
-        unsafe {
-            let old = *slot.as_ptr();
-            *slot.as_ptr() = val;
-            had.then_some(old)
+        let (slot, prev) = self.insert_slot_inner(key, val);
+        if prev.is_some() {
+            // SAFETY: slot points to live entry within the existing bucket.
+            unsafe { *slot.as_ptr() = val };
         }
+        prev
     }
 
     /// Removes `key`; returns its value if it was present.
@@ -811,5 +814,43 @@ mod tests {
         m.clear();
         assert!(m.is_empty());
         assert_eq!(m.mem_used(), 0);
+    }
+
+    #[test]
+    fn insert_presence_and_replacement() {
+        let mut m = ExpanseBytesMap::new();
+        // Fresh insertion returns None and stores value directly.
+        assert_eq!(m.insert(b"alpha", 42), None);
+        assert_eq!(m.get(b"alpha"), Some(42));
+        assert_eq!(m.len(), 1);
+
+        // Overwrite returns previous value and stores new value.
+        assert_eq!(m.insert(b"alpha", 99), Some(42));
+        assert_eq!(m.get(b"alpha"), Some(99));
+        assert_eq!(m.len(), 1);
+
+        // JudyHS ins_slot on absent key returns slot initialized to 0.
+        let slot = m.ins_slot(b"beta");
+        // SAFETY: slot is valid until next mutation.
+        unsafe {
+            assert_eq!(*slot.as_ptr(), 0);
+            *slot.as_ptr() = 123;
+        }
+        assert_eq!(m.get(b"beta"), Some(123));
+        assert_eq!(m.len(), 2);
+
+        // ins_slot on existing key keeps previous value untouched.
+        let slot = m.ins_slot(b"beta");
+        // SAFETY: slot is valid until next mutation.
+        unsafe {
+            assert_eq!(*slot.as_ptr(), 123);
+        }
+        assert_eq!(m.get(b"beta"), Some(123));
+        assert_eq!(m.len(), 2);
+
+        // Overwrite via insert on key created via ins_slot.
+        assert_eq!(m.insert(b"beta", 456), Some(123));
+        assert_eq!(m.get(b"beta"), Some(456));
+        assert_eq!(m.len(), 2);
     }
 }
