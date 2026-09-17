@@ -7,7 +7,7 @@ keys, how often two threads aim at one key or at one leaf, and what 8 rounds
 can resolve. The pre-registration invokes these functions; it does not restate
 their outputs from memory.
 
-Also here, added with the draft's revision: the cover-unit coincidence (a
+Also here: the cover-unit coincidence (a
 linear leaf's value store is bracketed by its parent's version word, so the
 unit threads meet on is wider than a leaf), a first-order ceiling on what
 coinciding targets can cost (`coincidence_loss_bound`, the registered
@@ -113,8 +113,33 @@ LEAF_BINS_64 = 1 << 16
 COVER_BINS_64 = 1 << 8
 # The DRAM-resident population of the ungated anchor cells (METHODOLOGY §20.4).
 POPULATION_DRAM = 1 << 24
-# Stripes of the external RMW lock the pre-registration recommends (D1).
-RMW_STRIPES = 1 << 10
+
+# METHODOLOGY §20.11's numeric policy values. Maintainer policy, locked with §20
+# on 2026-09-17, before any harness code or any run. They do not move for any
+# head (AGENTS.md §8.19); `LockedPolicyTests` pins each, so an edit here without
+# one there turns the suite red. The future driver reads them from here and
+# does not restate them.
+LOCKED_PREREGISTRATION = "docs/benchmarks/concurrency/METHODOLOGY.md §20"
+# D1: stripes of the external lock that makes `olc`'s read-modify-write atomic.
+LOCKED_RMW_STRIPES = 1 << 10
+# D2: G3's floor -- Zipfian throughput / uniform throughput, same arm, T and mix.
+LOCKED_SKEW_RETENTION_FLOOR = 0.50
+# D3: G4's floor -- olc throughput / SkipMap throughput; the BCa lower bound
+# must be strictly above it. Families A, B and D only.
+LOCKED_SKIPLIST_FLOOR = 1.0
+LOCKED_SKIPLIST_GATED_FAMILIES = ("A", "B", "D")
+# D4: the T = 1 collapse guard -- olc / Mutex<ExpanseMap>, single thread. A
+# guard only: the binding price gate is G2 at T = 2 (`price_floor_implied_by_level`).
+LOCKED_COLLAPSE_GUARD = 0.50
+# D11: the rank law's exponent and the gated and anchor populations.
+LOCKED_THETA = 0.99
+LOCKED_POPULATION = 1 << 20
+LOCKED_POPULATION_ANCHOR = 1 << 24
+# D13: ungated load points on the one-thread-per-core pin.
+LOCKED_EXTRA_THREADS = (3, 6)
+# DashMap's shard count (§20.5), fixed so it does not follow the affinity mask.
+LOCKED_DASH_SHARDS = 64
+RMW_STRIPES = LOCKED_RMW_STRIPES
 WRITERS = (2, 4, 8)
 ROUNDS = 8
 
@@ -915,8 +940,8 @@ class StripeAndLossTests(unittest.TestCase):
         for s in (1, 16, RMW_STRIPES, 1 << 20, 1 << 40):
             self.assertGreaterEqual(hottest_stripe_share(POPULATION, THETA, s), p1)
         self.assertAlmostEqual(hottest_stripe_share(POPULATION, THETA, RMW_STRIPES), 0.065654, places=6)
-        # The figure the first draft used, C(8, 2) / S for uniform draws over
-        # stripes, is a different and smaller quantity than the hottest stripe.
+        # C(8, 2) / S, the figure for uniform draws over stripes, is a different
+        # and smaller quantity than the hottest stripe.
         self.assertAlmostEqual(math.comb(8, 2) / RMW_STRIPES, 0.02734, places=5)
 
     def test_pair_fractions(self):
@@ -942,6 +967,45 @@ class StripeAndLossTests(unittest.TestCase):
 
     def test_dram_population_reference(self):
         self.assertAlmostEqual(zipf_pmf(1, POPULATION_DRAM, THETA), 0.053545, places=6)
+
+
+class LockedPolicyTests(unittest.TestCase):
+    def test_locked_values_are_the_registered_ones(self):
+        # METHODOLOGY §20.11, locked 2026-09-17. Literal on purpose: this test
+        # and the constants must be edited together, and neither may be.
+        self.assertEqual(LOCKED_PREREGISTRATION, "docs/benchmarks/concurrency/METHODOLOGY.md §20")
+        self.assertEqual(LOCKED_RMW_STRIPES, 1024)
+        self.assertEqual(LOCKED_SKEW_RETENTION_FLOOR, 0.50)
+        self.assertEqual(LOCKED_SKIPLIST_FLOOR, 1.0)
+        self.assertEqual(LOCKED_SKIPLIST_GATED_FAMILIES, ("A", "B", "D"))
+        self.assertEqual(LOCKED_COLLAPSE_GUARD, 0.50)
+        self.assertEqual(LOCKED_THETA, 0.99)
+        self.assertEqual(LOCKED_POPULATION, 1048576)
+        self.assertEqual(LOCKED_POPULATION_ANCHOR, 16777216)
+        self.assertEqual(LOCKED_EXTRA_THREADS, (3, 6))
+        self.assertEqual(LOCKED_DASH_SHARDS, 64)
+
+    def test_the_module_computes_at_the_locked_values(self):
+        self.assertEqual((THETA, POPULATION, POPULATION_DRAM, RMW_STRIPES),
+                         (LOCKED_THETA, LOCKED_POPULATION, LOCKED_POPULATION_ANCHOR, LOCKED_RMW_STRIPES))
+
+    def test_the_registration_states_the_locked_values(self):
+        # The section and the constants cannot drift apart silently.
+        text = (REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "METHODOLOGY.md").read_text()
+        section = text[text.index("## 20. Pre-registration for #1006"):]
+        self.assertIn("appended and locked 2026-09-17", section.splitlines()[0])
+        for needle in ("**ρ = 0.50** (D2)", "**q = 1.0**", "**F₁ =\n> 0.50** (D4)", "S = 1,024",
+                       "θ = 0.99; N = 2^20 gated; N = 2^24"):
+            self.assertIn(needle, section)
+        for banned in ("PLACEHOLDER", "DRAFT"):
+            self.assertNotIn(banned, section)
+
+    def test_the_collapse_guard_is_not_the_binding_price_gate(self):
+        # D4's reasoning as arithmetic: at the committed uniform `map` C(2) the
+        # price G2 implies is above the guard, so the guard never binds first.
+        for _pin, _run, path in UNIFORM_BASELINES:
+            m = baseline_scaling_mde(path, "map", 2)
+            self.assertGreater(price_floor_implied_by_level(m["mde"] / m["relative"]), LOCKED_COLLAPSE_GUARD)
 
 
 class LevelIdentityTests(unittest.TestCase):
@@ -976,7 +1040,7 @@ class LevelIdentityTests(unittest.TestCase):
         for _pin, _run, path in UNIFORM_BASELINES:
             m = baseline_scaling_mde(path, "map", 2)
             c2 = m["mde"] / m["relative"]
-            self.assertLess(level_from_price_and_scaling(0.50, c2), 0.70)
+            self.assertLess(level_from_price_and_scaling(LOCKED_COLLAPSE_GUARD, c2), 0.70)
             self.assertGreater(price_floor_implied_by_level(c2), 0.76)
             self.assertLess(price_floor_implied_by_level(c2), 0.78)
 
