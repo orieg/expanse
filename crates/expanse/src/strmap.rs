@@ -1660,20 +1660,19 @@ impl ExpanseStrMap {
         use crate::occ::{node_sample, node_validate, version_cell};
         use crate::sync::{Cover, Retry, walk_validated_from};
         let key = key.as_bytes();
-        // Racy single-word copy of the root pointer: the root node's cover
-        // is sampled before anything is read through it, an unlinked root
-        // is obsolete-marked and EBR-live, and the tree word is validated
-        // before any answer.
-        let mut node: *const StrNode = match self.root.as_deref() {
-            Some(r) => core::ptr::from_ref(r),
-            None => {
-                return if ver.validate(snap) {
-                    Ok(None)
-                } else {
-                    Err(Retry)
-                };
-            }
-        };
+        // Racy single-word copy of the root pointer, through the box rather
+        // than a shared borrow (`root_raw`): the root node's cover is sampled
+        // before anything is read through it, an unlinked root is
+        // obsolete-marked and EBR-live, and the tree word is validated before
+        // any answer.
+        let mut node: *const StrNode = self.root_raw().cast_const();
+        if node.is_null() {
+            return if ver.validate(snap) {
+                Ok(None)
+            } else {
+                Err(Retry)
+            };
+        }
         let mut off = 0usize;
         loop {
             let (chunk, terminal) = chunk_at(key, off);
@@ -2155,27 +2154,6 @@ mod olc {
     }
 
     impl ExpanseStrMap {
-        /// The meta-trie root as a raw pointer, or null, without forming a
-        /// reference to the node: an optimistic writer stores through it while
-        /// other threads read the node, so the pointer must descend from the
-        /// box, not from a shared borrow of its target.
-        #[inline(always)]
-        fn root_raw(&self) -> *mut StrNode {
-            // SAFETY: `self` lives inside the wrapper's `UnsafeCell`, so a raw
-            // pointer to the field is writable; only the box's pointer is read
-            // here, never the node.
-            unsafe {
-                let slot: *mut Option<Box<StrNode>> = (&raw const self.root).cast_mut();
-                match &*slot {
-                    Some(b) => {
-                        let b: *mut Box<StrNode> = core::ptr::from_ref(b).cast_mut();
-                        &raw mut **b
-                    }
-                    None => core::ptr::null_mut(),
-                }
-            }
-        }
-
         /// The optimistic insert of `sync::SyncExpanseStrMap` (Refs #929,
         /// METHODOLOGY §17.2): one cover per hop, hand-over-hand down the chunk
         /// chain.
@@ -2627,6 +2605,29 @@ impl ExpanseStrMap {
     #[inline(always)]
     pub(crate) fn set_len(&mut self, pop: u64) {
         self.pop = pop;
+    }
+
+    /// The meta-trie root as a raw pointer, or null, without forming a
+    /// reference to the node. An optimistic writer stores through it while
+    /// other threads read the node, and a reader views its cover word as an
+    /// atomic — which needs write provenance under Stacked Borrows even for
+    /// a load — so the pointer must descend from the box, not from a shared
+    /// borrow of its target (Miri caught the `from_ref` form on the reader).
+    #[inline(always)]
+    fn root_raw(&self) -> *mut StrNode {
+        // SAFETY: `self` lives inside the wrapper's `UnsafeCell`, so a raw
+        // pointer to the field is writable; only the box's pointer is read
+        // here, never the node.
+        unsafe {
+            let slot: *mut Option<Box<StrNode>> = (&raw const self.root).cast_mut();
+            match &*slot {
+                Some(b) => {
+                    let b: *mut Box<StrNode> = core::ptr::from_ref(b).cast_mut();
+                    &raw mut **b
+                }
+                None => core::ptr::null_mut(),
+            }
+        }
     }
 
     /// The exclusive prune (Refs #929): unlinks every empty node on `key`'s
