@@ -25,6 +25,10 @@ pub struct SyncMapReader(MapReader<'static>);
 // other than the one that created it. That holds because both handle types are
 // `Send`, which is auto-derived from their fields; assert it, so a future
 // `!Send` field breaks the build instead of the documented contract.
+//
+// The Rust handles inside are `Send` and not `Sync`. That bound stops at this
+// boundary: C callers hold raw pointers, so "one handle per reading thread"
+// is the header's contract here and not something this crate can check.
 const _: fn() = || {
     fn assert_send<T: Send>() {}
     assert_send::<SyncSetReader>();

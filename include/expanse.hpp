@@ -1259,6 +1259,10 @@ private:
 // Concurrent types — optimistic OCC readers (sync_set, sync_map)
 // ============================================================================
 
+// A reader owns one epoch slot, and every call pins and unpins it. Calls on
+// ONE reader from two threads at once are undefined (include/expanse.h,
+// reader-handle ownership): give each reading thread its own. A reader may
+// be moved to another thread. The same holds for sync_map_reader.
 class sync_set_reader {
 public:
     sync_set_reader() noexcept : ptr_(nullptr) {}

@@ -1162,12 +1162,12 @@ impl expanse_trie::occ::Reader
 pub fn expanse_trie::occ::Reader::pin(&self) -> expanse_trie::occ::Pin<'_>
 impl core::ops::drop::Drop for expanse_trie::occ::Reader
 pub fn expanse_trie::occ::Reader::drop(&mut self)
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::occ::Reader
 impl core::marker::Freeze for expanse_trie::occ::Reader
 impl core::marker::Send for expanse_trie::occ::Reader
-impl core::marker::Sync for expanse_trie::occ::Reader
+impl !core::marker::Sync for expanse_trie::occ::Reader
 impl core::marker::Unpin for expanse_trie::occ::Reader
 impl core::marker::UnsafeUnpin for expanse_trie::occ::Reader
-impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::occ::Reader
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::occ::Reader
 pub struct expanse_trie::occ::SeqVersion(_)
 impl expanse_trie::occ::SeqVersion
@@ -1814,7 +1814,7 @@ pub fn expanse_trie::sync::BlobReader<'_>::get_meta(&mut self, expanse_trie::typ
 pub fn expanse_trie::sync::BlobReader<'_>::pin(&mut self) -> expanse_trie::sync::BlobReadGuard<'_>
 impl<'a> core::marker::Freeze for expanse_trie::sync::BlobReader<'a>
 impl<'a> core::marker::Send for expanse_trie::sync::BlobReader<'a>
-impl<'a> core::marker::Sync for expanse_trie::sync::BlobReader<'a>
+impl<'a> !core::marker::Sync for expanse_trie::sync::BlobReader<'a>
 impl<'a> core::marker::Unpin for expanse_trie::sync::BlobReader<'a>
 impl<'a> core::marker::UnsafeUnpin for expanse_trie::sync::BlobReader<'a>
 impl<'a> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::BlobReader<'a>
@@ -1825,7 +1825,7 @@ pub fn expanse_trie::sync::BytesReader<'_, S>::contains(&self, &[u8]) -> bool
 pub fn expanse_trie::sync::BytesReader<'_, S>::get(&self, &[u8]) -> core::option::Option<u64>
 impl<'a, S> core::marker::Freeze for expanse_trie::sync::BytesReader<'a, S> where &'a expanse_trie::sync::SyncExpanseBytesMap<S>: core::marker::Freeze
 impl<'a, S> core::marker::Send for expanse_trie::sync::BytesReader<'a, S> where &'a expanse_trie::sync::SyncExpanseBytesMap<S>: core::marker::Send
-impl<'a, S> core::marker::Sync for expanse_trie::sync::BytesReader<'a, S> where &'a expanse_trie::sync::SyncExpanseBytesMap<S>: core::marker::Sync
+impl<'a, S> !core::marker::Sync for expanse_trie::sync::BytesReader<'a, S>
 impl<'a, S> core::marker::Unpin for expanse_trie::sync::BytesReader<'a, S> where &'a expanse_trie::sync::SyncExpanseBytesMap<S>: core::marker::Unpin
 impl<'a, S> core::marker::UnsafeUnpin for expanse_trie::sync::BytesReader<'a, S> where &'a expanse_trie::sync::SyncExpanseBytesMap<S>: core::marker::UnsafeUnpin
 impl<'a, S> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::BytesReader<'a, S>
@@ -1835,7 +1835,7 @@ impl expanse_trie::sync::DetachedMapReader
 pub fn expanse_trie::sync::DetachedMapReader::get(&self, &expanse_trie::sync::SyncExpanseMap, expanse_trie::types::Key) -> core::option::Option<u64>
 impl core::marker::Freeze for expanse_trie::sync::DetachedMapReader
 impl core::marker::Send for expanse_trie::sync::DetachedMapReader
-impl core::marker::Sync for expanse_trie::sync::DetachedMapReader
+impl !core::marker::Sync for expanse_trie::sync::DetachedMapReader
 impl core::marker::Unpin for expanse_trie::sync::DetachedMapReader
 impl core::marker::UnsafeUnpin for expanse_trie::sync::DetachedMapReader
 impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::DetachedMapReader
@@ -1845,7 +1845,7 @@ impl expanse_trie::sync::MapReader<'_>
 pub fn expanse_trie::sync::MapReader<'_>::get(&self, expanse_trie::types::Key) -> core::option::Option<u64>
 impl<'a> core::marker::Freeze for expanse_trie::sync::MapReader<'a>
 impl<'a> core::marker::Send for expanse_trie::sync::MapReader<'a>
-impl<'a> core::marker::Sync for expanse_trie::sync::MapReader<'a>
+impl<'a> !core::marker::Sync for expanse_trie::sync::MapReader<'a>
 impl<'a> core::marker::Unpin for expanse_trie::sync::MapReader<'a>
 impl<'a> core::marker::UnsafeUnpin for expanse_trie::sync::MapReader<'a>
 impl<'a> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::MapReader<'a>
@@ -1855,7 +1855,7 @@ impl expanse_trie::sync::OwnedMapReader
 pub fn expanse_trie::sync::OwnedMapReader::get(&self, expanse_trie::types::Key) -> core::option::Option<u64>
 impl core::marker::Freeze for expanse_trie::sync::OwnedMapReader
 impl core::marker::Send for expanse_trie::sync::OwnedMapReader
-impl core::marker::Sync for expanse_trie::sync::OwnedMapReader
+impl !core::marker::Sync for expanse_trie::sync::OwnedMapReader
 impl core::marker::Unpin for expanse_trie::sync::OwnedMapReader
 impl core::marker::UnsafeUnpin for expanse_trie::sync::OwnedMapReader
 impl !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::OwnedMapReader
@@ -1865,7 +1865,7 @@ impl expanse_trie::sync::SetReader<'_>
 pub fn expanse_trie::sync::SetReader<'_>::contains(&self, expanse_trie::types::Key) -> bool
 impl<'a> core::marker::Freeze for expanse_trie::sync::SetReader<'a>
 impl<'a> core::marker::Send for expanse_trie::sync::SetReader<'a>
-impl<'a> core::marker::Sync for expanse_trie::sync::SetReader<'a>
+impl<'a> !core::marker::Sync for expanse_trie::sync::SetReader<'a>
 impl<'a> core::marker::Unpin for expanse_trie::sync::SetReader<'a>
 impl<'a> core::marker::UnsafeUnpin for expanse_trie::sync::SetReader<'a>
 impl<'a> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::SetReader<'a>
@@ -1876,7 +1876,7 @@ pub fn expanse_trie::sync::StrReader<'_>::contains(&self, &expanse_trie::strmap:
 pub fn expanse_trie::sync::StrReader<'_>::get(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
 impl<'a> core::marker::Freeze for expanse_trie::sync::StrReader<'a>
 impl<'a> core::marker::Send for expanse_trie::sync::StrReader<'a>
-impl<'a> core::marker::Sync for expanse_trie::sync::StrReader<'a>
+impl<'a> !core::marker::Sync for expanse_trie::sync::StrReader<'a>
 impl<'a> core::marker::Unpin for expanse_trie::sync::StrReader<'a>
 impl<'a> core::marker::UnsafeUnpin for expanse_trie::sync::StrReader<'a>
 impl<'a> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::StrReader<'a>

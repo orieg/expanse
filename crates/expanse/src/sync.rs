@@ -4694,6 +4694,10 @@ impl SyncExpanseSet {
     }
 
     /// Registers a reader handle for this thread's lookups.
+    ///
+    /// One handle per thread. The handle is `Send`, not `Sync`: it can be moved
+    /// to another thread, and cannot be shared by reference between threads
+    /// (see [`Reader`]).
     #[must_use]
     pub fn reader(&self) -> SetReader<'_> {
         SetReader {
@@ -4731,6 +4735,15 @@ impl SyncExpanseSet {
 }
 
 /// A per-thread reader handle for [`SyncExpanseSet`].
+///
+/// One handle per thread. The handle is `Send`, not `Sync`: it embeds a
+/// [`Reader`], whose single epoch slot two threads pinning at once would
+/// clear under each other. Sharing one by reference does not compile:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::sync::SetReader<'static>>();
+/// ```
 pub struct SetReader<'a> {
     set: &'a SyncExpanseSet,
     reader: Reader,
@@ -4955,6 +4968,10 @@ impl SyncExpanseMap {
     }
 
     /// Registers a reader handle for this thread's lookups.
+    ///
+    /// One handle per thread. The handle is `Send`, not `Sync`: it can be moved
+    /// to another thread, and cannot be shared by reference between threads
+    /// (see [`Reader`]).
     #[must_use]
     pub fn reader(&self) -> MapReader<'_> {
         MapReader {
@@ -4967,9 +4984,9 @@ impl SyncExpanseMap {
     /// a borrow — a `#[pyclass]`, a thread-local, anything outliving the call.
     ///
     /// Registers once, so a loop through it pays none of the per-lookup
-    /// registry locking that [`Self::get`] does (#554). One reader owns one
-    /// epoch slot and its pins are not reentrant, so give each thread its own
-    /// rather than sharing one.
+    /// registry locking that [`Self::get`] does (#554). One handle per thread:
+    /// the handle is `Send`, not `Sync`, because one reader owns one epoch slot
+    /// and its pins are not reentrant (see [`Reader`]).
     #[must_use]
     pub fn owned_reader(self: &Arc<Self>) -> OwnedMapReader {
         OwnedMapReader {
@@ -4983,6 +5000,8 @@ impl SyncExpanseMap {
     /// Use this where the reader is cached somewhere whose lifetime is not the
     /// map's -- a per-thread cache, say -- and pass the map back in at lookup
     /// time. See [`DetachedMapReader`].
+    ///
+    /// One handle per thread: the handle is `Send`, not `Sync` (see [`Reader`]).
     #[must_use]
     pub fn detached_reader(&self) -> DetachedMapReader {
         DetachedMapReader {
@@ -7403,6 +7422,31 @@ impl SyncExpanseMap {
 }
 
 /// A per-thread reader handle for [`SyncExpanseMap`].
+///
+/// One handle per thread. The handle is `Send`, not `Sync`: it embeds a
+/// [`Reader`], whose single epoch slot two threads pinning at once would
+/// clear under each other. Sharing one by reference does not compile:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::sync::MapReader<'static>>();
+/// ```
+///
+/// Moving one to another thread does, for every handle type. This is the
+/// same program with the bound swapped, so what fails above is the missing
+/// `Sync` and nothing else:
+///
+/// ```no_run
+/// use expanse_trie::sync::*;
+/// fn assert_send<T: Send>() {}
+/// assert_send::<MapReader<'static>>();
+/// assert_send::<OwnedMapReader>();
+/// assert_send::<DetachedMapReader>();
+/// assert_send::<SetReader<'static>>();
+/// assert_send::<StrReader<'static>>();
+/// assert_send::<BytesReader<'static>>();
+/// assert_send::<BlobReader<'static>>();
+/// ```
 pub struct MapReader<'a> {
     map: &'a SyncExpanseMap,
     reader: Reader,
@@ -7434,8 +7478,12 @@ fn map_get_with(map: &SyncExpanseMap, reader: &Reader, key: Key) -> Option<u64> 
 /// to 0.02x at 16 threads, worse than a GIL-bound `dict` (#554).
 ///
 /// One [`Reader`] owns a single epoch slot and its pins are not reentrant, so
-/// an `OwnedMapReader` must not be shared between threads: give each thread
-/// its own.
+/// an `OwnedMapReader` is `Send`, not `Sync`: give each thread its own.
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::sync::OwnedMapReader>();
+/// ```
 pub struct OwnedMapReader {
     map: Arc<SyncExpanseMap>,
     reader: Reader,
@@ -7462,7 +7510,13 @@ impl OwnedMapReader {
 /// necessarily has anyway — it is the thing being read.
 ///
 /// The same non-reentrancy rule applies: one [`Reader`] owns a single epoch
-/// slot, so a `DetachedMapReader` must not be shared between threads.
+/// slot, so a `DetachedMapReader` is `Send`, not `Sync`. A per-thread cache
+/// (a `thread_local!`) is the intended home.
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::sync::DetachedMapReader>();
+/// ```
 pub struct DetachedMapReader {
     reader: Reader,
 }
@@ -7472,14 +7526,34 @@ pub struct DetachedMapReader {
 // (`include/expanse.h`, `docs/COMPAT.md`), and the bindings move readers
 // between threads. The bound is auto-derived from the fields, so a future
 // `!Send` field would silently withdraw it; this turns that into a build error.
-// (`Sync` is deliberately not asserted: see `occ::Reader`.)
+//
+// `Sync` is the opposite case: every handle embeds one `occ::Reader`, and two
+// threads pinning through one reader clear each other's pin. The handles are
+// `!Sync` through that field; asserting it here means a refactor that stops
+// embedding the reader by value (an `Arc<Slot>` of its own, say) fails the
+// build instead of making the shared-handle program expressible again.
 const _: fn() = || {
     fn assert_send<T: Send>() {}
     assert_send::<MapReader<'static>>();
     assert_send::<OwnedMapReader>();
     assert_send::<DetachedMapReader>();
     assert_send::<SetReader<'static>>();
+    assert_send::<StrReader<'static>>();
+    assert_send::<BytesReader<'static>>();
+    assert_send::<BlobReader<'static>>();
+    // The guard borrows its reader `&mut`, so no sibling pin can exist while
+    // it lives and dropping it on another thread is sound (see `occ::Pin`).
+    assert_send::<BlobReadGuard<'static>>();
 };
+crate::occ::assert_not_sync!(
+    MapReader<'static>,
+    OwnedMapReader,
+    DetachedMapReader,
+    SetReader<'static>,
+    StrReader<'static>,
+    BytesReader<'static>,
+    BlobReader<'static>,
+);
 
 impl DetachedMapReader {
     /// Optimistic lookup against `map`, without the per-call registry lock
@@ -7712,6 +7786,10 @@ impl SyncExpanseBlobMap {
     }
 
     /// Registers a reader handle for this thread's lookups.
+    ///
+    /// One handle per thread. The handle is `Send`, not `Sync`: it can be moved
+    /// to another thread, and cannot be shared by reference between threads
+    /// (see [`Reader`]).
     #[must_use]
     pub fn reader(&self) -> BlobReader<'_> {
         BlobReader {
@@ -7788,6 +7866,15 @@ impl From<ExpanseBlobMap> for SyncExpanseBlobMap {
 }
 
 /// A per-thread reader handle for [`SyncExpanseBlobMap`].
+///
+/// One handle per thread. The handle is `Send`, not `Sync`: it embeds a
+/// [`Reader`], whose single epoch slot two threads pinning at once would
+/// clear under each other. Sharing one by reference does not compile:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::sync::BlobReader<'static>>();
+/// ```
 pub struct BlobReader<'a> {
     map: &'a SyncExpanseBlobMap,
     reader: Reader,
@@ -8303,6 +8390,10 @@ impl SyncExpanseStrMap {
     }
 
     /// Registers a reader handle for this thread's lookups.
+    ///
+    /// One handle per thread. The handle is `Send`, not `Sync`: it can be moved
+    /// to another thread, and cannot be shared by reference between threads
+    /// (see [`Reader`]).
     #[must_use]
     pub fn reader(&self) -> StrReader<'_> {
         StrReader {
@@ -8433,6 +8524,15 @@ impl From<ExpanseStrMap> for SyncExpanseStrMap {
 }
 
 /// A per-thread reader handle for [`SyncExpanseStrMap`].
+///
+/// One handle per thread. The handle is `Send`, not `Sync`: it embeds a
+/// [`Reader`], whose single epoch slot two threads pinning at once would
+/// clear under each other. Sharing one by reference does not compile:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::sync::StrReader<'static>>();
+/// ```
 pub struct StrReader<'a> {
     map: &'a SyncExpanseStrMap,
     reader: Reader,
@@ -8536,6 +8636,10 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
     }
 
     /// Registers a reader handle for this thread's lookups.
+    ///
+    /// One handle per thread. The handle is `Send`, not `Sync`: it can be moved
+    /// to another thread, and cannot be shared by reference between threads
+    /// (see [`Reader`]).
     #[must_use]
     pub fn reader(&self) -> BytesReader<'_, S> {
         BytesReader {
@@ -8627,6 +8731,15 @@ impl<S: BuildHasher + Send + Sync + Default> From<ExpanseBytesMap<S>> for SyncEx
 }
 
 /// A per-thread reader handle for [`SyncExpanseBytesMap`].
+///
+/// One handle per thread. The handle is `Send`, not `Sync`: it embeds a
+/// [`Reader`], whose single epoch slot two threads pinning at once would
+/// clear under each other. Sharing one by reference does not compile:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::sync::BytesReader<'static>>();
+/// ```
 pub struct BytesReader<'a, S: BuildHasher + Send + Sync = RandomState> {
     map: &'a SyncExpanseBytesMap<S>,
     reader: Reader,
