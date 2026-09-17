@@ -767,6 +767,13 @@ cell in this suite was measured on.
 > against it. The single-writer engine's pair before that, at `a1982ff2`, stays
 > at `results/step0/`, the data `docs/benchmarks/concurrency/README.md` §3–§5
 > and §8 read.
+>
+> **Not re-measured after [#1014](https://github.com/orieg/expanse/pull/1014).**
+> The artifacts measure `929574b5`. #1014 landed afterwards and changes
+> `occ.rs` and `sync.rs`: a zero-sized marker field on `occ::Reader` and
+> compile-time `Send` / not-`Sync` assertions on the reader handles these cells
+> use. Whether that moves a reader cell is **unmeasured**; it is not argued
+> from the diff (AGENTS.md §8.7), and the cells are quoted at their commit.
 
 #### MC1 — `u64` keys, Masstree vs `SyncExpanseMap`
 
