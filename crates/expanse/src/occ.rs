@@ -1899,7 +1899,7 @@ fn free_raw(ptr: NonNull<u8>, bytes: usize, align: usize) {
 ///
 /// The handle moves between threads:
 ///
-/// ```
+/// ```no_run
 /// fn assert_send<T: Send>() {}
 /// assert_send::<expanse_trie::occ::Reader>();
 /// ```

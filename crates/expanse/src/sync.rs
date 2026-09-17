@@ -7436,7 +7436,7 @@ impl SyncExpanseMap {
 /// same program with the bound swapped, so what fails above is the missing
 /// `Sync` and nothing else:
 ///
-/// ```
+/// ```no_run
 /// use expanse_trie::sync::*;
 /// fn assert_send<T: Send>() {}
 /// assert_send::<MapReader<'static>>();
