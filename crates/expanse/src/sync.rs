@@ -567,12 +567,13 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
     }
 }
 
-/// A field on its own cache line when the `lock-padded` diagnostic feature is
-/// on; the bare field otherwise. It wraps `Shared`'s writer mutex, writer gate,
-/// tree population counter and tree version word, so the feature measures what
-/// padding these shared/writer words away from each other and from the wrapper's
-/// other writer-private words costs (the version already heads the struct on the
-/// readers' line in either configuration).
+/// A field on its own cache line. It wraps `Shared`'s writer mutex, writer
+/// gate, tree population counter and tree version word, so none of them shares
+/// a line with another or with the wrapper's other writer-private words (the
+/// version already heads the struct on the readers' line in either
+/// configuration). Padding is the default since #568/#930; the
+/// `ablation-unpadded-lock` feature makes this a bare field again, so the
+/// promoted default can itself be ablated (AGENTS.md §2.7).
 pub(crate) use crate::occ::{Line, line};
 
 /// What every wrapped engine offers `Shared`: a way to bind the tree-level
@@ -728,9 +729,10 @@ pub(crate) const MAX_WRITER_SLOTS: usize = crate::occ::MAX_WRITER_SLOTS;
 /// across concurrent writers.
 ///
 /// Writers update their own shard (`shards[slot]`) with deltas (+1 / -1).
-/// Under `feature = "lock-padded"`, each slot is aligned to 64 bytes, providing true
-/// zero write-shared cache lines ($k = 0$). In the default build, `Line<X>` is an unpadded
-/// alias, packing 8 atomic slots per 64-byte cache line (an 8× reduction in false sharing).
+/// In the default build each slot is aligned to 64 bytes, providing true zero
+/// write-shared cache lines ($k = 0$). Under `ablation-unpadded-lock`, `Line<X>`
+/// is an unpadded alias, packing 8 atomic slots per 64-byte cache line (an 8×
+/// reduction in false sharing rather than its elimination).
 /// Reads (`load()`) sum the base counter and all shard deltas. At serialization
 /// boundaries (`flush_and_set()`), shards are cleared and folded back into `base`.
 pub(crate) struct ShardedTreePop {
@@ -10675,7 +10677,7 @@ mod diagnostics_tests {
                     "{wrapper}: {w} shares no line with the tree word"
                 );
             }
-            #[cfg(feature = "lock-padded")]
+            #[cfg(not(feature = "ablation-unpadded-lock"))]
             {
                 assert_eq!(off("tree_pop") % 64, 0, "{wrapper}: tree_pop line-aligned");
                 assert_eq!(off("write") % 64, 0, "{wrapper}: write line-aligned");

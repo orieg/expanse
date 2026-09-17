@@ -1123,13 +1123,13 @@ struct FreeListHead(*mut FreeBlock);
 // SAFETY: Access to the raw pointer in FreeListHead is synchronized by a Mutex.
 unsafe impl Send for FreeListHead {}
 
-#[cfg(feature = "lock-padded")]
+#[cfg(not(feature = "ablation-unpadded-lock"))]
 #[derive(Debug)]
 #[repr(align(64))]
 #[allow(dead_code)]
 pub(crate) struct Line<X>(pub(crate) X);
 
-#[cfg(feature = "lock-padded")]
+#[cfg(not(feature = "ablation-unpadded-lock"))]
 impl<X> core::ops::Deref for Line<X> {
     type Target = X;
     fn deref(&self) -> &X {
@@ -1137,18 +1137,18 @@ impl<X> core::ops::Deref for Line<X> {
     }
 }
 
-#[cfg(feature = "lock-padded")]
+#[cfg(not(feature = "ablation-unpadded-lock"))]
 impl<X> From<X> for Line<X> {
     fn from(x: X) -> Self {
         Self(x)
     }
 }
 
-#[cfg(not(feature = "lock-padded"))]
+#[cfg(feature = "ablation-unpadded-lock")]
 #[allow(dead_code)]
 pub(crate) type Line<X> = X;
 
-#[cfg(feature = "lock-padded")]
+#[cfg(not(feature = "ablation-unpadded-lock"))]
 #[inline]
 #[allow(dead_code)]
 pub(crate) fn line<X>(x: X) -> Line<X> {
@@ -1445,7 +1445,7 @@ pub(crate) fn writer_slot() -> usize {
     0
 }
 
-#[cfg(not(feature = "lock-padded"))]
+#[cfg(feature = "ablation-unpadded-lock")]
 #[inline]
 #[allow(dead_code)]
 pub(crate) fn line<X>(x: X) -> Line<X> {
@@ -1966,6 +1966,32 @@ mod tests {
         let layout = Layout::from_size_align(bytes, TEST_ALIGN).unwrap();
         // SAFETY: nonzero-size layout.
         NonNull::new(unsafe { alloc_zeroed(layout) }).unwrap()
+    }
+
+    /// AGENTS.md §2.7: a promoted mechanism must stay ablatable, and its inverse
+    /// must never be a no-op that silently compares the default with itself.
+    /// `Line<X>` is a 64-byte-aligned wrapper by default and a transparent alias
+    /// under `ablation-unpadded-lock`, so the two builds disagree here. If the
+    /// inverse stopped changing the layout, one of these branches would fail.
+    #[test]
+    fn ablation_line_padding_follows_the_build() {
+        use core::sync::atomic::AtomicUsize;
+        #[cfg(not(feature = "ablation-unpadded-lock"))]
+        {
+            assert_eq!(core::mem::align_of::<Line<AtomicUsize>>(), 64);
+            assert_eq!(core::mem::size_of::<Line<AtomicUsize>>(), 64);
+        }
+        #[cfg(feature = "ablation-unpadded-lock")]
+        {
+            assert_eq!(
+                core::mem::align_of::<Line<AtomicUsize>>(),
+                core::mem::align_of::<AtomicUsize>()
+            );
+            assert_eq!(
+                core::mem::size_of::<Line<AtomicUsize>>(),
+                core::mem::size_of::<AtomicUsize>()
+            );
+        }
     }
 
     #[test]

@@ -23,12 +23,18 @@ std = []
 # writer-lock fallbacks, epoch advances). Off by default and compiled
 # out entirely — never enable it for a published benchmark.
 occ-stats = []
-# Diagnostic-only: put the writer mutex, writer gate, tree population counter
-# and the version word on their own cache lines, to measure what their sharing
-# costs. Extra lines per structure; never the default. Applies to the 64-bit
-# `sync` wrappers only — `sync32` is single-writer, has no writer mutex, and
-# already pads its version word.
+# Retired name, promoted to the default (Refs #568, #930): the writer mutex,
+# writer gate, tree population counter and version word are on their own cache
+# lines in every build. Kept declared so Cargo does not reject an old
+# `--features lock-padded` invocation; `lib.rs` turns it into a compiler error
+# naming the inverse, and it is never a no-op (AGENTS.md §2.7).
 lock-padded = []
+# Diagnostic-only: restores the packed layout the default now pads away, so the
+# promoted default can itself be ablated (AGENTS.md §2.7). With this on,
+# `Line<X>` is a transparent alias again. Applies to the 64-bit `sync` wrappers
+# only — `sync32` is single-writer, has no writer mutex, and already pads its
+# version word.
+ablation-unpadded-lock = []
 # Diagnostic-only: epoch-advance interval variants, to measure what the advance
 # scan costs the write path. `advance-never` is sound only for workloads that
 # retire nothing. Features are additive: with both on, `advance-never` wins.
@@ -41,13 +47,24 @@ advance-never = []
 # Rust 1.89, so enabling it raises the effective MSRV above the declared
 # 1.88 floor. No library code is behind this feature.
 avx512 = []
-# Diagnostic-only: sharded allocator accounting counters (Hypothesis D Arm a),
-# to measure what atomic ping-ponging in `bytes_in_use`, `live_allocs`, and
-# `total_allocs` costs concurrent writer scaling.
+# Retired name, promoted to the default (Refs #568, #930) in its DEFERRED-GATED
+# form: `NodeAlloc` keeps its three inline atomics and allocates one
+# cache-line-aligned accounting shard per writer slot only in `defer_to`, so a
+# tree that never becomes concurrent carries one word rather than 4 KiB and
+# `size_of::<ExpanseMap>()` moves 712 -> 728 B, not 712 -> 4,864 B. Kept
+# declared so Cargo does not reject an old `--features ablation-sharded-alloc`
+# invocation; `lib.rs` turns it into a compiler error naming the inverse, and it
+# is never a no-op (AGENTS.md §2.7).
 ablation-sharded-alloc = []
-# Deprecated / Landed in production standard (Refs #568): Striped epoch garbage
-# bins are now the standard default architecture with 16 stripes and thread-exit
-# slot recycling. Retained as a no-op feature alias for build compatibility.
+# Diagnostic-only: never allocates the shards, so the three accounting atomics
+# (`bytes_in_use`, `live_allocs`, `total_allocs`) stay shared across writers as
+# they were before the promotion — the state the per-slot shards replaced, so
+# the promoted default can itself be ablated (AGENTS.md §2.7).
+ablation-unsharded-alloc = []
+# Retired name (Refs #568): striped epoch garbage bins are the production
+# default. It was declared as a no-op alias, which AGENTS.md §2.7 forbids — a
+# no-op silently compares the default with itself — so `lib.rs` now turns it
+# into a compiler error naming `writer_scaling` instead.
 ablation-striped-epoch = []
 # Deprecated / Landed in production standard (Refs #568): Per-writer-stripe
 # collector freelists are now the standard default architecture. Retained to
