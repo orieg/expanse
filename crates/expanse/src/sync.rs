@@ -1791,6 +1791,22 @@ impl<T: SharedTree> Shared<T> {
         self.write_root_covered_with::<true, R>(f)
     }
 
+    /// [`Self::write_root_covered`] with the population re-synced first,
+    /// for a serialised section whose operation is not a removal but still
+    /// reads or changes the population: the string wrapper's fallbacks,
+    /// `clear` and `with_locked_mut` (Refs #929), whose engine keeps its
+    /// count in a field the optimistic writers never touch. The same
+    /// instantiation as [`Self::remove_root_covered`], under the name of what
+    /// it does.
+    #[cfg(not(feature = "ablation-str-serial-writers"))]
+    #[inline(always)]
+    fn write_root_covered_exact<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
+    where
+        T: RootState,
+    {
+        self.write_root_covered_with::<true, R>(f)
+    }
+
     fn write_root_covered_with<const EXACT_POP: bool, R>(&self, f: impl FnOnce(&mut T) -> R) -> R
     where
         T: RootState,
@@ -8097,7 +8113,7 @@ impl SyncExpanseStrMap {
             drop(guard);
             match res {
                 Ok(prev) => prev,
-                Err(_) => self.shared.remove_root_covered(|m| m.insert(key, val)),
+                Err(_) => self.shared.write_root_covered_exact(|m| m.insert(key, val)),
             }
         }
     }
@@ -8143,10 +8159,11 @@ impl SyncExpanseStrMap {
                     if cause == FallbackCause::Contention {
                         crate::occ_stats::bump(contention_stat(false));
                     }
-                    self.shared.remove_root_covered(|m| m.prune_empty_path(key));
+                    self.shared
+                        .write_root_covered_exact(|m| m.prune_empty_path(key));
                     prev
                 }
-                Err(_) => self.shared.remove_root_covered(|m| m.remove(key)),
+                Err(_) => self.shared.write_root_covered_exact(|m| m.remove(key)),
             }
         }
     }
@@ -8160,7 +8177,7 @@ impl SyncExpanseStrMap {
         }
         #[cfg(not(feature = "ablation-str-serial-writers"))]
         {
-            self.shared.remove_root_covered(|m| {
+            self.shared.write_root_covered_exact(|m| {
                 let bytes = m.clear();
                 self.shared.tree_pop.flush_and_set(0);
                 bytes
@@ -8226,7 +8243,7 @@ impl SyncExpanseStrMap {
         }
         #[cfg(not(feature = "ablation-str-serial-writers"))]
         {
-            self.shared.remove_root_covered(f)
+            self.shared.write_root_covered_exact(f)
         }
     }
 }

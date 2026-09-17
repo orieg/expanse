@@ -1666,12 +1666,15 @@ impl ExpanseStrMap {
         // obsolete-marked and EBR-live, and the tree word is validated before
         // any answer.
         let mut node: *const StrNode = self.root_raw().cast_const();
+        // Two explicit returns rather than one `return if …`: CodeQL's Rust
+        // control-flow model does not treat the latter as terminating the
+        // branch and reports the dereference below as reachable with a null
+        // `node` (alert #105 on #1001). The semantics are identical.
         if node.is_null() {
-            return if ver.validate(snap) {
-                Ok(None)
-            } else {
-                Err(Retry)
-            };
+            if ver.validate(snap) {
+                return Ok(None);
+            }
+            return Err(Retry);
         }
         let mut off = 0usize;
         loop {
