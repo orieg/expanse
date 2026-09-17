@@ -210,6 +210,61 @@ impl AllocShard {
     }
 }
 
+/// What [`NodeAlloc::defer_to`] publishes: the collector, and with it the
+/// per-writer accounting shards.
+///
+/// One cell rather than two. The allocator's runtime-dispatched entry points
+/// (`alloc_bytes`, `free_bytes`, `alloc_node_zeroed`, `free_node`) are reached
+/// from plain walks too, so every test of "is this tree deferred?" on them is
+/// executed by a tree that never becomes concurrent. With the shards behind
+/// their own `OnceLock`, such a tree paid a second test per allocation and per
+/// free for a mechanism it cannot use (AGENTS.md §2.1 invariant 5).
+///
+/// Owned per-`NodeAlloc` on purpose: a `Collector` may be shared across
+/// allocators (`blobmap.rs`) while `mem_used()` is summed per allocator.
+#[cfg(feature = "std")]
+#[derive(Debug)]
+pub(crate) struct Deferred {
+    collector: Arc<Collector>,
+    #[cfg(not(feature = "ablation-unsharded-alloc"))]
+    shards: [AllocShard; NUM_ALLOC_SHARDS],
+}
+
+/// `no_std` twin: there is no collector to defer to, so the type has no value
+/// and every `Option<&Deferred>` is `None` at compile time.
+#[cfg(not(feature = "std"))]
+pub(crate) enum Deferred {}
+
+/// How [`Deferred`] sits in the allocator. Boxed in the default build, so the
+/// 4 KiB of shards are allocated cold in `defer_to` and `NodeAlloc` keeps the
+/// size it had before the shards existed. Under `ablation-unsharded-alloc`
+/// there are no shards, and the collector handle stays inline exactly as it
+/// was before the promotion, so the ablation measures that state and not an
+/// extra pointer hop (AGENTS.md §2.7).
+#[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
+type DeferredCell = core_alloc::boxed::Box<Deferred>;
+#[cfg(all(feature = "std", feature = "ablation-unsharded-alloc"))]
+type DeferredCell = Deferred;
+
+#[cfg(feature = "std")]
+impl Deferred {
+    fn new(collector: Arc<Collector>) -> DeferredCell {
+        let d = Self {
+            collector,
+            #[cfg(not(feature = "ablation-unsharded-alloc"))]
+            shards: core::array::from_fn(|_| AllocShard::new()),
+        };
+        #[cfg(not(feature = "ablation-unsharded-alloc"))]
+        {
+            core_alloc::boxed::Box::new(d)
+        }
+        #[cfg(feature = "ablation-unsharded-alloc")]
+        {
+            d
+        }
+    }
+}
+
 /// Allocation handle owned by a tree: hands out zeroed memory — at
 /// `align_of::<T>()` via [`Self::alloc_node`], at [`RAW_ALIGN`] via
 /// [`Self::alloc_bytes`] — and keeps byte-exact accounting.
@@ -222,20 +277,12 @@ pub struct NodeAlloc {
     bytes_in_use: AtomicUsize,
     live_allocs: AtomicUsize,
     /// Phase 7: when set, frees are retired to the collector instead of
-    /// released — concurrent readers may still hold the pointers.
+    /// released — concurrent readers may still hold the pointers. The same
+    /// cell carries the per-writer accounting shards, so one test of it
+    /// decides both where a call is accounted and where its block goes, and a
+    /// tree that never becomes concurrent carries no second word.
     #[cfg(feature = "std")]
-    deferred: OnceLock<Arc<Collector>>,
-    /// SCRATCH — cell 6 of the #930 decomposition. NOT part of the repository.
-    ///
-    /// Per-writer accounting shards, allocated lazily in [`Self::defer_to`].
-    /// A tree that never becomes concurrent carries one word here rather than
-    /// 4 KiB inline, so `size_of::<ExpanseMap>()` is unchanged for it.
-    ///
-    /// Owned per-`NodeAlloc` on purpose: a `Collector` may be shared across
-    /// allocators (`blobmap.rs`) while `mem_used()` is summed per allocator,
-    /// so only the *allocation* moves behind the gate, never the ownership.
-    #[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
-    shards: OnceLock<core_alloc::boxed::Box<[AllocShard; NUM_ALLOC_SHARDS]>>,
+    deferred: OnceLock<DeferredCell>,
     /// Phase 7 / #568 PR 3: who brackets root-state writes. `true` when the
     /// engine does (the map and set wrappers: ordinary writes never touch the
     /// tree word); `false` when the wrapper brackets whole operations in
@@ -281,9 +328,6 @@ impl Default for NodeAlloc {
             live_allocs: AtomicUsize::new(0),
             #[cfg(feature = "std")]
             deferred: OnceLock::new(),
-            // Empty until `defer_to`: a plain tree never allocates them.
-            #[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
-            shards: OnceLock::new(),
             #[cfg(feature = "std")]
             engine_covers_root: core::sync::atomic::AtomicBool::new(false),
             #[cfg(feature = "std")]
@@ -372,35 +416,33 @@ impl NodeAlloc {
     /// Bytes currently allocated through this handle.
     #[must_use]
     pub fn bytes_in_use(&self) -> usize {
-        // SCRATCH — cell 6: inline count plus the net shard delta. Cold.
-        let inline = self.bytes_in_use.load(Ordering::Relaxed) as isize;
+        // An undeferred tree returns after this one load; only a deferred one
+        // folds in its shards' net deltas.
+        let inline = self.bytes_in_use.load(Ordering::Relaxed);
         #[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
-        let total = match self.shards.get() {
-            Some(sh) => sh.iter().fold(inline, |acc, s| {
+        if let Some(d) = self.deferred.get() {
+            let total = d.shards.iter().fold(inline as isize, |acc, s| {
                 acc.saturating_add(s.bytes_in_use.load(Ordering::Relaxed))
-            }),
-            None => inline,
-        };
-        #[cfg(not(all(feature = "std", not(feature = "ablation-unsharded-alloc"))))]
-        let total = inline;
-        if total < 0 { 0 } else { total as usize }
+            });
+            return if total < 0 { 0 } else { total as usize };
+        }
+        inline
     }
 
     /// Number of live allocations (diagnostics / leak assertions in tests).
     #[must_use]
     pub fn live_allocs(&self) -> usize {
-        // SCRATCH — cell 6: inline count plus the net shard delta. Cold.
-        let inline = self.live_allocs.load(Ordering::Relaxed) as isize;
+        // An undeferred tree returns after this one load; only a deferred one
+        // folds in its shards' net deltas.
+        let inline = self.live_allocs.load(Ordering::Relaxed);
         #[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
-        let total = match self.shards.get() {
-            Some(sh) => sh.iter().fold(inline, |acc, s| {
+        if let Some(d) = self.deferred.get() {
+            let total = d.shards.iter().fold(inline as isize, |acc, s| {
                 acc.saturating_add(s.live_allocs.load(Ordering::Relaxed))
-            }),
-            None => inline,
-        };
-        #[cfg(not(all(feature = "std", not(feature = "ablation-unsharded-alloc"))))]
-        let total = inline;
-        if total < 0 { 0 } else { total as usize }
+            });
+            return if total < 0 { 0 } else { total as usize };
+        }
+        inline
     }
 
     /// Cumulative allocations made through this handle since it was
@@ -409,18 +451,60 @@ impl NodeAlloc {
     /// the same code path.
     #[must_use]
     pub fn total_allocs(&self) -> usize {
-        // SCRATCH — cell 6: cumulative, so a plain sum. Cold.
         let inline = self.total_allocs.load(Ordering::Relaxed);
         #[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
-        let total = match self.shards.get() {
-            Some(sh) => sh.iter().fold(inline, |acc, s| {
+        if let Some(d) = self.deferred.get() {
+            return d.shards.iter().fold(inline, |acc, s| {
                 acc.saturating_add(s.total_allocs.load(Ordering::Relaxed))
-            }),
-            None => inline,
-        };
-        #[cfg(not(all(feature = "std", not(feature = "ablation-unsharded-alloc"))))]
-        let total = inline;
-        total
+            });
+        }
+        inline
+    }
+
+    /// The deferred cell when this call may act on it: `None` on every
+    /// `OCC = false` path at compile time, and on an undeferred tree at run
+    /// time. Callers test the result once and reuse it.
+    #[inline(always)]
+    fn deferred_if<const OCC: bool>(&self) -> Option<&Deferred> {
+        #[cfg(feature = "std")]
+        if OCC {
+            return self.deferred.get().map(|d| -> &Deferred { d });
+        }
+        None
+    }
+
+    /// Accounts one allocation of `size` bytes: on the calling writer's shard
+    /// for a deferred tree, on the inline counters otherwise.
+    #[inline(always)]
+    fn charge(&self, deferred: Option<&Deferred>, size: usize) {
+        #[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
+        if let Some(d) = deferred {
+            let sh = &d.shards[crate::occ::writer_slot()];
+            sh.bytes_in_use.fetch_add(size as isize, Ordering::Relaxed);
+            sh.live_allocs.fetch_add(1, Ordering::Relaxed);
+            sh.total_allocs.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        let _ = deferred;
+        self.bytes_in_use.fetch_add(size, Ordering::Relaxed);
+        self.live_allocs.fetch_add(1, Ordering::Relaxed);
+        self.total_allocs.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Inverse of [`Self::charge`]. A free may land on a different shard than
+    /// its allocation, which is why the shard counters are signed.
+    #[inline(always)]
+    fn discharge(&self, deferred: Option<&Deferred>, size: usize) {
+        #[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
+        if let Some(d) = deferred {
+            let sh = &d.shards[crate::occ::writer_slot()];
+            sh.bytes_in_use.fetch_sub(size as isize, Ordering::Relaxed);
+            sh.live_allocs.fetch_sub(1, Ordering::Relaxed);
+            return;
+        }
+        let _ = deferred;
+        self.bytes_in_use.fetch_sub(size, Ordering::Relaxed);
+        self.live_allocs.fetch_sub(1, Ordering::Relaxed);
     }
 
     #[inline(always)]
@@ -448,35 +532,15 @@ impl NodeAlloc {
         );
         let accounted_size = accounted_size(bytes, align);
 
-        // SCRATCH — cell 6: the shards exist only once this tree was handed to a
-        // concurrent wrapper. A non-deferred tree takes the `else` arm, which is
-        // exactly what `base` does, and never calls `writer_slot()`.
-        #[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
-        if OCC && let Some(sh) = self.shards.get() {
-            let slot = crate::occ::writer_slot();
-            sh[slot]
-                .bytes_in_use
-                .fetch_add(accounted_size as isize, Ordering::Relaxed);
-            sh[slot].live_allocs.fetch_add(1, Ordering::Relaxed);
-            sh[slot].total_allocs.fetch_add(1, Ordering::Relaxed);
-        } else {
-            self.bytes_in_use
-                .fetch_add(accounted_size, Ordering::Relaxed);
-            self.live_allocs.fetch_add(1, Ordering::Relaxed);
-            self.total_allocs.fetch_add(1, Ordering::Relaxed);
-        }
-        #[cfg(not(all(feature = "std", not(feature = "ablation-unsharded-alloc"))))]
-        {
-            self.bytes_in_use
-                .fetch_add(accounted_size, Ordering::Relaxed);
-            self.live_allocs.fetch_add(1, Ordering::Relaxed);
-            self.total_allocs.fetch_add(1, Ordering::Relaxed);
-        }
+        // One test of the deferred cell serves the accounting and the
+        // collector branch below; `OCC = false` folds it to `None`.
+        let deferred = self.deferred_if::<OCC>();
+        self.charge(deferred, accounted_size);
 
         if let Some(class) = class_for(bytes, align) {
             #[cfg(feature = "std")]
-            if OCC && let Some(c) = self.deferred.get() {
-                let raw = c.pop_freelist(class);
+            if let Some(d) = deferred {
+                let raw = d.collector.pop_freelist(class);
                 if !raw.is_null() {
                     // SAFETY: zero out the reused memory before returning.
                     unsafe { core::ptr::write_bytes(raw, 0, bytes) };
@@ -591,35 +655,17 @@ impl NodeAlloc {
         );
         let accounted_size = accounted_size(bytes, align);
 
-        // SCRATCH — cell 6: the shards exist only once this tree was handed to a
-        // concurrent wrapper. A non-deferred tree takes the `else` arm, which is
-        // exactly what `base` does, and never calls `writer_slot()`.
-        #[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
-        if OCC && let Some(sh) = self.shards.get() {
-            let slot = crate::occ::writer_slot();
-            sh[slot]
-                .bytes_in_use
-                .fetch_sub(accounted_size as isize, Ordering::Relaxed);
-            sh[slot].live_allocs.fetch_sub(1, Ordering::Relaxed);
-        } else {
-            self.bytes_in_use
-                .fetch_sub(accounted_size, Ordering::Relaxed);
-            self.live_allocs.fetch_sub(1, Ordering::Relaxed);
-        }
-        #[cfg(not(all(feature = "std", not(feature = "ablation-unsharded-alloc"))))]
-        {
-            self.bytes_in_use
-                .fetch_sub(accounted_size, Ordering::Relaxed);
-            self.live_allocs.fetch_sub(1, Ordering::Relaxed);
-        }
+        // As in `alloc_raw`: one test, used twice.
+        let deferred = self.deferred_if::<OCC>();
+        self.discharge(deferred, accounted_size);
 
         #[cfg(feature = "std")]
-        if OCC && let Some(c) = self.deferred.get() {
+        if let Some(d) = deferred {
             // Deferred mode: the structure no longer references `ptr`,
             // but pinned readers may — reclamation waits out the grace
             // period. The alignment travels with the pointer, because the
             // collector frees it later and elsewhere.
-            c.retire(ptr, bytes, align);
+            d.collector.retire(ptr, bytes, align);
             return;
         }
 
@@ -735,33 +781,11 @@ impl NodeAlloc {
     #[cfg(all(target_pointer_width = "64", feature = "std"))]
     #[inline(always)]
     pub(crate) unsafe fn free_bytes_unpublished(&self, ptr: NonNull<u8>, bytes: usize) {
-        #[cfg(feature = "std")]
-        if let Some(c) = self.deferred.get() {
-            let accounted_size = accounted_size(bytes, RAW_ALIGN);
-
-            // This arm is already inside `if let Some(c) = self.deferred.get()`,
-            // so the shards are present; the fallback keeps the function total.
-            #[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
-            if let Some(sh) = self.shards.get() {
-                let slot = crate::occ::writer_slot();
-                sh[slot]
-                    .bytes_in_use
-                    .fetch_sub(accounted_size as isize, Ordering::Relaxed);
-                sh[slot].live_allocs.fetch_sub(1, Ordering::Relaxed);
-            } else {
-                self.bytes_in_use
-                    .fetch_sub(accounted_size, Ordering::Relaxed);
-                self.live_allocs.fetch_sub(1, Ordering::Relaxed);
-            }
-            #[cfg(not(all(feature = "std", not(feature = "ablation-unsharded-alloc"))))]
-            {
-                self.bytes_in_use
-                    .fetch_sub(accounted_size, Ordering::Relaxed);
-                self.live_allocs.fetch_sub(1, Ordering::Relaxed);
-            }
+        if let Some(d) = self.deferred_if::<true>() {
+            self.discharge(Some(d), accounted_size(bytes, RAW_ALIGN));
 
             // SAFETY: ptr was never published and matches bytes/RAW_ALIGN contract.
-            unsafe { c.recycle_unpublished(ptr, bytes, RAW_ALIGN) };
+            unsafe { d.collector.recycle_unpublished(ptr, bytes, RAW_ALIGN) };
             return;
         }
 
@@ -795,33 +819,14 @@ impl NodeAlloc {
         unsafe { ptr.drop_in_place() };
         let bytes = core::mem::size_of::<T>();
         let align = core::mem::align_of::<T>();
-        #[cfg(feature = "std")]
-        if let Some(c) = self.deferred.get() {
-            let accounted_size = accounted_size(bytes, align);
-
-            // This arm is already inside `if let Some(c) = self.deferred.get()`,
-            // so the shards are present; the fallback keeps the function total.
-            #[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
-            if let Some(sh) = self.shards.get() {
-                let slot = crate::occ::writer_slot();
-                sh[slot]
-                    .bytes_in_use
-                    .fetch_sub(accounted_size as isize, Ordering::Relaxed);
-                sh[slot].live_allocs.fetch_sub(1, Ordering::Relaxed);
-            } else {
-                self.bytes_in_use
-                    .fetch_sub(accounted_size, Ordering::Relaxed);
-                self.live_allocs.fetch_sub(1, Ordering::Relaxed);
-            }
-            #[cfg(not(all(feature = "std", not(feature = "ablation-unsharded-alloc"))))]
-            {
-                self.bytes_in_use
-                    .fetch_sub(accounted_size, Ordering::Relaxed);
-                self.live_allocs.fetch_sub(1, Ordering::Relaxed);
-            }
+        if let Some(d) = self.deferred_if::<true>() {
+            self.discharge(Some(d), accounted_size(bytes, align));
 
             // SAFETY: ptr was never published and matches bytes/align contract.
-            unsafe { c.recycle_unpublished(ptr.cast::<u8>(), bytes, align) };
+            unsafe {
+                d.collector
+                    .recycle_unpublished(ptr.cast::<u8>(), bytes, align)
+            };
             return;
         }
 
@@ -976,10 +981,9 @@ impl NodeAlloc {
     pub(crate) fn tree_cover_addr(&self) -> *const u32 {
         let p = self.tree_word.load(Ordering::Relaxed);
         if p.is_null() {
-            return self
-                .deferred
-                .get()
-                .map_or(core::ptr::null(), |c| Arc::as_ptr(c).cast::<u32>());
+            return self.deferred.get().map_or(core::ptr::null(), |d| {
+                Arc::as_ptr(&d.collector).cast::<u32>()
+            });
         }
         p.cast_const().cast::<u32>()
     }
@@ -1038,15 +1042,13 @@ impl NodeAlloc {
             );
         }
         // The shard array exists only for a tree that actually became
-        // concurrent. Allocated once, cold, BEFORE `deferred` is set, so the
-        // hot gate never sees a deferred allocator without its shards.
-        #[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
-        let _ = self.shards.get_or_init(|| {
-            core_alloc::boxed::Box::new(core::array::from_fn(|_| AllocShard::new()))
-        });
-        let stored = self.deferred.get_or_init(|| Arc::clone(&collector));
+        // concurrent: allocated once, cold, in the same cell as the collector,
+        // so no call can see a deferred allocator without its shards.
+        let stored = self
+            .deferred
+            .get_or_init(|| Deferred::new(Arc::clone(&collector)));
         assert!(
-            Arc::ptr_eq(stored, &collector),
+            Arc::ptr_eq(&stored.collector, &collector),
             "NodeAlloc already deferred to a different collector"
         );
     }
@@ -1224,7 +1226,11 @@ mod tests {
         // first — a plain tree takes the inline arm and has no stripes.
         let a = NodeAlloc::new();
         a.defer_to(Arc::new(Collector::new()));
-        let sh = a.shards.get().expect("defer_to publishes the shards");
+        let sh = &a
+            .deferred
+            .get()
+            .expect("defer_to publishes the shards")
+            .shards;
         let stripes = [0, 5, NUM_ALLOC_SHARDS - 1];
         let mut ptrs = Vec::new();
         for &s in &stripes {
@@ -1248,6 +1254,29 @@ mod tests {
         assert_eq!(a.live_allocs(), 0);
         assert_eq!(a.bytes_in_use(), 0);
         assert_eq!(a.total_allocs(), stripes.len());
+    }
+
+    /// The shards ride in the collector's cell, boxed, so an allocator that
+    /// never becomes concurrent is no larger than it was before they existed
+    /// and no hot field moved to make room for them (AGENTS.md §2.1
+    /// invariant 5). A second `OnceLock` beside `deferred` fails the second
+    /// assertion; shards carried inline in the cell fail the first.
+    #[test]
+    #[cfg(feature = "std")]
+    fn deferred_cell_adds_no_word_to_the_allocator() {
+        use core::mem::size_of;
+        assert_eq!(
+            size_of::<OnceLock<DeferredCell>>(),
+            size_of::<OnceLock<Arc<Collector>>>()
+        );
+        #[cfg(target_pointer_width = "64")]
+        {
+            let classes = NUM_CLASSES * size_of::<usize>();
+            // bytes_in_use, live_allocs, total_allocs, slab_pages, tree_word,
+            // one word shared by engine_covers_root and the debug-only
+            // bookkeeping flag, and the two-word cell.
+            assert_eq!(size_of::<NodeAlloc>(), 8 * 8 + classes);
+        }
     }
 
     #[test]
