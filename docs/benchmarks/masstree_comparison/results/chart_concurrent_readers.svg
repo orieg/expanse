@@ -96,81 +96,81 @@
   <text x="30" y="108" class="t-bar-label">map · W=0 R=8</text>
   <text x="30" y="122" class="t-sub">masstree_conc_map_64bit · 15 rounds</text>
   <rect x="300" y="92" width="224.0" height="11" rx="2" class="b-expanse"/>
-  <text x="532.0" y="101" class="t-val-accent">132.82</text>
-  <rect x="300" y="109" width="99.0" height="11" rx="2" class="b-masstree"/>
-  <text x="407.0" y="118" class="t-val-blue">58.73</text>
+  <text x="532.0" y="101" class="t-val-accent">135.69</text>
+  <rect x="300" y="109" width="97.2" height="11" rx="2" class="b-masstree"/>
+  <text x="405.2" y="118" class="t-val-blue">58.85</text>
   <rect x="800" y="100" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="114" class="badge-win-text">Expanse 2.26x</text>
+  <text x="865" y="114" class="badge-win-text">Expanse 2.31x</text>
   <text x="30" y="164" class="t-bar-label">map · W=1 R=8</text>
   <text x="30" y="178" class="t-sub">masstree_conc_map_64bit · 15 rounds</text>
-  <rect x="300" y="148" width="178.1" height="11" rx="2" class="b-expanse"/>
-  <text x="486.1" y="157" class="t-val-accent">105.63</text>
-  <rect x="300" y="165" width="69.8" height="11" rx="2" class="b-masstree"/>
-  <text x="377.8" y="174" class="t-val-blue">41.38</text>
+  <rect x="300" y="148" width="177.7" height="11" rx="2" class="b-expanse"/>
+  <text x="485.7" y="157" class="t-val-accent">107.67</text>
+  <rect x="300" y="165" width="67.3" height="11" rx="2" class="b-masstree"/>
+  <text x="375.3" y="174" class="t-val-blue">40.77</text>
   <rect x="800" y="156" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="170" class="badge-win-text">Expanse 2.55x</text>
+  <text x="865" y="170" class="badge-win-text">Expanse 2.64x</text>
   <text x="30" y="220" class="t-bar-label">map · W=2 R=8</text>
   <text x="30" y="234" class="t-sub">masstree_conc_map_64bit · 15 rounds</text>
-  <rect x="300" y="204" width="167.0" height="11" rx="2" class="b-expanse"/>
-  <text x="475.0" y="213" class="t-val-accent">99.02</text>
-  <rect x="300" y="221" width="65.4" height="11" rx="2" class="b-masstree"/>
-  <text x="373.4" y="230" class="t-val-blue">38.77</text>
+  <rect x="300" y="204" width="168.2" height="11" rx="2" class="b-expanse"/>
+  <text x="476.2" y="213" class="t-val-accent">101.89</text>
+  <rect x="300" y="221" width="64.3" height="11" rx="2" class="b-masstree"/>
+  <text x="372.3" y="230" class="t-val-blue">38.97</text>
   <rect x="800" y="212" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="226" class="badge-win-text">Expanse 2.55x</text>
+  <text x="865" y="226" class="badge-win-text">Expanse 2.61x</text>
   <text x="30" y="276" class="t-bar-label">map · W=4 R=8</text>
   <text x="30" y="290" class="t-sub">masstree_conc_map_64bit · 15 rounds</text>
-  <rect x="300" y="260" width="150.8" height="11" rx="2" class="b-expanse"/>
-  <text x="458.8" y="269" class="t-val-accent">89.40</text>
-  <rect x="300" y="277" width="60.9" height="11" rx="2" class="b-masstree"/>
-  <text x="368.9" y="286" class="t-val-blue">36.14</text>
+  <rect x="300" y="260" width="153.5" height="11" rx="2" class="b-expanse"/>
+  <text x="461.5" y="269" class="t-val-accent">92.96</text>
+  <rect x="300" y="277" width="59.3" height="11" rx="2" class="b-masstree"/>
+  <text x="367.3" y="286" class="t-val-blue">35.91</text>
   <rect x="800" y="268" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="282" class="badge-win-text">Expanse 2.47x</text>
+  <text x="865" y="282" class="badge-win-text">Expanse 2.59x</text>
   <text x="30" y="332" class="t-bar-label">map · W=8 R=8</text>
   <text x="30" y="346" class="t-sub">masstree_conc_map_64bit · 15 rounds</text>
-  <rect x="300" y="316" width="119.9" height="11" rx="2" class="b-expanse"/>
-  <text x="427.9" y="325" class="t-val-accent">71.09</text>
-  <rect x="300" y="333" width="53.4" height="11" rx="2" class="b-masstree"/>
-  <text x="361.4" y="342" class="t-val-blue">31.65</text>
+  <rect x="300" y="316" width="122.7" height="11" rx="2" class="b-expanse"/>
+  <text x="430.7" y="325" class="t-val-accent">74.32</text>
+  <rect x="300" y="333" width="51.6" height="11" rx="2" class="b-masstree"/>
+  <text x="359.6" y="342" class="t-val-blue">31.29</text>
   <rect x="800" y="324" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="338" class="badge-win-text">Expanse 2.25x</text>
+  <text x="865" y="338" class="badge-win-text">Expanse 2.38x</text>
   <text x="30" y="388" class="t-bar-label">str · W=0 R=8</text>
   <text x="30" y="402" class="t-sub">masstree_conc_str · 15 rounds</text>
-  <rect x="300" y="372" width="57.9" height="11" rx="2" class="b-expanse"/>
-  <text x="365.9" y="381" class="t-val-accent">34.36</text>
-  <rect x="300" y="389" width="57.6" height="11" rx="2" class="b-masstree"/>
-  <text x="365.6" y="398" class="t-val-blue">34.13</text>
-  <rect x="800" y="380" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="394" class="badge-loss-text">BOUNDARY</text>
+  <rect x="300" y="372" width="58.9" height="11" rx="2" class="b-expanse"/>
+  <text x="366.9" y="381" class="t-val-accent">35.67</text>
+  <rect x="300" y="389" width="56.6" height="11" rx="2" class="b-masstree"/>
+  <text x="364.6" y="398" class="t-val-blue">34.28</text>
+  <rect x="800" y="380" width="130" height="20" rx="3" class="badge-win"/>
+  <text x="865" y="394" class="badge-win-text">Expanse 1.04x</text>
   <text x="30" y="444" class="t-bar-label">str · W=1 R=8</text>
   <text x="30" y="458" class="t-sub">masstree_conc_str · 15 rounds</text>
-  <rect x="300" y="428" width="2.0" height="11" rx="2" class="b-expanse"/>
-  <text x="310.0" y="437" class="t-val-accent">1.07</text>
-  <rect x="300" y="445" width="42.8" height="11" rx="2" class="b-masstree"/>
-  <text x="350.8" y="454" class="t-val-blue">25.40</text>
-  <rect x="800" y="436" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="450" class="badge-loss-text">Masstree 23.75x</text>
+  <rect x="300" y="428" width="52.8" height="11" rx="2" class="b-expanse"/>
+  <text x="360.8" y="437" class="t-val-accent">31.97</text>
+  <rect x="300" y="445" width="41.7" height="11" rx="2" class="b-masstree"/>
+  <text x="349.7" y="454" class="t-val-blue">25.25</text>
+  <rect x="800" y="436" width="130" height="20" rx="3" class="badge-win"/>
+  <text x="865" y="450" class="badge-win-text">Expanse 1.27x</text>
   <text x="30" y="500" class="t-bar-label">str · W=2 R=8</text>
   <text x="30" y="514" class="t-sub">masstree_conc_str · 15 rounds</text>
-  <rect x="300" y="484" width="8.6" height="11" rx="2" class="b-expanse"/>
-  <text x="316.6" y="493" class="t-val-accent">5.08</text>
-  <rect x="300" y="501" width="39.6" height="11" rx="2" class="b-masstree"/>
-  <text x="347.6" y="510" class="t-val-blue">23.50</text>
-  <rect x="800" y="492" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="506" class="badge-loss-text">Masstree 4.63x</text>
+  <rect x="300" y="484" width="50.3" height="11" rx="2" class="b-expanse"/>
+  <text x="358.3" y="493" class="t-val-accent">30.46</text>
+  <rect x="300" y="501" width="39.3" height="11" rx="2" class="b-masstree"/>
+  <text x="347.3" y="510" class="t-val-blue">23.79</text>
+  <rect x="800" y="492" width="130" height="20" rx="3" class="badge-win"/>
+  <text x="865" y="506" class="badge-win-text">Expanse 1.28x</text>
   <text x="30" y="556" class="t-bar-label">str · W=4 R=8</text>
   <text x="30" y="570" class="t-sub">masstree_conc_str · 15 rounds</text>
-  <rect x="300" y="540" width="8.4" height="11" rx="2" class="b-expanse"/>
-  <text x="316.4" y="549" class="t-val-accent">4.98</text>
-  <rect x="300" y="557" width="35.8" height="11" rx="2" class="b-masstree"/>
-  <text x="343.8" y="566" class="t-val-blue">21.21</text>
-  <rect x="800" y="548" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="562" class="badge-loss-text">Masstree 4.26x</text>
+  <rect x="300" y="540" width="44.2" height="11" rx="2" class="b-expanse"/>
+  <text x="352.2" y="549" class="t-val-accent">26.75</text>
+  <rect x="300" y="557" width="34.7" height="11" rx="2" class="b-masstree"/>
+  <text x="342.7" y="566" class="t-val-blue">21.00</text>
+  <rect x="800" y="548" width="130" height="20" rx="3" class="badge-win"/>
+  <text x="865" y="562" class="badge-win-text">Expanse 1.27x</text>
   <text x="30" y="612" class="t-bar-label">str · W=8 R=8</text>
   <text x="30" y="626" class="t-sub">masstree_conc_str · 15 rounds</text>
-  <rect x="300" y="596" width="8.1" height="11" rx="2" class="b-expanse"/>
-  <text x="316.1" y="605" class="t-val-accent">4.81</text>
-  <rect x="300" y="613" width="29.0" height="11" rx="2" class="b-masstree"/>
-  <text x="337.0" y="622" class="t-val-blue">17.18</text>
-  <rect x="800" y="604" width="130" height="20" rx="3" class="badge-loss"/>
-  <text x="865" y="618" class="badge-loss-text">Masstree 3.57x</text>
+  <rect x="300" y="596" width="34.9" height="11" rx="2" class="b-expanse"/>
+  <text x="342.9" y="605" class="t-val-accent">21.12</text>
+  <rect x="300" y="613" width="29.2" height="11" rx="2" class="b-masstree"/>
+  <text x="337.2" y="622" class="t-val-blue">17.68</text>
+  <rect x="800" y="604" width="130" height="20" rx="3" class="badge-win"/>
+  <text x="865" y="618" class="badge-win-text">Expanse 1.19x</text>
 </svg>

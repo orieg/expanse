@@ -22,6 +22,17 @@ from pathlib import Path
 
 BASE = Path(__file__).resolve().parent.parent
 RESULTS = BASE / "results" / ("quick" if "--quick" in sys.argv else "")
+sys.path.insert(0, str(BASE.parent.parent.parent / "scripts"))
+import round_order  # noqa: E402  (scripts/round_order.py: the position split of an interleaved cell)
+
+# The concurrent sweep is published under two pins (AGENTS.md §8.20.5 step 0:
+# a cell is comparable only under its own pin). The unsuffixed names are the
+# pin every §7 level table is built from; `_percore` is one thread per physical
+# core. `at_6f8d6ba5/` keeps the pair these names held before the re-measurement,
+# which `scripts/reader_scaling_bounds.py` reduces and the round-order table
+# sets beside the current one.
+PERCORE_RUNS = ("baseline_concurrent_percore.json", "baseline_concurrent_percore_run2.json")
+PREVIOUS_RUNS = ("at_6f8d6ba5/baseline_concurrent.json", "at_6f8d6ba5/baseline_concurrent_run2.json")
 
 # ---------------------------------------------------------------------------
 # METHODOLOGY §6, encoded. Returns 'masstree', 'expanse', 'boundary_or_masstree'
@@ -371,6 +382,147 @@ def concurrent_tables(conc: dict, conc2: dict | None = None) -> str:
     return "\n".join(out)
 
 
+# ---------------------------------------------------------------------------
+# Both runs of a concurrent pair, the second pin, and the round-order split.
+# ---------------------------------------------------------------------------
+
+VERDICT_WORD = {"expanse": "Expanse", "masstree": "Masstree", "BOUNDARY_RESULT": "`BOUNDARY_RESULT`"}
+
+
+def conc_roles(c: dict) -> list:
+    return [r for r in ("reader", "writer") if c.get(f"{r}_expanse_over_masstree") is not None]
+
+
+def conc_ratio(c: dict, role: str) -> str:
+    return f"{c[f'{role}_expanse_over_masstree']:.3f} [{c[f'{role}_ci_lower']:.3f}, {c[f'{role}_ci_upper']:.3f}]"
+
+
+def conc_pairs(a: dict, b: dict):
+    """(cell of run 1, cell of run 2, role) for every ratio cell, in table order."""
+    second = {(c["arm"], c["writers"], c["readers"]): c for c in b["throughput"]}
+    order = {"map": 0, "str": 1}
+    for c in sorted(a["throughput"], key=lambda x: (order.get(x["arm"], 9), x["pillar"], x["writers"])):
+        for role in conc_roles(c):
+            yield c, second[(c["arm"], c["writers"], c["readers"])], role
+
+
+def pin_cpus(pin: str) -> int:
+    n = 0
+    for part in pin.split(","):
+        lo, _, hi = part.partition("-")
+        n += int(hi or lo) - int(lo) + 1
+    return n
+
+
+def overlap(a: dict, b: dict, role: str) -> bool:
+    return not (a[f"{role}_ci_upper"] < b[f"{role}_ci_lower"] or b[f"{role}_ci_upper"] < a[f"{role}_ci_lower"])
+
+
+def verdict_pair(a: dict, b: dict, role: str) -> str:
+    va, vb = a[f"{role}_verdict"], b[f"{role}_verdict"]
+    if va == vb:
+        return VERDICT_WORD[va]
+    return f"runs disagree ({VERDICT_WORD[va]} / {VERDICT_WORD[vb]}) — direction-only"
+
+
+def both_runs_table(a: dict, b: dict) -> str:
+    pin = a["provenance"]["core_pin"]
+    out = [f"### R — every ratio cell in both runs, pin `{pin}` (Expanse ÷ Masstree)\n",
+           "| Arm | cell | W | R | run 1 | run 2 | intervals overlap | verdict |",
+           "|---|---|--:|--:|---|---|---|---|"]
+    for c, d, role in conc_pairs(a, b):
+        out.append(f"| {c['arm']} | {c['pillar']} {role} | {c['writers']} | {c['readers']} | {conc_ratio(c, role)} | "
+                   f"{conc_ratio(d, role)} | {'yes' if overlap(c, d, role) else '**no**'} | {verdict_pair(c, d, role)} |")
+    out.append("")
+    return "\n".join(out)
+
+
+def percore_table(a: dict, b: dict) -> str:
+    pin = a["provenance"]["core_pin"]
+    cpus = pin_cpus(pin)
+    out = [f"### P — the per-core pin `{pin}` ({cpus} CPUs, one per physical P-core), both runs (Expanse ÷ Masstree)\n",
+           "| Arm | cell | W | R | threads | Masstree M/s, run 1; run 2 | Expanse M/s, run 1; run 2 | run 1 | run 2 | "
+           "intervals overlap | verdict | placement |",
+           "|---|---|--:|--:|--:|---|---|---|---|---|---|---|"]
+    for c, d, role in conc_pairs(a, b):
+        threads = c["writers"] + c["readers"]
+        placement = ("one CPU per thread" if threads <= cpus
+                     else f"**oversubscribed** — {threads} threads on {cpus} CPUs; not comparable across pins")
+        out.append(f"| {c['arm']} | {c['pillar']} {role} | {c['writers']} | {c['readers']} | {threads} | "
+                   f"{c[f'masstree_{role}_mops_median']:.2f}; {d[f'masstree_{role}_mops_median']:.2f} | "
+                   f"{c[f'expanse_{role}_mops_median']:.2f}; {d[f'expanse_{role}_mops_median']:.2f} | "
+                   f"{conc_ratio(c, role)} | {conc_ratio(d, role)} | {'yes' if overlap(c, d, role) else '**no**'} | "
+                   f"{verdict_pair(c, d, role)} | {placement} |")
+    out.append("")
+    return "\n".join(out)
+
+
+def level_range(arts: list, c: dict, role: str, side: str) -> str:
+    key = (c["arm"], c["writers"], c["readers"])
+    vals = sorted(x[f"{side}_{role}_mops_median"] for art in arts for x in art["throughput"]
+                  if (x["arm"], x["writers"], x["readers"]) == key)
+    lo, hi = f"{vals[0]:.2f}", f"{vals[-1]:.2f}"
+    return lo if lo == hi else f"{lo}–{hi}"
+
+
+def moved_table(previous: list, current: list) -> str:
+    """docs/BENCHMARKING.md rule 18: a cell is claimed to have moved only when
+    both new runs' intervals lie clear of both earlier runs' intervals, on the
+    same side. Every earlier figure is printed behind the word "previously":
+    it is superseded, and `scripts/check_docs_hygiene.py` refuses it bare."""
+    was, now = previous[0]["provenance"], current[0]["provenance"]
+    out = [f"### C — every ratio cell against the pair previously published at `{was['commit']}`, pin `{now['core_pin']}`\n",
+           f"| Arm | cell | W | R | previously published at `{was['commit']}` (run 1; run 2) | `{now['commit']}` run 1 | "
+           f"`{now['commit']}` run 2 | Expanse M/s, previously → now | Masstree M/s, previously → now | "
+           f"both new intervals clear of both earlier ones | verdict, previously → now |",
+           "|---|---|--:|--:|---|---|---|---|---|---|---|"]
+    before = {(c["arm"], c["writers"], c["readers"], role): (c, d) for c, d, role in conc_pairs(*previous)}
+    for c, d, role in conc_pairs(*current):
+        a, b = before[(c["arm"], c["writers"], c["readers"], role)]
+        old_lo = min(x[f"{role}_ci_lower"] for x in (a, b))
+        old_hi = max(x[f"{role}_ci_upper"] for x in (a, b))
+        new_lo = min(x[f"{role}_ci_lower"] for x in (c, d))
+        new_hi = max(x[f"{role}_ci_upper"] for x in (c, d))
+        moved = "**up**" if new_lo > old_hi else "**down**" if new_hi < old_lo else "no"
+        out.append(f"| {c['arm']} | {c['pillar']} {role} | {c['writers']} | {c['readers']} | "
+                   f"previously {conc_ratio(a, role)}; {conc_ratio(b, role)} | {conc_ratio(c, role)} | {conc_ratio(d, role)} | "
+                   f"previously {level_range(previous, c, role, 'expanse')} → {level_range(current, c, role, 'expanse')} | "
+                   f"previously {level_range(previous, c, role, 'masstree')} → {level_range(current, c, role, 'masstree')} | "
+                   f"{moved} | previously {verdict_pair(a, b, role)} → {verdict_pair(c, d, role)} |")
+    out.append("")
+    return "\n".join(out)
+
+
+# The cell the split is always printed for, flagged or not: the `str` single
+# writer, whose published median moved between the two commits.
+ALWAYS_SPLIT = ("str", 1, 0, "writer")
+
+
+def round_order_table(pairs: list) -> str:
+    """`pairs` is [(run 1, run 2), ...], one entry per commit and pin."""
+    out = ["### O — round-order split: a side's median over the rounds it was timed first, and second\n",
+           "| commit | pin | Arm | cell | W | R | threads ÷ CPUs | side | run | median M/s | timed first | timed second | "
+           "gap ÷ median | cell interval ÷ ratio | min–max | beyond the interval |",
+           "|---|---|---|---|--:|--:|---|---|--:|---:|---:|---:|---:|---:|---|---|"]
+    for a, b in pairs:
+        prov = a["provenance"]
+        cpus = pin_cpus(prov["core_pin"])
+        for c, d, role in conc_pairs(a, b):
+            for side in ("expanse", "masstree"):
+                splits = [round_order.split(x, role, side, "masstree") for x in (c, d)]
+                flags = [s.gap > s.interval for s in splits]
+                if not any(flags) and (c["arm"], c["writers"], c["readers"], role) != ALWAYS_SPLIT:
+                    continue
+                for run, s, flag in zip(("1", "2"), splits, flags):
+                    out.append(f"| `{prov['commit']}` | `{prov['core_pin']}` | {c['arm']} | {c['pillar']} {role} | "
+                               f"{c['writers']} | {c['readers']} | {c['writers'] + c['readers']} ÷ {cpus} | "
+                               f"{'Expanse' if side == 'expanse' else 'Masstree'} | {run} | {s.median:.2f} | "
+                               f"{s.first:.2f} | {s.second:.2f} | {s.gap:.1%} | {s.interval:.1%} | "
+                               f"{s.low:.2f}–{s.high:.2f} | {'**yes**' if flag else 'no'} |")
+    out.append("")
+    return "\n".join(out)
+
+
 def order_tables(sens: dict) -> str:
     """§10.2: the same population in the generator's sorted order and shuffled.
     No verdict label — this table is a sensitivity disclosure, not a cell."""
@@ -451,6 +603,15 @@ def main() -> int:
         print(order_tables(sens))
     if conc:
         print(concurrent_tables(conc, conc2))
+    percore = [load(n) for n in PERCORE_RUNS]
+    previous = [load(n) for n in PREVIOUS_RUNS]
+    if conc and conc2:
+        print(both_runs_table(conc, conc2))
+        if all(previous):
+            print(moved_table(previous, [conc, conc2]))
+        if all(percore):
+            print(percore_table(*percore))
+        print(round_order_table([pair for pair in (previous, [conc, conc2], percore) if all(pair)]))
     print(scorecard(lat, slat, conc))
     for name, d in (("main", lat), ("concurrent", conc)):
         if d:
