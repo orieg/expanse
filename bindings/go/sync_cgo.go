@@ -23,6 +23,13 @@ type SyncSet struct {
 // collected while this reader is alive, and therefore also orders the two
 // finalizers -- between two independently unreachable objects the runtime
 // gives no ordering at all, and the set's finalizer may otherwise run first.
+//
+// One reader per goroutine at a time. A reader owns a single epoch slot and
+// every call pins and unpins it, so two goroutines calling through one reader
+// concurrently can clear each other's pin, which is undefined behaviour in the
+// library (include/expanse.h, reader-handle ownership). Handing a reader from
+// one goroutine to another is fine; sharing one is not. The same holds for
+// SyncMapReader.
 type SyncSetReader struct {
 	ptr    *C.expanse_sync_set_reader_t
 	parent *SyncSet

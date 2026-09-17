@@ -1621,6 +1621,7 @@ impl Collector {
         Reader {
             collector: Arc::clone(self),
             slot,
+            _not_sync: core::marker::PhantomData,
         }
     }
 
@@ -1885,24 +1886,83 @@ fn free_raw(ptr: NonNull<u8>, bytes: usize, align: usize) {
 /// freed from another thread, `include/expanse.h`), so the bound is asserted at
 /// compile time below rather than left to auto-derivation.
 ///
-/// **`Sync` by its fields, which does not make shared use sound.** The reader
-/// owns a single epoch slot, and dropping *any* [`Pin`] unpins it entirely (see
-/// [`Self::pin`]), so two threads pinning one `Reader` at once can strip each
-/// other's protection. The type does not rule that out; the rule is one
-/// `Reader` per reading thread, used by one thread at a time.
+/// **Not `Sync`: one handle per reading thread.** The reader owns a single
+/// epoch slot, and dropping *any* [`Pin`] unpins it entirely (see
+/// [`Self::pin`]). Two threads pinning through one shared `&Reader` could
+/// therefore clear each other's pin, and two epoch advances later the
+/// collector would free memory the first thread is still reading. The type
+/// rules that out: a `Reader` cannot be shared by reference across threads,
+/// and neither can any wrapper handle that embeds one (`sync::MapReader`,
+/// `sync::OwnedMapReader`, `sync::DetachedMapReader`, `sync::SetReader`,
+/// `sync::StrReader`, `sync::BytesReader`, `sync::BlobReader`). Register one
+/// handle per thread; to hand a handle to another thread, move it.
+///
+/// The handle moves between threads:
+///
+/// ```
+/// fn assert_send<T: Send>() {}
+/// assert_send::<expanse_trie::occ::Reader>();
+/// ```
+///
+/// and is not shareable between them. This is the same program with the bound
+/// swapped, so what fails below is the missing `Sync` and nothing else:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::occ::Reader>();
+/// ```
 #[cfg(feature = "std")]
 pub struct Reader {
     pub(crate) collector: Arc<Collector>,
     slot: Arc<Slot>,
+    /// Withdraws `Sync` and keeps `Send`: `Cell<()>` is `Send` and not `Sync`,
+    /// and a `PhantomData` of it is zero-sized. See the type's documentation.
+    _not_sync: core::marker::PhantomData<core::cell::Cell<()>>,
 }
 
-// See `Reader`'s doc comment: a future `!Send` field must fail the build, not
-// silently withdraw a bound the C ABI documents.
+/// Fails the build if any listed type implements `Sync`.
+///
+/// Stable Rust has no negative bound, so this is the ambiguity construction:
+/// every type gets the `()` impl, a `Sync` type gets a second one, and the
+/// inferred `_` then has two candidates, which is an error (E0283). The
+/// `compile_fail` doctests on the public types guard the same property from
+/// outside the crate; this guards it at the definition, in every build.
+#[cfg(feature = "std")]
+macro_rules! assert_not_sync {
+    ($($t:ty),+ $(,)?) => {
+        const _: fn() = || {
+            trait AmbiguousIfSync<A> {
+                fn probe() {}
+            }
+            impl<T: ?Sized> AmbiguousIfSync<()> for T {}
+            struct IsSync;
+            impl<T: ?Sized + Sync> AmbiguousIfSync<IsSync> for T {}
+            $(let _ = <$t as AmbiguousIfSync<_>>::probe;)+
+        };
+    };
+}
+#[cfg(feature = "std")]
+pub(crate) use assert_not_sync;
+
+// See `Reader`'s doc comment. A future `!Send` field must fail the build, not
+// silently withdraw a bound the C ABI documents; and a change that makes the
+// type `Sync` again must fail it too, because that makes the shared-handle
+// program expressible again.
 #[cfg(feature = "std")]
 const _: fn() = || {
     fn assert_send<T: Send>() {}
     assert_send::<Reader>();
 };
+#[cfg(feature = "std")]
+assert_not_sync!(Reader);
+
+// The marker is a `Cell`, which is not `RefUnwindSafe`, and the auto trait
+// would follow it. Nothing about the reader changed across an unwind: its
+// state is two `Arc`s over atomics, as before, and the `Cell` is phantom. The
+// bound is restored so that withdrawing `Sync` is the only change to the
+// type's public surface.
+#[cfg(feature = "std")]
+impl core::panic::RefUnwindSafe for Reader {}
 
 #[cfg(feature = "std")]
 impl Reader {
@@ -1956,6 +2016,19 @@ impl Drop for Reader {
 }
 
 /// An active pin; dropping it unpins the reader.
+///
+/// A `Pin` stays `Send` and `Sync` while [`Reader`] is not `Sync`, and that is
+/// deliberate. A pin grants no access by itself: every walk that relies on one
+/// is `unsafe` and states the pin in its contract. What a pin can do wrong is
+/// overlap a sibling pin from the same reader (see [`Reader::pin`]), and that
+/// is possible on one thread (`let a = r.pin(); let b = r.pin(); drop(b);`),
+/// so withdrawing `Send` would close no case the single-threaded rule leaves
+/// open. The wrappers close it where it matters: their reads pin and unpin
+/// inside one call on a handle no other thread can reach, and the one
+/// long-lived guard, `sync::BlobReadGuard`, borrows its reader `&mut`, so no
+/// second pin can exist while it lives, on any thread. Moving that guard to
+/// another thread and dropping it there is therefore sound, and removing
+/// `Send` from `Pin` would remove it from the guard for nothing.
 #[cfg(feature = "std")]
 pub struct Pin<'a> {
     slot: &'a Slot,
@@ -2706,11 +2779,13 @@ mod loom_tests {
     /// The invariant checked is the one [`Reader::pin`] documents: a pin
     /// stays registered — the reader's `slot` is not [`INACTIVE`] — until
     /// its own [`Pin`] drops, so the epoch can advance at most once past a
-    /// live pin taken at 0 (`loom_pin_blocks_second_advance`). Sharing the
-    /// handle is what safe code can do because `Reader` is `Sync`; the
-    /// sibling's [`Pin::drop`] then stores `INACTIVE` into the one slot both
-    /// pins registered through, and `Collector::try_advance` no longer sees
-    /// the first thread's pin (#963).
+    /// live pin taken at 0 (`loom_pin_blocks_second_advance`).
+    ///
+    /// The shared arm is a program `std` no longer accepts: `Reader` is not
+    /// `Sync`, so an `Arc<Reader>` is not `Send` and `std::thread::spawn`
+    /// rejects the closure that captures it. It can still be written here
+    /// only because `loom::thread::spawn` places no `Send` bound on its
+    /// closure.
     fn pin_survives_sibling_pin(shared: bool) {
         loom::model(move || {
             let c = Arc::new(Collector::new());
@@ -2747,21 +2822,26 @@ mod loom_tests {
         });
     }
 
-    /// Control for `loom_shared_reader_handle_sibling_pin_drop_clears_pin`:
-    /// the sibling pins through its own registered reader, and the first
-    /// thread's pin holds across every interleaving.
+    /// One handle per thread, which is the only arrangement the type system
+    /// admits: the first thread's pin holds across every interleaving.
     #[test]
     fn loom_separate_reader_handles_sibling_pin_drop_keeps_pin() {
         pin_survives_sibling_pin(false);
     }
 
-    /// Reproduction of #963: the sibling pins through the same handle, and
-    /// its `Pin::drop` clears the first thread's pin. Ignored so the `loom`
-    /// job stays green until the fix (drop `Sync` from `Reader`, or count
-    /// pins) lands; the result on `main` is recorded on the issue.
+    /// Why `Reader` must stay `!Sync`. Shared by reference, the sibling's
+    /// `Pin::drop` clears the first thread's live pin, and this model finds
+    /// that schedule. The pin protocol did not change with the fix: the
+    /// marker on `Reader` is all that keeps this program out of safe code,
+    /// and the guards for the marker are `assert_not_sync!` and the
+    /// `compile_fail` doctests on the handle types.
+    ///
+    /// The expected panic is matched on the invariant's own message, so a
+    /// build error or an unrelated panic does not pass for it (AGENTS.md §5).
+    /// If this test starts failing because the model *passes*, pins have
+    /// become shareable and the `!Sync` marker can be reconsidered.
     #[test]
-    #[ignore = "reproduces #963: a sibling Pin drop through a shared Reader clears a live pin; \
-                unignore with the fix"]
+    #[should_panic(expected = "a live pin taken at epoch 0 lost its registration")]
     fn loom_shared_reader_handle_sibling_pin_drop_clears_pin() {
         pin_survives_sibling_pin(true);
     }
