@@ -43,6 +43,17 @@ does not:
     of entries walked. A differing count means the arms did not do the same
     work, and the number published as a ratio would be comparing two workloads.
 
+  * **The gate's judgement, before the artifact lands.** The artifact is judged
+    by `scripts/check_bench_provenance.py`'s own `findings_for()`, under the
+    name it will be committed as, before it is written and again in the
+    self-test on synthetic rows. A driver that restates the gate's rules by
+    hand stays green when the gate gains a field, and the host run it then
+    dispatches produces an artifact the lint refuses -- a measurement cycle
+    spent to report success (AGENTS.md 8.20.7). That the call reaches the
+    gate is what the self-test's mutations pin: a cell without `rounds_raw`,
+    a header without `host`, a ratio without its `ci_method` each have to be
+    named by the gate's code, not by this file.
+
 What it does not own: the verdicts. Those are read against
 `docs/benchmarks/rocksdb_memtable/METHODOLOGY.md` by a reviewer.
 
@@ -56,6 +67,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import copy
 import inspect
 import json
 import subprocess
@@ -67,11 +79,20 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import bench_pin  # noqa: E402
 import bench_provenance as prov  # noqa: E402
+import check_bench_provenance  # noqa: E402
 from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
 
 BENCH = REPO_ROOT / "integrations" / "rocksdb" / "build" / "bench_memtable"
 SUITE_DIR = REPO_ROOT / "docs" / "benchmarks" / "rocksdb_memtable"
 DEFAULT_OUT = SUITE_DIR / "results" / "baseline_rocksdb.json"
+
+#: The name the provenance gate checks this artifact under. `--out` says where
+#: one run writes -- the workflow writes `baseline-rocksdb.json` in the runner's
+#: working directory and the refresh PR moves it -- but the gate keys its rules
+#: on the committed path (`is_concurrent`, `NO_ROUNDS`, the `counters_` and
+#: `profile_` prefixes), so the judgement is taken under that path whatever
+#: `--out` named. Derived from the default output, never spelled a second time.
+GATE_REL = str(DEFAULT_OUT.relative_to(REPO_ROOT / "docs" / "benchmarks"))
 
 #: One phase per invocation. `memory` is a deterministic allocator census and
 #: carries no interval (AGENTS.md 8.4); it is swept like the rest so that its
@@ -450,6 +471,17 @@ def build_artifact(rows: list[dict], provenance: dict, rounds: int, arms: tuple)
     return prov.attach(payload, provenance)
 
 
+def gate_findings(artifact: dict) -> list[str]:
+    """`check_bench_provenance.py`'s findings for this artifact, as CI will check it.
+
+    The gate's own code, not a restatement of its rules: a field the gate
+    starts requiring is refused here -- before a sweep's artifact is written,
+    and in the self-test -- rather than by the lint after a dispatched host
+    run has already been paid for (AGENTS.md 8.20.7).
+    """
+    return check_bench_provenance.findings_for(GATE_REL, artifact)
+
+
 def output_path(out: Path, quick: bool) -> Path:
     """Where the artifact is written, with `--quick` confined to scratch.
 
@@ -622,7 +654,7 @@ def self_test() -> int:  # noqa: C901 - a checklist, read top to bottom
     cells = arm_cells(drifting)
     check("two cells", len(cells), 2)
     for c in cells:
-        if not c["rounds_raw"]:
+        if not c.get("rounds_raw"):
             fails.append(f"{c['id']} carries no rounds_raw")
         if not (c["ci_lower"] <= c["point"] <= c["ci_upper"]):
             fails.append(f"{c['id']}: point outside interval")
@@ -631,7 +663,7 @@ def self_test() -> int:  # noqa: C901 - a checklist, read top to bottom
         if c.get("ci_method") != "bca":
             fails.append(f"{c['id']}: varying samples should be a BCa interval, "
                          f"got {c.get('ci_method')!r}")
-        if any("load" not in e for e in c["rounds_raw"]):
+        if any("load" not in e for e in c.get("rounds_raw", [])):
             fails.append(f"{c['id']}: a round row carries no load attribution")
 
     # --- census determinism ----------------------------------------------
@@ -648,26 +680,58 @@ def self_test() -> int:  # noqa: C901 - a checklist, read top to bottom
     raises("census drift", lambda: census_cells(drifted),
            "must not vary")
 
-    # --- artifact shape the provenance gate reads -------------------------
+    # --- the artifact, judged by the gate's own code (AGENTS.md 8.20.7) ---
     p = prov.new_provenance("rocksdb", 868, "paired per-round quotient",
                             repo_root=REPO_ROOT)
     art = build_artifact(drifting + census, p, 5, ARMS)
     for key in ("schema", "cells", "ratios", "memory", "provenance", "statistics"):
         if key not in art:
             fails.append(f"artifact missing {key}")
-    if not isinstance(art["provenance"].get("host"), dict):
-        fails.append("artifact provenance carries no host block")
-    if not isinstance(art["provenance"].get("estimators"), dict):
-        fails.append("artifact provenance carries no estimators block")
+    # The gate does not read the pin; it is recorded because every published
+    # figure names its pin (AGENTS.md 8.20.5, step 0).
     if "core_pin" not in art["provenance"]:
         fails.append("artifact provenance does not record the core pin")
-    loads = art["provenance"].get("loads") or []
-    if not any("busy_cpus_since_prev" in s for s in loads):
-        fails.append("artifact load snapshots carry no busy-CPU delta")
-    for c in art["cells"]:
-        if not c.get("rounds_raw"):
-            fails.append(f"{c['id']}: no rounds_raw in the artifact")
-            break
+    # The gate keys its rules on the committed name, and that name is derived
+    # from the default output path rather than spelled twice.
+    check("gate name is the committed path", GATE_REL,
+          "rocksdb_memtable/results/baseline_rocksdb.json")
+    check("a well-formed artifact has no gate findings", gate_findings(art), [])
+
+    # And the call reaches the gate: every field the gate requires is removed
+    # in turn, and the finding has to come from the gate's code. A hand-rolled
+    # restatement of its rules stays green when the gate gains a field, and the
+    # dispatched host run then produces an artifact the lint refuses.
+    # `pop(key, None)`: a site that already dropped the field must be NAMED by
+    # the gate, not turn this check into a KeyError of its own.
+    def gate_names(name: str, mutate, needle: str) -> None:
+        broken = copy.deepcopy(art)
+        mutate(broken)
+        found = gate_findings(broken)
+        if not any(needle in f for f in found):
+            fails.append(f"{name}: the gate did not name {needle!r}; findings: {found!r}")
+
+    gate_names("a cell without its rounds",
+               lambda a: a["cells"][0].pop("rounds_raw", None), "rounds_raw")
+    gate_names("a header without host facts",
+               lambda a: a["provenance"].pop("host", None), "provenance.host")
+    gate_names("a header without estimators",
+               lambda a: a["provenance"].pop("estimators", None), "provenance.estimators")
+    gate_names("load snapshots without a busy-CPU delta",
+               lambda a: a["provenance"].__setitem__(
+                   "loads", [{k: v for k, v in s.items() if k != "busy_cpus_since_prev"}
+                             for s in a["provenance"]["loads"]]),
+               "busy_cpus_since_prev")
+    # One interval site dropping its label is the partial adoption #880's check
+    # exists to catch; the ratio cells are the site most easily lost.
+    gate_names("a ratio cell that names no construction",
+               lambda a: a["ratios"][0].pop("ci_method", None), "construction label")
+    # The driver's own source passes the gate's producer census: both interval
+    # sites take the `*_with_method` entry point and write the label out.
+    check("producer census",
+          check_bench_provenance.producer_problems(
+              "docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py",
+              Path(__file__).read_text()),
+          [])
 
     # --- blindness refusal ------------------------------------------------
     check("a numeric foreign delta is not blind", blind_cells(drifting), [])
@@ -770,6 +834,14 @@ def main() -> int:
             return 1
 
     art = build_artifact(rows, provenance, rounds, ARMS)
+    problems = gate_findings(art)
+    if problems:
+        # Nothing is written. Landing the rows under a shape the gate refuses
+        # would leave a reader a file that looks like a result (AGENTS.md 8.1);
+        # the sweep is repeated once the driver emits what the gate reads.
+        print("::error::the artifact would fail scripts/check_bench_provenance.py and is "
+              "not written:\n  " + "\n  ".join(problems), file=sys.stderr)
+        return 1
     out = output_path(args.out, args.quick)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(art, indent=2) + "\n")
