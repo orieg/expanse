@@ -229,6 +229,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "writer_scaling_929_str_gate",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "The #929 SyncExpanseStrMap multi-writer gate (concurrency METHODOLOGY.md \u00a717.3): the str arm, default build vs ablation-str-serial-writers, interleaved (build x W) rounds at the registered 8 rounds and W in {1, 2, 4, 8}, one process per cell, under the applied pin (dispatch once per pin per run); outputs gate_929_str_writer_scaling.json with this run's \u00a717.9 verdicts.",
+      "suite": "concurrency"
+    },
+    {
       "name": "point_lookup_counters",
       "available": true,
       "kind": "counters",

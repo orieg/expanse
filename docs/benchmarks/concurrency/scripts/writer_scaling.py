@@ -129,13 +129,35 @@ ABLATION_ARMS = {
 # Inverse ablations where the default build represents the promoted optimization
 # and the ablation variant represents the unstriped/unoptimized baseline.
 # For these, the reported scaling ratio is C_default(W) / C_variant(W) (§8.20.7).
-INVERSE_ABLATIONS = {"ablation-unstriped-freelist"}
+# `ablation-str-serial-writers` is the string wrapper's serialised write path,
+# the protocol its per-node optimistic path replaced (#929, METHODOLOGY.md §17):
+# the default build is the head and the feature build stands for main, so the
+# §17.3 statistic C_head(W, r) / C_main(W, r) is this inverse ratio.
+INVERSE_ABLATIONS = {"ablation-unstriped-freelist", "ablation-str-serial-writers"}
 
 # Every writer-mode arm, in sweep order, for `--arm all`. `map` and `set` run
-# optimistic lock coupling; `str`, `bytes` and `blob` serialise every insert on
-# the writer mutex (#929), so they read 0 lock fallbacks by construction.
+# optimistic lock coupling, and so does `str` since #929's string design
+# (METHODOLOGY.md §17); `bytes` and `blob` serialise every insert on the writer
+# mutex, so they read 0 lock fallbacks by construction.
 ALL_WRITER_ARMS = ("map", "set", "str", "bytes", "blob")
-MUTEX_WRITER_ARMS = ("str", "bytes", "blob")
+MUTEX_WRITER_ARMS = ("bytes", "blob")
+
+# The #929 `str` multi-writer gate (METHODOLOGY.md §17.3): the `str` arm,
+# default build against `GATE_929_STR_FEATURE`, at the registered round count
+# and writer counts, one dispatch per pin per run. Everything a run of it must
+# be is fixed here so a departure is refused or voided rather than reported.
+GATE_929_STR_FEATURE = "ablation-str-serial-writers"
+GATE_929_STR_PREREGISTRATION = "docs/benchmarks/concurrency/METHODOLOGY.md §17"
+GATE_929_STR_ROUNDS = 8
+GATE_929_STR_WRITERS = (1, 2, 4, 8)
+GATE_929_STR_PINS = ("0-15", "0,2,4,6,8,10,12,14")
+# §17.2.3's fallback prediction: the structural rate (fallbacks less contention,
+# over the harness's insert count) and the total rate, per W, on the head build.
+GATE_929_STR_STRUCTURAL_RATE_CEILING = 1e-3
+GATE_929_STR_TOTAL_RATE_CEILING = 1e-2
+GATE_929_STR_RESULTS_PATH = (
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "gate_929_str_writer_scaling.json"
+)
 # The workload id each writer-mode arm's rows carry.
 WRITER_WORKLOAD_IDS = {
     "map": "concurrency_writer_map_64bit",
@@ -1002,6 +1024,159 @@ def compute_paired_scaling_ratios(
     return comparison_stats
 
 
+def gate_929_str_report(
+    head_cells: list[dict[str, Any]],
+    main_cells: list[dict[str, Any]],
+    comparisons: list[dict[str, Any]],
+    rounds: int,
+    core_pin: str,
+    quick: bool,
+) -> dict[str, Any]:
+    """The §17.3 verdicts of one run, read from the comparison the driver computed.
+
+    `head_cells` are the default build's `str` cells (the head under
+    evaluation), `main_cells` the `GATE_929_STR_FEATURE` build's (the mutex
+    protocol the gate is measured against). Per gate cell W in {2, 4, 8}: the
+    BCa 95% interval of the per-round ratio C_head(W, r) / C_main(W, r) —
+    `compute_paired_scaling_ratios` in its inverse direction — read in §17.9's
+    vocabulary. The W = 1 control is the BCa 95% interval of the per-round
+    ratio of the two builds' single-writer throughput, and fails only when it
+    lies wholly below 1.0. §17.2.3's fallback prediction is read on the head
+    cells. One artifact is one (pin, run); the gate is met at a head across
+    four (§17.3), which this function does not decide.
+    """
+    matching = [
+        c for c in comparisons
+        if c.get("arm") == "str" and c.get("variant_name") == GATE_929_STR_FEATURE
+    ]
+    if len(matching) != 1:
+        raise ValueError(
+            f"the #929 str gate needs exactly one str comparison against {GATE_929_STR_FEATURE}, "
+            f"got {len(matching)} (AGENTS.md §8.1)"
+        )
+    comp = matching[0]
+    if not comp.get("is_inverse") or comp.get("ratio_direction") != "c_default_over_c_variant":
+        raise ValueError(
+            "the #929 str gate's ratio is C_head / C_main with the head as the default build; "
+            f"the comparison reports {comp.get('ratio_direction')!r} (AGENTS.md §8.1)"
+        )
+
+    cells: dict[str, dict[str, Any]] = {}
+    for w in GATE_929_STR_WRITERS:
+        if w == 1:
+            continue
+        entry = comp["per_writer"].get(str(w))
+        if entry is None:
+            raise ValueError(f"the comparison carries no W={w} cell (AGENTS.md §8.1)")
+        lo, hi = float(entry["ratio_ci_lower"]), float(entry["ratio_ci_upper"])
+        if lo > 1.0:
+            verdict = "PASS"
+        elif hi < 1.0:
+            verdict = "REFUTED"
+        else:
+            verdict = "INCONCLUSIVE"
+        cells[str(w)] = {
+            "w": w,
+            "ratio_mean": entry["ratio_c_variant_over_c_default_mean"],
+            "ratio_ci": [lo, hi],
+            "ratio_ci_method": entry["ratio_ci_method"],
+            "verdict": verdict,
+        }
+
+    def w1_by_round(rows: list[dict[str, Any]]) -> dict[int, float]:
+        out: dict[int, float] = {}
+        for c in rows:
+            if c.get("arm") == "str" and int(c.get("writers", 0)) == 1:
+                for r in c.get("rounds_raw") or []:
+                    out[int(r["round"])] = float(r["writer_mops"])
+        return out
+
+    head1, main1 = w1_by_round(head_cells), w1_by_round(main_cells)
+    common = sorted(set(head1) & set(main1))
+    if len(common) < 3:
+        raise ValueError(
+            f"the W = 1 control needs the per-round W = 1 rows of both builds; matched {len(common)} "
+            "rounds (AGENTS.md §8.1)"
+        )
+    control_ratios = [head1[r] / main1[r] for r in common]
+    c_mean, c_lo, c_hi, c_method = bca_bootstrap_ci_with_method(control_ratios, confidence=0.95)
+    control = {
+        "ratio": "writer_mops(head, 1, r) / writer_mops(main, 1, r), per round",
+        "ratio_mean": round(c_mean, 4),
+        "ratio_ci": [round(c_lo, 4), round(c_hi, 4)],
+        "ratio_ci_method": c_method,
+        "paired_ratios_raw": [round(x, 6) for x in control_ratios],
+        "fails": c_hi < 1.0,
+    }
+
+    fallback: dict[str, dict[str, Any]] = {}
+    for c in head_cells:
+        if c.get("arm") != "str":
+            continue
+        w = int(c["writers"])
+        counters = c.get("counters_raw") or []
+        total_ops = sum(int(r.get("write_ops", 0)) for r in counters)
+        causes = c.get("fallback_causes_total") or {}
+        total_fallbacks = sum(int(v) for v in causes.values())
+        structural = total_fallbacks - int(causes.get("contention", 0))
+        structural_rate = (structural / total_ops) if total_ops else None
+        total_rate = (total_fallbacks / total_ops) if total_ops else None
+        if structural_rate is None or total_rate is None:
+            verdict = "NOT_EVALUABLE"
+        elif (
+            structural_rate < GATE_929_STR_STRUCTURAL_RATE_CEILING
+            and total_rate < GATE_929_STR_TOTAL_RATE_CEILING
+        ):
+            verdict = "PASS"
+        else:
+            verdict = "REFUTED"
+        fallback[str(w)] = {
+            "w": w,
+            "write_ops": total_ops,
+            "fallbacks_total": total_fallbacks,
+            "fallbacks_structural": structural,
+            "structural_rate": structural_rate,
+            "total_rate": total_rate,
+            "causes_total": causes,
+            "verdict": verdict,
+        }
+
+    void: list[str] = []
+    if rounds != GATE_929_STR_ROUNDS:
+        void.append(f"rounds {rounds} is not the registered {GATE_929_STR_ROUNDS} (METHODOLOGY.md §17.7)")
+    if quick:
+        void.append("--quick population: a smoke run of the instrument, not the §17.3 cells")
+    if not any(pins_equal(core_pin, pin) for pin in GATE_929_STR_PINS):
+        void.append(f"pin {core_pin!r} is neither registered pin (METHODOLOGY.md §17.7)")
+    missing = [str(w) for w in GATE_929_STR_WRITERS if w != 1 and str(w) not in cells]
+    if missing:
+        void.append(f"gate cells missing for W in {missing}")
+
+    all_pass = bool(cells) and all(c["verdict"] == "PASS" for c in cells.values()) and not control["fails"]
+    return {
+        "issue": 929,
+        "preregistration": GATE_929_STR_PREREGISTRATION,
+        "head_build": DEFAULT_BUILD,
+        "main_build": GATE_929_STR_FEATURE,
+        "ratio": "C_head(W, r) / C_main(W, r) per round, C_b(W, r) = writer_mops(b, W, r) / "
+                 "writer_mops(b, 1, r); BCa 95% over the round series",
+        "rounds": rounds,
+        "pin": core_pin,
+        "quick": quick,
+        "void": void,
+        "cells": cells,
+        "control_w1": control,
+        "fallback_prediction": {
+            "structural_rate_ceiling": GATE_929_STR_STRUCTURAL_RATE_CEILING,
+            "total_rate_ceiling": GATE_929_STR_TOTAL_RATE_CEILING,
+            "per_writer": fallback,
+        },
+        "all_gate_cells_pass_in_this_run": all_pass,
+        "note": "one artifact is one (pin, run); the gate is met at a head only when all twelve "
+                "cells over two pins and two runs PASS and no control fails (METHODOLOGY.md §17.3)",
+    }
+
+
 def run_comparison(
     bin_default: Path,
     bin_variant: Path,
@@ -1127,6 +1302,7 @@ def committed_result_paths() -> tuple[Path, ...]:
         *(p.resolve() for p in ABLATION_RESULTS_PATHS),
         ORDERED_READERS_RESULTS_PATH.resolve(),
         READERS_ONLY_RESULTS_PATH.resolve(),
+        GATE_929_STR_RESULTS_PATH.resolve(),
     )
 
 
@@ -3719,6 +3895,97 @@ def _self_test_pmu_arm_choices() -> None:
     sys.stderr.write("--pmu-arm choices PASSED\n")
 
 
+def _self_test_gate_929_str_report() -> None:
+    """The #929 str gate's report reads the verdicts §17.9 defines off the comparison,
+    fails the W = 1 control only when its interval lies wholly below 1.0, reads
+    the fallback prediction on the head cells, and voids what §17.7 voids."""
+    import copy
+
+    def cell(build: str, w: int, mops: list[float], fallbacks: int, contention: int) -> dict[str, Any]:
+        causes = {name: 0 for name in CAUSE_NAMES}
+        causes["contention"] = contention
+        causes["root_growth"] = fallbacks - contention
+        return {
+            "arm": "str",
+            "writers": w,
+            "rounds_raw": [{"round": r, "writer_mops": m} for r, m in enumerate(mops)],
+            "counters_raw": [{"round": r, "write_ops": 1_000_000} for r in range(len(mops))],
+            "fallback_causes_total": causes,
+        }
+
+    def comparison(cells: dict[int, tuple[float, float]]) -> dict[str, Any]:
+        return {
+            "arm": "str",
+            "variant_name": GATE_929_STR_FEATURE,
+            "is_inverse": True,
+            "ratio_direction": "c_default_over_c_variant",
+            "per_writer": {
+                str(w): {
+                    "ratio_c_variant_over_c_default_mean": (lo + hi) / 2,
+                    "ratio_ci_lower": lo,
+                    "ratio_ci_upper": hi,
+                    "ratio_ci_method": "bca",
+                }
+                for w, (lo, hi) in cells.items()
+            },
+        }
+
+    head = [cell(DEFAULT_BUILD, w, [4.0 + 0.01 * r for r in range(8)], 0, 0) for w in (1, 2, 4, 8)]
+    main = [cell(GATE_929_STR_FEATURE, w, [4.0 + 0.01 * r for r in range(8)], 0, 0) for w in (1, 2, 4, 8)]
+    comp = comparison({2: (1.2, 1.5), 4: (0.9, 1.3), 8: (0.4, 0.8)})
+    rep_ = gate_929_str_report(head, main, [comp], 8, "0,2,4,6,8,10,12,14", False)
+    assert rep_["cells"]["2"]["verdict"] == "PASS", rep_["cells"]["2"]
+    assert rep_["cells"]["4"]["verdict"] == "INCONCLUSIVE", rep_["cells"]["4"]
+    assert rep_["cells"]["8"]["verdict"] == "REFUTED", rep_["cells"]["8"]
+    assert rep_["control_w1"]["fails"] is False, rep_["control_w1"]
+    assert rep_["void"] == [], rep_["void"]
+    assert rep_["all_gate_cells_pass_in_this_run"] is False
+    assert rep_["preregistration"] == GATE_929_STR_PREREGISTRATION
+    assert all(v["verdict"] == "PASS" for v in rep_["fallback_prediction"]["per_writer"].values())
+
+    # Every gate cell passing and the control holding: the run reports so.
+    comp_all = comparison({2: (1.1, 1.3), 4: (1.2, 1.6), 8: (2.0, 3.0)})
+    rep_all = gate_929_str_report(head, main, [comp_all], 8, "0-15", False)
+    assert rep_all["all_gate_cells_pass_in_this_run"] is True, rep_all
+
+    # A W = 1 control wholly below 1.0 fails; one straddling it does not.
+    slow_head = [cell(DEFAULT_BUILD, w, [3.0 + 0.01 * r for r in range(8)], 0, 0) for w in (1, 2, 4, 8)]
+    rep_slow = gate_929_str_report(slow_head, main, [comp_all], 8, "0-15", False)
+    assert rep_slow["control_w1"]["fails"] is True, rep_slow["control_w1"]
+    assert rep_slow["all_gate_cells_pass_in_this_run"] is False
+
+    # The fallback prediction: a structural share past 1e-3 of the inserts
+    # REFUTES it whatever the throughput cells say; contention alone does not,
+    # until the total passes 1e-2.
+    structural = copy.deepcopy(head)
+    structural[3] = cell(DEFAULT_BUILD, 8, [4.0] * 8, fallbacks=9_000, contention=0)
+    rep_fb = gate_929_str_report(structural, main, [comp_all], 8, "0-15", False)
+    assert rep_fb["fallback_prediction"]["per_writer"]["8"]["verdict"] == "REFUTED", rep_fb["fallback_prediction"]
+    contended = copy.deepcopy(head)
+    contended[3] = cell(DEFAULT_BUILD, 8, [4.0] * 8, fallbacks=9_000, contention=9_000)
+    rep_ct = gate_929_str_report(contended, main, [comp_all], 8, "0-15", False)
+    assert rep_ct["fallback_prediction"]["per_writer"]["8"]["verdict"] == "PASS", rep_ct["fallback_prediction"]
+    contended[3] = cell(DEFAULT_BUILD, 8, [4.0] * 8, fallbacks=90_000, contention=90_000)
+    rep_ct2 = gate_929_str_report(contended, main, [comp_all], 8, "0-15", False)
+    assert rep_ct2["fallback_prediction"]["per_writer"]["8"]["verdict"] == "REFUTED"
+
+    # What voids a run: the round count, --quick, an unregistered pin.
+    rep_void = gate_929_str_report(head, main, [comp_all], 12, "0-7", True)
+    assert len(rep_void["void"]) == 3, rep_void["void"]
+
+    # The ratio must be the inverse direction with the head as the default
+    # build; a comparison in the other direction is refused, not re-read.
+    wrong = dict(comp_all, is_inverse=False, ratio_direction="c_variant_over_c_default")
+    try:
+        gate_929_str_report(head, main, [wrong], 8, "0-15", False)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a non-inverse comparison must be refused")
+    assert GATE_929_STR_FEATURE in INVERSE_ABLATIONS
+    assert "str" not in MUTEX_WRITER_ARMS
+
+
 def self_test() -> int:
     eprintln = sys.stderr.write
     eprintln("Running writer_scaling.py self-test...\n")
@@ -3729,6 +3996,7 @@ def self_test() -> int:
     _self_test_c2c_window()
     _self_test_c2c_line_table_complete()
     _self_test_pmu_arm_choices()
+    _self_test_gate_929_str_report()
 
     # Build both binaries up front
     throughput_bin, counters_bin = build_binaries(verbose=True)
@@ -4366,6 +4634,15 @@ def build_parser() -> argparse.ArgumentParser:
              "baseline_readers_only_writer_scaling.json)",
     )
     comparison.add_argument(
+        "--gate-929-str",
+        action="store_true",
+        help="The #929 SyncExpanseStrMap multi-writer gate (METHODOLOGY.md §17.3): the str arm, "
+             f"default build vs {GATE_929_STR_FEATURE}, interleaved (build x W) rounds at the "
+             f"registered {GATE_929_STR_ROUNDS} rounds and W in {list(GATE_929_STR_WRITERS)}, under "
+             "the applied pin (dispatch once per pin per run); writes the §17.9 verdicts of this run "
+             "(default output gate_929_str_writer_scaling.json)",
+    )
+    comparison.add_argument(
         "--ordered-readers",
         action="store_true",
         help="Ordered readers on the map (#900, METHODOLOGY.md §12.4): probe x (W, R) x read_op cells "
@@ -4479,6 +4756,29 @@ def main() -> int:
         if not args.out:
             args.out = str(DIAGNOSTIC_RESULTS_PATH)
 
+    if args.gate_929_str:
+        # Fixed by the registration (METHODOLOGY.md §17.7): a run at any other
+        # count is an INTERMEDIATE evaluation, so it is refused here rather
+        # than labelled afterwards.
+        if args.arm not in ("all", "str"):
+            sys.stderr.write("error: --gate-929-str is the str arm only (METHODOLOGY.md §17.3)\n")
+            return 1
+        args.arm = "str"
+        if args.rounds != GATE_929_STR_ROUNDS:
+            sys.stderr.write(
+                f"error: --gate-929-str runs the registered {GATE_929_STR_ROUNDS} rounds "
+                f"(METHODOLOGY.md §17.7), not {args.rounds}\n"
+            )
+            return 1
+        want = ",".join(str(w) for w in GATE_929_STR_WRITERS)
+        if args.writers != want:
+            sys.stderr.write(
+                f"error: --gate-929-str runs W in {want} (METHODOLOGY.md §17.3), not {args.writers}\n"
+            )
+            return 1
+        if not args.out:
+            args.out = str(GATE_929_STR_RESULTS_PATH)
+
     variant_list: list[str] = []
     if args.variants:
         variant_list.extend(v.strip() for v in args.variants.split(",") if v.strip())
@@ -4486,6 +4786,8 @@ def main() -> int:
         variant_list.append("lock-padded")
     elif args.compare:
         variant_list.append(args.compare)
+    elif args.gate_929_str:
+        variant_list.append(GATE_929_STR_FEATURE)
     elif selected := [feature for flag, feature in ABLATION_ARMS.items() if getattr(args, flag)]:
         variant_list.extend(selected)
     elif os.environ.get("BENCH_VARIANTS"):
@@ -4713,6 +5015,13 @@ def main() -> int:
     if variant_list:
         artifact["throughput_variant"] = variant_cells
         artifact["comparison"] = comparison_results
+    if args.gate_929_str:
+        # The artifact names the registration it is read against (§17.7
+        # prerequisite 5); a run without this block is a baseline, not an
+        # evaluation, and carries no verdict.
+        artifact["gate_929_str"] = gate_929_str_report(
+            throughput_cells, variant_cells, comparison_results, args.rounds, core_pin, args.quick
+        )
     if pmu_results is not None:
         artifact["pmu"] = pmu_results
     if c2c_results is not None:
