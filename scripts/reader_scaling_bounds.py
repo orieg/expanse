@@ -14,8 +14,10 @@ is, it invokes these functions instead of restating their outputs.
 Artifacts read (all under `docs/benchmarks/masstree_comparison/results/`):
   `step0/baseline_concurrent.json`, `step0/baseline_concurrent_run2.json`
       tree `a1982ff2`, one harness process running every round of a cell.
-  `baseline_concurrent.json`, `baseline_concurrent_run2.json`
-      tree `6f8d6ba5`, the same procedure.
+  `at_6f8d6ba5/baseline_concurrent.json`, `at_6f8d6ba5/baseline_concurrent_run2.json`
+      tree `6f8d6ba5`, the same procedure. The suite's live
+      `baseline_concurrent*.json` names are re-measured in place, so this
+      reduction reads the pair it was written over from the commit-named copy.
   `baseline_concurrent_ab.json`, `baseline_concurrent_ab_run2.json`
       `scripts/bench_ab.py`: base `55b511df` and head `38fb2b1e` engines under
       one harness, one process per round, builds alternating.
@@ -72,8 +74,8 @@ PROCEDURE_PER_ROUND = "one process per round"
 LEVEL_SOURCES: tuple[tuple[str, Path, str | None, str], ...] = (
     ("a1982ff2 run 1", MT / "step0" / "baseline_concurrent.json", None, PROCEDURE_ONE_PROCESS),
     ("a1982ff2 run 2", MT / "step0" / "baseline_concurrent_run2.json", None, PROCEDURE_ONE_PROCESS),
-    ("6f8d6ba5 run 1", MT / "baseline_concurrent.json", None, PROCEDURE_ONE_PROCESS),
-    ("6f8d6ba5 run 2", MT / "baseline_concurrent_run2.json", None, PROCEDURE_ONE_PROCESS),
+    ("6f8d6ba5 run 1", MT / "at_6f8d6ba5" / "baseline_concurrent.json", None, PROCEDURE_ONE_PROCESS),
+    ("6f8d6ba5 run 2", MT / "at_6f8d6ba5" / "baseline_concurrent_run2.json", None, PROCEDURE_ONE_PROCESS),
     ("ab run 1, base 55b511df", MT / "baseline_concurrent_ab.json", "base", PROCEDURE_PER_ROUND),
     ("ab run 1, head 38fb2b1e", MT / "baseline_concurrent_ab.json", "head", PROCEDURE_PER_ROUND),
     ("ab run 2, base 55b511df", MT / "baseline_concurrent_ab_run2.json", "base", PROCEDURE_PER_ROUND),
