@@ -2197,7 +2197,7 @@ A void cell is discarded whole and the discard is disclosed beside the result
 - **Not predicted:** writer-count cells, the bytes and blob wrappers, any other
   host, and any level, direction or magnitude for a future head.
 
-## 19. Pre-registration for #929, second gate — the `SyncExpanseStrMap` multi-writer path as a priced trade (DRAFT 2026-09-17; not locked until the floor in §19.4 is set and this line is replaced by the lock date)
+## 19. Pre-registration for #929, second gate — the `SyncExpanseStrMap` multi-writer path as a priced trade (appended and locked 2026-09-17, before any admissible run of it)
 
 ### 19.1 What §17 decided, and what this section is not
 
@@ -2268,8 +2268,8 @@ default build and `serial` the same commit built with
 > 1.0.
 >
 > **G3, price.** P(r) = T_head(1, r) ÷ T_serial(1, r). A cell passes iff the
-> BCa 95% lower bound is at least **F = 0.90 — PLACEHOLDER, maintainer policy,
-> to be confirmed or replaced before the lock**.
+> BCa 95% lower bound is at least **F = 0.90** — maintainer policy, set at the
+> lock with knowledge of §19.2's diagnostics.
 >
 > G1 and G2 cells are W ∈ {2, 4, 8} × two pins (`0-15`,
 > `0,2,4,6,8,10,12,14`) × two independent runs: twelve each. G3 has one cell
@@ -2304,10 +2304,11 @@ this path's one defect (`README.md` §17.2: 64 restarts per operation, invisible
 to every test).
 
 **On F.** No measurement fixes what single-writer price is acceptable; it is
-policy. It is set with knowledge that the diagnostics read 0.956–0.961, and is
-declared as such. What can be said independently: it must sit below 1.0 or §19
-is §17 again, and far enough from the expected level that the instrument
-resolves the difference (§19.5).
+policy: one writer may be at most 10% slower than under the serialised
+protocol. It was set with knowledge that the diagnostics read 0.956–0.961, and
+is declared as such. Independently of them: it sits below 1.0, or §19 would be
+§17 again, and far enough from the expected level that the instrument resolves
+the difference (§19.5). It does not move for any head (§8.19).
 
 ### 19.5 Math-first audit
 
