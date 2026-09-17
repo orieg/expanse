@@ -8128,6 +8128,21 @@ impl<'g> PartialEq<SyncBlobView<'g>> for [u8] {
 /// Ordered navigation and prefix scans take `&mut ExpanseStrMap` in the
 /// single-threaded API (they return writable slots), so they are reachable
 /// only through [`Self::with_locked_mut`].
+///
+/// # Writers
+///
+/// `insert` and `remove` run concurrently: each `StrNode` carries its own
+/// cover word, and writers couple down the chunk chain under per-node locks
+/// rather than serialising on one mutex (Refs #929). The trade is measured
+/// (`docs/benchmarks/concurrency/README.md` §18, fresh 8–16 byte inserts on
+/// the reference host): one writer is about 4% to 5% slower than under the
+/// serialised protocol, and two, four and eight writers deliver about 1.6×,
+/// 2.8× and 5× the serialised protocol's best throughput at any writer count.
+/// Multi-hop keys, removals and skewed access are not covered by that
+/// measurement. The `ablation-str-serial-writers` feature restores the
+/// serialised protocol as a diagnostic comparison build; it is not a
+/// deployment option, since a cargo feature applies to every string map in
+/// the binary.
 pub struct SyncExpanseStrMap {
     shared: Box<Shared<ExpanseStrMap>>,
 }
