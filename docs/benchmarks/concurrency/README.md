@@ -3657,3 +3657,44 @@ inserts. On single-threaded instruction count the five `sync_strmap_*` mutation
 arms are +18.78% to +40.44% against the serialised wrapper (§17.2), which is
 what §19.4's pre-authorised override covers. The two diagnostic runs of §17.4
 agree with these cells and remain non-evidence.
+
+### 18.4 A defect found after that evaluation, and the second evaluation at `d78bc172`
+
+The §18.1 evaluation was taken at `1abfb7ff`. CI on the commit that recorded it
+then failed on the aarch64 lane: a reader dereferenced a null meta-trie root
+(`concurrent_str_readers_under_churn`, the debug null-dereference check in
+`version_cell`). `root_raw` tested the root slot for `None` and then loaded the
+box from it a second time, and the exclusive path rewrites that slot while
+optimistic readers run; an earlier form had the same double load but returned
+the pointer to a later null check that covered the window. `d78bc172` takes one
+load of the slot's word, with a regression test shown to fail 3 of 3 runs on
+the old form. The defect is on a removal of the meta-trie root, which
+`concurrency_writer_str` never performs, so the §18.2 cells did not exercise
+it; but the fix changes engine code, and a head is only what was evaluated if
+it was evaluated. §19 allows a later head under the same thresholds, every
+evaluation recorded (§17.9), so the gate was evaluated again, whole, at
+`d78bc172`: preconditions read at that head (`instruction-counts` run
+[35253935828](https://github.com/orieg/expanse/actions/runs/35253935828): no
+untargeted arm over +0.1%, largest rise `sync_map_remove/random` +0.06%; zero
+`lock_restarts` on the replay of the five mutation arms), then four dispatches.
+
+**Met again: twenty-eight of twenty-eight cells `PASS`.** G1 scaling / G2
+level per W, and G3, BCa 95%, 8 rounds *(measured: reference host — Intel Core
+i9-12900F, 8P+8E / 24 threads, commit `d78bc172`; (workload:
+`concurrency_writer_str`); artifacts
+`results/gate_929_str_v2_writer_scaling_pin0to15_d78bc172_run{1,2}.json` and
+`results/gate_929_str_v2_writer_scaling_d78bc172_run{1,2}.json`)*:
+
+| pin | run | W = 2, G1 / G2 | W = 4, G1 / G2 | W = 8, G1 / G2 | G3 price (floor 0.90) | dispatch |
+|---|--:|--:|--:|--:|--:|---|
+| `0-15` | 1 | 2.462 [2.438, 2.481] / 1.577 [1.560, 1.585] | 4.834 [4.633, 4.978] / 2.836 [2.779, 2.871] | 13.312 [9.971, 23.063] / 5.005 [4.859, 5.155] | 0.960 [0.959, 0.961] | [35256451232](https://github.com/orieg/expanse/actions/runs/35256451232) |
+| `0,2,4,6,8,10,12,14` | 1 | 2.426 [2.370, 2.477] / 1.554 [1.526, 1.576] | 4.868 [4.755, 4.979] / 2.789 [2.717, 2.839] | 44.391 [43.535, 44.960] / 5.146 [5.034, 5.226] | 0.957 [0.956, 0.959] | [35257091562](https://github.com/orieg/expanse/actions/runs/35257091562) |
+| `0-15` | 2 | 2.431 [2.384, 2.468] / 1.574 [1.555, 1.582] | 4.878 [4.644, 4.989] / 2.826 [2.757, 2.872] | 15.195 [10.856, 26.281] / 4.958 [4.790, 5.112] | 0.957 [0.955, 0.960] | [35257847397](https://github.com/orieg/expanse/actions/runs/35257847397) |
+| `0,2,4,6,8,10,12,14` | 2 | 2.417 [2.279, 2.473] / 1.568 [1.552, 1.579] | 4.862 [4.750, 5.021] / 2.828 [2.768, 2.871] | 45.665 [44.878, 46.343] / 5.234 [5.167, 5.283] | 0.957 [0.954, 0.960] | [35258488847](https://github.com/orieg/expanse/actions/runs/35258488847) |
+
+Every cell agrees in direction with its §18.2 counterpart
+(`docs/BENCHMARKING.md` rule 18), and every mean lies inside or beside the
+first evaluation's range: P 0.957–0.960, G2 1.554–1.577,
+2.789–2.836 and 4.958–5.234 at two, four and eight
+writers. Fallback rates are 0 at every W. `d78bc172` is the evaluated head the
+change merges from. §18.3's limits apply unchanged.
