@@ -230,11 +230,6 @@ pub(crate) struct Deferred {
     shards: [AllocShard; NUM_ALLOC_SHARDS],
 }
 
-/// `no_std` twin: there is no collector to defer to, so the type has no value
-/// and every `Option<&Deferred>` is `None` at compile time.
-#[cfg(not(feature = "std"))]
-pub(crate) enum Deferred {}
-
 /// How [`Deferred`] sits in the allocator. Boxed in the default build, so the
 /// 4 KiB of shards are allocated cold in `defer_to` and `NodeAlloc` keeps the
 /// size it had before the shards existed. Under `ablation-unsharded-alloc`
@@ -248,6 +243,45 @@ type DeferredCell = Deferred;
 
 #[cfg(feature = "std")]
 impl Deferred {
+    /// Accounts one allocation of `size` bytes on the calling writer's shard.
+    /// Under `ablation-unsharded-alloc` there are none, and it lands on
+    /// `a`'s inline counters, shared across writers as before the promotion.
+    #[inline(always)]
+    fn charge(&self, a: &NodeAlloc, size: usize) {
+        #[cfg(not(feature = "ablation-unsharded-alloc"))]
+        {
+            let _ = a;
+            let sh = &self.shards[crate::occ::writer_slot()];
+            sh.bytes_in_use.fetch_add(size as isize, Ordering::Relaxed);
+            sh.live_allocs.fetch_add(1, Ordering::Relaxed);
+            sh.total_allocs.fetch_add(1, Ordering::Relaxed);
+        }
+        #[cfg(feature = "ablation-unsharded-alloc")]
+        {
+            a.bytes_in_use.fetch_add(size, Ordering::Relaxed);
+            a.live_allocs.fetch_add(1, Ordering::Relaxed);
+            a.total_allocs.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Inverse of [`Self::charge`]. A free may land on a different shard than
+    /// its allocation, which is why the shard counters are signed.
+    #[inline(always)]
+    fn discharge(&self, a: &NodeAlloc, size: usize) {
+        #[cfg(not(feature = "ablation-unsharded-alloc"))]
+        {
+            let _ = a;
+            let sh = &self.shards[crate::occ::writer_slot()];
+            sh.bytes_in_use.fetch_sub(size as isize, Ordering::Relaxed);
+            sh.live_allocs.fetch_sub(1, Ordering::Relaxed);
+        }
+        #[cfg(feature = "ablation-unsharded-alloc")]
+        {
+            a.bytes_in_use.fetch_sub(size, Ordering::Relaxed);
+            a.live_allocs.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+
     fn new(collector: Arc<Collector>) -> DeferredCell {
         let d = Self {
             collector,
@@ -463,48 +497,15 @@ impl NodeAlloc {
 
     /// The deferred cell when this call may act on it: `None` on every
     /// `OCC = false` path at compile time, and on an undeferred tree at run
-    /// time. Callers test the result once and reuse it.
+    /// time. A caller tests it once, and a deferred tree leaves through that test.
+    #[cfg(feature = "std")]
     #[inline(always)]
     fn deferred_if<const OCC: bool>(&self) -> Option<&Deferred> {
-        #[cfg(feature = "std")]
         if OCC {
-            return self.deferred.get().map(|d| -> &Deferred { d });
+            self.deferred.get().map(|d| -> &Deferred { d })
+        } else {
+            None
         }
-        None
-    }
-
-    /// Accounts one allocation of `size` bytes: on the calling writer's shard
-    /// for a deferred tree, on the inline counters otherwise.
-    #[inline(always)]
-    fn charge(&self, deferred: Option<&Deferred>, size: usize) {
-        #[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
-        if let Some(d) = deferred {
-            let sh = &d.shards[crate::occ::writer_slot()];
-            sh.bytes_in_use.fetch_add(size as isize, Ordering::Relaxed);
-            sh.live_allocs.fetch_add(1, Ordering::Relaxed);
-            sh.total_allocs.fetch_add(1, Ordering::Relaxed);
-            return;
-        }
-        let _ = deferred;
-        self.bytes_in_use.fetch_add(size, Ordering::Relaxed);
-        self.live_allocs.fetch_add(1, Ordering::Relaxed);
-        self.total_allocs.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// Inverse of [`Self::charge`]. A free may land on a different shard than
-    /// its allocation, which is why the shard counters are signed.
-    #[inline(always)]
-    fn discharge(&self, deferred: Option<&Deferred>, size: usize) {
-        #[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
-        if let Some(d) = deferred {
-            let sh = &d.shards[crate::occ::writer_slot()];
-            sh.bytes_in_use.fetch_sub(size as isize, Ordering::Relaxed);
-            sh.live_allocs.fetch_sub(1, Ordering::Relaxed);
-            return;
-        }
-        let _ = deferred;
-        self.bytes_in_use.fetch_sub(size, Ordering::Relaxed);
-        self.live_allocs.fetch_sub(1, Ordering::Relaxed);
     }
 
     #[inline(always)]
@@ -532,14 +533,15 @@ impl NodeAlloc {
         );
         let accounted_size = accounted_size(bytes, align);
 
-        // One test of the deferred cell serves the accounting and the
-        // collector branch below; `OCC = false` folds it to `None`.
-        let deferred = self.deferred_if::<OCC>();
-        self.charge(deferred, accounted_size);
-
-        if let Some(class) = class_for(bytes, align) {
-            #[cfg(feature = "std")]
-            if let Some(d) = deferred {
+        // The one runtime test of the deferred cell (`OCC = false` folds it to
+        // `None`). A deferred tree leaves here, so everything below is the
+        // plain path and shares no accounting or freelist code with it: with
+        // the two interleaved, LLVM merged their counter updates and the
+        // plain path paid for the merge.
+        #[cfg(feature = "std")]
+        if let Some(d) = self.deferred_if::<OCC>() {
+            d.charge(self, accounted_size);
+            if let Some(class) = class_for(bytes, align) {
                 let raw = d.collector.pop_freelist(class);
                 if !raw.is_null() {
                     // SAFETY: zero out the reused memory before returning.
@@ -547,90 +549,104 @@ impl NodeAlloc {
                     return NonNull::new(raw).expect("non-null free block");
                 }
             }
+            // Per-tree freelists are single-writer, so a deferred tree never
+            // pops them: a collector miss goes to the system allocator.
+            return Self::alloc_system(bytes, align);
+        }
 
-            if !OCC || !self.occ_enabled() {
-                let head = self.freelists[class].load(Ordering::Relaxed);
-                if !head.is_null() {
-                    #[cfg(debug_assertions)]
-                    let _bookkeeping = self.enter_bookkeeping();
-                    // The guard alone cannot see the whole pop: the load above it
-                    // is outside the region, so two threads that read one `head`
-                    // and then take the guard one after another never overlap
-                    // inside it, and each returns the same block to its caller.
-                    // Re-reading under the guard catches that interleaving, since
-                    // the first thread's store lands before the second gets in.
-                    debug_assert_eq!(
-                        self.freelists[class].load(Ordering::Relaxed),
-                        head,
-                        "this class's freelist head moved between the load and the pop, so \
-                         another thread is inside one NodeAlloc's per-tree freelists. They \
-                         are single-writer: their updates are load/store pairs, not CAS, so \
-                         concurrent use hands the same block to two callers. Share a tree \
-                         through a Sync* wrapper (which defers to the collector's locked \
-                         freelists before carving anything), or give each thread its own \
-                         NodeAlloc."
-                    );
-                    debug_assert!(
-                        !self.occ_enabled(),
-                        "alloc_raw popped per-tree freelist under OCC: per-tree freelists \
-                         are single-writer only; OCC allocations must use collector freelist"
-                    );
-                    // SAFETY: head points to a valid FreeBlock previously freed to this class.
-                    let next = unsafe { (*head).next };
-                    self.freelists[class].store(next, Ordering::Relaxed);
-                    let raw = head.cast::<u8>();
-                    // SAFETY: zero out the reused memory before returning.
-                    unsafe { core::ptr::write_bytes(raw, 0, bytes) };
-                    return NonNull::new(raw).expect("non-null free block");
+        self.bytes_in_use
+            .fetch_add(accounted_size, Ordering::Relaxed);
+        self.live_allocs.fetch_add(1, Ordering::Relaxed);
+        self.total_allocs.fetch_add(1, Ordering::Relaxed);
+
+        if let Some(class) = class_for(bytes, align) {
+            let head = self.freelists[class].load(Ordering::Relaxed);
+            if !head.is_null() {
+                #[cfg(debug_assertions)]
+                let _bookkeeping = self.enter_bookkeeping();
+                // The guard alone cannot see the whole pop: the load above it
+                // is outside the region, so two threads that read one `head`
+                // and then take the guard one after another never overlap
+                // inside it, and each returns the same block to its caller.
+                // Re-reading under the guard catches that interleaving, since
+                // the first thread's store lands before the second gets in.
+                debug_assert_eq!(
+                    self.freelists[class].load(Ordering::Relaxed),
+                    head,
+                    "this class's freelist head moved between the load and the pop, so \
+                     another thread is inside one NodeAlloc's per-tree freelists. They \
+                     are single-writer: their updates are load/store pairs, not CAS, so \
+                     concurrent use hands the same block to two callers. Share a tree \
+                     through a Sync* wrapper (which defers to the collector's locked \
+                     freelists before carving anything), or give each thread its own \
+                     NodeAlloc."
+                );
+                debug_assert!(
+                    !self.occ_enabled(),
+                    "alloc_raw popped per-tree freelist under OCC: per-tree freelists \
+                     are single-writer only; OCC allocations must use collector freelist"
+                );
+                // SAFETY: head points to a valid FreeBlock previously freed to this class.
+                let next = unsafe { (*head).next };
+                self.freelists[class].store(next, Ordering::Relaxed);
+                let raw = head.cast::<u8>();
+                // SAFETY: zero out the reused memory before returning.
+                unsafe { core::ptr::write_bytes(raw, 0, bytes) };
+                return NonNull::new(raw).expect("non-null free block");
+            }
+
+            if bytes <= 256 {
+                #[cfg(debug_assertions)]
+                let _bookkeeping = self.enter_bookkeeping();
+                // Pre-populate freelist from an intrusive 4KB slab page
+                const SLAB_PAGE_SIZE: usize = 4096;
+                let page_align = align.max(CACHE_LINE);
+                let page_layout = Layout::from_size_align(SLAB_PAGE_SIZE, page_align)
+                    .expect("valid slab page layout");
+                // SAFETY: page_layout has non-zero size.
+                let page_raw = unsafe { alloc_zeroed(page_layout) };
+                let Some(page_ptr) = NonNull::new(page_raw) else {
+                    handle_alloc_error(page_layout)
+                };
+
+                // Embed intrusive SlabPage header at the start of the page
+                let slab_page = page_ptr.as_ptr().cast::<SlabPage>();
+                // SAFETY: page_raw is a fresh 4KB zeroed allocation.
+                unsafe {
+                    (*slab_page).next = self.slab_pages.load(Ordering::Relaxed);
+                    (*slab_page).layout = page_layout;
+                }
+                self.slab_pages.store(slab_page, Ordering::Relaxed);
+
+                let header_offset = CACHE_LINE;
+                let step = accounted_size;
+                let available_bytes = SLAB_PAGE_SIZE - header_offset;
+                let num_blocks = available_bytes / step;
+
+                for i in (1..num_blocks).rev() {
+                    // SAFETY: ptr is inside the allocated SLAB_PAGE_SIZE buffer.
+                    let blk_ptr =
+                        unsafe { page_raw.add(header_offset + i * step) }.cast::<FreeBlock>();
+                    let cur_head = self.freelists[class].load(Ordering::Relaxed);
+                    // SAFETY: blk_ptr is valid memory.
+                    unsafe { (*blk_ptr).next = cur_head };
+                    self.freelists[class].store(blk_ptr, Ordering::Relaxed);
                 }
 
-                if bytes <= 256 {
-                    #[cfg(debug_assertions)]
-                    let _bookkeeping = self.enter_bookkeeping();
-                    // Pre-populate freelist from an intrusive 4KB slab page
-                    const SLAB_PAGE_SIZE: usize = 4096;
-                    let page_align = align.max(CACHE_LINE);
-                    let page_layout = Layout::from_size_align(SLAB_PAGE_SIZE, page_align)
-                        .expect("valid slab page layout");
-                    // SAFETY: page_layout has non-zero size.
-                    let page_raw = unsafe { alloc_zeroed(page_layout) };
-                    let Some(page_ptr) = NonNull::new(page_raw) else {
-                        handle_alloc_error(page_layout)
-                    };
-
-                    // Embed intrusive SlabPage header at the start of the page
-                    let slab_page = page_ptr.as_ptr().cast::<SlabPage>();
-                    // SAFETY: page_raw is a fresh 4KB zeroed allocation.
-                    unsafe {
-                        (*slab_page).next = self.slab_pages.load(Ordering::Relaxed);
-                        (*slab_page).layout = page_layout;
-                    }
-                    self.slab_pages.store(slab_page, Ordering::Relaxed);
-
-                    let header_offset = CACHE_LINE;
-                    let step = accounted_size;
-                    let available_bytes = SLAB_PAGE_SIZE - header_offset;
-                    let num_blocks = available_bytes / step;
-
-                    for i in (1..num_blocks).rev() {
-                        // SAFETY: ptr is inside the allocated SLAB_PAGE_SIZE buffer.
-                        let blk_ptr =
-                            unsafe { page_raw.add(header_offset + i * step) }.cast::<FreeBlock>();
-                        let cur_head = self.freelists[class].load(Ordering::Relaxed);
-                        // SAFETY: blk_ptr is valid memory.
-                        unsafe { (*blk_ptr).next = cur_head };
-                        self.freelists[class].store(blk_ptr, Ordering::Relaxed);
-                    }
-
-                    // SAFETY: header_offset is aligned to CACHE_LINE.
-                    let raw = unsafe { page_raw.add(header_offset) };
-                    // SAFETY: zero out the reused memory before returning.
-                    unsafe { core::ptr::write_bytes(raw, 0, bytes) };
-                    return NonNull::new(raw).expect("non-null free block");
-                }
+                // SAFETY: header_offset is aligned to CACHE_LINE.
+                let raw = unsafe { page_raw.add(header_offset) };
+                // SAFETY: zero out the reused memory before returning.
+                unsafe { core::ptr::write_bytes(raw, 0, bytes) };
+                return NonNull::new(raw).expect("non-null free block");
             }
         }
 
+        Self::alloc_system(bytes, align)
+    }
+
+    /// A zeroed block straight from the system allocator.
+    #[inline(always)]
+    fn alloc_system(bytes: usize, align: usize) -> NonNull<u8> {
         let layout = Self::layout_for(bytes, align);
         // SAFETY: `layout` has nonzero size (asserted in `layout_for`).
         let raw = unsafe { alloc_zeroed(layout) };
@@ -655,12 +671,10 @@ impl NodeAlloc {
         );
         let accounted_size = accounted_size(bytes, align);
 
-        // As in `alloc_raw`: one test, used twice.
-        let deferred = self.deferred_if::<OCC>();
-        self.discharge(deferred, accounted_size);
-
+        // As in `alloc_raw`: one test, and a deferred tree leaves through it.
         #[cfg(feature = "std")]
-        if let Some(d) = deferred {
+        if let Some(d) = self.deferred_if::<OCC>() {
+            d.discharge(self, accounted_size);
             // Deferred mode: the structure no longer references `ptr`,
             // but pinned readers may — reclamation waits out the grace
             // period. The alignment travels with the pointer, because the
@@ -668,6 +682,10 @@ impl NodeAlloc {
             d.collector.retire(ptr, bytes, align);
             return;
         }
+
+        self.bytes_in_use
+            .fetch_sub(accounted_size, Ordering::Relaxed);
+        self.live_allocs.fetch_sub(1, Ordering::Relaxed);
 
         if let Some(class) = class_for(bytes, align) {
             #[cfg(debug_assertions)]
@@ -782,7 +800,7 @@ impl NodeAlloc {
     #[inline(always)]
     pub(crate) unsafe fn free_bytes_unpublished(&self, ptr: NonNull<u8>, bytes: usize) {
         if let Some(d) = self.deferred_if::<true>() {
-            self.discharge(Some(d), accounted_size(bytes, RAW_ALIGN));
+            d.discharge(self, accounted_size(bytes, RAW_ALIGN));
 
             // SAFETY: ptr was never published and matches bytes/RAW_ALIGN contract.
             unsafe { d.collector.recycle_unpublished(ptr, bytes, RAW_ALIGN) };
@@ -820,7 +838,7 @@ impl NodeAlloc {
         let bytes = core::mem::size_of::<T>();
         let align = core::mem::align_of::<T>();
         if let Some(d) = self.deferred_if::<true>() {
-            self.discharge(Some(d), accounted_size(bytes, align));
+            d.discharge(self, accounted_size(bytes, align));
 
             // SAFETY: ptr was never published and matches bytes/align contract.
             unsafe {
