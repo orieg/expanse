@@ -2293,3 +2293,215 @@ A void cell is discarded whole and the discard is disclosed beside the result
   re-derived or replaced by anything in this section.
 - **Not predicted:** writer-count cells, the bytes and blob wrappers, any other
   host, and any level, direction or magnitude for a future head.
+
+## 19. Pre-registration for #929, second gate — the `SyncExpanseStrMap` multi-writer path as a priced trade (appended and locked 2026-09-17, before any admissible run of it)
+
+### 19.1 What §17 decided, and what this section is not
+
+§17's gate was evaluated at `23425a75` (PR #1001) as far as its own text allows,
+and it is **not met**; `README.md` §17 is the record. Its Callgrind precondition
+fails on five `sync_strmap_*` mutation arms (`instruction-counts` run
+[35187216693](https://github.com/orieg/expanse/actions/runs/35187216693):
++18.78% to +40.44% against a bound of +5.0%, no override admissible), so under
+§17.8 no gate dispatch was taken. Two diagnostic runs (§19.2) show that §17's
+W = 1 control would also have failed: §17.8 expected the single writer
+"unchanged", and it reads 0.956–0.961 of the serialised build with every
+interval wholly below 1.0.
+
+AGENTS.md §8.19 leaves two moves after a falsifier trips: change the code and
+re-measure against the same bound, or record the rejection. Two code changes
+were measured against the same bound and do not reach it (`README.md` §17.3);
+the rejection is recorded. **This section does not reopen §17.** §17's text,
+bound and verdict stand as written. What follows is a different claim with a
+different statistic, registered before any admissible run of it: §17 asked for
+multi-writer scaling at no single-writer cost, and the evidence says that
+design does not exist at this protocol; §19 asks whether the path is worth a
+**stated, bounded** single-writer price.
+
+### 19.2 What had been seen when this was written
+
+A registration written after looking is weaker than one written before, and the
+reader is owed the list (AGENTS.md §8.7, §8.19):
+
+- the CI Callgrind table on `23425a75`, and Docker Callgrind attributions of
+  the string arms (`README.md` §17.2–§17.3);
+- two diagnostic throughput runs per pin at `23425a75`, default build against
+  `ablation-str-serial-writers`, the driver's generic `--compare` mode, 8
+  rounds, one process per cell — four artifacts,
+  `results/diagnostic_929_str_serial_writers{,_pin0to15}_23425a75_run{1,2}.json`.
+  They are **not** evaluations of §17 (its gate mode was never dispatched) and
+  are **never** inputs to this gate.
+
+Consequences, fixed here: every threshold below is either carried over from §17
+unchanged, or derived from something those runs could not inform, or marked as
+**maintainer policy set with knowledge of them**; and the gate is evaluated
+only on fresh runs taken after the lock.
+
+### 19.3 The claim this gate would license, in full
+
+> On the reference host, at the registered pins, `SyncExpanseStrMap`'s
+> per-node OLC write path delivers more insert throughput at every writer count
+> W ≥ 2 than the serialised build delivers at **any** writer count, and its
+> single-writer throughput is at least the stated fraction F of the serialised
+> build's. *(workload: `concurrency_writer_str`)*
+
+Nothing about reads, removals, skewed access, other hosts, or the bytes and
+blob wrappers.
+
+### 19.4 The gate
+
+Stated verbatim, and evaluated per cell. `T_b(W, r)` is `writer_mops` of build
+*b* at W writers in round *r* of one interleaved comparison run; `head` is the
+default build and `serial` the same commit built with
+`ablation-str-serial-writers`.
+
+> **G1, scaling — §17.3's statistic, unchanged.** R(W, r) =
+> [T_head(W, r) ÷ T_head(1, r)] ÷ [T_serial(W, r) ÷ T_serial(1, r)]. A cell
+> passes iff the BCa 95% lower bound over the round series is strictly above
+> 1.0.
+>
+> **G2, level.** L(W, r) = T_head(W, r) ÷ max over W′ ∈ {1, 2, 4, 8} of
+> T_serial(W′, r). A cell passes iff the BCa 95% lower bound is strictly above
+> 1.0.
+>
+> **G3, price.** P(r) = T_head(1, r) ÷ T_serial(1, r). A cell passes iff the
+> BCa 95% lower bound is at least **F = 0.90** — maintainer policy, set at the
+> lock with knowledge of §19.2's diagnostics.
+>
+> G1 and G2 cells are W ∈ {2, 4, 8} × two pins (`0-15`,
+> `0,2,4,6,8,10,12,14`) × two independent runs: twelve each. G3 has one cell
+> per (pin, run): four. **The gate is met at a head** when all twenty-eight
+> pass. BCa 95%, 2,000 resamples, `scripts/bca_bootstrap.py`.
+>
+> **Callgrind, preconditions.** On the head's own `instruction-counts` job:
+> every plain-tree arm, and every `sync_map_*` and `sync_set_*` arm, within
+> AGENTS.md §6's +0.1% of main — the paths this change does not target. The six
+> `sync_strmap_*` arms are **expected over the automated threshold**; this
+> registration pre-authorises one `allow-regression:` line naming exactly those
+> arms and citing that job's run, and nothing else. **Defect tripwire,
+> deterministic:** the `occ-stats` replay of the five `sync_strmap_*` mutation
+> arms records zero `lock_restarts`, and fallbacks within §17.2.3's bounds.
+
+**Why G2 exists.** R divides by each build's own single-writer cell
+(AGENTS.md §8.20.2), which is right for separating scaling from baseline speed
+and wrong as the only statistic when the head's single writer is *slower*: a
+slower W = 1 raises C_head(W) by itself. L cannot be passed that way — it
+compares absolute throughput with the best the serialised build does anywhere.
+
+**Why the Callgrind clause changed shape.** §17.3 bounded the string arms
+against the serialised wrapper at +5.0%. On the same job the map wrapper's OLC
+path costs +87% over the plain map per insert, and the string OLC wrapper +81%
+over the plain string map (48,860,697 ÷ 26,190,927 and 81,239,845 ÷ 44,913,726,
+run 35187216693): the string path pays what the protocol already costs where it
+shipped, and a bound near zero against a mutex wrapper asked for OLC at mutex
+cost. Instruction count is kept where it is decisive — untargeted paths, which
+wall clock cannot protect at 0.1% — and the single-writer price is gated on the
+quantity a user pays, G3. The tripwire is the instrument that actually caught
+this path's one defect (`README.md` §17.2: 64 restarts per operation, invisible
+to every test).
+
+**On F.** No measurement fixes what single-writer price is acceptable; it is
+policy: one writer may be at most 10% slower than under the serialised
+protocol. It was set with knowledge that the diagnostics read 0.956–0.961, and
+is declared as such. Independently of them: it sits below 1.0, or §19 would be
+§17 again, and far enough from the expected level that the instrument resolves
+the difference (§19.5). It does not move for any head (§8.19).
+
+### 19.5 Math-first audit
+
+`reader_scaling_bounds.mde_from_rounds` (the function §17.6 used; reference
+value pinned in `SyntheticTests.test_mde_hand_value`), applied to the four
+diagnostic round series at 8 rounds:
+
+| statistic | relative MDE, range over (pin, run) |
+|---|--:|
+| P | 0.47%–1.21% |
+| L(2) | 0.94%–1.62% |
+| L(4) | 2.87%–4.70% |
+| L(8) | 3.02%–8.34% |
+
+A floor of 0.90 is resolvable against a level near 0.96 (gap 0.06, MDE at most
+0.012), and so is any floor down to about 0.95. L's observed levels (§19.2's
+artifacts: 1.57–1.59, 2.84–2.87, 5.06–5.21) are far outside its MDE. §17.6's
+table stands for R. Not established: that a future head's spread resembles
+these series; the round count does not change for it (§8.19).
+
+### 19.6 Rounds, pins, runs, isolation, voids
+
+§17.7 and §17.10 apply unchanged: 8 rounds, both pins, two runs per pin, one
+process per cell, populations 1,048,576, BCa, no `occ-stats` timings, the four
+runs of one evaluation identical in `crates/` and in the driver. An artifact
+naming §17's gate mode is not an evaluation of this section.
+
+**Instrument prerequisite (AGENTS.md §8.20.7).** `writer_scaling.py
+--gate-929-str` computes G1 and §17's control only. G2 and G3 are added as a
+second gate mode with its own artifact block and self-test assertions — that a
+missing round, a wrong pin or an absent W′ cell yields `NOT_EVALUABLE`, never a
+pass — before any run. The G1 code path is not edited.
+
+### 19.7 Expected losses
+
+| cell or condition | expectation at lock | consequence of a loss |
+|---|---|---|
+| G3, every cell | **about 0.96**, both diagnostics, both pins | lower bound under F: the gate is not met; F does not move (§8.19) |
+| G2, W = 2 | the closest level cell, about 1.57 | `INCONCLUSIVE` or `REFUTED`: not met |
+| G1, W = 8, one thread per core | very large (about 44), because the serialised build collapses to about 0.49 M ops/s under that pin (AGENTS.md §8.20.5 step 0); it says more about the mutex arm's pin sensitivity than about the head, which is why G2 is beside it | none expected |
+| G1, W = 8, `0-15` | widest interval of the set (diagnostics: [9.6, 18.2] and [10.6, 23.3]) | `INCONCLUSIVE` possible at a real gain; reported, the pin is not dropped |
+| structural fallback rate | §17.2.3's bounds, unchanged | `REFUTED` on that prediction, published regardless |
+| `sync_strmap_*` Callgrind arms | over the automated threshold, as at `23425a75` | none — reported with the override this section pre-authorises |
+| untargeted Callgrind arms | within +0.1% | a precondition failure; no throughput run is taken |
+| removal and short-key workloads | **not measured by this gate**: `concurrency_writer_str` inserts fresh route-shaped keys; the short-key Callgrind arms are the costliest (+25.6%, +40.4%) and no throughput cell exercises them | stated in the promotion text; a follow-up cell, not a condition here |
+
+### 19.8 Verdicts
+
+§17.9's vocabulary, unchanged: `PASS`, `REFUTED` (interval wholly on the wrong
+side of the cell's threshold), `INCONCLUSIVE` (threshold inside the interval),
+`INTERMEDIATE` (anything differing from this registration), `NOT_EVALUABLE`.
+Met only when all twenty-eight cells read `PASS`. A further run added to decide
+an `INCONCLUSIVE` relabels the evaluation `INTERMEDIATE`.
+
+### 19.9 If it is met: what the promotion must say
+
+The default build's single writer is slower than the serialised build by the
+measured P, stated with its interval in `docs/ARCHITECTURE.md` §4 and the
+wrapper's rustdoc, beside the `ablation-str-serial-writers` feature that
+restores the serialised protocol (AGENTS.md §2.7). Not claimed: reads, removes,
+short keys, skew (#1006), other hosts, the bytes and blob wrappers.
+
+### 19.10 Correction of two drafting errors (2026-09-17, after the lock and before any admissible run)
+
+No threshold, statistic, pin, round count, cell or verdict rule changes. §19.1–§19.9
+are left as locked; where they disagree with this subsection, this subsection is
+what was meant, and the disagreement is stated rather than edited away
+(AGENTS.md §8.7). Found while checking the preconditions at the evaluated head
+`1abfb7ff`, before the first dispatch.
+
+**1. What the gate workload is.** §19.7's last row and §19.9 describe
+`concurrency_writer_str` as inserting route-shaped keys and the short-key
+workloads as unmeasured. That is backwards. §17.2.3 registers the workload: a
+2^20-key prefill, then 2^20 fresh **8–16 byte alphanumeric** keys inserted by W
+writers over disjoint slices — one or two hops, essentially every insert a T2
+into the root node's tree-state sub-map. So this gate **does** measure
+short-key inserts, the shape of the `sync_strmap_insert_short` Callgrind arm,
+and does **not** measure multi-hop route-shaped keys (the `routes` arms'
+shape), removals or churn on any key shape, or access skew (#1006). A promotion
+text says so (§19.9).
+
+**2. Where §17.2.3's fallback bounds are read.** §19.4's tripwire sentence asks
+the `occ-stats` replay of the Callgrind arms for "zero `lock_restarts`, and
+fallbacks within §17.2.3's bounds". §17.2.3 derives and defines those bounds on
+`concurrency_writer_str`, per W, over the harness's `write_ops` (§17.3's input
+table), and that is where they are read: the driver's `fallback_prediction`
+block in each gate artifact, a published prediction that is `REFUTED` when
+exceeded, as §17.8 and §19.7 already state. The replay half of the tripwire is
+**zero `lock_restarts` on the five mutation arms**, the signature of the one
+defect this path has had. The bounds were never derived for the Callgrind arms'
+workloads, and one of them does not meet the number: `sync_strmap_remove/routes`
+takes 284 `branch_split` fallbacks and one `root_growth` in 50,285 operations,
+a structural rate of 5.7 × 10^-3 — the engine's removal path falls back on a
+branch split by design (§17.2.3's `FallbackCause` set). That figure was
+published before the lock (`README.md` §17.2) and the clause was written over
+it; it is recorded here, not excused. Replay at `1abfb7ff`: zero restarts on
+all five arms; fallbacks 44 of 50,044 operations on `insert/routes` (43
+`branch_split`, 1 `root_growth`), 285 of 50,285 on `remove/routes`, 1 of 50,001
+on `insert_short`, 0 on `churn/routes` and `churn_short`.

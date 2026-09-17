@@ -161,9 +161,11 @@ CI_METHOD_EXEMPT = {
         "third value; `_ci_bounds` forwards it and `test_ci_bounds_reaches_the_"
         "shared_bca_construction` pins that",
     "scripts/rocksdb_bench_harvest.py":
-        "the single-threaded rocksdb runner is being rewritten under #868 and is "
-        "not this change's to convert; its two call sites still take the bare "
-        "entry point, so `baseline_rocksdb.json` stays unlabelled until then",
+        "superseded by docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py "
+        "(#902); no workflow or runner invokes it. Kept only as the recorded "
+        "`generated_by` of the committed `baseline_rocksdb.json`, and removed in the PR "
+        "that refreshes that artifact (#868). Its two call sites take the bare entry "
+        "point, so the artifact it produced stays unlabelled until then",
 }
 
 # A bare three-value call, module-qualified or not. `_with_method` spellings do

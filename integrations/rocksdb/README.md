@@ -123,12 +123,22 @@ cargo build --release -p expanse-capi
 # 2. Build and run Expanse RocksDB MemTable tests
 make -C integrations/rocksdb test
 
-# 3. Run microbenchmarks
+# 3. Build the microbenchmark. `make bench` also runs it once in its
+#    human-readable mode: a smoke of the build, not a measured cell.
 make -C integrations/rocksdb bench
+
+# 4. Measure. The suite driver runs one `bench_memtable --arm <phase>` process
+#    per cell, phases interleaved within each round, with a load snapshot per
+#    cell and BCa 95% intervals (#868). `--quick` writes under the gitignored
+#    results/quick/, as docs/benchmarks/rocksdb_memtable/run.sh does; a
+#    committed baseline is a full run on the reference host, dispatched as
+#    the `rocksdb` suite of .github/workflows/bench_baremetal.yml.
+python3 docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py --quick
 ```
 
-After a fresh benchmark run, update `benches/results.json` with the measured
-figures and regenerate the chart embedded above and in `docs/DATABASE.md`:
+After a fresh reference-host run, update `benches/results.json` from the
+driver's artifact and regenerate the chart embedded above and in
+`docs/DATABASE.md`:
 
 ```bash
 python3 integrations/rocksdb/scripts/generate_bench_svg.py  # rewrites docs/benchmarks/rocksdb_memtable/results/bench_rocksdb.svg

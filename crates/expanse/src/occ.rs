@@ -2699,6 +2699,73 @@ mod loom_tests {
         });
     }
 
+    /// One thread pins through a handle while a sibling thread pins and
+    /// unpins through the *same* handle (`shared == true`) or through a
+    /// handle of its own (`shared == false`), and a writer advances twice.
+    ///
+    /// The invariant checked is the one [`Reader::pin`] documents: a pin
+    /// stays registered — the reader's `slot` is not [`INACTIVE`] — until
+    /// its own [`Pin`] drops, so the epoch can advance at most once past a
+    /// live pin taken at 0 (`loom_pin_blocks_second_advance`). Sharing the
+    /// handle is what safe code can do because `Reader` is `Sync`; the
+    /// sibling's [`Pin::drop`] then stores `INACTIVE` into the one slot both
+    /// pins registered through, and `Collector::try_advance` no longer sees
+    /// the first thread's pin (#963).
+    fn pin_survives_sibling_pin(shared: bool) {
+        loom::model(move || {
+            let c = Arc::new(Collector::new());
+            // Pinned at epoch 0 before any other thread starts, so the
+            // pinned-at epoch is known without reading the slot back.
+            let reader = Arc::new(c.register());
+            let pin_a = reader.pin();
+
+            let sibling_handle = if shared {
+                Arc::clone(&reader)
+            } else {
+                Arc::new(c.register())
+            };
+            let sibling = loom::thread::spawn(move || {
+                let _pin_b = sibling_handle.pin();
+            });
+            let cw = Arc::clone(&c);
+            let writer = loom::thread::spawn(move || {
+                cw.try_advance();
+                cw.try_advance();
+            });
+            sibling.join().unwrap();
+            writer.join().unwrap();
+
+            // `pin_a` is still alive here.
+            let slot = reader.slot.load(Ordering::SeqCst);
+            let now = c.epoch.load(Ordering::SeqCst);
+            assert!(
+                slot != INACTIVE && now <= 1,
+                "a live pin taken at epoch 0 lost its registration: slot {slot:#x} \
+                 (INACTIVE is {INACTIVE:#x}), epoch now {now} (must be <= 1)"
+            );
+            drop(pin_a);
+        });
+    }
+
+    /// Control for `loom_shared_reader_handle_sibling_pin_drop_clears_pin`:
+    /// the sibling pins through its own registered reader, and the first
+    /// thread's pin holds across every interleaving.
+    #[test]
+    fn loom_separate_reader_handles_sibling_pin_drop_keeps_pin() {
+        pin_survives_sibling_pin(false);
+    }
+
+    /// Reproduction of #963: the sibling pins through the same handle, and
+    /// its `Pin::drop` clears the first thread's pin. Ignored so the `loom`
+    /// job stays green until the fix (drop `Sync` from `Reader`, or count
+    /// pins) lands; the result on `main` is recorded on the issue.
+    #[test]
+    #[ignore = "reproduces #963: a sibling Pin drop through a shared Reader clears a live pin; \
+                unignore with the fix"]
+    fn loom_shared_reader_handle_sibling_pin_drop_clears_pin() {
+        pin_survives_sibling_pin(true);
+    }
+
     /// Seqlock: a reader that validates successfully saw either the
     /// old or the new value, never a torn intermediate.
     #[test]

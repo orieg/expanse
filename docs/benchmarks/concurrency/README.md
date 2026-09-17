@@ -3446,3 +3446,116 @@ would decide a mechanism.
   a recording carries a load window of its own.
 - Resolve why the number of `block A` instances the report listed differs by
   arm, and why the recorded droop differs by arm.
+
+## 17. The #929 `str` multi-writer head at `23425a75` — METHODOLOGY §17's outcome, and two diagnostic runs (Refs #929)
+
+### 17.1 Verdict
+
+METHODOLOGY §17's gate is **not met** at `23425a75` (PR #1001), on its
+Callgrind precondition: a precondition failure on the change, decided on the
+`instruction-counts` job and never traded against a throughput cell (§17.8).
+No §17 gate dispatch was taken at this head, and none of the runs in §17.4 is
+an evaluation of that gate. Under AGENTS.md §8.19 the bound is not moved; two
+code changes were measured against it (§17.3) and the rejection is recorded
+here. Any further gate on this path is a new registration with its own claim,
+locked before its first admissible run; §17 is not reopened. METHODOLOGY §19 is that
+registration.
+
+### 17.2 The Callgrind precondition
+
+`instruction-counts` run [35187216693](https://github.com/orieg/expanse/actions/runs/35187216693) on `23425a75`, against main:
+
+| arm | main Ir | head Ir | delta | §17.3 bound | verdict |
+|---|--:|--:|--:|--:|---|
+| `sync_strmap_churn_short/short` | 149,793,224 | 210,370,302 | +40.44% | +5.0% | over |
+| `sync_strmap_churn/routes` | 135,500,168 | 190,242,127 | +40.40% | +5.0% | over |
+| `sync_strmap_insert/routes` | 58,001,120 | 81,239,845 | +40.07% | +5.0% | over |
+| `sync_strmap_insert_short/short` | 70,989,894 | 89,179,110 | +25.62% | +5.0% | over |
+| `sync_strmap_remove/routes` | 75,070,387 | 89,168,028 | +18.78% | +5.0% | over |
+| `sync_strmap_get_short/short` | 27,537,782 | 27,887,767 | +1.27% | +5.0% | within |
+| `strmap_insert/routes` | 45,520,134 | 44,913,726 | −1.33% | +0.1% | within |
+| `strmap_churn/routes` | 125,038,622 | 122,888,622 | −1.72% | +0.1% | within |
+
+Every `sync_map_*` and `sync_set_*` arm is within ±0.06% except
+`sync_map_get/random` −0.67% and `sync_set_contains/random` −0.68%. The
+`occ-stats` replay of the mutation arms (taken at `aa7a6bd1`; the two later
+commits change code generation, not the write path) records zero restarts, and 44, 285, 1
+and 0 fallbacks on `insert/routes`, `remove/routes`, `insert_short` and
+`churn_short`, so the cost is the protocol's steady state and not retries. An
+earlier head did carry a defect of that kind — the host's parity check sampled
+a cover word its own caller held as a lock, 64 restarts and a fallback per
+operation, +6964.70% on `churn_short` — which every multi-threaded test passed
+through and only the counters and this job showed (PR #1001).
+
+On the same job the map wrapper's OLC path costs 48,860,697 ÷ 26,190,927 = 1.87
+of the plain map per insert, and the string OLC wrapper 81,239,845 ÷
+44,913,726 = 1.81 of the plain string map, against 58,001,120 ÷ 45,520,134 =
+1.27 for the serialised wrapper on main: the string path pays about what the
+protocol costs where it already shipped.
+
+### 17.3 Code changes measured against the same bound
+
+Recorded in PR #1001 with their numbers; an x86-64 Docker Callgrind on a
+development host, a ranking instrument and not this suite's record. Building
+the per-hop host only where a transition uses it moved the `routes` arms down
+and the short-key arms up by about a percent each, and was reverted. A
+per-thread prefix path cache took `insert/routes` and `churn/routes` below main
+and left `remove/routes`, `insert_short` and `churn_short` far over the bound;
+the two arms it fixes insert in generator order, the best case for a last-path
+cache, and the prototype is unhardened and unmerged. Skipping the lookup walk
+where a fresh suffix lands improved one short-key arm and worsened the other by
+a similar amount, and was removed. None reaches +5.0% on all five arms.
+
+### 17.4 Two diagnostic throughput runs — not evaluations of any gate
+
+Default build against `ablation-str-serial-writers` at `23425a75`, the
+driver's generic `--compare` mode (not `--gate-929-str`), `str` arm, 8
+interleaved rounds, one process per cell, two runs per pin, the host idle at
+each start (load average under 0.5 before every run-2 pin; run 1's first pin
+began at 3.68 after a build, and the per-cell busy-CPU deltas are in the
+artifacts). Writer throughput, M ops/s, BCa 95%
+*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads, commit
+`23425a75`, 8 rounds; (workload: `concurrency_writer_str`); artifacts
+`results/diagnostic_929_str_serial_writers_pin0to15_23425a75_run{1,2}.json` and
+`results/diagnostic_929_str_serial_writers_23425a75_run{1,2}.json`)*:
+
+| pin | run | W | OLC head | serialised build |
+|---|--:|--:|--:|--:|
+| `0-15` | 1 | 1 | 3.814 [3.801, 3.823] | 3.978 [3.965, 3.989] |
+| `0-15` | 1 | 2 | 6.277 [6.223, 6.302] | 2.828 [2.711, 2.975] |
+| `0-15` | 1 | 4 | 11.418 [11.191, 11.501] | 2.452 [2.386, 2.542] |
+| `0-15` | 1 | 8 | 20.124 [18.901, 20.629] | 1.745 [1.215, 2.080] |
+| `0-15` | 2 | 1 | 3.820 [3.817, 3.825] | 3.978 [3.969, 3.984] |
+| `0-15` | 2 | 2 | 6.259 [6.240, 6.285] | 2.645 [2.608, 2.675] |
+| `0-15` | 2 | 4 | 11.281 [10.940, 11.496] | 2.383 [2.351, 2.424] |
+| `0-15` | 2 | 8 | 20.541 [19.811, 21.028] | 2.014 [1.479, 2.210] |
+| `0,2,4,6,8,10,12,14` | 1 | 1 | 3.816 [3.810, 3.822] | 3.990 [3.983, 3.997] |
+| `0,2,4,6,8,10,12,14` | 1 | 2 | 6.293 [6.245, 6.317] | 2.751 [2.644, 2.918] |
+| `0,2,4,6,8,10,12,14` | 1 | 4 | 11.353 [11.041, 11.465] | 2.424 [2.373, 2.480] |
+| `0,2,4,6,8,10,12,14` | 1 | 8 | 20.770 [20.253, 21.068] | 0.485 [0.478, 0.495] |
+| `0,2,4,6,8,10,12,14` | 2 | 1 | 3.811 [3.798, 3.819] | 3.967 [3.948, 3.979] |
+| `0,2,4,6,8,10,12,14` | 2 | 2 | 6.288 [6.270, 6.306] | 2.728 [2.647, 3.022] |
+| `0,2,4,6,8,10,12,14` | 2 | 4 | 11.350 [11.072, 11.527] | 2.447 [2.386, 2.490] |
+| `0,2,4,6,8,10,12,14` | 2 | 8 | 20.636 [20.245, 20.879] | 0.485 [0.478, 0.497] |
+
+Per-round paired statistics, BCa 95% — the single-writer ratio
+T_head(1) ÷ T_serial(1), and the level ratio of the head at W against the
+serialised build's best cell at any writer count (which is its W = 1 cell in
+every round of every run) *(workload: `concurrency_writer_str`)*:
+
+| pin | run | W = 1, head ÷ serialised | W = 2 ÷ best serialised | W = 4 ÷ best serialised | W = 8 ÷ best serialised |
+|---|--:|--:|--:|--:|--:|
+| `0-15` | 1 | 0.959 [0.955, 0.962] | 1.578 [1.564, 1.587] | 2.870 [2.806, 2.896] | 5.059 [4.728, 5.190] |
+| `0-15` | 2 | 0.960 [0.958, 0.962] | 1.573 [1.566, 1.580] | 2.836 [2.753, 2.886] | 5.164 [4.973, 5.290] |
+| `0,2,4,6,8,10,12,14` | 1 | 0.956 [0.955, 0.959] | 1.577 [1.562, 1.583] | 2.845 [2.773, 2.871] | 5.206 [5.068, 5.283] |
+| `0,2,4,6,8,10,12,14` | 2 | 0.961 [0.955, 0.966] | 1.585 [1.577, 1.593] | 2.861 [2.786, 2.911] | 5.201 [5.128, 5.266] |
+
+Both runs move every cell in the same direction (`docs/BENCHMARKING.md` rule
+18). The single writer is 3.9%–4.4% slower than the serialised build, with
+every interval wholly below 1.0 — which is §17.8's W = 1 control failing, had
+the gate been dispatched. The serialised build loses throughput with every
+added writer, and under one thread per physical core collapses to 0.485 M ops/s
+at W = 8, the pin sensitivity of a single-mutex arm (AGENTS.md §8.20.5 step 0).
+These runs license no claim: they were taken to decide what to register, they
+are disclosed as seen in METHODOLOGY §19.2, and they are not inputs to §19's
+gate.
