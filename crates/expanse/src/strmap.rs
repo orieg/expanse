@@ -1665,17 +1665,14 @@ impl ExpanseStrMap {
         // before anything is read through it, an unlinked root is
         // obsolete-marked and EBR-live, and the tree word is validated before
         // any answer.
-        let mut node: *const StrNode = self.root_raw().cast_const();
-        // Two explicit returns rather than one `return if …`: CodeQL's Rust
-        // control-flow model does not treat the latter as terminating the
-        // branch and reports the dereference below as reachable with a null
-        // `node` (alert #105 on #1001). The semantics are identical.
-        if node.is_null() {
-            if ver.validate(snap) {
-                return Ok(None);
-            }
-            return Err(Retry);
-        }
+        let Some(root) = self.root_raw() else {
+            return if ver.validate(snap) {
+                Ok(None)
+            } else {
+                Err(Retry)
+            };
+        };
+        let mut node: *const StrNode = root.cast_const();
         let mut off = 0usize;
         loop {
             let (chunk, terminal) = chunk_at(key, off);
@@ -2218,10 +2215,9 @@ mod olc {
                 defer.is_some(),
                 "optimistic insert on a map that was never deferred"
             );
-            let mut node = self.root_raw();
-            if node.is_null() {
+            let Some(mut node) = self.root_raw() else {
                 return OlcOutcome::Fallback(FallbackCause::RootGrowth);
-            }
+            };
             let mut off = 0usize;
             loop {
                 let (chunk, terminal) = chunk_at(key, off);
@@ -2422,10 +2418,9 @@ mod olc {
                 defer.is_some(),
                 "optimistic remove on a map that was never deferred"
             );
-            let mut node = self.root_raw();
-            if node.is_null() {
+            let Some(mut node) = self.root_raw() else {
                 return (OlcOutcome::Done(None), None);
-            }
+            };
             let mut path = PathStack::new();
             let mut off = 0usize;
             loop {
@@ -2645,20 +2640,21 @@ impl ExpanseStrMap {
     /// atomic — which needs write provenance under Stacked Borrows even for
     /// a load — so the pointer must descend from the box, not from a shared
     /// borrow of its target (Miri caught the `from_ref` form on the reader).
+    ///
+    /// `None` on an empty map, rather than a null pointer: every caller
+    /// matches before its first dereference, and no null constant flows
+    /// towards one (CodeQL's pointer-validity query follows the constant
+    /// through a loop-carried variable past its `is_null` check).
     #[inline(always)]
-    fn root_raw(&self) -> *mut StrNode {
+    fn root_raw(&self) -> Option<*mut StrNode> {
         // SAFETY: `self` lives inside the wrapper's `UnsafeCell`, so a raw
         // pointer to the field is writable; only the box's pointer is read
         // here, never the node.
         unsafe {
             let slot: *mut Option<Box<StrNode>> = (&raw const self.root).cast_mut();
-            match &*slot {
-                Some(b) => {
-                    let b: *mut Box<StrNode> = core::ptr::from_ref(b).cast_mut();
-                    &raw mut **b
-                }
-                None => core::ptr::null_mut(),
-            }
+            let b = (*slot).as_ref()?;
+            let b: *mut Box<StrNode> = core::ptr::from_ref(b).cast_mut();
+            Some(&raw mut **b)
         }
     }
 
