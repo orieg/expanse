@@ -1,0 +1,2010 @@
+{
+ "instrument": "wasmtime-fuel (scripts/wasm_fuel.py): exact integers, no interval (AGENTS.md section 8.4)",
+ "purpose": "Refs #998: the plain-tree fuel cost of f65a8434, and each increment that removes it",
+ "control": {
+  "what": "728e316e built with --features expanse-trie/ablation-unsharded-alloc, wasm64 only",
+  "result": "identical to fb69a4af on all 30 arms"
+ },
+ "builds": [
+  {
+   "instrument": "wasmtime-fuel",
+   "target": "wasm32-unknown-unknown",
+   "wasmtime": "48.0.0",
+   "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+   "host": "Darwin arm64",
+   "commit": "fb69a4af",
+   "pop": 10000,
+   "arms": [
+    {
+     "name": "map_insert/sequential",
+     "fuel": 7833664,
+     "fuel_setup": 749927,
+     "checksum": "0x00000000009cd8d0"
+    },
+    {
+     "name": "map_insert/clustered",
+     "fuel": 14467854,
+     "fuel_setup": 817431,
+     "checksum": "0x0000000001e267d0"
+    },
+    {
+     "name": "map_insert/random",
+     "fuel": 15318420,
+     "fuel_setup": 10399129,
+     "checksum": "0x00000017d296c450"
+    },
+    {
+     "name": "map_get/sequential",
+     "fuel": 2724216,
+     "fuel_setup": 14329212,
+     "checksum": "0x-5dc31995afe77fc7"
+    },
+    {
+     "name": "map_get/clustered",
+     "fuel": 4149764,
+     "fuel_setup": 21036824,
+     "checksum": "0x-1f9340e090522f6"
+    },
+    {
+     "name": "map_get/random",
+     "fuel": 3155953,
+     "fuel_setup": 32015528,
+     "checksum": "0x-476fbfa8c9a5e128"
+    },
+    {
+     "name": "map_iterate/sequential",
+     "fuel": 2109287,
+     "fuel_setup": 7853149,
+     "checksum": "0x-71fe53d36b5dc3b"
+    },
+    {
+     "name": "map_iterate/clustered",
+     "fuel": 3083199,
+     "fuel_setup": 14554713,
+     "checksum": "0x165a49a022722253"
+    },
+    {
+     "name": "map_iterate/random",
+     "fuel": 5614663,
+     "fuel_setup": 24994573,
+     "checksum": "0x5a80d1f6f49e1129"
+    },
+    {
+     "name": "map_range/sequential",
+     "fuel": 2234337,
+     "fuel_setup": 8089832,
+     "checksum": "0x-71fe539f3c1dc3b"
+    },
+    {
+     "name": "map_range/clustered",
+     "fuel": 3193149,
+     "fuel_setup": 14791396,
+     "checksum": "0x165a49a4e7062253"
+    },
+    {
+     "name": "map_range/random",
+     "fuel": 5676748,
+     "fuel_setup": 28397021,
+     "checksum": "0x5a80d1f231ea1129"
+    },
+    {
+     "name": "map_remove/sequential",
+     "fuel": 10709645,
+     "fuel_setup": 8523530,
+     "checksum": "0x-34d33dd176a99d94"
+    },
+    {
+     "name": "map_remove/clustered",
+     "fuel": 13568230,
+     "fuel_setup": 15225094,
+     "checksum": "0x14bf7d6336a0d35d"
+    },
+    {
+     "name": "map_remove/random",
+     "fuel": 10363046,
+     "fuel_setup": 25664954,
+     "checksum": "0x-136f1b8187485874"
+    },
+    {
+     "name": "set_insert/sequential",
+     "fuel": 7530984,
+     "fuel_setup": 749927,
+     "checksum": "0x0000000000a1c6d0"
+    },
+    {
+     "name": "set_insert/clustered",
+     "fuel": 14363540,
+     "fuel_setup": 817431,
+     "checksum": "0x0000000001e705d0"
+    },
+    {
+     "name": "set_insert/random",
+     "fuel": 14403740,
+     "fuel_setup": 10399129,
+     "checksum": "0x00000017d29be250"
+    },
+    {
+     "name": "set_contains/sequential",
+     "fuel": 2374065,
+     "fuel_setup": 14003103,
+     "checksum": "0x31794b980399e753"
+    },
+    {
+     "name": "set_contains/clustered",
+     "fuel": 3754742,
+     "fuel_setup": 20906144,
+     "checksum": "0x31794b980399e753"
+    },
+    {
+     "name": "set_contains/random",
+     "fuel": 3516612,
+     "fuel_setup": 31150147,
+     "checksum": "0x317966bfc2c0e753"
+    },
+    {
+     "name": "set_iterate/sequential",
+     "fuel": 1413139,
+     "fuel_setup": 7568844,
+     "checksum": "0x2ad2f6ce118f7ee8"
+    },
+    {
+     "name": "set_iterate/clustered",
+     "fuel": 2601982,
+     "fuel_setup": 14472672,
+     "checksum": "0x-4188a41ac6093d4e"
+    },
+    {
+     "name": "set_iterate/random",
+     "fuel": 6259776,
+     "fuel_setup": 24098778,
+     "checksum": "0x740a2ce7561447fa"
+    },
+    {
+     "name": "set_range/sequential",
+     "fuel": 1536257,
+     "fuel_setup": 7805648,
+     "checksum": "0x2ad2f6cad4fb7ee8"
+    },
+    {
+     "name": "set_range/clustered",
+     "fuel": 2710082,
+     "fuel_setup": 14709354,
+     "checksum": "0x-4188a41e037d3d4e"
+    },
+    {
+     "name": "set_range/random",
+     "fuel": 6322755,
+     "fuel_setup": 27501034,
+     "checksum": "0x740a2ce3936047fa"
+    },
+    {
+     "name": "set_remove/sequential",
+     "fuel": 7661596,
+     "fuel_setup": 8219285,
+     "checksum": "0x0000000000a1e1c0"
+    },
+    {
+     "name": "set_remove/clustered",
+     "fuel": 13152661,
+     "fuel_setup": 15123052,
+     "checksum": "0x0000000001e722c0"
+    },
+    {
+     "name": "set_remove/random",
+     "fuel": 11120025,
+     "fuel_setup": 24748967,
+     "checksum": "0x00000017d29bc540"
+    }
+   ],
+   "mem_used_bytes": {
+    "map/sequential": 44240,
+    "map/clustered": 68256,
+    "map/random": 128928,
+    "set/sequential": 2992,
+    "set/clustered": 28256,
+    "set/random": 119304
+   },
+   "note": "parent of f65a8434 (#997); built from `git archive`, so the driver recorded no commit"
+  },
+  {
+   "instrument": "wasmtime-fuel",
+   "target": "wasm64-unknown-unknown",
+   "wasmtime": "48.0.0",
+   "rustc": "rustc 1.100.0-nightly (2e2b193f8 2026-09-02)",
+   "host": "Darwin arm64",
+   "commit": "fb69a4af",
+   "pop": 10000,
+   "arms": [
+    {
+     "name": "map_insert/sequential",
+     "fuel": 3684959,
+     "fuel_setup": 729966,
+     "checksum": "0x00000000009cd8d0"
+    },
+    {
+     "name": "map_insert/clustered",
+     "fuel": 10852298,
+     "fuel_setup": 827467,
+     "checksum": "0x0000000001e267d0"
+    },
+    {
+     "name": "map_insert/random",
+     "fuel": 15197382,
+     "fuel_setup": 9942877,
+     "checksum": "0x4e514a77d296c44c"
+    },
+    {
+     "name": "map_get/sequential",
+     "fuel": 1537827,
+     "fuel_setup": 9745035,
+     "checksum": "0x23da6cf36655a027"
+    },
+    {
+     "name": "map_get/clustered",
+     "fuel": 2353130,
+     "fuel_setup": 17009021,
+     "checksum": "0x-578e3dcf6dbcc28d"
+    },
+    {
+     "name": "map_get/random",
+     "fuel": 1726894,
+     "fuel_setup": 30920426,
+     "checksum": "0x431ce1ffb7f7ace6"
+    },
+    {
+     "name": "map_iterate/sequential",
+     "fuel": 801284,
+     "fuel_setup": 3675496,
+     "checksum": "0x-3de476c1fba4ffef"
+    },
+    {
+     "name": "map_iterate/clustered",
+     "fuel": 905886,
+     "fuel_setup": 10940534,
+     "checksum": "0x63b610ff9c1676bf"
+    },
+    {
+     "name": "map_iterate/random",
+     "fuel": 2318788,
+     "fuel_setup": 24400637,
+     "checksum": "0x-61fc8138b95acd08"
+    },
+    {
+     "name": "map_range/sequential",
+     "fuel": 1123591,
+     "fuel_setup": 3952330,
+     "checksum": "0x-3de476c53ed0ffef"
+    },
+    {
+     "name": "map_range/clustered",
+     "fuel": 1253243,
+     "fuel_setup": 11217498,
+     "checksum": "0x63b610fb596276bf"
+    },
+    {
+     "name": "map_range/random",
+     "fuel": 2618312,
+     "fuel_setup": 27969445,
+     "checksum": "0x-61fc813c7c2ecd08"
+    },
+    {
+     "name": "map_remove/sequential",
+     "fuel": 7919775,
+     "fuel_setup": 4305909,
+     "checksum": "0x44efa402e01b2cbc"
+    },
+    {
+     "name": "map_remove/clustered",
+     "fuel": 11322782,
+     "fuel_setup": 11571012,
+     "checksum": "0x700b7be8584b15b4"
+    },
+    {
+     "name": "map_remove/random",
+     "fuel": 6885751,
+     "fuel_setup": 25031115,
+     "checksum": "0x-198666bee6b48d68"
+    },
+    {
+     "name": "set_insert/sequential",
+     "fuel": 1520076,
+     "fuel_setup": 729966,
+     "checksum": "0x0000000000a1c6d0"
+    },
+    {
+     "name": "set_insert/clustered",
+     "fuel": 8727762,
+     "fuel_setup": 827467,
+     "checksum": "0x0000000001e705d0"
+    },
+    {
+     "name": "set_insert/random",
+     "fuel": 12125411,
+     "fuel_setup": 9942877,
+     "checksum": "0x4e514a77d29be24c"
+    },
+    {
+     "name": "set_contains/sequential",
+     "fuel": 1460461,
+     "fuel_setup": 7482768,
+     "checksum": "0x64604b980399e777"
+    },
+    {
+     "name": "set_contains/clustered",
+     "fuel": 2526548,
+     "fuel_setup": 14813653,
+     "checksum": "0x64604b980399e777"
+    },
+    {
+     "name": "set_contains/random",
+     "fuel": 1847496,
+     "fuel_setup": 27746121,
+     "checksum": "0x652b66bfc2c0a338"
+    },
+    {
+     "name": "set_iterate/sequential",
+     "fuel": 257377,
+     "fuel_setup": 1544085,
+     "checksum": "0x2ad2f6ce118f7ee8"
+    },
+    {
+     "name": "set_iterate/clustered",
+     "fuel": 1803013,
+     "fuel_setup": 8875764,
+     "checksum": "0x-4188a41ac6093d4e"
+    },
+    {
+     "name": "set_iterate/random",
+     "fuel": 2530748,
+     "fuel_setup": 21388752,
+     "checksum": "0x-32b371b47fc49f78"
+    },
+    {
+     "name": "set_range/sequential",
+     "fuel": 566651,
+     "fuel_setup": 1821056,
+     "checksum": "0x2ad2f6cad4fb7ee8"
+    },
+    {
+     "name": "set_range/clustered",
+     "fuel": 2234456,
+     "fuel_setup": 9152735,
+     "checksum": "0x-4188a41e037d3d4e"
+    },
+    {
+     "name": "set_range/random",
+     "fuel": 2833528,
+     "fuel_setup": 24957556,
+     "checksum": "0x-32b371b0bab09f78"
+    },
+    {
+     "name": "set_remove/sequential",
+     "fuel": 6475940,
+     "fuel_setup": 2174564,
+     "checksum": "0x0000000000a1e1c0"
+    },
+    {
+     "name": "set_remove/clustered",
+     "fuel": 9997646,
+     "fuel_setup": 9506243,
+     "checksum": "0x0000000001e722c0"
+    },
+    {
+     "name": "set_remove/random",
+     "fuel": 7319699,
+     "fuel_setup": 22019231,
+     "checksum": "0x4e514a77d29bc55c"
+    }
+   ],
+   "mem_used_bytes": {
+    "map/sequential": 85840,
+    "map/clustered": 131424,
+    "map/random": 239456,
+    "set/sequential": 912,
+    "set/clustered": 31456,
+    "set/random": 212064
+   },
+   "note": "parent of f65a8434 (#997); built from `git archive`, so the driver recorded no commit"
+  },
+  {
+   "instrument": "wasmtime-fuel",
+   "target": "wasm32-unknown-unknown",
+   "wasmtime": "48.0.0",
+   "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+   "host": "Darwin arm64",
+   "commit": "728e316e",
+   "pop": 10000,
+   "arms": [
+    {
+     "name": "map_insert/sequential",
+     "fuel": 7833664,
+     "fuel_setup": 749927,
+     "checksum": "0x00000000009cd8d0"
+    },
+    {
+     "name": "map_insert/clustered",
+     "fuel": 14467854,
+     "fuel_setup": 817431,
+     "checksum": "0x0000000001e267d0"
+    },
+    {
+     "name": "map_insert/random",
+     "fuel": 15318420,
+     "fuel_setup": 10399129,
+     "checksum": "0x00000017d296c450"
+    },
+    {
+     "name": "map_get/sequential",
+     "fuel": 2724216,
+     "fuel_setup": 14329212,
+     "checksum": "0x-5dc31995afe77fc7"
+    },
+    {
+     "name": "map_get/clustered",
+     "fuel": 4149764,
+     "fuel_setup": 21036824,
+     "checksum": "0x-1f9340e090522f6"
+    },
+    {
+     "name": "map_get/random",
+     "fuel": 3155953,
+     "fuel_setup": 32015528,
+     "checksum": "0x-476fbfa8c9a5e128"
+    },
+    {
+     "name": "map_iterate/sequential",
+     "fuel": 2109287,
+     "fuel_setup": 7853149,
+     "checksum": "0x-71fe53d36b5dc3b"
+    },
+    {
+     "name": "map_iterate/clustered",
+     "fuel": 3083199,
+     "fuel_setup": 14554713,
+     "checksum": "0x165a49a022722253"
+    },
+    {
+     "name": "map_iterate/random",
+     "fuel": 5614663,
+     "fuel_setup": 24994573,
+     "checksum": "0x5a80d1f6f49e1129"
+    },
+    {
+     "name": "map_range/sequential",
+     "fuel": 2234337,
+     "fuel_setup": 8089832,
+     "checksum": "0x-71fe539f3c1dc3b"
+    },
+    {
+     "name": "map_range/clustered",
+     "fuel": 3193149,
+     "fuel_setup": 14791396,
+     "checksum": "0x165a49a4e7062253"
+    },
+    {
+     "name": "map_range/random",
+     "fuel": 5676748,
+     "fuel_setup": 28397021,
+     "checksum": "0x5a80d1f231ea1129"
+    },
+    {
+     "name": "map_remove/sequential",
+     "fuel": 10709645,
+     "fuel_setup": 8523530,
+     "checksum": "0x-34d33dd176a99d94"
+    },
+    {
+     "name": "map_remove/clustered",
+     "fuel": 13568230,
+     "fuel_setup": 15225094,
+     "checksum": "0x14bf7d6336a0d35d"
+    },
+    {
+     "name": "map_remove/random",
+     "fuel": 10363046,
+     "fuel_setup": 25664954,
+     "checksum": "0x-136f1b8187485874"
+    },
+    {
+     "name": "set_insert/sequential",
+     "fuel": 7530984,
+     "fuel_setup": 749927,
+     "checksum": "0x0000000000a1c6d0"
+    },
+    {
+     "name": "set_insert/clustered",
+     "fuel": 14363540,
+     "fuel_setup": 817431,
+     "checksum": "0x0000000001e705d0"
+    },
+    {
+     "name": "set_insert/random",
+     "fuel": 14403740,
+     "fuel_setup": 10399129,
+     "checksum": "0x00000017d29be250"
+    },
+    {
+     "name": "set_contains/sequential",
+     "fuel": 2374065,
+     "fuel_setup": 14003103,
+     "checksum": "0x31794b980399e753"
+    },
+    {
+     "name": "set_contains/clustered",
+     "fuel": 3754742,
+     "fuel_setup": 20906144,
+     "checksum": "0x31794b980399e753"
+    },
+    {
+     "name": "set_contains/random",
+     "fuel": 3516612,
+     "fuel_setup": 31150147,
+     "checksum": "0x317966bfc2c0e753"
+    },
+    {
+     "name": "set_iterate/sequential",
+     "fuel": 1413139,
+     "fuel_setup": 7568844,
+     "checksum": "0x2ad2f6ce118f7ee8"
+    },
+    {
+     "name": "set_iterate/clustered",
+     "fuel": 2601982,
+     "fuel_setup": 14472672,
+     "checksum": "0x-4188a41ac6093d4e"
+    },
+    {
+     "name": "set_iterate/random",
+     "fuel": 6259776,
+     "fuel_setup": 24098778,
+     "checksum": "0x740a2ce7561447fa"
+    },
+    {
+     "name": "set_range/sequential",
+     "fuel": 1536257,
+     "fuel_setup": 7805648,
+     "checksum": "0x2ad2f6cad4fb7ee8"
+    },
+    {
+     "name": "set_range/clustered",
+     "fuel": 2710082,
+     "fuel_setup": 14709354,
+     "checksum": "0x-4188a41e037d3d4e"
+    },
+    {
+     "name": "set_range/random",
+     "fuel": 6322755,
+     "fuel_setup": 27501034,
+     "checksum": "0x740a2ce3936047fa"
+    },
+    {
+     "name": "set_remove/sequential",
+     "fuel": 7661596,
+     "fuel_setup": 8219285,
+     "checksum": "0x0000000000a1e1c0"
+    },
+    {
+     "name": "set_remove/clustered",
+     "fuel": 13152661,
+     "fuel_setup": 15123052,
+     "checksum": "0x0000000001e722c0"
+    },
+    {
+     "name": "set_remove/random",
+     "fuel": 11120025,
+     "fuel_setup": 24748967,
+     "checksum": "0x00000017d29bc540"
+    }
+   ],
+   "mem_used_bytes": {
+    "map/sequential": 44240,
+    "map/clustered": 68256,
+    "map/random": 128928,
+    "set/sequential": 2992,
+    "set/clustered": 28256,
+    "set/random": 119304
+   },
+   "note": "main when this work started; reproduces results/baseline_wasm_fuel.json to the unit on all 60 arms"
+  },
+  {
+   "instrument": "wasmtime-fuel",
+   "target": "wasm64-unknown-unknown",
+   "wasmtime": "48.0.0",
+   "rustc": "rustc 1.100.0-nightly (2e2b193f8 2026-09-02)",
+   "host": "Darwin arm64",
+   "commit": "728e316e",
+   "pop": 10000,
+   "arms": [
+    {
+     "name": "map_insert/sequential",
+     "fuel": 3734502,
+     "fuel_setup": 729966,
+     "checksum": "0x00000000009cd8d0"
+    },
+    {
+     "name": "map_insert/clustered",
+     "fuel": 10873960,
+     "fuel_setup": 827467,
+     "checksum": "0x0000000001e267d0"
+    },
+    {
+     "name": "map_insert/random",
+     "fuel": 15224224,
+     "fuel_setup": 9942877,
+     "checksum": "0x4e514a77d296c44c"
+    },
+    {
+     "name": "map_get/sequential",
+     "fuel": 1537827,
+     "fuel_setup": 9794594,
+     "checksum": "0x23da6cf36655a027"
+    },
+    {
+     "name": "map_get/clustered",
+     "fuel": 2353130,
+     "fuel_setup": 17030699,
+     "checksum": "0x-578e3dcf6dbcc28d"
+    },
+    {
+     "name": "map_get/random",
+     "fuel": 1726894,
+     "fuel_setup": 30947284,
+     "checksum": "0x431ce1ffb7f7ace6"
+    },
+    {
+     "name": "map_iterate/sequential",
+     "fuel": 801284,
+     "fuel_setup": 3725055,
+     "checksum": "0x-3de476c1fba4ffef"
+    },
+    {
+     "name": "map_iterate/clustered",
+     "fuel": 905886,
+     "fuel_setup": 10962212,
+     "checksum": "0x63b610ff9c1676bf"
+    },
+    {
+     "name": "map_iterate/random",
+     "fuel": 2318788,
+     "fuel_setup": 24427495,
+     "checksum": "0x-61fc8138b95acd08"
+    },
+    {
+     "name": "map_range/sequential",
+     "fuel": 1123591,
+     "fuel_setup": 4001889,
+     "checksum": "0x-3de476c53ed0ffef"
+    },
+    {
+     "name": "map_range/clustered",
+     "fuel": 1253243,
+     "fuel_setup": 11239176,
+     "checksum": "0x63b610fb596276bf"
+    },
+    {
+     "name": "map_range/random",
+     "fuel": 2618312,
+     "fuel_setup": 27996303,
+     "checksum": "0x-61fc813c7c2ecd08"
+    },
+    {
+     "name": "map_remove/sequential",
+     "fuel": 7916551,
+     "fuel_setup": 4355468,
+     "checksum": "0x44efa402e01b2cbc"
+    },
+    {
+     "name": "map_remove/clustered",
+     "fuel": 11309018,
+     "fuel_setup": 11592690,
+     "checksum": "0x700b7be8584b15b4"
+    },
+    {
+     "name": "map_remove/random",
+     "fuel": 6880233,
+     "fuel_setup": 25057973,
+     "checksum": "0x-198666bee6b48d68"
+    },
+    {
+     "name": "set_insert/sequential",
+     "fuel": 1520642,
+     "fuel_setup": 729966,
+     "checksum": "0x0000000000a1c6d0"
+    },
+    {
+     "name": "set_insert/clustered",
+     "fuel": 8734419,
+     "fuel_setup": 827467,
+     "checksum": "0x0000000001e705d0"
+    },
+    {
+     "name": "set_insert/random",
+     "fuel": 12145132,
+     "fuel_setup": 9942877,
+     "checksum": "0x4e514a77d29be24c"
+    },
+    {
+     "name": "set_contains/sequential",
+     "fuel": 1460461,
+     "fuel_setup": 7483325,
+     "checksum": "0x64604b980399e777"
+    },
+    {
+     "name": "set_contains/clustered",
+     "fuel": 2526548,
+     "fuel_setup": 14820301,
+     "checksum": "0x64604b980399e777"
+    },
+    {
+     "name": "set_contains/random",
+     "fuel": 1847496,
+     "fuel_setup": 27765833,
+     "checksum": "0x652b66bfc2c0a338"
+    },
+    {
+     "name": "set_iterate/sequential",
+     "fuel": 257377,
+     "fuel_setup": 1544642,
+     "checksum": "0x2ad2f6ce118f7ee8"
+    },
+    {
+     "name": "set_iterate/clustered",
+     "fuel": 1803013,
+     "fuel_setup": 8882412,
+     "checksum": "0x-4188a41ac6093d4e"
+    },
+    {
+     "name": "set_iterate/random",
+     "fuel": 2530748,
+     "fuel_setup": 21408464,
+     "checksum": "0x-32b371b47fc49f78"
+    },
+    {
+     "name": "set_range/sequential",
+     "fuel": 566651,
+     "fuel_setup": 1821613,
+     "checksum": "0x2ad2f6cad4fb7ee8"
+    },
+    {
+     "name": "set_range/clustered",
+     "fuel": 2234456,
+     "fuel_setup": 9159383,
+     "checksum": "0x-4188a41e037d3d4e"
+    },
+    {
+     "name": "set_range/random",
+     "fuel": 2833528,
+     "fuel_setup": 24977268,
+     "checksum": "0x-32b371b0bab09f78"
+    },
+    {
+     "name": "set_remove/sequential",
+     "fuel": 6717020,
+     "fuel_setup": 2175121,
+     "checksum": "0x0000000000a1e1c0"
+    },
+    {
+     "name": "set_remove/clustered",
+     "fuel": 10330763,
+     "fuel_setup": 9512891,
+     "checksum": "0x0000000001e722c0"
+    },
+    {
+     "name": "set_remove/random",
+     "fuel": 7645782,
+     "fuel_setup": 22038943,
+     "checksum": "0x4e514a77d29bc55c"
+    }
+   ],
+   "mem_used_bytes": {
+    "map/sequential": 85840,
+    "map/clustered": 131424,
+    "map/random": 239456,
+    "set/sequential": 912,
+    "set/clustered": 31456,
+    "set/random": 212064
+   },
+   "note": "main when this work started; reproduces results/baseline_wasm_fuel.json to the unit on all 60 arms"
+  },
+  {
+   "instrument": "wasmtime-fuel",
+   "target": "wasm32-unknown-unknown",
+   "wasmtime": "48.0.0",
+   "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+   "host": "Darwin arm64",
+   "commit": "49ab27e8",
+   "pop": 10000,
+   "arms": [
+    {
+     "name": "map_insert/sequential",
+     "fuel": 7833664,
+     "fuel_setup": 749927,
+     "checksum": "0x00000000009cd8d0"
+    },
+    {
+     "name": "map_insert/clustered",
+     "fuel": 14467854,
+     "fuel_setup": 817431,
+     "checksum": "0x0000000001e267d0"
+    },
+    {
+     "name": "map_insert/random",
+     "fuel": 15318420,
+     "fuel_setup": 10399129,
+     "checksum": "0x00000017d296c450"
+    },
+    {
+     "name": "map_get/sequential",
+     "fuel": 2724216,
+     "fuel_setup": 14329212,
+     "checksum": "0x-5dc31995afe77fc7"
+    },
+    {
+     "name": "map_get/clustered",
+     "fuel": 4149764,
+     "fuel_setup": 21036824,
+     "checksum": "0x-1f9340e090522f6"
+    },
+    {
+     "name": "map_get/random",
+     "fuel": 3155953,
+     "fuel_setup": 32015528,
+     "checksum": "0x-476fbfa8c9a5e128"
+    },
+    {
+     "name": "map_iterate/sequential",
+     "fuel": 2109287,
+     "fuel_setup": 7853149,
+     "checksum": "0x-71fe53d36b5dc3b"
+    },
+    {
+     "name": "map_iterate/clustered",
+     "fuel": 3083199,
+     "fuel_setup": 14554713,
+     "checksum": "0x165a49a022722253"
+    },
+    {
+     "name": "map_iterate/random",
+     "fuel": 5614663,
+     "fuel_setup": 24994573,
+     "checksum": "0x5a80d1f6f49e1129"
+    },
+    {
+     "name": "map_range/sequential",
+     "fuel": 2234337,
+     "fuel_setup": 8089832,
+     "checksum": "0x-71fe539f3c1dc3b"
+    },
+    {
+     "name": "map_range/clustered",
+     "fuel": 3193149,
+     "fuel_setup": 14791396,
+     "checksum": "0x165a49a4e7062253"
+    },
+    {
+     "name": "map_range/random",
+     "fuel": 5676748,
+     "fuel_setup": 28397021,
+     "checksum": "0x5a80d1f231ea1129"
+    },
+    {
+     "name": "map_remove/sequential",
+     "fuel": 10709645,
+     "fuel_setup": 8523530,
+     "checksum": "0x-34d33dd176a99d94"
+    },
+    {
+     "name": "map_remove/clustered",
+     "fuel": 13568230,
+     "fuel_setup": 15225094,
+     "checksum": "0x14bf7d6336a0d35d"
+    },
+    {
+     "name": "map_remove/random",
+     "fuel": 10363046,
+     "fuel_setup": 25664954,
+     "checksum": "0x-136f1b8187485874"
+    },
+    {
+     "name": "set_insert/sequential",
+     "fuel": 7530984,
+     "fuel_setup": 749927,
+     "checksum": "0x0000000000a1c6d0"
+    },
+    {
+     "name": "set_insert/clustered",
+     "fuel": 14363540,
+     "fuel_setup": 817431,
+     "checksum": "0x0000000001e705d0"
+    },
+    {
+     "name": "set_insert/random",
+     "fuel": 14403740,
+     "fuel_setup": 10399129,
+     "checksum": "0x00000017d29be250"
+    },
+    {
+     "name": "set_contains/sequential",
+     "fuel": 2374065,
+     "fuel_setup": 14003103,
+     "checksum": "0x31794b980399e753"
+    },
+    {
+     "name": "set_contains/clustered",
+     "fuel": 3754742,
+     "fuel_setup": 20906144,
+     "checksum": "0x31794b980399e753"
+    },
+    {
+     "name": "set_contains/random",
+     "fuel": 3516612,
+     "fuel_setup": 31150147,
+     "checksum": "0x317966bfc2c0e753"
+    },
+    {
+     "name": "set_iterate/sequential",
+     "fuel": 1413139,
+     "fuel_setup": 7568844,
+     "checksum": "0x2ad2f6ce118f7ee8"
+    },
+    {
+     "name": "set_iterate/clustered",
+     "fuel": 2601982,
+     "fuel_setup": 14472672,
+     "checksum": "0x-4188a41ac6093d4e"
+    },
+    {
+     "name": "set_iterate/random",
+     "fuel": 6259776,
+     "fuel_setup": 24098778,
+     "checksum": "0x740a2ce7561447fa"
+    },
+    {
+     "name": "set_range/sequential",
+     "fuel": 1536257,
+     "fuel_setup": 7805648,
+     "checksum": "0x2ad2f6cad4fb7ee8"
+    },
+    {
+     "name": "set_range/clustered",
+     "fuel": 2710082,
+     "fuel_setup": 14709354,
+     "checksum": "0x-4188a41e037d3d4e"
+    },
+    {
+     "name": "set_range/random",
+     "fuel": 6322755,
+     "fuel_setup": 27501034,
+     "checksum": "0x740a2ce3936047fa"
+    },
+    {
+     "name": "set_remove/sequential",
+     "fuel": 7661596,
+     "fuel_setup": 8219285,
+     "checksum": "0x0000000000a1e1c0"
+    },
+    {
+     "name": "set_remove/clustered",
+     "fuel": 13152661,
+     "fuel_setup": 15123052,
+     "checksum": "0x0000000001e722c0"
+    },
+    {
+     "name": "set_remove/random",
+     "fuel": 11120025,
+     "fuel_setup": 24748967,
+     "checksum": "0x00000017d29bc540"
+    }
+   ],
+   "mem_used_bytes": {
+    "map/sequential": 44240,
+    "map/clustered": 68256,
+    "map/random": 128928,
+    "set/sequential": 2992,
+    "set/clustered": 28256,
+    "set/random": 119304
+   },
+   "note": "shards carried in the collector's cell; built from `git archive`"
+  },
+  {
+   "instrument": "wasmtime-fuel",
+   "target": "wasm64-unknown-unknown",
+   "wasmtime": "48.0.0",
+   "rustc": "rustc 1.100.0-nightly (2e2b193f8 2026-09-02)",
+   "host": "Darwin arm64",
+   "commit": "49ab27e8",
+   "pop": 10000,
+   "arms": [
+    {
+     "name": "map_insert/sequential",
+     "fuel": 3687513,
+     "fuel_setup": 729966,
+     "checksum": "0x00000000009cd8d0"
+    },
+    {
+     "name": "map_insert/clustered",
+     "fuel": 10855487,
+     "fuel_setup": 827467,
+     "checksum": "0x0000000001e267d0"
+    },
+    {
+     "name": "map_insert/random",
+     "fuel": 15200591,
+     "fuel_setup": 9942877,
+     "checksum": "0x4e514a77d296c44c"
+    },
+    {
+     "name": "map_get/sequential",
+     "fuel": 1537827,
+     "fuel_setup": 9747589,
+     "checksum": "0x23da6cf36655a027"
+    },
+    {
+     "name": "map_get/clustered",
+     "fuel": 2353130,
+     "fuel_setup": 17012210,
+     "checksum": "0x-578e3dcf6dbcc28d"
+    },
+    {
+     "name": "map_get/random",
+     "fuel": 1726894,
+     "fuel_setup": 30923635,
+     "checksum": "0x431ce1ffb7f7ace6"
+    },
+    {
+     "name": "map_iterate/sequential",
+     "fuel": 801284,
+     "fuel_setup": 3678050,
+     "checksum": "0x-3de476c1fba4ffef"
+    },
+    {
+     "name": "map_iterate/clustered",
+     "fuel": 905886,
+     "fuel_setup": 10943723,
+     "checksum": "0x63b610ff9c1676bf"
+    },
+    {
+     "name": "map_iterate/random",
+     "fuel": 2318788,
+     "fuel_setup": 24403846,
+     "checksum": "0x-61fc8138b95acd08"
+    },
+    {
+     "name": "map_range/sequential",
+     "fuel": 1123591,
+     "fuel_setup": 3954884,
+     "checksum": "0x-3de476c53ed0ffef"
+    },
+    {
+     "name": "map_range/clustered",
+     "fuel": 1253243,
+     "fuel_setup": 11220687,
+     "checksum": "0x63b610fb596276bf"
+    },
+    {
+     "name": "map_range/random",
+     "fuel": 2618312,
+     "fuel_setup": 27972654,
+     "checksum": "0x-61fc813c7c2ecd08"
+    },
+    {
+     "name": "map_remove/sequential",
+     "fuel": 7919206,
+     "fuel_setup": 4308463,
+     "checksum": "0x44efa402e01b2cbc"
+    },
+    {
+     "name": "map_remove/clustered",
+     "fuel": 11320099,
+     "fuel_setup": 11574201,
+     "checksum": "0x700b7be8584b15b4"
+    },
+    {
+     "name": "map_remove/random",
+     "fuel": 6883798,
+     "fuel_setup": 25034324,
+     "checksum": "0x-198666bee6b48d68"
+    },
+    {
+     "name": "set_insert/sequential",
+     "fuel": 1520116,
+     "fuel_setup": 729966,
+     "checksum": "0x0000000000a1c6d0"
+    },
+    {
+     "name": "set_insert/clustered",
+     "fuel": 8728427,
+     "fuel_setup": 827467,
+     "checksum": "0x0000000001e705d0"
+    },
+    {
+     "name": "set_insert/random",
+     "fuel": 12127410,
+     "fuel_setup": 9942877,
+     "checksum": "0x4e514a77d29be24c"
+    },
+    {
+     "name": "set_contains/sequential",
+     "fuel": 1460461,
+     "fuel_setup": 7482785,
+     "checksum": "0x64604b980399e777"
+    },
+    {
+     "name": "set_contains/clustered",
+     "fuel": 2526548,
+     "fuel_setup": 14814295,
+     "checksum": "0x64604b980399e777"
+    },
+    {
+     "name": "set_contains/random",
+     "fuel": 1847496,
+     "fuel_setup": 27748097,
+     "checksum": "0x652b66bfc2c0a338"
+    },
+    {
+     "name": "set_iterate/sequential",
+     "fuel": 257377,
+     "fuel_setup": 1544102,
+     "checksum": "0x2ad2f6ce118f7ee8"
+    },
+    {
+     "name": "set_iterate/clustered",
+     "fuel": 1803013,
+     "fuel_setup": 8876406,
+     "checksum": "0x-4188a41ac6093d4e"
+    },
+    {
+     "name": "set_iterate/random",
+     "fuel": 2530748,
+     "fuel_setup": 21390728,
+     "checksum": "0x-32b371b47fc49f78"
+    },
+    {
+     "name": "set_range/sequential",
+     "fuel": 566651,
+     "fuel_setup": 1821073,
+     "checksum": "0x2ad2f6cad4fb7ee8"
+    },
+    {
+     "name": "set_range/clustered",
+     "fuel": 2234456,
+     "fuel_setup": 9153377,
+     "checksum": "0x-4188a41e037d3d4e"
+    },
+    {
+     "name": "set_range/random",
+     "fuel": 2833528,
+     "fuel_setup": 24959532,
+     "checksum": "0x-32b371b0bab09f78"
+    },
+    {
+     "name": "set_remove/sequential",
+     "fuel": 6595833,
+     "fuel_setup": 2174581,
+     "checksum": "0x0000000000a1e1c0"
+    },
+    {
+     "name": "set_remove/clustered",
+     "fuel": 10158582,
+     "fuel_setup": 9506885,
+     "checksum": "0x0000000001e722c0"
+    },
+    {
+     "name": "set_remove/random",
+     "fuel": 7449167,
+     "fuel_setup": 22021207,
+     "checksum": "0x4e514a77d29bc55c"
+    }
+   ],
+   "mem_used_bytes": {
+    "map/sequential": 85840,
+    "map/clustered": 131424,
+    "map/random": 239456,
+    "set/sequential": 912,
+    "set/clustered": 31456,
+    "set/random": 212064
+   },
+   "note": "shards carried in the collector's cell; built from `git archive`"
+  },
+  {
+   "instrument": "wasmtime-fuel",
+   "target": "wasm32-unknown-unknown",
+   "wasmtime": "48.0.0",
+   "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+   "host": "Darwin arm64",
+   "commit": "d25af042",
+   "pop": 10000,
+   "arms": [
+    {
+     "name": "map_insert/sequential",
+     "fuel": 7833664,
+     "fuel_setup": 749927,
+     "checksum": "0x00000000009cd8d0"
+    },
+    {
+     "name": "map_insert/clustered",
+     "fuel": 14467854,
+     "fuel_setup": 817431,
+     "checksum": "0x0000000001e267d0"
+    },
+    {
+     "name": "map_insert/random",
+     "fuel": 15318420,
+     "fuel_setup": 10399129,
+     "checksum": "0x00000017d296c450"
+    },
+    {
+     "name": "map_get/sequential",
+     "fuel": 2724216,
+     "fuel_setup": 14329212,
+     "checksum": "0x-5dc31995afe77fc7"
+    },
+    {
+     "name": "map_get/clustered",
+     "fuel": 4149764,
+     "fuel_setup": 21036824,
+     "checksum": "0x-1f9340e090522f6"
+    },
+    {
+     "name": "map_get/random",
+     "fuel": 3155953,
+     "fuel_setup": 32015528,
+     "checksum": "0x-476fbfa8c9a5e128"
+    },
+    {
+     "name": "map_iterate/sequential",
+     "fuel": 2109287,
+     "fuel_setup": 7853149,
+     "checksum": "0x-71fe53d36b5dc3b"
+    },
+    {
+     "name": "map_iterate/clustered",
+     "fuel": 3083199,
+     "fuel_setup": 14554713,
+     "checksum": "0x165a49a022722253"
+    },
+    {
+     "name": "map_iterate/random",
+     "fuel": 5614663,
+     "fuel_setup": 24994573,
+     "checksum": "0x5a80d1f6f49e1129"
+    },
+    {
+     "name": "map_range/sequential",
+     "fuel": 2234337,
+     "fuel_setup": 8089832,
+     "checksum": "0x-71fe539f3c1dc3b"
+    },
+    {
+     "name": "map_range/clustered",
+     "fuel": 3193149,
+     "fuel_setup": 14791396,
+     "checksum": "0x165a49a4e7062253"
+    },
+    {
+     "name": "map_range/random",
+     "fuel": 5676748,
+     "fuel_setup": 28397021,
+     "checksum": "0x5a80d1f231ea1129"
+    },
+    {
+     "name": "map_remove/sequential",
+     "fuel": 10709645,
+     "fuel_setup": 8523530,
+     "checksum": "0x-34d33dd176a99d94"
+    },
+    {
+     "name": "map_remove/clustered",
+     "fuel": 13568230,
+     "fuel_setup": 15225094,
+     "checksum": "0x14bf7d6336a0d35d"
+    },
+    {
+     "name": "map_remove/random",
+     "fuel": 10363046,
+     "fuel_setup": 25664954,
+     "checksum": "0x-136f1b8187485874"
+    },
+    {
+     "name": "set_insert/sequential",
+     "fuel": 7530984,
+     "fuel_setup": 749927,
+     "checksum": "0x0000000000a1c6d0"
+    },
+    {
+     "name": "set_insert/clustered",
+     "fuel": 14363540,
+     "fuel_setup": 817431,
+     "checksum": "0x0000000001e705d0"
+    },
+    {
+     "name": "set_insert/random",
+     "fuel": 14403740,
+     "fuel_setup": 10399129,
+     "checksum": "0x00000017d29be250"
+    },
+    {
+     "name": "set_contains/sequential",
+     "fuel": 2374065,
+     "fuel_setup": 14003103,
+     "checksum": "0x31794b980399e753"
+    },
+    {
+     "name": "set_contains/clustered",
+     "fuel": 3754742,
+     "fuel_setup": 20906144,
+     "checksum": "0x31794b980399e753"
+    },
+    {
+     "name": "set_contains/random",
+     "fuel": 3516612,
+     "fuel_setup": 31150147,
+     "checksum": "0x317966bfc2c0e753"
+    },
+    {
+     "name": "set_iterate/sequential",
+     "fuel": 1413139,
+     "fuel_setup": 7568844,
+     "checksum": "0x2ad2f6ce118f7ee8"
+    },
+    {
+     "name": "set_iterate/clustered",
+     "fuel": 2601982,
+     "fuel_setup": 14472672,
+     "checksum": "0x-4188a41ac6093d4e"
+    },
+    {
+     "name": "set_iterate/random",
+     "fuel": 6259776,
+     "fuel_setup": 24098778,
+     "checksum": "0x740a2ce7561447fa"
+    },
+    {
+     "name": "set_range/sequential",
+     "fuel": 1536257,
+     "fuel_setup": 7805648,
+     "checksum": "0x2ad2f6cad4fb7ee8"
+    },
+    {
+     "name": "set_range/clustered",
+     "fuel": 2710082,
+     "fuel_setup": 14709354,
+     "checksum": "0x-4188a41e037d3d4e"
+    },
+    {
+     "name": "set_range/random",
+     "fuel": 6322755,
+     "fuel_setup": 27501034,
+     "checksum": "0x740a2ce3936047fa"
+    },
+    {
+     "name": "set_remove/sequential",
+     "fuel": 7661596,
+     "fuel_setup": 8219285,
+     "checksum": "0x0000000000a1e1c0"
+    },
+    {
+     "name": "set_remove/clustered",
+     "fuel": 13152661,
+     "fuel_setup": 15123052,
+     "checksum": "0x0000000001e722c0"
+    },
+    {
+     "name": "set_remove/random",
+     "fuel": 11120025,
+     "fuel_setup": 24748967,
+     "checksum": "0x00000017d29bc540"
+    }
+   ],
+   "mem_used_bytes": {
+    "map/sequential": 44240,
+    "map/clustered": 68256,
+    "map/random": 128928,
+    "set/sequential": 2992,
+    "set/clustered": 28256,
+    "set/random": 119304
+   },
+   "note": "a deferred tree leaves the plain path at one test; built from `git archive`"
+  },
+  {
+   "instrument": "wasmtime-fuel",
+   "target": "wasm64-unknown-unknown",
+   "wasmtime": "48.0.0",
+   "rustc": "rustc 1.100.0-nightly (2e2b193f8 2026-09-02)",
+   "host": "Darwin arm64",
+   "commit": "d25af042",
+   "pop": 10000,
+   "arms": [
+    {
+     "name": "map_insert/sequential",
+     "fuel": 3691008,
+     "fuel_setup": 729966,
+     "checksum": "0x00000000009cd8d0"
+    },
+    {
+     "name": "map_insert/clustered",
+     "fuel": 10858688,
+     "fuel_setup": 827467,
+     "checksum": "0x0000000001e267d0"
+    },
+    {
+     "name": "map_insert/random",
+     "fuel": 15202414,
+     "fuel_setup": 9942877,
+     "checksum": "0x4e514a77d296c44c"
+    },
+    {
+     "name": "map_get/sequential",
+     "fuel": 1537827,
+     "fuel_setup": 9751084,
+     "checksum": "0x23da6cf36655a027"
+    },
+    {
+     "name": "map_get/clustered",
+     "fuel": 2353130,
+     "fuel_setup": 17015411,
+     "checksum": "0x-578e3dcf6dbcc28d"
+    },
+    {
+     "name": "map_get/random",
+     "fuel": 1726894,
+     "fuel_setup": 30925458,
+     "checksum": "0x431ce1ffb7f7ace6"
+    },
+    {
+     "name": "map_iterate/sequential",
+     "fuel": 801284,
+     "fuel_setup": 3681545,
+     "checksum": "0x-3de476c1fba4ffef"
+    },
+    {
+     "name": "map_iterate/clustered",
+     "fuel": 905886,
+     "fuel_setup": 10946924,
+     "checksum": "0x63b610ff9c1676bf"
+    },
+    {
+     "name": "map_iterate/random",
+     "fuel": 2318788,
+     "fuel_setup": 24405669,
+     "checksum": "0x-61fc8138b95acd08"
+    },
+    {
+     "name": "map_range/sequential",
+     "fuel": 1123591,
+     "fuel_setup": 3958379,
+     "checksum": "0x-3de476c53ed0ffef"
+    },
+    {
+     "name": "map_range/clustered",
+     "fuel": 1253243,
+     "fuel_setup": 11223888,
+     "checksum": "0x63b610fb596276bf"
+    },
+    {
+     "name": "map_range/random",
+     "fuel": 2618312,
+     "fuel_setup": 27974477,
+     "checksum": "0x-61fc813c7c2ecd08"
+    },
+    {
+     "name": "map_remove/sequential",
+     "fuel": 7918059,
+     "fuel_setup": 4311958,
+     "checksum": "0x44efa402e01b2cbc"
+    },
+    {
+     "name": "map_remove/clustered",
+     "fuel": 11317645,
+     "fuel_setup": 11577402,
+     "checksum": "0x700b7be8584b15b4"
+    },
+    {
+     "name": "map_remove/random",
+     "fuel": 6882011,
+     "fuel_setup": 25036147,
+     "checksum": "0x-198666bee6b48d68"
+    },
+    {
+     "name": "set_insert/sequential",
+     "fuel": 1520090,
+     "fuel_setup": 729966,
+     "checksum": "0x0000000000a1c6d0"
+    },
+    {
+     "name": "set_insert/clustered",
+     "fuel": 8729018,
+     "fuel_setup": 827467,
+     "checksum": "0x0000000001e705d0"
+    },
+    {
+     "name": "set_insert/random",
+     "fuel": 12129176,
+     "fuel_setup": 9942877,
+     "checksum": "0x4e514a77d29be24c"
+    },
+    {
+     "name": "set_contains/sequential",
+     "fuel": 1460461,
+     "fuel_setup": 7482782,
+     "checksum": "0x64604b980399e777"
+    },
+    {
+     "name": "set_contains/clustered",
+     "fuel": 2526548,
+     "fuel_setup": 14814909,
+     "checksum": "0x64604b980399e777"
+    },
+    {
+     "name": "set_contains/random",
+     "fuel": 1847496,
+     "fuel_setup": 27749886,
+     "checksum": "0x652b66bfc2c0a338"
+    },
+    {
+     "name": "set_iterate/sequential",
+     "fuel": 257377,
+     "fuel_setup": 1544099,
+     "checksum": "0x2ad2f6ce118f7ee8"
+    },
+    {
+     "name": "set_iterate/clustered",
+     "fuel": 1803013,
+     "fuel_setup": 8877020,
+     "checksum": "0x-4188a41ac6093d4e"
+    },
+    {
+     "name": "set_iterate/random",
+     "fuel": 2530748,
+     "fuel_setup": 21392517,
+     "checksum": "0x-32b371b47fc49f78"
+    },
+    {
+     "name": "set_range/sequential",
+     "fuel": 566651,
+     "fuel_setup": 1821070,
+     "checksum": "0x2ad2f6cad4fb7ee8"
+    },
+    {
+     "name": "set_range/clustered",
+     "fuel": 2234456,
+     "fuel_setup": 9153991,
+     "checksum": "0x-4188a41e037d3d4e"
+    },
+    {
+     "name": "set_range/random",
+     "fuel": 2833528,
+     "fuel_setup": 24961321,
+     "checksum": "0x-32b371b0bab09f78"
+    },
+    {
+     "name": "set_remove/sequential",
+     "fuel": 6476332,
+     "fuel_setup": 2174578,
+     "checksum": "0x0000000000a1e1c0"
+    },
+    {
+     "name": "set_remove/clustered",
+     "fuel": 9999625,
+     "fuel_setup": 9507499,
+     "checksum": "0x0000000001e722c0"
+    },
+    {
+     "name": "set_remove/random",
+     "fuel": 7339335,
+     "fuel_setup": 22022996,
+     "checksum": "0x4e514a77d29bc55c"
+    }
+   ],
+   "mem_used_bytes": {
+    "map/sequential": 85840,
+    "map/clustered": 131424,
+    "map/random": 239456,
+    "set/sequential": 912,
+    "set/clustered": 31456,
+    "set/random": 212064
+   },
+   "note": "a deferred tree leaves the plain path at one test; built from `git archive`"
+  },
+  {
+   "instrument": "wasmtime-fuel",
+   "target": "wasm32-unknown-unknown",
+   "wasmtime": "48.0.0",
+   "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+   "host": "Darwin arm64",
+   "commit": "636fcaa7",
+   "pop": 10000,
+   "arms": [
+    {
+     "name": "map_insert/sequential",
+     "fuel": 7833664,
+     "fuel_setup": 749927,
+     "checksum": "0x00000000009cd8d0"
+    },
+    {
+     "name": "map_insert/clustered",
+     "fuel": 14467854,
+     "fuel_setup": 817431,
+     "checksum": "0x0000000001e267d0"
+    },
+    {
+     "name": "map_insert/random",
+     "fuel": 15318420,
+     "fuel_setup": 10399129,
+     "checksum": "0x00000017d296c450"
+    },
+    {
+     "name": "map_get/sequential",
+     "fuel": 2724216,
+     "fuel_setup": 14329212,
+     "checksum": "0x-5dc31995afe77fc7"
+    },
+    {
+     "name": "map_get/clustered",
+     "fuel": 4149764,
+     "fuel_setup": 21036824,
+     "checksum": "0x-1f9340e090522f6"
+    },
+    {
+     "name": "map_get/random",
+     "fuel": 3155953,
+     "fuel_setup": 32015528,
+     "checksum": "0x-476fbfa8c9a5e128"
+    },
+    {
+     "name": "map_iterate/sequential",
+     "fuel": 2109287,
+     "fuel_setup": 7853149,
+     "checksum": "0x-71fe53d36b5dc3b"
+    },
+    {
+     "name": "map_iterate/clustered",
+     "fuel": 3083199,
+     "fuel_setup": 14554713,
+     "checksum": "0x165a49a022722253"
+    },
+    {
+     "name": "map_iterate/random",
+     "fuel": 5614663,
+     "fuel_setup": 24994573,
+     "checksum": "0x5a80d1f6f49e1129"
+    },
+    {
+     "name": "map_range/sequential",
+     "fuel": 2234337,
+     "fuel_setup": 8089832,
+     "checksum": "0x-71fe539f3c1dc3b"
+    },
+    {
+     "name": "map_range/clustered",
+     "fuel": 3193149,
+     "fuel_setup": 14791396,
+     "checksum": "0x165a49a4e7062253"
+    },
+    {
+     "name": "map_range/random",
+     "fuel": 5676748,
+     "fuel_setup": 28397021,
+     "checksum": "0x5a80d1f231ea1129"
+    },
+    {
+     "name": "map_remove/sequential",
+     "fuel": 10709645,
+     "fuel_setup": 8523530,
+     "checksum": "0x-34d33dd176a99d94"
+    },
+    {
+     "name": "map_remove/clustered",
+     "fuel": 13568230,
+     "fuel_setup": 15225094,
+     "checksum": "0x14bf7d6336a0d35d"
+    },
+    {
+     "name": "map_remove/random",
+     "fuel": 10363046,
+     "fuel_setup": 25664954,
+     "checksum": "0x-136f1b8187485874"
+    },
+    {
+     "name": "set_insert/sequential",
+     "fuel": 7530984,
+     "fuel_setup": 749927,
+     "checksum": "0x0000000000a1c6d0"
+    },
+    {
+     "name": "set_insert/clustered",
+     "fuel": 14363540,
+     "fuel_setup": 817431,
+     "checksum": "0x0000000001e705d0"
+    },
+    {
+     "name": "set_insert/random",
+     "fuel": 14403740,
+     "fuel_setup": 10399129,
+     "checksum": "0x00000017d29be250"
+    },
+    {
+     "name": "set_contains/sequential",
+     "fuel": 2374065,
+     "fuel_setup": 14003103,
+     "checksum": "0x31794b980399e753"
+    },
+    {
+     "name": "set_contains/clustered",
+     "fuel": 3754742,
+     "fuel_setup": 20906144,
+     "checksum": "0x31794b980399e753"
+    },
+    {
+     "name": "set_contains/random",
+     "fuel": 3516612,
+     "fuel_setup": 31150147,
+     "checksum": "0x317966bfc2c0e753"
+    },
+    {
+     "name": "set_iterate/sequential",
+     "fuel": 1413139,
+     "fuel_setup": 7568844,
+     "checksum": "0x2ad2f6ce118f7ee8"
+    },
+    {
+     "name": "set_iterate/clustered",
+     "fuel": 2601982,
+     "fuel_setup": 14472672,
+     "checksum": "0x-4188a41ac6093d4e"
+    },
+    {
+     "name": "set_iterate/random",
+     "fuel": 6259776,
+     "fuel_setup": 24098778,
+     "checksum": "0x740a2ce7561447fa"
+    },
+    {
+     "name": "set_range/sequential",
+     "fuel": 1536257,
+     "fuel_setup": 7805648,
+     "checksum": "0x2ad2f6cad4fb7ee8"
+    },
+    {
+     "name": "set_range/clustered",
+     "fuel": 2710082,
+     "fuel_setup": 14709354,
+     "checksum": "0x-4188a41e037d3d4e"
+    },
+    {
+     "name": "set_range/random",
+     "fuel": 6322755,
+     "fuel_setup": 27501034,
+     "checksum": "0x740a2ce3936047fa"
+    },
+    {
+     "name": "set_remove/sequential",
+     "fuel": 7661596,
+     "fuel_setup": 8219285,
+     "checksum": "0x0000000000a1e1c0"
+    },
+    {
+     "name": "set_remove/clustered",
+     "fuel": 13152661,
+     "fuel_setup": 15123052,
+     "checksum": "0x0000000001e722c0"
+    },
+    {
+     "name": "set_remove/random",
+     "fuel": 11120025,
+     "fuel_setup": 24748967,
+     "checksum": "0x00000017d29bc540"
+    }
+   ],
+   "mem_used_bytes": {
+    "map/sequential": 44240,
+    "map/clustered": 68256,
+    "map/random": 128928,
+    "set/sequential": 2992,
+    "set/clustered": 28256,
+    "set/random": 119304
+   },
+   "note": "OCC-generic walks use the `_dispatch::<OCC>` allocator entry points; built in a clean checkout"
+  },
+  {
+   "instrument": "wasmtime-fuel",
+   "target": "wasm64-unknown-unknown",
+   "wasmtime": "48.0.0",
+   "rustc": "rustc 1.100.0-nightly (2e2b193f8 2026-09-02)",
+   "host": "Darwin arm64",
+   "commit": "636fcaa7",
+   "pop": 10000,
+   "arms": [
+    {
+     "name": "map_insert/sequential",
+     "fuel": 3691008,
+     "fuel_setup": 729966,
+     "checksum": "0x00000000009cd8d0"
+    },
+    {
+     "name": "map_insert/clustered",
+     "fuel": 10858688,
+     "fuel_setup": 827467,
+     "checksum": "0x0000000001e267d0"
+    },
+    {
+     "name": "map_insert/random",
+     "fuel": 15202414,
+     "fuel_setup": 9942877,
+     "checksum": "0x4e514a77d296c44c"
+    },
+    {
+     "name": "map_get/sequential",
+     "fuel": 1537827,
+     "fuel_setup": 9751084,
+     "checksum": "0x23da6cf36655a027"
+    },
+    {
+     "name": "map_get/clustered",
+     "fuel": 2353130,
+     "fuel_setup": 17015411,
+     "checksum": "0x-578e3dcf6dbcc28d"
+    },
+    {
+     "name": "map_get/random",
+     "fuel": 1726894,
+     "fuel_setup": 30925458,
+     "checksum": "0x431ce1ffb7f7ace6"
+    },
+    {
+     "name": "map_iterate/sequential",
+     "fuel": 801284,
+     "fuel_setup": 3681545,
+     "checksum": "0x-3de476c1fba4ffef"
+    },
+    {
+     "name": "map_iterate/clustered",
+     "fuel": 905886,
+     "fuel_setup": 10946924,
+     "checksum": "0x63b610ff9c1676bf"
+    },
+    {
+     "name": "map_iterate/random",
+     "fuel": 2318788,
+     "fuel_setup": 24405669,
+     "checksum": "0x-61fc8138b95acd08"
+    },
+    {
+     "name": "map_range/sequential",
+     "fuel": 1123591,
+     "fuel_setup": 3958379,
+     "checksum": "0x-3de476c53ed0ffef"
+    },
+    {
+     "name": "map_range/clustered",
+     "fuel": 1253243,
+     "fuel_setup": 11223888,
+     "checksum": "0x63b610fb596276bf"
+    },
+    {
+     "name": "map_range/random",
+     "fuel": 2618312,
+     "fuel_setup": 27974477,
+     "checksum": "0x-61fc813c7c2ecd08"
+    },
+    {
+     "name": "map_remove/sequential",
+     "fuel": 7918059,
+     "fuel_setup": 4311958,
+     "checksum": "0x44efa402e01b2cbc"
+    },
+    {
+     "name": "map_remove/clustered",
+     "fuel": 11310306,
+     "fuel_setup": 11577402,
+     "checksum": "0x700b7be8584b15b4"
+    },
+    {
+     "name": "map_remove/random",
+     "fuel": 6861246,
+     "fuel_setup": 25036147,
+     "checksum": "0x-198666bee6b48d68"
+    },
+    {
+     "name": "set_insert/sequential",
+     "fuel": 1520090,
+     "fuel_setup": 729966,
+     "checksum": "0x0000000000a1c6d0"
+    },
+    {
+     "name": "set_insert/clustered",
+     "fuel": 8729018,
+     "fuel_setup": 827467,
+     "checksum": "0x0000000001e705d0"
+    },
+    {
+     "name": "set_insert/random",
+     "fuel": 12129176,
+     "fuel_setup": 9942877,
+     "checksum": "0x4e514a77d29be24c"
+    },
+    {
+     "name": "set_contains/sequential",
+     "fuel": 1460461,
+     "fuel_setup": 7482782,
+     "checksum": "0x64604b980399e777"
+    },
+    {
+     "name": "set_contains/clustered",
+     "fuel": 2526548,
+     "fuel_setup": 14814909,
+     "checksum": "0x64604b980399e777"
+    },
+    {
+     "name": "set_contains/random",
+     "fuel": 1847496,
+     "fuel_setup": 27749886,
+     "checksum": "0x652b66bfc2c0a338"
+    },
+    {
+     "name": "set_iterate/sequential",
+     "fuel": 257377,
+     "fuel_setup": 1544099,
+     "checksum": "0x2ad2f6ce118f7ee8"
+    },
+    {
+     "name": "set_iterate/clustered",
+     "fuel": 1803013,
+     "fuel_setup": 8877020,
+     "checksum": "0x-4188a41ac6093d4e"
+    },
+    {
+     "name": "set_iterate/random",
+     "fuel": 2530748,
+     "fuel_setup": 21392517,
+     "checksum": "0x-32b371b47fc49f78"
+    },
+    {
+     "name": "set_range/sequential",
+     "fuel": 566651,
+     "fuel_setup": 1821070,
+     "checksum": "0x2ad2f6cad4fb7ee8"
+    },
+    {
+     "name": "set_range/clustered",
+     "fuel": 2234456,
+     "fuel_setup": 9153991,
+     "checksum": "0x-4188a41e037d3d4e"
+    },
+    {
+     "name": "set_range/random",
+     "fuel": 2833528,
+     "fuel_setup": 24961321,
+     "checksum": "0x-32b371b0bab09f78"
+    },
+    {
+     "name": "set_remove/sequential",
+     "fuel": 6474885,
+     "fuel_setup": 2174578,
+     "checksum": "0x0000000000a1e1c0"
+    },
+    {
+     "name": "set_remove/clustered",
+     "fuel": 9980516,
+     "fuel_setup": 9507499,
+     "checksum": "0x0000000001e722c0"
+    },
+    {
+     "name": "set_remove/random",
+     "fuel": 7231267,
+     "fuel_setup": 22022996,
+     "checksum": "0x4e514a77d29bc55c"
+    }
+   ],
+   "mem_used_bytes": {
+    "map/sequential": 85840,
+    "map/clustered": 131424,
+    "map/random": 239456,
+    "set/sequential": 912,
+    "set/clustered": 31456,
+    "set/random": 212064
+   },
+   "note": "OCC-generic walks use the `_dispatch::<OCC>` allocator entry points; built in a clean checkout"
+  }
+ ]
+}

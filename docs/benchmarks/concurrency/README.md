@@ -2101,6 +2101,104 @@ transparent alias again. Neither is a no-op, and the retired names
 (`ablation-sharded-alloc`, `lock-padded`) are `compile_error!`s naming their
 replacements (§2.7).
 
+#### 11.10.10 The plain-tree cost of the promotion: attributed, and removed on wasm (Refs #998)
+
+§11.10.9 recorded plain arms regressing on aarch64 and wasm and attributed
+nothing. This is the attribution, the remedy, and what the remedy has and has
+not been measured on.
+
+**What a plain tree executed.** The shard branch was written
+`if OCC && let Some(sh) = self.shards.get()`, which folds away when `OCC` is
+`false`. It did not fold where the plain arms run, because several walks that
+are generic over `OCC` — `mutate::remove`, `free_branch_node` and the three
+`downgrade_*` — called the allocator's `OCC = true` spellings (`alloc_bytes`,
+`free_bytes`, `alloc_node_zeroed`, `free_node`) from their `OCC = false`
+instantiations, and the root-leaf code in `map.rs` / `set.rs` and all of
+`strmap.rs` are not generic over the mode at all. On those paths an undeferred
+tree loaded and compared the shard `OnceLock`'s state on every allocation and
+every free, ahead of the `deferred` test already there, and the plain functions
+carried the sharded arm inline. §11.10.9's "a tree that never becomes
+concurrent takes that else arm" is true; it took it after a second runtime
+test. The shards' own word also grew `NodeAlloc` from 560 B to 576 B.
+
+**Control.** `728e316e` built with `ablation-unsharded-alloc`, which compiles
+the field and every test of it out, is identical to `fb69a4af` (the parent of
+the promotion) on all 30 wasm64 fuel arms. The whole wasm cost was this
+mechanism; none of it was `Line<X>`.
+
+**Remedy, three increments.** (1) The shards ride in the collector's cell,
+`OnceLock<Box<Deferred { collector, shards }>>`, so one test decides both the
+accounting and the collector branch, and `size_of::<ExpanseMap>()` is 712 B
+again — a layout test pins `NodeAlloc` and fails at 576 B when a second
+`OnceLock` word is put back. Under `ablation-unsharded-alloc` the cell is the
+bare collector handle, inline, as before the promotion. (2) A deferred tree
+returns from `alloc_raw` / `free_raw` inside that test, so the plain path
+shares no code with it and the redundant `occ_enabled()` re-test in front of
+the per-tree freelists goes. (3) The `OCC`-generic walks call the
+`_dispatch::<OCC>` entry points, so their plain instantiations contain no
+deferred code and no test.
+
+Fuel, wasm64, pop 10,000, relative to `fb69a4af`; the 18 arms not listed and
+all 30 wasm32 arms are identical across every build
+*(measured: local macOS arm64 host, wasmtime 48.0.0, `rustc 1.98.1` for wasm32
+and `nightly-2026-09-03` with `-Z build-std` for wasm64, commits as headed;
+`results/wasm_fuel_plain_cost_998.json`; `728e316e` reproduces
+`results/baseline_wasm_fuel.json` to the unit on all 60 arms)*
+(workload: wasm_fuel). Fuel counts are exact integers and carry no interval
+(§8.4).
+
+| arm | `728e316e` (promotion) | (1) `49ab27e8` | (2) `d25af042` | (3) `636fcaa7` |
+|---|--:|--:|--:|--:|
+| `set_remove/random` | +4.455 % | +1.769 % | +0.268 % | −1.208 % |
+| `set_remove/sequential` | +3.723 % | +1.851 % | +0.006 % | −0.016 % |
+| `set_remove/clustered` | +3.332 % | +1.610 % | +0.020 % | −0.171 % |
+| `map_insert/sequential` | +1.344 % | +0.069 % | +0.164 % | +0.164 % |
+| `map_insert/clustered` | +0.200 % | +0.029 % | +0.059 % | +0.059 % |
+| `map_insert/random` | +0.177 % | +0.021 % | +0.033 % | +0.033 % |
+| `set_insert/random` | +0.163 % | +0.016 % | +0.031 % | +0.031 % |
+| `set_insert/clustered` | +0.076 % | +0.008 % | +0.014 % | +0.014 % |
+| `set_insert/sequential` | +0.037 % | +0.003 % | +0.001 % | +0.001 % |
+| `map_remove/sequential` | −0.041 % | −0.007 % | −0.022 % | −0.022 % |
+| `map_remove/clustered` | −0.122 % | −0.024 % | −0.045 % | −0.110 % |
+| `map_remove/random` | −0.080 % | −0.028 % | −0.054 % | −0.356 % |
+
+The wasm fuel gate passes against the committed baseline with no override;
+the worst arm against it is `map_remove/sequential` at +0.019 %. Recorded and
+not attributed: increment (2) gives back 0.01–0.1 % on the insert arms that
+increment (1) had recovered, and `map_insert/sequential` stays +0.164 % above
+`fb69a4af`, over the 0.1 % review threshold and under the gate's 0.5 % floor.
+
+**aarch64 and x86: static evidence only.** No Callgrind run was taken for this
+section, so no instruction count is claimed; the branch's own CI jobs are the
+measurement. What the disassembly shows (`aarch64-unknown-linux-gnu` release
+staticlib of `expanse-capi`, `rustc 1.98.1`, `objdump -d -C`) is `Once` state
+loads present per symbol, at `fb69a4af` / `728e316e` / `636fcaa7`:
+`mutate::remove::<false, false>` 14 / 30 / 0, `downgrade_b_to_l7::<false>`
+4 / 13 / 0, `JudyLIns` 12 / 19 / 9, `Judy1Set` 9 / 16 / 7,
+`ExpanseStrMap::ins_slot` 22 / 33 / 17. In `free_branch_node::<false>` the
+plain path at `728e316e` executes the added `add; ldar; cbz` and a callee-saved
+register's save and restore that the inlined sharded arm forced — five
+instructions per free over `fb69a4af`. At `636fcaa7` no `OCC = false` instance
+of it survives as a symbol, and `mutate::remove::<false, false>`, which absorbs
+it, holds no state load. These are instructions present, not executed counts.
+
+**`mem_used()`.** `ExpanseMap::mem_used` on `x86_64-unknown-linux-gnu` executes
+2 instructions at `fb69a4af` (`mov; ret`), 8 at `728e316e` — the +6 Ir the
+RocksDB §5.16 bound reported, being the second load, the test, the taken branch
+and the `isize` clamp — and 5 at `636fcaa7` (`mov; mov; test; je; ret`). One
+test remains because the same accessor serves the tree inside a `Sync*`
+wrapper, and removing it needs a second public accessor. At +3 on a
+95-instruction call made once, that bound's 0.095 Ir budget is still exceeded;
+whether the budget or the accessor changes is undecided (§8.19).
+
+**What this makes stale.** Increments (1) and (2) change the path a deferred
+tree allocates and frees through: one `OnceLock` test where there were two, and
+the shards reached through the same box as the collector handle. The W = 8
+figures in §11.10.4, §11.10.7 and §11.10.9, and the sixteen `sync_*` Callgrind
+deltas, were measured on the two-cell layout and are stale for the new one
+until `writer_scaling` and `instruction-counts` re-measure it (§8.7). No
+direction is predicted here.
+
 ## 12. Mixed read/write concurrency — `benches/concurrency.rs` (`results/baseline_concurrent_mixed.json`)
 
 The `Sync*` read/write sweep, with the four properties
