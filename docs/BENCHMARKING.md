@@ -1614,6 +1614,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `sync_bytesmap_overwrite` | `routes` | 50,000 |
 | `cost` | `sync_bytesmap_remove` | `routes` | 50,000 |
 | `cost` | `sync_map_churn` | `random` | 50,000 |
+| `cost` | `sync_map_compare_exchange` | `random` | 50,000 |
 | `cost` | `sync_map_get` | `random` | 50,000 |
 | `cost` | `sync_map_insert` | `random` | 50,000 |
 | `cost` | `sync_map_prev` | `random` | 50,000 |

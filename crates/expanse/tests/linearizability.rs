@@ -1285,3 +1285,290 @@ fn test_multi_writer_str_parallel_disjoint_and_census() {
         }
     });
 }
+
+// ---------------------------------------------------------------------------
+// `SyncExpanseMap::compare_exchange`: the lost-update detectors.
+// ---------------------------------------------------------------------------
+
+/// Retries after which a detector calls a stall a failure. Far above what
+/// contention costs: a correct run retries a few times per operation.
+const STALL: u64 = 2_000_000;
+
+/// Counters built from `get` + `compare_exchange` alone, incremented by
+/// several threads while other threads insert and remove neighbouring keys so
+/// the counters' leaves grow, shrink, reallocate and change form under them.
+/// Every counter must end at exactly the number of compares that reported a
+/// store: one more is a store reported twice, one fewer is a lost update.
+fn compare_exchange_counter_run(prepopulate: bool) {
+    let map = Arc::new(SyncExpanseMap::new());
+    if prepopulate {
+        // Past the root leaf's capacity, so the root is a tree and the
+        // compares run on the optimistic path.
+        for b in 1..=64u64 {
+            map.insert(b << 56, b);
+        }
+    }
+    // Counters in different places: alone under the root branch, inside a
+    // dense run, and inside two small clusters.
+    let counters: [u64; 4] = [
+        0x7700_0000_0000_0000,
+        1_000,
+        (3 << 56) | 5,
+        (5 << 56) | (9 << 40),
+    ];
+    for &c in &counters {
+        assert_eq!(map.compare_exchange(c, None, Some(0)), Ok(None));
+    }
+
+    const THREADS: u64 = 6;
+    const INCREMENTS: u64 = 4_000;
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+    let churners: Vec<_> = (0..2u64)
+        .map(|t| {
+            let (map, stop) = (Arc::clone(&map), Arc::clone(&stop));
+            thread::spawn(move || {
+                let mut x = 0x9E37_79B9_7F4A_7C15u64 ^ t;
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    // Neighbours of each counter, never a counter itself.
+                    let k = match x % 4 {
+                        0 => 1_001 + (x >> 8) % 600,
+                        1 => (3 << 56) | (6 + (x >> 8) % 40),
+                        2 => (5 << 56) | (9 << 40) | (1 + (x >> 8) % 40),
+                        _ => ((x >> 8) % 250 + 1) << 48,
+                    };
+                    // Without the prepopulation the churn stays on twenty
+                    // keys, so the root never leaves leaf state.
+                    let k = if prepopulate {
+                        k
+                    } else {
+                        2_000 + (x >> 8) % 20
+                    };
+                    if (x >> 3) & 1 == 0 {
+                        map.insert(k, x);
+                    } else {
+                        map.remove(k);
+                    }
+                }
+            })
+        })
+        .collect();
+
+    let workers: Vec<_> = (0..THREADS)
+        .map(|t| {
+            let map = Arc::clone(&map);
+            thread::spawn(move || {
+                let mut stored = [0u64; 4];
+                for i in 0..INCREMENTS {
+                    let which = ((i + t) % 4) as usize;
+                    let key = counters[which];
+                    let mut cur = map.get(key);
+                    for attempt in 0.. {
+                        // A broken compare can livelock the counters rather
+                        // than miscount them; that is a failure, not a hang.
+                        assert!(attempt < STALL, "counter {key:#x} never takes a store");
+                        let v = cur.expect("a counter is never removed");
+                        match map.compare_exchange(key, cur, Some(v + 1)) {
+                            Ok(prev) => {
+                                assert_eq!(prev, cur, "Ok must carry the expected word");
+                                stored[which] += 1;
+                                break;
+                            }
+                            Err(seen) => {
+                                assert_ne!(seen, cur, "Err must carry a word that differs");
+                                cur = seen;
+                            }
+                        }
+                    }
+                }
+                stored
+            })
+        })
+        .collect();
+
+    let mut stored = [0u64; 4];
+    for w in workers {
+        let s = w.join().expect("worker panicked");
+        for i in 0..4 {
+            stored[i] += s[i];
+        }
+    }
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    for c in churners {
+        c.join().expect("churner panicked");
+    }
+
+    assert_eq!(stored.iter().sum::<u64>(), THREADS * INCREMENTS);
+    for (i, &c) in counters.iter().enumerate() {
+        assert_eq!(
+            map.get(c),
+            Some(stored[i]),
+            "counter {c:#x}: {} stores were reported",
+            stored[i]
+        );
+    }
+    map.with_locked(expanse_trie::map::ExpanseMap::validate);
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_map_compare_exchange_counter_tree_rooted() {
+    compare_exchange_counter_run(true);
+}
+
+/// The same counters with the root held in leaf state (24 keys at most), so
+/// every compare goes through the exclusive form.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_map_compare_exchange_counter_root_leaf() {
+    compare_exchange_counter_run(false);
+}
+
+/// Mutual exclusion built from insert-if-absent and remove-if-equals: a key's
+/// presence is the lock and its word names the holder. The protected counter
+/// is read and written non-atomically, so two holders at once lose an update;
+/// a release that fails means another thread's word replaced the holder's.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_map_compare_exchange_token_exclusion() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let map = Arc::new(SyncExpanseMap::new());
+    for b in 1..=64u64 {
+        map.insert(b << 56, b);
+    }
+    // Two tokens: one alone in its branch slot (its removal empties the
+    // slot), one in a populated leaf.
+    let tokens: [u64; 2] = [0x7700_0000_0000_0000, (3 << 56) | 5];
+    for n in 0..20u64 {
+        map.insert((3 << 56) | (100 + n), n);
+    }
+    let guarded = Arc::new([AtomicU64::new(0), AtomicU64::new(0)]);
+
+    const THREADS: u64 = 6;
+    const ROUNDS: u64 = 3_000;
+    let workers: Vec<_> = (1..=THREADS)
+        .map(|id| {
+            let (map, guarded) = (Arc::clone(&map), Arc::clone(&guarded));
+            thread::spawn(move || {
+                for i in 0..ROUNDS {
+                    let which = ((i + id) % 2) as usize;
+                    let key = tokens[which];
+                    let mut attempts = 0u64;
+                    while map.compare_exchange(key, None, Some(id)).is_err() {
+                        attempts += 1;
+                        assert!(attempts < STALL, "token {key:#x} is never released");
+                        std::hint::spin_loop();
+                    }
+                    let seen = guarded[which].load(Ordering::Relaxed);
+                    std::hint::spin_loop();
+                    guarded[which].store(seen + 1, Ordering::Relaxed);
+                    assert_eq!(
+                        map.compare_exchange(key, Some(id), None),
+                        Ok(Some(id)),
+                        "the holder's word was replaced while it held the token"
+                    );
+                }
+            })
+        })
+        .collect();
+    for w in workers {
+        w.join().expect("worker panicked");
+    }
+    let total: u64 = guarded.iter().map(|g| g.load(Ordering::Relaxed)).sum();
+    assert_eq!(
+        total,
+        THREADS * ROUNDS,
+        "two holders at once lost an update"
+    );
+    for &t in &tokens {
+        assert_eq!(map.get(t), None);
+    }
+    assert_eq!(map.len(), 64 + 20);
+    map.with_locked(expanse_trie::map::ExpanseMap::validate);
+}
+
+/// Remove-if-equals under contention: threads race to take the word out of a
+/// key with `compare_exchange(key, Some(v), None)` and the one that wins puts
+/// `v + 1` back. A removal that ignores its compare takes out a word its
+/// caller never read: the winner's put-back then fails, or the key stays
+/// absent and the run stalls.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_map_compare_exchange_claim_by_removal() {
+    let map = Arc::new(SyncExpanseMap::new());
+    for b in 1..=64u64 {
+        map.insert(b << 56, b);
+    }
+    // One key alone in its branch slot, one inside a populated leaf, one
+    // inside a dense run.
+    let keys: [u64; 3] = [0x7700_0000_0000_0000, (3 << 56) | 5, 1_000];
+    for n in 0..20u64 {
+        map.insert((3 << 56) | (100 + n), n);
+    }
+    for n in 0..600u64 {
+        map.insert(1_001 + n, n);
+    }
+    for &k in &keys {
+        map.insert(k, 0);
+    }
+
+    const THREADS: u64 = 6;
+    const CLAIMS: u64 = 2_000;
+    let workers: Vec<_> = (0..THREADS)
+        .map(|t| {
+            let map = Arc::clone(&map);
+            thread::spawn(move || {
+                let mut claimed = [0u64; 3];
+                for i in 0..CLAIMS {
+                    let which = ((i + t) % 3) as usize;
+                    let key = keys[which];
+                    for attempt in 0.. {
+                        assert!(attempt < STALL, "key {key:#x} stays absent");
+                        let Some(v) = map.get(key) else {
+                            std::hint::spin_loop();
+                            continue;
+                        };
+                        if map.compare_exchange(key, Some(v), None) == Ok(Some(v)) {
+                            assert_eq!(
+                                map.compare_exchange(key, None, Some(v + 1)),
+                                Ok(None),
+                                "another thread took or replaced a claimed key"
+                            );
+                            claimed[which] += 1;
+                            break;
+                        }
+                    }
+                }
+                claimed
+            })
+        })
+        .collect();
+    let mut claimed = [0u64; 3];
+    for w in workers {
+        let c = w.join().expect("worker panicked");
+        for i in 0..3 {
+            claimed[i] += c[i];
+        }
+    }
+    for (i, &k) in keys.iter().enumerate() {
+        assert_eq!(map.get(k), Some(claimed[i]), "key {k:#x}");
+    }
+    assert_eq!(claimed.iter().sum::<u64>(), THREADS * CLAIMS);
+    assert_eq!(map.len(), 64 + 20 + 600 + 3);
+    map.with_locked(expanse_trie::map::ExpanseMap::validate);
+}

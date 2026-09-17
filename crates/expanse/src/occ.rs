@@ -3666,4 +3666,97 @@ mod loom_tests {
             writer.join().unwrap();
         });
     }
+
+    /// Where a conditional publish takes its compare from.
+    #[derive(Clone, Copy)]
+    enum CasCompare {
+        /// Re-read under the parent's version lock: `compare_exchange`'s
+        /// publish sites.
+        UnderLock,
+        /// Read before the lock, which is then taken against the snapshot
+        /// the read was made under: the conditional removal's form.
+        BeforeLockExpectingSnapshot,
+        /// Read before a lock that expects nothing. The negative control.
+        BeforeLockExpectingNothing,
+    }
+
+    /// One conditional publish of `new` over `expected`; `Ok` is a store.
+    fn cas_publish(
+        v: &VersionCell,
+        word: &AtomicU64,
+        expected: u64,
+        new: u64,
+        how: CasCompare,
+    ) -> Result<u64, u64> {
+        loop {
+            let Some(snap) = node_sample(v) else {
+                loom::thread::yield_now();
+                continue;
+            };
+            let seen = word.load(Ordering::Relaxed);
+            if !node_validate(v, snap) {
+                loom::thread::yield_now();
+                continue;
+            }
+            if !matches!(how, CasCompare::UnderLock) && seen != expected {
+                return Err(seen);
+            }
+            let locked = match how {
+                CasCompare::BeforeLockExpectingNothing => version_try_lock(v),
+                _ => version_try_lock_expect(v, snap),
+            };
+            let Ok(old_v) = locked else {
+                loom::thread::yield_now();
+                continue;
+            };
+            let old = word.load(Ordering::Relaxed);
+            if matches!(how, CasCompare::UnderLock) && old != expected {
+                version_unlock(v, old_v, false);
+                return Err(old);
+            }
+            word.store(new, Ordering::Relaxed);
+            version_unlock(v, old_v, true);
+            return Ok(old);
+        }
+    }
+
+    /// Two writers publish over the same expected word on one key.
+    fn cas_two_writers_model(how: CasCompare) {
+        loom::model(move || {
+            let node_v = Arc::new(VersionCell::new(0));
+            let word = Arc::new(AtomicU64::new(7));
+            let (v1, w1) = (Arc::clone(&node_v), Arc::clone(&word));
+            let t = loom::thread::spawn(move || cas_publish(&v1, &w1, 7, 100, how));
+            let mine = cas_publish(&node_v, &word, 7, 200, how);
+            let theirs = t.join().unwrap();
+            match (mine, theirs) {
+                (Ok(7), Err(seen)) => assert_eq!(seen, 200, "the loser saw a stale word"),
+                (Err(seen), Ok(7)) => assert_eq!(seen, 100, "the loser saw a stale word"),
+                other => panic!("conditional publish lost an update: {other:?}"),
+            }
+        });
+    }
+
+    /// Exactly one of two conditional publishes over one expected word
+    /// stores, and the other observes the winner's word. Red when the
+    /// compare under the lock is deleted.
+    #[test]
+    fn loom_compare_exchange_one_winner_under_the_version_lock() {
+        cas_two_writers_model(CasCompare::UnderLock);
+    }
+
+    /// The conditional removal compares before it locks; it is sound because
+    /// the lock expects the snapshot the compare was read under.
+    #[test]
+    fn loom_compare_exchange_one_winner_comparing_before_an_expecting_lock() {
+        cas_two_writers_model(CasCompare::BeforeLockExpectingSnapshot);
+    }
+
+    /// The negative control: a compare trusted across a lock that expects
+    /// nothing lets both writers store.
+    #[test]
+    #[should_panic(expected = "conditional publish lost an update")]
+    fn loom_compare_exchange_compare_outside_the_lock_loses_an_update() {
+        cas_two_writers_model(CasCompare::BeforeLockExpectingNothing);
+    }
 }
