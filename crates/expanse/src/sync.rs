@@ -9989,6 +9989,48 @@ mod tests {
         });
     }
 
+    /// The meta-trie root's slot is rewritten by the exclusive path while
+    /// optimistic readers run: one key inserted and removed in a loop creates
+    /// and removes the root every time (T11, T10). A reader must take ONE
+    /// load of that slot and decide on it. `root_raw` once tested the slot
+    /// for `None` and then loaded the box from it again; the second load
+    /// could see the removal and hand a null node to the first dereference,
+    /// which the debug null-dereference check caught on aarch64 (PR #1001).
+    /// Shown to fail within a few thousand writer rounds on that form.
+    #[test]
+    fn concurrent_str_readers_survive_root_creation_and_removal() {
+        let m = Arc::new(SyncExpanseStrMap::new());
+        let stop = Arc::new(AtomicBool::new(false));
+        let key = b"root-churn-key-longer-than-one-chunk".to_vec();
+        let readers: Vec<_> = (0..3)
+            .map(|_| {
+                let m = Arc::clone(&m);
+                let stop = Arc::clone(&stop);
+                let key = key.clone();
+                std::thread::spawn(move || {
+                    let rd = m.reader();
+                    let mut seen = 0u64;
+                    while !stop.load(Ordering::Relaxed) {
+                        if let Some(v) = rd.get(tk(&key)) {
+                            assert_eq!(v, 7, "torn value");
+                            seen += 1;
+                        }
+                    }
+                    seen
+                })
+            })
+            .collect();
+        for _ in 0..200_000 {
+            assert_eq!(m.insert(tk(&key), 7), None);
+            assert_eq!(m.remove(tk(&key)), Some(7));
+        }
+        stop.store(true, Ordering::Relaxed);
+        for r in readers {
+            r.join().expect("reader thread");
+        }
+        assert_eq!(m.len(), 0);
+    }
+
     /// Phase-2 gate (issue #219): readers hammer the multi-hop cascade
     /// while the writer churns inserts/removes — suffix splits, in-place
     /// value updates, node pruning — and periodically clears the whole

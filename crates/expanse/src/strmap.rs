@@ -2642,15 +2642,25 @@ impl ExpanseStrMap {
     /// through a loop-carried variable past its `is_null` check).
     #[inline(always)]
     fn root_raw(&self) -> Option<*mut StrNode> {
-        // SAFETY: `self` lives inside the wrapper's `UnsafeCell`, so a raw
-        // pointer to the field is writable; only the box's pointer is read
-        // here, never the node.
-        unsafe {
-            let slot: *mut Option<Box<StrNode>> = (&raw const self.root).cast_mut();
-            let b = (*slot).as_ref()?;
-            let b: *mut Box<StrNode> = core::ptr::from_ref(b).cast_mut();
-            Some(&raw mut **b)
-        }
+        // ONE load of the slot's word, then every decision on that value. The
+        // slot is rewritten by the exclusive path (the meta-trie root's
+        // creation and removal, `clear`) while optimistic readers and writers
+        // run; testing it for `None` and then loading the box from it again
+        // reads it twice, and the second load can see a root the first did
+        // not — a null pointer reaching a dereference (caught on aarch64 by
+        // the debug null-dereference check in `version_cell`, PR #1001).
+        //
+        // SAFETY: `Option<Box<T>>` has the layout of a nullable pointer to
+        // `T` (the guaranteed null-pointer optimisation), so the slot can be
+        // read as a `*mut StrNode` without materialising a `Box` from a word
+        // another thread may be replacing. The read is a racy single-word
+        // copy: whatever it returns is validated before any answer (the tree
+        // word covers every store to this slot), and a node it names is
+        // obsolete-marked before it retires and EBR-live under the caller's
+        // pin. `self` lives inside the wrapper's `UnsafeCell`, so the pointer
+        // carries write provenance for the optimistic writers.
+        let p: *mut StrNode = unsafe { (&raw const self.root).cast::<*mut StrNode>().read() };
+        if p.is_null() { None } else { Some(p) }
     }
 
     /// The exclusive prune (Refs #929): unlinks every empty node on `key`'s
