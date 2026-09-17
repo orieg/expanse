@@ -21,7 +21,7 @@ it; the hand-maintained remainder is then unchecked, and the generator says
 which parts those are.
 
 A suite README may be fed by more than one generator. `hot_comparison` is: the
-concurrent arm's §7.1, §7.2 and §7.6 come from `concurrent_tables.py` and are
+concurrent arm's §7.1, §7.2 and §7.6–§7.9 come from `concurrent_tables.py` and are
 enforced, while its string section is declared and not enforced (below).
 
 ## Why `--write` only ever replaces table runs
@@ -100,7 +100,7 @@ class Suite:
 SUITES = [
     Suite("masstree_comparison", "tables.py", enforce=True),
     Suite("concurrency", "tables.py", enforce=True),
-    Suite("hot_comparison", "concurrent_tables.py", enforce=True, scope="§7.1/§7.2/§7.6"),
+    Suite("hot_comparison", "concurrent_tables.py", enforce=True, scope="§7.1/§7.2/§7.6–§7.9"),
     Suite(
         "hot_comparison", "string_tables.py", enforce=False, pending_issue=733, scope="§6",
         reason="README section 6 curates the generator's flat per-pillar tables into "
