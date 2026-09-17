@@ -1204,6 +1204,27 @@ fn sync_map_remove(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
     black_box(removed)
 }
 
+// The read-modify-write a caller builds from the conditional publish: a
+// validated read, then `compare_exchange` over the word it returned. One
+// thread, so every compare succeeds and every op is one read and one
+// optimistic descent that stores in place.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_map)]
+fn sync_map_compare_exchange(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let rd = map.reader();
+    let mut won = 0u64;
+    for &k in &probes {
+        let cur = rd.get(black_box(k));
+        let next = cur.map(|v| v.wrapping_add(1));
+        won += u64::from(map.compare_exchange(black_box(k), cur, next).is_ok());
+    }
+    // Both leaked — see `sync_map_get`.
+    core::mem::forget(rd);
+    core::mem::forget(map);
+    black_box(won)
+}
+
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = built_sync_set)]
 fn sync_set_churn(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
@@ -1693,6 +1714,7 @@ library_benchmark_group!(
         sync_set_contains,
         sync_map_churn,
         sync_map_remove,
+        sync_map_compare_exchange,
         sync_set_churn,
         sync_set_remove,
         strmap_get_short,

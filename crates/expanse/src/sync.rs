@@ -4940,6 +4940,152 @@ impl SyncExpanseMap {
         }
     }
 
+    /// Publishes `new` under `key` only if the key's current word is
+    /// `expected`, as one linearizable step (`None` is "absent" on both
+    /// sides, so `(None, Some(v))` is insert-if-absent and `(Some(e), None)`
+    /// is remove-if-equals).
+    ///
+    /// `Ok(previous)` means the store happened and `previous == expected`;
+    /// `Err(observed)` means nothing was stored and `observed` is the word
+    /// the compare saw.
+    ///
+    /// The compare is on the 64-bit word alone. A caller whose words are
+    /// addresses must keep the expected one from being freed and reused
+    /// between reading it and this call, or an equal word can name a
+    /// different object.
+    ///
+    /// # Errors
+    ///
+    /// `Err(observed)` when the key's word was not `expected`.
+    pub fn compare_exchange(
+        &self,
+        key: Key,
+        expected: Option<u64>,
+        new: Option<u64>,
+    ) -> Result<Option<u64>, Option<u64>> {
+        if expected.is_none() && new.is_none() {
+            // Nothing to store either way: a validated read decides it.
+            return match self.get(key) {
+                None => Ok(None),
+                seen => Err(seen),
+            };
+        }
+        let observed = self.compare_exchange_observed(key, expected, new);
+        if observed == expected {
+            Ok(observed)
+        } else {
+            Err(observed)
+        }
+    }
+
+    /// The word the compare saw; the store happened iff it equals `expected`.
+    fn compare_exchange_observed(
+        &self,
+        key: Key,
+        expected: Option<u64>,
+        new: Option<u64>,
+    ) -> Option<u64> {
+        // The exclusive form. It holds the tree word, so a read, a compare
+        // and a write are one step; it never trusts what an optimistic
+        // attempt observed, and re-reads.
+        let exclusive = |m: &mut ExpanseMap| {
+            let seen = m.get(key);
+            if seen == expected {
+                match new {
+                    Some(v) => {
+                        m.insert(key, v);
+                    }
+                    None => {
+                        m.remove(key);
+                    }
+                }
+            }
+            seen
+        };
+        #[cfg(feature = "std")]
+        {
+            if !self.shared.inner_ref().root_is_tree() {
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
+                return self.shared.remove_root_covered(exclusive);
+            }
+
+            let _guard = self.shared.enter_writer_blocking();
+            let res = self.shared.with_writer_pin(|| {
+                crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+                crate::occ_stats::op_begin();
+
+                let mut cause = FallbackCause::Contention;
+                #[cfg(feature = "occ-stats")]
+                let mut closed = false;
+                let mut backoff = 1;
+                for _ in 0..MAX_RETRIES {
+                    if self.shared.gate.is_closed() {
+                        #[cfg(feature = "occ-stats")]
+                        {
+                            closed = true;
+                        }
+                        break;
+                    }
+                    let attempt = match (new, expected) {
+                        (Some(v), _) => self.olc_cas_publish_map(key, expected, v),
+                        (None, Some(e)) => self.olc_cas_remove_map(key, e),
+                        (None, None) => unreachable!("decided by a read above"),
+                    };
+                    match attempt {
+                        OlcOutcome::Done(seen) => {
+                            if seen == expected {
+                                let delta = match (seen, new) {
+                                    (None, Some(_)) => 1,
+                                    (Some(_), None) => -1,
+                                    _ => 0,
+                                };
+                                if delta != 0 {
+                                    self.shared.tree_pop.add(_guard.slot_id(), delta);
+                                }
+                            }
+                            self.shared.collector.tick_advance();
+                            crate::occ_stats::op_end();
+                            return Ok(seen);
+                        }
+                        OlcOutcome::Retry => {
+                            crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                            for _ in 0..backoff {
+                                core::hint::spin_loop();
+                            }
+                            if backoff < 64 {
+                                backoff <<= 1;
+                            }
+                            #[cfg(loom)]
+                            loom::thread::yield_now();
+                        }
+                        OlcOutcome::Fallback(c) => {
+                            cause = c;
+                            break;
+                        }
+                    }
+                }
+                crate::occ_stats::op_end();
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(cause.stat());
+                #[cfg(feature = "occ-stats")]
+                if cause == FallbackCause::Contention {
+                    crate::occ_stats::bump(contention_stat(closed));
+                }
+                Err(cause)
+            });
+            drop(_guard);
+            match res {
+                Ok(seen) => seen,
+                Err(_) => self.shared.remove_root_covered(exclusive),
+            }
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            self.shared.remove_root_covered(exclusive)
+        }
+    }
+
     /// Test-only hook: closes writer gate directly without draining active writers (#568).
     ///
     /// # Warning
@@ -5068,7 +5214,7 @@ impl SyncExpanseMap {
 /// another writer published one first. The map wrapper expands it `false`.
 #[cfg(feature = "std")]
 macro_rules! olc_insert_map_body {
-    ($host:expr, $keep:expr, $key:ident, $val:ident) => {{
+    ($host:expr, $old:ident => $keep:expr, $absent:expr, $key:ident, $val:ident) => {{
     if !$host.tree_word_even() {
         return OlcOutcome::Retry;
     }
@@ -5171,6 +5317,10 @@ macro_rules! olc_insert_map_body {
                 if !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap) {
                     return OlcOutcome::Retry;
                 }
+                if !$absent {
+                    // Absent under a validated branch: nothing to compare with.
+                    return OlcOutcome::Done(None);
+                }
                 let cap = if is_l3 { BRANCH_L3_CAP } else { BRANCH_L7_CAP };
                 if num < cap {
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -5262,6 +5412,17 @@ macro_rules! olc_insert_map_body {
                 };
                 if bl < level && !crate::get::decode_matches(&edge, $key, bl, level) {
                     return branch_split(BranchSplitKind::Prefix);
+                }
+                if !$absent && (!bit || sub.is_null()) {
+                    // A null subarray under a set bit is a torn read; an unset
+                    // bit is an absence only under an unchanged version.
+                    // SAFETY: version cell is within an EBR-live node allocation.
+                    if (bit && sub.is_null())
+                        || !crate::occ::node_validate(unsafe { crate::occ::version_cell(vp) }, nsnap)
+                    {
+                        return OlcOutcome::Retry;
+                    }
+                    return OlcOutcome::Done(None);
                 }
                 if !bit || sub.is_null() {
                     let d = digit($key, bl);
@@ -5534,15 +5695,21 @@ macro_rules! olc_insert_map_body {
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     unsafe {
                         let slot = (*node).values[sub].add(rank);
-                        let old = slot.read();
+                        let $old = slot.read();
                         if $keep {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
-                            return OlcOutcome::Done(Some(old));
+                            return OlcOutcome::Done(Some($old));
                         }
                         slot.write($val);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        return OlcOutcome::Done(Some(old));
+                        return OlcOutcome::Done(Some($old));
                     }
+                }
+                if !$absent {
+                    if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                        return OlcOutcome::Retry;
+                    }
+                    return OlcOutcome::Done(None);
                 }
                 // SAFETY: node is an EBR-live bitmap node and parent is validated/locked.
                 let old_n = unsafe { (*node).bitmap.subexpanse_count(sub) as usize };
@@ -5690,15 +5857,21 @@ macro_rules! olc_insert_map_body {
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     unsafe {
                         let slot = base.cast::<u64>().add(pos);
-                        let old = slot.read();
+                        let $old = slot.read();
                         if $keep {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
-                            return OlcOutcome::Done(Some(old));
+                            return OlcOutcome::Done(Some($old));
                         }
                         slot.write($val);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        return OlcOutcome::Done(Some(old));
+                        return OlcOutcome::Done(Some($old));
                     }
+                }
+                if !$absent {
+                    if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                        return OlcOutcome::Retry;
+                    }
+                    return OlcOutcome::Done(None);
                 }
                 let cap = if kb == 1 {
                     crate::mutate::LEAF1_CAP
@@ -5991,15 +6164,21 @@ macro_rules! olc_insert_map_body {
                         debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                         unsafe {
-                            let old = (*edge_ptr).word0();
+                            let $old = (*edge_ptr).word0();
                             if $keep {
                                 version_unlock_timed(p_cell, old_v, false, lock_t0);
-                                return OlcOutcome::Done(Some(old));
+                                return OlcOutcome::Done(Some($old));
                             }
                             (*edge_ptr).set_imm_bytes($val.to_le_bytes());
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            return OlcOutcome::Done(Some(old));
+                            return OlcOutcome::Done(Some($old));
                         }
+                    }
+                    if !$absent {
+                        if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                            return OlcOutcome::Retry;
+                        }
+                        return OlcOutcome::Done(None);
                     }
                     let old_val = u64::from_le_bytes(edge.imm_bytes());
                     let (slot0_k, slot0_v, slot1_k, slot1_v) = if k < existing_k {
@@ -6124,15 +6303,21 @@ macro_rules! olc_insert_map_body {
                     unsafe {
                         let vals = edge.node_ptr().cast::<u64>();
                         let slot = vals.add(p);
-                        let old = slot.read();
+                        let $old = slot.read();
                         if $keep {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
-                            return OlcOutcome::Done(Some(old));
+                            return OlcOutcome::Done(Some($old));
                         }
                         slot.write($val);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        return OlcOutcome::Done(Some(old));
+                        return OlcOutcome::Done(Some($old));
                     }
+                }
+                if !$absent {
+                    if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                        return OlcOutcome::Retry;
+                    }
+                    return OlcOutcome::Done(None);
                 }
                 let ins_pos = locate_res.unwrap_err();
                 if n < crate::mutate::map_immed_max(kb) {
@@ -6316,6 +6501,17 @@ macro_rules! olc_insert_map_body {
             }
 
             EdgeTag::Structural(EdgeType::Null) => {
+                if !$absent {
+                    if anc_depth > 0 {
+                        let parent = ancestors[anc_depth - 1];
+                        // SAFETY: version cell is within an EBR-live node allocation.
+                        let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
+                        if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                            return OlcOutcome::Retry;
+                        }
+                    }
+                    return OlcOutcome::Done(None);
+                }
                 if anc_depth > 0 && ancestors[anc_depth - 1].edge_type == EdgeType::BranchU {
                     let parent = ancestors[anc_depth - 1];
                     // SAFETY: version cell is within an EBR-live BranchU node allocation.
@@ -6356,7 +6552,7 @@ macro_rules! olc_insert_map_body {
 /// The OLC remove body; see `olc_insert_map_body!`.
 #[cfg(feature = "std")]
 macro_rules! olc_remove_map_body {
-    ($host:expr, $key:ident) => {{
+    ($host:expr, $cond:expr, $old:ident => $keep:expr, $key:ident) => {{
     if !$host.tree_word_even() {
         return OlcOutcome::Retry;
     }
@@ -6598,6 +6794,31 @@ macro_rules! olc_remove_map_body {
                     }
                     return OlcOutcome::Done(None);
                 };
+                if $cond {
+                    // The conditional removal's compare. The word is read between two
+                    // validations of the parent, so it is the key's word at the snapshot
+                    // every removal below locks against: `version_try_lock_expect` on
+                    // `parent.version_snap` fails if any store landed under this parent
+                    // since, and every store of a value word unlocks modified.
+                    if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                        return OlcOutcome::Retry;
+                    }
+                    // SAFETY: the pointer and index were read under the snapshot just
+                    // validated, inside an EBR-live allocation the writer pin keeps mapped.
+                    let $old = unsafe { {
+                                        let vals = (*node).values[sub];
+                                        if vals.is_null() {
+                                            return OlcOutcome::Retry;
+                                        }
+                                        vals.add(rank).read()
+                                    } };
+                    if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                        return OlcOutcome::Retry;
+                    }
+                    if $keep {
+                        return OlcOutcome::Done(Some($old));
+                    }
+                }
                 let pop0 = edge.pop0(1) as usize;
                 if pop0 == 0 {
                     if parent.edge_type == EdgeType::BranchU {
@@ -6969,6 +7190,25 @@ macro_rules! olc_remove_map_body {
                     }
                     return OlcOutcome::Done(None);
                 };
+                if $cond {
+                    // The conditional removal's compare. The word is read between two
+                    // validations of the parent, so it is the key's word at the snapshot
+                    // every removal below locks against: `version_try_lock_expect` on
+                    // `parent.version_snap` fails if any store landed under this parent
+                    // since, and every store of a value word unlocks modified.
+                    if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                        return OlcOutcome::Retry;
+                    }
+                    // SAFETY: the pointer and index were read under the snapshot just
+                    // validated, inside an EBR-live allocation the writer pin keeps mapped.
+                    let $old = unsafe { base.cast::<u64>().add(pos).read() };
+                    if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                        return OlcOutcome::Retry;
+                    }
+                    if $keep {
+                        return OlcOutcome::Done(Some($old));
+                    }
+                }
                 let immed_max = crate::mutate::map_immed_max(level);
                 if pop > immed_max && crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop)
                 {
@@ -7196,6 +7436,24 @@ macro_rules! olc_remove_map_body {
                     };
                     let existing_k = edge.aux_word() & mask;
                     if existing_k == k {
+                        if $cond {
+                            // The conditional removal's compare. The word is read between two
+                            // validations of the parent, so it is the key's word at the snapshot
+                            // every removal below locks against: `version_try_lock_expect` on
+                            // `parent.version_snap` fails if any store landed under this parent
+                            // since, and every store of a value word unlocks modified.
+                            if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                                return OlcOutcome::Retry;
+                            }
+                            // The word is in the edge copy itself.
+                            let $old = edge.word0();
+                            if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                                return OlcOutcome::Retry;
+                            }
+                            if $keep {
+                                return OlcOutcome::Done(Some($old));
+                            }
+                        }
                         if parent.edge_type != EdgeType::BranchU {
                             return branch_split(BranchSplitKind::Remove);
                         }
@@ -7233,6 +7491,25 @@ macro_rules! olc_remove_map_body {
                     }
                     return OlcOutcome::Done(None);
                 };
+                if $cond {
+                    // The conditional removal's compare. The word is read between two
+                    // validations of the parent, so it is the key's word at the snapshot
+                    // every removal below locks against: `version_try_lock_expect` on
+                    // `parent.version_snap` fails if any store landed under this parent
+                    // since, and every store of a value word unlocks modified.
+                    if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                        return OlcOutcome::Retry;
+                    }
+                    // SAFETY: the pointer and index were read under the snapshot just
+                    // validated, inside an EBR-live allocation the writer pin keeps mapped.
+                    let $old = unsafe { edge.node_ptr().cast::<u64>().add(p).read() };
+                    if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                        return OlcOutcome::Retry;
+                    }
+                    if $keep {
+                        return OlcOutcome::Done(Some($old));
+                    }
+                }
                 if n == 2 {
                     let Ok((old_v, lock_t0)) =
                         version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -7387,7 +7664,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
     key: Key,
     val: u64,
 ) -> OlcOutcome<Option<u64>> {
-    olc_insert_map_body!(host, KEEP, key, val)
+    olc_insert_map_body!(host, old => KEEP, true, key, val)
 }
 
 /// The OLC remove over any [`OlcHost`]; see [`olc_insert_map`].
@@ -7396,7 +7673,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
 #[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
 pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Option<u64>> {
-    olc_remove_map_body!(host, key)
+    olc_remove_map_body!(host, false, _old => false, key)
 }
 
 impl SyncExpanseMap {
@@ -7407,7 +7684,40 @@ impl SyncExpanseMap {
     #[allow(clippy::undocumented_unsafe_blocks)]
     #[cfg(feature = "std")]
     fn olc_insert_map(&self, key: Key, val: u64) -> OlcOutcome<Option<u64>> {
-        olc_insert_map_body!(self.shared, false, key, val)
+        olc_insert_map_body!(self.shared, old => false, true, key, val)
+    }
+
+    /// The conditional publish: `olc_insert_map_body!` storing only over
+    /// `expected`. `Done(seen)` is the word the compare saw under the parent's
+    /// version lock (or a validated absence); the store happened iff
+    /// `seen == expected`.
+    // The `// SAFETY:` comments sit on each block inside the macro body; clippy
+    // cannot see a comment through a macro expansion.
+    #[allow(clippy::undocumented_unsafe_blocks)]
+    #[cfg(feature = "std")]
+    fn olc_cas_publish_map(
+        &self,
+        key: Key,
+        expected: Option<u64>,
+        val: u64,
+    ) -> OlcOutcome<Option<u64>> {
+        olc_insert_map_body!(
+            self.shared,
+            old => expected != Some(old),
+            expected.is_none(),
+            key,
+            val
+        )
+    }
+
+    /// The conditional removal: `olc_remove_map_body!` removing only
+    /// `expected`. `Done(seen)` as in [`Self::olc_cas_publish_map`].
+    // The `// SAFETY:` comments sit on each block inside the macro body; clippy
+    // cannot see a comment through a macro expansion.
+    #[allow(clippy::undocumented_unsafe_blocks)]
+    #[cfg(feature = "std")]
+    fn olc_cas_remove_map(&self, key: Key, expected: u64) -> OlcOutcome<Option<u64>> {
+        olc_remove_map_body!(self.shared, true, old => old != expected, key)
     }
 
     /// The map wrapper's OLC remove: `olc_remove_map_body!` as the method it
@@ -7417,7 +7727,7 @@ impl SyncExpanseMap {
     #[allow(clippy::undocumented_unsafe_blocks)]
     #[cfg(feature = "std")]
     fn olc_remove_map(&self, key: Key) -> OlcOutcome<Option<u64>> {
-        olc_remove_map_body!(self.shared, key)
+        olc_remove_map_body!(self.shared, false, _old => false, key)
     }
 }
 
@@ -13307,5 +13617,133 @@ mod ordered_read_tests {
                 "{name}: owned and detached ordered reads must not register per call"
             );
         }
+    }
+}
+
+/// `SyncExpanseMap::compare_exchange` against a model, over key families that
+/// put the compared word in every terminal form the optimistic bodies decode.
+#[cfg(all(test, not(miri)))]
+mod compare_exchange_tests {
+    use super::SyncExpanseMap;
+    use std::collections::HashMap;
+
+    struct XorShift(u64);
+    impl XorShift {
+        fn next(&mut self) -> u64 {
+            let mut x = self.0;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.0 = x;
+            x
+        }
+    }
+
+    /// Key families: top-level singles (one-key immediates under the root
+    /// branch), a dense run (bitmap leaves), small clusters at several depths
+    /// (multi-key immediates and linear leaves), and sparse random keys.
+    fn family_key(rng: &mut XorShift) -> u64 {
+        let r = rng.next();
+        match r % 5 {
+            0 => ((r >> 8) % 64) << 56,
+            1 => (r >> 8) % 3_000,
+            2 => 0x0300_0000_0000_0000 | (((r >> 8) % 400) << 16) | ((r >> 40) % 6),
+            3 => 0x0500_0000_0000_0000 | (((r >> 8) % 40) << 40) | ((r >> 48) % 12),
+            _ => ((r >> 3) % 50_000).wrapping_mul(0x9E37_79B9_7F4A_7C15),
+        }
+    }
+
+    /// One random conditional op, checked against `model` and applied to it.
+    fn step(map: &SyncExpanseMap, model: &mut HashMap<u64, u64>, rng: &mut XorShift) {
+        let key = family_key(rng);
+        let cur = model.get(&key).copied();
+        let r = rng.next();
+        // Values never carry bit 63, so the wrong `expected` never matches.
+        let expected = match r % 4 {
+            0 | 1 => cur,
+            2 => Some(r | (1 << 63)),
+            _ => None,
+        };
+        let new = if (r >> 8).is_multiple_of(4) {
+            None
+        } else {
+            Some((r >> 16) & !(1 << 63))
+        };
+        let got = map.compare_exchange(key, expected, new);
+        if expected == cur {
+            assert_eq!(got, Ok(cur), "key {key:#x}: a matching compare must store");
+            match new {
+                Some(v) => {
+                    model.insert(key, v);
+                }
+                None => {
+                    model.remove(&key);
+                }
+            }
+        } else {
+            assert_eq!(
+                got,
+                Err(cur),
+                "key {key:#x}: a failed compare reports the word it saw"
+            );
+        }
+        assert_eq!(map.get(key), model.get(&key).copied(), "key {key:#x}");
+    }
+
+    #[test]
+    fn compare_exchange_matches_a_model_across_node_forms() {
+        let map = SyncExpanseMap::new();
+        let mut model = HashMap::new();
+        let mut rng = XorShift(0x5EED_CA5C_A5E5_0001);
+        for _ in 0..400_000 {
+            step(&map, &mut model, &mut rng);
+        }
+        assert_eq!(map.len(), model.len() as u64);
+        map.with_locked(|m| {
+            m.validate();
+            assert_eq!(m.len(), model.len() as u64);
+            for (&k, &v) in &model {
+                assert_eq!(m.get(k), Some(v));
+            }
+        });
+    }
+
+    /// The root-leaf state, where every op is the exclusive form: the
+    /// conditional semantics hold through the fallback.
+    #[test]
+    fn compare_exchange_in_root_leaf_state() {
+        let map = SyncExpanseMap::new();
+        assert_eq!(map.compare_exchange(7, None, None), Ok(None));
+        assert_eq!(map.compare_exchange(7, Some(1), Some(2)), Err(None));
+        assert_eq!(map.compare_exchange(7, None, Some(1)), Ok(None));
+        assert_eq!(map.compare_exchange(7, None, Some(9)), Err(Some(1)));
+        assert_eq!(map.compare_exchange(7, None, None), Err(Some(1)));
+        assert_eq!(map.compare_exchange(7, Some(2), Some(3)), Err(Some(1)));
+        assert_eq!(map.compare_exchange(7, Some(1), Some(3)), Ok(Some(1)));
+        assert_eq!(map.compare_exchange(7, Some(1), None), Err(Some(3)));
+        assert_eq!(map.compare_exchange(7, Some(3), None), Ok(Some(3)));
+        assert_eq!(map.get(7), None);
+        assert_eq!(map.len(), 0);
+    }
+
+    /// Population accounting: the sharded count moves only on a store that
+    /// changes membership.
+    #[test]
+    fn compare_exchange_keeps_len_exact_in_tree_state() {
+        let map = SyncExpanseMap::new();
+        for k in 0..1_000u64 {
+            map.insert(k * 0x0101_0101, k);
+        }
+        assert_eq!(map.compare_exchange(5, None, Some(1)), Ok(None));
+        assert_eq!(map.len(), 1_001);
+        assert_eq!(map.compare_exchange(5, None, Some(2)), Err(Some(1)));
+        assert_eq!(map.compare_exchange(5, Some(1), Some(2)), Ok(Some(1)));
+        assert_eq!(map.len(), 1_001);
+        assert_eq!(map.compare_exchange(5, Some(1), None), Err(Some(2)));
+        assert_eq!(map.len(), 1_001);
+        assert_eq!(map.compare_exchange(5, Some(2), None), Ok(Some(2)));
+        assert_eq!(map.len(), 1_000);
+        assert_eq!(map.compare_exchange(5, Some(2), None), Err(None));
+        assert_eq!(map.len(), 1_000);
     }
 }
