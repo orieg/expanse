@@ -131,6 +131,21 @@ BENCH_N_MAP: Dict[str, int] = {
     "sync_blobmap_insert": 50_000,
     "sync_blobmap_remove": 50_000,
     "sync_blobmap_churn": 50_000,
+    # The byte-string and blob map paths the arms above left uncovered (#929):
+    # one pass over `str_keys` or `keys("random")` (POP = 50,000). `overwrite`
+    # is one present-key insert per key; churn counts one per key.
+    "bytesmap_remove": 50_000,
+    "bytesmap_overwrite": 50_000,
+    "blobmap_insert": 50_000,
+    "blobmap_insert_inline": 50_000,
+    "blobmap_get": 50_000,
+    "blobmap_remove": 50_000,
+    "blobmap_overwrite": 50_000,
+    "blobmap_churn": 50_000,
+    "sync_bytesmap_get": 50_000,
+    "sync_bytesmap_overwrite": 50_000,
+    "sync_blobmap_get": 50_000,
+    "sync_blobmap_overwrite": 50_000,
     # C ABI vs Stock Judy
     "judyl_insert": 50_000,
     "judyl_get": 50_000,
@@ -191,6 +206,9 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "bytesmap_get",
             "strmap_get_short",
             "sync_strmap_get_short",
+            "blobmap_get",
+            "sync_bytesmap_get",
+            "sync_blobmap_get",
         },
     ),
     (
@@ -252,6 +270,15 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "sync_blobmap_insert",
             "sync_blobmap_remove",
             "sync_blobmap_churn",
+            "bytesmap_remove",
+            "bytesmap_overwrite",
+            "blobmap_insert",
+            "blobmap_insert_inline",
+            "blobmap_remove",
+            "blobmap_overwrite",
+            "blobmap_churn",
+            "sync_bytesmap_overwrite",
+            "sync_blobmap_overwrite",
         },
     ),
 ]

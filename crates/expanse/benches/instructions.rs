@@ -42,6 +42,7 @@
 // harness.
 #![allow(missing_docs)]
 
+use expanse_trie::blobmap::ExpanseBlobMap;
 use expanse_trie::bytesmap::ExpanseBytesMap;
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
@@ -863,6 +864,186 @@ fn bytesmap_churn(built: (ExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -> u64 {
     black_box(sink)
 }
 
+// Remove of every present key, shuffled: bucket removal and, as the hash
+// trie empties, terminal demotion. `sync_bytesmap_remove` is its twin.
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_bytesmap)]
+fn bytesmap_remove(built: (ExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -> u64 {
+    let (mut map, probes) = built;
+    let mut removed = 0u64;
+    for k in &probes {
+        removed += u64::from(map.remove(black_box(k)).is_some());
+    }
+    core::mem::forget(map);
+    black_box(removed)
+}
+
+// Insert over a present key, and nothing else: `bytesmap_churn` folds this
+// step in with a remove and a fresh insert, so a change to the present-key
+// path (the membership probe ahead of the slot insert, #929) moves only part
+// of that arm and cannot be read off it. Every probe is a hit; the population
+// does not change.
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_bytesmap)]
+fn bytesmap_overwrite(built: (ExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -> u64 {
+    let (mut map, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        sink ^= map.insert(black_box(k), black_box(7)).unwrap_or(0);
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// ---- Blob map (#929) ------------------------------------------------------
+//
+// The plain `ExpanseBlobMap` over `keys("random")`, with the payload and
+// metadata the `sync_blobmap_*` arms use (`blob_payload`, `blob_meta`, further
+// down): 16 bytes, above the 7-byte inline limit, and non-zero 24-bit
+// metadata, so every value is an arena record and no insert takes the
+// compressed-inline path. Each `sync_blobmap_*` arm is the same body through
+// the wrapper, so the difference between a pair is the wrapper's cost.
+// `blobmap_insert_inline` is the exception: a 7-byte payload, stored in the
+// slot word with no arena allocation.
+//
+// Every insert result is checked with `expect`, in setup and in the measured
+// bodies alike, as the `sync_blobmap_*` arms do: a rejected insert
+// (`MetaOverflow`, `AllocationFailed`) would otherwise leave an arm measuring
+// an error return under an insert label.
+
+/// Prebuilt blob map plus shuffled probe order.
+fn built_blobmap(dist: &str) -> (ExpanseBlobMap, Vec<u64>) {
+    let ks = keys(dist);
+    let mut map = ExpanseBlobMap::new();
+    for &k in &ks {
+        map.insert(k, &blob_payload(k), blob_meta(k))
+            .expect("blob insert");
+    }
+    (map, shuffled(ks))
+}
+
+/// The inline blob arm's payload for `k`: 7 key-derived bytes, the largest
+/// payload the slot word holds.
+fn blob_payload_inline(k: u64) -> [u8; 7] {
+    let mut out = [0u8; 7];
+    out.copy_from_slice(&k.to_le_bytes()[..7]);
+    out
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = keys)]
+fn blobmap_insert(ks: Vec<u64>) -> u64 {
+    let mut map = ExpanseBlobMap::new();
+    for &k in &ks {
+        map.insert(
+            black_box(k),
+            black_box(&blob_payload(k)),
+            black_box(blob_meta(k)),
+        )
+        .expect("blob insert");
+    }
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
+}
+
+// Inline payloads carry no metadata field, so `hot_meta` is passed as 0.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = keys)]
+fn blobmap_insert_inline(ks: Vec<u64>) -> u64 {
+    let mut map = ExpanseBlobMap::new();
+    for &k in &ks {
+        map.insert(
+            black_box(k),
+            black_box(&blob_payload_inline(k)),
+            black_box(0),
+        )
+        .expect("blob insert");
+    }
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
+}
+
+// The payload is dereferenced, not just located: the sink folds in a payload
+// byte and the length along with the metadata, so the arena line is read.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_blobmap)]
+fn blobmap_get(built: (ExpanseBlobMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for &k in &probes {
+        if let Some((view, meta)) = map.get(black_box(k)) {
+            let bytes = view.as_bytes();
+            sink ^= u64::from(meta)
+                ^ bytes.len() as u64
+                ^ u64::from(bytes.first().copied().unwrap_or(0));
+        }
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_blobmap)]
+fn blobmap_remove(built: (ExpanseBlobMap, Vec<u64>)) -> u64 {
+    let (mut map, probes) = built;
+    let mut removed = 0u64;
+    for &k in &probes {
+        removed += u64::from(map.remove(black_box(k)));
+    }
+    core::mem::forget(map);
+    black_box(removed)
+}
+
+// Insert over a present key with a payload of the same size: the index walk
+// that reads the old slot, a fresh arena record, the index walk that stores
+// the new slot, and the old record counted as garbage. The arena is
+// append-only, so the old bytes stay stranded until a compaction; this arm
+// runs none.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_blobmap)]
+fn blobmap_overwrite(built: (ExpanseBlobMap, Vec<u64>)) -> u64 {
+    let (mut map, probes) = built;
+    for &k in &probes {
+        map.insert(
+            black_box(k),
+            black_box(&blob_payload(!k)),
+            black_box(blob_meta(!k)),
+        )
+        .expect("blob replace");
+    }
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
+}
+
+// Same-key replace, remove, reinsert: `sync_blobmap_churn`'s ladder on the
+// plain map.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_blobmap)]
+fn blobmap_churn(built: (ExpanseBlobMap, Vec<u64>)) -> u64 {
+    let (mut map, probes) = built;
+    let mut sink = 0u64;
+    for &k in &probes {
+        map.insert(
+            black_box(k),
+            black_box(&blob_payload(!k)),
+            black_box(blob_meta(!k)),
+        )
+        .expect("blob replace");
+        sink ^= u64::from(map.remove(black_box(k)));
+        map.insert(
+            black_box(k),
+            black_box(&blob_payload(k)),
+            black_box(blob_meta(k)),
+        )
+        .expect("blob reinsert");
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 // ---- Concurrent wrappers, one thread (#568) -----------------------------
 //
 // The same operations through `SyncExpanseMap` / `SyncExpanseSet` on a
@@ -1169,9 +1350,13 @@ fn sync_strmap_churn_short(built: (SyncExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
 // One thread, so no lock is contended and the count is exact. The string and
 // byte-string arms run the `str_keys` population their plain twins
 // (`strmap_*`, `bytesmap_*`) run, so each difference is the wrapper's cost
-// on that path. The blob arm has no 64-bit plain twin in this file; its
-// payloads are 16 bytes, above the 7-byte inline limit, with non-zero
-// metadata, so every value lives in the arena.
+// on that path. The blob arms' plain twins are `blobmap_*`; their payloads
+// are 16 bytes, above the 7-byte inline limit, with non-zero metadata, so
+// every value lives in the arena.
+//
+// The `get` arms are the optimistic readers (pin, sample, validated walk) with
+// no writer, as `sync_map_get` is. The `overwrite` arms are the present-key
+// insert alone, which the churn arms fold in with a remove and a reinsert.
 
 fn built_sync_strmap(dist: &str) -> (SyncExpanseStrMap, Vec<Vec<u8>>) {
     let ks = str_keys(dist);
@@ -1294,6 +1479,34 @@ fn sync_bytesmap_churn(built: (SyncExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) ->
 }
 
 #[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_sync_bytesmap)]
+fn sync_bytesmap_get(built: (SyncExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let rd = map.reader();
+    let mut sink = 0u64;
+    for k in &probes {
+        sink ^= rd.get(black_box(k)).unwrap_or(0);
+    }
+    // Both leaked — see `sync_map_get`.
+    core::mem::forget(rd);
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// `bytesmap_overwrite` through the wrapper.
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_sync_bytesmap)]
+fn sync_bytesmap_overwrite(built: (SyncExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        sink ^= map.insert(black_box(k), black_box(7)).unwrap_or(0);
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
 #[bench::random(args = ("random",), setup = keys)]
 fn sync_blobmap_insert(ks: Vec<u64>) -> u64 {
     let map = SyncExpanseBlobMap::new();
@@ -1346,6 +1559,49 @@ fn sync_blobmap_churn(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
     }
     core::mem::forget(map);
     black_box(sink)
+}
+
+// `blobmap_get` through the wrapper's zero-copy read: one pin per probe, as
+// the other readers' `get` takes, then the validated walk and a borrow of the
+// epoch-pinned arena bytes. `BlobReader::get` is not used: it copies the
+// payload into a fresh `Vec`, and the arm would count the allocator.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_blobmap)]
+fn sync_blobmap_get(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let mut rd = map.reader();
+    let mut sink = 0u64;
+    for &k in &probes {
+        let guard = rd.pin();
+        if let Some((view, meta)) = guard.get(black_box(k)) {
+            let bytes = view.as_bytes();
+            sink ^= u64::from(meta)
+                ^ bytes.len() as u64
+                ^ u64::from(bytes.first().copied().unwrap_or(0));
+        }
+    }
+    // Both leaked — see `sync_map_get`.
+    core::mem::forget(rd);
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// `blobmap_overwrite` through the wrapper.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_blobmap)]
+fn sync_blobmap_overwrite(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    for &k in &probes {
+        map.insert(
+            black_box(k),
+            black_box(&blob_payload(!k)),
+            black_box(blob_meta(!k)),
+        )
+        .expect("blob replace");
+    }
+    let n = map.with_locked(|m| m.len());
+    core::mem::forget(map);
+    black_box(n)
 }
 
 /// Callgrind simulator settings for this harness.
@@ -1451,7 +1707,19 @@ library_benchmark_group!(
         sync_bytesmap_churn,
         sync_blobmap_insert,
         sync_blobmap_remove,
-        sync_blobmap_churn
+        sync_blobmap_churn,
+        bytesmap_remove,
+        bytesmap_overwrite,
+        blobmap_insert,
+        blobmap_insert_inline,
+        blobmap_get,
+        blobmap_remove,
+        blobmap_overwrite,
+        blobmap_churn,
+        sync_bytesmap_get,
+        sync_bytesmap_overwrite,
+        sync_blobmap_get,
+        sync_blobmap_overwrite
 );
 
 library_benchmark_group!(
