@@ -2027,8 +2027,11 @@ impl<T: SharedTree> Shared<T> {
 /// (Refs #929). `Shared<ExpanseMap>` is the host for the map wrapper; the
 /// string wrapper hosts the same two bodies on a `StrNode`'s sub-map, with
 /// that node's cover word standing where the tree word stands here. Every
-/// method is `#[inline(always)]` so the map wrapper's instantiation is the
-/// code it was before the bodies became generic.
+/// method is `#[inline(always)]`, and the bodies are expanded per host by
+/// `olc_insert_map_body!` / `olc_remove_map_body!` rather than shared as
+/// one generic function, so the map wrapper compiles the method it always
+/// did; see [`OlcHost::edge_tag`] for the one decision that still had to be
+/// pinned.
 #[cfg(feature = "std")]
 pub(crate) trait OlcHost {
     /// The word covering this tree's root state is even: no exclusive
@@ -2050,6 +2053,33 @@ pub(crate) trait OlcHost {
     /// A mutation landed under top-level digit `d`: the host's census is
     /// stale there until its next quiescent fold.
     fn mark_dirty_digit(&self, d: u8);
+
+    /// Decodes the tag of an edge met on the descent.
+    ///
+    /// Which form a host takes is pinned rather than left to the inliner,
+    /// because LLVM's choice for [`Edge::tag`] at this call site depends on
+    /// how many OLC bodies the crate holds. The decoder's inline cost is
+    /// over the hint threshold (725 against 325, from `-Cremark=inline`), and
+    /// rustc's MIR inliner absorbs every other call to it, so with one body
+    /// the descent's call is the sole live use of a local function and LLVM's
+    /// last-call-to-static bonus inlines it regardless; a second body ends
+    /// that uniqueness and the call stays out of line in every body. On
+    /// #1001 that alone moved the map wrapper's `sync_map_insert/random`
+    /// +4.9% and `sync_map_churn/random` +4.6% with its own body unchanged.
+    /// The map host forces the decode inline, which restores its count to
+    /// the instruction; the default is the out-of-line form, which measured
+    /// 6% lower on the string wrapper's short-key arms than the inline one.
+    #[inline(always)]
+    fn edge_tag(&self, edge: &Edge) -> Option<EdgeTag> {
+        edge_tag_out_of_line(edge)
+    }
+}
+
+/// The out-of-line edge-tag decode; see [`OlcHost::edge_tag`].
+#[cfg(feature = "std")]
+#[inline(never)]
+fn edge_tag_out_of_line(edge: &Edge) -> Option<EdgeTag> {
+    edge.tag()
 }
 
 #[cfg(feature = "std")]
@@ -2073,6 +2103,11 @@ impl OlcHost for Shared<ExpanseMap> {
     #[inline(always)]
     fn mark_dirty_digit(&self, d: u8) {
         Shared::mark_dirty_digit(self, d);
+    }
+
+    #[inline(always)]
+    fn edge_tag(&self, edge: &Edge) -> Option<EdgeTag> {
+        EdgeTag::from_u8(edge.tag_byte())
     }
 }
 
@@ -4757,7 +4792,7 @@ impl SyncExpanseMap {
                         }
                         break;
                     }
-                    match olc_insert_map::<_, false>(&*self.shared, key, val) {
+                    match self.olc_insert_map(key, val) {
                         OlcOutcome::Done(prev) => {
                             if prev.is_none() {
                                 self.shared.tree_pop.add(_guard.slot_id(), 1);
@@ -4832,7 +4867,7 @@ impl SyncExpanseMap {
                         }
                         break;
                     }
-                    match olc_remove_map(&*self.shared, key) {
+                    match self.olc_remove_map(key) {
                         OlcOutcome::Done(prev) => {
                             if prev.is_some() {
                                 self.shared.tree_pop.add(_guard.slot_id(), -1);
@@ -4981,28 +5016,29 @@ impl SyncExpanseMap {
     }
 }
 
-/// Which store an OLC insert makes when the key is already present.
+/// The OLC insert body, expanded once as `SyncExpanseMap::olc_insert_map` — a
+/// non-generic method, so the map wrapper compiles the same function it always
+/// did — and once as the generic [`olc_insert_map`] the string wrapper hosts on a
+/// `StrNode` (Refs #929). It is a macro and not a generic function shared by both
+/// because the generic instantiation compiles differently: #1001 measured
+/// `sync_map_insert/random` +4.93% and `sync_map_churn/random` +4.64% from the
+/// generic form alone (the per-line diff put it on `Edge::tag` going out of line
+/// and the linear-leaf scan loop), and forcing the bodies inline made it worse.
 ///
-/// `KEEP = false` is the map wrapper's insert: the value is replaced under
-/// the parent's lock and the old one returned. `KEEP = true` is the string
-/// wrapper's insert-if-absent (Refs #929): the existing word is returned
-/// **without** a store and the parent is unlocked unmodified, so a writer
-/// that speculatively allocated a continuation learns, in one descent, that
-/// another writer published one first. The map wrapper never instantiates
-/// the `KEEP` arm, and `if KEEP` folds away in its instantiation.
+/// `KEEP` is the insert-if-absent mode: when the key is present the existing
+/// word is returned with no store and the parent unlocked unmodified, so a string
+/// writer that speculatively allocated a continuation learns in one descent that
+/// another writer published one first. The map wrapper expands it `false`.
 #[cfg(feature = "std")]
-pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
-    host: &H,
-    key: Key,
-    val: u64,
-) -> OlcOutcome<Option<u64>> {
-    if !host.tree_word_even() {
+macro_rules! olc_insert_map_body {
+    ($host:expr, $keep:expr, $key:ident, $val:ident) => {{
+    if !$host.tree_word_even() {
         return OlcOutcome::Retry;
     }
     // SAFETY: the host answers from its root state under `OlcHost::top_ptr`'s
     // contract; the edge behind the pointer is only ever loaded through
     // validated reads below.
-    let top_ptr = unsafe { host.top_ptr() };
+    let top_ptr = unsafe { $host.top_ptr() };
     if top_ptr.is_null() {
         return OlcOutcome::Fallback(FallbackCause::RootGrowth);
     }
@@ -5021,7 +5057,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
     let mut level = 8u8;
 
     loop {
-        let tag = edge.tag().expect("valid edge tag");
+        let tag = $host.edge_tag(&edge).expect("valid edge tag");
         match tag {
             EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
                 let is_l3 = matches!(t, EdgeType::BranchL3);
@@ -5045,21 +5081,21 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                         let b = node.cast::<BranchL3>();
                         let bl = (*b).hdr.level;
                         let num = (*b).hdr.num as usize;
-                        (bl, num, (*b).hdr.find(digit(key, bl)))
+                        (bl, num, (*b).hdr.find(digit($key, bl)))
                     } else {
                         let b = node.cast::<BranchL7>();
                         let bl = (*b).hdr.level;
                         let num = (*b).hdr.num as usize;
-                        (bl, num, (*b).hdr.find(digit(key, bl)))
+                        (bl, num, (*b).hdr.find(digit($key, bl)))
                     }
                 };
                 if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
                     return OlcOutcome::Retry;
                 }
-                if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
+                if bl < level && !crate::get::decode_matches(&edge, $key, bl, level) {
                     return branch_split(BranchSplitKind::Prefix);
                 }
-                let d = digit(key, bl);
+                let d = digit($key, bl);
                 if let Some(slot) = slot_opt {
                     ancestors[anc_depth] = AncestorFrame {
                         node,
@@ -5127,8 +5163,8 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                     }
                     let new_edge = Edge::new_immed_single_map(
                         bl - 1,
-                        crate::mutate::key_low(key, bl - 1),
-                        val,
+                        crate::mutate::key_low($key, bl - 1),
+                        $val,
                     );
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     unsafe {
@@ -5156,7 +5192,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                             (*b).hdr.add_presence(d);
                         }
                         version_unlock_timed(crate::occ::version_cell(vp), old_v, true, lock_t0);
-                        host.mark_dirty_digit(digit(key, 8));
+                        $host.mark_dirty_digit(digit($key, 8));
                     }
                     return OlcOutcome::Done(None);
                 }
@@ -5179,7 +5215,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                     if !(2..=level).contains(&bl) {
                         return OlcOutcome::Retry;
                     }
-                    let d = digit(key, bl);
+                    let d = digit($key, bl);
                     (
                         bl,
                         (*node).bitmap.test(d),
@@ -5187,11 +5223,11 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                         (*node).subarrays[(d >> 5) as usize],
                     )
                 };
-                if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
+                if bl < level && !crate::get::decode_matches(&edge, $key, bl, level) {
                     return branch_split(BranchSplitKind::Prefix);
                 }
                 if !bit || sub.is_null() {
-                    let d = digit(key, bl);
+                    let d = digit($key, bl);
                     // SAFETY: node pointer is EBR-live and validated by parent version check.
                     if unsafe { (*node).bitmap.count() } as usize + 1 > crate::mutate::BRANCHB_UP {
                         return branch_split(BranchSplitKind::Upgrade);
@@ -5204,7 +5240,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                     }
                     let needs_realloc = old_n == 0
                         || crate::leaf::cap_class(old_n + 1) != crate::leaf::cap_class(old_n);
-                    let alloc = host.alloc();
+                    let alloc = $host.alloc();
                     let pre_alloc = if needs_realloc {
                         Some(
                             alloc
@@ -5301,8 +5337,8 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
 
                     let new_edge = Edge::new_immed_single_map(
                         bl - 1,
-                        crate::mutate::key_low(key, bl - 1),
-                        val,
+                        crate::mutate::key_low($key, bl - 1),
+                        $val,
                     );
                     // SAFETY: node pointer is EBR-live; rank computed under version lock.
                     let rank = unsafe { (*node).bitmap.subexpanse_rank(d) as usize };
@@ -5353,7 +5389,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                             alloc.free_bytes(old_arr.cast(), crate::mutate::sub_edges_size(old_n));
                         }
                     }
-                    host.mark_dirty_digit(digit(key, 8));
+                    $host.mark_dirty_digit(digit($key, 8));
                     return OlcOutcome::Done(None);
                 }
                 // SAFETY: version cell is within an EBR-live node allocation.
@@ -5366,7 +5402,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                     version_ptr: vp,
                     version_snap: nsnap,
                     child_level: bl - 1,
-                    digit: digit(key, bl),
+                    digit: digit($key, bl),
                 };
                 anc_depth += 1;
                 #[cfg(test)]
@@ -5399,7 +5435,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                 else {
                     return OlcOutcome::Retry;
                 };
-                let d = digit(key, level);
+                let d = digit($key, level);
                 ancestors[anc_depth] = AncestorFrame {
                     node: node.cast(),
                     edge_type: EdgeType::BranchU,
@@ -5428,14 +5464,14 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                 if anc_depth == 0 {
                     return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                 }
-                if level > 1 && !crate::get::decode_matches(&edge, key, 1, level) {
+                if level > 1 && !crate::get::decode_matches(&edge, $key, 1, level) {
                     return branch_split(BranchSplitKind::Prefix);
                 }
                 let parent = ancestors[anc_depth - 1];
                 // SAFETY: version cell is within an EBR-live node allocation.
                 let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
                 let node = edge.node_ptr().cast::<LeafBitmapL>();
-                let d = (key & 0xFF) as u8;
+                let d = ($key & 0xFF) as u8;
                 let sub = (d >> 5) as usize;
                 // SAFETY: node is an EBR-live bitmap node and parent is validated/locked.
                 let tested = unsafe { (*node).bitmap.test_and_subexpanse_rank_with_sub(d) };
@@ -5462,11 +5498,11 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                     unsafe {
                         let slot = (*node).values[sub].add(rank);
                         let old = slot.read();
-                        if KEEP {
+                        if $keep {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Done(Some(old));
                         }
-                        slot.write(val);
+                        slot.write($val);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         return OlcOutcome::Done(Some(old));
                     }
@@ -5496,17 +5532,17 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                     unsafe {
                         let arr = (*node).values[sub];
                         core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
-                        arr.add(rank).write(val);
+                        arr.add(rank).write($val);
                         (*node).bitmap.set(d);
                         (*edge_ptr).set_pop0(1, (pop0 + 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        host.mark_dirty_digit(digit(key, 8));
+                        $host.mark_dirty_digit(digit($key, 8));
                     }
                     return OlcOutcome::Done(None);
                 } else {
                     // Phase 4C: Concurrent LeafB1 values[sub] initial allocation (old_n == 0) or capacity class growth
                     let new_size = crate::mutate::sub_vals_size(old_n + 1);
-                    let alloc = host.alloc();
+                    let alloc = $host.alloc();
                     let new_vals = alloc.alloc_bytes(new_size).as_ptr().cast::<u64>();
 
                     let Ok((old_v, lock_t0)) =
@@ -5550,7 +5586,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                         } else {
                             None
                         };
-                        new_vals.add(rank).write(val);
+                        new_vals.add(rank).write($val);
                         (*node).values[sub] = new_vals;
                         (*node).bitmap.set(d);
                         (*edge_ptr).set_pop0(1, (pop0 + 1) as u64);
@@ -5561,7 +5597,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                                 crate::mutate::sub_vals_size(old_n),
                             );
                         }
-                        host.mark_dirty_digit(digit(key, 8));
+                        $host.mark_dirty_digit(digit($key, 8));
                     }
                     return OlcOutcome::Done(None);
                 }
@@ -5584,10 +5620,10 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                 let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
                 let kb = t.leaf_key_bytes().expect("leaf tag") as usize;
                 let pop = edge.pop0(kb as u8) as usize + 1;
-                if kb < level as usize && !crate::get::decode_matches(&edge, key, kb as u8, level) {
+                if kb < level as usize && !crate::get::decode_matches(&edge, $key, kb as u8, level) {
                     return branch_split(BranchSplitKind::Prefix);
                 }
-                let k = crate::mutate::key_low(key, kb as u8);
+                let k = crate::mutate::key_low($key, kb as u8);
                 let base = edge.node_ptr();
                 // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                 let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(pop)) };
@@ -5618,11 +5654,11 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                     unsafe {
                         let slot = base.cast::<u64>().add(pos);
                         let old = slot.read();
-                        if KEEP {
+                        if $keep {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Done(Some(old));
                         }
-                        slot.write(val);
+                        slot.write($val);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         return OlcOutcome::Done(Some(old));
                     }
@@ -5648,10 +5684,10 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                         debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                         unsafe {
-                            crate::leaf::map_insert_at(base, kb as u8, pop, at, k, val);
+                            crate::leaf::map_insert_at(base, kb as u8, pop, at, k, $val);
                             (*edge_ptr).set_pop0(kb as u8, pop as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            host.mark_dirty_digit(digit(key, 8));
+                            $host.mark_dirty_digit(digit($key, 8));
                         }
                         return OlcOutcome::Done(None);
                     } else {
@@ -5662,7 +5698,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                         }
                         let old_size = crate::leaf::size_map(kb as u8, pop);
                         let new_size = crate::leaf::size_map(kb as u8, pop + 1);
-                        let alloc = host.alloc();
+                        let alloc = $host.alloc();
                         let new_buf = alloc.alloc_bytes(new_size).as_ptr();
 
                         let Ok((old_v, lock_t0)) =
@@ -5696,7 +5732,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                         // SAFETY: parent is locked; new_buf is valid for new_size; base is valid for old_size.
                         unsafe {
                             crate::leaf::map_realloc_insert(
-                                base, new_buf, kb as u8, pop, at, k, val,
+                                base, new_buf, kb as u8, pop, at, k, $val,
                             );
                             let saved_aux = *edge.aux_bytes();
                             let mut new_edge = Edge::new_node(new_buf, edge.tag_byte());
@@ -5705,7 +5741,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                             edge_ptr.write(new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             alloc.free_bytes(core::ptr::NonNull::new_unchecked(base), old_size);
-                            host.mark_dirty_digit(digit(key, 8));
+                            $host.mark_dirty_digit(digit($key, 8));
                         }
                         return OlcOutcome::Done(None);
                     }
@@ -5718,10 +5754,10 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                 }
                 let old_size = crate::leaf::size_map(kb as u8, pop);
                 let saved_aux = *edge.aux_bytes();
-                let alloc = host.alloc();
+                let alloc = $host.alloc();
                 // SAFETY: edge is an EBR-live linear leaf descriptor with pop elements and kb key bytes.
                 let mut entries = unsafe { crate::mutate_map::read_map_leaf(&edge, kb as u8, pop) };
-                entries.insert(at, (k, val));
+                entries.insert(at, (k, $val));
 
                 if kb == 1 {
                     let mut new_edge = Edge::NULL;
@@ -5757,7 +5793,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                         edge_ptr.write(new_edge);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         alloc.free_bytes(core::ptr::NonNull::new_unchecked(base), old_size);
-                        host.mark_dirty_digit(digit(key, 8));
+                        $host.mark_dirty_digit(digit($key, 8));
                     }
                     return OlcOutcome::Done(None);
                 } else {
@@ -5819,7 +5855,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                             edge_ptr.write(new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             alloc.free_bytes(core::ptr::NonNull::new_unchecked(base), old_size);
-                            host.mark_dirty_digit(digit(key, 8));
+                            $host.mark_dirty_digit(digit($key, 8));
                         }
                         return OlcOutcome::Done(None);
                     } else {
@@ -5875,7 +5911,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                             edge_ptr.write(tmp);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             alloc.free_bytes(core::ptr::NonNull::new_unchecked(base), old_size);
-                            host.mark_dirty_digit(digit(key, 8));
+                            $host.mark_dirty_digit(digit($key, 8));
                         }
                         return OlcOutcome::Done(None);
                     }
@@ -5890,10 +5926,10 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                 // SAFETY: version cell is within an EBR-live node allocation.
                 let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
                 let kb = im.key_bytes();
-                if level > kb && !crate::get::decode_matches(&edge, key, kb, level) {
+                if level > kb && !crate::get::decode_matches(&edge, $key, kb, level) {
                     return branch_split(BranchSplitKind::Prefix);
                 }
-                let k = crate::mutate::key_low(key, kb);
+                let k = crate::mutate::key_low($key, kb);
                 let n = im.key_count() as usize;
                 let kb_usize = kb as usize;
                 if n == 1 {
@@ -5919,24 +5955,24 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                         unsafe {
                             let old = (*edge_ptr).word0();
-                            if KEEP {
+                            if $keep {
                                 version_unlock_timed(p_cell, old_v, false, lock_t0);
                                 return OlcOutcome::Done(Some(old));
                             }
-                            (*edge_ptr).set_imm_bytes(val.to_le_bytes());
+                            (*edge_ptr).set_imm_bytes($val.to_le_bytes());
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             return OlcOutcome::Done(Some(old));
                         }
                     }
                     let old_val = u64::from_le_bytes(edge.imm_bytes());
                     let (slot0_k, slot0_v, slot1_k, slot1_v) = if k < existing_k {
-                        (k, val, existing_k, old_val)
+                        (k, $val, existing_k, old_val)
                     } else {
-                        (existing_k, old_val, k, val)
+                        (existing_k, old_val, k, $val)
                     };
                     if crate::mutate::map_immed_max(kb) >= 2 {
                         let new_size = crate::mutate_map::map_immed_val_size(2);
-                        let alloc = host.alloc();
+                        let alloc = $host.alloc();
                         let new_vals = alloc.alloc_bytes(new_size).as_ptr().cast::<u64>();
                         let Ok((old_v, lock_t0)) =
                             version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -5977,13 +6013,13 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                             new_edge.set_tag(new_im.as_u8());
                             edge_ptr.write(new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            host.mark_dirty_digit(digit(key, 8));
+                            $host.mark_dirty_digit(digit($key, 8));
                         }
                         return OlcOutcome::Done(None);
                     } else {
                         // Immediate max capacity is 1 (kb in 4..=7): upgrade directly to linear leaf.
                         let new_size = crate::leaf::size_map(kb, 2);
-                        let alloc = host.alloc();
+                        let alloc = $host.alloc();
                         let new_leaf = alloc.alloc_bytes(new_size).as_ptr();
                         let Ok((old_v, lock_t0)) =
                             version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -6026,7 +6062,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                             new_edge.set_pop0(kb, 1);
                             edge_ptr.write(new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            host.mark_dirty_digit(digit(key, 8));
+                            $host.mark_dirty_digit(digit($key, 8));
                         }
                         return OlcOutcome::Done(None);
                     }
@@ -6052,11 +6088,11 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                         let vals = edge.node_ptr().cast::<u64>();
                         let slot = vals.add(p);
                         let old = slot.read();
-                        if KEEP {
+                        if $keep {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Done(Some(old));
                         }
-                        slot.write(val);
+                        slot.write($val);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         return OlcOutcome::Done(Some(old));
                     }
@@ -6086,7 +6122,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                                     n - ins_pos,
                                 );
                             }
-                            old_vals.add(ins_pos).write(val);
+                            old_vals.add(ins_pos).write($val);
                             let mut new_aux = *(*edge_ptr).aux_bytes();
                             if ins_pos < n {
                                 new_aux.copy_within(
@@ -6102,13 +6138,13 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                             new_edge.set_tag(new_im.as_u8());
                             edge_ptr.write(new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            host.mark_dirty_digit(digit(key, 8));
+                            $host.mark_dirty_digit(digit($key, 8));
                         }
                         return OlcOutcome::Done(None);
                     }
                     let old_size = crate::mutate_map::map_immed_val_size(n);
                     let new_size = crate::mutate_map::map_immed_val_size(n + 1);
-                    let alloc = host.alloc();
+                    let alloc = $host.alloc();
                     let new_vals = alloc.alloc_bytes(new_size).as_ptr().cast::<u64>();
                     let Ok((old_v, lock_t0)) =
                         version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -6142,7 +6178,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                         if ins_pos > 0 {
                             core::ptr::copy_nonoverlapping(old_vals, new_vals, ins_pos);
                         }
-                        new_vals.add(ins_pos).write(val);
+                        new_vals.add(ins_pos).write($val);
                         if ins_pos < n {
                             core::ptr::copy_nonoverlapping(
                                 old_vals.add(ins_pos),
@@ -6168,7 +6204,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                             core::ptr::NonNull::new_unchecked(old_vals.cast()),
                             old_size,
                         );
-                        host.mark_dirty_digit(digit(key, 8));
+                        $host.mark_dirty_digit(digit($key, 8));
                     }
                     return OlcOutcome::Done(None);
                 }
@@ -6178,7 +6214,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                 );
                 let old_size = crate::mutate_map::map_immed_val_size(n);
                 let new_size = crate::leaf::size_map(kb, n + 1);
-                let alloc = host.alloc();
+                let alloc = $host.alloc();
                 let new_leaf = alloc.alloc_bytes(new_size).as_ptr();
                 let Ok((old_v, lock_t0)) =
                     version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -6216,7 +6252,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                         core::ptr::copy_nonoverlapping(old_vals, vals_ptr, ins_pos);
                         core::ptr::copy_nonoverlapping(old_keys, keys_ptr, ins_pos * kb_usize);
                     }
-                    vals_ptr.add(ins_pos).write(val);
+                    vals_ptr.add(ins_pos).write($val);
                     crate::mutate::write_packed(keys_ptr, ins_pos, kb_usize, k);
                     if ins_pos < n {
                         core::ptr::copy_nonoverlapping(
@@ -6237,7 +6273,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                     edge_ptr.write(new_edge);
                     version_unlock_timed(p_cell, old_v, true, lock_t0);
                     alloc.free_bytes(core::ptr::NonNull::new_unchecked(old_vals.cast()), old_size);
-                    host.mark_dirty_digit(digit(key, 8));
+                    $host.mark_dirty_digit(digit($key, 8));
                 }
                 return OlcOutcome::Done(None);
             }
@@ -6261,13 +6297,13 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
                         return OlcOutcome::Retry;
                     }
                     let new_edge =
-                        Edge::new_immed_single_map(level, crate::mutate::key_low(key, level), val);
+                        Edge::new_immed_single_map(level, crate::mutate::key_low($key, level), $val);
                     // SAFETY: edge_ptr is within the locked BranchU node; writing new_edge is bracketed by the parent version lock.
                     unsafe {
                         *edge_ptr = new_edge;
                     }
                     version_unlock_timed(p_cell, old_v, true, lock_t0);
-                    host.mark_dirty_digit(digit(key, 8));
+                    $host.mark_dirty_digit(digit($key, 8));
                     return OlcOutcome::Done(None);
                 }
                 return OlcOutcome::Fallback(FallbackCause::ImmediateConversion);
@@ -6277,16 +6313,18 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
             _ => return OlcOutcome::Fallback(FallbackCause::UnknownTag),
         }
     }
+    }};
 }
 
-/// The OLC remove over any [`OlcHost`]; see [`olc_insert_map`].
+/// The OLC remove body; see `olc_insert_map_body!`.
 #[cfg(feature = "std")]
-pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Option<u64>> {
-    if !host.tree_word_even() {
+macro_rules! olc_remove_map_body {
+    ($host:expr, $key:ident) => {{
+    if !$host.tree_word_even() {
         return OlcOutcome::Retry;
     }
     // SAFETY: as in `olc_insert_map`.
-    let top_ptr = unsafe { host.top_ptr() };
+    let top_ptr = unsafe { $host.top_ptr() };
     if top_ptr.is_null() {
         return OlcOutcome::Fallback(FallbackCause::RootGrowth);
     }
@@ -6305,7 +6343,7 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
     let mut level = 8u8;
 
     loop {
-        let tag = edge.tag().expect("valid edge tag");
+        let tag = $host.edge_tag(&edge).expect("valid edge tag");
         match tag {
             EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
                 let is_l3 = matches!(t, EdgeType::BranchL3);
@@ -6329,21 +6367,21 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                         let b = node.cast::<BranchL3>();
                         let bl = (*b).hdr.level;
                         let num = (*b).hdr.num as usize;
-                        (bl, num, (*b).hdr.find(digit(key, bl)))
+                        (bl, num, (*b).hdr.find(digit($key, bl)))
                     } else {
                         let b = node.cast::<BranchL7>();
                         let bl = (*b).hdr.level;
                         let num = (*b).hdr.num as usize;
-                        (bl, num, (*b).hdr.find(digit(key, bl)))
+                        (bl, num, (*b).hdr.find(digit($key, bl)))
                     }
                 };
                 if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
                     return OlcOutcome::Retry;
                 }
-                if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
+                if bl < level && !crate::get::decode_matches(&edge, $key, bl, level) {
                     return OlcOutcome::Done(None);
                 }
-                let d = digit(key, bl);
+                let d = digit($key, bl);
                 if let Some(slot) = slot_opt {
                     ancestors[anc_depth] = AncestorFrame {
                         node,
@@ -6403,7 +6441,7 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                     if !(2..=level).contains(&bl) {
                         return OlcOutcome::Retry;
                     }
-                    let d = digit(key, bl);
+                    let d = digit($key, bl);
                     (
                         bl,
                         (*node).bitmap.test(d),
@@ -6411,7 +6449,7 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                         (*node).subarrays[(d >> 5) as usize],
                     )
                 };
-                if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
+                if bl < level && !crate::get::decode_matches(&edge, $key, bl, level) {
                     return OlcOutcome::Done(None);
                 }
                 #[cfg(test)]
@@ -6443,7 +6481,7 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                     version_ptr: vp,
                     version_snap: nsnap,
                     child_level: bl - 1,
-                    digit: digit(key, bl),
+                    digit: digit($key, bl),
                 };
                 anc_depth += 1;
                 #[cfg(test)]
@@ -6476,7 +6514,7 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                 else {
                     return OlcOutcome::Retry;
                 };
-                let d = digit(key, level);
+                let d = digit($key, level);
                 ancestors[anc_depth] = AncestorFrame {
                     node: node.cast(),
                     edge_type: EdgeType::BranchU,
@@ -6505,14 +6543,14 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                 if anc_depth == 0 {
                     return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                 }
-                if level > 1 && !crate::get::decode_matches(&edge, key, 1, level) {
+                if level > 1 && !crate::get::decode_matches(&edge, $key, 1, level) {
                     return branch_split(BranchSplitKind::Remove);
                 }
                 let parent = ancestors[anc_depth - 1];
                 // SAFETY: version cell is within an EBR-live node allocation.
                 let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
                 let node = edge.node_ptr().cast::<LeafBitmapL>();
-                let d = (key & 0xFF) as u8;
+                let d = ($key & 0xFF) as u8;
                 let sub = (d >> 5) as usize;
                 // SAFETY: node is an EBR-live bitmap node and parent is validated/locked.
                 let Some((_, rank)) =
@@ -6543,13 +6581,13 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                             let old = *old_arr.add(rank);
                             edge_ptr.write(Edge::NULL);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            let alloc = host.alloc();
+                            let alloc = $host.alloc();
                             alloc.free_bytes(
                                 core::ptr::NonNull::new_unchecked(old_arr.cast()),
                                 crate::mutate::sub_vals_size(1),
                             );
                             alloc.free_node(core::ptr::NonNull::new_unchecked(node));
-                            host.mark_dirty_digit(digit(key, 8));
+                            $host.mark_dirty_digit(digit($key, 8));
                             return OlcOutcome::Done(Some(old));
                         }
                     }
@@ -6612,7 +6650,7 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                                 new_edge.set_tag(im.as_u8());
                                 edge_ptr.write(new_edge);
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
-                                let alloc = host.alloc();
+                                let alloc = $host.alloc();
                                 for s in 0..8 {
                                     let n = (*node).bitmap.subexpanse_count(s) as usize;
                                     if n > 0 {
@@ -6625,12 +6663,12 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                                     }
                                 }
                                 alloc.free_node(core::ptr::NonNull::new_unchecked(node));
-                                host.mark_dirty_digit(digit(key, 8));
+                                $host.mark_dirty_digit(digit($key, 8));
                             }
                             return OlcOutcome::Done(Some(old));
                         } else {
                             let new_size = crate::mutate_map::map_immed_val_size(entries.len);
-                            let alloc = host.alloc();
+                            let alloc = $host.alloc();
                             let new_vals = alloc.alloc_bytes(new_size).as_ptr().cast::<u64>();
                             let Ok((old_v, lock_t0)) =
                                 version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -6676,7 +6714,7 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                                 new_edge.set_tag(im.as_u8());
                                 edge_ptr.write(new_edge);
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
-                                let alloc = host.alloc();
+                                let alloc = $host.alloc();
                                 for s in 0..8 {
                                     let n = (*node).bitmap.subexpanse_count(s) as usize;
                                     if n > 0 {
@@ -6689,13 +6727,13 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                                     }
                                 }
                                 alloc.free_node(core::ptr::NonNull::new_unchecked(node));
-                                host.mark_dirty_digit(digit(key, 8));
+                                $host.mark_dirty_digit(digit($key, 8));
                             }
                             return OlcOutcome::Done(Some(old));
                         }
                     } else {
                         let new_size = crate::leaf::size_map(1, entries.len);
-                        let alloc = host.alloc();
+                        let alloc = $host.alloc();
                         let new_buf = alloc.alloc_bytes(new_size).as_ptr();
                         let Ok((old_v, lock_t0)) =
                             version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -6736,7 +6774,7 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                             new_edge.set_pop0(1, (entries.len - 1) as u64);
                             edge_ptr.write(new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            let alloc = host.alloc();
+                            let alloc = $host.alloc();
                             for s in 0..8 {
                                 let n = (*node).bitmap.subexpanse_count(s) as usize;
                                 if n > 0 {
@@ -6747,7 +6785,7 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                                 }
                             }
                             alloc.free_node(core::ptr::NonNull::new_unchecked(node));
-                            host.mark_dirty_digit(digit(key, 8));
+                            $host.mark_dirty_digit(digit($key, 8));
                         }
                         return OlcOutcome::Done(Some(old));
                     }
@@ -6774,12 +6812,12 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                         (*node).bitmap.clear(d);
                         (*edge_ptr).set_pop0(1, (pop0 - 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        let alloc = host.alloc();
+                        let alloc = $host.alloc();
                         alloc.free_bytes(
                             core::ptr::NonNull::new_unchecked(old_arr.cast()),
                             crate::mutate::sub_vals_size(1),
                         );
-                        host.mark_dirty_digit(digit(key, 8));
+                        $host.mark_dirty_digit(digit($key, 8));
                         return OlcOutcome::Done(Some(old));
                     }
                 } else if crate::leaf::cap_class(old_n - 1) == crate::leaf::cap_class(old_n) {
@@ -6802,12 +6840,12 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                         (*node).bitmap.clear(d);
                         (*edge_ptr).set_pop0(1, (pop0 - 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        host.mark_dirty_digit(digit(key, 8));
+                        $host.mark_dirty_digit(digit($key, 8));
                         return OlcOutcome::Done(Some(old));
                     }
                 } else {
                     let new_size = crate::mutate::sub_vals_size(old_n - 1);
-                    let alloc = host.alloc();
+                    let alloc = $host.alloc();
                     let new_vals = alloc.alloc_bytes(new_size).as_ptr().cast::<u64>();
                     let Ok((old_v, lock_t0)) =
                         version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -6850,7 +6888,7 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                             core::ptr::NonNull::new_unchecked(old_arr.cast()),
                             crate::mutate::sub_vals_size(old_n),
                         );
-                        host.mark_dirty_digit(digit(key, 8));
+                        $host.mark_dirty_digit(digit($key, 8));
                         return OlcOutcome::Done(Some(old));
                     }
                 }
@@ -6873,10 +6911,10 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                 let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
                 let kb = t.leaf_key_bytes().expect("leaf tag") as usize;
                 let pop = edge.pop0(kb as u8) as usize + 1;
-                if kb < level as usize && !crate::get::decode_matches(&edge, key, kb as u8, level) {
+                if kb < level as usize && !crate::get::decode_matches(&edge, $key, kb as u8, level) {
                     return branch_split(BranchSplitKind::Remove);
                 }
-                let k = crate::mutate::key_low(key, kb as u8);
+                let k = crate::mutate::key_low($key, kb as u8);
                 let base = edge.node_ptr();
                 // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                 let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(pop)) };
@@ -6914,13 +6952,13 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                         crate::leaf::map_remove_at(base, kb as u8, pop, pos);
                         (*edge_ptr).set_pop0(kb as u8, (pop - 2) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        host.mark_dirty_digit(digit(key, 8));
+                        $host.mark_dirty_digit(digit($key, 8));
                         return OlcOutcome::Done(Some(old));
                     }
                 }
                 if pop >= 2 && pop > immed_max {
                     let new_size = crate::leaf::size_map(kb as u8, pop - 1);
-                    let alloc = host.alloc();
+                    let alloc = $host.alloc();
                     let new_buf = alloc.alloc_bytes(new_size).as_ptr();
                     let Ok((old_v, lock_t0)) =
                         version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -6961,7 +6999,7 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                             core::ptr::NonNull::new_unchecked(base),
                             crate::leaf::size_map(kb as u8, pop),
                         );
-                        host.mark_dirty_digit(digit(key, 8));
+                        $host.mark_dirty_digit(digit($key, 8));
                         return OlcOutcome::Done(Some(old));
                     }
                 }
@@ -6983,12 +7021,12 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                             let old = base.cast::<u64>().read();
                             edge_ptr.write(Edge::NULL);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            let alloc = host.alloc();
+                            let alloc = $host.alloc();
                             alloc.free_bytes(
                                 core::ptr::NonNull::new_unchecked(base),
                                 crate::leaf::size_map(kb as u8, 1),
                             );
-                            host.mark_dirty_digit(digit(key, 8));
+                            $host.mark_dirty_digit(digit($key, 8));
                             return OlcOutcome::Done(Some(old));
                         }
                     }
@@ -7042,17 +7080,17 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                         new_edge.set_tag(im.as_u8());
                         edge_ptr.write(new_edge);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        let alloc = host.alloc();
+                        let alloc = $host.alloc();
                         alloc.free_bytes(
                             core::ptr::NonNull::new_unchecked(base),
                             crate::leaf::size_map(kb as u8, pop),
                         );
-                        host.mark_dirty_digit(digit(key, 8));
+                        $host.mark_dirty_digit(digit($key, 8));
                     }
                     return OlcOutcome::Done(Some(old));
                 } else {
                     let new_size = crate::mutate_map::map_immed_val_size(rem_pop);
-                    let alloc = host.alloc();
+                    let alloc = $host.alloc();
                     let new_vals = alloc.alloc_bytes(new_size).as_ptr().cast::<u64>();
                     let Ok((old_v, lock_t0)) =
                         version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -7093,7 +7131,7 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                             core::ptr::NonNull::new_unchecked(base),
                             crate::leaf::size_map(kb as u8, pop),
                         );
-                        host.mark_dirty_digit(digit(key, 8));
+                        $host.mark_dirty_digit(digit($key, 8));
                     }
                     return OlcOutcome::Done(Some(old));
                 }
@@ -7107,10 +7145,10 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                 // SAFETY: version cell is within an EBR-live node allocation.
                 let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
                 let kb = im.key_bytes();
-                if level > kb && !crate::get::decode_matches(&edge, key, kb, level) {
+                if level > kb && !crate::get::decode_matches(&edge, $key, kb, level) {
                     return branch_split(BranchSplitKind::Remove);
                 }
-                let k = crate::mutate::key_low(key, kb);
+                let k = crate::mutate::key_low($key, kb);
                 let n = im.key_count() as usize;
                 let kb_usize = kb as usize;
                 if n == 1 {
@@ -7140,7 +7178,7 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                             let old = (*edge_ptr).word0();
                             (*edge_ptr) = Edge::NULL;
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            host.mark_dirty_digit(digit(key, 8));
+                            $host.mark_dirty_digit(digit($key, 8));
                             return OlcOutcome::Done(Some(old));
                         }
                     }
@@ -7187,12 +7225,12 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                         new_edge.set_tag(new_im.as_u8());
                         edge_ptr.write(new_edge);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        let alloc = host.alloc();
+                        let alloc = $host.alloc();
                         alloc.free_bytes(
                             core::ptr::NonNull::new_unchecked(vals.cast::<u8>()),
                             crate::mutate_map::map_immed_val_size(2),
                         );
-                        host.mark_dirty_digit(digit(key, 8));
+                        $host.mark_dirty_digit(digit($key, 8));
                         return OlcOutcome::Done(Some(old));
                     }
                 }
@@ -7222,12 +7260,12 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                         (*edge_ptr).set_aux_bytes(new_aux);
                         (*edge_ptr).set_tag(new_im.as_u8());
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        host.mark_dirty_digit(digit(key, 8));
+                        $host.mark_dirty_digit(digit($key, 8));
                         return OlcOutcome::Done(Some(old));
                     }
                 }
                 let new_size = crate::mutate_map::map_immed_val_size(n - 1);
-                let alloc = host.alloc();
+                let alloc = $host.alloc();
                 let new_vals = alloc.alloc_bytes(new_size).as_ptr().cast::<u64>();
                 let Ok((old_v, lock_t0)) =
                     version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -7277,7 +7315,7 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
                         core::ptr::NonNull::new_unchecked(vals.cast::<u8>()),
                         crate::mutate_map::map_immed_val_size(n),
                     );
-                    host.mark_dirty_digit(digit(key, 8));
+                    $host.mark_dirty_digit(digit($key, 8));
                     return OlcOutcome::Done(Some(old));
                 }
             }
@@ -7297,6 +7335,52 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
             #[allow(unreachable_patterns)]
             _ => return OlcOutcome::Fallback(FallbackCause::UnknownTag),
         }
+    }
+    }};
+}
+
+/// The OLC insert over any [`OlcHost`]: the string wrapper's instantiation
+/// (Refs #929). The map wrapper calls its own non-generic method instead.
+// The `// SAFETY:` comments sit on each block inside the macro body; clippy
+// cannot see a comment through a macro expansion.
+#[allow(clippy::undocumented_unsafe_blocks)]
+#[cfg(feature = "std")]
+pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
+    host: &H,
+    key: Key,
+    val: u64,
+) -> OlcOutcome<Option<u64>> {
+    olc_insert_map_body!(host, KEEP, key, val)
+}
+
+/// The OLC remove over any [`OlcHost`]; see [`olc_insert_map`].
+// The `// SAFETY:` comments sit on each block inside the macro body; clippy
+// cannot see a comment through a macro expansion.
+#[allow(clippy::undocumented_unsafe_blocks)]
+#[cfg(feature = "std")]
+pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Option<u64>> {
+    olc_remove_map_body!(host, key)
+}
+
+impl SyncExpanseMap {
+    /// The map wrapper's OLC insert: `olc_insert_map_body!` as the method it
+    /// always was.
+    // The `// SAFETY:` comments sit on each block inside the macro body; clippy
+    // cannot see a comment through a macro expansion.
+    #[allow(clippy::undocumented_unsafe_blocks)]
+    #[cfg(feature = "std")]
+    fn olc_insert_map(&self, key: Key, val: u64) -> OlcOutcome<Option<u64>> {
+        olc_insert_map_body!(self.shared, false, key, val)
+    }
+
+    /// The map wrapper's OLC remove: `olc_remove_map_body!` as the method it
+    /// always was.
+    // The `// SAFETY:` comments sit on each block inside the macro body; clippy
+    // cannot see a comment through a macro expansion.
+    #[allow(clippy::undocumented_unsafe_blocks)]
+    #[cfg(feature = "std")]
+    fn olc_remove_map(&self, key: Key) -> OlcOutcome<Option<u64>> {
+        olc_remove_map_body!(self.shared, key)
     }
 }
 
