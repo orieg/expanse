@@ -22,12 +22,16 @@ This directory contains the reproducible benchmark suite, raw measurements, meth
 *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 7d87dff7; full non-quick suite via `run.sh`, host idle — load < 0.4 before and between arms. Earlier published figures were measured on a slower, non-isolated environment; this run supersedes them. Reproducibility note: the Zipfian samplers in the YCSB and key-distribution harnesses were originally unseeded (`rand::thread_rng()`) and are now seeded (`StdRng::seed_from_u64`, #374); the committed baselines predate seeding — their Zipfian streams are not bit-reproducible — and will be refreshed on the next full run.)*
 
 ### Pillar 1: YCSB (Yahoo! Cloud Serving Benchmark) Workloads A–F
-Zipfian access distribution ($s = 0.99$, power-law skew) on 500,000 keys.
+Zipfian access distribution ($s = 0.99$, power-law skew) on 500,000 dense sequential keys (`1..=N`) with `u64` values (workload: `hashbrown_ycsb`).
+
+> ⚠️ **Every figure in this pillar is pending re-run (#1005).** `results/baseline_ycsb.json` holds one `Instant` window over one pass per cell — no rounds, no host, no commit, no load snapshot — so no interval can be computed from it and the ratios below are single-sample point estimates with no interval. The keys were inserted ascending only, which is `BTreeMap`'s rightmost-append best case (§8.12.4), the run was not pinned, and workload D's reads were a plain Zipfian draw that never touched an inserted key, so that row was not read-latest. The harness now measures every cell in rounds, in both insertion orders, with a read-latest D; `scripts/ycsb_bench.py --suite hashbrown` takes the core pin, snapshots load around every round and publishes BCa 95% intervals and paired per-round ratios.
+>
+> **This workload E is not `workload_ycsb`'s workload E** (`docs/BENCHMARKING.md`, "Standardized YCSB Workload Suite"): here a scan takes 10–59 records with no predicate over dense sequential `u64` values; there it takes 10–100 records that pass a key-parity predicate over uniform-random keys and 128 B blobs. The two are not comparable, and the near-parity below does not contradict the 1.55× loss published there.
 
 ![YCSB Workloads A-F Throughput](results/bench_ycsb_workloads.svg)
 
-- **Workload E (Short Range Scans):** SwissTable is structurally disqualified because hash tables cannot perform ordered scans without allocating, dumping, and sorting the entire table. `ExpanseMap` ($9.6\text{ Mops/sec}$) and `BTreeMap` ($10.1\text{ Mops/sec}$) execute ordered range queries natively, within $5\%$ of each other.
-- **Read & Update Heavy Workloads (A, B, C, D, F):** `ExpanseMap` delivers $41\text{–}118\text{ Mops/sec}$, consistently beating `BTreeMap` ($12.6\text{–}17.2\text{ Mops/sec}$) by **$3.0\times\text{ to }7.1\times$**.
+- **Workload E (Short Range Scans):** SwissTable is structurally disqualified because hash tables cannot perform ordered scans without allocating, dumping, and sorting the entire table. `ExpanseMap` ($9.6\text{ Mops/sec}$) and `BTreeMap` ($10.1\text{ Mops/sec}$) execute ordered range queries natively, within $5\%$ of each other on these dense keys (single pass, no interval; pending re-run (#1005)).
+- **Read & Update Heavy Workloads (A, B, C, D, F):** `ExpanseMap` delivers $41\text{–}118\text{ Mops/sec}$, against `BTreeMap`'s $12.6\text{–}17.2\text{ Mops/sec}$: $3.0\times\text{ to }7.1\times$, single-pass point estimates with no interval on ascending-inserted keys, pending re-run (#1005).
 - **`hashbrown` leads the pure point-op workloads** ($154\text{–}219\text{ Mops/sec}$ on A–D, F) — an unordered hash table's home turf. The trade is ordered capability (Workload E) and worst-case latency (Pillar 3 rehash cliffs), not average point throughput.
 
 ---
