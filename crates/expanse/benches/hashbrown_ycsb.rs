@@ -29,8 +29,7 @@
 //! insertion is its rightmost-append path — so every cell is built once sorted
 //! ascending and once Fisher–Yates shuffled, and every row says which
 //! (AGENTS.md §8.12.4). Every row carries its round, so an interval can exist:
-//! `docs/benchmarks/hashbrown_comparison/scripts/ycsb_rounds.py` runs one
-//! process per round, takes the core pin through `scripts/bench_pin.py`,
+//! `scripts/ycsb_bench.py --suite hashbrown` runs one process per round, takes the core pin through `scripts/bench_pin.py`,
 //! snapshots host load around each round and puts BCa 95% intervals on every
 //! cell and every paired per-round ratio. This binary times; it does not pin.
 //!
@@ -52,7 +51,7 @@
 //! | `value_dereference` | `black_box` on op results; values are `u64`, so there is no payload to dereference |
 //! | `measured_region` | Op loop only: the population is built before the timer starts and dropped after it stops |
 //! | `arm_symmetry` | One op stream for every arm; a per-cell work checksum asserted equal across arms; hashbrown is disqualified from E (no ordered scan) and reported as such, never as zero |
-//! | `statistics` | Per-round Mops/s rows; BCa 95% intervals and paired per-round ratios are computed by `ycsb_rounds.py` |
+//! | `statistics` | Per-round Mops/s rows; BCa 95% intervals and paired per-round ratios are computed by `scripts/ycsb_bench.py` |
 //! | `verdict` | **RE-MEASURE PENDING (#1005)** `[verified: CODE READ]`: the committed artifact is one unpinned pass per cell on ascending keys with a non-read-latest D; this table now matches the code. |
 
 use expanse_trie::map::ExpanseMap;

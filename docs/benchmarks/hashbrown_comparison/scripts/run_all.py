@@ -4,7 +4,7 @@ Master benchmark runner for Hashbrown / SwissTable vs BTreeMap vs ExpanseMap.
 
 Executes all 5 benchmark harnesses:
 1. hashbrown_native_suite (Criterion Native port)
-2. hashbrown_ycsb (YCSB A-F workloads)
+2. hashbrown_ycsb (YCSB A-F workloads, through scripts/ycsb_bench.py)
 3. hashbrown_tail_latency (HdrHistogram P50-P99.99)
 4. hashbrown_container_dists (Ankerl/Tessil key distributions)
 5. hashbrown_memory_alloc (GlobalAlloc live heap tracking)
@@ -34,11 +34,28 @@ from bench_provenance import (  # noqa: E402
 
 BENCHES = [
     ("hashbrown_native_suite", "baseline_native.json"),
-    ("hashbrown_ycsb", "baseline_ycsb.json"),
     ("hashbrown_tail_latency", "baseline_tail_latency.json"),
     ("hashbrown_container_dists", "baseline_distributions.json"),
     ("hashbrown_memory_alloc", "baseline_memory.json"),
 ]
+
+def run_ycsb(quick: bool) -> None:
+    """The YCSB pillar goes through `scripts/ycsb_bench.py` (#1005).
+
+    One `cargo bench` pass per cell cannot carry an interval. The driver owns
+    the rounds, the per-round load snapshots, the BCa intervals and the paired
+    ratios, judges its artifact by `check_bench_provenance.py` before writing
+    it, and confines `--quick` to `results/quick/` itself.
+    """
+    print(f"==> Running benchmark: hashbrown_ycsb through scripts/ycsb_bench.py (quick={quick})...")
+    cmd = [sys.executable, str(REPO_ROOT / "scripts" / "ycsb_bench.py"), "--suite", "hashbrown"]
+    if quick:
+        cmd.append("--quick")
+    res = subprocess.run(cmd, cwd=REPO_ROOT)
+    if res.returncode != 0:
+        print("Error running the hashbrown YCSB driver", file=sys.stderr)
+        sys.exit(1)
+
 
 def run_bench(bench_name: str, out_file: str, out_dir: Path, prov: dict, quick: bool = False):
     print(f"==> Running benchmark: {bench_name} (quick={quick})...")
@@ -101,6 +118,10 @@ def main():
 
     for bench_name, out_file in BENCHES:
         run_bench(bench_name, out_file, out_dir, prov, quick=quick)
+
+    # After the single-process pillars: the driver takes its own load snapshots
+    # around each of its rounds and writes its own provenance block.
+    run_ycsb(quick)
 
     add_load(prov, "end")
     # The artifacts were written inside the loop above, before this

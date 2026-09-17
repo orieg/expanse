@@ -142,7 +142,7 @@ The suites below are declared once, in [`.github/bench-suites.json`](../.github/
 | `instructions` | Callgrind | Core deterministic Callgrind instruction counters plus the 64-bit and 32-bit B/key examples, dual-pass against the base ref. |
 | `vs_libjudy` | wall-clock | Paired wall-clock comparison of `libexpanse` against a dlopen'd stock libjudy through the identical C surface, arms interleaved per round (`bench_vs_libjudy`). |
 | `comparative` | wall-clock | Wall-clock head-to-head against hashbrown / BTreeMap, with the `bench_report.py --quick` markdown table. |
-| `ycsb` | wall-clock | YCSB core workloads on the 64-bit map. |
+| `ycsb` | wall-clock | YCSB core workloads A–F on uniform-random and dense clustered keys (`benches/ycsb.rs`, `benches/ycsb_dense.rs`) through `scripts/ycsb_bench.py --suite core`: 100k, 1M and 10M populations, both insertion orders, one process per round with BCa intervals and paired per-round ratios. |
 | `concurrency` | wall-clock | `Sync*` mixed read/write instrument (`benches/concurrency.rs` through `mixed_concurrency.py`): interleaved barrier-started rounds with BCa intervals on a reduced thread/workload sweep; report-only until a gate is pre-registered on it. |
 | `mixed_concurrency_step2_gate` | wall-clock | #568 Step 2 gate run (`METHODOLOGY.md` §13) through `mixed_concurrency.py --step2-gate`: the head against `1edfa952` built with the head's `benches/concurrency.rs`, one process per window, `map` and `set` at 50/50 on 1 and 16 threads, 48 rounds, pin `0-15`; writes `baseline_concurrent_step2_gate.json`. |
 | `writer_scaling` | wall-clock | Expanse-native multi-writer scaling sweep W in {1, 2, 4, 8} on physical cores; no third-party link. |
@@ -165,7 +165,7 @@ The suites below are declared once, in [`.github/bench-suites.json`](../.github/
 | `zset_rank` | wall-clock | Sorted-set rank and select queries. |
 | `zset_memory` | wall-clock | Live-heap footprint of the sorted-set representation against the skiplist baseline. |
 | `hashbrown_native_suite` | wall-clock | Core point-operation comparison against hashbrown. |
-| `hashbrown_ycsb` | wall-clock | YCSB workloads run on the hashbrown comparison arms. |
+| `hashbrown_ycsb` | wall-clock | YCSB workloads on the hashbrown comparison arms (`benches/hashbrown_ycsb.rs`) through `scripts/ycsb_bench.py --suite hashbrown`: both insertion orders, one process per round with BCa intervals and paired per-round ratios. |
 | `hashbrown_tail_latency` | wall-clock | Tail-latency percentiles against hashbrown, including rehash spikes. |
 | `hashbrown_container_dists` | wall-clock | Key-distribution sensitivity sweep against hashbrown. |
 | `hashbrown_memory_alloc` | wall-clock | Live-heap and allocation-count comparison against hashbrown. |

@@ -68,5 +68,5 @@ suite is visible rather than silently absent from this index.
 | `smoke_instructions` | Callgrind | Scaled-down Callgrind smoke counters, dual-pass against the base ref. The same instrument as the `callgrind-smoke` CI job, on the reference host. |
 | `vs_libjudy` | wall-clock | Paired wall-clock comparison of `libexpanse` against a dlopen'd stock libjudy through the identical C surface, arms interleaved per round (`bench_vs_libjudy`). |
 | `vs_stock` | Callgrind | C ABI drop-in parity against the stock oracle (`expanse-capi`), dual-pass against the base ref. |
-| `ycsb` | wall-clock | YCSB core workloads on the 64-bit map. |
+| `ycsb` | wall-clock | YCSB core workloads A–F on uniform-random and dense clustered keys (`benches/ycsb.rs`, `benches/ycsb_dense.rs`) through `scripts/ycsb_bench.py --suite core`: 100k, 1M and 10M populations, both insertion orders, one process per round with BCa intervals and paired per-round ratios. |
 <!-- END GENERATED: bench-suites -->
