@@ -174,6 +174,7 @@ python3 docs/benchmarks/rocksdb_memtable/scripts/concurrent_verdicts.py --self-t
 python3 docs/benchmarks/rocksdb_memtable/scripts/counters_report.py --self-test
 python3 docs/benchmarks/rocksdb_memtable/scripts/locate_profile.py --self-test
 python3 docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py --self-test
+python3 scripts/ycsb_bench.py --self-test
 
 # Verifying the documented example output needs libexpanse built; the CI
 # man-examples job always runs it. Locally it is opt-in, so `gate.sh` stays

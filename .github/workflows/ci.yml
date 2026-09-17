@@ -479,6 +479,13 @@ jobs:
           # the artifact shape check_bench_provenance.py reads are all checkable
           # without the reference host.
           python3 docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py --self-test
+          # The #1005 single-threaded YCSB driver (hashbrown pillar and the core
+          # ycsb/ycsb_dense pair): its row parsing and refusals (a smoke run, a
+          # wrong round stamp, arms that did different work), its round-major
+          # order asserted at the call site, its PAIRED ratio, the takeaway
+          # sentences rendered from the ratio cells, and the artifact judged by
+          # check_bench_provenance.py's own code, all without Cargo.
+          python3 scripts/ycsb_bench.py --self-test
           # The mixed read/write concurrency driver over benches/concurrency.rs
           # (#568): its sample validation and refusals, the Williams position
           # and carryover balance it requires of a run, its per-cell BCa

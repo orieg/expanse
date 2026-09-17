@@ -1032,6 +1032,24 @@
       "replacement": "No level for the W = 0, R = 8 `masstree_conc_str` Expanse reader cell is published in its place: the committed artifacts hold levels from two procedures, one harness process running every round of a cell (docs/benchmarks/masstree_comparison/results/step0/baseline_concurrent.json and its run 2 at a1982ff2; results/baseline_concurrent.json and its run 2 at 6f8d6ba5) and one process per round (results/baseline_concurrent_ab.json and its run 2). Pending re-measurement (#730).",
       "provenance": "#661, #730",
       "rationale": "The readers-only string figures #730 was opened on (the ratio 0.856 [0.850, 0.876], 31.45 against 36.99 M lookups/s, and 254 ns per reader probe, attributed to harness commit 82966aae) match no committed artifact at any commit. Formally retracted as unsourced, pending re-measurement under #730. The sibling headline 0.865 [0.853, 0.886] is already retired by masstree_concurrent_pre_6f8d6ba5 and is not repeated here. The patterns are context-gated on the reader, string and concurrent vocabulary because the bare digits recur in unrelated per-op artifacts."
+    },
+    {
+      "id": "ycsb_typed_takeaway_ratios",
+      "patterns": [
+        "(?<![\\w.])21\\.04\\s*(?:vs\\.?|against)\\s*3\\.67",
+        "(?<![\\w.~])~?5\\.7\\s*[x×]\\s+higher\\s+throughput",
+        "(?<![\\w.~])~?7\\.6\\s*[x×]\\s*[–-]\\s*11\\.0\\s*[x×]"
+      ],
+      "context": [
+        "ycsb",
+        "workload",
+        "skipmap",
+        "btreemap",
+        "read-latest"
+      ],
+      "replacement": "Quotients of the throughput table's own cells: ExpanseBlobMap over BTreeMap on workload D 21.50 / 4.28 = 5.02x, and over SkipMap on B, C, D, F 8.14x-11.14x (workload: `workload_ycsb`), criterion medians with no interval and themselves pending re-run (#1005)",
+      "provenance": "#1005",
+      "rationale": "The YCSB takeaway list in docs/BENCHMARKING.md stated a workload D ratio with a pair of throughputs, and a SkipMap range, that matched neither the table above them nor docs/DATABASE.md. They were typed rather than derived and resolve to no row or artifact. Formally retracted as unsourced."
     }
   ]
 }

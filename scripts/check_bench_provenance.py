@@ -146,6 +146,9 @@ CI_METHOD_PRODUCERS = {
     # The #730 reduction: per-arm intervals over committed rounds, written into
     # docs/benchmarks/concurrency/README.md §13 with their construction label.
     "scripts/reader_scaling_bounds.py",
+    # The single-threaded YCSB driver (#1005): per-cell and paired-ratio
+    # intervals for the hashbrown YCSB pillar and the core ycsb/ycsb_dense pair.
+    "scripts/ycsb_bench.py",
 }
 
 # Importers that are not producers, each with the reason. Exemption is by
@@ -296,6 +299,12 @@ SUITES = (
     "art_comparison", "hot_comparison", "hashbrown_comparison",
     "redis_zset_engine", "search_inverted_index", "masstree_comparison",
     "rocksdb_memtable", "concurrency",
+    # The core single-threaded YCSB pair (`benches/ycsb.rs`, `ycsb_dense.rs`).
+    # Its table resolved to a CI run and to no committed artifact; the directory
+    # is named here before the first artifact lands so that artifact is judged
+    # by this gate from its first commit (#1005). `scripts/ycsb_bench.py`'s
+    # self-test fails if this entry is removed.
+    "ycsb",
 )
 
 # The artifact filename families this gate governs, in a suite's `results/`

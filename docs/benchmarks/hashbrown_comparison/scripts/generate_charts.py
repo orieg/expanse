@@ -149,7 +149,14 @@ def generate_ycsb_chart():
     if not json_path.exists():
         return
     with open(json_path) as f:
-        data = body(json.load(f))
+        raw = json.load(f)
+    # `scripts/ycsb_bench.py` artifacts (#1005) carry per-round cells under
+    # `cells` and keep the per-workload summary objects this chart reads at the
+    # top level, so `body()` — which would hand back the cell list — is not the
+    # way in. The pre-#1005 artifact is the bare per-workload dict.
+    data = raw if isinstance(raw, dict) and raw.get("schema") == "expanse.ycsb.v1" else body(raw)
+    data = {k: v for k, v in data.items()
+            if k.startswith("workload_") and isinstance(v, dict)}
 
     all_vals = []
     for wl_data in data.values():

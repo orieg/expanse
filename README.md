@@ -51,6 +51,8 @@ Naming the project after the mechanism honors the algorithm itself without inher
 
 ![YCSB Workloads A–F: ExpanseMap / ExpanseBlobMap vs BTreeMap and SkipMap](docs/assets/bench_ycsb.svg)
 
+*The YCSB cells in this chart are pending re-run (#1005): the run predates three harness corrections on the measured path — rejected `ExpanseBlobMap` writes in workloads A, B, D and E, structure teardown inside the timed region on every arm, and a workload D that was not read-latest. See [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md#standardized-ycsb-workload-suite-cratesexpansebenchesycsbrs).*
+
 ![Memory density across expanse occupancy: ExpanseSet bytes/key is a sawtooth in λ = N / 2¹⁶, with the LEAF_CAP cascade and both memory-budget cells marked](docs/assets/bench_density_sawtooth.svg)
 
 ---
