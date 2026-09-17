@@ -156,7 +156,7 @@ pub(crate) const ADVANCE_EVERY: u64 = 4096;
 /// the node each subsequent edge was loaded from (Phase 7 per-node OCC:
 /// the writer brackets every node's in-place mutations, child slots and
 /// the recursion beneath them included, with that node's version).
-enum Cover<'a> {
+pub(crate) enum Cover<'a> {
     Tree(&'a SeqVersion, u64),
     Node(*const u32, u32),
 }
@@ -196,7 +196,26 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
     ver: &SeqVersion,
     snap: u64,
 ) -> Result<Option<u64>, Retry> {
-    let mut cover = Cover::Tree(ver, snap);
+    // SAFETY: forwarded contract.
+    unsafe { walk_validated_from::<MAP>(Cover::Tree(ver, snap), root, key) }
+}
+
+/// [`walk_validated`] under a caller-chosen initial cover: the tree word for
+/// the map and set wrappers, and the `StrNode` cover word for one hop of the
+/// string wrapper's cascade (Refs #929), whose sub-map root state is covered
+/// by that node's word rather than the tree's.
+///
+/// # Safety
+///
+/// As [`walk_validated`]: `cover` was sampled even after the tree switched to
+/// deferred reclamation, and the caller holds an epoch pin for the whole call.
+#[inline(always)]
+pub(crate) unsafe fn walk_validated_from<const MAP: bool>(
+    cover: Cover<'_>,
+    root: RootSnapshot,
+    key: Key,
+) -> Result<Option<u64>, Retry> {
+    let mut cover = cover;
     macro_rules! chk {
         () => {
             if !cover.ok() {
@@ -657,6 +676,13 @@ impl SharedTree for ExpanseStrMap {
 
     fn tree_pop(&self) -> u64 {
         self.len()
+    }
+
+    /// Optimistic string writers count in the wrapper's sharded population
+    /// and never touch the map's own field (Refs #929); an exclusive section
+    /// re-syncs it from the shards before an operation reads it.
+    fn set_tree_pop(&mut self, pop: u64) {
+        ExpanseStrMap::set_len(self, pop);
     }
 }
 
@@ -4850,6 +4876,93 @@ impl SyncExpanseMap {
     pub fn __test_reopen_gate(&self) {
         self.shared.reopen_gate();
     }
+
+    /// Removes every key-value pair from the map.
+    pub fn clear(&self) {
+        self.shared.write_root_covered(|m| {
+            m.clear();
+            self.shared.tree_pop.flush_and_set(0);
+        });
+    }
+
+    /// Registers a reader handle for this thread's lookups.
+    #[must_use]
+    pub fn reader(&self) -> MapReader<'_> {
+        MapReader {
+            map: self,
+            reader: self.shared.collector.register(),
+        }
+    }
+
+    /// A reader that owns its handle on the map, for callers that cannot hold
+    /// a borrow — a `#[pyclass]`, a thread-local, anything outliving the call.
+    ///
+    /// Registers once, so a loop through it pays none of the per-lookup
+    /// registry locking that [`Self::get`] does (#554). One reader owns one
+    /// epoch slot and its pins are not reentrant, so give each thread its own
+    /// rather than sharing one.
+    #[must_use]
+    pub fn owned_reader(self: &Arc<Self>) -> OwnedMapReader {
+        OwnedMapReader {
+            map: Arc::clone(self),
+            reader: self.shared.collector.register(),
+        }
+    }
+
+    /// Registers a reader that holds no reference to this map.
+    ///
+    /// Use this where the reader is cached somewhere whose lifetime is not the
+    /// map's -- a per-thread cache, say -- and pass the map back in at lookup
+    /// time. See [`DetachedMapReader`].
+    #[must_use]
+    pub fn detached_reader(&self) -> DetachedMapReader {
+        DetachedMapReader {
+            reader: self.shared.collector.register(),
+        }
+    }
+
+    /// One-shot lookup (registers a throwaway reader; use
+    /// [`Self::reader`] in hot loops).
+    #[must_use]
+    pub fn get(&self, key: Key) -> Option<u64> {
+        self.reader().get(key)
+    }
+
+    /// Number of keys (validated read).
+    #[must_use]
+    pub fn len(&self) -> u64 {
+        self.shared
+            .validated_len(|m| m.occ_root().0, ExpanseMap::len)
+    }
+
+    /// True when no keys are present.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Heap bytes used by the map's nodes and leaves, as
+    /// [`ExpanseMap::mem_used`] counts them (consistent read under the writer
+    /// lock).
+    ///
+    /// Taken under the same writer-excluding read as
+    /// [`SyncExpanseBlobMap::mem_used`] and [`SyncExpanseBytesMap::mem_used`]:
+    /// writers are quiesced and the writer mutex is held, so the figure is the
+    /// tree's between two mutations, never one caught mid-way with a
+    /// replacement node counted and its predecessor not yet retired. Writers
+    /// wait for it, so it does not belong in a hot loop. Nodes already retired
+    /// to the epoch collector but not yet reclaimed are no longer counted,
+    /// although their allocations are still resident.
+    #[must_use]
+    pub fn mem_used(&self) -> usize {
+        self.shared.read_locked(ExpanseMap::mem_used)
+    }
+
+    /// Runs `f` over the tree with all writers excluded — the escape
+    /// hatch to the full single-threaded read API.
+    pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseMap) -> R) -> R {
+        self.shared.with_locked(f)
+    }
 }
 
 /// Which store an OLC insert makes when the key is already present.
@@ -7171,95 +7284,6 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
     }
 }
 
-impl SyncExpanseMap {
-    /// Removes every key-value pair from the map.
-    pub fn clear(&self) {
-        self.shared.write_root_covered(|m| {
-            m.clear();
-            self.shared.tree_pop.flush_and_set(0);
-        });
-    }
-
-    /// Registers a reader handle for this thread's lookups.
-    #[must_use]
-    pub fn reader(&self) -> MapReader<'_> {
-        MapReader {
-            map: self,
-            reader: self.shared.collector.register(),
-        }
-    }
-
-    /// A reader that owns its handle on the map, for callers that cannot hold
-    /// a borrow — a `#[pyclass]`, a thread-local, anything outliving the call.
-    ///
-    /// Registers once, so a loop through it pays none of the per-lookup
-    /// registry locking that [`Self::get`] does (#554). One reader owns one
-    /// epoch slot and its pins are not reentrant, so give each thread its own
-    /// rather than sharing one.
-    #[must_use]
-    pub fn owned_reader(self: &Arc<Self>) -> OwnedMapReader {
-        OwnedMapReader {
-            map: Arc::clone(self),
-            reader: self.shared.collector.register(),
-        }
-    }
-
-    /// Registers a reader that holds no reference to this map.
-    ///
-    /// Use this where the reader is cached somewhere whose lifetime is not the
-    /// map's -- a per-thread cache, say -- and pass the map back in at lookup
-    /// time. See [`DetachedMapReader`].
-    #[must_use]
-    pub fn detached_reader(&self) -> DetachedMapReader {
-        DetachedMapReader {
-            reader: self.shared.collector.register(),
-        }
-    }
-
-    /// One-shot lookup (registers a throwaway reader; use
-    /// [`Self::reader`] in hot loops).
-    #[must_use]
-    pub fn get(&self, key: Key) -> Option<u64> {
-        self.reader().get(key)
-    }
-
-    /// Number of keys (validated read).
-    #[must_use]
-    pub fn len(&self) -> u64 {
-        self.shared
-            .validated_len(|m| m.occ_root().0, ExpanseMap::len)
-    }
-
-    /// True when no keys are present.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Heap bytes used by the map's nodes and leaves, as
-    /// [`ExpanseMap::mem_used`] counts them (consistent read under the writer
-    /// lock).
-    ///
-    /// Taken under the same writer-excluding read as
-    /// [`SyncExpanseBlobMap::mem_used`] and [`SyncExpanseBytesMap::mem_used`]:
-    /// writers are quiesced and the writer mutex is held, so the figure is the
-    /// tree's between two mutations, never one caught mid-way with a
-    /// replacement node counted and its predecessor not yet retired. Writers
-    /// wait for it, so it does not belong in a hot loop. Nodes already retired
-    /// to the epoch collector but not yet reclaimed are no longer counted,
-    /// although their allocations are still resident.
-    #[must_use]
-    pub fn mem_used(&self) -> usize {
-        self.shared.read_locked(ExpanseMap::mem_used)
-    }
-
-    /// Runs `f` over the tree with all writers excluded — the escape
-    /// hatch to the full single-threaded read API.
-    pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseMap) -> R) -> R {
-        self.shared.with_locked(f)
-    }
-}
-
 /// A per-thread reader handle for [`SyncExpanseMap`].
 pub struct MapReader<'a> {
     map: &'a SyncExpanseMap,
@@ -8031,21 +8055,117 @@ impl SyncExpanseStrMap {
         }
     }
 
-    /// Inserts `key → val`; returns the replaced value, if any. Serializes
-    /// with other writers. Keys are NUL-free byte strings.
+    /// Inserts `key → val`; returns the replaced value, if any. Keys are
+    /// NUL-free byte strings.
+    ///
+    /// Multi-writer (Refs #929, `docs/benchmarks/concurrency/METHODOLOGY.md`
+    /// §17.2): the writer enters the gate, pins an epoch and runs
+    /// [`ExpanseStrMap::olc_insert`] — one cover word per `StrNode`,
+    /// hand-over-hand down the chunk chain, with a tree-state sub-map
+    /// mutated under the engine's own per-node locks. The meta-trie root's
+    /// creation, and whatever the engine falls back on inside a sub-map,
+    /// take the serialised root-covered path, which quiesces the
+    /// optimistic writers first. With `ablation-str-serial-writers` every
+    /// mutation serialises on the writer mutex under the whole-operation
+    /// tree bracket instead — the protocol this replaced, kept so it can
+    /// be measured against (AGENTS.md §2.7).
     pub fn insert(&self, key: &NulFreeStr, val: u64) -> Option<u64> {
         crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
-        self.shared.write(|m| m.insert(key, val))
+        #[cfg(feature = "ablation-str-serial-writers")]
+        {
+            self.shared.write(|m| m.insert(key, val))
+        }
+        #[cfg(not(feature = "ablation-str-serial-writers"))]
+        {
+            let guard = self.shared.enter_writer_blocking();
+            let slot = guard.slot_id();
+            let res = self.shared.with_writer_pin(|| {
+                self.shared.str_optimistic(|| {
+                    // SAFETY: the gate is entered and the epoch pinned for
+                    // this closure, on a map `from_map` deferred.
+                    match unsafe { (*self.shared.inner.get()).olc_insert(key, val) } {
+                        OlcOutcome::Done(prev) => {
+                            if prev.is_none() {
+                                self.shared.tree_pop.add(slot, 1);
+                            }
+                            OlcOutcome::Done(prev)
+                        }
+                        other => other,
+                    }
+                })
+            });
+            drop(guard);
+            match res {
+                Ok(prev) => prev,
+                Err(_) => self.shared.remove_root_covered(|m| m.insert(key, val)),
+            }
+        }
     }
 
-    /// Removes `key`; returns its value, if present.
+    /// Removes `key`; returns its value, if present. Multi-writer as
+    /// [`Self::insert`]: an emptied node is pruned under its own and its
+    /// parent's cover when both can be taken, and by the serialised path
+    /// otherwise — the removal itself is never redone.
     pub fn remove(&self, key: &NulFreeStr) -> Option<u64> {
-        self.shared.write(|m| m.remove(key))
+        #[cfg(feature = "ablation-str-serial-writers")]
+        {
+            self.shared.write(|m| m.remove(key))
+        }
+        #[cfg(not(feature = "ablation-str-serial-writers"))]
+        {
+            let guard = self.shared.enter_writer_blocking();
+            let slot = guard.slot_id();
+            let res = self.shared.with_writer_pin(|| {
+                self.shared.str_optimistic(|| {
+                    // SAFETY: as in `insert`.
+                    let (outcome, prune) = unsafe { (*self.shared.inner.get()).olc_remove(key) };
+                    match outcome {
+                        OlcOutcome::Done(prev) => {
+                            if prev.is_some() {
+                                self.shared.tree_pop.add(slot, -1);
+                            }
+                            OlcOutcome::Done((prev, prune))
+                        }
+                        OlcOutcome::Retry => OlcOutcome::Retry,
+                        OlcOutcome::Fallback(cause) => OlcOutcome::Fallback(cause),
+                    }
+                })
+            });
+            drop(guard);
+            match res {
+                Ok((prev, None)) => prev,
+                Ok((prev, Some(cause))) => {
+                    // The removal is done and counted; only the prune of the
+                    // emptied node is left, and it is the fallback it is.
+                    crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                    crate::occ_stats::bump(cause.stat());
+                    #[cfg(feature = "occ-stats")]
+                    if cause == FallbackCause::Contention {
+                        crate::occ_stats::bump(contention_stat(false));
+                    }
+                    self.shared.remove_root_covered(|m| m.prune_empty_path(key));
+                    prev
+                }
+                Err(_) => self.shared.remove_root_covered(|m| m.remove(key)),
+            }
+        }
     }
 
-    /// Removes every entry; returns the heap bytes released.
+    /// Removes every entry; returns the heap bytes released. A whole-tree
+    /// disposal, always serialised (T12).
     pub fn clear(&self) -> u64 {
-        self.shared.write(ExpanseStrMap::clear)
+        #[cfg(feature = "ablation-str-serial-writers")]
+        {
+            self.shared.write(ExpanseStrMap::clear)
+        }
+        #[cfg(not(feature = "ablation-str-serial-writers"))]
+        {
+            self.shared.remove_root_covered(|m| {
+                let bytes = m.clear();
+                self.shared.tree_pop.flush_and_set(0);
+                bytes
+            })
+        }
     }
 
     /// Registers a reader handle for this thread's lookups.
@@ -8071,23 +8191,12 @@ impl SyncExpanseStrMap {
         self.get(key).is_some()
     }
 
-    /// Number of keys (validated read).
+    /// Number of keys: a point-in-time sum of the wrapper's sharded
+    /// population, which optimistic writers count in and every serialised
+    /// section reconciles — the map wrapper's tree-state `len`.
     #[must_use]
     pub fn len(&self) -> u64 {
-        for _ in 0..MAX_RETRIES {
-            let snap = self.shared.version().sample();
-            // SAFETY: single-word racy copy; validated before use.
-            let pop = unsafe { (*self.shared.inner.get()).len() };
-            if self.shared.version().validate(snap) {
-                return pop;
-            }
-        }
-        // Mirrors `Shared::validated_len`: retry exhaustion here is a
-        // fallback, not one of the unconditionally-locked routes, so it must
-        // be counted as one or `locked_reads - read_fallbacks` misreports the
-        // unconditional share.
-        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
-        self.shared.read_locked(ExpanseStrMap::len)
+        self.shared.tree_pop.load()
     }
 
     /// True when no keys are present.
@@ -8103,12 +8212,81 @@ impl SyncExpanseStrMap {
     }
 
     /// Runs `f` with exclusive access under the writer lock and version
-    /// bracket — the escape hatch to ordered navigation and prefix scans
-    /// (`next_at_or_after`, `prev_at_or_before`, `first`/`last`, …), which
-    /// take `&mut self` because they return writable value slots. Slots
-    /// obtained inside must not escape `f`.
+    /// bracket, with the optimistic writers quiesced — the escape hatch to
+    /// ordered navigation and prefix scans (`next_at_or_after`,
+    /// `prev_at_or_before`, `first`/`last`, …), which take `&mut self`
+    /// because they return writable value slots. Slots obtained inside must
+    /// not escape `f`. A mutation made through the plain API inside `f`
+    /// runs the map's deferred twin, which brackets each node's cover as
+    /// the optimistic writers do.
     pub fn with_locked_mut<R>(&self, f: impl FnOnce(&mut ExpanseStrMap) -> R) -> R {
-        self.shared.write(f)
+        #[cfg(feature = "ablation-str-serial-writers")]
+        {
+            self.shared.write(f)
+        }
+        #[cfg(not(feature = "ablation-str-serial-writers"))]
+        {
+            self.shared.remove_root_covered(f)
+        }
+    }
+}
+
+#[cfg(not(feature = "ablation-str-serial-writers"))]
+impl Shared<ExpanseStrMap> {
+    /// The optimistic attempt loop of the string wrapper's writers: the
+    /// counters, gate check, retry budget and backoff of
+    /// `SyncExpanseMap::insert`, written once for both mutations
+    /// (Refs #929). `attempt` runs the optimistic path once; `Err` is the
+    /// cause the caller's serialised fallback is taken for.
+    fn str_optimistic<R>(
+        &self,
+        mut attempt: impl FnMut() -> OlcOutcome<R>,
+    ) -> Result<R, FallbackCause> {
+        crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+        crate::occ_stats::op_begin();
+        let mut cause = FallbackCause::Contention;
+        #[cfg(feature = "occ-stats")]
+        let mut closed = false;
+        let mut backoff = 1;
+        for _ in 0..MAX_RETRIES {
+            if self.gate.is_closed() {
+                #[cfg(feature = "occ-stats")]
+                {
+                    closed = true;
+                }
+                break;
+            }
+            match attempt() {
+                OlcOutcome::Done(r) => {
+                    self.collector.tick_advance();
+                    crate::occ_stats::op_end();
+                    return Ok(r);
+                }
+                OlcOutcome::Retry => {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                    for _ in 0..backoff {
+                        core::hint::spin_loop();
+                    }
+                    if backoff < 64 {
+                        backoff <<= 1;
+                    }
+                    #[cfg(loom)]
+                    loom::thread::yield_now();
+                }
+                OlcOutcome::Fallback(c) => {
+                    cause = c;
+                    break;
+                }
+            }
+        }
+        crate::occ_stats::op_end();
+        crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+        crate::occ_stats::bump(cause.stat());
+        #[cfg(feature = "occ-stats")]
+        if cause == FallbackCause::Contention {
+            crate::occ_stats::bump(contention_stat(closed));
+        }
+        Err(cause)
     }
 }
 
@@ -9088,7 +9266,7 @@ mod tests {
         );
     }
     use super::*;
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
     struct XorShift(u64);
@@ -9359,25 +9537,28 @@ mod tests {
         h
     }
 
-    /// #929 groundwork: `ExpanseStrMap` implements `RootState` now, so
-    /// `Shared::write_root_covered` and the whole `olc_*` route are
-    /// instantiable for this wrapper — but **nothing routes through them**.
-    /// Every mutation still takes `Shared::write` and its one writer mutex,
-    /// which is what leaves the meta-trie root's per-node cover word at its
-    /// initial even value across a mixed insert / replace / remove
-    /// workload driven through the concurrent wrapper itself.
+    /// #929: the wrapper's writers route their stores onto the per-node
+    /// covers. The fixture's keys share a handful of first chunks, so the
+    /// root's sub-map stays a root leaf and its first inserts and splits
+    /// are leaf-state mutations under the root cover taken as a lock: the
+    /// word is even again afterwards and has moved, where #985 pinned it
+    /// at its initial 0. `root_is_tree` still answers `false` (see the
+    /// `RootState` impl for why that is the correct answer), so the
+    /// fallback keeps the tree-level bracket open across a whole operation.
     ///
-    /// The plain-tree twin is
-    /// `strmap::tests::deferred_str_node_cover_words_stay_even_and_unbumped`,
-    /// which walks every node; this one pins the same claim through the
-    /// wrapper's own write path, and pins `root_is_tree`'s constant answer
-    /// (see the `RootState` impl for why `false` is the correct one).
+    /// The plain-tree twin,
+    /// `strmap::tests::str_node_cover_words_are_untouched_unshared`, pins
+    /// that a map never deferred leaves every cover at 0.
     #[test]
-    fn sync_strmap_writes_leave_the_per_node_cover_untouched() {
+    fn sync_strmap_writes_move_the_per_node_cover() {
         let m = SyncExpanseStrMap::new();
+        // The generator repeats a key at every index that is a multiple of
+        // 24, so the distinct count is taken from the keys, not the indices.
+        let mut distinct = BTreeSet::new();
         for i in 0..64u64 {
             let k = str_key_of(i);
             m.insert(tk(&k), str_val_of(&k));
+            distinct.insert(k);
         }
         // A replace over a live entry, then a removal.
         let k0 = str_key_of(0);
@@ -9392,19 +9573,251 @@ mod tests {
                  an engine `Root::Tree`, so the fallback keeps the \
                  tree-level bracket open across the whole operation"
             );
-            // The safe read: `root_cover` returns the word by value, so
-            // pinning this needs no raw pointer. `Some(0)` also asserts the
-            // fixture left a root node at all.
-            assert_eq!(
-                inner.root_cover(),
-                Some(0),
-                "a writer bumped the root cover word (or the fixture left \
-                 no root): this wrapper still serialises on \
-                 `Shared::write`, and routing stores onto the per-node \
-                 covers is the behaviour change #929 registers"
+            let cover = inner.root_cover().expect("the fixture leaves a root node");
+            assert!(
+                cover.is_multiple_of(2),
+                "a cover left odd after the writers drained: {cover}"
+            );
+            assert!(
+                cover >= 2,
+                "a leaf-state mutation of the root's sub-map advances its cover \
+                 by two, and the fixture's first insert is one; got {cover}"
             );
         });
         assert_eq!(m.get(tk(&k0)), Some(7));
+        assert_eq!(m.len(), distinct.len() as u64 - 1);
+    }
+
+    /// A collision-free string key for the #929 multi-writer tests: writer
+    /// `w`'s keys share a first chunk, pairs of them share a second, and the
+    /// pair's remainders diverge — so a writer's own churn splits suffixes
+    /// (T4), replaces values (T3), removes suffixes (T8) and prunes the
+    /// grandchildren it empties (T9), while different writers meet only in
+    /// the root's sub-map.
+    fn churn_key(w: usize, i: usize) -> Vec<u8> {
+        let tail = if i.is_multiple_of(2) {
+            "alpha"
+        } else {
+            "beta-longer"
+        };
+        format!("tenant{w}/item{:04}/{tail}", i / 2).into_bytes()
+    }
+
+    /// #929: writers on disjoint subtrees make progress concurrently and the
+    /// tree is exact once they drain — the string wrapper's twin of
+    /// `linearizability.rs`'s disjoint-writer census. The root's sub-map is
+    /// a tree before the writers start, so their first-chunk inserts go
+    /// through the engine's OLC bodies; every deeper node is one writer's.
+    /// A second phase removes every key concurrently, so the emptied
+    /// children are pruned under contention.
+    #[test]
+    fn concurrent_str_multi_writer_disjoint_and_census() {
+        let m = Arc::new(SyncExpanseStrMap::new());
+        let prefill: Vec<Vec<u8>> = (0..40u64)
+            .map(|i| format!("pre{i:05}").into_bytes())
+            .collect();
+        for k in &prefill {
+            m.insert(tk(k), str_val_of(k));
+        }
+        const W: usize = 4;
+        const PER: usize = 2000;
+        let keys_of = |w: usize| -> Vec<Vec<u8>> { (0..PER).map(|i| churn_key(w, i)).collect() };
+        let barrier = Arc::new(std::sync::Barrier::new(W));
+        let handles: Vec<_> = (0..W)
+            .map(|w| {
+                let m = Arc::clone(&m);
+                let b = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    let keys = keys_of(w);
+                    b.wait();
+                    for k in &keys {
+                        assert_eq!(m.insert(tk(k), str_val_of(k)), None, "fresh {k:?}");
+                    }
+                    for k in &keys {
+                        assert_eq!(
+                            m.insert(tk(k), str_val_of(k) ^ 1),
+                            Some(str_val_of(k)),
+                            "replace {k:?}"
+                        );
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().expect("writer panicked");
+        }
+        let total = (prefill.len() + W * PER) as u64;
+        assert_eq!(m.len(), total);
+        m.with_locked(|inner| {
+            assert_eq!(inner.len(), total);
+            for k in &prefill {
+                assert_eq!(inner.get(tk(k)), Some(str_val_of(k)));
+            }
+            for w in 0..W {
+                for k in keys_of(w) {
+                    assert_eq!(inner.get(tk(&k)), Some(str_val_of(&k) ^ 1), "{k:?}");
+                }
+            }
+        });
+        let barrier = Arc::new(std::sync::Barrier::new(W));
+        let handles: Vec<_> = (0..W)
+            .map(|w| {
+                let m = Arc::clone(&m);
+                let b = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    let keys = keys_of(w);
+                    b.wait();
+                    for k in &keys {
+                        assert_eq!(m.remove(tk(k)), Some(str_val_of(k) ^ 1), "remove {k:?}");
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().expect("remover panicked");
+        }
+        assert_eq!(m.len(), prefill.len() as u64);
+        m.with_locked(|inner| {
+            for w in 0..W {
+                for k in keys_of(w) {
+                    assert_eq!(inner.get(tk(&k)), None, "{k:?}");
+                }
+            }
+            for k in &prefill {
+                assert_eq!(inner.get(tk(k)), Some(str_val_of(k)));
+            }
+        });
+    }
+
+    /// #929: every writer inserts under the same first chunk, so the root's
+    /// one continuation entry is contended from the first insert — a suffix
+    /// one writer publishes (T2) that the others must find rather than
+    /// clobber (`olc_insert_map`'s insert-if-absent mode), then split (T4)
+    /// under the cover lock, then a child every writer mutates at once,
+    /// through its cover as a root leaf and through the engine as a tree.
+    #[test]
+    fn concurrent_str_writers_collide_on_one_chunk() {
+        for round in 0..6u64 {
+            let m = Arc::new(SyncExpanseStrMap::new());
+            let prefill: Vec<Vec<u8>> = (0..40u64)
+                .map(|i| format!("pre{i:05}").into_bytes())
+                .collect();
+            for k in &prefill {
+                m.insert(tk(k), str_val_of(k));
+            }
+            const W: usize = 4;
+            const PER: usize = 300;
+            let keys_of = |w: usize| -> Vec<Vec<u8>> {
+                (0..PER)
+                    .map(|i| format!("shared:/{w}-{i}").into_bytes())
+                    .collect()
+            };
+            let barrier = Arc::new(std::sync::Barrier::new(W));
+            let handles: Vec<_> = (0..W)
+                .map(|w| {
+                    let m = Arc::clone(&m);
+                    let b = Arc::clone(&barrier);
+                    std::thread::spawn(move || {
+                        let keys = keys_of(w);
+                        b.wait();
+                        for k in &keys {
+                            assert_eq!(m.insert(tk(k), str_val_of(k)), None, "fresh {k:?}");
+                        }
+                    })
+                })
+                .collect();
+            for h in handles {
+                h.join().expect("writer panicked");
+            }
+            assert_eq!(m.len(), (prefill.len() + W * PER) as u64, "round {round}");
+            m.with_locked(|inner| {
+                for w in 0..W {
+                    for k in keys_of(w) {
+                        assert_eq!(
+                            inner.get(tk(&k)),
+                            Some(str_val_of(&k)),
+                            "round {round}: {k:?}"
+                        );
+                    }
+                }
+                for k in &prefill {
+                    assert_eq!(inner.get(tk(k)), Some(str_val_of(k)));
+                }
+            });
+        }
+    }
+
+    /// #929: three writers churn their own key sets while two readers
+    /// hammer the cascade. A reader must see a key's full-key hash or
+    /// nothing — never a torn value or a stale continuation — across the
+    /// splits, in-place replaces, suffix removals and prunes the writers
+    /// make at once, and the tree matches the writers' bookkeeping once
+    /// they drain.
+    #[test]
+    fn concurrent_str_writers_churn_under_readers() {
+        let m = Arc::new(SyncExpanseStrMap::new());
+        let stop = Arc::new(AtomicBool::new(false));
+        const W: usize = 3;
+        const KEYS: usize = 256;
+        let readers: Vec<_> = (0..2u64)
+            .map(|r| {
+                let m = Arc::clone(&m);
+                let stop = Arc::clone(&stop);
+                std::thread::spawn(move || {
+                    let rd = m.reader();
+                    let mut rng = XorShift(0x7000 + r);
+                    while !stop.load(Ordering::Relaxed) {
+                        let w = (rng.next() % W as u64) as usize;
+                        let k = churn_key(w, (rng.next() % KEYS as u64) as usize);
+                        if let Some(v) = rd.get(tk(&k)) {
+                            assert_eq!(v, str_val_of(&k), "torn value for {k:?}");
+                        }
+                    }
+                })
+            })
+            .collect();
+        let writers: Vec<_> = (0..W)
+            .map(|w| {
+                let m = Arc::clone(&m);
+                std::thread::spawn(move || {
+                    let keys: Vec<Vec<u8>> = (0..KEYS).map(|i| churn_key(w, i)).collect();
+                    let mut present = vec![false; KEYS];
+                    let mut rng = XorShift(0x9000 + w as u64);
+                    for _ in 0..12_000 {
+                        let i = (rng.next() % KEYS as u64) as usize;
+                        let k = &keys[i];
+                        if present[i] {
+                            assert_eq!(m.remove(tk(k)), Some(str_val_of(k)), "remove {k:?}");
+                        } else {
+                            assert_eq!(m.insert(tk(k), str_val_of(k)), None, "insert {k:?}");
+                        }
+                        present[i] = !present[i];
+                    }
+                    present
+                })
+            })
+            .collect();
+        let presents: Vec<Vec<bool>> = writers
+            .into_iter()
+            .map(|h| h.join().expect("writer panicked"))
+            .collect();
+        stop.store(true, Ordering::Relaxed);
+        for r in readers {
+            r.join().expect("reader panicked");
+        }
+        let expected: u64 = presents
+            .iter()
+            .map(|p| p.iter().filter(|&&b| b).count() as u64)
+            .sum();
+        assert_eq!(m.len(), expected);
+        m.with_locked(|inner| {
+            for (w, present) in presents.iter().enumerate() {
+                for (i, &p) in present.iter().enumerate() {
+                    let k = churn_key(w, i);
+                    assert_eq!(inner.get(tk(&k)), p.then(|| str_val_of(&k)), "{k:?}");
+                }
+            }
+        });
     }
 
     #[test]

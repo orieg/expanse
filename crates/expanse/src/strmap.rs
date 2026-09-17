@@ -31,6 +31,8 @@ use crate::map::MapCore;
 use crate::occ::Collector;
 use core::alloc::Layout;
 use core::ptr::NonNull;
+#[cfg(feature = "std")]
+use core::sync::atomic::{AtomicU32, Ordering};
 use core_alloc::boxed::Box;
 #[cfg(feature = "std")]
 use core_alloc::sync::Arc;
@@ -213,31 +215,59 @@ fn pack_child(p: *mut StrNode) -> u64 {
 /// continuation entry reaches the word at a fixed zero offset, with no
 /// field arithmetic and on the line it is about to read the map root from.
 ///
-/// **Nothing bumps it yet.** This is the groundwork half of #929's string
-/// design: the word is allocated, pinned and reachable, the write path
-/// still serialises on `sync::Shared::write`, and routing stores and the
-/// readers' cross-hop validation onto it is the behaviour change that
-/// follows (§17.2.2). Obsolete-marking an unlinked node's word before it
-/// is retired (property S3) belongs to that change too, and
-/// [`dispose_node`] does not do it today because no reader validates
-/// against this word yet.
+/// **Who moves it.** On a shared map (one that `defer_to` switched to
+/// deferred reclamation) every store to this node's root state is
+/// bracketed by the word: the exclusive path (`sync::Shared::write` and
+/// the fallbacks) opens a `version_begin` / `version_end` bracket around
+/// each sub-map mutation, and an optimistic writer takes the word as a
+/// lock (`version_try_lock_expect`) for a leaf-state sub-map, a suffix
+/// value replace (T3), a split (T4), a suffix removal (T8) and a prune
+/// (T9) — the transitions of `docs/benchmarks/concurrency/METHODOLOGY.md`
+/// §17.2.1. A tree-state sub-map's interior is covered by the engine's own
+/// per-node words, exactly as the map wrapper's is. Readers sample the
+/// word before the hop and validate it after (§17.2.2), so a node that is
+/// unlinked is marked obsolete first (property S3, [`dispose_node`]). The
+/// unshared path never touches the word: a plain `ExpanseStrMap` leaves
+/// every cover at 0, which `str_node_cover_words_are_untouched_unshared`
+/// pins.
+///
+/// # The dirty flag (Refs #929)
+///
+/// An optimistic writer that mutates this node's sub-map *tree* through
+/// the engine's OLC bodies leaves `MapCore::tree_pop` stale, exactly as
+/// the map wrapper's optimistic writers leave `ExpanseMap`'s (they count
+/// in `Shared::tree_pop` instead). The map wrapper re-syncs one field at
+/// quiescence; the string map has one field per node, so each node
+/// records that it is stale in `dirty`, and the exclusive path restores
+/// the population from a census fold before it reads or changes it
+/// ([`StrNode::resync_if_dirty`]). A dirty node is always in tree state:
+/// leaf-state sub-maps are only ever mutated under the cover, which keeps
+/// their population exact, and an optimistic writer never empties or
+/// condenses a tree. The flag sits in the padding the cover word's
+/// alignment already reserved, so the node's size does not move.
 #[repr(C)]
 struct StrNode {
     /// Per-node cover for this node's sub-map root state. See the type
-    /// docs: even is stable, odd is a store in progress, and nothing
-    /// bumps it until #929's write path lands.
+    /// docs: even is stable, odd is a store in progress or a lock.
     cover: u32,
+    /// Non-zero once an optimistic writer left `map.tree_pop` stale. See
+    /// the type docs.
+    dirty: u32,
     map: MapCore,
 }
 
 // The cover word's offset is load-bearing (see the type docs), and
-// reordering the two fields would still compile. Checked at compile time
+// reordering the fields would still compile. Checked at compile time
 // rather than trusted (AGENTS.md §6.5).
 const _: () = {
     assert!(
         core::mem::offset_of!(StrNode, cover) == 0,
         "the cover word must head `StrNode`: the OCC protocol reaches it \
          from a bare `*mut StrNode` at a fixed zero offset"
+    );
+    assert!(
+        core::mem::offset_of!(StrNode, dirty) == 4,
+        "the dirty flag lives in the cover word's alignment padding"
     );
 };
 
@@ -290,6 +320,21 @@ fn dispose_suffix(ptr: *mut StrSuffix, defer: DeferHandle<'_>) {
 /// readers keep their memory; the shell then frees (or retires) exactly
 /// once with the layout it was allocated with.
 fn dispose_node(ptr: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
+    // Property S3 (Refs #929): a shared node that ceases to be reachable is
+    // marked obsolete before its interior changes, so a reader that
+    // validated the entry pointing at it and was descheduled restarts on
+    // its next sample instead of validating a word nobody bumps again. An
+    // optimistic prune arrives with the word already odd — locked, then
+    // marked through its lock — and is left alone.
+    #[cfg(feature = "std")]
+    if defer.is_some() {
+        // SAFETY: `ptr` is live (unlinked, not yet retired) and this is
+        // the only thread that stores to its cover word.
+        let cell = unsafe { crate::occ::version_cell(&raw const (*ptr).cover) };
+        if cell.load(Ordering::Relaxed).is_multiple_of(2) {
+            crate::occ::version_obsolete(cell);
+        }
+    }
     // SAFETY: caller unlinked `ptr` and is the exclusive writer; the map
     // interior is cleared exactly once here and never touched again (in
     // deferred mode the shell memory stays mapped for pinned readers,
@@ -522,7 +567,47 @@ impl StrNode {
             // Even: stable, no store in progress. Every branch header the
             // engine allocates starts its version at 0 the same way.
             cover: 0,
+            dirty: 0,
             map: MapCore::new(),
+        }
+    }
+
+    /// The dirty flag as the optimistic path addresses it (see the type
+    /// docs).
+    ///
+    /// # Safety
+    ///
+    /// `p` must point at a live node. The flag is only ever accessed
+    /// through this view, and `AtomicU32` is layout-compatible with `u32`.
+    #[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
+    #[inline(always)]
+    unsafe fn dirty_cell<'a>(p: *const StrNode) -> &'a AtomicU32 {
+        // SAFETY: forwarded contract.
+        unsafe { &*(&raw const (*p).dirty).cast::<AtomicU32>() }
+    }
+
+    /// Exclusive path: restores this node's sub-map population from a
+    /// census fold if optimistic writers left it stale (see the type
+    /// docs). Called before the exclusive path reads or changes that
+    /// population; a no-op on a clean node, which is every node of a map
+    /// that has never had concurrent writers.
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    fn resync_if_dirty(&mut self) {
+        // Through the unique borrow, so the view is a child of it.
+        // SAFETY: `self` is live and the flag is accessed only through this
+        // view.
+        let cell = unsafe { &*(&raw mut self.dirty).cast::<AtomicU32>() };
+        if cell.load(Ordering::Relaxed) != 0 {
+            let top = self.map.root_top_ptr_mut();
+            if !top.is_null() {
+                // SAFETY: the caller is exclusive (writers quiesced or
+                // serialised), and `top` is the live top edge of this
+                // node's tree.
+                let pop = unsafe { crate::sync::fold_branch_pop0(top, 8) };
+                self.map.set_tree_pop(pop);
+            }
+            cell.store(0, Ordering::Relaxed);
         }
     }
 
@@ -530,15 +615,14 @@ impl StrNode {
     /// addresses a branch header's version (`occ::version_cell`,
     /// `occ::node_sample`, `Cover::Node`).
     ///
-    /// Read-only provenance on purpose: nothing bumps this word yet, and a
-    /// writer that will (Refs #929) reaches the node through the raw
-    /// `*mut StrNode` it decoded from its parent's continuation entry, so
-    /// it derives `&raw mut (*node).cover` there with write provenance
-    /// rather than casting one out of a shared borrow (AGENTS.md §5,
-    /// Stacked/Tree Borrows hygiene).
-    // Reachable-but-unrouted by construction: this PR lands the word and
-    // its plumbing, and #929's write path is what calls this.
-    #[allow(dead_code)]
+    /// Read-only provenance on purpose: a writer reaches the node through
+    /// the raw `*mut StrNode` it decoded from its parent's continuation
+    /// entry and derives `&raw mut (*node).cover` there with write
+    /// provenance, rather than casting one out of a shared borrow
+    /// (AGENTS.md §5, Stacked/Tree Borrows hygiene). The reader and writer
+    /// paths project the word from their raw node pointer for the same
+    /// reason, so this accessor serves the tests that pin the layout.
+    #[cfg(test)]
     #[inline(always)]
     fn cover_addr(&self) -> *const u32 {
         &raw const self.cover
@@ -782,13 +866,13 @@ impl StrNode {
         }
     }
 
-    /// Removes `key[off..]`; returns the removed value. Empty child nodes
-    /// are pruned on the way out (disposal routed through `defer` — see
-    /// [`dispose_suffix`]/[`dispose_node`]).
-    /// Iterative: descend recording the path, then prune emptied nodes on
-    /// the way back out. Recursing costs a frame per 8 key bytes, which a
-    /// long key turns into a stack overflow.
-    fn remove(
+    /// Removes `key[off..]` from this subtree; see [`ExpanseStrMap::remove`].
+    ///
+    /// `SHARED` selects the deferred twin (Refs #929): each sub-map
+    /// mutation is bracketed by its node's cover and preceded by a census
+    /// re-sync, and a pruned child is marked obsolete before it retires.
+    /// The unshared instantiation is the plain path with nothing added.
+    fn remove_impl<const SHARED: bool>(
         &mut self,
         key: &[u8],
         off: usize,
@@ -805,7 +889,8 @@ impl StrNode {
             // because the descent never revisits a node.
             let n = unsafe { &mut *node };
             if terminal {
-                break n.map.remove_pathless(alloc, chunk)?;
+                resync::<SHARED>(n);
+                break covered::<SHARED, _>(n, alloc, |m| m.remove_pathless(alloc, chunk))?;
             }
             let v = n.map.get(chunk)?;
             if is_suffix_ptr(v) {
@@ -813,7 +898,8 @@ impl StrNode {
                 let rem = &key[off + CHUNK..];
                 // SAFETY: live suffix leaf, raw provenance over the bytes.
                 if rem == unsafe { suffix_bytes(sfx) } {
-                    n.map.remove_pathless(alloc, chunk);
+                    resync::<SHARED>(n);
+                    covered::<SHARED, _>(n, alloc, |m| m.remove_pathless(alloc, chunk));
                     // Read out before disposal: the borrow of the bytes above
                     // has ended, and nothing may reference the block once
                     // `dispose_suffix` has it.
@@ -832,7 +918,9 @@ impl StrNode {
 
         // Unwind: an emptied child is unlinked and freed, which may empty
         // its parent in turn. The first non-empty ancestor stops it —
-        // nothing above that can have been emptied by this removal.
+        // nothing above that can have been emptied by this removal. A
+        // dirty child is in tree state and so never empty, whatever its
+        // stale population reads.
         while let Some((parent_ptr, chunk)) = path.pop() {
             // SAFETY: recorded during the descent; still live.
             let parent = unsafe { &mut *parent_ptr };
@@ -843,8 +931,9 @@ impl StrNode {
                 if !empty {
                     break;
                 }
-                parent.map.remove_pathless(alloc, chunk);
-                // Unlinked above; retired when shared.
+                resync::<SHARED>(parent);
+                covered::<SHARED, _>(parent, alloc, |m| m.remove_pathless(alloc, chunk));
+                // Unlinked above; marked obsolete and retired when shared.
                 dispose_node(unpack_child(child_v), alloc, defer);
             }
         }
@@ -1241,9 +1330,9 @@ impl ExpanseStrMap {
     /// `docs/benchmarks/concurrency/METHODOLOGY.md` §17.2.1) are registered
     /// as staying behind the blocking fallback, where the tree-level word
     /// is what covers them.
-    // As `StrNode::cover_addr`: landed here, routed by #929's write path.
-    #[allow(dead_code)]
-    #[cfg(feature = "std")]
+    // As `StrNode::cover_addr`: the paths project the word from their raw
+    // node pointer, so this serves the layout tests.
+    #[cfg(test)]
     #[inline(always)]
     pub(crate) fn root_cover_addr(&self) -> *const u32 {
         self.root
@@ -1288,27 +1377,17 @@ impl ExpanseStrMap {
         self.alloc.bytes_in_use() + self.root.as_deref().map_or(0, |r| r.shell_bytes() as usize)
     }
 
-    /// Splits a suffix entry that diverges from the key being inserted:
-    /// builds a child node holding the existing suffix's continuation,
-    /// publishes it over the suffix's map entry, and disposes of the old
-    /// suffix (retired when shared — a concurrent reader may still hold
-    /// it). Returns the raw child for the caller to descend into.
+    /// Builds, privately, the child node that replaces a suffix entry when
+    /// a key diverges from it: the existing suffix's continuation, as a
+    /// terminal entry or a shorter suffix. Not yet reachable by anyone.
     ///
-    /// Reads `old` only through short-lived internal borrows that all end
-    /// before the disposal: a borrow passed in as a parameter would be
-    /// *protected* for the whole call and still be live when the block is
-    /// handed to `dispose_suffix`.
-    fn split_suffix(
-        node: &mut StrNode,
-        chunk: u64,
-        old: *mut StrSuffix,
-        alloc: &NodeAlloc,
-        defer: DeferHandle<'_>,
-    ) -> *mut StrNode {
+    /// Reads `old` only through short-lived internal borrows, so the caller
+    /// may dispose of it afterwards.
+    fn build_split_child(old: *mut StrSuffix, alloc: &NodeAlloc) -> *mut StrNode {
         let mut child = Box::new(StrNode::new());
         // SAFETY: `old` is the live suffix being split, reached as a raw
         // pointer so the projection covers the inline bytes; both borrows
-        // end before the disposal below.
+        // end before the caller disposes of it.
         let ((c1, t1), value) = unsafe { (chunk_at(suffix_bytes(old), 0), (*old).value) };
         if t1 {
             child.map.insert_pathless(alloc, c1, value);
@@ -1319,17 +1398,53 @@ impl ExpanseStrMap {
             let s1 = unsafe { new_suffix(&suffix_bytes(old)[CHUNK..], value) };
             child.map.insert_pathless(alloc, c1, pack_suffix(s1));
         }
-        let child_raw = Box::into_raw(child);
-        node.map
-            .insert_pathless(alloc, chunk, pack_child(child_raw));
+        Box::into_raw(child)
+    }
+
+    /// Splits a suffix entry that diverges from the key being inserted:
+    /// builds a child node holding the existing suffix's continuation,
+    /// publishes it over the suffix's map entry, and disposes of the old
+    /// suffix (retired when shared — a concurrent reader may still hold
+    /// it). Returns the raw child for the caller to descend into.
+    fn split_suffix<const SHARED: bool>(
+        node: &mut StrNode,
+        chunk: u64,
+        old: *mut StrSuffix,
+        alloc: &NodeAlloc,
+        defer: DeferHandle<'_>,
+    ) -> *mut StrNode {
+        let child_raw = Self::build_split_child(old, alloc);
+        resync::<SHARED>(node);
+        covered::<SHARED, _>(node, alloc, |m| {
+            m.insert_pathless(alloc, chunk, pack_child(child_raw))
+        });
         dispose_suffix(old, defer);
         child_raw
     }
 
     /// Inserts `key → val`; returns the replaced value if present.
     pub fn insert(&mut self, key: &NulFreeStr, val: u64) -> Option<u64> {
+        // The one branch the two twins share, on the state this path already
+        // loaded: a map switched to deferred reclamation runs the shared
+        // twin (Refs #929), every other map the plain one.
+        #[cfg(feature = "std")]
+        if let Some(c) = self.deferred.get().cloned() {
+            return self.insert_impl::<true>(key, val, Some(&c));
+        }
+        self.insert_impl::<false>(key, val, None)
+    }
+
+    /// [`Self::insert`] for one sharing mode. `SHARED` is the deferred twin
+    /// (Refs #929): every sub-map mutation runs inside its node's cover
+    /// bracket and after a census re-sync; the unshared instantiation is
+    /// the plain path with nothing added.
+    fn insert_impl<const SHARED: bool>(
+        &mut self,
+        key: &NulFreeStr,
+        val: u64,
+        defer: DeferHandle<'_>,
+    ) -> Option<u64> {
         let key = key.as_bytes();
-        let defer = self.defer_handle();
         // Field-level borrows on purpose: `node` must borrow only
         // `self.root` so `self.pop` and `self.alloc` stay reachable in
         // the loop.
@@ -1342,7 +1457,9 @@ impl ExpanseStrMap {
         loop {
             let (chunk, terminal) = chunk_at(key, off);
             if terminal {
-                let prev = node.map.insert_pathless(alloc, chunk, val);
+                resync::<SHARED>(node);
+                let prev =
+                    covered::<SHARED, _>(node, alloc, |m| m.insert_pathless(alloc, chunk, val));
                 if prev.is_none() {
                     self.pop += 1;
                 }
@@ -1351,7 +1468,10 @@ impl ExpanseStrMap {
             match node.map.get(chunk) {
                 None => {
                     let suffix = new_suffix(&key[off + CHUNK..], val);
-                    node.map.insert_pathless(alloc, chunk, pack_suffix(suffix));
+                    resync::<SHARED>(node);
+                    covered::<SHARED, _>(node, alloc, |m| {
+                        m.insert_pathless(alloc, chunk, pack_suffix(suffix))
+                    });
                     self.pop += 1;
                     return None;
                 }
@@ -1366,12 +1486,14 @@ impl ExpanseStrMap {
                         // In-place value update, field-precise (no `&mut`
                         // over the header whose write-once fields concurrent
                         // readers load): only the value word mutates, under
-                        // the version bracket when shared.
-                        // SAFETY: exclusive writer; a racing reader's load
-                        // is discarded unless its snapshot validates.
-                        return Some(unsafe { core::ptr::replace(&raw mut (*sfx).value, val) });
+                        // this node's cover bracket when shared (T3).
+                        return Some(covered::<SHARED, _>(node, alloc, |_| {
+                            // SAFETY: exclusive writer; a racing reader's
+                            // load is discarded unless its snapshot validates.
+                            unsafe { core::ptr::replace(&raw mut (*sfx).value, val) }
+                        }));
                     }
-                    let child_raw = Self::split_suffix(node, chunk, sfx, alloc, defer.as_ref());
+                    let child_raw = Self::split_suffix::<SHARED>(node, chunk, sfx, alloc, defer);
                     // SAFETY: freshly allocated Box<StrNode> above.
                     node = unsafe { &mut *child_raw };
                     off += CHUNK;
@@ -1389,8 +1511,22 @@ impl ExpanseStrMap {
     /// returns a writable pointer to its value slot — the compat
     /// `JudySLIns` contract. Valid until the next structural mutation.
     pub fn ins_slot(&mut self, key: &NulFreeStr) -> NonNull<u64> {
+        // As `insert`: the deferred twin for a shared map, the plain path
+        // otherwise (Refs #929).
+        #[cfg(feature = "std")]
+        if let Some(c) = self.deferred.get().cloned() {
+            return self.ins_slot_impl::<true>(key, Some(&c));
+        }
+        self.ins_slot_impl::<false>(key, None)
+    }
+
+    /// [`Self::ins_slot`] for one sharing mode; see [`Self::insert_impl`].
+    fn ins_slot_impl<const SHARED: bool>(
+        &mut self,
+        key: &NulFreeStr,
+        defer: DeferHandle<'_>,
+    ) -> NonNull<u64> {
         let key = key.as_bytes();
-        let defer = self.defer_handle();
         // Field-level borrows on purpose: `node` must borrow only
         // `self.root` so `self.pop` and `self.alloc` stay reachable in
         // the loop.
@@ -1406,8 +1542,9 @@ impl ExpanseStrMap {
                 // Increment B (#813): $O(1)$ len check before and after ins_slot_pathless
                 // eliminates redundant contains_key lookup. The `v == 0` sentinel
                 // MUST NOT be used here, as 0 is a valid terminal value.
+                resync::<SHARED>(node);
                 let len_before = node.map.len();
-                let slot = node.map.ins_slot_pathless(alloc, chunk);
+                let slot = covered::<SHARED, _>(node, alloc, |m| m.ins_slot_pathless(alloc, chunk));
                 if node.map.len() > len_before {
                     self.pop += 1;
                 }
@@ -1416,7 +1553,10 @@ impl ExpanseStrMap {
             match node.map.get(chunk) {
                 None => {
                     let suffix = new_suffix(&key[off + CHUNK..], 0);
-                    node.map.insert_pathless(alloc, chunk, pack_suffix(suffix));
+                    resync::<SHARED>(node);
+                    covered::<SHARED, _>(node, alloc, |m| {
+                        m.insert_pathless(alloc, chunk, pack_suffix(suffix))
+                    });
                     self.pop += 1;
                     // SAFETY: suffix is a live, uniquely owned pointer
                     // allocated above; `value` sits at offset 0.
@@ -1434,7 +1574,7 @@ impl ExpanseStrMap {
                     }
                     // Divergence: publish a child over the suffix entry,
                     // then dispose of the old suffix (see `split_suffix`).
-                    let child_raw = Self::split_suffix(node, chunk, sfx, alloc, defer.as_ref());
+                    let child_raw = Self::split_suffix::<SHARED>(node, chunk, sfx, alloc, defer);
                     // SAFETY: freshly allocated Box<StrNode> above.
                     node = unsafe { &mut *child_raw };
                     off += CHUNK;
@@ -1484,19 +1624,24 @@ impl ExpanseStrMap {
     /// lookup across the cascading sub-tries — the concurrent analogue of
     /// [`Self::get`].
     ///
-    /// Every hop's sub-map walk (`sync::walk_validated`) starts by
-    /// validating the shared tree version, so the multi-hop **path
-    /// prefix** is consistent with the map state at `snap`; the terminal
-    /// hop's value itself is covered hand-over-hand by per-node versions
-    /// (exactly [`crate::sync::SyncExpanseMap`]'s read semantics — the
-    /// result is a value the key held during the call, linearizable
+    /// Each hop samples the `StrNode`'s cover word, walks that node's
+    /// sub-map under it (`sync::walk_validated_from`, hand-over-hand
+    /// into the sub-map's own branch words), and re-validates the cover
+    /// after the entry it loaded — the word the string wrapper's writers
+    /// bump for that node's root state, its continuation entries and its
+    /// suffix values (Refs #929, `docs/benchmarks/concurrency/METHODOLOGY.md`
+    /// §17.2.2). The terminal value is covered hand-over-hand by per-node
+    /// versions, exactly [`crate::sync::SyncExpanseMap`]'s read semantics:
+    /// the result is a value the key held during the call, linearizable
     /// because sub-tries are never re-parented and unlink always precedes
-    /// retirement). A hop that races a writer fails validation and
-    /// surfaces as `Retry`. Suffix leaves carry no per-node version, so
-    /// that arm re-validates the tree version before returning; their fat
-    /// pointer and byte buffer are write-once after publication (splits
-    /// publish a replacement and retire the old suffix; only the value
-    /// word mutates in place).
+    /// retirement, behind an obsolete mark. The tree word is validated once
+    /// before an answer is returned: it is what the exclusive path holds
+    /// across the meta-trie root's own creation and removal and across
+    /// `clear`, which carry no per-node word. A hop that races a writer
+    /// fails validation and surfaces as `Retry`. Suffix leaves are
+    /// write-once after publication (a split publishes a replacement and
+    /// retires the old suffix); only the value word mutates in place, under
+    /// the cover of the node whose entry points at it.
     ///
     /// # Safety
     ///
@@ -1512,11 +1657,13 @@ impl ExpanseStrMap {
         ver: &crate::occ::SeqVersion,
         snap: u64,
     ) -> Result<Option<u64>, crate::sync::Retry> {
-        use crate::sync::Retry;
+        use crate::occ::{node_sample, node_validate, version_cell};
+        use crate::sync::{Cover, Retry, walk_validated_from};
         let key = key.as_bytes();
-        // Racy single-word copy of the root pointer; the first sub-map
-        // walk's validation covers it before anything read through it is
-        // used (and a stale-but-retired root stays EBR-live under the pin).
+        // Racy single-word copy of the root pointer: the root node's cover
+        // is sampled before anything is read through it, an unlinked root
+        // is obsolete-marked and EBR-live, and the tree word is validated
+        // before any answer.
         let mut node: *const StrNode = match self.root.as_deref() {
             Some(r) => core::ptr::from_ref(r),
             None => {
@@ -1530,34 +1677,56 @@ impl ExpanseStrMap {
         let mut off = 0usize;
         loop {
             let (chunk, terminal) = chunk_at(key, off);
-            // SAFETY: `node` was validated at `snap` (the root by the walk's
-            // first check below; children by the previous hop's validated
-            // walk) and is EBR-live under the caller's pin. The possibly
-            // racy root-snapshot copy is validated before use.
+            // SAFETY: `node` is the root (see above) or a child loaded under
+            // a still-valid cover, and is EBR-live under the caller's pin;
+            // the word is projected from the raw pointer, never through a
+            // reference to the node.
+            let word: *const u32 = unsafe { &raw const (*node).cover };
+            // SAFETY: as above.
+            let cell = unsafe { version_cell(word) };
+            let Some(csnap) = node_sample(cell) else {
+                return Err(Retry);
+            };
+            // SAFETY: as above; a by-value copy, validated by the walk's
+            // first check against the cover sampled just above.
             let msnap = unsafe { (*node).map.occ_snapshot() };
             // SAFETY: the caller's pin + snapshot contract carries through.
-            let found = unsafe { crate::sync::walk_validated::<true>(msnap, chunk, ver, snap) }?;
+            let found =
+                unsafe { walk_validated_from::<true>(Cover::Node(word, csnap), msnap, chunk) }?;
             if terminal {
-                return Ok(found);
+                return if ver.validate(snap) {
+                    Ok(found)
+                } else {
+                    Err(Retry)
+                };
             }
-            let Some(v) = found else { return Ok(None) };
+            let Some(v) = found else {
+                return if ver.validate(snap) {
+                    Ok(None)
+                } else {
+                    Err(Retry)
+                };
+            };
             if is_suffix_ptr(v) {
                 let sfx: *const StrSuffix = unpack_suffix(v);
-                // SAFETY: `v` was validated at `snap`, so `sfx` was the
-                // published suffix then, and EBR keeps the whole block —
-                // header and inline bytes, now one allocation — mapped under
-                // the pin. `len` and the bytes are write-once; the value word
-                // may race and is validated below before use. Both reads
-                // project from the raw pointer: a `&StrSuffix` would not
-                // carry provenance over the bytes past the header.
+                // SAFETY: `v` was validated under this node's cover (or the
+                // sub-map branch holding it), so `sfx` was the published
+                // suffix then, and EBR keeps the whole block — header and
+                // inline bytes, one allocation — mapped under the pin. `len`
+                // and the bytes are write-once; the value word may race a T3
+                // and is validated below before use. Both reads project
+                // from the raw pointer: a `&StrSuffix` would not carry
+                // provenance over the bytes past the header.
                 let (bytes, value) = unsafe { (suffix_bytes(sfx), (*sfx).value) };
                 let matched = bytes == &key[off + CHUNK..];
-                if !ver.validate(snap) {
+                if !node_validate(cell, csnap) || !ver.validate(snap) {
                     return Err(Retry);
                 }
                 return Ok(matched.then_some(value));
             }
-            if !ver.validate(snap) {
+            // The cross-hop check (§17.2.2): the entry that named the child
+            // still stands under the word its writers bump.
+            if !node_validate(cell, csnap) {
                 return Err(Retry);
             }
             node = unpack_child(v);
@@ -1600,16 +1769,30 @@ impl ExpanseStrMap {
 
     /// Removes `key`; returns its value if it was present.
     pub fn remove(&mut self, key: &NulFreeStr) -> Option<u64> {
+        // As `insert`: the deferred twin for a shared map, the plain path
+        // otherwise (Refs #929).
+        #[cfg(feature = "std")]
+        if let Some(c) = self.deferred.get().cloned() {
+            return self.remove_impl::<true>(key, Some(&c));
+        }
+        self.remove_impl::<false>(key, None)
+    }
+
+    /// [`Self::remove`] for one sharing mode; see [`Self::insert_impl`].
+    fn remove_impl<const SHARED: bool>(
+        &mut self,
+        key: &NulFreeStr,
+        defer: DeferHandle<'_>,
+    ) -> Option<u64> {
         let key = key.as_bytes();
-        let defer = self.defer_handle();
         let alloc = &self.alloc;
         let root = self.root.as_deref_mut()?;
-        let removed = root.remove(key, 0, alloc, defer.as_ref())?;
+        let removed = root.remove_impl::<SHARED>(key, 0, alloc, defer)?;
         self.pop -= 1;
         if root.map.is_empty() {
             let root_box = self.root.take().expect("root present");
             // Unlinked (the root slot is cleared); retired when shared.
-            dispose_node(Box::into_raw(root_box), alloc, defer.as_ref());
+            dispose_node(Box::into_raw(root_box), alloc, defer);
         }
         Some(removed)
     }
@@ -1715,6 +1898,784 @@ impl ExpanseStrMap {
         };
         self.pop = 0;
         bytes
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The deferred twin's helpers (Refs #929)
+// ---------------------------------------------------------------------------
+
+/// Runs `f`, a mutation of `node`'s sub-map, inside `node`'s cover bracket
+/// when `SHARED` — the deferred twin, where concurrent readers validate that
+/// word — and as a plain call otherwise, so the unshared path pays nothing.
+#[inline(always)]
+fn covered<const SHARED: bool, R>(
+    node: &mut StrNode,
+    alloc: &NodeAlloc,
+    f: impl FnOnce(&mut MapCore) -> R,
+) -> R {
+    #[cfg(feature = "std")]
+    {
+        if SHARED {
+            // Through `node`'s own borrow, so the raw word is a child of the
+            // unique reference and the reborrow of `map` below stays valid.
+            let v: *mut u32 = &raw mut node.cover;
+            // SAFETY: a live node this writer is exclusive on (the wrapper
+            // serialised or quiesced every other writer), with no reference
+            // to `cover` live; the bracket opened here closes below.
+            unsafe { crate::occ::version_begin_if_ptr::<true>(alloc, v) };
+            let r = f(&mut node.map);
+            // SAFETY: as above.
+            unsafe { crate::occ::version_end_if_ptr::<true>(alloc, v) };
+            return r;
+        }
+    }
+    let _ = alloc;
+    f(&mut node.map)
+}
+
+/// [`StrNode::resync_if_dirty`] in the deferred twin; nothing otherwise.
+#[inline(always)]
+fn resync<const SHARED: bool>(node: &mut StrNode) {
+    #[cfg(feature = "std")]
+    if SHARED {
+        node.resync_if_dirty();
+    }
+    let _ = node;
+}
+
+// ---------------------------------------------------------------------------
+// The optimistic multi-writer path (Refs #929, METHODOLOGY §17.2)
+// ---------------------------------------------------------------------------
+
+/// Everything only the optimistic write path uses. Absent under
+/// `ablation-str-serial-writers`, which serialises every mutation on the
+/// writer mutex through the deferred twin above and never reaches any of
+/// it.
+#[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
+mod olc {
+    use super::*;
+    use crate::node::Edge;
+    /// A `StrNode`'s sub-map as the engine's OLC bodies see it: its cover word
+    /// stands where the tree word stands for the map wrapper, its top edge is
+    /// the sub-map's, the allocator is the map's one shared allocator, and a
+    /// mutation marks the node dirty instead of a digit.
+    struct StrHost<'a> {
+        node: *mut StrNode,
+        alloc: &'a NodeAlloc,
+    }
+
+    impl crate::sync::OlcHost for StrHost<'_> {
+        #[inline(always)]
+        fn tree_word_even(&self) -> bool {
+            // SAFETY: a live node under the caller's pin; the word is projected
+            // from the raw pointer.
+            crate::occ::node_sample(unsafe {
+                crate::occ::version_cell(&raw const (*self.node).cover)
+            })
+            .is_some()
+        }
+
+        #[inline(always)]
+        unsafe fn top_ptr(&self) -> *mut Edge {
+            // SAFETY: live node; the top edge is read by value through validated
+            // loads only, and an optimistic writer never stores to it (a
+            // root-state change is a `RootGrowth` fallback).
+            unsafe { (*self.node).map.root_top_ptr() }
+        }
+
+        #[inline(always)]
+        fn alloc(&self) -> &NodeAlloc {
+            self.alloc
+        }
+
+        #[inline(always)]
+        fn mark_dirty_digit(&self, _d: u8) {
+            // SAFETY: live node.
+            let cell = unsafe { StrNode::dirty_cell(self.node) };
+            // A load first: every writer after the first only reads the line.
+            if cell.load(Ordering::Relaxed) == 0 {
+                cell.store(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// A `StrNode`'s cover word held as a lock by an optimistic string writer:
+    /// the RAII form of `occ::version_try_lock_expect`. Drops as
+    /// `occ::NodeLock` does: unlocked with the version advanced unless
+    /// `abort_unmodified` was called, and poisoned obsolete when dropped while
+    /// panicking. It keeps off the debug bracket stack: a prune releases a
+    /// child's lock while its parent's is held, so the lock order is not LIFO;
+    /// [`under_lock`] puts the word on the stack for exactly one plain sub-map
+    /// call instead.
+    struct CoverLock<'a> {
+        cell: &'a crate::occ::VersionCell,
+        old_v: u32,
+        modified: bool,
+    }
+
+    impl<'a> CoverLock<'a> {
+        /// Locks `node`'s cover if it still reads `expected`
+        /// (`lockVersionOrRestart`): the entries the caller read under that
+        /// snapshot are then still what they were.
+        ///
+        /// # Safety
+        ///
+        /// `node` is live under the caller's pin.
+        #[inline(always)]
+        unsafe fn try_lock_expect(node: *mut StrNode, expected: u32) -> Option<Self> {
+            // SAFETY: forwarded contract; the word is projected from the raw
+            // node pointer.
+            let cell = unsafe { crate::occ::version_cell(&raw const (*node).cover) };
+            let old_v = crate::occ::version_try_lock_expect(cell, expected).ok()?;
+            Some(Self {
+                cell,
+                old_v,
+                modified: true,
+            })
+        }
+
+        /// Locks `node`'s cover whatever it reads, for a step that needs
+        /// exclusion but read nothing under a snapshot (a prune's parent).
+        ///
+        /// # Safety
+        ///
+        /// As [`Self::try_lock_expect`].
+        #[inline(always)]
+        unsafe fn try_lock(node: *mut StrNode) -> Option<Self> {
+            // SAFETY: forwarded contract.
+            let cell = unsafe { crate::occ::version_cell(&raw const (*node).cover) };
+            let old_v = crate::occ::version_try_lock(cell).ok()?;
+            Some(Self {
+                cell,
+                old_v,
+                modified: true,
+            })
+        }
+
+        /// Nothing under this word changed: restore the version on release so
+        /// readers that sampled it need not restart.
+        #[inline(always)]
+        fn abort_unmodified(&mut self) {
+            self.modified = false;
+        }
+
+        /// The node is being unlinked and retired: leave the word permanently
+        /// odd (property S3) instead of unlocking it.
+        #[inline(always)]
+        fn mark_obsolete(self) {
+            crate::occ::version_obsolete_locked(self.cell);
+            core::mem::forget(self);
+        }
+    }
+
+    impl Drop for CoverLock<'_> {
+        #[inline]
+        fn drop(&mut self) {
+            if std::thread::panicking() {
+                crate::occ::version_obsolete_locked(self.cell);
+            } else {
+                crate::occ::version_unlock(self.cell, self.old_v, self.modified);
+            }
+        }
+    }
+
+    /// Runs one plain sub-map call while `node`'s cover is held as a lock. In
+    /// debug builds the word is on the bracket stack for exactly the call, so
+    /// the engine's `assert_bracketed` sees an open bracket and the stack stays
+    /// LIFO whatever order the locks themselves are released in.
+    ///
+    /// # Safety
+    ///
+    /// `node` is live.
+    #[inline(always)]
+    unsafe fn under_lock<R>(node: *mut StrNode, alloc: &NodeAlloc, f: impl FnOnce() -> R) -> R {
+        // SAFETY: forwarded contract; a read-only projection of the word.
+        let word: *const u32 = unsafe { &raw const (*node).cover };
+        #[cfg(debug_assertions)]
+        alloc.bracket_enter(word);
+        let r = f();
+        #[cfg(debug_assertions)]
+        alloc.bracket_leave(word);
+        let _ = (word, alloc);
+        r
+    }
+
+    /// Frees a suffix leaf that was allocated and never published: no reader
+    /// can hold it, so it needs no retirement.
+    fn free_unpublished_suffix(ptr: *mut StrSuffix) {
+        // SAFETY: allocated by `new_suffix` on this thread and never stored
+        // anywhere; `len` describes the allocation.
+        let layout = suffix_layout(unsafe { (*ptr).len });
+        // SAFETY: as above, and `layout` is the one the block was allocated with.
+        unsafe { core_alloc::alloc::dealloc(ptr.cast::<u8>(), layout) };
+    }
+
+    /// The chunk-chain frames of an optimistic remove, for the prune that may
+    /// follow it: inline for keys up to eight chunks, spilling to the heap
+    /// beyond — so the common remove allocates nothing for its path.
+    struct PathStack {
+        head: [(*mut StrNode, u64); PATH_INLINE],
+        len: usize,
+        spill: Vec<(*mut StrNode, u64)>,
+    }
+
+    const PATH_INLINE: usize = 8;
+
+    impl PathStack {
+        fn new() -> Self {
+            Self {
+                head: [(core::ptr::null_mut(), 0); PATH_INLINE],
+                len: 0,
+                spill: Vec::new(),
+            }
+        }
+
+        #[inline(always)]
+        fn push(&mut self, frame: (*mut StrNode, u64)) {
+            if self.len < PATH_INLINE {
+                self.head[self.len] = frame;
+                self.len += 1;
+            } else {
+                self.spill.push(frame);
+            }
+        }
+
+        #[inline(always)]
+        fn pop(&mut self) -> Option<(*mut StrNode, u64)> {
+            if let Some(frame) = self.spill.pop() {
+                return Some(frame);
+            }
+            if self.len == 0 {
+                return None;
+            }
+            self.len -= 1;
+            Some(self.head[self.len])
+        }
+    }
+
+    impl ExpanseStrMap {
+        /// The meta-trie root as a raw pointer, or null, without forming a
+        /// reference to the node: an optimistic writer stores through it while
+        /// other threads read the node, so the pointer must descend from the
+        /// box, not from a shared borrow of its target.
+        #[inline(always)]
+        fn root_raw(&self) -> *mut StrNode {
+            // SAFETY: `self` lives inside the wrapper's `UnsafeCell`, so a raw
+            // pointer to the field is writable; only the box's pointer is read
+            // here, never the node.
+            unsafe {
+                let slot: *mut Option<Box<StrNode>> = (&raw const self.root).cast_mut();
+                match &*slot {
+                    Some(b) => {
+                        let b: *mut Box<StrNode> = core::ptr::from_ref(b).cast_mut();
+                        &raw mut **b
+                    }
+                    None => core::ptr::null_mut(),
+                }
+            }
+        }
+
+        /// The optimistic insert of `sync::SyncExpanseStrMap` (Refs #929,
+        /// METHODOLOGY §17.2): one cover per hop, hand-over-hand down the chunk
+        /// chain.
+        ///
+        /// At each `StrNode` the writer samples the cover, copies the sub-map
+        /// root state and looks the chunk up under that cover
+        /// (`walk_validated_from`). What it then does depends on the sub-map's
+        /// state and the transition:
+        ///
+        /// - a sub-map in **tree** state is mutated through the engine's own
+        ///   OLC body (`olc_insert_map`), under the engine's per-node locks —
+        ///   T1, and T2 with the insert-if-absent mode so a suffix another
+        ///   writer published first is found rather than clobbered;
+        /// - a sub-map in **leaf or empty** state is mutated under the cover
+        ///   taken as a lock at the snapshot the lookup ran under: its root
+        ///   state has no other word;
+        /// - a **continuation entry** — T3's value replace, T4's split — is
+        ///   changed under the cover lock too, whatever the sub-map's state,
+        ///   because the lock is what serialises the writers of one entry and
+        ///   what readers of the suffix validate; the engine's own lock covers
+        ///   the entry's store into a tree sub-map underneath it.
+        ///
+        /// The meta-trie root's creation (T11) is a `RootGrowth` fallback, and
+        /// whatever the engine's body falls back on inside a sub-map is
+        /// forwarded. A cover that moved or is held returns `Retry`.
+        ///
+        /// # Safety
+        ///
+        /// The caller entered the writer gate (`Shared::enter_writer_blocking`)
+        /// and holds an epoch pin for the whole call, on a map that
+        /// [`Self::defer_to`] switched to deferred reclamation; every exclusive
+        /// operation is therefore excluded, and every pointer loaded under a
+        /// still-valid cover references EBR-live memory.
+        pub(crate) unsafe fn olc_insert(
+            &self,
+            key: &NulFreeStr,
+            val: u64,
+        ) -> crate::sync::OlcOutcome<Option<u64>> {
+            use crate::occ::{node_sample, node_validate, version_cell};
+            use crate::sync::{
+                Cover, FallbackCause, OlcOutcome, olc_insert_map, walk_validated_from,
+            };
+            let key = key.as_bytes();
+            let alloc = &self.alloc;
+            let defer = self.deferred.get();
+            debug_assert!(
+                defer.is_some(),
+                "optimistic insert on a map that was never deferred"
+            );
+            let mut node = self.root_raw();
+            if node.is_null() {
+                return OlcOutcome::Fallback(FallbackCause::RootGrowth);
+            }
+            let mut off = 0usize;
+            loop {
+                let (chunk, terminal) = chunk_at(key, off);
+                // SAFETY: `node` is the root (unlinked only under the tree word,
+                // which the gate excludes) or a child loaded under a still-valid
+                // cover, and is EBR-live under the caller's pin; the word is
+                // projected from the raw pointer.
+                let word: *const u32 = unsafe { &raw const (*node).cover };
+                // SAFETY: as above.
+                let cell = unsafe { version_cell(word) };
+                let Some(csnap) = node_sample(cell) else {
+                    return OlcOutcome::Retry;
+                };
+                // SAFETY: as above; a by-value copy validated before use.
+                let msnap = unsafe { (*node).map.occ_snapshot() };
+                let is_tree = matches!(msnap, crate::sync::RootSnapshot::Tree { .. });
+                let host = StrHost { node, alloc };
+                if terminal {
+                    if is_tree {
+                        // T1 in tree state: the engine's per-node locks cover it.
+                        return olc_insert_map::<_, false>(&host, chunk, val);
+                    }
+                    // T1 in leaf or empty state: the root state is this node's.
+                    // SAFETY: live node (above).
+                    let Some(lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) }) else {
+                        return OlcOutcome::Retry;
+                    };
+                    // SAFETY: the cover lock excludes every other writer of this
+                    // node's root state, and readers validate the word.
+                    let prev = unsafe {
+                        under_lock(node, alloc, || {
+                            (*node).map.insert_pathless(alloc, chunk, val)
+                        })
+                    };
+                    drop(lock);
+                    return OlcOutcome::Done(prev);
+                }
+                // SAFETY: pinned, and the cover was sampled even just above.
+                let found = match unsafe {
+                    walk_validated_from::<true>(Cover::Node(word, csnap), msnap, chunk)
+                } {
+                    Ok(found) => found,
+                    Err(_) => return OlcOutcome::Retry,
+                };
+                let v = match found {
+                    Some(v) => v,
+                    None => {
+                        // T2: publish a suffix leaf holding the key's remainder.
+                        let sfx = new_suffix(&key[off + CHUNK..], val);
+                        let w = pack_suffix(sfx);
+                        if is_tree {
+                            match olc_insert_map::<_, true>(&host, chunk, w) {
+                                OlcOutcome::Done(None) => return OlcOutcome::Done(None),
+                                OlcOutcome::Done(Some(existing)) => {
+                                    // Another writer published this chunk first:
+                                    // ours was never reachable.
+                                    free_unpublished_suffix(sfx);
+                                    existing
+                                }
+                                other => {
+                                    free_unpublished_suffix(sfx);
+                                    return other;
+                                }
+                            }
+                        } else {
+                            // SAFETY: live node (above).
+                            let Some(lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) })
+                            else {
+                                free_unpublished_suffix(sfx);
+                                return OlcOutcome::Retry;
+                            };
+                            // SAFETY: as for T1 in leaf state.
+                            let prev = unsafe {
+                                under_lock(node, alloc, || {
+                                    (*node).map.insert_pathless(alloc, chunk, w)
+                                })
+                            };
+                            debug_assert!(
+                                prev.is_none(),
+                                "the cover was locked at the snapshot the lookup ran under"
+                            );
+                            drop(lock);
+                            return OlcOutcome::Done(None);
+                        }
+                    }
+                };
+                if is_suffix_ptr(v) {
+                    let sfx = unpack_suffix(v);
+                    let rem = &key[off + CHUNK..];
+                    // SAFETY: `v` was validated under this node's cover (or the
+                    // sub-map branch holding it) and EBR keeps the block mapped
+                    // under the pin; the bytes are write-once.
+                    let same = unsafe { suffix_bytes(sfx) } == rem;
+                    // SAFETY: live node (above).
+                    let Some(mut lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) })
+                    else {
+                        return OlcOutcome::Retry;
+                    };
+                    // Under the lock `chunk → v` is stable: a value replace, a
+                    // split, a suffix removal and a prune of this node's children
+                    // all take this lock, and the engine's inserts only add
+                    // entries.
+                    if same {
+                        // T3: the one in-place store into a published suffix,
+                        // covered by this word, which readers of the value
+                        // validate.
+                        // SAFETY: field-precise store; the lock excludes every
+                        // other writer of it, and a reader's load is discarded
+                        // unless the cover validates.
+                        let old = unsafe { core::ptr::replace(&raw mut (*sfx).value, val) };
+                        drop(lock);
+                        return OlcOutcome::Done(Some(old));
+                    }
+                    // T4: build the child privately, publish it over the entry,
+                    // retire the suffix it replaces.
+                    // SAFETY: live node, locked.
+                    let child_raw =
+                        unsafe { under_lock(node, alloc, || Self::build_split_child(sfx, alloc)) };
+                    let cw = pack_child(child_raw);
+                    if is_tree {
+                        match olc_insert_map::<_, false>(&host, chunk, cw) {
+                            OlcOutcome::Done(old_w) => {
+                                debug_assert_eq!(
+                                    old_w,
+                                    Some(v),
+                                    "the entry moved under the cover lock"
+                                );
+                            }
+                            other => {
+                                // Never published: nothing can hold it.
+                                dispose_tree(child_raw, alloc, None);
+                                lock.abort_unmodified();
+                                drop(lock);
+                                return other;
+                            }
+                        }
+                    } else {
+                        // SAFETY: as for T1 in leaf state.
+                        let old_w = unsafe {
+                            under_lock(node, alloc, || {
+                                (*node).map.insert_pathless(alloc, chunk, cw)
+                            })
+                        };
+                        debug_assert_eq!(old_w, Some(v), "the entry moved under the cover lock");
+                    }
+                    // Unlinked above; retired, since a reader may still hold it.
+                    dispose_suffix(sfx, defer);
+                    drop(lock);
+                    node = child_raw;
+                    off += CHUNK;
+                    continue;
+                }
+                // T5: the entry names a child. The cross-hop check (§17.2.2):
+                // the entry still stands under the word its writers bump.
+                if !node_validate(cell, csnap) {
+                    return OlcOutcome::Retry;
+                }
+                node = unpack_child(v);
+                off += CHUNK;
+            }
+        }
+
+        /// The optimistic remove of `sync::SyncExpanseStrMap` (Refs #929); see
+        /// [`Self::olc_insert`] for the protocol. T7 and T8 mirror T1 and T2.
+        ///
+        /// Returns the outcome and, when the removal emptied a node that could
+        /// not be pruned optimistically, the cause: the removal itself is done
+        /// and counted, and the caller prunes the key's path exclusively
+        /// ([`Self::prune_empty_path`]). A prune is attempted under the emptied
+        /// node's lock and its parent's (T9); the meta-trie root's removal
+        /// (T10) is not attempted and reports `RootGrowth`.
+        ///
+        /// # Safety
+        ///
+        /// As [`Self::olc_insert`].
+        pub(crate) unsafe fn olc_remove(
+            &self,
+            key: &NulFreeStr,
+        ) -> (
+            crate::sync::OlcOutcome<Option<u64>>,
+            Option<crate::sync::FallbackCause>,
+        ) {
+            use crate::occ::{node_sample, node_validate, version_cell};
+            use crate::sync::{Cover, OlcOutcome, olc_remove_map, walk_validated_from};
+            let key = key.as_bytes();
+            let alloc = &self.alloc;
+            let defer = self.deferred.get();
+            debug_assert!(
+                defer.is_some(),
+                "optimistic remove on a map that was never deferred"
+            );
+            let mut node = self.root_raw();
+            if node.is_null() {
+                return (OlcOutcome::Done(None), None);
+            }
+            let mut path = PathStack::new();
+            let mut off = 0usize;
+            loop {
+                let (chunk, terminal) = chunk_at(key, off);
+                // SAFETY: as in `olc_insert`.
+                let word: *const u32 = unsafe { &raw const (*node).cover };
+                // SAFETY: as above.
+                let cell = unsafe { version_cell(word) };
+                let Some(csnap) = node_sample(cell) else {
+                    return (OlcOutcome::Retry, None);
+                };
+                // SAFETY: as above.
+                let msnap = unsafe { (*node).map.occ_snapshot() };
+                let is_tree = matches!(msnap, crate::sync::RootSnapshot::Tree { .. });
+                let host = StrHost { node, alloc };
+                if terminal {
+                    if is_tree {
+                        // T7 in tree state; the engine never empties a tree.
+                        return (olc_remove_map(&host, chunk), None);
+                    }
+                    // SAFETY: live node.
+                    let Some(mut lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) })
+                    else {
+                        return (OlcOutcome::Retry, None);
+                    };
+                    // SAFETY: the cover lock excludes every other writer of this
+                    // node's root state.
+                    let prev = unsafe {
+                        under_lock(node, alloc, || (*node).map.remove_pathless(alloc, chunk))
+                    };
+                    if prev.is_none() {
+                        lock.abort_unmodified();
+                        drop(lock);
+                        return (OlcOutcome::Done(None), None);
+                    }
+                    // SAFETY: `node` is locked and live; the path frames are its
+                    // ancestors, each loaded under a validated cover.
+                    let deferred = unsafe { self.prune_locked(node, lock, &mut path, defer) };
+                    return (OlcOutcome::Done(prev), deferred);
+                }
+                // SAFETY: pinned, cover sampled even above.
+                let found = match unsafe {
+                    walk_validated_from::<true>(Cover::Node(word, csnap), msnap, chunk)
+                } {
+                    Ok(found) => found,
+                    Err(_) => return (OlcOutcome::Retry, None),
+                };
+                let Some(v) = found else {
+                    return (OlcOutcome::Done(None), None);
+                };
+                if is_suffix_ptr(v) {
+                    let sfx = unpack_suffix(v);
+                    // SAFETY: as in `olc_insert`.
+                    if unsafe { suffix_bytes(sfx) } != &key[off + CHUNK..] {
+                        return (OlcOutcome::Done(None), None);
+                    }
+                    // T8, under the cover lock (see `olc_insert`).
+                    // SAFETY: live node.
+                    let Some(mut lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) })
+                    else {
+                        return (OlcOutcome::Retry, None);
+                    };
+                    if is_tree {
+                        match olc_remove_map(&host, chunk) {
+                            OlcOutcome::Done(Some(w)) => {
+                                debug_assert_eq!(w, v, "the entry moved under the cover lock");
+                            }
+                            OlcOutcome::Done(None) => {
+                                lock.abort_unmodified();
+                                drop(lock);
+                                return (OlcOutcome::Done(None), None);
+                            }
+                            other => {
+                                lock.abort_unmodified();
+                                drop(lock);
+                                return (other, None);
+                            }
+                        }
+                    } else {
+                        // SAFETY: as for T7 in leaf state.
+                        let w = unsafe {
+                            under_lock(node, alloc, || (*node).map.remove_pathless(alloc, chunk))
+                        };
+                        debug_assert_eq!(w, Some(v), "the entry moved under the cover lock");
+                    }
+                    // SAFETY: unlinked but still live; last owner. Read out
+                    // before disposal.
+                    let val = unsafe { (*sfx).value };
+                    dispose_suffix(sfx, defer);
+                    // SAFETY: as for T7.
+                    let deferred = unsafe { self.prune_locked(node, lock, &mut path, defer) };
+                    return (OlcOutcome::Done(Some(val)), deferred);
+                }
+                if !node_validate(cell, csnap) {
+                    return (OlcOutcome::Retry, None);
+                }
+                path.push((node, chunk));
+                node = unpack_child(v);
+                off += CHUNK;
+            }
+        }
+
+        /// T9: `node` is locked and just lost an entry. While the node is empty
+        /// and has a parent, unlink it from the parent under the parent's lock,
+        /// mark it obsolete and retire it, then continue with the parent. Two
+        /// locks are held at most, child then parent, and both are `try_lock`s,
+        /// so no writer ever waits on an ancestor while holding a descendant.
+        ///
+        /// Returns the cause when a prune was due and not done: the parent was
+        /// held, the engine's remove of the entry did not go through, or the
+        /// meta-trie root itself emptied (T10, `RootGrowth`). The emptied node
+        /// then stays linked and empty — harmless to every reader and writer —
+        /// until the caller's exclusive prune.
+        ///
+        /// # Safety
+        ///
+        /// `node` is live and locked by `lock`; every frame of `path` is a live
+        /// ancestor of it, loaded under a validated cover, and the caller holds
+        /// an epoch pin.
+        unsafe fn prune_locked<'a>(
+            &'a self,
+            mut node: *mut StrNode,
+            mut lock: CoverLock<'a>,
+            path: &mut PathStack,
+            defer: DeferHandle<'_>,
+        ) -> Option<crate::sync::FallbackCause> {
+            use crate::sync::{FallbackCause, OlcOutcome, olc_remove_map};
+            let alloc = &self.alloc;
+            loop {
+                // A tree never empties on this path, whatever its stale
+                // population reads; a leaf's population is exact under the lock.
+                // SAFETY: `node` is live and locked by `lock`.
+                if !unsafe { (*node).map.is_empty() } {
+                    drop(lock);
+                    return None;
+                }
+                let Some((parent, pchunk)) = path.pop() else {
+                    drop(lock);
+                    return Some(FallbackCause::RootGrowth);
+                };
+                // SAFETY: a live ancestor (contract).
+                let Some(mut plock) = (unsafe { CoverLock::try_lock(parent) }) else {
+                    drop(lock);
+                    return Some(FallbackCause::Contention);
+                };
+                // SAFETY: the parent is live and locked; its root state cannot
+                // change under the lock.
+                let parent_is_tree = unsafe { (*parent).map.root_is_tree() };
+                let removed = if parent_is_tree {
+                    match olc_remove_map(
+                        &StrHost {
+                            node: parent,
+                            alloc,
+                        },
+                        pchunk,
+                    ) {
+                        OlcOutcome::Done(w) => w,
+                        OlcOutcome::Retry => {
+                            plock.abort_unmodified();
+                            drop(plock);
+                            drop(lock);
+                            return Some(FallbackCause::Contention);
+                        }
+                        OlcOutcome::Fallback(cause) => {
+                            plock.abort_unmodified();
+                            drop(plock);
+                            drop(lock);
+                            return Some(cause);
+                        }
+                    }
+                } else {
+                    // SAFETY: as for T7 in leaf state, on the parent.
+                    unsafe {
+                        under_lock(parent, alloc, || {
+                            (*parent).map.remove_pathless(alloc, pchunk)
+                        })
+                    }
+                };
+                debug_assert_eq!(
+                    removed,
+                    Some(pack_child(node)),
+                    "the parent's entry moved under the parent's lock"
+                );
+                // Odd since the lock, so no reader validates through it; now
+                // permanently odd (S3), then retired.
+                lock.mark_obsolete();
+                // SAFETY: live (retired below, not freed), and its interior is
+                // the exclusive property of this writer since the lock.
+                unsafe { under_lock(node, alloc, || dispose_node(node, alloc, defer)) };
+                node = parent;
+                lock = plock;
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl ExpanseStrMap {
+    /// Sets the population; the wrapper's exclusive sections re-sync it
+    /// from the sharded counter optimistic writers count in (Refs #929).
+    #[inline(always)]
+    pub(crate) fn set_len(&mut self, pop: u64) {
+        self.pop = pop;
+    }
+
+    /// The exclusive prune (Refs #929): unlinks every empty node on `key`'s
+    /// chunk chain, bottom up, and takes the meta-trie root if it is empty
+    /// — what an optimistic remove leaves for the exclusive path when its
+    /// own prune could not go through (`olc_remove`). Idempotent.
+    #[cfg(not(feature = "ablation-str-serial-writers"))]
+    pub(crate) fn prune_empty_path(&mut self, key: &NulFreeStr) {
+        let key = key.as_bytes();
+        let defer = self.deferred.get().cloned();
+        let alloc = &self.alloc;
+        let mut path: Vec<(*mut StrNode, u64)> = Vec::new();
+        if let Some(root) = self.root.as_deref_mut() {
+            let mut node: *mut StrNode = &raw mut *root;
+            let mut off = 0usize;
+            loop {
+                let (chunk, terminal) = chunk_at(key, off);
+                if terminal {
+                    break;
+                }
+                // SAFETY: the root, then continuation values — live nodes,
+                // and the descent never revisits one.
+                let n = unsafe { &mut *node };
+                match n.map.get(chunk) {
+                    Some(v) if !is_suffix_ptr(v) => {
+                        path.push((node, chunk));
+                        node = unpack_child(v);
+                        off += CHUNK;
+                    }
+                    _ => break,
+                }
+            }
+            while let Some((parent_ptr, chunk)) = path.pop() {
+                // SAFETY: recorded during the descent; still live.
+                let parent = unsafe { &mut *parent_ptr };
+                let child = unpack_child(parent.map.get(chunk).expect("path entry still linked"));
+                // SAFETY: continuation value, a live child node.
+                if !unsafe { &*child }.map.is_empty() {
+                    break;
+                }
+                parent.resync_if_dirty();
+                covered::<true, _>(parent, alloc, |m| m.remove_pathless(alloc, chunk));
+                dispose_node(child, alloc, defer.as_ref());
+            }
+        }
+        if self.root.as_deref().is_some_and(|r| r.map.is_empty()) {
+            let root_box = self.root.take().expect("root present");
+            dispose_node(Box::into_raw(root_box), alloc, defer.as_ref());
+        }
     }
 }
 
@@ -2312,18 +3273,15 @@ mod tests {
         );
     }
 
-    /// #929 groundwork, and the claim this PR rests on: the word is
-    /// allocated and reachable, and **nothing bumps it**. Writers still
-    /// serialise on `sync::Shared::write`, so every cover word stays at its
-    /// initial even value across inserts, replaces, splits and removes.
-    ///
-    /// This is the test that turns red first when a later change starts
-    /// routing stores onto the per-node covers — which is the point: that
-    /// change is a behaviour change and must arrive with the readers'
-    /// cross-hop validation moved with it (METHODOLOGY §17.2.2), not
-    /// silently.
+    /// #929: the plain path's instantiation of the twins touches no cover
+    /// word. On a map that was never deferred, every cover stays at its
+    /// initial 0 across inserts, replaces, splits and removes; only the
+    /// deferred twin and the optimistic path move them
+    /// (`sync_strmap_writes_move_the_per_node_cover`,
+    /// `deferred_olc_*`). #985 pinned this for both modes; the deferred
+    /// half is now the behaviour change it anticipated.
     #[test]
-    fn deferred_str_node_cover_words_stay_even_and_unbumped() {
+    fn str_node_cover_words_are_untouched_unshared() {
         let mut m = ExpanseStrMap::new();
         // Shared prefixes force continuation entries, suffix splits and
         // child nodes — T2, T3, T4 and T5 of METHODOLOGY §17.2.1.
@@ -2356,9 +3314,8 @@ mod tests {
             let node = unsafe { &*p };
             assert_eq!(
                 node.cover, 0,
-                "a cover word moved: nothing writes it until #929's write \
-                 path lands, and a reader's cross-hop validation must move \
-                 with it when it does"
+                "a cover word moved on a map that was never deferred: the \
+                 plain twin must not touch it"
             );
             unbumped += 1;
             for (k, v) in node.map.iter() {
@@ -2702,5 +3659,242 @@ mod tests {
         for (k, v) in &model {
             assert_eq!(map.get(tk(k)), Some(*v), "final map mismatch for {k:?}");
         }
+    }
+    /// #929: the `SyncExpanseStrMap` write path driven single-threaded, so
+    /// Miri runs it (the `deferred` prefix is in the Tier-1 filter). Keys
+    /// of at most seven bytes are terminal at the first chunk, so every
+    /// mutation is T1 or T7 on the meta-trie root's sub-map — under the
+    /// root cover taken as a lock while that sub-map is a root leaf, then
+    /// through the engine's OLC bodies once it is a tree, and back — and
+    /// the last removal empties the root, which is T10: a `RootGrowth`
+    /// prune the serialised path takes.
+    #[cfg(feature = "std")]
+    #[test]
+    fn deferred_olc_terminal_keys_in_leaf_and_tree_state() {
+        use crate::set::ROOT_LEAF_CAP;
+        use crate::sync::SyncExpanseStrMap;
+        let m = SyncExpanseStrMap::new();
+        let n = ROOT_LEAF_CAP * 3;
+        let keys: Vec<Vec<u8>> = (0..n).map(|i| format!("k{i:05}").into_bytes()).collect();
+        for (i, k) in keys.iter().enumerate() {
+            assert_eq!(m.insert(tk(k), i as u64), None, "fresh insert of {k:?}");
+        }
+        assert_eq!(m.len(), n as u64);
+        m.with_locked(|inner| {
+            let root = inner.root.as_deref().expect("root present");
+            assert!(
+                root.map.root_is_tree(),
+                "past ROOT_LEAF_CAP the root's sub-map is a tree"
+            );
+            assert!(
+                root.cover.is_multiple_of(2),
+                "cover even between operations"
+            );
+            for (i, k) in keys.iter().enumerate() {
+                assert_eq!(inner.get(tk(k)), Some(i as u64));
+            }
+        });
+        // T1 in tree state: a replace over a present key.
+        for (i, k) in keys.iter().enumerate() {
+            assert_eq!(
+                m.insert(tk(k), 1000 + i as u64),
+                Some(i as u64),
+                "replace of {k:?}"
+            );
+        }
+        // T7 on every other key while the sub-map is a tree.
+        for k in keys.iter().step_by(2) {
+            assert!(m.remove(tk(k)).is_some(), "remove of {k:?}");
+        }
+        assert_eq!(m.len(), (n - n.div_ceil(2)) as u64);
+        for (i, k) in keys.iter().enumerate() {
+            let want = if i.is_multiple_of(2) {
+                None
+            } else {
+                Some(1000 + i as u64)
+            };
+            assert_eq!(m.get(tk(k)), want, "after the even removals, {k:?}");
+        }
+        // The rest, down through the root leaf and out (T10).
+        for k in keys.iter().skip(1).step_by(2) {
+            assert!(m.remove(tk(k)).is_some(), "remove of {k:?}");
+        }
+        assert_eq!(m.len(), 0);
+        m.with_locked(|inner| {
+            assert!(
+                inner.root.is_none(),
+                "T10: the emptied root was taken by the exclusive prune"
+            );
+            assert_eq!(inner.mem_used(), 0);
+        });
+        assert_eq!(m.get(tk(&keys[0])), None);
+    }
+
+    /// #929: the engine's optimistic inserts leave a sub-map's own
+    /// population stale (`MapCore::tree_pop`; the wrapper counts in its
+    /// sharded counter instead) and the node dirty, and the exclusive path
+    /// restores it from a census fold before it reads it. That count is
+    /// what the engine condenses a tree back to a root leaf from, so a
+    /// stale one would size that leaf wrong — the failure the flag exists
+    /// to prevent. Red when `resync` is deleted from the deferred twin.
+    /// Under `ablation-str-serial-writers` no optimistic insert runs, so
+    /// nothing is ever dirty and the test has nothing to show.
+    #[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
+    #[test]
+    fn deferred_olc_dirty_sub_map_is_resynced_before_the_exclusive_path_reads_it() {
+        use crate::set::ROOT_LEAF_CAP;
+        use crate::sync::SyncExpanseStrMap;
+        let m = SyncExpanseStrMap::new();
+        let n = ROOT_LEAF_CAP + 10;
+        let keys: Vec<Vec<u8>> = (0..n).map(|i| format!("d{i:04}").into_bytes()).collect();
+        for (i, k) in keys.iter().enumerate() {
+            m.insert(tk(k), i as u64);
+        }
+        m.with_locked(|inner| {
+            let root = inner.root.as_deref().expect("root present");
+            assert!(root.map.root_is_tree());
+            assert_eq!(
+                root.dirty, 1,
+                "an optimistic insert into a tree marks the node dirty"
+            );
+            assert!(
+                root.map.len() < n as u64,
+                "the sub-map's own count is stale until an exclusive re-sync: {} of {n}",
+                root.map.len()
+            );
+        });
+        // Exclusive removals down to a root-leaf population: the deferred
+        // twin re-syncs first, and the engine condenses from the exact count.
+        let keep = ROOT_LEAF_CAP - 5;
+        m.with_locked_mut(|inner| {
+            for k in keys.iter().skip(keep) {
+                assert!(inner.remove(tk(k)).is_some());
+            }
+        });
+        m.with_locked(|inner| {
+            let root = inner.root.as_deref().expect("root present");
+            assert_eq!(root.dirty, 0, "the re-sync cleared the flag");
+            assert_eq!(root.map.len(), keep as u64);
+            assert!(
+                !root.map.root_is_tree(),
+                "condensed to a root leaf from the exact count"
+            );
+            for (i, k) in keys.iter().enumerate().take(keep) {
+                assert_eq!(inner.get(tk(k)), Some(i as u64));
+            }
+            assert_eq!(inner.len(), keep as u64);
+        });
+        assert_eq!(m.len(), keep as u64);
+    }
+
+    /// #929: the continuation transitions with the meta-trie root's
+    /// sub-map in leaf state — T2 (a suffix published under the root
+    /// cover), T4 (a split, twice, down to a terminal), T5, T3 (the
+    /// in-place value replace), T8 (suffix removals) and T9 (the emptied
+    /// children pruned under their own and their parent's cover), ending
+    /// in T10 through the exclusive prune.
+    #[cfg(feature = "std")]
+    #[test]
+    fn deferred_olc_continuation_transitions_in_leaf_state() {
+        use crate::sync::SyncExpanseStrMap;
+        let m = SyncExpanseStrMap::new();
+        let one = b"prefix_aaaaaaaa_one";
+        let two = b"prefix_aaaaaaaa_two";
+        let three = b"prefix_bbbbbbbb_one";
+        let short = b"prefix_aaaaaaaa";
+        // T11 through the fallback, then T2 at the root.
+        assert_eq!(m.insert(tk(one), 1), None);
+        // T4 at the root and again one level down, then T1 in the grandchild.
+        assert_eq!(m.insert(tk(two), 2), None);
+        // T3 in the grandchild.
+        assert_eq!(m.insert(tk(one), 11), Some(1));
+        // T2 at the root beside the child; T1 in the child.
+        assert_eq!(m.insert(tk(three), 3), None);
+        assert_eq!(m.insert(tk(short), 4), None);
+        assert_eq!(m.len(), 4);
+        for (k, v) in [(&one[..], 11u64), (two, 2), (three, 3), (short, 4)] {
+            assert_eq!(m.get(tk(k)), Some(v), "{k:?}");
+        }
+        // T7 and T8 in the grandchild empty it: T9 prunes it from the child.
+        assert_eq!(m.remove(tk(one)), Some(11));
+        assert_eq!(m.remove(tk(two)), Some(2));
+        assert_eq!(m.len(), 2);
+        assert_eq!(m.get(tk(short)), Some(4));
+        assert_eq!(m.get(tk(three)), Some(3));
+        assert_eq!(m.get(tk(one)), None);
+        // The child empties: pruned from the root, which keeps `three`.
+        assert_eq!(m.remove(tk(short)), Some(4));
+        assert_eq!(m.get(tk(three)), Some(3));
+        // The root empties: T10, the exclusive prune takes it.
+        assert_eq!(m.remove(tk(three)), Some(3));
+        assert_eq!(m.len(), 0);
+        m.with_locked(|inner| {
+            assert!(inner.root.is_none(), "T10 through the exclusive prune");
+            assert_eq!(inner.mem_used(), 0);
+        });
+        assert_eq!(m.insert(tk(one), 5), None);
+        assert_eq!(m.get(tk(one)), Some(5));
+    }
+
+    /// #929: the same continuation transitions with the root's sub-map in
+    /// tree state, so the entry stores go through the engine's OLC bodies:
+    /// T2 with the insert-if-absent mode, T4's publish as an engine
+    /// replace under the cover lock, T8 as an engine remove under it, and
+    /// T9 with a tree-state parent, where the child's entry leaves the
+    /// parent through the engine — and, near the end, through the
+    /// engine's own fallbacks and the exclusive prune.
+    #[cfg(feature = "std")]
+    #[test]
+    fn deferred_olc_continuation_transitions_in_tree_state() {
+        use crate::set::ROOT_LEAF_CAP;
+        use crate::sync::SyncExpanseStrMap;
+        let m = SyncExpanseStrMap::new();
+        let n = ROOT_LEAF_CAP * 2;
+        let a: Vec<Vec<u8>> = (0..n)
+            .map(|i| format!("p{i:07}-suffix-{i:03}").into_bytes())
+            .collect();
+        let b: Vec<Vec<u8>> = (0..n)
+            .map(|i| format!("p{i:07}-other-{i:03}").into_bytes())
+            .collect();
+        for (i, k) in a.iter().enumerate() {
+            assert_eq!(m.insert(tk(k), i as u64), None);
+        }
+        m.with_locked(|inner| {
+            assert!(inner.root.as_deref().expect("root").map.root_is_tree());
+        });
+        // Each `b` key diverges from its `a` twin past the first chunk: a
+        // split in tree state, then a leaf-state insert in the child.
+        for (i, k) in b.iter().enumerate() {
+            assert_eq!(m.insert(tk(k), 100 + i as u64), None);
+        }
+        assert_eq!(m.len(), 2 * n as u64);
+        for (i, k) in a.iter().enumerate() {
+            assert_eq!(m.get(tk(k)), Some(i as u64), "{k:?}");
+            assert_eq!(m.get(tk(&b[i])), Some(100 + i as u64), "{:?}", b[i]);
+            assert_eq!(
+                m.insert(tk(k), 200 + i as u64),
+                Some(i as u64),
+                "T3 on {k:?}"
+            );
+        }
+        for (i, k) in b.iter().enumerate() {
+            assert_eq!(m.remove(tk(k)), Some(100 + i as u64), "T8 on {k:?}");
+            assert_eq!(
+                m.get(tk(&a[i])),
+                Some(200 + i as u64),
+                "{:?} survives",
+                a[i]
+            );
+        }
+        assert_eq!(m.len(), n as u64);
+        // Emptying every child prunes it from the tree-state root.
+        for (i, k) in a.iter().enumerate() {
+            assert_eq!(m.remove(tk(k)), Some(200 + i as u64), "T8 then T9 on {k:?}");
+        }
+        assert_eq!(m.len(), 0);
+        m.with_locked(|inner| {
+            assert!(inner.root.is_none(), "the emptied root was taken");
+            assert_eq!(inner.mem_used(), 0);
+        });
     }
 }

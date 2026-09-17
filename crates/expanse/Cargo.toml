@@ -74,6 +74,13 @@ ablation-striped-freelist = []
 # Diagnostic-only: reverts collector freelists to a single shared array across
 # all writer stripes (reverting Hypothesis D Arm c to measure contention).
 ablation-unstriped-freelist = []
+# Diagnostic-only: serialises every `SyncExpanseStrMap` mutation on the writer
+# mutex under the whole-operation tree bracket — the protocol the string
+# wrapper's per-node optimistic write path replaced (Refs #929, METHODOLOGY
+# section 17), kept so the default can be measured against it (AGENTS.md
+# section 2.7). Readers are unchanged: the serialised path brackets the same
+# per-node cover words the optimistic writers take as locks.
+ablation-str-serial-writers = []
 
 [dependencies]
 
