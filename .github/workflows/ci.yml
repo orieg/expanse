@@ -431,6 +431,12 @@ jobs:
           # rounds and counter cells (#730); its self-test also holds
           # docs/benchmarks/concurrency/README.md §13 to its own output.
           python3 scripts/reader_scaling_bounds.py --self-test
+          # ycsb_concurrent_bounds.py holds the workload bounds the concurrent YCSB
+          # pre-registration invokes (#1006): the Zipfian top-k share under the exact
+          # rank law and under the generator's closed form, same-key and same-leaf
+          # coincidence among W threads, and what 8 rounds resolve. Its self-test
+          # pins each against a hand-checkable value (AGENTS.md section 8.8 commit 1).
+          python3 scripts/ycsb_concurrent_bounds.py --self-test
           # c2c_ranking.py ranks a writer_scaling_diagnostic artifact's perf c2c
           # lines for README section 11.9 (#930). Its self-test pins the share
           # arithmetic, the layout reading, the sharing labels and the symbol
