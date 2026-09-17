@@ -161,11 +161,12 @@ GATE_929_STR_RESULTS_PATH = (
 # The second #929 gate (METHODOLOGY.md §19): §17.3's scaling statistic
 # unchanged (G1), a level statistic against the serialised build's best cell at
 # any writer count (G2), and a floor on the single-writer ratio (G3). The floor
-# is maintainer policy and is `None` until §19 is locked: an unlocked floor
-# reads NOT_EVALUABLE and voids the run, never a pass (AGENTS.md §8.1). It is
-# set in the commit that locks the section, and nowhere else.
+# is maintainer policy, locked with §19 on 2026-09-17 at 0.90: one writer may
+# be at most 10% slower than under the serialised protocol. It does not move
+# for any head (AGENTS.md §8.19). An unset floor (`None`) reads NOT_EVALUABLE
+# and voids the run, never a pass (AGENTS.md §8.1).
 GATE_929_STR_V2_PREREGISTRATION = "docs/benchmarks/concurrency/METHODOLOGY.md §19"
-GATE_929_STR_V2_PRICE_FLOOR: float | None = None
+GATE_929_STR_V2_PRICE_FLOOR: float | None = 0.90
 GATE_929_STR_V2_RESULTS_PATH = (
     REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "gate_929_str_v2_writer_scaling.json"
 )
@@ -4093,11 +4094,20 @@ def _self_test_gate_929_str_v2_report() -> None:
     assert lvl["g2_level"]["cells"]["2"]["verdict"] == "REFUTED", lvl["g2_level"]["cells"]["2"]
 
     # An unlocked floor is NOT_EVALUABLE and voids the run; it still reports the interval.
-    unlocked = gate_929_str_v2_report(head, serial, [comp], 8, pin, False, price_floor=None)
-    if GATE_929_STR_V2_PRICE_FLOOR is None:
-        assert unlocked["g3_price"]["verdict"] == "NOT_EVALUABLE", unlocked["g3_price"]
-        assert any("not locked" in v for v in unlocked["void"]) and unlocked["all_cells_pass_in_this_run"] is False
-        assert "ratio_ci" in unlocked["g3_price"]
+    global GATE_929_STR_V2_PRICE_FLOOR
+    locked = GATE_929_STR_V2_PRICE_FLOOR
+    assert locked == 0.90, "the §19.4 floor is locked at 0.90 and does not move (AGENTS.md §8.19)"
+    GATE_929_STR_V2_PRICE_FLOOR = None
+    try:
+        unlocked = gate_929_str_v2_report(head, serial, [comp], 8, pin, False, price_floor=None)
+    finally:
+        GATE_929_STR_V2_PRICE_FLOOR = locked
+    assert unlocked["g3_price"]["verdict"] == "NOT_EVALUABLE", unlocked["g3_price"]
+    assert any("not locked" in v for v in unlocked["void"]) and unlocked["all_cells_pass_in_this_run"] is False
+    assert "ratio_ci" in unlocked["g3_price"]
+    # With no override the report reads the locked constant.
+    default_floor = gate_929_str_v2_report(head, serial, [comp], 8, pin, False)
+    assert default_floor["g3_price"]["floor"] == 0.90 and default_floor["g3_price"]["verdict"] == "PASS"
 
     # A serialised cell missing for any W' leaves G2's maximum undefined.
     gap = gate_929_str_v2_report(head, serial[:3], [comp], 8, pin, False, price_floor=0.90)

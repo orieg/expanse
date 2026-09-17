@@ -241,7 +241,7 @@
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "The second #929 SyncExpanseStrMap multi-writer gate (concurrency METHODOLOGY.md \u00a719.4): the same str cells as writer_scaling_929_str_gate (default build vs ablation-str-serial-writers, 8 interleaved rounds, W in {1, 2, 4, 8}, one process per cell, under the applied pin), read as G1 scaling, G2 level against the serialised build's best cell at any writer count, and G3 the single-writer price floor; outputs gate_929_str_v2_writer_scaling.json. G3 reads NOT_EVALUABLE until \u00a719 is locked.",
+      "summary": "The second #929 SyncExpanseStrMap multi-writer gate (concurrency METHODOLOGY.md \u00a719.4): the same str cells as writer_scaling_929_str_gate (default build vs ablation-str-serial-writers, 8 interleaved rounds, W in {1, 2, 4, 8}, one process per cell, under the applied pin), read as G1 scaling, G2 level against the serialised build's best cell at any writer count, and G3 the single-writer price floor; outputs gate_929_str_v2_writer_scaling.json.",
       "suite": "concurrency"
     },
     {
