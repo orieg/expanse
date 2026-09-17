@@ -163,11 +163,27 @@ fn ord_expected(state: &BTreeMap<u32, u32>, q: Ord32) -> Option<(u32, u32)> {
 /// `t0..=t1 + 1`. After the run the log is replayed and each answer must match
 /// some state in that window.
 ///
-/// The writer runs at least `MIN_ROUNDS` and keeps churning until the readers
+/// The writer runs `MIN_ROUNDS` free, then keeps churning until the readers
 /// report the coverage the oracle needs (`MIN_OVERLAP` reads taken while it
 /// ran, `MIN_CHURN_ANSWERS` answers that are writer keys), up to `MAX_ROUNDS`.
 /// A fixed round count let a fast writer finish before slow readers had
 /// anything to check.
+///
+/// Two properties keep that coverage off the scheduler:
+///
+/// - **The live floor implies the replayed floor.** The writer loads the live
+///   counters *before* it publishes the round. A reader loads `t0` before it
+///   counts its answer, so every answer the writer saw started before that
+///   round was published: `t0 < rounds`, which is what the replay counts.
+///   Loading after the publish admits answers with `t0 == rounds` (a writer
+///   descheduled between the two lets readers, unopposed, produce many), and
+///   the run then stops on a floor the replay does not reach.
+/// - **An extension round waits for an answer.** Every read is one attempt and
+///   the tree has one version, so a writer that never pauses can turn nearly
+///   every read into `Busy`. Past `MIN_ROUNDS` the writer, with its bracket
+///   closed, yields until some reader has answered since the previous round.
+///   A read that meets no bracket answers, so the wait ends while a reader is
+///   still running, and each extension round adds at least one answer.
 #[test]
 fn map_ordered_reads_return_a_committed_neighbour_under_writer_churn() {
     const SPAN: u32 = 4_096;
@@ -178,6 +194,7 @@ fn map_ordered_reads_return_a_committed_neighbour_under_writer_churn() {
     const MAX_READS: usize = 40_000;
     const MIN_OVERLAP: usize = 1_000;
     const MIN_CHURN_ANSWERS: usize = 100;
+    const ALL_READS: usize = READERS as usize * MAX_READS;
     let mut m = SyncExpanseMap32::with_capacity(16_384, READERS as usize);
     let (mut w, mut pool) = m.split();
     let mut initial = BTreeMap::new();
@@ -224,9 +241,9 @@ fn map_ordered_reads_return_a_committed_neighbour_under_writer_churn() {
                         let t1 = committed.load(Ordering::SeqCst);
                         match got {
                             Ok(answer) => {
-                                live_overlap.fetch_add(1, Ordering::Relaxed);
+                                live_overlap.fetch_add(1, Ordering::SeqCst);
                                 if matches!(answer, Some((k, _)) if k % STRIDE != 0) {
-                                    live_churn_answers.fetch_add(1, Ordering::Relaxed);
+                                    live_churn_answers.fetch_add(1, Ordering::SeqCst);
                                 }
                                 out.push((q, answer, t0, t1));
                             }
@@ -259,12 +276,21 @@ fn map_ordered_reads_return_a_committed_neighbour_under_writer_churn() {
                 }
             };
             log.push(applied);
+            // Loaded before the publish below: see the test's doc comment.
+            let overlap = live_overlap.load(Ordering::SeqCst);
+            let churn_answers = live_churn_answers.load(Ordering::SeqCst);
             committed.store(i + 1, Ordering::SeqCst);
-            if i + 1 >= MIN_ROUNDS
-                && live_overlap.load(Ordering::Relaxed) >= MIN_OVERLAP
-                && live_churn_answers.load(Ordering::Relaxed) >= MIN_CHURN_ANSWERS
-            {
+            if i + 1 < MIN_ROUNDS {
+                continue;
+            }
+            if overlap >= MIN_OVERLAP && churn_answers >= MIN_CHURN_ANSWERS {
                 break;
+            }
+            // Extension round: no bracket is open here, so a running reader
+            // answers. Once every reader has filled its quota none is left to
+            // wait for, and the floors below decide.
+            while live_overlap.load(Ordering::SeqCst) == overlap && overlap < ALL_READS {
+                std::thread::yield_now();
             }
         }
         done.store(true, Ordering::SeqCst);
@@ -279,8 +305,8 @@ fn map_ordered_reads_return_a_committed_neighbour_under_writer_churn() {
     });
 
     // The oracle only checks something if reads overlapped the churn and saw
-    // the writer's keys. The writer extends its run until the live counters
-    // meet these floors, so failing them here means it hit MAX_ROUNDS.
+    // the writer's keys. The writer stops on live counters that bound these
+    // two from below, so failing here means it ran out of rounds or readers.
     let rounds = log.len();
     let during = reads.iter().filter(|r| r.2 < rounds).count();
     let churn_answers = reads
