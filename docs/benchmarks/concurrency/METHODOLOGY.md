@@ -2370,3 +2370,41 @@ measured P, stated with its interval in `docs/ARCHITECTURE.md` §4 and the
 wrapper's rustdoc, beside the `ablation-str-serial-writers` feature that
 restores the serialised protocol (AGENTS.md §2.7). Not claimed: reads, removes,
 short keys, skew (#1006), other hosts, the bytes and blob wrappers.
+
+### 19.10 Correction of two drafting errors (2026-09-17, after the lock and before any admissible run)
+
+No threshold, statistic, pin, round count, cell or verdict rule changes. §19.1–§19.9
+are left as locked; where they disagree with this subsection, this subsection is
+what was meant, and the disagreement is stated rather than edited away
+(AGENTS.md §8.7). Found while checking the preconditions at the evaluated head
+`1abfb7ff`, before the first dispatch.
+
+**1. What the gate workload is.** §19.7's last row and §19.9 describe
+`concurrency_writer_str` as inserting route-shaped keys and the short-key
+workloads as unmeasured. That is backwards. §17.2.3 registers the workload: a
+2^20-key prefill, then 2^20 fresh **8–16 byte alphanumeric** keys inserted by W
+writers over disjoint slices — one or two hops, essentially every insert a T2
+into the root node's tree-state sub-map. So this gate **does** measure
+short-key inserts, the shape of the `sync_strmap_insert_short` Callgrind arm,
+and does **not** measure multi-hop route-shaped keys (the `routes` arms'
+shape), removals or churn on any key shape, or access skew (#1006). A promotion
+text says so (§19.9).
+
+**2. Where §17.2.3's fallback bounds are read.** §19.4's tripwire sentence asks
+the `occ-stats` replay of the Callgrind arms for "zero `lock_restarts`, and
+fallbacks within §17.2.3's bounds". §17.2.3 derives and defines those bounds on
+`concurrency_writer_str`, per W, over the harness's `write_ops` (§17.3's input
+table), and that is where they are read: the driver's `fallback_prediction`
+block in each gate artifact, a published prediction that is `REFUTED` when
+exceeded, as §17.8 and §19.7 already state. The replay half of the tripwire is
+**zero `lock_restarts` on the five mutation arms**, the signature of the one
+defect this path has had. The bounds were never derived for the Callgrind arms'
+workloads, and one of them does not meet the number: `sync_strmap_remove/routes`
+takes 284 `branch_split` fallbacks and one `root_growth` in 50,285 operations,
+a structural rate of 5.7 × 10^-3 — the engine's removal path falls back on a
+branch split by design (§17.2.3's `FallbackCause` set). That figure was
+published before the lock (`README.md` §17.2) and the clause was written over
+it; it is recorded here, not excused. Replay at `1abfb7ff`: zero restarts on
+all five arms; fallbacks 44 of 50,044 operations on `insert/routes` (43
+`branch_split`, 1 `root_growth`), 285 of 50,285 on `remove/routes`, 1 of 50,001
+on `insert_short`, 0 on `churn/routes` and `churn_short`.
