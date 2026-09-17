@@ -1959,14 +1959,26 @@ mod olc {
     /// stands where the tree word stands for the map wrapper, its top edge is
     /// the sub-map's, the allocator is the map's one shared allocator, and a
     /// mutation marks the node dirty instead of a digit.
+    ///
+    /// `locked` says the caller holds the cover as a lock (T4, T8, and a
+    /// prune's parent): the word is odd by the caller's own doing and the
+    /// root state is stable under it, so the parity check that stands in
+    /// for the map wrapper's tree-word sample is answered `true` rather than
+    /// sampled. Sampling it was the defect #1001's first Callgrind run
+    /// found: every split, suffix removal and prune retried 64 times against
+    /// its own lock and fell back.
     struct StrHost<'a> {
         node: *mut StrNode,
         alloc: &'a NodeAlloc,
+        locked: bool,
     }
 
     impl crate::sync::OlcHost for StrHost<'_> {
         #[inline(always)]
         fn tree_word_even(&self) -> bool {
+            if self.locked {
+                return true;
+            }
             // SAFETY: a live node under the caller's pin; the word is projected
             // from the raw pointer.
             crate::occ::node_sample(unsafe {
@@ -2223,7 +2235,11 @@ mod olc {
                 // SAFETY: as above; a by-value copy validated before use.
                 let msnap = unsafe { (*node).map.occ_snapshot() };
                 let is_tree = matches!(msnap, crate::sync::RootSnapshot::Tree { .. });
-                let host = StrHost { node, alloc };
+                let host = StrHost {
+                    node,
+                    alloc,
+                    locked: false,
+                };
                 if terminal {
                     if is_tree {
                         // T1 in tree state: the engine's per-node locks cover it.
@@ -2327,7 +2343,12 @@ mod olc {
                         unsafe { under_lock(node, alloc, || Self::build_split_child(sfx, alloc)) };
                     let cw = pack_child(child_raw);
                     if is_tree {
-                        match olc_insert_map::<_, false>(&host, chunk, cw) {
+                        let held = StrHost {
+                            node,
+                            alloc,
+                            locked: true,
+                        };
+                        match olc_insert_map::<_, false>(&held, chunk, cw) {
                             OlcOutcome::Done(old_w) => {
                                 debug_assert_eq!(
                                     old_w,
@@ -2416,7 +2437,11 @@ mod olc {
                 // SAFETY: as above.
                 let msnap = unsafe { (*node).map.occ_snapshot() };
                 let is_tree = matches!(msnap, crate::sync::RootSnapshot::Tree { .. });
-                let host = StrHost { node, alloc };
+                let host = StrHost {
+                    node,
+                    alloc,
+                    locked: false,
+                };
                 if terminal {
                     if is_tree {
                         // T7 in tree state; the engine never empties a tree.
@@ -2465,7 +2490,12 @@ mod olc {
                         return (OlcOutcome::Retry, None);
                     };
                     if is_tree {
-                        match olc_remove_map(&host, chunk) {
+                        let held = StrHost {
+                            node,
+                            alloc,
+                            locked: true,
+                        };
+                        match olc_remove_map(&held, chunk) {
                             OlcOutcome::Done(Some(w)) => {
                                 debug_assert_eq!(w, v, "the entry moved under the cover lock");
                             }
@@ -2551,13 +2581,12 @@ mod olc {
                 // change under the lock.
                 let parent_is_tree = unsafe { (*parent).map.root_is_tree() };
                 let removed = if parent_is_tree {
-                    match olc_remove_map(
-                        &StrHost {
-                            node: parent,
-                            alloc,
-                        },
-                        pchunk,
-                    ) {
+                    let held = StrHost {
+                        node: parent,
+                        alloc,
+                        locked: true,
+                    };
+                    match olc_remove_map(&held, pchunk) {
                         OlcOutcome::Done(w) => w,
                         OlcOutcome::Retry => {
                             plock.abort_unmodified();
