@@ -841,6 +841,29 @@ impl MapCore {
         }
     }
 
+    /// The top edge with write provenance, or null: what an exclusive census
+    /// fold (`sync::fold_branch_pop0`) is given, so the pointer it writes
+    /// through descends from a unique borrow rather than a shared one
+    /// (Refs #929).
+    #[inline(always)]
+    #[cfg(feature = "std")]
+    pub(crate) fn root_top_ptr_mut(&mut self) -> *mut Edge {
+        match &mut self.root {
+            Root::Tree { top } => &raw mut *top,
+            _ => core::ptr::null_mut(),
+        }
+    }
+
+    /// Restores the tree population after optimistic writers left it stale
+    /// (`ExpanseMap::set_tree_pop`'s twin for a core embedded in a
+    /// `StrNode`, Refs #929). Meaningful in tree state only, which is the
+    /// only state an optimistic writer mutates.
+    #[inline(always)]
+    #[cfg(feature = "std")]
+    pub(crate) fn set_tree_pop(&mut self, pop: u64) {
+        self.tree_pop = pop;
+    }
+
     /// Phase 7 (occ): by-value root snapshot for the validated concurrent
     /// read walk (see `ExpanseSet::occ_root`).
     #[inline(always)]

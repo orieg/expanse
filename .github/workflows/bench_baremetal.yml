@@ -68,6 +68,8 @@ on:
           - writer_scaling_ablation_unstriped_freelist
           - writer_scaling_ordered_readers
           - writer_scaling_readers_only
+          - writer_scaling_929_str_gate
+          - writer_scaling_929_str_gate_v2
           - point_lookup_counters
           - search_instructions
           - smoke_instructions
@@ -1064,6 +1066,28 @@ jobs:
                   --readers-only \
                   --out docs/benchmarks/concurrency/results/baseline_readers_only_writer_scaling.json | tee writer_scaling.txt
                 ;;
+              "writer_scaling_929_str_gate")
+                # The #929 str multi-writer gate (concurrency METHODOLOGY.md
+                # §17.3): one interleaved two-build comparison of the str arm
+                # at the registered 8 rounds, the driver's default. The pin is
+                # whatever the step applied (the auto list or the cpu_pin
+                # input) and is recorded; §17.7 dispatches once per pin per
+                # run, four dispatches per evaluation.
+                python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
+                  --gate-929-str \
+                  --out docs/benchmarks/concurrency/results/gate_929_str_writer_scaling.json | tee writer_scaling.txt
+                ;;
+              "writer_scaling_929_str_gate_v2")
+                # The second #929 gate (concurrency METHODOLOGY.md §19.4): the
+                # same interleaved two-build cells as the suite above, read as
+                # G1 scaling, G2 level against the serialised build's best
+                # cell, and G3 the single-writer price floor. Dispatched once
+                # per pin per run, four dispatches per evaluation. The floor
+                # is locked at 0.90 (§19.4).
+                python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
+                  --gate-929-str-v2 \
+                  --out docs/benchmarks/concurrency/results/gate_929_str_v2_writer_scaling.json | tee writer_scaling.txt
+                ;;
               "all")
                 if [ -f base-instructions.txt ]; then
                   cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
@@ -1645,6 +1669,8 @@ jobs:
             docs/benchmarks/concurrency/results/ablation_unstriped_freelist_writer_scaling.json
             docs/benchmarks/concurrency/results/ordered_readers_writer_scaling.json
             docs/benchmarks/concurrency/results/baseline_readers_only_writer_scaling.json
+            docs/benchmarks/concurrency/results/gate_929_str_writer_scaling.json
+            docs/benchmarks/concurrency/results/gate_929_str_v2_writer_scaling.json
             docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json
             docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json
             ycsb.txt

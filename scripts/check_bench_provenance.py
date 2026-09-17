@@ -17,7 +17,8 @@ fields dropping back out (AGENTS.md section 8.12).
 Every committed `docs/benchmarks/*/results/` artifact whose name matches one of
 `ARTIFACT_GLOBS` — the `baseline_*` sweeps, the `ablation*` interventional
 arms measured against them, the `ordered_readers_*` sweep, the `padded_*`
-`lock-padded` comparisons and the `sizing*` pre-registration sizing sweeps — must carry `provenance.host`,
+`lock-padded` comparisons, the `sizing*` pre-registration sizing sweeps and the
+`gate_*` evaluations of a pre-registered gate — must carry `provenance.host`,
 `provenance.estimators`, load snapshots with a busy-CPU delta and per-cell
 `rounds_raw`, **unless it is grandfathered below**.
 
@@ -366,7 +367,8 @@ SUITES = (
 # intervals as a `diagnostic_*` run, under a name none of the globs above
 # matches — the `padded_*` and `combined_*` hole again, one suite later.
 ARTIFACT_GLOBS = ("baseline_*.json", "ablation*.json", "ordered_readers_*.json", "padded_*.json",
-                  "combined_*.json", "sizing*.json", "diagnostic_*.json", "c2c_*.json")
+                  "combined_*.json", "sizing*.json", "diagnostic_*.json", "c2c_*.json",
+                  "gate_*.json")
 
 # Keys under which an artifact holds its cells. `throughput_variant` is the
 # ablation artifacts' variant arm — the half of the comparison that is not the

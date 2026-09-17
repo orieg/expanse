@@ -134,9 +134,15 @@ fn structural_contention_stat_routing_in_sync_rs() {
         if trimmed.contains("closed = true") {
             closed_true_assignments += 1;
         }
-        if trimmed.contains("if self.shared.gate.is_closed() {") {
+        // The map and set wrappers reach the gate through `self.shared.gate`;
+        // the string wrapper's loop (`Shared::str_optimistic`, Refs #929) is
+        // a method on `Shared` itself and reaches it as `self.gate`. Both are
+        // the same decision point and both are pinned.
+        if trimmed.contains("if self.shared.gate.is_closed() {")
+            || trimmed.contains("if self.gate.is_closed() {")
+        {
             gate_closed_checks += 1;
-            // Each `if self.shared.gate.is_closed() {` must be followed within ~4 lines by `closed = true;`
+            // Each `gate.is_closed() {` check must be followed within ~4 lines by `closed = true;`
             let window_end = (idx + 5).min(test_mod_idx);
             let has_closed_assignment = lines[idx + 1..window_end]
                 .iter()
@@ -152,24 +158,26 @@ fn structural_contention_stat_routing_in_sync_rs() {
         "Found direct use of ContentionGateClosed / ContentionRetryExhausted outside fn contention_stat: {:?}",
         direct_uses
     );
+    // Five write loops: SyncExpanseSet and SyncExpanseMap insert and remove,
+    // and the string wrapper's shared loop `Shared::str_optimistic` (#929).
     assert_eq!(
-        call_sites, 4,
-        "Expected exactly 4 write loop call sites for contention_stat(closed), found {}",
+        call_sites, 5,
+        "Expected exactly 5 write loop call sites for contention_stat(closed), found {}",
         call_sites
     );
     assert_eq!(
-        gate_closed_checks, 4,
-        "Expected exactly 4 'if self.shared.gate.is_closed() {{' checks in write loops, found {}",
+        gate_closed_checks, 5,
+        "Expected exactly 5 'gate.is_closed() {{' checks in write loops, found {}",
         gate_closed_checks
     );
     assert_eq!(
-        paired_closed_assignments, 4,
-        "Expected exactly 4 'closed = true;' assignments within 4 lines of 'is_closed()', found {}",
+        paired_closed_assignments, 5,
+        "Expected exactly 5 'closed = true;' assignments within 4 lines of 'is_closed()', found {}",
         paired_closed_assignments
     );
     assert_eq!(
-        closed_true_assignments, 4,
-        "Expected 'closed = true' to occur nowhere else (exactly 4 total assignments), found {}",
+        closed_true_assignments, 5,
+        "Expected 'closed = true' to occur nowhere else (exactly 5 total assignments), found {}",
         closed_true_assignments
     );
 }

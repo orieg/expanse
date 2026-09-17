@@ -3559,3 +3559,142 @@ at W = 8, the pin sensitivity of a single-mutex arm (AGENTS.md §8.20.5 step 0).
 These runs license no claim: they were taken to decide what to register, they
 are disclosed as seen in METHODOLOGY §19.2, and they are not inputs to §19's
 gate.
+
+## 18. The second #929 gate at `1abfb7ff` — METHODOLOGY §19's verdict: met (Refs #929)
+
+### 18.1 Verdict
+
+METHODOLOGY §19's gate is **met** at `1abfb7ff` (PR #1001): all twenty-eight
+cells read `PASS` — twelve G1 scaling cells, twelve G2 level cells and four G3
+price cells, over two pins and two independent runs — in four admissible
+artifacts (registered pin and commit recorded in each, 8 rounds, one process
+per cell, void lists empty). §19 was locked, and its §19.10 correction merged,
+before the first dispatch. The preconditions were read at the same head:
+`instruction-counts` run
+[35245579579](https://github.com/orieg/expanse/actions/runs/35245579579) has no
+untargeted arm over +0.1% (`sync_map_remove/random` +0.06% is the largest
+rise), and the `occ-stats` replay of the five `sync_strmap_*` mutation arms
+records zero `lock_restarts` (§19.10). §17's gate stays not met (§17 above);
+this is a different claim.
+
+### 18.2 The cells
+
+Per-round paired statistics, BCa 95%, 8 rounds
+*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads, commit
+`1abfb7ff`; (workload: `concurrency_writer_str`); artifacts
+`results/gate_929_str_v2_writer_scaling_pin0to15_1abfb7ff_run{1,2}.json` and
+`results/gate_929_str_v2_writer_scaling_1abfb7ff_run{1,2}.json`)*. G1 is
+§17.3's ratio of scaling factors; G2 is the head at W over the serialised
+build's best cell at any writer count, which is its W = 1 cell in every round:
+
+| pin | run | W | G1 scaling | verdict | G2 level | verdict |
+|---|--:|--:|--:|---|--:|---|
+| `0-15` | 1 | 2 | 2.360 [2.227, 2.459] | `PASS` | 1.581 [1.575, 1.590] | `PASS` |
+| `0-15` | 1 | 4 | 4.968 [4.761, 5.053] | `PASS` | 2.816 [2.755, 2.861] | `PASS` |
+| `0-15` | 1 | 8 | 11.164 [9.755, 13.326] | `PASS` | 5.100 [4.830, 5.254] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 1 | 2 | 2.461 [2.446, 2.482] | `PASS` | 1.585 [1.578, 1.593] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 1 | 4 | 4.771 [4.688, 4.850] | `PASS` | 2.818 [2.765, 2.874] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 1 | 8 | 45.200 [44.381, 46.179] | `PASS` | 5.238 [5.146, 5.302] | `PASS` |
+| `0-15` | 2 | 2 | 2.411 [2.308, 2.478] | `PASS` | 1.553 [1.526, 1.574] | `PASS` |
+| `0-15` | 2 | 4 | 4.774 [4.578, 4.961] | `PASS` | 2.815 [2.746, 2.868] | `PASS` |
+| `0-15` | 2 | 8 | 11.562 [9.863, 14.324] | `PASS` | 5.028 [4.773, 5.195] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 2 | 2 | 2.408 [2.288, 2.474] | `PASS` | 1.578 [1.560, 1.594] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 2 | 4 | 4.828 [4.710, 4.998] | `PASS` | 2.836 [2.780, 2.879] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 2 | 8 | 44.414 [42.316, 45.792] | `PASS` | 5.205 [5.086, 5.307] | `PASS` |
+
+G3, the single-writer ratio T_head(1) ÷ T_serial(1), against the locked floor:
+
+| pin | run | P | floor F | verdict | dispatch |
+|---|--:|--:|--:|---|---|
+| `0-15` | 1 | 0.952 [0.944, 0.956] | 0.90 | `PASS` | [35248263291](https://github.com/orieg/expanse/actions/runs/35248263291) |
+| `0,2,4,6,8,10,12,14` | 1 | 0.959 [0.956, 0.961] | 0.90 | `PASS` | [35249002621](https://github.com/orieg/expanse/actions/runs/35249002621) |
+| `0-15` | 2 | 0.960 [0.958, 0.961] | 0.90 | `PASS` | [35249740551](https://github.com/orieg/expanse/actions/runs/35249740551) |
+| `0,2,4,6,8,10,12,14` | 2 | 0.961 [0.957, 0.971] | 0.90 | `PASS` | [35250493262](https://github.com/orieg/expanse/actions/runs/35250493262) |
+
+Writer throughput, M ops/s, BCa 95% *(workload: `concurrency_writer_str`)*:
+
+| pin | run | W | OLC head | serialised build |
+|---|--:|--:|--:|--:|
+| `0-15` | 1 | 1 | 3.789 [3.753, 3.804] | 3.981 [3.967, 3.989] |
+| `0-15` | 1 | 2 | 6.294 [6.268, 6.311] | 2.817 [2.706, 2.978] |
+| `0-15` | 1 | 4 | 11.207 [10.970, 11.377] | 2.371 [2.354, 2.419] |
+| `0-15` | 1 | 8 | 20.301 [19.240, 20.928] | 1.981 [1.688, 2.171] |
+| `0,2,4,6,8,10,12,14` | 1 | 1 | 3.806 [3.801, 3.811] | 3.969 [3.961, 3.979] |
+| `0,2,4,6,8,10,12,14` | 1 | 2 | 6.291 [6.254, 6.314] | 2.667 [2.643, 2.688] |
+| `0,2,4,6,8,10,12,14` | 1 | 4 | 11.186 [10.962, 11.413] | 2.446 [2.404, 2.486] |
+| `0,2,4,6,8,10,12,14` | 1 | 8 | 20.792 [20.461, 21.029] | 0.480 [0.471, 0.490] |
+| `0-15` | 2 | 1 | 3.809 [3.803, 3.814] | 3.969 [3.963, 3.978] |
+| `0-15` | 2 | 2 | 6.164 [6.062, 6.247] | 2.668 [2.616, 2.750] |
+| `0-15` | 2 | 4 | 11.173 [10.890, 11.378] | 2.443 [2.383, 2.504] |
+| `0-15` | 2 | 8 | 19.957 [18.944, 20.614] | 1.915 [1.504, 2.169] |
+| `0,2,4,6,8,10,12,14` | 2 | 1 | 3.810 [3.806, 3.813] | 3.967 [3.928, 3.981] |
+| `0,2,4,6,8,10,12,14` | 2 | 2 | 6.260 [6.194, 6.296] | 2.712 [2.640, 2.844] |
+| `0,2,4,6,8,10,12,14` | 2 | 4 | 11.249 [10.987, 11.450] | 2.428 [2.380, 2.482] |
+| `0,2,4,6,8,10,12,14` | 2 | 8 | 20.642 [20.223, 20.954] | 0.485 [0.472, 0.504] |
+
+The structural and total fallback rates are 0 at every W in all four runs,
+inside §17.2.3's bounds. Every host-load snapshot's foreign busy-CPU figure is
+at or below zero core-equivalents during the timed cells; the one-minute load
+average at each run's start was 1.9–3.0 of 24 threads, the build that precedes
+the cells.
+
+### 18.3 What the verdict says, and what it does not
+
+The single writer is **3.9%–4.8% slower** than under the serialised protocol
+(P 0.952–0.961, every interval wholly below 1.0 and wholly above the 0.90
+floor): the trade has a price, and it is this one. In exchange the head
+delivers about 1.55–1.59×, 2.81–2.84× and 5.0–5.2× the serialised build's best
+throughput at two, four and eight writers, while the serialised build loses
+throughput with every writer added. G1's W = 8 cells under one thread per
+physical core (44–45) owe their size to the serialised build collapsing to
+about 0.48 M ops/s under that pin (AGENTS.md §8.20.5 step 0); G2 is the
+statistic to read there.
+
+Not measured by this gate, and not claimed (§19.10): multi-hop route-shaped
+keys, removals and churn on any key shape, access skew (#1006), other hosts,
+and the bytes and blob wrappers. The workload is fresh 8–16 byte alphanumeric
+inserts. On single-threaded instruction count the five `sync_strmap_*` mutation
+arms are +18.78% to +40.44% against the serialised wrapper (§17.2), which is
+what §19.4's pre-authorised override covers. The two diagnostic runs of §17.4
+agree with these cells and remain non-evidence.
+
+### 18.4 A defect found after that evaluation, and the second evaluation at `d78bc172`
+
+The §18.1 evaluation was taken at `1abfb7ff`. CI on the commit that recorded it
+then failed on the aarch64 lane: a reader dereferenced a null meta-trie root
+(`concurrent_str_readers_under_churn`, the debug null-dereference check in
+`version_cell`). `root_raw` tested the root slot for `None` and then loaded the
+box from it a second time, and the exclusive path rewrites that slot while
+optimistic readers run; an earlier form had the same double load but returned
+the pointer to a later null check that covered the window. `d78bc172` takes one
+load of the slot's word, with a regression test shown to fail 3 of 3 runs on
+the old form. The defect is on a removal of the meta-trie root, which
+`concurrency_writer_str` never performs, so the §18.2 cells did not exercise
+it; but the fix changes engine code, and a head is only what was evaluated if
+it was evaluated. §19 allows a later head under the same thresholds, every
+evaluation recorded (§17.9), so the gate was evaluated again, whole, at
+`d78bc172`: preconditions read at that head (`instruction-counts` run
+[35253935828](https://github.com/orieg/expanse/actions/runs/35253935828): no
+untargeted arm over +0.1%, largest rise `sync_map_remove/random` +0.06%; zero
+`lock_restarts` on the replay of the five mutation arms), then four dispatches.
+
+**Met again: twenty-eight of twenty-eight cells `PASS`.** G1 scaling / G2
+level per W, and G3, BCa 95%, 8 rounds *(measured: reference host — Intel Core
+i9-12900F, 8P+8E / 24 threads, commit `d78bc172`; (workload:
+`concurrency_writer_str`); artifacts
+`results/gate_929_str_v2_writer_scaling_pin0to15_d78bc172_run{1,2}.json` and
+`results/gate_929_str_v2_writer_scaling_d78bc172_run{1,2}.json`)*:
+
+| pin | run | W = 2, G1 / G2 | W = 4, G1 / G2 | W = 8, G1 / G2 | G3 price (floor 0.90) | dispatch |
+|---|--:|--:|--:|--:|--:|---|
+| `0-15` | 1 | 2.462 [2.438, 2.481] / 1.577 [1.560, 1.585] | 4.834 [4.633, 4.978] / 2.836 [2.779, 2.871] | 13.312 [9.971, 23.063] / 5.005 [4.859, 5.155] | 0.960 [0.959, 0.961] | [35256451232](https://github.com/orieg/expanse/actions/runs/35256451232) |
+| `0,2,4,6,8,10,12,14` | 1 | 2.426 [2.370, 2.477] / 1.554 [1.526, 1.576] | 4.868 [4.755, 4.979] / 2.789 [2.717, 2.839] | 44.391 [43.535, 44.960] / 5.146 [5.034, 5.226] | 0.957 [0.956, 0.959] | [35257091562](https://github.com/orieg/expanse/actions/runs/35257091562) |
+| `0-15` | 2 | 2.431 [2.384, 2.468] / 1.574 [1.555, 1.582] | 4.878 [4.644, 4.989] / 2.826 [2.757, 2.872] | 15.195 [10.856, 26.281] / 4.958 [4.790, 5.112] | 0.957 [0.955, 0.960] | [35257847397](https://github.com/orieg/expanse/actions/runs/35257847397) |
+| `0,2,4,6,8,10,12,14` | 2 | 2.417 [2.279, 2.473] / 1.568 [1.552, 1.579] | 4.862 [4.750, 5.021] / 2.828 [2.768, 2.871] | 45.665 [44.878, 46.343] / 5.234 [5.167, 5.283] | 0.957 [0.954, 0.960] | [35258488847](https://github.com/orieg/expanse/actions/runs/35258488847) |
+
+Every cell agrees in direction with its §18.2 counterpart
+(`docs/BENCHMARKING.md` rule 18), and every mean lies inside or beside the
+first evaluation's range: P 0.957–0.960, G2 1.554–1.577,
+2.789–2.836 and 4.958–5.234 at two, four and eight
+writers. Fallback rates are 0 at every W. `d78bc172` is the evaluated head the
+change merges from. §18.3's limits apply unchanged.

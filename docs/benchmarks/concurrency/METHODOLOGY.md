@@ -1918,6 +1918,103 @@ void run does not change the sample size.
   and reported as such (AGENTS.md §8.9).
 
 
+### 17.12 Implementation record (appended 2026-09-16, before any evaluation run)
+
+**Status: the head §17.3 evaluates exists; no run toward the gate has been
+taken.** This subsection records what the implementation is, where it departs
+from §17.2's registered description, and which of §17.7's prerequisites it
+meets — so an evaluation is read against the design that was built rather than
+the one that was imagined. Nothing above it is rewritten; §17.3's threshold,
+statistic, pins, estimator and round count are the ones registered.
+
+**Where each transition runs.** §17.2.4 declined to predict which of T1–T9
+avoid a structural fallback because the cover did not exist yet. Built, on the
+head (`docs/ARCHITECTURE.md` §4.2, *The string wrapper*):
+
+| transition | sub-map in tree state | sub-map in leaf or empty state |
+|---|---|---|
+| T1 / T7 | the engine's OLC body (`olc_insert_map` / `olc_remove_map`, expanded for the `OlcHost` the `StrNode` implements), under its per-node locks | the plain path under the node's cover taken as a lock at the lookup's snapshot |
+| T2 | the engine's body in an insert-if-absent mode: a suffix another writer published first is returned rather than clobbered, and the speculative one freed | the cover lock |
+| T3, T4, T8 | the cover lock, with the entry's store through the engine's body underneath it | the cover lock |
+| T5 | no store; the cover is re-validated before the hop leaves the node | — |
+| T9 | under the emptied node's lock and its parent's, at most two held; the node is marked obsolete through its lock and retired. When the parent cannot be taken or the engine's removal of the entry from a tree-state parent falls back, the node stays linked and empty and the serialised path prunes the key's chain | — |
+| T10, T11, T12 | the serialised root-covered path, `RootGrowth`, which quiesces the optimistic writers and holds the tree word | — |
+
+Two departures from §17.2.3's registered fallback set, both narrowing it:
+
+- **A sub-map in `Root::Empty` or `Root::Leaf` state is not a `RootGrowth`
+  fallback.** §17.2.3 listed it under "whatever the engine's own OLC path
+  already falls back on"; the engine's body still does, but the string writer
+  never asks it to: a leaf-state sub-map is mutated under the node's cover
+  taken as a lock, which is the purpose §17.2.1 registered the word for. On the
+  `routes` Callgrind arms every terminal sub-map holds sixteen entries and is a
+  root leaf, so the registered reading would have put every insert and remove
+  of `sync_strmap_insert`, `sync_strmap_remove` and `sync_strmap_churn` through
+  the quiescing fallback.
+- **T9 is attempted optimistically** and falls back only when the parent's
+  lock cannot be taken or the engine's removal of the entry falls back. The
+  removal itself is never redone: the serialised path runs a prune-only step
+  over the key's chain, counted as the one fallback it takes. §17.11 registered
+  T9 as staying behind the fallback "because this design does not attempt them
+  concurrently, not because they cannot be done"; the `sync_strmap_remove` arm
+  empties a terminal sub-map every sixteenth removal, which the registered form
+  would have paid a quiescing fallback for.
+
+T10, T11 and T12 stay behind the fallback as registered.
+
+**The two consequences §17.2.1 named** landed in #985 (`4e1fc72b`): `StrNode`
+carries the cover word and `ExpanseStrMap` implements `RootState`, answering
+`false` so the tree word covers T10–T12 for the whole operation. The node's
+size does not move again here: the dirty flag that records a stale sub-map
+population sits in the cover word's alignment padding.
+
+**The reader half (§17.2.2)** is as registered: each hop samples the
+`StrNode` cover, runs `walk_validated_node` under it, and re-validates it after
+the entry it loaded, on the suffix arm and the child arm both; the tree word is
+validated once before any answer, for T10–T12. An unlinked node is marked
+obsolete before it retires (S3): through its lock on the optimistic prune, and
+in `dispose_node` on the serialised path.
+
+**The single-threaded path.** `ExpanseStrMap::insert`, `ins_slot` and `remove`
+dispatch once, on the `deferred` state each already loaded, to a plain twin
+(`SHARED = false`) that is the previous code, and to a deferred twin that
+brackets each node's cover, re-syncs a dirty sub-map's population from a census
+fold before reading it, and marks retired nodes obsolete. The plain-tree arms'
+precondition (§17.3) is read on the head's own `instruction-counts` job.
+
+**The comparison build.** The head's default build is the design;
+`ablation-str-serial-writers` restores the serialised protocol — every
+mutation through `Shared::write` under the whole-operation tree bracket, via
+the deferred twin, readers unchanged — and is the "main" build of §17.3's
+ratio. The driver lists it in `INVERSE_ABLATIONS`, so the ratio it reports is
+`C_default(W) / C_variant(W)`, which is `C_head(W, r) / C_main(W, r)`.
+
+**§17.7's prerequisites.**
+
+1. Met: the new path is the default and the feature exposes the protocol it
+   replaced, so one interleaved two-build comparison per pin per run is one
+   dispatch.
+2. Met: `writer_scaling_929_str_gate` in `.github/bench-suites.json`, the
+   workflow's case block and its upload list.
+3. Met, with a correction to the registration's premise: the driver already
+   emitted the per-round ratio of the two builds' C(W) with its BCa 95%
+   interval — `compute_paired_scaling_ratios`, written for the #568 ablation
+   arms — so no new reduction was needed. `--gate-929-str` reads those
+   intervals in §17.9's vocabulary, adds the W = 1 control's interval and
+   §17.2.3's fallback verdict per W, refuses a round count or writer set other
+   than the registered ones, and voids a run at an unregistered pin or a
+   `--quick` population. Its self-test pins each verdict against a synthetic
+   comparison.
+4. Met by construction: an optimistic fallback quiesces exactly once
+   (`remove_root_covered`), and a deferred prune is counted as the one fallback
+   it takes.
+5. Met: the artifact carries `gate_929_str.preregistration` naming this
+   section.
+
+**Explicitly not claimed here.** No number. Whether the head meets the gate is
+what the four dispatches decide, and each is appended to `README.md` whatever
+it says.
+
 ## 18. Pre-registration for #730's readers-only measurement — the FFI string cell's R-curve (appended 2026-09-15, locked before any cell of the sweep runs)
 
 **Status: commit 2 of the three-commit cadence (AGENTS.md §8.8), locked before

@@ -5,7 +5,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 
-use expanse_trie::sync::{SyncExpanseMap, SyncExpanseSet};
+use expanse_trie::strmap::NulFreeStr;
+use expanse_trie::sync::{SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap};
 
 #[derive(Clone, Debug, PartialEq)]
 enum Op {
@@ -1105,4 +1106,182 @@ fn test_sync_map_ordered_linearizability_optimistic_hotspot() {
             "round {round}: an optimistic hot-spot ordered history is not linearizable"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// The string wrapper (Refs #929, METHODOLOGY §17.5)
+// ---------------------------------------------------------------------------
+
+/// The string keys of the #929 histories, by index, so the map checker's
+/// `Op`/`Ret`/`Event` shapes serve unchanged: the checker needs only the
+/// key's identity. Three of them share a first chunk and two of those a
+/// second, so the writers contend on continuation entries — T2 against the
+/// insert-if-absent race, T3, T4, T8 and T9 — and not only on terminal ones.
+fn str_key(idx: u64) -> &'static NulFreeStr {
+    const KEYS: [&[u8]; 6] = [
+        b"k1",
+        b"shared/prefix/aaaa",
+        b"shared/prefix/aaab",
+        b"shared/prefix/bbbb/deeper",
+        b"shared/prefix/bbbb/deeper-still",
+        b"zz",
+    ];
+    NulFreeStr::new(KEYS[idx as usize]).expect("literal keys are NUL-free")
+}
+
+/// #929: per-key linearizability of `SyncExpanseStrMap` under four writers
+/// mixing inserts, removes and reads on six keys that share continuation
+/// entries.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_strmap_linearizability() {
+    let map = Arc::new(SyncExpanseStrMap::new());
+    let history = Arc::new(Mutex::new(Vec::new()));
+
+    let num_threads = 4;
+    let ops_per_thread = 120;
+
+    let mut handles = vec![];
+
+    for t_id in 0..num_threads {
+        let map_clone = Arc::clone(&map);
+        let history_clone = Arc::clone(&history);
+
+        handles.push(thread::spawn(move || {
+            let mut local_events = Vec::with_capacity(ops_per_thread);
+            let reader = map_clone.reader();
+
+            for i in 0..ops_per_thread {
+                let key = ((t_id * 7 + i * 5) % 6) as u64;
+
+                let op = match (t_id + i) % 3 {
+                    0 => Op::Insert(key, (t_id * 1000 + i) as u64),
+                    1 => Op::Remove(key),
+                    _ => Op::Get(key),
+                };
+
+                let start = Instant::now();
+                let ret = match &op {
+                    Op::Insert(k, v) => Ret::Insert(map_clone.insert(str_key(*k), *v)),
+                    Op::Remove(k) => Ret::Remove(map_clone.remove(str_key(*k))),
+                    Op::Get(k) => Ret::Get(reader.get(str_key(*k))),
+                };
+                let end = Instant::now();
+
+                local_events.push(Event {
+                    op,
+                    ret,
+                    start,
+                    end,
+                });
+            }
+
+            let mut h = history_clone.lock().unwrap();
+            h.extend(local_events);
+        }));
+    }
+
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    let history = history.lock().unwrap().clone();
+
+    let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
+    for e in history {
+        by_key.entry(e.op.key()).or_default().push(e);
+    }
+
+    for (key, events) in by_key {
+        println!("Verifying string key {} with {} events", key, events.len());
+        assert!(
+            check_linearizability_for_key(&events),
+            "Linearizability violation for string key {}",
+            key
+        );
+    }
+}
+
+/// #929: the disjoint-writer census for the string wrapper, as
+/// [`test_multi_writer_parallel_disjoint_and_census`] performs it for the
+/// integer wrappers. Each thread owns one first chunk; pairs of its keys
+/// share a second chunk and diverge after it, so its own inserts split
+/// suffixes and its removals prune the grandchildren they empty.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_multi_writer_str_parallel_disjoint_and_census() {
+    let map = Arc::new(SyncExpanseStrMap::new());
+
+    let prefill: Vec<Vec<u8>> = (0..48u64)
+        .map(|i| format!("pre{i:05}").into_bytes())
+        .collect();
+    for (i, k) in prefill.iter().enumerate() {
+        map.insert(NulFreeStr::new(k).unwrap(), i as u64);
+    }
+
+    let num_threads = 4;
+    let keys_per_thread = 400;
+    let key_of = |t: usize, i: usize| -> Vec<u8> {
+        let tail = if i.is_multiple_of(2) {
+            "left"
+        } else {
+            "right-and-longer"
+        };
+        format!("t{t}/item{:04}/{tail}", i / 2).into_bytes()
+    };
+
+    let mut handles: Vec<thread::JoinHandle<()>> = vec![];
+    for t_id in 0..num_threads {
+        let m = Arc::clone(&map);
+        handles.push(thread::spawn(move || {
+            for i in 0..keys_per_thread {
+                let k = key_of(t_id, i);
+                let nk = NulFreeStr::new(&k).unwrap();
+                assert_eq!(m.insert(nk, (t_id * 10_000 + i) as u64), None);
+            }
+            for i in 0..keys_per_thread {
+                let k = key_of(t_id, i);
+                let nk = NulFreeStr::new(&k).unwrap();
+                assert_eq!(
+                    m.insert(nk, (t_id * 10_000 + i + 1) as u64),
+                    Some((t_id * 10_000 + i) as u64)
+                );
+            }
+            for i in (0..keys_per_thread).step_by(3) {
+                let k = key_of(t_id, i);
+                let nk = NulFreeStr::new(&k).unwrap();
+                assert_eq!(m.remove(nk), Some((t_id * 10_000 + i + 1) as u64));
+            }
+        }));
+    }
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    let removed_per_thread = keys_per_thread.div_ceil(3);
+    let expected = prefill.len() + num_threads * (keys_per_thread - removed_per_thread);
+    assert_eq!(map.len(), expected as u64);
+    map.with_locked(|inner| {
+        assert_eq!(inner.len(), expected as u64);
+        for (i, k) in prefill.iter().enumerate() {
+            assert_eq!(inner.get(NulFreeStr::new(k).unwrap()), Some(i as u64));
+        }
+        for t_id in 0..num_threads {
+            for i in 0..keys_per_thread {
+                let k = key_of(t_id, i);
+                let want = if i.is_multiple_of(3) {
+                    None
+                } else {
+                    Some((t_id * 10_000 + i + 1) as u64)
+                };
+                assert_eq!(inner.get(NulFreeStr::new(&k).unwrap()), want, "{k:?}");
+            }
+        }
+    });
 }
