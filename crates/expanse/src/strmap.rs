@@ -1625,7 +1625,7 @@ impl ExpanseStrMap {
     /// [`Self::get`].
     ///
     /// Each hop samples the `StrNode`'s cover word, walks that node's
-    /// sub-map under it (`sync::walk_validated_from`, hand-over-hand
+    /// sub-map under it (`sync::walk_validated_node`, hand-over-hand
     /// into the sub-map's own branch words), and re-validates the cover
     /// after the entry it loaded — the word the string wrapper's writers
     /// bump for that node's root state, its continuation entries and its
@@ -1658,7 +1658,7 @@ impl ExpanseStrMap {
         snap: u64,
     ) -> Result<Option<u64>, crate::sync::Retry> {
         use crate::occ::{node_sample, node_validate, version_cell};
-        use crate::sync::{Cover, Retry, walk_validated_from};
+        use crate::sync::{Retry, walk_validated_node};
         let key = key.as_bytes();
         // Racy single-word copy of the root pointer, through the box rather
         // than a shared borrow (`root_raw`): the root node's cover is sampled
@@ -1690,8 +1690,7 @@ impl ExpanseStrMap {
             // first check against the cover sampled just above.
             let msnap = unsafe { (*node).map.occ_snapshot() };
             // SAFETY: the caller's pin + snapshot contract carries through.
-            let found =
-                unsafe { walk_validated_from::<true>(Cover::Node(word, csnap), msnap, chunk) }?;
+            let found = unsafe { walk_validated_node::<true>(word, csnap, msnap, chunk) }?;
             if terminal {
                 return if ver.validate(snap) {
                     Ok(found)
@@ -2172,7 +2171,7 @@ mod olc {
         ///
         /// At each `StrNode` the writer samples the cover, copies the sub-map
         /// root state and looks the chunk up under that cover
-        /// (`walk_validated_from`). What it then does depends on the sub-map's
+        /// (`walk_validated_node`). What it then does depends on the sub-map's
         /// state and the transition:
         ///
         /// - a sub-map in **tree** state is mutated through the engine's own
@@ -2205,9 +2204,7 @@ mod olc {
             val: u64,
         ) -> crate::sync::OlcOutcome<Option<u64>> {
             use crate::occ::{node_sample, node_validate, version_cell};
-            use crate::sync::{
-                Cover, FallbackCause, OlcOutcome, olc_insert_map, walk_validated_from,
-            };
+            use crate::sync::{FallbackCause, OlcOutcome, olc_insert_map, walk_validated_node};
             let key = key.as_bytes();
             let alloc = &self.alloc;
             let defer = self.deferred.get();
@@ -2260,9 +2257,8 @@ mod olc {
                     return OlcOutcome::Done(prev);
                 }
                 // SAFETY: pinned, and the cover was sampled even just above.
-                let found = match unsafe {
-                    walk_validated_from::<true>(Cover::Node(word, csnap), msnap, chunk)
-                } {
+                let found = match unsafe { walk_validated_node::<true>(word, csnap, msnap, chunk) }
+                {
                     Ok(found) => found,
                     Err(_) => return OlcOutcome::Retry,
                 };
@@ -2410,7 +2406,7 @@ mod olc {
             Option<crate::sync::FallbackCause>,
         ) {
             use crate::occ::{node_sample, node_validate, version_cell};
-            use crate::sync::{Cover, OlcOutcome, olc_remove_map, walk_validated_from};
+            use crate::sync::{OlcOutcome, olc_remove_map, walk_validated_node};
             let key = key.as_bytes();
             let alloc = &self.alloc;
             let defer = self.deferred.get();
@@ -2466,9 +2462,8 @@ mod olc {
                     return (OlcOutcome::Done(prev), deferred);
                 }
                 // SAFETY: pinned, cover sampled even above.
-                let found = match unsafe {
-                    walk_validated_from::<true>(Cover::Node(word, csnap), msnap, chunk)
-                } {
+                let found = match unsafe { walk_validated_node::<true>(word, csnap, msnap, chunk) }
+                {
                     Ok(found) => found,
                     Err(_) => return (OlcOutcome::Retry, None),
                 };

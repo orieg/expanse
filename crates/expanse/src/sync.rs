@@ -156,7 +156,7 @@ pub(crate) const ADVANCE_EVERY: u64 = 4096;
 /// the node each subsequent edge was loaded from (Phase 7 per-node OCC:
 /// the writer brackets every node's in-place mutations, child slots and
 /// the recursion beneath them included, with that node's version).
-pub(crate) enum Cover<'a> {
+enum Cover<'a> {
     Tree(&'a SeqVersion, u64),
     Node(*const u32, u32),
 }
@@ -176,46 +176,16 @@ impl Cover<'_> {
     }
 }
 
-/// One validated step-by-step lookup over a (possibly mutating) tree.
-///
-/// Hand-over-hand: the root snapshot is validated against the tree
-/// version; each branch node is then read under its own version (sampled
-/// even before the reads, re-validated after), which also covers the
-/// terminal payloads of its children. Any failure restarts the walk.
-///
-/// # Safety
-///
-/// `snap` must be an even version sampled from `ver` after the tree's
-/// `NodeAlloc` switched to deferred reclamation, and the caller must hold
-/// an epoch pin for the whole call: every pointer loaded under a
-/// still-valid cover then references EBR-live memory.
-#[inline(always)]
-pub(crate) unsafe fn walk_validated<const MAP: bool>(
-    root: RootSnapshot,
-    key: Key,
-    ver: &SeqVersion,
-    snap: u64,
-) -> Result<Option<u64>, Retry> {
-    // SAFETY: forwarded contract.
-    unsafe { walk_validated_from::<MAP>(Cover::Tree(ver, snap), root, key) }
-}
-
-/// [`walk_validated`] under a caller-chosen initial cover: the tree word for
-/// the map and set wrappers, and the `StrNode` cover word for one hop of the
-/// string wrapper's cascade (Refs #929), whose sub-map root state is covered
-/// by that node's word rather than the tree's.
-///
-/// # Safety
-///
-/// As [`walk_validated`]: `cover` was sampled even after the tree switched to
-/// deferred reclamation, and the caller holds an epoch pin for the whole call.
-#[inline(always)]
-pub(crate) unsafe fn walk_validated_from<const MAP: bool>(
-    cover: Cover<'_>,
-    root: RootSnapshot,
-    key: Key,
-) -> Result<Option<u64>, Retry> {
-    let mut cover = cover;
+/// The validated walk, expanded once per initial cover: [`walk_validated`]
+/// starts under the tree word and [`walk_validated_node`] under a `StrNode`
+/// cover word (Refs #929). The cover is constructed inside each function
+/// rather than passed in: with it arriving as a parameter, LLVM's inliner
+/// meets the first `Cover::ok` copies before the discriminant is proven and
+/// keeps both arms, and the map wrapper's `sync_map_get/random` measured
+/// +0.18% with its own code unchanged (#1001).
+macro_rules! walk_validated_body {
+    ($cover:expr, $root:ident, $key:ident, $map:ident) => {{
+    let mut cover = $cover;
     macro_rules! chk {
         () => {
             if !cover.ok() {
@@ -223,9 +193,9 @@ pub(crate) unsafe fn walk_validated_from<const MAP: bool>(
             }
         };
     }
-    // The root snapshot itself was copied before the first validation.
+    // The $root snapshot itself was copied before the first validation.
     chk!();
-    let (mut edge, mut level): (Edge, u8) = match root {
+    let (mut edge, mut level): (Edge, u8) = match $root {
         RootSnapshot::Empty => return Ok(None),
         RootSnapshot::Leaf { ptr, pop } => {
             // Root leaf: `pop` sorted u64 keys at the base, then (map
@@ -242,7 +212,7 @@ pub(crate) unsafe fn walk_validated_from<const MAP: bool>(
                 // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                 let k = unsafe { keys.add(mid).read() };
                 chk!();
-                if k < key {
+                if k < $key {
                     lo = mid + 1;
                 } else {
                     hi = mid;
@@ -251,13 +221,13 @@ pub(crate) unsafe fn walk_validated_from<const MAP: bool>(
             if lo >= pop {
                 return Ok(None);
             }
-            // SAFETY: in-bounds read of the EBR-live root leaf.
-            let found = unsafe { keys.add(lo).read() } == key;
+            // SAFETY: in-bounds read of the EBR-live $root leaf.
+            let found = unsafe { keys.add(lo).read() } == $key;
             chk!();
             if !found {
                 return Ok(None);
             }
-            if !MAP {
+            if !$map {
                 return Ok(Some(0));
             }
             // SAFETY: the value area begins at the shared class-based
@@ -330,7 +300,7 @@ pub(crate) unsafe fn walk_validated_from<const MAP: bool>(
                     if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
                         return Err(Retry);
                     }
-                    if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
+                    if bl < level && !crate::get::decode_matches(&edge, $key, bl, level) {
                         // SAFETY: live version field (EBR).
                         if !unsafe {
                             crate::occ::node_validate(crate::occ::version_cell(vp), nsnap)
@@ -339,7 +309,7 @@ pub(crate) unsafe fn walk_validated_from<const MAP: bool>(
                         }
                         return Ok(None);
                     }
-                    let d = digit(key, bl);
+                    let d = digit($key, bl);
                     let Some(slot) = digits[..num].iter().position(|&x| x == d) else {
                         // SAFETY: live version field (EBR).
                         if !unsafe {
@@ -378,7 +348,7 @@ pub(crate) unsafe fn walk_validated_from<const MAP: bool>(
                         if !(2..=level).contains(&bl) {
                             return Err(Retry);
                         }
-                        let d = digit(key, bl);
+                        let d = digit($key, bl);
                         (
                             bl,
                             (*node).bitmap.test(d),
@@ -386,7 +356,7 @@ pub(crate) unsafe fn walk_validated_from<const MAP: bool>(
                             (*node).subarrays[(d >> 5) as usize],
                         )
                     };
-                    if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
+                    if bl < level && !crate::get::decode_matches(&edge, $key, bl, level) {
                         // SAFETY: live version field (EBR).
                         if !unsafe {
                             crate::occ::node_validate(crate::occ::version_cell(vp), nsnap)
@@ -446,7 +416,7 @@ pub(crate) unsafe fn walk_validated_from<const MAP: bool>(
                     else {
                         return Err(Retry);
                     };
-                    let d = digit(key, level);
+                    let d = digit($key, level);
                     // SAFETY: EBR-live BranchU; direct 256-slot index.
                     edge = unsafe { (*node).edges.as_ptr().add(d as usize).read() };
                     // SAFETY: live version field (EBR).
@@ -458,12 +428,12 @@ pub(crate) unsafe fn walk_validated_from<const MAP: bool>(
                 }
 
                 EdgeType::LeafB1 => {
-                    if level > 1 && !crate::get::decode_matches(&edge, key, 1, level) {
+                    if level > 1 && !crate::get::decode_matches(&edge, $key, 1, level) {
                         chk!();
                         return Ok(None);
                     }
-                    let d = digit(key, 1);
-                    if MAP {
+                    let d = digit($key, 1);
+                    if $map {
                         let node = edge.node_ptr().cast::<LeafBitmapL>();
                         // SAFETY: EBR-live LeafBitmapL; loads validated
                         // (against the parent's cover) before the value
@@ -506,13 +476,13 @@ pub(crate) unsafe fn walk_validated_from<const MAP: bool>(
                     if kb > level {
                         return Err(Retry);
                     }
-                    if !crate::get::decode_matches(&edge, key, kb, level) {
+                    if !crate::get::decode_matches(&edge, $key, kb, level) {
                         chk!();
                         return Ok(None);
                     }
                     let pop = edge.pop0(kb) as usize + 1;
                     let base = edge.node_ptr();
-                    let keys = if MAP {
+                    let keys = if $map {
                         base.wrapping_add(leaf::map_keys_offset(pop))
                     } else {
                         base
@@ -520,12 +490,12 @@ pub(crate) unsafe fn walk_validated_from<const MAP: bool>(
                     // SAFETY: EBR-live leaf of (validated) `pop` keys;
                     // the slot is validated before the value read.
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-                    let found = unsafe { leaf::search(keys, pop, kb, key) };
+                    let found = unsafe { leaf::search(keys, pop, kb, $key) };
                     chk!();
                     let Some(slot) = found else {
                         return Ok(None);
                     };
-                    if !MAP {
+                    if !$map {
                         return Ok(Some(0));
                     }
                     #[cfg(test)]
@@ -537,7 +507,7 @@ pub(crate) unsafe fn walk_validated_from<const MAP: bool>(
                 }
 
                 EdgeType::FullExpanse => {
-                    if MAP {
+                    if $map {
                         return Err(Retry);
                     }
                     chk!();
@@ -551,8 +521,8 @@ pub(crate) unsafe fn walk_validated_from<const MAP: bool>(
                 }
                 let kb = im.key_bytes() as usize;
                 let n = im.key_count() as usize;
-                let needle = &key.to_le_bytes()[..kb];
-                let payload: [u8; 16] = if MAP {
+                let needle = &$key.to_le_bytes()[..kb];
+                let payload: [u8; 16] = if $map {
                     let mut p = [0u8; 16];
                     p[..7].copy_from_slice(edge.aux_bytes());
                     p
@@ -570,13 +540,13 @@ pub(crate) unsafe fn walk_validated_from<const MAP: bool>(
                 let Some(slot) = slot else {
                     return Ok(None);
                 };
-                if !MAP {
+                if !$map {
                     return Ok(Some(0));
                 }
                 if n == 1 {
                     return Ok(Some(u64::from_le_bytes(edge.imm_bytes())));
                 }
-                // SAFETY: multi-key map immediates store an EBR-live
+                // SAFETY: multi-$key map immediates store an EBR-live
                 // array of `n` values in word 0 (validated tag + count).
                 // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                 let v = unsafe { edge.node_ptr().cast::<u64>().add(slot).read() };
@@ -585,6 +555,51 @@ pub(crate) unsafe fn walk_validated_from<const MAP: bool>(
             }
         }
     }
+
+    }};
+}
+
+/// One validated step-by-step lookup over a (possibly mutating) tree.
+///
+/// Hand-over-hand: the root snapshot is validated against the tree
+/// version; each branch node is then read under its own version (sampled
+/// even before the reads, re-validated after), which also covers the
+/// terminal payloads of its children. Any failure restarts the walk.
+///
+/// # Safety
+///
+/// `snap` must be an even version sampled from `ver` after the tree's
+/// `NodeAlloc` switched to deferred reclamation, and the caller must hold
+/// an epoch pin for the whole call: every pointer loaded under a
+/// still-valid cover then references EBR-live memory.
+#[inline(always)]
+pub(crate) unsafe fn walk_validated<const MAP: bool>(
+    root: RootSnapshot,
+    key: Key,
+    ver: &SeqVersion,
+    snap: u64,
+) -> Result<Option<u64>, Retry> {
+    walk_validated_body!(Cover::Tree(ver, snap), root, key, MAP)
+}
+
+/// [`walk_validated`] for one hop of the string wrapper's cascade
+/// (Refs #929): the sub-map's root state is covered by its `StrNode`'s
+/// cover word, sampled as `csnap` from `word`, rather than by the tree word.
+///
+/// # Safety
+///
+/// As [`walk_validated`]: `csnap` was sampled even from `word` after the
+/// tree switched to deferred reclamation, and the caller holds an epoch pin
+/// for the whole call.
+#[cfg(feature = "std")]
+#[inline(always)]
+pub(crate) unsafe fn walk_validated_node<const MAP: bool>(
+    word: *const u32,
+    csnap: u32,
+    root: RootSnapshot,
+    key: Key,
+) -> Result<Option<u64>, Retry> {
+    walk_validated_body!(Cover::Node(word, csnap), root, key, MAP)
 }
 
 /// A field on its own cache line. It wraps `Shared`'s writer mutex, writer

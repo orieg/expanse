@@ -1933,7 +1933,7 @@ head (`docs/ARCHITECTURE.md` §4.2, *The string wrapper*):
 
 | transition | sub-map in tree state | sub-map in leaf or empty state |
 |---|---|---|
-| T1 / T7 | the engine's OLC body (`olc_insert_map` / `olc_remove_map`, generic over an `OlcHost` the `StrNode` implements), under its per-node locks | the plain path under the node's cover taken as a lock at the lookup's snapshot |
+| T1 / T7 | the engine's OLC body (`olc_insert_map` / `olc_remove_map`, expanded for the `OlcHost` the `StrNode` implements), under its per-node locks | the plain path under the node's cover taken as a lock at the lookup's snapshot |
 | T2 | the engine's body in an insert-if-absent mode: a suffix another writer published first is returned rather than clobbered, and the speculative one freed | the cover lock |
 | T3, T4, T8 | the cover lock, with the entry's store through the engine's body underneath it | the cover lock |
 | T5 | no store; the cover is re-validated before the hop leaves the node | — |
@@ -1969,7 +1969,7 @@ size does not move again here: the dirty flag that records a stale sub-map
 population sits in the cover word's alignment padding.
 
 **The reader half (§17.2.2)** is as registered: each hop samples the
-`StrNode` cover, runs `walk_validated_from` under it, and re-validates it after
+`StrNode` cover, runs `walk_validated_node` under it, and re-validates it after
 the entry it loaded, on the suffix arm and the child arm both; the tree word is
 validated once before any answer, for T10–T12. An unlinked node is marked
 obsolete before it retires (S3): through its lock on the optimistic prune, and
