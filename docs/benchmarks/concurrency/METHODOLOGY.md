@@ -2505,3 +2505,821 @@ it; it is recorded here, not excused. Replay at `1abfb7ff`: zero restarts on
 all five arms; fallbacks 44 of 50,044 operations on `insert/routes` (43
 `branch_split`, 1 `root_growth`), 285 of 50,285 on `remove/routes`, 1 of 50,001
 on `insert_short`, 0 on `churn/routes` and `churn_short`.
+
+## 20. Pre-registration for #1006 — a concurrent YCSB suite for `SyncExpanseMap`: Zipfian, read-latest and read-modify-write (appended and locked 2026-09-17, before any harness code or any run of it)
+
+AGENTS.md §8.8 commit 2. Commit 1 is `scripts/ycsb_concurrent_bounds.py`; no
+harness exists, no cell has run, and nothing in this section is a result.
+§1–§19 are not edited. **Locked 2026-09-17**, with every policy value of
+§20.11 set by the maintainer on that date. From here this section is never
+rewritten in place (AGENTS.md §8.7): outcomes go to `README.md`, and a
+correction is appended as a dated subsection, as §19.10 was.
+
+### 20.1 What is registered, and what is not
+
+Every timed concurrent cell this suite has draws keys uniformly or from
+disjoint streams, so the optimistic-lock-coupling results for `SyncExpanseMap`
+describe the regime in which two threads rarely aim at one node. This section
+registers four YCSB-shaped cell families in which they do — A, B, D and F — on
+one key type (`u64` keys, 8-byte values), against one α = 1 control and three
+competitor arms, with the statistics, thresholds, rounds, pins and void rules
+fixed before a harness is written. Beside them sit ungated anchor cells
+(§20.4), two diagnostic passes that are never gate inputs (§20.14) and a
+correctness oracle that is not a timing (§20.15).
+
+**Workload E is not registered here, and the reason #1006 gives for that is out
+of date.** #1006 defers scans to "the ordered-OCC work tracked in #900". #900
+was closed as completed on 2026-09-17: `MapReader` carries `first`, `last`,
+`next_at_or_after`, `next_after`, `prev_at_or_before` and `prev_before` as
+validated optimistic reads (`crates/expanse/src/sync.rs`, the `MapReader`
+ordered block; §12). What landed is *operations, not a cursor*: a 10–100 item
+scan over the concurrent surface is 10–100 independent validated `next_after`
+calls with no snapshot across them, while `RwLock<BTreeMap>::range` under a
+read guard **is** a snapshot and `SkipMap::range` is neither. Registering E
+therefore needs a decision this section does not make — what a scan means per
+arm, and whether the arms are comparable at all under AGENTS.md §8.3 — and it
+is left to a registration of its own (§20.11, D9). Nothing here waits on #900.
+
+**`run_concurrent_ycsb` is not the instrument.** It now lives at
+`crates/expanse/benches/ycsb_common/mod.rs` (moved from `benches/ycsb.rs` by
+#1011; #1006 cites the old location) and is still called only from
+`crates/expanse/tests/test_ycsb.rs`. #1006's description of it holds at the new
+location: D and E are the B mix on Zipfian keys, F is `reader.get` followed by
+`map.insert` with nothing excluding a second thread between them, the window is
+`thread::sleep`, and rates divide by the nominal duration. It stays a smoke
+test.
+
+### 20.2 What had been seen when this was written
+
+AGENTS.md §8.7, §8.19 — the reader is owed the list:
+
+- `README.md` §15's uniform-stream writer baselines at `170a4bc3` (`map` C(8)
+  2.233–2.280, `set` 1.990–2.031 *(workloads: `concurrency_writer_map_64bit`,
+  `concurrency_writer_set_63bit`; intervals in README table 15.2)*), and §19's
+  text, including its report that on `instruction-counts` run 35187216693 the
+  map wrapper's OLC insert retires 87% more instructions than the plain map's.
+- No concurrent Zipfian, read-latest or read-modify-write cell of any arm, on
+  any host. No single-threaded result of the #1005 YCSB re-measure was read
+  while writing this.
+- The outputs of `scripts/ycsb_concurrent_bounds.py`, quoted in §20.7.
+- `README.md` §18.2's cells of the second #929 gate at `1abfb7ff`, read for the
+  level identity of §20.6 and for nothing else *(workload:
+  `concurrency_writer_str`)*.
+- **A synthetic four-lens review of this section as first written**, read
+  before it was revised and before the lock. It is LLM-generated adversarial
+  brainstorming: it found real defects (an unspecified update idiom, a
+  head-to-head gate that measured a missing primitive, a price floor
+  inconsistent with the level gate, a coincidence model at the wrong
+  granularity), they were fixed before the lock, and it is **not** external
+  validation of anything here. No reviewer outside the project has read this
+  section. Where it supplied a number, the number
+  was recomputed by the bounds module or dropped; one claim it made — that a
+  USL fit of the published `str` and `map` curves has a negative coherency
+  term — was reproduced (`usl_unclamped_beta`, §20.7 (e)) before being
+  repeated.
+
+No threshold below is derived from a measurement of the quantity it gates: no
+harness exists, so no cell of this suite had been measured by anyone when the
+values were set. Those that are policy are collected in §20.11, which says for
+each what measured data was known when it was set.
+
+### 20.3 The claims these gates would license, in full
+
+Each is licensed only by its own gate, on the reference host, at the
+registered pins, population and thread counts, and says nothing beyond them.
+
+> **C1 (G1 + G2), per family f ∈ {A, B, D, F}.** Under workload f,
+> `SyncExpanseMap` scales further with thread count than the same tree behind
+> one mutex, **and** delivers more throughput at every T ≥ 2 than that mutex
+> build delivers at any thread count.
+>
+> **C2 (G3), per family f ∈ {A, B, F}.** Under θ = 0.99, `SyncExpanseMap`
+> keeps at least the stated fraction of the throughput it has under uniform key
+> choice at the same T, mix and population.
+>
+> **C3 (G4), per family f ∈ {A, B, D} — not F.** Under workload f,
+> `SyncExpanseMap` delivers at least the stated fraction of the throughput of
+> `crossbeam_skiplist::SkipMap` — **an** ordered concurrent competitor (a skip
+> list), not the class of them — at every T.
+>
+> **C4 (G5), family F only.** Read-modify-write through the registered
+> per-arm primitive loses no update in any round of any arm.
+>
+> **C5 (G6), per family.** `SyncExpanseMap`'s throughput under workload f is
+> still rising between four and eight threads.
+
+Against `DashMap` no claim is registered: it is unordered, and the comparison
+is published with a direction label and no gate (D7).
+
+### 20.4 Workloads, precisely
+
+**Common to every family.** `u64` keys and 8-byte values in every arm
+(AGENTS.md §8.16, payload symmetry): `u64` in `olc` and `mutex`, `AtomicU64`
+in `skip`, `dash` and `rwbtree`, for the reason §20.5 gives. Population N = 2^20 = 1,048,576 keys
+drawn from the suite's XorShift64 over the full 64-bit space, distinct, present
+before the window opens — the population of `concurrency_writer_map_64bit`, at
+which a 2-byte-prefix expanse holds 16 keys on average and
+`density_poisson.cascade_key_share(16)` puts 0.028% of keys in cascaded
+expanses. Prefill order is **sorted ascending in every arm**, the suite's
+convention (`writer_scaling.rs` shape table); `RwLock<BTreeMap>` and `SkipMap`
+are order-sensitive at build time, no cell inserts into the prefilled range in
+A, B or F, and D's inserts are appends in every arm, so one order is declared
+and `insertion_order` reads `sorted` (§8.12.4; D10 records the limitation). Initial value of key k is 0 in family F and in every other family a
+written value encodes its origin, (t + 1) in the top 8 bits and the index of
+the write within thread t's stream in the low 56, with the prefill written as
+thread 0, sequence 0 — which is what §20.15's oracle reads.
+
+**Threads.** T ∈ {1, 2, 4, 8}. As in YCSB, every thread executes the family's
+whole mix; there is no writer/reader role split. Each thread runs a
+pre-generated stream of 2^20 operations built before the barrier from its own
+seed (suite seed XOR (t + 1)·φ64, the construction `writer_scaling.rs` uses
+for its reader streams), so a cell executes T · 2^20 operations. All arms of a
+family consume byte-identical streams (§8.3). Throughput X is total operations
+÷ the window, in M ops/s.
+**Fixed work per thread joined on the last thread gives an uneven effective
+T**: a thread that finishes early leaves the rest running at T − 1. So every
+round records each thread's own `thread_elapsed_s`, the artifact publishes
+`reader_scaling_bounds.max_over_mean_bias` over them beside every cell, and a
+cell whose slowest thread ran far beyond the mean is visible as such rather
+than averaged away. No threshold is set on it.
+
+**Ungated extra load points.** On the one-thread-per-core pin only, `olc` and
+`mutex` also run T ∈ {3, 6} in families A and B. They enter no gate and no
+paired statistic; they exist so the reported scalability fit of §20.6 has six
+load points and not four.
+
+**Key choice.** θ = 0.99 (`ycsb_common::ZIPFIAN_THETA`; YCSB's
+`ZIPFIAN_CONSTANT`), ranks from `ycsb_common::ZipfianGenerator`, rank r mapped
+to the r-th key of the population **in generator draw order**, which is
+`ycsb_common`'s rule. Draw order is uniform over the key space, so popular keys
+are scattered — what YCSB gets by hashing the generator's output (Cooper et
+al. 2010, §5.3). The generator is Gray et al.'s closed form, not an exact
+sampler: its share of draws on its k lowest ranks is
+`gray_top_k_share(k, N, θ)`, above the exact law's `top_k_share` by at most
+0.011 at this N (§20.7). The harness's rank-histogram unit test is held to
+`gray_top_k_share`, the law its generator follows.
+
+| family | mix per thread | key choice | what a write is | gated |
+|---|---|---|---|---|
+| **A** | 50% read, 50% update | Zipfian over the population | a blind overwrite of a present key's 8-byte value, **in place and without allocation**, by the idiom §20.5 fixes per arm | yes |
+| **B** | 95% read, 5% update | as A | as A | yes |
+| **D** | 95% read, 5% insert | reads: Zipfian over recency, below; inserts: fresh keys | the arm's `insert` of an absent key | yes |
+| **F** | 50% read, 50% read-modify-write | as A | value ← value + 1 on a present key, atomically (§20.5) | G1, G2, G5, G6 — **not G4** |
+| **A0, B0, F0** | as A, B, F | **uniform** over the population (θ = 0), same seed schedule | as A, B, F | G3's denominator; `olc` only |
+| **C, C0** | 100% read | Zipfian; uniform (`olc` only) | none | **no** — anchor |
+| **Ac, Fc** | as A, F | Zipfian, **contiguous ranks**: rank r is the r-th smallest key | as A, F | **no** — labels only |
+| **A-dram, C-dram** | as A, C | Zipfian over N = 2^24 = 16,777,216 keys | as A, C | **no** — anchor; `olc`, `skip`, `dash`; T ∈ {1, 8} |
+
+Reads are point `get`s; every read in every family names a present key, so
+`hit_rate` is 100% and `miss_gen_method` is `n/a` (§8.6) — the miss path is not
+measured and not claimed.
+
+**What the ungated cells are for.** *C* has no writes at all, so whatever
+separates C from C0 is read-path skew — a hot set that fits in cache, or does
+not — and whatever separates A's retention from C's is what writes add. Without
+it G3 cannot tell the two apart. *Ac and Fc* are the layout §20.7 (b)
+identifies as a trie's structural exposure: popular keys as neighbours under
+one leaf and one covering word. *The `-dram` cells* run the same law over a
+population sixteen times larger, chosen so the structure does not fit in the
+reference host's last-level cache; at N = 2^24 the hottest key takes 5.35% of
+the stream and the generator's 256 lowest ranks 34.5% (§20.7). They are
+published with intervals and direction labels, never gated, and never pooled
+with the 2^20 cells.
+
+**D, in full.** Thread t's j-th insert is key 2^63 + 1 + j·T + t: T interleaved
+arithmetic slices of one counter, pre-assigned so no shared counter sits inside
+the window. A read draws recency rank ρ from the generator and names thread
+t's own (ρ + 1)-th most recent insert, or, once ρ exceeds what t has inserted,
+the population key ρ − (t's insert count) places from the **end of the
+generator draw order** — `ycsb_common`'s rule with "this stream" read as "this
+thread". Two departures from YCSB, both declared: insert keys are monotonic
+(Cooper et al. §4.1 note that the latest item "may not be inserted at the end
+of the key space"; monotonic keys are what makes D an append workload here),
+and recency is per thread and not global, which keeps every read a hit without
+a shared high-water mark inside the window. Threads still share leaves: the
+slices interleave at stride T. **The append path is not the tree's rightmost
+path.** About half of a uniform 64-bit population lies above 2^63, so D's
+inserts share one path in the middle of the key space (top byte `0x80`, then
+zeros); the chance that a population key falls among the first 2^24 counter
+values is about 1e-6 (derivation (c) in the bounds module). #1006's "rightmost
+path" is read as "one shared append path" throughout.
+
+**Value dereference and sinks (§8.6).** Every read folds its value into a
+per-thread accumulator passed to `black_box` after the window; every write's
+return value is folded likewise. In A, B and D a post-window check asserts
+every population key present and the population count equal to N plus the
+inserts made.
+
+**The window.** Barrier release to the join of the last thread, timed by its
+own elapsed time. Prefill, stream generation, Zipfian table construction,
+thread spawn, reader-handle registration, the post-run checks and `Drop` are
+outside it.
+
+### 20.5 Read-modify-write semantics, per arm
+
+`SyncExpanseMap` has **no atomic per-key update** on current main. Its public
+surface is `insert`, `remove`, `clear`, `get`, `len`, `is_empty`, `mem_used`,
+`with_locked` (which hands out `&ExpanseMap`, read-only), and the three reader
+constructors (the one `impl SyncExpanseMap` block in
+`crates/expanse/src/sync.rs`, and `.github/public-api/expanse-trie.txt`); there is no
+compare-and-swap, `update`, `entry` or `fetch_add`, and no `with_locked_mut` —
+the string and bytes wrappers have one, the map wrapper does not. `get` then
+`insert` is two linearizable operations and loses updates. So F needs either
+an external lock or a new engine primitive; D1 fixes the external lock.
+
+**One update idiom, fixed per family, applied to every arm that can express
+it.** This is not a detail: for
+`SkipMap<u64, _>` an `insert` on a present key removes the old entry and links
+a newly allocated node, the removed one being reclaimed through
+`crossbeam-epoch`, while a `store` into an atomic value cell allocates nothing
+(`crossbeam-skiplist-0.1.3/src/map.rs`, `insert`: "If there is an existing
+entry with this key, it will be removed before inserting the new one"). The
+registered idiom for A, B and F is the
+**value-cell idiom**: look the key up through the arm's shared-access read
+path and update its 8-byte value in place. Three arms can express it and do;
+two cannot, and say so:
+
+| arm | update in A and B | read-modify-write in F | what it excludes | lock symmetry (§8.16) |
+|---|---|---|---|---|
+| `skip` — `SkipMap<u64, AtomicU64>` | `get(&k)` then `value().store(v, Relaxed)`; no node is replaced | `get(&k)` then `value().fetch_add(1, Relaxed)` | nothing; lock-free | no lock. 0.1.3's `compare_insert` is not used: it returns an entry and not a success flag, so it is not a retry-loop primitive |
+| `dash` — `DashMap<u64, AtomicU64>` | `get(&k)`, which holds the shard's **read** lock, then `store` | `get(&k)` then `fetch_add` | writers of the shard's table, not other updaters of the key | its own sharded locks, in every family. Shard count fixed at 64 by `with_shard_amount`: the default is 4 × `available_parallelism` rounded up to a power of two (`dashmap-6.2.1/src/lib.rs`), which follows the affinity mask and would differ between the two pins |
+| `rwbtree` — `RwLock<BTreeMap<u64, AtomicU64>>` | **read** guard, `get`, `store` | read guard, `get`, `fetch_add` | D's inserts, which take the write guard | reads and value updates share the read guard; only D's inserts serialise |
+| `olc` — `SyncExpanseMap` | **cannot express the idiom**: the wrapper returns values by copy and exposes no value cell (`ExpanseMap::get_slot_ptr` exists on the plain tree only). Uses `insert(k, v)`, which on a present key stores into the slot in place, allocating nothing, inside the covering version word's bracket (`mutate_map.rs`, the present-key branches) | **no atomic per-key update exists**; an external striped lock: S cache-line-padded `Mutex<()>`, stripe = hash(key) mod S, held across `get` + `insert`. Reads do not take it | two RMWs on keys of one stripe | external lock, **disclosed**; point reads and the `insert` inside it stay optimistic |
+| `mutex` — `Mutex<ExpanseMap>` | cannot express it without the lock it already holds; `insert(k, v)` under the mutex — the same tree operation `olc` runs, which is what makes it `olc`'s control | the mutex, held across `get` + `insert` | everything | the α = 1 control; every operation of every family takes this lock |
+
+D's write is the arm's own `insert` of an absent key in every arm
+(`AtomicU64::new(v)` as the value where the type is atomic); for `rwbtree` that
+is the write guard. No arm allocates on an A, B or F write.
+
+**F is not a lock-symmetric comparison across arms, by construction, and no
+head-to-head on it is gated.** Three arms do one atomic add; `olc` takes an
+external lock and does a `get` and an `insert`. That cell measures a primitive
+`SyncExpanseMap` does not have, not the index under it, so F keeps G1 and G2
+against the α = 1 control — both hold a lock across the pair, one striped and
+one global — G5 and G6, and its competitor comparisons are published with a
+direction label and no floor (§20.6). A `compare_exchange`-shaped primitive on
+`SyncExpanseMap` is being evaluated separately; it does not exist, nothing here
+depends on it, and **if it lands F is re-registered with it as a second `olc`
+arm**, in a section of its own, beside the striped-lock arm and not in place of
+it.
+
+**The stripe lock does not dilute with S.** The stripe holding the hottest key
+takes `hottest_stripe_share(N, θ, S)` = p₁ + (1 − p₁)/S of all RMWs: 0.065654
+at S = 1,024 against p₁ = 0.064740, and never below p₁ for any S. Two RMWs meet
+on one stripe with probability 0.007944 per pair, of which 0.006975 is the same
+key. (C(8, 2)/S ≈ 2.7% is the figure for draws uniform over stripes; it does
+not describe a Zipfian stream and is not used.) S therefore
+buys almost nothing beyond a few dozen stripes, and the lock's contended
+acquisitions are counted (§20.14).
+
+**The invariant, G5.** After the window, outside it: the sum of all values over
+the population equals the number of RMW operations the streams contained,
+exactly; and every per-key value equals that key's RMW count, which the harness
+tallies from the streams before the window. A cell failing either is `VOID_LOST_UPDATE`:
+its throughput is not published as a result, and the run is not an
+evaluation. **Negative control, a precondition:** an `olc` variant that skips
+the striped lock must fail the invariant at T = 8 in the harness's own test,
+asserted on the diagnostic string and not the exit code (AGENTS.md §5); the
+fail-then-pass is recorded in the harness PR.
+
+### 20.6 The gates
+
+Verbatim, per cell. X_a(f, T, r) is total M ops/s of arm *a*, family *f*, T
+threads, round *r* of one interleaved run. Every interval is BCa 95% over the
+round series, 2,000 resamples, `scripts/bca_bootstrap.py`, with its `ci_method`
+label recorded.
+
+> **G1, scaling against the α = 1 control.** R(f, T, r) =
+> [X_olc(f, T, r) ÷ X_olc(f, 1, r)] ÷ [X_mutex(f, T, r) ÷ X_mutex(f, 1, r)].
+> Passes iff the lower bound is strictly above 1.0. (§17.3's statistic;
+> AGENTS.md §8.20.2.)
+>
+> **G2, level against the control's best.** L(f, T, r) = X_olc(f, T, r) ÷
+> max over T′ ∈ {1, 2, 4, 8} of X_mutex(f, T′, r). Passes iff the lower bound
+> is strictly above 1.0. (§19.4's G2.)
+>
+> **G3, skew retention, f ∈ {A, B, F}.** K(f, T, r) = X_olc(f, T, r) ÷
+> X_olc(f0, T, r), the Zipfian cell over its uniform twin at the same T in the
+> same round. Passes iff the lower bound is at least **ρ = 0.50** (D2).
+> Reported beside it and not gated: the scaling retention
+> [X_olc(f, T) ÷ X_olc(f, 1)] ÷ [X_olc(f0, T) ÷ X_olc(f0, 1)].
+>
+> **G4, an ordered competitor (a skip list), f ∈ {A, B, D} only.**
+> Q(f, T, r) = X_olc(f, T, r) ÷ X_skip(f, T, r). Passes iff the lower bound is
+> at least **q = 1.0**, that is, strictly above 1.0 (D3). Family F has no G4
+> cell (§20.5).
+>
+> **G6, the peak cell.** K₈₄(f, r) = X_olc(f, 8, r) ÷ X_olc(f, 4, r), one cell
+> per (family, pin, run). Passes iff the lower bound is strictly above 1.0.
+> Model-free: it asks only whether throughput is still rising at the last
+> doubling. Computed and published for every arm; gated for `olc` only.
+>
+> **G5, no lost update.** §20.5's invariant holds in every round of every arm
+> of F. Deterministic; no interval.
+>
+> **Control cells, T = 1.** P(f, r) = X_olc(f, 1, r) ÷ X_mutex(f, 1, r), one
+> per (family, pin, run). Fails iff the interval lies wholly below **F₁ =
+> 0.50** (D4), a collapse guard; the binding price gate is G2 at T = 2.
+>
+> Gate cells are T ∈ {2, 4, 8} × two pins × two runs: twelve per family per
+> gate, and four per family for G6. **A family's claim is licensed at a head** when all its cells pass and
+> no control cell of that family fails. Families are judged separately; no
+> claim is made for "the suite".
+
+**Why G3 gates the level and only reports the scaling ratio.** §19's lesson
+generalises: a ratio of scaling factors divides by each cell's own T = 1, and
+under Zipfian choice a single thread works on a small hot set, so X(f, 1) may
+well exceed X(f0, 1). That alone lowers C(f, T) against C(f0, T) with nothing
+lost at T = 8 — and a slower single thread would raise it with nothing gained.
+K compares what a user gets at the same T. The scaling ratio is printed beside
+it so the two readings cannot be confused.
+
+**Why G1 needs G2.** As §19.4: R can be passed by a slower T = 1 cell; L
+cannot.
+
+**The level identity, and what it does to the T = 1 control.** Write P =
+X_olc(1) ÷ X_mutex(1) and C(T) = X_olc(T) ÷ X_olc(1). Where the control's best
+cell is its T = 1 cell,
+
+> L(T) = P · C(T), exactly and round by round; and L(T) ≤ P · C(T) always,
+
+because a control that peaks elsewhere only has a larger best cell
+(`level_from_price_and_scaling`). It holds to rounding in all 96 published
+round-cells of the second #929 gate, where the serialised build's best cell is
+W = 1 in every round (`level_identity_residual` below 5 × 10^-5 on the four
+`1abfb7ff` artifacts; README §18.2's first row is 0.9518 × 6.294 ÷ 3.789 =
+1.581 *(workload: `concurrency_writer_str`)*). So **G2 at T = 2 is the binding
+single-thread price gate**: L(2) > 1 needs P > 1 ÷ C(2)
+(`price_floor_implied_by_level`). A separate floor on P below that value binds
+nothing before G2 does, which is why F₁ = 0.50 is a collapse guard and not a
+price (§20.7 (f), D4).
+
+**Beside every cell, not gated:** the per-point efficiency E(T) = C(T) ÷ T
+with its interval, for every arm, so a reader sees at once how far each load
+point is from linear.
+
+**The two pins are a control for the blocking arms, not a second concurrency
+axis.** Thread count is the axis. `0-15` and one-thread-per-core differ in
+where a thread that is *not running* parks, which moves arms that block
+(`mutex`, `rwbtree`, `dash` under a contended shard) and is expected to leave a
+non-blocking arm nearly where it was (AGENTS.md §8.20.5 step 0; §17.4). A gate
+that passes under one pin and not the other is reported as exactly that.
+
+**No scalability-law fit is gated.** Four load points cannot support a
+three-parameter fit: on every committed curve tried — the four uniform `map`
+sweeps at `170a4bc3` and the #929 head's four `str` sweeps at `1abfb7ff` — the
+unclamped coherency term of Gunther's linearised fit is **negative**
+(−0.017 to −0.019 for `map`), so `fit_usl.fit_usl_ols` returns β = 0 because
+its β ≥ 0 clamp binds, not because coherency was measured to be absent
+(`usl_unclamped_beta`; pinned as a test) *(workloads differ:
+`concurrency_writer_map_64bit` vs `concurrency_writer_str`; one fit per curve,
+none compared)*. A fit over the six per-core load points of A and B
+(T ∈ {1, 2, 3, 4, 6, 8}) is **reported**, with BCa intervals on α and β and a
+flag saying whether the β ≥ 0 constraint binds, and decides nothing.
+
+**`dash`, `rwbtree`, and `skip` in family F.** Published per cell as X with
+its interval and as the paired ratio X_olc ÷ X_arm with its interval, labelled
+`AHEAD` (interval wholly above 1.0), `BEHIND` (wholly below) or
+`INCONCLUSIVE`. No floor. `dash` is not gated (D7), and appears in A, B, C, D
+and F: all are point operations. The same labels, and no
+gate, apply to every cell of C, C0, Ac, Fc and the `-dram` anchors.
+
+**Every input, and the artifact field it is read from.** The harness and
+driver do not exist; these are the names they are obliged to use, fixed here so
+the artifact cannot be shaped after the fact (paths relative to
+`docs/benchmarks/concurrency/`).
+
+| gate input | field |
+|---|---|
+| the cells | elements of `throughput` with `family` ∈ {`A`,`B`,`D`,`F`,`A0`,`B0`,`F0`,`C`,`C0`,`Ac`,`Fc`,`A-dram`,`C-dram`}, `arm` ∈ {`olc`,`mutex`,`skip`,`dash`,`rwbtree`}, `threads` ∈ {1,2,4,8} (and 3, 6 where §20.4 adds them), `gated` true or false, and `workload_id` one of the ids the harness's shape table `emits` |
+| the per-round series | each cell's `rounds_raw[*].total_mops`, matched by `round`; with `elapsed_s`, `ops`, `read_ops`, `write_ops` beside it |
+| effective T | `rounds_raw[*].thread_elapsed_s`, one entry per thread, and the cell's `max_over_mean_bias` |
+| update idiom | each cell's `update_idiom` ∈ {`value_cell_store`, `map_insert_in_place`}, `value_type` ∈ {`u64`, `atomic_u64`} |
+| G6, efficiency | `peak_8_over_4` with its interval per (family, arm); `efficiency` = C(T) ÷ T with its interval per cell |
+| the reported fit | `usl_fit` per (family, arm) on the per-core pin: `alpha`, `beta`, their intervals, `load_points`, `estimator`, `beta_constraint_binds` |
+| G5 | `rounds_raw[*].rmw_ops`, `rounds_raw[*].value_sum`, `rounds_raw[*].per_key_mismatches` (must be 0) |
+| θ, N, stream length, seeds | `provenance.theta`, each cell's `population`, `ops_per_thread`, `seed` |
+| the generator check | `provenance.rank_histogram`: observed share on the 1, 2, 16, 256 and 4,096 lowest ranks of one stream, beside `gray_top_k_share` of each |
+| RMW provider | each F cell's `rmw_provider`, and `rmw_stripes` for `olc` |
+| `dash` shards | each `dash` cell's `shard_amount` (must read 64) |
+| intervals | `<stat>_ci_lower`, `<stat>_ci_upper`, `<stat>_ci_method` for every statistic above |
+| pin, isolation, commits, load | `provenance.core_pin` and each cell's `cpu_pin`; `provenance.cell_isolation` = `process`; `provenance.commit`; each cell's `load` and `provenance.loads`, with the busy-CPU delta (AGENTS.md §8.17) |
+| which registration | `provenance.preregistration` naming this section; an artifact that does not is a baseline and carries no verdict |
+| counters, diagnostic only | from a separate `occ-stats` build: `lock_fallbacks`, `fallback_causes_total`, `lock_restarts`, read-validation failures per operation. Never timed, never gated (AGENTS.md §8.9) |
+
+### 20.7 Math-first audit
+
+Computed by `scripts/ycsb_concurrent_bounds.py` (25 pinned tests, run by
+`scripts/gate.sh` and CI's `lint` job); the rows below are its `--table`
+output at N = 1,048,576, θ = 0.99, not retyped arithmetic.
+
+**(a) Where the stream lands.** H(N, θ) = 15.446323.
+
+| k lowest ranks | exact law, `top_k_share` | what the generator emits, `gray_top_k_share` |
+|--:|--:|--:|
+| 1 | 0.064740 | 0.064740 |
+| 2 | 0.097336 | 0.097336 |
+| 16 | 0.221390 | 0.232078 |
+| 256 | 0.406592 | 0.416150 |
+| 4,096 | 0.598855 | 0.605396 |
+| 65,536 | 0.796643 | 0.799963 |
+| 10,485 (1% of N) | 0.665291 | 0.670753 |
+
+The two agree exactly at k = 1, 2 and N (Gray et al.'s construction) and
+differ by at most 0.010951, at k = 30, the generator always the heavier. One
+key in a million takes 6.5% of every thread's operations; 256 keys take four
+tenths.
+
+**(b) How often threads aim at one place.** W threads each holding one
+independently drawn target — independence is the assumption, and it holds for
+per-thread seeded streams. "Any two" is exact (Newton's identities over the
+power sums; checked against enumeration and the 23-in-365 birthday figure).
+
+| W | any two on one key, θ = 0.99 | same, uniform | any two in one leaf, scattered ranks (upper bound) | contiguous ranks, 16 per leaf | contiguous, 256 per leaf |
+|--:|--:|--:|--:|--:|--:|
+| 2 | 0.006975 | 9.5e-07 | 0.006990 | 0.053307 | 0.169980 |
+| 4 | 0.039194 | 5.7e-06 | 0.041939 | 0.237922 | 0.558301 |
+| 8 | 0.157279 | 2.7e-05 | 0.195716 | 0.619047 | 0.923400 |
+
+Four things follow, and they are statements about targets, not about cost:
+
+1. At the **key**, skew multiplies the instantaneous pair probability by
+   N·Σp² ≈ 7,313 over uniform choice.
+2. **The key is not the unit threads contend on.** A linear leaf carries no version word; a value
+   store into it is bracketed by its *parent's* word (`mutate_map.rs`, the
+   present-key branches). At this population the top two key bytes saturate,
+   so the covering word of a 16-key leaf belongs to the branch over the second
+   byte — one per top-byte value, `COVER_BINS_64` = 256, each covering about
+   4,096 keys. That is the model's input, read from the code and not from a
+   tree census. With scattered ranks two threads aim under one cover with
+   probability 0.010854, against **0.003907 under uniform choice**: uniform
+   cells do not sit at parts per million at this granularity, and skew raises
+   cover coincidence by a factor of 2.8, not 7,313.
+3. With scattered ranks, *leaf* sharing adds almost nothing to key sharing
+   (0.006990 against 0.006975 over 65,536 leaves). The neighbourhood regime is
+   the contiguous layout — 0.62 at W = 8 and 16 keys per leaf — which is why Ac
+   and Fc are in (§20.4).
+4. W is the number of threads *inside a write at once*, which is at most T.
+   `write_pair_fraction(w)` = w² of pairs have both threads writing — 0.25 in A
+   and F, 0.0025 in B and D — and `write_involving_pair_fraction(w)` =
+   1 − (1 − w)² have at least one: 0.75 and 0.0975. Both count operations as
+   if a write took as long as a read; where writes are slower the true
+   fractions are higher.
+
+**(b′) A prediction, where the bounds support one.** If the
+only thing skew costs `olc` is threads stalling on a coinciding target — a
+writer waiting for a version lock, or a reader retrying because a write closed
+the bracket it read under — then the throughput share lost at T threads is at
+most `coincidence_loss_bound` = (T − 1)/2 · (pair fraction) · (pair
+probability) · h, with h ≤ 1 the fraction of an operation spent holding. At
+h = 1:
+
+| family | T | writer–writer, same key: (T−1)/2 · w² · Σp² | writer–writer, same cover | write-involving, same cover | same, uniform twin |
+|---|--:|--:|--:|--:|--:|
+| A, F | 2 | 0.000872 | 0.001357 | 0.004070 | 0.001465 |
+| A, F | 4 | 0.002616 | 0.004070 | 0.012210 | 0.004396 |
+| A, F | 8 | 0.006103 | 0.009497 | 0.028491 | 0.010256 |
+| B, D | 8 | 0.000061 | 0.000095 | 0.003704 | 0.001333 |
+
+> **P-A, registered.** Under the stall-only hypothesis, family A's *scaling
+> retention* at T = 8 — [X_olc(A, 8) ÷ X_olc(A, 1)] ÷ [X_olc(A0, 8) ÷
+> X_olc(A0, 1)], the statistic G3 reports beside its level — is at least
+> 1 − 0.028491 = **0.9715**. The scaling form is used because a hot set's
+> cache benefit to a single thread is in both its numerator and denominator.
+> **Refuter:** the BCa 95% interval of that statistic lying wholly below
+> 0.9715, in both runs of a pin. Then hot-key lock waits and validation
+> retries are **not** what skew costs, by more than an order of magnitude of
+> headroom, and the remaining candidate is cache-line ownership transfer on
+> the hot cover — every write to a hot covering word moves its line between
+> cores whether or not anyone waits, a cost this bound does not contain. That
+> candidate is unmeasured until §20.14's HITM counter reads it; the refutation
+> of P-A names it as a candidate and credits it with nothing (AGENTS.md §8.9).
+> First order: the bound ignores a stalled thread lingering and raising the
+> coincidence rate, which is why it is trusted only while small.
+
+P-A is a prediction of a mechanism's *ceiling*, not of the cell. No level is
+predicted for K, and P-A failing is the expected outcome (§20.9).
+
+**(c) Workload D.** Applied in counter order, every insert lands in the expanse
+holding the greatest key inserted so far, or opens the one after it: the
+fraction is 1 by construction (derivation in the module; no function, since
+one returning 1.0 would test nothing). With T interleaved slices an insert can
+land one leaf behind the append leaf; how often is not derivable and is an
+empirical residual.
+
+**(d) Detectability at 8 rounds.** `mde_per_unit_sigma(8)` = 1.40079 through
+`reader_scaling_bounds.mde_from_rounds` (Cohen 1988, ch. 2): 8 rounds per arm
+resolve a relative effect e only if the per-round coefficient of variation is
+at most e ÷ 1.40079 — 0.0357 for 5%, 0.0714 for 10%, 0.1785 for 25%. The only
+measured stand-in for a cell that does not exist is the uniform `map` writer
+sweep at `170a4bc3`: over its twelve C(W) cells `baseline_scaling_mde` gives a
+relative MDE of 1.14%–3.26% *(workload: `concurrency_writer_map_64bit`; the
+four `baseline_writer_scaling_170a4bc3_*` artifacts)*. The reducer reproduces
+§17.6's published `str` row from the same artifact, which is pinned as a test.
+
+**(e) The peak cell and the fit.** On the four uniform `map` sweeps
+X(8) ÷ X(4) is 1.289–1.313 with a relative MDE of 2.84%–4.86% (`peak_series`
+through `mde_from_rounds`) *(workload: `concurrency_writer_map_64bit`)*: a cell
+that is still rising by 25% is resolvable against 1.0 at 8 rounds, one
+rising by under 5% is not, and G6 would then read `INCONCLUSIVE`. The
+unclamped USL coherency term on those four curves is −0.0189, −0.0168, −0.0191
+and −0.0169 (`usl_unclamped_beta`), which is why §20.6 gates no fit.
+
+**(f) The price floor the level gate already implies.** With the uniform `map`
+C(2) of 1.2994–1.3136, `price_floor_implied_by_level` gives 0.7612–0.7696: a
+single thread below about 0.77 of the control cannot pass G2 at T = 2 if
+C(2) under a YCSB mix resembled the insert-only C(2) *(different workload:
+an orientation, not an input)*. At P = 0.50, L(2) would be about 0.65. A mix
+that is 95% reads may well have C(2) near 2, where the implied floor falls to
+0.5; that is why the floor is left to G2, which reads the family's own C(2),
+and D4 is a collapse guard only.
+
+**(g) The stripe lock.** §20.5: the hottest of 1,024 stripes takes 0.065654 of
+RMWs, p₁ is 0.064740, and no S goes below p₁.
+
+**Audit verdict: `PROCEED`, conditionally.** G1 and G2 look for a multiple
+against a mutex build, far outside a 3% MDE if Zipfian spread resembles uniform
+spread. G3, G4 and the control are resolvable only if the cells land at least
+one MDE away from the locked ρ = 0.50, q = 1.0 and F₁ = 0.50, and where they
+land is unknown; a cell that lands inside that margin reads `INCONCLUSIVE`, and
+the values do not move for it. **Empirical residuals, which only measurement supplies:** how long
+an operation holds a node's version lock; restart, validation-failure and
+fallback rates under coincidence; whether per-round spread under skew
+resembles spread under uniform choice; single-thread speed on a hot set;
+whether `COVER_BINS_64` = 256 describes the built tree (the oracle pass
+records the node census, §20.15); everything about the competitor arms. Not
+established: that any gate is met.
+
+### 20.8 Rounds, pins, runs, isolation, load, voids
+
+- **8 rounds per cell**, fixed. Adding rounds to decide an `INCONCLUSIVE` cell
+  relabels the evaluation `INTERMEDIATE` (AGENTS.md §8.19).
+- **Pins `0-15` and `0,2,4,6,8,10,12,14`, never pooled**, named on every
+  figure (AGENTS.md §8.20.5 step 0). The `mutex` and `rwbtree` arms serialise,
+  and §17.4 records a serialising arm moving four-fold between these pins at
+  W = 8; every paired statistic is formed within one pin.
+- **Two independent runs per pin**, each a fresh dispatch, all four at one
+  head. A cross-run statement is made only for cells both runs move the same
+  way (`docs/BENCHMARKING.md` rule 18).
+- **One harness process per timed cell** (§15); `provenance.cell_isolation`
+  reads `process`.
+- **Interleaved within rounds.** Each round runs every (arm, T) cell of a
+  family block — the family and, for `olc`, its uniform twin — in the order of
+  that round's row of a Williams design over the block's cells. A block has up
+  to 28 cells (five arms × four T, the uniform twin's four, and the four
+  per-core T ∈ {3, 6} cells) and there are 8 rounds, so position and first-order carryover are
+  **not** fully balanced, unlike §15.1's 8-cell comparison; with one process
+  per cell what can carry over is host state, not process state. Declared, not
+  corrected.
+- **Load snapshots** with the busy-CPU delta before the first cell, between
+  family blocks and mid-block (AGENTS.md §8.17).
+- **Voids: §17.10 by reference**, with its fields read as this suite's —
+  wrong or unrecorded pin, a population other than 1,048,576 or
+  `ops_per_thread` other than 1,048,576, a round count other than 8, a method
+  other than `bca`, isolation other than `process`, timings from an
+  `occ-stats` build, the four runs differing in `crates/` or in the driver, an
+  artifact naming another registration — and §6's load rules. Added here: θ
+  other than 0.99 (0 in a uniform twin); `shard_amount` other than 64;
+  `rank_histogram` outside its binomial tolerance of `gray_top_k_share`; an
+  `update_idiom` or `value_type` other than §20.5's for the arm;
+  `VOID_LOST_UPDATE`; and `VOID_ORACLE` (§20.15). A void run is discarded whole, replaced at the same head,
+  and the discard disclosed.
+
+**When a run is taken.** After the #929 Callgrind-bound decision is recorded
+(#1006, *Sequencing*; AGENTS.md §8.20.6 — a verdict describes the engine it
+measured), after the lock of this section, and after §20.12's prerequisites
+have landed. Every evaluation is appended to `README.md` whatever it reads.
+
+### 20.9 Expected losses
+
+Registered before any run, so an unwelcome cell is a recorded expectation.
+**No magnitude is predicted anywhere in this table**: nothing in §20.7 prices
+an operation.
+
+| cell or condition | expectation at lock | consequence of a loss |
+|---|---|---|
+| G3, A and F, T = 8 | **`olc` may fall below its uniform-stream scaling and level.** Two threads aim under one covering word with probability 0.0109 per pair against 0.0039 uniform, and at one key with 0.0070 against 9.5e-07 (§20.7 (b)). Direction expected; size not predicted beyond P-A's ceiling | lower bound under ρ: C2 is not licensed for that family; the cell is published |
+| G3, B | a loss is less expected than in A: 5% writes. Not predicted | as above |
+| `olc` against `dash`, every family, high T | **`olc` may be `BEHIND` a sharded hash map on point operations.** A hash map pays no key-ordered descent and its 64 shards spread the hot keys. Expected for A and F; not predicted for B and D | published with its label. No gate (D7) |
+| G1/G2, D | **read-latest may serialise on the append path.** Every insert from every thread lands in one expanse or the next (§20.7 (c)), and 95% of reads chase the same keys. C1 may fail for D at every T ≥ 2 | C1 is not licensed for D; published |
+| D, `rwbtree` and `skip` | appends are the rightmost-append best case for a B-tree and a cheap tail insert for a skip list (AGENTS.md §8.12.4). `olc` may be `BEHIND` both | published; G4 fails for D if it is `skip` |
+| `olc` against `skip`, `dash`, `rwbtree`, F | each does one atomic add where `olc` takes a striped lock and does a `get` and an `insert` (§20.5). `BEHIND` is expected in every cell | no gate (§20.6): published with its label and the asymmetry restated beside it |
+| G4, A and B | the value-cell idiom gives `skip` an update that allocates nothing and takes no lock. `olc` may be `BEHIND`; not predicted | C3 is not licensed for that family |
+| P-A | **expected to be refuted.** The stall-only ceiling is 2.8% at T = 8; a hot covering word written from eight cores is expected to cost more than that through line transfer alone. Direction expected, size not predicted | P-A reads `REFUTED`; §20.14's counters are then what is read, and no mechanism is named without them |
+| G6, A and F | whether throughput still rises from 4 to 8 threads under skew is **not predicted**. On the uniform insert-only stream it rises by 1.29–1.31 (§20.7 (e)) | C5 is not licensed for that family; E(T) is published either way |
+| G6, `mutex` and `rwbtree` in D | expected below 1.0: blocking arms past their peak | published; these arms carry no G6 gate |
+| Ac and Fc against A and F | **expected lower for `olc`** and not for `skip` or `dash`: 0.62 of instants at W = 8 put two threads in one 16-key leaf. Size not predicted | published with labels; no gate |
+| C against C0 | not predicted in either direction: a hot set that fits in cache favours C, and no write is present to cost anything | published; it is what A's retention is read against |
+| the `-dram` anchors | not predicted | published, never pooled with the 2^20 cells |
+| control P, write-heavy families | **`olc` at T = 1 is expected below `mutex` at T = 1**: an uncontended mutex is cheap, and the OLC insert retires 87% more instructions than the plain map's (§19.4, run 35187216693). Size in wall clock not predicted | below F₁: that family's claim is not licensed, whatever T = 8 reads |
+| G2, T = 2 | the closest level cell, as in §19.7: two threads must beat the control's best at any T | `INCONCLUSIVE` or `REFUTED`: C1 not licensed for that family |
+| G5 | passes in every arm. The negative control fails | a failing arm is a harness or engine defect: the run stops, nothing is published as a result |
+| pin against pin | the serialising arms are expected to read lower one-thread-per-core at T = 8 (§17.4); which pin flatters `olc`'s ratios is not predicted | both published; neither dropped |
+| the two runs of a pin | expected to agree | a cell they disagree on is reported direction-only |
+| fallback and restart counters under skew | expected above their uniform-stream values; not predicted further, and never a gate | reported as diagnostics |
+
+### 20.10 Verdicts
+
+§17.9's vocabulary, per cell: `PASS`, `REFUTED` (interval wholly on the wrong
+side of the cell's threshold), `INCONCLUSIVE` (threshold inside the interval),
+`INTERMEDIATE` (anything differing from this registration), `NOT_EVALUABLE`
+(an input absent; never a pass, never 0). Added: `VOID_LOST_UPDATE` (§20.5),
+`VOID_ORACLE` (§20.15), and the direction labels `AHEAD` / `BEHIND` for ungated
+comparisons. P-A reads `REFUTED`, `NOT_REFUTED` or `NOT_EVALUABLE`. A family's
+claim is licensed only when all its gate cells read `PASS` and no control
+fails. No joint error rate is claimed over cells that share a head and a host,
+and every evaluation is recorded so a later pass cannot be reported as the
+first.
+
+### 20.11 The policy values, as locked
+
+Each is a choice no measurement makes. **Every value in this table is
+maintainer policy, set on 2026-09-17, and does not move for any head**
+(AGENTS.md §8.19): changing one after a result is seen relabels that
+evaluation `INTERMEDIATE` and needs fresh runs. The bounds module carries the
+numeric ones as constants (`LOCKED_*` in `scripts/ycsb_concurrent_bounds.py`)
+and pins them in a test, so a silent edit turns the suite red. P-A's 0.9715 is
+**not** policy: it is derived (§20.7 (b′)), and moves only if the bounds module
+does.
+
+**What was known when they were set.** No cell of this suite, of any arm: no
+harness exists. Known and read: the uniform insert-only `map` writer cells of
+`README.md` §15 at `170a4bc3` (their C(2) of 1.2994–1.3136 and their per-round
+spread), and `README.md` §18.2's `str` cells at `1abfb7ff` (for the level
+identity) *(workloads differ: `concurrency_writer_map_64bit` vs
+`concurrency_writer_str`; neither is a YCSB mix, and neither is an input to
+any gate here)*. The last column says which value that knowledge touched.
+
+| id | what it is | locked value | what it is a ratio of, in plain words | set with knowledge of measured data? |
+|---|---|---|---|---|
+| D1 | F's RMW provider for `olc` | an **external striped lock, S = 1,024** | not a ratio: how `SyncExpanseMap` makes value ← value + 1 atomic, given that it has no per-key update. The hottest stripe carries p₁ + (1 − p₁)/S = 0.0657 of RMWs at 1,024 and never less than p₁ = 0.0647 at any S (§20.7 (g)). If a `compare_exchange`-shaped primitive lands, F gains a second `olc` arm by a new registration; this one is not edited | no — derived from the rank law |
+| D2 | ρ, G3's floor | **0.50** | Zipfian throughput ÷ uniform throughput, same arm, same T, same mix: `olc` must keep at least half of its uniform-stream throughput under θ = 0.99 | only its resolvability: the §15 cells' spread says 8 rounds resolve it unless a cell lands within about 3% of it. The level it gates was not known |
+| D3 | q, G4's floor, families A, B and D | **1.0**, the lower bound strictly above | `olc` throughput ÷ `SkipMap` throughput, same family, same T: not slower than one ordered concurrent structure, a lock-free skip list using its cheapest update. It says nothing about ART with optimistic lock coupling, ROWEX or Masstree (§20.13) | no |
+| D4 | F₁, the T = 1 collapse guard | **0.50, a collapse guard only**; the measured P is published beside every verdict | `olc` single-thread throughput ÷ `Mutex<ExpanseMap>` single-thread throughput. **The binding price gate is G2 at T = 2**, which needs P > 1 ÷ C(2) by identity (§20.6): about 0.77 if C(2) resembled the uniform `map` value, down to 0.5 if a read-heavy mix scales near 2. F₁ never binds before G2 does; it is kept so a collapse is reported as a failed control and not only as a failed level cell | **yes**: §15's `map` C(2) and §18.2's identity cells, which are why it is a guard and not a price |
+| D5 | which families carry gates | **A, B and D on G1–G4 and G6; F on G1, G2, G5 and G6** | not a ratio. D is the family most likely to fail C1, which is the reason it is gated | no |
+| D6 | competitor set | **`skip`, `dash`, `rwbtree`, and `mutex` as the control. HOT/ROWEX and Masstree out** | not a ratio. `crossbeam-skiplist` 0.1 and `dashmap` 6 are already dev-dependencies of `expanse-trie`; nothing new is added. HOT/ROWEX and Masstree expose `insert` and `get` only, with no update or RMW entry point (`crates/expanse-hot-bench/src/rowex.rs`, `masstree.rs`), `RowexMap::insert`'s doc comment does not say whether it overwrites, and they live in a crate with C++ submodules this harness does not link | no |
+| D7 | whether `dash` is gated | **direction labels only, no floor** | `olc` throughput ÷ `DashMap` throughput is published with its interval and a label. An unordered sharded hash map is a different capability; the loss is expected (§20.9), and publishing it is the requirement | no |
+| D8 | the contiguous-rank cells | **Ac and Fc in, ungated, labels only** | not a ratio: rank r mapped to the r-th smallest key, the layout under which leaf sharing is 0.62 at W = 8 and not 0.0070 | no — derived |
+| D9 | workload E | **out of this section; a registration of its own** | not a ratio. §20.1: scan semantics differ per arm in a way §8.3 has to be argued for, not assumed | no |
+| D10 | prefill order | **`sorted` only** | not a ratio. No registered cell inserts into the prefilled range, so build order changes the built shape of `rwbtree` and `skip` only. **Stated limitation:** a strict reading of AGENTS.md §8.12.4 would give `both` for those two order-sensitive arms; this registration measures one order and says so | no |
+| D11 | θ and N | **θ = 0.99; N = 2^20 gated; N = 2^24 as the ungated anchor** | not a ratio. θ is YCSB's constant; 2^20 matches every writer cell in this suite; whether the 2^24 tree exceeds the reference host's last-level cache is recorded by `mem_used` in the artifact, not assumed | the §15 cells' population, which is why the uniform twins are comparable with them in kind |
+| D12 | the update idiom | **the value-cell idiom wherever the arm can express it** | not a ratio. It gives each competitor its cheapest documented update; each structure's own map-level `insert` would charge `SkipMap` a node allocation and an epoch deferral per update and flatter `olc`. `olc` and `mutex` cannot express it and are the only arms whose update is a map operation | no |
+| D13 | the extra load points | **T ∈ {3, 6} on the per-core pin, `olc` and `mutex`, A and B, in and ungated** | not a ratio. Six load points make the reported fit less degenerate than four; nothing is gated on it | **yes**: the negative unclamped coherency term on the §15 and §18.2 curves (§20.6) |
+
+### 20.12 Instrument prerequisites, before any run counts
+
+1. **A new harness file**, `crates/expanse/examples/ycsb_concurrent.rs`, with
+   its own `# Workload shape` table (AGENTS.md §8.12, §8.15): one `workload_id`
+   and an `emits` row naming a unique id per cell family, as
+   `writer_scaling.rs` does; `insertion_order` `sorted`; `hit_rate` 100%.
+   Throughput and `occ-stats` counters from two builds, each refusing the
+   other's role. It reuses `ycsb_common`'s generator and θ and does not define
+   a second one.
+2. **A rank-histogram unit test** holding one stream's shares to
+   `gray_top_k_share` within a stated binomial tolerance, and the G5 negative
+   control (§20.5), both run by CI.
+3. **A driver** modelled on `scripts/writer_scaling.py`: one process per cell,
+   the Williams rows of §20.8, both pins through `bench_pin.apply(`, load
+   snapshots, paired BCa with `ci_method`, the schedule check that refuses an
+   artifact disagreeing with what was asked for, and every gate statistic of
+   §20.6 computed by committed code before the run it judges.
+4. **The driver's self-test asserts the artifact's shape** (AGENTS.md
+   §8.20.7): every §20.6 field present; a missing round, a wrong pin, an
+   absent T′ cell, an absent uniform twin or a non-zero `per_key_mismatches`
+   yields `NOT_EVALUABLE` or `VOID_LOST_UPDATE`, never a pass. It is
+   **mutation-tested**: each of those assertions is shown to turn red when the
+   production line it guards is removed, and the demonstration is recorded in
+   the PR (AGENTS.md §5).
+5. **Registration**: `.github/bench-suites.json`, the dispatch `case`, flag
+   spelling and upload list in `bench_baremetal.yml`,
+   `scripts/check_bench_suites.py --write`, `DIRECT_HARNESSES` in
+   `scripts/check_bench_pin.py`, a CI self-test job on a path filter as
+   `writer-scaling-selftest` has, and `check_bench_provenance.py` passing with
+   no grandfather entry.
+6. **`run_concurrent_ycsb`'s doc comment** says it is a smoke test and not a
+   measurement (#1006, *Done when*).
+7. **The latency build and the PMU pass of §20.14**, each refusing to emit a
+   throughput figure, with their artifact fields asserted by the driver's
+   self-test as item 4 requires.
+8. **The oracle of §20.15**: the value encoding, the post-window final-value
+   check in every timed cell, the untimed monotonicity pass, and a Zipfian
+   history test added to `crates/expanse/tests/linearizability.rs` beside
+   `test_sync_map_linearizability`, with the count it ran stated (never 0).
+
+### 20.13 Explicitly not claimed
+
+- **No mechanism.** No cell's level or movement is attributed to version-lock
+  retries, validation failures, cache-line transfer, allocator behaviour or
+  frequency. §20.7's probabilities describe where threads aim, not what it
+  costs; a mechanism named for any loss needs its counter or an ablation
+  (AGENTS.md §8.9, §8.20.3). Cause unknown until then.
+- **No magnitude, for any cell.** Directions are given where §20.7 supports
+  one; "not predicted" is the entry everywhere else.
+- **Nothing about scans, removals, the miss path, the set, string, bytes or
+  blob wrappers, 32-bit targets, other hosts, other θ or other populations.**
+- **No claim against ART with optimistic lock coupling, ROWEX or Masstree.**
+  G4's competitor is one skip list. The HOT/ROWEX and Masstree arms this
+  repository can build expose `insert` and `get` only through
+  `crates/expanse-hot-bench` (D6), so none of A, B or F can be run on them, and
+  no ratio is formed against any figure in another suite *(different
+  workload)*. "An ordered concurrent competitor" never reads as "ordered
+  concurrent indexes".
+- **No head-to-head claim on read-modify-write.** F's competitor cells measure
+  a missing primitive (§20.5).
+- **No scalability-law parameter is claimed.** The reported fit is a
+  description with its intervals and its constraint flag (§20.6).
+- **No latency claim.** §20.14's percentiles are closed-loop service times
+  from a separate build and are diagnostic.
+- **No comparison with README §15's numbers.** They were taken at `170a4bc3`
+  on an insert-only stream; G3's denominator is measured in the same round at
+  the evaluated head.
+- **F is not a lock-symmetric comparison across arms** (§20.5), and no sentence
+  built on it may read as one.
+- **D is not YCSB's workload D** in two declared respects (§20.4), and the
+  generator is Gray's approximation and not an exact Zipfian sampler (§20.7).
+- **No claim that the registered competitor configurations are tuned.**
+  `DashMap` at 64 shards and `SkipMap` at its defaults are stated, not
+  optimised; a different shard count is a different cell.
+
+### 20.14 Two diagnostic passes, declared now and never gate inputs
+
+Registered so their shape cannot be chosen after a throughput cell
+disappoints. Neither produces a number that enters §20.6, neither is timed for
+throughput, and a mechanism named from either is a finding of that pass with
+its counter beside it, not a verdict of this gate (AGENTS.md §8.9, §8.20.3).
+
+**(a) Latency, from a separate build.** A third build role, `latency`, which
+like `occ-stats` refuses to emit `total_mops`.
+
+- Per thread, per operation type, a **non-allocating log-bucketed histogram**:
+  fixed arrays sized before the barrier, power-of-two buckets with 16 linear
+  sub-buckets each, no allocation and no shared state inside the window.
+- Timestamps are `rdtsc` reads, converted with the **measured** `tsc_hz`
+  (`occ_stats::cycles_hz`), never with a core clock frequency (AGENTS.md
+  §8.20.1). x86-64 only; the pass is `NOT_INSTRUMENTED` elsewhere.
+- **These are service times of a closed loop.** Each thread issues its next
+  operation when the last returns, so there is no arrival process, no queueing
+  delay and no correction for coordinated omission: p99.9 here is "how long the
+  slowest operations took", not "what a client at a fixed rate would see".
+  Stated beside every table.
+- Cells: every gated (family, arm) at T ∈ {1, 8}, both pins, 8 rounds,
+  histograms merged across threads and rounds before percentiles are read.
+- Artifact, fixed now: elements of `latency` with `family`, `arm`, `threads`,
+  `op` ∈ {`read`, `update`, `insert`, `rmw`}, `samples`, `p50_ns`, `p99_ns`,
+  `p999_ns`, `max_ns`, `tsc_hz`, `bucket_scheme` = `log2x16`, `clock` =
+  `rdtsc_over_tsc_hz`, `model` = `closed_loop_service_time`, and
+  `bracket_overhead_ns`, the calibrated cost of one timestamp pair.
+
+**(b) PMU and `perf c2c`, one pass per family at T = 8.**
+
+- `olc` arm, one-thread-per-core pin, every event **prefixed with the pinned
+  core class** (`cpu_core/…/`; a bare event name on the hybrid host opens both
+  PMUs): `cpu_core/mem_load_l3_hit_retired.xsnp_fwd/` — the forwarded-snoop
+  count the driver already opens — `cpu_core/cycles/` and
+  `cpu_core/ref-cycles/`, per operation, per thread, 8 rounds so a frequency
+  ratio carries an interval (AGENTS.md §8.20.2).
+- One `perf c2c` recording per family on the same cell, ranked by
+  `scripts/c2c_ranking.py`, symbols resolved from `perf report` and not from
+  the c2c column (AGENTS.md §8.20.5 steps 4–5). HITM load samples per line are
+  what P-A's refutation points at; they locate, they do not attribute.
+- **Every arm, every gated cell:** voluntary context switches per operation,
+  from `getrusage(RUSAGE_THREAD)` read by each thread outside the window —
+  the direct reading of whether an arm's threads block, which is the thing the
+  two pins are a control for.
+- **The D1 stripe lock:** a contended-acquisition counter — `try_lock` first,
+  count the failures, then `lock` — in the `occ-stats` build only, reported as
+  contended acquisitions per RMW beside `hottest_stripe_share`'s 0.0657.
+- Artifact, fixed now: elements of `pmu` with `family`, `arm`, `threads`,
+  `event`, `per_op`, its interval and `ci_method`, `pmu_prefix`; `c2c` with
+  `family`, `recording`, `ranking`; per-cell `nvcsw_per_op`; per F cell
+  `stripe_contended_per_rmw`.
+
+### 20.15 The correctness oracle, beyond family F
+
+G5 covers F. A lost or torn update in A, B or D would inflate a cell just as
+silently, so:
+
+- **Values say who wrote them.** §20.4's encoding: thread in the top 8 bits,
+  that thread's write sequence in the low 56.
+- **In every timed cell of A, B and D, after the window:** each population
+  key's final value is one of at most T candidates — for each thread, the
+  **last** write that thread's stream made to that key, or the prefill value
+  if no stream wrote it — tallied from the streams before the window. Every D
+  insert is present with exactly its own value, since one thread owns each
+  inserted key. A cell failing either is `VOID_ORACLE`, handled as
+  `VOID_LOST_UPDATE` is.
+- **An untimed oracle pass**, T = 8, same streams, each family and arm once
+  per run: every reader keeps, per key among the 4,096 lowest ranks and per
+  writer thread, the last sequence number it saw, in arrays sized before the
+  start. A sequence number going **backwards** for one (reader, key, writer)
+  fails the pass: a single writer's values to one key must be seen in order by
+  any one reader. It times nothing, and it records the built tree's node
+  census so §20.7's `COVER_BINS_64` can be contradicted.
+- **The existing `linearizability` target** gains a history test on a small
+  Zipfian sample (θ = 0.99 over a few hundred keys, so histories collide),
+  through the same per-key checker. It runs in CI, outside any timed cell, and
+  its result is a precondition of an evaluation, not a statistic.
+
+What this does not establish: linearizability of the timed cells themselves —
+recording histories inside the window would change what is timed — or anything
+about the competitor arms beyond the final-value check they share.
