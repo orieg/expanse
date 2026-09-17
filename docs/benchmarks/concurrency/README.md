@@ -3458,7 +3458,8 @@ No §17 gate dispatch was taken at this head, and none of the runs in §17.4 is
 an evaluation of that gate. Under AGENTS.md §8.19 the bound is not moved; two
 code changes were measured against it (§17.3) and the rejection is recorded
 here. Any further gate on this path is a new registration with its own claim,
-locked before its first admissible run; §17 is not reopened.
+locked before its first admissible run; §17 is not reopened. METHODOLOGY §19 is that
+registration.
 
 ### 17.2 The Callgrind precondition
 
@@ -3556,5 +3557,5 @@ the gate been dispatched. The serialised build loses throughput with every
 added writer, and under one thread per physical core collapses to 0.485 M ops/s
 at W = 8, the pin sensitivity of a single-mutex arm (AGENTS.md §8.20.5 step 0).
 These runs license no claim: they were taken to decide what to register, they
-must be disclosed as seen by any later registration on this path, and they are
-not inputs to any gate.
+are disclosed as seen in METHODOLOGY §19.2, and they are not inputs to §19's
+gate.
