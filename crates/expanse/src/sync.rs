@@ -2047,6 +2047,9 @@ impl<T: SharedTree> Shared<T> {
 /// one generic function, so the map wrapper compiles the method it always
 /// did; see [`OlcHost::edge_tag`] for the one decision that still had to be
 /// pinned.
+// The serial-writers ablation compiles the string host out, and the map
+// wrapper reaches its host through inherent methods where they exist.
+#[cfg_attr(feature = "ablation-str-serial-writers", allow(dead_code))]
 #[cfg(feature = "std")]
 pub(crate) trait OlcHost {
     /// The word covering this tree's root state is even: no exclusive
@@ -7359,7 +7362,7 @@ macro_rules! olc_remove_map_body {
 // The `// SAFETY:` comments sit on each block inside the macro body; clippy
 // cannot see a comment through a macro expansion.
 #[allow(clippy::undocumented_unsafe_blocks)]
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
 pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
     host: &H,
     key: Key,
@@ -7372,7 +7375,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
 // The `// SAFETY:` comments sit on each block inside the macro body; clippy
 // cannot see a comment through a macro expansion.
 #[allow(clippy::undocumented_unsafe_blocks)]
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
 pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Option<u64>> {
     olc_remove_map_body!(host, key)
 }
