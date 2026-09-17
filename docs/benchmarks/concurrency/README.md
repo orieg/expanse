@@ -1740,6 +1740,8 @@ before `deferred` is set. Four accounting sites become
 to base; with the feature off, all 126 reproducible arms are bit-identical to
 base.
 
+*The W = 8 figures in this subsection were measured before `929574b5` changed the path a deferred tree allocates and frees through, and are pending a `writer_scaling` re-run on the reference host ([#998](https://github.com/orieg/expanse/issues/998), §11.10.10).*
+
 Same commit, pin, rounds and cell isolation as §11.10.1
 (workload: concurrency_writer_scaling)
 *(measured: reference host — Intel Core i9-12900F, `686dd6cb`;
@@ -1806,6 +1808,8 @@ in either run.
 `0-15` (which every published artifact uses) and `0,2,4,6,8,10,12,14` (one
 writer per physical P-core). §11.10.4's sweep answered the per-core pin; this
 adds `0-15`, so the gate can be read at both.
+
+*The W = 8 figures in this subsection were measured before `929574b5` changed the path a deferred tree allocates and frees through, and are pending a `writer_scaling` re-run on the reference host ([#998](https://github.com/orieg/expanse/issues/998), §11.10.10).*
 
 **What the measured build is.** Every cell below, and every cell in §11.10.4,
 compares the default against **`lock-padded,ablation-deferred-shards`** — the
@@ -2060,6 +2064,8 @@ the shards can never be exercised. §2.1 invariant 5 is met on x86 and is **not*
 met on aarch64 or wasm. That is a cost of this promotion, not a rounding error,
 and removing it rather than excusing it is tracked as a follow-up.
 
+**Superseded in part by §11.10.10's CI table.** After `929574b5`, 6 of these 26 arms are within 0.1 % of their `fb69a4af` count, 18 are reduced and 2 are not; the wasm arms are all at or under +0.164 %, and `judyl_insert/sequential` on aarch64 is at +1.50 %, so §2.1 invariant 5 is met on wasm and is still not met on aarch64. The table above stays as the record of what the promotion cost when it merged.
+
 **The gate this meets.** [#930](https://github.com/orieg/expanse/issues/930)
 pre-registers `map` and `set` at ≥ 20 M ops/s at W = 8 on the BCa 95 % lower
 bound, two runs, both pins (§11.10.7):
@@ -2074,6 +2080,8 @@ bound, two runs, both pins (§11.10.7):
 `set` passes at both pins; `map` passes at the per-core pin. **`map` at `0-15`
 remains `INTERMEDIATE`** — run 1's interval contains the floor — and this
 promotion does not change that label (§11.10.7).
+
+*The W = 8 figures in this subsection were measured before `929574b5` changed the path a deferred tree allocates and frees through, and are pending a `writer_scaling` re-run on the reference host ([#998](https://github.com/orieg/expanse/issues/998), §11.10.10).*
 
 **What it costs, and why it is being paid.** Sixteen reproducible Callgrind arms
 regress above 0.5 %, fourteen of them `sync_*` — the concurrent wrappers measured
@@ -2142,8 +2150,9 @@ Fuel, wasm64, pop 10,000, relative to `fb69a4af`; the 18 arms not listed and
 all 30 wasm32 arms are identical across every build
 *(measured: local macOS arm64 host, wasmtime 48.0.0, `rustc 1.98.1` for wasm32
 and `nightly-2026-09-03` with `-Z build-std` for wasm64, commits as headed;
-`results/wasm_fuel_plain_cost_998.json`; `728e316e` reproduces
-`results/baseline_wasm_fuel.json` to the unit on all 60 arms)*
+`results/wasm_fuel_plain_cost_998.json`; `728e316e` reproduced the
+`results/baseline_wasm_fuel.json` committed at `f65a8434` to the unit on all 60
+arms)*
 (workload: wasm_fuel). Fuel counts are exact integers and carry no interval
 (§8.4).
 
@@ -2198,6 +2207,97 @@ figures in §11.10.4, §11.10.7 and §11.10.9, and the sixteen `sync_*` Callgrin
 deltas, were measured on the two-cell layout and are stale for the new one
 until `writer_scaling` and `instruction-counts` re-measure it (§8.7). No
 direction is predicted here.
+
+**What CI measured after the merge.** The paragraph above asked
+`instruction-counts` to re-measure; it has. The 26 arms #997's
+`allow-regression:` line named, read from main's own push runs at four commits:
+`fb69a4af` (run 35164519305, the parent of #997), `f65a8434` (run 35167265086,
+#997), `b42917db` (run 35262658298, the parent of #1010) and `929574b5` (run
+35265455247, #1010). A push run takes no base pass, so each count is the head's
+default build; `rustc 1.98.1` and wasmtime 48.0.0 throughout; run 35271760328
+at `2cb01fed` repeats `929574b5` on 25 of the 26, the exception being
+`sync_strmap_churn_short/short`, which §11.10.2 lists as not bit-reproducible
+*(measured: GitHub-hosted x86_64 and Neoverse N2 runners, commits and runs as
+named; `results/excused_arms_998_ci.json`)*. Counts are exact integers and
+carry no interval (§8.4).
+
+*#997* is `f65a8434` against `fb69a4af`, and reproduces every figure in #997's
+override line except the wasm ones, which that line took against an older
+baseline. *#1010* is `929574b5` against `b42917db`. *Residual* is the two
+changes' own instruction deltas summed, over the `fb69a4af` count. Where nothing
+else moved the arm between them that equals `929574b5` against `fb69a4af`; on
+the rows marked ‡ it does not, because #1001 rewrote the `SyncExpanseStrMap`
+write path in between and moved those arms by −2.2 % to +40 %, none of which
+belongs to either change. *removed* is a residual at or under the 0.1 % review
+threshold (§6), *unchanged* is an arm #1010 did not lower by 0.1 %.
+
+Callgrind deterministic, x86 (16):
+
+| arm | `fb69a4af` | `f65a8434` | `929574b5` | #997 | #1010 | residual | verdict |
+|---|--:|--:|--:|--:|--:|--:|---|
+| `sync_blobmap_remove/random` | 42,428,448 | 43,487,628 | 43,192,330 | +2.496 % | -0.679 % | +1.800 % | reduced |
+| `sync_map_churn/random` | 114,962,799 | 117,677,987 | 116,323,145 | +2.362 % | -1.161 % | +1.173 % | reduced |
+| `sync_blobmap_insert/random` | 55,388,932 | 56,685,107 | 55,660,958 | +2.340 % | -1.807 % | +0.491 % | reduced |
+| `sync_blobmap_churn/random` | 129,545,291 | 132,490,954 | 130,442,609 | +2.274 % | -1.546 % | +0.693 % | reduced |
+| `sync_map_remove/random` | 59,820,619 | 61,120,345 | 60,667,031 | +2.173 % | -0.797 % | +1.358 % | reduced |
+| `sync_set_remove/random` | 53,786,578 | 54,918,503 | 53,559,035 | +2.104 % | -2.475 % | -0.423 % | removed |
+| `sync_map_insert/random` | 47,905,280 | 48,860,441 | 48,298,885 | +1.994 % | -1.150 % | +0.821 % | reduced |
+| `sync_strmap_insert_short/short` ‡ | 69,623,737 | 70,989,894 | 88,646,943 | +1.962 % | -0.597 % | +1.198 % | reduced |
+| `sync_set_churn/random` | 90,143,263 | 91,636,968 | 90,792,500 | +1.657 % | -0.922 % | +0.720 % | reduced |
+| `sync_set_insert/random` | 41,203,044 | 41,828,740 | 41,548,953 | +1.519 % | -0.669 % | +0.840 % | reduced |
+| `sync_strmap_churn_short/short` ‡ | 147,757,368 | 149,793,774 | 209,516,122 | +1.378 % | -0.406 % | +0.801 % | reduced |
+| `sync_strmap_remove/routes` ‡ | 74,094,742 | 75,070,387 | 88,997,674 | +1.317 % | -0.191 % | +1.087 % | reduced |
+| `sync_bytesmap_churn/routes` | 263,269,601 | 266,142,294 | 264,006,449 | +1.091 % | -0.803 % | +0.280 % | reduced |
+| `sync_strmap_insert/routes` ‡ | 57,385,774 | 58,001,120 | 80,206,833 | +1.072 % | -1.272 % | -0.728 % | removed |
+| `sync_bytesmap_insert/routes` | 115,675,758 | 116,882,082 | 115,859,902 | +1.043 % | -0.875 % | +0.159 % | reduced |
+| `sync_bytesmap_remove/routes` | 119,610,365 | 120,811,861 | 120,517,156 | +1.005 % | -0.244 % | +0.758 % | reduced |
+
+Callgrind smoke, x86 (2):
+
+| arm | `fb69a4af` | `f65a8434` | `929574b5` | #997 | #1010 | residual | verdict |
+|---|--:|--:|--:|--:|--:|--:|---|
+| `judyl_insert/sequential` | 2,159,068 | 2,188,618 | 2,154,650 | +1.369 % | -1.552 % | -0.205 % | removed |
+| `judysl_insert/routes` ‡ | 9,145,550 | 9,205,277 | 9,196,578 | +0.653 % | +0.390 % | +1.044 % | unchanged |
+
+aarch64, Neoverse N2 (4):
+
+| arm | `fb69a4af` | `f65a8434` | `929574b5` | #997 | #1010 | residual | verdict |
+|---|--:|--:|--:|--:|--:|--:|---|
+| `judyl_insert/sequential` | 1,914,258 | 1,963,445 | 1,943,006 | +2.570 % | -1.041 % | +1.502 % | reduced |
+| `strmap_insert/routes` ‡ | 8,916,863 | 9,045,770 | 8,781,986 | +1.446 % | -0.700 % | +0.751 % | reduced |
+| `map_insert/sequential` | 1,892,664 | 1,918,340 | 1,905,827 | +1.357 % | -0.652 % | +0.695 % | reduced |
+| `strmap_churn/routes` ‡ | 23,483,245 | 23,703,245 | 23,243,245 | +0.937 % | +0.043 % | +0.979 % | unchanged |
+
+wasm fuel, wasm64 (4):
+
+| arm | `fb69a4af` | `f65a8434` | `929574b5` | #997 | #1010 | residual | verdict |
+|---|--:|--:|--:|--:|--:|--:|---|
+| `set_remove/random` | 7,319,699 | 7,645,782 | 7,231,267 | +4.455 % | -5.421 % | -1.208 % | removed |
+| `set_remove/sequential` | 6,475,940 | 6,717,020 | 6,474,885 | +3.723 % | -3.605 % | -0.016 % | removed |
+| `set_remove/clustered` | 9,997,646 | 10,330,763 | 9,980,516 | +3.332 % | -3.390 % | -0.171 % | removed |
+| `map_insert/sequential` | 3,684,959 | 3,734,502 | 3,691,008 | +1.344 % | -1.165 % | +0.164 % | reduced |
+
+Six arms are removed, eighteen reduced, two unchanged. **What stays excused,
+and why.** The fourteen `sync_*` arms still above 0.1 % are the sharded
+accounting itself, which a shared tree executes by design; §11.10.8 is the
+record that it is the floor, and #1010 took out the second `OnceLock` test, not
+the accounting. `judysl_insert/routes` rose 0.390 % under #1010 on x86 and
+`strmap_churn/routes` did not move on aarch64: `strmap.rs` is not generic over
+the mode, so its plain path still carries the deferred arm inline. The
+root-leaf code in `map.rs` is not generic over it either, and
+`judyl_insert/sequential` (+1.502 %) and `map_insert/sequential` (+0.695 %) on
+aarch64 run through it; the x86 twin of the first is at −0.205 %, and no
+executed-instruction profile of the aarch64 pair was taken, so their residual
+is unattributed. §2.1 invariant 5 is met on wasm, met on x86 for
+`judyl_insert/sequential` and not for `judysl_insert/routes`, and not yet met
+on aarch64.
+
+`ApproximateMemoryUsage`, from the `Integrations / RocksDB Optimistic-Seek
+Callgrind Bound` job: 95 Ir at `fb69a4af`, 101 at `f65a8434`, 98 at `929574b5`
+(run 35265455247: base `b42917db` 101, head 98, `FALLS_BEYOND_BOUND`, overall
+**Bound: MET**) and 98 against 98 at `2cb01fed`. The job bounds a change
+against its own parent, so it is met from `929574b5` on; against `fb69a4af` the
+call is +3 Ir, which is the figure the disassembly above predicted.
 
 ## 12. Mixed read/write concurrency — `benches/concurrency.rs` (`results/baseline_concurrent_mixed.json`)
 

@@ -1,0 +1,253 @@
+{
+ "purpose": "Refs #998: the 26 arms #997's allow-regression line excused, at four commits on main, from main's own push runs",
+ "instrument": "Callgrind Ir (exact integers) and wasmtime fuel (exact integers); no interval (AGENTS.md section 8.4)",
+ "reading": "push runs take no base pass, so each count is the first `Instructions: N|N/A` the job printed for the arm: the head's default build",
+ "toolchain": "rustc 1.98.1 in every Callgrind job below; wasmtime 48.0.0 in every fuel job",
+ "runs": {
+  "pre997": {
+   "commit": "fb69a4af",
+   "run": 35164519305,
+   "what": "parent of f65a8434 (#997)"
+  },
+  "post997": {
+   "commit": "f65a8434",
+   "run": 35167265086,
+   "what": "#997"
+  },
+  "pre1010": {
+   "commit": "b42917db",
+   "run": 35262658298,
+   "what": "parent of 929574b5; carries #1001, which rewrote the SyncExpanseStrMap write path"
+  },
+  "post1010": {
+   "commit": "929574b5",
+   "run": 35265455247,
+   "what": "#1010"
+  },
+  "latest": {
+   "commit": "2cb01fed",
+   "run": 35271760328,
+   "what": "newest completed push run when read; no engine source change since 929574b5"
+  }
+ },
+ "jobs": {
+  "x86_deterministic": "Perf / Callgrind Deterministic Instructions",
+  "x86_smoke": "Perf / Callgrind Fast Smoke (Ubuntu)",
+  "aarch64": "Core / AArch64 Linux Tests & Callgrind (Neoverse N2)",
+  "wasm64_fuel": "Perf / WebAssembly Fuel (wasm32 + wasm64, deterministic)"
+ },
+ "arms": {
+  "x86_deterministic": [
+   {
+    "arm": "sync_blobmap_remove/random",
+    "pre997": 42428448,
+    "post997": 43487628,
+    "pre1010": 43487628,
+    "post1010": 43192330,
+    "latest": 43192330
+   },
+   {
+    "arm": "sync_map_churn/random",
+    "pre997": 114962799,
+    "post997": 117677987,
+    "pre1010": 117689795,
+    "post1010": 116323145,
+    "latest": 116323145
+   },
+   {
+    "arm": "sync_blobmap_insert/random",
+    "pre997": 55388932,
+    "post997": 56685107,
+    "pre1010": 56685107,
+    "post1010": 55660958,
+    "latest": 55660958
+   },
+   {
+    "arm": "sync_blobmap_churn/random",
+    "pre997": 129545291,
+    "post997": 132490954,
+    "pre1010": 132490954,
+    "post1010": 130442609,
+    "latest": 130442609
+   },
+   {
+    "arm": "sync_map_remove/random",
+    "pre997": 59820619,
+    "post997": 61120345,
+    "pre1010": 61154573,
+    "post1010": 60667031,
+    "latest": 60667031
+   },
+   {
+    "arm": "sync_set_remove/random",
+    "pre997": 53786578,
+    "post997": 54918503,
+    "pre1010": 54918503,
+    "post1010": 53559035,
+    "latest": 53559035
+   },
+   {
+    "arm": "sync_map_insert/random",
+    "pre997": 47905280,
+    "post997": 48860441,
+    "pre1010": 48860697,
+    "post1010": 48298885,
+    "latest": 48298885
+   },
+   {
+    "arm": "sync_strmap_insert_short/short",
+    "pre997": 69623737,
+    "post997": 70989894,
+    "pre1010": 89179110,
+    "post1010": 88646943,
+    "latest": 88646943
+   },
+   {
+    "arm": "sync_set_churn/random",
+    "pre997": 90143263,
+    "post997": 91636968,
+    "pre1010": 91636968,
+    "post1010": 90792500,
+    "latest": 90792500
+   },
+   {
+    "arm": "sync_set_insert/random",
+    "pre997": 41203044,
+    "post997": 41828740,
+    "pre1010": 41828740,
+    "post1010": 41548953,
+    "latest": 41548953
+   },
+   {
+    "arm": "sync_strmap_churn_short/short",
+    "pre997": 147757368,
+    "post997": 149793774,
+    "pre1010": 210369726,
+    "post1010": 209516122,
+    "latest": 209516248
+   },
+   {
+    "arm": "sync_strmap_remove/routes",
+    "pre997": 74094742,
+    "post997": 75070387,
+    "pre1010": 89168028,
+    "post1010": 88997674,
+    "latest": 88997674
+   },
+   {
+    "arm": "sync_bytesmap_churn/routes",
+    "pre997": 263269601,
+    "post997": 266142294,
+    "pre1010": 266142294,
+    "post1010": 264006449,
+    "latest": 264006449
+   },
+   {
+    "arm": "sync_strmap_insert/routes",
+    "pre997": 57385774,
+    "post997": 58001120,
+    "pre1010": 81239845,
+    "post1010": 80206833,
+    "latest": 80206833
+   },
+   {
+    "arm": "sync_bytesmap_insert/routes",
+    "pre997": 115675758,
+    "post997": 116882082,
+    "pre1010": 116882082,
+    "post1010": 115859902,
+    "latest": 115859902
+   },
+   {
+    "arm": "sync_bytesmap_remove/routes",
+    "pre997": 119610365,
+    "post997": 120811861,
+    "pre1010": 120811861,
+    "post1010": 120517156,
+    "latest": 120517156
+   }
+  ],
+  "x86_smoke": [
+   {
+    "arm": "judyl_insert/sequential",
+    "pre997": 2159068,
+    "post997": 2188618,
+    "pre1010": 2188618,
+    "post1010": 2154650,
+    "latest": 2154650
+   },
+   {
+    "arm": "judysl_insert/routes",
+    "pre997": 9145550,
+    "post997": 9205277,
+    "pre1010": 9160836,
+    "post1010": 9196578,
+    "latest": 9196578
+   }
+  ],
+  "aarch64": [
+   {
+    "arm": "judyl_insert/sequential",
+    "pre997": 1914258,
+    "post997": 1963445,
+    "pre1010": 1963445,
+    "post1010": 1943006,
+    "latest": 1943006
+   },
+   {
+    "arm": "strmap_insert/routes",
+    "pre997": 8916863,
+    "post997": 9045770,
+    "pre1010": 8843900,
+    "post1010": 8781986,
+    "latest": 8781986
+   },
+   {
+    "arm": "map_insert/sequential",
+    "pre997": 1892664,
+    "post997": 1918340,
+    "pre1010": 1918340,
+    "post1010": 1905827,
+    "latest": 1905827
+   },
+   {
+    "arm": "strmap_churn/routes",
+    "pre997": 23483245,
+    "post997": 23703245,
+    "pre1010": 23233245,
+    "post1010": 23243245,
+    "latest": 23243245
+   }
+  ],
+  "wasm64_fuel": [
+   {
+    "arm": "set_remove/random",
+    "pre997": 7319699,
+    "post997": 7645782,
+    "pre1010": 7645782,
+    "post1010": 7231267
+   },
+   {
+    "arm": "set_remove/sequential",
+    "pre997": 6475940,
+    "post997": 6717020,
+    "pre1010": 6717020,
+    "post1010": 6474885
+   },
+   {
+    "arm": "set_remove/clustered",
+    "pre997": 9997646,
+    "post997": 10330763,
+    "pre1010": 10330763,
+    "post1010": 9980516
+   },
+   {
+    "arm": "map_insert/sequential",
+    "pre997": 3684959,
+    "post997": 3734502,
+    "pre1010": 3734502,
+    "post1010": 3691008
+   }
+  ]
+ }
+}
