@@ -156,6 +156,11 @@ harness = false
 test = false
 
 [[bench]]
+name = "ycsb_dense"
+harness = false
+test = false
+
+[[bench]]
 name = "embedded"
 harness = false
 test = false

@@ -967,7 +967,32 @@ jobs:
                   | tee head-to-head.md
                 ;;
               "ycsb")
-                cargo bench --bench ycsb -p expanse-trie | tee ycsb.txt
+                # The rounds are a Python driver's, not one `cargo bench` pass
+                # (#1005). A criterion table resolves to a CI run and to no
+                # committed artifact, and it cannot pair a ratio's two arms per
+                # round. `ycsb_bench.py` runs one harness process per
+                # (round, harness) over `benches/ycsb.rs` (uniform-random keys)
+                # and `benches/ycsb_dense.rs` (dense clustered keys), takes a
+                # load snapshot around each, and refuses to write an artifact
+                # `check_bench_provenance.py` would reject. Fatal on failure:
+                # the driver IS the measurement (AGENTS.md section 8.1).
+                python3 scripts/ycsb_bench.py --suite core \
+                  --populations 100k,1m,10m \
+                  --out baseline-ycsb.json \
+                  --host-desc "$HOST_DESC" \
+                  --run-id "$RUN_URL" \
+                  | tee ycsb.txt
+                ;;
+              "hashbrown_ycsb")
+                # Same driver, the hashbrown comparison's YCSB pillar (#1005).
+                # It was a `generic` suite — one `cargo bench` pass, one Instant
+                # window per cell — which is why its committed artifact carries
+                # no rounds and no interval can be computed from it.
+                python3 scripts/ycsb_bench.py --suite hashbrown \
+                  --out baseline-hashbrown_ycsb.json \
+                  --host-desc "$HOST_DESC" \
+                  --run-id "$RUN_URL" \
+                  | tee hashbrown-ycsb.txt
                 ;;
               "concurrency")
                 # Mixed read/write Sync* instrument: benches/concurrency.rs run
@@ -1606,7 +1631,9 @@ jobs:
       # rather than criterion benchmarks - and the B/key examples are plain
       # binaries. None of them writes `target/criterion`, so the harvest step
       # correctly reports "runs no criterion arms" and no `baseline-*.json` is
-      # produced for any of them.
+      # produced for any of them by the harvest. `ycsb` and `hashbrown_ycsb` are
+      # the exception since #1005: `scripts/ycsb_bench.py` writes their
+      # `baseline-*.json` itself, and the tee targets here are its console log.
       #
       # Without this upload their numbers reach only the PR comment and the step
       # summary, both of which expire, and a `workflow_dispatch` run has no PR to
@@ -1647,6 +1674,7 @@ jobs:
             docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json
             docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json
             ycsb.txt
+            hashbrown-ycsb.txt
             comparative.txt
             bytes-per-key.txt
             bench-output.txt

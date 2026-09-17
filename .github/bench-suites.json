@@ -118,7 +118,7 @@
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "YCSB core workloads on the 64-bit map."
+      "summary": "YCSB core workloads A–F on uniform-random and dense clustered keys (`benches/ycsb.rs`, `benches/ycsb_dense.rs`) through `scripts/ycsb_bench.py --suite core`: 100k, 1M and 10M populations, both insertion orders, one process per round with BCa intervals and paired per-round ratios."
     },
     {
       "name": "concurrency",
@@ -450,10 +450,8 @@
       "name": "hashbrown_ycsb",
       "available": true,
       "kind": "wallclock",
-      "runner": "generic",
-      "package": "expanse-trie",
-      "target": "hashbrown_ycsb",
-      "summary": "YCSB workloads run on the hashbrown comparison arms.",
+      "runner": "builtin",
+      "summary": "YCSB workloads on the hashbrown comparison arms (`benches/hashbrown_ycsb.rs`) through `scripts/ycsb_bench.py --suite hashbrown`: both insertion orders, one process per round with BCa intervals and paired per-round ratios.",
       "suite": "hashbrown_comparison"
     },
     {

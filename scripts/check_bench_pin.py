@@ -69,6 +69,11 @@ DIRECT_HARNESSES = {
         "owns the rounds and the timed cells of the RocksDB memtable suite, whose four "
         "published wall-clock ratios are section 12's (#868); the suite's run.sh sources "
         "the shell helper, but a by-hand run on the reference host has no such shell",
+    "scripts/ycsb_bench.py":
+        "owns the rounds and the timed cells of the single-threaded YCSB suites (#1005): "
+        "the hashbrown YCSB pillar, whose artifact shipped from one unpinned pass per cell, "
+        "and the core ycsb/ycsb_dense pair; bench_baremetal.yml sources the shell helper "
+        "first, but a by-hand run on the reference host has no such shell",
     "docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py":
         "owns the rounds and the timed cells of the RocksDB memtable concurrent read-scaling "
         "arm (#802), producer of results/baseline_concurrent_reads*.json; bench_baremetal.yml "
