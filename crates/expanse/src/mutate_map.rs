@@ -1187,7 +1187,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
         match tag {
             EdgeTag::Structural(EdgeType::Null) => {
                 if level == 8 {
-                    let node = a.alloc_node_zeroed::<BranchL3>();
+                    let node = a.alloc_node_zeroed_dispatch::<OCC, BranchL3>();
                     // SAFETY: node is freshly allocated zeroed BranchL3 memory.
                     unsafe {
                         (*node.as_ptr()).hdr.level = level;
@@ -1241,7 +1241,9 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                         (existing_k, old_val, k, val, 1)
                     };
                     if map_immed_max(kb) >= 2 {
-                        let vals = a.alloc_bytes(map_immed_val_size(2)).cast::<u64>();
+                        let vals = a
+                            .alloc_bytes_dispatch::<OCC>(map_immed_val_size(2))
+                            .cast::<u64>();
                         // SAFETY: fresh 2-slot value array.
                         unsafe {
                             vals.as_ptr().write(slot0_v);
@@ -1320,7 +1322,9 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                         // SAFETY: old_vals has capacity for n + 1 entries; pos is in-bounds.
                         return (None, unsafe { old_vals.add(pos) });
                     }
-                    let new_vals = a.alloc_bytes(map_immed_val_size(n + 1)).cast::<u64>();
+                    let new_vals = a
+                        .alloc_bytes_dispatch::<OCC>(map_immed_val_size(n + 1))
+                        .cast::<u64>();
                     // SAFETY: copy n values around pos into the private array, write val at pos.
                     unsafe {
                         if pos > 0 {
@@ -1351,7 +1355,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                     cover.end_if::<OCC, NESTED>(a);
                     // SAFETY: the old array is unlinked above; freed (or retired).
                     unsafe {
-                        a.free_bytes(
+                        a.free_bytes_dispatch::<OCC>(
                             core::ptr::NonNull::new(old_vals.cast::<u8>()).expect("value array"),
                             map_immed_val_size(n),
                         );
@@ -1381,7 +1385,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                 cover.end_if::<OCC, NESTED>(a);
                 // SAFETY: old_vals points to the unlinked n*8 byte allocation.
                 unsafe {
-                    a.free_bytes(
+                    a.free_bytes_dispatch::<OCC>(
                         core::ptr::NonNull::new(old_vals.cast::<u8>()).expect("value array"),
                         map_immed_val_size(n),
                     );
@@ -1469,7 +1473,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                             // allocation; only the slot rewrite is
                             // published. Aux (decode + pop0) is preserved
                             // wholesale — the form and kb are unchanged.
-                            let new = a.alloc_bytes(leaf::size_map(kb, pop + 1));
+                            let new = a.alloc_bytes_dispatch::<OCC>(leaf::size_map(kb, pop + 1));
                             // SAFETY: live source leaf of `pop` entries;
                             // fresh destination sized for `pop + 1`;
                             // `pos <= pop` from lower_bound.
@@ -1485,7 +1489,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                             // SAFETY: the old leaf is unlinked above; freed
                             // (or retired) with its allocation size.
                             unsafe {
-                                a.free_bytes(
+                                a.free_bytes_dispatch::<OCC>(
                                     core::ptr::NonNull::new(base).expect("leaf ptr"),
                                     leaf::size_map(kb, pop),
                                 );
@@ -1579,7 +1583,10 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                         cover.end_if::<OCC, NESTED>(a);
                         // SAFETY: old leaf allocation no longer referenced.
                         unsafe {
-                            a.free_bytes(core::ptr::NonNull::new(old_ptr).expect("leaf"), old_size);
+                            a.free_bytes_dispatch::<OCC>(
+                                core::ptr::NonNull::new(old_ptr).expect("leaf"),
+                                old_size,
+                            );
                         }
                         // Slow-path conversions relocate the value; one extra
                         // locate walk here keeps every fast path single-walk.
@@ -1641,7 +1648,9 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                         arr.add(rank).write(val);
                     }
                 } else {
-                    let new = a.alloc_bytes(sub_vals_size(old_n + 1)).cast::<u64>();
+                    let new = a
+                        .alloc_bytes_dispatch::<OCC>(sub_vals_size(old_n + 1))
+                        .cast::<u64>();
                     // SAFETY: copy old_n values around the inserted rank; the
                     // empty case touches no old pointer.
                     unsafe {
@@ -1651,7 +1660,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                             new.as_ptr()
                                 .add(rank + 1)
                                 .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                            a.free_bytes(
+                            a.free_bytes_dispatch::<OCC>(
                                 core::ptr::NonNull::new(old.cast()).expect("values"),
                                 sub_vals_size(old_n),
                             );
@@ -1911,7 +1920,9 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                         arr.add(rank).write(Edge::NULL);
                     }
                 } else {
-                    let new = a.alloc_bytes(sub_edges_size(old_n + 1)).cast::<Edge>();
+                    let new = a
+                        .alloc_bytes_dispatch::<OCC>(sub_edges_size(old_n + 1))
+                        .cast::<Edge>();
                     // SAFETY: copy old_n live edges around the inserted slot;
                     // the empty case touches no old pointer.
                     unsafe {
@@ -1921,7 +1932,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                             new.as_ptr()
                                 .add(rank + 1)
                                 .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                            a.free_bytes(
+                            a.free_bytes_dispatch::<OCC>(
                                 core::ptr::NonNull::new(old.cast()).expect("subarray"),
                                 sub_edges_size(old_n),
                             );

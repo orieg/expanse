@@ -1544,7 +1544,7 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
             EdgeTag::Structural(EdgeType::Null) => {
                 if level == 8 {
                     // No 8-byte leaves/immediates: the top starts as a branch.
-                    let node = a.alloc_node_zeroed::<BranchL3>();
+                    let node = a.alloc_node_zeroed_dispatch::<OCC, BranchL3>();
                     // SAFETY: node is freshly allocated zeroed BranchL3 memory.
                     unsafe {
                         (*node.as_ptr()).hdr.level = level;
@@ -1710,7 +1710,7 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                     // measured -13.27% on churn and up to -25% on inserts.
                     // Form and kb are unchanged, so aux (decode + pop0) is
                     // preserved wholesale and no key widening is needed.
-                    let new = a.alloc_bytes(leaf::size_set(kb, pop + 1));
+                    let new = a.alloc_bytes_dispatch::<OCC>(leaf::size_set(kb, pop + 1));
                     // SAFETY: live source leaf of `pop` keys; fresh
                     // destination sized for `pop + 1`; `pos <= pop`.
                     unsafe { leaf::set_realloc_insert(base, new.as_ptr(), kb, pop, pos, k) };
@@ -1721,7 +1721,7 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                     cover.end_if::<OCC, NESTED>(a);
                     // SAFETY: unlinked above; freed with its allocation size.
                     unsafe {
-                        a.free_bytes(
+                        a.free_bytes_dispatch::<OCC>(
                             core::ptr::NonNull::new(old_ptr).expect("leaf ptr"),
                             old_size,
                         );
@@ -1753,7 +1753,7 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                 } else if kb == 1 {
                     // Level-1 overflow: linear leaf → bitmap leaf (any narrow
                     // pointer carries over).
-                    let ptr = a.alloc_node_zeroed::<LeafBitmap1>();
+                    let ptr = a.alloc_node_zeroed_dispatch::<OCC, LeafBitmap1>();
                     // SAFETY: ptr is freshly allocated zeroed LeafBitmap1 memory.
                     unsafe {
                         for &k in &keys {
@@ -1772,7 +1772,7 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                         // digits at levels 2..=kb, so the whole set fits one
                         // bitmap leaf whose decode bytes hold the shared
                         // prefix — no single-child branch chain.
-                        let ptr = a.alloc_node_zeroed::<LeafBitmap1>();
+                        let ptr = a.alloc_node_zeroed_dispatch::<OCC, LeafBitmap1>();
                         // SAFETY: ptr is freshly allocated zeroed LeafBitmap1 memory.
                         unsafe {
                             for &k in &keys {
@@ -1794,7 +1794,7 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                         // once, so readers never see it empty and no bracket
                         // nests on the parent's word.
                         let bl = if level <= 7 { d } else { level };
-                        let node = a.alloc_node_zeroed::<BranchL3>();
+                        let node = a.alloc_node_zeroed_dispatch::<OCC, BranchL3>();
                         // SAFETY: node is freshly allocated zeroed BranchL3 memory.
                         unsafe {
                             (*node.as_ptr()).hdr.level = bl;
@@ -1831,7 +1831,7 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                 }
                 // SAFETY: the old leaf allocation is no longer referenced.
                 unsafe {
-                    a.free_bytes(
+                    a.free_bytes_dispatch::<OCC>(
                         core::ptr::NonNull::new(old_ptr).expect("leaf ptr"),
                         old_size,
                     );
@@ -1867,7 +1867,7 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                     // so the conversion only applies to non-skipping leaves.
                     let ptr = core::ptr::NonNull::new(edge.node_ptr().cast::<LeafBitmap1>());
                     // SAFETY: node no longer referenced after the tag swap.
-                    unsafe { a.free_node(ptr.expect("leaf ptr")) };
+                    unsafe { a.free_node_dispatch::<OCC, _>(ptr.expect("leaf ptr")) };
                     *edge = Edge::NULL;
                     edge.set_tag(EdgeType::FullExpanse.as_u8());
                     edge.set_pop0(1, 255);
@@ -2122,7 +2122,9 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                         arr.add(rank).write(Edge::NULL);
                     }
                 } else {
-                    let new = a.alloc_bytes(sub_edges_size(old_n + 1)).cast::<Edge>();
+                    let new = a
+                        .alloc_bytes_dispatch::<OCC>(sub_edges_size(old_n + 1))
+                        .cast::<Edge>();
                     // SAFETY: copying old_n live edges around the inserted
                     // slot into cap_class(old_n + 1) slots; the empty case
                     // touches no old pointer.
@@ -2133,7 +2135,7 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                             new.as_ptr()
                                 .add(rank + 1)
                                 .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                            a.free_bytes(
+                            a.free_bytes_dispatch::<OCC>(
                                 core::ptr::NonNull::new(old.cast()).expect("subarray"),
                                 sub_edges_size(old_n),
                             );
@@ -2461,7 +2463,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                 // boundary): direct copy with the slot elided — the set
                 // twin of the map-flavor fix. The copy fills a private
                 // allocation; only the slot rewrite is published.
-                let new = a.alloc_bytes(leaf::size_set(kb, pop - 1));
+                let new = a.alloc_bytes_dispatch::<OCC>(leaf::size_set(kb, pop - 1));
                 // SAFETY: live source leaf of `pop >= 2` keys; fresh
                 // destination sized for `pop - 1`; `pos < pop`.
                 unsafe { leaf::set_realloc_remove(base, new.as_ptr(), kb, pop, pos) };
@@ -2473,7 +2475,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                 cover.end_if::<OCC, NESTED>(a);
                 // SAFETY: unlinked above; freed with its allocation size.
                 unsafe {
-                    a.free_bytes(
+                    a.free_bytes_dispatch::<OCC>(
                         core::ptr::NonNull::new(base).expect("leaf ptr"),
                         leaf::size_set(kb, pop),
                     );
@@ -2489,7 +2491,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                 cover.end_if::<OCC, NESTED>(a);
                 // SAFETY: old leaf allocation no longer referenced.
                 unsafe {
-                    a.free_bytes(
+                    a.free_bytes_dispatch::<OCC>(
                         core::ptr::NonNull::new(old_ptr).expect("leaf ptr"),
                         old_size,
                     );
@@ -2519,7 +2521,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
             cover.end_if::<OCC, NESTED>(a);
             // SAFETY: old leaf allocation no longer referenced.
             unsafe {
-                a.free_bytes(
+                a.free_bytes_dispatch::<OCC>(
                     core::ptr::NonNull::new(old_ptr).expect("leaf ptr"),
                     old_size,
                 );
@@ -2567,7 +2569,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                 };
                 // SAFETY: node no longer referenced after rebuild.
                 unsafe {
-                    a.free_node(core::ptr::NonNull::new(node).unwrap());
+                    a.free_node_dispatch::<OCC, _>(core::ptr::NonNull::new(node).unwrap());
                 }
                 if keys.len < ImmedType::max_count(level) as usize {
                     // Absorb any decode bytes into full slot-level keys.
@@ -2592,7 +2594,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
             // The materialized node is private until the slot store, which
             // the parent's word covers.
             if level == 1 {
-                let node = a.alloc_node_zeroed::<LeafBitmap1>();
+                let node = a.alloc_node_zeroed_dispatch::<OCC, LeafBitmap1>();
                 // SAFETY: node is freshly allocated zeroed LeafBitmap1 memory.
                 unsafe {
                     for d in 0..=255u8 {
@@ -2604,7 +2606,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                 edge.set_pop0(1, 255);
                 cover.end_if::<OCC, NESTED>(a);
             } else {
-                let ptr = a.alloc_node_zeroed::<BranchU>();
+                let ptr = a.alloc_node_zeroed_dispatch::<OCC, BranchU>();
                 // SAFETY: ptr is freshly allocated zeroed BranchU memory.
                 unsafe {
                     for child in &mut (*ptr.as_ptr()).edges {
@@ -2764,20 +2766,22 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                     let old = (*b).subarrays[sub];
                     if old_n == 1 {
                         (*b).subarrays[sub] = core::ptr::null_mut();
-                        a.free_bytes(
+                        a.free_bytes_dispatch::<OCC>(
                             core::ptr::NonNull::new(old.cast()).unwrap(),
                             sub_edges_size(old_n),
                         );
                     } else if leaf::cap_class(old_n - 1) == leaf::cap_class(old_n) {
                         core::ptr::copy(old.add(rank + 1), old.add(rank), old_n - 1 - rank);
                     } else {
-                        let new = a.alloc_bytes(sub_edges_size(old_n - 1)).cast::<Edge>();
+                        let new = a
+                            .alloc_bytes_dispatch::<OCC>(sub_edges_size(old_n - 1))
+                            .cast::<Edge>();
                         new.as_ptr().copy_from_nonoverlapping(old, rank);
                         new.as_ptr()
                             .add(rank)
                             .copy_from_nonoverlapping(old.add(rank + 1), old_n - 1 - rank);
                         (*b).subarrays[sub] = new.as_ptr();
-                        a.free_bytes(
+                        a.free_bytes_dispatch::<OCC>(
                             core::ptr::NonNull::new(old.cast()).unwrap(),
                             sub_edges_size(old_n),
                         );
@@ -2794,7 +2798,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                     // obsolete first (its own bracket is closed).
                     unsafe {
                         crate::occ::version_obsolete_if::<OCC>(&raw mut (*b).version);
-                        a.free_node(core::ptr::NonNull::new(b).unwrap());
+                        a.free_node_dispatch::<OCC, _>(core::ptr::NonNull::new(b).unwrap());
                     }
                     *edge = Edge::NULL;
                     cover.end_if::<OCC, NESTED>(a);
@@ -2844,7 +2848,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                     // obsolete first (its own bracket is closed).
                     unsafe {
                         crate::occ::version_obsolete_if::<OCC>(&raw mut (*b).version);
-                        a.free_node(core::ptr::NonNull::new(b).unwrap());
+                        a.free_node_dispatch::<OCC, _>(core::ptr::NonNull::new(b).unwrap());
                     }
                     *edge = Edge::NULL;
                     cover.end_if::<OCC, NESTED>(a);
@@ -2900,11 +2904,11 @@ pub(crate) unsafe fn free_branch_node<const OCC: bool>(
         if is_l3 {
             let p = edge.node_ptr().cast::<BranchL3>();
             crate::occ::version_obsolete_if::<OCC>(&raw mut (*p).hdr.version);
-            a.free_node(core::ptr::NonNull::new(p).unwrap());
+            a.free_node_dispatch::<OCC, _>(core::ptr::NonNull::new(p).unwrap());
         } else {
             let p = edge.node_ptr().cast::<BranchL7>();
             crate::occ::version_obsolete_if::<OCC>(&raw mut (*p).hdr.version);
-            a.free_node(core::ptr::NonNull::new(p).unwrap());
+            a.free_node_dispatch::<OCC, _>(core::ptr::NonNull::new(p).unwrap());
         }
     }
 }
@@ -2916,7 +2920,7 @@ pub(crate) unsafe fn downgrade_l7_to_l3<const OCC: bool>(a: &NodeAlloc, edge: &m
     crate::occ_stats::note_branch_replacement();
     // SAFETY: live BranchL7 per contract.
     let old = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
-    let new = a.alloc_node_zeroed::<BranchL3>();
+    let new = a.alloc_node_zeroed_dispatch::<OCC, BranchL3>();
     // SAFETY: new is freshly allocated zeroed BranchL3 memory; old is live BranchL7.
     unsafe {
         core::ptr::addr_of_mut!((*new.as_ptr()).hdr).write(old.hdr);
@@ -2938,7 +2942,11 @@ pub(crate) unsafe fn downgrade_l7_to_l3<const OCC: bool>(a: &NodeAlloc, edge: &m
         );
     }
     // SAFETY: old node no longer referenced.
-    unsafe { a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL7>()).unwrap()) };
+    unsafe {
+        a.free_node_dispatch::<OCC, _>(
+            core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL7>()).unwrap(),
+        )
+    };
     *edge = Edge::new_node(new.as_ptr().cast(), EdgeType::BranchL3.as_u8());
     edge.set_aux_bytes(aux);
 }
@@ -2950,7 +2958,7 @@ pub(crate) unsafe fn downgrade_b_to_l7<const OCC: bool>(a: &NodeAlloc, edge: &mu
     crate::occ_stats::note_branch_replacement();
     // SAFETY: live BranchB per contract (level read below).
     let b_level = unsafe { (*edge.node_ptr().cast::<BranchB>()).level };
-    let new = a.alloc_node_zeroed::<BranchL7>();
+    let new = a.alloc_node_zeroed_dispatch::<OCC, BranchL7>();
     // SAFETY: live BranchB; reads bounded by bitmap/pop_counts invariant.
     unsafe {
         let old = &*edge.node_ptr().cast::<BranchB>();
@@ -2973,7 +2981,7 @@ pub(crate) unsafe fn downgrade_b_to_l7<const OCC: bool>(a: &NodeAlloc, edge: &mu
         for sub in 0..8 {
             let n = old.pop_counts[sub] as usize;
             if n > 0 {
-                a.free_bytes(
+                a.free_bytes_dispatch::<OCC>(
                     core::ptr::NonNull::new(old.subarrays[sub].cast()).unwrap(),
                     sub_edges_size(n),
                 );
@@ -2992,7 +3000,11 @@ pub(crate) unsafe fn downgrade_b_to_l7<const OCC: bool>(a: &NodeAlloc, edge: &mu
         );
     }
     // SAFETY: old node no longer referenced.
-    unsafe { a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchB>()).unwrap()) };
+    unsafe {
+        a.free_node_dispatch::<OCC, _>(
+            core::ptr::NonNull::new(edge.node_ptr().cast::<BranchB>()).unwrap(),
+        )
+    };
     *edge = Edge::new_node(new.as_ptr().cast(), EdgeType::BranchL7.as_u8());
     edge.set_aux_bytes(aux);
 }
@@ -3003,7 +3015,7 @@ pub(crate) unsafe fn downgrade_b_to_l7<const OCC: bool>(a: &NodeAlloc, edge: &mu
 /// children, owned by `a`.
 pub(crate) unsafe fn downgrade_u_to_b<const OCC: bool>(a: &NodeAlloc, edge: &mut Edge, level: u8) {
     crate::occ_stats::note_branch_replacement();
-    let new = a.alloc_node_zeroed::<BranchB>();
+    let new = a.alloc_node_zeroed_dispatch::<OCC, BranchB>();
     // SAFETY: live BranchU per contract.
     unsafe {
         let old = &*edge.node_ptr().cast::<BranchU>();
@@ -3017,8 +3029,10 @@ pub(crate) unsafe fn downgrade_u_to_b<const OCC: bool>(a: &NodeAlloc, edge: &mut
         for sub in 0..8 {
             let n = (*new.as_ptr()).pop_counts[sub] as usize;
             if n > 0 {
-                (*new.as_ptr()).subarrays[sub] =
-                    a.alloc_bytes(sub_edges_size(n)).cast::<Edge>().as_ptr();
+                (*new.as_ptr()).subarrays[sub] = a
+                    .alloc_bytes_dispatch::<OCC>(sub_edges_size(n))
+                    .cast::<Edge>()
+                    .as_ptr();
             }
         }
         let mut filled = [0usize; 8];
@@ -3043,7 +3057,11 @@ pub(crate) unsafe fn downgrade_u_to_b<const OCC: bool>(a: &NodeAlloc, edge: &mut
         );
     }
     // SAFETY: old node no longer referenced.
-    unsafe { a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchU>()).unwrap()) };
+    unsafe {
+        a.free_node_dispatch::<OCC, _>(
+            core::ptr::NonNull::new(edge.node_ptr().cast::<BranchU>()).unwrap(),
+        )
+    };
     *edge = Edge::new_node(new.as_ptr().cast(), EdgeType::BranchB.as_u8());
     edge.set_aux_bytes(aux);
 }
