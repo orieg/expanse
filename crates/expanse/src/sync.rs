@@ -8343,10 +8343,17 @@ impl SyncExpanseBlobMap {
     #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
     fn fold_writer_arenas(&self, m: &mut ExpanseBlobMap) {
         use core::sync::atomic::Ordering;
-        if !self.writer_arenas.has_writer_deltas.swap(false, Ordering::AcqRel) {
+        if !self
+            .writer_arenas
+            .has_writer_deltas
+            .swap(false, Ordering::AcqRel)
+        {
             return;
         }
-        let mut total = self.writer_arenas.unowned_live_delta.swap(0, Ordering::AcqRel);
+        let mut total = self
+            .writer_arenas
+            .unowned_live_delta
+            .swap(0, Ordering::AcqRel);
         for wa in &self.writer_arenas.arenas {
             debug_assert!(
                 !wa.busy.load(Ordering::Acquire),
@@ -8370,8 +8377,12 @@ impl SyncExpanseBlobMap {
     #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
     fn reset_writer_chunks(&self) {
         use core::sync::atomic::Ordering;
-        self.writer_arenas.arena_epoch.fetch_add(1, Ordering::AcqRel);
-        self.writer_arenas.unowned_live_delta.store(0, Ordering::Release);
+        self.writer_arenas
+            .arena_epoch
+            .fetch_add(1, Ordering::AcqRel);
+        self.writer_arenas
+            .unowned_live_delta
+            .store(0, Ordering::Release);
         for wa in &self.writer_arenas.arenas {
             // SAFETY: quiesced, as in `fold_writer_arenas`.
             let st = unsafe { &mut *wa.state.get() };
