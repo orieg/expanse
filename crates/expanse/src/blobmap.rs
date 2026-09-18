@@ -1169,14 +1169,12 @@ impl ExpanseBlobMap {
     /// 24-bit metadata; `hot_meta` exceeding 24 bits returns
     /// [`ArenaError::MetaOverflow`] rather than being truncated.
     pub fn insert(&mut self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
-        let old_slot = self.index.get(key).map(ValueSlot::from_raw);
-        if data.len() <= 7 {
-            let slot = ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)?;
-            self.index.insert(key, slot.to_raw());
+        let slot = if data.len() <= 7 {
+            ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)?
         } else if hot_meta == 0
             && let Some(slot) = crate::codec::try_compress_inline(data)
         {
-            self.index.insert(key, slot.to_raw());
+            slot
         } else {
             // Validate the metadata envelope *before* allocating arena bytes, so a
             // rejected insert leaves no orphaned payload behind.
@@ -1184,11 +1182,11 @@ impl ExpanseBlobMap {
                 return Err(ArenaError::MetaOverflow);
             }
             let global = self.arena.alloc_blob(data)?;
-            let slot = slot_from_global(global, hot_meta)?;
-            self.index.insert(key, slot.to_raw());
-        }
-        if let Some(old) = old_slot {
-            self.arena.record_deleted_slot(old);
+            slot_from_global(global, hot_meta)?
+        };
+
+        if let Some(old_raw) = self.index.insert(key, slot.to_raw()) {
+            self.arena.record_deleted_slot(ValueSlot::from_raw(old_raw));
         }
         Ok(())
     }
@@ -2360,5 +2358,56 @@ mod tests {
                 &format!("{label} post-compaction"),
             );
         }
+    }
+
+    #[test]
+    fn insert_single_descent_replacement_and_error_invariants() {
+        let mut map = ExpanseBlobMap::new();
+        // Fresh inline payload
+        map.insert(1, b"inline", 0).unwrap();
+        assert_eq!(map.len(), 1);
+        let (view, meta) = map.get(1).unwrap();
+        assert_eq!(view.as_bytes(), b"inline");
+        assert_eq!(meta, 0);
+
+        // Overwrite inline with arena payload
+        let arena_payload = b"this is a larger payload > 7 bytes";
+        map.insert(1, arena_payload, 0x1234).unwrap();
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.arena.live_bytes, 8 + arena_payload.len());
+        let (view, meta) = map.get(1).unwrap();
+        assert_eq!(view.as_bytes(), arena_payload);
+        assert_eq!(meta, 0x1234);
+
+        // Overwrite arena with arena, checking space accounting
+        let arena_payload_2 = b"another large payload for replacement";
+        map.insert(1, arena_payload_2, 0x5678).unwrap();
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.arena.live_bytes, 8 + arena_payload_2.len());
+        let (view, meta) = map.get(1).unwrap();
+        assert_eq!(view.as_bytes(), arena_payload_2);
+        assert_eq!(meta, 0x5678);
+
+        // Error path: MetaOverflow rejected without touching index or allocating arena bytes
+        let allocated_at_err = map.arena.total_allocated;
+        let overflow_meta = ValueSlot::ARENA_META_MAX + 1;
+        assert_eq!(
+            map.insert(2, arena_payload, overflow_meta),
+            Err(ArenaError::MetaOverflow)
+        );
+        // Key 2 must not exist in map, and arena must not have grown
+        assert!(map.get(2).is_none());
+        assert_eq!(map.arena.total_allocated, allocated_at_err);
+        assert_eq!(map.len(), 1);
+
+        // Overwrite existing key with invalid meta must leave existing key intact
+        assert_eq!(
+            map.insert(1, arena_payload, overflow_meta),
+            Err(ArenaError::MetaOverflow)
+        );
+        let (view, meta) = map.get(1).unwrap();
+        assert_eq!(view.as_bytes(), arena_payload_2);
+        assert_eq!(meta, 0x5678);
+        assert_eq!(map.arena.total_allocated, allocated_at_err);
     }
 }
