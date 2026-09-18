@@ -1867,6 +1867,7 @@ impl<T: SharedTree> Shared<T> {
         #[cfg(debug_assertions)]
         crate::alloc::bracket_stack::enter(self.tree_cover_addr());
         crate::occ_stats::op_begin();
+        // SAFETY: the writer mutex makes this the only mutable borrow.
         let inner = unsafe { &mut *self.inner.get() };
         inner.clear_path();
         #[cfg(feature = "std")]
@@ -1894,6 +1895,7 @@ impl<T: SharedTree> Shared<T> {
         self.version().end();
         #[cfg(not(feature = "advance-never"))]
         {
+            // SAFETY: as above — the writer mutex serializes this counter.
             let tick = unsafe { &mut *self.advance_tick.get() };
             *tick += 1;
             if *tick >= ADVANCE_EVERY {
@@ -8260,6 +8262,7 @@ impl SyncExpanseBlobMap {
                                     let old_slot = ValueSlot::from_raw(old_raw);
                                     if old_slot.tag() == SlotTag::ArenaMeta {
                                         let _arena_guard = self.arena_write.lock().expect("arena write lock poisoned");
+                                        // SAFETY: serialized by arena_write mutex; inner points to valid ExpanseBlobMap.
                                         unsafe {
                                             (*self.shared.inner.get()).record_deleted_slot(old_slot);
                                         }
@@ -8661,6 +8664,8 @@ impl BlobReadGuard<'_> {
                     // Check if the chunk table was superseded (chunk appended or arena compacted)
                     // while reading. If so, retry under the fresh table instead of falsely reporting
                     // a present key as absent (Refs #929).
+                    // SAFETY: single atomic load of the published table pointer; the
+                    // racy `&` borrow of the arena struct is confined to that load.
                     let table_now = unsafe { (*shared.inner.get()).arena().reader_table() };
                     if table_now != table {
                         continue 'outer;
@@ -11210,7 +11215,7 @@ mod tests {
             }
         };
         let meta_of = |k: u64| -> u32 {
-            if k % 3 == 0 {
+            if k.is_multiple_of(3) {
                 0
             } else {
                 (k & 0x00FF_FFFF) as u32
