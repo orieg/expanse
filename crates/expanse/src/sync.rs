@@ -722,11 +722,20 @@ impl SharedTree for ExpanseBlobMap {
         self.len()
     }
 
+    fn set_tree_pop(&mut self, pop: u64) {
+        self.set_tree_pop(pop);
+    }
+
+    fn clear_path(&self) {
+        self.clear_path();
+    }
+
     unsafe fn root_top_ptr(&self) -> *mut Edge {
         // SAFETY: forwarded contract.
         unsafe { self.root_top_ptr() }
     }
 }
+
 
 /// A small integer naming the calling thread, for slot allocation and the `Handoffs` counter.
 /// Allocated once per thread from a global counter; 0 is never issued.
@@ -1441,6 +1450,14 @@ impl RootState for ExpanseStrMap {
     }
 }
 
+impl RootState for ExpanseBlobMap {
+    #[inline(always)]
+    fn root_is_tree(&self) -> bool {
+        self.root_is_tree()
+    }
+}
+
+
 /// The shared writer/reader state behind every wrapper. `repr(C)` and
 /// line-aligned, and always boxed (see [`Shared::new`]): the tree-level
 /// version word heads the struct, on the cache line the root snapshot
@@ -1813,7 +1830,7 @@ impl<T: SharedTree> Shared<T> {
     /// count in a field the optimistic writers never touch. The same
     /// instantiation as [`Self::remove_root_covered`], under the name of what
     /// it does.
-    #[cfg(not(feature = "ablation-str-serial-writers"))]
+    #[cfg(all(feature = "std", not(all(feature = "ablation-str-serial-writers", feature = "ablation-blob-serial-writers"))))]
     #[inline(always)]
     fn write_root_covered_exact<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
     where
@@ -2049,7 +2066,7 @@ impl<T: SharedTree> Shared<T> {
 /// pinned.
 // The serial-writers ablation compiles the string host out, and the map
 // wrapper reaches its host through inherent methods where they exist.
-#[cfg_attr(feature = "ablation-str-serial-writers", allow(dead_code))]
+#[cfg_attr(all(feature = "ablation-str-serial-writers", feature = "ablation-blob-serial-writers"), allow(dead_code))]
 #[cfg(feature = "std")]
 pub(crate) trait OlcHost {
     /// The word covering this tree's root state is even: no exclusive
@@ -2128,6 +2145,37 @@ impl OlcHost for Shared<ExpanseMap> {
         EdgeTag::from_u8(edge.tag_byte())
     }
 }
+
+#[cfg(all(feature = "std", not(feature = "ablation-blob-serial-writers")))]
+impl OlcHost for Shared<ExpanseBlobMap> {
+    #[inline(always)]
+    fn tree_word_even(&self) -> bool {
+        (self.version().sample() & 1) == 0
+    }
+
+    #[inline(always)]
+    unsafe fn top_ptr(&self) -> *mut Edge {
+        // SAFETY: top_ptr obtained without taking &mut on inner.
+        unsafe { (*self.inner.get()).root_top_ptr() }
+    }
+
+    #[inline(always)]
+    fn alloc(&self) -> &NodeAlloc {
+        // SAFETY: inner_ref is valid and alloc is constant.
+        self.inner_ref().index().alloc()
+    }
+
+    #[inline(always)]
+    fn mark_dirty_digit(&self, d: u8) {
+        Shared::mark_dirty_digit(self, d);
+    }
+
+    #[inline(always)]
+    fn edge_tag(&self, edge: &Edge) -> Option<EdgeTag> {
+        EdgeTag::from_u8(edge.tag_byte())
+    }
+}
+
 
 #[cfg(feature = "std")]
 pub(crate) enum OlcOutcome<T> {
@@ -7658,7 +7706,7 @@ macro_rules! olc_remove_map_body {
 // The `// SAFETY:` comments sit on each block inside the macro body; clippy
 // cannot see a comment through a macro expansion.
 #[allow(clippy::undocumented_unsafe_blocks)]
-#[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
+#[cfg(all(feature = "std", not(all(feature = "ablation-str-serial-writers", feature = "ablation-blob-serial-writers"))))]
 pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
     host: &H,
     key: Key,
@@ -7671,10 +7719,11 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
 // The `// SAFETY:` comments sit on each block inside the macro body; clippy
 // cannot see a comment through a macro expansion.
 #[allow(clippy::undocumented_unsafe_blocks)]
-#[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
+#[cfg(all(feature = "std", not(all(feature = "ablation-str-serial-writers", feature = "ablation-blob-serial-writers"))))]
 pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Option<u64>> {
     olc_remove_map_body!(host, false, _old => false, key)
 }
+
 
 impl SyncExpanseMap {
     /// The map wrapper's OLC insert: `olc_insert_map_body!` as the method it
@@ -8034,6 +8083,9 @@ impl OwnedMapReader {
 ///   `scan_filtered`, iteration) go through [`Self::with_locked`].
 pub struct SyncExpanseBlobMap {
     shared: Box<Shared<ExpanseBlobMap>>,
+    #[cfg(feature = "std")]
+    #[allow(dead_code)]
+    arena_write: Box<Line<Mutex<()>>>,
 }
 
 impl Default for SyncExpanseBlobMap {
@@ -8067,32 +8119,168 @@ impl SyncExpanseBlobMap {
         map.arena().defer_to(Arc::clone(&collector));
         Self {
             shared: Shared::with_collector(map, collector),
+            #[cfg(feature = "std")]
+            arena_write: Box::new(line(Mutex::new(()))),
         }
     }
 
-    /// Inserts `key → data` with 24-bit hot metadata; serializes with other
-    /// writers. Semantics as [`ExpanseBlobMap::insert`] (inline payloads
-    /// ignore `hot_meta`).
+    /// Inserts `key → data` with 24-bit hot metadata.
+    ///
+    /// Multi-writer (Refs #929, `docs/benchmarks/concurrency/METHODOLOGY.md`
+    /// §21): optimistic writers enter the writer gate, allocate variable-length
+    /// payloads in the arena under a brief allocation lock, and descend the
+    /// digital tree index under per-node version locks (`olc_insert_map`).
+    /// Inline payloads (`<= 7` bytes or compressed) avoid arena allocation entirely.
+    /// With `ablation-blob-serial-writers` every mutation serializes on the writer
+    /// mutex under the whole-operation tree bracket instead (AGENTS.md §2.7).
     pub fn insert(&self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
         crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
-        self.shared.write(|m| m.insert(key, data, hot_meta))
+        #[cfg(feature = "ablation-blob-serial-writers")]
+        {
+            self.shared.write(|m| m.insert(key, data, hot_meta))
+        }
+        #[cfg(not(feature = "ablation-blob-serial-writers"))]
+        {
+            #[cfg(feature = "std")]
+            {
+                if data.len() > 7 && hot_meta > ValueSlot::ARENA_META_MAX {
+                    return Err(ArenaError::MetaOverflow);
+                }
+
+                if !self.shared.inner_ref().root_is_tree() {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                    crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
+                    return self.shared.write_root_covered(|m| m.insert(key, data, hot_meta));
+                }
+
+                let guard = self.shared.enter_writer_blocking();
+                let slot_id = guard.slot_id();
+
+                let slot = if data.len() <= 7 {
+                    ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)?
+                } else if hot_meta == 0
+                    && let Some(inline_slot) = crate::codec::try_compress_inline(data)
+                {
+                    inline_slot
+                } else {
+                    let _arena_guard = self.arena_write.lock().expect("arena write lock poisoned");
+                    // SAFETY: arena_write is held; no concurrent writer mutates the arena.
+                    unsafe { (*self.shared.inner.get()).prepare_slot(data, hot_meta)? }
+                };
+
+                let res = self.shared.with_writer_pin(|| {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+                    crate::occ_stats::op_begin();
+
+                    let mut cause = FallbackCause::Contention;
+                    #[cfg(feature = "occ-stats")]
+                    let mut closed = false;
+                    let mut backoff = 1;
+                    for _ in 0..MAX_RETRIES {
+                        if self.shared.gate.is_closed() {
+                            #[cfg(feature = "occ-stats")]
+                            {
+                                closed = true;
+                            }
+                            break;
+                        }
+                        match olc_insert_map::<_, false>(&*self.shared, key, slot.to_raw()) {
+                            OlcOutcome::Done(prev) => {
+                                if prev.is_none() {
+                                    self.shared.tree_pop.add(slot_id, 1);
+                                } else if let Some(old_raw) = prev {
+                                    let old_slot = ValueSlot::from_raw(old_raw);
+                                    if old_slot.tag() == SlotTag::ArenaMeta {
+                                        let _arena_guard = self.arena_write.lock().expect("arena write lock poisoned");
+                                        unsafe {
+                                            (*self.shared.inner.get()).record_deleted_slot(old_slot);
+                                        }
+                                    }
+                                }
+                                self.shared.collector.tick_advance();
+                                crate::occ_stats::op_end();
+                                return Ok(());
+                            }
+                            OlcOutcome::Retry => {
+                                crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                                for _ in 0..backoff {
+                                    core::hint::spin_loop();
+                                }
+                                if backoff < 64 {
+                                    backoff <<= 1;
+                                }
+                                #[cfg(loom)]
+                                loom::thread::yield_now();
+                            }
+                            OlcOutcome::Fallback(c) => {
+                                cause = c;
+                                break;
+                            }
+                        }
+                    }
+                    crate::occ_stats::op_end();
+                    crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                    crate::occ_stats::bump(cause.stat());
+                    #[cfg(feature = "occ-stats")]
+                    if cause == FallbackCause::Contention {
+                        crate::occ_stats::bump(contention_stat(closed));
+                    }
+                    Err(cause)
+                });
+                drop(guard);
+                match res {
+                    Ok(()) => Ok(()),
+                    Err(_) => {
+                        self.shared.write_root_covered_exact(|m| {
+                            m.insert_slot(key, slot);
+                        });
+                        Ok(())
+                    }
+                }
+            }
+            #[cfg(not(feature = "std"))]
+            {
+                self.shared.write(|m| m.insert(key, data, hot_meta))
+            }
+        }
     }
 
     /// Removes `key`; returns `true` if it was present.
     pub fn remove(&self, key: Key) -> bool {
-        self.shared.write(|m| m.remove(key))
+        #[cfg(feature = "ablation-blob-serial-writers")]
+        {
+            self.shared.write(|m| m.remove(key))
+        }
+        #[cfg(not(feature = "ablation-blob-serial-writers"))]
+        {
+            self.shared.remove_root_covered(|m| m.remove(key))
+        }
     }
 
     /// Runs arena garbage collection and compaction. Dead chunks are retired
     /// through the epoch collector, so concurrent pinned readers keep reading
     /// their (relocated-from) payload bytes safely.
     pub fn compact(&self) -> Result<CompactionStats, ArenaError> {
-        self.shared.write(ExpanseBlobMap::compact)
+        #[cfg(feature = "ablation-blob-serial-writers")]
+        {
+            self.shared.write(ExpanseBlobMap::compact)
+        }
+        #[cfg(not(feature = "ablation-blob-serial-writers"))]
+        {
+            self.shared.write_root_covered_exact(ExpanseBlobMap::compact)
+        }
     }
 
     /// Removes every entry and retires all arena chunks.
     pub fn clear(&self) {
-        self.shared.write(|m| m.clear());
+        #[cfg(feature = "ablation-blob-serial-writers")]
+        {
+            self.shared.write(|m| m.clear());
+        }
+        #[cfg(not(feature = "ablation-blob-serial-writers"))]
+        {
+            self.shared.write_root_covered_exact(|m| m.clear());
+        }
     }
 
     /// Registers a reader handle for this thread's lookups.
@@ -10927,6 +11115,74 @@ mod tests {
         stop.store(true, Ordering::Relaxed);
         for r in readers {
             r.join().expect("reader panicked");
+        }
+    }
+
+    /// Multi-writer optimistic inserts for `SyncExpanseBlobMap` (Refs #929).
+    /// Multiple threads concurrently insert disjoint and overlapping keys with
+    /// mixed inline (<= 7 bytes), compressed, and variable arena payloads (> 7 bytes).
+    /// Verifies population census, value integrity, metadata consistency, and reader safety.
+    #[test]
+    fn concurrent_blob_multi_writer_disjoint_and_census() {
+        let m = Arc::new(SyncExpanseBlobMap::with_chunk_size(4096));
+        const W: usize = 4;
+        const PER: usize = 1000;
+        let payload_of = |k: u64| -> Vec<u8> {
+            match k % 3 {
+                0 => (k as u32).to_le_bytes().to_vec(),
+                1 => vec![(k & 0xFF) as u8; 40],
+                _ => (0..64).map(|i| ((k + i) & 0xFF) as u8).collect(),
+            }
+        };
+        let meta_of = |k: u64| -> u32 {
+            if k % 3 == 0 {
+                0
+            } else {
+                (k & 0x00FF_FFFF) as u32
+            }
+        };
+
+        let barrier = Arc::new(std::sync::Barrier::new(W));
+        let handles: Vec<_> = (0..W)
+            .map(|w| {
+                let m = Arc::clone(&m);
+                let b = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    b.wait();
+                    for i in 0..PER {
+                        let k = ((w * PER + i) as u64) + 1;
+                        let p = payload_of(k);
+                        let meta = meta_of(k);
+                        m.insert(k, &p, meta).unwrap();
+                    }
+                    for i in 0..PER {
+                        let k = ((w * PER + i) as u64) + 1;
+                        let p = payload_of(k + 100_000);
+                        let meta = meta_of(k + 100_000);
+                        m.insert(k, &p, meta).unwrap();
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().expect("writer panicked");
+        }
+
+        let expected_len = (W * PER) as u64;
+        assert_eq!(m.len(), expected_len);
+
+        let mut rd = m.reader();
+        let guard = rd.pin();
+        for w in 0..W {
+            for i in 0..PER {
+                let k = ((w * PER + i) as u64) + 1;
+                let expected_p = payload_of(k + 100_000);
+                let expected_meta = meta_of(k + 100_000);
+                let (view, meta) = guard.get(k).unwrap_or_else(|| panic!("missing key {k}"));
+                assert_eq!(view.as_bytes(), &expected_p[..], "corrupted payload for key {k}");
+                assert_eq!(meta, expected_meta, "mismatched metadata for key {k}");
+            }
         }
     }
 

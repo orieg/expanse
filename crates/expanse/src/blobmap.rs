@@ -513,7 +513,7 @@ pub const MAX_ARENA_CAPACITY: usize = 1 << 30;
 /// envelope, and [`ArenaError::MetaOverflow`] if `hot_meta` exceeds 24 bits —
 /// never silently truncating either field.
 #[inline]
-fn slot_from_global(global_offset: u64, hot_meta: u32) -> Result<ValueSlot, ArenaError> {
+pub(crate) fn slot_from_global(global_offset: u64, hot_meta: u32) -> Result<ValueSlot, ArenaError> {
     if !global_offset.is_multiple_of(ARENA_ALIGN as u64) || global_offset >= ARENA_META_CEILING {
         return Err(ArenaError::OffsetOverflow);
     }
@@ -1139,6 +1139,61 @@ impl ExpanseBlobMap {
         unsafe { self.index.root_top_ptr() }
     }
 
+    #[inline(always)]
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    pub(crate) fn root_is_tree(&self) -> bool {
+        self.index.root_is_tree()
+    }
+
+    #[inline(always)]
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    pub(crate) fn clear_path(&self) {
+        self.index.clear_path();
+    }
+
+    #[inline(always)]
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    pub(crate) fn set_tree_pop(&mut self, pop: u64) {
+        self.index.set_tree_pop(pop);
+    }
+
+    #[inline]
+    pub(crate) fn prepare_slot(&mut self, data: &[u8], hot_meta: u32) -> Result<ValueSlot, ArenaError> {
+        if data.len() <= 7 {
+            ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)
+        } else if hot_meta == 0
+            && let Some(slot) = crate::codec::try_compress_inline(data)
+        {
+            Ok(slot)
+        } else {
+            // Validate the metadata envelope *before* allocating arena bytes, so a
+            // rejected insert leaves no orphaned payload behind.
+            if hot_meta > ValueSlot::ARENA_META_MAX {
+                return Err(ArenaError::MetaOverflow);
+            }
+            let global = self.arena.alloc_blob(data)?;
+            slot_from_global(global, hot_meta)
+        }
+    }
+
+    #[inline]
+    pub(crate) fn insert_slot(&mut self, key: Key, slot: ValueSlot) -> Option<ValueSlot> {
+        if let Some(old_raw) = self.index.insert(key, slot.to_raw()) {
+            let old = ValueSlot::from_raw(old_raw);
+            self.arena.record_deleted_slot(old);
+            Some(old)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    #[allow(dead_code)]
+    pub(crate) fn record_deleted_slot(&mut self, slot: ValueSlot) {
+        self.arena.record_deleted_slot(slot);
+    }
+
     // No `arena_mut`. The index stores flat arena offsets, so handing out
     // `&mut BlobArena` is a licence to change one half of a two-part invariant
     // whose other half the holder cannot see (#763). Every mutation reachable
@@ -1169,25 +1224,8 @@ impl ExpanseBlobMap {
     /// 24-bit metadata; `hot_meta` exceeding 24 bits returns
     /// [`ArenaError::MetaOverflow`] rather than being truncated.
     pub fn insert(&mut self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
-        let slot = if data.len() <= 7 {
-            ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)?
-        } else if hot_meta == 0
-            && let Some(slot) = crate::codec::try_compress_inline(data)
-        {
-            slot
-        } else {
-            // Validate the metadata envelope *before* allocating arena bytes, so a
-            // rejected insert leaves no orphaned payload behind.
-            if hot_meta > ValueSlot::ARENA_META_MAX {
-                return Err(ArenaError::MetaOverflow);
-            }
-            let global = self.arena.alloc_blob(data)?;
-            slot_from_global(global, hot_meta)?
-        };
-
-        if let Some(old_raw) = self.index.insert(key, slot.to_raw()) {
-            self.arena.record_deleted_slot(ValueSlot::from_raw(old_raw));
-        }
+        let slot = self.prepare_slot(data, hot_meta)?;
+        self.insert_slot(key, slot);
         Ok(())
     }
 

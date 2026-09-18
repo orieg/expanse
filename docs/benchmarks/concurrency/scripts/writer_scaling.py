@@ -133,14 +133,19 @@ ABLATION_ARMS = {
 # the protocol its per-node optimistic path replaced (#929, METHODOLOGY.md §17):
 # the default build is the head and the feature build stands for main, so the
 # §17.3 statistic C_head(W, r) / C_main(W, r) is this inverse ratio.
-INVERSE_ABLATIONS = {"ablation-unstriped-freelist", "ablation-str-serial-writers"}
+INVERSE_ABLATIONS = {
+    "ablation-unstriped-freelist",
+    "ablation-str-serial-writers",
+    "ablation-blob-serial-writers",
+}
 
 # Every writer-mode arm, in sweep order, for `--arm all`. `map` and `set` run
 # optimistic lock coupling, and so does `str` since #929's string design
-# (METHODOLOGY.md §17); `bytes` and `blob` serialise every insert on the writer
-# mutex, so they read 0 lock fallbacks by construction.
+# (METHODOLOGY.md §17) and `blob` since #929's blob design (METHODOLOGY.md §21);
+# `bytes` serialises every insert on the writer mutex, so it reads 0 lock fallbacks
+# by construction.
 ALL_WRITER_ARMS = ("map", "set", "str", "bytes", "blob")
-MUTEX_WRITER_ARMS = ("bytes", "blob")
+MUTEX_WRITER_ARMS = ("bytes",)
 
 # The #929 `str` multi-writer gate (METHODOLOGY.md §17.3): the `str` arm,
 # default build against `GATE_929_STR_FEATURE`, at the registered round count
@@ -169,6 +174,19 @@ GATE_929_STR_V2_PREREGISTRATION = "docs/benchmarks/concurrency/METHODOLOGY.md §
 GATE_929_STR_V2_PRICE_FLOOR: float | None = 0.90
 GATE_929_STR_V2_RESULTS_PATH = (
     REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "gate_929_str_v2_writer_scaling.json"
+)
+# The #929 blob multi-writer gate (METHODOLOGY.md §21): §19-identical statistics
+# for SyncExpanseBlobMap — scaling statistic (G1), level statistic against the
+# serialised build's best cell (G2), single-writer price floor F = 0.90 (G3),
+# peak ratio X(8)/X(4), untargeted Callgrind instruction-count bound, and zero-restart tripwire.
+GATE_929_BLOB_FEATURE = "ablation-blob-serial-writers"
+GATE_929_BLOB_PREREGISTRATION = "docs/benchmarks/concurrency/METHODOLOGY.md §21"
+GATE_929_BLOB_ROUNDS = 8
+GATE_929_BLOB_WRITERS = (1, 2, 4, 8)
+GATE_929_BLOB_PINS = ("0-15", "0,2,4,6,8,10,12,14")
+GATE_929_BLOB_PRICE_FLOOR: float | None = 0.90
+GATE_929_BLOB_RESULTS_PATH = (
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "gate_929_blob_writer_scaling.json"
 )
 # The workload id each writer-mode arm's rows carry.
 WRITER_WORKLOAD_IDS = {
@@ -1436,6 +1454,237 @@ def gate_929_str_v2_report(
     }
 
 
+def gate_929_blob_report(
+    head_cells: list[dict[str, Any]],
+    serial_cells: list[dict[str, Any]],
+    comparisons: list[dict[str, Any]],
+    rounds: int,
+    core_pin: str,
+    quick: bool,
+    price_floor: float | None = None,
+) -> dict[str, Any]:
+    """The #929 blob multi-writer gate (METHODOLOGY.md §21): SyncExpanseBlobMap's
+    per-node OLC write path evaluated against the serialised build's best cell.
+
+    G1 is the paired scaling ratio C_head(W, r) / C_serial(W, r) per round across
+    W in {2, 4, 8}, passing iff the BCa 95% lower bound is strictly above 1.0.
+    G2 is the BCa 95% interval of the per-round ratio
+    L(W, r) = T_head(W, r) / max over W' of T_serial(W', r), a cell per
+    W in {2, 4, 8}, passing iff its lower bound is strictly above 1.0.
+    G3 is the BCa 95% interval of P(r) = T_head(1, r) / T_serial(1, r), passing iff
+    its lower bound is at least the locked floor (default F = 0.90, METHODOLOGY.md §21.4).
+    Peak ratio X(8)/X(4) = T_head(8) / T_head(4) is reported as a diagnostic indicator.
+    Deterministic tripwire checks zero lock_restarts on head cells.
+    A round present in one build and absent in the other, a serialised cell missing
+    for any registered W', or an unlocked floor reads NOT_EVALUABLE — never a pass.
+    """
+    floor = GATE_929_BLOB_PRICE_FLOOR if price_floor is None else price_floor
+
+    matching = [
+        c for c in comparisons
+        if c.get("arm") == "blob" and c.get("variant_name") == GATE_929_BLOB_FEATURE
+    ]
+    if len(matching) != 1:
+        raise ValueError(
+            f"the #929 blob gate needs exactly one blob comparison against {GATE_929_BLOB_FEATURE}, "
+            f"got {len(matching)} (AGENTS.md §8.1)"
+        )
+    comp = matching[0]
+    if not comp.get("is_inverse") or comp.get("ratio_direction") != "c_default_over_c_variant":
+        raise ValueError(
+            "the #929 blob gate's ratio is C_head / C_serial with the head as the default build; "
+            f"the comparison reports {comp.get('ratio_direction')!r} (AGENTS.md §8.1)"
+        )
+
+    g1_cells: dict[str, dict[str, Any]] = {}
+    for w in GATE_929_BLOB_WRITERS:
+        if w == 1:
+            continue
+        entry = comp["per_writer"].get(str(w))
+        if entry is None:
+            raise ValueError(f"the comparison carries no W={w} cell (AGENTS.md §8.1)")
+        lo, hi = float(entry["ratio_ci_lower"]), float(entry["ratio_ci_upper"])
+        verdict = "PASS" if lo > 1.0 else ("REFUTED" if hi < 1.0 else "INCONCLUSIVE")
+        g1_cells[str(w)] = {
+            "w": w,
+            "ratio_mean": entry["ratio_c_variant_over_c_default_mean"],
+            "ratio_ci": [lo, hi],
+            "ratio_ci_method": entry["ratio_ci_method"],
+            "verdict": verdict,
+        }
+
+    def by_round(rows: list[dict[str, Any]]) -> dict[int, dict[int, float]]:
+        out: dict[int, dict[int, float]] = {}
+        for c in rows:
+            if c.get("arm") != "blob":
+                continue
+            w = int(c.get("writers", 0))
+            out[w] = {int(r["round"]): float(r["writer_mops"]) for r in c.get("rounds_raw") or []}
+        return out
+
+    head, serial = by_round(head_cells), by_round(serial_cells)
+    void: list[str] = []
+    if rounds != GATE_929_BLOB_ROUNDS:
+        void.append(f"rounds {rounds} is not the registered {GATE_929_BLOB_ROUNDS} (METHODOLOGY.md §21.6)")
+    if quick:
+        void.append("--quick population: a smoke run of the instrument, not the §21.4 cells")
+    if not any(pins_equal(core_pin, pin) for pin in GATE_929_BLOB_PINS):
+        void.append(f"pin {core_pin!r} is neither registered pin (METHODOLOGY.md §21.6)")
+
+    missing_serial = [w for w in GATE_929_BLOB_WRITERS if not serial.get(w)]
+    missing_head = [w for w in GATE_929_BLOB_WRITERS if not head.get(w)]
+    if missing_serial:
+        void.append(f"the serialised build carries no cell for W in {missing_serial}; G2's maximum is undefined")
+    if missing_head:
+        void.append(f"the head build carries no cell for W in {missing_head}")
+
+    def common_rounds(*series: dict[int, float]) -> list[int]:
+        if not series or not series[0]:
+            return []
+        keys = set(series[0])
+        for s_ in series[1:]:
+            keys &= set(s_)
+        return sorted(keys)
+
+    def interval(xs: list[float]) -> dict[str, Any]:
+        mean, lo, hi, method = bca_bootstrap_ci_with_method(xs, confidence=0.95)
+        return {
+            "ratio_mean": round(mean, 4),
+            "ratio_ci": [round(lo, 4), round(hi, 4)],
+            "ratio_ci_method": method,
+            "paired_ratios_raw": [round(x, 6) for x in xs],
+        }
+
+    level: dict[str, dict[str, Any]] = {}
+    for w in GATE_929_BLOB_WRITERS:
+        if w == 1:
+            continue
+        if missing_serial or not head.get(w):
+            level[str(w)] = {"w": w, "verdict": "NOT_EVALUABLE"}
+            continue
+        rs = common_rounds(head[w], *(serial[x] for x in GATE_929_BLOB_WRITERS))
+        if len(rs) != rounds:
+            level[str(w)] = {
+                "w": w,
+                "verdict": "NOT_EVALUABLE",
+                "reason": f"{len(rs)} rounds are common to the head cell and every serialised cell, not {rounds}",
+            }
+            continue
+        xs = [head[w][r] / max(serial[x][r] for x in GATE_929_BLOB_WRITERS) for r in rs]
+        cell = interval(xs)
+        lo, hi = cell["ratio_ci"]
+        cell["w"] = w
+        cell["best_serial_w_by_round"] = [max(GATE_929_BLOB_WRITERS, key=lambda x: serial[x][r]) for r in rs]
+        cell["verdict"] = "PASS" if lo > 1.0 else ("REFUTED" if hi < 1.0 else "INCONCLUSIVE")
+        level[str(w)] = cell
+
+    price: dict[str, Any]
+    rs1 = common_rounds(head.get(1, {}), serial.get(1, {})) if head.get(1) and serial.get(1) else []
+    if floor is None:
+        void.append("the §21.4 price floor is not locked (GATE_929_BLOB_PRICE_FLOOR is unset)")
+        price = {"verdict": "NOT_EVALUABLE", "floor": None}
+        if len(rs1) == rounds:
+            price.update(interval([head[1][r] / serial[1][r] for r in rs1]))
+    elif len(rs1) != rounds:
+        price = {
+            "verdict": "NOT_EVALUABLE",
+            "floor": floor,
+            "reason": f"{len(rs1)} W = 1 rounds are common to the two builds, not {rounds}",
+        }
+    else:
+        price = interval([head[1][r] / serial[1][r] for r in rs1])
+        lo, hi = price["ratio_ci"]
+        price["floor"] = floor
+        price["verdict"] = "PASS" if lo >= floor else ("REFUTED" if hi < floor else "INCONCLUSIVE")
+
+    peak_ratio: dict[str, Any]
+    if head.get(8) and head.get(4):
+        rs_peak = common_rounds(head[8], head[4])
+        if len(rs_peak) == rounds:
+            xs_peak = [head[8][r] / head[4][r] for r in rs_peak]
+            peak_ratio = interval(xs_peak)
+            peak_ratio["statistic"] = "writer_mops(head, 8, r) / writer_mops(head, 4, r), per round; BCa 95%"
+        else:
+            peak_ratio = {
+                "verdict": "NOT_EVALUABLE",
+                "reason": f"{len(rs_peak)} rounds common to W=8 and W=4, not {rounds}",
+            }
+    else:
+        peak_ratio = {"verdict": "NOT_EVALUABLE", "reason": "head cells missing W=8 or W=4"}
+
+    fallback: dict[str, dict[str, Any]] = {}
+    total_lock_restarts = 0
+    for c in head_cells:
+        if c.get("arm") != "blob":
+            continue
+        w = int(c.get("writers", 0))
+        counters = c.get("counters_raw") or []
+        total_ops = sum(int(r.get("write_ops", 0)) for r in counters)
+        restarts = sum(int(r.get("lock_restarts", 0)) for r in counters)
+        total_lock_restarts += restarts
+        causes = c.get("fallback_causes_total") or {}
+        total_fallbacks = sum(int(v) for v in causes.values())
+        structural = total_fallbacks - int(causes.get("contention", 0))
+        structural_rate = (structural / total_ops) if total_ops else None
+        total_rate = (total_fallbacks / total_ops) if total_ops else None
+        fallback[str(w)] = {
+            "w": w,
+            "write_ops": total_ops,
+            "lock_restarts": restarts,
+            "fallbacks_total": total_fallbacks,
+            "fallbacks_structural": structural,
+            "structural_rate": structural_rate,
+            "total_rate": total_rate,
+            "causes_total": causes,
+        }
+
+    tripwire_tripped = total_lock_restarts > 0
+    if tripwire_tripped:
+        void.append(f"deterministic tripwire tripped: {total_lock_restarts} lock_restarts observed (METHODOLOGY.md §21.4)")
+
+    verdicts = (
+        [c["verdict"] for c in g1_cells.values()]
+        + [c["verdict"] for c in level.values()]
+        + [price["verdict"]]
+    )
+    all_pass = (not void) and len(verdicts) == 7 and all(v == "PASS" for v in verdicts) and not tripwire_tripped
+
+    return {
+        "issue": 929,
+        "preregistration": GATE_929_BLOB_PREREGISTRATION,
+        "head_build": DEFAULT_BUILD,
+        "serial_build": GATE_929_BLOB_FEATURE,
+        "rounds": rounds,
+        "pin": core_pin,
+        "quick": quick,
+        "void": void,
+        "g1_scaling": {
+            "statistic": "C_head(W, r) / C_serial(W, r) per round, C_b(W, r) = writer_mops(b, W, r) / "
+                         "writer_mops(b, 1, r); BCa 95% over the round series; PASS iff lower bound > 1.0",
+            "cells": g1_cells,
+        },
+        "g2_level": {
+            "statistic": "writer_mops(head, W, r) / max over W' in {1, 2, 4, 8} of writer_mops(serial, W', r), "
+                         "per round; BCa 95%; PASS iff the lower bound is strictly above 1.0",
+            "cells": level,
+        },
+        "g3_price": {
+            "statistic": "writer_mops(head, 1, r) / writer_mops(serial, 1, r), per round; BCa 95%; "
+                         "PASS iff the lower bound is at least the locked floor",
+            **price,
+        },
+        "peak_ratio": peak_ratio,
+        "fallback_prediction": {
+            "total_lock_restarts": total_lock_restarts,
+            "tripwire_tripped": tripwire_tripped,
+            "per_writer": fallback,
+        },
+        "all_cells_pass_in_this_run": all_pass,
+        "note": "one artifact is one (pin, run); the gate is met at a head only when all twenty-eight "
+                "cells over two pins and two runs PASS (METHODOLOGY.md §21.4).",
+    }
+
+
 def committed_result_paths() -> tuple[Path, ...]:
     """The committed artifacts a `--quick` run must not overwrite."""
     return (
@@ -1447,6 +1696,7 @@ def committed_result_paths() -> tuple[Path, ...]:
         READERS_ONLY_RESULTS_PATH.resolve(),
         GATE_929_STR_RESULTS_PATH.resolve(),
         GATE_929_STR_V2_RESULTS_PATH.resolve(),
+        GATE_929_BLOB_RESULTS_PATH.resolve(),
     )
 
 
@@ -4126,6 +4376,109 @@ def _self_test_gate_929_str_v2_report() -> None:
     assert len(bad["void"]) >= 2 and bad["all_cells_pass_in_this_run"] is False, bad["void"]
 
 
+def _self_test_gate_929_blob_report() -> None:
+    """The #929 blob gate reads G1 scaling, G2 level, G3 price floor,
+    peak ratio X(8)/X(4), and the zero-restart deterministic tripwire (METHODOLOGY.md §21)."""
+
+    def cell(w: int, mops: list[float], lock_restarts: int = 0) -> dict[str, Any]:
+        return {
+            "arm": "blob",
+            "writers": w,
+            "rounds_raw": [{"round": r, "writer_mops": m} for r, m in enumerate(mops)],
+            "counters_raw": [{"round": r, "write_ops": 1_000_000, "lock_restarts": lock_restarts} for r in range(len(mops))],
+            "fallback_causes_total": {name: 0 for name in CAUSE_NAMES},
+        }
+
+    comp = {
+        "arm": "blob",
+        "variant_name": GATE_929_BLOB_FEATURE,
+        "is_inverse": True,
+        "ratio_direction": "c_default_over_c_variant",
+        "per_writer": {
+            str(w): {
+                "ratio_c_variant_over_c_default_mean": 2.5,
+                "ratio_ci_lower": 2.1,
+                "ratio_ci_upper": 2.9,
+                "ratio_ci_method": "bca",
+            }
+            for w in (2, 4, 8)
+        },
+    }
+    jitter = [0.00, 0.01, -0.01, 0.02, -0.02, 0.01, 0.00, -0.01]
+    head = [cell(w, [base + j for j in jitter]) for w, base in ((1, 3.8), (2, 6.3), (4, 11.4), (8, 20.5))]
+    serial = [cell(w, [base + j for j in jitter]) for w, base in ((1, 4.0), (2, 2.8), (4, 2.4), (8, 0.5))]
+    pin = "0,2,4,6,8,10,12,14"
+
+    ok = gate_929_blob_report(head, serial, [comp], 8, pin, False, price_floor=0.90)
+    assert ok["void"] == [], ok["void"]
+    assert [ok["g1_scaling"]["cells"][w]["verdict"] for w in ("2", "4", "8")] == ["PASS"] * 3, ok["g1_scaling"]
+    assert [ok["g2_level"]["cells"][w]["verdict"] for w in ("2", "4", "8")] == ["PASS"] * 3, ok["g2_level"]
+    assert abs(ok["g2_level"]["cells"]["2"]["ratio_mean"] - 6.3 / 4.0) < 0.01, ok["g2_level"]["cells"]["2"]
+    assert ok["g3_price"]["verdict"] == "PASS" and abs(ok["g3_price"]["ratio_mean"] - 0.95) < 0.005, ok["g3_price"]
+    assert "ratio_mean" in ok["peak_ratio"] and abs(ok["peak_ratio"]["ratio_mean"] - 20.5 / 11.4) < 0.01
+    assert ok["fallback_prediction"]["tripwire_tripped"] is False
+    assert ok["all_cells_pass_in_this_run"] is True
+    assert ok["preregistration"] == GATE_929_BLOB_PREREGISTRATION
+
+    # Deterministic tripwire: lock restarts trip the tripwire and void the run
+    head_with_restarts = [cell(1, [3.8 + j for j in jitter], lock_restarts=5)] + head[1:]
+    tripped = gate_929_blob_report(head_with_restarts, serial, [comp], 8, pin, False, price_floor=0.90)
+    assert tripped["fallback_prediction"]["tripwire_tripped"] is True
+    assert tripped["all_cells_pass_in_this_run"] is False
+    assert any("deterministic tripwire tripped" in v for v in tripped["void"])
+
+    # G3 price floor
+    steep = gate_929_blob_report(head, serial, [comp], 8, pin, False, price_floor=0.97)
+    assert steep["g3_price"]["verdict"] == "REFUTED" and steep["all_cells_pass_in_this_run"] is False
+
+    # G2 level
+    slow2 = [cell(1, [3.8 + j for j in jitter]), cell(2, [3.5 + j for j in jitter])] + head[2:]
+    lvl = gate_929_blob_report(slow2, serial, [comp], 8, pin, False, price_floor=0.90)
+    assert lvl["g2_level"]["cells"]["2"]["verdict"] == "REFUTED", lvl["g2_level"]["cells"]["2"]
+
+    # Unlocked floor
+    global GATE_929_BLOB_PRICE_FLOOR
+    locked = GATE_929_BLOB_PRICE_FLOOR
+    assert locked == 0.90, "the §21.4 floor is locked at 0.90 and does not move (AGENTS.md §8.19)"
+    GATE_929_BLOB_PRICE_FLOOR = None
+    try:
+        unlocked = gate_929_blob_report(head, serial, [comp], 8, pin, False, price_floor=None)
+    finally:
+        GATE_929_BLOB_PRICE_FLOOR = locked
+    assert unlocked["g3_price"]["verdict"] == "NOT_EVALUABLE", unlocked["g3_price"]
+    assert any("not locked" in v for v in unlocked["void"]) and unlocked["all_cells_pass_in_this_run"] is False
+
+    # Default floor reads locked constant
+    default_floor = gate_929_blob_report(head, serial, [comp], 8, pin, False)
+    assert default_floor["g3_price"]["floor"] == 0.90 and default_floor["g3_price"]["verdict"] == "PASS"
+
+    # Missing serial cell
+    gap = gate_929_blob_report(head, serial[:3], [comp], 8, pin, False, price_floor=0.90)
+    assert {w: c["verdict"] for w, c in gap["g2_level"]["cells"].items()} == dict.fromkeys(("2", "4", "8"), "NOT_EVALUABLE"), gap["g2_level"]
+    assert gap["all_cells_pass_in_this_run"] is False and any("no cell for W" in v for v in gap["void"])
+
+    # Missing round
+    short = [cell(1, [4.0 + j for j in jitter[:7]])] + serial[1:]
+    miss = gate_929_blob_report(head, short, [comp], 8, pin, False, price_floor=0.90)
+    assert miss["g3_price"]["verdict"] == "NOT_EVALUABLE", miss["g3_price"]
+    assert miss["all_cells_pass_in_this_run"] is False
+
+    # Wrong pin / round count / quick
+    bad = gate_929_blob_report(head, serial, [comp], 8, "0-7", True, price_floor=0.90)
+    assert len(bad["void"]) >= 2 and bad["all_cells_pass_in_this_run"] is False, bad["void"]
+
+    # Non-inverse comparison refused
+    wrong = dict(comp, is_inverse=False, ratio_direction="c_variant_over_c_default")
+    try:
+        gate_929_blob_report(head, serial, [wrong], 8, pin, False)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a non-inverse comparison must be refused")
+    assert GATE_929_BLOB_FEATURE in INVERSE_ABLATIONS
+    assert "blob" not in MUTEX_WRITER_ARMS
+
+
 def _self_test_gate_929_str_report() -> None:
     """The #929 str gate's report reads the verdicts §17.9 defines off the comparison,
     fails the W = 1 control only when its interval lies wholly below 1.0, reads
@@ -4229,6 +4582,7 @@ def self_test() -> int:
     _self_test_pmu_arm_choices()
     _self_test_gate_929_str_report()
     _self_test_gate_929_str_v2_report()
+    _self_test_gate_929_blob_report()
 
     # Build both binaries up front
     throughput_bin, counters_bin = build_binaries(verbose=True)
@@ -4882,6 +5236,13 @@ def build_parser() -> argparse.ArgumentParser:
              "floor (default output gate_929_str_v2_writer_scaling.json)",
     )
     comparison.add_argument(
+        "--gate-929-blob",
+        action="store_true",
+        help="The #929 blob gate (METHODOLOGY.md §21.4): SyncExpanseBlobMap multi-writer scaling (G1), "
+             "level against serialised build's best cell (G2), and single-writer price floor (G3) "
+             "(default output gate_929_blob_writer_scaling.json)",
+    )
+    comparison.add_argument(
         "--ordered-readers",
         action="store_true",
         help="Ordered readers on the map (#900, METHODOLOGY.md §12.4): probe x (W, R) x read_op cells "
@@ -5019,6 +5380,26 @@ def main() -> int:
         if not args.out:
             args.out = str(GATE_929_STR_V2_RESULTS_PATH if args.gate_929_str_v2 else GATE_929_STR_RESULTS_PATH)
 
+    if args.gate_929_blob:
+        if args.arm not in ("all", "blob"):
+            sys.stderr.write("error: --gate-929-blob is the blob arm only (METHODOLOGY.md §21.4)\n")
+            return 1
+        args.arm = "blob"
+        if args.rounds != GATE_929_BLOB_ROUNDS:
+            sys.stderr.write(
+                f"error: --gate-929-blob runs the registered {GATE_929_BLOB_ROUNDS} rounds "
+                f"(METHODOLOGY.md §21.6), not {args.rounds}\n"
+            )
+            return 1
+        want = ",".join(str(w) for w in GATE_929_BLOB_WRITERS)
+        if args.writers != want:
+            sys.stderr.write(
+                f"error: --gate-929-blob runs W in {want} (METHODOLOGY.md §21.4), not {args.writers}\n"
+            )
+            return 1
+        if not args.out:
+            args.out = str(GATE_929_BLOB_RESULTS_PATH)
+
     variant_list: list[str] = []
     if args.variants:
         variant_list.extend(v.strip() for v in args.variants.split(",") if v.strip())
@@ -5028,6 +5409,8 @@ def main() -> int:
         variant_list.append(args.compare)
     elif args.gate_929_str or args.gate_929_str_v2:
         variant_list.append(GATE_929_STR_FEATURE)
+    elif args.gate_929_blob:
+        variant_list.append(GATE_929_BLOB_FEATURE)
     elif selected := [feature for flag, feature in ABLATION_ARMS.items() if getattr(args, flag)]:
         variant_list.extend(selected)
     elif os.environ.get("BENCH_VARIANTS"):
@@ -5264,6 +5647,10 @@ def main() -> int:
         )
     if args.gate_929_str_v2:
         artifact["gate_929_str_v2"] = gate_929_str_v2_report(
+            throughput_cells, variant_cells, comparison_results, args.rounds, core_pin, args.quick
+        )
+    if args.gate_929_blob:
+        artifact["gate_929_blob"] = gate_929_blob_report(
             throughput_cells, variant_cells, comparison_results, args.rounds, core_pin, args.quick
         )
     if pmu_results is not None:

@@ -82,6 +82,13 @@ ablation-unstriped-freelist = []
 # section 2.7). Readers are unchanged: the serialised path brackets the same
 # per-node cover words the optimistic writers take as locks.
 ablation-str-serial-writers = []
+# Diagnostic-only: serialises every `SyncExpanseBlobMap` mutation on the writer
+# mutex under the whole-operation tree bracket — the protocol the blob
+# wrapper's per-node optimistic write path replaced (Refs #929, METHODOLOGY
+# section 21), kept so the default can be measured against it (AGENTS.md
+# section 2.7).
+ablation-blob-serial-writers = []
+
 
 [dependencies]
 
