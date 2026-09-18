@@ -7,6 +7,7 @@
 #![cfg(not(miri))]
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 
@@ -17,9 +18,10 @@ mod ycsb_concurrent_common;
 
 use ycsb_common::ZIPFIAN_THETA;
 use ycsb_concurrent_common::{
-    Arm, ArmStore, DEFAULT_SUITE_SEED, Expected, Family, LoopTally, OlcStore, Op, RANK_K,
-    STANDARD_OPS_PER_THREAD, STANDARD_POPULATION_N, encode_write, generate_initial_population,
-    generate_thread_stream, oracle_verdict, run_cell, run_store, run_window, tally_expected,
+    Arm, ArmStore, DEFAULT_SUITE_SEED, Expected, Family, LOG2X16_BUCKETS, Log2x16Histogram,
+    LoopTally, OlcStore, Op, RANK_K, STANDARD_OPS_PER_THREAD, STANDARD_POPULATION_N, encode_write,
+    generate_initial_population, generate_thread_stream, oracle_verdict, run_cell,
+    run_cell_monotonicity, run_monotonicity_pass, run_store, run_window, tally_expected,
     verify_oracle,
 };
 
@@ -492,5 +494,211 @@ fn per_thread_handles_drop_on_the_joining_thread_after_the_window() {
     assert!(
         drops.iter().all(|&id| id == me),
         "a handle was dropped on a worker thread, inside its timed region"
+    );
+}
+
+/// Unit test for Log2x16Histogram: geometry, linear & log-linear regions,
+/// invertibility across all 976 buckets, percentiles, and merge associativity (§20.14 (a)).
+#[test]
+fn test_log2x16_histogram_geometry_and_percentiles() {
+    assert_eq!(LOG2X16_BUCKETS, 976);
+
+    // Linear region: values < 16 map directly to their value.
+    for v in 0..16 {
+        assert_eq!(Log2x16Histogram::bucket_index(v), v as usize);
+        let (lo, mid, hi) = Log2x16Histogram::bucket_range(v as usize);
+        assert_eq!(lo, v);
+        assert_eq!(mid, v);
+        assert_eq!(hi, v + 1);
+    }
+
+    // Log-linear boundary checks:
+    assert_eq!(Log2x16Histogram::bucket_index(16), 16);
+    assert_eq!(Log2x16Histogram::bucket_index(31), 31);
+    assert_eq!(Log2x16Histogram::bucket_index(32), 32);
+    assert_eq!(Log2x16Histogram::bucket_index(47), 39);
+    assert_eq!(Log2x16Histogram::bucket_index(48), 40);
+    assert_eq!(Log2x16Histogram::bucket_index(63), 47);
+    assert_eq!(Log2x16Histogram::bucket_index(64), 48);
+
+    // Maximum bucket check:
+    assert_eq!(
+        Log2x16Histogram::bucket_index(u64::MAX),
+        LOG2X16_BUCKETS - 1
+    );
+
+    // Invertibility and monotonic coverage across all buckets:
+    for idx in 0..LOG2X16_BUCKETS {
+        let (lo, mid, hi) = Log2x16Histogram::bucket_range(idx);
+        assert!(lo <= mid, "idx {idx}: lo {lo} <= mid {mid}");
+        assert!(
+            mid < hi || (idx == LOG2X16_BUCKETS - 1 && hi == u64::MAX),
+            "idx {idx}: mid {mid} < hi {hi}"
+        );
+        assert_eq!(Log2x16Histogram::bucket_index(lo), idx, "lo at idx {idx}");
+        assert_eq!(Log2x16Histogram::bucket_index(mid), idx, "mid at idx {idx}");
+        if hi < u64::MAX {
+            assert_eq!(
+                Log2x16Histogram::bucket_index(hi - 1),
+                idx,
+                "hi - 1 at idx {idx}"
+            );
+            if idx + 1 < LOG2X16_BUCKETS {
+                assert_eq!(
+                    Log2x16Histogram::bucket_index(hi),
+                    idx + 1,
+                    "hi at idx {idx}"
+                );
+            }
+        }
+    }
+
+    // Recording and percentile accuracy
+    let mut hist = Log2x16Histogram::new();
+    for v in 1..=1000 {
+        hist.record(v);
+    }
+    assert_eq!(hist.count, 1000);
+    assert_eq!(hist.min_val, 1);
+    assert_eq!(hist.max_val, 1000);
+
+    let p50 = hist.percentile_cycles(0.50);
+    let p99 = hist.percentile_cycles(0.99);
+    let p999 = hist.percentile_cycles(0.999);
+    assert!((p50 as i64 - 500).abs() <= 16, "p50={p50}");
+    assert!((p99 as i64 - 990).abs() <= 32, "p99={p99}");
+    assert!((p999 as i64 - 999).abs() <= 32, "p999={p999}");
+
+    // Merge associativity
+    let mut h1 = Log2x16Histogram::new();
+    let mut h2 = Log2x16Histogram::new();
+    for v in 1..=500 {
+        h1.record(v);
+    }
+    for v in 501..=1000 {
+        h2.record(v);
+    }
+    h1.merge(&h2);
+    assert_eq!(h1.count, 1000);
+    assert_eq!(h1.min_val, 1);
+    assert_eq!(h1.max_val, 1000);
+    assert_eq!(h1.buckets, hist.buckets);
+}
+
+/// Untimed monotonicity pass & node census test (§20.15).
+/// Verifies 0 monotonicity violations and that node_bytes.total() == mem_used.
+#[test]
+fn test_monotonicity_pass_and_node_census() {
+    let n = 4_096;
+    let ops = 4_096;
+    for arm in [Arm::Olc, Arm::Mutex] {
+        let (keys, sorted, streams) = streams_for(Family::A, 8, n, ops);
+        let expected = tally_expected(&streams);
+
+        let out = run_cell_monotonicity(arm, Family::A, &keys, &sorted, streams, &expected);
+
+        assert_eq!(out.monotonicity_violations, 0, "{arm:?}");
+        assert_eq!(out.tracked_keys, 4096, "{arm:?}");
+        assert_eq!(out.verdict, "PASS", "{arm:?}");
+        assert!(out.node_census.is_some(), "{arm:?}");
+
+        let census = out.node_census.as_ref().unwrap();
+        assert_eq!(census.node_bytes.total(), out.mem_used.unwrap(), "{arm:?}");
+        assert!(
+            (census.node_counts.leaf_linear + census.node_counts.leaf_bitmap) > 0,
+            "{arm:?}"
+        );
+    }
+}
+
+/// Test store that can inject sequence regressions to test monotonicity violation detection.
+struct RegressingStore {
+    key: u64,
+    reads: AtomicU64,
+    regress: bool,
+}
+
+impl RegressingStore {
+    fn new(key: u64, regress: bool) -> Self {
+        Self {
+            key,
+            reads: AtomicU64::new(0),
+            regress,
+        }
+    }
+}
+
+impl ArmStore for RegressingStore {
+    type Handle = ();
+
+    fn handle(_this: &Arc<Self>) -> Self::Handle {}
+    fn read(&self, _h: &Self::Handle, key: u64) -> Option<u64> {
+        if key == self.key {
+            let r = self.reads.fetch_add(1, Ordering::SeqCst);
+            if self.regress {
+                // Inverted sequence: first read observes seq 10, second read observes seq 5.
+                if r == 0 {
+                    Some(encode_write(0, 10))
+                } else {
+                    Some(encode_write(0, 5))
+                }
+            } else {
+                // Monotonic sequence: first read observes seq 5, second read observes seq 10.
+                if r == 0 {
+                    Some(encode_write(0, 5))
+                } else {
+                    Some(encode_write(0, 10))
+                }
+            }
+        } else {
+            Some(0)
+        }
+    }
+    fn update(&self, _h: &Self::Handle, _key: u64, _val: u64) -> Option<u64> {
+        Some(0)
+    }
+    fn insert(&self, _h: &Self::Handle, _key: u64, _val: u64) -> Option<u64> {
+        None
+    }
+    fn rmw(&self, _h: &Self::Handle, _key: u64) -> Option<u64> {
+        Some(0)
+    }
+    fn final_value(&self, _key: u64) -> Option<u64> {
+        Some(0)
+    }
+    fn final_len(&self) -> u64 {
+        1
+    }
+}
+
+/// Mutation test (AGENTS.md §2.3): demonstrates that `run_monotonicity_pass`
+/// detects non-monotonic sequence reads from a writer and transitions the verdict
+/// to VOID_ORACLE when broken intentionally.
+#[test]
+fn test_monotonicity_mutation_discriminates_backward_sequences() {
+    let key = 100u64;
+    let pop = vec![key];
+    let sorted = vec![key];
+    // One reader thread reading `key` twice.
+    let streams = vec![vec![Op::Read { key }, Op::Read { key }]];
+    let exp = tally_expected(&streams);
+
+    // Positive case: monotonic sequence (seq 5 then seq 10).
+    let store_ok = Arc::new(RegressingStore::new(key, false));
+    let out_ok = run_monotonicity_pass(&store_ok, Family::C, &pop, &sorted, streams.clone(), &exp);
+    assert_eq!(out_ok.monotonicity_violations, 0);
+    assert_eq!(out_ok.verdict, "PASS");
+
+    // Mutation (AGENTS.md §2.3): backward sequence (seq 10 then seq 5).
+    // The test MUST fail the monotonicity invariant and produce VOID_ORACLE.
+    let store_mutated = Arc::new(RegressingStore::new(key, true));
+    let out_mutated =
+        run_monotonicity_pass(&store_mutated, Family::C, &pop, &sorted, streams, &exp);
+    assert_eq!(out_mutated.monotonicity_violations, 1);
+    assert!(
+        out_mutated.verdict.starts_with("VOID_ORACLE")
+            && out_mutated.verdict.contains("1 monotonicity violations"),
+        "verdict must be VOID_ORACLE with violations, got: {}",
+        out_mutated.verdict
     );
 }
