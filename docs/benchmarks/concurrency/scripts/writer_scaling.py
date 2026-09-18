@@ -5097,9 +5097,11 @@ def self_test() -> int:
 
     # The bytes and blob arms (#929 step 1), through the same two production
     # passes a sweep runs: the timed pass one harness process per cell with its
-    # row checks, the counters pass, and the reduction. Both serialise on the
-    # writer mutex, so they read 0 fallbacks by construction, and neither
-    # counts node allocations.
+    # row checks, the counters pass, and the reduction. An arm in
+    # MUTEX_WRITER_ARMS serialises on the writer mutex and reads 0 fallbacks by
+    # construction; the blob arm runs the OLC insert since #1024, so two
+    # writers can meet and fall back, and only its single-writer rows are held
+    # to 0. Neither counts node allocations.
     eprintln("Testing the bytes and blob writer arms (#929)...")
     assert set(MUTEX_WRITER_ARMS) <= set(ALL_WRITER_ARMS) and set(WRITER_WORKLOAD_IDS) == set(ALL_WRITER_ARMS)
     for arm in ("bytes", "blob"):
@@ -5110,8 +5112,13 @@ def self_test() -> int:
         assert all(int(r["population_after"]) == 8192 for r in t_rows_arm), (arm, t_rows_arm[0])
         c_rows_arm = run_pass(counters_bin, "counters", arm, [1, 2], 3, quick=True)
         assert len(c_rows_arm) == 6 and {r["workload_id"] for r in c_rows_arm} == {WRITER_WORKLOAD_IDS[arm]}, arm
-        assert all(r["lock_fallbacks"] == 0 and r["inserts"] == r["write_ops"] == 4096 for r in c_rows_arm), (
+        assert all(r["inserts"] == r["write_ops"] == 4096 for r in c_rows_arm), (
             arm, [(r["lock_fallbacks"], r["inserts"]) for r in c_rows_arm])
+        assert all(
+            r["lock_fallbacks"] == 0
+            for r in c_rows_arm
+            if arm in MUTEX_WRITER_ARMS or int(r["writers"]) == 1
+        ), (arm, [(r["writers"], r["lock_fallbacks"]) for r in c_rows_arm])
         cells_arm = summarize_arm(arm, [1, 2], 3, t_rows_arm, c_rows_arm, load)
         assert [c["writers"] for c in cells_arm] == [1, 2], cells_arm
         for c in cells_arm:
