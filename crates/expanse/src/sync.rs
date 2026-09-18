@@ -11339,11 +11339,8 @@ mod tests {
              Hold fraction: {hold_percent:.2}% | Serialization ceiling: {theoretical_max_mops:.1} M ops/s"
         );
 
-        // Hold fraction invariant: arena section must be a minority fraction of total insert time (< 50%)
-        assert!(
-            hold_percent < 50.0,
-            "arena hold fraction {hold_percent:.2}% exceeds 50% threshold"
-        );
+        // Report-only timing diagnostics; hard assertions on wall-clock timings or
+        // fractions are forbidden by AGENTS.md §8.4 to avoid flakiness on loaded hosts.
         assert!(
             theoretical_max_mops > 0.0,
             "serialization ceiling must be strictly positive"
