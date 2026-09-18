@@ -3323,3 +3323,149 @@ silently, so:
 What this does not establish: linearizability of the timed cells themselves —
 recording histories inside the window would change what is timed — or anything
 about the competitor arms beyond the final-value check they share.
+
+## 21. Pre-registration for #929 — the `SyncExpanseBlobMap` multi-writer path as a priced trade (appended and locked 2026-09-18, before any admissible run of it)
+
+### 21.1 Context and relation to previous gates
+
+Issue #929 evaluates multi-writer optimistic concurrency across the compound wrappers
+(`SyncExpanseStrMap`, `SyncExpanseBlobMap`, `SyncExpanseBytesMap`).
+
+§17 evaluated `SyncExpanseStrMap` under a zero-overhead expectation ($W = 1$ unchanged,
+$W \ge 2$ scaling), which was falsified: optimistic version-lock coupling on digital
+trie descent carries an inescapable instruction-count penalty (+81% on `insert` over the
+plain map) and a wall-clock throughput reduction (~4% to 5%) relative to a mutex-protected
+wrapper executing flat, bracket-free mutations.
+
+§19 established the priced-trade model for compound wrappers: accepting a stated, bounded
+single-writer price floor $F = 0.90$ in exchange for multi-writer scaling at $W \ge 2$
+that exceeds the serialized build at *any* writer count.
+
+This section extends the priced-trade model to `SyncExpanseBlobMap` under the
+`concurrency_writer_blob_64bit` workload. Unlike string maps, blob maps combine digital
+trie index navigation with chunk-arena payload allocation and epoch-based garbage
+collection. This pre-registration is committed and locked before any multi-writer throughput
+run of `SyncExpanseBlobMap` is executed.
+
+### 21.2 What had been seen when this was written
+
+The reader is owed the full accounting of prior observations (AGENTS.md §8.7, §8.19):
+
+1. **CI Callgrind baselines**: The `instruction-counts` job on `main` at `f25189fd`
+   measuring the plain `blobmap_insert` arm (incorporating the double-descent removal from #1021)
+   and the serial mutex wrapper `sync_blobmap_insert` arms (Refs #1018).
+2. **Prerequisite audits**:
+   - **Counter visibility audit (AGENTS.md §8.22.1)**: `ExpanseBlobMap::len` is an
+     exported public API (`crates/expanse/src/blobmap.rs:285`), as are `BlobArena::live_bytes`
+     (`crates/expanse/src/blobmap.rs:187, 2621`), `BlobArena::chunks` and `chunks_count`
+     (`crates/expanse/src/blobmap.rs:181, 182`), and `BlobArena::mem_used`
+     (`crates/expanse/src/blobmap.rs:188`). Public API signatures cannot be modified or
+     reduced to test-only under cargo semver without breaking `scripts/check_public_api.py`.
+     Under multi-writer execution, `len` reads from the sharded pop counter (`tree_pop.sum()`).
+   - **Compaction hazard & invariant analysis**: Evaluated `crates/expanse/src/blobmap.rs:902`.
+     Chunk header generation checks invalidate retired chunks, but cannot track concurrent
+     arena reallocations across uncoordinated threads. The writer gate must strictly enclose
+     arena allocation before index insertion; pointer-valued epoch pins must span read through
+     publish. Active compaction remains stop-the-world behind the writer lock.
+   - **Single-block bucket layout analysis**: Evaluated `crates/expanse/src/bytesmap.rs:78-98`
+     for layout consolidation and indirection overhead bounds.
+3. **No multi-writer throughput run**: No execution of `concurrency_writer_blob_64bit`
+   under multi-writer OLC or `--compare` has been performed.
+
+Consequences: All thresholds below are either carried over from §19 unchanged, derived from
+first principles, or set as maintainer policy prior to execution; evaluation is conducted
+solely on fresh runs executed after the lock.
+
+### 21.3 The claim this gate would license, in full
+
+> On the reference host, at the registered pins, `SyncExpanseBlobMap`'s
+> per-node OLC write path delivers more insert throughput at every writer count
+> W ≥ 2 than the serialised build delivers at **any** writer count, and its
+> single-writer throughput is at least the stated fraction F = 0.90 of the serialised
+> build's. *(workload: `concurrency_writer_blob_64bit`)*
+
+Nothing is claimed regarding concurrent compaction, reads, removals, key churn,
+32-bit targets, alternate hosts, or the string and bytes map wrappers.
+
+### 21.4 The gate
+
+Evaluated per cell. `T_b(W, r)` is `writer_mops` of build *b* at W writers in round *r*
+of an interleaved comparison run; `head` is the default build and `serial` is the same
+commit compiled with `ablation-blob-serial-writers`.
+
+> **G1, scaling.** R(W, r) = [T_head(W, r) ÷ T_head(1, r)] ÷ [T_serial(W, r) ÷ T_serial(1, r)].
+> A cell passes iff the BCa 95% lower bound over the round series is strictly above 1.0.
+>
+> **G2, level.** L(W, r) = T_head(W, r) ÷ max over W′ ∈ {1, 2, 4, 8} of T_serial(W′, r).
+> A cell passes iff the BCa 95% lower bound is strictly above 1.0.
+>
+> **G3, price.** P(r) = T_head(1, r) ÷ T_serial(1, r).
+> A cell passes iff the BCa 95% lower bound is at least **F = 0.90** — maintainer policy,
+> matching §19.4.
+>
+> **Peak ratio.** X(8)/X(4) = T_head(8) ÷ T_head(4) is computed and reported for both pins
+> to diagnose scaling saturation.
+>
+> G1 and G2 cells are W ∈ {2, 4, 8} × two pins (`0-15`, `0,2,4,6,8,10,12,14`) × two
+> independent runs: twelve each (24 cells). G3 has one cell per (pin, run): four cells.
+> **The gate is met at a head** when all twenty-eight cells pass.
+> BCa 95%, 2,000 resamples, computed via `scripts/bca_bootstrap.py`.
+>
+> **Callgrind, preconditions.** On the head's own `instruction-counts` job:
+> every plain-tree arm, and every `sync_map_*`, `sync_set_*`, and `sync_strmap_*` arm,
+> within AGENTS.md §6's +0.1% of main. The `sync_blobmap_*` arms are expected over the
+> automated threshold; this registration pre-authorises one `allow-regression:` line
+> naming exactly those arms and citing that job's run.
+>
+> **Defect tripwire, deterministic:** The `occ-stats` replay of the `sync_blobmap_*`
+> mutation arms records zero `lock_restarts`, and zero unbracketed mutations.
+
+### 21.5 Math-first audit
+
+`reader_scaling_bounds.mde_from_rounds` (`scripts/reader_scaling_bounds.py:227`, Cohen 1988, ch. 2),
+applied to round series of 8 rounds:
+
+Given typical per-round coefficient of variation $\sigma / \mu \le 0.015$ on quiet runs on
+the reference host, the relative MDE for $N = 8$ rounds at $\alpha = 0.05, \beta = 0.20$ is:
+$$\text{MDE}_{\text{rel}} = (z_{\alpha/2} + z_{\beta}) \cdot \frac{\sigma}{\mu} \cdot \sqrt{\frac{2}{N}} \approx (1.960 + 0.842) \cdot 0.015 \cdot \sqrt{\frac{2}{8}} \approx 2.802 \cdot 0.015 \cdot 0.5 \approx 0.021 \ (2.1\%)$$
+
+A floor of $F = 0.90$ is resolvable against an expected level $P \approx 0.95$ (gap $0.05 > 0.021$).
+Level ratios $L(W) \ge 1.4$ for $W \ge 2$ sit far outside the detectable margin.
+
+### 21.6 Rounds, pins, runs, isolation, voids
+
+- **Rounds**: 8 rounds per cell, interleaved Latin square ordering (`williams_order`).
+- **Pins**: Both `0-15` (hyperthread pairs) and `0,2,4,6,8,10,12,14` (one thread per physical core).
+- **Runs**: Two independent runs per pin.
+- **Process isolation**: One process per cell invocation.
+- **Workload parameters**: $N_0 = 0$ prefill, $M = 2^{20} = 1,048,576$ fresh keys, payload size 32 bytes (`BLOB_PAYLOAD_LEN`).
+- **Instrument prerequisite (AGENTS.md §8.20.7)**: `scripts/writer_scaling.py --gate-929-blob`
+  computes G1, G2, G3, and $X(8)/X(4)$ with fail-closed self-test assertions before any
+  production run is evaluated.
+
+### 21.7 Expected losses
+
+| cell or condition | expectation at lock | consequence of a loss |
+|---|---|---|
+| G3, single-writer price | about 0.94–0.96 | lower bound under 0.90: gate is not met; F does not move |
+| G2, W = 2 | closest level cell, expected > 1.40 | `INCONCLUSIVE` or `REFUTED`: gate not met |
+| G1, W = 8, per-core pin | large (> 10), reflecting serial mutex contention collapse | none expected |
+| G1, W = 8, `0-15` pin | wider interval due to SMT thread contention | `INCONCLUSIVE` possible if variance spikes; pin is retained |
+| Peak ratio X(8)/X(4) | expected > 1.0 on per-core pin; may saturate on `0-15` | diagnostic indicator; does not fail gate |
+| `sync_blobmap_*` Callgrind arms | over the automated threshold (+40% to +80%) | reported under pre-authorised `allow-regression:` |
+| Untargeted Callgrind arms | within +0.1% | precondition failure: no throughput run is taken |
+| Deterministic tripwire | zero `lock_restarts` | non-zero trips defect investigation |
+
+### 21.8 Verdicts
+
+Standard vocabulary: `PASS`, `REFUTED`, `INCONCLUSIVE`, `INTERMEDIATE`, `NOT_EVALUABLE`.
+The gate is met only when all twenty-eight cells evaluate to `PASS`.
+
+### 21.9 If it is met: what the promotion must say
+
+The default build's single writer is slower than the serialised build by the measured P,
+stated with its interval in `docs/ARCHITECTURE.md` §4 and rustdoc, beside the
+`ablation-blob-serial-writers` feature that restores the serialised protocol (AGENTS.md §2.7).
+Explicitly stated limitations: fresh inserts only, payload size 32 bytes; no compaction during
+active concurrent writes; no scans, churn, or removals; 64-bit targets only.
+
