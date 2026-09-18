@@ -736,7 +736,6 @@ impl SharedTree for ExpanseBlobMap {
     }
 }
 
-
 /// A small integer naming the calling thread, for slot allocation and the `Handoffs` counter.
 /// Allocated once per thread from a global counter; 0 is never issued.
 #[cfg(not(loom))]
@@ -1457,7 +1456,6 @@ impl RootState for ExpanseBlobMap {
     }
 }
 
-
 /// The shared writer/reader state behind every wrapper. `repr(C)` and
 /// line-aligned, and always boxed (see [`Shared::new`]): the tree-level
 /// version word heads the struct, on the cache line the root snapshot
@@ -1808,7 +1806,7 @@ impl<T: SharedTree> Shared<T> {
     where
         T: RootState,
     {
-        self.write_root_covered_with::<false, R>(f)
+        self.write_root_covered_with::<false, false, R>(f)
     }
 
     /// [`Self::write_root_covered`] for a removal, which first re-syncs the
@@ -1820,7 +1818,7 @@ impl<T: SharedTree> Shared<T> {
     where
         T: RootState,
     {
-        self.write_root_covered_with::<true, R>(f)
+        self.write_root_covered_with::<true, false, R>(f)
     }
 
     /// [`Self::write_root_covered`] with the population re-synced first,
@@ -1830,13 +1828,19 @@ impl<T: SharedTree> Shared<T> {
     /// count in a field the optimistic writers never touch. The same
     /// instantiation as [`Self::remove_root_covered`], under the name of what
     /// it does.
-    #[cfg(all(feature = "std", not(all(feature = "ablation-str-serial-writers", feature = "ablation-blob-serial-writers"))))]
+    #[cfg(all(
+        feature = "std",
+        not(all(
+            feature = "ablation-str-serial-writers",
+            feature = "ablation-blob-serial-writers"
+        ))
+    ))]
     #[inline(always)]
     fn write_root_covered_exact<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
     where
         T: RootState,
     {
-        self.write_root_covered_with::<true, R>(f)
+        self.write_root_covered_with::<true, false, R>(f)
     }
 
     /// One mutation under the writer lock with writers quiesced AND the
@@ -1845,71 +1849,18 @@ impl<T: SharedTree> Shared<T> {
     /// mutates non-index resources (such as `BlobArena` chunk allocations or
     /// compaction table republication) or whole-tree states (`clear`, fallback
     /// insert) that concurrent readers validate against the tree version word.
-    fn write_quiesced<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
-        crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
-        #[cfg(feature = "std")]
-        let _fallback = self.fallback_mutex.lock().expect("fallback mutex poisoned");
-        #[cfg(feature = "std")]
-        self.quiesce_writers();
-        let _g = self.write.lock().expect("writer lock poisoned");
-        #[cfg(feature = "occ-stats")]
-        {
-            let holder = unsafe { &mut *self.last_holder.get() };
-            let me = thread_token();
-            if *holder != me {
-                if *holder != 0 {
-                    crate::occ_stats::bump(crate::occ_stats::Stat::Handoffs);
-                }
-                *holder = me;
-            }
-        }
-        self.version().begin();
-        #[cfg(debug_assertions)]
-        crate::alloc::bracket_stack::enter(self.tree_cover_addr());
-        crate::occ_stats::op_begin();
-        // SAFETY: the writer mutex makes this the only mutable borrow.
-        let inner = unsafe { &mut *self.inner.get() };
-        inner.clear_path();
-        #[cfg(feature = "std")]
-        let pop = self.tree_pop.load_slots(
-            self.writers
-                .allocated
-                .load(core::sync::atomic::Ordering::Acquire),
-        );
-        #[cfg(not(feature = "std"))]
-        let pop = self.tree_pop.load();
-        inner.set_tree_pop(pop);
-        let pop_before = inner.tree_pop();
-        let r = f(inner);
-        inner.clear_path();
-        let pop_after = inner.tree_pop();
-        let delta = pop_after as i64 - pop_before as i64;
-        if pop_after == 0 && pop_before > 0 {
-            self.tree_pop.flush_and_set(0);
-        } else if delta != 0 {
-            self.tree_pop.add_base(delta);
-        }
-        crate::occ_stats::op_end();
-        #[cfg(debug_assertions)]
-        crate::alloc::bracket_stack::leave(self.tree_cover_addr());
-        self.version().end();
-        #[cfg(not(feature = "advance-never"))]
-        {
-            // SAFETY: as above — the writer mutex serializes this counter.
-            let tick = unsafe { &mut *self.advance_tick.get() };
-            *tick += 1;
-            if *tick >= ADVANCE_EVERY {
-                *tick = 0;
-                self.collector.try_advance();
-            }
-        }
-        drop(_g);
-        #[cfg(feature = "std")]
-        self.reopen_gate();
-        r
+    #[inline(always)]
+    fn write_quiesced<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
+    where
+        T: RootState,
+    {
+        self.write_root_covered_with::<true, true, R>(f)
     }
 
-    fn write_root_covered_with<const EXACT_POP: bool, R>(&self, f: impl FnOnce(&mut T) -> R) -> R
+    fn write_root_covered_with<const EXACT_POP: bool, const COVER_ALWAYS: bool, R>(
+        &self,
+        f: impl FnOnce(&mut T) -> R,
+    ) -> R
     where
         T: RootState,
     {
@@ -1935,7 +1886,7 @@ impl<T: SharedTree> Shared<T> {
         // SAFETY: the writer mutex makes this the only mutable borrow.
         let inner = unsafe { &mut *self.inner.get() };
         inner.clear_path();
-        if EXACT_POP {
+        if EXACT_POP || COVER_ALWAYS {
             #[cfg(feature = "std")]
             let pop = self.tree_pop.load_slots(
                 self.writers
@@ -1948,7 +1899,7 @@ impl<T: SharedTree> Shared<T> {
         }
         let pop_before = inner.tree_pop();
         // Read under the lock: the root state is the writer's to change.
-        let r = if inner.root_is_tree() {
+        let r = if !COVER_ALWAYS && inner.root_is_tree() {
             f(inner)
         } else {
             self.version().begin();
@@ -2136,7 +2087,13 @@ impl<T: SharedTree> Shared<T> {
 /// pinned.
 // The serial-writers ablation compiles the string host out, and the map
 // wrapper reaches its host through inherent methods where they exist.
-#[cfg_attr(all(feature = "ablation-str-serial-writers", feature = "ablation-blob-serial-writers"), allow(dead_code))]
+#[cfg_attr(
+    all(
+        feature = "ablation-str-serial-writers",
+        feature = "ablation-blob-serial-writers"
+    ),
+    allow(dead_code)
+)]
 #[cfg(feature = "std")]
 pub(crate) trait OlcHost {
     /// The word covering this tree's root state is even: no exclusive
@@ -2245,7 +2202,6 @@ impl OlcHost for Shared<ExpanseBlobMap> {
         EdgeTag::from_u8(edge.tag_byte())
     }
 }
-
 
 #[cfg(feature = "std")]
 pub(crate) enum OlcOutcome<T> {
@@ -7776,7 +7732,13 @@ macro_rules! olc_remove_map_body {
 // The `// SAFETY:` comments sit on each block inside the macro body; clippy
 // cannot see a comment through a macro expansion.
 #[allow(clippy::undocumented_unsafe_blocks)]
-#[cfg(all(feature = "std", not(all(feature = "ablation-str-serial-writers", feature = "ablation-blob-serial-writers"))))]
+#[cfg(all(
+    feature = "std",
+    not(all(
+        feature = "ablation-str-serial-writers",
+        feature = "ablation-blob-serial-writers"
+    ))
+))]
 pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
     host: &H,
     key: Key,
@@ -7789,11 +7751,16 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
 // The `// SAFETY:` comments sit on each block inside the macro body; clippy
 // cannot see a comment through a macro expansion.
 #[allow(clippy::undocumented_unsafe_blocks)]
-#[cfg(all(feature = "std", not(all(feature = "ablation-str-serial-writers", feature = "ablation-blob-serial-writers"))))]
+#[cfg(all(
+    feature = "std",
+    not(all(
+        feature = "ablation-str-serial-writers",
+        feature = "ablation-blob-serial-writers"
+    ))
+))]
 pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Option<u64>> {
     olc_remove_map_body!(host, false, _old => false, key)
 }
-
 
 impl SyncExpanseMap {
     /// The map wrapper's OLC insert: `olc_insert_map_body!` as the method it
@@ -8220,7 +8187,9 @@ impl SyncExpanseBlobMap {
                 if !self.shared.inner_ref().root_is_tree() {
                     crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                     crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
-                    return self.shared.write_root_covered(|m| m.insert(key, data, hot_meta));
+                    return self
+                        .shared
+                        .write_root_covered(|m| m.insert(key, data, hot_meta));
                 }
 
                 let guard = self.shared.enter_writer_blocking();
@@ -8261,10 +8230,14 @@ impl SyncExpanseBlobMap {
                                 } else if let Some(old_raw) = prev {
                                     let old_slot = ValueSlot::from_raw(old_raw);
                                     if old_slot.tag() == SlotTag::ArenaMeta {
-                                        let _arena_guard = self.arena_write.lock().expect("arena write lock poisoned");
+                                        let _arena_guard = self
+                                            .arena_write
+                                            .lock()
+                                            .expect("arena write lock poisoned");
                                         // SAFETY: serialized by arena_write mutex; inner points to valid ExpanseBlobMap.
                                         unsafe {
-                                            (*self.shared.inner.get()).record_deleted_slot(old_slot);
+                                            (*self.shared.inner.get())
+                                                .record_deleted_slot(old_slot);
                                         }
                                     }
                                 }
@@ -11057,6 +11030,8 @@ mod tests {
         // Published so the writer can wait for a reader to observe a stable
         // map instead of racing one; see the bounded wait below.
         let observed = Arc::new(AtomicU64::new(0));
+        let max_present = Arc::new(AtomicU64::new(0));
+        let in_churn_phase = Arc::new(AtomicBool::new(false));
         let key_of = |r: &mut XorShift| {
             let base = [0u64, 0x11_2233_4400, 0xFFFF_FF00_0000][(r.next() % 3) as usize];
             base + r.next() % 512
@@ -11067,22 +11042,49 @@ mod tests {
                 let m = Arc::clone(&m);
                 let stop = Arc::clone(&stop);
                 let observed = Arc::clone(&observed);
+                let max_present = Arc::clone(&max_present);
+                let in_churn_phase = Arc::clone(&in_churn_phase);
                 std::thread::spawn(move || {
                     let mut rd = m.reader();
                     let mut rng = XorShift(0x3000 + i);
                     let mut hits = 0u64;
                     while !stop.load(Ordering::Relaxed) {
-                        let k = key_of(&mut rng);
-                        let guard = rd.pin();
-                        if let Some((view, meta)) = guard.get(k) {
-                            assert_eq!(
-                                view.as_bytes(),
-                                &blob_payload_of(k)[..],
-                                "torn payload for {k:#x}"
-                            );
-                            assert_eq!(meta, blob_expected_meta(k), "torn metadata for {k:#x}");
-                            hits += 1;
-                            observed.fetch_add(1, Ordering::Relaxed);
+                        if !in_churn_phase.load(Ordering::Acquire) {
+                            // Defect-2 invariant assertion: while the writer only inserts
+                            // and compacts (no removals), any model-present key MUST resolve
+                            // to Some, never None (Refs #929).
+                            let max_k = max_present.load(Ordering::Acquire);
+                            if max_k > 0 {
+                                let k = (rng.next() % max_k) + 1;
+                                let guard = rd.pin();
+                                let (view, meta) = guard.get(k).unwrap_or_else(|| {
+                                    panic!(
+                                        "defect-2 regression: model-present key {k} read as None \
+                                         while writer only inserts and compacts"
+                                    )
+                                });
+                                assert_eq!(
+                                    view.as_bytes(),
+                                    &blob_payload_of(k)[..],
+                                    "torn payload for {k:#x}"
+                                );
+                                assert_eq!(meta, blob_expected_meta(k), "torn metadata for {k:#x}");
+                                hits += 1;
+                                observed.fetch_add(1, Ordering::Relaxed);
+                            }
+                        } else {
+                            let k = key_of(&mut rng);
+                            let guard = rd.pin();
+                            if let Some((view, meta)) = guard.get(k) {
+                                assert_eq!(
+                                    view.as_bytes(),
+                                    &blob_payload_of(k)[..],
+                                    "torn payload for {k:#x}"
+                                );
+                                assert_eq!(meta, blob_expected_meta(k), "torn metadata for {k:#x}");
+                                hits += 1;
+                                observed.fetch_add(1, Ordering::Relaxed);
+                            }
                         }
                     }
                     hits
@@ -11090,10 +11092,25 @@ mod tests {
             })
             .collect();
 
-        let mut rng = XorShift(0xACE1);
+        // Phase 1: Writer exclusively inserts and compacts across multiple chunk
+        // boundaries. Defect-2 invariant assertion: concurrent readers querying inserted keys
+        // must never observe None due to stale chunk tables or unbracketed compactions.
         let mut model = BTreeMap::new();
+        for round in 0..5 {
+            for i in 1..=200 {
+                let k = round * 200 + i;
+                m.insert(k, &blob_payload_of(k), blob_meta_of(k)).unwrap();
+                model.insert(k, ());
+                max_present.store(k, Ordering::Release);
+            }
+            m.compact().expect("compaction during insert phase");
+        }
+
+        // Phase 2: Churn phase with both inserts, removes, and compactions.
+        in_churn_phase.store(true, Ordering::Release);
+        let mut rng = XorShift(0xACE1);
         let start = std::time::Instant::now();
-        while start.elapsed() < std::time::Duration::from_millis(300) {
+        while start.elapsed() < std::time::Duration::from_millis(200) {
             for _ in 0..2000 {
                 let k = key_of(&mut rng);
                 if rng.next().is_multiple_of(2) {
@@ -11260,7 +11277,11 @@ mod tests {
                 let expected_p = payload_of(k + 100_000);
                 let expected_meta = meta_of(k + 100_000);
                 let (view, meta) = guard.get(k).unwrap_or_else(|| panic!("missing key {k}"));
-                assert_eq!(view.as_bytes(), &expected_p[..], "corrupted payload for key {k}");
+                assert_eq!(
+                    view.as_bytes(),
+                    &expected_p[..],
+                    "corrupted payload for key {k}"
+                );
                 assert_eq!(meta, expected_meta, "mismatched metadata for key {k}");
             }
         }

@@ -1158,7 +1158,11 @@ impl ExpanseBlobMap {
     }
 
     #[inline]
-    pub(crate) fn prepare_slot(&mut self, data: &[u8], hot_meta: u32) -> Result<ValueSlot, ArenaError> {
+    pub(crate) fn prepare_slot(
+        &mut self,
+        data: &[u8],
+        hot_meta: u32,
+    ) -> Result<ValueSlot, ArenaError> {
         if data.len() <= 7 {
             ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)
         } else if hot_meta == 0
