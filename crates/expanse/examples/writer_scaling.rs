@@ -20,7 +20,7 @@
 //!
 //! Run (throughput — default build, no occ-stats):
 //! ```text
-//! cargo run --release -p expanse-trie --example writer_scaling -- [--role throughput] [--arm <map|set|str|bytes|blob|all>] [--writers <1,2,4,8>] [--rounds <N>]
+//! cargo run --release -p expanse-trie --example writer_scaling -- [--role throughput] [--arm <map|set|str|bytes|blob|all>] [--writers <1,2,4,8>] [--rounds <N>] [--blob-op <insert|overwrite>] [--key-dist <uniform|zipfian>]
 //! ```
 //!
 //! Run (counters — occ-stats build only):
@@ -133,20 +133,63 @@
 //! cargo run --release -p expanse-trie --example writer_scaling -- --arm <map|set|str> --writers 0 --readers <R> --read-op get --probe uniform [--round <r>] [--position <p>] [--quick]
 //! ```
 //!
+//! ## The blob overwrite cell (#929, `docs/benchmarks/concurrency/METHODOLOGY.md` §21.4 G4, §21.11)
+//!
+//! `--arm blob --blob-op overwrite` replaces the blob arm's fresh inserts with
+//! overwrites of existing entries; `--key-dist <uniform|zipfian>` (default
+//! `uniform`) chooses which. Both flags need `--arm blob` and writer mode, and
+//! `--key-dist` needs `--blob-op overwrite`; anything else exits non-zero.
+//!
+//! ```text
+//! cargo run --release -p expanse-trie --example writer_scaling -- --arm blob --blob-op overwrite --key-dist <uniform|zipfian> --writers <W> --round <r> --position <p> [--quick]
+//! ```
+//!
+//! - **Prefill.** The fresh-insert cell's 2^20 keys with their key-derived
+//!   32-byte payloads, outside the timed window. Nothing else is inserted, so
+//!   the population is 2^20 before and after, and the cell refuses to report
+//!   otherwise.
+//! - **Rank → key.** `rank_keys` is a Fisher–Yates permutation of the ascending
+//!   prefill (the suite XorShift, seed `SEED_BLOB_RANK`); rank `r` is
+//!   `rank_keys[r]`. Both key distributions index this one table, so the hot
+//!   ranks are spread over the keyspace instead of sharing the lowest leaves.
+//! - **Key choice.** Writer `w` draws its share of the 2^20 overwrites (⌊M/W⌋,
+//!   the last writer taking the remainder) from its own
+//!   `ycsb_common::XorShift64`, seeded `SEED_BLOB_OVERWRITE ^ (w + 1)·φ64 ^
+//!   (round + 1)·0xD1B5_4A32_D192_ED03`. `zipfian` is
+//!   `ycsb_common::ZipfianGenerator::new(2^20, ZIPFIAN_THETA).next(next_f64())`,
+//!   θ = 0.99, rank 0 the hottest; `uniform` is `next_u64() % 2^20`. The ranks
+//!   are drawn before the barrier, so the timed loop is identical under both:
+//!   a table lookup, the payload, the insert.
+//! - **Payload.** Eight bytes of a per-op counter (`(w + 1) << 40 | (i + 1)`)
+//!   and three words derived from the key and that counter; the metadata word
+//!   is derived from the same pair and is never zero.
+//! - **Check, outside the window.** The 64 hottest ranks and every 1,000th rank
+//!   after them are read back. A key no stream targeted must hold its prefill
+//!   payload and metadata. A targeted key must hold one overwrite's: its
+//!   counter must name a writer and an op index whose stream entry is that
+//!   key, and payload and metadata must both be that counter's.
+//! - **Rows.** `workload_id` `concurrency_writer_blob_overwrite_64bit`, cell
+//!   `blob_overwrite_<dist>_w<W>_r0`, the fresh-insert row's fields plus
+//!   `blob_op`, `key_dist`, `theta` (0 under `uniform`), `overwrites`,
+//!   `distinct_keys_overwritten`, `verified_keys` and `verified_overwritten`;
+//!   `fresh_keys` is 0. Each overwrite allocates a new arena record and
+//!   retires the old one, so the arena grows by one record per overwrite while
+//!   the index population does not.
+//!
 //! # Workload shape
 //!
 //! | Property | Value |
 //! |---|---|
 //! | `workload_id` | `concurrency_writer_scaling` |
 //! | `group` | 5 |
-//! | `emits` | `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`, `concurrency_writer_str`, `concurrency_writer_bytes`, `concurrency_writer_blob_64bit`, `concurrency_ordered_readers_map_64bit`, `concurrency_readers_set_63bit`, `concurrency_readers_str` |
-//! | `population` | prefill 2^20 keys (1M), plus 2^20 fresh keys inserted concurrently by W writers; reader mode (map only) adds 256 hotspot keys, one at offset 1 of every terminal byte of a 2^16-wide expanse, to every cell's prefill, and a hotspot cell's writers insert that expanse's other 65,280 keys instead of the 2^20 fresh keys; readers-only mode (set, str) prefills the arm's 2^20-key writer-sweep prefill and inserts nothing. Writer mode's `bytes` arm uses the `str` arm's `short` keys under a fixed-key SipHash hasher; its `blob` arm uses the map arm's 64-bit keys with a 32-byte key-derived arena payload and non-zero 24-bit metadata |
-//! | `insertion_order` | sorted — prefill ascending (reader mode: the sorted union with the hotspot keys), matching expanse-hot-bench; fresh stream in generator draw order; hotspot fresh keys Fisher–Yates shuffled |
-//! | `probes_and_reuse` | writer mode: none (R = 0), insert-only. Reader mode: R readers, each cycling its own Fisher–Yates permutation of the present uniform prefill (`uniform`) or of the 255 hotspot keys above the expanse's first terminal byte (`hotspot`); `get` or `prev_before` on a reader handle, or `prev_before` under `with_locked`, over the identical stream. Readers-only mode (set, str): R readers, each walking its own Fisher–Yates permutation of the prefill once, `contains` or `get` on a reader handle |
+//! | `emits` | `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`, `concurrency_writer_str`, `concurrency_writer_bytes`, `concurrency_writer_blob_64bit`, `concurrency_writer_blob_overwrite_64bit`, `concurrency_ordered_readers_map_64bit`, `concurrency_readers_set_63bit`, `concurrency_readers_str` |
+//! | `population` | prefill 2^20 keys (1M), plus 2^20 fresh keys inserted concurrently by W writers; reader mode (map only) adds 256 hotspot keys, one at offset 1 of every terminal byte of a 2^16-wide expanse, to every cell's prefill, and a hotspot cell's writers insert that expanse's other 65,280 keys instead of the 2^20 fresh keys; readers-only mode (set, str) prefills the arm's 2^20-key writer-sweep prefill and inserts nothing. Writer mode's `bytes` arm uses the `str` arm's `short` keys under a fixed-key SipHash hasher; its `blob` arm uses the map arm's 64-bit keys with a 32-byte key-derived arena payload and non-zero 24-bit metadata; the blob overwrite cell prefills the same 2^20 keys and performs 2^20 overwrites of them, inserting no fresh key |
+//! | `insertion_order` | sorted — prefill ascending (reader mode: the sorted union with the hotspot keys), matching expanse-hot-bench; fresh stream in generator draw order; hotspot fresh keys Fisher–Yates shuffled; blob overwrite targets in per-writer stream draw order over a Fisher–Yates rank table |
+//! | `probes_and_reuse` | writer mode: none (R = 0), insert-only; the blob overwrite cell re-targets prefilled keys, uniformly or Zipfian θ = 0.99 over the rank table, each writer on its own stream. Reader mode: R readers, each cycling its own Fisher–Yates permutation of the present uniform prefill (`uniform`) or of the 255 hotspot keys above the expanse's first terminal byte (`hotspot`); `get` or `prev_before` on a reader handle, or `prev_before` under `with_locked`, over the identical stream. Readers-only mode (set, str): R readers, each walking its own Fisher–Yates permutation of the prefill once, `contains` or `get` on a reader handle |
 //! | `hit_rate` | writer mode: n/a. Reader mode: 100% — every probe is a present key; a hotspot `prev_before` fails in its own terminal byte and answers from the sibling below, until a writer inserts that byte's offset-0 key. Readers-only mode: 100% |
 //! | `miss_gen_method` | same-generator rejection sampling against prefill; reader probes draw no misses |
-//! | `value_dereference` | map arms check stored values against key-derived expectation; the blob arm checks payload bytes and metadata; reader results fold key and value into a `black_box` accumulator |
-//! | `measured_region` | writer mode: barrier release to last-writer join. Reader mode: barrier release to the last writer join (writers) and to the last reader join (readers); with W ≥ 1 readers stop once the writers have joined, with W = 0 each makes 2^20 probes; prefill, workload generation, reader registration, answer checks and teardown outside; every reader-mode throughput row also records each reader's own loop time |
+//! | `value_dereference` | map arms check stored values against key-derived expectation; the blob arm checks payload bytes and metadata, and its overwrite cell that each read-back key holds its prefill or exactly one overwrite that targeted it; reader results fold key and value into a `black_box` accumulator |
+//! | `measured_region` | writer mode: barrier release to last-writer join; the blob overwrite cell's prefill, Zipfian table, rank draws and read-back check are outside. Reader mode: barrier release to the last writer join (writers) and to the last reader join (readers); with W ≥ 1 readers stop once the writers have joined, with W = 0 each makes 2^20 probes; prefill, workload generation, reader registration, answer checks and teardown outside; every reader-mode throughput row also records each reader's own loop time |
 //! | `arm_symmetry` | symmetric across thread counts; W in {1, 2, 4, 8} on physical P-cores; reader mode: `prev` and `prev_locked` run the same per-reader probe stream over the same tree, interleaved within each round by the driver; readers-only mode: the map (reader mode W = 0 `get`), set and str arms at R in {1, 2, 4, 8}, the R cells of each arm interleaved within each round by the driver |
 //! | `statistics` | throughput ops/sec emitted raw, paired bootstrap BCa 95% CI for C(N); lock fallbacks and their six causes (partition-checked per row) from the occ-stats counters pass; reader mode: reader Mops/s with a BCa 95% CI per cell, the P12.5 per-round paired `prev` / `prev_locked` ratio with a BCa 95% CI, and P12.4's summed `read_fallbacks ÷ read_ops` from the counters pass; readers-only mode: reader Mops/s with a BCa 95% CI per (arm, R), S(R) = T(R) / T(1) paired within each round with a BCa 95% CI, slowest-over-mean reader loop time per round, and summed read counters |
 //! | `verdict` | pending measurement |
@@ -162,6 +205,12 @@ use expanse_trie::strmap::NulFreeStr;
 use expanse_trie::sync::{
     SyncExpanseBlobMap, SyncExpanseBytesMap, SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap,
 };
+
+// The repository's one Zipfian generator (Gray et al.), shared with the YCSB
+// suites; METHODOLOGY §21.11 names it as the blob overwrite cell's.
+#[path = "../benches/ycsb_common/mod.rs"]
+mod ycsb_common;
+use ycsb_common::{XorShift64, ZIPFIAN_THETA, ZipfianGenerator};
 
 /// The six fallback causes. They partition `Stat::LockFallbacks` exactly —
 /// every fallback carries one cause (`tests/test_fallback_attribution.rs`) —
@@ -1029,6 +1078,333 @@ fn run_blob_cell(
 }
 
 // ---------------------------------------------------------------------------
+// The blob overwrite cell (#929, docs/benchmarks/concurrency/METHODOLOGY.md
+// §21.4 G4 and §21.11)
+// ---------------------------------------------------------------------------
+
+/// Seed of the Fisher–Yates permutation that maps a rank to a prefill key.
+pub const SEED_BLOB_RANK: u64 = SEED_PREFILL ^ 0x5EED_C0DE_0000_0B10;
+/// Base seed of the per-writer key-choice streams.
+pub const SEED_BLOB_OVERWRITE: u64 = SEED_PREFILL ^ 0x5EED_C0DE_0000_0B11;
+/// Odd multiplier that separates the writer index in a stream seed (φ64).
+const STREAM_WRITER_MIX: u64 = 0x9E37_79B9_7F4A_7C15;
+/// Odd multiplier that separates the round in a stream seed.
+const STREAM_ROUND_MIX: u64 = 0xD1B5_4A32_D192_ED03;
+/// Bits of an overwrite counter that hold the op index; the writer sits above.
+const OVERWRITE_OP_BITS: u32 = 40;
+
+/// What the blob arm's writers do.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum BlobOp {
+    /// Fresh keys, the §21.4 G1–G3 cell.
+    Insert,
+    /// Overwrites of prefilled keys, the §21.4 G4 cell.
+    Overwrite,
+}
+
+impl BlobOp {
+    fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "insert" => Ok(Self::Insert),
+            "overwrite" => Ok(Self::Overwrite),
+            other => Err(format!(
+                "--blob-op takes insert or overwrite, got {other:?}"
+            )),
+        }
+    }
+}
+
+/// How an overwrite picks its key.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum KeyDist {
+    Uniform,
+    Zipfian,
+}
+
+impl KeyDist {
+    fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "uniform" => Ok(Self::Uniform),
+            "zipfian" => Ok(Self::Zipfian),
+            other => Err(format!(
+                "--key-dist takes uniform or zipfian, got {other:?}"
+            )),
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Uniform => "uniform",
+            Self::Zipfian => "zipfian",
+        }
+    }
+
+    /// The skew the row reports: `ZIPFIAN_THETA`, or 0 for uniform choice.
+    fn theta(self) -> f64 {
+        match self {
+            Self::Uniform => 0.0,
+            Self::Zipfian => ZIPFIAN_THETA,
+        }
+    }
+}
+
+/// The overwrite cell's fixed inputs: the fresh-insert cell's prefill, and the
+/// rank → key table both key distributions index.
+struct BlobOverwriteWorkload {
+    /// Ascending: the keys `WriterWorkload::generate(n0, _, 64)` prefills.
+    prefill: Vec<u64>,
+    /// `rank_keys[r]` is the key of rank `r`: a Fisher–Yates permutation of
+    /// `prefill`, so the hot ranks are spread over the keyspace rather than
+    /// packed into the lowest leaves of the sorted prefill.
+    rank_keys: Vec<u64>,
+    /// Built once per process, outside every timed window: its constructor
+    /// sums an N0-term zeta.
+    zipf: ZipfianGenerator,
+    keyspace_bits: u32,
+}
+
+impl BlobOverwriteWorkload {
+    fn generate(n_prefill: usize) -> Self {
+        assert!(
+            n_prefill > 0 && n_prefill <= u32::MAX as usize,
+            "overwrite prefill must be in 1..=u32::MAX"
+        );
+        let base = WriterWorkload::generate(n_prefill, 0, 64);
+        let mut rank_keys = base.prefill.clone();
+        let mut rng = XorShift::new(SEED_BLOB_RANK);
+        for i in (1..rank_keys.len()).rev() {
+            let j = (rng.next() % (i as u64 + 1)) as usize;
+            rank_keys.swap(i, j);
+        }
+        Self {
+            zipf: ZipfianGenerator::new(n_prefill as u64, ZIPFIAN_THETA),
+            prefill: base.prefill,
+            rank_keys,
+            keyspace_bits: base.keyspace_bits,
+        }
+    }
+
+    /// Writer `w`'s ranks for `round`: `len` draws from its own stream, seeded
+    /// from (suite seed, writer index, round).
+    fn stream(&self, dist: KeyDist, w: usize, round: usize, len: usize) -> Vec<u32> {
+        let seed = SEED_BLOB_OVERWRITE
+            ^ (w as u64 + 1).wrapping_mul(STREAM_WRITER_MIX)
+            ^ (round as u64 + 1).wrapping_mul(STREAM_ROUND_MIX);
+        let mut rng = XorShift64::new(seed);
+        let n = self.rank_keys.len() as u64;
+        (0..len)
+            .map(|_| match dist {
+                KeyDist::Zipfian => self.zipf.next(rng.next_f64()) as u32,
+                KeyDist::Uniform => (rng.next_u64() % n) as u32,
+            })
+            .collect()
+    }
+}
+
+/// The per-op counter of writer `w`'s `i`-th overwrite. Never zero.
+#[inline]
+fn overwrite_counter(w: usize, i: usize) -> u64 {
+    ((w as u64 + 1) << OVERWRITE_OP_BITS) | (i as u64 + 1)
+}
+
+/// An overwrite's payload: the counter, then three rotations of a word
+/// derived from the key and the counter, so a payload names the op that wrote
+/// it and cannot be assembled from two ops' halves.
+#[inline]
+fn overwrite_payload(k: u64, c: u64) -> [u8; BLOB_PAYLOAD_LEN] {
+    let v = value_of(k ^ c.wrapping_mul(STREAM_ROUND_MIX));
+    let mut out = [0u8; BLOB_PAYLOAD_LEN];
+    out[..8].copy_from_slice(&c.to_le_bytes());
+    for i in 1..BLOB_PAYLOAD_LEN / 8 {
+        out[8 * i..8 * (i + 1)].copy_from_slice(&v.rotate_left(13 * i as u32).to_le_bytes());
+    }
+    out
+}
+
+/// An overwrite's 24-bit metadata. Never zero, as [`blob_meta`].
+#[inline]
+fn overwrite_meta(k: u64, c: u64) -> u32 {
+    ((value_of(k ^ c.wrapping_mul(STREAM_ROUND_MIX)) >> 40) as u32 & 0x00FF_FFFF) | 1
+}
+
+/// What one overwrite cell reports beyond its time and counters.
+struct BlobOverwriteOutcome {
+    elapsed_s: f64,
+    final_pop: u64,
+    counters: Counters,
+    /// Overwrites performed, summed over the writers.
+    overwrites: u64,
+    /// Distinct prefill keys the streams targeted.
+    distinct_keys: u64,
+    /// Keys read back after the window, and how many of them held an overwrite.
+    verified_keys: u64,
+    verified_overwritten: u64,
+}
+
+/// Every rank the check reads back: the 64 hottest, then every 1,000th.
+fn overwrite_check_ranks(n: usize) -> impl Iterator<Item = usize> {
+    (0..n.min(64)).chain((64..n).step_by(1_000))
+}
+
+/// What a blob read returns: the payload and its metadata word, or nothing.
+type BlobRead = Option<(Vec<u8>, u32)>;
+
+/// One read-back key: the payload and metadata must be the prefill's when no
+/// stream targeted the key, and otherwise one single overwrite's — naming a
+/// writer and an op index whose stream entry is this key.
+fn check_overwrite_readback(
+    workload: &BlobOverwriteWorkload,
+    streams: &[Vec<u32>],
+    rank: usize,
+    targeted: bool,
+    got: BlobRead,
+) -> Result<bool, String> {
+    let k = workload.rank_keys[rank];
+    let (payload, meta) = got.ok_or_else(|| format!("key {k:#x} (rank {rank}) is absent"))?;
+    let is_prefill = payload == blob_payload(k) && meta == blob_meta(k);
+    if !targeted {
+        return if is_prefill {
+            Ok(false)
+        } else {
+            Err(format!(
+                "key {k:#x} (rank {rank}) was never targeted but does not hold its prefill payload"
+            ))
+        };
+    }
+    if is_prefill {
+        return Err(format!(
+            "key {k:#x} (rank {rank}) was targeted but still holds its prefill payload"
+        ));
+    }
+    if payload.len() != BLOB_PAYLOAD_LEN {
+        return Err(format!(
+            "key {k:#x} (rank {rank}) holds {} payload bytes",
+            payload.len()
+        ));
+    }
+    let c = u64::from_le_bytes(payload[..8].try_into().expect("eight bytes"));
+    let w = (c >> OVERWRITE_OP_BITS) as usize;
+    let i = (c & ((1u64 << OVERWRITE_OP_BITS) - 1)) as usize;
+    let named = w
+        .checked_sub(1)
+        .and_then(|w| streams.get(w))
+        .zip(i.checked_sub(1))
+        .and_then(|(s, i)| s.get(i));
+    if named != Some(&(rank as u32)) {
+        return Err(format!(
+            "key {k:#x} (rank {rank}) holds counter {c:#x}, which names no overwrite of this key"
+        ));
+    }
+    if payload != overwrite_payload(k, c) || meta != overwrite_meta(k, c) {
+        return Err(format!(
+            "key {k:#x} (rank {rank}) holds a payload or metadata that is not counter {c:#x}'s"
+        ));
+    }
+    Ok(true)
+}
+
+fn run_blob_overwrite_cell(
+    workload: &BlobOverwriteWorkload,
+    overwrites: usize,
+    dist: KeyDist,
+    writers: usize,
+    round: usize,
+    is_counters: bool,
+    perf_ctl: &mut PerfControl,
+) -> Result<BlobOverwriteOutcome, String> {
+    let map = SyncExpanseBlobMap::new();
+    for &k in &workload.prefill {
+        map.insert(k, &blob_payload(k), blob_meta(k))
+            .expect("blob prefill insert");
+    }
+
+    // Each writer's share of the M overwrites, the last taking the remainder,
+    // as the fresh-insert cell splits its keys.
+    let per = overwrites / writers.max(1);
+    let streams: Vec<Vec<u32>> = (0..writers)
+        .map(|w| {
+            let len = if w + 1 == writers {
+                overwrites - per * w
+            } else {
+                per
+            };
+            workload.stream(dist, w, round, len)
+        })
+        .collect();
+    let mut targeted = vec![false; workload.rank_keys.len()];
+    for &r in streams.iter().flatten() {
+        targeted[r as usize] = true;
+    }
+
+    let barrier = Barrier::new(writers + 1);
+    if is_counters {
+        occ_stats::reset();
+    }
+
+    let start = std::thread::scope(|s| {
+        for (w, stream) in streams.iter().enumerate() {
+            let b = &barrier;
+            let m = &map;
+            let rank_keys = &workload.rank_keys;
+            s.spawn(move || {
+                b.wait();
+                for (i, &r) in stream.iter().enumerate() {
+                    let k = rank_keys[r as usize];
+                    let c = overwrite_counter(w, i);
+                    m.insert(k, &overwrite_payload(k, c), overwrite_meta(k, c))
+                        .expect("blob overwrite");
+                }
+            });
+        }
+
+        perf_ctl.enable();
+        barrier.wait();
+        Instant::now()
+    });
+    perf_ctl.disable();
+
+    let elapsed_s = if is_counters {
+        0.0
+    } else {
+        start.elapsed().as_secs_f64()
+    };
+    let counters = Counters::read(is_counters);
+    let final_pop = map.with_locked(|m| m.len());
+    if final_pop != workload.prefill.len() as u64 {
+        return Err(format!(
+            "population {final_pop} after {overwrites} overwrites of {} prefilled keys at round {round}: \
+             an overwrite must not change it",
+            workload.prefill.len()
+        ));
+    }
+
+    let mut reader = map.reader();
+    let (mut verified_keys, mut verified_overwritten) = (0u64, 0u64);
+    for rank in overwrite_check_ranks(workload.rank_keys.len()) {
+        let got = reader.get(workload.rank_keys[rank]);
+        let overwritten = check_overwrite_readback(workload, &streams, rank, targeted[rank], got)
+            .map_err(|e| format!("round {round}: {e}"))?;
+        verified_keys += 1;
+        verified_overwritten += u64::from(overwritten);
+    }
+    if verified_overwritten == 0 {
+        return Err(format!(
+            "round {round}: none of the {verified_keys} keys read back held an overwrite"
+        ));
+    }
+
+    Ok(BlobOverwriteOutcome {
+        elapsed_s,
+        final_pop,
+        counters,
+        overwrites: streams.iter().map(|s| s.len() as u64).sum(),
+        distinct_keys: targeted.iter().filter(|&&t| t).count() as u64,
+        verified_keys,
+        verified_overwritten,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Reader mode (#900, docs/benchmarks/concurrency/METHODOLOGY.md §12.4)
 // ---------------------------------------------------------------------------
 
@@ -1810,6 +2186,33 @@ fn parse_flag<T: std::str::FromStr>(args: &[String], flag: &str) -> Result<Optio
         .transpose()
 }
 
+/// `--blob-op` and `--key-dist`, both optional. Either flag needs `--arm blob`
+/// exactly and writer mode; `--key-dist` needs `--blob-op overwrite`, since a
+/// fresh insert has no key to choose.
+fn blob_flags(args: &[String], readers: usize) -> Result<(BlobOp, KeyDist), String> {
+    let op_arg = flag_value(args, "--blob-op")?;
+    let dist_arg = flag_value(args, "--key-dist")?;
+    let op = op_arg.map(BlobOp::parse).transpose()?;
+    let dist = dist_arg.map(KeyDist::parse).transpose()?;
+    if op.is_some() || dist.is_some() {
+        let arm = flag_value(args, "--arm")?.unwrap_or("all");
+        if arm != "blob" || readers > 0 {
+            return Err(format!(
+                "--blob-op and --key-dist select the blob arm's writer cell: they need --arm blob \
+                 and no --readers, got --arm {arm} and --readers {readers}"
+            ));
+        }
+    }
+    let op = op.unwrap_or(BlobOp::Insert);
+    if op == BlobOp::Insert && dist.is_some() {
+        return Err(
+            "--key-dist chooses which existing key an overwrite targets: it needs --blob-op overwrite"
+                .into(),
+        );
+    }
+    Ok((op, dist.unwrap_or(KeyDist::Uniform)))
+}
+
 /// Reader mode: one (W, R, read op, probe) cell over `--round` or `--rounds`.
 fn reader_main(args: &[String], is_counters: bool, readers: usize) -> Result<(), String> {
     match flag_value(args, "--arm")?.unwrap_or("map") {
@@ -2192,6 +2595,139 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
         return Err("blob workload: metadata must be non-zero and payloads key-derived".into());
     }
 
+    // The blob overwrite cell (METHODOLOGY §21.4 G4, §21.11): same prefill as
+    // the fresh-insert cell, a rank table that is a permutation of it, streams
+    // that are a function of (writer, round), a skew the uniform stream lacks,
+    // and a read-back check that refuses what it must.
+    let wl_ow = BlobOverwriteWorkload::generate(n0);
+    if wl_ow.prefill != wl_blob.prefill {
+        return Err("blob overwrite: prefill differs from the fresh-insert cell's".into());
+    }
+    let mut sorted_ranks = wl_ow.rank_keys.clone();
+    sorted_ranks.sort_unstable();
+    if sorted_ranks != wl_ow.prefill || wl_ow.rank_keys == wl_ow.prefill {
+        return Err(
+            "blob overwrite: rank table must be a non-identity permutation of the prefill".into(),
+        );
+    }
+    for dist in [KeyDist::Uniform, KeyDist::Zipfian] {
+        let a = wl_ow.stream(dist, 0, 0, m);
+        if a != wl_ow.stream(dist, 0, 0, m)
+            || a == wl_ow.stream(dist, 1, 0, m)
+            || a == wl_ow.stream(dist, 0, 1, m)
+        {
+            return Err(format!(
+                "blob overwrite: the {} stream must be a function of (writer, round) and differ across both",
+                dist.name()
+            ));
+        }
+        if a.iter().any(|&r| r as usize >= n0) {
+            return Err(format!("blob overwrite: {} rank out of range", dist.name()));
+        }
+    }
+    let rank0 = |dist| {
+        wl_ow
+            .stream(dist, 0, 0, m)
+            .iter()
+            .filter(|&&r| r == 0)
+            .count()
+    };
+    // Under θ = 0.99 rank 0 draws 1/ζ(n0) of the stream, above 10% at this
+    // n0; uniform choice gives it 1/n0. A factor of 20 separates them at any
+    // seed without pinning a draw count.
+    if rank0(KeyDist::Zipfian) < 20 * rank0(KeyDist::Uniform).max(1) {
+        return Err(format!(
+            "blob overwrite: rank 0 drew {} of {m} under zipfian and {} under uniform",
+            rank0(KeyDist::Zipfian),
+            rank0(KeyDist::Uniform)
+        ));
+    }
+    for dist in [KeyDist::Uniform, KeyDist::Zipfian] {
+        let ctx = format!("self-test blob overwrite {}", dist.name());
+        let out = run_blob_overwrite_cell(&wl_ow, m, dist, 2, 0, is_counters, &mut dummy_ctl)
+            .map_err(|e| format!("{ctx}: {e}"))?;
+        if out.final_pop != n0 as u64 || out.overwrites != m as u64 {
+            return Err(format!(
+                "{ctx}: population {} after {} overwrites, expected {n0} after {m}",
+                out.final_pop, out.overwrites
+            ));
+        }
+        if out.distinct_keys == 0 || out.distinct_keys > n0 as u64 {
+            return Err(format!("{ctx}: {} distinct keys", out.distinct_keys));
+        }
+        if is_counters {
+            out.counters.check(m as u64, 0, &ctx)?;
+        } else if out.elapsed_s <= 0.0 {
+            return Err(format!("{ctx}: invalid elapsed {}", out.elapsed_s));
+        }
+    }
+    // The read-back check, one refusal per clause, on a one-writer stream
+    // whose first op targets rank 5.
+    {
+        let streams = vec![vec![5u32, 9]];
+        let k = wl_ow.rank_keys[5];
+        let c = overwrite_counter(0, 0);
+        let good = Some((overwrite_payload(k, c).to_vec(), overwrite_meta(k, c)));
+        let prefill = Some((blob_payload(k).to_vec(), blob_meta(k)));
+        let foreign_c = overwrite_counter(0, 1); // an op that targeted rank 9
+        let foreign = Some((
+            overwrite_payload(k, foreign_c).to_vec(),
+            overwrite_meta(k, foreign_c),
+        ));
+        let mut torn = overwrite_payload(k, c).to_vec();
+        torn[16..].copy_from_slice(&blob_payload(k)[16..]);
+        let wrong_meta = Some((overwrite_payload(k, c).to_vec(), blob_meta(k) ^ 2));
+        let cases: [(&str, bool, BlobRead, Option<bool>); 7] = [
+            ("overwritten", true, good.clone(), Some(true)),
+            ("untouched", false, prefill.clone(), Some(false)),
+            ("absent", true, None, None),
+            ("targeted but prefill", true, prefill, None),
+            ("untargeted but overwritten", false, good, None),
+            ("foreign counter", true, foreign, None),
+            (
+                "torn payload",
+                true,
+                Some((torn, overwrite_meta(k, c))),
+                None,
+            ),
+        ];
+        for (name, targeted, got, want) in cases {
+            let res = check_overwrite_readback(&wl_ow, &streams, 5, targeted, got).ok();
+            if res != want {
+                return Err(format!(
+                    "blob overwrite read-back `{name}`: got {res:?}, expected {want:?}"
+                ));
+            }
+        }
+        if check_overwrite_readback(&wl_ow, &streams, 5, true, wrong_meta).is_ok() {
+            return Err("blob overwrite read-back accepted a foreign metadata word".into());
+        }
+    }
+    // Flag combinations that would run a different workload than the one named.
+    let argv = |s: &str| -> Vec<String> { s.split_whitespace().map(String::from).collect() };
+    for (line, readers, ok) in [
+        ("--arm blob --blob-op overwrite --key-dist zipfian", 0, true),
+        ("--arm blob --blob-op overwrite", 0, true),
+        ("--arm blob", 0, true),
+        ("--arm all", 0, true),
+        ("--arm map --blob-op overwrite", 0, false),
+        ("--arm all --blob-op insert", 0, false),
+        ("--blob-op overwrite", 0, false),
+        ("--arm blob --key-dist zipfian", 0, false),
+        ("--arm blob --blob-op insert --key-dist uniform", 0, false),
+        ("--arm blob --blob-op overwrite --key-dist skewed", 0, false),
+        ("--arm blob --blob-op replace", 0, false),
+        ("--arm blob --blob-op overwrite", 2, false),
+        ("--arm blob --blob-op", 0, false),
+    ] {
+        if blob_flags(&argv(line), readers).is_ok() != ok {
+            return Err(format!(
+                "blob flags `{line}` (readers {readers}): expected {}",
+                if ok { "accepted" } else { "refused" }
+            ));
+        }
+    }
+
     // Reader mode (#900). First the hotspot geometry the §12.4 cells rest on.
     let hot = HotspotExpanse::generate();
     if hot.base & (HOTSPOT_WIDTH - 1) != 0 {
@@ -2453,6 +2989,16 @@ fn main() {
     // with `--readers 0`) everything below is the writer sweep, unchanged.
     let readers = match parse_flag::<usize>(&args, "--readers") {
         Ok(r) => r.unwrap_or(0),
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    };
+    // The blob arm's op and key choice (METHODOLOGY §21.4 G4, §21.11). Refused
+    // anywhere they would be ignored: a cell that silently ran fresh inserts
+    // under `--blob-op overwrite` would publish the wrong workload (AGENTS.md §8.1).
+    let (blob_op, key_dist) = match blob_flags(&args, readers) {
+        Ok(v) => v,
         Err(e) => {
             eprintln!("{e}");
             std::process::exit(1);
@@ -2743,7 +3289,78 @@ fn main() {
         }
     }
 
-    if run_blob {
+    if run_blob && blob_op == BlobOp::Overwrite {
+        eprintln!(
+            "generating blob 64-bit overwrite workload (prefill={n0}, overwrites={m}, key_dist={})...",
+            key_dist.name()
+        );
+        let wl = BlobOverwriteWorkload::generate(n0);
+        let bits = wl.keyspace_bits;
+        let dist = key_dist.name();
+        let theta = key_dist.theta();
+        for round in round_start..round_end {
+            let round_writers = williams_order(&writers_list, round);
+            for (pos, &w) in round_writers.iter().enumerate() {
+                let pos = position_opt.unwrap_or(pos);
+                let cell = format!("blob_overwrite_{dist}_w{w}_r0");
+                let out = match run_blob_overwrite_cell(
+                    &wl,
+                    m,
+                    key_dist,
+                    w,
+                    round,
+                    is_counters,
+                    &mut perf_ctl,
+                ) {
+                    Ok(out) => out,
+                    Err(e) => {
+                        eprintln!("{cell}: {e}");
+                        std::process::exit(1);
+                    }
+                };
+                let write_ops = out.overwrites;
+                // Shared by both roles: the insert cell's row shape, plus what
+                // names this workload (METHODOLOGY §21.11).
+                let head = format!(
+                    "\"arm\":\"expanse\",\"cell\":\"{cell}\",\"keyspace_bits\":{bits},\
+                     \"payload_bytes\":{BLOB_PAYLOAD_LEN},\"blob_op\":\"overwrite\",\
+                     \"key_dist\":\"{dist}\",\"theta\":{theta},\
+                     \"prefill\":{n0},\"fresh_keys\":0,\"overwrites\":{write_ops},\
+                     \"distinct_keys_overwritten\":{dk},\"verified_keys\":{vk},\
+                     \"verified_overwritten\":{vo},\"writers\":{w},\"readers\":0,\
+                     \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops}",
+                    dk = out.distinct_keys,
+                    vk = out.verified_keys,
+                    vo = out.verified_overwritten,
+                );
+                let final_pop = out.final_pop;
+                if is_counters {
+                    let counters = out.counters;
+                    if let Err(e) = counters.check(write_ops, 0, &format!("{cell} round {round}")) {
+                        eprintln!("counter identity violated: {e}");
+                        std::process::exit(1);
+                    }
+                    println!(
+                        "{{\"workload_id\":\"concurrency_writer_blob_overwrite_64bit\",\"role\":\"counters\",\
+                         {head},\"tsc_hz\":{tsc_hz},\
+                         \"lock_fallbacks\":{fb},\"inserts\":{ins},{extra},\"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
+                        fb = counters.lock_fallbacks,
+                        ins = counters.inserts,
+                        extra = counters.extra_counters_json(),
+                        causes = counters.causes_json(),
+                    );
+                } else {
+                    let elapsed_s = out.elapsed_s;
+                    let writer_mops = (write_ops as f64) / elapsed_s / 1e6;
+                    println!(
+                        "{{\"workload_id\":\"concurrency_writer_blob_overwrite_64bit\",\"role\":\"throughput\",\
+                         {head},\"writer_elapsed_s\":{elapsed_s:.6},\
+                         \"writer_mops\":{writer_mops:.4},\"tsc_hz\":{tsc_hz},\"population_after\":{final_pop}}}"
+                    );
+                }
+            }
+        }
+    } else if run_blob {
         eprintln!("generating blob 64-bit workload (prefill={n0}, fresh={m})...");
         let wl = WriterWorkload::generate(n0, m, 64);
         let bits = wl.keyspace_bits;
