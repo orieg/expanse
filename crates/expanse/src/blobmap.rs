@@ -1157,7 +1157,7 @@ impl ExpanseBlobMap {
         self.index.set_tree_pop(pop);
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn prepare_slot(
         &mut self,
         data: &[u8],
@@ -1180,18 +1180,15 @@ impl ExpanseBlobMap {
         }
     }
 
-    #[inline]
-    pub(crate) fn insert_slot(&mut self, key: Key, slot: ValueSlot) -> Option<ValueSlot> {
+    #[inline(always)]
+    pub(crate) fn insert_slot(&mut self, key: Key, slot: ValueSlot) {
         if let Some(old_raw) = self.index.insert(key, slot.to_raw()) {
             let old = ValueSlot::from_raw(old_raw);
             self.arena.record_deleted_slot(old);
-            Some(old)
-        } else {
-            None
         }
     }
 
-    #[inline]
+    #[inline(always)]
     #[cfg(all(target_pointer_width = "64", feature = "std"))]
     #[allow(dead_code)]
     pub(crate) fn record_deleted_slot(&mut self, slot: ValueSlot) {
@@ -1228,8 +1225,25 @@ impl ExpanseBlobMap {
     /// 24-bit metadata; `hot_meta` exceeding 24 bits returns
     /// [`ArenaError::MetaOverflow`] rather than being truncated.
     pub fn insert(&mut self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
-        let slot = self.prepare_slot(data, hot_meta)?;
-        self.insert_slot(key, slot);
+        let slot = if data.len() <= 7 {
+            ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)?
+        } else if hot_meta == 0
+            && let Some(slot) = crate::codec::try_compress_inline(data)
+        {
+            slot
+        } else {
+            // Validate the metadata envelope *before* allocating arena bytes, so a
+            // rejected insert leaves no orphaned payload behind.
+            if hot_meta > ValueSlot::ARENA_META_MAX {
+                return Err(ArenaError::MetaOverflow);
+            }
+            let global = self.arena.alloc_blob(data)?;
+            slot_from_global(global, hot_meta)?
+        };
+
+        if let Some(old_raw) = self.index.insert(key, slot.to_raw()) {
+            self.arena.record_deleted_slot(ValueSlot::from_raw(old_raw));
+        }
         Ok(())
     }
 
