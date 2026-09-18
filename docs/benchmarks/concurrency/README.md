@@ -3896,3 +3896,108 @@ first evaluation's range: P 0.957–0.960, G2 1.554–1.577,
 2.789–2.836 and 4.958–5.234 at two, four and eight
 writers. Fallback rates are 0 at every W. `d78bc172` is the evaluated head the
 change merges from. §18.3's limits apply unchanged.
+
+## 19. The #929 blob gate at `378fe3a3` — METHODOLOGY §21's verdict: not met (Refs #929)
+
+### 19.1 Verdict
+
+METHODOLOGY §21's gate is **not met** at `378fe3a3`: thirty-two of forty cells
+read `PASS` and eight read `REFUTED` — G2 (level) at W = 4 and W = 8, under
+both pins, in both runs. G1 (scaling), G3 (price, floor 0.90) and G4 (overwrite
+under skew, floor 0.50) pass in every cell. The four artifacts are admissible:
+registered pin and commit recorded in each, 8 rounds, one process per cell,
+void lists empty, and the §21.4 tripwire read and not tripped (zero
+`lock_restarts` in the single-writer counters rows). §21 was locked (#1025)
+and its §21.11 corrections merged (#1026) before the first dispatch. The
+Callgrind precondition was read on the engine change's own
+`instruction-counts` run
+[35366489080](https://github.com/orieg/expanse/actions/runs/35366489080): the
+four `sync_blobmap_*` mutation arms rose (+4.85% to +15.27%) under §21.4's
+pre-authorised override, `sync_blobmap_get/random` fell 0.54%, and no other
+arm moved by more than 0.1%. Per AGENTS.md §8.19 the bound does not move to
+the measurement: the multi-writer `SyncExpanseBlobMap` insert path is on
+`main`, and what it delivers is what §19.3 says, not what §21.3 would have
+licensed.
+
+### 19.2 The cells
+
+Per-round paired statistics, BCa 95%, 8 rounds
+*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads, commit
+`378fe3a3`; (workloads: `concurrency_writer_blob_64bit` for G1–G3 and the
+peak ratio, `concurrency_writer_blob_overwrite_64bit` for G4); artifacts
+`results/gate_929_blob_writer_scaling_pin0to15_378fe3a3_run{1,2}.json` and
+`results/gate_929_blob_writer_scaling_378fe3a3_run{1,2}.json`)*. G1 is the
+ratio of scaling factors against the serialised build
+(`ablation-blob-serial-writers`); G2 is the head at W over the serialised
+build's best cell at any writer count, which is its W = 1 cell in every round;
+G4 is the head's overwrite throughput under Zipfian key choice (θ = 0.99) over
+the same workload under uniform key choice (§21.11):
+
+| pin | run | W | G1 scaling | verdict | G2 level | verdict | G4 skew ÷ uniform | verdict |
+|---|--:|--:|--:|---|--:|---|--:|---|
+| `0-15` | 1 | 2 | 1.690 [1.642, 1.720] | `PASS` | 1.112 [1.102, 1.117] | `PASS` | 1.139 [1.116, 1.156] | `PASS` |
+| `0-15` | 1 | 4 | 1.663 [1.645, 1.689] | `PASS` | 0.969 [0.955, 0.988] | `REFUTED` | 1.153 [1.139, 1.161] | `PASS` |
+| `0-15` | 1 | 8 | 1.562 [1.532, 1.595] | `PASS` | 0.787 [0.781, 0.791] | `REFUTED` | 1.115 [1.110, 1.129] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 1 | 2 | 1.695 [1.665, 1.708] | `PASS` | 1.110 [1.104, 1.114] | `PASS` | 1.157 [1.137, 1.182] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 1 | 4 | 1.642 [1.598, 1.666] | `PASS` | 0.970 [0.936, 0.988] | `REFUTED` | 1.127 [1.101, 1.152] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 1 | 8 | 1.525 [1.486, 1.559] | `PASS` | 0.789 [0.786, 0.793] | `REFUTED` | 1.100 [1.091, 1.112] | `PASS` |
+| `0-15` | 2 | 2 | 1.671 [1.623, 1.708] | `PASS` | 1.111 [1.099, 1.119] | `PASS` | 1.131 [1.107, 1.154] | `PASS` |
+| `0-15` | 2 | 4 | 1.625 [1.582, 1.674] | `PASS` | 0.965 [0.960, 0.972] | `REFUTED` | 1.118 [1.099, 1.137] | `PASS` |
+| `0-15` | 2 | 8 | 1.544 [1.499, 1.581] | `PASS` | 0.786 [0.777, 0.791] | `REFUTED` | 1.081 [1.065, 1.101] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 2 | 2 | 1.696 [1.647, 1.719] | `PASS` | 1.116 [1.107, 1.128] | `PASS` | 1.165 [1.137, 1.196] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 2 | 4 | 1.635 [1.616, 1.649] | `PASS` | 0.967 [0.957, 0.986] | `REFUTED` | 1.126 [1.107, 1.145] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 2 | 8 | 1.498 [1.448, 1.547] | `PASS` | 0.786 [0.781, 0.791] | `REFUTED` | 1.093 [1.080, 1.103] | `PASS` |
+
+G3 is the single-writer price, head ÷ serialised build at W = 1; the peak ratio
+X(8)/X(4) is reported and gates nothing:
+
+| pin | run | G3 price | verdict | peak X(8)/X(4) |
+|---|--:|--:|---|--:|
+| `0-15` | 1 | 0.925 [0.922, 0.930] | `PASS` | 0.812 [0.797, 0.828] |
+| `0,2,4,6,8,10,12,14` | 1 | 0.924 [0.922, 0.927] | `PASS` | 0.815 [0.799, 0.846] |
+| `0-15` | 2 | 0.926 [0.922, 0.930] | `PASS` | 0.814 [0.805, 0.822] |
+| `0,2,4,6,8,10,12,14` | 2 | 0.929 [0.923, 0.933] | `PASS` | 0.813 [0.801, 0.821] |
+
+Median throughput behind those ratios, M inserts/s, fresh-insert cell:
+
+| pin | run | head W=1 | W=2 | W=4 | W=8 | serial W=1 | W=2 | W=4 | W=8 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| `0-15` | 1 | 4.50 | 5.43 | 4.72 | 3.82 | 4.88 | 3.45 | 3.07 | 2.68 |
+| `0,2,4,6,8,10,12,14` | 1 | 4.50 | 5.42 | 4.78 | 3.84 | 4.87 | 3.45 | 3.13 | 2.75 |
+| `0-15` | 2 | 4.54 | 5.41 | 4.71 | 3.84 | 4.88 | 3.46 | 3.18 | 2.67 |
+| `0,2,4,6,8,10,12,14` | 2 | 4.52 | 5.43 | 4.70 | 3.84 | 4.86 | 3.44 | 3.09 | 2.80 |
+
+`lock_restarts` in the head's counters pass, summed over 8 rounds (reported;
+only the W = 1 column is the tripwire):
+
+| pin | run | W=1 | W=2 | W=4 | W=8 |
+|---|--:|--:|--:|--:|--:|
+| `0-15` | 1 | 0 | 10593 | 18418 | 22888 |
+| `0,2,4,6,8,10,12,14` | 1 | 0 | 10257 | 17001 | 22020 |
+| `0-15` | 2 | 0 | 10378 | 17873 | 22386 |
+| `0,2,4,6,8,10,12,14` | 2 | 0 | 10206 | 17926 | 21824 |
+
+### 19.3 What the verdict says, and what it does not
+
+- **One writer pays about 7.5%** (ratio 0.924–0.929, every interval inside
+  [0.922, 0.933]), inside the registered floor.
+- **The head's throughput is retrograde past two writers.** It rises from one
+  writer to two and falls from there: the peak ratio X(8)/X(4) is 0.812–0.815
+  with every interval below 1. Two writers deliver about 1.11× the serialised
+  build's best cell; four deliver 0.965–0.970× and eight 0.786–0.789×. A caller
+  who adds writers past two gets less than a single writer on the serialised
+  build gives.
+- **G1 passes because the serialised build degrades faster**, not because the
+  head scales: G1 compares scaling factors, and the serialised build falls from
+  its W = 1 cell to 0.55–0.58 of it at W = 8. §21 registered G2 beside G1 for
+  this case, as §19 did.
+- **Skewed overwrites are not the weak point.** G4's ratio is above 1 in every
+  cell: overwriting hot keys under θ = 0.99 is faster than overwriting uniform
+  keys. The cause is unmeasured here.
+- **No mechanism is attributed.** The arm takes one mutex around every arena
+  allocation, and the counters pass records restarts that grow with W; neither
+  has been ablated, so neither is named as the cause of the retrograde curve
+  (AGENTS.md §8.9, §8.20.3). Both pins agree on every cell, so the per-core
+  pin's oversubscription is not the explanation.
+- Removals, compaction under writers, reads under writers, other payload sizes
+  and the bytes wrapper are not measured by this gate.
