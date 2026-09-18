@@ -1850,6 +1850,7 @@ impl<T: SharedTree> Shared<T> {
     /// compaction table republication) or whole-tree states (`clear`, fallback
     /// insert) that concurrent readers validate against the tree version word.
     #[inline(always)]
+    #[allow(dead_code)]
     fn write_quiesced<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
     where
         T: RootState,
@@ -2003,6 +2004,45 @@ impl<T: SharedTree> Shared<T> {
         inner.clear_path();
         drop(_g);
         #[cfg(feature = "std")]
+        self.reopen_gate();
+        res
+    }
+
+    /// Promoted architecture (Refs #929, AGENTS.md §2.7): [`Self::with_locked`]
+    /// with a `pre` step that gets the engine mutably once the writers are
+    /// drained and before `f` sees it, so state the optimistic writers keep
+    /// outside the engine (the blob wrapper's per-slot live-byte deltas) is
+    /// folded in under the same quiescence `f` reads under.
+    #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+    fn with_locked_pre<R>(&self, pre: impl FnOnce(&mut T), f: impl FnOnce(&T) -> R) -> R {
+        crate::occ_stats::bump(crate::occ_stats::Stat::LockedReads);
+        let _fallback = self.fallback_mutex.lock().expect("fallback mutex poisoned");
+        self.quiesce_writers();
+        let _g: MutexGuard<'_, ()> = self.write.lock().expect("writer lock poisoned");
+        // SAFETY: the writer mutex and WriterGate quiescence exclude all concurrent
+        // readers of the engine's plain fields and all writers, so this is the
+        // only mutable borrow (as in `with_locked`).
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.clear_path();
+        pre(inner);
+        let mut mask = [0u32; 8];
+        if self.dirty_digits.take(&mut mask) {
+            // SAFETY: writers are quiesced and the write lock is held.
+            let top_ptr = unsafe { inner.root_top_ptr() };
+            if !top_ptr.is_null() {
+                // SAFETY: the root top pointer is non-null and points to an EBR-live root Edge.
+                let folded = unsafe { fold_branch_pop0_selective(top_ptr, 8, &mask) };
+                inner.set_tree_pop(folded);
+                self.tree_pop.flush_and_set(folded);
+            }
+        } else {
+            let pop = self.tree_pop.load();
+            inner.set_tree_pop(pop);
+            self.tree_pop.flush_and_set(pop);
+        }
+        let res = f(inner);
+        inner.clear_path();
+        drop(_g);
         self.reopen_gate();
         res
     }
@@ -8098,6 +8138,120 @@ impl OwnedMapReader {
     map_reader_ordered_reads!(map);
 }
 
+/// Promoted architecture (Refs #929, AGENTS.md §2.7): one writer slot's
+/// private arena state, on a cache line of its own.
+///
+/// **Ownership.** `busy` is a try-lock. An optimistic writer takes it after
+/// entering the writer gate and releases it before leaving, and only its holder
+/// touches `state`. It exists because a writer slot is not a thread: once all
+/// `MAX_WRITER_SLOTS` of a tree's writer table are allocated, further threads
+/// hash onto taken slots (`WriterTable::allocate_slot`), so two live writers can
+/// share one. The loser of the try-lock takes the shared `arena_write` path for
+/// that insert. With one thread per slot the compare-exchange never fails and
+/// the line never leaves its owner's core.
+///
+/// **A dead thread's slot.** The writer table never recycles a slot, so a
+/// thread that exits leaves its partially filled chunk behind in the slot. The
+/// chunk's unwritten tail is slack: it stays charged to `total_allocated` and
+/// is reclaimed by the next compaction, like the tail of any chunk the shared
+/// allocator moved past. It is inherited — never double-owned, because
+/// `busy` is the only way in — by a thread that later hashes onto the slot.
+///
+/// **Quiesced sections** (`fold_writer_arenas`, `reset_writer_chunks`) touch
+/// `state` without taking `busy`: they run with the gate closed and every slot
+/// drained, and a writer holds `busy` only inside the gate.
+#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+#[repr(align(64))]
+struct WriterArena {
+    busy: core::sync::atomic::AtomicBool,
+    state: UnsafeCell<WriterArenaState>,
+}
+
+#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+struct WriterArenaState {
+    /// The chunk this slot bump-allocates into; `None` until the first arena
+    /// insert, and again after every compaction or clear.
+    chunk: Option<crate::blobmap::PrivateChunk>,
+    /// Bump pointer into `chunk`, 16-byte aligned.
+    cursor: usize,
+    /// Live bytes this slot allocated minus live bytes it overwrote since the
+    /// last fold. Signed: the record a slot overwrites may have been charged
+    /// to another slot, or to the arena itself.
+    live_delta: isize,
+}
+
+// SAFETY: `state` is reached only by the holder of `busy` or by a quiesced
+// section (see the type's docs), so it is never accessed from two threads at
+// once; the raw chunk pointer it holds refers to an allocation the arena owns
+// and that outlives every access (chunks are dropped only by compaction or
+// clear, which reset this state in the same quiesced section).
+#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+unsafe impl Sync for WriterArena {}
+// SAFETY: as above — the pointer is to arena-owned memory, not thread-affine.
+#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+unsafe impl Send for WriterArena {}
+
+#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+impl WriterArena {
+    fn new() -> Self {
+        Self {
+            busy: core::sync::atomic::AtomicBool::new(false),
+            state: UnsafeCell::new(WriterArenaState {
+                chunk: None,
+                cursor: 0,
+                live_delta: 0,
+            }),
+        }
+    }
+
+    /// Takes the slot's private arena, or `None` when another live writer
+    /// sharing the slot holds it.
+    #[inline]
+    fn try_own(&self) -> Option<WriterArenaOwner<'_>> {
+        use core::sync::atomic::Ordering;
+        self.busy
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .ok()
+            .map(|_| WriterArenaOwner(self))
+    }
+}
+
+/// Holder of a [`WriterArena`]'s `busy` flag; releases it on drop.
+#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+struct WriterArenaOwner<'a>(&'a WriterArena);
+
+#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+impl WriterArenaOwner<'_> {
+    #[inline]
+    fn state(&mut self) -> &mut WriterArenaState {
+        // SAFETY: this owner holds `busy`, which admits one holder at a time,
+        // and quiesced sections cannot run while it exists (it lives inside a
+        // writer-gate guard); `&mut self` keeps the borrow unique here.
+        unsafe { &mut *self.0.state.get() }
+    }
+}
+
+#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+impl Drop for WriterArenaOwner<'_> {
+    fn drop(&mut self) {
+        self.0
+            .busy
+            .store(false, core::sync::atomic::Ordering::Release);
+    }
+}
+
+/// Promoted architecture (Refs #929, AGENTS.md §2.7): heap-allocated per-writer
+/// arena state for [`SyncExpanseBlobMap`]. Boxed so that `SyncExpanseBlobMap` contains
+/// no unboxed interior-mutable fields, preserving `Freeze` and struct size invariants.
+#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+struct BlobWriterArenas {
+    arenas: Box<[WriterArena]>,
+    unowned_live_delta: core::sync::atomic::AtomicIsize,
+    chunk_size: usize,
+    arena_epoch: core::sync::atomic::AtomicU64,
+    has_writer_deltas: core::sync::atomic::AtomicBool,
+}
+
 /// A blob map shareable across threads (issue #219 Phase 1): one writer at a
 /// time (internally serialized), validated optimistic readers with epoch-pinned
 /// zero-copy payload borrows. See the module docs for the protocol and its
@@ -8123,6 +8277,10 @@ pub struct SyncExpanseBlobMap {
     #[cfg(feature = "std")]
     #[allow(dead_code)]
     arena_write: Box<Line<Mutex<()>>>,
+    /// Promoted architecture (Refs #929, AGENTS.md §2.7): per-writer-slot private
+    /// arenas, indexed by the writer guard's `slot_id()`.
+    #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+    writer_arenas: Box<BlobWriterArenas>,
 }
 
 impl Default for SyncExpanseBlobMap {
@@ -8154,11 +8312,172 @@ impl SyncExpanseBlobMap {
         // whole allocations and defer in place.
         map.rebuild_index_deferred(&collector);
         map.arena().defer_to(Arc::clone(&collector));
+        #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+        let chunk_size = map.arena().chunk_size();
         Self {
             shared: Shared::with_collector(map, collector),
             #[cfg(feature = "std")]
             arena_write: Box::new(line(Mutex::new(()))),
+            #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+            writer_arenas: Box::new(BlobWriterArenas {
+                arenas: (0..crate::occ::MAX_WRITER_SLOTS)
+                    .map(|_| WriterArena::new())
+                    .collect(),
+                unowned_live_delta: core::sync::atomic::AtomicIsize::new(0),
+                chunk_size,
+                arena_epoch: core::sync::atomic::AtomicU64::new(0),
+                has_writer_deltas: core::sync::atomic::AtomicBool::new(false),
+            }),
         }
+    }
+
+    /// Promoted architecture (Refs #929, AGENTS.md §2.7): folds every writer slot's
+    /// live-byte delta into the arena, so the engine's accounting is exact for
+    /// the quiesced section that follows. Every serialised section of this
+    /// wrapper that reads or changes `live_bytes` calls it first — the arena
+    /// subtracts overwritten bytes with `saturating_sub`, which is only right
+    /// against a folded total.
+    ///
+    /// Must run inside a quiesced section (gate closed, slots drained, writer
+    /// mutex held): that is what makes the unsynchronised `state` access sound.
+    #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+    fn fold_writer_arenas(&self, m: &mut ExpanseBlobMap) {
+        use core::sync::atomic::Ordering;
+        if !self.writer_arenas.has_writer_deltas.swap(false, Ordering::AcqRel) {
+            return;
+        }
+        let mut total = self.writer_arenas.unowned_live_delta.swap(0, Ordering::AcqRel);
+        for wa in &self.writer_arenas.arenas {
+            debug_assert!(
+                !wa.busy.load(Ordering::Acquire),
+                "a writer holds its arena inside a quiesced section"
+            );
+            // SAFETY: quiesced — no writer is inside the gate, and a writer
+            // holds `busy` (its only route to `state`) only inside the gate.
+            let st = unsafe { &mut *wa.state.get() };
+            total += core::mem::take(&mut st.live_delta);
+        }
+        if total != 0 {
+            m.fold_arena_live_delta(total);
+        }
+    }
+
+    /// Promoted architecture (Refs #929, AGENTS.md §2.7): forgets every slot's private
+    /// chunk. Compaction and clear replace the arena's whole chunk set and
+    /// retire the old chunks, so a slot that kept its chunk would write records
+    /// into retired memory under a chunk index that now names a different
+    /// chunk (or none). Same quiescence requirement as `fold_writer_arenas`.
+    #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+    fn reset_writer_chunks(&self) {
+        use core::sync::atomic::Ordering;
+        self.writer_arenas.arena_epoch.fetch_add(1, Ordering::AcqRel);
+        self.writer_arenas.unowned_live_delta.store(0, Ordering::Release);
+        for wa in &self.writer_arenas.arenas {
+            // SAFETY: quiesced, as in `fold_writer_arenas`.
+            let st = unsafe { &mut *wa.state.get() };
+            st.chunk = None;
+            st.cursor = 0;
+            st.live_delta = 0;
+        }
+    }
+
+    /// Promoted architecture (Refs #929, AGENTS.md §2.7): allocates `data` in the
+    /// calling writer's private chunk, taking the shared `arena_write` mutex
+    /// only to obtain a new chunk when the current one cannot fit the record.
+    #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+    fn alloc_private(
+        &self,
+        owner: &mut WriterArenaOwner<'_>,
+        data: &[u8],
+        hot_meta: u32,
+    ) -> Result<ValueSlot, ArenaError> {
+        if hot_meta > ValueSlot::ARENA_META_MAX {
+            return Err(ArenaError::MetaOverflow);
+        }
+        let needed = 8 + data.len();
+        if needed > self.writer_arenas.chunk_size {
+            return Err(ArenaError::AllocationFailed);
+        }
+        let chunk_size = self.writer_arenas.chunk_size;
+        let st = owner.state();
+        let chunk = match st.chunk {
+            Some(c) if st.cursor + needed <= c.capacity => c,
+            _ => {
+                let _arena_guard = self.arena_write.lock().expect("arena write lock poisoned");
+                // SAFETY: `arena_write` is held inside the writer gate, which
+                // excludes every other mutation of the chunk set (other
+                // writers' grants and shared allocations take the same mutex;
+                // quiesced sections wait for this writer to leave the gate).
+                let grant =
+                    unsafe { ExpanseBlobMap::grant_private_chunk_raw(self.shared.inner.get())? };
+                st.chunk = Some(grant);
+                st.cursor = 0;
+                grant
+            }
+        };
+        let off = st.cursor;
+        // SAFETY: `off + needed <= capacity` of a chunk the arena owns and
+        // keeps alive until a compaction or clear, neither of which can run
+        // while this writer is inside the gate. Only this slot's owner writes
+        // the chunk, and `off` is past every record it has written, so no
+        // locator to these bytes exists yet: readers reach a record only
+        // through a slot word, and this record's slot word is published by
+        // `olc_insert_map` (or the serialised fallback) strictly after this
+        // write returns — the record write happens-before its publication.
+        unsafe {
+            crate::blobmap::write_record(chunk.base.as_ptr(), off, chunk.generation, data);
+        }
+        st.cursor = (off + needed + 15) & !15;
+        st.live_delta += needed as isize;
+        self.writer_arenas
+            .has_writer_deltas
+            .store(true, core::sync::atomic::Ordering::Release);
+        let global = (chunk.index as u64) * (chunk_size as u64) + (off as u64);
+        crate::blobmap::slot_from_global(global, hot_meta)
+    }
+
+    /// Promoted architecture (Refs #929, AGENTS.md §2.7): charges an overwritten arena
+    /// record's bytes as dead, without the shared mutex. The record's length is
+    /// read through the published chunk table, as a reader would.
+    ///
+    /// # Safety
+    ///
+    /// The caller must hold an epoch pin and be inside the writer gate, and
+    /// `old_slot` must be the `ArenaMeta` word its insert just replaced.
+    #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+    unsafe fn charge_overwritten(
+        &self,
+        owner: Option<&mut WriterArenaOwner<'_>>,
+        old_slot: ValueSlot,
+    ) {
+        // SAFETY: single atomic load of the published table pointer, as in
+        // `BlobReadGuard::get`.
+        let table = unsafe { (*self.shared.inner.get()).arena().reader_table() };
+        // SAFETY: the caller's pin predates the load, so the table and its
+        // chunks are EBR-live. The replaced word was published after its
+        // record was written and after the table naming its chunk was
+        // published, and tables only grow between compactions (none can run
+        // while this writer is inside the gate), so the current table names
+        // the chunk and the header read is of a completed record.
+        let resolved =
+            unsafe { crate::blobmap::resolve_meta_in_table(table, old_slot.arena_meta_locator()) };
+        debug_assert!(
+            resolved.is_some(),
+            "an overwritten arena record must resolve through the published table"
+        );
+        let Some((_, len)) = resolved else { return };
+        let dead = (8 + len) as isize;
+        match owner {
+            Some(owner) => owner.state().live_delta -= dead,
+            None => {
+                self.writer_arenas
+                    .unowned_live_delta
+                    .fetch_sub(dead, core::sync::atomic::Ordering::AcqRel);
+            }
+        }
+        self.writer_arenas
+            .has_writer_deltas
+            .store(true, core::sync::atomic::Ordering::Release);
     }
 
     /// Inserts `key → data` with 24-bit hot metadata.
@@ -8187,6 +8506,12 @@ impl SyncExpanseBlobMap {
                 if !self.shared.inner_ref().root_is_tree() {
                     crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                     crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
+                    #[cfg(not(feature = "ablation-blob-shared-arena"))]
+                    return self.shared.write_quiesced(|m| {
+                        self.fold_writer_arenas(m);
+                        m.insert(key, data, hot_meta)
+                    });
+                    #[cfg(feature = "ablation-blob-shared-arena")]
                     return self
                         .shared
                         .write_quiesced(|m| m.insert(key, data, hot_meta));
@@ -8194,6 +8519,16 @@ impl SyncExpanseBlobMap {
 
                 let guard = self.shared.enter_writer_blocking();
                 let slot_id = guard.slot_id();
+                // Declared after `guard`, so it is dropped first on every
+                // early return: a writer holds its arena only inside the gate.
+                #[cfg(not(feature = "ablation-blob-shared-arena"))]
+                let mut own = self.writer_arenas.arenas[slot_id].try_own();
+                // Read inside the gate, where no compaction or clear can run.
+                #[cfg(not(feature = "ablation-blob-shared-arena"))]
+                let arena_epoch = self
+                    .writer_arenas
+                    .arena_epoch
+                    .load(core::sync::atomic::Ordering::Acquire);
 
                 let slot = if data.len() <= 7 {
                     ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)?
@@ -8202,9 +8537,27 @@ impl SyncExpanseBlobMap {
                 {
                     inline_slot
                 } else {
-                    let _arena_guard = self.arena_write.lock().expect("arena write lock poisoned");
-                    // SAFETY: arena_write is held; no concurrent writer mutates the arena.
-                    unsafe { (*self.shared.inner.get()).prepare_slot(data, hot_meta)? }
+                    #[cfg(not(feature = "ablation-blob-shared-arena"))]
+                    {
+                        match own.as_mut() {
+                            Some(owner) => self.alloc_private(owner, data, hot_meta)?,
+                            None => {
+                                // Another live writer shares this slot and holds
+                                // its arena: the shared allocation path.
+                                let _arena_guard =
+                                    self.arena_write.lock().expect("arena write lock poisoned");
+                                // SAFETY: arena_write is held; no concurrent writer mutates the arena.
+                                unsafe { (*self.shared.inner.get()).prepare_slot(data, hot_meta)? }
+                            }
+                        }
+                    }
+                    #[cfg(feature = "ablation-blob-shared-arena")]
+                    {
+                        let _arena_guard =
+                            self.arena_write.lock().expect("arena write lock poisoned");
+                        // SAFETY: arena_write is held; no concurrent writer mutates the arena.
+                        unsafe { (*self.shared.inner.get()).prepare_slot(data, hot_meta)? }
+                    }
                 };
 
                 let res = self.shared.with_writer_pin(|| {
@@ -8229,6 +8582,14 @@ impl SyncExpanseBlobMap {
                                     self.shared.tree_pop.add(slot_id, 1);
                                 } else if let Some(old_raw) = prev {
                                     let old_slot = ValueSlot::from_raw(old_raw);
+                                    #[cfg(not(feature = "ablation-blob-shared-arena"))]
+                                    if old_slot.tag() == SlotTag::ArenaMeta {
+                                        // SAFETY: inside `with_writer_pin` and the
+                                        // writer gate; `old_slot` is the word this
+                                        // insert replaced.
+                                        unsafe { self.charge_overwritten(own.as_mut(), old_slot) };
+                                    }
+                                    #[cfg(feature = "ablation-blob-shared-arena")]
                                     if old_slot.tag() == SlotTag::ArenaMeta {
                                         let _arena_guard = self
                                             .arena_write
@@ -8271,14 +8632,44 @@ impl SyncExpanseBlobMap {
                     }
                     Err(cause)
                 });
+                // Release the slot's arena before leaving the gate: the
+                // serialised fallback below folds every slot's state.
+                #[cfg(not(feature = "ablation-blob-shared-arena"))]
+                drop(own);
                 drop(guard);
                 match res {
                     Ok(()) => Ok(()),
                     Err(_) => {
-                        self.shared.write_quiesced(|m| {
-                            m.insert_slot(key, slot);
-                        });
-                        Ok(())
+                        #[cfg(not(feature = "ablation-blob-shared-arena"))]
+                        {
+                            self.shared.write_quiesced(|m| {
+                                self.fold_writer_arenas(m);
+                                // `slot` was prepared inside the gate, and the
+                                // gate has been left since: a compaction or a
+                                // clear may have run in between and retired the
+                                // chunk the record lives in, taking the record
+                                // with it (it was in no index slot yet). The
+                                // locator is then stale, so the payload is
+                                // prepared again from `data`.
+                                let epoch_now = self
+                                    .writer_arenas
+                                    .arena_epoch
+                                    .load(core::sync::atomic::Ordering::Acquire);
+                                if epoch_now == arena_epoch {
+                                    m.insert_slot(key, slot);
+                                    Ok(())
+                                } else {
+                                    m.insert(key, data, hot_meta)
+                                }
+                            })
+                        }
+                        #[cfg(feature = "ablation-blob-shared-arena")]
+                        {
+                            self.shared.write_quiesced(|m| {
+                                m.insert_slot(key, slot);
+                            });
+                            Ok(())
+                        }
                     }
                 }
             }
@@ -8295,7 +8686,21 @@ impl SyncExpanseBlobMap {
         {
             self.shared.write(|m| m.remove(key))
         }
-        #[cfg(not(feature = "ablation-blob-serial-writers"))]
+        #[cfg(all(
+            not(feature = "ablation-blob-serial-writers"),
+            not(feature = "ablation-blob-shared-arena"),
+            feature = "std"
+        ))]
+        {
+            self.shared.remove_root_covered(|m| {
+                self.fold_writer_arenas(m);
+                m.remove(key)
+            })
+        }
+        #[cfg(all(
+            not(feature = "ablation-blob-serial-writers"),
+            any(feature = "ablation-blob-shared-arena", not(feature = "std"))
+        ))]
         {
             self.shared.remove_root_covered(|m| m.remove(key))
         }
@@ -8309,7 +8714,25 @@ impl SyncExpanseBlobMap {
         {
             self.shared.write(ExpanseBlobMap::compact)
         }
-        #[cfg(not(feature = "ablation-blob-serial-writers"))]
+        #[cfg(all(
+            not(feature = "ablation-blob-serial-writers"),
+            not(feature = "ablation-blob-shared-arena"),
+            feature = "std"
+        ))]
+        {
+            self.shared.write_quiesced(|m| {
+                self.fold_writer_arenas(m);
+                let stats = m.compact();
+                if stats.is_ok() {
+                    self.reset_writer_chunks();
+                }
+                stats
+            })
+        }
+        #[cfg(all(
+            not(feature = "ablation-blob-serial-writers"),
+            any(feature = "ablation-blob-shared-arena", not(feature = "std"))
+        ))]
         {
             self.shared.write_quiesced(ExpanseBlobMap::compact)
         }
@@ -8321,7 +8744,21 @@ impl SyncExpanseBlobMap {
         {
             self.shared.write(|m| m.clear());
         }
-        #[cfg(not(feature = "ablation-blob-serial-writers"))]
+        #[cfg(all(
+            not(feature = "ablation-blob-serial-writers"),
+            not(feature = "ablation-blob-shared-arena"),
+            feature = "std"
+        ))]
+        {
+            self.shared.write_quiesced(|m| {
+                self.reset_writer_chunks();
+                m.clear();
+            });
+        }
+        #[cfg(all(
+            not(feature = "ablation-blob-serial-writers"),
+            any(feature = "ablation-blob-shared-arena", not(feature = "std"))
+        ))]
         {
             self.shared.write_quiesced(|m| m.clear());
         }
@@ -8390,7 +8827,15 @@ impl SyncExpanseBlobMap {
     /// the full single-threaded read API (`scan_filtered`, iteration over
     /// [`ExpanseBlobMap::index`], persistence, …).
     pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseBlobMap) -> R) -> R {
-        self.shared.with_locked(f)
+        #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+        {
+            self.shared
+                .with_locked_pre(|m| self.fold_writer_arenas(m), f)
+        }
+        #[cfg(any(feature = "ablation-blob-shared-arena", not(feature = "std")))]
+        {
+            self.shared.with_locked(f)
+        }
     }
 }
 
@@ -11071,12 +11516,16 @@ mod tests {
                             if max_k > 0 {
                                 let k = (rng.next() % max_k) + 1;
                                 let guard = rd.pin();
-                                let (view, meta) = guard.get(k).unwrap_or_else(|| {
+                                let Some((view, meta)) = guard.get(k) else {
+                                    if in_churn_phase.load(Ordering::Acquire) {
+                                        // Phase 2 started and concurrently removed `k`.
+                                        continue;
+                                    }
                                     panic!(
                                         "defect-2 regression: model-present key {k} read as None \
                                          while writer only inserts and compacts"
-                                    )
-                                });
+                                    );
+                                };
                                 assert_eq!(
                                     view.as_bytes(),
                                     &blob_payload_of(k)[..],

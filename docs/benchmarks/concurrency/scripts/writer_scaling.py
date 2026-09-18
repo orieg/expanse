@@ -138,6 +138,7 @@ INVERSE_ABLATIONS = {
     "ablation-unstriped-freelist",
     "ablation-str-serial-writers",
     "ablation-blob-serial-writers",
+    "ablation-blob-shared-arena",
 }
 
 # Every writer-mode arm, in sweep order, for `--arm all`. `map` and `set` run

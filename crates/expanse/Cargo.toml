@@ -88,6 +88,18 @@ ablation-str-serial-writers = []
 # section 21), kept so the default can be measured against it (AGENTS.md
 # section 2.7).
 ablation-blob-serial-writers = []
+# Diagnostic-only (Refs #929, AGENTS.md §2.7): restores the pre-promotion
+# shared arena_write mutex path for SyncExpanseBlobMap, where every arena
+# insert serialized on the mutex. Kept so the promoted per-writer private
+# arenas default can itself be ablated. Mutually exclusive with
+# `ablation-blob-serial-writers`.
+ablation-blob-shared-arena = []
+# Retired name, promoted to the default architecture (Refs #929): each writer slot
+# bump-allocates arena payloads into a chunk it owns privately, taking `arena_write`
+# only to obtain a new chunk. Kept declared so Cargo does not reject an old
+# `--features ablation-blob-writer-arenas` invocation; `lib.rs` turns it into a
+# compiler error naming the inverse (AGENTS.md §2.7).
+ablation-blob-writer-arenas = []
 
 
 [dependencies]
