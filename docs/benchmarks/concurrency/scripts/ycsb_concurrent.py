@@ -38,14 +38,10 @@ from __future__ import annotations
 
 import argparse
 import collections
-import contextlib
-import datetime
 import json
 import os
-import platform
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -53,15 +49,8 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import bench_pin  # noqa: E402
-import bca_bootstrap  # noqa: E402
 from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
-from bench_provenance import (  # noqa: E402
-    MIN_WINDOW_S,
-    begin_cell,
-    end_cell,
-    estimators,
-    new_provenance,
-)
+from bench_provenance import new_provenance  # noqa: E402
 
 try:
     import fit_usl  # noqa: E402
