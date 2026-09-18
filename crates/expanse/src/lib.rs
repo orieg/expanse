@@ -63,6 +63,22 @@ compile_error!(
      scaling on the default build, use the writer_scaling suite."
 );
 
+#[cfg(feature = "ablation-blob-writer-arenas")]
+compile_error!(
+    "ablation-blob-writer-arenas has been promoted to the default architecture (Refs #929); \
+     use ablation-blob-shared-arena to restore the shared-arena path."
+);
+
+#[cfg(all(
+    feature = "ablation-blob-shared-arena",
+    feature = "ablation-blob-serial-writers"
+))]
+compile_error!(
+    "ablation-blob-shared-arena changes the blob wrapper's optimistic insert path, which \
+     ablation-blob-serial-writers removes; the combination would measure the serial path alone. \
+     Enable one of the two."
+);
+
 #[cfg(target_pointer_width = "64")]
 mod algebra;
 #[cfg(target_pointer_width = "64")]
