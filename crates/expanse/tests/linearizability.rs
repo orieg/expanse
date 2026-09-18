@@ -8,6 +8,9 @@ use std::time::Instant;
 use expanse_trie::strmap::NulFreeStr;
 use expanse_trie::sync::{SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap};
 
+#[path = "../benches/ycsb_common/mod.rs"]
+mod ycsb_common;
+
 #[derive(Clone, Debug, PartialEq)]
 enum Op {
     Insert(u64, u64),
@@ -175,6 +178,96 @@ fn test_sync_map_linearizability() {
             key
         );
     }
+}
+
+/// Concurrent OCC linearizability verification on a Zipfian key sample (METHODOLOGY §20.12 item 8, §20.15).
+///
+/// Under Zipfian key choice (θ = 0.99 over 256 keys), operations collide on the
+/// lowest ranks with high probability, exercising real-time concurrency boundaries
+/// on hot keys while verifying that every key's history admits a valid sequential
+/// linearization via `check_linearizability_for_key`.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_map_linearizability_zipfian() {
+    let map = Arc::new(SyncExpanseMap::new());
+    let history = Arc::new(Mutex::new(Vec::new()));
+
+    const NUM_KEYS: u64 = 256;
+    let zipf = ycsb_common::ZipfianGenerator::new(NUM_KEYS, ycsb_common::ZIPFIAN_THETA);
+
+    let num_threads = 4;
+    let ops_per_thread = 50;
+
+    let mut handles = vec![];
+
+    for t_id in 0..num_threads {
+        let map_clone = Arc::clone(&map);
+        let history_clone = Arc::clone(&history);
+        let zipf_clone = zipf.clone();
+
+        handles.push(thread::spawn(move || {
+            let mut local_events = Vec::with_capacity(ops_per_thread);
+            let mut rng = ycsb_common::XorShift64::new(
+                0x717F_0000 ^ (t_id as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15),
+            );
+
+            for i in 0..ops_per_thread {
+                let rank = zipf_clone.next(rng.next_f64());
+                let key = rank;
+
+                let op = match (t_id + i) % 3 {
+                    0 => Op::Insert(key, (t_id * 1000 + i + 1) as u64),
+                    1 => Op::Remove(key),
+                    _ => Op::Get(key),
+                };
+
+                let start = Instant::now();
+                let ret = match &op {
+                    Op::Insert(k, v) => Ret::Insert(map_clone.insert(*k, *v)),
+                    Op::Remove(k) => Ret::Remove(map_clone.remove(*k)),
+                    Op::Get(k) => Ret::Get(map_clone.get(*k)),
+                };
+                let end = Instant::now();
+
+                local_events.push(Event {
+                    op,
+                    ret,
+                    start,
+                    end,
+                });
+            }
+
+            let mut h = history_clone.lock().unwrap();
+            h.extend(local_events);
+        }));
+    }
+
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    let history = history.lock().unwrap().clone();
+    assert_eq!(history.len(), num_threads * ops_per_thread);
+
+    // Group by key
+    let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
+    for e in history {
+        by_key.entry(e.op.key()).or_default().push(e);
+    }
+
+    let mut total_verified = 0;
+    for (key, events) in by_key {
+        total_verified += events.len();
+        assert!(
+            check_linearizability_for_key(&events),
+            "Zipfian linearizability violation for key {key} with {} events",
+            events.len()
+        );
+    }
+    assert_eq!(total_verified, num_threads * ops_per_thread);
 }
 
 /// Single-threaded, Miri-safe companion to [`test_sync_map_linearizability`].

@@ -80,8 +80,14 @@ GOLDEN_CASES = [
     (
         "the writer-scaling driver's `scripts/` imports reach its self-test",
         ["scripts/bca_bootstrap.py"],
-        {"writer-scaling-selftest", "lint"},
+        {"writer-scaling-selftest", "ycsb-concurrent-selftest", "lint"},
         {"miri", "test-asan"},
+    ),
+    (
+        "the ycsb-concurrent driver's bounds script reaches its self-test",
+        ["scripts/ycsb_concurrent_bounds.py"],
+        {"ycsb-concurrent-selftest", "lint"},
+        {"miri", "test-asan", "writer-scaling-selftest"},
     ),
     (
         "the public-api snapshot reaches the job that diffs against it",

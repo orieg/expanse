@@ -39,6 +39,7 @@ jobs:
       tooling: ${{ steps.filter.outputs.tooling }}
       perf-tooling: ${{ steps.filter.outputs.perf-tooling }}
       concurrency-instrument: ${{ steps.filter.outputs.concurrency-instrument }}
+      ycsb-concurrent-instrument: ${{ steps.filter.outputs.ycsb-concurrent-instrument }}
       visualizer: ${{ steps.filter.outputs.visualizer }}
       python: ${{ steps.filter.outputs.python }}
       node: ${{ steps.filter.outputs.node }}
@@ -197,6 +198,13 @@ jobs:
             concurrency-instrument:
               - 'docs/benchmarks/concurrency/scripts/writer_scaling.py'
               - 'crates/expanse/examples/writer_scaling.rs'
+              - 'scripts/bench_pin.py'
+              - 'scripts/bca_bootstrap.py'
+              - 'scripts/bench_provenance.py'
+            ycsb-concurrent-instrument:
+              - 'docs/benchmarks/concurrency/scripts/ycsb_concurrent.py'
+              - 'crates/expanse/examples/ycsb_concurrent.rs'
+              - 'scripts/ycsb_concurrent_bounds.py'
               - 'scripts/bench_pin.py'
               - 'scripts/bca_bootstrap.py'
               - 'scripts/bench_provenance.py'
@@ -1921,6 +1929,22 @@ jobs:
       - name: Writer scaling instrument self-test
         run: python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --self-test
 
+  ycsb-concurrent-selftest:
+    name: Perf / YCSB Concurrent Instrument Self-Test
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.ycsb-concurrent-instrument == 'true' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|ycsb-concurrent-selftest|')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: YCSB concurrent instrument self-test
+        run: python3 docs/benchmarks/concurrency/scripts/ycsb_concurrent.py --self-test
+
   loom:
     name: Safety / Loom Concurrency Race Model
     needs: [detect-changes]
@@ -3044,6 +3068,7 @@ jobs:
       - differential-oracle
       - memory-budget
       - writer-scaling-selftest
+      - ycsb-concurrent-selftest
       - loom
       - wasm-fuel
       - fuzz-smoke

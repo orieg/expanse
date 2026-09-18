@@ -245,6 +245,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "ycsb_concurrent",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Concurrent YCSB benchmark suite over SyncExpanseMap across competitor arms (Zipfian \u03b8 = 0.99 and uniform, read-latest and read-modify-write, METHODOLOGY.md \u00a720, Refs #1006); outputs baseline_ycsb_concurrent.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "point_lookup_counters",
       "available": true,
       "kind": "counters",

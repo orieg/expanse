@@ -957,7 +957,15 @@ pub fn run_cell(
     }
 }
 
-/// Concurrent benchmark execution for `SyncExpanseMap`.
+/// Concurrent smoke test execution for `SyncExpanseMap` (Refs #1006).
+///
+/// **Smoke test only, NOT a measurement.** This routine is a coarse harness used
+/// by integration tests (`tests/test_ycsb.rs`) to exercise concurrent readers and
+/// writers under basic scheduling. Workloads D and E use the B mix on Zipfian keys,
+/// F performs `reader.get` followed by `map.insert` without mutual exclusion, the
+/// window is timed via `thread::sleep`, and rates divide by the nominal sleep duration.
+/// It is NOT an instrumented benchmark and does NOT produce publishable measurements
+/// (see `docs/benchmarks/concurrency/METHODOLOGY.md` §20.1, §20.12 item 6).
 pub fn run_concurrent_ycsb(
     readers_count: usize,
     workload: Workload,
