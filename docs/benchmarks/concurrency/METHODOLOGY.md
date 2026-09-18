@@ -3507,8 +3507,9 @@ During concurrent churn (inserts, relocations, and compactions), two subtle read
 ### 21.11 Correction: G4 was registered before the instrument could run it (2026-09-18, after the lock and before any admissible run)
 
 No threshold, statistic, pin, round count, cell count or verdict rule changes.
-§21.1–§21.10 are left as locked; where they disagree with this subsection, the
-disagreement is stated rather than edited away (AGENTS.md §8.7).
+§21.1–§21.10 are left as locked; where they disagree with this subsection, this
+subsection is what was meant, and the disagreement is stated rather than edited
+away (AGENTS.md §8.7).
 
 **1. The order of events.** §21.6 names as a prerequisite that
 `writer_scaling.py --gate-929-blob` "computes G1, G2, G3, G4, and X(8)/X(4)".
@@ -3591,17 +3592,33 @@ bump-allocates a new record (`BlobArena::alloc_blob`) and the record it replaces
 is only subtracted from `live_bytes` (`record_deleted`); nothing compacts during
 the cell. Read G4 as overwrites at a fixed key population.
 
-**7. Two disagreements this note records and does not resolve (Refs #929).**
-- §21.6 gives the fresh-insert cell as N0 = 0 prefill. The instrument's blob
-  fresh-insert cell prefills 2^20 keys and then inserts 2^20 fresh ones, as
-  every writer-sweep arm of `writer_scaling.rs` does and as §17.2.3 registered
-  for the string arm. Which of the two G1–G3 are read on is pending a decision
-  on #929, before the first admissible run.
-- §21.4's tripwire reads the `occ-stats` replay of the `sync_blobmap_*`
-  Callgrind arms, which are single-threaded. The driver also voids a run on any
-  `lock_restarts` in the multi-writer counters pass of the fresh-insert cells,
-  where a restart is two writers meeting on one node rather than the defect the
-  tripwire names. Whether that void stays is pending the same decision on #929.
-  The overwrite cells' counters are reported under `g4_overwrite_skew` and do
-  not feed it.
+**7. The fresh-insert cell's prefill.** §21.6 gives the fresh-insert cell as
+"N0 = 0 prefill". That is a drafting error. The cell G1–G3 are read on is the
+instrument's `concurrency_writer_blob_64bit` cell as it has been since it was
+added for the `README.md` §15 baselines: `run_blob_cell` over
+`WriterWorkload::generate(N_PREFILL, M_FRESH, 64)` with
+`N_PREFILL = 1 << 20` and `M_FRESH = 1 << 20` — a prefill of 2^20 keys outside
+the timed window, then 2^20 fresh keys inserted by W writers over disjoint
+slices, 32-byte payloads (`BLOB_PAYLOAD_LEN`). It is the shape every
+writer-sweep arm of `writer_scaling.rs` has and the shape §19 gated the string
+arm on (§17.2.3, §19.10 item 1). M and the payload size are as §21.6 states
+them; only N0 was misdrafted. §21.9's limitation reads accordingly: fresh
+inserts into a tree that already holds 2^20 keys.
+
+**8. The tripwire is the single-threaded reading §21.4 registers.** §21.4's
+tripwire is zero `lock_restarts` in the `occ-stats` replay of the
+`sync_blobmap_*` mutation arms, a single-threaded replay: with one writer a
+restart can only be that writer meeting its own lock, which is the defect the
+tripwire names. As first written, `gate_929_blob_report` summed `lock_restarts`
+over every W of the multi-writer counters pass and voided the run on any, which
+the registered text does not say and which §19's report never did. At W ≥ 2 a
+restart is two writers meeting on one node, which optimistic lock coupling does
+by design. The driver now implements the registered reading: the tripwire reads
+the head build's single-writer (W = 1) counters rows only, a run whose W = 1
+counters rows are absent is void because the tripwire was not read, and
+`lock_restarts` at W ≥ 2 are reported per cell under `fallback_prediction` —
+and, for the overwrite cells, under `g4_overwrite_skew` — and void nothing. The
+driver's self-test pins the pair: restarts at W = 1 void the run; restarts at
+W = 8 with none at W = 1 do not. The replay of the Callgrind arms stays the
+precondition §21.4 states, read on the head's own CI run.
 

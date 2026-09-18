@@ -1622,7 +1622,9 @@ def gate_929_blob_report(
     row that reports another workload, the G4 cells read NOT_EVALUABLE and the run is void.
     Peak ratio X(8)/X(4) = T_head(8) / T_head(4) is reported as a diagnostic indicator
     and gates nothing.
-    Deterministic tripwire checks zero lock_restarts on head cells.
+    Deterministic tripwire checks zero lock_restarts on the head build's single-writer
+    (W = 1) counters rows, the single-threaded reading §21.4 registers; restarts at
+    W >= 2 are reported per cell and never void a run (METHODOLOGY.md §21.11).
     A round present in one build and absent in the other, a serialised cell missing
     for any registered W', or an unlocked floor reads NOT_EVALUABLE — never a pass.
     """
@@ -1830,6 +1832,8 @@ def gate_929_blob_report(
 
     fallback: dict[str, dict[str, Any]] = {}
     total_lock_restarts = 0
+    single_writer_rows = 0
+    single_writer_restarts = 0
     for c in head_cells:
         if c.get("arm") != "blob":
             continue
@@ -1838,6 +1842,9 @@ def gate_929_blob_report(
         total_ops = sum(int(r.get("write_ops", 0)) for r in counters)
         restarts = sum(int(r.get("lock_restarts", 0)) for r in counters)
         total_lock_restarts += restarts
+        if w == 1:
+            single_writer_rows += len(counters)
+            single_writer_restarts += restarts
         causes = c.get("fallback_causes_total") or {}
         total_fallbacks = sum(int(v) for v in causes.values())
         structural = total_fallbacks - int(causes.get("contention", 0))
@@ -1854,9 +1861,19 @@ def gate_929_blob_report(
             "causes_total": causes,
         }
 
-    tripwire_tripped = total_lock_restarts > 0
+    # §21.4's tripwire is a single-threaded replay: with one writer a restart
+    # can only be that writer meeting its own lock, the defect the tripwire
+    # names. With W >= 2 a restart is two writers meeting on one node, which the
+    # protocol does by design; those are reported per cell above and void
+    # nothing (METHODOLOGY.md §21.11). An unread tripwire is not a quiet one.
+    tripwire_tripped = single_writer_restarts > 0
     if tripwire_tripped:
-        void.append(f"deterministic tripwire tripped: {total_lock_restarts} lock_restarts observed (METHODOLOGY.md §21.4)")
+        void.append(
+            f"deterministic tripwire tripped: {single_writer_restarts} lock_restarts in the single-writer "
+            "counters rows (METHODOLOGY.md §21.4)"
+        )
+    if single_writer_rows == 0:
+        void.append("the head build carries no W = 1 counters rows: the §21.4 tripwire was not read")
 
     verdicts = (
         [c["verdict"] for c in g1_cells.values()]
@@ -1913,6 +1930,9 @@ def gate_929_blob_report(
         },
         "peak_ratio": {"gating": False, **peak_ratio},
         "fallback_prediction": {
+            "tripwire": "zero lock_restarts in the single-writer (W = 1) counters rows; multi-writer "
+                        "restarts are reported per cell and void nothing",
+            "single_writer_lock_restarts": single_writer_restarts,
             "total_lock_restarts": total_lock_restarts,
             "tripwire_tripped": tripwire_tripped,
             "per_writer": fallback,
@@ -4799,6 +4819,25 @@ def _self_test_gate_929_blob_report() -> None:
     assert tripped["fallback_prediction"]["tripwire_tripped"] is True
     assert tripped["all_cells_pass_in_this_run"] is False
     assert any("deterministic tripwire tripped" in v for v in tripped["void"])
+    assert tripped["fallback_prediction"]["single_writer_lock_restarts"] == 40
+
+    # Its pair: restarts at W = 8 with none at W = 1 are two writers meeting on
+    # one node. They are reported on the cell and void nothing (§21.4, §21.11).
+    head_contended = head[:3] + [cell(8, [20.5 + j for j in jitter], lock_restarts=3010)]
+    contended = gate_929_blob_report(
+        head_contended, serial, [comp], 8, pin, False, price_floor=0.90, overwrite=ow_block()
+    )
+    assert contended["void"] == [], contended["void"]
+    assert contended["fallback_prediction"]["tripwire_tripped"] is False
+    assert contended["fallback_prediction"]["single_writer_lock_restarts"] == 0
+    assert contended["fallback_prediction"]["per_writer"]["8"]["lock_restarts"] == 8 * 3010
+    assert contended["fallback_prediction"]["total_lock_restarts"] == 8 * 3010
+    assert contended["all_cells_pass_in_this_run"] is True
+
+    # A tripwire nobody read is not a quiet one.
+    no_counters = [dict(head[0], counters_raw=[])] + head[1:]
+    unread = gate_929_blob_report(no_counters, serial, [comp], 8, pin, False, price_floor=0.90, overwrite=ow_block())
+    assert any("tripwire was not read" in v for v in unread["void"]) and unread["all_cells_pass_in_this_run"] is False
 
     # G3 price floor
     steep = gate_929_blob_report(head, serial, [comp], 8, pin, False, price_floor=0.97, overwrite=ow_block())
