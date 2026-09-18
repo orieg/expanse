@@ -66,6 +66,7 @@ on:
           - writer_scaling_ablation_unpadded_lock
           - writer_scaling_ablation_unsharded_alloc
           - writer_scaling_ablation_unstriped_freelist
+          - writer_scaling_ablation_blob_writer_arenas
           - writer_scaling_ordered_readers
           - writer_scaling_readers_only
           - writer_scaling_929_str_gate
@@ -1044,6 +1045,13 @@ jobs:
                   "--compare-ablation-${flag_arm}" \
                   --out "docs/benchmarks/concurrency/results/ablation_${arm}_writer_scaling.json" | tee writer_scaling.txt
                 ;;
+              "writer_scaling_ablation_blob_writer_arenas")
+                # Diagnostic comparison for the blob multi-writer arm (Refs #929)
+                python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
+                  --compare ablation-blob-writer-arenas \
+                  --arm blob \
+                  --out docs/benchmarks/concurrency/results/ablation_blob_writer_arenas_writer_scaling.json | tee writer_scaling.txt
+                ;;
               "writer_scaling_ordered_readers")
                 # Ordered readers on the map (#900, concurrency METHODOLOGY.md
                 # §12.4). bench_pin.sh pinned this step's shell to the auto list
@@ -1698,6 +1706,7 @@ jobs:
             docs/benchmarks/concurrency/results/gate_929_str_writer_scaling.json
             docs/benchmarks/concurrency/results/gate_929_str_v2_writer_scaling.json
             docs/benchmarks/concurrency/results/gate_929_blob_writer_scaling.json
+            docs/benchmarks/concurrency/results/ablation_blob_writer_arenas_writer_scaling.json
             docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json
             docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json
             ycsb.txt

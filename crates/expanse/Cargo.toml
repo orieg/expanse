@@ -88,6 +88,16 @@ ablation-str-serial-writers = []
 # section 21), kept so the default can be measured against it (AGENTS.md
 # section 2.7).
 ablation-blob-serial-writers = []
+# Diagnostic-only, default off: an interventional ablation (AGENTS.md section
+# 8.20.3) of the one shared mutex on `SyncExpanseBlobMap`'s optimistic insert
+# path (Refs #929, METHODOLOGY section 21). Each writer slot bump-allocates
+# arena payloads into a chunk it owns privately, and takes the shared
+# `arena_write` mutex only to obtain a new chunk; live-byte accounting is kept
+# per slot and folded into the arena inside every quiesced section. Not a
+# promotion candidate as it stands (AGENTS.md section 2.7): it exists to decide
+# whether that mutex is what makes blob throughput retrograde past two writers.
+# Mutually exclusive with `ablation-blob-serial-writers`.
+ablation-blob-writer-arenas = []
 
 
 [dependencies]

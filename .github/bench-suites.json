@@ -213,6 +213,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "writer_scaling_ablation_blob_writer_arenas",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Expanse multi-writer scaling diagnostic: default build vs ablation-blob-writer-arenas on the blob arm (Refs #929); outputs ablation_blob_writer_arenas_writer_scaling.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "writer_scaling_ordered_readers",
       "available": true,
       "kind": "wallclock",

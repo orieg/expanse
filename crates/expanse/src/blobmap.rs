@@ -618,6 +618,48 @@ pub(crate) unsafe fn resolve_meta_in_table(
     unsafe { read_record(entry.ptr, off, entry.capacity, entry.generation) }
 }
 
+/// Diagnostic (`ablation-blob-writer-arenas`, Refs #929): the geometry of a
+/// chunk granted to one writer slot by [`BlobArena::grant_private_chunk`].
+#[cfg(all(feature = "ablation-blob-writer-arenas", feature = "std"))]
+#[derive(Clone, Copy)]
+pub(crate) struct PrivateChunk {
+    /// Base of the chunk allocation.
+    pub(crate) base: NonNull<u8>,
+    /// Index of the chunk in the arena's chunk set (and published table).
+    pub(crate) index: usize,
+    /// Chunk capacity in bytes.
+    pub(crate) capacity: usize,
+    /// Generation to stamp on records written into the chunk.
+    pub(crate) generation: u32,
+}
+
+/// Diagnostic (`ablation-blob-writer-arenas`): writes one record — header then
+/// payload — at `off` in a privately owned chunk. The write-side twin of
+/// [`read_record`], and byte-for-byte what [`ArenaChunk::alloc`] writes.
+///
+/// # Safety
+///
+/// `base + off .. base + off + 8 + data.len()` must lie inside one live chunk
+/// allocation, and no other thread may read or write those bytes until the
+/// caller publishes a locator to them.
+#[cfg(all(feature = "ablation-blob-writer-arenas", feature = "std"))]
+#[inline]
+pub(crate) unsafe fn write_record(base: *mut u8, off: usize, generation: u32, data: &[u8]) {
+    let header = BlobRecordHeader {
+        len: data.len() as u32,
+        generation,
+    };
+    // SAFETY: the range is in bounds of one live allocation and unshared, per
+    // this function's contract; the header is packed, hence `write_unaligned`.
+    unsafe {
+        let at = base.add(off);
+        core::ptr::write_unaligned(at.cast::<BlobRecordHeader>(), header);
+        if !data.is_empty() {
+            core::ptr::copy_nonoverlapping(data.as_ptr(), at.add(8), data.len());
+        }
+    }
+}
+
 /// Chunked slab allocator for variable-length payload storage.
 pub struct BlobArena {
     /// The chunk set. **Invariant (Phase 7):** any mutation of this set must
@@ -1043,6 +1085,60 @@ impl BlobArena {
         self.republish_table();
     }
 
+    /// Diagnostic (`ablation-blob-writer-arenas`, Refs #929): appends a fresh
+    /// chunk that one optimistic writer slot will bump-allocate into privately,
+    /// and republishes the reader table so records written into it resolve.
+    ///
+    /// The chunk is an ordinary member of the chunk set — a locator into it
+    /// is `index * chunk_size + offset` like any other — with two differences
+    /// while it is privately owned: it never becomes `active_chunk`, so
+    /// [`Self::alloc_blob`] never writes into it, and its `cursor` is parked at
+    /// `capacity`, because the owner's bump pointer lives outside the arena.
+    /// The single-threaded resolver ([`ArenaChunk::get_slice`]) therefore bounds
+    /// by capacity exactly as the optimistic resolver does, and the same
+    /// argument covers it: unwritten bytes are zero and generation 0 is never
+    /// live. `total_allocated` is charged here; `live_bytes` is charged by the
+    /// owner's per-slot delta ([`Self::fold_live_delta`]).
+    ///
+    /// The same caps as [`Self::alloc_blob`]'s growth path apply.
+    #[cfg(all(feature = "ablation-blob-writer-arenas", feature = "std"))]
+    pub(crate) fn grant_private_chunk(&mut self) -> Result<PrivateChunk, ArenaError> {
+        let index = self.chunks.len();
+        if index >= MAX_ARENA_CHUNKS {
+            return Err(ArenaError::OffsetOverflow);
+        }
+        if self.total_allocated.saturating_add(self.chunk_size) > self.max_capacity {
+            return Err(ArenaError::OffsetOverflow);
+        }
+        let mut chunk = ArenaChunk::new(self.chunk_size, self.generation)?;
+        chunk.cursor = chunk.capacity;
+        let grant = PrivateChunk {
+            base: chunk.ptr,
+            index,
+            capacity: chunk.capacity,
+            generation: chunk.generation,
+        };
+        self.chunks.push(chunk);
+        self.total_allocated += self.chunk_size;
+        // The table must name the chunk before any record in it is published
+        // through the index: the owner writes records only after this returns.
+        self.republish_table();
+        Ok(grant)
+    }
+
+    /// Diagnostic (`ablation-blob-writer-arenas`): folds one writer slot's
+    /// signed live-byte delta into `live_bytes`. A slot's delta can be negative
+    /// (it overwrote more bytes than it allocated); the folded total cannot.
+    /// A negative total is an accounting defect and is not clamped to the
+    /// clean value (AGENTS.md §8.22.3): debug builds panic, and a release
+    /// build wraps to a conspicuous value instead of reporting zero.
+    #[cfg(all(feature = "ablation-blob-writer-arenas", feature = "std"))]
+    pub(crate) fn fold_live_delta(&mut self, delta: isize) {
+        let sum = (self.live_bytes as isize).wrapping_add(delta);
+        debug_assert!(sum >= 0, "arena live_bytes folded below zero: {sum}");
+        self.live_bytes = sum as usize;
+    }
+
     /// Resets and frees all arena chunks (retired through the collector in
     /// deferred mode — pinned readers may still hold payload borrows).
     pub fn clear(&mut self) {
@@ -1195,6 +1291,30 @@ impl ExpanseBlobMap {
     #[allow(dead_code)]
     pub(crate) fn record_deleted_slot(&mut self, slot: ValueSlot) {
         self.arena.record_deleted_slot(slot);
+    }
+
+    /// Diagnostic (`ablation-blob-writer-arenas`): [`BlobArena::grant_private_chunk`]
+    /// through a raw map pointer, borrowing only the `arena` field.
+    ///
+    /// # Safety
+    ///
+    /// `this` must point to a live map, and the caller must exclude every other
+    /// mutation of the arena's chunk set for the call (the wrapper's
+    /// `arena_write` mutex inside the writer gate, or quiescence).
+    #[cfg(all(feature = "ablation-blob-writer-arenas", feature = "std"))]
+    pub(crate) unsafe fn grant_private_chunk_raw(
+        this: *mut Self,
+    ) -> Result<PrivateChunk, ArenaError> {
+        // SAFETY: `this` is live and the chunk set is exclusively the caller's
+        // for the call, per this function's contract. The borrow covers the
+        // `arena` field alone, not the index other writers are descending.
+        unsafe { (*this).arena.grant_private_chunk() }
+    }
+
+    /// Diagnostic (`ablation-blob-writer-arenas`): see [`BlobArena::fold_live_delta`].
+    #[cfg(all(feature = "ablation-blob-writer-arenas", feature = "std"))]
+    pub(crate) fn fold_arena_live_delta(&mut self, delta: isize) {
+        self.arena.fold_live_delta(delta);
     }
 
     // No `arena_mut`. The index stores flat arena offsets, so handing out
