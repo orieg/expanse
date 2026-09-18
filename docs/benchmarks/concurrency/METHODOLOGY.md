@@ -3504,3 +3504,104 @@ During concurrent churn (inserts, relocations, and compactions), two subtle read
    `reader_table()`. If the table pointer changed during the lookup, the read retries from the root
    under the new table rather than returning a false negative (`None`) for a present key.
 
+### 21.11 Correction: G4 was registered before the instrument could run it (2026-09-18, after the lock and before any admissible run)
+
+No threshold, statistic, pin, round count, cell count or verdict rule changes.
+§21.1–§21.10 are left as locked; where they disagree with this subsection, the
+disagreement is stated rather than edited away (AGENTS.md §8.7).
+
+**1. The order of events.** §21.6 names as a prerequisite that
+`writer_scaling.py --gate-929-blob` "computes G1, G2, G3, G4, and X(8)/X(4)".
+When §21 was locked it computed G1, G2, G3 and the peak ratio, and
+`writer_scaling.rs` had no overwrite cell at all, so G4 could not be run and a
+report without it could read as all cells passing. No admissible run of §21
+preceded this note, and none is taken on an instrument older than the change
+that carries it. From that change on, a run without G4 rows is void and its
+three G4 cells read `NOT_EVALUABLE`; the driver's self-test carries one negative
+control per clause (rows absent, a lower bound of 0.49, a row reporting another
+skew or prefill) beside the passing case.
+
+**2. What `T_head_uniform` is.** §21.4 defines K_skew(W, r) =
+T_head_skew(W, r) ÷ T_head_uniform(W, r) and describes only the numerator. Both
+terms are the **same overwrite workload**: a prefill of N0 = 2^20 keys with
+32-byte payloads, then M = 2^20 overwrites of existing keys with new 32-byte
+payloads, split across W writers (⌊M/W⌋ each, the last writer taking the
+remainder). They differ in one thing, how an overwrite picks its key: Zipfian
+for the numerator, uniform over the prefill for the denominator. Both run on
+the head build only, in the same rounds, one process per cell; the serialised
+build has no G4 cell. The denominator is not the fresh-insert cell of G1–G3.
+
+**3. The generator and the rank → key mapping, as implemented.**
+- The prefill is the fresh-insert cell's: `WriterWorkload::generate(2^20, _, 64)`,
+  ascending, payload `blob_payload(k)`, metadata `blob_meta(k)`.
+- `rank_keys` is a Fisher–Yates permutation of that ascending prefill: for `i`
+  from N0 − 1 down to 1, swap `rank_keys[i]` with `rank_keys[x % (i + 1)]`,
+  `x` the next draw of the harness XorShift seeded `SEED_BLOB_RANK`. **Rank `r`
+  is the key `rank_keys[r]`**, under both distributions. The hot ranks are
+  therefore spread over the keyspace; with the sorted prefill as the table they
+  would share the lowest leaves, and the cell would measure that adjacency.
+- Writer `w` in round `r` draws from its own `ycsb_common::XorShift64`, seeded
+  `SEED_BLOB_OVERWRITE ^ (w + 1)·0x9E37_79B9_7F4A_7C15 ^ (r + 1)·0xD1B5_4A32_D192_ED03`.
+  Zipfian: rank = `ycsb_common::ZipfianGenerator::new(2^20, ZIPFIAN_THETA).next(rng.next_f64())`,
+  with `ZIPFIAN_THETA` = 0.99 and rank 0 the most probable
+  (`crates/expanse/benches/ycsb_common/mod.rs`, the generator §20 uses; no
+  second implementation exists). Uniform: rank = `rng.next_u64() % 2^20`.
+- Every rank is drawn before the barrier. The timed loop is the same code under
+  both distributions: `rank_keys[rank]`, the payload, `insert`. The generator's
+  zeta sum, the draws, the prefill and the read-back check are outside the
+  timed region (AGENTS.md §8.6).
+- An overwrite's payload is eight bytes of a per-op counter
+  (`(w + 1) << 40 | (i + 1)`) and three words derived from the key and that
+  counter; its metadata word is derived from the same pair. After the window
+  the cell requires the population to be 2^20, and reads back the 64 hottest
+  ranks and every 1,000th rank after them: an untargeted key must hold its
+  prefill payload, a targeted key must hold exactly one overwrite whose counter
+  names a stream entry for that key. A failure exits non-zero and no row is
+  printed.
+- Rows carry `workload_id` `concurrency_writer_blob_overwrite_64bit`, `blob_op`,
+  `key_dist`, `theta`, `prefill`, `overwrites` and `payload_bytes`. The driver
+  checks each against θ = 0.99 (0 on the uniform rows), 2^20, 2^20 and 32, and
+  voids the run on any disagreement.
+
+**4. Schedule and cell count.** The forty cells are unchanged: per (pin, run),
+G1, G2 and G4 at W ∈ {2, 4, 8} and one G3 cell — ten — over two pins and two
+runs. The peak ratio's four values are reported beside them and are not among
+the forty; §21.4's "(four cells)" for it names reported values, as §21.7's row
+for it already says. The eight (build, W) fresh-insert cells keep their 8 × 8
+Williams square. The six (key_dist, W) overwrite cells of a round form a second
+block in the same construction; which block runs first alternates by round.
+Six treatments over eight rounds repeat rows 0 and 1 of their square, so
+position balance inside the G4 block is incomplete, which a paired within-round
+ratio tolerates and which is stated here rather than discovered later.
+
+**5. §21.2's hold-time figures are not a reference-host measurement.** §21.2
+gives the `arena_write` hold time as measured "on the reference host". No
+bare-metal run, CI run or committed artifact backs those figures. The only
+instrument in the tree that prints them is the unit test
+`sync::tests::test_arena_section_hold_time` (`crates/expanse/src/sync.rs`), an
+un-pinned wall-clock loop on whatever machine runs the test suite. They are a
+development diagnostic, they are not an input to any cell of this gate, and the
+serialisation ceiling §21.2 derives from them is unmeasured (AGENTS.md §8.7,
+§8.9).
+
+**6. "Without arena growth" is not what the cell does.** §21.4 describes G4 as
+exercising "dead-slot retirement without arena growth". The index population
+does not grow. The arena does: every overwrite of a 32-byte payload
+bump-allocates a new record (`BlobArena::alloc_blob`) and the record it replaces
+is only subtracted from `live_bytes` (`record_deleted`); nothing compacts during
+the cell. Read G4 as overwrites at a fixed key population.
+
+**7. Two disagreements this note records and does not resolve (Refs #929).**
+- §21.6 gives the fresh-insert cell as N0 = 0 prefill. The instrument's blob
+  fresh-insert cell prefills 2^20 keys and then inserts 2^20 fresh ones, as
+  every writer-sweep arm of `writer_scaling.rs` does and as §17.2.3 registered
+  for the string arm. Which of the two G1–G3 are read on is pending a decision
+  on #929, before the first admissible run.
+- §21.4's tripwire reads the `occ-stats` replay of the `sync_blobmap_*`
+  Callgrind arms, which are single-threaded. The driver also voids a run on any
+  `lock_restarts` in the multi-writer counters pass of the fresh-insert cells,
+  where a restart is two writers meeting on one node rather than the defect the
+  tripwire names. Whether that void stays is pending the same decision on #929.
+  The overwrite cells' counters are reported under `g4_overwrite_skew` and do
+  not feed it.
+
