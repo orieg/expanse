@@ -44,8 +44,8 @@ mod ycsb_concurrent_common;
 use ycsb_concurrent_common::{
     Arm, DASH_SHARDS, DEFAULT_SUITE_SEED, DRAM_POPULATION_N, Family, NUM_STRIPES,
     QUICK_OPS_PER_THREAD, QUICK_POPULATION_N, RANK_K, STANDARD_OPS_PER_THREAD,
-    STANDARD_POPULATION_N, generate_initial_population, generate_thread_stream, run_cell,
-    tally_expected,
+    STANDARD_POPULATION_N, census_json, generate_initial_population, generate_thread_stream,
+    run_cell, run_cell_latency, run_cell_monotonicity, tally_expected,
 };
 
 /// The six causes that partition `Stat::LockFallbacks` (as `writer_scaling.rs` names them).
@@ -64,6 +64,7 @@ enum Role {
     Throughput,
     OccStats,
     Latency,
+    Monotonicity,
 }
 
 impl Role {
@@ -72,8 +73,9 @@ impl Role {
             "throughput" => Ok(Self::Throughput),
             "occ-stats" | "counters" => Ok(Self::OccStats),
             "latency" => Ok(Self::Latency),
+            "monotonicity" => Ok(Self::Monotonicity),
             _ => Err(format!(
-                "unknown role '{s}'; expected throughput, occ-stats, or latency"
+                "unknown role '{s}'; expected throughput, occ-stats, latency, or monotonicity"
             )),
         }
     }
@@ -82,15 +84,17 @@ impl Role {
 /// Refuses a role the build cannot serve. Returns the message to exit on.
 fn role_refusal(role: Role, has_occ_stats: bool) -> Option<&'static str> {
     match role {
-        Role::Latency => Some(
-            "NOT_IMPLEMENTED: the latency role (METHODOLOGY §20.14 (a)) has no histogram build yet; \
-             it never runs the throughput loop under another name (Refs #1006)",
-        ),
         Role::Throughput if has_occ_stats => Some(
             "build/role mismatch: occ-stats is ON but role is 'throughput' (AGENTS.md §6: timings never come from an occ-stats build)",
         ),
         Role::OccStats if !has_occ_stats => Some(
             "build/role mismatch: occ-stats is OFF but role is 'occ-stats' (AGENTS.md §6: counters need --features occ-stats)",
+        ),
+        Role::Latency if has_occ_stats => Some(
+            "build/role mismatch: occ-stats is ON but role is 'latency' (latency requires uninstrumented build)",
+        ),
+        Role::Monotonicity if has_occ_stats => Some(
+            "build/role mismatch: occ-stats is ON but role is 'monotonicity' (monotonicity requires uninstrumented build)",
         ),
         _ => None,
     }
@@ -165,7 +169,7 @@ fn main() {
                 println!("  --threads <1..8>");
                 println!("  --round <r>");
                 println!("  --position <p>");
-                println!("  --role <throughput|occ-stats>   (latency: not implemented, refused)");
+                println!("  --role <throughput|occ-stats|latency|monotonicity>");
                 println!("  --seed <u64>");
                 println!("  --quick");
                 println!("  --self-test");
@@ -225,10 +229,6 @@ fn main() {
     }
     let expected = tally_expected(&streams);
     let hist = stream0_hist.expect("at least one thread");
-    drop(initial_keys);
-
-    let out = run_cell(arm, family, &sorted_keys, streams, &expected);
-
     let total_ops = (threads * ops_per_thread) as u64;
     let mut f = Vec::new();
     f.push(format!("\"workload_id\":\"{}\"", family.tag()));
@@ -239,10 +239,11 @@ fn main() {
     f.push(format!("\"position\":{position}"));
     f.push(format!(
         "\"role\":\"{}\"",
-        if role == Role::OccStats {
-            "occ-stats"
-        } else {
-            "throughput"
+        match role {
+            Role::Throughput => "throughput",
+            Role::OccStats => "occ-stats",
+            Role::Latency => "latency",
+            Role::Monotonicity => "monotonicity",
         }
     ));
     // What the cell was, as the harness ran it; the driver checks these
@@ -278,41 +279,43 @@ fn main() {
     f.push(format!("\"write_ops\":{}", expected.write_ops()));
     f.push(format!("\"rmw_ops\":{}", expected.rmw_ops));
     f.push(format!("\"insert_ops\":{}", expected.insert_ops));
-    f.push(format!("\"read_misses\":{}", out.window.tally.read_misses));
-    f.push(format!(
-        "\"write_misses\":{}",
-        out.window.tally.write_misses
-    ));
-    f.push(format!(
-        "\"successful_inserts\":{}",
-        out.window.tally.successful_inserts
-    ));
-    f.push(format!("\"value_sum\":{}", out.oracle.value_sum));
-    f.push(format!(
-        "\"per_key_mismatches\":{}",
-        out.oracle.per_key_mismatches
-    ));
-    f.push(format!("\"lost_updates\":{}", out.oracle.lost_updates));
-    f.push(format!(
-        "\"missing_population_keys\":{}",
-        out.oracle.missing_population_keys
-    ));
-    f.push(format!("\"final_count\":{}", out.oracle.final_count));
-    f.push(format!(
-        "\"expected_final_count\":{}",
-        out.oracle.expected_final_count
-    ));
-    f.push(format!(
-        "\"oracle\":\"{}\"",
-        out.verdict.replace('\\', "\\\\").replace('"', "\\\"")
-    ));
-    if let Some(m) = out.mem_used {
-        f.push(format!("\"mem_used\":{m}"));
-    }
 
     match role {
         Role::Throughput => {
-            // Timings exist in this role only.
+            drop(initial_keys);
+            let out = run_cell(arm, family, &sorted_keys, streams, &expected);
+            let nvcsw_per_op = out.total_nvcsw as f64 / total_ops.max(1) as f64;
+            f.push(format!("\"read_misses\":{}", out.window.tally.read_misses));
+            f.push(format!(
+                "\"write_misses\":{}",
+                out.window.tally.write_misses
+            ));
+            f.push(format!(
+                "\"successful_inserts\":{}",
+                out.window.tally.successful_inserts
+            ));
+            f.push(format!("\"value_sum\":{}", out.oracle.value_sum));
+            f.push(format!(
+                "\"per_key_mismatches\":{}",
+                out.oracle.per_key_mismatches
+            ));
+            f.push(format!("\"lost_updates\":{}", out.oracle.lost_updates));
+            f.push(format!(
+                "\"missing_population_keys\":{}",
+                out.oracle.missing_population_keys
+            ));
+            f.push(format!("\"final_count\":{}", out.oracle.final_count));
+            f.push(format!(
+                "\"expected_final_count\":{}",
+                out.oracle.expected_final_count
+            ));
+            f.push(format!(
+                "\"oracle\":\"{}\"",
+                out.verdict.replace('\\', "\\\\").replace('"', "\\\"")
+            ));
+            if let Some(m) = out.mem_used {
+                f.push(format!("\"mem_used\":{m}"));
+            }
             let total_mops = total_ops as f64 / out.window.elapsed_s / 1_000_000.0;
             f.push(format!("\"elapsed_s\":{:.9}", out.window.elapsed_s));
             f.push(format!("\"total_mops\":{total_mops:.6}"));
@@ -320,9 +323,44 @@ fn main() {
                 "\"thread_elapsed_s\":{}",
                 json_f64_list(&out.window.thread_elapsed_s)
             ));
+            f.push(format!("\"nvcsw_per_op\":{nvcsw_per_op:.9}"));
         }
         Role::OccStats => {
-            // Counters only: no elapsed time and no throughput leave this build.
+            drop(initial_keys);
+            let out = run_cell(arm, family, &sorted_keys, streams, &expected);
+            let nvcsw_per_op = out.total_nvcsw as f64 / total_ops.max(1) as f64;
+            f.push(format!("\"read_misses\":{}", out.window.tally.read_misses));
+            f.push(format!(
+                "\"write_misses\":{}",
+                out.window.tally.write_misses
+            ));
+            f.push(format!(
+                "\"successful_inserts\":{}",
+                out.window.tally.successful_inserts
+            ));
+            f.push(format!("\"value_sum\":{}", out.oracle.value_sum));
+            f.push(format!(
+                "\"per_key_mismatches\":{}",
+                out.oracle.per_key_mismatches
+            ));
+            f.push(format!("\"lost_updates\":{}", out.oracle.lost_updates));
+            f.push(format!(
+                "\"missing_population_keys\":{}",
+                out.oracle.missing_population_keys
+            ));
+            f.push(format!("\"final_count\":{}", out.oracle.final_count));
+            f.push(format!(
+                "\"expected_final_count\":{}",
+                out.oracle.expected_final_count
+            ));
+            f.push(format!(
+                "\"oracle\":\"{}\"",
+                out.verdict.replace('\\', "\\\\").replace('"', "\\\"")
+            ));
+            if let Some(m) = out.mem_used {
+                f.push(format!("\"mem_used\":{m}"));
+            }
+            f.push(format!("\"nvcsw_per_op\":{nvcsw_per_op:.9}"));
             let c = out
                 .window
                 .counters
@@ -361,7 +399,90 @@ fn main() {
                 ));
             }
         }
-        Role::Latency => unreachable!("refused above"),
+        Role::Latency => {
+            drop(initial_keys);
+            let out = run_cell_latency(arm, family, &sorted_keys, streams, &expected, quick);
+            let nvcsw_per_op = out.total_nvcsw as f64 / total_ops.max(1) as f64;
+            f.push(format!("\"read_misses\":{}", out.tally.read_misses));
+            f.push(format!("\"write_misses\":{}", out.tally.write_misses));
+            f.push(format!(
+                "\"successful_inserts\":{}",
+                out.tally.successful_inserts
+            ));
+            f.push(format!("\"value_sum\":{}", out.oracle.value_sum));
+            f.push(format!(
+                "\"per_key_mismatches\":{}",
+                out.oracle.per_key_mismatches
+            ));
+            f.push(format!("\"lost_updates\":{}", out.oracle.lost_updates));
+            f.push(format!(
+                "\"missing_population_keys\":{}",
+                out.oracle.missing_population_keys
+            ));
+            f.push(format!("\"final_count\":{}", out.oracle.final_count));
+            f.push(format!(
+                "\"expected_final_count\":{}",
+                out.oracle.expected_final_count
+            ));
+            f.push(format!(
+                "\"oracle\":\"{}\"",
+                out.verdict.replace('\\', "\\\\").replace('"', "\\\"")
+            ));
+            if let Some(m) = out.mem_used {
+                f.push(format!("\"mem_used\":{m}"));
+            }
+            f.push(format!("\"tsc_hz\":{}", out.tsc_hz));
+            f.push(format!(
+                "\"bracket_overhead_ns\":{:.3}",
+                out.bracket_overhead_ns
+            ));
+            f.push(format!("\"nvcsw_per_op\":{nvcsw_per_op:.9}"));
+            let latency_json = out
+                .latency
+                .iter()
+                .map(|r| r.to_json())
+                .collect::<Vec<_>>()
+                .join(",");
+            f.push(format!("\"latency\":[{latency_json}]"));
+        }
+        Role::Monotonicity => {
+            let out =
+                run_cell_monotonicity(arm, family, &initial_keys, &sorted_keys, streams, &expected);
+            drop(initial_keys);
+            f.push("\"read_misses\":0".to_string());
+            f.push("\"write_misses\":0".to_string());
+            f.push(format!("\"successful_inserts\":{}", expected.insert_ops));
+            f.push(format!("\"value_sum\":{}", out.oracle.value_sum));
+            f.push(format!(
+                "\"per_key_mismatches\":{}",
+                out.oracle.per_key_mismatches
+            ));
+            f.push(format!("\"lost_updates\":{}", out.oracle.lost_updates));
+            f.push(format!(
+                "\"missing_population_keys\":{}",
+                out.oracle.missing_population_keys
+            ));
+            f.push(format!("\"final_count\":{}", out.oracle.final_count));
+            f.push(format!(
+                "\"expected_final_count\":{}",
+                out.oracle.expected_final_count
+            ));
+            f.push(format!(
+                "\"oracle\":\"{}\"",
+                out.verdict.replace('\\', "\\\\").replace('"', "\\\"")
+            ));
+            if let Some(m) = out.mem_used {
+                f.push(format!("\"mem_used\":{m}"));
+            }
+            f.push(format!(
+                "\"monotonicity_violations\":{}",
+                out.monotonicity_violations
+            ));
+            f.push(format!("\"tracked_keys\":{}", out.tracked_keys));
+            if let Some(ref census) = out.node_census {
+                f.push(format!("\"node_census\":{}", census_json(census)));
+            }
+        }
     }
 
     println!("{{{}}}", f.join(","));

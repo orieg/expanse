@@ -120,6 +120,15 @@ LOAD_AVERAGE_VOID = 12.0
 TIMING_FIELDS = ("elapsed_s", "total_mops", "thread_elapsed_s")
 COUNTER_FIELDS = ("lock_fallbacks", "fallback_causes_total", "lock_restarts",
                   "read_validation_failures")
+LATENCY_FIELDS = ("latency",)
+MONOTONICITY_FIELDS = ("monotonicity_violations", "tracked_keys")
+
+ALL_ROLE_FIELDS = {
+    "throughput": TIMING_FIELDS,
+    "occ-stats": COUNTER_FIELDS,
+    "latency": LATENCY_FIELDS,
+    "monotonicity": MONOTONICITY_FIELDS,
+}
 
 
 class ScheduleMismatch(RuntimeError):
@@ -246,11 +255,15 @@ def check_schedule(data: dict[str, Any], asked: dict[str, Any]) -> None:
 def check_role(data: dict[str, Any], role: str) -> None:
     if data.get("role") != role:
         raise RoleLeak(f"row reports role {data.get('role')!r}, the pass is {role!r}")
-    forbidden = TIMING_FIELDS if role == "occ-stats" else COUNTER_FIELDS
-    leaked = [k for k in forbidden if k in data]
-    if leaked:
-        raise RoleLeak(f"a {role} row carries {leaked}: timings and counters never share a build")
-    required = COUNTER_FIELDS if role == "occ-stats" else TIMING_FIELDS
+    if role not in ALL_ROLE_FIELDS:
+        raise RoleLeak(f"unknown role {role!r}")
+    for other_role, fields in ALL_ROLE_FIELDS.items():
+        if other_role == role:
+            continue
+        leaked = [k for k in fields if k in data]
+        if leaked:
+            raise RoleLeak(f"a {role} row carries {leaked}: timings, counters, latency and monotonicity never share a build or role")
+    required = ALL_ROLE_FIELDS[role]
     missing = [k for k in required if k not in data]
     if missing:
         raise RoleLeak(f"a {role} row lacks {missing}")
@@ -1394,17 +1407,35 @@ def _self_test_schedule_and_roles() -> None:
     counters.update({"role": "occ-stats", "lock_fallbacks": 0, "fallback_causes_total": {},
                      "lock_restarts": 0, "read_validation_failures": 0})
     check_role(counters, "occ-stats")
+    latency = {k: v for k, v in row.items() if k not in TIMING_FIELDS}
+    latency.update({"role": "latency", "latency": [{"op": "read", "samples": 100}]})
+    check_role(latency, "latency")
+    monotonicity = {k: v for k, v in row.items() if k not in TIMING_FIELDS}
+    monotonicity.update({"role": "monotonicity", "monotonicity_violations": 0, "tracked_keys": 4096})
+    check_role(monotonicity, "monotonicity")
     for bad, role in (({**counters, "total_mops": 1.0}, "occ-stats"),
                       ({**counters, "elapsed_s": 1.0}, "occ-stats"),
+                      ({**counters, "latency": []}, "occ-stats"),
                       ({**row, "lock_fallbacks": 0}, "throughput"),
+                      ({**row, "latency": []}, "throughput"),
+                      ({**row, "monotonicity_violations": 0}, "throughput"),
                       ({**row, "role": "occ-stats"}, "throughput"),
-                      ({k: v for k, v in counters.items() if k != "lock_restarts"}, "occ-stats")):
+                      ({**latency, "total_mops": 1.0}, "latency"),
+                      ({**latency, "lock_fallbacks": 0}, "latency"),
+                      ({**latency, "monotonicity_violations": 0}, "latency"),
+                      ({**monotonicity, "total_mops": 1.0}, "monotonicity"),
+                      ({**monotonicity, "lock_fallbacks": 0}, "monotonicity"),
+                      ({**monotonicity, "latency": []}, "monotonicity"),
+                      ({k: v for k, v in counters.items() if k != "lock_restarts"}, "occ-stats"),
+                      ({k: v for k, v in latency.items() if k != "latency"}, "latency"),
+                      ({k: v for k, v in monotonicity.items() if k != "monotonicity_violations"}, "monotonicity"),
+                      ({k: v for k, v in monotonicity.items() if k != "tracked_keys"}, "monotonicity")):
         try:
             check_role(bad, role)
         except RoleLeak:
             pass
         else:
-            raise AssertionError(f"role leak accepted: {sorted(set(bad) ^ set(row))}")
+            raise AssertionError(f"role leak accepted: {bad} for role {role}")
 
 
 def _self_test_artifact_shape() -> None:
@@ -1593,12 +1624,10 @@ def _self_test_binaries(throughput_bin: Path, counters_bin: Path) -> None:
 
     refused(throughput_bin, "occ-stats", "build/role mismatch")
     refused(counters_bin, "throughput", "build/role mismatch")
-    refused(throughput_bin, "latency", "NOT_IMPLEMENTED")
-    refused(counters_bin, "latency", "NOT_IMPLEMENTED")
-    p = subprocess.run([str(throughput_bin), "--role", "latency", "--family", "A", "--quick"],
-                       capture_output=True, text=True)
-    assert "NOT_IMPLEMENTED" in p.stderr and "total_mops" not in p.stdout, (p.stdout, p.stderr)
-    for binary, role in ((throughput_bin, "throughput"), (counters_bin, "occ-stats")):
+    refused(counters_bin, "latency", "build/role mismatch")
+    refused(counters_bin, "monotonicity", "build/role mismatch")
+    for binary, role in ((throughput_bin, "throughput"), (throughput_bin, "latency"),
+                         (throughput_bin, "monotonicity"), (counters_bin, "occ-stats")):
         p = subprocess.run([str(binary), "--role", role, "--self-test"], capture_output=True, text=True)
         assert p.returncode == 0 and "self-test: OK" in p.stdout, (role, p.stderr)
 
@@ -1615,6 +1644,31 @@ def _self_test_binaries(throughput_bin: Path, counters_bin: Path) -> None:
                                                  "root_growth", "contention", "unknown_tag"}
     assert sum(cnt["fallback_causes_total"].values()) == cnt["lock_fallbacks"], cnt
     assert "stripe_contended_acquisitions" in cnt and cnt["occ_read_ops"] > 0, cnt
+
+    # Latency role: real row carries latency array and no throughput or counters.
+    lat = run_cell_process(throughput_bin, "latency", "A", "olc", 2, 0, 0, quick=True)
+    assert len(lat["latency"]) > 0 and "bracket_overhead_ns" in lat and "tsc_hz" in lat
+    assert lat["nvcsw_per_op"] >= 0.0
+
+    # Monotonicity role: real row carries 0 violations, tracked keys, node census, no throughput.
+    mono = run_cell_process(throughput_bin, "monotonicity", "A", "olc", 2, 0, 0, quick=True)
+    assert mono["monotonicity_violations"] == 0 and mono["tracked_keys"] == 4096
+    assert mono["mem_used"] == mono["node_census"]["node_bytes"]["total"]
+
+    try:
+        run_cell_process(counters_bin, "latency", "A", "olc", 1, 0, 0, quick=True)
+    except RuntimeError as err:
+        assert "build/role mismatch" in str(err), err
+    else:
+        raise AssertionError("the counters build served the latency role")
+
+    try:
+        run_cell_process(counters_bin, "monotonicity", "A", "olc", 1, 0, 0, quick=True)
+    except RuntimeError as err:
+        assert "build/role mismatch" in str(err), err
+    else:
+        raise AssertionError("the counters build served the monotonicity role")
+
     try:
         run_cell_process(throughput_bin, "throughput", "A", "olc", 1, 0, 0, quick=True, seed=1)
         run_cell_process(throughput_bin, "occ-stats", "A", "olc", 1, 0, 0, quick=True)
