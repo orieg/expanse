@@ -447,7 +447,9 @@ ATTRIBUTED_CELL_KEYS = ("throughput", "throughput_variant", "health")
 #   - `*writer_scaling*` — the multi-writer sweep and its ablation arms, which
 #     are concurrent by construction (W writers per cell) and carry every C(W)
 #     verdict published in `docs/benchmarks/concurrency/README.md`.
-CONCURRENT_NAME_PARTS = ("baseline_concurrent", "writer_scaling")
+#   - `*ycsb_concurrent*` — the concurrent YCSB suite (METHODOLOGY.md §20): T
+#     threads per cell, and a quiet host is one of its void rules.
+CONCURRENT_NAME_PARTS = ("baseline_concurrent", "writer_scaling", "ycsb_concurrent")
 
 
 def is_concurrent(rel: str) -> bool:

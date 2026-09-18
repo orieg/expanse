@@ -204,10 +204,15 @@ jobs:
             ycsb-concurrent-instrument:
               - 'docs/benchmarks/concurrency/scripts/ycsb_concurrent.py'
               - 'crates/expanse/examples/ycsb_concurrent.rs'
+              - 'crates/expanse/benches/ycsb_concurrent_common/**'
+              - 'crates/expanse/benches/ycsb_common/**'
               - 'scripts/ycsb_concurrent_bounds.py'
               - 'scripts/bench_pin.py'
               - 'scripts/bca_bootstrap.py'
               - 'scripts/bench_provenance.py'
+              - 'scripts/check_bench_provenance.py'
+              - 'scripts/fit_usl.py'
+              - 'scripts/reader_scaling_bounds.py'
             perf-tooling:
               - 'scripts/perf_report.py'
               - 'scripts/bench_report.py'
