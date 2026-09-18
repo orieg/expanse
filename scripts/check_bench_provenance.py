@@ -309,7 +309,7 @@ SUITES = (
 )
 
 # The artifact filename families this gate governs, in a suite's `results/`
-# directory and in its `multi_writer_olc/`, `step0/` and `at_6f8d6ba5/`
+# directory and in its `multi_writer_olc/`, `step0/`, `at_6f8d6ba5/` and `at_c746f9a5/`
 # subdirectories (`step0/` holds the frozen `a1982ff2` concurrent pair #568
 # Step 0 and the METHODOLOGY §8 gate read; `at_6f8d6ba5/` holds the concurrent
 # pair the FFI suites published before the `929574b5` re-measurement, which
@@ -827,7 +827,7 @@ def artifacts(bench: Path | None = None) -> list[Path]:
         res = (bench or BENCH) / suite / "results"
         if not res.is_dir():
             continue
-        for d in (res, res / "multi_writer_olc", res / "step0", res / "at_6f8d6ba5"):
+        for d in (res, res / "multi_writer_olc", res / "step0", res / "at_6f8d6ba5", res / "at_c746f9a5"):
             if not d.is_dir():
                 continue
             found: set[Path] = set()
