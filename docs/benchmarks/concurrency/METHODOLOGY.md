@@ -3469,3 +3469,20 @@ stated with its interval in `docs/ARCHITECTURE.md` §4 and rustdoc, beside the
 Explicitly stated limitations: fresh inserts only, payload size 32 bytes; no compaction during
 active concurrent writes; no scans, churn, or removals; 64-bit targets only.
 
+### 21.10 Reader-side stale chunk table hazard resolution (2026-09-18, Refs #929)
+
+During concurrent churn (inserts, relocations, and compactions), two subtle reader invariants must hold:
+1. **Compaction and clear whole-tree version bracketing**: `compact`, `clear`, and fallback `insert`
+   execute through `Shared::write_quiesced`, holding the tree-level version word odd across the entire
+   rebuilding/re-indexing operation. If these operations were routed to `write_root_covered_exact`,
+   the tree version word would be left unbracketed whenever `root_is_tree()` is true. An overlapping
+   reader would then validate against the unincremented tree version word, observing rewritten slot
+   locators referencing a newly constructed generation while dereferencing chunk offsets in an old,
+   superseded chunk table, resulting in torn or mismatched payload reads.
+2. **Reader table reload on dangling locator resolution**: When an active writer appends a chunk
+   to the arena and publishes an updated table pointer, a concurrent reader operating under an earlier
+   snapshot may encounter a freshly inserted slot locator whose chunk index exceeds the length of the
+   reader's sampled table. If the locator fails resolution (`None`), the reader must reload
+   `reader_table()`. If the table pointer changed during the lookup, the read retries from the root
+   under the new table rather than returning a false negative (`None`) for a present key.
+

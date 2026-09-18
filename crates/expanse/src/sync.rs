@@ -1839,6 +1839,74 @@ impl<T: SharedTree> Shared<T> {
         self.write_root_covered_with::<true, R>(f)
     }
 
+    /// One mutation under the writer lock with writers quiesced AND the
+    /// tree-level version word bracketed unconditionally for the duration
+    /// of the mutation (Refs #929). Used when a compound wrapper operation
+    /// mutates non-index resources (such as `BlobArena` chunk allocations or
+    /// compaction table republication) or whole-tree states (`clear`, fallback
+    /// insert) that concurrent readers validate against the tree version word.
+    fn write_quiesced<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
+        crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+        #[cfg(feature = "std")]
+        let _fallback = self.fallback_mutex.lock().expect("fallback mutex poisoned");
+        #[cfg(feature = "std")]
+        self.quiesce_writers();
+        let _g = self.write.lock().expect("writer lock poisoned");
+        #[cfg(feature = "occ-stats")]
+        {
+            let holder = unsafe { &mut *self.last_holder.get() };
+            let me = thread_token();
+            if *holder != me {
+                if *holder != 0 {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::Handoffs);
+                }
+                *holder = me;
+            }
+        }
+        self.version().begin();
+        #[cfg(debug_assertions)]
+        crate::alloc::bracket_stack::enter(self.tree_cover_addr());
+        crate::occ_stats::op_begin();
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.clear_path();
+        #[cfg(feature = "std")]
+        let pop = self.tree_pop.load_slots(
+            self.writers
+                .allocated
+                .load(core::sync::atomic::Ordering::Acquire),
+        );
+        #[cfg(not(feature = "std"))]
+        let pop = self.tree_pop.load();
+        inner.set_tree_pop(pop);
+        let pop_before = inner.tree_pop();
+        let r = f(inner);
+        inner.clear_path();
+        let pop_after = inner.tree_pop();
+        let delta = pop_after as i64 - pop_before as i64;
+        if pop_after == 0 && pop_before > 0 {
+            self.tree_pop.flush_and_set(0);
+        } else if delta != 0 {
+            self.tree_pop.add_base(delta);
+        }
+        crate::occ_stats::op_end();
+        #[cfg(debug_assertions)]
+        crate::alloc::bracket_stack::leave(self.tree_cover_addr());
+        self.version().end();
+        #[cfg(not(feature = "advance-never"))]
+        {
+            let tick = unsafe { &mut *self.advance_tick.get() };
+            *tick += 1;
+            if *tick >= ADVANCE_EVERY {
+                *tick = 0;
+                self.collector.try_advance();
+            }
+        }
+        drop(_g);
+        #[cfg(feature = "std")]
+        self.reopen_gate();
+        r
+    }
+
     fn write_root_covered_with<const EXACT_POP: bool, R>(&self, f: impl FnOnce(&mut T) -> R) -> R
     where
         T: RootState,
@@ -8231,7 +8299,7 @@ impl SyncExpanseBlobMap {
                 match res {
                     Ok(()) => Ok(()),
                     Err(_) => {
-                        self.shared.write_root_covered_exact(|m| {
+                        self.shared.write_quiesced(|m| {
                             m.insert_slot(key, slot);
                         });
                         Ok(())
@@ -8267,7 +8335,7 @@ impl SyncExpanseBlobMap {
         }
         #[cfg(not(feature = "ablation-blob-serial-writers"))]
         {
-            self.shared.write_root_covered_exact(ExpanseBlobMap::compact)
+            self.shared.write_quiesced(ExpanseBlobMap::compact)
         }
     }
 
@@ -8279,7 +8347,7 @@ impl SyncExpanseBlobMap {
         }
         #[cfg(not(feature = "ablation-blob-serial-writers"))]
         {
-            self.shared.write_root_covered_exact(|m| m.clear());
+            self.shared.write_quiesced(|m| m.clear());
         }
     }
 
@@ -8516,7 +8584,7 @@ impl BlobReadGuard<'_> {
     pub fn get(&self, key: Key) -> Option<(SyncBlobView<'_>, u32)> {
         let shared = &self.map.shared;
         crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
-        for _ in 0..MAX_RETRIES {
+        'outer: for _ in 0..MAX_RETRIES {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let snap = shared.version().sample();
             // SAFETY: the guard's pin predates this sample; the walk
@@ -8526,7 +8594,7 @@ impl BlobReadGuard<'_> {
             // SAFETY: same pin + snapshot contract as the line above.
             let Ok(found) = (unsafe { walk_validated::<true>(root, key, shared.version(), snap) })
             else {
-                continue;
+                continue 'outer;
             };
             // The walk validated this result: absent stays absent, and a
             // present slot word is the value the key held at `snap`.
@@ -8590,6 +8658,13 @@ impl BlobReadGuard<'_> {
                     }
                 }
                 None => {
+                    // Check if the chunk table was superseded (chunk appended or arena compacted)
+                    // while reading. If so, retry under the fresh table instead of falsely reporting
+                    // a present key as absent (Refs #929).
+                    let table_now = unsafe { (*shared.inner.get()).arena().reader_table() };
+                    if table_now != table {
+                        continue 'outer;
+                    }
                     if shared.version().validate(snap) {
                         // Validated dangling locator — mirrors the
                         // single-threaded `get` returning `None`.
