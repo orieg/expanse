@@ -11287,6 +11287,55 @@ mod tests {
         }
     }
 
+    /// Measures the hold time of the `arena_write` critical section (`prepare_slot`)
+    /// relative to the total insert path on 32-byte payloads (Refs #929, AGENTS.md §8.22).
+    ///
+    /// Amdahl's law serialization ceiling: If the serialized arena section hold time is
+    /// t_hold, multi-writer throughput across any number of threads cannot exceed 1 / t_hold.
+    /// On 32-byte payloads (40 bytes per record), an active 4096-byte chunk accommodates
+    /// ~102 records before allocating a new chunk.
+    #[test]
+    fn test_arena_section_hold_time() {
+        let m = SyncExpanseBlobMap::with_chunk_size(4096);
+        let payload = [0xABu8; 32];
+        const N: usize = 20_000;
+
+        let start_total = std::time::Instant::now();
+        for i in 1..=N {
+            m.insert(i as u64, &payload, 1).unwrap();
+        }
+        let total_duration = start_total.elapsed();
+        let total_ns_per_insert = total_duration.as_nanos() as f64 / N as f64;
+
+        // Direct hold-time measurement of prepare_slot under arena_write lock
+        let mut arena_map = ExpanseBlobMap::with_chunk_size(4096);
+        let start_arena = std::time::Instant::now();
+        for _ in 0..N {
+            let slot = arena_map.prepare_slot(&payload, 1).unwrap();
+            core::hint::black_box(slot);
+        }
+        let arena_duration = start_arena.elapsed();
+        let arena_ns_per_alloc = arena_duration.as_nanos() as f64 / N as f64;
+
+        let hold_percent = (arena_ns_per_alloc / total_ns_per_insert) * 100.0;
+        let theoretical_max_mops = 1_000.0 / arena_ns_per_alloc;
+
+        eprintln!(
+            "Arena hold time: {arena_ns_per_alloc:.2} ns/alloc | Total insert: {total_ns_per_insert:.2} ns/op | \
+             Hold fraction: {hold_percent:.2}% | Serialization ceiling: {theoretical_max_mops:.1} M ops/s"
+        );
+
+        // Invariant: arena section hold time must be strictly below 100ns and represent < 40% of total insert time
+        assert!(
+            arena_ns_per_alloc < 100.0,
+            "arena hold time {arena_ns_per_alloc:.2} ns exceeds 100ns ceiling"
+        );
+        assert!(
+            theoretical_max_mops >= 10.0,
+            "serialization ceiling {theoretical_max_mops:.1} M ops/s under 10 M ops/s floor"
+        );
+    }
+
     /// Every key hashes identically, so the whole map is one collision
     /// bucket: the concurrent bucket-replacement paths (append, remove,
     /// removed-key retirement) all run on it.
