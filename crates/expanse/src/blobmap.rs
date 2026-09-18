@@ -1158,6 +1158,7 @@ impl ExpanseBlobMap {
     }
 
     #[inline(always)]
+    #[allow(dead_code)]
     pub(crate) fn prepare_slot(
         &mut self,
         data: &[u8],
@@ -1181,6 +1182,7 @@ impl ExpanseBlobMap {
     }
 
     #[inline(always)]
+    #[allow(dead_code)]
     pub(crate) fn insert_slot(&mut self, key: Key, slot: ValueSlot) {
         if let Some(old_raw) = self.index.insert(key, slot.to_raw()) {
             let old = ValueSlot::from_raw(old_raw);
