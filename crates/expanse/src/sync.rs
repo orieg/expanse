@@ -8189,7 +8189,7 @@ impl SyncExpanseBlobMap {
                     crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
                     return self
                         .shared
-                        .write_root_covered(|m| m.insert(key, data, hot_meta));
+                        .write_quiesced(|m| m.insert(key, data, hot_meta));
                 }
 
                 let guard = self.shared.enter_writer_blocking();
@@ -8643,10 +8643,24 @@ impl BlobReadGuard<'_> {
                         let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
                         return Some((SyncBlobView::Arena(bytes), meta));
                     }
+                    continue 'outer;
                 }
                 None => {
-                    // Locator could not be resolved in `table` (chunk table was superseded, or
-                    // concurrent chunk allocation/compaction occurred). Retry under fresh table.
+                    // Check if the chunk table was superseded (chunk appended or arena compacted)
+                    // while reading. If so, retry under the fresh table instead of falsely reporting
+                    // a present key as absent (Refs #929).
+                    // SAFETY: single atomic load of the published table pointer; the
+                    // racy `&` borrow of the arena struct is confined to that load.
+                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                    let table_now = unsafe { (*shared.inner.get()).arena().reader_table() };
+                    if table_now != table {
+                        continue 'outer;
+                    }
+                    if shared.version().validate(snap) {
+                        // Validated dangling locator — mirrors the
+                        // single-threaded `get` returning `None`.
+                        return None;
+                    }
                     continue 'outer;
                 }
             }
