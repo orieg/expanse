@@ -70,6 +70,7 @@ on:
           - writer_scaling_readers_only
           - writer_scaling_929_str_gate
           - writer_scaling_929_str_gate_v2
+          - ycsb_concurrent
           - point_lookup_counters
           - search_instructions
           - smoke_instructions
@@ -1088,6 +1089,10 @@ jobs:
                   --gate-929-str-v2 \
                   --out docs/benchmarks/concurrency/results/gate_929_str_v2_writer_scaling.json | tee writer_scaling.txt
                 ;;
+              "ycsb_concurrent")
+                python3 docs/benchmarks/concurrency/scripts/ycsb_concurrent.py \
+                  --out docs/benchmarks/concurrency/results/baseline_ycsb_concurrent.json | tee ycsb_concurrent.txt
+                ;;
               "all")
                 if [ -f base-instructions.txt ]; then
                   cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
@@ -1537,6 +1542,10 @@ jobs:
                 echo '```text'
                 cat writer_scaling.txt
                 echo '```'
+              elif [ -f ycsb_concurrent.txt ]; then
+                echo '```text'
+                cat ycsb_concurrent.txt
+                echo '```'
               elif [ -f bench-output.txt ]; then
                 # Wall-clock output from a manifest-declared generic suite.
                 echo '```text'
@@ -1572,6 +1581,10 @@ jobs:
             elif [ -f writer_scaling.txt ]; then
               echo '```text' >> "$GITHUB_STEP_SUMMARY"
               cat writer_scaling.txt >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+            elif [ -f ycsb_concurrent.txt ]; then
+              echo '```text' >> "$GITHUB_STEP_SUMMARY"
+              cat ycsb_concurrent.txt >> "$GITHUB_STEP_SUMMARY"
               echo '```' >> "$GITHUB_STEP_SUMMARY"
             elif [ -f bench-output.txt ]; then
               echo '```text' >> "$GITHUB_STEP_SUMMARY"
@@ -1662,6 +1675,8 @@ jobs:
           path: |
             concurrency.txt
             writer_scaling.txt
+            ycsb_concurrent.txt
+            docs/benchmarks/concurrency/results/baseline_ycsb_concurrent.json
             docs/benchmarks/concurrency/results/baseline_writer_scaling.json
             docs/benchmarks/concurrency/results/diagnostic_writer_scaling.json
             docs/benchmarks/concurrency/results/ablation_unsharded_alloc_writer_scaling.json

@@ -42,3 +42,4 @@ test-wasm64
 test-x86_64-none
 wasm-fuel
 writer-scaling-selftest
+ycsb-concurrent-selftest
