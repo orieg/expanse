@@ -895,12 +895,18 @@ measurement.
 > `results/step0/`, the data `docs/benchmarks/concurrency/README.md` §3–§5 and
 > §8 read.
 >
-> **Not re-measured after [#1014](https://github.com/orieg/expanse/pull/1014).**
-> The artifacts measure `929574b5`. #1014 landed afterwards and changes
-> `occ.rs` and `sync.rs`: a zero-sized marker field on `occ::Reader` and
-> compile-time `Send` / not-`Sync` assertions on the reader handles these cells
-> use. Whether that moves a reader cell is **unmeasured**; it is not argued
-> from the diff (AGENTS.md §8.7), and the cells are quoted at their commit.
+> **Re-measured at `c746f9a5`, after [#1014](https://github.com/orieg/expanse/pull/1014)
+> and [#1015](https://github.com/orieg/expanse/pull/1015), which change `occ.rs`
+> and `sync.rs` (a zero-sized marker field and `Send` / not-`Sync` assertions on
+> the reader handles these cells use; a conditional-publish mode in the OLC
+> bodies).** The same sweep ran again at that head, two runs under each pin,
+> and no cell separates from its `929574b5` pair under
+> `docs/BENCHMARKING.md` rule 18: for every reader and writer ratio, the
+> `c746f9a5` interval overlaps the `929574b5` interval in at least one of the
+> two runs, and no cell separates in both runs in the same direction. The
+> tables keep the `929574b5` pair; the confirming pair is at
+> `results/at_c746f9a5/` (`baseline_concurrent{,_run2,_percore,_percore_run2}.json`;
+> measured: reference host, `c746f9a5`).
 
 ### 7.1 Writer throughput as writer count scales — Expanse wins through eight writers
 
