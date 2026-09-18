@@ -8493,7 +8493,9 @@ impl BlobReader<'_> {
             let root = unsafe { (*shared.inner.get()).index().occ_root().0 };
             // SAFETY: same pin + snapshot contract as the line above.
             let walked = unsafe { walk_validated::<true>(root, key, shared.version(), snap) };
-            if let Ok(found) = walked {
+            if let Ok(found) = walked
+                && (found.is_some() || shared.version().validate(snap))
+            {
                 return Ok(found);
             }
         }
@@ -8572,9 +8574,16 @@ impl BlobReadGuard<'_> {
             else {
                 continue 'outer;
             };
-            // The walk validated this result: absent stays absent, and a
-            // present slot word is the value the key held at `snap`.
-            let raw = found?;
+            // If the walk observed an absence, only accept it if the tree-level
+            // version remained unchanged throughout; otherwise a concurrent
+            // top-level reorganization or quiesced write may have caused a false
+            // absence.
+            let Some(raw) = found else {
+                if shared.version().validate(snap) {
+                    return None;
+                }
+                continue 'outer;
+            };
             let slot = ValueSlot::from_raw(raw);
             let tag = slot.tag();
             if tag.is_raw_inline() {
@@ -8602,9 +8611,11 @@ impl BlobReadGuard<'_> {
                 }
             }
             if tag != SlotTag::ArenaMeta {
-                // Mirrors `ExpanseBlobMap::get`: non-payload tags read as
-                // absent (already validated by the walk).
-                return None;
+                // Mirrors `ExpanseBlobMap::get`: non-payload tags read as absent.
+                if shared.version().validate(snap) {
+                    return None;
+                }
+                continue 'outer;
             }
             let meta = slot.arena_meta_meta();
             // SAFETY: single atomic load of the published table pointer; the
@@ -8634,20 +8645,9 @@ impl BlobReadGuard<'_> {
                     }
                 }
                 None => {
-                    // Check if the chunk table was superseded (chunk appended or arena compacted)
-                    // while reading. If so, retry under the fresh table instead of falsely reporting
-                    // a present key as absent (Refs #929).
-                    // SAFETY: single atomic load of the published table pointer; the
-                    // racy `&` borrow of the arena struct is confined to that load.
-                    let table_now = unsafe { (*shared.inner.get()).arena().reader_table() };
-                    if table_now != table {
-                        continue 'outer;
-                    }
-                    if shared.version().validate(snap) {
-                        // Validated dangling locator — mirrors the
-                        // single-threaded `get` returning `None`.
-                        return None;
-                    }
+                    // Locator could not be resolved in `table` (chunk table was superseded, or
+                    // concurrent chunk allocation/compaction occurred). Retry under fresh table.
+                    continue 'outer;
                 }
             }
         }
