@@ -4001,3 +4001,94 @@ only the W = 1 column is the tripwire):
   pin's oversubscription is not the explanation.
 - Removals, compaction under writers, reads under writers, other payload sizes
   and the bytes wrapper are not measured by this gate.
+
+### 19.4 Promotion to default at 7feac604 — METHODOLOGY §21's verdict: met (Refs #929)
+
+METHODOLOGY §21's gate is **met** at `7feac604`: all forty cells read `PASS`
+across both pins (`0-15` and `0,2,4,6,8,10,12,14`) in two runs. G1 (scaling), G2
+(level), G3 (price, floor 0.90) and G4 (overwrite under skew, floor 0.50) pass
+in every cell. The four artifacts are admissible: registered pin and commit
+recorded in each, 8 rounds, one process per cell, void lists empty, and the
+§21.4 tripwire read and not tripped (zero `lock_restarts` in the single-writer
+counters rows). PR #1030 promoted per-writer private arenas to the production
+default, inverting the ablation flag to `ablation-blob-shared-arena`. The
+Callgrind precondition was read on PR #1030's own `instruction-counts` CI run
+[35391185832](https://github.com/orieg/expanse/actions/runs/35391185832): all
+plain arms remained unaffected (within 0.10%).
+
+#### The cells
+
+Per-round paired statistics, BCa 95%, 8 rounds
+*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads, commit
+`7feac604`; (workloads: `concurrency_writer_blob_64bit` for G1–G3 and the
+peak ratio, `concurrency_writer_blob_overwrite_64bit` for G4); artifacts
+`results/gate_929_blob_writer_scaling_pin0to15_7feac604_run{1,2}.json` and
+`results/gate_929_blob_writer_scaling_7feac604_run{1,2}.json`)*. G1 is the
+ratio of scaling factors against the serialised build
+(`ablation-blob-serial-writers`); G2 is the head at W over the serialised
+build's best cell at any writer count, which is its W = 1 cell in every round;
+G4 is the head's overwrite throughput under Zipfian key choice (θ = 0.99) over
+the same workload under uniform key choice (§21.11):
+
+| pin | run | W | G1 scaling | verdict | G2 level | verdict | G4 skew ÷ uniform | verdict |
+|---|--:|--:|--:|---|--:|---|--:|---|
+| `0-15` | 1 | 2 | 2.178 [2.147, 2.209] | `PASS` | 1.441 [1.430, 1.450] | `PASS` | 1.282 [1.270, 1.290] | `PASS` |
+| `0-15` | 1 | 4 | 3.862 [3.801, 3.933] | `PASS` | 2.252 [2.229, 2.276] | `PASS` | 1.107 [1.060, 1.141] | `PASS` |
+| `0-15` | 1 | 8 | 6.477 [6.130, 6.737] | `PASS` | 3.376 [3.136, 3.510] | `PASS` | 1.021 [1.006, 1.039] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 1 | 2 | 2.123 [2.073, 2.181] | `PASS` | 1.440 [1.421, 1.448] | `PASS` | 1.281 [1.256, 1.292] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 1 | 4 | 3.815 [3.728, 3.893] | `PASS` | 2.273 [2.223, 2.303] | `PASS` | 1.147 [1.112, 1.177] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 1 | 8 | 6.572 [6.020, 6.849] | `PASS` | 3.482 [3.190, 3.598] | `PASS` | 1.004 [0.816, 1.069] | `PASS` |
+| `0-15` | 2 | 2 | 2.188 [2.172, 2.206] | `PASS` | 1.442 [1.435, 1.446] | `PASS` | 1.256 [1.236, 1.272] | `PASS` |
+| `0-15` | 2 | 4 | 3.921 [3.732, 4.008] | `PASS` | 2.271 [2.196, 2.313] | `PASS` | 1.093 [1.063, 1.138] | `PASS` |
+| `0-15` | 2 | 8 | 6.894 [6.647, 7.180] | `PASS` | 3.506 [3.377, 3.579] | `PASS` | 1.052 [1.029, 1.076] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 2 | 2 | 2.143 [2.092, 2.177] | `PASS` | 1.435 [1.427, 1.443] | `PASS` | 1.274 [1.261, 1.282] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 2 | 4 | 3.734 [3.612, 3.837] | `PASS` | 2.230 [2.154, 2.281] | `PASS` | 1.117 [1.080, 1.169] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 2 | 8 | 6.380 [5.808, 6.772] | `PASS` | 3.353 [2.974, 3.593] | `PASS` | 1.055 [1.036, 1.068] | `PASS` |
+
+G3 is the single-writer price, head ÷ serialised build at W = 1; the peak ratio
+X(8)/X(4) is reported and gates nothing:
+
+| pin | run | G3 price | verdict | peak X(8)/X(4) |
+|---|--:|--:|---|--:|
+| `0-15` | 1 | 0.935 [0.925, 0.940] | `PASS` | 1.500 [1.381, 1.569] |
+| `0,2,4,6,8,10,12,14` | 1 | 0.936 [0.931, 0.939] | `PASS` | 1.534 [1.400, 1.600] |
+| `0-15` | 2 | 0.937 [0.934, 0.939] | `PASS` | 1.547 [1.486, 1.619] |
+| `0,2,4,6,8,10,12,14` | 2 | 0.939 [0.938, 0.942] | `PASS` | 1.507 [1.345, 1.628] |
+
+Median throughput behind those ratios, M inserts/s, fresh-insert cell:
+
+| pin | run | head W=1 | W=2 | W=4 | W=8 | serial W=1 | W=2 | W=4 | W=8 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| `0-15` | 1 | 4.56 | 7.03 | 10.88 | 17.13 | 4.86 | 3.45 | 3.06 | 2.79 |
+| `0,2,4,6,8,10,12,14` | 1 | 4.58 | 7.05 | 11.29 | 17.49 | 4.89 | 3.59 | 3.13 | 2.79 |
+| `0-15` | 2 | 4.57 | 7.04 | 11.40 | 17.38 | 4.88 | 3.44 | 3.03 | 2.65 |
+| `0,2,4,6,8,10,12,14` | 2 | 4.59 | 7.00 | 11.17 | 17.56 | 4.87 | 3.45 | 3.12 | 2.82 |
+
+`lock_restarts` in the head's counters pass, summed over 8 rounds (reported;
+only the W = 1 column is the tripwire):
+
+| pin | run | W=1 | W=2 | W=4 | W=8 |
+|---|--:|--:|--:|--:|--:|
+| `0-15` | 1 | 0 | 18766 | 47406 | 88632 |
+| `0,2,4,6,8,10,12,14` | 1 | 0 | 18793 | 48513 | 84691 |
+| `0-15` | 2 | 0 | 18162 | 47038 | 88691 |
+| `0,2,4,6,8,10,12,14` | 2 | 0 | 18253 | 46708 | 86918 |
+
+#### What the verdict says, and what it does not
+
+- **One writer pays about 6.1–6.5%** (ratio 0.935–0.939, every interval inside
+  [0.925, 0.942]), inside the registered floor of 0.90.
+- **Throughput scales monotonically through eight writers.** The peak ratio
+  X(8)/X(4) is 1.500–1.547 (every interval inside [1.345, 1.628], well above 1.0).
+  Two writers deliver 1.435–1.442× the serialised build's best cell (intervals inside
+  [1.421, 1.450]); four deliver 2.230–2.273× (intervals inside [2.154, 2.313])
+  and eight deliver 3.353–3.506× (intervals inside [2.974, 3.598]).
+- **G1 and G2 both pass at every writer count**, confirming both faster scaling
+  relative to the serial baseline and higher absolute throughput levels over the
+  serial baseline's peak.
+- **Skewed overwrites remain faster than uniform.** G4's ratio is above 1.0 in
+  all cells (1.004–1.282, intervals inside [0.816, 1.292]), well clear of the
+  registered floor of 0.50.
+- Removals, compaction under writers, reads under writers, other payload sizes
+  and the bytes wrapper are not measured by this gate.
+
