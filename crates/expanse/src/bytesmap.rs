@@ -73,7 +73,7 @@ impl core::hash::Hasher for FnvHasher {
 pub type DefaultBuildHasher = core::hash::BuildHasherDefault<FnvHasher>;
 
 /// One collision-bucket entry: the exact key bytes and the value word.
-type Entry = (Box<[u8]>, u64);
+pub(crate) type Entry = (Box<[u8]>, u64);
 
 /// One hash bucket: entries whose keys share a 64-bit hash. Almost
 /// always a single entry; compared byte-exactly on every operation.
@@ -87,7 +87,7 @@ type Entry = (Box<[u8]>, u64);
 /// array, and key bytes under its pin. Only the value word mutates in
 /// place (a single `u64`; the concurrent read path re-validates the
 /// tree version before returning it).
-type Bucket = Vec<Entry>;
+pub(crate) type Bucket = Vec<Entry>;
 
 /// Approximate heap cost of one entry beyond its key bytes (the boxed
 /// key's pointer/len pair plus the value word in the bucket vector).
@@ -138,7 +138,7 @@ fn dispose_key(key: Box<[u8]>, _defer: Option<&()>) {
 ///   length, is the allocated size;
 /// - shell: `Layout::new::<Bucket>()`.
 #[cfg(feature = "std")]
-fn dispose_bucket(ptr: *mut Bucket, own_keys: bool, defer: Option<&Arc<Collector>>) {
+pub(crate) fn dispose_bucket(ptr: *mut Bucket, own_keys: bool, defer: Option<&Arc<Collector>>) {
     match defer {
         None => {
             // SAFETY: caller unlinked `ptr`; this is the last reference.
@@ -190,7 +190,7 @@ fn dispose_bucket(ptr: *mut Bucket, own_keys: bool, defer: Option<&Arc<Collector
 }
 
 #[cfg(not(feature = "std"))]
-fn dispose_bucket(ptr: *mut Bucket, own_keys: bool, _defer: Option<&()>) {
+pub(crate) fn dispose_bucket(ptr: *mut Bucket, own_keys: bool, _defer: Option<&()>) {
     // SAFETY: caller unlinked `ptr`; this is the last reference.
     let mut bucket = unsafe { Box::from_raw(ptr) };
     if !own_keys {
@@ -312,6 +312,28 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         self.len
     }
 
+    #[inline(always)]
+    #[allow(dead_code)]
+    pub(crate) fn set_len(&mut self, len: u64) {
+        self.len = len;
+    }
+
+    /// Number of buckets in the underlying trie.
+    #[inline(always)]
+    #[allow(dead_code)]
+    pub(crate) fn bucket_count(&self) -> u64 {
+        self.map.len()
+    }
+
+    #[inline(always)]
+    #[allow(dead_code)]
+    pub(crate) fn set_bucket_pop(&mut self, pop: u64) {
+        #[cfg(all(target_pointer_width = "64", feature = "std"))]
+        self.map.set_tree_pop(pop);
+        #[cfg(not(all(target_pointer_width = "64", feature = "std")))]
+        let _ = pop;
+    }
+
     /// True when no keys are present.
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -324,6 +346,45 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     #[must_use]
     pub fn mem_used(&self) -> usize {
         self.map.mem_used() + self.extra_bytes
+    }
+
+    #[inline(always)]
+    #[allow(dead_code)]
+    #[cfg(feature = "std")]
+    pub(crate) fn hash_key(&self, key: &[u8]) -> u64 {
+        self.hasher.hash_one(key)
+    }
+
+    #[inline(always)]
+    #[cfg(feature = "std")]
+    pub(crate) fn root_is_tree(&self) -> bool {
+        self.map.root_is_tree()
+    }
+
+    #[inline(always)]
+    #[allow(dead_code)]
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    pub(crate) fn alloc(&self) -> &crate::alloc::NodeAlloc {
+        self.map.alloc()
+    }
+
+    #[inline(always)]
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    pub(crate) fn clear_path(&self) {
+        self.map.clear_path();
+    }
+
+    #[inline(always)]
+    #[cfg(feature = "std")]
+    pub(crate) unsafe fn root_top_ptr(&self) -> *mut crate::node::Edge {
+        // SAFETY: forwarded contract.
+        unsafe { self.map.root_top_ptr() }
+    }
+
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    #[inline(always)]
+    pub(crate) fn occ_root(&self) -> (crate::sync::RootSnapshot, &crate::alloc::NodeAlloc) {
+        self.map.occ_root()
     }
 
     fn bucket_of(&self, key: &[u8]) -> Option<NonNull<Bucket>> {
@@ -528,7 +589,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
             // together with its one remaining key.
             self.map.remove(h);
             dispose_bucket(old, true, defer.as_ref());
-            self.extra_bytes -= BUCKET_OVERHEAD;
+            self.extra_bytes = self.extra_bytes.saturating_sub(BUCKET_OVERHEAD);
         } else {
             // Collision bucket: publish a replacement without the
             // removed entry (the survivors move over by value), then
@@ -551,8 +612,8 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
             dispose_bucket(old, false, defer.as_ref());
             dispose_key(removed_key, defer.as_ref());
         }
-        self.len -= 1;
-        self.extra_bytes -= key_len + ENTRY_OVERHEAD;
+        self.len = self.len.saturating_sub(1);
+        self.extra_bytes = self.extra_bytes.saturating_sub(key_len + ENTRY_OVERHEAD);
         Some(val)
     }
 

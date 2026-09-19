@@ -40,6 +40,8 @@
 use crate::alloc::NodeAlloc;
 use crate::blobmap::{ArenaError, CompactionStats, ExpanseBlobMap};
 use crate::bytesmap::ExpanseBytesMap;
+#[cfg(all(feature = "std", not(feature = "ablation-bytes-serial-writers")))]
+use crate::bytesmap::{Bucket, dispose_bucket};
 use crate::leaf;
 use crate::map::ExpanseMap;
 use crate::mutate::{branch_form_level, pow256};
@@ -703,12 +705,32 @@ impl SharedTree for ExpanseStrMap {
 
 impl<S: BuildHasher> SharedTree for ExpanseBytesMap<S> {
     unsafe fn bind_tree_word(&self, word: *const SeqVersion) {
+        #[cfg(feature = "std")]
         // SAFETY: forwarded contract.
-        unsafe { ExpanseBytesMap::bind_tree_word(self, word) };
+        unsafe {
+            ExpanseBytesMap::bind_tree_word(self, word);
+        }
+        #[cfg(not(feature = "std"))]
+        let _ = word;
     }
 
     fn tree_pop(&self) -> u64 {
-        self.len()
+        self.bucket_count()
+    }
+
+    fn set_tree_pop(&mut self, pop: u64) {
+        self.set_bucket_pop(pop);
+    }
+
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    fn clear_path(&self) {
+        self.clear_path();
+    }
+
+    #[cfg(feature = "std")]
+    unsafe fn root_top_ptr(&self) -> *mut Edge {
+        // SAFETY: forwarded contract.
+        unsafe { self.root_top_ptr() }
     }
 }
 
@@ -1456,6 +1478,20 @@ impl RootState for ExpanseBlobMap {
     }
 }
 
+impl<S: BuildHasher> RootState for ExpanseBytesMap<S> {
+    #[inline(always)]
+    fn root_is_tree(&self) -> bool {
+        #[cfg(feature = "std")]
+        {
+            self.root_is_tree()
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            false
+        }
+    }
+}
+
 /// The shared writer/reader state behind every wrapper. `repr(C)` and
 /// line-aligned, and always boxed (see [`Shared::new`]): the tree-level
 /// version word heads the struct, on the cache line the root snapshot
@@ -1743,6 +1779,7 @@ impl<T: SharedTree> Shared<T> {
     /// The tick lives behind the writer mutex (a plain `Cell` read and
     /// write, no atomic traffic): this is the one place that mutates it
     /// and the lock is already held.
+    #[allow(dead_code)]
     fn write<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
         crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
         let _g = self.write.lock().expect("writer lock poisoned");
@@ -2013,7 +2050,7 @@ impl<T: SharedTree> Shared<T> {
     /// drained and before `f` sees it, so state the optimistic writers keep
     /// outside the engine (the blob wrapper's per-slot live-byte deltas) is
     /// folded in under the same quiescence `f` reads under.
-    #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+    #[cfg(feature = "std")]
     fn with_locked_pre<R>(&self, pre: impl FnOnce(&mut T), f: impl FnOnce(&T) -> R) -> R {
         crate::occ_stats::bump(crate::occ_stats::Stat::LockedReads);
         let _fallback = self.fallback_mutex.lock().expect("fallback mutex poisoned");
@@ -2230,6 +2267,40 @@ impl OlcHost for Shared<ExpanseBlobMap> {
     fn alloc(&self) -> &NodeAlloc {
         // SAFETY: inner_ref is valid and alloc is constant.
         self.inner_ref().index().alloc()
+    }
+
+    #[inline(always)]
+    fn mark_dirty_digit(&self, d: u8) {
+        Shared::mark_dirty_digit(self, d);
+    }
+
+    #[inline(always)]
+    fn edge_tag(&self, edge: &Edge) -> Option<EdgeTag> {
+        EdgeTag::from_u8(edge.tag_byte())
+    }
+}
+
+#[cfg(all(
+    feature = "std",
+    target_pointer_width = "64",
+    not(feature = "ablation-bytes-serial-writers")
+))]
+impl<S: BuildHasher> OlcHost for Shared<ExpanseBytesMap<S>> {
+    #[inline(always)]
+    fn tree_word_even(&self) -> bool {
+        (self.version().sample() & 1) == 0
+    }
+
+    #[inline(always)]
+    unsafe fn top_ptr(&self) -> *mut Edge {
+        // SAFETY: top_ptr obtained without taking &mut on inner.
+        unsafe { (*self.inner.get()).root_top_ptr() }
+    }
+
+    #[inline(always)]
+    fn alloc(&self) -> &NodeAlloc {
+        // SAFETY: inner_ref is valid and alloc is constant.
+        self.inner_ref().alloc()
     }
 
     #[inline(always)]
@@ -7776,7 +7847,8 @@ macro_rules! olc_remove_map_body {
     feature = "std",
     not(all(
         feature = "ablation-str-serial-writers",
-        feature = "ablation-blob-serial-writers"
+        feature = "ablation-blob-serial-writers",
+        feature = "ablation-bytes-serial-writers"
     ))
 ))]
 pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
@@ -7795,13 +7867,49 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
     feature = "std",
     not(all(
         feature = "ablation-str-serial-writers",
-        feature = "ablation-blob-serial-writers"
+        feature = "ablation-blob-serial-writers",
+        feature = "ablation-bytes-serial-writers"
     ))
 ))]
 pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Option<u64>> {
     olc_remove_map_body!(host, false, _old => false, key)
 }
 
+/// The conditional publish over any [`OlcHost`]; see [`olc_insert_map`].
+#[allow(clippy::undocumented_unsafe_blocks)]
+#[cfg(all(
+    feature = "std",
+    not(all(
+        feature = "ablation-str-serial-writers",
+        feature = "ablation-blob-serial-writers",
+        feature = "ablation-bytes-serial-writers"
+    ))
+))]
+pub(crate) fn olc_cas_publish_map<H: OlcHost>(
+    host: &H,
+    key: Key,
+    expected: Option<u64>,
+    val: u64,
+) -> OlcOutcome<Option<u64>> {
+    olc_insert_map_body!(
+        host,
+        old => expected != Some(old),
+        expected.is_none(),
+        key,
+        val
+    )
+}
+
+/// The conditional remove over any [`OlcHost`]; see [`olc_insert_map`].
+#[allow(clippy::undocumented_unsafe_blocks)]
+#[cfg(all(
+    feature = "std",
+    not(all(
+        feature = "ablation-str-serial-writers",
+        feature = "ablation-blob-serial-writers",
+        feature = "ablation-bytes-serial-writers"
+    ))
+))]
 impl SyncExpanseMap {
     /// The map wrapper's OLC insert: `olc_insert_map_body!` as the method it
     /// always was.
@@ -9642,6 +9750,12 @@ impl StrReader<'_> {
 /// (hashing goes through `&self` concurrently), hence the `Sync` bound.
 pub struct SyncExpanseBytesMap<S: BuildHasher + Send + Sync = RandomState> {
     shared: Box<Shared<ExpanseBytesMap<S>>>,
+    #[cfg(all(
+        feature = "std",
+        target_pointer_width = "64",
+        not(feature = "ablation-bytes-serial-writers")
+    ))]
+    entry_pop: Box<ShardedTreePop>,
 }
 
 impl Default for SyncExpanseBytesMap<RandomState> {
@@ -9666,26 +9780,282 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
         let map = ExpanseBytesMap::with_hasher(hasher);
         // Fresh map: deferral precedes every allocation.
         map.defer_to(Arc::clone(&collector));
+        let shared = Shared::with_collector(map, collector);
+        #[cfg(all(target_pointer_width = "64", feature = "std"))]
+        shared.inner_ref().occ_root().1.cover_root();
         Self {
-            shared: Shared::with_collector(map, collector),
+            shared,
+            #[cfg(all(
+                feature = "std",
+                target_pointer_width = "64",
+                not(feature = "ablation-bytes-serial-writers")
+            ))]
+            entry_pop: Box::new(ShardedTreePop::new(0)),
         }
     }
 
     /// Inserts `key → val`; returns the replaced value, if any.
-    /// Serializes with other writers.
+    ///
+    /// Optimistic multi-writer lock coupling (OLC) with immutable bucket
+    /// replacement and atomic CAS publication under the default architecture;
+    /// serializes with other writers under `ablation-bytes-serial-writers`.
     pub fn insert(&self, key: &[u8], val: u64) -> Option<u64> {
         crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
-        self.shared.write(|m| m.insert(key, val))
+        #[cfg(all(
+            feature = "std",
+            target_pointer_width = "64",
+            not(feature = "ablation-bytes-serial-writers")
+        ))]
+        {
+            if !self.shared.inner_ref().root_is_tree() {
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
+                return self.shared.remove_root_covered(|m| {
+                    m.set_len(self.entry_pop.load());
+                    let pop_before = m.len();
+                    let prev = m.insert(key, val);
+                    let delta = m.len() as i64 - pop_before as i64;
+                    if delta != 0 {
+                        self.entry_pop.add_base(delta);
+                    }
+                    prev
+                });
+            }
+
+            let guard = self.shared.enter_writer_blocking();
+            let slot_id = guard.slot_id();
+            let h = self.shared.inner_ref().hash_key(key);
+
+            let res = self.shared.with_writer_pin(|| {
+                crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+                crate::occ_stats::op_begin();
+
+                let mut cause = FallbackCause::Contention;
+                #[cfg(feature = "occ-stats")]
+                let mut closed = false;
+                let mut backoff = 1;
+                for _ in 0..MAX_RETRIES {
+                    if self.shared.gate.is_closed() {
+                        #[cfg(feature = "occ-stats")]
+                        {
+                            closed = true;
+                        }
+                        break;
+                    }
+
+                    let snap = self.shared.version().sample();
+                    let root = self.shared.inner_ref().occ_root().0;
+                    // SAFETY: pinned + freshly sampled even version; loads are validated.
+                    let found = match unsafe {
+                        walk_validated::<true>(root, h, self.shared.version(), snap)
+                    } {
+                        Ok(f) => f,
+                        Err(Retry) => {
+                            crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                            for _ in 0..backoff {
+                                core::hint::spin_loop();
+                            }
+                            if backoff < 64 {
+                                backoff <<= 1;
+                            }
+                            #[cfg(loom)]
+                            loom::thread::yield_now();
+                            continue;
+                        }
+                    };
+
+                    let (new_raw, expected, is_new_key, prev_val, old_ptr) = match found {
+                        None => {
+                            let bucket: Bucket = vec![(key.into(), val)];
+                            let raw = Box::into_raw(Box::new(bucket)) as u64;
+                            (raw, None, true, None, None)
+                        }
+                        Some(word) => {
+                            if word == 0 {
+                                crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                                for _ in 0..backoff {
+                                    core::hint::spin_loop();
+                                }
+                                if backoff < 64 {
+                                    backoff <<= 1;
+                                }
+                                #[cfg(loom)]
+                                loom::thread::yield_now();
+                                continue;
+                            }
+                            let old = word as *mut Bucket;
+                            // SAFETY: live bucket memory under writer pin; write-once entry array.
+                            let old_bucket = unsafe { &*old };
+                            if let Some(at) = old_bucket.iter().position(|(k, _)| &**k == key) {
+                                let prev = old_bucket[at].1;
+                                let old_len = old_bucket.len();
+                                let mut fresh: Bucket = Vec::with_capacity(old_len);
+                                for (i, (k, v)) in old_bucket.iter().enumerate() {
+                                    if i == at {
+                                        fresh.push((k.clone(), val));
+                                    } else {
+                                        fresh.push((k.clone(), *v));
+                                    }
+                                }
+                                let raw = Box::into_raw(Box::new(fresh)) as u64;
+                                (raw, Some(word), false, Some(prev), Some(old))
+                            } else {
+                                let old_len = old_bucket.len();
+                                let mut fresh: Bucket = Vec::with_capacity(old_len + 1);
+                                for (k, v) in old_bucket.iter() {
+                                    fresh.push((k.clone(), *v));
+                                }
+                                fresh.push((key.into(), val));
+                                let raw = Box::into_raw(Box::new(fresh)) as u64;
+                                (raw, Some(word), true, None, Some(old))
+                            }
+                        }
+                    };
+
+                    match olc_cas_publish_map(&*self.shared, h, expected, new_raw) {
+                        OlcOutcome::Done(actual) => {
+                            if actual == expected {
+                                if expected.is_none() {
+                                    self.shared.tree_pop.add(slot_id, 1);
+                                }
+                                if is_new_key {
+                                    self.entry_pop.add(slot_id, 1);
+                                }
+                                if let Some(old) = old_ptr {
+                                    dispose_bucket(old, true, Some(&self.shared.collector));
+                                }
+                                self.shared.collector.tick_advance();
+                                crate::occ_stats::op_end();
+                                return Ok(prev_val);
+                            } else {
+                                // CAS mismatch: another writer published. Drop unshared allocation.
+                                // SAFETY: `new_raw` was freshly allocated via Box::into_raw above.
+                                drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                                crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                                for _ in 0..backoff {
+                                    core::hint::spin_loop();
+                                }
+                                if backoff < 64 {
+                                    backoff <<= 1;
+                                }
+                                #[cfg(loom)]
+                                loom::thread::yield_now();
+                            }
+                        }
+                        OlcOutcome::Retry => {
+                            // SAFETY: `new_raw` was freshly allocated via Box::into_raw above.
+                            drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                            crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                            for _ in 0..backoff {
+                                core::hint::spin_loop();
+                            }
+                            if backoff < 64 {
+                                backoff <<= 1;
+                            }
+                            #[cfg(loom)]
+                            loom::thread::yield_now();
+                        }
+                        OlcOutcome::Fallback(c) => {
+                            // SAFETY: `new_raw` was freshly allocated via Box::into_raw above.
+                            drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                            cause = c;
+                            break;
+                        }
+                    }
+                }
+
+                crate::occ_stats::op_end();
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(cause.stat());
+                #[cfg(feature = "occ-stats")]
+                if cause == FallbackCause::Contention {
+                    crate::occ_stats::bump(contention_stat(closed));
+                }
+                Err(cause)
+            });
+
+            drop(guard);
+            match res {
+                Ok(prev) => prev,
+                Err(_) => self.shared.remove_root_covered(|m| {
+                    m.set_len(self.entry_pop.load());
+                    let pop_before = m.len();
+                    let prev = m.insert(key, val);
+                    let delta = m.len() as i64 - pop_before as i64;
+                    if delta != 0 {
+                        self.entry_pop.add_base(delta);
+                    }
+                    prev
+                }),
+            }
+        }
+        #[cfg(not(all(
+            feature = "std",
+            target_pointer_width = "64",
+            not(feature = "ablation-bytes-serial-writers")
+        )))]
+        {
+            self.shared.remove_root_covered(|m| m.insert(key, val))
+        }
     }
 
     /// Removes `key`; returns its value, if present.
     pub fn remove(&self, key: &[u8]) -> Option<u64> {
-        self.shared.write(|m| m.remove(key))
+        #[cfg(all(
+            feature = "std",
+            target_pointer_width = "64",
+            not(feature = "ablation-bytes-serial-writers")
+        ))]
+        {
+            self.shared.remove_root_covered(|m| {
+                m.set_len(self.entry_pop.load());
+                let pop_before = m.len();
+                let res = m.remove(key);
+                let pop_after = m.len();
+                let delta = pop_after as i64 - pop_before as i64;
+                if pop_after == 0 && pop_before > 0 {
+                    self.entry_pop.flush_and_set(0);
+                } else if delta != 0 {
+                    self.entry_pop.add_base(delta);
+                }
+                res
+            })
+        }
+        #[cfg(not(all(
+            feature = "std",
+            target_pointer_width = "64",
+            not(feature = "ablation-bytes-serial-writers")
+        )))]
+        {
+            self.shared.remove_root_covered(|m| m.remove(key))
+        }
     }
 
     /// Removes every key and releases all memory.
     pub fn clear(&self) {
-        self.shared.write(ExpanseBytesMap::clear)
+        #[cfg(all(
+            feature = "std",
+            target_pointer_width = "64",
+            not(feature = "ablation-bytes-serial-writers")
+        ))]
+        {
+            self.shared.write_root_covered(|m| {
+                m.clear();
+                self.shared.tree_pop.flush_and_set(0);
+                self.entry_pop.flush_and_set(0);
+            })
+        }
+        #[cfg(not(all(
+            feature = "std",
+            target_pointer_width = "64",
+            not(feature = "ablation-bytes-serial-writers")
+        )))]
+        {
+            self.shared.write_root_covered(|m| {
+                m.clear();
+                self.shared.tree_pop.flush_and_set(0);
+            })
+        }
     }
 
     /// Registers a reader handle for this thread's lookups.
@@ -9715,22 +10085,34 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
         self.get(key).is_some()
     }
 
-    /// Number of keys (validated read; the entry count, not the bucket
-    /// count).
+    /// Number of keys (the entry count, not the bucket count).
     #[must_use]
     pub fn len(&self) -> u64 {
-        for _ in 0..MAX_RETRIES {
-            let snap = self.shared.version().sample();
-            // SAFETY: single-word racy copy; validated before use.
-            let pop = unsafe { (*self.shared.inner.get()).len() };
-            if self.shared.version().validate(snap) {
-                return pop;
-            }
+        #[cfg(all(
+            feature = "std",
+            target_pointer_width = "64",
+            not(feature = "ablation-bytes-serial-writers")
+        ))]
+        {
+            self.entry_pop.load()
         }
-        // As in `SyncExpanseStrMap::len`: a retry-exhaustion fallback, and
-        // counted as one.
-        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
-        self.shared.read_locked(ExpanseBytesMap::len)
+        #[cfg(not(all(
+            feature = "std",
+            target_pointer_width = "64",
+            not(feature = "ablation-bytes-serial-writers")
+        )))]
+        {
+            for _ in 0..MAX_RETRIES {
+                let snap = self.shared.version().sample();
+                // SAFETY: single-word racy copy; validated before use.
+                let pop = unsafe { (*self.shared.inner.get()).len() };
+                if self.shared.version().validate(snap) {
+                    return pop;
+                }
+            }
+            crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
+            self.shared.read_locked(ExpanseBytesMap::len)
+        }
     }
 
     /// True when no keys are present.
@@ -9748,7 +10130,23 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
     /// Runs `f` over the map with all writers excluded — the escape
     /// hatch to the single-threaded `&self` read API ([`ExpanseBytesMap::for_each`], …).
     pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseBytesMap<S>) -> R) -> R {
-        self.shared.with_locked(f)
+        #[cfg(all(
+            feature = "std",
+            target_pointer_width = "64",
+            not(feature = "ablation-bytes-serial-writers")
+        ))]
+        {
+            self.shared
+                .with_locked_pre(|m| m.set_len(self.entry_pop.load()), f)
+        }
+        #[cfg(not(all(
+            feature = "std",
+            target_pointer_width = "64",
+            not(feature = "ablation-bytes-serial-writers")
+        )))]
+        {
+            self.shared.with_locked(f)
+        }
     }
 
     /// Runs `f` with exclusive access under the writer lock and version
@@ -9757,7 +10155,27 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
     /// which take `&mut self` because they return writable value slots).
     /// Slots obtained inside must not escape `f`.
     pub fn with_locked_mut<R>(&self, f: impl FnOnce(&mut ExpanseBytesMap<S>) -> R) -> R {
-        self.shared.write(f)
+        #[cfg(all(
+            feature = "std",
+            target_pointer_width = "64",
+            not(feature = "ablation-bytes-serial-writers")
+        ))]
+        {
+            self.shared.remove_root_covered(|m| {
+                m.set_len(self.entry_pop.load());
+                let r = f(m);
+                self.entry_pop.flush_and_set(m.len());
+                r
+            })
+        }
+        #[cfg(not(all(
+            feature = "std",
+            target_pointer_width = "64",
+            not(feature = "ablation-bytes-serial-writers")
+        )))]
+        {
+            self.shared.remove_root_covered(f)
+        }
     }
 }
 
@@ -9777,8 +10195,18 @@ impl<S: BuildHasher + Send + Sync + Default> From<ExpanseBytesMap<S>> for SyncEx
         src.for_each(|key, val| {
             map.insert(key, val);
         });
+        let _initial_len = map.len();
+        let shared = Shared::with_collector(map, collector);
+        #[cfg(all(target_pointer_width = "64", feature = "std"))]
+        shared.inner_ref().occ_root().1.cover_root();
         Self {
-            shared: Shared::with_collector(map, collector),
+            shared,
+            #[cfg(all(
+                feature = "std",
+                target_pointer_width = "64",
+                not(feature = "ablation-bytes-serial-writers")
+            ))]
+            entry_pop: Box::new(ShardedTreePop::new(_initial_len)),
         }
     }
 }
@@ -12206,6 +12634,227 @@ mod tests {
         }
     }
 
+    /// Multi-writer OLC on `SyncExpanseBytesMap`: multiple concurrent writers
+    /// insert disjoint key sets concurrently via optimistic CAS bucket
+    /// publication, overwrite existing keys, verify population census and
+    /// value integrity, and finally remove all keys concurrently.
+    #[test]
+    fn concurrent_bytes_multi_writer_disjoint_and_census() {
+        let m = Arc::new(SyncExpanseBytesMap::new());
+        let prefill: Vec<Vec<u8>> = (0..40u64)
+            .map(|i| format!("pre{i:05}").into_bytes())
+            .collect();
+        for k in &prefill {
+            m.insert(k, str_val_of(k));
+        }
+        const W: usize = 4;
+        const PER: usize = 1500;
+        let keys_of = |w: usize| -> Vec<Vec<u8>> { (0..PER).map(|i| churn_key(w, i)).collect() };
+        let barrier = Arc::new(std::sync::Barrier::new(W));
+        let handles: Vec<_> = (0..W)
+            .map(|w| {
+                let m = Arc::clone(&m);
+                let b = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    let keys = keys_of(w);
+                    b.wait();
+                    for k in &keys {
+                        assert_eq!(m.insert(k, str_val_of(k)), None, "fresh {k:?}");
+                    }
+                    for k in &keys {
+                        assert_eq!(
+                            m.insert(k, str_val_of(k) ^ 1),
+                            Some(str_val_of(k)),
+                            "replace {k:?}"
+                        );
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().expect("writer panicked");
+        }
+        let total = (prefill.len() + W * PER) as u64;
+        assert_eq!(m.len(), total);
+        m.with_locked(|inner| {
+            assert_eq!(inner.len(), total);
+            for k in &prefill {
+                assert_eq!(inner.get(k), Some(str_val_of(k)));
+            }
+            for w in 0..W {
+                for k in keys_of(w) {
+                    assert_eq!(inner.get(&k), Some(str_val_of(&k) ^ 1), "{k:?}");
+                }
+            }
+        });
+        let barrier = Arc::new(std::sync::Barrier::new(W));
+        let handles: Vec<_> = (0..W)
+            .map(|w| {
+                let m = Arc::clone(&m);
+                let b = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    let keys = keys_of(w);
+                    b.wait();
+                    for k in &keys {
+                        assert_eq!(m.remove(k), Some(str_val_of(k) ^ 1), "remove {k:?}");
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().expect("remover panicked");
+        }
+        assert_eq!(m.len(), prefill.len() as u64);
+        m.with_locked(|inner| {
+            for w in 0..W {
+                for k in keys_of(w) {
+                    assert_eq!(inner.get(&k), None, "{k:?}");
+                }
+            }
+            for k in &prefill {
+                assert_eq!(inner.get(k), Some(str_val_of(k)));
+            }
+        });
+    }
+
+    /// Degenerate hasher stress test: every key shares the exact same 64-bit
+    /// hash (0), forcing all concurrent writers to compete on the identical
+    /// single trie slot via OLC CAS bucket replacement.
+    #[test]
+    fn concurrent_bytes_writers_collide_on_hash() {
+        let m = Arc::new(SyncExpanseBytesMap::with_hasher(Degenerate));
+        const W: usize = 4;
+        const PER: usize = 100;
+        let keys_of = |w: usize| -> Vec<Vec<u8>> {
+            (0..PER)
+                .map(|i| format!("coll-{w}-{i}").into_bytes())
+                .collect()
+        };
+        let barrier = Arc::new(std::sync::Barrier::new(W));
+        let handles: Vec<_> = (0..W)
+            .map(|w| {
+                let m = Arc::clone(&m);
+                let b = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    let keys = keys_of(w);
+                    b.wait();
+                    for k in &keys {
+                        assert_eq!(m.insert(k, str_val_of(k)), None, "fresh {k:?}");
+                    }
+                    for k in &keys {
+                        assert_eq!(
+                            m.insert(k, str_val_of(k) ^ 0x42),
+                            Some(str_val_of(k)),
+                            "replace {k:?}"
+                        );
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().expect("writer panicked");
+        }
+        let total = (W * PER) as u64;
+        assert_eq!(m.len(), total);
+        let rd = m.reader();
+        for w in 0..W {
+            for k in keys_of(w) {
+                assert_eq!(rd.get(&k), Some(str_val_of(&k) ^ 0x42), "{k:?}");
+            }
+        }
+        // Concurrent removal on the single collided bucket.
+        let barrier = Arc::new(std::sync::Barrier::new(W));
+        let handles: Vec<_> = (0..W)
+            .map(|w| {
+                let m = Arc::clone(&m);
+                let b = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    let keys = keys_of(w);
+                    b.wait();
+                    for k in &keys {
+                        assert_eq!(m.remove(k), Some(str_val_of(k) ^ 0x42), "remove {k:?}");
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().expect("remover panicked");
+        }
+        assert_eq!(m.len(), 0);
+        assert!(m.is_empty());
+    }
+
+    /// Multiple concurrent writers churn their own key sets (insert, remove,
+    /// overwrite) while concurrent readers hammer lookups via `BytesReader`.
+    /// Readers must only ever observe valid uncorrupted values or `None` —
+    /// never torn values, stale bucket reads, or crashed iterators.
+    #[test]
+    fn concurrent_bytes_writers_churn_under_readers() {
+        let m = Arc::new(SyncExpanseBytesMap::new());
+        let stop = Arc::new(AtomicBool::new(false));
+        const W: usize = 3;
+        const KEYS: usize = 256;
+        let readers: Vec<_> = (0..2u64)
+            .map(|r| {
+                let m = Arc::clone(&m);
+                let stop = Arc::clone(&stop);
+                std::thread::spawn(move || {
+                    let rd = m.reader();
+                    let mut rng = XorShift(0x7000 + r);
+                    while !stop.load(Ordering::Relaxed) {
+                        let w = (rng.next() % W as u64) as usize;
+                        let k = churn_key(w, (rng.next() % KEYS as u64) as usize);
+                        if let Some(v) = rd.get(&k) {
+                            assert_eq!(v, str_val_of(&k), "torn value for {k:?}");
+                        }
+                    }
+                })
+            })
+            .collect();
+        let writers: Vec<_> = (0..W)
+            .map(|w| {
+                let m = Arc::clone(&m);
+                std::thread::spawn(move || {
+                    let keys: Vec<Vec<u8>> = (0..KEYS).map(|i| churn_key(w, i)).collect();
+                    let mut present = vec![false; KEYS];
+                    let mut rng = XorShift(0x9000 + w as u64);
+                    for _ in 0..10_000 {
+                        let i = (rng.next() % KEYS as u64) as usize;
+                        let k = &keys[i];
+                        if present[i] {
+                            assert_eq!(m.remove(k), Some(str_val_of(k)), "remove {k:?}");
+                            present[i] = false;
+                        } else {
+                            assert_eq!(m.insert(k, str_val_of(k)), None, "insert {k:?}");
+                            present[i] = true;
+                        }
+                    }
+                    (keys, present)
+                })
+            })
+            .collect();
+        let mut expected_pop = 0u64;
+        let mut final_keys = Vec::new();
+        for h in writers {
+            let (keys, present) = h.join().expect("writer panicked");
+            for (i, is_present) in present.into_iter().enumerate() {
+                if is_present {
+                    expected_pop += 1;
+                    final_keys.push(keys[i].clone());
+                }
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        for r in readers {
+            r.join().expect("reader panicked");
+        }
+        assert_eq!(m.len(), expected_pop);
+        let rd = m.reader();
+        for k in &final_keys {
+            assert_eq!(rd.get(k), Some(str_val_of(k)));
+        }
+    }
+
     /// The bytes-map twin of `sync_{blob,str}_wraps_populated_map`:
     /// wrapping a populated single-threaded map must rebuild it through
     /// a pre-deferred one — attaching the original (slab-carved) hash
@@ -12633,6 +13282,10 @@ mod diagnostics_tests {
         // two threads. (The counters are process-global and other tests write
         // concurrently, so only lower bounds are sound here; an "exactly zero
         // for one thread" assertion is not.)
+        //
+        // Multi-writer OLC insert only acquires the serial lock on fallbacks or
+        // root-leaf state, so `with_locked_mut` is used to exercise the exclusive
+        // writer lock path directly.
         const ROUNDS: u64 = 200;
         let m = std::sync::Arc::new(SyncExpanseBytesMap::new());
         let (to_b, from_a) = std::sync::mpsc::channel::<u64>();
@@ -12641,14 +13294,18 @@ mod diagnostics_tests {
         let mb = std::sync::Arc::clone(&m);
         let b = std::thread::spawn(move || {
             for k in from_a {
-                mb.insert(&k.to_le_bytes(), k);
+                mb.with_locked_mut(|m| {
+                    m.insert(&k.to_le_bytes(), k);
+                });
                 if to_a.send(k).is_err() {
                     break;
                 }
             }
         });
         for k in 0..ROUNDS {
-            m.insert(&(1_000_000 + k).to_le_bytes(), k);
+            m.with_locked_mut(|m| {
+                m.insert(&(1_000_000 + k).to_le_bytes(), k);
+            });
             to_b.send(k).unwrap();
             from_b.recv().unwrap();
         }
