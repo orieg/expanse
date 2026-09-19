@@ -1238,6 +1238,52 @@
       "replacement": "Quotients of the throughput table's own cells: ExpanseBlobMap over BTreeMap on workload D 21.50 / 4.28 = 5.02x, and over SkipMap on B, C, D, F 8.14x-11.14x (workload: `workload_ycsb`), criterion medians with no interval and themselves pending re-run (#1005)",
       "provenance": "#1005",
       "rationale": "The YCSB takeaway list in docs/BENCHMARKING.md stated a workload D ratio with a pair of throughputs, and a SkipMap range, that matched neither the table above them nor docs/DATABASE.md. They were typed rather than derived and resolve to no row or artifact. Formally retracted as unsourced."
+    },
+    {
+      "id": "ycsb_criterion_medians_33037221608",
+      "patterns": [
+        "(?<![\\w.])20\\.66\\s*(?:Mops|M\\s*ops|M/s)\\b",
+        "(?<![\\w.])20\\.38\\s*(?:Mops|M\\s*ops|M/s)\\b",
+        "(?<![\\w.])23\\.27\\s*(?:Mops|M\\s*ops|M/s)\\b",
+        "(?<![\\w.])21\\.21\\s*(?:Mops|M\\s*ops|M/s)\\b",
+        "(?<![\\w.])23\\.61\\s*(?:Mops|M\\s*ops|M/s)\\b",
+        "(?<![\\w.])21\\.26\\s*(?:Mops|M\\s*ops|M/s)\\b",
+        "(?<![\\w.])23\\.02\\s*(?:Mops|M\\s*ops|M/s)\\b",
+        "(?<![\\w.])21\\.50\\s*(?:Mops|M\\s*ops|M/s)\\b",
+        "(?<![\\w.])18\\.82\\s*(?:Mops|M\\s*ops|M/s)\\b",
+        "(?<![\\w.])14\\.73\\s*(?:Mops|M\\s*ops|M/s)\\b",
+        "(?<![\\w.])5\\.02\\s*[x×]\\b",
+        "(?<![\\w.])8\\.14\\s*[x×]\\s*[–-]\\s*11\\.14\\s*[x×]\\b"
+      ],
+      "context": [
+        "ycsb",
+        "workload"
+      ],
+      "replacement": "Standardized 8-round BCa 95% intervals from runs 35419627251 and 35419631571 (Refs #1005)",
+      "provenance": "#1005",
+      "rationale": "Criterion medians from unstandardized runs 33037221608 / 33219093994 predated harness corrections for MetaOverflow write rejections, drop in timed loop, and non-read-latest D."
+    },
+    {
+      "id": "ycsb_per_op_latency_tail_43b46f38",
+      "patterns": [
+        "(?<![\\w.])37,755\\s*ns\\b",
+        "(?<![\\w.])37755\\s*ns\\b",
+        "(?<![\\w.])38,224\\s*ns\\b",
+        "(?<![\\w.])38224\\s*ns\\b",
+        "(?<![\\w.])39,205\\s*ns\\b",
+        "(?<![\\w.])40,788\\s*ns\\b",
+        "(?<![\\w.])39,688\\s*ns\\b",
+        "(?<![\\w.])40,651\\s*ns\\b"
+      ],
+      "context": [
+        "ycsb",
+        "latency",
+        "tail",
+        "expanseblobmap"
+      ],
+      "replacement": "64-op window-mean latencies from runs 35419627251 and 35419631571: p95 is 64.5 ns on A, 72.4 ns on F (Refs #1005)",
+      "provenance": "#1005",
+      "rationale": "Per-op Instant bracket latency report at 43b46f38 suffered from calibrated bracket overhead and unmasked write rejections; the 38 us tail is refuted under window-mean sampling and valid writes."
     }
   ]
 }

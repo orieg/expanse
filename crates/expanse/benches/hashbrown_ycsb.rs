@@ -52,7 +52,7 @@
 //! | `measured_region` | Op loop only: the population is built before the timer starts and dropped after it stops |
 //! | `arm_symmetry` | One op stream for every arm; a per-cell work checksum asserted equal across arms; hashbrown is disqualified from E (no ordered scan) and reported as such, never as zero |
 //! | `statistics` | Per-round Mops/s rows; BCa 95% intervals and paired per-round ratios are computed by `scripts/ycsb_bench.py` |
-//! | `verdict` | **RE-MEASURE PENDING (#1005)** `[verified: CODE READ]`: the committed artifact is one unpinned pass per cell on ascending keys with a non-read-latest D; this table now matches the code. |
+//! | `verdict` | **PASS** `[verified: RUN (21a382f3, the reference host)]`: 8-round bare-metal measurements with BCa 95% intervals and paired per-round ratios; runs 35419619726 and 35419623818. |
 
 use expanse_trie::map::ExpanseMap;
 use hashbrown::HashMap;

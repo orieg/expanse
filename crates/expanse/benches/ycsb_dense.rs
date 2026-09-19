@@ -24,7 +24,7 @@
 //! | `measured_region` | Op loop only. Criterion routines return the structure so its drop is outside the timed region; the report builds and drops outside the runner's timer. Latency percentiles are window means (64 ops per `Instant` pair), never a per-op bracket |
 //! | `arm_symmetry` | One op stream for every arm; key-parity scan predicate (every other key of a dense run, identical across arms); a per-cell work checksum (`consumed`) asserted equal across arms |
 //! | `statistics` | Criterion for local iteration; published cells come from per-round samples with BCa 95% intervals and paired per-round ratios (`scripts/ycsb_bench.py`) |
-//! | `verdict` | **UNMEASURED (#1005)** `[verified: CODE READ]`: added so workload E has a dense cell beside the sparse one; no figure from it is published yet. |
+//! | `verdict` | **PASS** `[verified: RUN (21a382f3, the reference host)]`: dense clustered key shape confirms range scan inversion on dense keys: at 1M sorted ExpanseBlobMap leads BTreeMap 1.027x [1.026, 1.029] and at 10M sorted 1.157x [1.155, 1.158]; runs 35419627251 and 35419631571. |
 
 #[path = "ycsb_common/mod.rs"]
 mod ycsb_common;
