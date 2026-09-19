@@ -28,7 +28,7 @@
 //! | `measured_region` | Op loop only. Criterion routines return the structure so its drop is outside the timed region; the report builds and drops outside the runner's timer. Latency percentiles are window means (64 ops per `Instant` pair), never a per-op bracket |
 //! | `arm_symmetry` | One op stream for every arm; key-parity scan predicate (selectivity identical by construction); a per-cell work checksum (`consumed`) asserted equal across arms |
 //! | `statistics` | Criterion for local iteration; published cells come from per-round samples with BCa 95% intervals and paired per-round ratios (`scripts/ycsb_bench.py`) |
-//! | `verdict` | **RE-MEASURE PENDING (#1005)** `[verified: CODE READ]`: until #1005 the `ExpanseBlobMap` arm discarded a `MetaOverflow` on 255 of every 256 writes in workloads A, B, D and E, the criterion routines dropped the structure inside the timed region, the latency report bracketed every op, and workload D never read a key the run had inserted. |
+//! | `verdict` | **PASS** `[verified: RUN (21a382f3, the reference host)]`: 8-round bare-metal measurements across 100k, 1M, 10M populations, sorted and shuffled orders, with BCa 95% intervals, paired per-round ratios, and 64-op window-mean latencies (refuting 38 µs tail); runs 35419627251 and 35419631571. |
 
 #[path = "ycsb_common/mod.rs"]
 mod ycsb_common;
