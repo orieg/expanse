@@ -8621,8 +8621,9 @@ impl SyncExpanseBlobMap {
                                         // SAFETY: serialized by arena_write mutex; inner points to valid ExpanseBlobMap.
                                         // Access only the `arena` subfield via raw pointer, never forming `&mut ExpanseBlobMap`.
                                         unsafe {
-                                            let arena_ptr =
-                                                core::ptr::addr_of_mut!((*self.shared.inner.get()).arena);
+                                            let arena_ptr = core::ptr::addr_of_mut!(
+                                                (*self.shared.inner.get()).arena
+                                            );
                                             (*arena_ptr).record_deleted_slot(old_slot);
                                         }
                                     }
