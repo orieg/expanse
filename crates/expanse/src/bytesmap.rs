@@ -381,6 +381,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         unsafe { self.map.root_top_ptr() }
     }
 
+    #[allow(dead_code)]
     #[cfg(all(target_pointer_width = "64", feature = "std"))]
     #[inline(always)]
     pub(crate) fn occ_root(&self) -> (crate::sync::RootSnapshot, &crate::alloc::NodeAlloc) {
