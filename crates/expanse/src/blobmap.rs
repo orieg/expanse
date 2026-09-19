@@ -889,6 +889,32 @@ impl BlobArena {
         Ok(self.global_offset(idx, offset_in_chunk))
     }
 
+    /// Prepares a [`ValueSlot`] for `data` and `hot_meta`: inline if `<= 7` bytes,
+    /// compressed inline if compressible with `hot_meta == 0`, or allocated in the
+    /// arena returning an `ArenaMeta` slot.
+    #[inline(always)]
+    pub(crate) fn prepare_slot(
+        &mut self,
+        data: &[u8],
+        hot_meta: u32,
+    ) -> Result<ValueSlot, ArenaError> {
+        if data.len() <= 7 {
+            ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)
+        } else if hot_meta == 0
+            && let Some(slot) = crate::codec::try_compress_inline(data)
+        {
+            Ok(slot)
+        } else {
+            // Validate the metadata envelope *before* allocating arena bytes, so a
+            // rejected insert leaves no orphaned payload behind.
+            if hot_meta > ValueSlot::ARENA_META_MAX {
+                return Err(ArenaError::MetaOverflow);
+            }
+            let global = self.alloc_blob(data)?;
+            slot_from_global(global, hot_meta)
+        }
+    }
+
     /// Returns a slice of the blob payload at flat `global_offset`. The chunk is
     /// recovered by `global_offset / chunk_size`. Returns `None` (never UB) for
     /// an out-of-range chunk or offset, so a crafted image resolves cleanly.
@@ -1175,7 +1201,7 @@ impl Drop for BlobArena {
 /// inline value slots and chunked arena slabs.
 pub struct ExpanseBlobMap {
     index: ExpanseMap,
-    arena: BlobArena,
+    pub(crate) arena: BlobArena,
 }
 
 impl ExpanseBlobMap {
@@ -1260,21 +1286,7 @@ impl ExpanseBlobMap {
         data: &[u8],
         hot_meta: u32,
     ) -> Result<ValueSlot, ArenaError> {
-        if data.len() <= 7 {
-            ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)
-        } else if hot_meta == 0
-            && let Some(slot) = crate::codec::try_compress_inline(data)
-        {
-            Ok(slot)
-        } else {
-            // Validate the metadata envelope *before* allocating arena bytes, so a
-            // rejected insert leaves no orphaned payload behind.
-            if hot_meta > ValueSlot::ARENA_META_MAX {
-                return Err(ArenaError::MetaOverflow);
-            }
-            let global = self.arena.alloc_blob(data)?;
-            slot_from_global(global, hot_meta)
-        }
+        self.arena.prepare_slot(data, hot_meta)
     }
 
     #[inline(always)]
@@ -1308,7 +1320,10 @@ impl ExpanseBlobMap {
         // SAFETY: `this` is live and the chunk set is exclusively the caller's
         // for the call, per this function's contract. The borrow covers the
         // `arena` field alone, not the index other writers are descending.
-        unsafe { (*this).arena.grant_private_chunk() }
+        unsafe {
+            let arena_ptr = core::ptr::addr_of_mut!((*this).arena);
+            (*arena_ptr).grant_private_chunk()
+        }
     }
 
     /// Multi-writer private arena (Refs #929): see [`BlobArena::fold_live_delta`].

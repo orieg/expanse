@@ -4129,7 +4129,8 @@ void lists empty (`void: []`), and `evaluation: EVALUATED`.
   0.946–0.980 on `pinpercore` (`REFUTED`) and 0.977–1.020 on `0-15` (`INCONCLUSIVE`), matching the
   pre-registered expectation in METHODOLOGY §20.9 (append path contention at T = 8).
 
-- **Family F (50% read, 50% RMW via conditional publish, Zipfian $\theta = 0.99$): PASS across all gates.**
+- **Family F (50% read, 50% RMW via striped lock ($S = 1,024$, D1), Zipfian $\theta = 0.99$): PASS across all gates.**
+  *(Correction: previously described in PR #1033 as "RMW via conditional publish"; family F actually executed `get` + `insert` under the external striped lock ($S = 1,024$, D1), `crates/expanse/benches/ycsb_concurrent_common/mod.rs:113-115, 641-736`, and `rmw_provider` reads `striped_lock` in every row of all four committed artifacts. Per D1, multi-writer scaling of a `compare_exchange` loop remains unmeasured pending a dedicated registration.)*
   Scaling (G1) reaches 2.103–2.177× at T = 2, 5.636–6.524× at T = 4, and 10.451–11.840× at T = 8.
   Level (G2) is 1.459–1.500× at T = 2, 2.588–2.686× at T = 4, and 3.469–3.663× at T = 8.
   Skew retention (G3) is 1.102–1.126× at T = 2, 1.063–1.093× at T = 4, and 0.983–1.031× at T = 8.
@@ -4391,7 +4392,10 @@ The single-writer tripwire (`lock_restarts == 0` at T = 1) held strictly across 
 - **Correctness and absence of lost updates under RMW (Family F) is verified.**
   In Family F, 50% of all operations are read-modify-write updates on hot keys under $\theta = 0.99$.
   Across all 160 rounds evaluated in each run, 0 sequence mismatches or torn updates were observed (`PASS`).
+- **A `compare_exchange` loop's multi-writer scaling remains unmeasured.**
+  Family F's `olc` arm measured `get` + `insert` under the D1 external striped lock ($S = 1,024$) rather than `compare_exchange`, per `crates/expanse/benches/ycsb_concurrent_common/mod.rs:113-115, 641-736`. All four committed artifacts record `rmw_provider: "striped_lock"` for every Family F row. Multi-writer scaling of a read-then-`compare_exchange` loop was not evaluated by §20 and remains unmeasured (§20.11 D1).
 - **Hypothesis P-A is refuted.**
   The stall-only analytic model predicted scaling retention $\ge 0.9715$; observed retention was 0.750–0.870,
   confirming that cross-core cache line bouncing under high core counts imposes latency beyond stall cycles.
+
 
