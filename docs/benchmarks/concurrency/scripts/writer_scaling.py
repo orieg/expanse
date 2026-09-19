@@ -144,11 +144,10 @@ INVERSE_ABLATIONS = {
 
 # Every writer-mode arm, in sweep order, for `--arm all`. `map` and `set` run
 # optimistic lock coupling, and so does `str` since #929's string design
-# (METHODOLOGY.md §17) and `blob` since #929's blob design (METHODOLOGY.md §21);
-# `bytes` serialises every insert on the writer mutex, so it reads 0 lock fallbacks
-# by construction.
+# (METHODOLOGY.md §17), `blob` since #929's blob design (METHODOLOGY.md §21),
+# and `bytes` since #929's bytes design (METHODOLOGY.md §22).
 ALL_WRITER_ARMS = ("map", "set", "str", "bytes", "blob")
-MUTEX_WRITER_ARMS = ("bytes",)
+MUTEX_WRITER_ARMS: tuple[str, ...] = ()
 
 # The #929 `str` multi-writer gate (METHODOLOGY.md §17.3): the `str` arm,
 # default build against `GATE_929_STR_FEATURE`, at the registered round count
@@ -5578,6 +5577,7 @@ def _self_test_gate_929_bytes_report() -> None:
     else:
         raise AssertionError("a non-inverse comparison must be refused")
     assert GATE_929_BYTES_FEATURE in INVERSE_ABLATIONS
+    assert "bytes" not in MUTEX_WRITER_ARMS
 
 
 def _self_test_gate_929_str_report() -> None:
@@ -5789,9 +5789,9 @@ def self_test() -> int:
     # passes a sweep runs: the timed pass one harness process per cell with its
     # row checks, the counters pass, and the reduction. An arm in
     # MUTEX_WRITER_ARMS serialises on the writer mutex and reads 0 fallbacks by
-    # construction; the blob arm runs the OLC insert since #1024, so two
-    # writers can meet and fall back, and only its single-writer rows are held
-    # to 0. Neither counts node allocations.
+    # construction; the blob arm runs the OLC insert since #1024 and the bytes
+    # arm runs the OLC insert since #929, so two writers can meet and fall back,
+    # and only their single-writer rows are held to 0. Neither counts node allocations.
     eprintln("Testing the bytes and blob writer arms (#929)...")
     assert set(MUTEX_WRITER_ARMS) <= set(ALL_WRITER_ARMS) and set(WRITER_WORKLOAD_IDS) == set(ALL_WRITER_ARMS)
     for arm in ("bytes", "blob"):
@@ -5813,7 +5813,8 @@ def self_test() -> int:
         assert [c["writers"] for c in cells_arm] == [1, 2], cells_arm
         for c in cells_arm:
             assert c["workload_id"] == WRITER_WORKLOAD_IDS[arm], c
-            assert c["total_allocs"] is None and c["fallback_rate"] == 0.0, c
+            assert c["total_allocs"] is None, c
+            assert (c["fallback_rate"] == 0.0 if c["writers"] == 1 or arm in MUTEX_WRITER_ARMS else c["fallback_rate"] >= 0.0), c
             assert len(c["rounds_raw"]) == 3 and len(c["counters_raw"]) == 3, c
             assert c["writer_ci_method"] in CI_METHODS, c
         check_artifact_against_schedule(
