@@ -4398,4 +4398,80 @@ The single-writer tripwire (`lock_restarts == 0` at T = 1) held strictly across 
   The stall-only analytic model predicted scaling retention $\ge 0.9715$; observed retention was 0.750–0.870,
   confirming that cross-core cache line bouncing under high core counts imposes latency beyond stall cycles.
 
+## 21. Evaluation of #929 — SyncExpanseBytesMap multi-writer OLC gate
 
+Evaluation of the optimistic CAS bucket-replacement multi-writer architecture for `SyncExpanseBytesMap` (Task C of #929), pre-registered in `METHODOLOGY.md` §22.
+
+The gate pre-registers four gates over forty cells across two pins (`0-15` and `0,2,4,6,8,10,12,14`) and two independent runs each (8 rounds per cell, process isolation, Williams Latin square ordering):
+- **G1 (Scaling)**: $S(W) \ge 1.0$ at $W \in \{2, 4, 8\}$ (ratio of scaling factors over `ablation-bytes-serial-writers`).
+- **G2 (Level)**: $L(W) \ge 1.0$ at $W \in \{2, 4, 8\}$ (head throughput over the serialised build's best cell at any writer count).
+- **G3 (Price)**: $P \ge 0.90$ at $W = 1$ (single-writer head throughput over single-writer serialised build).
+- **G4 (Skewed overwrite)**: $K(W) \ge 0.50$ at $W \in \{2, 4, 8\}$ (overwrite throughput under Zipfian skew $\theta = 0.99$ over uniform overwrite throughput).
+- **Tripwire (Deterministic)**: Zero single-writer ($W = 1$) `lock_restarts`.
+
+Evaluation commit: `5d017fea` on reference host `bench-ref-01` (Intel Core i9-12900F, 8P+8E / 24 threads).
+
+### 21.1 The cells
+
+Per-round paired statistics, BCa 95%, 8 rounds
+*(measured: reference host — Intel Core i9-12900F, commit `5d017fea`; workloads: `concurrency_writer_bytes` for G1–G3 and the peak ratio, `concurrency_writer_bytes_overwrite` for G4; artifacts `results/gate_929_bytes_writer_scaling_pin0to15_5d017fea_run{1,2}.json` and `results/gate_929_bytes_writer_scaling_5d017fea_run{1,2}.json`)*:
+
+| pin | run | W | G1 scaling | verdict | G2 level | verdict | G4 skew ÷ uniform | verdict |
+|---|--:|--:|--:|---|--:|---|--:|---|
+| `0-15` | 1 | 2 | 2.104 [2.085, 2.121] | `PASS` | 1.337 [1.333, 1.342] | `PASS` | 1.255 [1.182, 1.327] | `PASS` |
+| `0-15` | 1 | 4 | 3.704 [3.607, 3.790] | `PASS` | 2.207 [2.149, 2.256] | `PASS` | 1.174 [1.126, 1.226] | `PASS` |
+| `0-15` | 1 | 8 | 7.185 [6.956, 7.548] | `PASS` | 3.944 [3.817, 4.043] | `PASS` | 0.939 [0.914, 0.964] | `PASS` |
+| `0-15` | 2 | 2 | 2.042 [1.949, 2.095] | `PASS` | 1.344 [1.338, 1.348] | `PASS` | 1.227 [1.146, 1.322] | `PASS` |
+| `0-15` | 2 | 4 | 3.629 [3.526, 3.716] | `PASS` | 2.145 [2.083, 2.208] | `PASS` | 1.172 [1.157, 1.187] | `PASS` |
+| `0-15` | 2 | 8 | 8.991 [7.070, 14.648] | `PASS` | 3.924 [3.877, 4.026] | `PASS` | 0.945 [0.900, 0.982] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 1 | 2 | 2.016 [1.914, 2.099] | `PASS` | 1.333 [1.325, 1.341] | `PASS` | 1.191 [1.113, 1.259] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 1 | 4 | 3.597 [3.524, 3.721] | `PASS` | 2.133 [2.097, 2.190] | `PASS` | 1.211 [1.155, 1.254] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 1 | 8 | 24.025 [22.327, 26.467] | `PASS` | 4.114 [4.042, 4.173] | `PASS` | 0.983 [0.947, 1.024] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 2 | 2 | 1.993 [1.911, 2.073] | `PASS` | 1.344 [1.337, 1.352] | `PASS` | 1.159 [1.108, 1.214] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 2 | 4 | 3.664 [3.476, 3.784] | `PASS` | 2.214 [2.131, 2.270] | `PASS` | 1.147 [1.117, 1.179] | `PASS` |
+| `0,2,4,6,8,10,12,14` | 2 | 8 | 25.598 [23.291, 28.449] | `PASS` | 4.007 [3.939, 4.128] | `PASS` | 0.943 [0.879, 1.004] | `PASS` |
+
+G3 is the single-writer price, head ÷ serialised build at W = 1; the peak ratio X(8)/X(4) is reported and gates nothing:
+
+| pin | run | G3 price | verdict | peak X(8)/X(4) |
+|---|--:|--:|---|--:|
+| `0-15` | 1 | 0.858 [0.855, 0.862] | `REFUTED` | 1.791 [1.697, 1.876] |
+| `0-15` | 2 | 0.859 [0.856, 0.862] | `REFUTED` | 1.833 [1.764, 1.908] |
+| `0,2,4,6,8,10,12,14` | 1 | 0.857 [0.845, 0.861] | `REFUTED` | 1.930 [1.891, 1.976] |
+| `0,2,4,6,8,10,12,14` | 2 | 0.859 [0.858, 0.863] | `REFUTED` | 1.813 [1.762, 1.873] |
+
+Median throughput behind those ratios, M inserts/s, fresh-insert cell:
+
+| pin | run | head W=1 | W=2 | W=4 | W=8 | serial W=1 | W=2 | W=4 | W=8 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| `0-15` | 1 | 2.82 | 4.38 | 7.39 | 13.04 | 3.28 | 2.44 | 2.28 | 2.12 |
+| `0-15` | 2 | 2.81 | 4.41 | 7.02 | 12.79 | 3.28 | 2.45 | 2.27 | 2.14 |
+| `0,2,4,6,8,10,12,14` | 1 | 2.82 | 4.37 | 6.89 | 13.66 | 3.28 | 2.46 | 2.29 | 0.67 |
+| `0,2,4,6,8,10,12,14` | 2 | 2.82 | 4.40 | 7.43 | 12.97 | 3.27 | 2.58 | 2.29 | 0.64 |
+
+`lock_restarts` in the head's counters pass, summed over 8 rounds (reported; only the W = 1 column is the tripwire):
+
+| pin | run | W=1 | W=2 | W=4 | W=8 |
+|---|--:|--:|--:|--:|--:|
+| `0-15` | 1 | 0 | 17313 | 37978 | 60510 |
+| `0-15` | 2 | 0 | 17564 | 41857 | 62976 |
+| `0,2,4,6,8,10,12,14` | 1 | 0 | 17709 | 37847 | 62470 |
+| `0,2,4,6,8,10,12,14` | 2 | 0 | 17162 | 36583 | 69173 |
+
+The single-writer tripwire (`lock_restarts == 0` at W = 1) held strictly across all runs and pins.
+
+### 21.2 What the verdict says, and what it does not
+
+- **Multi-writer OLC delivers substantial speedups over serialised mutex writes across all multi-threaded cells (G1, G2 PASS).**
+  At $W=2$, head delivers 4.37–4.41 M ops/s (1.333–1.344× best serial); at $W=4$, head delivers 6.89–7.43 M ops/s (2.13–2.21× best serial); at $W=8$, head delivers 12.79–13.66 M ops/s (3.92–4.11× best serial).
+  In contrast, the serialised mutex build collapses from 3.27–3.28 M ops/s at $W=1$ down to 2.12–2.14 M ops/s on pin `0-15` and 0.64–0.67 M ops/s on per-core pin at $W=8$.
+  At $W=8$, OLC delivers **6.0–6.2×** the serial throughput on hyperthread pairs (`0-15`) and **20.3–24.0×** the serial throughput on physical cores (`0,2,4,6,8,10,12,14`).
+- **Throughput scales strongly without saturation (Peak ratio X(8)/X(4) PASS).**
+  The peak ratio $X(8)/X(4)$ is 1.79–1.83 on `0-15` and 1.81–1.93 on per-core pin, with every confidence interval well above 1.0. Unlike BlobMap where shared arena allocations caused retrograde scaling past two writers prior to private arena sharding, `SyncExpanseBytesMap`'s CAS bucket publication exhibits consistent positive scaling across all evaluated thread counts.
+- **Skewed overwrites do not degrade performance (G4 PASS).**
+  Under extreme Zipfian key skew ($\theta = 0.99$), overwrite throughput ratio over uniform overwrite throughput is 1.15–1.25× at $W \in \{2, 4\}$ and 0.94–0.98× at $W = 8$, far exceeding the floor $\rho = 0.50$.
+- **Single-writer price floor $F = 0.90$ is REFUTED.**
+  The single-writer price ratio $P = X_{\text{head}}(1) / X_{\text{serial}}(1)$ is 0.857–0.859 across all 4 runs (BCa 95% intervals within [0.845, 0.863]), falling below the pre-registered floor $F = 0.90$.
+  **Mechanism**: Multi-writer OLC allocates an immutable replacement `Bucket` on the heap for every insert/overwrite, publishing it via atomic CAS (`olc_cas_publish_map`) and retiring the superseded bucket under epoch protection. In contrast, the serial build (`ablation-bytes-serial-writers`) mutates existing bucket entries in place under the writer mutex without heap allocation or epoch retirement when matching keys are updated. At $W=1$, where mutex contention is zero, the allocator and epoch-tracking overhead imposes a $\approx 14.1\%-14.3\%$ throughput price vs in-place mutation.
+  Per GEMINI.md §1.6 and METHODOLOGY.md §22.7, the locked floor $F = 0.90$ does NOT move post-hoc; the outcome is recorded honestly as `REFUTED` on G3.
+- **Scope limitations**: Evaluated on reference host `bench-ref-01` (Intel Core i9-12900F). Nothing is claimed regarding concurrent removals, key churn outside the registered distributions, alternate hash algorithms, 32-bit targets, or alternate hosts.
