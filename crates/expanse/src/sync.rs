@@ -7910,14 +7910,6 @@ pub(crate) fn olc_cas_publish_map<H: OlcHost>(
         feature = "ablation-bytes-serial-writers"
     ))
 ))]
-pub(crate) fn olc_cas_remove_map<H: OlcHost>(
-    host: &H,
-    key: Key,
-    expected: u64,
-) -> OlcOutcome<Option<u64>> {
-    olc_remove_map_body!(host, true, old => old != expected, key)
-}
-
 impl SyncExpanseMap {
     /// The map wrapper's OLC insert: `olc_insert_map_body!` as the method it
     /// always was.
@@ -7943,7 +7935,13 @@ impl SyncExpanseMap {
         expected: Option<u64>,
         val: u64,
     ) -> OlcOutcome<Option<u64>> {
-        olc_cas_publish_map(&*self.shared, key, expected, val)
+        olc_insert_map_body!(
+            self.shared,
+            old => expected != Some(old),
+            expected.is_none(),
+            key,
+            val
+        )
     }
 
     /// The conditional removal: `olc_remove_map_body!` removing only
@@ -7953,7 +7951,7 @@ impl SyncExpanseMap {
     #[allow(clippy::undocumented_unsafe_blocks)]
     #[cfg(feature = "std")]
     fn olc_cas_remove_map(&self, key: Key, expected: u64) -> OlcOutcome<Option<u64>> {
-        olc_cas_remove_map(&*self.shared, key, expected)
+        olc_remove_map_body!(self.shared, true, old => old != expected, key)
     }
 
     /// The map wrapper's OLC remove: `olc_remove_map_body!` as the method it
@@ -13284,6 +13282,10 @@ mod diagnostics_tests {
         // two threads. (The counters are process-global and other tests write
         // concurrently, so only lower bounds are sound here; an "exactly zero
         // for one thread" assertion is not.)
+        //
+        // Multi-writer OLC insert only acquires the serial lock on fallbacks or
+        // root-leaf state, so `with_locked_mut` is used to exercise the exclusive
+        // writer lock path directly.
         const ROUNDS: u64 = 200;
         let m = std::sync::Arc::new(SyncExpanseBytesMap::new());
         let (to_b, from_a) = std::sync::mpsc::channel::<u64>();
@@ -13292,14 +13294,18 @@ mod diagnostics_tests {
         let mb = std::sync::Arc::clone(&m);
         let b = std::thread::spawn(move || {
             for k in from_a {
-                mb.insert(&k.to_le_bytes(), k);
+                mb.with_locked_mut(|m| {
+                    m.insert(&k.to_le_bytes(), k);
+                });
                 if to_a.send(k).is_err() {
                     break;
                 }
             }
         });
         for k in 0..ROUNDS {
-            m.insert(&(1_000_000 + k).to_le_bytes(), k);
+            m.with_locked_mut(|m| {
+                m.insert(&(1_000_000 + k).to_le_bytes(), k);
+            });
             to_b.send(k).unwrap();
             from_b.recv().unwrap();
         }

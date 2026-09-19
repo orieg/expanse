@@ -158,28 +158,29 @@ fn structural_contention_stat_routing_in_sync_rs() {
         "Found direct use of ContentionGateClosed / ContentionRetryExhausted outside fn contention_stat: {:?}",
         direct_uses
     );
-    // Seven write loops: SyncExpanseSet and SyncExpanseMap insert and remove,
+    // Eight write loops: SyncExpanseSet and SyncExpanseMap insert and remove,
     // the map's conditional publish (`compare_exchange`, one loop for its
     // publish and removal forms), the string wrapper's shared loop
-    // `Shared::str_optimistic` (#929), and the blob map's optimistic insert (#929).
+    // `Shared::str_optimistic` (#929), the blob map's optimistic insert (#929),
+    // and the bytes map's optimistic insert (#929).
     assert_eq!(
-        call_sites, 7,
-        "Expected exactly 7 write loop call sites for contention_stat(closed), found {}",
+        call_sites, 8,
+        "Expected exactly 8 write loop call sites for contention_stat(closed), found {}",
         call_sites
     );
     assert_eq!(
-        gate_closed_checks, 7,
-        "Expected exactly 7 'gate.is_closed() {{' checks in write loops, found {}",
+        gate_closed_checks, 8,
+        "Expected exactly 8 'gate.is_closed() {{' checks in write loops, found {}",
         gate_closed_checks
     );
     assert_eq!(
-        paired_closed_assignments, 7,
-        "Expected exactly 7 'closed = true;' assignments within 4 lines of 'is_closed()', found {}",
+        paired_closed_assignments, 8,
+        "Expected exactly 8 'closed = true;' assignments within 4 lines of 'is_closed()', found {}",
         paired_closed_assignments
     );
     assert_eq!(
-        closed_true_assignments, 7,
-        "Expected 'closed = true' to occur nowhere else (exactly 7 total assignments), found {}",
+        closed_true_assignments, 8,
+        "Expected 'closed = true' to occur nowhere else (exactly 8 total assignments), found {}",
         closed_true_assignments
     );
 }
