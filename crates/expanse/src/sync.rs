@@ -7879,11 +7879,8 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
 #[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(all(
     feature = "std",
-    not(all(
-        feature = "ablation-str-serial-writers",
-        feature = "ablation-blob-serial-writers",
-        feature = "ablation-bytes-serial-writers"
-    ))
+    target_pointer_width = "64",
+    not(feature = "ablation-bytes-serial-writers")
 ))]
 pub(crate) fn olc_cas_publish_map<H: OlcHost>(
     host: &H,
@@ -9781,8 +9778,6 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
         // Fresh map: deferral precedes every allocation.
         map.defer_to(Arc::clone(&collector));
         let shared = Shared::with_collector(map, collector);
-        #[cfg(all(target_pointer_width = "64", feature = "std"))]
-        shared.inner_ref().occ_root().1.cover_root();
         Self {
             shared,
             #[cfg(all(
@@ -9995,7 +9990,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             not(feature = "ablation-bytes-serial-writers")
         )))]
         {
-            self.shared.remove_root_covered(|m| m.insert(key, val))
+            self.shared.write(|m| m.insert(key, val))
         }
     }
 
@@ -10027,7 +10022,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             not(feature = "ablation-bytes-serial-writers")
         )))]
         {
-            self.shared.remove_root_covered(|m| m.remove(key))
+            self.shared.write(|m| m.remove(key))
         }
     }
 
@@ -10051,7 +10046,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             not(feature = "ablation-bytes-serial-writers")
         )))]
         {
-            self.shared.write_root_covered(|m| {
+            self.shared.write(|m| {
                 m.clear();
                 self.shared.tree_pop.flush_and_set(0);
             })
@@ -10174,7 +10169,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             not(feature = "ablation-bytes-serial-writers")
         )))]
         {
-            self.shared.remove_root_covered(f)
+            self.shared.write(f)
         }
     }
 }
@@ -10197,8 +10192,6 @@ impl<S: BuildHasher + Send + Sync + Default> From<ExpanseBytesMap<S>> for SyncEx
         });
         let _initial_len = map.len();
         let shared = Shared::with_collector(map, collector);
-        #[cfg(all(target_pointer_width = "64", feature = "std"))]
-        shared.inner_ref().occ_root().1.cover_root();
         Self {
             shared,
             #[cfg(all(
