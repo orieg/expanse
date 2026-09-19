@@ -8558,7 +8558,13 @@ impl SyncExpanseBlobMap {
                                 let _arena_guard =
                                     self.arena_write.lock().expect("arena write lock poisoned");
                                 // SAFETY: arena_write is held; no concurrent writer mutates the arena.
-                                unsafe { (*self.shared.inner.get()).prepare_slot(data, hot_meta)? }
+                                // Access only the `arena` subfield via raw pointer, never forming
+                                // `&mut ExpanseBlobMap` while concurrent readers hold shared references to `index`.
+                                unsafe {
+                                    let arena_ptr =
+                                        core::ptr::addr_of_mut!((*self.shared.inner.get()).arena);
+                                    (*arena_ptr).prepare_slot(data, hot_meta)?
+                                }
                             }
                         }
                     }
@@ -8567,7 +8573,13 @@ impl SyncExpanseBlobMap {
                         let _arena_guard =
                             self.arena_write.lock().expect("arena write lock poisoned");
                         // SAFETY: arena_write is held; no concurrent writer mutates the arena.
-                        unsafe { (*self.shared.inner.get()).prepare_slot(data, hot_meta)? }
+                        // Access only the `arena` subfield via raw pointer, never forming
+                        // `&mut ExpanseBlobMap` while concurrent readers hold shared references to `index`.
+                        unsafe {
+                            let arena_ptr =
+                                core::ptr::addr_of_mut!((*self.shared.inner.get()).arena);
+                            (*arena_ptr).prepare_slot(data, hot_meta)?
+                        }
                     }
                 };
 
@@ -8607,9 +8619,11 @@ impl SyncExpanseBlobMap {
                                             .lock()
                                             .expect("arena write lock poisoned");
                                         // SAFETY: serialized by arena_write mutex; inner points to valid ExpanseBlobMap.
+                                        // Access only the `arena` subfield via raw pointer, never forming `&mut ExpanseBlobMap`.
                                         unsafe {
-                                            (*self.shared.inner.get())
-                                                .record_deleted_slot(old_slot);
+                                            let arena_ptr =
+                                                core::ptr::addr_of_mut!((*self.shared.inner.get()).arena);
+                                            (*arena_ptr).record_deleted_slot(old_slot);
                                         }
                                     }
                                 }
@@ -11757,6 +11771,100 @@ mod tests {
                     "corrupted payload for key {k}"
                 );
                 assert_eq!(meta, expected_meta, "mismatched metadata for key {k}");
+            }
+        }
+    }
+
+    /// Verifies that when writers are forced into fallback by concurrent compactions,
+    /// the `arena_epoch` guard detects that the pre-allocated slot locator is stale
+    /// and safely re-allocates in the compacted arena rather than installing a dangling
+    /// locator (Refs #929, #1030).
+    #[test]
+    fn stale_locator_window_during_compact_fallback() {
+        use core::sync::atomic::AtomicBool;
+        let m = Arc::new(SyncExpanseBlobMap::with_chunk_size(4096));
+        const PREFILL: usize = 300;
+        let payload_of = |k: u64| -> Vec<u8> {
+            let mut v = Vec::with_capacity(48);
+            v.extend_from_slice(&(k ^ 0xDEAD_BEEF_CAFE_BABE).to_le_bytes());
+            v.resize(48, (k & 0xFF) as u8);
+            v
+        };
+
+        // Prefill and create dead space
+        for k in 1..=PREFILL {
+            m.insert(k as u64, &payload_of(k as u64), 0).unwrap();
+        }
+        for k in 1..=(PREFILL - 20) {
+            m.remove(k as u64);
+        }
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let compactor_m = Arc::clone(&m);
+        let compactor_stop = Arc::clone(&stop);
+        let compactor = std::thread::spawn(move || {
+            while !compactor_stop.load(Ordering::Relaxed) {
+                let _ = compactor_m.compact();
+                std::thread::yield_now();
+            }
+        });
+
+        const W: usize = 4;
+        const PER_WRITER: usize = 1500;
+        let writers: Vec<_> = (0..W)
+            .map(|w| {
+                let m = Arc::clone(&m);
+                std::thread::spawn(move || {
+                    let base = 10_000 + w * PER_WRITER;
+                    for i in 0..PER_WRITER {
+                        let k = (base + i) as u64;
+                        let p = payload_of(k);
+                        m.insert(k, &p, 0).unwrap();
+                    }
+                })
+            })
+            .collect();
+
+        let reader_m = Arc::clone(&m);
+        let reader_stop = Arc::clone(&stop);
+        let reader = std::thread::spawn(move || {
+            let mut rd = reader_m.reader();
+            while !reader_stop.load(Ordering::Relaxed) {
+                let guard = rd.pin();
+                // Spot-check random keys in writer ranges
+                for w in 0..W {
+                    let base = 10_000 + w * PER_WRITER;
+                    let k = (base + (w * 17) % PER_WRITER) as u64;
+                    if let Some((view, _)) = guard.get(k) {
+                        assert_eq!(view.as_bytes(), &payload_of(k)[..]);
+                    }
+                }
+                std::thread::yield_now();
+            }
+        });
+
+        for w in writers {
+            w.join().expect("writer panicked");
+        }
+        stop.store(true, Ordering::Relaxed);
+        compactor.join().expect("compactor panicked");
+        reader.join().expect("reader panicked");
+
+        // Validate all inserted keys
+        let mut rd = m.reader();
+        let guard = rd.pin();
+        for w in 0..W {
+            let base = 10_000 + w * PER_WRITER;
+            for i in 0..PER_WRITER {
+                let k = (base + i) as u64;
+                let (view, _) = guard
+                    .get(k)
+                    .unwrap_or_else(|| panic!("missing key {k} after concurrent compaction"));
+                assert_eq!(
+                    view.as_bytes(),
+                    &payload_of(k)[..],
+                    "corrupted payload for key {k}"
+                );
             }
         }
     }
