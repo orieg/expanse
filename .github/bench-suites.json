@@ -261,6 +261,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "writer_scaling_929_bytes_gate",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "The #929 SyncExpanseBytesMap multi-writer gate (concurrency METHODOLOGY.md \u00a722.4): bytes cells (default build vs ablation-bytes-serial-writers, 8 interleaved rounds, W in {1, 2, 4, 8}, one process per cell, under the applied pin), read as G1 scaling, G2 level against the serialised build's best cell at any writer count, G3 the single-writer price floor, G4 overwrite under skew, and zero-restart tripwire; outputs gate_929_bytes_writer_scaling.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "ycsb_concurrent",
       "available": true,
       "kind": "wallclock",

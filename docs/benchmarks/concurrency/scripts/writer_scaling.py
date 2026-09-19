@@ -139,6 +139,7 @@ INVERSE_ABLATIONS = {
     "ablation-str-serial-writers",
     "ablation-blob-serial-writers",
     "ablation-blob-shared-arena",
+    "ablation-bytes-serial-writers",
 }
 
 # Every writer-mode arm, in sweep order, for `--arm all`. `map` and `set` run
@@ -205,6 +206,28 @@ GATE_929_BLOB_OVERWRITE_WORKLOAD_ID = "concurrency_writer_blob_overwrite_64bit"
 GATE_929_BLOB_CELLS_PER_RUN = 10
 GATE_929_BLOB_RESULTS_PATH = (
     REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "gate_929_blob_writer_scaling.json"
+)
+# The #929 bytes multi-writer gate (METHODOLOGY.md §22): SyncExpanseBytesMap's
+# per-node OLC write path evaluated against the serialised build's best cell.
+GATE_929_BYTES_FEATURE = "ablation-bytes-serial-writers"
+GATE_929_BYTES_PREREGISTRATION = "docs/benchmarks/concurrency/METHODOLOGY.md §22"
+GATE_929_BYTES_ROUNDS = 8
+GATE_929_BYTES_WRITERS = (1, 2, 4, 8)
+GATE_929_BYTES_PINS = ("0-15", "0,2,4,6,8,10,12,14")
+GATE_929_BYTES_PRICE_FLOOR: float | None = 0.90
+# G4, overwrite under skew (METHODOLOGY.md §22.4, §22.6). K_skew(W, r) =
+# T_head_skew(W, r) / T_head_uniform(W, r): the same overwrite workload under
+# Zipfian and under uniform key choice, head build only, W in {2, 4, 8}.
+GATE_929_BYTES_SKEW_FLOOR = 0.50
+GATE_929_BYTES_THETA = 0.99
+GATE_929_BYTES_PREFILL = 1 << 20
+GATE_929_BYTES_OVERWRITES = 1 << 20
+GATE_929_BYTES_SKEW_WRITERS = (2, 4, 8)
+GATE_929_BYTES_KEY_DISTS = ("zipfian", "uniform")
+GATE_929_BYTES_OVERWRITE_WORKLOAD_ID = "concurrency_writer_bytes_overwrite"
+GATE_929_BYTES_CELLS_PER_RUN = 10
+GATE_929_BYTES_RESULTS_PATH = (
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "gate_929_bytes_writer_scaling.json"
 )
 # The workload id each writer-mode arm's rows carry.
 WRITER_WORKLOAD_IDS = {
@@ -460,9 +483,10 @@ def writer_cell_argv(binary: Path, arm: str, cell: dict[str, Any], quick: bool) 
         str(cell["position"]),
     ]
     if cell.get("key_dist") is not None:
-        # A blob overwrite cell (METHODOLOGY.md §21.4 G4); a cell without the
-        # key runs the harness's default op, the fresh insert.
-        cmd.extend(["--blob-op", "overwrite", "--key-dist", str(cell["key_dist"])])
+        # An overwrite cell (METHODOLOGY.md §21.4 G4 for blob, §22.4 G4 for bytes);
+        # a cell without the key runs the harness's default op, the fresh insert.
+        op_flag = "--blob-op" if arm == "blob" else "--bytes-op"
+        cmd.extend([op_flag, "overwrite", "--key-dist", str(cell["key_dist"])])
     if quick:
         cmd.append("--quick")
     return cmd
@@ -489,6 +513,35 @@ def blob_overwrite_schedule(writers: tuple[int, ...] | list[int], rounds: int) -
     (`williams_positions`), head build only.
     """
     treatments = [(d, w) for w in writers for d in GATE_929_BLOB_KEY_DISTS]
+    out: list[dict[str, Any]] = []
+    for r in range(rounds):
+        for pos, idx in enumerate(williams_positions(len(treatments), r)):
+            dist, w = treatments[idx]
+            out.append({"round": r, "position": pos, "writers": w, "build": DEFAULT_BUILD, "key_dist": dist})
+    return out
+
+
+@dataclasses.dataclass
+class BytesOverwriteBlock:
+    """The §22.4 G4 block of one run: what to run, and what it produced."""
+
+    writers: tuple[int, ...]
+    schedule: list[dict[str, Any]]
+    rows: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    counters_rows: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    load_attribution: dict[str, Any] | None = None
+
+
+def bytes_overwrite_schedule(writers: tuple[int, ...] | list[int], rounds: int) -> list[dict[str, Any]]:
+    """Every timed bytes overwrite cell of the §22.4 G4 block, in execution order.
+
+    The treatments are the (key_dist, W) cells, indexed (zipfian, W_0),
+    (uniform, W_0), (zipfian, W_1), ...: the two terms of one K_skew(W, r) are
+    neighbouring treatments, as the two builds of a comparison are. Round r
+    runs them in row r of the same Williams construction the insert cells use
+    (`williams_positions`), head build only.
+    """
+    treatments = [(d, w) for w in writers for d in GATE_929_BYTES_KEY_DISTS]
     out: list[dict[str, Any]] = []
     for r in range(rounds):
         for pos, idx in enumerate(williams_positions(len(treatments), r)):
@@ -524,12 +577,20 @@ def writer_cell_row(stdout: str, arm: str, cell: dict[str, Any]) -> dict[str, An
     # The op is part of the cell: an overwrite row under an insert schedule
     # entry, or the reverse, is a different workload (AGENTS.md §8.1).
     want_op = "overwrite" if cell.get("key_dist") is not None else None
-    if row.get("blob_op") != want_op or row.get("key_dist") != cell.get("key_dist"):
-        raise RuntimeError(
-            f"writer cell ({arm}, {cell}): the row carries blob_op={row.get('blob_op')!r}, "
-            f"key_dist={row.get('key_dist')!r}; the schedule ran blob_op={want_op!r}, "
-            f"key_dist={cell.get('key_dist')!r} (METHODOLOGY.md §21.11)"
-        )
+    if arm == "blob":
+        if row.get("blob_op") != want_op or row.get("key_dist") != cell.get("key_dist"):
+            raise RuntimeError(
+                f"writer cell ({arm}, {cell}): the row carries blob_op={row.get('blob_op')!r}, "
+                f"key_dist={row.get('key_dist')!r}; the schedule ran blob_op={want_op!r}, "
+                f"key_dist={cell.get('key_dist')!r} (METHODOLOGY.md §21.11)"
+            )
+    elif arm == "bytes":
+        if row.get("bytes_op") != want_op or row.get("key_dist") != cell.get("key_dist"):
+            raise RuntimeError(
+                f"writer cell ({arm}, {cell}): the row carries bytes_op={row.get('bytes_op')!r}, "
+                f"key_dist={row.get('key_dist')!r}; the schedule ran bytes_op={want_op!r}, "
+                f"key_dist={cell.get('key_dist')!r} (METHODOLOGY.md §22.6)"
+            )
     row["build"] = cell["build"]
     return row
 
@@ -1281,7 +1342,7 @@ def run_comparison(
     prov: dict[str, Any],
     quick: bool = False,
     inverse: bool = False,
-    overwrite: "BlobOverwriteBlock | None" = None,
+    overwrite: "BlobOverwriteBlock | BytesOverwriteBlock | None" = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     """Runs interleaved (build × W) execution within each round, one process per cell.
 
@@ -1345,12 +1406,14 @@ def run_comparison(
 
     if overwrite is not None:
         overwrite.load_attribution = dict(load)
-        for dist in GATE_929_BLOB_KEY_DISTS:
+        key_dists = GATE_929_BLOB_KEY_DISTS if arm == "blob" else GATE_929_BYTES_KEY_DISTS
+        op_flag = "--blob-op" if arm == "blob" else "--bytes-op"
+        for dist in key_dists:
             print(f"  [Pass 2/2] Diagnostic counters (default, overwrite, {dist}) — W ∈ {list(overwrite.writers)}")
             overwrite.counters_rows.extend(
                 run_pass(
                     counters_bin_default, "counters", arm, list(overwrite.writers), rounds=rounds, quick=quick,
-                    extra_args=("--blob-op", "overwrite", "--key-dist", dist),
+                    extra_args=(op_flag, "overwrite", "--key-dist", dist),
                 )
             )
 
@@ -1945,6 +2008,389 @@ def gate_929_blob_report(
     }
 
 
+def bytes_overwrite_row_mismatches(rows: list[dict[str, Any]]) -> list[str]:
+    """What the harness's overwrite rows say that §22.4 and §22.6 do not.
+
+    K_skew is a statistic of one registered workload: Zipfian θ = 0.99 against
+    uniform choice, a 2^20-key prefill, 2^20 overwrites, 8-16 byte alphanumeric keys,
+    the head build. The harness reports each of those in every row, and a row that
+    reports anything else is a different experiment, so it voids the run rather
+    than being averaged in (AGENTS.md §8.1, §8.19).
+    """
+    want_theta = {GATE_929_BYTES_KEY_DISTS[0]: GATE_929_BYTES_THETA, GATE_929_BYTES_KEY_DISTS[1]: 0.0}
+    problems: list[str] = []
+    off: dict[tuple[str, str, str], list[str]] = {}
+    seen: set[tuple[Any, ...]] = set()
+    for row in rows:
+        dist, w, r = row.get("key_dist"), row.get("writers"), row.get("round")
+        where = f"overwrite row (key_dist={dist!r}, W={w}, round={r})"
+        short = f"{dist} W={w} r={r}"
+        if dist not in want_theta:
+            problems.append(f"{where}: key_dist is not one of {GATE_929_BYTES_KEY_DISTS}")
+            continue
+        if (dist, w, r) in seen:
+            problems.append(f"{where}: reported twice")
+        seen.add((dist, w, r))
+        expected = {
+            "workload_id": GATE_929_BYTES_OVERWRITE_WORKLOAD_ID,
+            "bytes_op": "overwrite",
+            "build": DEFAULT_BUILD,
+            "theta": want_theta[dist],
+            "prefill": GATE_929_BYTES_PREFILL,
+            "overwrites": GATE_929_BYTES_OVERWRITES,
+            "write_ops": GATE_929_BYTES_OVERWRITES,
+            "fresh_keys": 0,
+            "population_after": GATE_929_BYTES_PREFILL,
+        }
+        for key, want in expected.items():
+            if row.get(key) != want:
+                off.setdefault((key, repr(row.get(key)), repr(want)), []).append(short)
+    for (key, got, want), cells in off.items():
+        shown = ", ".join(cells[:3]) + (f" and {len(cells) - 3} more" if len(cells) > 3 else "")
+        problems.append(
+            f"{len(cells)} overwrite row(s): {key} is {got}, the registered value is {want} "
+            f"(METHODOLOGY.md §22.4, §22.6) [{shown}]"
+        )
+    return problems
+
+
+def gate_929_bytes_report(
+    head_cells: list[dict[str, Any]],
+    serial_cells: list[dict[str, Any]],
+    comparisons: list[dict[str, Any]],
+    rounds: int,
+    core_pin: str,
+    quick: bool,
+    price_floor: float | None = None,
+    overwrite: BytesOverwriteBlock | None = None,
+) -> dict[str, Any]:
+    """The #929 bytes multi-writer gate (METHODOLOGY.md §22): SyncExpanseBytesMap's
+    per-node OLC write path evaluated against the serialised build's best cell.
+
+    G1 is the paired scaling ratio C_head(W, r) / C_serial(W, r) per round across
+    W in {2, 4, 8}, passing iff the BCa 95% lower bound is strictly above 1.0.
+    G2 is the BCa 95% interval of the per-round ratio
+    L(W, r) = T_head(W, r) / max over W' of T_serial(W', r), a cell per
+    W in {2, 4, 8}, passing iff its lower bound is strictly above 1.0.
+    G3 is the BCa 95% interval of P(r) = T_head(1, r) / T_serial(1, r), passing iff
+    its lower bound is at least the locked floor (default F = 0.90, METHODOLOGY.md §22.4).
+    G4 is the BCa 95% interval of K_skew(W, r) = T_head_skew(W, r) / T_head_uniform(W, r),
+    the head build's overwrite cell under Zipfian and under uniform key choice in the
+    same round (METHODOLOGY.md §22.6), a cell per W in {2, 4, 8}, passing iff its lower
+    bound is at least 0.50. Without `overwrite`, with a term or a round missing, or with a
+    row that reports another workload, the G4 cells read NOT_EVALUABLE and the run is void.
+    Peak ratio X(8)/X(4) = T_head(8) / T_head(4) is reported as a diagnostic indicator
+    and gates nothing.
+    Deterministic tripwire checks zero lock_restarts on the head build's single-writer
+    (W = 1) counters rows, the single-threaded reading §22.4 registers; restarts at
+    W >= 2 are reported per cell and never void a run (METHODOLOGY.md §22.6).
+    A round present in one build and absent in the other, a serialised cell missing
+    for any registered W', or an unlocked floor reads NOT_EVALUABLE — never a pass.
+    """
+    floor = GATE_929_BYTES_PRICE_FLOOR if price_floor is None else price_floor
+
+    matching = [
+        c for c in comparisons
+        if c.get("arm") == "bytes" and c.get("variant_name") == GATE_929_BYTES_FEATURE
+    ]
+    if len(matching) != 1:
+        raise ValueError(
+            f"the #929 bytes gate needs exactly one bytes comparison against {GATE_929_BYTES_FEATURE}, "
+            f"got {len(matching)} (AGENTS.md §8.1)"
+        )
+    comp = matching[0]
+    if not comp.get("is_inverse") or comp.get("ratio_direction") != "c_default_over_c_variant":
+        raise ValueError(
+            "the #929 bytes gate's ratio is C_head / C_serial with the head as the default build; "
+            f"the comparison reports {comp.get('ratio_direction')!r} (AGENTS.md §8.1)"
+        )
+
+    g1_cells: dict[str, dict[str, Any]] = {}
+    for w in GATE_929_BYTES_WRITERS:
+        if w == 1:
+            continue
+        entry = comp["per_writer"].get(str(w))
+        if entry is None:
+            raise ValueError(f"the comparison carries no W={w} cell (AGENTS.md §8.1)")
+        lo, hi = float(entry["ratio_ci_lower"]), float(entry["ratio_ci_upper"])
+        verdict = "PASS" if lo > 1.0 else ("REFUTED" if hi < 1.0 else "INCONCLUSIVE")
+        g1_cells[str(w)] = {
+            "w": w,
+            "ratio_mean": entry["ratio_c_variant_over_c_default_mean"],
+            "ratio_ci": [lo, hi],
+            "ratio_ci_method": entry["ratio_ci_method"],
+            "verdict": verdict,
+        }
+
+    def by_round(rows: list[dict[str, Any]]) -> dict[int, dict[int, float]]:
+        out: dict[int, dict[int, float]] = {}
+        for c in rows:
+            if c.get("arm") != "bytes":
+                continue
+            w = int(c.get("writers", 0))
+            out[w] = {int(r["round"]): float(r["writer_mops"]) for r in c.get("rounds_raw") or []}
+        return out
+
+    head, serial = by_round(head_cells), by_round(serial_cells)
+    void: list[str] = []
+    if rounds != GATE_929_BYTES_ROUNDS:
+        void.append(f"rounds {rounds} is not the registered {GATE_929_BYTES_ROUNDS} (METHODOLOGY.md §22.6)")
+    if quick:
+        void.append("--quick population: a smoke run of the instrument, not the §22.4 cells")
+    if not any(pins_equal(core_pin, pin) for pin in GATE_929_BYTES_PINS):
+        void.append(f"pin {core_pin!r} is neither registered pin (METHODOLOGY.md §22.6)")
+
+    missing_serial = [w for w in GATE_929_BYTES_WRITERS if not serial.get(w)]
+    missing_head = [w for w in GATE_929_BYTES_WRITERS if not head.get(w)]
+    if missing_serial:
+        void.append(f"the serialised build carries no cell for W in {missing_serial}; G2's maximum is undefined")
+    if missing_head:
+        void.append(f"the head build carries no cell for W in {missing_head}")
+
+    def common_rounds(*series: dict[int, float]) -> list[int]:
+        if not series or not series[0]:
+            return []
+        keys = set(series[0])
+        for s_ in series[1:]:
+            keys &= set(s_)
+        return sorted(keys)
+
+    def interval(xs: list[float]) -> dict[str, Any]:
+        mean, lo, hi, method = bca_bootstrap_ci_with_method(xs, confidence=0.95)
+        return {
+            "ratio_mean": round(mean, 4),
+            "ratio_ci": [round(lo, 4), round(hi, 4)],
+            "ratio_ci_method": method,
+            "paired_ratios_raw": [round(x, 6) for x in xs],
+        }
+
+    level: dict[str, dict[str, Any]] = {}
+    for w in GATE_929_BYTES_WRITERS:
+        if w == 1:
+            continue
+        if missing_serial or not head.get(w):
+            level[str(w)] = {"w": w, "verdict": "NOT_EVALUABLE"}
+            continue
+        rs = common_rounds(head[w], *(serial[x] for x in GATE_929_BYTES_WRITERS))
+        if len(rs) != rounds:
+            level[str(w)] = {
+                "w": w,
+                "verdict": "NOT_EVALUABLE",
+                "reason": f"{len(rs)} rounds are common to the head cell and every serialised cell, not {rounds}",
+            }
+            continue
+        xs = [head[w][r] / max(serial[x][r] for x in GATE_929_BYTES_WRITERS) for r in rs]
+        cell = interval(xs)
+        lo, hi = cell["ratio_ci"]
+        cell["w"] = w
+        cell["best_serial_w_by_round"] = [max(GATE_929_BYTES_WRITERS, key=lambda x: serial[x][r]) for r in rs]
+        cell["verdict"] = "PASS" if lo > 1.0 else ("REFUTED" if hi < 1.0 else "INCONCLUSIVE")
+        level[str(w)] = cell
+
+    price: dict[str, Any]
+    rs1 = common_rounds(head.get(1, {}), serial.get(1, {})) if head.get(1) and serial.get(1) else []
+    if floor is None:
+        void.append("the §22.4 price floor is not locked (GATE_929_BYTES_PRICE_FLOOR is unset)")
+        price = {"verdict": "NOT_EVALUABLE", "floor": None}
+        if len(rs1) == rounds:
+            price.update(interval([head[1][r] / serial[1][r] for r in rs1]))
+    elif len(rs1) != rounds:
+        price = {
+            "verdict": "NOT_EVALUABLE",
+            "floor": floor,
+            "reason": f"{len(rs1)} W = 1 rounds are common to the two builds, not {rounds}",
+        }
+    else:
+        price = interval([head[1][r] / serial[1][r] for r in rs1])
+        lo, hi = price["ratio_ci"]
+        price["floor"] = floor
+        price["verdict"] = "PASS" if lo >= floor else ("REFUTED" if hi < floor else "INCONCLUSIVE")
+
+    peak_ratio: dict[str, Any]
+    if head.get(8) and head.get(4):
+        rs_peak = common_rounds(head[8], head[4])
+        if len(rs_peak) == rounds:
+            xs_peak = [head[8][r] / head[4][r] for r in rs_peak]
+            peak_ratio = interval(xs_peak)
+            peak_ratio["statistic"] = "writer_mops(head, 8, r) / writer_mops(head, 4, r), per round; BCa 95%"
+        else:
+            peak_ratio = {
+                "verdict": "NOT_EVALUABLE",
+                "reason": f"{len(rs_peak)} rounds common to W=8 and W=4, not {rounds}",
+            }
+    else:
+        peak_ratio = {"verdict": "NOT_EVALUABLE", "reason": "head cells missing W=8 or W=4"}
+
+    ow_rows = list(overwrite.rows) if overwrite is not None else []
+    if not ow_rows:
+        void.append(
+            "the run carries no overwrite rows: G4 (METHODOLOGY.md §22.4) cannot be evaluated, "
+            "and a gate without G4 is not the registered gate"
+        )
+    ow_mismatches = bytes_overwrite_row_mismatches(ow_rows)
+    void.extend(ow_mismatches)
+    ow_series: dict[tuple[str, int], dict[int, float]] = {}
+    ow_raw: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    for row in ow_rows:
+        k = (str(row.get("key_dist")), int(row.get("writers", 0)))
+        ow_series.setdefault(k, {})[int(row["round"])] = float(row["writer_mops"])
+        ow_raw.setdefault(k, []).append(row)
+    skew_dist, uniform_dist = GATE_929_BYTES_KEY_DISTS
+    skew: dict[str, dict[str, Any]] = {}
+    for w in GATE_929_BYTES_SKEW_WRITERS:
+        zs, us = ow_series.get((skew_dist, w), {}), ow_series.get((uniform_dist, w), {})
+        rs = common_rounds(zs, us) if zs and us else []
+        if len(rs) != rounds or len(zs) != rounds or len(us) != rounds:
+            skew[str(w)] = {
+                "w": w,
+                "verdict": "NOT_EVALUABLE",
+                "reason": f"{len(rs)} rounds carry both the {skew_dist} and the {uniform_dist} cell, not {rounds}",
+            }
+            continue
+        cell = interval([zs[r] / us[r] for r in rs])
+        lo, hi = cell["ratio_ci"]
+        cell["w"] = w
+        cell["floor"] = GATE_929_BYTES_SKEW_FLOOR
+        cell["verdict"] = (
+            "PASS" if lo >= GATE_929_BYTES_SKEW_FLOOR
+            else ("REFUTED" if hi < GATE_929_BYTES_SKEW_FLOOR else "INCONCLUSIVE")
+        )
+        if ow_mismatches:
+            cell["verdict"] = "NOT_EVALUABLE"
+            cell["reason"] = "an overwrite row reports a workload other than the registered one"
+        cell["rounds_raw"] = {
+            d: sorted(
+                (
+                    {key: row.get(key) for key in (
+                        "round", "position", "block_first_in_round", "writer_mops", "writer_elapsed_s",
+                        "distinct_keys_overwritten", "verified_keys", "verified_overwritten",
+                    )}
+                    for row in ow_raw[(d, w)]
+                ),
+                key=lambda x: x["round"],
+            )
+            for d in GATE_929_BYTES_KEY_DISTS
+        }
+        skew[str(w)] = cell
+
+    ow_counters: dict[str, dict[str, Any]] = {}
+    for row in (overwrite.counters_rows if overwrite is not None else []):
+        entry = ow_counters.setdefault(
+            f"{row.get('key_dist')}_w{row.get('writers')}",
+            {"key_dist": row.get("key_dist"), "w": row.get("writers"),
+             "write_ops": 0, "lock_restarts": 0, "lock_fallbacks": 0},
+        )
+        for key in ("write_ops", "lock_restarts", "lock_fallbacks"):
+            entry[key] += int(row.get(key, 0))
+
+    fallback: dict[str, dict[str, Any]] = {}
+    total_lock_restarts = 0
+    single_writer_rows = 0
+    single_writer_restarts = 0
+    for c in head_cells:
+        if c.get("arm") != "bytes":
+            continue
+        w = int(c.get("writers", 0))
+        counters = c.get("counters_raw") or []
+        total_ops = sum(int(r.get("write_ops", 0)) for r in counters)
+        restarts = sum(int(r.get("lock_restarts", 0)) for r in counters)
+        total_lock_restarts += restarts
+        if w == 1:
+            single_writer_rows += len(counters)
+            single_writer_restarts += restarts
+        causes = c.get("fallback_causes_total") or {}
+        total_fallbacks = sum(int(v) for v in causes.values())
+        structural = total_fallbacks - int(causes.get("contention", 0))
+        structural_rate = (structural / total_ops) if total_ops else None
+        total_rate = (total_fallbacks / total_ops) if total_ops else None
+        fallback[str(w)] = {
+            "w": w,
+            "write_ops": total_ops,
+            "lock_restarts": restarts,
+            "fallbacks_total": total_fallbacks,
+            "fallbacks_structural": structural,
+            "structural_rate": structural_rate,
+            "total_rate": total_rate,
+            "causes_total": causes,
+        }
+
+    tripwire_tripped = single_writer_restarts > 0
+    if tripwire_tripped:
+        void.append(
+            f"deterministic tripwire tripped: {single_writer_restarts} lock_restarts in the single-writer "
+            "counters rows (METHODOLOGY.md §22.4)"
+        )
+    if single_writer_rows == 0:
+        void.append("the head build carries no W = 1 counters rows: the §22.4 tripwire was not read")
+
+    verdicts = (
+        [c["verdict"] for c in g1_cells.values()]
+        + [c["verdict"] for c in level.values()]
+        + [price["verdict"]]
+        + [c["verdict"] for c in skew.values()]
+    )
+    all_pass = (
+        (not void)
+        and len(verdicts) == GATE_929_BYTES_CELLS_PER_RUN
+        and all(v == "PASS" for v in verdicts)
+        and not tripwire_tripped
+    )
+
+    return {
+        "issue": 929,
+        "preregistration": GATE_929_BYTES_PREREGISTRATION,
+        "head_build": DEFAULT_BUILD,
+        "serial_build": GATE_929_BYTES_FEATURE,
+        "rounds": rounds,
+        "pin": core_pin,
+        "quick": quick,
+        "void": void,
+        "g1_scaling": {
+            "statistic": "C_head(W, r) / C_serial(W, r) per round, C_b(W, r) = writer_mops(b, W, r) / "
+                         "writer_mops(b, 1, r); BCa 95% over the round series; PASS iff lower bound > 1.0",
+            "cells": g1_cells,
+        },
+        "g2_level": {
+            "statistic": "writer_mops(head, W, r) / max over W' in {1, 2, 4, 8} of writer_mops(serial, W', r), "
+                         "per round; BCa 95%; PASS iff the lower bound is strictly above 1.0",
+            "cells": level,
+        },
+        "g3_price": {
+            "statistic": "writer_mops(head, 1, r) / writer_mops(serial, 1, r), per round; BCa 95%; "
+                         "PASS iff the lower bound is at least the locked floor",
+            **price,
+        },
+        "g4_overwrite_skew": {
+            "statistic": "writer_mops(head, overwrite, zipfian, W, r) / writer_mops(head, overwrite, uniform, W, r), "
+                         "per round; BCa 95%; PASS iff the lower bound is at least the floor",
+            "floor": GATE_929_BYTES_SKEW_FLOOR,
+            "theta": GATE_929_BYTES_THETA,
+            "prefill": GATE_929_BYTES_PREFILL,
+            "overwrites": GATE_929_BYTES_OVERWRITES,
+            "key_dists": list(GATE_929_BYTES_KEY_DISTS),
+            "workload_id": GATE_929_BYTES_OVERWRITE_WORKLOAD_ID,
+            "schedule": "per round, a second Williams block over the six (key_dist, W) cells, head build, one "
+                        "process per cell; the block order within a round alternates by round",
+            "load_attribution": overwrite.load_attribution if overwrite is not None else None,
+            "cells": skew,
+            "counters_reported": ow_counters,
+        },
+        "peak_ratio": {"gating": False, **peak_ratio},
+        "fallback_prediction": {
+            "tripwire": "zero lock_restarts in the single-writer (W = 1) counters rows; multi-writer "
+                        "restarts are reported per cell and void nothing",
+            "single_writer_lock_restarts": single_writer_restarts,
+            "total_lock_restarts": total_lock_restarts,
+            "tripwire_tripped": tripwire_tripped,
+            "per_writer": fallback,
+        },
+        "all_cells_pass_in_this_run": all_pass,
+        "note": "one artifact is one (pin, run) and carries ten cells: G1, G2 and G4 at W in {2, 4, 8}, and "
+                "G3. The gate is met at a head only when all forty cells over two pins and two runs PASS "
+                "(METHODOLOGY.md §22.4); the peak ratio is reported and gates nothing.",
+    }
+
+
 def committed_result_paths() -> tuple[Path, ...]:
     """The committed artifacts a `--quick` run must not overwrite."""
     return (
@@ -1957,6 +2403,7 @@ def committed_result_paths() -> tuple[Path, ...]:
         GATE_929_STR_RESULTS_PATH.resolve(),
         GATE_929_STR_V2_RESULTS_PATH.resolve(),
         GATE_929_BLOB_RESULTS_PATH.resolve(),
+        GATE_929_BYTES_RESULTS_PATH.resolve(),
     )
 
 
@@ -4892,6 +5339,247 @@ def _self_test_gate_929_blob_report() -> None:
     assert "blob" not in MUTEX_WRITER_ARMS
 
 
+def _self_test_gate_929_bytes_report() -> None:
+    """The #929 bytes gate reads G1 scaling, G2 level, G3 price floor, G4 overwrite
+    under skew, peak ratio X(8)/X(4), and the zero-restart deterministic tripwire
+    (METHODOLOGY.md §22). Each G4 clause has its own negative control."""
+
+    def cell(w: int, mops: list[float], lock_restarts: int = 0) -> dict[str, Any]:
+        return {
+            "arm": "bytes",
+            "writers": w,
+            "rounds_raw": [{"round": r, "writer_mops": m} for r, m in enumerate(mops)],
+            "counters_raw": [{"round": r, "write_ops": 1_000_000, "lock_restarts": lock_restarts} for r in range(len(mops))],
+            "fallback_causes_total": {name: 0 for name in CAUSE_NAMES},
+        }
+
+    comp = {
+        "arm": "bytes",
+        "variant_name": GATE_929_BYTES_FEATURE,
+        "is_inverse": True,
+        "ratio_direction": "c_default_over_c_variant",
+        "per_writer": {
+            str(w): {
+                "ratio_c_variant_over_c_default_mean": 2.5,
+                "ratio_ci_lower": 2.1,
+                "ratio_ci_upper": 2.9,
+                "ratio_ci_method": "bca",
+            }
+            for w in (2, 4, 8)
+        },
+    }
+    jitter = [0.00, 0.01, -0.01, 0.02, -0.02, 0.01, 0.00, -0.01]
+    head = [cell(w, [base + j for j in jitter]) for w, base in ((1, 3.8), (2, 6.3), (4, 11.4), (8, 20.5))]
+    serial = [cell(w, [base + j for j in jitter]) for w, base in ((1, 4.0), (2, 2.8), (4, 2.4), (8, 0.5))]
+    pin = "0,2,4,6,8,10,12,14"
+
+    def ow_block(k_skew: dict[int, float] | None = None, **override: Any) -> BytesOverwriteBlock:
+        """A registered G4 block whose K_skew(W, r) is `k_skew[W]` in every round."""
+        k_skew = k_skew or {2: 0.80, 4: 0.70, 8: 0.62}
+        block = BytesOverwriteBlock(
+            writers=GATE_929_BYTES_SKEW_WRITERS,
+            schedule=bytes_overwrite_schedule(GATE_929_BYTES_SKEW_WRITERS, 8),
+        )
+        for c in block.schedule:
+            w, dist, r = c["writers"], c["key_dist"], c["round"]
+            uniform_mops = 3.0 * w + jitter[r]
+            row = {
+                "workload_id": GATE_929_BYTES_OVERWRITE_WORKLOAD_ID,
+                "bytes_op": "overwrite",
+                "key_dist": dist,
+                "theta": GATE_929_BYTES_THETA if dist == "zipfian" else 0,
+                "prefill": 1 << 20,
+                "overwrites": 1 << 20,
+                "write_ops": 1 << 20,
+                "fresh_keys": 0,
+                "population_after": 1 << 20,
+                "build": DEFAULT_BUILD,
+                "writers": w,
+                "round": r,
+                "position": c["position"],
+                "writer_mops": uniform_mops * (k_skew[w] if dist == "zipfian" else 1.0),
+            }
+            row.update({k: v for k, v in override.items() if not (k == "theta" and dist != "zipfian")})
+            block.rows.append(row)
+        return block
+
+    # The G4 schedule: six cells a round, every (key_dist, W) once per round,
+    # and the insert cells' argv untouched by it.
+    sched = bytes_overwrite_schedule(GATE_929_BYTES_SKEW_WRITERS, 8)
+    assert len(sched) == 48 and all(c["build"] == DEFAULT_BUILD for c in sched)
+    for r in range(8):
+        in_round = sorted((c["key_dist"], c["writers"]) for c in sched if c["round"] == r)
+        assert in_round == sorted((d, w) for d in GATE_929_BYTES_KEY_DISTS for w in (2, 4, 8)), in_round
+        assert sorted(c["position"] for c in sched if c["round"] == r) == list(range(6))
+    argv = writer_cell_argv(Path("bin"), "bytes", sched[0], quick=False)
+    assert argv[argv.index("--bytes-op") + 1] == "overwrite"
+    assert argv[argv.index("--key-dist") + 1] == sched[0]["key_dist"]
+    plain = {"round": 0, "position": 0, "writers": 2, "build": DEFAULT_BUILD}
+    assert "--bytes-op" not in writer_cell_argv(Path("bin"), "bytes", plain, quick=False)
+    # A row whose op is not its schedule entry's is refused, both ways.
+    ow_line = json.dumps({"role": "throughput", "arm": "expanse", "round": 0, "position": 0, "writers": 2,
+                          "bytes_op": "overwrite", "key_dist": "zipfian"})
+    ins_line = json.dumps({"role": "throughput", "arm": "expanse", "round": 0, "position": 0, "writers": 2})
+    assert writer_cell_row(ow_line, "bytes", dict(plain, key_dist="zipfian"))["key_dist"] == "zipfian"
+    for line, entry in ((ow_line, plain), (ins_line, dict(plain, key_dist="zipfian")),
+                        (ow_line, dict(plain, key_dist="uniform"))):
+        try:
+            writer_cell_row(line, "bytes", entry)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError(f"a row of another op was accepted for {entry}")
+
+    assert (GATE_929_BYTES_SKEW_FLOOR, GATE_929_BYTES_THETA) == (0.50, 0.99), \
+        "the §22.4 G4 floor and skew are locked and do not move (AGENTS.md §8.19)"
+    assert (GATE_929_BYTES_PREFILL, GATE_929_BYTES_OVERWRITES) == (1 << 20, 1 << 20)
+
+    # (d) A passing set is MET for this (pin, run): ten cells, all PASS.
+    ok = gate_929_bytes_report(head, serial, [comp], 8, pin, False, price_floor=0.90, overwrite=ow_block())
+    assert ok["void"] == [], ok["void"]
+    g4 = ok["g4_overwrite_skew"]
+    assert [g4["cells"][w]["verdict"] for w in ("2", "4", "8")] == ["PASS"] * 3, g4["cells"]
+    assert abs(g4["cells"]["8"]["ratio_mean"] - 0.62) < 1e-6, g4["cells"]["8"]
+    assert all(g4["cells"][w]["ratio_ci_method"] for w in ("2", "4", "8"))
+    assert [len(g4["cells"]["2"]["rounds_raw"][d]) for d in GATE_929_BYTES_KEY_DISTS] == [8, 8]
+    assert ok["peak_ratio"]["gating"] is False
+
+    # (a) G4 rows absent: never MET, whatever G1-G3 say.
+    for label, block in (("no block", None), ("empty block", BytesOverwriteBlock((2, 4, 8), []))):
+        absent = gate_929_bytes_report(head, serial, [comp], 8, pin, False, price_floor=0.90, overwrite=block)
+        assert absent["all_cells_pass_in_this_run"] is False, label
+        assert any("no overwrite rows" in v for v in absent["void"]), (label, absent["void"])
+        assert {c["verdict"] for c in absent["g4_overwrite_skew"]["cells"].values()} == {"NOT_EVALUABLE"}, label
+        assert [absent["g2_level"]["cells"][w]["verdict"] for w in ("2", "4", "8")] == ["PASS"] * 3, label
+    for label, drop in (
+        ("W = 8 missing", lambda r: r["writers"] == 8),
+        ("uniform term missing at W = 4", lambda r: r["writers"] == 4 and r["key_dist"] == "uniform"),
+        ("round 7 missing at W = 2", lambda r: r["writers"] == 2 and r["round"] == 7 and r["key_dist"] == "zipfian"),
+    ):
+        block = ow_block()
+        block.rows = [r for r in block.rows if not drop(r)]
+        partial = gate_929_bytes_report(head, serial, [comp], 8, pin, False, price_floor=0.90, overwrite=block)
+        verdicts = [c["verdict"] for c in partial["g4_overwrite_skew"]["cells"].values()]
+        assert verdicts.count("NOT_EVALUABLE") == 1 and verdicts.count("PASS") == 2, (label, verdicts)
+        assert partial["void"] == [] and partial["all_cells_pass_in_this_run"] is False, label
+
+    # (b) The floor.
+    under = gate_929_bytes_report(
+        head, serial, [comp], 8, pin, False, price_floor=0.90, overwrite=ow_block({2: 0.80, 4: 0.70, 8: 0.49})
+    )
+    cell8 = under["g4_overwrite_skew"]["cells"]["8"]
+    assert abs(cell8["ratio_ci"][0] - 0.49) < 1e-6 and cell8["verdict"] == "REFUTED", cell8
+    assert [under["g4_overwrite_skew"]["cells"][w]["verdict"] for w in ("2", "4")] == ["PASS", "PASS"]
+    assert under["void"] == [] and under["all_cells_pass_in_this_run"] is False
+    at_floor = gate_929_bytes_report(
+        head, serial, [comp], 8, pin, False, price_floor=0.90, overwrite=ow_block({2: 0.80, 4: 0.70, 8: 0.50})
+    )
+    assert at_floor["g4_overwrite_skew"]["cells"]["8"]["verdict"] == "PASS"
+    assert at_floor["all_cells_pass_in_this_run"] is True
+
+    # Straddle
+    straddle = ow_block({2: 0.80, 4: 0.70, 8: 0.50})
+    for row in straddle.rows:
+        if row["writers"] == 8 and row["key_dist"] == "zipfian":
+            row["writer_mops"] *= 1.0 + (0.1 if row["round"] % 2 else -0.1)
+    mid = gate_929_bytes_report(head, serial, [comp], 8, pin, False, price_floor=0.90, overwrite=straddle)
+    assert mid["g4_overwrite_skew"]["cells"]["8"]["verdict"] == "INCONCLUSIVE", mid["g4_overwrite_skew"]["cells"]["8"]
+    assert mid["all_cells_pass_in_this_run"] is False
+
+    # (c) A row that reports another workload voids the run
+    for key, value in (("theta", 0.9), ("prefill", 4096), ("overwrites", 4096),
+                       ("population_after", (1 << 20) + 1), ("bytes_op", "insert"),
+                       ("workload_id", "concurrency_writer_bytes")):
+        other = gate_929_bytes_report(
+            head, serial, [comp], 8, pin, False, price_floor=0.90, overwrite=ow_block(**{key: value})
+        )
+        assert any(f": {key} is " in v for v in other["void"]), (key, other["void"])
+        assert {c["verdict"] for c in other["g4_overwrite_skew"]["cells"].values()} == {"NOT_EVALUABLE"}, key
+        assert other["all_cells_pass_in_this_run"] is False, key
+    twice = ow_block()
+    twice.rows.append(dict(twice.rows[0]))
+    dup = gate_929_bytes_report(head, serial, [comp], 8, pin, False, price_floor=0.90, overwrite=twice)
+    assert any("reported twice" in v for v in dup["void"]) and dup["all_cells_pass_in_this_run"] is False
+
+    assert [ok["g1_scaling"]["cells"][w]["verdict"] for w in ("2", "4", "8")] == ["PASS"] * 3, ok["g1_scaling"]
+    assert [ok["g2_level"]["cells"][w]["verdict"] for w in ("2", "4", "8")] == ["PASS"] * 3, ok["g2_level"]
+    assert abs(ok["g2_level"]["cells"]["2"]["ratio_mean"] - 6.3 / 4.0) < 0.01, ok["g2_level"]["cells"]["2"]
+    assert ok["g3_price"]["verdict"] == "PASS" and abs(ok["g3_price"]["ratio_mean"] - 0.95) < 0.005, ok["g3_price"]
+    assert "ratio_mean" in ok["peak_ratio"] and abs(ok["peak_ratio"]["ratio_mean"] - 20.5 / 11.4) < 0.01
+    assert ok["fallback_prediction"]["tripwire_tripped"] is False
+    assert ok["all_cells_pass_in_this_run"] is True
+    assert "forty" in ok["note"] and "twenty-eight" not in ok["note"]
+    assert ok["preregistration"] == GATE_929_BYTES_PREREGISTRATION
+
+    # Tripwire
+    head_with_restarts = [cell(1, [3.8 + j for j in jitter], lock_restarts=5)] + head[1:]
+    tripped = gate_929_bytes_report(head_with_restarts, serial, [comp], 8, pin, False, price_floor=0.90, overwrite=ow_block())
+    assert tripped["fallback_prediction"]["tripwire_tripped"] is True
+    assert tripped["all_cells_pass_in_this_run"] is False
+    assert any("deterministic tripwire tripped" in v for v in tripped["void"])
+    assert tripped["fallback_prediction"]["single_writer_lock_restarts"] == 40
+
+    head_contended = head[:3] + [cell(8, [20.5 + j for j in jitter], lock_restarts=3010)]
+    contended = gate_929_bytes_report(
+        head_contended, serial, [comp], 8, pin, False, price_floor=0.90, overwrite=ow_block()
+    )
+    assert contended["void"] == [], contended["void"]
+    assert contended["fallback_prediction"]["tripwire_tripped"] is False
+    assert contended["fallback_prediction"]["single_writer_lock_restarts"] == 0
+    assert contended["fallback_prediction"]["per_writer"]["8"]["lock_restarts"] == 8 * 3010
+    assert contended["fallback_prediction"]["total_lock_restarts"] == 8 * 3010
+    assert contended["all_cells_pass_in_this_run"] is True
+
+    no_counters = [dict(head[0], counters_raw=[])] + head[1:]
+    unread = gate_929_bytes_report(no_counters, serial, [comp], 8, pin, False, price_floor=0.90, overwrite=ow_block())
+    assert any("tripwire was not read" in v for v in unread["void"]) and unread["all_cells_pass_in_this_run"] is False
+
+    # G3 price floor
+    steep = gate_929_bytes_report(head, serial, [comp], 8, pin, False, price_floor=0.97, overwrite=ow_block())
+    assert steep["g3_price"]["verdict"] == "REFUTED" and steep["all_cells_pass_in_this_run"] is False
+
+    # G2 level
+    slow2 = [cell(1, [3.8 + j for j in jitter]), cell(2, [3.5 + j for j in jitter])] + head[2:]
+    lvl = gate_929_bytes_report(slow2, serial, [comp], 8, pin, False, price_floor=0.90, overwrite=ow_block())
+    assert lvl["g2_level"]["cells"]["2"]["verdict"] == "REFUTED", lvl["g2_level"]["cells"]["2"]
+
+    # Unlocked floor
+    global GATE_929_BYTES_PRICE_FLOOR
+    locked = GATE_929_BYTES_PRICE_FLOOR
+    assert locked == 0.90, "the §22.4 floor is locked at 0.90 and does not move (AGENTS.md §8.19)"
+    GATE_929_BYTES_PRICE_FLOOR = None
+    try:
+        unlocked = gate_929_bytes_report(head, serial, [comp], 8, pin, False, price_floor=None, overwrite=ow_block())
+    finally:
+        GATE_929_BYTES_PRICE_FLOOR = locked
+    assert unlocked["g3_price"]["verdict"] == "NOT_EVALUABLE", unlocked["g3_price"]
+    assert any("not locked" in v for v in unlocked["void"]) and unlocked["all_cells_pass_in_this_run"] is False
+
+    default_floor = gate_929_bytes_report(head, serial, [comp], 8, pin, False, overwrite=ow_block())
+    assert default_floor["g3_price"]["floor"] == 0.90 and default_floor["g3_price"]["verdict"] == "PASS"
+
+    gap = gate_929_bytes_report(head, serial[:3], [comp], 8, pin, False, price_floor=0.90, overwrite=ow_block())
+    assert {w: c["verdict"] for w, c in gap["g2_level"]["cells"].items()} == dict.fromkeys(("2", "4", "8"), "NOT_EVALUABLE"), gap["g2_level"]
+    assert gap["all_cells_pass_in_this_run"] is False and any("no cell for W" in v for v in gap["void"])
+
+    short = [cell(1, [4.0 + j for j in jitter[:7]])] + serial[1:]
+    miss = gate_929_bytes_report(head, short, [comp], 8, pin, False, price_floor=0.90, overwrite=ow_block())
+    assert miss["g3_price"]["verdict"] == "NOT_EVALUABLE", miss["g3_price"]
+    assert miss["all_cells_pass_in_this_run"] is False
+
+    bad = gate_929_bytes_report(head, serial, [comp], 8, "0-7", True, price_floor=0.90, overwrite=ow_block())
+    assert len(bad["void"]) >= 2 and bad["all_cells_pass_in_this_run"] is False, bad["void"]
+
+    wrong = dict(comp, is_inverse=False, ratio_direction="c_variant_over_c_default")
+    try:
+        gate_929_bytes_report(head, serial, [wrong], 8, pin, False)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a non-inverse comparison must be refused")
+    assert GATE_929_BYTES_FEATURE in INVERSE_ABLATIONS
+
+
 def _self_test_gate_929_str_report() -> None:
     """The #929 str gate's report reads the verdicts §17.9 defines off the comparison,
     fails the W = 1 control only when its interval lies wholly below 1.0, reads
@@ -4996,6 +5684,7 @@ def self_test() -> int:
     _self_test_gate_929_str_report()
     _self_test_gate_929_str_v2_report()
     _self_test_gate_929_blob_report()
+    _self_test_gate_929_bytes_report()
 
     # Build both binaries up front
     throughput_bin, counters_bin = build_binaries(verbose=True)
@@ -5685,6 +6374,15 @@ def build_parser() -> argparse.ArgumentParser:
              "(default output gate_929_blob_writer_scaling.json)",
     )
     comparison.add_argument(
+        "--gate-929-bytes",
+        action="store_true",
+        help="The #929 bytes gate (METHODOLOGY.md §22.4): SyncExpanseBytesMap multi-writer scaling (G1), "
+             "level against serialised build's best cell (G2), single-writer price floor (G3), and "
+             "overwrite under Zipfian skew against uniform choice on the head build (G4, §22.6); "
+             "the peak ratio X(8)/X(4) is reported and gates nothing "
+             "(default output gate_929_bytes_writer_scaling.json)",
+    )
+    comparison.add_argument(
         "--ordered-readers",
         action="store_true",
         help="Ordered readers on the map (#900, METHODOLOGY.md §12.4): probe x (W, R) x read_op cells "
@@ -5842,6 +6540,26 @@ def main() -> int:
         if not args.out:
             args.out = str(GATE_929_BLOB_RESULTS_PATH)
 
+    if args.gate_929_bytes:
+        if args.arm not in ("all", "bytes"):
+            sys.stderr.write("error: --gate-929-bytes is the bytes arm only (METHODOLOGY.md §22.4)\n")
+            return 1
+        args.arm = "bytes"
+        if args.rounds != GATE_929_BYTES_ROUNDS:
+            sys.stderr.write(
+                f"error: --gate-929-bytes runs the registered {GATE_929_BYTES_ROUNDS} rounds "
+                f"(METHODOLOGY.md §22.6), not {args.rounds}\n"
+            )
+            return 1
+        want = ",".join(str(w) for w in GATE_929_BYTES_WRITERS)
+        if args.writers != want:
+            sys.stderr.write(
+                f"error: --gate-929-bytes runs W in {want} (METHODOLOGY.md §22.4), not {args.writers}\n"
+            )
+            return 1
+        if not args.out:
+            args.out = str(GATE_929_BYTES_RESULTS_PATH)
+
     variant_list: list[str] = []
     if args.variants:
         variant_list.extend(v.strip() for v in args.variants.split(",") if v.strip())
@@ -5853,6 +6571,8 @@ def main() -> int:
         variant_list.append(GATE_929_STR_FEATURE)
     elif args.gate_929_blob:
         variant_list.append(GATE_929_BLOB_FEATURE)
+    elif args.gate_929_bytes:
+        variant_list.append(GATE_929_BYTES_FEATURE)
     elif selected := [feature for flag, feature in ABLATION_ARMS.items() if getattr(args, flag)]:
         variant_list.extend(selected)
     elif os.environ.get("BENCH_VARIANTS"):
@@ -5899,6 +6619,8 @@ def main() -> int:
     comparison_results: list[dict[str, Any]] = []
     # The §21.4 G4 block of a `--gate-929-blob` run; None on every other run.
     blob_overwrite: BlobOverwriteBlock | None = None
+    # The §22.4 G4 block of a `--gate-929-bytes` run; None on every other run.
+    bytes_overwrite: BytesOverwriteBlock | None = None
     # (arm, build, W) -> the (round, position) cells the timed passes ran; the
     # artifact is checked against it before it is written (§15).
     scheduled: dict[tuple[str, str, int], list[tuple[int, int]]] = {}
@@ -5925,6 +6647,11 @@ def main() -> int:
                         writers=GATE_929_BLOB_SKEW_WRITERS,
                         schedule=blob_overwrite_schedule(GATE_929_BLOB_SKEW_WRITERS, args.rounds),
                     )
+                if args.gate_929_bytes:
+                    bytes_overwrite = BytesOverwriteBlock(
+                        writers=GATE_929_BYTES_SKEW_WRITERS,
+                        schedule=bytes_overwrite_schedule(GATE_929_BYTES_SKEW_WRITERS, args.rounds),
+                    )
                 cells_d, cells_v, comp_stats, schedule = run_comparison(
                     bin_default,
                     bin_variant,
@@ -5936,7 +6663,7 @@ def main() -> int:
                     args.rounds,
                     prov,
                     quick=args.quick,
-                    overwrite=blob_overwrite,
+                    overwrite=blob_overwrite or bytes_overwrite,
                 )
                 scheduled.update(expected_cells(arm, schedule))
                 if not any(c.get("arm") == arm for c in throughput_cells):
@@ -6103,6 +6830,11 @@ def main() -> int:
         artifact["gate_929_blob"] = gate_929_blob_report(
             throughput_cells, variant_cells, comparison_results, args.rounds, core_pin, args.quick,
             overwrite=blob_overwrite,
+        )
+    if args.gate_929_bytes:
+        artifact["gate_929_bytes"] = gate_929_bytes_report(
+            throughput_cells, variant_cells, comparison_results, args.rounds, core_pin, args.quick,
+            overwrite=bytes_overwrite,
         )
     if pmu_results is not None:
         artifact["pmu"] = pmu_results

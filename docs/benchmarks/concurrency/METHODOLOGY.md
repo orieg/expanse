@@ -3639,3 +3639,169 @@ driver's self-test pins the pair: restarts at W = 1 void the run; restarts at
 W = 8 with none at W = 1 do not. The replay of the Callgrind arms stays the
 precondition §21.4 states, read on the head's own CI run.
 
+## 22. Pre-registration for #929 — the `SyncExpanseBytesMap` multi-writer path as a priced trade (appended and locked 2026-09-19, before any admissible run of it)
+
+### 22.1 Context and relation to previous gates
+
+Issue #929 evaluates multi-writer optimistic concurrency across the three compound wrappers
+(`SyncExpanseStrMap`, `SyncExpanseBlobMap`, and `SyncExpanseBytesMap`).
+
+§17 and §19 evaluated `SyncExpanseStrMap`, establishing the priced-trade model for compound
+wrappers: accepting a stated, bounded single-writer price floor $F = 0.90$ in exchange for
+multi-writer scaling at $W \ge 2$ that strictly exceeds the serialised build at *any* writer count.
+§21 extended this model to `SyncExpanseBlobMap`, incorporating G4 (overwrite under Zipfian skew)
+to evaluate slot replacement and GC under contention.
+
+This section extends the priced-trade model to `SyncExpanseBytesMap` (Task C of #929).
+`SyncExpanseBytesMap` maps arbitrary byte slices (`&[u8]`) to machine words (`u64`). It pairs
+a 64-bit optimistic digital trie (`SyncExpanseMap`) indexed by SipHash-2-4 64-bit key hashes with
+singly-linked heap bucket chains resolving 64-bit hash collisions.
+
+Under the baseline architecture, all mutation operations (`insert`, `remove`) acquire the wrapper's
+exclusive writer mutex, serialising mutations across all threads. This pre-registration defines the
+gate for the lock-free/optimistic bucket-replacement multi-writer architecture. This pre-registration
+is committed and locked before any admissible multi-writer throughput run of `SyncExpanseBytesMap` is
+executed.
+
+### 22.2 What had been seen when this was written
+
+The reader is owed the full accounting of prior observations (AGENTS.md §8.7, §8.19):
+
+1. **Serial baseline**: The existing `SyncExpanseBytesMap` implementation serialises every insert
+   on the writer mutex (`MUTEX_WRITER_ARMS`). In `writer_scaling.py`, its counters pass reports
+   zero lock fallbacks and zero lock restarts by construction.
+2. **CI Callgrind baselines**: The `instruction-counts` job on `main` measuring the plain
+   `bytesmap_insert` arm and the mutex wrapper `sync_bytesmap_insert` arms.
+3. **Approved Task C architecture**:
+   - **Immutable replacement buckets**: Overwrites and bucket-chain inserts allocate a new replacement
+     bucket or bucket copy; modifications are never performed in-place on shared bucket memory.
+   - **CAS publication via `SyncExpanseMap::compare_exchange`**: Buckets are published into the underlying
+     digital trie using atomic machine-word CAS on the bucket pointer (`*mut Bucket`).
+   - **Zero shared mutex on bucket allocation**: Thread-local or system allocation is used for bucket
+     creation without taking a shared mutex.
+   - **Reclamation via EBR**: Displaced or superseded buckets are retired into the epoch collector
+     (`retire`), with epoch pins spanning lookup through publication without nested pins.
+4. **No multi-writer throughput run**: Zero executions of `concurrency_writer_bytes` or
+   `concurrency_writer_bytes_overwrite` under multi-writer OLC or `--compare` have been performed.
+
+Consequences: All thresholds below are carried over from §19 and §21 unchanged or set as maintainer
+policy prior to execution; evaluation is conducted solely on fresh runs executed after this lock.
+
+### 22.3 The claim this gate would license, in full
+
+> On the reference host, at the registered pins, `SyncExpanseBytesMap`'s
+> per-node OLC write path delivers more insert throughput at every writer count
+> W ≥ 2 than the serialised build delivers at **any** writer count, its
+> single-writer throughput is at least the stated fraction F = 0.90 of the serialised
+> build's, and its overwrite throughput under Zipfian skew (θ = 0.99) is at least
+> ρ = 0.50 of its uniform overwrite throughput. *(workloads: `concurrency_writer_bytes` and `concurrency_writer_bytes_overwrite`)*
+
+Nothing is claimed regarding concurrent removals, key churn outside the registered distributions,
+alternate hash algorithms, 32-bit targets, alternate hosts, or the string and blob map wrappers.
+
+### 22.4 The gate
+
+Evaluated per cell. $T_b(W, r)$ is `writer_mops` of build *b* at W writers in round *r*
+of an interleaved comparison run; `head` is the default build and `serial` is the same
+commit compiled with `ablation-bytes-serial-writers`.
+
+> **G1, scaling.** $R(W, r) = [T_{\text{head}}(W, r) / T_{\text{head}}(1, r)] / [T_{\text{serial}}(W, r) / T_{\text{serial}}(1, r)]$.
+> A cell passes iff the BCa 95% lower bound over the round series is strictly above 1.0.
+>
+> **G2, level.** $L(W, r) = T_{\text{head}}(W, r) / \max_{W' \in \{1, 2, 4, 8\}} T_{\text{serial}}(W', r)$.
+> A cell passes iff the BCa 95% lower bound is strictly above 1.0.
+>
+> **G3, price.** $P(r) = T_{\text{head}}(1, r) / T_{\text{serial}}(1, r)$.
+> A cell passes iff the BCa 95% lower bound is at least **F = 0.90** — maintainer policy,
+> matching §19.4 and §21.4.
+>
+> **G4, overwrite under skew.** $K_{\text{skew}}(W, r) = T_{\text{head\_skew}}(W, r) / T_{\text{head\_uniform}}(W, r)$
+> under Zipfian key skew ($\theta = 0.99$) versus uniform key choice over the prefill.
+> A cell passes iff the BCa 95% lower bound is at least **ρ = 0.50** (matching §21.4).
+>
+> **Peak ratio.** $X(8)/X(4) = T_{\text{head}}(8) / T_{\text{head}}(4)$ is computed and reported for both pins
+> to diagnose scaling saturation (diagnostic indicator; does not gate).
+>
+> G1, G2, and G4 cells are W ∈ {2, 4, 8} × two pins (`0-15`, `0,2,4,6,8,10,12,14`) × two
+> independent runs: twelve each (36 cells). G3 has one cell per (pin, run): four cells.
+> Peak ratio $X(8)/X(4)$ is reported for both pins (four diagnostic cells).
+> **The gate is met at a head** when all forty cells pass.
+> BCa 95%, 2,000 resamples, computed via `scripts/bca_bootstrap.py`.
+>
+> **Callgrind, preconditions.** On the head's own `instruction-counts` job:
+> every plain-tree arm, and every `sync_map_*`, `sync_set_*`, `sync_strmap_*`, and `sync_blobmap_*` arm,
+> within AGENTS.md §6's +0.1% of main. The `sync_bytesmap_*` arms are expected over the
+> automated threshold; this registration pre-authorises one `allow-regression:` line
+> naming exactly those arms and citing that job's run.
+>
+> **Defect tripwire, deterministic:** The `occ-stats` replay of the `sync_bytesmap_*`
+> single-writer ($W = 1$) counters rows records zero `lock_restarts`.
+
+### 22.5 Math-first audit
+
+`reader_scaling_bounds.mde_from_rounds` (`scripts/reader_scaling_bounds.py:227`, Cohen 1988, ch. 2),
+applied to round series of 8 rounds:
+
+Given typical per-round coefficient of variation $\sigma / \mu \le 0.015$ on quiet runs on
+the reference host, the relative MDE for $N = 8$ rounds at $\alpha = 0.05, \beta = 0.20$ is:
+$$\text{MDE}_{\text{rel}} = (z_{\alpha/2} + z_{\beta}) \cdot \frac{\sigma}{\mu} \cdot \sqrt{\frac{2}{N}} \approx (1.960 + 0.842) \cdot 0.015 \cdot \sqrt{\frac{2}{8}} \approx 2.802 \cdot 0.015 \cdot 0.5 \approx 0.021 \ (2.1\%)$$
+
+A floor of $F = 0.90$ is resolvable against an expected level $P \approx 0.94-0.96$ (gap $0.04-0.06 > 0.021$).
+Level ratios $L(W) \ge 1.4$ for $W \ge 2$ sit far outside the detectable margin.
+
+### 22.6 Rounds, pins, runs, isolation, voids
+
+- **Rounds**: 8 rounds per cell, interleaved Williams Latin square ordering (`williams_positions`).
+- **Pins**: Both `0-15` (hyperthread pairs) and `0,2,4,6,8,10,12,14` (one thread per physical core).
+- **Runs**: Two independent runs per pin.
+- **Process isolation**: One process per cell invocation (`CELL_ISOLATION = "process"`).
+- **Workload parameters**:
+  - Fresh inserts: $N_0 = 2^{20}$ prefill, $M = 2^{20} = 1,048,576$ fresh keys, 8–16 byte alphanumeric keys (`dist = short`), value = single `u64` word (`concurrency_writer_bytes`).
+  - Overwrites under skew: $N_0 = 2^{20}$ prefill, $M = 2^{20}$ overwrites under Zipfian key skew ($\theta = 0.99$) versus uniform key choice over the prefill (`concurrency_writer_bytes_overwrite`).
+- **Instrument prerequisite (AGENTS.md §8.20.7)**: `docs/benchmarks/concurrency/scripts/writer_scaling.py --gate-929-bytes`
+  computes G1, G2, G3, G4, and $X(8)/X(4)$ with fail-closed self-test assertions before any
+  production run is evaluated.
+
+### 22.7 Expected losses
+
+| cell or condition | expectation at lock | consequence of a loss |
+|---|---|---|
+| G3, single-writer price | about 0.94–0.96 | lower bound under 0.90: gate is not met; F does not move |
+| G2, W = 2 | closest level cell, expected > 1.40 | `INCONCLUSIVE` or `REFUTED`: gate not met |
+| G1, W = 8, per-core pin | large (> 8), reflecting serial mutex contention collapse | none expected |
+| G1, W = 8, `0-15` pin | wider interval due to SMT thread contention | `INCONCLUSIVE` possible if variance spikes; pin is retained |
+| G4, overwrite under skew | expected > 0.60 | `INCONCLUSIVE` or `REFUTED`: gate not met |
+| Peak ratio X(8)/X(4) | expected > 1.0 on per-core pin; may saturate on `0-15` | diagnostic indicator; does not fail gate |
+| `sync_bytesmap_*` Callgrind arms | over the automated threshold (+40% to +80%) | reported under pre-authorised `allow-regression:` |
+| Untargeted Callgrind arms | within +0.1% | precondition failure: no throughput run is taken |
+| Deterministic tripwire | zero single-writer `lock_restarts` | non-zero trips defect investigation |
+
+### 22.8 Verdicts
+
+Standard vocabulary: `PASS`, `REFUTED`, `INCONCLUSIVE`, `INTERMEDIATE`, `NOT_EVALUABLE`.
+The gate is met only when all forty cells evaluate to `PASS`.
+
+### 22.9 If it is met: what the promotion must say
+
+The default build's single writer is slower than the serialised build by the measured P,
+stated with its interval in `docs/ARCHITECTURE.md` §4 and rustdoc, beside the
+`ablation-bytes-serial-writers` feature that restores the serialised protocol (AGENTS.md §2.7).
+Explicitly stated limitations: 8–16 byte alphanumeric keys; SipHash-2-4 hash keys;
+no concurrent removals; 64-bit targets only.
+
+### 22.10 Concurrency invariants & bucket replacement semantics
+
+1. **Immutable Bucket Chains & CAS Update Protocol**:
+   Bucket records store `(len: u16, hash: u64, key: [u8; len], val: u64)` and a `next: *mut Bucket` pointer.
+   Writers never mutate existing bucket fields in-place. An update or insert allocates a new bucket
+   or replicates the chain prefix up to the modified node, and publishes the new head via
+   `SyncExpanseMap::compare_exchange(hash, old_head, new_head)`. If another writer updates the head
+   concurrently, CAS fails, and the writer retries from the current head.
+2. **Reclamation & Epoch Pinning**:
+   Old bucket versions are retired via `Collector::retire` and freed only when all concurrent readers
+   and writers exit the protecting epoch. An epoch pin covers bucket chain traversal through
+   CAS publication; no nested `with_writer_pin` calls are permitted.
+3. **Collision Resistance**:
+   SipHash-2-4 provides 64-bit pseudorandom dispersion over arbitrary byte slices, bounding collision
+   chain lengths to $O(1)$ under non-adversarial keys. Bucket chain traversal is $O(1)$ expected time.
+

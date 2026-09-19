@@ -88,6 +88,12 @@ ablation-str-serial-writers = []
 # section 21), kept so the default can be measured against it (AGENTS.md
 # section 2.7).
 ablation-blob-serial-writers = []
+# Diagnostic-only: serialises every `SyncExpanseBytesMap` mutation on the writer
+# mutex under the whole-operation tree bracket — the protocol the bytes
+# wrapper's per-bucket CAS write path replaces (Refs #929, METHODOLOGY
+# section 22), kept so the default can be measured against it (AGENTS.md
+# section 2.7).
+ablation-bytes-serial-writers = []
 # Diagnostic-only (Refs #929, AGENTS.md §2.7): restores the pre-promotion
 # shared arena_write mutex path for SyncExpanseBlobMap, where every arena
 # insert serialized on the mutex. Kept so the promoted per-writer private
