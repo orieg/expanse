@@ -72,6 +72,7 @@ on:
           - writer_scaling_929_str_gate
           - writer_scaling_929_str_gate_v2
           - writer_scaling_929_blob_gate
+          - writer_scaling_929_bytes_gate
           - ycsb_concurrent
           - point_lookup_counters
           - search_instructions
@@ -1108,6 +1109,16 @@ jobs:
                   --gate-929-blob \
                   --out docs/benchmarks/concurrency/results/gate_929_blob_writer_scaling.json | tee writer_scaling.txt
                 ;;
+              "writer_scaling_929_bytes_gate")
+                # The #929 bytes gate (concurrency METHODOLOGY.md §22.4): the
+                # interleaved two-build bytes cells, read as G1 scaling, G2 level
+                # against the serialised build's best cell, G3 the single-writer price floor,
+                # G4 overwrite under skew, and zero-restart tripwire. Dispatched once per pin per run.
+                # The floor is locked at 0.90 (§22.4).
+                python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
+                  --gate-929-bytes \
+                  --out docs/benchmarks/concurrency/results/gate_929_bytes_writer_scaling.json | tee writer_scaling.txt
+                ;;
               "ycsb_concurrent")
                 python3 docs/benchmarks/concurrency/scripts/ycsb_concurrent.py \
                   --out docs/benchmarks/concurrency/results/baseline_ycsb_concurrent.json | tee ycsb_concurrent.txt
@@ -1706,6 +1717,7 @@ jobs:
             docs/benchmarks/concurrency/results/gate_929_str_writer_scaling.json
             docs/benchmarks/concurrency/results/gate_929_str_v2_writer_scaling.json
             docs/benchmarks/concurrency/results/gate_929_blob_writer_scaling.json
+            docs/benchmarks/concurrency/results/gate_929_bytes_writer_scaling.json
             docs/benchmarks/concurrency/results/ablation_blob_shared_arena_writer_scaling.json
             docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json
             docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json

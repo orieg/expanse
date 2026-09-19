@@ -20,7 +20,7 @@
 //!
 //! Run (throughput — default build, no occ-stats):
 //! ```text
-//! cargo run --release -p expanse-trie --example writer_scaling -- [--role throughput] [--arm <map|set|str|bytes|blob|all>] [--writers <1,2,4,8>] [--rounds <N>] [--blob-op <insert|overwrite>] [--key-dist <uniform|zipfian>]
+//! cargo run --release -p expanse-trie --example writer_scaling -- [--role throughput] [--arm <map|set|str|bytes|blob|all>] [--writers <1,2,4,8>] [--rounds <N>] [--blob-op <insert|overwrite>] [--bytes-op <insert|overwrite>] [--key-dist <uniform|zipfian>]
 //! ```
 //!
 //! Run (counters — occ-stats build only):
@@ -175,6 +175,14 @@
 //!   `fresh_keys` is 0. Each overwrite allocates a new arena record and
 //!   retires the old one, so the arena grows by one record per overwrite while
 //!   the index population does not.
+//! - **Bytes overwrite cell (#929, METHODOLOGY §22.4 G4, §22.6).**
+//!   `--arm bytes --bytes-op overwrite` replaces the bytes arm's fresh inserts
+//!   with overwrites of prefilled keys under Zipfian (θ = 0.99) or uniform key
+//!   choice over an identical prefill of 8–16 byte alphanumeric keys. Rows emit
+//!   `workload_id` `concurrency_writer_bytes_overwrite`, cell
+//!   `bytes_overwrite_<dist>_w<W>_r0`, with `bytes_op`, `key_dist`, `theta`,
+//!   `overwrites`, `distinct_keys_overwritten`, `verified_keys` and
+//!   `verified_overwritten`.
 //!
 //! # Workload shape
 //!
@@ -182,8 +190,8 @@
 //! |---|---|
 //! | `workload_id` | `concurrency_writer_scaling` |
 //! | `group` | 5 |
-//! | `emits` | `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`, `concurrency_writer_str`, `concurrency_writer_bytes`, `concurrency_writer_blob_64bit`, `concurrency_writer_blob_overwrite_64bit`, `concurrency_ordered_readers_map_64bit`, `concurrency_readers_set_63bit`, `concurrency_readers_str` |
-//! | `population` | prefill 2^20 keys (1M), plus 2^20 fresh keys inserted concurrently by W writers; reader mode (map only) adds 256 hotspot keys, one at offset 1 of every terminal byte of a 2^16-wide expanse, to every cell's prefill, and a hotspot cell's writers insert that expanse's other 65,280 keys instead of the 2^20 fresh keys; readers-only mode (set, str) prefills the arm's 2^20-key writer-sweep prefill and inserts nothing. Writer mode's `bytes` arm uses the `str` arm's `short` keys under a fixed-key SipHash hasher; its `blob` arm uses the map arm's 64-bit keys with a 32-byte key-derived arena payload and non-zero 24-bit metadata; the blob overwrite cell prefills the same 2^20 keys and performs 2^20 overwrites of them, inserting no fresh key |
+//! | `emits` | `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`, `concurrency_writer_str`, `concurrency_writer_bytes`, `concurrency_writer_bytes_overwrite`, `concurrency_writer_blob_64bit`, `concurrency_writer_blob_overwrite_64bit`, `concurrency_ordered_readers_map_64bit`, `concurrency_readers_set_63bit`, `concurrency_readers_str` |
+//! | `population` | prefill 2^20 keys (1M), plus 2^20 fresh keys inserted concurrently by W writers; reader mode (map only) adds 256 hotspot keys, one at offset 1 of every terminal byte of a 2^16-wide expanse, to every cell's prefill, and a hotspot cell's writers insert that expanse's other 65,280 keys instead of the 2^20 fresh keys; readers-only mode (set, str) prefills the arm's 2^20-key writer-sweep prefill and inserts nothing. Writer mode's `bytes` arm uses the `str` arm's `short` keys under a fixed-key SipHash hasher; its `blob` arm uses the map arm's 64-bit keys with a 32-byte key-derived arena payload and non-zero 24-bit metadata; the blob and bytes overwrite cells prefill the same 2^20 keys and perform 2^20 overwrites of them, inserting no fresh key |
 //! | `insertion_order` | sorted — prefill ascending (reader mode: the sorted union with the hotspot keys), matching expanse-hot-bench; fresh stream in generator draw order; hotspot fresh keys Fisher–Yates shuffled; blob overwrite targets in per-writer stream draw order over a Fisher–Yates rank table |
 //! | `probes_and_reuse` | writer mode: none (R = 0), insert-only; the blob overwrite cell re-targets prefilled keys, uniformly or Zipfian θ = 0.99 over the rank table, each writer on its own stream. Reader mode: R readers, each cycling its own Fisher–Yates permutation of the present uniform prefill (`uniform`) or of the 255 hotspot keys above the expanse's first terminal byte (`hotspot`); `get` or `prev_before` on a reader handle, or `prev_before` under `with_locked`, over the identical stream. Readers-only mode (set, str): R readers, each walking its own Fisher–Yates permutation of the prefill once, `contains` or `get` on a reader handle |
 //! | `hit_rate` | writer mode: n/a. Reader mode: 100% — every probe is a present key; a hotspot `prev_before` fails in its own terminal byte and answers from the sibling below, until a writer inserts that byte's offset-0 key. Readers-only mode: 100% |
@@ -1405,6 +1413,258 @@ fn run_blob_overwrite_cell(
 }
 
 // ---------------------------------------------------------------------------
+// The bytes overwrite cell (#929, docs/benchmarks/concurrency/METHODOLOGY.md
+// §22.4 G4 and §22.6)
+// ---------------------------------------------------------------------------
+
+/// Seed of the Fisher–Yates permutation that maps a rank to a prefill bytes key.
+pub const SEED_BYTES_RANK: u64 = SEED_PREFILL ^ 0x5EED_C0DE_0000_0B20;
+/// Base seed of the per-writer key-choice streams for bytes overwrites.
+pub const SEED_BYTES_OVERWRITE: u64 = SEED_PREFILL ^ 0x5EED_C0DE_0000_0B21;
+
+/// What the bytes arm's writers do.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum BytesOp {
+    /// Fresh keys, the §22.4 G1–G3 cell.
+    Insert,
+    /// Overwrites of prefilled keys, the §22.4 G4 cell.
+    Overwrite,
+}
+
+impl BytesOp {
+    fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "insert" => Ok(Self::Insert),
+            "overwrite" => Ok(Self::Overwrite),
+            other => Err(format!(
+                "--bytes-op takes insert or overwrite, got {other:?}"
+            )),
+        }
+    }
+}
+
+/// The overwrite cell's fixed inputs: the fresh-insert cell's prefill, and the
+/// rank → key table both key distributions index.
+struct BytesOverwriteWorkload {
+    /// Ascending: the keys `WriterStrWorkload::generate(n0, 0)` prefills.
+    prefill: Vec<Vec<u8>>,
+    /// `rank_keys[r]` is the key of rank `r`: a Fisher–Yates permutation of
+    /// `prefill`, so the hot ranks are spread over the keyspace rather than
+    /// packed into the lowest leaves of the sorted prefill.
+    rank_keys: Vec<Vec<u8>>,
+    /// Built once per process, outside every timed window: its constructor
+    /// sums an N0-term zeta.
+    zipf: ZipfianGenerator,
+}
+
+impl BytesOverwriteWorkload {
+    fn generate(n_prefill: usize) -> Self {
+        assert!(
+            n_prefill > 0 && n_prefill <= u32::MAX as usize,
+            "overwrite prefill must be in 1..=u32::MAX"
+        );
+        let base = WriterStrWorkload::generate(n_prefill, 0);
+        let mut rank_keys = base.prefill.clone();
+        let mut rng = XorShift::new(SEED_BYTES_RANK);
+        for i in (1..rank_keys.len()).rev() {
+            let j = (rng.next() % (i as u64 + 1)) as usize;
+            rank_keys.swap(i, j);
+        }
+        Self {
+            zipf: ZipfianGenerator::new(n_prefill as u64, ZIPFIAN_THETA),
+            prefill: base.prefill,
+            rank_keys,
+        }
+    }
+
+    /// Writer `w`'s ranks for `round`: `len` draws from its own stream, seeded
+    /// from (suite seed, writer index, round).
+    fn stream(&self, dist: KeyDist, w: usize, round: usize, len: usize) -> Vec<u32> {
+        let seed = SEED_BYTES_OVERWRITE
+            ^ (w as u64 + 1).wrapping_mul(STREAM_WRITER_MIX)
+            ^ (round as u64 + 1).wrapping_mul(STREAM_ROUND_MIX);
+        let mut rng = XorShift64::new(seed);
+        let n = self.rank_keys.len() as u64;
+        (0..len)
+            .map(|_| match dist {
+                KeyDist::Zipfian => self.zipf.next(rng.next_f64()) as u32,
+                KeyDist::Uniform => (rng.next_u64() % n) as u32,
+            })
+            .collect()
+    }
+}
+
+/// An overwrite's value for bytes: key- and counter-derived, guaranteed distinguishable
+/// from prefill `str_value_of(k)`.
+#[inline]
+fn overwrite_bytes_val(k: &[u8], c: u64) -> u64 {
+    c ^ str_value_of(k)
+}
+
+/// What one bytes overwrite cell reports beyond its time and counters.
+struct BytesOverwriteOutcome {
+    elapsed_s: f64,
+    final_pop: u64,
+    counters: Counters,
+    /// Overwrites performed, summed over the writers.
+    overwrites: u64,
+    /// Distinct prefill keys the streams targeted.
+    distinct_keys: u64,
+    /// Keys read back after the window, and how many of them held an overwrite.
+    verified_keys: u64,
+    verified_overwritten: u64,
+}
+
+/// One read-back key: the value must be the prefill's when no stream targeted the
+/// key, and otherwise one single overwrite's — naming a writer and an op index
+/// whose stream entry is this key.
+fn check_bytes_overwrite_readback(
+    workload: &BytesOverwriteWorkload,
+    streams: &[Vec<u32>],
+    rank: usize,
+    targeted: bool,
+    got: Option<u64>,
+) -> Result<bool, String> {
+    let k = &workload.rank_keys[rank];
+    let val = got.ok_or_else(|| {
+        format!(
+            "key {:?} (rank {rank}) is absent",
+            String::from_utf8_lossy(k)
+        )
+    })?;
+    let is_prefill = val == str_value_of(k);
+    if !targeted {
+        return if is_prefill {
+            Ok(false)
+        } else {
+            Err(format!(
+                "key {:?} (rank {rank}) was never targeted but does not hold its prefill value",
+                String::from_utf8_lossy(k)
+            ))
+        };
+    }
+    if is_prefill {
+        return Err(format!(
+            "key {:?} (rank {rank}) was targeted but still holds its prefill value",
+            String::from_utf8_lossy(k)
+        ));
+    }
+    let c = val ^ str_value_of(k);
+    let w = (c >> OVERWRITE_OP_BITS) as usize;
+    let i = (c & ((1u64 << OVERWRITE_OP_BITS) - 1)) as usize;
+    let named = w
+        .checked_sub(1)
+        .and_then(|w| streams.get(w))
+        .zip(i.checked_sub(1))
+        .and_then(|(s, i)| s.get(i));
+    if named != Some(&(rank as u32)) {
+        return Err(format!(
+            "key {:?} (rank {rank}) holds counter {c:#x} (writer {w}, op {i}), which names no overwrite of this key",
+            String::from_utf8_lossy(k)
+        ));
+    }
+    Ok(true)
+}
+
+fn run_bytes_overwrite_cell(
+    workload: &BytesOverwriteWorkload,
+    overwrites: usize,
+    dist: KeyDist,
+    writers: usize,
+    round: usize,
+    is_counters: bool,
+    perf_ctl: &mut PerfControl,
+) -> Result<BytesOverwriteOutcome, String> {
+    let map = SyncExpanseBytesMap::with_hasher(DetHasher::default());
+    for k in &workload.prefill {
+        map.insert(k, str_value_of(k));
+    }
+
+    let per = overwrites / writers.max(1);
+    let streams: Vec<Vec<u32>> = (0..writers)
+        .map(|w| {
+            let len = if w + 1 == writers {
+                overwrites - per * w
+            } else {
+                per
+            };
+            workload.stream(dist, w, round, len)
+        })
+        .collect();
+    let mut targeted = vec![false; workload.rank_keys.len()];
+    for &r in streams.iter().flatten() {
+        targeted[r as usize] = true;
+    }
+
+    let barrier = Barrier::new(writers + 1);
+    if is_counters {
+        occ_stats::reset();
+    }
+
+    let start = std::thread::scope(|s| {
+        for (w, stream) in streams.iter().enumerate() {
+            let b = &barrier;
+            let m = &map;
+            let rank_keys = &workload.rank_keys;
+            s.spawn(move || {
+                b.wait();
+                for (i, &r) in stream.iter().enumerate() {
+                    let k = &rank_keys[r as usize];
+                    let c = overwrite_counter(w, i);
+                    m.insert(k, overwrite_bytes_val(k, c));
+                }
+            });
+        }
+
+        perf_ctl.enable();
+        barrier.wait();
+        Instant::now()
+    });
+    perf_ctl.disable();
+
+    let elapsed_s = if is_counters {
+        0.0
+    } else {
+        start.elapsed().as_secs_f64()
+    };
+    let counters = Counters::read(is_counters);
+    let final_pop = map.len();
+    if final_pop != workload.prefill.len() as u64 {
+        return Err(format!(
+            "population {final_pop} after {overwrites} overwrites of {} prefilled keys at round {round}: \
+             an overwrite must not change it",
+            workload.prefill.len()
+        ));
+    }
+
+    let reader = map.reader();
+    let (mut verified_keys, mut verified_overwritten) = (0u64, 0u64);
+    for rank in overwrite_check_ranks(workload.rank_keys.len()) {
+        let got = reader.get(&workload.rank_keys[rank]);
+        let overwritten =
+            check_bytes_overwrite_readback(workload, &streams, rank, targeted[rank], got)
+                .map_err(|e| format!("round {round}: {e}"))?;
+        verified_keys += 1;
+        verified_overwritten += u64::from(overwritten);
+    }
+    if verified_overwritten == 0 {
+        return Err(format!(
+            "round {round}: none of the {verified_keys} keys read back held an overwrite"
+        ));
+    }
+
+    Ok(BytesOverwriteOutcome {
+        elapsed_s,
+        final_pop,
+        counters,
+        overwrites: streams.iter().map(|s| s.len() as u64).sum(),
+        distinct_keys: targeted.iter().filter(|&&t| t).count() as u64,
+        verified_keys,
+        verified_overwritten,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Reader mode (#900, docs/benchmarks/concurrency/METHODOLOGY.md §12.4)
 // ---------------------------------------------------------------------------
 
@@ -2186,31 +2446,71 @@ fn parse_flag<T: std::str::FromStr>(args: &[String], flag: &str) -> Result<Optio
         .transpose()
 }
 
+/// Unified parser for `--blob-op`, `--bytes-op` and `--key-dist`.
+fn op_flags(args: &[String], readers: usize) -> Result<(BlobOp, BytesOp, KeyDist), String> {
+    let blob_op_arg = flag_value(args, "--blob-op")?;
+    let bytes_op_arg = flag_value(args, "--bytes-op")?;
+    let dist_arg = flag_value(args, "--key-dist")?;
+    let blob_op = blob_op_arg.map(BlobOp::parse).transpose()?;
+    let bytes_op = bytes_op_arg.map(BytesOp::parse).transpose()?;
+    let dist = dist_arg.map(KeyDist::parse).transpose()?;
+
+    if blob_op.is_some() && bytes_op.is_some() {
+        return Err("cannot combine --blob-op and --bytes-op".into());
+    }
+    let arm = flag_value(args, "--arm")?.unwrap_or("all");
+    if blob_op.is_some() && (arm != "blob" || readers > 0) {
+        return Err(format!(
+            "--blob-op selects the blob arm's writer cell: it needs --arm blob \
+             and no --readers, got --arm {arm} and --readers {readers}"
+        ));
+    }
+    if bytes_op.is_some() && (arm != "bytes" || readers > 0) {
+        return Err(format!(
+            "--bytes-op selects the bytes arm's writer cell: it needs --arm bytes \
+             and no --readers, got --arm {arm} and --readers {readers}"
+        ));
+    }
+    if dist.is_some() {
+        if arm == "blob" {
+            if blob_op != Some(BlobOp::Overwrite) {
+                return Err(
+                    "--key-dist chooses which existing key an overwrite targets: it needs --blob-op overwrite"
+                        .into(),
+                );
+            }
+        } else if arm == "bytes" {
+            if bytes_op != Some(BytesOp::Overwrite) {
+                return Err(
+                    "--key-dist chooses which existing key an overwrite targets: it needs --bytes-op overwrite"
+                        .into(),
+                );
+            }
+        } else {
+            return Err(format!(
+                "--key-dist selects an overwrite distribution: it needs --arm blob or --arm bytes with overwrite, got --arm {arm}"
+            ));
+        }
+    }
+    let blob_op = blob_op.unwrap_or(BlobOp::Insert);
+    let bytes_op = bytes_op.unwrap_or(BytesOp::Insert);
+    Ok((blob_op, bytes_op, dist.unwrap_or(KeyDist::Uniform)))
+}
+
 /// `--blob-op` and `--key-dist`, both optional. Either flag needs `--arm blob`
 /// exactly and writer mode; `--key-dist` needs `--blob-op overwrite`, since a
 /// fresh insert has no key to choose.
 fn blob_flags(args: &[String], readers: usize) -> Result<(BlobOp, KeyDist), String> {
-    let op_arg = flag_value(args, "--blob-op")?;
-    let dist_arg = flag_value(args, "--key-dist")?;
-    let op = op_arg.map(BlobOp::parse).transpose()?;
-    let dist = dist_arg.map(KeyDist::parse).transpose()?;
-    if op.is_some() || dist.is_some() {
-        let arm = flag_value(args, "--arm")?.unwrap_or("all");
-        if arm != "blob" || readers > 0 {
-            return Err(format!(
-                "--blob-op and --key-dist select the blob arm's writer cell: they need --arm blob \
-                 and no --readers, got --arm {arm} and --readers {readers}"
-            ));
-        }
-    }
-    let op = op.unwrap_or(BlobOp::Insert);
-    if op == BlobOp::Insert && dist.is_some() {
-        return Err(
-            "--key-dist chooses which existing key an overwrite targets: it needs --blob-op overwrite"
-                .into(),
-        );
-    }
-    Ok((op, dist.unwrap_or(KeyDist::Uniform)))
+    let (blob_op, _, dist) = op_flags(args, readers)?;
+    Ok((blob_op, dist))
+}
+
+/// `--bytes-op` and `--key-dist`, both optional. Either flag needs `--arm bytes`
+/// exactly and writer mode; `--key-dist` needs `--bytes-op overwrite`, since a
+/// fresh insert has no key to choose.
+fn bytes_flags(args: &[String], readers: usize) -> Result<(BytesOp, KeyDist), String> {
+    let (_, bytes_op, dist) = op_flags(args, readers)?;
+    Ok((bytes_op, dist))
 }
 
 /// Reader mode: one (W, R, read op, probe) cell over `--round` or `--rounds`.
@@ -2728,6 +3028,135 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
         }
     }
 
+    // The bytes overwrite cell (METHODOLOGY §22.4 G4, §22.6): same prefill as
+    // the fresh-insert cell, a rank table that is a permutation of it, streams
+    // that are a function of (writer, round), a skew the uniform stream lacks,
+    // and a read-back check that refuses what it must.
+    let wl_bytes_ow = BytesOverwriteWorkload::generate(n0);
+    if wl_bytes_ow.prefill != wl_str.prefill {
+        return Err("bytes overwrite: prefill differs from the fresh-insert cell's".into());
+    }
+    let mut sorted_bytes_ranks = wl_bytes_ow.rank_keys.clone();
+    sorted_bytes_ranks.sort_unstable();
+    if sorted_bytes_ranks != wl_bytes_ow.prefill || wl_bytes_ow.rank_keys == wl_bytes_ow.prefill {
+        return Err(
+            "bytes overwrite: rank table must be a non-identity permutation of the prefill".into(),
+        );
+    }
+    for dist in [KeyDist::Uniform, KeyDist::Zipfian] {
+        let a = wl_bytes_ow.stream(dist, 0, 0, m);
+        if a != wl_bytes_ow.stream(dist, 0, 0, m)
+            || a == wl_bytes_ow.stream(dist, 1, 0, m)
+            || a == wl_bytes_ow.stream(dist, 0, 1, m)
+        {
+            return Err(format!(
+                "bytes overwrite: the {} stream must be a function of (writer, round) and differ across both",
+                dist.name()
+            ));
+        }
+        if a.iter().any(|&r| r as usize >= n0) {
+            return Err(format!(
+                "bytes overwrite: {} rank out of range",
+                dist.name()
+            ));
+        }
+    }
+    let rank0_bytes = |dist| {
+        wl_bytes_ow
+            .stream(dist, 0, 0, m)
+            .iter()
+            .filter(|&&r| r == 0)
+            .count()
+    };
+    if rank0_bytes(KeyDist::Zipfian) < 20 * rank0_bytes(KeyDist::Uniform).max(1) {
+        return Err(format!(
+            "bytes overwrite: rank 0 drew {} of {m} under zipfian and {} under uniform",
+            rank0_bytes(KeyDist::Zipfian),
+            rank0_bytes(KeyDist::Uniform)
+        ));
+    }
+    for dist in [KeyDist::Uniform, KeyDist::Zipfian] {
+        let ctx = format!("self-test bytes overwrite {}", dist.name());
+        let out =
+            run_bytes_overwrite_cell(&wl_bytes_ow, m, dist, 2, 0, is_counters, &mut dummy_ctl)
+                .map_err(|e| format!("{ctx}: {e}"))?;
+        if out.final_pop != n0 as u64 || out.overwrites != m as u64 {
+            return Err(format!(
+                "{ctx}: population {} after {} overwrites, expected {n0} after {m}",
+                out.final_pop, out.overwrites
+            ));
+        }
+        if out.distinct_keys == 0 || out.distinct_keys > n0 as u64 {
+            return Err(format!("{ctx}: {} distinct keys", out.distinct_keys));
+        }
+        if is_counters {
+            out.counters.check(m as u64, 0, &ctx)?;
+        } else if out.elapsed_s <= 0.0 {
+            return Err(format!("{ctx}: invalid elapsed {}", out.elapsed_s));
+        }
+    }
+    // The read-back check for bytes, one refusal per clause, on a one-writer stream
+    // whose first op targets rank 5.
+    {
+        let streams = vec![vec![5u32, 9]];
+        let k = &wl_bytes_ow.rank_keys[5];
+        let c = overwrite_counter(0, 0);
+        let good = Some(overwrite_bytes_val(k, c));
+        let prefill_val = str_value_of(k);
+        let prefill = Some(prefill_val);
+        let foreign_c = overwrite_counter(0, 1);
+        let foreign = Some(overwrite_bytes_val(k, foreign_c));
+        let bad_val = Some(prefill_val ^ 0xdead_beef);
+        let cases: [(&str, bool, Option<u64>, Option<bool>); 6] = [
+            ("overwritten", true, good, Some(true)),
+            ("untouched", false, prefill, Some(false)),
+            ("absent", true, None, None),
+            ("targeted but prefill", true, prefill, None),
+            ("untargeted but overwritten", false, good, None),
+            ("foreign counter", true, foreign, None),
+        ];
+        for (name, targeted, got, want) in cases {
+            let res = check_bytes_overwrite_readback(&wl_bytes_ow, &streams, 5, targeted, got).ok();
+            if res != want {
+                return Err(format!(
+                    "bytes overwrite read-back `{name}`: got {res:?}, expected {want:?}"
+                ));
+            }
+        }
+        if check_bytes_overwrite_readback(&wl_bytes_ow, &streams, 5, true, bad_val).is_ok() {
+            return Err("bytes overwrite read-back accepted an invalid value".into());
+        }
+    }
+    for (line, readers, ok) in [
+        (
+            "--arm bytes --bytes-op overwrite --key-dist zipfian",
+            0,
+            true,
+        ),
+        ("--arm bytes --bytes-op overwrite", 0, true),
+        ("--arm bytes", 0, true),
+        ("--arm map --bytes-op overwrite", 0, false),
+        ("--arm all --bytes-op insert", 0, false),
+        ("--bytes-op overwrite", 0, false),
+        ("--arm bytes --key-dist zipfian", 0, false),
+        ("--arm bytes --bytes-op insert --key-dist uniform", 0, false),
+        (
+            "--arm bytes --bytes-op overwrite --key-dist skewed",
+            0,
+            false,
+        ),
+        ("--arm bytes --bytes-op replace", 0, false),
+        ("--arm bytes --bytes-op overwrite", 2, false),
+        ("--arm bytes --bytes-op", 0, false),
+    ] {
+        if bytes_flags(&argv(line), readers).is_ok() != ok {
+            return Err(format!(
+                "bytes flags `{line}` (readers {readers}): expected {}",
+                if ok { "accepted" } else { "refused" }
+            ));
+        }
+    }
+
     // Reader mode (#900). First the hotspot geometry the §12.4 cells rest on.
     let hot = HotspotExpanse::generate();
     if hot.base & (HOTSPOT_WIDTH - 1) != 0 {
@@ -2997,7 +3426,14 @@ fn main() {
     // The blob arm's op and key choice (METHODOLOGY §21.4 G4, §21.11). Refused
     // anywhere they would be ignored: a cell that silently ran fresh inserts
     // under `--blob-op overwrite` would publish the wrong workload (AGENTS.md §8.1).
-    let (blob_op, key_dist) = match blob_flags(&args, readers) {
+    let (blob_op, blob_key_dist) = match blob_flags(&args, readers) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    };
+    let (bytes_op, bytes_key_dist) = match bytes_flags(&args, readers) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("{e}");
@@ -3247,7 +3683,75 @@ fn main() {
         }
     }
 
-    if run_bytes {
+    if run_bytes && bytes_op == BytesOp::Overwrite {
+        eprintln!(
+            "generating bytes overwrite workload (prefill={n0}, overwrites={m}, key_dist={})...",
+            bytes_key_dist.name()
+        );
+        let wl = BytesOverwriteWorkload::generate(n0);
+        let dist = bytes_key_dist.name();
+        let theta = bytes_key_dist.theta();
+        for round in round_start..round_end {
+            let round_writers = williams_order(&writers_list, round);
+            for (pos, &w) in round_writers.iter().enumerate() {
+                let pos = position_opt.unwrap_or(pos);
+                let cell = format!("bytes_overwrite_{dist}_w{w}_r0");
+                let out = match run_bytes_overwrite_cell(
+                    &wl,
+                    m,
+                    bytes_key_dist,
+                    w,
+                    round,
+                    is_counters,
+                    &mut perf_ctl,
+                ) {
+                    Ok(out) => out,
+                    Err(e) => {
+                        eprintln!("{cell}: {e}");
+                        std::process::exit(1);
+                    }
+                };
+                let write_ops = out.overwrites;
+                let head = format!(
+                    "\"arm\":\"expanse\",\"cell\":\"{cell}\",\"dist\":\"short\",\
+                     \"bytes_op\":\"overwrite\",\
+                     \"key_dist\":\"{dist}\",\"theta\":{theta},\
+                     \"prefill\":{n0},\"fresh_keys\":0,\"overwrites\":{write_ops},\
+                     \"distinct_keys_overwritten\":{dk},\"verified_keys\":{vk},\
+                     \"verified_overwritten\":{vo},\"writers\":{w},\"readers\":0,\
+                     \"round\":{round},\"position\":{pos},\"write_ops\":{write_ops}",
+                    dk = out.distinct_keys,
+                    vk = out.verified_keys,
+                    vo = out.verified_overwritten,
+                );
+                let final_pop = out.final_pop;
+                if is_counters {
+                    let counters = out.counters;
+                    if let Err(e) = counters.check(write_ops, 0, &format!("{cell} round {round}")) {
+                        eprintln!("counter identity violated: {e}");
+                        std::process::exit(1);
+                    }
+                    println!(
+                        "{{\"workload_id\":\"concurrency_writer_bytes_overwrite\",\"role\":\"counters\",\
+                         {head},\"tsc_hz\":{tsc_hz},\
+                         \"lock_fallbacks\":{fb},\"inserts\":{ins},{extra},\"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
+                        fb = counters.lock_fallbacks,
+                        ins = counters.inserts,
+                        extra = counters.extra_counters_json(),
+                        causes = counters.causes_json(),
+                    );
+                } else {
+                    let elapsed_s = out.elapsed_s;
+                    let writer_mops = (write_ops as f64) / elapsed_s / 1e6;
+                    println!(
+                        "{{\"workload_id\":\"concurrency_writer_bytes_overwrite\",\"role\":\"throughput\",\
+                         {head},\"writer_elapsed_s\":{elapsed_s:.6},\
+                         \"writer_mops\":{writer_mops:.4},\"tsc_hz\":{tsc_hz},\"population_after\":{final_pop}}}"
+                    );
+                }
+            }
+        }
+    } else if run_bytes {
         eprintln!("generating bytes workload (prefill={n0}, fresh={m})...");
         let wl = WriterStrWorkload::generate(n0, m);
         for round in round_start..round_end {
@@ -3292,12 +3796,12 @@ fn main() {
     if run_blob && blob_op == BlobOp::Overwrite {
         eprintln!(
             "generating blob 64-bit overwrite workload (prefill={n0}, overwrites={m}, key_dist={})...",
-            key_dist.name()
+            blob_key_dist.name()
         );
         let wl = BlobOverwriteWorkload::generate(n0);
         let bits = wl.keyspace_bits;
-        let dist = key_dist.name();
-        let theta = key_dist.theta();
+        let dist = blob_key_dist.name();
+        let theta = blob_key_dist.theta();
         for round in round_start..round_end {
             let round_writers = williams_order(&writers_list, round);
             for (pos, &w) in round_writers.iter().enumerate() {
@@ -3306,7 +3810,7 @@ fn main() {
                 let out = match run_blob_overwrite_cell(
                     &wl,
                     m,
-                    key_dist,
+                    blob_key_dist,
                     w,
                     round,
                     is_counters,
