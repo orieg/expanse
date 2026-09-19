@@ -108,7 +108,7 @@
   <rect width="100%" height="100%" class="border" rx="8"/>
 
   <text x="30" y="30" class="t-title">YCSB WORKLOADS A&#8211;F THROUGHPUT</text>
-  <text x="30" y="46" class="t-sub">Mops/s &#183; higher is better &#183; N = 100,000, Zipfian theta = 0.99, 128B blobs, seed 0x1234_5678_9ABC, criterion median throughput</text>
+  <text x="30" y="46" class="t-sub">Mops/s &#183; higher is better &#183; N = 100,000, Zipfian theta = 0.99, 128B blobs, uniform-random shuffled, seed 0x1234_5678_9ABC</text>
   <line x1="30" y1="58" x2="930" y2="58" class="divider"/>
   <g transform="translate(30, 68)">
     <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
@@ -123,80 +123,80 @@
   <text x="30" y="92" class="t-note">Workloads A&#8211;D and F share one zero-based axis; Workload E has its own, an order of magnitude lower.</text>
   <text x="30" y="109" class="t-bar-label">Workload A</text>
   <text x="30" y="122" class="t-sub">50% Read / 50% Update</text>
-  <rect x="300.0" y="100" width="294.9" height="9" rx="2" class="b-expanse"/>
-  <text x="700" y="108" class="t-row-accent" text-anchor="end">20.49</text>
-  <rect x="300.0" y="113" width="291.2" height="9" rx="2" class="b-expanse-alt"/>
-  <text x="700" y="121" class="t-row-muted" text-anchor="end">20.23</text>
-  <rect x="300.0" y="126" width="61.2" height="9" rx="2" class="b-btree"/>
-  <text x="700" y="134" class="t-row-muted" text-anchor="end">4.25</text>
-  <rect x="300.0" y="139" width="27.4" height="9" rx="2" class="b-skipmap"/>
-  <text x="700" y="147" class="t-row-muted" text-anchor="end">1.90</text>
+  <rect x="300.0" y="100" width="198.7" height="9" rx="2" class="b-expanse"/>
+  <text x="700" y="108" class="t-row-accent" text-anchor="end">38.73</text>
+  <rect x="300.0" y="113" width="92.0" height="9" rx="2" class="b-expanse-alt"/>
+  <text x="700" y="121" class="t-row-muted" text-anchor="end">17.94</text>
+  <rect x="300.0" y="126" width="72.0" height="9" rx="2" class="b-btree"/>
+  <text x="700" y="134" class="t-row-muted" text-anchor="end">14.04</text>
+  <rect x="300.0" y="139" width="15.8" height="9" rx="2" class="b-skipmap"/>
+  <text x="700" y="147" class="t-row-muted" text-anchor="end">3.09</text>
   <rect x="775" y="117.0" width="155" height="18" class="badge-win"/>
-  <text x="852.5" y="130.0" class="badge-win-text">Expanse 4.82x</text>
+  <text x="852.5" y="130.0" class="badge-win-text">Expanse 2.76x</text>
   <text x="30" y="177" class="t-bar-label">Workload B</text>
   <text x="30" y="190" class="t-sub">95% Read / 5% Update</text>
-  <rect x="300.0" y="168" width="331.2" height="9" rx="2" class="b-expanse"/>
-  <text x="700" y="176" class="t-row-accent" text-anchor="end">23.02</text>
-  <rect x="300.0" y="181" width="306.1" height="9" rx="2" class="b-expanse-alt"/>
-  <text x="700" y="189" class="t-row-muted" text-anchor="end">21.27</text>
-  <rect x="300.0" y="194" width="63.7" height="9" rx="2" class="b-btree"/>
-  <text x="700" y="202" class="t-row-muted" text-anchor="end">4.43</text>
-  <rect x="300.0" y="207" width="36.9" height="9" rx="2" class="b-skipmap"/>
-  <text x="700" y="215" class="t-row-muted" text-anchor="end">2.57</text>
+  <rect x="300.0" y="168" width="243.2" height="9" rx="2" class="b-expanse"/>
+  <text x="700" y="176" class="t-row-accent" text-anchor="end">47.41</text>
+  <rect x="300.0" y="181" width="155.3" height="9" rx="2" class="b-expanse-alt"/>
+  <text x="700" y="189" class="t-row-muted" text-anchor="end">30.27</text>
+  <rect x="300.0" y="194" width="80.2" height="9" rx="2" class="b-btree"/>
+  <text x="700" y="202" class="t-row-muted" text-anchor="end">15.63</text>
+  <rect x="300.0" y="207" width="26.4" height="9" rx="2" class="b-skipmap"/>
+  <text x="700" y="215" class="t-row-muted" text-anchor="end">5.15</text>
   <rect x="775" y="185.0" width="155" height="18" class="badge-win"/>
-  <text x="852.5" y="198.0" class="badge-win-text">Expanse 5.20x</text>
+  <text x="852.5" y="198.0" class="badge-win-text">Expanse 3.03x</text>
   <text x="30" y="245" class="t-bar-label">Workload C</text>
   <text x="30" y="258" class="t-sub">100% Read</text>
-  <rect x="300.0" y="236" width="337.7" height="9" rx="2" class="b-expanse"/>
-  <text x="700" y="244" class="t-row-accent" text-anchor="end">23.47</text>
-  <rect x="300.0" y="249" width="308.0" height="9" rx="2" class="b-expanse-alt"/>
-  <text x="700" y="257" class="t-row-muted" text-anchor="end">21.41</text>
-  <rect x="300.0" y="262" width="63.7" height="9" rx="2" class="b-btree"/>
-  <text x="700" y="270" class="t-row-muted" text-anchor="end">4.43</text>
-  <rect x="300.0" y="275" width="27.9" height="9" rx="2" class="b-skipmap"/>
-  <text x="700" y="283" class="t-row-muted" text-anchor="end">1.94</text>
+  <rect x="300.0" y="236" width="251.0" height="9" rx="2" class="b-expanse"/>
+  <text x="700" y="244" class="t-row-accent" text-anchor="end">48.94</text>
+  <rect x="300.0" y="249" width="163.4" height="9" rx="2" class="b-expanse-alt"/>
+  <text x="700" y="257" class="t-row-muted" text-anchor="end">31.84</text>
+  <rect x="300.0" y="262" width="81.4" height="9" rx="2" class="b-btree"/>
+  <text x="700" y="270" class="t-row-muted" text-anchor="end">15.86</text>
+  <rect x="300.0" y="275" width="29.2" height="9" rx="2" class="b-skipmap"/>
+  <text x="700" y="283" class="t-row-muted" text-anchor="end">5.68</text>
   <rect x="775" y="253.0" width="155" height="18" class="badge-win"/>
-  <text x="852.5" y="266.0" class="badge-win-text">Expanse 5.30x</text>
+  <text x="852.5" y="266.0" class="badge-win-text">Expanse 3.09x</text>
   <text x="30" y="313" class="t-bar-label">Workload D</text>
   <text x="30" y="326" class="t-sub">95% Read-Latest / 5% Insert</text>
-  <rect x="300.0" y="304" width="328.0" height="9" rx="2" class="b-expanse"/>
-  <text x="700" y="312" class="t-row-accent" text-anchor="end">22.80</text>
-  <rect x="300.0" y="317" width="309.2" height="9" rx="2" class="b-expanse-alt"/>
-  <text x="700" y="325" class="t-row-muted" text-anchor="end">21.49</text>
-  <rect x="300.0" y="330" width="61.0" height="9" rx="2" class="b-btree"/>
-  <text x="700" y="338" class="t-row-muted" text-anchor="end">4.24</text>
-  <rect x="300.0" y="343" width="27.2" height="9" rx="2" class="b-skipmap"/>
-  <text x="700" y="351" class="t-row-muted" text-anchor="end">1.89</text>
+  <rect x="300.0" y="304" width="337.7" height="9" rx="2" class="b-expanse"/>
+  <text x="700" y="312" class="t-row-accent" text-anchor="end">65.83</text>
+  <rect x="300.0" y="317" width="178.5" height="9" rx="2" class="b-expanse-alt"/>
+  <text x="700" y="325" class="t-row-muted" text-anchor="end">34.79</text>
+  <rect x="300.0" y="330" width="91.3" height="9" rx="2" class="b-btree"/>
+  <text x="700" y="338" class="t-row-muted" text-anchor="end">17.79</text>
+  <rect x="300.0" y="343" width="37.4" height="9" rx="2" class="b-skipmap"/>
+  <text x="700" y="351" class="t-row-muted" text-anchor="end">7.29</text>
   <rect x="775" y="321.0" width="155" height="18" class="badge-win"/>
-  <text x="852.5" y="334.0" class="badge-win-text">Expanse 5.38x</text>
+  <text x="852.5" y="334.0" class="badge-win-text">Expanse 3.70x</text>
   <text x="30" y="381" class="t-bar-label">Workload F</text>
   <text x="30" y="394" class="t-sub">50% Read / 50% Read-Modify-Write</text>
-  <rect x="300.0" y="372" width="268.5" height="9" rx="2" class="b-expanse"/>
-  <text x="700" y="380" class="t-row-accent" text-anchor="end">18.66</text>
-  <rect x="300.0" y="385" width="211.3" height="9" rx="2" class="b-expanse-alt"/>
-  <text x="700" y="393" class="t-row-muted" text-anchor="end">14.69</text>
-  <rect x="300.0" y="398" width="62.8" height="9" rx="2" class="b-btree"/>
-  <text x="700" y="406" class="t-row-muted" text-anchor="end">4.36</text>
-  <rect x="300.0" y="411" width="25.3" height="9" rx="2" class="b-skipmap"/>
-  <text x="700" y="419" class="t-row-muted" text-anchor="end">1.76</text>
+  <rect x="300.0" y="372" width="171.6" height="9" rx="2" class="b-expanse"/>
+  <text x="700" y="380" class="t-row-accent" text-anchor="end">33.45</text>
+  <rect x="300.0" y="385" width="79.4" height="9" rx="2" class="b-expanse-alt"/>
+  <text x="700" y="393" class="t-row-muted" text-anchor="end">15.48</text>
+  <rect x="300.0" y="398" width="77.2" height="9" rx="2" class="b-btree"/>
+  <text x="700" y="406" class="t-row-muted" text-anchor="end">15.05</text>
+  <rect x="300.0" y="411" width="14.1" height="9" rx="2" class="b-skipmap"/>
+  <text x="700" y="419" class="t-row-muted" text-anchor="end">2.75</text>
   <rect x="775" y="389.0" width="155" height="18" class="badge-win"/>
-  <text x="852.5" y="402.0" class="badge-win-text">Expanse 4.28x</text>
+  <text x="852.5" y="402.0" class="badge-win-text">Expanse 2.22x</text>
 
   <line x1="30" y1="454" x2="930" y2="454" class="divider"/>
-  <text x="30" y="468" class="t-note">Workload E, separate axis (max 1.259 Mops/s) &#8212; Plotted on its own axis: every arm is an order of magnitude below A-D/F, and BTreeMap wins.</text>
+  <text x="30" y="468" class="t-note">Workload E, separate axis (max 1.576 Mops/s) &#8212; Plotted on its own axis: every arm is an order of magnitude below A-D/F, and BTreeMap wins.</text>
   <text x="30" y="493" class="t-bar-label">Workload E</text>
   <text x="30" y="506" class="t-sub">95% Short Range Scan / 5% Insert</text>
-  <rect x="300.0" y="484" width="229.9" height="9" rx="2" class="b-expanse"/>
-  <text x="700" y="492" class="t-row-muted" text-anchor="end">0.857</text>
-  <rect x="300.0" y="497" width="185.9" height="9" rx="2" class="b-expanse-alt"/>
-  <text x="700" y="505" class="t-row-muted" text-anchor="end">0.693</text>
+  <rect x="300.0" y="484" width="185.8" height="9" rx="2" class="b-expanse"/>
+  <text x="700" y="492" class="t-row-muted" text-anchor="end">0.867</text>
+  <rect x="300.0" y="497" width="149.4" height="9" rx="2" class="b-expanse-alt"/>
+  <text x="700" y="505" class="t-row-muted" text-anchor="end">0.697</text>
   <rect x="300.0" y="510" width="337.7" height="9" rx="2" class="b-btree"/>
-  <text x="700" y="518" class="t-row-accent" text-anchor="end">1.259</text>
-  <rect x="300.0" y="523" width="74.0" height="9" rx="2" class="b-skipmap"/>
-  <text x="700" y="531" class="t-row-muted" text-anchor="end">0.276</text>
+  <text x="700" y="518" class="t-row-accent" text-anchor="end">1.576</text>
+  <rect x="300.0" y="523" width="71.1" height="9" rx="2" class="b-skipmap"/>
+  <text x="700" y="531" class="t-row-muted" text-anchor="end">0.332</text>
   <rect x="775" y="501.0" width="155" height="18" class="badge-loss"/>
-  <text x="852.5" y="514.0" class="badge-loss-text">BTreeMap 1.47x</text>
+  <text x="852.5" y="514.0" class="badge-loss-text">BTreeMap 1.82x</text>
 
-  <text x="30" y="576" class="t-note">Measured: reference host -- Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, idle &#183; run 33219093994 &#183; benches/ycsb.rs, post-#470 payload-dereference repair</text>
+  <text x="30" y="576" class="t-note">Measured: reference host -- Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8 &#183; run 35419627251 &#183; benches/ycsb.rs, standardized 8-round suite (Refs #1005)</text>
   <text x="30" y="589" class="t-note">The Workload E figure published under #375 is retracted; E is re-measured here and inverts.</text>
 </svg>

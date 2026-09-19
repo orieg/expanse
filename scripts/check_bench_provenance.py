@@ -259,7 +259,6 @@ GRANDFATHERED = {
     # runners took no load snapshot at all before this change, and several of
     # their artifacts are bare JSON arrays.
     "hashbrown_comparison/results/baseline_native.json": None,
-    "hashbrown_comparison/results/baseline_ycsb.json": None,
     "hashbrown_comparison/results/baseline_tail_latency.json": None,
     "hashbrown_comparison/results/baseline_distributions.json": None,
     "hashbrown_comparison/results/baseline_memory.json": None,

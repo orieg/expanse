@@ -24,15 +24,19 @@ This directory contains the reproducible benchmark suite, raw measurements, meth
 ### Pillar 1: YCSB (Yahoo! Cloud Serving Benchmark) Workloads A–F
 Zipfian access distribution ($s = 0.99$, power-law skew) on 500,000 dense sequential keys (`1..=N`) with `u64` values (workload: `hashbrown_ycsb`).
 
-> ⚠️ **Every figure in this pillar is pending re-run (#1005).** `results/baseline_ycsb.json` holds one `Instant` window over one pass per cell — no rounds, no host, no commit, no load snapshot — so no interval can be computed from it and the ratios below are single-sample point estimates with no interval. The keys were inserted ascending only, which is `BTreeMap`'s rightmost-append best case (§8.12.4), the run was not pinned, and workload D's reads were a plain Zipfian draw that never touched an inserted key, so that row was not read-latest. The harness now measures every cell in rounds, in both insertion orders, with a read-latest D; `scripts/ycsb_bench.py --suite hashbrown` takes the core pin, snapshots load around every round and publishes BCa 95% intervals and paired per-round ratios.
->
+*(measured: the reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 21a382f3; 8 paired rounds via `scripts/ycsb_bench.py --suite hashbrown`, pinned CPUs `0,2,4,6,8,10,12,14`, idle host — load < 0.4 before and between rounds; BCa 95% intervals and paired per-round ratios; `results/baseline_ycsb.json` and run 2 at `results/baseline_ycsb_run2.json`)*
+
 > **This workload E is not `workload_ycsb`'s workload E** (`docs/BENCHMARKING.md`, "Standardized YCSB Workload Suite"): here a scan takes 10–59 records with no predicate over dense sequential `u64` values; there it takes 10–100 records that pass a key-parity predicate over uniform-random keys and 128 B blobs. The two are not comparable, and the near-parity below does not contradict the 1.55× loss published there.
 
 ![YCSB Workloads A-F Throughput](results/bench_ycsb_workloads.svg)
 
-- **Workload E (Short Range Scans):** SwissTable is structurally disqualified because hash tables cannot perform ordered scans without allocating, dumping, and sorting the entire table. `ExpanseMap` ($9.6\text{ Mops/sec}$) and `BTreeMap` ($10.1\text{ Mops/sec}$) execute ordered range queries natively, within $5\%$ of each other on these dense keys (single pass, no interval; pending re-run (#1005)).
-- **Read & Update Heavy Workloads (A, B, C, D, F):** `ExpanseMap` delivers $41\text{–}118\text{ Mops/sec}$, against `BTreeMap`'s $12.6\text{–}17.2\text{ Mops/sec}$: $3.0\times\text{ to }7.1\times$, single-pass point estimates with no interval on ascending-inserted keys, pending re-run (#1005).
-- **`hashbrown` leads the pure point-op workloads** ($154\text{–}219\text{ Mops/sec}$ on A–D, F) — an unordered hash table's home turf. The trade is ordered capability (Workload E) and worst-case latency (Pillar 3 rehash cliffs), not average point throughput.
+- **Workload E (Short Range Scans):** SwissTable is structurally disqualified (`DISQUALIFIED: cannot perform ordered range scans without full O(N log N) dump and sort`). `ExpanseMap` and `BTreeMap` execute ordered range queries natively:
+  - Shuffled keys: `ExpanseMap` leads `BTreeMap` **1.259× [1.253, 1.263]** (Run 2: 1.265× [1.258, 1.274]) ($9.57\text{ vs }7.60\text{ Mops/s}$).
+  - Sorted keys: `ExpanseMap` leads `BTreeMap` **1.039× [1.032, 1.054]** (Run 2: 1.040× [1.034, 1.048]) ($10.00\text{ vs }9.62\text{ Mops/s}$).
+- **Read & Update Heavy Workloads (A, B, C, D, F):** `ExpanseMap` delivers $57.1\text{–}101.2\text{ Mops/s}$ (sorted) / $47.4\text{–}77.7\text{ Mops/s}$ (shuffled):
+  - Shuffled keys: `ExpanseMap` leads `BTreeMap` **4.54× to 6.62×** (A: 4.539× [4.480, 4.604], B: 6.258× [6.141, 6.307], C: 6.624× [6.588, 6.655], D: 5.470× [5.375, 5.529], F: 4.859× [4.837, 4.907]; Run 2: A 4.561×, B 6.342×, C 6.561×, D 5.478×, F 4.866×).
+  - Sorted keys: `ExpanseMap` leads `BTreeMap` **4.50× to 5.78×** (A: 4.672× [4.495, 4.786], B: 5.396× [5.101, 5.855], C: 5.778× [5.467, 6.181], D: 4.946× [4.770, 5.185], F: 4.497× [4.329, 4.676]; Run 2: A 4.668×, B 5.410×, C 5.853×, D 4.964×, F 4.513×).
+- **`hashbrown` leads the pure point-op workloads** on dense sequential integer keys ($150.7\text{–}214.3\text{ Mops/s}$ sorted, $137.9\text{–}192.1\text{ Mops/s}$ shuffled; `ExpanseMap` trails 0.368× to 0.548× across geometries, e.g. C shuffled 0.548× [0.544, 0.553], D sorted 0.368× [0.356, 0.381]) — an unordered flat table's home turf. The trade is ordered capability (Workload E) and worst-case latency (Pillar 3 rehash cliffs), not average point throughput.
 
 ---
 
