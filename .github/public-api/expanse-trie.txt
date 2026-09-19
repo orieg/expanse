@@ -191,6 +191,7 @@ pub fn expanse_trie::blobmap::BlobArena::push_chunk(&mut self, expanse_trie::blo
 pub fn expanse_trie::blobmap::BlobArena::record_deleted(&mut self, u64)
 pub fn expanse_trie::blobmap::BlobArena::record_deleted_slot(&mut self, expanse_trie::slot::ValueSlot)
 pub fn expanse_trie::blobmap::BlobArena::resolve_meta(&self, u32) -> core::option::Option<&[u8]>
+pub fn expanse_trie::blobmap::BlobArena::with_chunk_size_and_max_capacity(usize, usize) -> Self
 impl core::ops::drop::Drop for expanse_trie::blobmap::BlobArena
 pub fn expanse_trie::blobmap::BlobArena::drop(&mut self)
 impl !core::marker::Freeze for expanse_trie::blobmap::BlobArena
@@ -291,6 +292,7 @@ pub fn expanse_trie::blobmap::ExpanseBlobMap::save_to_file<P: core::convert::AsR
 pub fn expanse_trie::blobmap::ExpanseBlobMap::save_to_writer<W: core::io::write::Write>(&self, &mut W) -> core::io::error::Result<usize>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::scan_filtered<P, F>(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>, P, F) where P: core::ops::function::FnMut(expanse_trie::types::Key, u32) -> bool, F: core::ops::function::FnMut(expanse_trie::types::Key, expanse_trie::blobmap::BlobView<'_>, u32) -> bool
 pub fn expanse_trie::blobmap::ExpanseBlobMap::with_chunk_size(usize) -> Self
+pub fn expanse_trie::blobmap::ExpanseBlobMap::with_chunk_size_and_max_capacity(usize, usize) -> Self
 impl core::convert::From<expanse_trie::blobmap::ExpanseBlobMap> for expanse_trie::sync::SyncExpanseBlobMap
 pub fn expanse_trie::sync::SyncExpanseBlobMap::from(expanse_trie::blobmap::ExpanseBlobMap) -> Self
 impl core::default::Default for expanse_trie::blobmap::ExpanseBlobMap
@@ -1896,6 +1898,7 @@ pub fn expanse_trie::sync::SyncExpanseBlobMap::new() -> Self
 pub fn expanse_trie::sync::SyncExpanseBlobMap::reader(&self) -> expanse_trie::sync::BlobReader<'_>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::remove(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::sync::SyncExpanseBlobMap::with_chunk_size(usize) -> Self
+pub fn expanse_trie::sync::SyncExpanseBlobMap::with_chunk_size_and_max_capacity(usize, usize) -> Self
 pub fn expanse_trie::sync::SyncExpanseBlobMap::with_locked<R>(&self, impl core::ops::function::FnOnce(&expanse_trie::blobmap::ExpanseBlobMap) -> R) -> R
 impl core::convert::From<expanse_trie::blobmap::ExpanseBlobMap> for expanse_trie::sync::SyncExpanseBlobMap
 pub fn expanse_trie::sync::SyncExpanseBlobMap::from(expanse_trie::blobmap::ExpanseBlobMap) -> Self
@@ -2625,6 +2628,7 @@ pub fn expanse_trie::blobmap::BlobArena::push_chunk(&mut self, expanse_trie::blo
 pub fn expanse_trie::blobmap::BlobArena::record_deleted(&mut self, u64)
 pub fn expanse_trie::blobmap::BlobArena::record_deleted_slot(&mut self, expanse_trie::slot::ValueSlot)
 pub fn expanse_trie::blobmap::BlobArena::resolve_meta(&self, u32) -> core::option::Option<&[u8]>
+pub fn expanse_trie::blobmap::BlobArena::with_chunk_size_and_max_capacity(usize, usize) -> Self
 impl core::ops::drop::Drop for expanse_trie::blobmap::BlobArena
 pub fn expanse_trie::blobmap::BlobArena::drop(&mut self)
 impl !core::marker::Freeze for expanse_trie::blobmap::BlobArena
@@ -2772,6 +2776,7 @@ pub fn expanse_trie::blobmap::ExpanseBlobMap::save_to_file<P: core::convert::AsR
 pub fn expanse_trie::blobmap::ExpanseBlobMap::save_to_writer<W: core::io::write::Write>(&self, &mut W) -> core::io::error::Result<usize>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::scan_filtered<P, F>(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>, P, F) where P: core::ops::function::FnMut(expanse_trie::types::Key, u32) -> bool, F: core::ops::function::FnMut(expanse_trie::types::Key, expanse_trie::blobmap::BlobView<'_>, u32) -> bool
 pub fn expanse_trie::blobmap::ExpanseBlobMap::with_chunk_size(usize) -> Self
+pub fn expanse_trie::blobmap::ExpanseBlobMap::with_chunk_size_and_max_capacity(usize, usize) -> Self
 impl core::convert::From<expanse_trie::blobmap::ExpanseBlobMap> for expanse_trie::sync::SyncExpanseBlobMap
 pub fn expanse_trie::sync::SyncExpanseBlobMap::from(expanse_trie::blobmap::ExpanseBlobMap) -> Self
 impl core::default::Default for expanse_trie::blobmap::ExpanseBlobMap

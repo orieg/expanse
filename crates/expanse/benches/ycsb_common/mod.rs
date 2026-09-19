@@ -663,6 +663,7 @@ pub fn run_workload_expanse_blobmap(
     payload: &[u8],
     sampling: Sampling,
 ) -> RunOutcome {
+    let mut writes_executed = 0usize;
     let (stats, consumed) = drive(ops, sampling, |op| match op {
         YcsbOp::Read(k) => {
             if let Some((view, _)) = map.get(k) {
@@ -680,6 +681,7 @@ pub fn run_workload_expanse_blobmap(
             // 255 of every 256 blob writes into a no-op (#1005).
             map.insert(k, payload, meta as u32 & BLOB_META_MASK)
                 .expect("ExpanseBlobMap rejected a write");
+            writes_executed += 1;
             0
         }
         YcsbOp::Scan(start_k, len) => {
@@ -706,9 +708,23 @@ pub fn run_workload_expanse_blobmap(
                 current.unwrap_or(0).wrapping_add(1) & BLOB_META_MASK,
             )
             .expect("ExpanseBlobMap rejected a write");
+            writes_executed += 1;
             current.is_some() as u64
         }
     });
+    let expected_writes = ops
+        .iter()
+        .filter(|op| {
+            matches!(
+                op,
+                YcsbOp::Update(..) | YcsbOp::Insert(..) | YcsbOp::ReadModifyWrite(..)
+            )
+        })
+        .count();
+    assert_eq!(
+        writes_executed, expected_writes,
+        "ExpanseBlobMap failed to execute all expected write operations"
+    );
     RunOutcome {
         stats,
         mem_bytes: map.mem_used(),
@@ -860,14 +876,37 @@ pub fn build_expanse_map(keys: &[u64]) -> ExpanseMap {
     m
 }
 
-/// Builds the `ExpanseBlobMap` arm from `keys` in the order given.
-pub fn build_blobmap(keys: &[u64], payload: &[u8]) -> ExpanseBlobMap {
-    let mut m = ExpanseBlobMap::new();
+/// Computes the exact arena capacity required to hold `total_records` records of `payload_len`
+/// bytes without exhausting chunk space.
+pub fn required_arena_capacity(total_records: usize, payload_len: usize) -> usize {
+    let chunk_size = expanse_trie::blobmap::DEFAULT_CHUNK_SIZE;
+    let needed = 8 + payload_len;
+    assert!(needed <= chunk_size, "payload exceeds chunk size");
+    let stride = (needed + 15) & !15;
+    let records_per_chunk = (chunk_size - needed) / stride + 1;
+    let chunks_needed = total_records.div_ceil(records_per_chunk);
+    let cap = chunks_needed.saturating_mul(chunk_size);
+    usize::max(expanse_trie::blobmap::MAX_ARENA_CAPACITY, cap)
+}
+
+/// Builds the `ExpanseBlobMap` arm from `keys` in the order given, sized to also hold `writes` subsequent op records.
+pub fn build_blobmap_with_writes(keys: &[u64], payload: &[u8], writes: usize) -> ExpanseBlobMap {
+    let total_records = keys.len().saturating_add(writes);
+    let max_cap = required_arena_capacity(total_records, payload.len());
+    let mut m = ExpanseBlobMap::with_chunk_size_and_max_capacity(
+        expanse_trie::blobmap::DEFAULT_CHUNK_SIZE,
+        max_cap,
+    );
     for &k in keys {
         m.insert(k, payload, (k & 0xFF) as u32)
             .expect("ExpanseBlobMap rejected a build insert");
     }
     m
+}
+
+/// Builds the `ExpanseBlobMap` arm from `keys` in the order given.
+pub fn build_blobmap(keys: &[u64], payload: &[u8]) -> ExpanseBlobMap {
+    build_blobmap_with_writes(keys, payload, 0)
 }
 
 /// Builds the `BTreeMap` arm from `keys` in the order given.
@@ -943,7 +982,16 @@ pub fn run_cell(
             run_workload_expanse_map(&mut m, ops, sampling)
         }
         Engine::Blob => {
-            let mut m = build_blobmap(build_keys, payload);
+            let writes = ops
+                .iter()
+                .filter(|op| {
+                    matches!(
+                        op,
+                        YcsbOp::Update(..) | YcsbOp::Insert(..) | YcsbOp::ReadModifyWrite(..)
+                    )
+                })
+                .count();
+            let mut m = build_blobmap_with_writes(build_keys, payload, writes);
             run_workload_expanse_blobmap(&mut m, ops, payload, sampling)
         }
         Engine::BTree => {
@@ -1154,6 +1202,16 @@ pub fn bench_ycsb_workloads(c: &mut Criterion, suite: &Suite) {
                     group.sample_size(10);
                 }
 
+                let write_count = ops
+                    .iter()
+                    .filter(|op| {
+                        matches!(
+                            op,
+                            YcsbOp::Update(..) | YcsbOp::Insert(..) | YcsbOp::ReadModifyWrite(..)
+                        )
+                    })
+                    .count();
+
                 group.bench_function(BenchmarkId::new("ExpanseMap_u64", &param), |b| {
                     b.iter_batched(
                         || build_expanse_map(&keys),
@@ -1167,7 +1225,7 @@ pub fn bench_ycsb_workloads(c: &mut Criterion, suite: &Suite) {
 
                 group.bench_function(BenchmarkId::new("ExpanseBlobMap_128B", &param), |b| {
                     b.iter_batched(
-                        || build_blobmap(&keys, &payload),
+                        || build_blobmap_with_writes(&keys, &payload, write_count),
                         |mut map| {
                             black_box(run_workload_expanse_blobmap(
                                 &mut map,
