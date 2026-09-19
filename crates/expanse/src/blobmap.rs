@@ -730,6 +730,35 @@ impl BlobArena {
         }
     }
 
+    /// Creates a new `BlobArena` with the specified chunk size and maximum capacity ceiling.
+    ///
+    /// `chunk_size` is clamped into `[4096, ArenaChunk::MAX_CHUNK_CAPACITY]`.
+    /// `max_capacity` is clamped to at least `chunk_size` (ensuring that the arena can allocate
+    /// at least one initial chunk) and at most [`ARENA_META_CEILING`] (64 GiB, the structural
+    /// ceiling of the 36-bit chunk locator address space; capped at `usize::MAX` on 32-bit targets).
+    ///
+    /// ## Behavior at Capacity Ceiling
+    ///
+    /// When total chunk allocations reach `max_capacity`, attempting to allocate an additional chunk
+    /// fails with [`ArenaError::OffsetOverflow`]. Any calling operation (such as [`ExpanseBlobMap::insert`])
+    /// fails atomically and leaves the digital tree index and existing arena records completely unmodified.
+    ///
+    /// Note on 32-bit targets: [`ExpanseBlobMap32`](crate::blobmap32::ExpanseBlobMap32) uses a fixed
+    /// 12-bit addressable slab (at most 4095 entries) optimized for embedded systems per
+    /// `docs/design/32-bit-embedded.md`, where capacity is bounded by the fixed slab structure rather
+    /// than dynamic multi-chunk arena expansion.
+    #[must_use]
+    pub fn with_chunk_size_and_max_capacity(chunk_size: usize, max_capacity: usize) -> Self {
+        let mut arena = Self::new(chunk_size);
+        let max_allowed = if (ARENA_META_CEILING as u128) > (usize::MAX as u128) {
+            usize::MAX
+        } else {
+            ARENA_META_CEILING as usize
+        };
+        arena.max_capacity = max_capacity.clamp(arena.chunk_size, max_allowed);
+        arena
+    }
+
     /// Switches this arena to deferred reclamation through `collector`,
     /// permanently (Phase 7 concurrent wrappers call this once at
     /// construction, alongside the index's `NodeAlloc::defer_to`): dead
@@ -1221,6 +1250,29 @@ impl ExpanseBlobMap {
         Self {
             index: ExpanseMap::new(),
             arena: BlobArena::new(chunk_size),
+        }
+    }
+
+    /// Creates an empty blob map with custom arena chunk size and maximum capacity ceiling.
+    ///
+    /// `chunk_size` is clamped into `[4096, ArenaChunk::MAX_CHUNK_CAPACITY]`
+    /// (see [`BlobArena::new`]), and `max_capacity` is clamped to at least `chunk_size`
+    /// and at most [`ARENA_META_CEILING`] (capped at `usize::MAX` on 32-bit platforms).
+    ///
+    /// ## Behavior at Capacity Ceiling
+    ///
+    /// When total chunk allocations reach `max_capacity`, attempting to allocate an additional chunk
+    /// fails with [`ArenaError::OffsetOverflow`]. Any [`insert`](Self::insert) that cannot be satisfied
+    /// fails atomically and leaves the digital tree index and existing arena records completely unmodified.
+    ///
+    /// Note on 32-bit targets: [`ExpanseBlobMap32`](crate::blobmap32::ExpanseBlobMap32) uses a fixed
+    /// 12-bit addressable slab (at most 4095 entries) per `docs/design/32-bit-embedded.md`, where
+    /// capacity is bounded by the fixed slab structure rather than dynamic chunk expansion.
+    #[must_use]
+    pub fn with_chunk_size_and_max_capacity(chunk_size: usize, max_capacity: usize) -> Self {
+        Self {
+            index: ExpanseMap::new(),
+            arena: BlobArena::with_chunk_size_and_max_capacity(chunk_size, max_capacity),
         }
     }
 
@@ -2255,6 +2307,64 @@ mod tests {
         // Inline payloads ignore metadata entirely (no envelope check needed).
         assert!(map.insert(3, &[1, 2, 3], u32::MAX).is_ok());
         assert_eq!(map.get(3).unwrap().1, 0);
+    }
+
+    #[test]
+    fn custom_max_capacity_is_honored_and_inherited() {
+        let chunk = 64 * 1024;
+        let cap = 128 * 1024; // Allows exactly 2 chunks
+        let mut map = ExpanseBlobMap::with_chunk_size_and_max_capacity(chunk, cap);
+        assert_eq!(map.arena.max_capacity, cap);
+
+        // Clamping checks: minimum bound is chunk_size
+        let small = ExpanseBlobMap::with_chunk_size_and_max_capacity(64 * 1024, 1024);
+        assert_eq!(small.arena.max_capacity, 64 * 1024);
+
+        // Clamping checks: maximum bound is ARENA_META_CEILING (64 GiB) or usize::MAX
+        let high = ExpanseBlobMap::with_chunk_size_and_max_capacity(64 * 1024, usize::MAX);
+        let expected_ceiling = if (ARENA_META_CEILING as u128) > (usize::MAX as u128) {
+            usize::MAX
+        } else {
+            ARENA_META_CEILING as usize
+        };
+        assert_eq!(
+            high.arena.max_capacity, expected_ceiling,
+            "max_capacity must be clamped to ARENA_META_CEILING"
+        );
+
+        let payload = vec![0x42; chunk - 8];
+        // 1st chunk
+        assert!(map.insert(1, &payload, 0).is_ok());
+        assert_eq!(map.len(), 1);
+        // 2nd chunk
+        assert!(map.insert(2, &payload, 0).is_ok());
+        assert_eq!(map.len(), 2);
+
+        // 3rd chunk exceeds 128 KiB cap -> OffsetOverflow
+        assert!(matches!(
+            map.insert(3, &payload, 0),
+            Err(ArenaError::OffsetOverflow)
+        ));
+
+        // Invariant: failed insert leaves digital tree index untouched
+        assert_eq!(map.len(), 2, "failed insert must leave map len untouched");
+        assert!(
+            map.get(3).is_none(),
+            "rejected key must not be present in index"
+        );
+        assert!(
+            map.get(1).is_some(),
+            "previously inserted key 1 must remain intact"
+        );
+        assert!(
+            map.get(2).is_some(),
+            "previously inserted key 2 must remain intact"
+        );
+
+        // Compaction inherits the custom capacity cap
+        let stats = map.compact().expect("compaction within capacity succeeds");
+        assert_eq!(map.arena.max_capacity, cap);
+        assert_eq!(stats.chunks_after, 2);
     }
 
     #[test]

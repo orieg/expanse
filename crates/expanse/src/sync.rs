@@ -8303,6 +8303,23 @@ impl SyncExpanseBlobMap {
         Self::from_map(ExpanseBlobMap::with_chunk_size(chunk_size))
     }
 
+    /// Creates an empty concurrent blob map with a custom arena chunk size and maximum capacity ceiling
+    /// (clamped as by [`ExpanseBlobMap::with_chunk_size_and_max_capacity`]).
+    ///
+    /// ## Behavior at Capacity Ceiling
+    ///
+    /// When total chunk allocations across all shared and per-writer private arenas reach `max_capacity`,
+    /// attempting to grant or allocate an additional chunk fails with [`ArenaError::OffsetOverflow`].
+    /// Any calling [`insert`](Self::insert) fails atomically before index publication, leaving the digital
+    /// tree index and existing arena records completely unmodified.
+    #[must_use]
+    pub fn with_chunk_size_and_max_capacity(chunk_size: usize, max_capacity: usize) -> Self {
+        Self::from_map(ExpanseBlobMap::with_chunk_size_and_max_capacity(
+            chunk_size,
+            max_capacity,
+        ))
+    }
+
     fn from_map(mut map: ExpanseBlobMap) -> Self {
         let collector = Arc::new(Collector::new());
         // A populated single-threaded index holds slab-carved node memory
@@ -11868,6 +11885,76 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Verifies that multi-writer private chunk grants in `SyncExpanseBlobMap`
+    /// strictly enforce and account against `max_capacity` (Refs #929, #1005).
+    #[test]
+    #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+    fn test_sync_blobmap_private_chunks_respect_max_capacity() {
+        let chunk = 64 * 1024;
+        let cap = 128 * 1024; // Exactly 2 chunks allowed
+        let m = Arc::new(SyncExpanseBlobMap::with_chunk_size_and_max_capacity(
+            chunk, cap,
+        ));
+
+        // Prefill with small inline payloads (<=7 bytes) so the root transitions into Tree state
+        // without allocating any arena chunks.
+        for i in 0..100u64 {
+            let inline_data = (i as u32).to_le_bytes();
+            assert!(m.insert(i, &inline_data, 0).is_ok());
+        }
+        assert!(
+            m.shared.inner_ref().root_is_tree(),
+            "prefill must transition root to tree state"
+        );
+
+        let payload = vec![0x77; chunk - 8];
+
+        let barrier = Arc::new(std::sync::Barrier::new(3));
+
+        // Writer 1 acquires private chunk 1
+        let m1 = Arc::clone(&m);
+        let b1 = Arc::clone(&barrier);
+        let p1 = payload.clone();
+        let w1 = std::thread::spawn(move || {
+            let res = m1.insert(1001, &p1, 1);
+            b1.wait();
+            res
+        });
+
+        // Writer 2 acquires private chunk 2
+        let m2 = Arc::clone(&m);
+        let b2 = Arc::clone(&barrier);
+        let p2 = payload.clone();
+        let w2 = std::thread::spawn(move || {
+            let res = m2.insert(1002, &p2, 1);
+            b2.wait();
+            res
+        });
+
+        // Main thread waits until writers 1 and 2 have both inserted (holding 2 chunks)
+        barrier.wait();
+        assert!(w1.join().unwrap().is_ok());
+        assert!(w2.join().unwrap().is_ok());
+
+        // Writer 3 attempts to insert another large payload, requiring chunk 3 -> exceeds 128 KiB cap
+        let m3 = Arc::clone(&m);
+        let p3 = payload.clone();
+        let w3 = std::thread::spawn(move || m3.insert(1003, &p3, 1));
+        let res3 = w3.join().unwrap();
+        assert!(
+            matches!(res3, Err(crate::blobmap::ArenaError::OffsetOverflow)),
+            "third chunk grant must fail with OffsetOverflow when max_capacity is reached"
+        );
+
+        // Invariant: index remains intact, keys 1001 and 1002 present, key 1003 absent
+        assert!(m.get(1001).is_some(), "key 1001 must remain intact");
+        assert!(m.get(1002).is_some(), "key 1002 must remain intact");
+        assert!(
+            m.get(1003).is_none(),
+            "rejected key 1003 must not be present in index"
+        );
     }
 
     /// Measures the hold time of the `arena_write` critical section (`prepare_slot`)
