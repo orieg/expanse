@@ -568,11 +568,16 @@ impl ExpanseSet {
                         if leaf.bitmap.set(d) {
                             path.pending_pop += 1;
                             path.terminal_pop += 1;
-                            if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
-                                // SAFETY: keep terminal edge pop0 up to date.
-                                unsafe {
-                                    edge.as_mut().set_pop0(1, (path.terminal_pop - 1) as u64);
-                                }
+                            debug_assert!(!path.edges[0].is_null());
+                            // SAFETY: keep terminal edge pop0 up to date. The warm path is
+                            // armed only where `edges[0]` is set beside `prefix`,
+                            // `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860, 922);
+                            // `clear()` resets `prefix` to `u64::MAX`, which matches no
+                            // `key >> 8`, so a cleared path never reaches here.
+                            unsafe {
+                                core::ptr::NonNull::new_unchecked(path.edges[0])
+                                    .as_mut()
+                                    .set_pop0(1, (path.terminal_pop - 1) as u64);
                             }
                             if path.terminal_pop == 256 {
                                 // SAFETY: terminal edge is valid and rewritten to FullExpanse.
@@ -580,13 +585,17 @@ impl ExpanseSet {
                                     path.flush();
                                     let ptr = core::ptr::NonNull::new(leaf);
                                     self.alloc.free_node(ptr.expect("leaf ptr"));
-                                    if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
-                                        let terminal_edge = edge.as_mut();
-                                        *terminal_edge = Edge::NULL;
-                                        terminal_edge
-                                            .set_tag(crate::types::EdgeType::FullExpanse.as_u8());
-                                        terminal_edge.set_pop0(1, 255);
-                                    }
+                                    debug_assert!(!path.edges[0].is_null());
+                                    // SAFETY: the warm path is armed only where `edges[0]` is set beside
+                                    // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
+                                    // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
+                                    // `key >> 8`, so a cleared path never reaches here.
+                                    let terminal_edge =
+                                        core::ptr::NonNull::new_unchecked(path.edges[0]).as_mut();
+                                    *terminal_edge = Edge::NULL;
+                                    terminal_edge
+                                        .set_tag(crate::types::EdgeType::FullExpanse.as_u8());
+                                    terminal_edge.set_pop0(1, 255);
                                     path.clear();
                                 }
                             }
@@ -609,9 +618,14 @@ impl ExpanseSet {
                                 // SAFETY: spare class capacity in the live Leaf1 allocation.
                                 unsafe {
                                     *leaf1.add(cur_pop) = d;
-                                    if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
-                                        edge.as_mut().set_pop0(1, cur_pop as u64);
-                                    }
+                                    debug_assert!(!path.edges[0].is_null());
+                                    // SAFETY: the warm path is armed only where `edges[0]` is set beside
+                                    // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
+                                    // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
+                                    // `key >> 8`, so a cleared path never reaches here.
+                                    core::ptr::NonNull::new_unchecked(path.edges[0])
+                                        .as_mut()
+                                        .set_pop0(1, cur_pop as u64);
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;
@@ -720,11 +734,16 @@ impl ExpanseSet {
                         if leaf.bitmap.set(d) {
                             path.pending_pop += 1;
                             path.terminal_pop += 1;
-                            if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
-                                // SAFETY: keep terminal edge pop0 up to date.
-                                unsafe {
-                                    edge.as_mut().set_pop0(1, (path.terminal_pop - 1) as u64);
-                                }
+                            debug_assert!(!path.edges[0].is_null());
+                            // SAFETY: keep terminal edge pop0 up to date. The warm path is
+                            // armed only where `edges[0]` is set beside `prefix`,
+                            // `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860, 922);
+                            // `clear()` resets `prefix` to `u64::MAX`, which matches no
+                            // `key >> 8`, so a cleared path never reaches here.
+                            unsafe {
+                                core::ptr::NonNull::new_unchecked(path.edges[0])
+                                    .as_mut()
+                                    .set_pop0(1, (path.terminal_pop - 1) as u64);
                             }
                             if path.terminal_pop == 256 {
                                 // SAFETY: terminal edge is valid and rewritten to FullExpanse.
@@ -732,13 +751,17 @@ impl ExpanseSet {
                                     path.flush();
                                     let ptr = core::ptr::NonNull::new(leaf);
                                     self.alloc.free_node_plain(ptr.expect("leaf ptr"));
-                                    if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
-                                        let terminal_edge = edge.as_mut();
-                                        *terminal_edge = Edge::NULL;
-                                        terminal_edge
-                                            .set_tag(crate::types::EdgeType::FullExpanse.as_u8());
-                                        terminal_edge.set_pop0(1, 255);
-                                    }
+                                    debug_assert!(!path.edges[0].is_null());
+                                    // SAFETY: the warm path is armed only where `edges[0]` is set beside
+                                    // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
+                                    // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
+                                    // `key >> 8`, so a cleared path never reaches here.
+                                    let terminal_edge =
+                                        core::ptr::NonNull::new_unchecked(path.edges[0]).as_mut();
+                                    *terminal_edge = Edge::NULL;
+                                    terminal_edge
+                                        .set_tag(crate::types::EdgeType::FullExpanse.as_u8());
+                                    terminal_edge.set_pop0(1, 255);
                                     path.clear();
                                 }
                             }
@@ -761,9 +784,14 @@ impl ExpanseSet {
                                 // SAFETY: spare class capacity in the live Leaf1 allocation.
                                 unsafe {
                                     *leaf1.add(cur_pop) = d;
-                                    if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
-                                        edge.as_mut().set_pop0(1, cur_pop as u64);
-                                    }
+                                    debug_assert!(!path.edges[0].is_null());
+                                    // SAFETY: the warm path is armed only where `edges[0]` is set beside
+                                    // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
+                                    // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
+                                    // `key >> 8`, so a cleared path never reaches here.
+                                    core::ptr::NonNull::new_unchecked(path.edges[0])
+                                        .as_mut()
+                                        .set_pop0(1, cur_pop as u64);
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;

@@ -690,11 +690,16 @@ impl MapCore {
                         path.pending_pop += 1;
                         path.terminal_pop += 1;
                         self.tree_pop += 1;
-                        if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
-                            // SAFETY: keep terminal edge pop0 up to date.
-                            unsafe {
-                                edge.as_mut().set_pop0(1, (path.terminal_pop - 1) as u64);
-                            }
+                        debug_assert!(!path.edges[0].is_null());
+                        // SAFETY: keep terminal edge pop0 up to date. The warm path is
+                        // armed only where `edges[0]` is set beside `prefix`,
+                        // `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860, 922);
+                        // `clear()` resets `prefix` to `u64::MAX`, which matches no
+                        // `key >> 8`, so a cleared path never reaches here.
+                        unsafe {
+                            core::ptr::NonNull::new_unchecked(path.edges[0])
+                                .as_mut()
+                                .set_pop0(1, (path.terminal_pop - 1) as u64);
                         }
                         // SAFETY: freshly inserted slot.
                         let slot = unsafe { node.values[sub].add(rank) };
@@ -717,9 +722,14 @@ impl MapCore {
                                     *keys_ptr.add(cur_pop) = d;
                                     let vals = base.cast::<u64>();
                                     vals.add(cur_pop).write(0);
-                                    if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
-                                        edge.as_mut().set_pop0(1, cur_pop as u64);
-                                    }
+                                    debug_assert!(!path.edges[0].is_null());
+                                    // SAFETY: the warm path is armed only where `edges[0]` is set beside
+                                    // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
+                                    // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
+                                    // `key >> 8`, so a cleared path never reaches here.
+                                    core::ptr::NonNull::new_unchecked(path.edges[0])
+                                        .as_mut()
+                                        .set_pop0(1, cur_pop as u64);
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;
@@ -922,11 +932,16 @@ impl MapCore {
                         path.pending_pop += 1;
                         path.terminal_pop += 1;
                         self.tree_pop += 1;
-                        if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
-                            // SAFETY: keep terminal edge pop0 up to date.
-                            unsafe {
-                                edge.as_mut().set_pop0(1, (path.terminal_pop - 1) as u64);
-                            }
+                        debug_assert!(!path.edges[0].is_null());
+                        // SAFETY: keep terminal edge pop0 up to date. The warm path is
+                        // armed only where `edges[0]` is set beside `prefix`,
+                        // `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860, 922);
+                        // `clear()` resets `prefix` to `u64::MAX`, which matches no
+                        // `key >> 8`, so a cleared path never reaches here.
+                        unsafe {
+                            core::ptr::NonNull::new_unchecked(path.edges[0])
+                                .as_mut()
+                                .set_pop0(1, (path.terminal_pop - 1) as u64);
                         }
                         // SAFETY: freshly inserted slot.
                         let slot = unsafe { node.values[sub].add(rank) };
@@ -949,9 +964,14 @@ impl MapCore {
                                     *keys_ptr.add(cur_pop) = d;
                                     let vals = base.cast::<u64>();
                                     vals.add(cur_pop).write(0);
-                                    if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
-                                        edge.as_mut().set_pop0(1, cur_pop as u64);
-                                    }
+                                    debug_assert!(!path.edges[0].is_null());
+                                    // SAFETY: the warm path is armed only where `edges[0]` is set beside
+                                    // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
+                                    // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
+                                    // `key >> 8`, so a cleared path never reaches here.
+                                    core::ptr::NonNull::new_unchecked(path.edges[0])
+                                        .as_mut()
+                                        .set_pop0(1, cur_pop as u64);
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;
@@ -1510,11 +1530,16 @@ impl MapCore {
                         path.pending_pop += 1;
                         path.terminal_pop += 1;
                         self.tree_pop += 1;
-                        if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
-                            // SAFETY: keep terminal edge pop0 up to date.
-                            unsafe {
-                                edge.as_mut().set_pop0(1, (path.terminal_pop - 1) as u64);
-                            }
+                        debug_assert!(!path.edges[0].is_null());
+                        // SAFETY: keep terminal edge pop0 up to date. The warm path is
+                        // armed only where `edges[0]` is set beside `prefix`,
+                        // `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860, 922);
+                        // `clear()` resets `prefix` to `u64::MAX`, which matches no
+                        // `key >> 8`, so a cleared path never reaches here.
+                        unsafe {
+                            core::ptr::NonNull::new_unchecked(path.edges[0])
+                                .as_mut()
+                                .set_pop0(1, (path.terminal_pop - 1) as u64);
                         }
                         return None;
                     } else if let Some(leaf1) = core::ptr::NonNull::new(path.leaf1) {
@@ -1535,9 +1560,14 @@ impl MapCore {
                                     *keys_ptr.add(cur_pop) = d;
                                     let vals = base.cast::<u64>();
                                     vals.add(cur_pop).write(val);
-                                    if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
-                                        edge.as_mut().set_pop0(1, cur_pop as u64);
-                                    }
+                                    debug_assert!(!path.edges[0].is_null());
+                                    // SAFETY: the warm path is armed only where `edges[0]` is set beside
+                                    // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
+                                    // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
+                                    // `key >> 8`, so a cleared path never reaches here.
+                                    core::ptr::NonNull::new_unchecked(path.edges[0])
+                                        .as_mut()
+                                        .set_pop0(1, cur_pop as u64);
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;
@@ -1721,11 +1751,16 @@ impl MapCore {
                         path.pending_pop += 1;
                         path.terminal_pop += 1;
                         self.tree_pop += 1;
-                        if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
-                            // SAFETY: keep terminal edge pop0 up to date.
-                            unsafe {
-                                edge.as_mut().set_pop0(1, (path.terminal_pop - 1) as u64);
-                            }
+                        debug_assert!(!path.edges[0].is_null());
+                        // SAFETY: keep terminal edge pop0 up to date. The warm path is
+                        // armed only where `edges[0]` is set beside `prefix`,
+                        // `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860, 922);
+                        // `clear()` resets `prefix` to `u64::MAX`, which matches no
+                        // `key >> 8`, so a cleared path never reaches here.
+                        unsafe {
+                            core::ptr::NonNull::new_unchecked(path.edges[0])
+                                .as_mut()
+                                .set_pop0(1, (path.terminal_pop - 1) as u64);
                         }
                         return None;
                     } else if let Some(leaf1) = core::ptr::NonNull::new(path.leaf1) {
@@ -1746,9 +1781,14 @@ impl MapCore {
                                     *keys_ptr.add(cur_pop) = d;
                                     let vals = base.cast::<u64>();
                                     vals.add(cur_pop).write(val);
-                                    if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
-                                        edge.as_mut().set_pop0(1, cur_pop as u64);
-                                    }
+                                    debug_assert!(!path.edges[0].is_null());
+                                    // SAFETY: the warm path is armed only where `edges[0]` is set beside
+                                    // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
+                                    // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
+                                    // `key >> 8`, so a cleared path never reaches here.
+                                    core::ptr::NonNull::new_unchecked(path.edges[0])
+                                        .as_mut()
+                                        .set_pop0(1, cur_pop as u64);
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;
