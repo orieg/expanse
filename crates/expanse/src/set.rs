@@ -561,16 +561,18 @@ impl ExpanseSet {
                 // the tripwire, not the guard.
                 if path.prefix == prefix {
                     self.alloc.assert_bracketed();
-                    if !path.leaf.is_null() {
+                    if let Some(mut leaf_ptr) = core::ptr::NonNull::new(path.leaf) {
                         let d = (key & 0xFF) as u8;
                         // SAFETY: path holds valid live LeafBitmap1 pointer.
-                        let leaf = unsafe { &mut *path.leaf };
+                        let leaf = unsafe { leaf_ptr.as_mut() };
                         if leaf.bitmap.set(d) {
                             path.pending_pop += 1;
                             path.terminal_pop += 1;
-                            // SAFETY: keep terminal edge pop0 up to date.
-                            unsafe {
-                                (*path.edges[0]).set_pop0(1, (path.terminal_pop - 1) as u64);
+                            if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
+                                // SAFETY: keep terminal edge pop0 up to date.
+                                unsafe {
+                                    edge.as_mut().set_pop0(1, (path.terminal_pop - 1) as u64);
+                                }
                             }
                             if path.terminal_pop == 256 {
                                 // SAFETY: terminal edge is valid and rewritten to FullExpanse.
@@ -578,11 +580,13 @@ impl ExpanseSet {
                                     path.flush();
                                     let ptr = core::ptr::NonNull::new(leaf);
                                     self.alloc.free_node(ptr.expect("leaf ptr"));
-                                    let terminal_edge = &mut *path.edges[0];
-                                    *terminal_edge = Edge::NULL;
-                                    terminal_edge
-                                        .set_tag(crate::types::EdgeType::FullExpanse.as_u8());
-                                    terminal_edge.set_pop0(1, 255);
+                                    if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
+                                        let terminal_edge = edge.as_mut();
+                                        *terminal_edge = Edge::NULL;
+                                        terminal_edge
+                                            .set_tag(crate::types::EdgeType::FullExpanse.as_u8());
+                                        terminal_edge.set_pop0(1, 255);
+                                    }
                                     path.clear();
                                 }
                             }
@@ -591,11 +595,12 @@ impl ExpanseSet {
                         } else {
                             return false;
                         }
-                    } else if !path.leaf1.is_null() {
+                    } else if let Some(leaf1_ptr) = core::ptr::NonNull::new(path.leaf1) {
                         let d = (key & 0xFF) as u8;
                         let cur_pop = path.terminal_pop as usize;
+                        let leaf1 = leaf1_ptr.as_ptr();
                         // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
-                        let last = unsafe { *path.leaf1.add(cur_pop - 1) };
+                        let last = unsafe { *leaf1.add(cur_pop - 1) };
                         if d > last {
                             if cur_pop < crate::mutate::LEAF1_CAP
                                 && crate::leaf::cap_class(cur_pop + 1)
@@ -603,8 +608,10 @@ impl ExpanseSet {
                             {
                                 // SAFETY: spare class capacity in the live Leaf1 allocation.
                                 unsafe {
-                                    *path.leaf1.add(cur_pop) = d;
-                                    (*path.edges[0]).set_pop0(1, cur_pop as u64);
+                                    *leaf1.add(cur_pop) = d;
+                                    if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
+                                        edge.as_mut().set_pop0(1, cur_pop as u64);
+                                    }
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;
@@ -706,16 +713,18 @@ impl ExpanseSet {
                 let path = self.path.get_mut();
                 if path.prefix == prefix {
                     self.alloc.assert_bracketed();
-                    if !path.leaf.is_null() {
+                    if let Some(mut leaf_ptr) = core::ptr::NonNull::new(path.leaf) {
                         let d = (key & 0xFF) as u8;
                         // SAFETY: path holds valid live LeafBitmap1 pointer.
-                        let leaf = unsafe { &mut *path.leaf };
+                        let leaf = unsafe { leaf_ptr.as_mut() };
                         if leaf.bitmap.set(d) {
                             path.pending_pop += 1;
                             path.terminal_pop += 1;
-                            // SAFETY: keep terminal edge pop0 up to date.
-                            unsafe {
-                                (*path.edges[0]).set_pop0(1, (path.terminal_pop - 1) as u64);
+                            if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
+                                // SAFETY: keep terminal edge pop0 up to date.
+                                unsafe {
+                                    edge.as_mut().set_pop0(1, (path.terminal_pop - 1) as u64);
+                                }
                             }
                             if path.terminal_pop == 256 {
                                 // SAFETY: terminal edge is valid and rewritten to FullExpanse.
@@ -723,11 +732,13 @@ impl ExpanseSet {
                                     path.flush();
                                     let ptr = core::ptr::NonNull::new(leaf);
                                     self.alloc.free_node_plain(ptr.expect("leaf ptr"));
-                                    let terminal_edge = &mut *path.edges[0];
-                                    *terminal_edge = Edge::NULL;
-                                    terminal_edge
-                                        .set_tag(crate::types::EdgeType::FullExpanse.as_u8());
-                                    terminal_edge.set_pop0(1, 255);
+                                    if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
+                                        let terminal_edge = edge.as_mut();
+                                        *terminal_edge = Edge::NULL;
+                                        terminal_edge
+                                            .set_tag(crate::types::EdgeType::FullExpanse.as_u8());
+                                        terminal_edge.set_pop0(1, 255);
+                                    }
                                     path.clear();
                                 }
                             }
@@ -736,11 +747,12 @@ impl ExpanseSet {
                         } else {
                             return false;
                         }
-                    } else if !path.leaf1.is_null() {
+                    } else if let Some(leaf1_ptr) = core::ptr::NonNull::new(path.leaf1) {
                         let d = (key & 0xFF) as u8;
                         let cur_pop = path.terminal_pop as usize;
+                        let leaf1 = leaf1_ptr.as_ptr();
                         // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
-                        let last = unsafe { *path.leaf1.add(cur_pop - 1) };
+                        let last = unsafe { *leaf1.add(cur_pop - 1) };
                         if d > last {
                             if cur_pop < crate::mutate::LEAF1_CAP
                                 && crate::leaf::cap_class(cur_pop + 1)
@@ -748,8 +760,10 @@ impl ExpanseSet {
                             {
                                 // SAFETY: spare class capacity in the live Leaf1 allocation.
                                 unsafe {
-                                    *path.leaf1.add(cur_pop) = d;
-                                    (*path.edges[0]).set_pop0(1, cur_pop as u64);
+                                    *leaf1.add(cur_pop) = d;
+                                    if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
+                                        edge.as_mut().set_pop0(1, cur_pop as u64);
+                                    }
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;

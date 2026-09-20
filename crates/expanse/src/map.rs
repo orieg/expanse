@@ -592,10 +592,10 @@ impl MapCore {
             Root::Tree { top, .. } => {
                 let prefix = key >> 8;
                 if path.prefix == prefix {
-                    if !path.leaf.is_null() {
+                    if let Some(leaf) = core::ptr::NonNull::new(path.leaf) {
                         let d = (key & 0xFF) as u8;
                         // SAFETY: path holds valid live LeafBitmapL pointer.
-                        let node = unsafe { &*path.leaf };
+                        let node = unsafe { leaf.as_ref() };
                         let sub = (d >> 5) as usize;
                         if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
                             // SAFETY: sub < 8 accesses valid subarray; rank is in bounds.
@@ -603,10 +603,10 @@ impl MapCore {
                             return core::ptr::NonNull::new(slot);
                         }
                         return None;
-                    } else if !path.leaf1.is_null() {
+                    } else if let Some(leaf1) = core::ptr::NonNull::new(path.leaf1) {
                         let d = (key & 0xFF) as u8;
                         let cur_pop = path.terminal_pop as usize;
-                        let base = path.leaf1;
+                        let base = leaf1.as_ptr();
                         // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
                         let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
                         // SAFETY: keys_ptr holds cur_pop 1-byte keys.
@@ -643,10 +643,10 @@ impl MapCore {
                 let prefix = key >> 8;
                 if path.prefix == prefix {
                     alloc.assert_bracketed();
-                    if !path.leaf.is_null() {
+                    if let Some(mut leaf) = core::ptr::NonNull::new(path.leaf) {
                         let d = (key & 0xFF) as u8;
                         // SAFETY: path holds valid live LeafBitmapL pointer.
-                        let node = unsafe { &mut *path.leaf };
+                        let node = unsafe { leaf.as_mut() };
                         let sub = (d >> 5) as usize;
                         if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
                             // SAFETY: value subarray holds subexpanse_count values.
@@ -690,17 +690,19 @@ impl MapCore {
                         path.pending_pop += 1;
                         path.terminal_pop += 1;
                         self.tree_pop += 1;
-                        // SAFETY: keep terminal edge pop0 up to date.
-                        unsafe {
-                            (*path.edges[0]).set_pop0(1, (path.terminal_pop - 1) as u64);
+                        if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
+                            // SAFETY: keep terminal edge pop0 up to date.
+                            unsafe {
+                                edge.as_mut().set_pop0(1, (path.terminal_pop - 1) as u64);
+                            }
                         }
                         // SAFETY: freshly inserted slot.
                         let slot = unsafe { node.values[sub].add(rank) };
                         return core::ptr::NonNull::new(slot).expect("slot");
-                    } else if !path.leaf1.is_null() {
+                    } else if let Some(leaf1) = core::ptr::NonNull::new(path.leaf1) {
                         let d = (key & 0xFF) as u8;
                         let cur_pop = path.terminal_pop as usize;
-                        let base = path.leaf1;
+                        let base = leaf1.as_ptr();
                         // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
                         let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
                         // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
@@ -715,7 +717,9 @@ impl MapCore {
                                     *keys_ptr.add(cur_pop) = d;
                                     let vals = base.cast::<u64>();
                                     vals.add(cur_pop).write(0);
-                                    (*path.edges[0]).set_pop0(1, cur_pop as u64);
+                                    if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
+                                        edge.as_mut().set_pop0(1, cur_pop as u64);
+                                    }
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;
@@ -871,10 +875,10 @@ impl MapCore {
                 let prefix = key >> 8;
                 if path.prefix == prefix {
                     alloc.assert_bracketed();
-                    if !path.leaf.is_null() {
+                    if let Some(mut leaf) = core::ptr::NonNull::new(path.leaf) {
                         let d = (key & 0xFF) as u8;
                         // SAFETY: path holds valid live LeafBitmapL pointer.
-                        let node = unsafe { &mut *path.leaf };
+                        let node = unsafe { leaf.as_mut() };
                         let sub = (d >> 5) as usize;
                         if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
                             // SAFETY: value subarray holds subexpanse_count values.
@@ -918,17 +922,19 @@ impl MapCore {
                         path.pending_pop += 1;
                         path.terminal_pop += 1;
                         self.tree_pop += 1;
-                        // SAFETY: keep terminal edge pop0 up to date.
-                        unsafe {
-                            (*path.edges[0]).set_pop0(1, (path.terminal_pop - 1) as u64);
+                        if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
+                            // SAFETY: keep terminal edge pop0 up to date.
+                            unsafe {
+                                edge.as_mut().set_pop0(1, (path.terminal_pop - 1) as u64);
+                            }
                         }
                         // SAFETY: freshly inserted slot.
                         let slot = unsafe { node.values[sub].add(rank) };
                         return core::ptr::NonNull::new(slot).expect("slot");
-                    } else if !path.leaf1.is_null() {
+                    } else if let Some(leaf1) = core::ptr::NonNull::new(path.leaf1) {
                         let d = (key & 0xFF) as u8;
                         let cur_pop = path.terminal_pop as usize;
-                        let base = path.leaf1;
+                        let base = leaf1.as_ptr();
                         // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
                         let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
                         // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
@@ -943,7 +949,9 @@ impl MapCore {
                                     *keys_ptr.add(cur_pop) = d;
                                     let vals = base.cast::<u64>();
                                     vals.add(cur_pop).write(0);
-                                    (*path.edges[0]).set_pop0(1, cur_pop as u64);
+                                    if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
+                                        edge.as_mut().set_pop0(1, cur_pop as u64);
+                                    }
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;
@@ -1451,10 +1459,10 @@ impl MapCore {
                 // the tripwire, not the guard.
                 if path.prefix == prefix {
                     alloc.assert_bracketed();
-                    if !path.leaf.is_null() {
+                    if let Some(mut leaf) = core::ptr::NonNull::new(path.leaf) {
                         let d = (key & 0xFF) as u8;
                         // SAFETY: path holds valid live LeafBitmapL pointer.
-                        let node = unsafe { &mut *path.leaf };
+                        let node = unsafe { leaf.as_mut() };
                         let sub = (d >> 5) as usize;
                         if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
                             // SAFETY: value subarray holds subexpanse_count values; in-place swap.
@@ -1502,15 +1510,17 @@ impl MapCore {
                         path.pending_pop += 1;
                         path.terminal_pop += 1;
                         self.tree_pop += 1;
-                        // SAFETY: keep terminal edge pop0 up to date.
-                        unsafe {
-                            (*path.edges[0]).set_pop0(1, (path.terminal_pop - 1) as u64);
+                        if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
+                            // SAFETY: keep terminal edge pop0 up to date.
+                            unsafe {
+                                edge.as_mut().set_pop0(1, (path.terminal_pop - 1) as u64);
+                            }
                         }
                         return None;
-                    } else if !path.leaf1.is_null() {
+                    } else if let Some(leaf1) = core::ptr::NonNull::new(path.leaf1) {
                         let d = (key & 0xFF) as u8;
                         let cur_pop = path.terminal_pop as usize;
-                        let base = path.leaf1;
+                        let base = leaf1.as_ptr();
                         // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
                         let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
                         // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
@@ -1525,7 +1535,9 @@ impl MapCore {
                                     *keys_ptr.add(cur_pop) = d;
                                     let vals = base.cast::<u64>();
                                     vals.add(cur_pop).write(val);
-                                    (*path.edges[0]).set_pop0(1, cur_pop as u64);
+                                    if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
+                                        edge.as_mut().set_pop0(1, cur_pop as u64);
+                                    }
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;
@@ -1658,10 +1670,10 @@ impl MapCore {
                 let prefix = key >> 8;
                 if path.prefix == prefix {
                     alloc.assert_bracketed();
-                    if !path.leaf.is_null() {
+                    if let Some(mut leaf) = core::ptr::NonNull::new(path.leaf) {
                         let d = (key & 0xFF) as u8;
                         // SAFETY: path holds valid live LeafBitmapL pointer.
-                        let node = unsafe { &mut *path.leaf };
+                        let node = unsafe { leaf.as_mut() };
                         let sub = (d >> 5) as usize;
                         if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
                             // SAFETY: value subarray holds subexpanse_count values; in-place swap.
@@ -1709,15 +1721,17 @@ impl MapCore {
                         path.pending_pop += 1;
                         path.terminal_pop += 1;
                         self.tree_pop += 1;
-                        // SAFETY: keep terminal edge pop0 up to date.
-                        unsafe {
-                            (*path.edges[0]).set_pop0(1, (path.terminal_pop - 1) as u64);
+                        if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
+                            // SAFETY: keep terminal edge pop0 up to date.
+                            unsafe {
+                                edge.as_mut().set_pop0(1, (path.terminal_pop - 1) as u64);
+                            }
                         }
                         return None;
-                    } else if !path.leaf1.is_null() {
+                    } else if let Some(leaf1) = core::ptr::NonNull::new(path.leaf1) {
                         let d = (key & 0xFF) as u8;
                         let cur_pop = path.terminal_pop as usize;
-                        let base = path.leaf1;
+                        let base = leaf1.as_ptr();
                         // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
                         let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
                         // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
@@ -1732,7 +1746,9 @@ impl MapCore {
                                     *keys_ptr.add(cur_pop) = d;
                                     let vals = base.cast::<u64>();
                                     vals.add(cur_pop).write(val);
-                                    (*path.edges[0]).set_pop0(1, cur_pop as u64);
+                                    if let Some(mut edge) = core::ptr::NonNull::new(path.edges[0]) {
+                                        edge.as_mut().set_pop0(1, cur_pop as u64);
+                                    }
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;
