@@ -1338,6 +1338,7 @@ impl MapCore {
         self.noting_root_rewrite(|m| m.insert_inner_dispatch::<OCC, NESTED>(alloc, key, val, path))
     }
 
+    #[inline(always)]
     fn insert_inner(
         &mut self,
         alloc: &NodeAlloc,
@@ -1556,6 +1557,7 @@ impl MapCore {
         }
     }
 
+    #[inline(always)]
     fn insert_inner_plain(
         &mut self,
         alloc: &NodeAlloc,
@@ -1755,6 +1757,7 @@ impl MapCore {
         }
     }
 
+    #[inline(always)]
     fn insert_inner_dispatch<const OCC: bool, const NESTED: bool>(
         &mut self,
         alloc: &NodeAlloc,
@@ -2842,6 +2845,7 @@ impl ExpanseMap {
     }
 
     /// Removes `key`; returns its value if it was present.
+    #[inline(always)]
     pub fn remove(&mut self, key: Key) -> Option<u64> {
         by_mode!(
             self.alloc,

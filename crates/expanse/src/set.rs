@@ -469,6 +469,7 @@ impl ExpanseSet {
         self.noting_root_rewrite(|t| t.insert_inner_plain(key))
     }
 
+    #[inline(always)]
     fn insert_inner(&mut self, key: Key) -> bool {
         match &mut self.root {
             Root::Empty => {
@@ -576,7 +577,7 @@ impl ExpanseSet {
                                 unsafe {
                                     path.flush();
                                     let ptr = core::ptr::NonNull::new(leaf);
-                                    self.alloc.free_node_plain(ptr.expect("leaf ptr"));
+                                    self.alloc.free_node(ptr.expect("leaf ptr"));
                                     let terminal_edge = &mut *path.edges[0];
                                     *terminal_edge = Edge::NULL;
                                     terminal_edge
@@ -627,6 +628,7 @@ impl ExpanseSet {
         }
     }
 
+    #[inline(always)]
     fn insert_inner_plain(&mut self, key: Key) -> bool {
         match &mut self.root {
             Root::Empty => {
@@ -821,6 +823,7 @@ impl ExpanseSet {
         self.noting_root_rewrite(|t| t.remove_inner::<false, false>(key))
     }
 
+    #[inline(always)]
     fn remove_inner<const OCC: bool, const NESTED: bool>(&mut self, key: Key) -> bool {
         self.path.get_mut().clear();
         match &mut self.root {
@@ -912,6 +915,7 @@ impl ExpanseSet {
         debug_assert_eq!(self.alloc.bytes_in_use(), 0);
     }
 
+    #[inline(always)]
     fn clear_dispatch<const OCC: bool>(&mut self) {
         self.path.get_mut().clear();
         match &mut self.root {
