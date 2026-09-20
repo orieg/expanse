@@ -7875,28 +7875,6 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
     olc_remove_map_body!(host, false, _old => false, key)
 }
 
-/// The conditional publish over any [`OlcHost`]; see [`olc_insert_map`].
-#[allow(clippy::undocumented_unsafe_blocks)]
-#[cfg(all(
-    feature = "std",
-    target_pointer_width = "64",
-    not(feature = "ablation-bytes-serial-writers")
-))]
-pub(crate) fn olc_cas_publish_map<H: OlcHost>(
-    host: &H,
-    key: Key,
-    expected: Option<u64>,
-    val: u64,
-) -> OlcOutcome<Option<u64>> {
-    olc_insert_map_body!(
-        host,
-        old => expected != Some(old),
-        expected.is_none(),
-        key,
-        val
-    )
-}
-
 // ---------------------------------------------------------------------
 // The bytes wrapper's two bucket publishes (#929).
 //
@@ -7915,9 +7893,9 @@ pub(crate) fn olc_cas_publish_map<H: OlcHost>(
 // contract, because clippy cannot see a comment through a macro.
 // ---------------------------------------------------------------------
 
-/// The in-place value publish: [`olc_cas_publish_map`]'s compare with
-/// its store replaced by a store *inside* the bucket the compared word
-/// already points at (#929).
+/// The in-place value publish: [`olc_cas_publish_bucket_map`]'s compare
+/// with its store replaced by a store *inside* the bucket the compared
+/// word already points at (#929).
 ///
 /// An overwrite of a key that is already present changes exactly one
 /// `u64`. Publishing it in place costs the descent, the parent version
@@ -7968,17 +7946,25 @@ pub(crate) fn olc_bucket_value_inplace_map<H: OlcHost>(
     )
 }
 
-/// The colliding insert's publish: [`olc_cas_publish_map`] with the
-/// replacement bucket's value words refreshed from the published one
-/// under the lock, immediately before the word store (#929).
+/// The bucket-replacement publish: the conditional store of a new
+/// bucket word over `expected`, with the replacement's value words
+/// refreshed from the published bucket under the lock, immediately
+/// before that store (#929).
 ///
-/// `shared_prefix` is how many leading entries of the replacement are a
-/// positional copy of the published bucket — its whole length, since a
-/// colliding insert appends. Refreshing them is what stops a
-/// concurrent [`olc_bucket_value_inplace_map`] from being silently
-/// dropped: the replacement is built outside the lock, so an overwrite
-/// acknowledged after that copy and before this store would otherwise
-/// vanish with the retired bucket.
+/// `expected` is `None` for a fresh hash (nothing to compare with,
+/// nothing to refresh, and the terminal is created) and `Some(word)`
+/// for a key colliding into an existing bucket. `shared_prefix` is how
+/// many leading entries of the replacement are a positional copy of the
+/// published bucket — its whole length, since a colliding insert
+/// appends, and zero when there is no published bucket.
+///
+/// Refreshing is what stops a concurrent
+/// [`olc_bucket_value_inplace_map`] from being silently dropped: the
+/// replacement is built outside the lock, so an overwrite acknowledged
+/// after that copy and before this store would otherwise vanish with
+/// the retired bucket.
+///
+/// `Done(seen)`: the store happened iff `seen == expected`.
 ///
 /// SAFETY (for the call inside `$keep`): as
 /// [`olc_bucket_value_inplace_map`], plus — `val` is the caller's own
@@ -7994,14 +7980,14 @@ pub(crate) fn olc_bucket_value_inplace_map<H: OlcHost>(
 pub(crate) fn olc_cas_publish_bucket_map<H: OlcHost>(
     host: &H,
     key: Key,
-    expected: u64,
+    expected: Option<u64>,
     shared_prefix: usize,
     val: u64,
 ) -> OlcOutcome<Option<u64>> {
     olc_insert_map_body!(
         host,
         old => {
-            if old == expected {
+            if expected == Some(old) {
                 crate::bytesmap::refresh_replacement_values(
                     old,
                     val as *mut Bucket,
@@ -8012,7 +7998,7 @@ pub(crate) fn olc_cas_publish_bucket_map<H: OlcHost>(
                 true
             }
         },
-        false,
+        expected.is_none(),
         key,
         val
     )
@@ -10057,17 +10043,13 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                         }
                     };
 
-                    let outcome = match expected {
-                        None => olc_cas_publish_map(&*self.shared, h, None, new_raw),
-                        Some(word) => olc_cas_publish_bucket_map(
-                            &*self.shared,
-                            h,
-                            word,
-                            shared_prefix,
-                            new_raw,
-                        ),
-                    };
-                    match outcome {
+                    match olc_cas_publish_bucket_map(
+                        &*self.shared,
+                        h,
+                        expected,
+                        shared_prefix,
+                        new_raw,
+                    ) {
                         OlcOutcome::Done(actual) => {
                             if actual == expected {
                                 if expected.is_none() {
