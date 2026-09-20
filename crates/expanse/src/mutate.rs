@@ -3075,7 +3075,10 @@ pub(crate) const fn pow256(level: u8) -> u64 {
 /// # Safety
 ///
 /// Same contract as [`insert`]; nothing may reference the subtree after.
-pub(crate) unsafe fn free_subtree<const MAP: bool>(a: &NodeAlloc, edge: &mut Edge) {
+pub(crate) unsafe fn free_subtree<const OCC: bool, const MAP: bool>(
+    a: &NodeAlloc,
+    edge: &mut Edge,
+) {
     let Some(tag) = edge.tag() else { return };
     // SAFETY: live nodes per this function's contract, freed exactly once,
     // children freed before their parent node.
@@ -3087,7 +3090,7 @@ pub(crate) unsafe fn free_subtree<const MAP: bool>(a: &NodeAlloc, edge: &mut Edg
             EdgeTag::Immed(im) => {
                 // Multi-key map immediates own a class-sized value array in word 0.
                 if MAP && im.key_count() > 1 {
-                    a.free_bytes(
+                    a.free_bytes_dispatch::<OCC>(
                         core::ptr::NonNull::new(edge.node_ptr()).unwrap(),
                         crate::mutate_map::map_immed_val_size(im.key_count() as usize),
                     );
@@ -3109,7 +3112,10 @@ pub(crate) unsafe fn free_subtree<const MAP: bool>(a: &NodeAlloc, edge: &mut Edg
                 } else {
                     leaf::size_set(kb, pop)
                 };
-                a.free_bytes(core::ptr::NonNull::new(edge.node_ptr()).unwrap(), size);
+                a.free_bytes_dispatch::<OCC>(
+                    core::ptr::NonNull::new(edge.node_ptr()).unwrap(),
+                    size,
+                );
             }
             EdgeTag::Structural(EdgeType::LeafB1) => {
                 if MAP {
@@ -3117,17 +3123,17 @@ pub(crate) unsafe fn free_subtree<const MAP: bool>(a: &NodeAlloc, edge: &mut Edg
                     for sub in 0..8 {
                         let n = node.bitmap.subexpanse_count(sub) as usize;
                         if n > 0 {
-                            a.free_bytes(
+                            a.free_bytes_dispatch::<OCC>(
                                 core::ptr::NonNull::new(node.values[sub].cast()).unwrap(),
                                 sub_vals_size(n),
                             );
                         }
                     }
-                    a.free_node(
+                    a.free_node_dispatch::<OCC, _>(
                         core::ptr::NonNull::new(edge.node_ptr().cast::<LeafBitmapL>()).unwrap(),
                     );
                 } else {
-                    a.free_node(
+                    a.free_node_dispatch::<OCC, _>(
                         core::ptr::NonNull::new(edge.node_ptr().cast::<LeafBitmap1>()).unwrap(),
                     );
                 }
@@ -3135,39 +3141,47 @@ pub(crate) unsafe fn free_subtree<const MAP: bool>(a: &NodeAlloc, edge: &mut Edg
             EdgeTag::Structural(EdgeType::BranchL3) => {
                 let b = &mut *edge.node_ptr().cast::<BranchL3>();
                 for i in 0..b.hdr.num as usize {
-                    free_subtree::<MAP>(a, &mut b.edges[i]);
+                    free_subtree::<OCC, MAP>(a, &mut b.edges[i]);
                 }
-                a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL3>()).unwrap());
+                a.free_node_dispatch::<OCC, _>(
+                    core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL3>()).unwrap(),
+                );
             }
             EdgeTag::Structural(EdgeType::BranchL7) => {
                 let b = &mut *edge.node_ptr().cast::<BranchL7>();
                 for i in 0..b.hdr.num as usize {
-                    free_subtree::<MAP>(a, &mut b.edges[i]);
+                    free_subtree::<OCC, MAP>(a, &mut b.edges[i]);
                 }
-                a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL7>()).unwrap());
+                a.free_node_dispatch::<OCC, _>(
+                    core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL7>()).unwrap(),
+                );
             }
             EdgeTag::Structural(EdgeType::BranchB) => {
                 let b = &mut *edge.node_ptr().cast::<BranchB>();
                 for sub in 0..8 {
                     let n = b.pop_counts[sub] as usize;
                     for i in 0..n {
-                        free_subtree::<MAP>(a, &mut *b.subarrays[sub].add(i));
+                        free_subtree::<OCC, MAP>(a, &mut *b.subarrays[sub].add(i));
                     }
                     if n > 0 {
-                        a.free_bytes(
+                        a.free_bytes_dispatch::<OCC>(
                             core::ptr::NonNull::new(b.subarrays[sub].cast()).unwrap(),
                             sub_edges_size(n),
                         );
                     }
                 }
-                a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchB>()).unwrap());
+                a.free_node_dispatch::<OCC, _>(
+                    core::ptr::NonNull::new(edge.node_ptr().cast::<BranchB>()).unwrap(),
+                );
             }
             EdgeTag::Structural(EdgeType::BranchU) => {
                 let b = &mut *edge.node_ptr().cast::<BranchU>();
                 for child in &mut b.edges {
-                    free_subtree::<MAP>(a, child);
+                    free_subtree::<OCC, MAP>(a, child);
                 }
-                a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchU>()).unwrap());
+                a.free_node_dispatch::<OCC, _>(
+                    core::ptr::NonNull::new(edge.node_ptr().cast::<BranchU>()).unwrap(),
+                );
             }
         }
     }

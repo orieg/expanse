@@ -890,7 +890,9 @@ impl StrNode {
             let n = unsafe { &mut *node };
             if terminal {
                 resync::<SHARED>(n);
-                break covered::<SHARED, _>(n, alloc, |m| m.remove_pathless(alloc, chunk))?;
+                break covered::<SHARED, _>(n, alloc, |m| {
+                    m.remove_pathless_dispatch::<SHARED, SHARED>(alloc, chunk)
+                })?;
             }
             let v = n.map.get(chunk)?;
             if is_suffix_ptr(v) {
@@ -899,7 +901,9 @@ impl StrNode {
                 // SAFETY: live suffix leaf, raw provenance over the bytes.
                 if rem == unsafe { suffix_bytes(sfx) } {
                     resync::<SHARED>(n);
-                    covered::<SHARED, _>(n, alloc, |m| m.remove_pathless(alloc, chunk));
+                    covered::<SHARED, _>(n, alloc, |m| {
+                        m.remove_pathless_dispatch::<SHARED, SHARED>(alloc, chunk)
+                    });
                     // Read out before disposal: the borrow of the bytes above
                     // has ended, and nothing may reference the block once
                     // `dispose_suffix` has it.
@@ -932,7 +936,9 @@ impl StrNode {
                     break;
                 }
                 resync::<SHARED>(parent);
-                covered::<SHARED, _>(parent, alloc, |m| m.remove_pathless(alloc, chunk));
+                covered::<SHARED, _>(parent, alloc, |m| {
+                    m.remove_pathless_dispatch::<SHARED, SHARED>(alloc, chunk)
+                });
                 // Unlinked above; marked obsolete and retired when shared.
                 dispose_node(unpack_child(child_v), alloc, defer);
             }
@@ -1383,20 +1389,27 @@ impl ExpanseStrMap {
     ///
     /// Reads `old` only through short-lived internal borrows, so the caller
     /// may dispose of it afterwards.
-    fn build_split_child(old: *mut StrSuffix, alloc: &NodeAlloc) -> *mut StrNode {
+    fn build_split_child<const SHARED: bool>(
+        old: *mut StrSuffix,
+        alloc: &NodeAlloc,
+    ) -> *mut StrNode {
         let mut child = Box::new(StrNode::new());
         // SAFETY: `old` is the live suffix being split, reached as a raw
         // pointer so the projection covers the inline bytes; both borrows
         // end before the caller disposes of it.
         let ((c1, t1), value) = unsafe { (chunk_at(suffix_bytes(old), 0), (*old).value) };
         if t1 {
-            child.map.insert_pathless(alloc, c1, value);
+            child
+                .map
+                .insert_pathless_dispatch::<SHARED, SHARED>(alloc, c1, value);
         } else {
             // The continuation bytes are copied into the new leaf here, so
             // the borrow of `old` is over before it is disposed of.
             // SAFETY: as above.
             let s1 = unsafe { new_suffix(&suffix_bytes(old)[CHUNK..], value) };
-            child.map.insert_pathless(alloc, c1, pack_suffix(s1));
+            child
+                .map
+                .insert_pathless_dispatch::<SHARED, SHARED>(alloc, c1, pack_suffix(s1));
         }
         Box::into_raw(child)
     }
@@ -1413,10 +1426,10 @@ impl ExpanseStrMap {
         alloc: &NodeAlloc,
         defer: DeferHandle<'_>,
     ) -> *mut StrNode {
-        let child_raw = Self::build_split_child(old, alloc);
+        let child_raw = Self::build_split_child::<SHARED>(old, alloc);
         resync::<SHARED>(node);
         covered::<SHARED, _>(node, alloc, |m| {
-            m.insert_pathless(alloc, chunk, pack_child(child_raw))
+            m.insert_pathless_dispatch::<SHARED, SHARED>(alloc, chunk, pack_child(child_raw))
         });
         dispose_suffix(old, defer);
         child_raw
@@ -1431,6 +1444,13 @@ impl ExpanseStrMap {
         if let Some(c) = self.deferred.get().cloned() {
             return self.insert_impl::<true>(key, val, Some(&c));
         }
+        self.insert_impl::<false>(key, val, None)
+    }
+
+    /// Single-threaded insert, bypassing deferred/OCC checks.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn insert_plain(&mut self, key: &NulFreeStr, val: u64) -> Option<u64> {
         self.insert_impl::<false>(key, val, None)
     }
 
@@ -1458,8 +1478,9 @@ impl ExpanseStrMap {
             let (chunk, terminal) = chunk_at(key, off);
             if terminal {
                 resync::<SHARED>(node);
-                let prev =
-                    covered::<SHARED, _>(node, alloc, |m| m.insert_pathless(alloc, chunk, val));
+                let prev = covered::<SHARED, _>(node, alloc, |m| {
+                    m.insert_pathless_dispatch::<SHARED, SHARED>(alloc, chunk, val)
+                });
                 if prev.is_none() {
                     self.pop += 1;
                 }
@@ -1470,7 +1491,11 @@ impl ExpanseStrMap {
                     let suffix = new_suffix(&key[off + CHUNK..], val);
                     resync::<SHARED>(node);
                     covered::<SHARED, _>(node, alloc, |m| {
-                        m.insert_pathless(alloc, chunk, pack_suffix(suffix))
+                        m.insert_pathless_dispatch::<SHARED, SHARED>(
+                            alloc,
+                            chunk,
+                            pack_suffix(suffix),
+                        )
                     });
                     self.pop += 1;
                     return None;
@@ -1520,6 +1545,13 @@ impl ExpanseStrMap {
         self.ins_slot_impl::<false>(key, None)
     }
 
+    /// Single-threaded insert-if-absent returning slot pointer, bypassing deferred/OCC checks.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn ins_slot_plain(&mut self, key: &NulFreeStr) -> NonNull<u64> {
+        self.ins_slot_impl::<false>(key, None)
+    }
+
     /// [`Self::ins_slot`] for one sharing mode; see [`Self::insert_impl`].
     fn ins_slot_impl<const SHARED: bool>(
         &mut self,
@@ -1544,7 +1576,9 @@ impl ExpanseStrMap {
                 // MUST NOT be used here, as 0 is a valid terminal value.
                 resync::<SHARED>(node);
                 let len_before = node.map.len();
-                let slot = covered::<SHARED, _>(node, alloc, |m| m.ins_slot_pathless(alloc, chunk));
+                let slot = covered::<SHARED, _>(node, alloc, |m| {
+                    m.ins_slot_pathless_dispatch::<SHARED, SHARED>(alloc, chunk)
+                });
                 if node.map.len() > len_before {
                     self.pop += 1;
                 }
@@ -1555,7 +1589,11 @@ impl ExpanseStrMap {
                     let suffix = new_suffix(&key[off + CHUNK..], 0);
                     resync::<SHARED>(node);
                     covered::<SHARED, _>(node, alloc, |m| {
-                        m.insert_pathless(alloc, chunk, pack_suffix(suffix))
+                        m.insert_pathless_dispatch::<SHARED, SHARED>(
+                            alloc,
+                            chunk,
+                            pack_suffix(suffix),
+                        )
                     });
                     self.pop += 1;
                     // SAFETY: suffix is a live, uniquely owned pointer
@@ -1776,6 +1814,13 @@ impl ExpanseStrMap {
         self.remove_impl::<false>(key, None)
     }
 
+    /// Single-threaded remove, bypassing deferred/OCC checks.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn remove_plain(&mut self, key: &NulFreeStr) -> Option<u64> {
+        self.remove_impl::<false>(key, None)
+    }
+
     /// [`Self::remove`] for one sharing mode; see [`Self::insert_impl`].
     fn remove_impl<const SHARED: bool>(
         &mut self,
@@ -1896,6 +1941,13 @@ impl ExpanseStrMap {
         };
         self.pop = 0;
         bytes
+    }
+
+    /// Single-threaded clear, bypassing deferred/OCC checks.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn clear_plain(&mut self) -> u64 {
+        self.clear()
     }
 }
 
@@ -2334,8 +2386,9 @@ mod olc {
                     // T4: build the child privately, publish it over the entry,
                     // retire the suffix it replaces.
                     // SAFETY: live node, locked.
-                    let child_raw =
-                        unsafe { under_lock(node, alloc, || Self::build_split_child(sfx, alloc)) };
+                    let child_raw = unsafe {
+                        under_lock(node, alloc, || Self::build_split_child::<true>(sfx, alloc))
+                    };
                     let cw = pack_child(child_raw);
                     if is_tree {
                         let held = StrHost {

@@ -86,6 +86,53 @@ unsafe impl crate::occ::OlcEngine for ExpanseSet {}
 /// are built for). Decided once per operation, exactly where the runtime
 /// dispatch always sat, so the unshared path pays one load and one branch.
 macro_rules! by_mode {
+    ($alloc:expr, $obj:ident . $field:ident . $method:ident $args:tt) => {
+        if $alloc.occ_enabled() {
+            if $alloc.engine_covers_root() {
+                $obj.$field.$method::<true, false> $args
+            } else {
+                $obj.$field.$method::<true, true> $args
+            }
+        } else {
+            $obj.$field.$method::<false, false> $args
+        }
+    };
+    ($alloc:expr, 1 $obj:ident . $field:ident . $method:ident $args:tt) => {
+        if $alloc.occ_enabled() {
+            $obj.$field.$method::<true> $args
+        } else {
+            $obj.$field.$method::<false> $args
+        }
+    };
+    ($alloc:expr, $obj:ident . $method:ident $args:tt) => {
+        if $alloc.occ_enabled() {
+            if $alloc.engine_covers_root() {
+                $obj.$method::<true, false> $args
+            } else {
+                $obj.$method::<true, true> $args
+            }
+        } else {
+            $obj.$method::<false, false> $args
+        }
+    };
+    ($alloc:expr, 1 $obj:ident . $method:ident $args:tt) => {
+        if $alloc.occ_enabled() {
+            $obj.$method::<true> $args
+        } else {
+            $obj.$method::<false> $args
+        }
+    };
+    ($alloc:expr, $call:ident::<$k:literal> $args:tt) => {
+        if $alloc.occ_enabled() {
+            if $alloc.engine_covers_root() {
+                $call::<$k, true, false> $args
+            } else {
+                $call::<$k, true, true> $args
+            }
+        } else {
+            $call::<$k, false, false> $args
+        }
+    };
     ($alloc:expr, $call:ident $args:tt) => {
         if $alloc.occ_enabled() {
             if $alloc.engine_covers_root() {
@@ -381,7 +428,7 @@ impl ExpanseSet {
     /// Inserts `key`; returns 1 if newly inserted, 0 if already present.
     #[inline(always)]
     pub fn insert_c_int(&mut self, key: Key) -> core::ffi::c_int {
-        self.insert(key) as core::ffi::c_int
+        self.insert_plain(key) as core::ffi::c_int
     }
 
     /// The root state that a tree-level bracket must cover, as a value:
@@ -413,6 +460,13 @@ impl ExpanseSet {
     #[inline(always)]
     pub fn insert(&mut self, key: Key) -> bool {
         self.noting_root_rewrite(|t| t.insert_inner(key))
+    }
+
+    /// Single-threaded insert, bypassing OCC checks.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn insert_plain(&mut self, key: Key) -> bool {
+        self.noting_root_rewrite(|t| t.insert_inner_plain(key))
     }
 
     #[inline(always)]
@@ -507,16 +561,23 @@ impl ExpanseSet {
                 // the tripwire, not the guard.
                 if path.prefix == prefix {
                     self.alloc.assert_bracketed();
-                    if !path.leaf.is_null() {
+                    if let Some(mut leaf_ptr) = core::ptr::NonNull::new(path.leaf) {
                         let d = (key & 0xFF) as u8;
                         // SAFETY: path holds valid live LeafBitmap1 pointer.
-                        let leaf = unsafe { &mut *path.leaf };
+                        let leaf = unsafe { leaf_ptr.as_mut() };
                         if leaf.bitmap.set(d) {
                             path.pending_pop += 1;
                             path.terminal_pop += 1;
-                            // SAFETY: keep terminal edge pop0 up to date.
+                            debug_assert!(!path.edges[0].is_null());
+                            // SAFETY: keep terminal edge pop0 up to date. The warm path is
+                            // armed only where `edges[0]` is set beside `prefix`,
+                            // `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860, 922);
+                            // `clear()` resets `prefix` to `u64::MAX`, which matches no
+                            // `key >> 8`, so a cleared path never reaches here.
                             unsafe {
-                                (*path.edges[0]).set_pop0(1, (path.terminal_pop - 1) as u64);
+                                core::ptr::NonNull::new_unchecked(path.edges[0])
+                                    .as_mut()
+                                    .set_pop0(1, (path.terminal_pop - 1) as u64);
                             }
                             if path.terminal_pop == 256 {
                                 // SAFETY: terminal edge is valid and rewritten to FullExpanse.
@@ -524,7 +585,13 @@ impl ExpanseSet {
                                     path.flush();
                                     let ptr = core::ptr::NonNull::new(leaf);
                                     self.alloc.free_node(ptr.expect("leaf ptr"));
-                                    let terminal_edge = &mut *path.edges[0];
+                                    debug_assert!(!path.edges[0].is_null());
+                                    // SAFETY: the warm path is armed only where `edges[0]` is set beside
+                                    // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
+                                    // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
+                                    // `key >> 8`, so a cleared path never reaches here.
+                                    let terminal_edge =
+                                        core::ptr::NonNull::new_unchecked(path.edges[0]).as_mut();
                                     *terminal_edge = Edge::NULL;
                                     terminal_edge
                                         .set_tag(crate::types::EdgeType::FullExpanse.as_u8());
@@ -537,11 +604,12 @@ impl ExpanseSet {
                         } else {
                             return false;
                         }
-                    } else if !path.leaf1.is_null() {
+                    } else if let Some(leaf1_ptr) = core::ptr::NonNull::new(path.leaf1) {
                         let d = (key & 0xFF) as u8;
                         let cur_pop = path.terminal_pop as usize;
+                        let leaf1 = leaf1_ptr.as_ptr();
                         // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
-                        let last = unsafe { *path.leaf1.add(cur_pop - 1) };
+                        let last = unsafe { *leaf1.add(cur_pop - 1) };
                         if d > last {
                             if cur_pop < crate::mutate::LEAF1_CAP
                                 && crate::leaf::cap_class(cur_pop + 1)
@@ -549,8 +617,15 @@ impl ExpanseSet {
                             {
                                 // SAFETY: spare class capacity in the live Leaf1 allocation.
                                 unsafe {
-                                    *path.leaf1.add(cur_pop) = d;
-                                    (*path.edges[0]).set_pop0(1, cur_pop as u64);
+                                    *leaf1.add(cur_pop) = d;
+                                    debug_assert!(!path.edges[0].is_null());
+                                    // SAFETY: the warm path is armed only where `edges[0]` is set beside
+                                    // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
+                                    // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
+                                    // `key >> 8`, so a cleared path never reaches here.
+                                    core::ptr::NonNull::new_unchecked(path.edges[0])
+                                        .as_mut()
+                                        .set_pop0(1, cur_pop as u64);
                                 }
                                 path.terminal_pop += 1;
                                 path.pending_pop += 1;
@@ -570,6 +645,166 @@ impl ExpanseSet {
                     self.alloc,
                     tree_insert(&self.alloc, &mut self.tree_pop, path, top, key)
                 )
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn insert_inner_plain(&mut self, key: Key) -> bool {
+        match &mut self.root {
+            Root::Empty => {
+                let keys = self.alloc.alloc_bytes_plain(root_leaf_size(1));
+                // SAFETY: fresh 8-byte allocation, cache-line aligned.
+                unsafe { keys.as_ptr().cast::<u64>().write(key) };
+                self.root = Root::Leaf { keys, pop: 1 };
+                true
+            }
+            Root::Leaf { keys, pop } => {
+                let (keys, pop) = (*keys, *pop);
+                // SAFETY: root leaf holds `pop` keys.
+                let slice =
+                    unsafe { core::slice::from_raw_parts(keys.as_ptr().cast::<u64>(), pop) };
+                let at = if pop > 0 {
+                    // SAFETY: pop > 0 guarantees slot pop - 1 is in-bounds.
+                    let last = unsafe { *keys.as_ptr().cast::<u64>().add(pop - 1) };
+                    if key > last {
+                        pop
+                    } else if key == last {
+                        return false;
+                    } else {
+                        let Err(at) = slice.binary_search(&key) else {
+                            return false;
+                        };
+                        at
+                    }
+                } else {
+                    0
+                };
+                if pop < ROOT_LEAF_CAP {
+                    if root_leaf_size(pop + 1) == root_leaf_size(pop) {
+                        // Spare class capacity: shift in place, no
+                        // allocation. Without this every insert into a
+                        // small array — i.e. every array a C caller keeps
+                        // under 32 entries — paid a malloc, a full copy
+                        // and a free (issue #1).
+                        // SAFETY: the allocation holds the same class of
+                        // slots for `pop + 1` as for `pop`.
+                        unsafe {
+                            let base = keys.as_ptr().cast::<u64>();
+                            core::ptr::copy(base.add(at), base.add(at + 1), pop - at);
+                            base.add(at).write(key);
+                        }
+                        self.root = Root::Leaf { keys, pop: pop + 1 };
+                        return true;
+                    }
+                    let new = self.alloc.alloc_bytes_plain(root_leaf_size(pop + 1));
+                    // SAFETY: copy `pop` keys around the insertion point
+                    // into the fresh (pop + 1)-slot allocation.
+                    unsafe {
+                        let dst = new.as_ptr().cast::<u64>();
+                        dst.copy_from_nonoverlapping(slice.as_ptr(), at);
+                        dst.add(at).write(key);
+                        dst.add(at + 1)
+                            .copy_from_nonoverlapping(slice.as_ptr().add(at), pop - at);
+                        self.alloc.free_bytes_plain(keys, root_leaf_size(pop));
+                    }
+                    self.root = Root::Leaf {
+                        keys: new,
+                        pop: pop + 1,
+                    };
+                } else {
+                    let top =
+                        promote_leaf::<false, false>(&self.alloc, slice, key, self.path.get_mut());
+                    // SAFETY: old root leaf no longer referenced.
+                    unsafe { self.alloc.free_bytes_plain(keys, root_leaf_size(pop)) };
+                    self.tree_pop = pop as u64 + 1;
+                    self.root = Root::Tree { top };
+                }
+                true
+            }
+            Root::Tree { top } => {
+                let prefix = key >> 8;
+                let path = self.path.get_mut();
+                if path.prefix == prefix {
+                    self.alloc.assert_bracketed();
+                    if let Some(mut leaf_ptr) = core::ptr::NonNull::new(path.leaf) {
+                        let d = (key & 0xFF) as u8;
+                        // SAFETY: path holds valid live LeafBitmap1 pointer.
+                        let leaf = unsafe { leaf_ptr.as_mut() };
+                        if leaf.bitmap.set(d) {
+                            path.pending_pop += 1;
+                            path.terminal_pop += 1;
+                            debug_assert!(!path.edges[0].is_null());
+                            // SAFETY: keep terminal edge pop0 up to date. The warm path is
+                            // armed only where `edges[0]` is set beside `prefix`,
+                            // `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860, 922);
+                            // `clear()` resets `prefix` to `u64::MAX`, which matches no
+                            // `key >> 8`, so a cleared path never reaches here.
+                            unsafe {
+                                core::ptr::NonNull::new_unchecked(path.edges[0])
+                                    .as_mut()
+                                    .set_pop0(1, (path.terminal_pop - 1) as u64);
+                            }
+                            if path.terminal_pop == 256 {
+                                // SAFETY: terminal edge is valid and rewritten to FullExpanse.
+                                unsafe {
+                                    path.flush();
+                                    let ptr = core::ptr::NonNull::new(leaf);
+                                    self.alloc.free_node_plain(ptr.expect("leaf ptr"));
+                                    debug_assert!(!path.edges[0].is_null());
+                                    // SAFETY: the warm path is armed only where `edges[0]` is set beside
+                                    // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
+                                    // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
+                                    // `key >> 8`, so a cleared path never reaches here.
+                                    let terminal_edge =
+                                        core::ptr::NonNull::new_unchecked(path.edges[0]).as_mut();
+                                    *terminal_edge = Edge::NULL;
+                                    terminal_edge
+                                        .set_tag(crate::types::EdgeType::FullExpanse.as_u8());
+                                    terminal_edge.set_pop0(1, 255);
+                                    path.clear();
+                                }
+                            }
+                            self.tree_pop += 1;
+                            return true;
+                        } else {
+                            return false;
+                        }
+                    } else if let Some(leaf1_ptr) = core::ptr::NonNull::new(path.leaf1) {
+                        let d = (key & 0xFF) as u8;
+                        let cur_pop = path.terminal_pop as usize;
+                        let leaf1 = leaf1_ptr.as_ptr();
+                        // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
+                        let last = unsafe { *leaf1.add(cur_pop - 1) };
+                        if d > last {
+                            if cur_pop < crate::mutate::LEAF1_CAP
+                                && crate::leaf::cap_class(cur_pop + 1)
+                                    == crate::leaf::cap_class(cur_pop)
+                            {
+                                // SAFETY: spare class capacity in the live Leaf1 allocation.
+                                unsafe {
+                                    *leaf1.add(cur_pop) = d;
+                                    debug_assert!(!path.edges[0].is_null());
+                                    // SAFETY: the warm path is armed only where `edges[0]` is set beside
+                                    // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
+                                    // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
+                                    // `key >> 8`, so a cleared path never reaches here.
+                                    core::ptr::NonNull::new_unchecked(path.edges[0])
+                                        .as_mut()
+                                        .set_pop0(1, cur_pop as u64);
+                                }
+                                path.terminal_pop += 1;
+                                path.pending_pop += 1;
+                                self.tree_pop += 1;
+                                return true;
+                            }
+                        } else if d == last {
+                            return false;
+                        }
+                    }
+                }
+                path.clear();
+                tree_insert::<false, false>(&self.alloc, &mut self.tree_pop, path, top, key)
             }
         }
     }
@@ -623,6 +858,23 @@ impl ExpanseSet {
         self.noting_root_rewrite(|t| t.remove_inner(key))
     }
 
+    /// Single-threaded remove, bypassing OCC checks.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn remove_plain(&mut self, key: Key) -> bool {
+        self.noting_root_rewrite(|t| t.remove_inner_plain(key))
+    }
+
+    #[inline(always)]
+    #[allow(dead_code)]
+    pub(crate) fn remove_dispatch<const OCC: bool, const NESTED: bool>(
+        &mut self,
+        key: Key,
+    ) -> bool {
+        self.noting_root_rewrite(|t| t.remove_inner_dispatch::<OCC, NESTED>(key))
+    }
+
+    #[inline(always)]
     fn remove_inner(&mut self, key: Key) -> bool {
         self.path.get_mut().clear();
         match &mut self.root {
@@ -687,8 +939,91 @@ impl ExpanseSet {
                         // CAP + 1, condense at CAP - 1; CAP is stable in
                         // both forms). A root-state change, as above.
                         crate::occ::tree_begin_if::<true>(&self.alloc);
-                        self.condense_to_root_leaf();
+                        by_mode!(self.alloc, 1 self.condense_to_root_leaf());
                         crate::occ::tree_end_if::<true>(&self.alloc);
+                    }
+                }
+                removed
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn remove_inner_plain(&mut self, key: Key) -> bool {
+        self.remove_inner_dispatch::<false, false>(key)
+    }
+
+    #[inline(always)]
+    fn remove_inner_dispatch<const OCC: bool, const NESTED: bool>(&mut self, key: Key) -> bool {
+        self.path.get_mut().clear();
+        match &mut self.root {
+            Root::Empty => false,
+            Root::Leaf { keys, pop } => {
+                let (keys, pop) = (*keys, *pop);
+                // SAFETY: root leaf holds `pop` keys.
+                let slice =
+                    unsafe { core::slice::from_raw_parts(keys.as_ptr().cast::<u64>(), pop) };
+                let Ok(at) = slice.binary_search(&key) else {
+                    return false;
+                };
+                if pop == 1 {
+                    // SAFETY: last key removed; free the leaf.
+                    unsafe {
+                        self.alloc
+                            .free_bytes_dispatch::<OCC>(keys, root_leaf_size(1))
+                    };
+                    self.root = Root::Empty;
+                } else if crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop) {
+                    // Fast path: capacity class unchanged — shift surviving keys in-place.
+                    // SAFETY: in-place shift inside class-sized buffer.
+                    unsafe {
+                        let ptr = keys.as_ptr().cast::<u64>();
+                        core::ptr::copy(ptr.add(at + 1), ptr.add(at), pop - 1 - at);
+                    }
+                    self.root = Root::Leaf { keys, pop: pop - 1 };
+                } else {
+                    let new = self
+                        .alloc
+                        .alloc_bytes_dispatch::<OCC>(root_leaf_size(pop - 1));
+                    // SAFETY: copy the surviving keys into the smaller
+                    // allocation.
+                    unsafe {
+                        let dst = new.as_ptr().cast::<u64>();
+                        dst.copy_from_nonoverlapping(slice.as_ptr(), at);
+                        dst.add(at)
+                            .copy_from_nonoverlapping(slice.as_ptr().add(at + 1), pop - 1 - at);
+                        self.alloc
+                            .free_bytes_dispatch::<OCC>(keys, root_leaf_size(pop));
+                    }
+                    self.root = Root::Leaf {
+                        keys: new,
+                        pop: pop - 1,
+                    };
+                }
+                true
+            }
+            Root::Tree { top } => {
+                // One OCC check per operation, where the runtime dispatch
+                // always sat (see `insert_inner`).
+                let (removed, now) =
+                    tree_remove::<OCC, NESTED>(&self.alloc, &mut self.tree_pop, top, key);
+                if removed {
+                    if now == 0 {
+                        debug_assert!(top.is_null());
+                        // A root-state change: on a shared tree whose engine
+                        // covers the root, the tree word brackets it (a no-op
+                        // elsewhere; one load on this rare path).
+                        crate::occ::tree_begin_if::<OCC>(&self.alloc);
+                        self.root = Root::Empty;
+                        crate::occ::tree_end_if::<OCC>(&self.alloc);
+                    } else if now < ROOT_LEAF_CAP as u64 {
+                        // Hysteresis: condense back to a root leaf one
+                        // index below the promotion boundary (promote at
+                        // CAP + 1, condense at CAP - 1; CAP is stable in
+                        // both forms). A root-state change, as above.
+                        crate::occ::tree_begin_if::<OCC>(&self.alloc);
+                        self.condense_to_root_leaf::<OCC>();
+                        crate::occ::tree_end_if::<OCC>(&self.alloc);
                     }
                 }
                 removed
@@ -698,20 +1033,36 @@ impl ExpanseSet {
 
     /// Removes every key.
     pub fn clear(&mut self) {
+        by_mode!(self.alloc, 1 self.clear_dispatch());
+        debug_assert_eq!(self.alloc.bytes_in_use(), 0);
+    }
+
+    /// Single-threaded clear, bypassing OCC checks.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn clear_plain(&mut self) {
+        self.clear_dispatch::<false>();
+        debug_assert_eq!(self.alloc.bytes_in_use(), 0);
+    }
+
+    #[inline(always)]
+    fn clear_dispatch<const OCC: bool>(&mut self) {
         self.path.get_mut().clear();
         match &mut self.root {
             Root::Empty => {}
             Root::Leaf { keys, pop } => {
                 // SAFETY: freeing the root leaf exactly once.
-                unsafe { self.alloc.free_bytes(*keys, root_leaf_size(*pop)) };
+                unsafe {
+                    self.alloc
+                        .free_bytes_dispatch::<OCC>(*keys, root_leaf_size(*pop))
+                };
             }
             Root::Tree { top, .. } => {
                 // SAFETY: freeing the whole owned trie exactly once.
-                unsafe { mutate::free_subtree::<false>(&self.alloc, top) };
+                unsafe { mutate::free_subtree::<OCC, false>(&self.alloc, top) };
             }
         }
         self.root = Root::Empty;
-        debug_assert_eq!(self.alloc.bytes_in_use(), 0);
     }
 
     /// Walks the whole structure, panicking on any violated invariant
@@ -1291,14 +1642,14 @@ impl ExpanseSet {
 impl ExpanseSet {
     /// Rebuilds the flat sorted root leaf from a small tree (the shrink
     /// twin of the root-leaf → trie promotion).
-    fn condense_to_root_leaf(&mut self) {
+    fn condense_to_root_leaf<const OCC: bool>(&mut self) {
         self.path.get_mut().clear();
         let Root::Tree { top } = &mut self.root else {
             unreachable!("condense outside tree state")
         };
         let n = self.tree_pop as usize;
         debug_assert!((1..ROOT_LEAF_CAP).contains(&n));
-        let leaf = self.alloc.alloc_bytes(root_leaf_size(n));
+        let leaf = self.alloc.alloc_bytes_dispatch::<OCC>(root_leaf_size(n));
         let mut written = 0usize;
         let mut from = Some(0u64);
         // SAFETY: engine-maintained trie per this type's invariants.
@@ -1312,7 +1663,7 @@ impl ExpanseSet {
         }
         debug_assert_eq!(written, n);
         // SAFETY: whole trie owned by this set; freed exactly once.
-        unsafe { mutate::free_subtree::<false>(&self.alloc, top) };
+        unsafe { mutate::free_subtree::<OCC, false>(&self.alloc, top) };
         self.root = Root::Leaf { keys: leaf, pop: n };
     }
 }
@@ -1759,11 +2110,11 @@ impl ExpanseSet {
         if n == 0 {
             let mut t = top;
             // SAFETY: `top` is an empty live subtree owned by this allocator.
-            unsafe { mutate::free_subtree::<false>(&self.alloc, &mut t) };
+            unsafe { mutate::free_subtree::<false, false>(&self.alloc, &mut t) };
             self.root = Root::Empty;
             return;
         }
-        let leaf = self.alloc.alloc_bytes(root_leaf_size(n));
+        let leaf = self.alloc.alloc_bytes_plain(root_leaf_size(n));
         let mut written = 0usize;
         let mut from = Some(0u64);
         // SAFETY: `top` is a live, engine-maintained level-8 trie.
@@ -1778,7 +2129,7 @@ impl ExpanseSet {
         debug_assert_eq!(written, n);
         let mut t = top;
         // SAFETY: the built trie is owned by this allocator; freed exactly once.
-        unsafe { mutate::free_subtree::<false>(&self.alloc, &mut t) };
+        unsafe { mutate::free_subtree::<false, false>(&self.alloc, &mut t) };
         self.root = Root::Leaf { keys: leaf, pop: n };
     }
 }
