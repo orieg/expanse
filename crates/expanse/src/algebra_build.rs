@@ -643,7 +643,7 @@ const MATERIALIZE_SMALL: u64 = mutate::LEAF_CAP as u64;
 #[inline]
 unsafe fn free_temp(a: &NodeAlloc, mut edge: Edge) {
     // SAFETY: forwarded contract; set-flavor subtree.
-    unsafe { mutate::free_subtree::<false>(a, &mut edge) };
+    unsafe { mutate::free_subtree::<false, false>(a, &mut edge) };
 }
 
 /// Wraps a single surviving child as the canonical edge for "only sub-expanse

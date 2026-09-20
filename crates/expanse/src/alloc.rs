@@ -1089,6 +1089,38 @@ impl NodeAlloc {
         ptr
     }
 
+    /// [`Self::alloc_node`] for a tree with no collector attached; see
+    /// [`Self::alloc_bytes_plain`] for when that holds.
+    #[inline(always)]
+    #[must_use]
+    #[allow(dead_code)]
+    pub(crate) fn alloc_node_plain<T>(&self, init: T) -> NonNull<T> {
+        debug_assert!(align_of::<T>() <= CACHE_LINE);
+        let ptr = self
+            .alloc_raw::<false>(size_of::<T>(), align_of::<T>())
+            .cast::<T>();
+        // SAFETY: freshly allocated, correctly sized, and allocated at
+        // exactly `align_of::<T>()`.
+        unsafe { ptr.write(init) };
+        ptr
+    }
+
+    /// [`Self::alloc_node`] with the collector branch chosen at compile time;
+    /// `OCC = false` is [`Self::alloc_node_plain`].
+    #[must_use]
+    #[inline(always)]
+    #[allow(dead_code)]
+    pub(crate) fn alloc_node_dispatch<const OCC: bool, T>(&self, init: T) -> NonNull<T> {
+        debug_assert!(align_of::<T>() <= CACHE_LINE);
+        let ptr = self
+            .alloc_raw::<OCC>(size_of::<T>(), align_of::<T>())
+            .cast::<T>();
+        // SAFETY: freshly allocated, correctly sized, and allocated at
+        // exactly `align_of::<T>()`.
+        unsafe { ptr.write(init) };
+        ptr
+    }
+
     /// Allocates a node of type T with all bytes zero-initialized.
     ///
     /// This is useful for construct-in-place node initialization, which avoids

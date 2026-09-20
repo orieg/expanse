@@ -154,7 +154,7 @@ pub unsafe extern "C" fn Judy1Unset(
             return 0;
         }
         let set = &mut *(*pparray).cast::<ExpanseSet>();
-        let removed = set.remove(index as u64);
+        let removed = set.remove_plain(index as u64);
         if removed && set.is_empty() {
             drop(Box::from_raw((*pparray).cast::<ExpanseSet>()));
             *pparray = null_mut();
@@ -336,8 +336,9 @@ pub unsafe extern "C" fn Judy1FreeArray(pparray: *mut *mut c_void, pj: *mut JErr
         if (*pparray).is_null() {
             return 0;
         }
-        let boxed = Box::from_raw((*pparray).cast::<ExpanseSet>());
+        let mut boxed = Box::from_raw((*pparray).cast::<ExpanseSet>());
         let bytes = boxed.mem_used() + size_of::<ExpanseSet>();
+        boxed.clear_plain();
         drop(boxed);
         *pparray = null_mut();
         bytes as Word
@@ -400,7 +401,7 @@ pub unsafe extern "C" fn JudyLIns(
         }
         // Single fused walk: insert-if-absent and slot in one descent.
         map_handle_mut(pparray)
-            .ins_slot(index as u64)
+            .ins_slot_plain(index as u64)
             .as_ptr()
             .cast()
     }
@@ -424,7 +425,7 @@ pub unsafe extern "C" fn JudyLDel(
             return 0;
         }
         let map = &mut *(*pparray).cast::<ExpanseMap>();
-        let removed = map.remove(index as u64).is_some();
+        let removed = map.remove_plain(index as u64).is_some();
         if removed && map.is_empty() {
             drop(Box::from_raw((*pparray).cast::<ExpanseMap>()));
             *pparray = null_mut();
@@ -625,8 +626,9 @@ pub unsafe extern "C" fn JudyLFreeArray(pparray: *mut *mut c_void, pj: *mut JErr
         if (*pparray).is_null() {
             return 0;
         }
-        let boxed = Box::from_raw((*pparray).cast::<ExpanseMap>());
+        let mut boxed = Box::from_raw((*pparray).cast::<ExpanseMap>());
         let bytes = boxed.mem_used() + size_of::<ExpanseMap>();
+        boxed.clear_plain();
         drop(boxed);
         *pparray = null_mut();
         bytes as Word
@@ -712,7 +714,7 @@ pub unsafe extern "C" fn JudySLIns(
             return PJERR;
         }
         strmap_handle_mut(pparray)
-            .ins_slot(cstr_bytes(index))
+            .ins_slot_plain(cstr_bytes(index))
             .as_ptr()
             .cast()
     }
@@ -740,7 +742,7 @@ pub unsafe extern "C" fn JudySLDel(
             return 0;
         }
         let map = &mut *(*pparray).cast::<ExpanseStrMap>();
-        let removed = map.remove(cstr_bytes(index)).is_some();
+        let removed = map.remove_plain(cstr_bytes(index)).is_some();
         if removed && map.is_empty() {
             drop(Box::from_raw((*pparray).cast::<ExpanseStrMap>()));
             *pparray = null_mut();
@@ -835,7 +837,7 @@ pub unsafe extern "C" fn JudySLFreeArray(pparray: *mut *mut c_void, pj: *mut JEr
             return 0;
         }
         let mut boxed = Box::from_raw((*pparray).cast::<ExpanseStrMap>());
-        let bytes = boxed.clear() + size_of::<ExpanseStrMap>() as u64;
+        let bytes = boxed.clear_plain() + size_of::<ExpanseStrMap>() as u64;
         drop(boxed);
         *pparray = null_mut();
         bytes as Word

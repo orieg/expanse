@@ -112,15 +112,40 @@ pub(crate) fn leaf_values_offset(pop: usize) -> usize {
 /// See `set::by_mode`: the three sharing modes an engine call is
 /// monomorphized for, decided once per operation.
 macro_rules! by_mode {
-    ($alloc:expr, $call:ident $args:tt) => {
+    ($alloc:expr, $obj:ident . $field:ident . $method:ident $args:tt) => {
         if $alloc.occ_enabled() {
             if $alloc.engine_covers_root() {
-                $call::<true, false> $args
+                $obj.$field.$method::<true, false> $args
             } else {
-                $call::<true, true> $args
+                $obj.$field.$method::<true, true> $args
             }
         } else {
-            $call::<false, false> $args
+            $obj.$field.$method::<false, false> $args
+        }
+    };
+    ($alloc:expr, 1 $obj:ident . $field:ident . $method:ident $args:tt) => {
+        if $alloc.occ_enabled() {
+            $obj.$field.$method::<true> $args
+        } else {
+            $obj.$field.$method::<false> $args
+        }
+    };
+    ($alloc:expr, $obj:ident . $method:ident $args:tt) => {
+        if $alloc.occ_enabled() {
+            if $alloc.engine_covers_root() {
+                $obj.$method::<true, false> $args
+            } else {
+                $obj.$method::<true, true> $args
+            }
+        } else {
+            $obj.$method::<false, false> $args
+        }
+    };
+    ($alloc:expr, 1 $obj:ident . $method:ident $args:tt) => {
+        if $alloc.occ_enabled() {
+            $obj.$method::<true> $args
+        } else {
+            $obj.$method::<false> $args
         }
     };
     // With a leading const argument of the call's own (`KEEP`).
@@ -133,6 +158,17 @@ macro_rules! by_mode {
             }
         } else {
             $call::<$k, false, false> $args
+        }
+    };
+    ($alloc:expr, $call:ident $args:tt) => {
+        if $alloc.occ_enabled() {
+            if $alloc.engine_covers_root() {
+                $call::<true, false> $args
+            } else {
+                $call::<true, true> $args
+            }
+        } else {
+            $call::<false, false> $args
         }
     };
 }
@@ -596,7 +632,7 @@ impl MapCore {
     /// the compat `JudyLIns` contract, in one tree walk. The pointer stays
     /// valid until the next structural mutation.
     #[inline(always)]
-    pub(crate) fn ins_slot(
+    pub(crate) fn ins_slot<const OCC: bool, const NESTED: bool>(
         &mut self,
         alloc: &NodeAlloc,
         key: Key,
@@ -631,7 +667,9 @@ impl MapCore {
                             }
                         } else {
                             let new = alloc
-                                .alloc_bytes(crate::mutate::sub_vals_size(old_n + 1))
+                                .alloc_bytes_dispatch::<OCC>(crate::mutate::sub_vals_size(
+                                    old_n + 1,
+                                ))
                                 .cast::<u64>();
                             // SAFETY: copy old_n values around the inserted rank.
                             unsafe {
@@ -641,7 +679,7 @@ impl MapCore {
                                     new.as_ptr()
                                         .add(rank + 1)
                                         .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_dispatch::<OCC>(
                                         core::ptr::NonNull::new(old.cast()).expect("values"),
                                         crate::mutate::sub_vals_size(old_n),
                                     );
@@ -699,15 +737,13 @@ impl MapCore {
                 // SAFETY: trie maintained/owned by this map's engine.
                 // The slot API is not on the shared wrapper; a deferred
                 // tree still dispatches by flag so its stores are bracketed.
-                let (_prev, slot) = by_mode!(
-                    alloc,
-                    tree_insert::<true>(alloc, &mut self.tree_pop, path, top, key, 0)
-                );
+                let (_prev, slot) =
+                    tree_insert::<true, OCC, NESTED>(alloc, &mut self.tree_pop, path, top, key, 0);
                 // SAFETY: map_insert always returns a valid, non-null slot pointer.
                 unsafe { core::ptr::NonNull::new_unchecked(slot) }
             }
             Root::Empty => {
-                let ptr = alloc.alloc_bytes(leaf_size(1));
+                let ptr = alloc.alloc_bytes_dispatch::<OCC>(leaf_size(1));
                 // SAFETY: fresh allocation: key slot then value slot.
                 unsafe {
                     ptr.as_ptr().cast::<u64>().write(key);
@@ -789,7 +825,7 @@ impl MapCore {
                             core::ptr::NonNull::new(slot).expect("slot")
                         }
                     } else {
-                        let new = alloc.alloc_bytes(leaf_size(pop_val + 1));
+                        let new = alloc.alloc_bytes_dispatch::<OCC>(leaf_size(pop_val + 1));
                         // SAFETY: copy keys and values around insertion point into new leaf.
                         unsafe {
                             let nk = new.as_ptr().cast::<u64>();
@@ -806,7 +842,7 @@ impl MapCore {
                             slot.write(0);
                             nv.add(at + 1)
                                 .copy_from_nonoverlapping(vals.add(at), pop_val - at);
-                            alloc.free_bytes(ptr_val, leaf_size(pop_val));
+                            alloc.free_bytes_dispatch::<OCC>(ptr_val, leaf_size(pop_val));
                             self.root = Root::Leaf {
                                 ptr: new,
                                 pop: pop_val + 1,
@@ -815,7 +851,7 @@ impl MapCore {
                         }
                     }
                 } else {
-                    self.insert(alloc, key, 0, path);
+                    self.insert::<OCC, NESTED>(alloc, key, 0, path);
                     self.get_value_slot(key, path).expect("just-ensured key")
                 }
             }
@@ -916,18 +952,18 @@ impl MapCore {
     /// Inserts `key → val`; returns the replaced value if the key was
     /// already present.
     #[inline(always)]
-    pub(crate) fn insert(
+    pub(crate) fn insert<const OCC: bool, const NESTED: bool>(
         &mut self,
         alloc: &NodeAlloc,
         key: Key,
         val: u64,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        self.noting_root_rewrite(|m| m.insert_inner(alloc, key, val, path))
+        self.noting_root_rewrite(|m| m.insert_inner::<OCC, NESTED>(alloc, key, val, path))
     }
 
     #[inline(always)]
-    fn insert_inner(
+    fn insert_inner<const OCC: bool, const NESTED: bool>(
         &mut self,
         alloc: &NodeAlloc,
         key: Key,
@@ -936,7 +972,7 @@ impl MapCore {
     ) -> Option<u64> {
         match &mut self.root {
             Root::Empty => {
-                let ptr = alloc.alloc_bytes(leaf_size(1));
+                let ptr = alloc.alloc_bytes_dispatch::<OCC>(leaf_size(1));
                 // SAFETY: fresh allocation: key slot then value slot.
                 unsafe {
                     ptr.as_ptr().cast::<u64>().write(key);
@@ -993,7 +1029,7 @@ impl MapCore {
                         self.root = Root::Leaf { ptr, pop: pop + 1 };
                         return None;
                     }
-                    let new = alloc.alloc_bytes(leaf_size(pop + 1));
+                    let new = alloc.alloc_bytes_dispatch::<OCC>(leaf_size(pop + 1));
                     // SAFETY: copy keys and values around the insertion
                     // point into the fresh (pop + 1)-entry leaf.
                     unsafe {
@@ -1007,7 +1043,7 @@ impl MapCore {
                         nv.add(at).write(val);
                         nv.add(at + 1)
                             .copy_from_nonoverlapping(vals.add(at), pop - at);
-                        alloc.free_bytes(ptr, leaf_size(pop));
+                        alloc.free_bytes_dispatch::<OCC>(ptr, leaf_size(pop));
                     }
                     self.root = Root::Leaf {
                         ptr: new,
@@ -1023,9 +1059,9 @@ impl MapCore {
                     // tree word (a nested `begin` would make it even
                     // mid-write), never a node's own (an upgrade inside the
                     // build marks that node obsolete, which needs it even).
-                    let top = by_mode!(alloc, promote_leaf(alloc, keys, vals, key, val, path));
+                    let top = promote_leaf::<OCC, NESTED>(alloc, keys, vals, key, val, path);
                     // SAFETY: old root leaf no longer referenced.
-                    unsafe { alloc.free_bytes(ptr, leaf_size(pop)) };
+                    unsafe { alloc.free_bytes_dispatch::<OCC>(ptr, leaf_size(pop)) };
                     self.tree_pop = pop as u64 + 1;
                     self.root = Root::Tree { top };
                     None
@@ -1067,7 +1103,9 @@ impl MapCore {
                             }
                         } else {
                             let new = alloc
-                                .alloc_bytes(crate::mutate::sub_vals_size(old_n + 1))
+                                .alloc_bytes_dispatch::<OCC>(crate::mutate::sub_vals_size(
+                                    old_n + 1,
+                                ))
                                 .cast::<u64>();
                             // SAFETY: copy old_n values around the inserted rank.
                             unsafe {
@@ -1077,7 +1115,7 @@ impl MapCore {
                                     new.as_ptr()
                                         .add(rank + 1)
                                         .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                                    alloc.free_bytes(
+                                    alloc.free_bytes_dispatch::<OCC>(
                                         core::ptr::NonNull::new(old.cast()).expect("values"),
                                         crate::mutate::sub_vals_size(old_n),
                                     );
@@ -1136,28 +1174,24 @@ impl MapCore {
                 // One OCC check per operation, where the runtime dispatch
                 // always sat; the shared monomorph brackets every store by the
                 // node that holds it and bumps the population atomically.
-                by_mode!(
-                    alloc,
-                    tree_insert::<false>(alloc, &mut self.tree_pop, path, top, key, val)
-                )
-                .0
+                tree_insert::<false, OCC, NESTED>(alloc, &mut self.tree_pop, path, top, key, val).0
             }
         }
     }
 
     /// Removes `key`; returns its value if it was present.
     #[inline(always)]
-    pub(crate) fn remove(
+    pub(crate) fn remove<const OCC: bool, const NESTED: bool>(
         &mut self,
         alloc: &NodeAlloc,
         key: Key,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        self.noting_root_rewrite(|m| m.remove_inner(alloc, key, path))
+        self.noting_root_rewrite(|m| m.remove_inner::<OCC, NESTED>(alloc, key, path))
     }
 
     #[inline(always)]
-    fn remove_inner(
+    fn remove_inner<const OCC: bool, const NESTED: bool>(
         &mut self,
         alloc: &NodeAlloc,
         key: Key,
@@ -1174,7 +1208,7 @@ impl MapCore {
                 let old = unsafe { *vals.add(at) };
                 if pop == 1 {
                     // SAFETY: last entry removed; free the leaf.
-                    unsafe { alloc.free_bytes(ptr, leaf_size(1)) };
+                    unsafe { alloc.free_bytes_dispatch::<OCC>(ptr, leaf_size(1)) };
                     self.root = Root::Empty;
                 } else if crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop) {
                     // Fast path: capacity class unchanged — shift surviving entries in-place.
@@ -1186,7 +1220,7 @@ impl MapCore {
                     }
                     self.root = Root::Leaf { ptr, pop: pop - 1 };
                 } else {
-                    let new = alloc.alloc_bytes(leaf_size(pop - 1));
+                    let new = alloc.alloc_bytes_dispatch::<OCC>(leaf_size(pop - 1));
                     // SAFETY: copy the surviving keys/values into the
                     // smaller leaf.
                     unsafe {
@@ -1198,7 +1232,7 @@ impl MapCore {
                         nv.copy_from_nonoverlapping(vals, at);
                         nv.add(at)
                             .copy_from_nonoverlapping(vals.add(at + 1), pop - 1 - at);
-                        alloc.free_bytes(ptr, leaf_size(pop));
+                        alloc.free_bytes_dispatch::<OCC>(ptr, leaf_size(pop));
                     }
                     self.root = Root::Leaf {
                         ptr: new,
@@ -1210,22 +1244,22 @@ impl MapCore {
             Root::Tree { top } => {
                 // One OCC check per operation, where the runtime dispatch
                 // always sat (see `insert_inner`).
-                let (old, now) = by_mode!(alloc, tree_remove(alloc, &mut self.tree_pop, top, key));
+                let (old, now) = tree_remove::<OCC, NESTED>(alloc, &mut self.tree_pop, top, key);
                 if old.is_some() {
                     if now == 0 {
                         debug_assert!(top.is_null());
                         // A root-state change: on a shared tree whose engine
                         // covers the root, the tree word brackets it (a no-op
                         // elsewhere; one load on this rare path).
-                        crate::occ::tree_begin_if::<true>(alloc);
+                        crate::occ::tree_begin_if::<OCC>(alloc);
                         self.root = Root::Empty;
-                        crate::occ::tree_end_if::<true>(alloc);
+                        crate::occ::tree_end_if::<OCC>(alloc);
                     } else if now < ROOT_LEAF_CAP as u64 {
                         // Hysteresis twin of the root-leaf promotion; a
                         // root-state change, as above.
-                        crate::occ::tree_begin_if::<true>(alloc);
-                        self.condense_to_root_leaf(alloc, path);
-                        crate::occ::tree_end_if::<true>(alloc);
+                        crate::occ::tree_begin_if::<OCC>(alloc);
+                        self.condense_to_root_leaf::<OCC>(alloc, path);
+                        crate::occ::tree_end_if::<OCC>(alloc);
                     }
                 }
                 old
@@ -1240,17 +1274,21 @@ impl MapCore {
     /// lone map clears) lives with the allocator's owner — a shared
     /// allocator still carries its other cores' bytes here.
     #[inline(always)]
-    pub(crate) fn clear(&mut self, alloc: &NodeAlloc, path: &mut crate::mutate_map::InsertPathMap) {
+    pub(crate) fn clear<const OCC: bool>(
+        &mut self,
+        alloc: &NodeAlloc,
+        path: &mut crate::mutate_map::InsertPathMap,
+    ) {
         path.clear();
         match &mut self.root {
             Root::Empty => {}
             Root::Leaf { ptr, pop } => {
                 // SAFETY: freeing the root leaf exactly once.
-                unsafe { alloc.free_bytes(*ptr, leaf_size(*pop)) };
+                unsafe { alloc.free_bytes_dispatch::<OCC>(*ptr, leaf_size(*pop)) };
             }
             Root::Tree { top, .. } => {
                 // SAFETY: freeing the whole owned trie exactly once.
-                unsafe { mutate::free_subtree::<true>(alloc, top) };
+                unsafe { mutate::free_subtree::<OCC, true>(alloc, top) };
             }
         }
         self.root = Root::Empty;
@@ -1812,7 +1850,7 @@ impl MapCore {
     /// Rebuilds the flat root leaf (parallel key/value arrays) from a
     /// small tree — the shrink twin of the promotion.
     #[inline(always)]
-    fn condense_to_root_leaf(
+    fn condense_to_root_leaf<const OCC: bool>(
         &mut self,
         alloc: &NodeAlloc,
         path: &mut crate::mutate_map::InsertPathMap,
@@ -1822,7 +1860,7 @@ impl MapCore {
         };
         let n = self.tree_pop as usize;
         debug_assert!((1..ROOT_LEAF_CAP).contains(&n));
-        let new = alloc.alloc_bytes(leaf_size(n));
+        let new = alloc.alloc_bytes_dispatch::<OCC>(leaf_size(n));
         let mut written = 0usize;
         let mut from = Some(0u64);
         // SAFETY: engine-maintained trie per this type's invariants.
@@ -1843,7 +1881,7 @@ impl MapCore {
         debug_assert_eq!(written, n);
         path.clear();
         // SAFETY: whole trie owned by this map; freed exactly once.
-        unsafe { mutate::free_subtree::<true>(alloc, top) };
+        unsafe { mutate::free_subtree::<OCC, true>(alloc, top) };
         self.root = Root::Leaf { ptr: new, pop: n };
     }
 }
@@ -1855,8 +1893,13 @@ impl MapCore {
 /// bypass bookkeeping is dead and folds away.
 impl MapCore {
     #[inline(always)]
-    pub(crate) fn insert_pathless(&mut self, alloc: &NodeAlloc, key: Key, val: u64) -> Option<u64> {
-        self.insert(
+    pub(crate) fn insert_pathless_dispatch<const OCC: bool, const NESTED: bool>(
+        &mut self,
+        alloc: &NodeAlloc,
+        key: Key,
+        val: u64,
+    ) -> Option<u64> {
+        self.insert::<OCC, NESTED>(
             alloc,
             key,
             val,
@@ -1865,17 +1908,43 @@ impl MapCore {
     }
 
     #[inline(always)]
-    pub(crate) fn remove_pathless(&mut self, alloc: &NodeAlloc, key: Key) -> Option<u64> {
-        self.remove(alloc, key, &mut crate::mutate_map::InsertPathMap::empty())
+    #[allow(dead_code)]
+    pub(crate) fn insert_pathless(&mut self, alloc: &NodeAlloc, key: Key, val: u64) -> Option<u64> {
+        by_mode!(alloc, self.insert_pathless_dispatch(alloc, key, val))
     }
 
     #[inline(always)]
+    pub(crate) fn remove_pathless_dispatch<const OCC: bool, const NESTED: bool>(
+        &mut self,
+        alloc: &NodeAlloc,
+        key: Key,
+    ) -> Option<u64> {
+        self.remove::<OCC, NESTED>(alloc, key, &mut crate::mutate_map::InsertPathMap::empty())
+    }
+
+    #[inline(always)]
+    #[allow(dead_code)]
+    pub(crate) fn remove_pathless(&mut self, alloc: &NodeAlloc, key: Key) -> Option<u64> {
+        by_mode!(alloc, self.remove_pathless_dispatch(alloc, key))
+    }
+
+    #[inline(always)]
+    pub(crate) fn ins_slot_pathless_dispatch<const OCC: bool, const NESTED: bool>(
+        &mut self,
+        alloc: &NodeAlloc,
+        key: Key,
+    ) -> core::ptr::NonNull<u64> {
+        self.ins_slot::<OCC, NESTED>(alloc, key, &mut crate::mutate_map::InsertPathMap::empty())
+    }
+
+    #[inline(always)]
+    #[allow(dead_code)]
     pub(crate) fn ins_slot_pathless(
         &mut self,
         alloc: &NodeAlloc,
         key: Key,
     ) -> core::ptr::NonNull<u64> {
-        self.ins_slot(alloc, key, &mut crate::mutate_map::InsertPathMap::empty())
+        by_mode!(alloc, self.ins_slot_pathless_dispatch(alloc, key))
     }
 
     #[inline(always)]
@@ -1884,8 +1953,14 @@ impl MapCore {
     }
 
     #[inline(always)]
+    pub(crate) fn clear_pathless_dispatch<const OCC: bool>(&mut self, alloc: &NodeAlloc) {
+        self.clear::<OCC>(alloc, &mut crate::mutate_map::InsertPathMap::empty());
+    }
+
+    #[inline(always)]
+    #[allow(dead_code)]
     pub(crate) fn clear_pathless(&mut self, alloc: &NodeAlloc) {
-        self.clear(alloc, &mut crate::mutate_map::InsertPathMap::empty());
+        by_mode!(alloc, 1 self.clear_pathless_dispatch(alloc));
     }
 }
 
@@ -2038,7 +2113,18 @@ impl ExpanseMap {
     /// valid until the next structural mutation.
     #[inline(always)]
     pub fn ins_slot(&mut self, key: Key) -> core::ptr::NonNull<u64> {
-        self.core.ins_slot(&self.alloc, key, self.path.get_mut())
+        by_mode!(
+            self.alloc,
+            self.core.ins_slot(&self.alloc, key, self.path.get_mut())
+        )
+    }
+
+    /// Single-threaded insert-if-absent returning slot pointer, bypassing OCC checks.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn ins_slot_plain(&mut self, key: Key) -> core::ptr::NonNull<u64> {
+        self.core
+            .ins_slot::<false, false>(&self.alloc, key, self.path.get_mut())
     }
 
     /// Phase 7 (occ): by-value root snapshot + allocation handle for
@@ -2063,17 +2149,50 @@ impl ExpanseMap {
     /// Inserts `key → val`; returns the replaced value if the key was
     /// already present.
     pub fn insert(&mut self, key: Key, val: u64) -> Option<u64> {
-        self.core.insert(&self.alloc, key, val, self.path.get_mut())
+        by_mode!(
+            self.alloc,
+            self.core.insert(&self.alloc, key, val, self.path.get_mut())
+        )
+    }
+
+    /// Single-threaded insert, bypassing OCC checks.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn insert_plain(&mut self, key: Key, val: u64) -> Option<u64> {
+        self.core
+            .insert::<false, false>(&self.alloc, key, val, self.path.get_mut())
     }
 
     /// Removes `key`; returns its value if it was present.
     pub fn remove(&mut self, key: Key) -> Option<u64> {
-        self.core.remove(&self.alloc, key, self.path.get_mut())
+        by_mode!(
+            self.alloc,
+            self.core.remove(&self.alloc, key, self.path.get_mut())
+        )
+    }
+
+    /// Single-threaded remove, bypassing OCC checks.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn remove_plain(&mut self, key: Key) -> Option<u64> {
+        self.core
+            .remove::<false, false>(&self.alloc, key, self.path.get_mut())
     }
 
     /// Removes every entry.
     pub fn clear(&mut self) {
-        self.core.clear(&self.alloc, self.path.get_mut());
+        by_mode!(
+            self.alloc,
+            1 self.core.clear(&self.alloc, self.path.get_mut())
+        );
+        debug_assert_eq!(self.alloc.bytes_in_use(), 0);
+    }
+
+    /// Single-threaded clear, bypassing OCC checks.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn clear_plain(&mut self) {
+        self.core.clear::<false>(&self.alloc, self.path.get_mut());
         debug_assert_eq!(self.alloc.bytes_in_use(), 0);
     }
 

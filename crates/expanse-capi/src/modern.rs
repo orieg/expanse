@@ -187,7 +187,7 @@ container!(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expanse_set_insert(set: *mut ExpanseSet, key: CWord) -> bool {
     // SAFETY: null or live handle per contract.
-    unsafe { set.as_mut() }.is_some_and(|s| s.insert(key))
+    unsafe { set.as_mut() }.is_some_and(|s| s.insert_plain(key))
 }
 
 /// Removes `key`; true if it was present.
@@ -198,7 +198,7 @@ pub unsafe extern "C" fn expanse_set_insert(set: *mut ExpanseSet, key: CWord) ->
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expanse_set_remove(set: *mut ExpanseSet, key: CWord) -> bool {
     // SAFETY: null or live handle per contract.
-    unsafe { set.as_mut() }.is_some_and(|s| s.remove(key))
+    unsafe { set.as_mut() }.is_some_and(|s| s.remove_plain(key))
 }
 
 /// Membership test.
@@ -414,7 +414,7 @@ pub unsafe extern "C" fn expanse_map_insert(
     let Some(m) = (unsafe { map.as_mut() }) else {
         return false;
     };
-    match m.insert(key, value) {
+    match m.insert_plain(key, value) {
         // SAFETY: `old_out` null or writable per contract.
         Some(old) => unsafe {
             put(old_out, old);
@@ -508,7 +508,7 @@ pub unsafe extern "C" fn expanse_map_remove(
     old_out: *mut CWord,
 ) -> bool {
     // SAFETY: null or live handle per contract.
-    let Some(v) = (unsafe { map.as_mut() }).and_then(|m| m.remove(key)) else {
+    let Some(v) = (unsafe { map.as_mut() }).and_then(|m| m.remove_plain(key)) else {
         return false;
     };
     // SAFETY: `old_out` null or writable per contract.
