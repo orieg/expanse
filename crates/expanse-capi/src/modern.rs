@@ -631,7 +631,7 @@ pub unsafe extern "C" fn expanse_map_slot(map: *mut ExpanseMap, key: CWord) -> *
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expanse_map_ins_slot(map: *mut ExpanseMap, key: CWord) -> *mut CWord {
     // SAFETY: null or live handle per contract.
-    unsafe { map.as_mut() }.map_or(core::ptr::null_mut(), |m| m.ins_slot(key).as_ptr())
+    unsafe { map.as_mut() }.map_or(core::ptr::null_mut(), |m| m.ins_slot_plain(key).as_ptr())
 }
 
 /// Generates a map navigation entry point returning `bool` + key/value.

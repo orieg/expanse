@@ -459,21 +459,20 @@ impl ExpanseSet {
     /// Inserts `key`; returns `true` if it was newly inserted.
     #[inline(always)]
     pub fn insert(&mut self, key: Key) -> bool {
-        self.noting_root_rewrite(|t| by_mode!(t.alloc, t.insert_inner(key)))
+        self.noting_root_rewrite(|t| t.insert_inner(key))
     }
 
     /// Single-threaded insert, bypassing OCC checks.
     #[doc(hidden)]
     #[inline(always)]
     pub fn insert_plain(&mut self, key: Key) -> bool {
-        self.noting_root_rewrite(|t| t.insert_inner::<false, false>(key))
+        self.noting_root_rewrite(|t| t.insert_inner_plain(key))
     }
 
-    #[inline(always)]
-    fn insert_inner<const OCC: bool, const NESTED: bool>(&mut self, key: Key) -> bool {
+    fn insert_inner(&mut self, key: Key) -> bool {
         match &mut self.root {
             Root::Empty => {
-                let keys = self.alloc.alloc_bytes_dispatch::<OCC>(root_leaf_size(1));
+                let keys = self.alloc.alloc_bytes(root_leaf_size(1));
                 // SAFETY: fresh 8-byte allocation, cache-line aligned.
                 unsafe { keys.as_ptr().cast::<u64>().write(key) };
                 self.root = Root::Leaf { keys, pop: 1 };
@@ -517,9 +516,7 @@ impl ExpanseSet {
                         self.root = Root::Leaf { keys, pop: pop + 1 };
                         return true;
                     }
-                    let new = self
-                        .alloc
-                        .alloc_bytes_dispatch::<OCC>(root_leaf_size(pop + 1));
+                    let new = self.alloc.alloc_bytes(root_leaf_size(pop + 1));
                     // SAFETY: copy `pop` keys around the insertion point
                     // into the fresh (pop + 1)-slot allocation.
                     unsafe {
@@ -528,8 +525,7 @@ impl ExpanseSet {
                         dst.add(at).write(key);
                         dst.add(at + 1)
                             .copy_from_nonoverlapping(slice.as_ptr().add(at), pop - at);
-                        self.alloc
-                            .free_bytes_dispatch::<OCC>(keys, root_leaf_size(pop));
+                        self.alloc.free_bytes(keys, root_leaf_size(pop));
                     }
                     self.root = Root::Leaf {
                         keys: new,
@@ -544,13 +540,12 @@ impl ExpanseSet {
                     // tree word (a nested `begin` would make it even
                     // mid-write), never a node's own (an upgrade inside the
                     // build marks that node obsolete, which needs it even).
-                    let top =
-                        promote_leaf::<OCC, NESTED>(&self.alloc, slice, key, self.path.get_mut());
+                    let top = by_mode!(
+                        self.alloc,
+                        promote_leaf(&self.alloc, slice, key, self.path.get_mut())
+                    );
                     // SAFETY: old root leaf no longer referenced.
-                    unsafe {
-                        self.alloc
-                            .free_bytes_dispatch::<OCC>(keys, root_leaf_size(pop))
-                    };
+                    unsafe { self.alloc.free_bytes(keys, root_leaf_size(pop)) };
                     self.tree_pop = pop as u64 + 1;
                     self.root = Root::Tree { top };
                 }
@@ -581,8 +576,7 @@ impl ExpanseSet {
                                 unsafe {
                                     path.flush();
                                     let ptr = core::ptr::NonNull::new(leaf);
-                                    self.alloc
-                                        .free_node_dispatch::<OCC, _>(ptr.expect("leaf ptr"));
+                                    self.alloc.free_node_plain(ptr.expect("leaf ptr"));
                                     let terminal_edge = &mut *path.edges[0];
                                     *terminal_edge = Edge::NULL;
                                     terminal_edge
@@ -625,7 +619,148 @@ impl ExpanseSet {
                 // One OCC check per operation, where the runtime dispatch
                 // always sat; the shared monomorph brackets every store by the
                 // node that holds it and bumps the population atomically.
-                tree_insert::<OCC, NESTED>(&self.alloc, &mut self.tree_pop, path, top, key)
+                by_mode!(
+                    self.alloc,
+                    tree_insert(&self.alloc, &mut self.tree_pop, path, top, key)
+                )
+            }
+        }
+    }
+
+    fn insert_inner_plain(&mut self, key: Key) -> bool {
+        match &mut self.root {
+            Root::Empty => {
+                let keys = self.alloc.alloc_bytes_plain(root_leaf_size(1));
+                // SAFETY: fresh 8-byte allocation, cache-line aligned.
+                unsafe { keys.as_ptr().cast::<u64>().write(key) };
+                self.root = Root::Leaf { keys, pop: 1 };
+                true
+            }
+            Root::Leaf { keys, pop } => {
+                let (keys, pop) = (*keys, *pop);
+                // SAFETY: root leaf holds `pop` keys.
+                let slice =
+                    unsafe { core::slice::from_raw_parts(keys.as_ptr().cast::<u64>(), pop) };
+                let at = if pop > 0 {
+                    // SAFETY: pop > 0 guarantees slot pop - 1 is in-bounds.
+                    let last = unsafe { *keys.as_ptr().cast::<u64>().add(pop - 1) };
+                    if key > last {
+                        pop
+                    } else if key == last {
+                        return false;
+                    } else {
+                        let Err(at) = slice.binary_search(&key) else {
+                            return false;
+                        };
+                        at
+                    }
+                } else {
+                    0
+                };
+                if pop < ROOT_LEAF_CAP {
+                    if root_leaf_size(pop + 1) == root_leaf_size(pop) {
+                        // Spare class capacity: shift in place, no
+                        // allocation. Without this every insert into a
+                        // small array — i.e. every array a C caller keeps
+                        // under 32 entries — paid a malloc, a full copy
+                        // and a free (issue #1).
+                        // SAFETY: the allocation holds the same class of
+                        // slots for `pop + 1` as for `pop`.
+                        unsafe {
+                            let base = keys.as_ptr().cast::<u64>();
+                            core::ptr::copy(base.add(at), base.add(at + 1), pop - at);
+                            base.add(at).write(key);
+                        }
+                        self.root = Root::Leaf { keys, pop: pop + 1 };
+                        return true;
+                    }
+                    let new = self.alloc.alloc_bytes_plain(root_leaf_size(pop + 1));
+                    // SAFETY: copy `pop` keys around the insertion point
+                    // into the fresh (pop + 1)-slot allocation.
+                    unsafe {
+                        let dst = new.as_ptr().cast::<u64>();
+                        dst.copy_from_nonoverlapping(slice.as_ptr(), at);
+                        dst.add(at).write(key);
+                        dst.add(at + 1)
+                            .copy_from_nonoverlapping(slice.as_ptr().add(at), pop - at);
+                        self.alloc.free_bytes_plain(keys, root_leaf_size(pop));
+                    }
+                    self.root = Root::Leaf {
+                        keys: new,
+                        pop: pop + 1,
+                    };
+                } else {
+                    let top =
+                        promote_leaf::<false, false>(&self.alloc, slice, key, self.path.get_mut());
+                    // SAFETY: old root leaf no longer referenced.
+                    unsafe { self.alloc.free_bytes_plain(keys, root_leaf_size(pop)) };
+                    self.tree_pop = pop as u64 + 1;
+                    self.root = Root::Tree { top };
+                }
+                true
+            }
+            Root::Tree { top } => {
+                let prefix = key >> 8;
+                let path = self.path.get_mut();
+                if path.prefix == prefix {
+                    self.alloc.assert_bracketed();
+                    if !path.leaf.is_null() {
+                        let d = (key & 0xFF) as u8;
+                        // SAFETY: path holds valid live LeafBitmap1 pointer.
+                        let leaf = unsafe { &mut *path.leaf };
+                        if leaf.bitmap.set(d) {
+                            path.pending_pop += 1;
+                            path.terminal_pop += 1;
+                            // SAFETY: keep terminal edge pop0 up to date.
+                            unsafe {
+                                (*path.edges[0]).set_pop0(1, (path.terminal_pop - 1) as u64);
+                            }
+                            if path.terminal_pop == 256 {
+                                // SAFETY: terminal edge is valid and rewritten to FullExpanse.
+                                unsafe {
+                                    path.flush();
+                                    let ptr = core::ptr::NonNull::new(leaf);
+                                    self.alloc.free_node_plain(ptr.expect("leaf ptr"));
+                                    let terminal_edge = &mut *path.edges[0];
+                                    *terminal_edge = Edge::NULL;
+                                    terminal_edge
+                                        .set_tag(crate::types::EdgeType::FullExpanse.as_u8());
+                                    terminal_edge.set_pop0(1, 255);
+                                    path.clear();
+                                }
+                            }
+                            self.tree_pop += 1;
+                            return true;
+                        } else {
+                            return false;
+                        }
+                    } else if !path.leaf1.is_null() {
+                        let d = (key & 0xFF) as u8;
+                        let cur_pop = path.terminal_pop as usize;
+                        // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
+                        let last = unsafe { *path.leaf1.add(cur_pop - 1) };
+                        if d > last {
+                            if cur_pop < crate::mutate::LEAF1_CAP
+                                && crate::leaf::cap_class(cur_pop + 1)
+                                    == crate::leaf::cap_class(cur_pop)
+                            {
+                                // SAFETY: spare class capacity in the live Leaf1 allocation.
+                                unsafe {
+                                    *path.leaf1.add(cur_pop) = d;
+                                    (*path.edges[0]).set_pop0(1, cur_pop as u64);
+                                }
+                                path.terminal_pop += 1;
+                                path.pending_pop += 1;
+                                self.tree_pop += 1;
+                                return true;
+                            }
+                        } else if d == last {
+                            return false;
+                        }
+                    }
+                }
+                path.clear();
+                tree_insert::<false, false>(&self.alloc, &mut self.tree_pop, path, top, key)
             }
         }
     }

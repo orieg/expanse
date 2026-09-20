@@ -118,6 +118,13 @@ impl ExpanseMap32 {
         old
     }
 
+    /// Single-threaded insert, matching 64-bit API.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn insert_plain(&mut self, key: Key32, value: Value32) -> Option<Value32> {
+        self.insert(key, value)
+    }
+
     /// Lookup a key in the map, returning its 32-bit value if found.
     #[inline]
     #[must_use]
@@ -154,6 +161,13 @@ impl ExpanseMap32 {
             self.len -= 1;
         }
         old
+    }
+
+    /// Single-threaded remove, matching 64-bit API.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn remove_plain(&mut self, key: Key32) -> Option<Value32> {
+        self.remove(key)
     }
 
     /// Removes every entry whose key lies in `range`, calling `f(key, value)`
@@ -201,6 +215,13 @@ impl ExpanseMap32 {
         self.finger.clear();
         self.root = Edge32::null();
         self.len = 0;
+    }
+
+    /// Single-threaded clear, matching 64-bit API.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn clear_plain(&mut self) {
+        self.clear();
     }
 
     /// Returns the smallest `(key, value)` entry in the map, if any.

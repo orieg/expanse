@@ -119,6 +119,13 @@ impl ExpanseSet32 {
         inserted
     }
 
+    /// Single-threaded insert, matching 64-bit API.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn insert_plain(&mut self, key: Key32) -> bool {
+        self.insert(key)
+    }
+
     /// Test if a 32-bit key is present in the set.
     #[inline]
     #[must_use]
@@ -155,6 +162,13 @@ impl ExpanseSet32 {
             self.len -= 1;
         }
         removed
+    }
+
+    /// Single-threaded remove, matching 64-bit API.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn remove_plain(&mut self, key: Key32) -> bool {
+        self.remove(key)
     }
 
     /// Removes every key in `range`, calling `f(key)` for each removed key
@@ -195,6 +209,13 @@ impl ExpanseSet32 {
         self.alloc = Arena::new();
         self.root = Edge32::null();
         self.len = 0;
+    }
+
+    /// Single-threaded clear, matching 64-bit API.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn clear_plain(&mut self) {
+        self.clear();
     }
 
     /// Returns the smallest key in the set, if any.
