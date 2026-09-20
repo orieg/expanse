@@ -1740,7 +1740,7 @@ before `deferred` is set. Four accounting sites become
 to base; with the feature off, all 126 reproducible arms are bit-identical to
 base.
 
-*The W = 8 figures in this subsection were measured before `929574b5` changed the path a deferred tree allocates and frees through, and are pending a `writer_scaling` re-run on the reference host ([#998](https://github.com/orieg/expanse/issues/998), §11.10.10).*
+*The W = 8 figures in this subsection were measured before `929574b5` changed the path a deferred tree allocates and frees through. The re-run they were pending is §11.10.11, at `0b08dd5b`; the figures here are kept as the record of the head they were taken on (AGENTS.md §8.20.6).*
 
 Same commit, pin, rounds and cell isolation as §11.10.1
 (workload: concurrency_writer_scaling)
@@ -1809,7 +1809,7 @@ in either run.
 writer per physical P-core). §11.10.4's sweep answered the per-core pin; this
 adds `0-15`, so the gate can be read at both.
 
-*The W = 8 figures in this subsection were measured before `929574b5` changed the path a deferred tree allocates and frees through, and are pending a `writer_scaling` re-run on the reference host ([#998](https://github.com/orieg/expanse/issues/998), §11.10.10).*
+*The W = 8 figures in this subsection were measured before `929574b5` changed the path a deferred tree allocates and frees through. The re-run they were pending is §11.10.11, at `0b08dd5b`; the figures here are kept as the record of the head they were taken on (AGENTS.md §8.20.6).*
 
 **What the measured build is.** Every cell below, and every cell in §11.10.4,
 compares the default against **`lock-padded,ablation-deferred-shards`** — the
@@ -2081,7 +2081,7 @@ bound, two runs, both pins (§11.10.7):
 remains `INTERMEDIATE`** — run 1's interval contains the floor — and this
 promotion does not change that label (§11.10.7).
 
-*The W = 8 figures in this subsection were measured before `929574b5` changed the path a deferred tree allocates and frees through, and are pending a `writer_scaling` re-run on the reference host ([#998](https://github.com/orieg/expanse/issues/998), §11.10.10).*
+*The W = 8 figures in this subsection were measured before `929574b5` changed the path a deferred tree allocates and frees through. The re-run they were pending is §11.10.11, at `0b08dd5b`; the figures here are kept as the record of the head they were taken on (AGENTS.md §8.20.6).*
 
 **What it costs, and why it is being paid.** Sixteen reproducible Callgrind arms
 regress above 0.5 %, fourteen of them `sync_*` — the concurrent wrappers measured
@@ -2298,6 +2298,45 @@ Callgrind Bound` job: 95 Ir at `fb69a4af`, 101 at `f65a8434`, 98 at `929574b5`
 **Bound: MET**) and 98 against 98 at `2cb01fed`. The job bounds a change
 against its own parent, so it is met from `929574b5` on; against `fb69a4af` the
 call is +3 Ir, which is the figure the disassembly above predicted.
+
+#### 11.10.11 The W = 8 cells re-measured at `0b08dd5b` (Refs #998, #930)
+
+§11.10.4, §11.10.7 and §11.10.9 quote W = 8 cells taken before `929574b5`
+changed the path a deferred tree allocates and frees through. The same
+`writer_scaling` suite was re-run at `0b08dd5b`, two runs under each registered
+pin, and the four artifacts are committed beside the earlier ones
+*(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads, commit
+`0b08dd5b`; (workloads: `concurrency_writer_map_64bit`,
+`concurrency_writer_set_63bit`); artifacts
+`results/baseline_writer_scaling_0b08dd5b_{pin0-15,percore}{,_run2}.json`;
+bare-metal runs 35531193151, 35531596635, 35531998209 and 35532394221)*:
+
+| arm | pin | run | W = 8 M ops/s [BCa 95%] | against #930's ≥ 20 floor |
+|---|---|--:|--:|---|
+| `map` | `0-15` | 1 | 21.78 [19.85, 23.18] | lower bound below the floor |
+| `map` | `0-15` | 2 | 22.40 [21.51, 23.26] | clears |
+| `map` | `0,2,4,6,8,10,12,14` | 1 | 24.06 [23.85, 24.30] | clears |
+| `map` | `0,2,4,6,8,10,12,14` | 2 | 23.62 [23.06, 24.02] | clears |
+| `set` | `0-15` | 1 | 30.81 [30.12, 31.20] | clears |
+| `set` | `0-15` | 2 | 30.27 [29.43, 31.03] | clears |
+| `set` | `0,2,4,6,8,10,12,14` | 1 | 31.36 [30.99, 31.69] | clears |
+| `set` | `0,2,4,6,8,10,12,14` | 2 | 30.87 [30.16, 31.32] | clears |
+
+**What this settles, and what it does not.** Seven of the eight cells clear the
+floor #930 registered in METHODOLOGY §14; `map` at pin `0-15` clears it in one
+run and not the other, which is the same boundary the evaluation at `686dd6cb`
+reported as `INTERMEDIATE` (§11.10.7). The engine change between the two heads
+did not move that cell off the boundary. #930 is closed on its seven-of-eight
+record; this re-run is the post-`929574b5` measurement it and #998 were owed,
+not a re-evaluation of that gate, which would need its own registration
+(AGENTS.md §8.19).
+
+**No cross-head claim is made.** The earlier figures come from a different head
+and a different campaign; under `docs/BENCHMARKING.md` rule 18 a delta is
+claimed only on cells both runs move the same way, and the `map` per-core cells
+here (24.06, 23.62) and the `set` cells overlap the intervals published at
+`686dd6cb`. The pre-`929574b5` subsections keep their own figures as that
+engine's record.
 
 ## 12. Mixed read/write concurrency — `benches/concurrency.rs` (`results/baseline_concurrent_mixed.json`)
 
