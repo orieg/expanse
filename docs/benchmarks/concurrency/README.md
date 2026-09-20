@@ -4409,7 +4409,7 @@ The gate pre-registers four gates over forty cells across two pins (`0-15` and `
 - **G4 (Skewed overwrite)**: $K(W) \ge 0.50$ at $W \in \{2, 4, 8\}$ (overwrite throughput under Zipfian skew $\theta = 0.99$ over uniform overwrite throughput).
 - **Tripwire (Deterministic)**: Zero single-writer ($W = 1$) `lock_restarts`.
 
-Evaluation commit: `5d017fea` on reference host `bench-ref-01` (Intel Core i9-12900F, 8P+8E / 24 threads).
+Evaluation commit: `5d017fea` on the reference host (Intel Core i9-12900F, 8P+8E / 24 threads).
 
 ### 21.1 The cells
 
@@ -4474,4 +4474,4 @@ The single-writer tripwire (`lock_restarts == 0` at W = 1) held strictly across 
   The single-writer price ratio $P = X_{\text{head}}(1) / X_{\text{serial}}(1)$ is 0.857–0.859 across all 4 runs (BCa 95% intervals within [0.845, 0.863]), falling below the pre-registered floor $F = 0.90$.
   **Mechanism**: Multi-writer OLC allocates an immutable replacement `Bucket` on the heap for every insert/overwrite, publishing it via atomic CAS (`olc_cas_publish_map`) and retiring the superseded bucket under epoch protection. In contrast, the serial build (`ablation-bytes-serial-writers`) mutates existing bucket entries in place under the writer mutex without heap allocation or epoch retirement when matching keys are updated. At $W=1$, where mutex contention is zero, the allocator and epoch-tracking overhead imposes a $\approx 14.1\%-14.3\%$ throughput price vs in-place mutation.
   Per GEMINI.md §1.6 and METHODOLOGY.md §22.7, the locked floor $F = 0.90$ does NOT move post-hoc; the outcome is recorded honestly as `REFUTED` on G3.
-- **Scope limitations**: Evaluated on reference host `bench-ref-01` (Intel Core i9-12900F). Nothing is claimed regarding concurrent removals, key churn outside the registered distributions, alternate hash algorithms, 32-bit targets, or alternate hosts.
+- **Scope limitations**: Evaluated on the reference host (Intel Core i9-12900F). Nothing is claimed regarding concurrent removals, key churn outside the registered distributions, alternate hash algorithms, 32-bit targets, or alternate hosts.
