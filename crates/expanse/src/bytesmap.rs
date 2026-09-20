@@ -85,9 +85,198 @@ pub(crate) type Entry = (Box<[u8]>, u64);
 /// the epoch collector when the map is concurrently shared, so a reader
 /// that validated the bucket pointer may keep reading the shell, entry
 /// array, and key bytes under its pin. Only the value word mutates in
-/// place (a single `u64`; the concurrent read path re-validates the
-/// tree version before returning it).
+/// place (a single `u64`).
+///
+/// #929: under the concurrent wrapper the value word is the **one**
+/// field two threads may touch at once, so both sides reach it through
+/// [`entry_value_atomic`] rather than as a plain `u64`. A writer stores
+/// only while it holds the terminal's parent version lock and only after
+/// that lock's compare has confirmed the bucket is still the published
+/// one, so an unlinked bucket's value words are frozen from the moment
+/// of the replacement; a reader loads without any lock. See
+/// [`ExpanseBytesMap::get_validated`] for what a reader can observe.
 pub(crate) type Bucket = Vec<Entry>;
+
+/// The atomic view of one published entry's value word.
+///
+/// [`Entry`] declares the value as a plain `u64` because the
+/// single-threaded engine owns it outright and the `JudyHS` slot
+/// contract hands it out as `*mut u64`
+/// ([`ExpanseBytesMap::ins_slot`]). The concurrent paths reach the same
+/// word through [`core::sync::atomic::AtomicU64::from_ptr`], which is
+/// exactly the "atomic access to a location declared non-atomically"
+/// case that constructor exists for: a `u64` field of a `#[repr(Rust)]`
+/// tuple is 8-aligned, which is `AtomicU64`'s alignment on every 64-bit
+/// target this is compiled for.
+///
+/// # Safety
+///
+/// `entries` must be the entry array of an EBR-live bucket with more
+/// than `at` entries, and every access to that word that is **not**
+/// through this view must be synchronized against the ones that are —
+/// which for the concurrent wrapper means it happens only with the
+/// optimistic writers quiesced. The returned reference must not outlive
+/// the caller's epoch pin.
+#[cfg(all(target_pointer_width = "64", feature = "std"))]
+#[inline(always)]
+pub(crate) unsafe fn entry_value_atomic<'a>(
+    entries: *const Entry,
+    at: usize,
+) -> &'a core::sync::atomic::AtomicU64 {
+    // SAFETY: `at` is in bounds of the caller's EBR-live entry array, so
+    // the field projection names a live, 8-aligned `u64`.
+    let word = unsafe { &raw const (*entries.add(at)).1 };
+    // SAFETY: forwarded contract — the word is valid for reads and
+    // writes for the pin's duration, 8-aligned, and every non-atomic
+    // access to it is synchronized against this one.
+    unsafe { core::sync::atomic::AtomicU64::from_ptr(word.cast_mut()) }
+}
+
+/// Locates `key` in the published bucket at `word`, returning the
+/// bucket's length and the matching entry index.
+///
+/// Reads only the write-once key fields, through raw pointers: it never
+/// forms a reference covering the value word, which a concurrent writer
+/// may be storing into through [`entry_value_atomic`].
+///
+/// # Safety
+///
+/// `word` must be a bucket pointer the caller validated under its
+/// epoch pin (see [`ExpanseBytesMap::get_validated`] for the contract).
+#[cfg(all(
+    target_pointer_width = "64",
+    feature = "std",
+    not(feature = "ablation-bytes-serial-writers")
+))]
+#[inline]
+pub(crate) unsafe fn bucket_find(word: u64, key: &[u8]) -> (usize, Option<usize>) {
+    let bucket = word as *const Bucket;
+    // SAFETY: EBR-live published bucket; shell and entry array are
+    // write-once after publication.
+    let (len, entries) = unsafe { ((*bucket).len(), (*bucket).as_ptr()) };
+    for i in 0..len {
+        // SAFETY: `i < len` of the write-once entry array; the
+        // projection names the key field only, never the value word.
+        let k: &[u8] = unsafe { &(*entries.add(i)).0 };
+        if k == key {
+            return (len, Some(i));
+        }
+    }
+    (len, None)
+}
+
+/// Builds the replacement bucket a colliding insert publishes: a
+/// positional copy of the `len` entries of the published bucket at
+/// `word`, with `key → val` appended.
+///
+/// Keys are cloned (the old bucket keeps ownership of its own, and is
+/// disposed of with them). Value words are read atomically, and re-read
+/// under the terminal's version lock by [`refresh_replacement_values`]
+/// before the replacement is published.
+///
+/// # Safety
+///
+/// As [`bucket_find`], with `len` the length it returned.
+#[cfg(all(
+    target_pointer_width = "64",
+    feature = "std",
+    not(feature = "ablation-bytes-serial-writers")
+))]
+pub(crate) unsafe fn clone_bucket_with(word: u64, len: usize, key: &[u8], val: u64) -> *mut Bucket {
+    let bucket = word as *const Bucket;
+    // SAFETY: EBR-live published bucket of `len` entries.
+    let entries = unsafe { (*bucket).as_ptr() };
+    let mut fresh: Bucket = Vec::with_capacity(len + 1);
+    for i in 0..len {
+        // SAFETY: `i < len`; the key field is write-once and the value
+        // word is loaded through its atomic view.
+        let (k, v) = unsafe {
+            let k: &[u8] = &(*entries.add(i)).0;
+            (
+                Box::<[u8]>::from(k),
+                entry_value_atomic(entries, i).load(core::sync::atomic::Ordering::Relaxed),
+            )
+        };
+        fresh.push((k, v));
+    }
+    fresh.push((key.into(), val));
+    Box::into_raw(Box::new(fresh))
+}
+
+/// Publishes `val` as entry `at`'s value inside the already-published
+/// bucket at `word`, returning the value it replaced — the whole of an
+/// overwrite's write set (#929). No allocation, no bucket replacement,
+/// no epoch retirement.
+///
+/// The load and the store are separate because the caller holds the
+/// terminal's parent version lock, which every other in-place publish
+/// and every bucket replacement for this hash must also hold: no other
+/// writer can interleave, so a read-modify-write instruction would buy
+/// nothing.
+///
+/// # Safety
+///
+/// The caller must hold the terminal's parent version lock **and** have
+/// confirmed under that lock that `word` is still the published bucket
+/// word for this hash (see `sync::olc_bucket_value_inplace_map`), and
+/// `at` must index an entry of that bucket.
+#[cfg(all(
+    target_pointer_width = "64",
+    feature = "std",
+    not(feature = "ablation-bytes-serial-writers")
+))]
+#[inline]
+pub(crate) unsafe fn publish_entry_value(word: u64, at: usize, val: u64) -> u64 {
+    use core::sync::atomic::Ordering;
+    let bucket = word as *const Bucket;
+    // SAFETY: `word` is the published bucket for this hash, so its shell
+    // is EBR-live and its entry array holds more than `at` entries.
+    let entries = unsafe { (*bucket).as_ptr() };
+    // SAFETY: forwarded contract. `Relaxed` is enough on both: the
+    // version unlock that follows is the release a reader's validation
+    // acquires, and a reader that misses it returns the value the key
+    // held before this store.
+    let slot = unsafe { entry_value_atomic(entries, at) };
+    let prev = slot.load(Ordering::Relaxed);
+    slot.store(val, Ordering::Relaxed);
+    prev
+}
+
+/// Re-reads the first `n` value words of the published bucket at `word`
+/// into the still-unpublished replacement `repl`, whose first `n`
+/// entries are a positional copy of it.
+///
+/// A replacement bucket is built outside the terminal's version lock, so
+/// an in-place value publish can land between the copy and the
+/// publishing compare-and-swap. That publish holds the same lock the
+/// caller holds here, so refreshing under the lock is what makes the two
+/// writers mutually exclusive: without it the replacement would carry a
+/// stale value word and silently drop an acknowledged overwrite.
+///
+/// # Safety
+///
+/// As [`publish_entry_value`], plus: `repl` is owned by the caller and
+/// unpublished, and its first `n` entries hold the same keys, in the
+/// same order, as the bucket at `word`.
+#[cfg(all(
+    target_pointer_width = "64",
+    feature = "std",
+    not(feature = "ablation-bytes-serial-writers")
+))]
+#[inline]
+pub(crate) unsafe fn refresh_replacement_values(word: u64, repl: *mut Bucket, n: usize) {
+    let entries = word as *const Bucket;
+    // SAFETY: `word` is the published bucket for this hash under the
+    // caller's lock; `repl` is the caller's own unpublished bucket.
+    let (base, dst) = unsafe { ((*entries).as_ptr(), (*repl).as_mut_ptr()) };
+    for i in 0..n {
+        // SAFETY: `i < n` indexes both arrays by the caller's contract.
+        let v = unsafe { entry_value_atomic(base, i) }.load(core::sync::atomic::Ordering::Relaxed);
+        // SAFETY: `dst.add(i)` is an entry of the caller's own bucket,
+        // which no other thread can reach until it is published.
+        unsafe { (*dst.add(i)).1 = v };
+    }
+}
 
 /// Approximate heap cost of one entry beyond its key bytes (the boxed
 /// key's pointer/len pair plus the value word in the bucket vector).
@@ -422,9 +611,38 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     /// published bucket is write-once except its value words (structural
     /// changes publish a replacement and retire the old bucket — see
     /// [`Bucket`]), so the shell, entry array, and key bytes read here
-    /// are exactly the published state; the value word may race with an
-    /// in-place update and is covered by the final tree-version
-    /// validation before anything is returned.
+    /// are exactly the published state.
+    ///
+    /// # What a reader can observe (#929)
+    ///
+    /// The value word is the one field a concurrent writer may store
+    /// into, so it is loaded through [`entry_value_atomic`] and never as
+    /// a plain `u64`. Three races are possible and each yields a value
+    /// the key actually held:
+    ///
+    /// - **An in-place value publish on the bucket this reader is
+    ///   scanning.** The load returns the value before or after that
+    ///   store; both are values the key held, and the read linearizes at
+    ///   the load. That publish leaves the versions alone — it unlocks
+    ///   the terminal's parent clean — so the validation below does not
+    ///   reject the read, deliberately: rejecting it would only trade a
+    ///   correct answer for an equally correct fresher one.
+    /// - **A bucket replacement of the bucket this reader is
+    ///   scanning.** The replacement stores the trie word under the
+    ///   terminal's parent version lock and unlocks it dirty, so a
+    ///   reader that walked across it fails its validation and retries
+    ///   rather than returning what it read.
+    /// - **Both at once.** The replacement re-reads the value words
+    ///   under the same version lock the in-place publish takes
+    ///   ([`refresh_replacement_values`]), so the two cannot interleave
+    ///   and no acknowledged overwrite is dropped.
+    ///
+    /// An unlinked bucket's value words are frozen: a writer stores only
+    /// after its locked compare has seen its own bucket word still
+    /// published, which no writer can see again once the trie entry has
+    /// moved on. A pinned reader still scanning a retired bucket
+    /// therefore reads values the key held at or before the
+    /// replacement — and is made to retry by the validation anyway.
     ///
     /// # Safety
     ///
@@ -461,14 +679,18 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         let (len, entries) = unsafe { ((*bucket).len(), (*bucket).as_ptr()) };
         let mut result = None;
         for i in 0..len {
-            // SAFETY: `i < len` of the write-once entry array; the value
-            // word may race and is validated below before use.
-            let (k, v) = unsafe {
-                let e = &*entries.add(i);
-                (&e.0[..], e.1)
-            };
+            // SAFETY: `i < len` of the write-once entry array; the
+            // projection names the key field only, never the value word.
+            let k: &[u8] = unsafe { &(*entries.add(i)).0 };
             if k == key {
-                result = Some(v);
+                // SAFETY: `i < len` of an EBR-live entry array under the
+                // caller's pin. The atomic load is what makes a
+                // concurrent in-place publish well-defined rather than a
+                // data race; see this method's docs for what it returns.
+                result = Some(
+                    unsafe { entry_value_atomic(entries, i) }
+                        .load(core::sync::atomic::Ordering::Relaxed),
+                );
                 break;
             }
         }
@@ -567,8 +789,26 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     pub fn insert(&mut self, key: &[u8], val: u64) -> Option<u64> {
         let (slot, prev) = self.insert_slot_inner(key, val);
         if prev.is_some() {
+            // The one in-place value mutation of a published bucket on
+            // this path. It is a `&mut self` method, so no other writer
+            // is running; the concurrent wrapper's optimistic *readers*
+            // are not excluded by that, and they load this word through
+            // [`entry_value_atomic`], so the store goes through the same
+            // view (#929). Relaxed, and the same instruction as a plain
+            // store; the wrapper's version bracket is the release.
+            #[cfg(all(target_pointer_width = "64", feature = "std"))]
+            // SAFETY: the slot is the live value word of an entry in an
+            // existing bucket, 8-aligned, and valid until the next
+            // structural mutation, which this call does not perform.
+            unsafe {
+                core::sync::atomic::AtomicU64::from_ptr(slot.as_ptr())
+                    .store(val, core::sync::atomic::Ordering::Relaxed);
+            }
+            #[cfg(not(all(target_pointer_width = "64", feature = "std")))]
             // SAFETY: slot points to live entry within the existing bucket.
-            unsafe { *slot.as_ptr() = val };
+            unsafe {
+                *slot.as_ptr() = val
+            };
         }
         prev
     }

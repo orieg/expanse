@@ -3759,4 +3759,118 @@ mod loom_tests {
     fn loom_compare_exchange_compare_outside_the_lock_loses_an_update() {
         cas_two_writers_model(CasCompare::BeforeLockExpectingNothing);
     }
+
+    /// The bytes wrapper's two bucket writers (#929), reduced to the two
+    /// words they contend on: `word` is the trie slot naming the published
+    /// bucket, and each bucket is one value word.
+    ///
+    /// - The **in-place publish** stores into the bucket `word` still names,
+    ///   under the parent's version lock, leaving `word` alone.
+    /// - The **replacement** copies the published bucket's value *outside*
+    ///   the lock (that is where the real path clones keys and allocates),
+    ///   then takes the lock, compares, and stores the new bucket.
+    ///
+    /// `refresh` is `refresh_replacement_values`: re-reading the value word
+    /// under the lock, immediately before the publish. Without it the copy
+    /// is stale for exactly as long as the allocation takes.
+    fn bucket_two_writers_model(refresh: bool) {
+        const OLD_BUCKET: u64 = 1;
+        const NEW_BUCKET: u64 = 2;
+        const INIT: u64 = 7;
+        const OVERWRITTEN: u64 = 9;
+
+        loom::model(move || {
+            let node_v = Arc::new(VersionCell::new(0));
+            let word = Arc::new(AtomicU64::new(OLD_BUCKET));
+            let old_bucket = Arc::new(AtomicU64::new(INIT));
+            let new_bucket = Arc::new(AtomicU64::new(0));
+
+            // The in-place value publish.
+            let (v1, w1, b1) = (
+                Arc::clone(&node_v),
+                Arc::clone(&word),
+                Arc::clone(&old_bucket),
+            );
+            let inplace = loom::thread::spawn(move || {
+                loop {
+                    let Some(snap) = node_sample(&v1) else {
+                        loom::thread::yield_now();
+                        continue;
+                    };
+                    let Ok(old_v) = version_try_lock_expect(&v1, snap) else {
+                        loom::thread::yield_now();
+                        continue;
+                    };
+                    let seen = w1.load(Ordering::Relaxed);
+                    if seen != OLD_BUCKET {
+                        // The bucket moved: nothing is stored, and the
+                        // caller re-reads it. Not a lost update.
+                        version_unlock(&v1, old_v, false);
+                        return Err(seen);
+                    }
+                    b1.store(OVERWRITTEN, Ordering::Relaxed);
+                    version_unlock(&v1, old_v, false);
+                    return Ok(());
+                }
+            });
+
+            // The replacement: the copy happens before the lock.
+            let mut copied = old_bucket.load(Ordering::Relaxed);
+            let replaced = loop {
+                let Some(snap) = node_sample(&node_v) else {
+                    loom::thread::yield_now();
+                    continue;
+                };
+                let Ok(old_v) = version_try_lock_expect(&node_v, snap) else {
+                    loom::thread::yield_now();
+                    continue;
+                };
+                let seen = word.load(Ordering::Relaxed);
+                if seen != OLD_BUCKET {
+                    version_unlock(&node_v, old_v, false);
+                    break Err(seen);
+                }
+                if refresh {
+                    copied = old_bucket.load(Ordering::Relaxed);
+                }
+                new_bucket.store(copied, Ordering::Relaxed);
+                word.store(NEW_BUCKET, Ordering::Relaxed);
+                version_unlock(&node_v, old_v, true);
+                break Ok(());
+            };
+
+            let stored_in_place = inplace.join().unwrap().is_ok();
+            let published = word.load(Ordering::Relaxed);
+            let live = if published == NEW_BUCKET {
+                new_bucket.load(Ordering::Relaxed)
+            } else {
+                old_bucket.load(Ordering::Relaxed)
+            };
+            let want = if stored_in_place { OVERWRITTEN } else { INIT };
+            assert_eq!(
+                live,
+                want,
+                "bucket replacement dropped an acknowledged in-place value \
+                 (in place: {stored_in_place}, replaced: {:?})",
+                replaced.is_ok()
+            );
+        });
+    }
+
+    /// An in-place value publish acknowledged before a bucket replacement
+    /// survives it: the replacement re-reads the value word under the same
+    /// version lock the publish took.
+    #[test]
+    fn loom_bucket_inplace_value_survives_a_replacement() {
+        bucket_two_writers_model(true);
+    }
+
+    /// The negative control: without the re-read under the lock, the value
+    /// copied while the replacement was being built is stale and the
+    /// acknowledged overwrite is lost.
+    #[test]
+    #[should_panic(expected = "dropped an acknowledged in-place value")]
+    fn loom_bucket_replacement_without_the_refresh_loses_an_overwrite() {
+        bucket_two_writers_model(false);
+    }
 }
