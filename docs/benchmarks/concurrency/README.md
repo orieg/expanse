@@ -4512,5 +4512,54 @@ The single-writer tripwire (`lock_restarts == 0` at W = 1) held strictly across 
 - **Single-writer price floor $F = 0.90$ is REFUTED.**
   The single-writer price ratio $P = X_{\text{head}}(1) / X_{\text{serial}}(1)$ is 0.857–0.859 across all 4 runs (BCa 95% intervals within [0.845, 0.863]), falling below the pre-registered floor $F = 0.90$.
   **Mechanism**: Multi-writer OLC allocates an immutable replacement `Bucket` on the heap for every insert/overwrite, publishing it via atomic CAS (`olc_cas_publish_map`) and retiring the superseded bucket under epoch protection. In contrast, the serial build (`ablation-bytes-serial-writers`) mutates existing bucket entries in place under the writer mutex without heap allocation or epoch retirement when matching keys are updated. At $W=1$, where mutex contention is zero, the allocator and epoch-tracking overhead imposes a $\approx 14.1\%-14.3\%$ throughput price vs in-place mutation.
+  **Superseded in place (2026-09-20, §21.3): this paragraph describes the overwrite path, not G3's cell.** G3's cell inserts keys absent from the prefill, where a fresh hash allocates a bucket and retires nothing in either build. Profiled, the allocator delta is +801 Ir and the epoch-advance delta +12,486 Ir, together 0.12% of the gap; the price is the validated walk (58.6%) and the descent difference (35.0%). The verdict, the ratio and the intervals above are unchanged — only the stated cause is corrected.
   Per GEMINI.md §1.6 and METHODOLOGY.md §22.7, the locked floor $F = 0.90$ does NOT move post-hoc; the outcome is recorded honestly as `REFUTED` on G3.
 - **Scope limitations**: Evaluated on the reference host (Intel Core i9-12900F). Nothing is claimed regarding concurrent removals, key churn outside the registered distributions, alternate hash algorithms, 32-bit targets, or alternate hosts.
+
+### 21.3 Where that price sits, measured (2026-09-20, Refs #929)
+
+§21.2's mechanism paragraph attributed $P$ to bucket allocation and epoch retirement. That paragraph describes an **overwrite**: a key already in its bucket, which the serialised build mutates in place and the multi-writer build replaced. G3's cell is not that. §22.4 and §22.6 fix `concurrency_writer_bytes` as a $2^{20}$ prefill plus $2^{20}$ **fresh** keys, and `run_bytes_cell` times only the fresh-key loop, where a fresh hash allocates a bucket and retires nothing **in both builds**. The verdict, its interval and its artifacts in §21.1–§21.2 stand unchanged; what follows corrects the stated cause.
+
+The instrument is Callgrind on `sync_bytesmap_insert/routes`, the default build against the same commit built with `ablation-bytes-serial-writers` *(measured: development box — 72-core x86_64, commit `0b08dd5b`; artifact `results/callgrind_929_bytes_price_0b08dd5b.json`)*. That arm is the same **shape** as the cell — fresh inserts through `SyncExpanseBytesMap::insert` — and **not** the cell: 50,000 keys against $2^{20}$, 42-byte route strings against 8–16-byte alphanumeric, an empty map against a $2^{20}$ prefill *(workloads differ: `core_instructions` `sync_bytesmap_insert/routes` vs `concurrency_writer_bytes`)*. Instruction counts are exact integers with no interval (§8.4); no wall-clock figure is taken from that host.
+
+| build | Ir | Ir / insert | D1 read misses |
+|---|--:|--:|--:|
+| default (multi-writer OLC) | 107,350,959 | 2,147.0 | 357,441 |
+| `ablation-bytes-serial-writers` | 95,842,263 | 1,916.8 | 355,780 |
+| **gap** | **+11,508,696 (+12.01 %)** | **+230.2** | **+1,661 (+0.47 %)** |
+
+Where the gap goes, by exclusive per-function Ir with symbols merged across the source files their inlined bodies are attributed to:
+
+| term | delta Ir | share of gap |
+|---|--:|--:|
+| the validated walk (`sync::walk_validated::<true>`) the multi-writer insert runs before its publishing descent | +6,740,323 | 58.6 % |
+| the OLC publishing descent against the serialised `ins_slot` descent | +4,024,641 | 35.0 % |
+| writer slot, epoch pin, sharded population counters, retry scaffolding | +376,454 | 3.3 % |
+| `__memcmp_avx2_movbe`, caller unresolved by the annotation | +239,547 | 2.1 % |
+| **allocator** (`_int_malloc`, `malloc`, `free`, `realloc`, `memcpy`) | **+801** | **0.007 %** |
+| **epoch advance** (`occ::Collector::try_advance`) | **+12,486** | **0.11 %** |
+| remainder below the 99.9 % annotate threshold | +100,680 | 0.9 % |
+
+So on the path G3's cell takes, **the allocator and epoch-tracking attribution in §21.2 is refuted**: both builds allocate the same bucket for a fresh key and neither retires one, and the two terms together are 0.12 % of the gap. Nothing is attributed by subtraction — the groups sum to within 13,764 Ir of the arm-total gap (§8.20.4).
+
+The walk's figure comes from an outlining diff rather than a line-region sum: a third build, default features with `#[inline(never)]` in place of `#[inline(always)]` on `sync::walk_validated`, which is an instrument and is not committed. Outlining moved the arm to 108,614,064 Ir; `SyncExpanseBytesMap::insert`'s self cost fell by 5,797,169 while `walk_validated::<true>` appeared at 7,060,267 self, and the two reconcile to the arm delta within 7 Ir. Inlined cost is therefore 5,797,169 self plus 943,154 in `leaf::search` and `leaf::lower_bound_fixed::<7>`, which the outlined build attributes entirely to the walk — **134.8 Ir per insert**. Both builds in that diff share a feature set, so no feature-driven codegen enters the number.
+
+**Codegen caveat on the 12.01 %, not on the walk.** Fifteen arms with no source change move between the default and ablation builds: `sync_blobmap_overwrite` +3.52 %, `sync_blobmap_insert` +1.98 %, `sync_blobmap_churn` +1.75 %, `sync_set_churn` +1.39 %, `sync_map_compare_exchange` +1.23 %, down to `sync_strmap_insert_short` +0.39 %; 89 of the 108 arms move within 0.1 %. The ablation feature gates out the bytes OLC bodies, which changes inlining crate-wide — the `OlcHost::edge_tag` uniqueness effect recorded in #1001. These are not build nondeterminism: `results/callgrind_alloc_shard_cells_686dd6cb.json` measured this bench's reproducibility at `686dd6cb` and found 126 of 129 arms bit-identical across two builds of one tree, the three exceptions all `*_short` string arms. Their scale bounds how much of the bytes gap could also be codegen rather than protocol, and this instrument cannot separate the two. No build-reproducibility control was taken for this pair.
+
+### 21.4 The one identified candidate, costed and rejected (2026-09-20, Refs #929)
+
+The candidate was to remove the redundant descent: on a fresh key the multi-writer path walks the index to read the bucket word and then descends again to publish, where the serialised build calls `ins_slot` once. The ranking above confirms it is the dominant term. It is nonetheless rejected as a way to meet G3, on two grounds.
+
+**It is not one increment.** `olc_cas_publish_bucket_map` already returns `Done(Some(old))` without storing when a word exists, so publishing first and walking only on that outcome is small — and it makes every overwrite pay a speculative bucket allocation and a wasted descent. Three designs, costed from the same run:
+
+| design | fresh path | overwrite path |
+|---|---|---|
+| publish first with a speculative bucket | −134.8 Ir/insert | one wasted descent (≈474 Ir/op) plus three allocations and three frees (≈700 Ir/op, derived from `_int_malloc` + `malloc` at 620 Ir/op and `free` at 67 Ir/op across the bucket's three allocations) against an arm at 1,099 Ir/op |
+| decide inside the descent through the existing `$keep` hook, fresh bucket pre-allocated and passed as `$val` | −134.8 Ir/insert | no wasted descent, but the same wasted allocation and free: ≈ +51 % on `sync_bytesmap_overwrite` |
+| allocate lazily at the absent terminal, removing that too | −134.8 Ir/insert | none — but the global allocator then runs **inside the version lock**, where `SeqVersion::sample` spins a reader unbounded on an odd word. It also needs `$val:ident` → `$val:expr` in `olc_insert_map_body!`, shared with the map, string and blob wrappers whose arms §22.4 requires within 0.1 % |
+
+The first two trade a `PASS`ing G4 and two measured arms for a `REFUTED` G3; the third is a protocol regression, and the current design builds the bucket outside the lock and CASes it in precisely to avoid it.
+
+**And its ceiling is the floor.** Removing the walk outright cuts 6.28 % of the arm's instructions and 4.47 % of Callgrind's estimated cycles, against the 4.47 % cut in per-op time that $P = 0.858$ → $0.90$ requires *(projection, not a measurement — §6; workloads differ: `core_instructions` `sync_bytesmap_insert/routes` vs `concurrency_writer_bytes`)*. The conversion assumes the removed instructions are L1 hits and that the walk's D1 misses relocate to the publishing descent rather than disappearing; the +0.47 % D1-read-miss gap in §21.3's table is the direct evidence for that on this arm, and the outlined build puts 126,221 D1 read misses — 35.3 % of the arm's total — inside the walk. A 4.47 % cut against a 4.47 % requirement puts the **point estimate on the floor**, and §22.4 gates on the BCa 95 % **lower** bound, which in the four observed G3 cells sits 0.001, 0.003, 0.003 and 0.012 below its point estimate (§21.1): the gate would still read `REFUTED`. Callgrind's estimated cycles are a model and not a measurement (§8.9), and the cell's deeper trie and shorter keys raise the walk's share while its far larger working set weakens the relocation assumption.
+
+**No further work on this is planned.** $F = 0.90$ does not move (§8.19); G3 stays `REFUTED` at 0.857–0.859 with the verdict and intervals of §21.1 unchanged. Reopening it would need one of: a wall-clock measurement on the reference host showing the walk costs materially more of the cell's per-op time than its instruction share predicts; a design that removes the walk without either an overwrite regression or an allocation inside the version lock; or a second, independent term of comparable size found on the path — the 35.0 % descent-difference term is the only other candidate this ranking leaves, and it is the publishing descent itself, which cannot be removed.
