@@ -7875,22 +7875,129 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
     olc_remove_map_body!(host, false, _old => false, key)
 }
 
-/// The conditional publish over any [`OlcHost`]; see [`olc_insert_map`].
+// ---------------------------------------------------------------------
+// The bytes wrapper's two bucket publishes (#929).
+//
+// `olc_insert_map_body!` evaluates its `$keep` expression at every
+// terminal form **while the terminal's parent version lock is held**,
+// with the word the compare just read bound to `$old`, and stores the
+// new word only when that expression is `false`. The two functions
+// below use that as the hook a bucket mutation needs: whatever they do
+// to bucket memory happens inside the same lock the *other* bucket
+// mutation for the same hash must take, so the two cannot interleave.
+//
+// Every one of those four sites already sits inside an `unsafe` block,
+// so the unsafe calls below are written without one of their own — a
+// nested block would be `unused_unsafe`, which `-D warnings` rejects.
+// Their `// SAFETY:` notes are here, on the caller that establishes the
+// contract, because clippy cannot see a comment through a macro.
+// ---------------------------------------------------------------------
+
+/// The in-place value publish: [`olc_cas_publish_bucket_map`]'s compare
+/// with its store replaced by a store *inside* the bucket the compared
+/// word already points at (#929).
+///
+/// An overwrite of a key that is already present changes exactly one
+/// `u64`. Publishing it in place costs the descent, the parent version
+/// lock and that store — no replacement bucket, no key clone, no CAS of
+/// the trie word, no epoch retirement, and no epoch-advance tick,
+/// because the operation produces no garbage.
+///
+/// `Done(seen)`: the store happened iff `seen == Some(expected)`, and
+/// `prev` then holds the value it replaced. Any other outcome means the
+/// bucket moved under the caller, which must re-read it and start over.
+///
+/// SAFETY (for the call inside `$keep`): the macro has taken the
+/// terminal's parent version lock and re-checked the edge, and `old`
+/// is the bucket word it read under that lock. Comparing it with
+/// `expected` is what establishes that the bucket the caller scanned is
+/// still the published one, so the store lands in live, published
+/// memory and no concurrent replacement can be copying it. `at` indexes
+/// an entry of that same bucket, located by `bucket_find` under the
+/// caller's pin.
 #[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(all(
     feature = "std",
     target_pointer_width = "64",
     not(feature = "ablation-bytes-serial-writers")
 ))]
-pub(crate) fn olc_cas_publish_map<H: OlcHost>(
+pub(crate) fn olc_bucket_value_inplace_map<H: OlcHost>(
+    host: &H,
+    key: Key,
+    expected: u64,
+    at: usize,
+    val: u64,
+    prev: &mut u64,
+) -> OlcOutcome<Option<u64>> {
+    olc_insert_map_body!(
+        host,
+        old => {
+            if old == expected {
+                *prev = crate::bytesmap::publish_entry_value(old, at, val);
+            }
+            // Never store the trie word: this operation does not move
+            // the bucket, so the terminal unlocks clean and readers
+            // that validated across it are not made to retry.
+            true
+        },
+        false,
+        key,
+        val
+    )
+}
+
+/// The bucket-replacement publish: the conditional store of a new
+/// bucket word over `expected`, with the replacement's value words
+/// refreshed from the published bucket under the lock, immediately
+/// before that store (#929).
+///
+/// `expected` is `None` for a fresh hash (nothing to compare with,
+/// nothing to refresh, and the terminal is created) and `Some(word)`
+/// for a key colliding into an existing bucket. `shared_prefix` is how
+/// many leading entries of the replacement are a positional copy of the
+/// published bucket — its whole length, since a colliding insert
+/// appends, and zero when there is no published bucket.
+///
+/// Refreshing is what stops a concurrent
+/// [`olc_bucket_value_inplace_map`] from being silently dropped: the
+/// replacement is built outside the lock, so an overwrite acknowledged
+/// after that copy and before this store would otherwise vanish with
+/// the retired bucket.
+///
+/// `Done(seen)`: the store happened iff `seen == expected`.
+///
+/// SAFETY (for the call inside `$keep`): as
+/// [`olc_bucket_value_inplace_map`], plus — `val` is the caller's own
+/// replacement bucket, still unpublished and reachable by no other
+/// thread, whose first `shared_prefix` entries hold the same keys in
+/// the same order as the bucket at `old`.
+#[allow(clippy::undocumented_unsafe_blocks)]
+#[cfg(all(
+    feature = "std",
+    target_pointer_width = "64",
+    not(feature = "ablation-bytes-serial-writers")
+))]
+pub(crate) fn olc_cas_publish_bucket_map<H: OlcHost>(
     host: &H,
     key: Key,
     expected: Option<u64>,
+    shared_prefix: usize,
     val: u64,
 ) -> OlcOutcome<Option<u64>> {
     olc_insert_map_body!(
         host,
-        old => expected != Some(old),
+        old => {
+            if expected == Some(old) {
+                crate::bytesmap::refresh_replacement_values(
+                    old,
+                    val as *mut Bucket,
+                    shared_prefix,
+                );
+                false
+            } else {
+                true
+            }
+        },
         expected.is_none(),
         key,
         val
@@ -9829,6 +9936,21 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                 #[cfg(feature = "occ-stats")]
                 let mut closed = false;
                 let mut backoff = 1;
+                // One restart: count it, spin, widen the window. Defined
+                // after `backoff` so the name resolves to it.
+                macro_rules! stall {
+                    () => {{
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                        for _ in 0..backoff {
+                            core::hint::spin_loop();
+                        }
+                        if backoff < 64 {
+                            backoff <<= 1;
+                        }
+                        #[cfg(loom)]
+                        loom::thread::yield_now();
+                    }};
+                }
                 for _ in 0..MAX_RETRIES {
                     if self.shared.gate.is_closed() {
                         #[cfg(feature = "occ-stats")]
@@ -9846,109 +9968,110 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                     } {
                         Ok(f) => f,
                         Err(Retry) => {
-                            crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
-                            for _ in 0..backoff {
-                                core::hint::spin_loop();
-                            }
-                            if backoff < 64 {
-                                backoff <<= 1;
-                            }
-                            #[cfg(loom)]
-                            loom::thread::yield_now();
+                            stall!();
                             continue;
                         }
                     };
 
-                    let (new_raw, expected, is_new_key, prev_val, old_ptr) = match found {
-                        None => {
-                            let bucket: Bucket = vec![(key.into(), val)];
-                            let raw = Box::into_raw(Box::new(bucket)) as u64;
-                            (raw, None, true, None, None)
-                        }
+                    // #929: an overwrite of a key already in its bucket
+                    // changes exactly one `u64`, so publish it in place —
+                    // no replacement bucket, no key clone, no trie-word
+                    // CAS, no epoch retirement, no advance tick. Every
+                    // change to the *chain* (a fresh hash, a colliding
+                    // key) still replaces the bucket, below.
+                    let collision = match found {
+                        None => None,
                         Some(word) => {
                             if word == 0 {
-                                crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
-                                for _ in 0..backoff {
-                                    core::hint::spin_loop();
-                                }
-                                if backoff < 64 {
-                                    backoff <<= 1;
-                                }
-                                #[cfg(loom)]
-                                loom::thread::yield_now();
+                                // Observable only mid-publication of a
+                                // fresh hash; the writer's bracket is open.
+                                stall!();
                                 continue;
                             }
-                            let old = word as *mut Bucket;
-                            // SAFETY: live bucket memory under writer pin; write-once entry array.
-                            let old_bucket = unsafe { &*old };
-                            if let Some(at) = old_bucket.iter().position(|(k, _)| &**k == key) {
-                                let prev = old_bucket[at].1;
-                                let old_len = old_bucket.len();
-                                let mut fresh: Bucket = Vec::with_capacity(old_len);
-                                for (i, (k, v)) in old_bucket.iter().enumerate() {
-                                    if i == at {
-                                        fresh.push((k.clone(), val));
-                                    } else {
-                                        fresh.push((k.clone(), *v));
+                            // SAFETY: `word` was validated at `snap` under this
+                            // thread's pin, so the bucket shell, its entry array
+                            // and its key bytes are EBR-live and write-once.
+                            let (len, at) = unsafe { crate::bytesmap::bucket_find(word, key) };
+                            match at {
+                                // Absent from a live bucket: a real 64-bit
+                                // hash collision, handled below.
+                                None => Some((word, len)),
+                                Some(at) => {
+                                    let mut prev = 0u64;
+                                    match olc_bucket_value_inplace_map(
+                                        &*self.shared,
+                                        h,
+                                        word,
+                                        at,
+                                        val,
+                                        &mut prev,
+                                    ) {
+                                        OlcOutcome::Done(Some(seen)) if seen == word => {
+                                            crate::occ_stats::op_end();
+                                            return Ok(Some(prev));
+                                        }
+                                        OlcOutcome::Fallback(c) => {
+                                            cause = c;
+                                            break;
+                                        }
+                                        // Nothing was stored: the bucket moved
+                                        // under us, or its terminal did. Re-read.
+                                        OlcOutcome::Done(_) | OlcOutcome::Retry => {
+                                            stall!();
+                                            continue;
+                                        }
                                     }
                                 }
-                                let raw = Box::into_raw(Box::new(fresh)) as u64;
-                                (raw, Some(word), false, Some(prev), Some(old))
-                            } else {
-                                let old_len = old_bucket.len();
-                                let mut fresh: Bucket = Vec::with_capacity(old_len + 1);
-                                for (k, v) in old_bucket.iter() {
-                                    fresh.push((k.clone(), *v));
-                                }
-                                fresh.push((key.into(), val));
-                                let raw = Box::into_raw(Box::new(fresh)) as u64;
-                                (raw, Some(word), true, None, Some(old))
                             }
                         }
                     };
 
-                    match olc_cas_publish_map(&*self.shared, h, expected, new_raw) {
+                    // Both remaining shapes add a key, so neither has a
+                    // previous value to return.
+                    let (new_raw, expected, old_ptr, shared_prefix) = match collision {
+                        None => {
+                            let bucket: Bucket = vec![(key.into(), val)];
+                            (Box::into_raw(Box::new(bucket)) as u64, None, None, 0)
+                        }
+                        Some((word, len)) => {
+                            // A real 64-bit hash collision: a chain change.
+                            // SAFETY: as `bucket_find` above, with the length
+                            // it returned.
+                            let raw =
+                                unsafe { crate::bytesmap::clone_bucket_with(word, len, key, val) };
+                            (raw as u64, Some(word), Some(word as *mut Bucket), len)
+                        }
+                    };
+
+                    match olc_cas_publish_bucket_map(
+                        &*self.shared,
+                        h,
+                        expected,
+                        shared_prefix,
+                        new_raw,
+                    ) {
                         OlcOutcome::Done(actual) => {
                             if actual == expected {
                                 if expected.is_none() {
                                     self.shared.tree_pop.add(slot_id, 1);
                                 }
-                                if is_new_key {
-                                    self.entry_pop.add(slot_id, 1);
-                                }
+                                self.entry_pop.add(slot_id, 1);
                                 if let Some(old) = old_ptr {
                                     dispose_bucket(old, true, Some(&self.shared.collector));
                                 }
                                 self.shared.collector.tick_advance();
                                 crate::occ_stats::op_end();
-                                return Ok(prev_val);
-                            } else {
-                                // CAS mismatch: another writer published. Drop unshared allocation.
-                                // SAFETY: `new_raw` was freshly allocated via Box::into_raw above.
-                                drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
-                                crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
-                                for _ in 0..backoff {
-                                    core::hint::spin_loop();
-                                }
-                                if backoff < 64 {
-                                    backoff <<= 1;
-                                }
-                                #[cfg(loom)]
-                                loom::thread::yield_now();
+                                return Ok(None);
                             }
+                            // CAS mismatch: another writer published. Drop unshared allocation.
+                            // SAFETY: `new_raw` was freshly allocated via Box::into_raw above.
+                            drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                            stall!();
                         }
                         OlcOutcome::Retry => {
                             // SAFETY: `new_raw` was freshly allocated via Box::into_raw above.
                             drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
-                            crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
-                            for _ in 0..backoff {
-                                core::hint::spin_loop();
-                            }
-                            if backoff < 64 {
-                                backoff <<= 1;
-                            }
-                            #[cfg(loom)]
-                            loom::thread::yield_now();
+                            stall!();
                         }
                         OlcOutcome::Fallback(c) => {
                             // SAFETY: `new_raw` was freshly allocated via Box::into_raw above.
@@ -12625,6 +12748,269 @@ mod tests {
         for r in readers {
             r.join().expect("reader panicked");
         }
+    }
+
+    // -----------------------------------------------------------------
+    // #929: the in-place value publish under multi-writer pressure.
+    // -----------------------------------------------------------------
+
+    /// A hasher with a small image: every key lands in one of 96 hash
+    /// slots. More than `ROOT_LEAF_CAP` (31) of them are populated, so the
+    /// hash trie is a real tree and the optimistic write path runs — which
+    /// [`Degenerate`] cannot do, since one hash is one root leaf — while
+    /// every slot still holds a real collision bucket.
+    #[derive(Default)]
+    struct FewBuckets(u64);
+    impl std::hash::Hasher for FewBuckets {
+        fn finish(&self) -> u64 {
+            self.0 % 96
+        }
+        fn write(&mut self, bytes: &[u8]) {
+            let mut h = 0xcbf2_9ce4_8422_2325u64;
+            for &b in bytes {
+                h ^= u64::from(b);
+                h = h.wrapping_mul(0x100_0000_01b3);
+            }
+            self.0 = h;
+        }
+    }
+    impl BuildHasher for FewBuckets {
+        type Hasher = FewBuckets;
+        fn build_hasher(&self) -> FewBuckets {
+            FewBuckets(0)
+        }
+    }
+
+    const SHARED_KEYS: usize = 64;
+    const SHARED_W: usize = 4;
+    const SHARED_ROUNDS: u64 = 200;
+    /// A bound on the collider thread, which otherwise runs for as long
+    /// as the writers do.
+    const SHARED_COLLIDER_CAP: u64 = 100_000;
+
+    fn shared_key(ki: usize) -> Vec<u8> {
+        format!("shared-{ki:04}").into_bytes()
+    }
+
+    /// Self-describing so a reader can check a value without a model:
+    /// `key index | writer + 1 | round + 1`. The prefill is writer 0,
+    /// round 0.
+    fn shared_val(ki: usize, w: usize, round: u64) -> u64 {
+        ((ki as u64) << 48) | (((w as u64) + 1) << 32) | (round + 1)
+    }
+
+    fn shared_prefill_val(ki: usize) -> u64 {
+        (ki as u64) << 48
+    }
+
+    /// Every value a shared key ever holds decodes to its own index and to
+    /// a writer and round that were actually issued.
+    fn check_shared_val(ki: usize, v: u64, what: &str) {
+        assert_eq!(
+            v >> 48,
+            ki as u64,
+            "{what}: {v:#x} belongs to key {} not {ki}",
+            v >> 48
+        );
+        let (w, r) = ((v >> 32) & 0xFFFF, v & 0xFFFF_FFFF);
+        assert!(
+            w as usize <= SHARED_W,
+            "{what}: {v:#x} names writer {w}, and there are only {SHARED_W}"
+        );
+        assert!(
+            r <= SHARED_ROUNDS,
+            "{what}: {v:#x} names round {r}, and there are only {SHARED_ROUNDS}"
+        );
+        assert_eq!(
+            w == 0,
+            r == 0,
+            "{what}: {v:#x} is half a prefill value and half a write"
+        );
+    }
+
+    /// #929's in-place value publish under real multi-writer pressure:
+    /// `SHARED_W` writers overwrite one **shared** key set in lockstep
+    /// rounds while two readers read it back, and `insert` returns the
+    /// value it replaced on every one of them.
+    ///
+    /// Because every writer writes every key exactly once per round, the
+    /// store that lands last on a key is necessarily that writer's *last*
+    /// store to it — so the final value must be one of the `SHARED_W`
+    /// last-round values, which is checkable exactly.
+    ///
+    /// With `collide`, a hasher with a small image puts several keys in
+    /// each bucket and a further thread inserts fresh colliding keys
+    /// throughout, so bucket **replacements** run concurrently with the
+    /// in-place publishes: that is the interleaving
+    /// `refresh_replacement_values` exists for, and the one
+    /// `loom_bucket_replacement_without_the_refresh_loses_an_overwrite`
+    /// models.
+    fn multi_writer_shared_overwrite<S>(map: SyncExpanseBytesMap<S>, collide: bool)
+    where
+        S: BuildHasher + Send + Sync + 'static,
+    {
+        use std::sync::atomic::AtomicU64;
+
+        let m = Arc::new(map);
+        let keys: Vec<Vec<u8>> = (0..SHARED_KEYS).map(shared_key).collect();
+        for (ki, k) in keys.iter().enumerate() {
+            m.insert(k, shared_prefill_val(ki));
+        }
+        assert_eq!(m.len(), SHARED_KEYS as u64, "prefill census");
+        // Without this the whole test would run on the serialised
+        // root-growth fallback and never reach the path under test.
+        assert!(
+            m.with_locked(ExpanseBytesMap::root_is_tree),
+            "the hash trie must be a tree, or no insert takes the optimistic path"
+        );
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let observed = Arc::new(AtomicU64::new(0));
+        let readers: Vec<_> = (0..2)
+            .map(|_| {
+                let (m, stop, observed) =
+                    (Arc::clone(&m), Arc::clone(&stop), Arc::clone(&observed));
+                let keys = keys.clone();
+                std::thread::spawn(move || {
+                    let rd = m.reader();
+                    let mut seen = 0u64;
+                    // Per key, the highest round seen from each writer
+                    // (index 0 is the prefill). A writer's own stores to
+                    // one key go out in round order and no other thread
+                    // produces its tag, so seeing one of its rounds *go
+                    // backwards* is proof that a stale value word was
+                    // republished over a newer one.
+                    let mut high = vec![[0u64; SHARED_W + 1]; keys.len()];
+                    while !stop.load(Ordering::Relaxed) {
+                        for (ki, k) in keys.iter().enumerate() {
+                            let v = rd.get(k).expect("a shared key is never absent");
+                            check_shared_val(ki, v, "reader");
+                            let (w, r) = (((v >> 32) & 0xFFFF) as usize, v & 0xFFFF_FFFF);
+                            assert!(
+                                r >= high[ki][w],
+                                "key {ki} went back from writer {w} round {} to {r}: an \
+                                 acknowledged overwrite was rolled back",
+                                high[ki][w]
+                            );
+                            high[ki][w] = r;
+                            seen += 1;
+                        }
+                    }
+                    observed.fetch_add(seen, Ordering::Relaxed);
+                })
+            })
+            .collect();
+
+        // Forces bucket replacements — the operation the in-place publish
+        // must be mutually exclusive with — for as long as the writers
+        // run, and widens every bucket as it goes so the replacement's
+        // out-of-lock copy takes longer.
+        let writers_done = Arc::new(AtomicBool::new(false));
+        let collided = Arc::new(AtomicU64::new(0));
+        let collider = collide.then(|| {
+            let (m, done, collided) = (
+                Arc::clone(&m),
+                Arc::clone(&writers_done),
+                Arc::clone(&collided),
+            );
+            std::thread::spawn(move || {
+                let mut n = 0u64;
+                while !done.load(Ordering::Relaxed) && n < SHARED_COLLIDER_CAP {
+                    let k = format!("collider-{n:06}").into_bytes();
+                    assert_eq!(m.insert(&k, 0xC0DE), None, "collider key {n} was not fresh");
+                    n += 1;
+                }
+                collided.store(n, Ordering::Relaxed);
+            })
+        });
+
+        let writers: Vec<_> = (0..SHARED_W)
+            .map(|w| {
+                let m = Arc::clone(&m);
+                let keys = keys.clone();
+                std::thread::spawn(move || {
+                    // This writer's own last round per key, so the value
+                    // `insert` hands back can be checked exactly whenever
+                    // it is this writer's own.
+                    let mut mine = vec![0u64; keys.len()];
+                    for round in 0..SHARED_ROUNDS {
+                        for (ki, k) in keys.iter().enumerate() {
+                            let prev = m
+                                .insert(k, shared_val(ki, w, round))
+                                .expect("a shared key is never absent");
+                            check_shared_val(ki, prev, "replaced value");
+                            if (prev >> 32) & 0xFFFF == (w as u64) + 1 {
+                                assert_eq!(
+                                    prev & 0xFFFF_FFFF,
+                                    mine[ki],
+                                    "writer {w} replaced its own older value on key {ki}: an \
+                                     acknowledged overwrite was rolled back"
+                                );
+                            }
+                            mine[ki] = round + 1;
+                        }
+                    }
+                })
+            })
+            .collect();
+
+        for t in writers {
+            t.join().expect("writer panicked");
+        }
+        writers_done.store(true, Ordering::Relaxed);
+        if let Some(t) = collider {
+            t.join().expect("collider panicked");
+        }
+        stop.store(true, Ordering::Relaxed);
+        for t in readers {
+            t.join().expect("reader panicked");
+        }
+        assert!(
+            observed.load(Ordering::Relaxed) > 0,
+            "no reader observed the map while the writers ran"
+        );
+        if collide {
+            assert!(
+                collided.load(Ordering::Relaxed) > 0,
+                "no bucket replacement ran alongside the in-place publishes"
+            );
+        }
+
+        let rd = m.reader();
+        for (ki, k) in keys.iter().enumerate() {
+            let v = rd.get(k).expect("a shared key is never absent");
+            check_shared_val(ki, v, "final value");
+            let last: Vec<u64> = (0..SHARED_W)
+                .map(|w| shared_val(ki, w, SHARED_ROUNDS - 1))
+                .collect();
+            assert!(
+                last.contains(&v),
+                "key {ki} ended on {v:#x}, which is no writer's last write — an \
+                 acknowledged overwrite was dropped"
+            );
+        }
+
+        let want = SHARED_KEYS as u64 + collided.load(Ordering::Relaxed);
+        assert_eq!(m.len(), want, "final census");
+        let counted = m.with_locked(|inner| {
+            let mut n = 0u64;
+            inner.for_each(|_, _| n += 1);
+            n
+        });
+        assert_eq!(counted, want, "walked census");
+    }
+
+    #[test]
+    fn concurrent_bytes_shared_key_overwrite_multi_writer() {
+        multi_writer_shared_overwrite(SyncExpanseBytesMap::new(), false);
+    }
+
+    #[test]
+    fn concurrent_bytes_shared_key_overwrite_races_bucket_replacement() {
+        multi_writer_shared_overwrite(
+            SyncExpanseBytesMap::with_hasher(FewBuckets::default()),
+            true,
+        );
     }
 
     /// Multi-writer OLC on `SyncExpanseBytesMap`: multiple concurrent writers
