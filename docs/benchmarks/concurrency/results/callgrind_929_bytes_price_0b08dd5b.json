@@ -1,0 +1,389 @@
+{
+  "suite": "concurrency",
+  "issue": "#929",
+  "question": "where the SyncExpanseBytesMap single-writer price that refutes METHODOLOGY section 22's G3 sits, on the fresh-insert path G3's cell exercises",
+  "metric": "Callgrind retired instructions (Ir), exact integers, no interval (AGENTS.md section 8.4). Cache columns are callgrind's simulation, not hardware counters.",
+  "commit": "0b08dd5b",
+  "provenance": {
+    "measured_commit": "0b08dd5bd0162017d7fa68f73e9953807eecbb0f",
+    "date": "2026-09-20",
+    "host": "development box, 72-core x86_64 (NOT the reference host; no bench lock taken, no wall-clock claim is made from this artifact)",
+    "container_image": "rust:1.98 (Debian GNU/Linux 13 trixie, glibc 2.41-12+deb13u3)",
+    "toolchain": "rustc 1.98.0 (88d9e12ae 2026-08-18) / cargo 1.98.0 (797e8a9bc 2026-08-05) / valgrind-3.24.0 / iai-callgrind 0.16.1 / iai-callgrind-runner 0.16.1",
+    "source": "git archive 0b08dd5b into a scratch tree. The default and serial builds use that tree unmodified; the diagnostic build applies one edit, described under `builds.diagnostic`, which is NOT committed to the engine",
+    "build_profile": "bench profile plus CARGO_PROFILE_BENCH_DEBUG=1 for per-line annotation; no other CARGO_PROFILE_* or EXPANSE_* override (EXPANSE_BRANCH_SIM unset, so no branch simulation)",
+    "container": "docker run --rm --security-opt seccomp=unconfined -v <tree>:/w -v <target>:/t -w /w rust:1.98",
+    "commands": [
+      "cargo bench -p expanse-trie --bench instructions",
+      "cargo bench -p expanse-trie --bench instructions --features ablation-bytes-serial-writers",
+      "callgrind_annotate --inclusive=no --show-percs=yes --threshold=99.9 <target>/iai-<build>/expanse-trie/instructions/cost/sync_bytesmap_insert.routes/callgrind.sync_bytesmap_insert.routes.out",
+      "callgrind_annotate --inclusive=yes --show-percs=yes --threshold=99.9 <same .out file>"
+    ],
+    "shared_target_dir": "the default and serial runs shared one CARGO_TARGET_DIR; each run's iai output tree was copied aside before the next build",
+    "not_the_reference_host": "measured on a development box; Callgrind counts are deterministic, so AGENTS.md section 8.17's load-snapshot requirement does not apply and none was taken",
+    "provenance_gate": "the file name is outside scripts/check_bench_provenance.py's ARTIFACT_GLOBS, as callgrind_alloc_shard_cells_686dd6cb.json and wasm_fuel_plain_cost_998.json already are: a deterministic Ir artifact has no rounds, no estimator and no interval, so provenance.host / estimators / rounds_raw are not carried. The convention followed is that of results/callgrind_wrapper_mutations/manifest.json"
+  },
+  "arm": {
+    "name": "expanse-trie::instructions::cost::sync_bytesmap_insert/routes",
+    "ops": 50000,
+    "workload": "50,000 distinct 42-byte route keys inserted into an empty SyncExpanseBytesMap<BuildHasherDefault<DefaultHasher>>; every insert is a fresh hash. The annotation shows 29-33 of the 50,000 taking the root_is_tree()==false serial fallback (ROOT_LEAF_CAP = 31), 0.07% of ops",
+    "relation_to_the_G3_cell": "the same SHAPE as concurrency_writer_bytes (fresh inserts through SyncExpanseBytesMap::insert) but NOT that cell: 50,000 keys vs 2^20, 42-byte route strings vs 8-16 byte alphanumeric, an empty map vs a 2^20 prefill. No figure here is a measurement of G3's cell, and none is a wall-clock figure"
+  },
+  "builds": {
+    "default": "0b08dd5b, default features (multi-writer OLC bytes write path)",
+    "serial": "0b08dd5b, --features ablation-bytes-serial-writers",
+    "diagnostic": "0b08dd5b, default features, with #[inline(never)] in place of #[inline(always)] on sync::walk_validated (crates/expanse/src/sync.rs:577). An instrument for splitting the validated walk out of SyncExpanseBytesMap::insert's self cost. NOT committed"
+  },
+  "totals": {
+    "default": {
+      "ir": 107350959,
+      "ir_per_op": 2147.0,
+      "d1mr": 357441,
+      "estimated_cycles": 150820042
+    },
+    "serial": {
+      "ir": 95842263,
+      "ir_per_op": 1916.8,
+      "d1mr": 355780,
+      "estimated_cycles": 136409680
+    },
+    "diagnostic": {
+      "ir": 108614064,
+      "ir_per_op": 2172.3,
+      "d1mr": 357194,
+      "estimated_cycles": 152946620
+    },
+    "gap_default_minus_serial": {
+      "ir": 11508696,
+      "pct": 12.01,
+      "ir_per_op": 230.2,
+      "d1mr": 1661,
+      "d1mr_pct": 0.47,
+      "note": "Ir is +12.01% while D1 read misses are +0.47%: the multi-writer build's extra work is almost entirely L1-resident"
+    }
+  },
+  "walk_isolation": {
+    "what": "the cost of the validated walk (sync::walk_validated::<true>) that the multi-writer insert runs before its publishing descent, and that the serialised build does not run at all",
+    "method": "outlining diff: default (walk inlined) against diagnostic (walk outlined). Both are the default feature set, so no feature-driven codegen enters this number",
+    "outlining_cost_ir": 1263105,
+    "walk_self_outlined_ir": 7060267,
+    "insert_self_default_ir": 17921207,
+    "insert_self_diagnostic_ir": 12124038,
+    "reconciliation": "12,124,038 + 7,060,267 - 17,921,207 = 1,263,098, against an arm total delta of 1,263,105: the split accounts for the outlining cost to within 7 Ir",
+    "walk_self_inlined_ir": 5797169,
+    "walk_callees_ir": 943154,
+    "walk_callees": {
+      "leaf::search": 413021,
+      "leaf::lower_bound_fixed::<7>": 530133
+    },
+    "walk_inlined_total_ir": 6740323,
+    "walk_inlined_ir_per_op": 134.8,
+    "share_of_gap_pct": 58.6,
+    "share_of_arm_pct": 6.28,
+    "walk_inclusive_d1mr_diagnostic": 126221,
+    "walk_inclusive_d1mr_pct_of_arm": 35.34,
+    "d1mr_note": "the walk takes 35.3% of the arm's D1 read misses because it touches the trie nodes first; the publishing descent then re-reads them warm. Remove the walk and those misses relocate to the publishing descent rather than disappearing. The +0.47% D1mr gap between the default and serial builds is the direct evidence for that",
+    "self_ir_by_source_file": {
+      "crates/expanse/src/sync.rs": 3422154,
+      "crates/expanse/src/types.rs": 880069,
+      "crates/expanse/src/bits.rs": 795815,
+      "crates/expanse/src/node.rs": 593760,
+      "/rustc/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/core/src/sync/atomic.rs": 467420,
+      "crates/expanse/src/occ.rs": 299323,
+      "/rustc/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/core/src/num/uint_macros.rs": 136884,
+      "/rustc/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/core/src/ops/range.rs": 83770,
+      "crates/expanse/src/leaf.rs": 70190,
+      "/rustc/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/core/src/slice/cmp.rs": 68442,
+      "/rustc/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/core/src/ptr/mod.rs": 64307,
+      "/rustc/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/core/src/ptr/const_ptr.rs": 49635,
+      "/rustc/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/core/src/cmp.rs": 45628,
+      "/rustc/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/core/src/ptr/mut_ptr.rs": 25957,
+      "/rustc/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/core/src/slice/index.rs": 22814,
+      "/rustc/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/core/src/iter/range.rs": 22814,
+      "crates/expanse/src/get.rs": 11285
+    }
+  },
+  "attribution": {
+    "basis": "exclusive per-function Ir, default minus serial, symbols merged across the source files their inlined bodies are attributed to",
+    "groups": [
+      {
+        "group": "validated walk (sync::walk_validated::<true>, inlined)",
+        "delta_ir": 6740323,
+        "share_of_gap_pct": 58.6,
+        "source": "walk_isolation, above"
+      },
+      {
+        "group": "trie descent / mutation: the OLC publishing descent against the serialised ins_slot descent",
+        "default_ir": 27920189,
+        "serial_ir": 23895548,
+        "delta_ir": 4024641,
+        "share_of_gap_pct": 35.0,
+        "members_default": [
+          "sync::olc_cas_publish_bucket_map::<Shared<ExpanseBytesMap<DetHasher>>>",
+          "mutate_map::map_insert_with_path_occ::<true, true, false>",
+          "mutate_map::build_map_leaf::<true>",
+          "leaf::search",
+          "leaf::lower_bound_fixed::<7>",
+          "leaf::lower_bound_fixed::<6>",
+          "get::locate_slot_popcnt",
+          "<ExpanseBytesMap<DetHasher> as sync::SharedTree>::clear_path",
+          "__rustc::__rust_alloc_zeroed"
+        ],
+        "members_serial": "the same set; the serial build's descent is map_insert_with_path_occ::<true, true, true>"
+      },
+      {
+        "group": "writer slot, epoch pin, sharded population counters, retry scaffolding",
+        "delta_ir": 376454,
+        "share_of_gap_pct": 3.3,
+        "source": "the wrapper-body delta (SyncExpanseBytesMap::insert 17,921,207 against SyncExpanseBytesMap::insert 4,403,057 + ExpanseBytesMap::insert 6,401,373 = 10,804,430, delta +7,116,777) less the walk"
+      },
+      {
+        "group": "__memcmp_avx2_movbe",
+        "default_ir": 239547,
+        "serial_ir": 0,
+        "delta_ir": 239547,
+        "share_of_gap_pct": 2.1,
+        "caller": "not resolved: callgrind_annotate prints no call line for it in any auto-annotated source region, and it is still present with the walk outlined. No mechanism is attributed (AGENTS.md section 8.9 item 1)"
+      },
+      {
+        "group": "allocator (_int_malloc, malloc, free, realloc, memcpy, raw_vec growth)",
+        "default_ir": 36946255,
+        "serial_ir": 36945454,
+        "delta_ir": 801,
+        "share_of_gap_pct": 0.007
+      },
+      {
+        "group": "epoch advance (occ::Collector::try_advance)",
+        "default_ir": 994891,
+        "serial_ir": 982405,
+        "delta_ir": 12486,
+        "share_of_gap_pct": 0.11
+      },
+      {
+        "group": "remainder (hashing, harness, misc; below the 99.9% annotate threshold)",
+        "default_ir": 23221836,
+        "serial_ir": 23121156,
+        "delta_ir": 100680,
+        "share_of_gap_pct": 0.9
+      }
+    ],
+    "residual_ir": 13764,
+    "residual_note": "the groups sum to within ~14,000 Ir of the arm-total gap, the difference being functions the 99.9% annotate threshold dropped. Nothing is attributed by subtraction (AGENTS.md section 8.20.4)"
+  },
+  "per_function": {
+    "description": "exclusive Ir per symbol, merged across source-file splits and recursion clones, for every symbol whose default-minus-serial delta exceeds 50,000 Ir",
+    "rows": [
+      {
+        "symbol": "sync::olc_cas_publish_bucket_map::<sync::Shared<bytesmap::ExpanseBytesMap<DetHasher>>>",
+        "default_ir": 23689187,
+        "serial_ir": 0,
+        "delta_ir": 23689187
+      },
+      {
+        "symbol": "mutate_map::map_insert_with_path_occ::<true, true, true>",
+        "default_ir": 0,
+        "serial_ir": 21523677,
+        "delta_ir": -21523677
+      },
+      {
+        "symbol": "<sync::SyncExpanseBytesMap<DetHasher>>::insert",
+        "default_ir": 17921207,
+        "serial_ir": 4403057,
+        "delta_ir": 13518150
+      },
+      {
+        "symbol": "<bytesmap::ExpanseBytesMap<DetHasher>>::insert",
+        "default_ir": 0,
+        "serial_ir": 6401373,
+        "delta_ir": -6401373
+      },
+      {
+        "symbol": "mutate_map::map_insert_with_path_occ::<true, true, false>",
+        "default_ir": 2937385,
+        "serial_ir": 0,
+        "delta_ir": 2937385
+      },
+      {
+        "symbol": "mutate_map::build_map_leaf::<true>",
+        "default_ir": 48879,
+        "serial_ir": 1474692,
+        "delta_ir": -1425813
+      },
+      {
+        "symbol": "leaf::search",
+        "default_ir": 413021,
+        "serial_ir": 0,
+        "delta_ir": 413021
+      },
+      {
+        "symbol": "__memcmp_avx2_movbe",
+        "default_ir": 239547,
+        "serial_ir": 0,
+        "delta_ir": 239547
+      },
+      {
+        "symbol": "<bytesmap::ExpanseBytesMap<DetHasher> as sync::SharedTree>::clear_path",
+        "default_ir": 0,
+        "serial_ir": 200000,
+        "delta_ir": -200000
+      },
+      {
+        "symbol": "__rustc::__rust_alloc_zeroed",
+        "default_ir": 301584,
+        "serial_ir": 102976,
+        "delta_ir": 198608
+      },
+      {
+        "symbol": "instructions::sync_bytesmap_insert::__iai_callgrind_wrapper_mod::sync_bytesmap_insert",
+        "default_ir": 1200138,
+        "serial_ir": 1100045,
+        "delta_ir": 100093
+      },
+      {
+        "symbol": "leaf::lower_bound_fixed::<6>",
+        "default_ir": 0,
+        "serial_ir": 58585,
+        "delta_ir": -58585
+      }
+    ]
+  },
+  "arms_census": {
+    "arms_measured": 108,
+    "arms_within_0_1_pct": 89,
+    "arms_over_0_1_pct": 19,
+    "bytes_arms": [
+      {
+        "arm": "sync_bytesmap_remove routes:built_sync_bytesmap(\"routes\")",
+        "default_ir": 148389855,
+        "serial_ir": 119570218,
+        "delta_pct": 24.1027
+      },
+      {
+        "arm": "sync_bytesmap_churn routes:built_sync_bytesmap(\"routes\")",
+        "default_ir": 269074203,
+        "serial_ir": 221917677,
+        "delta_pct": 21.2496
+      },
+      {
+        "arm": "sync_bytesmap_overwrite routes:built_sync_bytesmap(\"routes\")",
+        "default_ir": 54933738,
+        "serial_ir": 46047403,
+        "delta_pct": 19.2982
+      },
+      {
+        "arm": "sync_bytesmap_insert routes:str_keys(\"routes\")",
+        "default_ir": 107350959,
+        "serial_ir": 95842263,
+        "delta_pct": 12.008
+      }
+    ],
+    "unrelated_arms_moved": [
+      {
+        "arm": "sync_blobmap_overwrite random:built_sync_blobmap(\"random\")",
+        "default_ir": 32334592,
+        "serial_ir": 31234595,
+        "delta_pct": 3.5217
+      },
+      {
+        "arm": "sync_blobmap_insert random:keys(\"random\")",
+        "default_ir": 56641926,
+        "serial_ir": 55542260,
+        "delta_pct": 1.9799
+      },
+      {
+        "arm": "sync_blobmap_churn random:built_sync_blobmap(\"random\")",
+        "default_ir": 128146804,
+        "serial_ir": 125946810,
+        "delta_pct": 1.7468
+      },
+      {
+        "arm": "sync_set_churn random:built_sync_set(\"random\")",
+        "default_ir": 91645908,
+        "serial_ir": 90392784,
+        "delta_pct": 1.3863
+      },
+      {
+        "arm": "sync_map_compare_exchange random:built_sync_map(\"random\")",
+        "default_ir": 41250956,
+        "serial_ir": 40747832,
+        "delta_pct": 1.2347
+      },
+      {
+        "arm": "sync_set_insert random:keys(\"random\")",
+        "default_ir": 41301195,
+        "serial_ir": 40901443,
+        "delta_pct": 0.9774
+      },
+      {
+        "arm": "sync_map_churn random:built_sync_map(\"random\")",
+        "default_ir": 115994636,
+        "serial_ir": 114894636,
+        "delta_pct": 0.9574
+      },
+      {
+        "arm": "sync_set_remove random:built_sync_set(\"random\")",
+        "default_ir": 53247711,
+        "serial_ir": 52831981,
+        "delta_pct": 0.7869
+      },
+      {
+        "arm": "sync_map_insert random:keys(\"random\")",
+        "default_ir": 47707160,
+        "serial_ir": 47357379,
+        "delta_pct": 0.7386
+      },
+      {
+        "arm": "sync_strmap_remove routes:built_sync_strmap(\"routes\")",
+        "default_ir": 88884638,
+        "serial_ir": 88234608,
+        "delta_pct": 0.7367
+      },
+      {
+        "arm": "sync_strmap_churn routes:built_sync_strmap(\"routes\")",
+        "default_ir": 196867395,
+        "serial_ir": 195517395,
+        "delta_pct": 0.6905
+      },
+      {
+        "arm": "sync_map_remove random:built_sync_map(\"random\")",
+        "default_ir": 59966600,
+        "serial_ir": 59636750,
+        "delta_pct": 0.5531
+      },
+      {
+        "arm": "sync_strmap_churn_short short:built_sync_strmap_short(\"short\")",
+        "default_ir": 210171722,
+        "serial_ir": 209020720,
+        "delta_pct": 0.5507
+      },
+      {
+        "arm": "sync_strmap_insert routes:str_keys(\"routes\")",
+        "default_ir": 82696524,
+        "serial_ir": 82346518,
+        "delta_pct": 0.425
+      },
+      {
+        "arm": "sync_strmap_insert_short short:short_keys(\"short\")",
+        "default_ir": 89985106,
+        "serial_ir": 89635100,
+        "delta_pct": 0.3905
+      }
+    ],
+    "codegen_caveat": "the arms listed under `unrelated_arms_moved` have no source change between the two builds; they move because the ablation feature gates out the bytes OLC bodies and that changes inlining crate-wide (the OlcHost::edge_tag uniqueness effect recorded in #1001). callgrind_alloc_shard_cells_686dd6cb.json measured this bench's build reproducibility at 686dd6cb and found 126 of 129 arms bit-identical across two builds of one tree, the three exceptions all being *_short string arms, so these movements are feature-driven codegen and not build nondeterminism. Their scale bounds how much of the 12.01% bytes gap could also be codegen rather than protocol; this instrument cannot separate the two. It does NOT touch `walk_isolation`, whose two builds share a feature set",
+    "build_reproducibility_control": "none taken for this pair; the bound above is cited from callgrind_alloc_shard_cells_686dd6cb.json, measured at a different commit"
+  },
+  "projection": {
+    "label": "PROJECTION, not a measurement (AGENTS.md section 6)",
+    "needed": "G3 needs P = 0.858 -> 0.90, i.e. head 2.82 -> 2.952 M inserts/s, a 4.47% cut in per-op time (README section 21.1, measured: reference host, commit 5d017fea)",
+    "instruction_cut_pct": 6.28,
+    "estimated_cycle_cut_pct": 4.47,
+    "assumption": "that the removed instructions are L1 hits and the walk's D1 misses relocate to the publishing descent. The +0.47% D1mr gap between the two builds supports it on this arm",
+    "outcome": "a 4.47% estimated-cycle cut against a 4.47% requirement puts the point estimate ON the floor. METHODOLOGY section 22.4 gates on the BCa 95% LOWER bound, and in the four observed G3 cells that bound sits 0.001, 0.003, 0.003 and 0.012 below its point estimate (README section 21.1), so the gate would still read REFUTED",
+    "limits": "Callgrind's Estimated Cycles is a model, not a measurement (section 8.9 item 1); the arm is not the cell; the cell's deeper trie and shorter keys raise the walk's share while its far larger working set makes the miss-relocation assumption weaker. No wall-clock measurement was taken"
+  },
+  "verdict": {
+    "attribution": "the single-writer price on the fresh-insert path is the validated walk (58.6% of the instruction gap) and the descent/mutation difference (35.0%), not the allocator (+801 Ir) and not epoch tracking (+12,486 Ir)",
+    "candidate": "removing the second descent is REJECTED as a way to meet G3: see README.md section 21.4 for the three designs costed and why each fails",
+    "gate": "G3 stays REFUTED at 0.857-0.859. This artifact corrects the stated mechanism; it does not move the floor and does not change the verdict (AGENTS.md section 8.19)"
+  }
+}
