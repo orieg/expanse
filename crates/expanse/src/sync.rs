@@ -12802,7 +12802,9 @@ mod tests {
     const SHARED_KEYS: usize = 64;
     const SHARED_W: usize = 4;
     const SHARED_ROUNDS: u64 = 200;
-    const SHARED_COLLIDERS: usize = 300;
+    /// A bound on the collider thread, which otherwise runs for as long
+    /// as the writers do.
+    const SHARED_COLLIDER_CAP: u64 = 100_000;
 
     fn shared_key(ki: usize) -> Vec<u8> {
         format!("shared-{ki:04}").into_bytes()
@@ -12890,10 +12892,25 @@ mod tests {
                 std::thread::spawn(move || {
                     let rd = m.reader();
                     let mut seen = 0u64;
+                    // Per key, the highest round seen from each writer
+                    // (index 0 is the prefill). A writer's own stores to
+                    // one key go out in round order and no other thread
+                    // produces its tag, so seeing one of its rounds *go
+                    // backwards* is proof that a stale value word was
+                    // republished over a newer one.
+                    let mut high = vec![[0u64; SHARED_W + 1]; keys.len()];
                     while !stop.load(Ordering::Relaxed) {
                         for (ki, k) in keys.iter().enumerate() {
                             let v = rd.get(k).expect("a shared key is never absent");
                             check_shared_val(ki, v, "reader");
+                            let (w, r) = (((v >> 32) & 0xFFFF) as usize, v & 0xFFFF_FFFF);
+                            assert!(
+                                r >= high[ki][w],
+                                "key {ki} went back from writer {w} round {} to {r}: an \
+                                 acknowledged overwrite was rolled back",
+                                high[ki][w]
+                            );
+                            high[ki][w] = r;
                             seen += 1;
                         }
                     }
@@ -12902,13 +12919,26 @@ mod tests {
             })
             .collect();
 
+        // Forces bucket replacements — the operation the in-place publish
+        // must be mutually exclusive with — for as long as the writers
+        // run, and widens every bucket as it goes so the replacement's
+        // out-of-lock copy takes longer.
+        let writers_done = Arc::new(AtomicBool::new(false));
+        let collided = Arc::new(AtomicU64::new(0));
         let collider = collide.then(|| {
-            let m = Arc::clone(&m);
+            let (m, done, collided) = (
+                Arc::clone(&m),
+                Arc::clone(&writers_done),
+                Arc::clone(&collided),
+            );
             std::thread::spawn(move || {
-                for i in 0..SHARED_COLLIDERS {
-                    let k = format!("collider-{i:05}").into_bytes();
-                    assert_eq!(m.insert(&k, 0xC0DE), None, "collider key {i} was not fresh");
+                let mut n = 0u64;
+                while !done.load(Ordering::Relaxed) && n < SHARED_COLLIDER_CAP {
+                    let k = format!("collider-{n:06}").into_bytes();
+                    assert_eq!(m.insert(&k, 0xC0DE), None, "collider key {n} was not fresh");
+                    n += 1;
                 }
+                collided.store(n, Ordering::Relaxed);
             })
         });
 
@@ -12917,12 +12947,25 @@ mod tests {
                 let m = Arc::clone(&m);
                 let keys = keys.clone();
                 std::thread::spawn(move || {
+                    // This writer's own last round per key, so the value
+                    // `insert` hands back can be checked exactly whenever
+                    // it is this writer's own.
+                    let mut mine = vec![0u64; keys.len()];
                     for round in 0..SHARED_ROUNDS {
                         for (ki, k) in keys.iter().enumerate() {
                             let prev = m
                                 .insert(k, shared_val(ki, w, round))
                                 .expect("a shared key is never absent");
                             check_shared_val(ki, prev, "replaced value");
+                            if (prev >> 32) & 0xFFFF == (w as u64) + 1 {
+                                assert_eq!(
+                                    prev & 0xFFFF_FFFF,
+                                    mine[ki],
+                                    "writer {w} replaced its own older value on key {ki}: an \
+                                     acknowledged overwrite was rolled back"
+                                );
+                            }
+                            mine[ki] = round + 1;
                         }
                     }
                 })
@@ -12932,6 +12975,7 @@ mod tests {
         for t in writers {
             t.join().expect("writer panicked");
         }
+        writers_done.store(true, Ordering::Relaxed);
         if let Some(t) = collider {
             t.join().expect("collider panicked");
         }
@@ -12943,6 +12987,12 @@ mod tests {
             observed.load(Ordering::Relaxed) > 0,
             "no reader observed the map while the writers ran"
         );
+        if collide {
+            assert!(
+                collided.load(Ordering::Relaxed) > 0,
+                "no bucket replacement ran alongside the in-place publishes"
+            );
+        }
 
         let rd = m.reader();
         for (ki, k) in keys.iter().enumerate() {
@@ -12958,7 +13008,7 @@ mod tests {
             );
         }
 
-        let want = SHARED_KEYS as u64 + if collide { SHARED_COLLIDERS as u64 } else { 0 };
+        let want = SHARED_KEYS as u64 + collided.load(Ordering::Relaxed);
         assert_eq!(m.len(), want, "final census");
         let counted = m.with_locked(|inner| {
             let mut n = 0u64;
