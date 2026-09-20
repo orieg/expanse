@@ -1,0 +1,965 @@
+{
+ "suite": "concurrency",
+ "issue": "#998",
+ "question": "whether the aarch64 `judyl_insert/sequential` residue section 11.10.10 left at +1.502 % against `fb69a4af` is still outstanding, and if not, what removed it",
+ "metric": "Callgrind retired instructions (Ir), exact integers, no interval (AGENTS.md section 8.4). The disassembly census counts instructions PRESENT in a symbol, not executed counts.",
+ "commit": "a517ea94",
+ "answer": "not outstanding. The arm reads 1,902,519 Ir at `32cb56dc`, -0.613 % against `fb69a4af`, and all 34 aarch64 smoke arms are at or below their `fb69a4af` counts.",
+ "provenance": {
+  "ci_counts": {
+   "source": "main's own push runs; a push run takes no base pass, so each count is the first `Instructions: N|N/A` the job printed for the arm \u2014 the head's default build, the same reading convention as `excused_arms_998_ci.json`",
+   "job": "Core / AArch64 Linux Tests & Callgrind (Neoverse N2)",
+   "toolchain": "rustc 1.98.1 in every run below, read from each job's own log",
+   "extraction_self_check": "the extractor reproduces all 22 non-wasm arms of `excused_arms_998_ci.json` at its `latest` commit `2cb01fed` (run 35271760328) exactly, 22 match / 0 mismatch"
+  },
+  "disassembly_census": {
+   "date": "2026-09-20",
+   "host": "local development machine, arm64 macOS (NOT the reference host; no wall-clock claim is made from this artifact)",
+   "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01) / cargo 1.98.1, Apple LLVM objdump 21.0.0",
+   "source": "git archive of each commit into a scratch tree; no edit applied",
+   "commands": [
+    "cargo rustc -p expanse-capi --release --target aarch64-unknown-linux-gnu --crate-type staticlib",
+    "objdump -d -C <target>/aarch64-unknown-linux-gnu/release/libexpanse.a"
+   ],
+   "counting": "a `OnceLock` state read lowers to an acquire load (`ldar`/`ldapr`) on aarch64, and these plain paths carry no other acquire load; the census counts those mnemonics per symbol",
+   "convention_self_check": "the census reproduces section 11.10.10's own committed figures at `fb69a4af`: `JudyLIns` 12 and `Judy1Set` 9"
+  },
+  "local_callgrind": {
+   "date": "2026-09-20",
+   "host": "local development machine, arm64 macOS running Docker Desktop 29.8.0 (linux/arm64). NOT the reference host and NOT the CI runner; Callgrind counts are deterministic, so AGENTS.md section 8.17's load-snapshot requirement does not apply and none was taken",
+   "container_image": "rust:1.98 (Debian GNU/Linux trixie)",
+   "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01) / cargo 1.98.1 / valgrind-3.24.0 / iai-callgrind-runner 0.16.1",
+   "build_profile": "bench profile plus CARGO_PROFILE_BENCH_DEBUG=1; no other CARGO_PROFILE_* or EXPANSE_* override",
+   "container": "docker run --rm --security-opt seccomp=unconfined -v <tree>:/w -v <target>:/t -w /w rust:1.98",
+   "commands": [
+    "cargo bench -p expanse-capi --bench smoke_instructions",
+    "callgrind_annotate --inclusive=no --show-percs=yes --threshold=99.5 <target>/iai/expanse-capi/smoke_instructions/smoke_capi_cost/judyl_insert.sequential/callgrind.judyl_insert.sequential.out"
+   ],
+   "not_ci_absolutes": "the local totals are 1,918,109 and 1,877,622 against CI's 1,943,006 and 1,902,519 \u2014 a constant 24,897 Ir offset, the base image's libc differing from ubuntu-24.04-arm's (the profile attributes 89,063 Ir to __GI_memmove and 67,666 to __GI_memcpy alone) plus the added debug info. Only the DELTA is carried across, and it is bit-identical: -40,487 Ir in both"
+  },
+  "provenance_gate": "the file name is outside `scripts/check_bench_provenance.py`'s ARTIFACT_GLOBS, as `callgrind_929_bytes_price_0b08dd5b.json`, `callgrind_alloc_shard_cells_686dd6cb.json` and `wasm_fuel_plain_cost_998.json` already are: a deterministic Ir artifact has no rounds, no estimator and no interval"
+ },
+ "arm": {
+  "name": "expanse-capi::smoke_instructions::smoke_capi_cost::judyl_insert/sequential",
+  "ops": 10000,
+  "workload": "POP = 10,000 sequential `Word` keys, each inserted with one `JudyLIns` call into an initially null array; the returned slot is written. `crates/expanse-capi/benches/smoke_instructions.rs`",
+  "harness_unchanged": "#1041 (`a517ea94`) touched 10 files, all under `crates/expanse/src/` and `crates/expanse-capi/src/`; no bench or example was modified, so the arm's work is identical across every commit below"
+ },
+ "ci_series": {
+  "fb69a4af": {
+   "run": 35164519305,
+   "what": "parent of f65a8434 (#997); the pre-promotion reference",
+   "ir": 1914258,
+   "ir_per_op": 191.4258,
+   "pct_vs_fb69a4af": 0.0
+  },
+  "f65a8434": {
+   "run": 35167265086,
+   "what": "#997, the promotion",
+   "ir": 1963445,
+   "ir_per_op": 196.3445,
+   "pct_vs_fb69a4af": 2.5695
+  },
+  "929574b5": {
+   "run": 35265455247,
+   "what": "#1010",
+   "ir": 1943006,
+   "ir_per_op": 194.3006,
+   "pct_vs_fb69a4af": 1.5018
+  },
+  "2cb01fed": {
+   "run": 35271760328,
+   "what": "no engine source change since 929574b5",
+   "ir": 1943006,
+   "ir_per_op": 194.3006,
+   "pct_vs_fb69a4af": 1.5018
+  },
+  "80884c13": {
+   "run": 35521230247,
+   "what": "parent of a517ea94 (#1041)",
+   "ir": 1943006,
+   "ir_per_op": 194.3006,
+   "pct_vs_fb69a4af": 1.5018
+  },
+  "a517ea94": {
+   "run": 35528487020,
+   "what": "#1041",
+   "ir": 1902519,
+   "ir_per_op": 190.2519,
+   "pct_vs_fb69a4af": -0.6132
+  },
+  "32cb56dc": {
+   "run": 35534414688,
+   "what": "#1046; newest completed main push run when read",
+   "ir": 1902519,
+   "ir_per_op": 190.2519,
+   "pct_vs_fb69a4af": -0.6132
+  }
+ },
+ "bracketing": {
+  "unchanged_before": "the arm reads 1,943,006 at `929574b5`, `2cb01fed` and `80884c13` \u2014 bit-identical across three push runs",
+  "unchanged_after": "it reads 1,902,519 at `a517ea94` and `32cb56dc` \u2014 bit-identical across two push runs",
+  "commits_in_range": [
+   "a517ea94"
+  ],
+  "range": "80884c13..a517ea94 contains exactly one commit, the squash merge of #1041",
+  "delta_ir": -40487,
+  "delta_ir_per_op": -4.0487
+ },
+ "disassembly_census": {
+  "what": "`OnceLock` acquire loads present per symbol in the aarch64 release staticlib, extending the table section 11.10.10 already carries for `fb69a4af` / `728e316e` / `636fcaa7`",
+  "archive_totals": {
+   "fb69a4af": {
+    "symbols": 1706,
+    "acquire_loads_total": 902,
+    "symbols_with_any": 118
+   },
+   "80884c13": {
+    "symbols": 1711,
+    "acquire_loads_total": 828,
+    "symbols_with_any": 120
+   },
+   "a517ea94": {
+    "symbols": 1721,
+    "acquire_loads_total": 812,
+    "symbols_with_any": 116
+   }
+  },
+  "per_symbol": {
+   "JudyLIns": {
+    "fb69a4af": {
+     "instructions_present": 1510,
+     "acquire_loads_present": 12
+    },
+    "80884c13": {
+     "instructions_present": 1652,
+     "acquire_loads_present": 9
+    },
+    "a517ea94": {
+     "instructions_present": 1335,
+     "acquire_loads_present": 0
+    }
+   },
+   "Judy1Set": {
+    "fb69a4af": {
+     "instructions_present": 1070,
+     "acquire_loads_present": 9
+    },
+    "80884c13": {
+     "instructions_present": 1149,
+     "acquire_loads_present": 7
+    },
+    "a517ea94": {
+     "instructions_present": 911,
+     "acquire_loads_present": 0
+    }
+   },
+   "expanse_map_ins_slot": {
+    "fb69a4af": {
+     "instructions_present": 1443,
+     "acquire_loads_present": 12
+    },
+    "80884c13": {
+     "instructions_present": 1585,
+     "acquire_loads_present": 9
+    },
+    "a517ea94": {
+     "instructions_present": 1277,
+     "acquire_loads_present": 0
+    }
+   },
+   "expanse_set_insert": {
+    "fb69a4af": {
+     "instructions_present": 994,
+     "acquire_loads_present": 9
+    },
+    "80884c13": {
+     "instructions_present": 1085,
+     "acquire_loads_present": 8
+    },
+    "a517ea94": {
+     "instructions_present": 845,
+     "acquire_loads_present": 0
+    }
+   },
+   "<expanse_trie::map::ExpanseMap>::insert": {
+    "fb69a4af": {
+     "instructions_present": 1112,
+     "acquire_loads_present": 12
+    },
+    "80884c13": {
+     "instructions_present": 1249,
+     "acquire_loads_present": 10
+    },
+    "a517ea94": {
+     "instructions_present": null,
+     "acquire_loads_present": null
+    }
+   },
+   "<expanse_trie::map::ExpanseMap>::remove": {
+    "fb69a4af": {
+     "instructions_present": 915,
+     "acquire_loads_present": 7
+    },
+    "80884c13": {
+     "instructions_present": 1020,
+     "acquire_loads_present": 10
+    },
+    "a517ea94": {
+     "instructions_present": null,
+     "acquire_loads_present": null
+    }
+   },
+   "expanse_trie::mutate::free_subtree::<false>": {
+    "fb69a4af": {
+     "instructions_present": 343,
+     "acquire_loads_present": 5
+    },
+    "80884c13": {
+     "instructions_present": 485,
+     "acquire_loads_present": 10
+    },
+    "a517ea94": {
+     "instructions_present": null,
+     "acquire_loads_present": null
+    }
+   },
+   "<expanse_trie::strmap::ExpanseStrMap>::ins_slot": {
+    "fb69a4af": {
+     "instructions_present": 2357,
+     "acquire_loads_present": 22
+    },
+    "80884c13": {
+     "instructions_present": 4490,
+     "acquire_loads_present": 31
+    },
+    "a517ea94": {
+     "instructions_present": 3892,
+     "acquire_loads_present": 11
+    }
+   }
+  },
+  "note": "the archive total barely moves because the OCC (`<true>`) instantiations keep their tests, which is correct \u2014 a deferred tree must read the cell. What changed is that the plain entry points hold none."
+ },
+ "per_function": {
+  "what": "the executed-instruction profile of this arm on aarch64 that section 11.10.10 records as never taken, at `80884c13` and `a517ea94`",
+  "delta_reproduces_ci": "the local pair's total delta is -40,487 Ir, bit-identical to CI's 1,943,006 - 1,902,519. The absolutes are not CI's (see provenance.local_callgrind.not_ci_absolutes)",
+  "groups": {
+   "core_sync_atomic_inlined_into_JudyLIns": {
+    "80884c13": 39450,
+    "a517ea94": 30965,
+    "delta_ir": -8485,
+    "share_of_total_delta_pct": 20.96
+   },
+   "core_cell_inlined_into_JudyLIns": {
+    "80884c13": 11779,
+    "a517ea94": 9488,
+    "delta_ir": -2291,
+    "share_of_total_delta_pct": 5.66
+   },
+   "lse_atomic_rmw_helper": {
+    "80884c13": 58820,
+    "a517ea94": 56165,
+    "delta_ir": -2655,
+    "share_of_total_delta_pct": 6.56
+   },
+   "remainder_redistribution": {
+    "delta_ir": -27056,
+    "share_of_total_delta_pct": 66.83,
+    "what": "net movement across the monomorphized bodies (map.rs, compat.rs, leaf.rs, bits.rs down; alloc.rs, core::ptr, core::ptr::non_null up). Not separable into a single mechanism by this instrument"
+   }
+  },
+  "rows_delta_ge_1000_ir": [
+   {
+    "entry": "crates/expanse/src/map.rs:JudyLIns'2",
+    "80884c13": 173133,
+    "a517ea94": 154792,
+    "delta_ir": -18341
+   },
+   {
+    "entry": "crates/expanse-capi/src/compat.rs:JudyLIns'2",
+    "80884c13": 203085,
+    "a517ea94": 189852,
+    "delta_ir": -13233
+   },
+   {
+    "entry": "<rust-std>/core/src/num/uint_macros.rs:JudyLIns'2",
+    "80884c13": 78318,
+    "a517ea94": 69616,
+    "delta_ir": -8702
+   },
+   {
+    "entry": "crates/expanse-capi/src/compat.rs:JudyLIns",
+    "80884c13": 6909,
+    "a517ea94": 0,
+    "delta_ir": -6909
+   },
+   {
+    "entry": "<rust-std>/core/src/sync/atomic.rs:JudyLIns'2",
+    "80884c13": 15801,
+    "a517ea94": 10116,
+    "delta_ir": -5685
+   },
+   {
+    "entry": "crates/expanse/src/map.rs:JudyLIns",
+    "80884c13": 124640,
+    "a517ea94": 119349,
+    "delta_ir": -5291
+   },
+   {
+    "entry": "crates/expanse/src/leaf.rs:JudyLIns'2",
+    "80884c13": 124144,
+    "a517ea94": 119934,
+    "delta_ir": -4210
+   },
+   {
+    "entry": "crates/expanse/src/leaf.rs:JudyLIns",
+    "80884c13": 19468,
+    "a517ea94": 15500,
+    "delta_ir": -3968
+   },
+   {
+    "entry": "crates/expanse/src/bits.rs:JudyLIns'2",
+    "80884c13": 61788,
+    "a517ea94": 58596,
+    "delta_ir": -3192
+   },
+   {
+    "entry": "<rust-std>/core/src/sync/atomic.rs:JudyLIns",
+    "80884c13": 23649,
+    "a517ea94": 20849,
+    "delta_ir": -2800
+   },
+   {
+    "entry": "<rust-std>/core/src/ptr/mod.rs:JudyLIns'2",
+    "80884c13": 49932,
+    "a517ea94": 47272,
+    "delta_ir": -2660
+   },
+   {
+    "entry": "<rust-std>/compiler-builtins/compiler-builtins/./lib/builtins/aarch64/lse.S:__aarch64_ldadd8_relax",
+    "80884c13": 58820,
+    "a517ea94": 56165,
+    "delta_ir": -2655
+   },
+   {
+    "entry": "<rust-std>/core/src/cell.rs:JudyLIns",
+    "80884c13": 11779,
+    "a517ea94": 9488,
+    "delta_ir": -2291
+   },
+   {
+    "entry": "<rust-std>/core/src/ptr/mut_ptr.rs:JudyLIns",
+    "80884c13": 17454,
+    "a517ea94": 15828,
+    "delta_ir": -1626
+   },
+   {
+    "entry": "crates/expanse/src/bits.rs:JudyLIns",
+    "80884c13": 42636,
+    "a517ea94": 44232,
+    "delta_ir": 1596
+   },
+   {
+    "entry": "crates/expanse-capi/src/compat.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+    "80884c13": 0,
+    "a517ea94": 6128,
+    "delta_ir": 6128
+   },
+   {
+    "entry": "<rust-std>/core/src/ptr/non_null.rs:JudyLIns'2",
+    "80884c13": 12393,
+    "a517ea94": 21337,
+    "delta_ir": 8944
+   },
+   {
+    "entry": "crates/expanse/src/alloc.rs:JudyLIns",
+    "80884c13": 22436,
+    "a517ea94": 34146,
+    "delta_ir": 11710
+   },
+   {
+    "entry": "<rust-std>/core/src/ptr/mod.rs:JudyLIns",
+    "80884c13": 98082,
+    "a517ea94": 109854,
+    "delta_ir": 11772
+   }
+  ]
+ },
+ "aarch64_full_smoke_set": {
+  "what": "all 34 arms of the aarch64 job, `fb69a4af` against `80884c13` (the parent of #1041) and `32cb56dc` (current main)",
+  "arms_above_0p1pct_at_80884c13": 5,
+  "arms_above_0p1pct_at_32cb56dc": 0,
+  "rows": [
+   {
+    "arm": "map_ins_slot/random",
+    "fb69a4af": 7163657,
+    "80884c13": 7173602,
+    "32cb56dc": 7167745,
+    "pct_vs_fb69a4af_at_80884c13": 0.1388,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0571
+   },
+   {
+    "arm": "set_insert/sequential",
+    "fb69a4af": 714537,
+    "80884c13": 712700,
+    "32cb56dc": 714613,
+    "pct_vs_fb69a4af_at_80884c13": -0.2571,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0106
+   },
+   {
+    "arm": "map_get/sequential",
+    "fb69a4af": 981104,
+    "80884c13": 981104,
+    "32cb56dc": 981104,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "map_get/random",
+    "fb69a4af": 842141,
+    "80884c13": 842141,
+    "32cb56dc": 842141,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "map_get/clustered",
+    "fb69a4af": 748757,
+    "80884c13": 748757,
+    "32cb56dc": 748757,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "set_contains/sequential",
+    "fb69a4af": 832616,
+    "80884c13": 832616,
+    "32cb56dc": 832616,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "set_contains/random",
+    "fb69a4af": 828657,
+    "80884c13": 828657,
+    "32cb56dc": 828657,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "set_contains/clustered",
+    "fb69a4af": 659007,
+    "80884c13": 659007,
+    "32cb56dc": 659007,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "strmap_get/routes",
+    "fb69a4af": 6616888,
+    "80884c13": 6616888,
+    "32cb56dc": 6616888,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "judyl_get/sequential",
+    "fb69a4af": 1438869,
+    "80884c13": 1438869,
+    "32cb56dc": 1438869,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "judyl_get/random",
+    "fb69a4af": 1200056,
+    "80884c13": 1200056,
+    "32cb56dc": 1200056,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "judyl_get/clustered",
+    "fb69a4af": 1145256,
+    "80884c13": 1145256,
+    "32cb56dc": 1145256,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "judy1_test/sequential",
+    "fb69a4af": 1042420,
+    "80884c13": 1042420,
+    "32cb56dc": 1042420,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "judy1_test/random",
+    "fb69a4af": 1046114,
+    "80884c13": 1046114,
+    "32cb56dc": 1046114,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "judy1_test/clustered",
+    "fb69a4af": 868631,
+    "80884c13": 868631,
+    "32cb56dc": 868631,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "judysl_get/routes",
+    "fb69a4af": 7096581,
+    "80884c13": 7096581,
+    "32cb56dc": 7096581,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "judy1_set/sequential",
+    "fb69a4af": 923006,
+    "80884c13": 923017,
+    "32cb56dc": 920298,
+    "pct_vs_fb69a4af_at_80884c13": 0.0012,
+    "pct_vs_fb69a4af_at_32cb56dc": -0.2934
+   },
+   {
+    "arm": "set_insert/random",
+    "fb69a4af": 5931847,
+    "80884c13": 5908681,
+    "32cb56dc": 5909634,
+    "pct_vs_fb69a4af_at_80884c13": -0.3905,
+    "pct_vs_fb69a4af_at_32cb56dc": -0.3745
+   },
+   {
+    "arm": "judysl_insert/routes",
+    "fb69a4af": 9441052,
+    "80884c13": 9362498,
+    "32cb56dc": 9395056,
+    "pct_vs_fb69a4af_at_80884c13": -0.832,
+    "pct_vs_fb69a4af_at_32cb56dc": -0.4872
+   },
+   {
+    "arm": "judyl_insert/random",
+    "fb69a4af": 7334105,
+    "80884c13": 7344179,
+    "32cb56dc": 7298342,
+    "pct_vs_fb69a4af_at_80884c13": 0.1374,
+    "pct_vs_fb69a4af_at_32cb56dc": -0.4876
+   },
+   {
+    "arm": "judy1_set/random",
+    "fb69a4af": 6122314,
+    "80884c13": 6119075,
+    "32cb56dc": 6089713,
+    "pct_vs_fb69a4af_at_80884c13": -0.0529,
+    "pct_vs_fb69a4af_at_32cb56dc": -0.5325
+   },
+   {
+    "arm": "judyl_insert/sequential",
+    "fb69a4af": 1914258,
+    "80884c13": 1943006,
+    "32cb56dc": 1902519,
+    "pct_vs_fb69a4af_at_80884c13": 1.5018,
+    "pct_vs_fb69a4af_at_32cb56dc": -0.6132
+   },
+   {
+    "arm": "set_insert/clustered",
+    "fb69a4af": 1995295,
+    "80884c13": 1975399,
+    "32cb56dc": 1975477,
+    "pct_vs_fb69a4af_at_80884c13": -0.9971,
+    "pct_vs_fb69a4af_at_32cb56dc": -0.9932
+   },
+   {
+    "arm": "judyl_insert/clustered",
+    "fb69a4af": 3305475,
+    "80884c13": 3315489,
+    "32cb56dc": 3265709,
+    "pct_vs_fb69a4af_at_80884c13": 0.303,
+    "pct_vs_fb69a4af_at_32cb56dc": -1.203
+   },
+   {
+    "arm": "judy1_set/clustered",
+    "fb69a4af": 2185724,
+    "80884c13": 2185726,
+    "32cb56dc": 2158985,
+    "pct_vs_fb69a4af_at_80884c13": 0.0001,
+    "pct_vs_fb69a4af_at_32cb56dc": -1.2233
+   },
+   {
+    "arm": "map_insert/random",
+    "fb69a4af": 7263847,
+    "80884c13": 7263862,
+    "32cb56dc": 7153932,
+    "pct_vs_fb69a4af_at_80884c13": 0.0002,
+    "pct_vs_fb69a4af_at_32cb56dc": -1.5132
+   },
+   {
+    "arm": "strmap_churn/routes",
+    "fb69a4af": 23483245,
+    "80884c13": 23243245,
+    "32cb56dc": 22994045,
+    "pct_vs_fb69a4af_at_80884c13": -1.022,
+    "pct_vs_fb69a4af_at_32cb56dc": -2.0832
+   },
+   {
+    "arm": "strmap_insert/routes",
+    "fb69a4af": 8916863,
+    "80884c13": 8781986,
+    "32cb56dc": 8677640,
+    "pct_vs_fb69a4af_at_80884c13": -1.5126,
+    "pct_vs_fb69a4af_at_32cb56dc": -2.6828
+   },
+   {
+    "arm": "bytesmap_get/routes",
+    "fb69a4af": 5202178,
+    "80884c13": 5027104,
+    "32cb56dc": 5027104,
+    "pct_vs_fb69a4af_at_80884c13": -3.3654,
+    "pct_vs_fb69a4af_at_32cb56dc": -3.3654
+   },
+   {
+    "arm": "map_churn/random",
+    "fb69a4af": 11799715,
+    "80884c13": 11809715,
+    "32cb56dc": 11369857,
+    "pct_vs_fb69a4af_at_80884c13": 0.0847,
+    "pct_vs_fb69a4af_at_32cb56dc": -3.643
+   },
+   {
+    "arm": "map_insert/clustered",
+    "fb69a4af": 3249131,
+    "80884c13": 3249146,
+    "32cb56dc": 3105789,
+    "pct_vs_fb69a4af_at_80884c13": 0.0005,
+    "pct_vs_fb69a4af_at_32cb56dc": -4.4117
+   },
+   {
+    "arm": "map_insert/sequential",
+    "fb69a4af": 1892664,
+    "80884c13": 1905827,
+    "32cb56dc": 1686988,
+    "pct_vs_fb69a4af_at_80884c13": 0.6955,
+    "pct_vs_fb69a4af_at_32cb56dc": -10.867
+   },
+   {
+    "arm": "bytesmap_insert/routes",
+    "fb69a4af": 21613061,
+    "80884c13": 17922526,
+    "32cb56dc": 17896660,
+    "pct_vs_fb69a4af_at_80884c13": -17.0755,
+    "pct_vs_fb69a4af_at_32cb56dc": -17.1952
+   },
+   {
+    "arm": "bytesmap_churn/routes",
+    "fb69a4af": 33147914,
+    "80884c13": 26360431,
+    "32cb56dc": 26238110,
+    "pct_vs_fb69a4af_at_80884c13": -20.4764,
+    "pct_vs_fb69a4af_at_32cb56dc": -20.8454
+   }
+  ]
+ },
+ "x86_smoke_full_set": {
+  "what": "all 34 arms of the `Perf / Callgrind Fast Smoke (Ubuntu)` job, `fb69a4af` against `80884c13` and `32cb56dc`. #1041 moved the deficit here rather than removing it",
+  "arms_above_0p1pct_at_80884c13": 1,
+  "arms_above_0p1pct_at_32cb56dc": 4,
+  "rows": [
+   {
+    "arm": "judy1_set/sequential",
+    "fb69a4af": 978762,
+    "80884c13": 978773,
+    "32cb56dc": 998324,
+    "pct_vs_fb69a4af_at_80884c13": 0.0011,
+    "pct_vs_fb69a4af_at_32cb56dc": 1.9986
+   },
+   {
+    "arm": "judy1_set/random",
+    "fb69a4af": 6493557,
+    "80884c13": 6493568,
+    "32cb56dc": 6546497,
+    "pct_vs_fb69a4af_at_80884c13": 0.0002,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.8153
+   },
+   {
+    "arm": "set_insert/sequential",
+    "fb69a4af": 753266,
+    "80884c13": 749205,
+    "32cb56dc": 755765,
+    "pct_vs_fb69a4af_at_80884c13": -0.5391,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.3318
+   },
+   {
+    "arm": "judy1_set/clustered",
+    "fb69a4af": 2324190,
+    "80884c13": 2324201,
+    "32cb56dc": 2328763,
+    "pct_vs_fb69a4af_at_80884c13": 0.0005,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.1968
+   },
+   {
+    "arm": "map_get/sequential",
+    "fb69a4af": 1231057,
+    "80884c13": 1231057,
+    "32cb56dc": 1231057,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "map_get/random",
+    "fb69a4af": 1144094,
+    "80884c13": 1144094,
+    "32cb56dc": 1144094,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "map_get/clustered",
+    "fb69a4af": 1017687,
+    "80884c13": 1017687,
+    "32cb56dc": 1017687,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "set_contains/sequential",
+    "fb69a4af": 1023119,
+    "80884c13": 1023119,
+    "32cb56dc": 1023119,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "set_contains/random",
+    "fb69a4af": 1111724,
+    "80884c13": 1111724,
+    "32cb56dc": 1111724,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "set_contains/clustered",
+    "fb69a4af": 906296,
+    "80884c13": 906296,
+    "32cb56dc": 906296,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "strmap_get/routes",
+    "fb69a4af": 6744256,
+    "80884c13": 6744256,
+    "32cb56dc": 6744256,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "judyl_get/sequential",
+    "fb69a4af": 1538887,
+    "80884c13": 1538887,
+    "32cb56dc": 1538887,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "judyl_get/random",
+    "fb69a4af": 1340334,
+    "80884c13": 1340334,
+    "32cb56dc": 1340334,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "judyl_get/clustered",
+    "fb69a4af": 1237860,
+    "80884c13": 1237860,
+    "32cb56dc": 1237860,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "judy1_test/sequential",
+    "fb69a4af": 1173024,
+    "80884c13": 1173024,
+    "32cb56dc": 1173024,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "judy1_test/random",
+    "fb69a4af": 1261629,
+    "80884c13": 1261629,
+    "32cb56dc": 1261629,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "judy1_test/clustered",
+    "fb69a4af": 1056077,
+    "80884c13": 1056077,
+    "32cb56dc": 1056077,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "judysl_get/routes",
+    "fb69a4af": 7024178,
+    "80884c13": 7024178,
+    "32cb56dc": 7024178,
+    "pct_vs_fb69a4af_at_80884c13": 0.0,
+    "pct_vs_fb69a4af_at_32cb56dc": 0.0
+   },
+   {
+    "arm": "map_ins_slot/random",
+    "fb69a4af": 7538701,
+    "80884c13": 7538772,
+    "32cb56dc": 7535860,
+    "pct_vs_fb69a4af_at_80884c13": 0.0009,
+    "pct_vs_fb69a4af_at_32cb56dc": -0.0377
+   },
+   {
+    "arm": "judyl_insert/random",
+    "fb69a4af": 7719021,
+    "80884c13": 7719142,
+    "32cb56dc": 7696194,
+    "pct_vs_fb69a4af_at_80884c13": 0.0016,
+    "pct_vs_fb69a4af_at_32cb56dc": -0.2957
+   },
+   {
+    "arm": "set_insert/random",
+    "fb69a4af": 6313004,
+    "80884c13": 6273043,
+    "32cb56dc": 6276584,
+    "pct_vs_fb69a4af_at_80884c13": -0.633,
+    "pct_vs_fb69a4af_at_32cb56dc": -0.5769
+   },
+   {
+    "arm": "judysl_insert/routes",
+    "fb69a4af": 9145550,
+    "80884c13": 9196578,
+    "32cb56dc": 9081554,
+    "pct_vs_fb69a4af_at_80884c13": 0.558,
+    "pct_vs_fb69a4af_at_32cb56dc": -0.6998
+   },
+   {
+    "arm": "judyl_insert/clustered",
+    "fb69a4af": 3573084,
+    "80884c13": 3573175,
+    "32cb56dc": 3544418,
+    "pct_vs_fb69a4af_at_80884c13": 0.0025,
+    "pct_vs_fb69a4af_at_32cb56dc": -0.8023
+   },
+   {
+    "arm": "judyl_insert/sequential",
+    "fb69a4af": 2159068,
+    "80884c13": 2154650,
+    "32cb56dc": 2122827,
+    "pct_vs_fb69a4af_at_80884c13": -0.2046,
+    "pct_vs_fb69a4af_at_32cb56dc": -1.6785
+   },
+   {
+    "arm": "map_insert/random",
+    "fb69a4af": 7658134,
+    "80884c13": 7638176,
+    "32cb56dc": 7525725,
+    "pct_vs_fb69a4af_at_80884c13": -0.2606,
+    "pct_vs_fb69a4af_at_32cb56dc": -1.729
+   },
+   {
+    "arm": "strmap_churn/routes",
+    "fb69a4af": 23982128,
+    "80884c13": 23402128,
+    "32cb56dc": 23542128,
+    "pct_vs_fb69a4af_at_80884c13": -2.4185,
+    "pct_vs_fb69a4af_at_32cb56dc": -1.8347
+   },
+   {
+    "arm": "set_insert/clustered",
+    "fb69a4af": 2143679,
+    "80884c13": 2103746,
+    "32cb56dc": 2104074,
+    "pct_vs_fb69a4af_at_80884c13": -1.8628,
+    "pct_vs_fb69a4af_at_32cb56dc": -1.8475
+   },
+   {
+    "arm": "strmap_insert/routes",
+    "fb69a4af": 8838787,
+    "80884c13": 8635251,
+    "32cb56dc": 8652897,
+    "pct_vs_fb69a4af_at_80884c13": -2.3028,
+    "pct_vs_fb69a4af_at_32cb56dc": -2.1031
+   },
+   {
+    "arm": "bytesmap_get/routes",
+    "fb69a4af": 5812173,
+    "80884c13": 5582179,
+    "32cb56dc": 5582179,
+    "pct_vs_fb69a4af_at_80884c13": -3.9571,
+    "pct_vs_fb69a4af_at_32cb56dc": -3.9571
+   },
+   {
+    "arm": "map_insert/clustered",
+    "fb69a4af": 3588635,
+    "80884c13": 3568677,
+    "32cb56dc": 3373747,
+    "pct_vs_fb69a4af_at_80884c13": -0.5561,
+    "pct_vs_fb69a4af_at_32cb56dc": -5.988
+   },
+   {
+    "arm": "map_churn/random",
+    "fb69a4af": 12083558,
+    "80884c13": 12053558,
+    "32cb56dc": 11279483,
+    "pct_vs_fb69a4af_at_80884c13": -0.2483,
+    "pct_vs_fb69a4af_at_32cb56dc": -6.6543
+   },
+   {
+    "arm": "map_insert/sequential",
+    "fb69a4af": 2153687,
+    "80884c13": 2096793,
+    "32cb56dc": 1914872,
+    "pct_vs_fb69a4af_at_80884c13": -2.6417,
+    "pct_vs_fb69a4af_at_32cb56dc": -11.0887
+   },
+   {
+    "arm": "bytesmap_insert/routes",
+    "fb69a4af": 22924638,
+    "80884c13": 18250060,
+    "32cb56dc": 18257156,
+    "pct_vs_fb69a4af_at_80884c13": -20.3911,
+    "pct_vs_fb69a4af_at_32cb56dc": -20.3601
+   },
+   {
+    "arm": "bytesmap_churn/routes",
+    "fb69a4af": 36476063,
+    "80884c13": 27913445,
+    "32cb56dc": 27816185,
+    "pct_vs_fb69a4af_at_80884c13": -23.4746,
+    "pct_vs_fb69a4af_at_32cb56dc": -23.7413
+   }
+  ]
+ },
+ "verdict": {
+  "residue": "REMOVED",
+  "attributed_to": "#1041 (`a517ea94`), which parameterised the `MapCore` and `ExpanseSet` root-leaf operations over `const OCC` and routed the classic Judy C ABI symbols to the `_plain` entry points",
+  "evidence": [
+   "bracketing (executed, CI): the arm's Callgrind Ir is bit-identical across the three push runs before `a517ea94` and the two after, and `80884c13..a517ea94` holds exactly one commit",
+   "per-function (executed, local aarch64 Callgrind): the -40,487 Ir delta reproduces bit-identically, and 33.2 % of it is the `OnceLock` read machinery and the allocator's atomic RMW helper leaving `JudyLIns` \u2014 `core::sync::atomic` -8,485, `core::cell` -2,291, the LSE `ldadd` helper -2,655",
+   "static: `JudyLIns`'s acquire loads go 12 (`fb69a4af`) -> 19 (`728e316e`, section 11.10.10) -> 9 (`636fcaa7`, section 11.10.10; reproduced here at `80884c13`) -> 0 (`a517ea94`), the same ordering as the Ir",
+   "the mechanism removed is the one section 11.10.10 predicted: the root-leaf code in `map.rs` was not generic over the mode"
+  ],
+  "not_established": [
+   "66.8 % of the delta (-27,056 Ir) is net redistribution across the monomorphized bodies and is NOT attributed to a single mechanism: map.rs, compat.rs, leaf.rs and bits.rs fall while alloc.rs, `core::ptr` and `core::ptr::non_null` rise. Reported as unexplained (AGENTS.md section 8.20.4)",
+   "the static per-site counts are instructions PRESENT; they are not executed counts, and the Ir per static site is not constant across the four commits (7.0, 2.0 and 4.5 Ir/op per site for the three steps), so no per-site cost is claimed",
+   "the `strmap_*` arms carry #1001's rewrite of the `SyncExpanseStrMap` write path in the same span, so their net against `fb69a4af` is not attributable to #997 / #1010 / #1041 alone",
+   "the aarch64 `map_insert/sequential` arm's -10.867 % against `fb69a4af` is recorded, not attributed; no profile of it was taken"
+  ],
+  "instrument_that_would_split_the_remainder": "a per-line `callgrind_annotate --auto=yes` of the same two out files, or an inverse ablation restoring the generic root-leaf path at `a517ea94`",
+  "what_998_has_left": "on x86, not aarch64: #1041 put four smoke arms over the 0.1 % review threshold against `fb69a4af` \u2014 `judy1_set/sequential` +1.999 %, `judy1_set/random` +0.815 %, `set_insert/sequential` +0.332 %, `judy1_set/clustered` +0.197 % \u2014 where `80884c13` had one (`judysl_insert/routes` +0.558 %, now -0.700 %). The same arms fall on aarch64. #1041's `allow-regression:` line names `set_insert/sequential` on the deterministic job and localises that residue to `leaf::locate` with the mechanism unattributed; it does not name these smoke arms. No x86 profile of them was taken here and none is attributed."
+ }
+}

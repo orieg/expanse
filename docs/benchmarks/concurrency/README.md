@@ -2299,6 +2299,107 @@ Callgrind Bound` job: 95 Ir at `fb69a4af`, 101 at `f65a8434`, 98 at `929574b5`
 against its own parent, so it is met from `929574b5` on; against `fb69a4af` the
 call is +3 Ir, which is the figure the disassembly above predicted.
 
+**2026-09-20: the aarch64 residue is gone, and #1041 removed it.** The
+paragraph above left aarch64 `judyl_insert/sequential` at +1.502 % against
+`fb69a4af`, unattributed, with no executed-instruction profile of it taken.
+Main's own push runs now read it at **1,902,519 Ir**, −0.613 % against
+`fb69a4af`, and **no arm of the aarch64 job reaches the 0.1 % review threshold
+against `fb69a4af`** — five did at `80884c13`, and the worst of the 34 is now
+`map_ins_slot/random` at +0.057 %. The excused set's two x86 smoke arms went
+with them:
+`judyl_insert/sequential` −1.679 % and `judysl_insert/routes` −0.700 %, the
+latter the arm listed `unchanged` above. §2.1 invariant 5 is met on aarch64;
+**it is not met on x86, where the same commit moved the deficit rather than
+removing it** — see the last paragraph *(measured: GitHub-hosted Neoverse N2
+and x86_64 runners, `rustc 1.98.1`, commits and runs as tabulated;
+`results/callgrind_998_aarch64_plain_residue_a517ea94.json`)*. Counts are exact
+integers and carry no interval (§8.4).
+
+| commit | what | run | Ir | vs `fb69a4af` | `JudyLIns` acquire loads |
+|---|---|--:|--:|--:|--:|
+| `fb69a4af` | parent of #997 | 35164519305 | 1,914,258 | — | 12 |
+| `f65a8434` | #997 | 35167265086 | 1,963,445 | +2.570 % | 19 ‖ |
+| `929574b5` | #1010 | 35265455247 | 1,943,006 | +1.502 % | 9 ‖ |
+| `2cb01fed` | — | 35271760328 | 1,943,006 | +1.502 % | — |
+| `80884c13` | parent of #1041 | 35521230247 | 1,943,006 | +1.502 % | 9 |
+| `a517ea94` | #1041 | 35528487020 | 1,902,519 | −0.613 % | 0 |
+| `32cb56dc` | #1046 | 35534414688 | 1,902,519 | −0.613 % | — |
+
+‖ read at the branch heads `728e316e` and `636fcaa7` by the census above, not
+at the merges. The census re-run here reproduces that census's `fb69a4af`
+figures exactly — `JudyLIns` 12 and `Judy1Set` 9 — and its `636fcaa7` figures
+at `80884c13`, 9 and 7.
+
+**Attribution.** The arm is bit-identical across the three push runs before
+`a517ea94` and the two after, and `80884c13..a517ea94` holds exactly one
+commit: #1041, which parameterised the `MapCore` and `ExpanseSet` root-leaf
+operations over `const OCC` and routed the classic Judy C ABI symbols to the
+`_plain` entry points. It touched ten files, all under
+`crates/expanse{,-capi}/src/`, so the arm's work is unchanged across the pair.
+That is the mechanism this section predicted: the root-leaf code in `map.rs`
+was not generic over the mode.
+
+**The executed-instruction profile, taken.** For the pair `80884c13` /
+`a517ea94`, in a `rust:1.98` linux/arm64 container *(measured: local arm64
+development machine under Docker — not the reference host and not the CI
+runner — `rustc 1.98.1`, valgrind 3.24.0, iai-callgrind-runner 0.16.1,
+`CARGO_PROFILE_BENCH_DEBUG=1`; artifact as above)*. Its absolute totals are not
+CI's — 1,918,109 and 1,877,622, a constant 24,897 Ir below, the base image's
+libc differing from `ubuntu-24.04-arm`'s (`__GI_memmove` alone is 89,063 Ir of
+the arm) — but **the delta is bit-identical to CI's, −40,487 Ir, −4.05 Ir per
+insert**, so the split below is of the quantity CI measured. Self cost, by
+source file, rows moving ≥ 1,000 Ir:
+
+| entry | Δ Ir | share |
+|---|--:|--:|
+| `core::sync::atomic` inlined into `JudyLIns` | −8,485 | 21.0 % |
+| the LSE `ldadd` helper — allocator accounting RMW | −2,655 | 6.6 % |
+| `core::cell` inlined into `JudyLIns` | −2,291 | 5.7 % |
+| `map.rs` | −23,632 | 58.4 % |
+| `compat.rs` | −14,014 | 34.6 % |
+| `core::num::uint_macros` | −8,702 | 21.5 % |
+| `leaf.rs` | −8,178 | 20.2 % |
+| `core::ptr::mut_ptr` | −1,626 | 4.0 % |
+| `bits.rs` | −1,596 | 3.9 % |
+| `alloc.rs` | +11,710 | −28.9 % |
+| `core::ptr` | +9,112 | −22.5 % |
+| `core::ptr::non_null` | +8,944 | −22.1 % |
+
+The table sums to −41,413 Ir; the rows moving under 1,000 Ir account for the
+remaining +926. The first three rows, 33.2 % of the saving, are the `OnceLock` read machinery
+and the allocator's atomic accounting leaving the plain path, which is what the
+static census predicts. **The remaining 66.8 % is net redistribution across the
+monomorphized bodies and is reported unexplained (§8.20.4)**: this instrument
+attributes self cost to a source file, and cannot say how much of `map.rs`
+falling and `alloc.rs` rising is one body absorbing another rather than work
+being removed. A per-line `--auto=yes` annotation of the same two out files, or
+an inverse ablation restoring the generic root-leaf path at `a517ea94`, would
+split it.
+
+**What #1041 moved rather than removed: the x86 smoke set.** The same commit
+put four x86 smoke arms over the 0.1 % review threshold against `fb69a4af`,
+all on the `Judy1` / `ExpanseSet` insert path, where `80884c13` had one
+(`judysl_insert/routes` at +0.558 %, now −0.700 %). The same arms *fall* on
+aarch64, so this is the mirror image of the residue above and is ISA-specific:
+
+| x86 smoke arm | `fb69a4af` | `80884c13` | `a517ea94` = `32cb56dc` | vs `fb69a4af` | aarch64 twin |
+|---|--:|--:|--:|--:|--:|
+| `judy1_set/sequential` | 978,762 | 978,773 | 998,324 | +1.999 % | −0.293 % |
+| `judy1_set/random` | 6,493,557 | 6,493,557 | 6,546,497 | +0.815 % | −0.532 % |
+| `set_insert/sequential` | 753,266 | 753,266 | 755,765 | +0.332 % | +0.011 % |
+| `judy1_set/clustered` | 2,324,190 | 2,324,201 | 2,328,763 | +0.197 % | −1.223 % |
+
+#1041's `allow-regression:` line names `set_insert/sequential` on the
+deterministic job and localises that residue to `leaf::locate`, stating the
+mechanism unattributed; it does not name these smoke `judy1_set` arms. No x86
+profile of them was taken here, and none is attributed. That is what #998 has
+left, and it is on x86 rather than aarch64.
+
+Recorded and not attributed: aarch64 `map_insert/sequential` is −10.867 %
+against `fb69a4af`, and no profile of it was taken. The `strmap_*` arms carry
+#1001's rewrite of the `SyncExpanseStrMap` write path in the same span, so
+their net against `fb69a4af` belongs to none of #997, #1010 and #1041 alone.
+
 #### 11.10.11 The W = 8 cells re-measured at `0b08dd5b` (Refs #998, #930)
 
 §11.10.4, §11.10.7 and §11.10.9 quote W = 8 cells taken before `929574b5`
