@@ -1863,17 +1863,115 @@ impl MapCore {
 
     /// Removes `key`; returns its value if it was present.
     #[inline(always)]
-    pub(crate) fn remove<const OCC: bool, const NESTED: bool>(
+    pub(crate) fn remove(
         &mut self,
         alloc: &NodeAlloc,
         key: Key,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        self.noting_root_rewrite(|m| m.remove_inner::<OCC, NESTED>(alloc, key, path))
+        self.noting_root_rewrite(|m| m.remove_inner(alloc, key, path))
+    }
+
+    /// Single-threaded remove, bypassing OCC checks.
+    #[inline(always)]
+    pub(crate) fn remove_plain(
+        &mut self,
+        alloc: &NodeAlloc,
+        key: Key,
+        path: &mut crate::mutate_map::InsertPathMap,
+    ) -> Option<u64> {
+        self.noting_root_rewrite(|m| m.remove_inner_dispatch::<false, false>(alloc, key, path))
     }
 
     #[inline(always)]
-    fn remove_inner<const OCC: bool, const NESTED: bool>(
+    pub(crate) fn remove_dispatch<const OCC: bool, const NESTED: bool>(
+        &mut self,
+        alloc: &NodeAlloc,
+        key: Key,
+        path: &mut crate::mutate_map::InsertPathMap,
+    ) -> Option<u64> {
+        self.noting_root_rewrite(|m| m.remove_inner_dispatch::<OCC, NESTED>(alloc, key, path))
+    }
+
+    #[inline(always)]
+    fn remove_inner(
+        &mut self,
+        alloc: &NodeAlloc,
+        key: Key,
+        path: &mut crate::mutate_map::InsertPathMap,
+    ) -> Option<u64> {
+        path.clear();
+        match &mut self.root {
+            Root::Empty => None,
+            Root::Leaf { ptr, pop } => {
+                let (ptr, pop) = (*ptr, *pop);
+                let (keys, vals) = Self::leaf_parts(ptr, pop);
+                let at = keys.binary_search(&key).ok()?;
+                // SAFETY: in-bounds value read.
+                let old = unsafe { *vals.add(at) };
+                if pop == 1 {
+                    // SAFETY: last entry removed; free the leaf.
+                    unsafe { alloc.free_bytes(ptr, leaf_size(1)) };
+                    self.root = Root::Empty;
+                } else if crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop) {
+                    // Fast path: capacity class unchanged — shift surviving entries in-place.
+                    // SAFETY: in-place shift inside class-sized buffer.
+                    unsafe {
+                        let nk = ptr.as_ptr().cast::<u64>();
+                        core::ptr::copy(nk.add(at + 1), nk.add(at), pop - 1 - at);
+                        core::ptr::copy(vals.add(at + 1), vals.add(at), pop - 1 - at);
+                    }
+                    self.root = Root::Leaf { ptr, pop: pop - 1 };
+                } else {
+                    let new = alloc.alloc_bytes(leaf_size(pop - 1));
+                    // SAFETY: copy the surviving keys/values into the
+                    // smaller leaf.
+                    unsafe {
+                        let nk = new.as_ptr().cast::<u64>();
+                        nk.copy_from_nonoverlapping(keys.as_ptr(), at);
+                        nk.add(at)
+                            .copy_from_nonoverlapping(keys.as_ptr().add(at + 1), pop - 1 - at);
+                        let nv = new.as_ptr().add(leaf_values_offset(pop - 1)).cast::<u64>();
+                        nv.copy_from_nonoverlapping(vals, at);
+                        nv.add(at)
+                            .copy_from_nonoverlapping(vals.add(at + 1), pop - 1 - at);
+                        alloc.free_bytes(ptr, leaf_size(pop));
+                    }
+                    self.root = Root::Leaf {
+                        ptr: new,
+                        pop: pop - 1,
+                    };
+                }
+                Some(old)
+            }
+            Root::Tree { top } => {
+                // One OCC check per operation, where the runtime dispatch
+                // always sat (see `insert_inner`).
+                let (old, now) = by_mode!(alloc, tree_remove(alloc, &mut self.tree_pop, top, key));
+                if old.is_some() {
+                    if now == 0 {
+                        debug_assert!(top.is_null());
+                        // A root-state change: on a shared tree whose engine
+                        // covers the root, the tree word brackets it (a no-op
+                        // elsewhere; one load on this rare path).
+                        crate::occ::tree_begin_if::<true>(alloc);
+                        self.root = Root::Empty;
+                        crate::occ::tree_end_if::<true>(alloc);
+                    } else if now < ROOT_LEAF_CAP as u64 {
+                        // Hysteresis twin of the root-leaf promotion; a
+                        // root-state change, as above.
+                        crate::occ::tree_begin_if::<true>(alloc);
+                        by_mode!(alloc, 1 self.condense_to_root_leaf(alloc, path));
+                        crate::occ::tree_end_if::<true>(alloc);
+                    }
+                }
+                old
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn remove_inner_dispatch<const OCC: bool, const NESTED: bool>(
         &mut self,
         alloc: &NodeAlloc,
         key: Key,
@@ -2601,7 +2699,11 @@ impl MapCore {
         alloc: &NodeAlloc,
         key: Key,
     ) -> Option<u64> {
-        self.remove::<OCC, NESTED>(alloc, key, &mut crate::mutate_map::InsertPathMap::empty())
+        self.remove_dispatch::<OCC, NESTED>(
+            alloc,
+            key,
+            &mut crate::mutate_map::InsertPathMap::empty(),
+        )
     }
 
     #[inline(always)]
@@ -2847,10 +2949,7 @@ impl ExpanseMap {
     /// Removes `key`; returns its value if it was present.
     #[inline(always)]
     pub fn remove(&mut self, key: Key) -> Option<u64> {
-        by_mode!(
-            self.alloc,
-            self.core.remove(&self.alloc, key, self.path.get_mut())
-        )
+        self.core.remove(&self.alloc, key, self.path.get_mut())
     }
 
     /// Single-threaded remove, bypassing OCC checks.
@@ -2858,7 +2957,7 @@ impl ExpanseMap {
     #[inline(always)]
     pub fn remove_plain(&mut self, key: Key) -> Option<u64> {
         self.core
-            .remove::<false, false>(&self.alloc, key, self.path.get_mut())
+            .remove_plain(&self.alloc, key, self.path.get_mut())
     }
 
     /// Removes every entry.

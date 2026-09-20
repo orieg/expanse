@@ -813,18 +813,106 @@ impl ExpanseSet {
     /// Removes `key`; returns `true` if it was present.
     #[inline(always)]
     pub fn remove(&mut self, key: Key) -> bool {
-        self.noting_root_rewrite(|t| by_mode!(t.alloc, t.remove_inner(key)))
+        self.noting_root_rewrite(|t| t.remove_inner(key))
     }
 
     /// Single-threaded remove, bypassing OCC checks.
     #[doc(hidden)]
     #[inline(always)]
     pub fn remove_plain(&mut self, key: Key) -> bool {
-        self.noting_root_rewrite(|t| t.remove_inner::<false, false>(key))
+        self.noting_root_rewrite(|t| t.remove_inner_plain(key))
     }
 
     #[inline(always)]
-    fn remove_inner<const OCC: bool, const NESTED: bool>(&mut self, key: Key) -> bool {
+    #[allow(dead_code)]
+    pub(crate) fn remove_dispatch<const OCC: bool, const NESTED: bool>(
+        &mut self,
+        key: Key,
+    ) -> bool {
+        self.noting_root_rewrite(|t| t.remove_inner_dispatch::<OCC, NESTED>(key))
+    }
+
+    #[inline(always)]
+    fn remove_inner(&mut self, key: Key) -> bool {
+        self.path.get_mut().clear();
+        match &mut self.root {
+            Root::Empty => false,
+            Root::Leaf { keys, pop } => {
+                let (keys, pop) = (*keys, *pop);
+                // SAFETY: root leaf holds `pop` keys.
+                let slice =
+                    unsafe { core::slice::from_raw_parts(keys.as_ptr().cast::<u64>(), pop) };
+                let Ok(at) = slice.binary_search(&key) else {
+                    return false;
+                };
+                if pop == 1 {
+                    // SAFETY: last key removed; free the leaf.
+                    unsafe { self.alloc.free_bytes(keys, root_leaf_size(1)) };
+                    self.root = Root::Empty;
+                } else if crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop) {
+                    // Fast path: capacity class unchanged — shift surviving keys in-place.
+                    // SAFETY: in-place shift inside class-sized buffer.
+                    unsafe {
+                        let ptr = keys.as_ptr().cast::<u64>();
+                        core::ptr::copy(ptr.add(at + 1), ptr.add(at), pop - 1 - at);
+                    }
+                    self.root = Root::Leaf { keys, pop: pop - 1 };
+                } else {
+                    let new = self.alloc.alloc_bytes(root_leaf_size(pop - 1));
+                    // SAFETY: copy the surviving keys into the smaller
+                    // allocation.
+                    unsafe {
+                        let dst = new.as_ptr().cast::<u64>();
+                        dst.copy_from_nonoverlapping(slice.as_ptr(), at);
+                        dst.add(at)
+                            .copy_from_nonoverlapping(slice.as_ptr().add(at + 1), pop - 1 - at);
+                        self.alloc.free_bytes(keys, root_leaf_size(pop));
+                    }
+                    self.root = Root::Leaf {
+                        keys: new,
+                        pop: pop - 1,
+                    };
+                }
+                true
+            }
+            Root::Tree { top } => {
+                // One OCC check per operation, where the runtime dispatch
+                // always sat (see `insert_inner`).
+                let (removed, now) = by_mode!(
+                    self.alloc,
+                    tree_remove(&self.alloc, &mut self.tree_pop, top, key)
+                );
+                if removed {
+                    if now == 0 {
+                        debug_assert!(top.is_null());
+                        // A root-state change: on a shared tree whose engine
+                        // covers the root, the tree word brackets it (a no-op
+                        // elsewhere; one load on this rare path).
+                        crate::occ::tree_begin_if::<true>(&self.alloc);
+                        self.root = Root::Empty;
+                        crate::occ::tree_end_if::<true>(&self.alloc);
+                    } else if now < ROOT_LEAF_CAP as u64 {
+                        // Hysteresis: condense back to a root leaf one
+                        // index below the promotion boundary (promote at
+                        // CAP + 1, condense at CAP - 1; CAP is stable in
+                        // both forms). A root-state change, as above.
+                        crate::occ::tree_begin_if::<true>(&self.alloc);
+                        by_mode!(self.alloc, 1 self.condense_to_root_leaf());
+                        crate::occ::tree_end_if::<true>(&self.alloc);
+                    }
+                }
+                removed
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn remove_inner_plain(&mut self, key: Key) -> bool {
+        self.remove_inner_dispatch::<false, false>(key)
+    }
+
+    #[inline(always)]
+    fn remove_inner_dispatch<const OCC: bool, const NESTED: bool>(&mut self, key: Key) -> bool {
         self.path.get_mut().clear();
         match &mut self.root {
             Root::Empty => false,
