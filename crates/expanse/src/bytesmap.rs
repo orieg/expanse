@@ -622,27 +622,29 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     ///
     /// - **An in-place value publish on the bucket this reader is
     ///   scanning.** The load returns the value before or after that
-    ///   store; both are values the key held, and the read linearizes at
-    ///   the load. That publish leaves the versions alone — it unlocks
-    ///   the terminal's parent clean — so the validation below does not
-    ///   reject the read, deliberately: rejecting it would only trade a
-    ///   correct answer for an equally correct fresher one.
+    ///   store; both are values the key held, and the read linearizes
+    ///   at the load. That publish leaves every version alone — it
+    ///   unlocks the terminal's parent clean — deliberately: forcing the
+    ///   reader to retry would only trade a correct answer for an
+    ///   equally correct fresher one.
     /// - **A bucket replacement of the bucket this reader is
     ///   scanning.** The replacement stores the trie word under the
-    ///   terminal's parent version lock and unlocks it dirty, so a
-    ///   reader that walked across it fails its validation and retries
-    ///   rather than returning what it read.
+    ///   terminal's parent version lock and unlocks it dirty. A reader
+    ///   still inside the walk fails that node's validation and
+    ///   retries; a reader that had already taken the bucket word keeps
+    ///   reading the retired bucket under its pin, whose value words
+    ///   are **frozen** — a writer stores only after its locked compare
+    ///   has seen its own bucket word still published, and no writer
+    ///   can see it again once the trie entry has moved on. So it
+    ///   returns the value the key held when it took the word, and
+    ///   linearizes there. (The OLC write path moves node versions, not
+    ///   the tree word, so `ver.validate` below is not what covers
+    ///   this; it covers the serialised paths — root growth, `remove`,
+    ///   `clear` — which bracket the tree word.)
     /// - **Both at once.** The replacement re-reads the value words
     ///   under the same version lock the in-place publish takes
     ///   ([`refresh_replacement_values`]), so the two cannot interleave
     ///   and no acknowledged overwrite is dropped.
-    ///
-    /// An unlinked bucket's value words are frozen: a writer stores only
-    /// after its locked compare has seen its own bucket word still
-    /// published, which no writer can see again once the trie entry has
-    /// moved on. A pinned reader still scanning a retired bucket
-    /// therefore reads values the key held at or before the
-    /// replacement — and is made to retry by the validation anyway.
     ///
     /// # Safety
     ///
