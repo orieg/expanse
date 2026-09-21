@@ -11,7 +11,12 @@ want="${2:?expected version}"
 [ -f "${archive}" ] || { echo "error: archive not found: ${archive}" >&2; exit 1; }
 
 work="$(mktemp -d)"
-trap 'rm -rf "${work}"' EXIT
+# Under bash 3.2 (the macOS system bash) a fatal shell error such as an unbound
+# variable reaches the EXIT trap with $? = 0, so a cleanup trap turns a dead
+# smoke into exit 0. The trap therefore trusts a flag set on the last line,
+# never the status it is handed.
+finished=0
+trap 'rc=$?; rm -rf "${work}"; [ "${finished}" = 1 ] || { [ "${rc}" -ne 0 ] || rc=1; echo "error: smoke did not run to completion" >&2; }; exit "${rc}"' EXIT
 tar -xzf "${archive}" -C "${work}"
 for f in include/expanse.h include/Judy.h lib/libexpanse.a; do
   [ -f "${work}/${f}" ] || { echo "error: archive lacks ${f}" >&2; exit 1; }
@@ -33,12 +38,13 @@ extract legacy.c > "${work}/legacy.c"
 
 # Static link: the dylib's install name is the build directory until Homebrew
 # or MacPorts rewrites it, and this check is about the headers and symbols.
+# `${libs[@]+...}` below: bash 3.2 treats an empty array as unset under `set -u`.
 libs=()
 case "$(uname -s)" in
   Linux) libs=(-lpthread -ldl -lm) ;;
 esac
-cc "${work}/modern.c" -I"${work}/include" "${work}/lib/libexpanse.a" "${libs[@]}" -o "${work}/modern"
-cc "${work}/legacy.c" -I"${work}/include" "${work}/lib/libexpanse.a" "${libs[@]}" -o "${work}/legacy"
+cc "${work}/modern.c" -I"${work}/include" "${work}/lib/libexpanse.a" ${libs[@]+"${libs[@]}"} -o "${work}/modern"
+cc "${work}/legacy.c" -I"${work}/include" "${work}/lib/libexpanse.a" ${libs[@]+"${libs[@]}"} -o "${work}/legacy"
 
 got="$("${work}/modern")"
 case "${got}" in
@@ -47,3 +53,4 @@ case "${got}" in
 esac
 "${work}/legacy"
 echo "homebrew archive smoke: ok (${got})"
+finished=1

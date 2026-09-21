@@ -683,7 +683,13 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ steps.render.outputs.version }}
-        run: bash scripts/test_homebrew_archive.sh "artifacts/expanse-${VERSION}-$(uname -m | sed 's/arm64/aarch64/')-apple-darwin.tar.gz" "${VERSION}"
+        run: |
+          set -euo pipefail
+          # Gate on the script's own success line as well as its exit status:
+          # the first canary run went green with the smoke dead on its first
+          # compile, because bash 3.2 exited 0 through the cleanup trap.
+          bash scripts/test_homebrew_archive.sh "artifacts/expanse-${VERSION}-$(uname -m | sed 's/arm64/aarch64/')-apple-darwin.tar.gz" "${VERSION}" | tee smoke.log
+          grep -q -e "homebrew archive smoke: ok" smoke.log || { echo "::error::smoke script printed no success line"; exit 1; }
       - name: Attach formula and Portfile to the GitHub Release
         if: github.event_name == 'push' # tag releases only
         env:
