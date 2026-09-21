@@ -121,6 +121,22 @@ pub(crate) struct Retry;
 /// Bounded optimistic restarts before falling back to the writer lock.
 const MAX_RETRIES: usize = 64;
 
+/// How many times an optimistic `SyncExpanseBytesMap::insert` that meets a
+/// closed writer gate hands its slot back, waits for the reopen and retries,
+/// before falling back to the serialised path (Refs #1047).
+///
+/// A closed gate is not contention. A serialised section holds it and will
+/// reopen it, so the insert only has to wait. Falling back instead makes the
+/// insert a serialised section of its own, which closes the gate again for
+/// every other writer. The bound keeps an insert that keeps meeting a closed
+/// gate terminating on the path it always had.
+#[cfg(all(
+    feature = "std",
+    target_pointer_width = "64",
+    not(feature = "ablation-bytes-serial-writers")
+))]
+const GATE_WAIT_ROUNDS: u32 = 16;
+
 /// Writes between epoch-advance attempts (`Collector::try_advance`).
 ///
 /// `try_advance` is documented writer-side and *amortized* — "call once
@@ -9954,175 +9970,199 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                 });
             }
 
-            let guard = self.shared.enter_writer_blocking();
-            let slot_id = guard.slot_id();
             let h = self.shared.inner_ref().hash_key(key);
+            // A closed gate is waited out rather than escalated; see
+            // `GATE_WAIT_ROUNDS`.
+            let mut gate_rounds = 0u32;
+            let res = loop {
+                let waits_left = gate_rounds < GATE_WAIT_ROUNDS;
+                let mut wait_for_gate = false;
+                let guard = self.shared.enter_writer_blocking();
+                let slot_id = guard.slot_id();
 
-            let res = self.shared.with_writer_pin(|| {
-                crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
-                crate::occ_stats::op_begin();
-
-                let mut cause = FallbackCause::Contention;
-                #[cfg(feature = "occ-stats")]
-                let mut closed = false;
-                let mut backoff = 1;
-                // One restart: count it, spin, widen the window. Defined
-                // after `backoff` so the name resolves to it.
-                macro_rules! stall {
-                    () => {{
-                        crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
-                        for _ in 0..backoff {
-                            core::hint::spin_loop();
-                        }
-                        if backoff < 64 {
-                            backoff <<= 1;
-                        }
-                        #[cfg(loom)]
-                        loom::thread::yield_now();
-                    }};
-                }
-                for _ in 0..MAX_RETRIES {
-                    if self.shared.gate.is_closed() {
-                        #[cfg(feature = "occ-stats")]
-                        {
-                            closed = true;
-                        }
-                        break;
+                let res = self.shared.with_writer_pin(|| {
+                    // Once per insert, however many rounds wait out a closed gate, so
+                    // `write_ops == inserts + lock_fallbacks` still holds.
+                    if gate_rounds == 0 {
+                        crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
                     }
+                    crate::occ_stats::op_begin();
 
-                    let snap = self.shared.version().sample();
-                    let root = self.shared.inner_ref().occ_root().0;
-                    // SAFETY: pinned + freshly sampled even version; loads are validated.
-                    let found = match unsafe {
-                        walk_validated::<true>(root, h, self.shared.version(), snap)
-                    } {
-                        Ok(f) => f,
-                        Err(Retry) => {
-                            stall!();
-                            continue;
+                    let mut cause = FallbackCause::Contention;
+                    #[cfg(feature = "occ-stats")]
+                    let mut closed = false;
+                    let mut backoff = 1;
+                    // One restart: count it, spin, widen the window. Defined
+                    // after `backoff` so the name resolves to it.
+                    macro_rules! stall {
+                        () => {{
+                            crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                            for _ in 0..backoff {
+                                core::hint::spin_loop();
+                            }
+                            if backoff < 64 {
+                                backoff <<= 1;
+                            }
+                            #[cfg(loom)]
+                            loom::thread::yield_now();
+                        }};
+                    }
+                    for _ in 0..MAX_RETRIES {
+                        if self.shared.gate.is_closed() {
+                            #[cfg(feature = "occ-stats")]
+                            {
+                                closed = true;
+                            }
+                            wait_for_gate = true;
+                            break;
                         }
-                    };
 
-                    // #929: an overwrite of a key already in its bucket
-                    // changes exactly one `u64`, so publish it in place —
-                    // no replacement bucket, no key clone, no trie-word
-                    // CAS, no epoch retirement, no advance tick. Every
-                    // change to the *chain* (a fresh hash, a colliding
-                    // key) still replaces the bucket, below.
-                    let collision = match found {
-                        None => None,
-                        Some(word) => {
-                            if word == 0 {
-                                // Observable only mid-publication of a
-                                // fresh hash; the writer's bracket is open.
+                        let snap = self.shared.version().sample();
+                        let root = self.shared.inner_ref().occ_root().0;
+                        // SAFETY: pinned + freshly sampled even version; loads are validated.
+                        let found = match unsafe {
+                            walk_validated::<true>(root, h, self.shared.version(), snap)
+                        } {
+                            Ok(f) => f,
+                            Err(Retry) => {
                                 stall!();
                                 continue;
                             }
-                            // SAFETY: `word` was validated at `snap` under this
-                            // thread's pin, so the bucket shell, its entry array
-                            // and its key bytes are EBR-live and write-once.
-                            let (len, at) = unsafe { crate::bytesmap::bucket_find(word, key) };
-                            match at {
-                                // Absent from a live bucket: a real 64-bit
-                                // hash collision, handled below.
-                                None => Some((word, len)),
-                                Some(at) => {
-                                    let mut prev = 0u64;
-                                    match olc_bucket_value_inplace_map(
-                                        &*self.shared,
-                                        h,
-                                        word,
-                                        at,
-                                        val,
-                                        &mut prev,
-                                    ) {
-                                        OlcOutcome::Done(Some(seen)) if seen == word => {
-                                            crate::occ_stats::op_end();
-                                            return Ok(Some(prev));
-                                        }
-                                        OlcOutcome::Fallback(c) => {
-                                            cause = c;
-                                            break;
-                                        }
-                                        // Nothing was stored: the bucket moved
-                                        // under us, or its terminal did. Re-read.
-                                        OlcOutcome::Done(_) | OlcOutcome::Retry => {
-                                            stall!();
-                                            continue;
+                        };
+
+                        // #929: an overwrite of a key already in its bucket
+                        // changes exactly one `u64`, so publish it in place —
+                        // no replacement bucket, no key clone, no trie-word
+                        // CAS, no epoch retirement, no advance tick. Every
+                        // change to the *chain* (a fresh hash, a colliding
+                        // key) still replaces the bucket, below.
+                        let collision = match found {
+                            None => None,
+                            Some(word) => {
+                                if word == 0 {
+                                    // Observable only mid-publication of a
+                                    // fresh hash; the writer's bracket is open.
+                                    stall!();
+                                    continue;
+                                }
+                                // SAFETY: `word` was validated at `snap` under this
+                                // thread's pin, so the bucket shell, its entry array
+                                // and its key bytes are EBR-live and write-once.
+                                let (len, at) = unsafe { crate::bytesmap::bucket_find(word, key) };
+                                match at {
+                                    // Absent from a live bucket: a real 64-bit
+                                    // hash collision, handled below.
+                                    None => Some((word, len)),
+                                    Some(at) => {
+                                        let mut prev = 0u64;
+                                        match olc_bucket_value_inplace_map(
+                                            &*self.shared,
+                                            h,
+                                            word,
+                                            at,
+                                            val,
+                                            &mut prev,
+                                        ) {
+                                            OlcOutcome::Done(Some(seen)) if seen == word => {
+                                                crate::occ_stats::op_end();
+                                                return Ok(Some(prev));
+                                            }
+                                            OlcOutcome::Fallback(c) => {
+                                                cause = c;
+                                                break;
+                                            }
+                                            // Nothing was stored: the bucket moved
+                                            // under us, or its terminal did. Re-read.
+                                            OlcOutcome::Done(_) | OlcOutcome::Retry => {
+                                                stall!();
+                                                continue;
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                    };
+                        };
 
-                    // Both remaining shapes add a key, so neither has a
-                    // previous value to return.
-                    let (new_raw, expected, old_ptr, shared_prefix) = match collision {
-                        None => {
-                            let bucket: Bucket = vec![(key.into(), val)];
-                            (Box::into_raw(Box::new(bucket)) as u64, None, None, 0)
-                        }
-                        Some((word, len)) => {
-                            // A real 64-bit hash collision: a chain change.
-                            // SAFETY: as `bucket_find` above, with the length
-                            // it returned.
-                            let raw =
-                                unsafe { crate::bytesmap::clone_bucket_with(word, len, key, val) };
-                            (raw as u64, Some(word), Some(word as *mut Bucket), len)
-                        }
-                    };
-
-                    match olc_cas_publish_bucket_map(
-                        &*self.shared,
-                        h,
-                        expected,
-                        shared_prefix,
-                        new_raw,
-                    ) {
-                        OlcOutcome::Done(actual) => {
-                            if actual == expected {
-                                if expected.is_none() {
-                                    self.shared.tree_pop.add(slot_id, 1);
-                                }
-                                self.entry_pop.add(slot_id, 1);
-                                if let Some(old) = old_ptr {
-                                    dispose_bucket(old, true, Some(&self.shared.collector));
-                                }
-                                self.shared.collector.tick_advance();
-                                crate::occ_stats::op_end();
-                                return Ok(None);
+                        // Both remaining shapes add a key, so neither has a
+                        // previous value to return.
+                        let (new_raw, expected, old_ptr, shared_prefix) = match collision {
+                            None => {
+                                let bucket: Bucket = vec![(key.into(), val)];
+                                (Box::into_raw(Box::new(bucket)) as u64, None, None, 0)
                             }
-                            // CAS mismatch: another writer published. Drop unshared allocation.
-                            // SAFETY: `new_raw` was freshly allocated via Box::into_raw above.
-                            drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
-                            stall!();
-                        }
-                        OlcOutcome::Retry => {
-                            // SAFETY: `new_raw` was freshly allocated via Box::into_raw above.
-                            drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
-                            stall!();
-                        }
-                        OlcOutcome::Fallback(c) => {
-                            // SAFETY: `new_raw` was freshly allocated via Box::into_raw above.
-                            drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
-                            cause = c;
-                            break;
+                            Some((word, len)) => {
+                                // A real 64-bit hash collision: a chain change.
+                                // SAFETY: as `bucket_find` above, with the length
+                                // it returned.
+                                let raw = unsafe {
+                                    crate::bytesmap::clone_bucket_with(word, len, key, val)
+                                };
+                                (raw as u64, Some(word), Some(word as *mut Bucket), len)
+                            }
+                        };
+
+                        match olc_cas_publish_bucket_map(
+                            &*self.shared,
+                            h,
+                            expected,
+                            shared_prefix,
+                            new_raw,
+                        ) {
+                            OlcOutcome::Done(actual) => {
+                                if actual == expected {
+                                    if expected.is_none() {
+                                        self.shared.tree_pop.add(slot_id, 1);
+                                    }
+                                    self.entry_pop.add(slot_id, 1);
+                                    if let Some(old) = old_ptr {
+                                        dispose_bucket(old, true, Some(&self.shared.collector));
+                                    }
+                                    self.shared.collector.tick_advance();
+                                    crate::occ_stats::op_end();
+                                    return Ok(None);
+                                }
+                                // CAS mismatch: another writer published. Drop unshared allocation.
+                                // SAFETY: `new_raw` was freshly allocated via Box::into_raw above.
+                                drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                                stall!();
+                            }
+                            OlcOutcome::Retry => {
+                                // SAFETY: `new_raw` was freshly allocated via Box::into_raw above.
+                                drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                                stall!();
+                            }
+                            OlcOutcome::Fallback(c) => {
+                                // SAFETY: `new_raw` was freshly allocated via Box::into_raw above.
+                                drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                                cause = c;
+                                break;
+                            }
                         }
                     }
-                }
 
-                crate::occ_stats::op_end();
-                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
-                crate::occ_stats::bump(cause.stat());
-                #[cfg(feature = "occ-stats")]
-                if cause == FallbackCause::Contention {
-                    crate::occ_stats::bump(contention_stat(closed));
-                }
-                Err(cause)
-            });
+                    // A round that met a closed gate and has waits left is not a
+                    // fallback: it hands its slot back below and waits for the reopen.
+                    if wait_for_gate && waits_left {
+                        crate::occ_stats::op_end();
+                        return Err(cause);
+                    }
+                    crate::occ_stats::op_end();
+                    crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                    crate::occ_stats::bump(cause.stat());
+                    #[cfg(feature = "occ-stats")]
+                    if cause == FallbackCause::Contention {
+                        crate::occ_stats::bump(contention_stat(closed));
+                    }
+                    Err(cause)
+                });
 
-            drop(guard);
+                drop(guard);
+                if wait_for_gate && waits_left {
+                    gate_rounds += 1;
+                    continue;
+                }
+                break res;
+            };
             match res {
                 Ok(prev) => prev,
                 Err(_) => self.shared.remove_root_covered(|m| {
@@ -10273,6 +10313,26 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
     #[must_use]
     pub fn mem_used(&self) -> usize {
         self.shared.read_locked(ExpanseBytesMap::mem_used)
+    }
+
+    /// Test-only hook: closes the writer gate directly, without draining the
+    /// writers already in flight (Refs #1047).
+    ///
+    /// # Warning
+    /// Closes the gate without going through `quiesce_writers()`. Any arriving
+    /// or retrying writer will block until [`Self::__test_reopen_gate`] is called.
+    /// This can wedge all concurrent writers and is strictly for test harnesses.
+    #[cfg(all(feature = "occ-stats", feature = "std"))]
+    #[doc(hidden)]
+    pub fn __test_close_gate(&self) {
+        self.shared.gate.close();
+    }
+
+    /// Test-only hook: reopens the writer gate closed by [`Self::__test_close_gate`].
+    #[cfg(all(feature = "occ-stats", feature = "std"))]
+    #[doc(hidden)]
+    pub fn __test_reopen_gate(&self) {
+        self.shared.reopen_gate();
     }
 
     /// Runs `f` over the map with all writers excluded — the escape

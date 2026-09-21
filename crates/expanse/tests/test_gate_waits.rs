@@ -291,3 +291,84 @@ fn gate_blocked_entries_and_wait_cycles_measured() {
     );
     assert!(set.contains(999_999_999));
 }
+
+/// An optimistic `SyncExpanseBytesMap::insert` that meets a closed writer gate
+/// waits for the reopen instead of escalating to the serialised path
+/// (Refs #1047).
+///
+/// Escalating makes the insert a serialised section of its own, and that is
+/// observable from here: a serialised section reopens the gate on its way
+/// out, so a writer that escalates past a gate this test holds closed goes on
+/// completing inserts it could not otherwise complete. The writer overwrites
+/// keys that are already present, which takes the in-place value publish on a
+/// tree nothing else reshapes, so escalating is the only way it can progress
+/// while the gate is held.
+///
+/// The assertion reads the writer's own progress rather than a process-global
+/// counter, because another test in this binary drives the counters
+/// concurrently.
+#[test]
+fn bytes_insert_waits_out_a_closed_gate_instead_of_escalating() {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+    // Enough keys that the root is a tree, so inserts take the optimistic path.
+    const KEYS: u64 = 20_000;
+    // A hold catches an escalating writer only when the gate closes between
+    // its entry and its gate check. On a developer machine that was about one
+    // hold in eight (the negative control failed at holds 0, 3, 7, 10, 12 and
+    // 16 across six runs), so 64 holds miss a regression with probability
+    // near 0.88^64, about 3e-4.
+    const HOLDS: usize = 64;
+
+    let m = Arc::new(sync::SyncExpanseBytesMap::new());
+    for i in 0..KEYS {
+        m.insert(&i.to_le_bytes(), i);
+    }
+
+    let done = Arc::new(AtomicU64::new(0));
+    let stop = Arc::new(AtomicBool::new(false));
+    let writer = {
+        let (m, done, stop) = (Arc::clone(&m), Arc::clone(&done), Arc::clone(&stop));
+        thread::spawn(move || {
+            let mut i = 0u64;
+            while !stop.load(Ordering::Relaxed) {
+                m.insert(&(i % KEYS).to_le_bytes(), i);
+                done.fetch_add(1, Ordering::Relaxed);
+                i += 1;
+            }
+        })
+    };
+    let wait_for = |target: u64, what: &str| {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while done.load(Ordering::Relaxed) < target {
+            assert!(Instant::now() < deadline, "{what}");
+            thread::yield_now();
+        }
+    };
+    wait_for(1_000, "the writer did not start");
+
+    for hold in 0..HOLDS {
+        m.__test_close_gate();
+        // An insert already past its gate check when the gate closed may still
+        // land; give it time to, then count only what follows.
+        thread::sleep(Duration::from_millis(5));
+        let held = done.load(Ordering::Relaxed);
+        thread::sleep(Duration::from_millis(20));
+        let moved = done.load(Ordering::Relaxed) - held;
+        m.__test_reopen_gate();
+        assert!(
+            moved <= 1,
+            "hold {hold}: {moved} inserts completed while the gate was held \
+             closed — the insert escalated past the gate instead of waiting"
+        );
+        // And the wait ends when the gate reopens.
+        let resumed = done.load(Ordering::Relaxed);
+        wait_for(
+            resumed + 100,
+            &format!("hold {hold}: the writer did not resume after the reopen"),
+        );
+    }
+
+    stop.store(true, Ordering::Relaxed);
+    writer.join().expect("writer panicked");
+}
