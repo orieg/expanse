@@ -2502,12 +2502,19 @@ separate from C in either run, 1.016 [0.954, 1.127] and 1.052 [0.977, 1.166]
 [35572513385](https://github.com/orieg/expanse/actions/runs/35572513385),
 [35573564968](https://github.com/orieg/expanse/actions/runs/35573564968); workload:
 `core_concurrency`)*. Those are experiment builds; the cells below are the
-head that merges. The same paired experiment did not separate the 100 %-read
-`bytes` cell in both runs (C ÷ B 1.179 [1.107, 1.261] and 0.997 [0.991, 1.003]),
-yet at 16 threads it measures 120.8 and 116.2 M here against 130.2 and 129.2 M
-at `e7c97580`, lower in both runs while `DashMap` stays at 131.0 and 130.0 M
-against 131.1 and 130.2 M. That drop is between two sessions and several merged
-changes, not isolated to the removal, and its cause is not attributed. The
+head that merges. The 16-thread 100 %-read `bytes` cell below (120.8 and
+116.2 M) is lower than `e7c97580`'s record (130.2 and 129.2 M), but that
+comparison spans two sessions. Measured in one session, in the order E, M, M, E
+(E = `e7c97580`, M = `00d7ffa5`, which carries this code), M ÷ E at that cell is
+0.993 [0.927, 1.058] and 0.979 [0.968, 0.986] total ops: the pairs do not agree
+and the first spans 1.0. `e7c97580` itself measures 123.0 and 128.0 M there.
+The difference is between-session spread (`docs/BENCHMARKING.md` rule 18), not a
+change in the code *(measured: reference host — Intel Core i9-12900F, pin
+`0-15`, runs [35635499784](https://github.com/orieg/expanse/actions/runs/35635499784),
+[35637074428](https://github.com/orieg/expanse/actions/runs/35637074428),
+[35638610346](https://github.com/orieg/expanse/actions/runs/35638610346),
+[35647502450](https://github.com/orieg/expanse/actions/runs/35647502450), two-sample
+BCa 95 % over 18 rounds per cell; workload: `core_concurrency`)*. The
 per-window counter census is in
 `benches/concurrency.rs` (`print_counter_census`), compiled out of the default
 build.
