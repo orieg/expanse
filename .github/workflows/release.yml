@@ -645,6 +645,66 @@ jobs:
         run: |
           gh workflow run python.yml --ref main -f publish=true -f release_tag="${GITHUB_REF_NAME}"
 
+  publish-homebrew:
+    name: Publish Homebrew Formula & MacPorts Portfile
+    # Renders both from the release archives' own checksums, attaches them to
+    # the release, and pushes the formula to orieg/homebrew-tap.
+    needs: [release-gate, build-release-artifacts, github-release] # anchor-first (#313)
+    runs-on: macos-latest # the smoke step needs cc against a darwin archive
+    permissions:
+      contents: write # attach expanse.rb and Portfile to the release
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download release archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-artifacts-*
+          merge-multiple: true
+          path: artifacts
+      - name: Render formula and Portfile
+        id: render
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="$(grep -m1 '^version' crates/expanse-capi/Cargo.toml | cut -d'"' -f2)"
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          python3 scripts/update_homebrew_formula.py --self-test
+          python3 scripts/update_homebrew_formula.py \
+            --version "${VERSION}" --artifacts-dir artifacts \
+            --formula-out dist/expanse.rb --portfile-out dist/Portfile
+      # The formula's `test do` programs, run against the archive this runner's
+      # architecture would install, so a broken header or a missing symbol
+      # stops the push rather than reaching `brew test` on a user's machine.
+      - name: Smoke the darwin archive with the formula's test programs
+        shell: bash
+        env:
+          VERSION: ${{ steps.render.outputs.version }}
+        run: bash scripts/test_homebrew_archive.sh "artifacts/expanse-${VERSION}-$(uname -m | sed 's/arm64/aarch64/')-apple-darwin.tar.gz" "${VERSION}"
+      - name: Attach formula and Portfile to the GitHub Release
+        if: github.event_name == 'push' # tag releases only
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" dist/expanse.rb dist/Portfile --clobber
+      - name: Push formula to orieg/homebrew-tap
+        if: github.event_name == 'push' # tag releases only
+        shell: bash
+        env:
+          VERSION: ${{ steps.render.outputs.version }}
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY || '' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOMEBREW_TAP_DEPLOY_KEY}" ]; then
+            echo "::warning::HOMEBREW_TAP_DEPLOY_KEY is not configured — formula NOT pushed to orieg/homebrew-tap; dist/expanse.rb is attached to the release"
+            exit 0
+          fi
+          python3 scripts/update_homebrew_formula.py \
+            --version "${VERSION}" --artifacts-dir artifacts \
+            --push-to-tap orieg/homebrew-tap
+
   publish-pages:
     name: Publish Portal & Repositories (GitHub Pages)
     needs: [build-release-artifacts, github-release] # anchor-first (#313)

@@ -28,6 +28,8 @@ graph TD
     H --> K[Phase 3: package-nuget - NuGet.org OIDC]
     H --> L[Phase 3: publish-pages - apt/rpm portal]
     H --> M[Phase 3: publish-pypi - python.yml dispatched by github-release]
+    H --> N[Phase 3: publish-homebrew - formula to orieg/homebrew-tap + Portfile]
+    F --> N
     G --> J
 ```
 
@@ -148,6 +150,7 @@ Every GitHub release bundles precompiled native archives:
 - `expanse-vX.Y.Z-x86_64-apple-darwin.tar.gz` (Intel macOS)
 - `expanse-vX.Y.Z-x86_64-pc-windows-msvc.zip` (Windows MSVC)
 - `.deb` packages for Debian/Ubuntu
+- `expanse.rb` and `Portfile` — the rendered Homebrew formula and MacPorts Portfile for that release (§2.15)
 - `SHA256SUMS` cryptographic manifest
 
 ### 2.7 Python Wheels (`pip install expanse-trie`) & PyPI Distribution
@@ -431,6 +434,33 @@ Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C
    python3 scripts/bump_version.py 0.4.0 --check
    ```
    Exits with code `0` on success, or code `1` with descriptive mismatch reports if any manifest drifts out of sync.
+
+---
+
+### 2.15 Homebrew Tap & MacPorts Portfile (macOS, Linuxbrew)
+
+```bash
+brew install orieg/tap/expanse
+```
+
+The formula lives in the shared tap [`orieg/homebrew-tap`](https://github.com/orieg/homebrew-tap) as `Formula/expanse.rb`. It installs `libexpanse.dylib` (`libexpanse.so*` on Linux), `libexpanse.a`, `expanse.h` / `expanse.hpp` / `Judy.h`, the section-3 manual pages, `expanse.pc` and `judy.pc`, and the libjudy-compat links (`libJudy.dylib`, `libJudy.a`) so `-lJudy` resolves to `libexpanse`. It declares `conflicts_with "judy"`, since both install `Judy.h`. Its `test do` block compiles one program against `expanse.h` and one against `Judy.h` and runs both.
+
+**Prebuilt archives, not a source build.** The formula and the Portfile install the §2.6 release archives (`aarch64-apple-darwin`, `x86_64-apple-darwin`, and for Homebrew on Linux the two `-linux-gnu` archives). Those are the binaries the release gate's CI built and tested, their checksums are in the release's `SHA256SUMS`, and installing them needs no Rust toolchain. A source build would make every install depend on a Rust 1.88+ compiler, and on MacPorts would also need a `cargo.crates` vendoring list regenerated for each release. A tap formula gets no bottles, so a source formula would compile on every user's machine.
+
+**How it is published.** Both files are templates — [`extra/homebrew/expanse.rb.in`](../extra/homebrew/expanse.rb.in) and [`extra/macports/Portfile.in`](../extra/macports/Portfile.in) — with `@VERSION@`, `@SHA256_<TARGET>@` and `@SIZE_<TARGET>@` placeholders. Neither carries a version literal, so neither is a `bump_version.py` manifest: there is nothing in them to drift. The `publish-homebrew` job of `release.yml` (Phase 3, after the anchor) runs [`scripts/update_homebrew_formula.py`](../scripts/update_homebrew_formula.py), which fills the placeholders from the archives themselves and fails on a missing archive or an unfilled placeholder rather than emitting a placeholder checksum. The job then compiles and runs the formula's own test programs against the darwin archive ([`scripts/test_homebrew_archive.sh`](../scripts/test_homebrew_archive.sh) extracts them from the template, so the smoke and `brew test` cannot disagree), attaches `expanse.rb` and `Portfile` to the GitHub Release, and pushes `Formula/expanse.rb` to the tap.
+
+**Secret.** `HOMEBREW_TAP_DEPLOY_KEY`: the private half of an SSH deploy key that has **write** access to `orieg/homebrew-tap`. Without it the job still renders, smokes and attaches both files, and reports the skipped push as a workflow warning. A canary dispatch (`dry_run`) renders and smokes and publishes nothing.
+
+**MacPorts.** The port is not in the official MacPorts tree; the rendered `Portfile` is a release asset. To install it from a local ports tree:
+
+```bash
+mkdir -p ~/ports/devel/expanse
+curl -fsSL -o ~/ports/devel/expanse/Portfile https://github.com/orieg/expanse/releases/latest/download/Portfile
+# add "file://$HOME/ports" above the rsync line in /opt/local/etc/macports/sources.conf, then:
+(cd ~/ports && portindex) && sudo port install expanse
+```
+
+The Portfile rewrites the dylib's install name to `${prefix}/lib/libexpanse.dylib` and re-signs it, since cargo records the build directory there. Submitting the port to `macports/macports-ports` is a manual pull request and is not automated; that tree prefers source builds, so an upstream submission would need the `cargo` PortGroup variant.
 
 ---
 

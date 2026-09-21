@@ -145,7 +145,7 @@ graph TD
 | [`nightly.yml`](../.github/workflows/nightly.yml) | `schedule`, `workflow_dispatch` | full Miri, ThreadSanitizer, the nightly bench report |
 | [`pages.yml`](../.github/workflows/pages.yml) | `push`, `workflow_dispatch` | builds and publishes the documentation site |
 | [`python.yml`](../.github/workflows/python.yml) | `push`, `release`, `workflow_dispatch` | the Python wheel matrix and its publish path |
-| [`release.yml`](../.github/workflows/release.yml) | `push`, `workflow_dispatch` | tagged release artifacts |
+| [`release.yml`](../.github/workflows/release.yml) | `push`, `workflow_dispatch` | tagged release artifacts; after the GitHub Release anchor, one publish job per channel, including `publish-homebrew` (formula to `orieg/homebrew-tap`, Portfile as a release asset — [PACKAGING.md §2.15](PACKAGING.md)) |
 | [`subsplit.yml`](../.github/workflows/subsplit.yml) | `push`, `workflow_dispatch` | pushes the read-only per-ecosystem subtree mirrors |
 
 A benchmark whose host the `/bench` runner cannot be gets its own workflow rather than a
