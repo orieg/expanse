@@ -2464,6 +2464,46 @@ Arms compare only within a key type: u64 → u64 over 1M draws (`SyncExpanseMap`
 
 Artifacts: run 1 `baseline_concurrent_mixed.json` at `e7c97580`, pin `0-15`, 18 rounds, largest foreign busy CPUs over a group 0.05; run 2 `baseline_concurrent_mixed_run2.json` at `e7c97580`, pin `0-15`, 18 rounds, largest foreign busy CPUs over a group 0.04.
 
+**The `SyncExpanseBytesMap` 50/50 cells are attributed, and are withheld
+pending re-measurement (issue #1047).** The arm's 16-thread cells below — 1.13
+and 1.36 M total ops/s, under both its own `Mutex` twin and the 3.12 M the
+optimistic build measured before its multi-writer insert path landed — are what
+`e7c97580` measured, and they stand as that head's record. The cause is now
+named: the wrapper's `remove` was the one mutation left unconditionally
+serialised, and serialising it became far more expensive than the writer mutex
+it used to take, because `Shared::remove_root_covered` closes the writer gate
+and drains every **allocated** writer slot — and the optimistic insert path is
+what allocates those slots. On a 50/50 mix half the writes are removals, so a
+quarter of all operations quiesced the tree, and an insert that met the closed
+gate abandoned its optimistic attempt and quiesced the tree again on the way to
+its own fallback. The `occ-stats` census of the arm at 16 threads holds
+`quiesce_calls ≈ removes + lock_fallbacks`, and `lock_restarts` was ~0 per
+operation in the same census, so writers colliding on a bucket — the shape the
+issue named first — is refuted as the cause. That census was taken on a
+developer machine with 16 threads over 8 logical cores, not on this host, and
+its rates are not published as this host's.
+
+The attribution is confirmed by intervention on this host, on experiment commits
+that share one base (`001cb1cf`, which is `e55a0a5e` plus the census, compiled
+only under `occ-stats`), in the run order B, C, B+C, B+C, C, B. Making `remove`
+optimistic (C, `ee4557f8`) against leaving it serialised and only making an
+insert wait out a closed gate instead of falling back (B, `4cbb35d2`), at
+16 threads and 50 % read, total ops: 10.97 [9.97, 12.10] and 10.50 [9.47, 11.22]
+× (two-sample BCa 95 %, 18 rounds per cell); adding B's wait to C does not
+separate from C in either run, 1.016 [0.954, 1.127] and 1.052 [0.977, 1.166]
+*(measured: reference host — Intel Core i9-12900F, pin `0-15`, runs
+[35568471489](https://github.com/orieg/expanse/actions/runs/35568471489),
+[35569492485](https://github.com/orieg/expanse/actions/runs/35569492485),
+[35570434745](https://github.com/orieg/expanse/actions/runs/35570434745),
+[35571440635](https://github.com/orieg/expanse/actions/runs/35571440635),
+[35572513385](https://github.com/orieg/expanse/actions/runs/35572513385),
+[35573564968](https://github.com/orieg/expanse/actions/runs/35573564968); workload:
+`core_concurrency`)*. Those are experiment builds, not a head that merged, so
+they do not replace the cells below; the suite re-runs at the head that carries
+the optimistic removal (issue #1047). The per-window counter census is in
+`benches/concurrency.rs` (`print_counter_census`), compiled out of the default
+build.
+
 | arm | workload | N | total M ops/s, run 1 [BCa 95%] | run 2 | C(N), run 1 [paired BCa 95%] | run 2 |
 |---|---|--:|---|---|---|---|
 | `SyncExpanseMap` | 100% read | 1 | 40.2 [40.1, 40.2] | 40.1 [40.0, 40.2] | — | — |
