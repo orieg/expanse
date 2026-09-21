@@ -27,7 +27,7 @@
     "stock_vs_expanse": "crates/expanse-capi/benches/vs_stock.rs under Valgrind/Callgrind; INSTRUCTIONS RETIRED, not wall clock. ratio_so and hw_delta are derived from the three raw counts and asserted by test_visualizer_sync.rs. The wall-clock ns readings once published alongside this table (\"45% faster than Stock Judy\", 26.8 ns vs 48.6 ns on judyl_get/random_big) were never measured: they are these instruction counts rescaled by a single constant (~5.52 instr/ns fits both arms to 0.26%), introduced by 98ae7684 which changed only the expanse_so_v3 column while expanse_so_v1 and stock_libjudy stayed byte-identical. RETRACTED - see README.md and docs/BENCHMARKING.md, where the quiet-host wall-clock run measures random 1M lookup 1.031x slower than stock (BCa 95% CI [1.024, 1.038], results/baseline_vs_libjudy.json); an earlier ~11% (1.11x) reading predates the harness repair and is superseded. Instruction ratios are not timings: 0.55x instructions and a 1.031x wall-clock loss are simultaneously true. The cause is unmeasured - a counter run records 0.042 LLC misses per probe against 2.74 branch mispredicts per probe, refuting the DRAM-latency-bound reading once given here (issue #480). No per-run JSON artifact is committed for this table (issue #384). Per-run artifact: `results/baseline_vs_stock.json` (33 arms, run 33422776469, commit d1fde746) — exact counts, no interval, for the same reason (#382 item 8).",
     "ycsb_benchmarks.workloads.throughput_mops": "measured: reference host - Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, CI run 35419627251, ref 21a382f3; benches/ycsb.rs, seed 0x1234_5678_9ABC, 8 paired rounds with BCa 95% intervals - docs/BENCHMARKING.md section 2",
     "ycsb_benchmarks.workloads.latency_and_memory": "measured: reference host - Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, CI run 35419627251, ref 21a382f3; benches/ycsb.rs with 64-op window means, 200,000 recorded ops/workload across 8 rounds. bytes_per_key is derived from mem_mb.",
-    "ycsb_benchmarks.concurrency_scaling": "measured: reference host -- 12th Gen Intel(R) Core(TM) i9-12900F, pin 0-15, CI runs 34881026495 and 34882381735, ref 76432c5c; crates/expanse/benches/concurrency.rs through docs/benchmarks/concurrency/scripts/mixed_concurrency.py, threads 1,4,16, 18 interleaved rounds of 500 ms windows, largest foreign busy CPUs over a group 0.04 across both runs - docs/benchmarks/concurrency/README.md section 12; written by docs/benchmarks/concurrency/scripts/mixed_concurrency.py --write-assets from results/baseline_concurrent_mixed.json (run 1), with results/baseline_concurrent_mixed_run2.json as its second run. Per-thread rows are rounded to 0.1 Mops/s; scale_at_16t is run 1's mean read ops/s at 16 threads over that at 1 thread before rounding, so it follows the rows only to within the rounding envelope; scale_at_16t_run2 is the same ratio in run 2. The 95/5 mix is NOT a published cell: the bare-metal sweep runs workloads 100 and 50.",
+    "ycsb_benchmarks.concurrency_scaling": "measured: reference host -- 12th Gen Intel(R) Core(TM) i9-12900F, pin 0-15, CI runs 35533221725 and 35534176465, ref e7c97580; crates/expanse/benches/concurrency.rs through docs/benchmarks/concurrency/scripts/mixed_concurrency.py, threads 1,4,16, 18 interleaved rounds of 500 ms windows, largest foreign busy CPUs over a group 0.05 across both runs - docs/benchmarks/concurrency/README.md section 12; written by docs/benchmarks/concurrency/scripts/mixed_concurrency.py --write-assets from results/baseline_concurrent_mixed.json (run 1), with results/baseline_concurrent_mixed_run2.json as its second run. Per-thread rows are rounded to 0.1 Mops/s; scale_at_16t is run 1's mean read ops/s at 16 threads over that at 1 thread before rounding, so it follows the rows only to within the rounding envelope; scale_at_16t_run2 is the same ratio in run 2. The 95/5 mix is NOT a published cell: the bare-metal sweep runs workloads 100 and 50.",
     "large_value_benchmarks.inlining_speedups": "measured: reference host - Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; benches/large_values.rs inline_vs_heap_small_blobs, num_keys = 10,000 so us/10,000 = ns/op - docs/design/large-values.md section 10.3",
     "large_value_benchmarks.predicate_scan_selectivity": "measured: reference host - Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 43b46f38; benches/large_values.rs predicate_scan_cold_dram_sweep on a warm (L3-resident) arena - docs/design/large-values.md section 10.3. Both arms share the identical scan_filtered traversal; the naive arm touches every payload byte and the columnar arm only matches. The arena is smaller than the host L3, so a skipped payload avoids an L3 hit rather than a DRAM fetch -- the doc derives the resulting ceiling as full-scan 323 us / traversal-floor 228 us ~= 1.42x, reached as sigma -> 0. The RFC's >10x / 82%-DRAM-traffic figures remain targets, not measured results.",
     "modern_architecture": "crates/expanse/src/slot.rs, blobmap.rs, types32.rs, occ.rs - compile-time layout; SlotTag discriminants asserted by test_visualizer_sync.rs",
@@ -867,19 +867,19 @@
           "rows": [
             {
               "threads": 1,
-              "read_mops": 38.2
+              "read_mops": 40.2
             },
             {
               "threads": 4,
-              "read_mops": 144.8
+              "read_mops": 151.9
             },
             {
               "threads": 16,
-              "read_mops": 361.0
+              "read_mops": 342.5
             }
           ],
-          "scale_at_16t": "9.44x",
-          "scale_at_16t_run2": "9.44x"
+          "scale_at_16t": "8.53x",
+          "scale_at_16t_run2": "8.53x"
         },
         {
           "workload": "50% read / 50% write",
@@ -887,19 +887,19 @@
           "rows": [
             {
               "threads": 1,
-              "read_mops": 14.0
+              "read_mops": 14.1
             },
             {
               "threads": 4,
-              "read_mops": 20.5
+              "read_mops": 37.5
             },
             {
               "threads": 16,
-              "read_mops": 31.3
+              "read_mops": 47.0
             }
           ],
-          "scale_at_16t": "2.23x",
-          "scale_at_16t_run2": "2.23x"
+          "scale_at_16t": "3.32x",
+          "scale_at_16t_run2": "3.60x"
         }
       ]
     }
