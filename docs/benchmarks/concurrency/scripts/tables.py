@@ -37,6 +37,13 @@ Sections emitted, in README order:
   subsection per writer arm, from
   `results/c2c_{str,bytes,blob}_writer_scaling_0c6b7832{,_run2}.json` via
   `scripts/c2c_ranking.py`
+- `22` the #730 readers-only sweep re-measured at `7cd5140e`, from
+  `results/baseline_readers_only_writer_scaling_7cd5140e_{pin0-15,percore}{,_run2}.json`
+  beside the `170a4bc3` set §15 reads. A baseline, not an evaluation: those
+  artifacts carry `readers_only.preregistration` `null`, so under
+  `METHODOLOGY.md` §16.5 no cell has a verdict, and nothing in the section
+  prints one. METHODOLOGY §16.3's floors are read as constants (AGENTS.md
+  section 8.19).
 
 A missing artifact renders the section's rows as `pending` citing the open
 tracking issue, so the README is correct before the run exists and
@@ -856,17 +863,24 @@ BASELINE_PINS = (
     ("0-15", "pin0-15", "`0-15`"),
     ("0,2,4,6,8,10,12,14", "percore", "per-core"),
 )
-# (artifact stem, pin tag, run) -> CI run. The run URLs are not in the
-# artifacts, so they are named here beside the file each one produced.
+# (artifact stem, engine commit, pin tag, run) -> CI run. The run URLs are not
+# in the artifacts, so they are named here beside the file each one produced.
+# The commit is part of the key because the readers-only sweep has since been
+# re-measured at a second head (section 22), and one map keeps every run id in
+# one place (AGENTS.md section 8.18).
 BASELINE_RUNS = {
-    ("baseline_writer_scaling", "pin0-15", 1): 35021552023,
-    ("baseline_writer_scaling", "pin0-15", 2): 35021581528,
-    ("baseline_writer_scaling", "percore", 1): 35021610717,
-    ("baseline_writer_scaling", "percore", 2): 35021636713,
-    ("baseline_readers_only_writer_scaling", "pin0-15", 1): 35021567680,
-    ("baseline_readers_only_writer_scaling", "pin0-15", 2): 35021596408,
-    ("baseline_readers_only_writer_scaling", "percore", 1): 35021624186,
-    ("baseline_readers_only_writer_scaling", "percore", 2): 35021650065,
+    ("baseline_writer_scaling", "170a4bc3", "pin0-15", 1): 35021552023,
+    ("baseline_writer_scaling", "170a4bc3", "pin0-15", 2): 35021581528,
+    ("baseline_writer_scaling", "170a4bc3", "percore", 1): 35021610717,
+    ("baseline_writer_scaling", "170a4bc3", "percore", 2): 35021636713,
+    ("baseline_readers_only_writer_scaling", "170a4bc3", "pin0-15", 1): 35021567680,
+    ("baseline_readers_only_writer_scaling", "170a4bc3", "pin0-15", 2): 35021596408,
+    ("baseline_readers_only_writer_scaling", "170a4bc3", "percore", 1): 35021624186,
+    ("baseline_readers_only_writer_scaling", "170a4bc3", "percore", 2): 35021650065,
+    ("baseline_readers_only_writer_scaling", "7cd5140e", "pin0-15", 1): 35548107965,
+    ("baseline_readers_only_writer_scaling", "7cd5140e", "percore", 1): 35548333424,
+    ("baseline_readers_only_writer_scaling", "7cd5140e", "pin0-15", 2): 35548554236,
+    ("baseline_readers_only_writer_scaling", "7cd5140e", "percore", 2): 35548780869,
 }
 BASELINE_WRITER_ARMS = ("map", "set", "str", "bytes", "blob")
 BASELINE_READER_ARMS = ("map", "set", "str")
@@ -874,12 +888,12 @@ ISSUE_730 = "[#730](https://github.com/orieg/expanse/issues/730)"
 ISSUE_929 = "[#929](https://github.com/orieg/expanse/issues/929)"
 
 
-def _bl_name(stem: str, tag: str, run: int) -> str:
-    return f"{stem}_{BASELINE_COMMIT}_{tag}{'' if run == 1 else '_run2'}.json"
+def _bl_name(stem: str, tag: str, run: int, commit: str = BASELINE_COMMIT) -> str:
+    return f"{stem}_{commit}_{tag}{'' if run == 1 else '_run2'}.json"
 
 
-def _bl_artifacts(stem: str) -> dict[tuple[str, int], dict] | None:
-    """Every (pin tag, run) artifact of one suite, or None if any is absent.
+def _bl_artifacts(stem: str, commit: str = BASELINE_COMMIT) -> dict[tuple[str, int], dict] | None:
+    """Every (pin tag, run) artifact of one suite at one head, or None if any is absent.
 
     A present artifact at another commit, pin, isolation or round count is an
     error (section 8.1), never a row.
@@ -887,15 +901,15 @@ def _bl_artifacts(stem: str) -> dict[tuple[str, int], dict] | None:
     out = {}
     for pin, tag, _ in BASELINE_PINS:
         for run in (1, 2):
-            name = _bl_name(stem, tag, run)
+            name = _bl_name(stem, tag, run, commit)
             art = load(SUITE / "results" / name)
             if art is None:
                 return None
             prov = need(art, "provenance", name)
             got = (prov.get("commit"), prov.get("core_pin"), prov.get("cell_isolation"))
-            if got != (BASELINE_COMMIT, pin, "process"):
+            if got != (commit, pin, "process"):
                 raise SystemExit(f"{name}: (commit, core_pin, cell_isolation) = {got}; expected "
-                                 f"({BASELINE_COMMIT!r}, {pin!r}, 'process')")
+                                 f"({commit!r}, {pin!r}, 'process')")
             for c in need(art, "throughput", name):
                 if c["rounds"] != BASELINE_ROUNDS or len(c["rounds_raw"]) != BASELINE_ROUNDS:
                     raise SystemExit(f"{name}: {c['arm']} cell has {c['rounds']} rounds, "
@@ -983,7 +997,7 @@ def string_wrapper_baselines() -> list[str]:
                 shift = max((abs(b["load1"] - a["load1"]) for a, b in zip(loads, loads[1:])), default=0.0)
                 fb = [need(c["load"], "foreign_busy_cpus", name) for c in art["throughput"]]
                 govs = sorted(set(prov["host"]["scaling_governor_by_cpu"].values()))
-                rid = BASELINE_RUNS[(stem, tag, run)]
+                rid = BASELINE_RUNS[(stem, BASELINE_COMMIT, tag, run)]
                 out.append(f"| {suite} | {label} | {run} | `results/{name}` | "
                            f"[{rid}](https://github.com/orieg/expanse/actions/runs/{rid}) | {len(loads)} | "
                            f"{loads[0]['load1']:.2f}, {peak:.2f} | {shift:.2f} | {min(fb):.2f} – {max(fb):.2f} | "
@@ -1129,6 +1143,172 @@ def wrapper_contention_ranking() -> list[str]:
     return out
 
 
+# ---- 22. the #730 readers-only sweep re-measured at 7cd5140e ----------------
+# Four `writer_scaling_readers_only` dispatches at a second head, two per pin,
+# 8 rounds per cell, one harness process per timed cell. `readers_only`
+# `preregistration` reads null in all four artifacts, so under METHODOLOGY §16.5
+# these runs are a BASELINE and carry no verdict: nothing here prints a verdict
+# label. METHODOLOGY §16.3's floors and R = 1 references are read as constants
+# and never recomputed against this head (AGENTS.md §8.19). Cross-head columns
+# state a direction only where both runs of a pin agree with intervals disjoint
+# from both runs at the other head (docs/BENCHMARKING.md rule 18), and the
+# point-estimate difference is labelled unpaired in the header it sits under,
+# because these are separate dispatches and not the interleaved two-commit form
+# rule 18 asks of a before/after claim on a concurrent cell.
+REMEASURE_COMMIT = "7cd5140e"
+REMEASURE_READERS = (1, 2, 4, 8)
+REMEASURE_STEPS = ((1, 2), (2, 4), (4, 8))
+# METHODOLOGY §16.3, per pin tag: the R = 8 floor the #730 gate registers, and
+# the R = 1 reference its side condition names. Constants, not derivations.
+PREREG_16_3 = {
+    "pin0-15": {"floor_r8": 259.198, "ref_r1": 218.1226},
+    "percore": {"floor_r8": 261.062, "ref_r1": 217.4392},
+}
+
+
+def _ro_iv(art: dict, arm: str, readers: int) -> dict:
+    """The per-reader ns-per-probe interval of one readers-only cell (METHODOLOGY §16.2's series)."""
+    _, iv = _bl_ns_per_probe(_bl_cell(art, arm, "readers", readers))
+    return iv
+
+
+def _ro_cell_iv(iv: dict) -> str:
+    return _pc_iv(iv["mean"], iv["lo"], iv["hi"], 3, iv["method"])
+
+
+def _ro_direction(new: list[dict], old: list[dict]) -> str:
+    """Where this head's two runs sit against both runs at the other head, stated only if they agree.
+
+    Each run must be disjoint from *both* of the other head's intervals in the
+    same direction; a within-run interval does not bound between-run spread, so
+    agreeing with one run of a pair is not enough (rule 18).
+    """
+    old_lo, old_hi = min(o["lo"] for o in old), max(o["hi"] for o in old)
+    if all(n["hi"] < old_lo for n in new):
+        return f"lower than both `{BASELINE_COMMIT}` runs, in both runs"
+    if all(n["lo"] > old_hi for n in new):
+        return f"higher than both `{BASELINE_COMMIT}` runs, in both runs"
+    return "not the same in both runs"
+
+
+def readers_only_remeasure() -> list[str]:
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import reader_scaling_bounds
+
+    old = _bl_artifacts("baseline_readers_only_writer_scaling")
+    new = _bl_artifacts("baseline_readers_only_writer_scaling", REMEASURE_COMMIT)
+    if old is None or new is None:
+        return ["#### 22.1 Artifacts, runs and host load", "", "| head | artifact |", "|---|---|",
+                f"| `{REMEASURE_COMMIT}` | pending ({ISSUE_730}) |"]
+
+    out = ["#### 22.1 Artifacts, runs and host load", "",
+           "| pin | run | artifact | CI run | `provenance.commit` | `readers_only.preregistration` "
+           "| `readers_only.void` | load snapshots | `load1` at start, peak | busy-CPU window per cell "
+           "| cell `foreign_busy_cpus`, min – max | governor on the pinned CPUs |",
+           "|---|--:|---|---|---|---|---|--:|---|--:|---|---|"]
+    for _, tag, label in BASELINE_PINS:
+        for run in (1, 2):
+            art = new[(tag, run)]
+            name = _bl_name("baseline_readers_only_writer_scaling", tag, run, REMEASURE_COMMIT)
+            prov, ro = art["provenance"], need(art, "readers_only", name)
+            loads = prov["loads"]
+            peak = max(l["load1"] for l in loads)
+            fb = [need(c["load"], "foreign_busy_cpus", name) for c in art["throughput"]]
+            wall = sorted({float(need(c["load"], "wall_s", name)) for c in art["throughput"]})
+            govs = sorted(set(prov["host"]["scaling_governor_by_cpu"].values()))
+            rid = BASELINE_RUNS[("baseline_readers_only_writer_scaling", REMEASURE_COMMIT, tag, run)]
+            prereg = "`null`" if ro.get("preregistration") is None else f"`{ro['preregistration']}`"
+            void = "empty" if not need(ro, "void", name) and ro["void"] == [] else f"`{ro['void']}`"
+            out.append(f"| {label} | {run} | `results/{name}` | "
+                       f"[{rid}](https://github.com/orieg/expanse/actions/runs/{rid}) | "
+                       f"`{prov['commit']}` | {prereg} | {void} | {len(loads)} | "
+                       f"{loads[0]['load1']:.2f}, {peak:.2f} | "
+                       f"{wall[0]:.1f} – {wall[-1]:.1f} s | {min(fb):.2f} – {max(fb):.2f} | "
+                       f"{', '.join(f'`{g}`' for g in govs)} |")
+    out.append("")
+
+    out += [f"#### 22.2 The `str` per-reader cost at `{REMEASURE_COMMIT}`, beside `{BASELINE_COMMIT}`", "",
+            f"| pin | run | R | `{BASELINE_COMMIT}` ns per probe per reader [BCa 95%] "
+            f"| `{REMEASURE_COMMIT}` ns per probe per reader [BCa 95%] "
+            "| unpaired difference in the point estimates (rule 18: not a paired claim) "
+            f"| intervals overlap across the heads | `{REMEASURE_COMMIT}` rounds beyond 3 MADs (`round_outliers`) "
+            f"| `{REMEASURE_COMMIT}` ns per probe to last join |",
+            "|---|--:|--:|---|---|--:|---|---|--:|"]
+    for _, tag, label in BASELINE_PINS:
+        for run in (1, 2):
+            for r in REMEASURE_READERS:
+                o, n = _ro_iv(old[(tag, run)], "str", r), _ro_iv(new[(tag, run)], "str", r)
+                cell = _bl_cell(new[(tag, run)], "str", "readers", r)
+                series, _ = _bl_ns_per_probe(cell)
+                flagged = reader_scaling_bounds.round_outliers(series)
+                out.append(f"| {label} | {run} | {r} | {_ro_cell_iv(o)} | {_ro_cell_iv(n)} | "
+                           f"{n['mean'] - o['mean']:+.3f} ns, {(n['mean'] / o['mean'] - 1) * 100:+.2f} % | "
+                           f"{_bl_overlap((o['lo'], o['hi']), (n['lo'], n['hi']))} | "
+                           f"{', '.join(str(i) for i in flagged) or 'none'} | "
+                           f"{cell['reader_ns_per_probe_to_last_join']:.3f} |")
+    out.append("")
+
+    out += ["#### 22.3 Which `str` cells moved in both runs (rule 18)", "",
+            f"| pin | R | `{REMEASURE_COMMIT}` against `{BASELINE_COMMIT}` "
+            f"| spread between the two `{BASELINE_COMMIT}` runs | spread between the two `{REMEASURE_COMMIT}` runs |",
+            "|---|--:|---|--:|--:|"]
+    for _, tag, label in BASELINE_PINS:
+        for r in REMEASURE_READERS:
+            o = [_ro_iv(old[(tag, run)], "str", r) for run in (1, 2)]
+            n = [_ro_iv(new[(tag, run)], "str", r) for run in (1, 2)]
+            def spread(ivs: list[dict]) -> str:
+                a, b = ivs[0]["mean"], ivs[1]["mean"]
+                return f"{abs(a - b) / min(a, b) * 100:.2f} %"
+            out.append(f"| {label} | {r} | {_ro_direction(n, o)} | {spread(o)} | {spread(n)} |")
+    out.append("")
+
+    out += ["#### 22.4 Where the cells sit against METHODOLOGY §16.3's registered constants", "",
+            "| pin | run | R = 8 ns per probe per reader [BCa 95%] | §16.3 R = 8 floor | point estimate over "
+            "the floor | interval upper bound over the floor | R = 1 ns per probe per reader [BCa 95%] "
+            "| §16.3 R = 1 reference | interval lower bound against the reference |",
+            "|---|--:|---|--:|--:|--:|---|--:|--:|"]
+    for _, tag, label in BASELINE_PINS:
+        for run in (1, 2):
+            pre = PREREG_16_3[tag]
+            r8, r1 = _ro_iv(new[(tag, run)], "str", 8), _ro_iv(new[(tag, run)], "str", 1)
+            over, pt = r8["hi"] - pre["floor_r8"], r8["mean"] - pre["floor_r8"]
+            out.append(f"| {label} | {run} | {_ro_cell_iv(r8)} | {pre['floor_r8']:.3f} ns | "
+                       f"{pt:+.3f} ns, {pt / pre['floor_r8'] * 100:+.2f} % | "
+                       f"{over:+.3f} ns, {over / pre['floor_r8'] * 100:+.2f} % | {_ro_cell_iv(r1)} | "
+                       f"{pre['ref_r1']:.4f} ns | {r1['lo'] - pre['ref_r1']:+.3f} ns |")
+    out.append("")
+
+    out += [f"#### 22.5 How the `str` per-reader cost rises with R at `{REMEASURE_COMMIT}`", "",
+            "| pin | run | R = 1 ns per probe per reader [BCa 95%] | R = 8 ns per probe per reader [BCa 95%] "
+            "| R = 8 over R = 1 | R = 1 as a share of R = 8 "
+            "| ns added per additional reader, R 1 → 2 | R 2 → 4 | R 4 → 8 |",
+            "|---|--:|---|---|--:|--:|--:|--:|--:|"]
+    for _, tag, label in BASELINE_PINS:
+        for run in (1, 2):
+            ivs = {r: _ro_iv(new[(tag, run)], "str", r) for r in REMEASURE_READERS}
+            steps = [f"{(ivs[b]['mean'] - ivs[a]['mean']) / (b - a):.2f} ns" for a, b in REMEASURE_STEPS]
+            out.append(f"| {label} | {run} | {_ro_cell_iv(ivs[1])} | {_ro_cell_iv(ivs[8])} | "
+                       f"{ivs[8]['mean'] / ivs[1]['mean']:.4f} | "
+                       f"{ivs[1]['mean'] / ivs[8]['mean'] * 100:.2f} % | " + " | ".join(steps) + " |")
+    out.append("")
+
+    out += [f"#### 22.6 The `map` and `set` arms at `{REMEASURE_COMMIT}`, beside `{BASELINE_COMMIT}`", "",
+            f"| arm | pin | run | R | `{BASELINE_COMMIT}` ns per probe per reader [BCa 95%] "
+            f"| `{REMEASURE_COMMIT}` ns per probe per reader [BCa 95%] | intervals overlap across the heads "
+            f"| `{REMEASURE_COMMIT}` against `{BASELINE_COMMIT}`, both runs (rule 18) |",
+            "|---|---|--:|--:|---|---|---|---|"]
+    for arm in ("map", "set"):
+        for _, tag, label in BASELINE_PINS:
+            for run in (1, 2):
+                for r in (1, 8):
+                    o, n = _ro_iv(old[(tag, run)], arm, r), _ro_iv(new[(tag, run)], arm, r)
+                    both = _ro_direction([_ro_iv(new[(tag, k)], arm, r) for k in (1, 2)],
+                                         [_ro_iv(old[(tag, k)], arm, r) for k in (1, 2)])
+                    out.append(f"| `{arm}` | {label} | {run} | {r} | {_ro_cell_iv(o)} | {_ro_cell_iv(n)} | "
+                               f"{_bl_overlap((o['lo'], o['hi']), (n['lo'], n['hi']))} | {both} |")
+    return out
+
+
 def main() -> int:
     import fine_grained_brackets_gate  # the §8 fine-grained write brackets verdicts, beside this file
     import multi_writer_olc_gate  # the §9 multi-writer OLC verdicts, beside this file
@@ -1149,6 +1329,7 @@ def main() -> int:
         wrapper_profiles(),
         string_wrapper_baselines(),
         wrapper_contention_ranking(),
+        readers_only_remeasure(),
     ]
     print("\n\n".join("\n".join(b) for b in blocks))
     return 0
