@@ -3873,4 +3873,119 @@ mod loom_tests {
     fn loom_bucket_replacement_without_the_refresh_loses_an_overwrite() {
         bucket_two_writers_model(false);
     }
+
+    /// The bytes wrapper's removal against the in-place publish (Refs
+    /// #1047), reduced to the same two words as
+    /// [`bucket_two_writers_model`]. The removal unlinks the bucket — it
+    /// stores `REMOVED` over `word` under the parent's version lock — and
+    /// must return the value the key held at that moment.
+    ///
+    /// `early` reads that value **before** the lock loop, which is where
+    /// the remove body's conditional compare sits. That is not safe, and
+    /// the reason is the in-place publish's unlock: it stores no trie word,
+    /// so it unlocks *unmodified* and the version returns to the value the
+    /// removal sampled. `version_try_lock_expect` therefore still succeeds
+    /// across a completed, acknowledged overwrite, and the value read
+    /// before it is stale. Reading after the unlink is what makes the word
+    /// final: no writer can reach a bucket the trie no longer names.
+    fn bucket_removal_model(early: bool) {
+        const OLD_BUCKET: u64 = 1;
+        const REMOVED: u64 = 0;
+        const INIT: u64 = 7;
+        const OVERWRITTEN: u64 = 9;
+
+        loom::model(move || {
+            let node_v = Arc::new(VersionCell::new(0));
+            let word = Arc::new(AtomicU64::new(OLD_BUCKET));
+            let old_bucket = Arc::new(AtomicU64::new(INIT));
+
+            // The in-place value publish, as in `bucket_two_writers_model`:
+            // it stores inside the bucket `word` still names and unlocks
+            // unmodified.
+            let (v1, w1, b1) = (
+                Arc::clone(&node_v),
+                Arc::clone(&word),
+                Arc::clone(&old_bucket),
+            );
+            let inplace = loom::thread::spawn(move || {
+                loop {
+                    let Some(snap) = node_sample(&v1) else {
+                        loom::thread::yield_now();
+                        continue;
+                    };
+                    let Ok(old_v) = version_try_lock_expect(&v1, snap) else {
+                        loom::thread::yield_now();
+                        continue;
+                    };
+                    let seen = w1.load(Ordering::Relaxed);
+                    if seen != OLD_BUCKET {
+                        version_unlock(&v1, old_v, false);
+                        return Err(seen);
+                    }
+                    b1.store(OVERWRITTEN, Ordering::Relaxed);
+                    version_unlock(&v1, old_v, false);
+                    return Ok(());
+                }
+            });
+
+            // The removal.
+            let mut read_early = 0u64;
+            if early {
+                read_early = old_bucket.load(Ordering::Relaxed);
+            }
+            let removed = loop {
+                let Some(snap) = node_sample(&node_v) else {
+                    loom::thread::yield_now();
+                    continue;
+                };
+                let Ok(old_v) = version_try_lock_expect(&node_v, snap) else {
+                    loom::thread::yield_now();
+                    continue;
+                };
+                let seen = word.load(Ordering::Relaxed);
+                if seen != OLD_BUCKET {
+                    version_unlock(&node_v, old_v, false);
+                    break Err(seen);
+                }
+                word.store(REMOVED, Ordering::Relaxed);
+                version_unlock(&node_v, old_v, true);
+                break Ok(());
+            };
+
+            let stored_in_place = inplace.join().unwrap().is_ok();
+            let Ok(()) = removed else {
+                // The bucket moved under the removal, which re-reads it.
+                return;
+            };
+            // Unlinked: nothing can store into the bucket any more.
+            let returned = if early {
+                read_early
+            } else {
+                old_bucket.load(Ordering::Relaxed)
+            };
+            let want = if stored_in_place { OVERWRITTEN } else { INIT };
+            assert_eq!(
+                returned, want,
+                "removal returned a stale value (in place: {stored_in_place})"
+            );
+        });
+    }
+
+    /// The removed entry's value word, read after the unlink, is the last
+    /// value the key held — including an overwrite acknowledged just before
+    /// the unlink.
+    #[test]
+    fn loom_bucket_removal_reads_the_value_the_unlink_froze() {
+        bucket_removal_model(false);
+    }
+
+    /// The negative control: reading the value where the remove body's
+    /// compare sits — before the expecting lock — returns a value an
+    /// acknowledged in-place publish has already replaced, because that
+    /// publish unlocks the terminal unmodified.
+    #[test]
+    #[should_panic(expected = "removal returned a stale value")]
+    fn loom_bucket_removal_reading_before_the_lock_returns_a_stale_value() {
+        bucket_removal_model(true);
+    }
 }

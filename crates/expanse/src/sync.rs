@@ -8034,6 +8034,92 @@ pub(crate) fn olc_cas_publish_bucket_map<H: OlcHost>(
     )
 }
 
+/// The bucket-removal publish: the removal of the hash's terminal, taken
+/// only while its word is still `expected` (Refs #1047).
+///
+/// The mirror of [`olc_cas_publish_bucket_map`] for the shape a removal
+/// takes when the bucket holds exactly one entry — the whole bucket goes,
+/// so the trie entry goes with it. Nothing is refreshed and nothing is
+/// read here: the removed entry's value word is read from the **unlinked**
+/// bucket afterwards ([`crate::bytesmap::read_entry_value`]), which is
+/// what makes it the last value the key held rather than a word an
+/// in-place publish could still be storing into. Reading it inside `$keep`
+/// would not: the remove body's compare sits between two validations
+/// rather than under the lock, and an in-place publish unlocks the
+/// terminal *clean*, so a completed overwrite leaves the version it
+/// compares against unchanged.
+///
+/// `Done(seen)`: the removal happened iff `seen == Some(expected)`. Any
+/// other outcome means the bucket, or its terminal, moved under the
+/// caller, which must re-read and start over.
+#[allow(clippy::undocumented_unsafe_blocks)]
+#[cfg(all(
+    feature = "std",
+    target_pointer_width = "64",
+    not(feature = "ablation-bytes-serial-writers")
+))]
+pub(crate) fn olc_cas_remove_bucket_map<H: OlcHost>(
+    host: &H,
+    key: Key,
+    expected: u64,
+) -> OlcOutcome<Option<u64>> {
+    olc_remove_map_body!(host, true, old => old != expected, key)
+}
+
+/// The colliding-remove publish: the conditional store of a replacement
+/// bucket one entry shorter, with its value words refreshed from the
+/// published bucket under the terminal's version lock immediately before
+/// that store (Refs #1047).
+///
+/// [`olc_cas_publish_bucket_map`] for the removal direction. `len` is the
+/// published bucket's length and `at` the entry being dropped, which is
+/// what the refresh needs to map the replacement's entries back onto the
+/// published ones ([`crate::bytesmap::refresh_replacement_values_removing`]).
+/// A bucket of one entry is not this shape — it is
+/// [`olc_cas_remove_bucket_map`], which removes the terminal.
+///
+/// `Done(seen)`: the store happened iff `seen == Some(expected)`.
+///
+/// SAFETY (for the call inside `$keep`): as
+/// [`olc_cas_publish_bucket_map`], plus — `val` is the caller's own
+/// replacement bucket, still unpublished and reachable by no other
+/// thread, holding the `len - 1` entries of the bucket at `old` other
+/// than `at`, in order.
+#[allow(clippy::undocumented_unsafe_blocks)]
+#[cfg(all(
+    feature = "std",
+    target_pointer_width = "64",
+    not(feature = "ablation-bytes-serial-writers")
+))]
+pub(crate) fn olc_cas_publish_shorter_bucket_map<H: OlcHost>(
+    host: &H,
+    key: Key,
+    expected: u64,
+    len: usize,
+    at: usize,
+    val: u64,
+) -> OlcOutcome<Option<u64>> {
+    olc_insert_map_body!(
+        host,
+        old => {
+            if old == expected {
+                crate::bytesmap::refresh_replacement_values_removing(
+                    old,
+                    val as *mut Bucket,
+                    len,
+                    at,
+                );
+                false
+            } else {
+                true
+            }
+        },
+        false,
+        key,
+        val
+    )
+}
+
 /// The conditional remove over any [`OlcHost`]; see [`olc_insert_map`].
 #[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(all(
@@ -10147,7 +10233,50 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
         }
     }
 
+    /// The serialised removal: the whole operation under the fallback
+    /// mutex with the optimistic writers quiesced. Every route the
+    /// optimistic path declines — a root-leaf tree, a structural shrink,
+    /// a closed gate, an exhausted retry budget — ends here.
+    #[cfg(all(
+        feature = "std",
+        target_pointer_width = "64",
+        not(feature = "ablation-bytes-serial-writers")
+    ))]
+    fn remove_serialised(&self, key: &[u8]) -> Option<u64> {
+        self.shared.remove_root_covered(|m| {
+            m.set_len(self.entry_pop.load());
+            let pop_before = m.len();
+            let res = m.remove(key);
+            let pop_after = m.len();
+            let delta = pop_after as i64 - pop_before as i64;
+            if pop_after == 0 && pop_before > 0 {
+                self.entry_pop.flush_and_set(0);
+            } else if delta != 0 {
+                self.entry_pop.add_base(delta);
+            }
+            res
+        })
+    }
+
     /// Removes `key`; returns its value, if present.
+    ///
+    /// Optimistic multi-writer lock coupling, the mirror of
+    /// [`Self::insert`] (Refs #1047). A bucket of one entry — every bucket,
+    /// absent a real 64-bit hash collision — is removed by removing its
+    /// trie terminal under the terminal's parent version lock; a colliding
+    /// bucket publishes a replacement one entry shorter, exactly as a
+    /// colliding insert publishes one entry longer. Serializes with other
+    /// writers under `ablation-bytes-serial-writers`.
+    ///
+    /// Until this the removal was unconditionally serialised, which cost
+    /// far more than the writer mutex it had before the multi-writer insert
+    /// path landed: `remove_root_covered` closes the writer gate and drains
+    /// every allocated writer slot, and the optimistic insert path is what
+    /// allocates those slots. On a 50% read / 50% write mix half of the
+    /// writes are removals, so a quarter of all operations quiesced the
+    /// tree, and the inserts that met the closed gate abandoned their
+    /// optimistic attempt and quiesced it again on the way to their own
+    /// fallback (issue #1047).
     pub fn remove(&self, key: &[u8]) -> Option<u64> {
         #[cfg(all(
             feature = "std",
@@ -10155,19 +10284,170 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             not(feature = "ablation-bytes-serial-writers")
         ))]
         {
-            self.shared.remove_root_covered(|m| {
-                m.set_len(self.entry_pop.load());
-                let pop_before = m.len();
-                let res = m.remove(key);
-                let pop_after = m.len();
-                let delta = pop_after as i64 - pop_before as i64;
-                if pop_after == 0 && pop_before > 0 {
-                    self.entry_pop.flush_and_set(0);
-                } else if delta != 0 {
-                    self.entry_pop.add_base(delta);
+            if !self.shared.inner_ref().root_is_tree() {
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
+                return self.remove_serialised(key);
+            }
+
+            let guard = self.shared.enter_writer_blocking();
+            let slot_id = guard.slot_id();
+            let h = self.shared.inner_ref().hash_key(key);
+
+            let res = self.shared.with_writer_pin(|| {
+                crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+                crate::occ_stats::op_begin();
+
+                let mut cause = FallbackCause::Contention;
+                #[cfg(feature = "occ-stats")]
+                let mut closed = false;
+                let mut backoff = 1;
+                // As in `insert`: count the restart, spin, widen the window.
+                macro_rules! stall {
+                    () => {{
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                        for _ in 0..backoff {
+                            core::hint::spin_loop();
+                        }
+                        if backoff < 64 {
+                            backoff <<= 1;
+                        }
+                        #[cfg(loom)]
+                        loom::thread::yield_now();
+                    }};
                 }
-                res
-            })
+                for _ in 0..MAX_RETRIES {
+                    if self.shared.gate.is_closed() {
+                        #[cfg(feature = "occ-stats")]
+                        {
+                            closed = true;
+                        }
+                        break;
+                    }
+
+                    let snap = self.shared.version().sample();
+                    let root = self.shared.inner_ref().occ_root().0;
+                    // SAFETY: pinned + freshly sampled even version; loads are validated.
+                    let found = match unsafe {
+                        walk_validated::<true>(root, h, self.shared.version(), snap)
+                    } {
+                        Ok(f) => f,
+                        Err(Retry) => {
+                            stall!();
+                            continue;
+                        }
+                    };
+
+                    // A validated absence of the hash: nothing to remove.
+                    let Some(word) = found else {
+                        crate::occ_stats::op_end();
+                        return Ok(None);
+                    };
+                    if word == 0 {
+                        // Observable only mid-publication of a fresh hash;
+                        // the writer's bracket is open.
+                        stall!();
+                        continue;
+                    }
+                    // SAFETY: `word` was validated at `snap` under this thread's
+                    // pin, so the bucket shell, its entry array and its key bytes
+                    // are EBR-live and write-once.
+                    let (len, at) = unsafe { crate::bytesmap::bucket_find(word, key) };
+                    // The bucket is live and the key is not in it.
+                    let Some(at) = at else {
+                        crate::occ_stats::op_end();
+                        return Ok(None);
+                    };
+
+                    if len == 1 {
+                        // The common shape: the bucket holds only this key, so
+                        // the trie terminal goes with it.
+                        match olc_cas_remove_bucket_map(&*self.shared, h, word) {
+                            OlcOutcome::Done(Some(seen)) if seen == word => {
+                                // Unlinked: no writer can reach this bucket
+                                // again, so its value word is final.
+                                // SAFETY: the removal above unlinked `word`
+                                // under the terminal's parent version lock, and
+                                // this thread's pin keeps it mapped.
+                                let prev = unsafe { crate::bytesmap::read_entry_value(word, 0) };
+                                self.shared.tree_pop.add(slot_id, -1);
+                                self.entry_pop.add(slot_id, -1);
+                                dispose_bucket(
+                                    word as *mut Bucket,
+                                    true,
+                                    Some(&self.shared.collector),
+                                );
+                                self.shared.collector.tick_advance();
+                                crate::occ_stats::op_end();
+                                return Ok(Some(prev));
+                            }
+                            OlcOutcome::Fallback(c) => {
+                                cause = c;
+                                break;
+                            }
+                            // Nothing was removed: the bucket moved under us,
+                            // or its terminal did. Re-read.
+                            OlcOutcome::Done(_) | OlcOutcome::Retry => {
+                                stall!();
+                                continue;
+                            }
+                        }
+                    }
+
+                    // A real 64-bit hash collision: a chain change, so the
+                    // bucket is replaced by one entry shorter and the terminal
+                    // stays.
+                    // SAFETY: as `bucket_find` above, with the length and index
+                    // it returned.
+                    let new_raw =
+                        unsafe { crate::bytesmap::clone_bucket_without(word, len, at) } as u64;
+                    match olc_cas_publish_shorter_bucket_map(
+                        &*self.shared,
+                        h,
+                        word,
+                        len,
+                        at,
+                        new_raw,
+                    ) {
+                        OlcOutcome::Done(Some(seen)) if seen == word => {
+                            // SAFETY: the publish above unlinked `word`.
+                            let prev = unsafe { crate::bytesmap::read_entry_value(word, at) };
+                            self.entry_pop.add(slot_id, -1);
+                            dispose_bucket(word as *mut Bucket, true, Some(&self.shared.collector));
+                            self.shared.collector.tick_advance();
+                            crate::occ_stats::op_end();
+                            return Ok(Some(prev));
+                        }
+                        OlcOutcome::Done(_) | OlcOutcome::Retry => {
+                            // SAFETY: `new_raw` was freshly allocated above and
+                            // never published.
+                            drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                            stall!();
+                        }
+                        OlcOutcome::Fallback(c) => {
+                            // SAFETY: as above.
+                            drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                            cause = c;
+                            break;
+                        }
+                    }
+                }
+
+                crate::occ_stats::op_end();
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(cause.stat());
+                #[cfg(feature = "occ-stats")]
+                if cause == FallbackCause::Contention {
+                    crate::occ_stats::bump(contention_stat(closed));
+                }
+                Err(cause)
+            });
+
+            drop(guard);
+            match res {
+                Ok(prev) => prev,
+                Err(_) => self.remove_serialised(key),
+            }
         }
         #[cfg(not(all(
             feature = "std",
@@ -13191,6 +13471,120 @@ mod tests {
         }
         assert_eq!(m.len(), 0);
         assert!(m.is_empty());
+    }
+
+    /// Draining a tree-rooted map to empty through the optimistic removal,
+    /// and refilling it (Refs #1047). The model test above interleaves
+    /// removals with inserts over 512 keys and `clear`s periodically, so it
+    /// never walks the population down to zero; this does, which is the
+    /// boundary the optimistic path hands back to `remove_serialised` — the
+    /// terminal directly below the root, the condense back to a root leaf,
+    /// and the empty root itself.
+    #[test]
+    fn sync_bytes_optimistic_removal_drains_a_tree_and_refills_it() {
+        let m = SyncExpanseBytesMap::new();
+        // Distinct by construction: `str_key_of` cycles four prefixes and is
+        // not injective.
+        let keys: Vec<Vec<u8>> = (0..2_000u64)
+            .map(|i| format!("drain/{i:06}/key").into_bytes())
+            .collect();
+        for k in &keys {
+            assert_eq!(m.insert(k, str_val_of(k)), None, "fill {k:?}");
+        }
+        assert_eq!(m.len(), keys.len() as u64, "census after the fill");
+        for (i, k) in keys.iter().enumerate() {
+            assert_eq!(m.remove(k), Some(str_val_of(k)), "drain {k:?}");
+            assert_eq!(
+                m.len(),
+                (keys.len() - i - 1) as u64,
+                "census while draining at {i}"
+            );
+            assert_eq!(m.get(k), None, "gone {k:?}");
+        }
+        assert!(m.is_empty(), "empty after the drain");
+        m.with_locked(|inner| assert_eq!(inner.len(), 0, "engine census after the drain"));
+        // Refill: the root grows from empty again, over memory the drain
+        // retired.
+        for k in &keys {
+            assert_eq!(m.insert(k, str_val_of(k) ^ 3), None, "refill {k:?}");
+        }
+        assert_eq!(m.len(), keys.len() as u64, "census after the refill");
+        let rd = m.reader();
+        for k in &keys {
+            assert_eq!(rd.get(k), Some(str_val_of(k) ^ 3), "refilled {k:?}");
+        }
+    }
+
+    /// The optimistic **colliding** removal (Refs #1047): `FewBuckets`
+    /// puts every key in one of 96 hash slots, and more than
+    /// `ROOT_LEAF_CAP` of them are populated, so the hash trie is a real
+    /// tree and the removal takes the optimistic path — where a bucket of
+    /// more than one entry is replaced by one entry shorter instead of the
+    /// terminal being removed. `concurrent_bytes_writers_collide_on_hash`
+    /// cannot reach it: `Degenerate` gives every key one hash, so its
+    /// root never becomes a tree and every write serialises.
+    ///
+    /// Each key is removed by exactly one writer and every key's value is
+    /// its own, so the value each `remove` returns is checkable exactly —
+    /// which is what pins the contract that the removed entry's word is
+    /// read from the bucket *after* it was unlinked.
+    #[test]
+    fn concurrent_bytes_multi_writer_colliding_removes() {
+        let m = Arc::new(SyncExpanseBytesMap::with_hasher(FewBuckets::default()));
+        const W: usize = 4;
+        const PER: usize = 400;
+        let keys_of = |w: usize| -> Vec<Vec<u8>> {
+            (0..PER)
+                .map(|i| format!("coll-{w}-{i:04}").into_bytes())
+                .collect()
+        };
+        // A key set nobody removes, so the buckets stay collision buckets
+        // and the trie keeps its shape.
+        let keep: Vec<Vec<u8>> = (0..200u64)
+            .map(|i| format!("keep-{i:04}").into_bytes())
+            .collect();
+        for k in &keep {
+            assert_eq!(m.insert(k, str_val_of(k)), None, "prefill {k:?}");
+        }
+        for w in 0..W {
+            for k in &keys_of(w) {
+                assert_eq!(m.insert(k, str_val_of(k)), None, "prefill {k:?}");
+            }
+        }
+        let total = (keep.len() + W * PER) as u64;
+        assert_eq!(m.len(), total, "prefill census");
+
+        let barrier = Arc::new(std::sync::Barrier::new(W));
+        let handles: Vec<_> = (0..W)
+            .map(|w| {
+                let m = Arc::clone(&m);
+                let b = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    let keys = keys_of(w);
+                    b.wait();
+                    for k in &keys {
+                        assert_eq!(m.remove(k), Some(str_val_of(k)), "remove {k:?}");
+                        assert_eq!(m.remove(k), None, "second remove {k:?}");
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().expect("remover panicked");
+        }
+
+        assert_eq!(m.len(), keep.len() as u64, "census after the removals");
+        m.with_locked(|inner| {
+            assert_eq!(inner.len(), keep.len() as u64);
+            for k in &keep {
+                assert_eq!(inner.get(k), Some(str_val_of(k)), "survivor {k:?}");
+            }
+            for w in 0..W {
+                for k in keys_of(w) {
+                    assert_eq!(inner.get(&k), None, "removed {k:?}");
+                }
+            }
+        });
     }
 
     /// Multiple concurrent writers churn their own key sets (insert, remove,
