@@ -451,6 +451,24 @@ The formula lives in the shared tap [`orieg/homebrew-tap`](https://github.com/or
 
 **Secret.** `HOMEBREW_TAP_DEPLOY_KEY`: the private half of an SSH deploy key that has **write** access to `orieg/homebrew-tap`. Without it the job still renders, smokes and attaches both files, and reports the skipped push as a workflow warning. A canary dispatch (`dry_run`) renders and smokes and publishes nothing.
 
+**Setting the secret up.** The same mechanism `orieg/discipline` uses: an SSH deploy key on the tap, its private half stored as an Actions secret on the publishing repository. The tap already holds discipline's write key; Expanse gets a key of its own, so either can be revoked without breaking the other. (GitHub refuses to register one public key on a second repository, and an Actions secret cannot be read back, so discipline's key is reusable only if its private file was kept.) Run once, from a scratch directory, as a user with admin rights on both repositories:
+
+```bash
+# 1. A dedicated key pair with no passphrase (the workflow cannot enter one)
+ssh-keygen -t ed25519 -N "" -C "expanse release -> homebrew-tap" -f ./expanse_tap_key
+
+# 2. Public half: a WRITE deploy key on the tap
+gh repo deploy-key add ./expanse_tap_key.pub -R orieg/homebrew-tap --allow-write --title "Expanse release deploy key"
+
+# 3. Private half: the Actions secret on this repository
+gh secret set HOMEBREW_TAP_DEPLOY_KEY -R orieg/expanse < ./expanse_tap_key
+
+# 4. Keep no copy on disk
+rm ./expanse_tap_key ./expanse_tap_key.pub
+```
+
+Verify with `gh repo deploy-key list -R orieg/homebrew-tap` (the new key, `read-write`) and `gh secret list -R orieg/expanse` (the secret's name; its value is never shown). To rotate, repeat the four steps and delete the old entry with `gh repo deploy-key delete <id> -R orieg/homebrew-tap`. The key can push to the tap and nothing else: a deploy key is scoped to the one repository it is registered on.
+
 **MacPorts.** The port is not in the official MacPorts tree; the rendered `Portfile` is a release asset. To install it from a local ports tree:
 
 ```bash
