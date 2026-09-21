@@ -61,7 +61,7 @@ Dynamic table expansion from $0 \to 10^6$ keys without pre-allocating capacity, 
 
 - `hashbrown` wins the median ($P_{50} = 26\text{ ns}$ vs Expanse $76\text{ ns}$, BTreeMap $118\text{ ns}$) — but its **worst-case insert is $11.09\text{ ms}$**: the global-rehash cliff, where the entire table is reallocated and rehashed at once.
 - **Expanse's worst-case insert is $34.7\text{ µs}$** ($P_{99.99} = 3.4\text{ µs}$) — **$320\times$ better worst-case than SwissTable** — because growth is local subexpanse allocation: no global rehash exists in the structure. BTreeMap's max is $73.3\text{ µs}$ (node-split chains).
-- *Timer-overhead disclosure:* the per-op `Instant::now()`/`elapsed()` bracket in this pillar is **uncalibrated**, so the low percentiles ($P_{50}$/$P_{75}$) sit near clock resolution and include the bracket's own cost; the tail/max cells (the cliffs above) are orders of magnitude larger and unaffected. Follow-up: subtract a calibrated bracket cost the way `crates/expanse/benches/ycsb.rs` does.
+- *Timer-overhead disclosure:* the per-op `Instant::now()`/`elapsed()` bracket in this pillar is **uncalibrated**, so the low percentiles ($`P_{50}`$/$`P_{75}`$) sit near clock resolution and include the bracket's own cost; the tail/max cells (the cliffs above) are orders of magnitude larger and unaffected. Follow-up: subtract a calibrated bracket cost the way `crates/expanse/benches/ycsb.rs` does.
 
 ---
 
@@ -80,7 +80,7 @@ Point lookup throughput (Mops/sec) evaluated across standard key geometries ($N 
 ---
 
 ### Pillar 5: Native Hashbrown Criterion Suite Port
-Point query hit/miss and dynamic growth throughput ported from `hashbrown/benches/bench.rs` (chart shows the largest population band, $N = 500,000$; the $10^4$/$10^5$ bands are in `results/baseline_native.json`):
+Point query hit/miss and dynamic growth throughput ported from `hashbrown/benches/bench.rs` (chart shows the largest population band, $`N = 500,000`$; the $`10^4`$/$`10^5`$ bands are in `results/baseline_native.json`):
 
 > ⚠️ **Harness methodology disclosure (#454):** The historical growth throughput curves in `results/baseline_native.json` and rendered in the chart below were recorded on a harness where container destruction (`Drop::drop`) occurred inside the timed loop. The harness was remediated in #454 via `bench_grow_op` to measure only insertion; historical figures are retained as baseline pending full re-measurement on the quiet host.
 

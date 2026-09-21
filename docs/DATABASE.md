@@ -108,9 +108,13 @@ Search engines evaluate boolean queries (`AND`, `OR`, `AND NOT`, `XOR`) by inter
 
 #### Node-Level Algebra Rules:
 1. **FullExpanse Fast-Paths**:
-   $$\text{FullExpanse} \cap \text{Node} = \text{Node}$$
-   $$\text{FullExpanse} \cup \text{Node} = \text{FullExpanse}$$
-   $$\text{FullExpanse} \setminus \text{Node} = \neg \text{Node}$$
+
+   $`\text{FullExpanse} \cap \text{Node} = \text{Node}`$
+
+   $`\text{FullExpanse} \cup \text{Node} = \text{FullExpanse}`$
+
+   $`\text{FullExpanse} \setminus \text{Node} = \neg \text{Node}`$
+
 2. **Disjoint Subexpanse Pruning**: If two edges at level $L$ have non-overlapping digit masks or diverging decode prefixes, the intersection yields `Null` in a single scalar check without descending into child subtrees.
 3. **SIMD Bitmap Leaf Algebra**: Level-1 `BitmapLeaf` nodes (32 bytes = 4 $\times$ `u64`) are intersected using 256-bit AVX2/NEON instructions (`_mm256_and_si256`), followed by `POPCNT` to test if the resulting population triggers downward hysteresis to a linear leaf.
 
@@ -161,9 +165,9 @@ In Multi-Version Concurrency Control (MVCC) engines (PostgreSQL, CockroachDB, In
 - `xmax`: Deletion / Replacement Transaction ID.
 
 To determine whether a tuple is visible to a reading transaction $T_{\text{read}}$, the database checks:
-1. Is `xmin` committed and $\le T_{\text{read}}.\text{snapshot\_max}$?
-2. Is `xmin` absent from $T_{\text{read}}.\text{active\_xids}$ (in-flight transactions at snapshot creation)?
-3. Is `xmax` absent, aborted, or $> T_{\text{read}}.\text{snapshot\_max}$, or present in $T_{\text{read}}.\text{active\_xids}$?
+1. Is `xmin` committed and $`\le T_{\text{read}}.\text{snapshot\_max}`$?
+2. Is `xmin` absent from $`T_{\text{read}}.\text{active\_xids}`$ (in-flight transactions at snapshot creation)?
+3. Is `xmax` absent, aborted, or $`> T_{\text{read}}.\text{snapshot\_max}`$, or present in $`T_{\text{read}}.\text{active\_xids}`$?
 
 ```
  Writer Threads (Txn Begin / Commit / Abort / Vacuum)
@@ -428,7 +432,7 @@ Set materialization evolution (#348 direct emission vs v1 merge-insert), $k$-way
 ## 5. Secondary Indexes & Ordered Key Range Scans
 
 Database MemTables (LSM-trees in RocksDB, Pebble, LevelDB) and in-memory secondary indexes (InnoDB, SQLite, DuckDB) require:
-1. Fast point lookups ($O(1)$ or small deterministic $O(\log N)$).
+1. Fast point lookups ($`O(1)`$ or small deterministic $`O(\log N)`$).
 2. High-throughput ordered inserts with minimal rebalancing overhead.
 3. Cache-friendly forward and backward range iteration.
 
@@ -553,10 +557,10 @@ On resource-constrained 32-bit microcontrollers (ESP32-C3 / ESP32-C6 / ESP32-P4)
 | **Sparse Events ($N=5\text{k}$)** | **65.53 KiB** (13.42 B/key) | 140.62 KiB (~28 B/key) | 156.25 KiB (32.0 B/key) | 39.06 KiB (8 B/entry) | **2.38× lower RAM** (ordered) |
 | **BLE Tracker ($N=2\text{k}$)** | **119.07 KiB** (Slab + Dual Trie) | 103.12 KiB (~52 B/entry) | 109.38 KiB (56.0 B/entry) | 54.68 KiB (28 B/entry) | **Parity footprint + $O(\text{expired})$ TTL** |
 
-*(Density constants sourced from `bytes_per_key_32.rs` at commit `f48dcc6e`; note that 10 Hz stride-100 sensor timestamps amortize to ~8.50 B/key and CAN-bus 29-bit IDs are measured at $N=500$. BLE tracker evaluates 28-byte symmetric tracking payloads across all arms, modeling Expanse's 28B record + 4B monotonic sec + 2B freelist + 0.125B bitmap and dual-index tries).*
+*(Density constants sourced from `bytes_per_key_32.rs` at commit `f48dcc6e`; note that 10 Hz stride-100 sensor timestamps amortize to ~8.50 B/key and CAN-bus 29-bit IDs are measured at $`N=500`$. BLE tracker evaluates 28-byte symmetric tracking payloads across all arms, modeling Expanse's 28B record + 4B monotonic sec + 2B freelist + 0.125B bitmap and dual-index tries).*
 
 *All five density constants are measured by `bytes_per_key_32.rs`; the
-uniform-random one is read at $N=5{,}000$ and its PRNG defines it, so a
+uniform-random one is read at $`N=5{,}000`$ and its PRNG defines it, so a
 different key stream is a different number (§8.10.2). The sparse CAN row is
 denser than the dense and sequential rows relative to its key count because
 small subexpanses pay most for the bitmap subarrays' rounding to multiples of

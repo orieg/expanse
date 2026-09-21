@@ -77,16 +77,16 @@ Expanse uses an adaptive least-compressed-form ladder with **1-index hysteresis*
 3. **OCC Read Validation**: If concurrent mode, verify seqlock version matches without write-lock bit.
 
 ### 3.2 Key Mutation (`insert` / `mutate_map`)
-1. **Root Leaf Monotonic Fast-Path** ($\text{pop} \le 31$): If inserting into `ExpanseSet` or `ExpanseMap` root leaf and $key > \text{last\_key}$, bypass binary search and set $\text{pos} = \text{pop}$ in a single $O(1)$ scalar compare.
-2. **Linear Leaf Monotonic Append Fast-Path**: If inserting into a linear leaf and $k > \text{last\_key}$, bypass binary search and set $\text{pos} = \text{pop}$.
+1. **Root Leaf Monotonic Fast-Path** ($\text{pop} \le 31$): If inserting into `ExpanseSet` or `ExpanseMap` root leaf and $`key > \text{last\_key}`$, bypass binary search and set $\text{pos} = \text{pop}$ in a single $O(1)$ scalar compare.
+2. **Linear Leaf Monotonic Append Fast-Path**: If inserting into a linear leaf and $`k > \text{last\_key}`$, bypass binary search and set $\text{pos} = \text{pop}$.
 3. **Multi-Level Sequential Run Bypass** ($\text{pop} > 31$): If inserting contiguous keys sharing the upper 56 bits ($key \gg 8 == \text{path.prefix}$), bypass all 8 branch levels and digit decodes. Directly execute 1 bit test/set in the active terminal `LeafBitmap1`/`LeafBitmapL` and increment ancestor edge $pop0$ counts in ~15 instructions with zero branch mispredicts.
 4. **Class-Crossing Check**:
-   - If $\text{cap\_class}(\text{pop} + 1) == \text{cap\_class}(\text{pop})$, shift keys in place (`core::ptr::copy`).
+   - If $`\text{cap\_class}(\text{pop} + 1) == \text{cap\_class}(\text{pop})`$, shift keys in place (`core::ptr::copy`).
    - If class is exceeded, allocate next class from slab allocator and realloc-insert.
    - If population exceeds leaf capacity ($\text{pop} > 25$ or $\text{pop} > 32$), upgrade to `LeafBitmap1` or cascade into a `BranchL3`.
-5. **Bitmap Subarray Growth (Class-Crossing, Both Widths)**: A bitmap node keeps its payload in eight rank-ordered subarrays, one per 32-digit subexpanse — child edges for `BranchB`/`BranchB32`, values for `LeafBitmapL`/`LeafBitmapL_32`. Each subarray is allocated at $\text{cap\_class}(\text{pop})$ slots with the live entries occupying $[0, \text{pop})$ and the trailing spare slots holding filler (`0` for a value, a null edge for a child). An insert into an already-populated subexpanse therefore takes the same two paths as a linear leaf: if $\text{cap\_class}(\text{pop} + 1) == \text{cap\_class}(\text{pop})$, shift the tail right one slot and store in place, allocating nothing; only a class crossing allocates a wider subarray, copies, and retires the old one. Removal is the mirror image, compacting in place and resetting the vacated tail slot.
+5. **Bitmap Subarray Growth (Class-Crossing, Both Widths)**: A bitmap node keeps its payload in eight rank-ordered subarrays, one per 32-digit subexpanse — child edges for `BranchB`/`BranchB32`, values for `LeafBitmapL`/`LeafBitmapL_32`. Each subarray is allocated at $`\text{cap\_class}(\text{pop})`$ slots with the live entries occupying $[0, \text{pop})$ and the trailing spare slots holding filler (`0` for a value, a null edge for a child). An insert into an already-populated subexpanse therefore takes the same two paths as a linear leaf: if $`\text{cap\_class}(\text{pop} + 1) == \text{cap\_class}(\text{pop})`$, shift the tail right one slot and store in place, allocating nothing; only a class crossing allocates a wider subarray, copies, and retires the old one. Removal is the mirror image, compacting in place and resetting the vacated tail slot.
 
-   Because $\text{cap\_class}$ rounds to multiples of four from three to sixteen and coarsens to $\{24, 32\}$ above that (#826), at least three of every four sequential inserts into a bitmap subexpanse touch no allocator at all, and more than that in the coarsened tail. The 64-bit engine has done this for its bitmap-leaf value subarrays since [#577](https://github.com/orieg/expanse/issues/577); `trie32` was doing a full copy-on-write per key at both of its sites until [#615](https://github.com/orieg/expanse/issues/615). The consequence for every reader is that a subarray's `len()` is its **allocation length, never its population**: population is read from the node's own bitmap popcount (`LeafBitmapL_32`) or `pop_counts[sub]` (`BranchB32`), and every access is by a bitmap-derived rank, which is $< \text{pop}$ by construction.
+   Because $`\text{cap\_class}`$ rounds to multiples of four from three to sixteen and coarsens to $`\{24, 32\}`$ above that (#826), at least three of every four sequential inserts into a bitmap subexpanse touch no allocator at all, and more than that in the coarsened tail. The 64-bit engine has done this for its bitmap-leaf value subarrays since [#577](https://github.com/orieg/expanse/issues/577); `trie32` was doing a full copy-on-write per key at both of its sites until [#615](https://github.com/orieg/expanse/issues/615). The consequence for every reader is that a subarray's `len()` is its **allocation length, never its population**: population is read from the node's own bitmap popcount (`LeafBitmapL_32`) or `pop_counts[sub]` (`BranchB32`), and every access is by a bitmap-derived rank, which is $< \text{pop}$ by construction.
 
    The trade is spare capacity: at most three unused slots per subexpanse, so at most 24 bytes per subexpanse for 8-byte `Edge32` children and 12 for 4-byte values. Dense and sequential key shapes fill their subarrays and pay nothing measurable; sparse shapes, whose subexpanses hold one to three entries, pay the most (see the density table in [DATABASE.md](DATABASE.md)).
 
@@ -134,9 +134,11 @@ would leave the window, so the ends never cross or double-yield. The 32-bit
 
 `ExpanseSet` exposes native set algebra — `intersection` / `union` / `difference` / `symmetric_difference` (materializing a new set), their `*_len` cardinality variants, and the `BitAnd` / `BitOr` / `Sub` / `BitXor` operators — computed over the trie structure rather than by composing navigation primitives element by element (the composed path lost every Boolean cell to a word-parallel container; see `docs/benchmarks/search_inverted_index/`).
 
-**One structural walk.** Only the **intersection cardinality** is computed structurally; the other three derive from it and the two populations (both $O(1)$):
+**One structural walk.** Only the **intersection cardinality** is computed structurally; the other three derive from it and the two populations (both $`O(1)`$):
 
-$$|A \cap B| \text{ (structural)}, \quad |A \cup B| = |A| + |B| - |A \cap B|, \quad |A \setminus B| = |A| - |A \cap B|, \quad |A \bigtriangleup B| = |A| + |B| - 2|A \cap B|.$$
+```math
+|A \cap B| \text{ (structural)}, \quad |A \cup B| = |A| + |B| - |A \cap B|, \quad |A \setminus B| = |A| - |A \cap B|, \quad |A \bigtriangleup B| = |A| + |B| - 2|A \cap B|.
+```
 
 **`intersection_len` descent** (`algebra::intersection_len(ea, eb, level)`), over two non-null edges covering the same expanse:
 
@@ -426,7 +428,9 @@ If you add a new node type, adjust promotion thresholds, or add benchmark arms:
 For strings sharing a common prefix of $p$ 8-byte chunks, an insertion traverses $p$
 intermediate nodes and then takes one divergence step:
 
-$$\text{Cost} = p \cdot C_{\text{read}} + C_{\text{diverge}}$$
+```math
+\text{Cost} = p \cdot C_{\text{read}} + C_{\text{diverge}}
+```
 
 - $C_{\text{read}}$ is `MapCore::get(chunk)` (`crates/expanse/src/map.rs`): for a sub-map
   whose root is a leaf (≤ `ROOT_LEAF_CAP` = 31 entries) a bounded search of one

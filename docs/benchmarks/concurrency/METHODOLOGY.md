@@ -394,7 +394,7 @@ reference host.
 
 1. **Base ref update to `b49835ad`**: Section 10.2 pre-registered comparison against `10cd755d`, while campaign automation had temporarily defaulted to `1edfa952`. Across two runs against `1edfa952`, 7 of 20 base halves fell outside §10.1's registered union — notably Masstree map W=1 (5.53 / 5.52 M/s versus registered [5.43, 5.44] M/s), which voided the cell under §10.4.
 2. **Canonical Phase 1.5A evaluation**: The authoritative question Phase 1.5A (#568) evaluates is whether the full zero-sharing and lazy rollup sequence (#818, #819, #821, #822) recovered write scaling compared to the mature pre-1.5A OLC baseline. The baseline is therefore fixed as `b49835ad` (the immediate predecessor of #818), and the head build is `f9efa260` (landed in #822) or current `main`.
-3. **Contention health cells ($W \ge 2$)**: The two-commit sweep script (`run_all.py`) is updated to record health rows for $W \in \{1, 2, 4, 8, 16\}, R = 0$ in addition to the $W = 1, R = 8$ mixed-reader row. Previously committed health cells were restricted to $W = 1$, where `Stat::LockRestarts` and `Stat::LockSpins` were 0 by construction. Measuring health across all $W$ provides the empirical restart counts required for P5.3 evaluation against the instantiated restart ceilings, and directly measures the fallback share and spin time under concurrent write pressure.
+3. **Contention health cells ($W \ge 2$)**: The two-commit sweep script (`run_all.py`) is updated to record health rows for $`W \in \{1, 2, 4, 8, 16\}, R = 0`$ in addition to the $W = 1, R = 8$ mixed-reader row. Previously committed health cells were restricted to $W = 1$, where `Stat::LockRestarts` and `Stat::LockSpins` were 0 by construction. Measuring health across all $W$ provides the empirical restart counts required for P5.3 evaluation against the instantiated restart ceilings, and directly measures the fallback share and spin time under concurrent write pressure.
 4. **Build configuration and $k$ selection for P5.4**: The default engine build (`Cargo.toml` `default = ["std"]`) runs without `feature = "lock-padded"`. Per `scripts/olc_bounds.py`, residual false sharing across the 64 atomic writer slots packs 8 per cache line, so the default build shape is `ffi_disjoint_default` with $k = 2$ ($12.39\text{ M ops/s}$ for set, $8.95\text{ M ops/s}$ for HOT map, $9.06\text{ M ops/s}$ for Masstree map). The gate script selects $k = 2$ for the default build, and selects $k = 1$ (`ffi_disjoint_padded`) only when the `lock-padded` feature is enabled. P5.4 tests whether the observed W = 16 throughput stays at or below this ceiling.
 
 ## 11. Hypothesis D — shared allocator and reclamation state (appended 2026-09-11, locked before any ablation run)
@@ -3328,9 +3328,9 @@ about the competitor arms beyond the final-value check they share.
 
 *Disclosure: This subsection was written on 2026-09-18, AFTER the four evaluation runs of PR #1033 were executed, to record twelve interpretations and implementation choices of §20 that the original text left open. No threshold, cell list, gated cell definition, or verdict rule was changed by these readings; all gated cells remain as locked in §20.6 and §20.11.*
 
-1. **Arms and thread counts for contiguous-rank families Ac and Fc** (`docs/benchmarks/concurrency/scripts/ycsb_concurrent.py:219-223`): §20.4 specified "Ac, Fc | as A, F | Zipfian, contiguous ranks ... | no — labels only" without enumerating arm and thread sets. Implemented as running `ALL_ARMS` (`olc`, `mutex`, `skip`, `dash`, `rwbtree`) across `PRIMARY_THREADS` ($T \in \{1, 2, 4, 8\}$) matching families A and F.
+1. **Arms and thread counts for contiguous-rank families Ac and Fc** (`docs/benchmarks/concurrency/scripts/ycsb_concurrent.py:219-223`): §20.4 specified "Ac, Fc | as A, F | Zipfian, contiguous ranks ... | no — labels only" without enumerating arm and thread sets. Implemented as running `ALL_ARMS` (`olc`, `mutex`, `skip`, `dash`, `rwbtree`) across `PRIMARY_THREADS` ($`T \in \{1, 2, 4, 8\}`$) matching families A and F.
 2. **Arms and thread counts for read-only anchor families C and C0** (`docs/benchmarks/concurrency/scripts/ycsb_concurrent.py:215-217`): §20.4 registered "C, C0 | 100% read | Zipfian; uniform (`olc` only) | none | no — anchor". Implemented as `ALL_ARMS` across `PRIMARY_THREADS` for C, and `("olc",)` across `PRIMARY_THREADS` for C0.
-3. **`usl_fit` evaluation scope** (`docs/benchmarks/concurrency/scripts/ycsb_concurrent.py:815-828`): §20.6 specified "`usl_fit` per (family, arm) on the per-core pin". Implemented as computing Universal Scalability Law fits for every (family, arm) pair present in cells on the `per_core_layout` pin ($T \in \{1, 2, 4, 8\}$, plus $T \in \{3, 6\}$ where evaluated), producing an empty list on the 0-15 pin, and labeling all fit entries `gated: False`.
+3. **`usl_fit` evaluation scope** (`docs/benchmarks/concurrency/scripts/ycsb_concurrent.py:815-828`): §20.6 specified "`usl_fit` per (family, arm) on the per-core pin". Implemented as computing Universal Scalability Law fits for every (family, arm) pair present in cells on the `per_core_layout` pin ($`T \in \{1, 2, 4, 8\}`$, plus $`T \in \{3, 6\}`$ where evaluated), producing an empty list on the 0-15 pin, and labeling all fit entries `gated: False`.
 4. **`max_over_mean_bias` per-cell aggregation** (`docs/benchmarks/concurrency/scripts/ycsb_concurrent.py:856-863`): §20.4 required publishing `reader_scaling_bounds.max_over_mean_bias` over thread elapsed times beside every cell without setting a threshold. Implemented as emitting a structured dictionary `{"by_round": biases, "mean": sum(biases)/len(biases), "max": max(biases)}` recording per-round and aggregate values.
 5. **Prefill value encoding** (`crates/expanse/benches/ycsb_concurrent_common/mod.rs:432, 656, 768, 830, 889, 947`): Keys prefilled prior to the timed window are populated with value `0` across all competitor arms and families.
 6. **"Index of the write" encoding** (`crates/expanse/benches/ycsb_concurrent_common/mod.rs:434-436`): §20.4 specified encoding the thread ID and "index of the write" into payload words. Implemented as 1-indexed operation index: `((thread_id as u64 + 1) << 56) | ((op_idx as u64 + 1) & 0x00FF_FFFF_FFFF_FFFF)`, ensuring stream writes are strictly non-zero and distinguishable from prefill `0`.
@@ -3459,7 +3459,10 @@ applied to round series of 8 rounds:
 
 Given typical per-round coefficient of variation $\sigma / \mu \le 0.015$ on quiet runs on
 the reference host, the relative MDE for $N = 8$ rounds at $\alpha = 0.05, \beta = 0.20$ is:
-$$\text{MDE}_{\text{rel}} = (z_{\alpha/2} + z_{\beta}) \cdot \frac{\sigma}{\mu} \cdot \sqrt{\frac{2}{N}} \approx (1.960 + 0.842) \cdot 0.015 \cdot \sqrt{\frac{2}{8}} \approx 2.802 \cdot 0.015 \cdot 0.5 \approx 0.021 \ (2.1\%)$$
+
+```math
+\text{MDE}_{\text{rel}} = (z_{\alpha/2} + z_{\beta}) \cdot \frac{\sigma}{\mu} \cdot \sqrt{\frac{2}{N}} \approx (1.960 + 0.842) \cdot 0.015 \cdot \sqrt{\frac{2}{8}} \approx 2.802 \cdot 0.015 \cdot 0.5 \approx 0.021 \ (2.1\%)
+```
 
 A floor of $F = 0.90$ is resolvable against an expected level $P \approx 0.95$ (gap $0.05 > 0.021$).
 Level ratios $L(W) \ge 1.4$ for $W \ge 2$ sit far outside the detectable margin.
@@ -3708,14 +3711,14 @@ commit compiled with `ablation-bytes-serial-writers`.
 > **G1, scaling.** $R(W, r) = [T_{\text{head}}(W, r) / T_{\text{head}}(1, r)] / [T_{\text{serial}}(W, r) / T_{\text{serial}}(1, r)]$.
 > A cell passes iff the BCa 95% lower bound over the round series is strictly above 1.0.
 >
-> **G2, level.** $L(W, r) = T_{\text{head}}(W, r) / \max_{W' \in \{1, 2, 4, 8\}} T_{\text{serial}}(W', r)$.
+> **G2, level.** $`L(W, r) = T_{\text{head}}(W, r) / \max_{W' \in \{1, 2, 4, 8\}} T_{\text{serial}}(W', r)`$.
 > A cell passes iff the BCa 95% lower bound is strictly above 1.0.
 >
 > **G3, price.** $P(r) = T_{\text{head}}(1, r) / T_{\text{serial}}(1, r)$.
 > A cell passes iff the BCa 95% lower bound is at least **F = 0.90** — maintainer policy,
 > matching §19.4 and §21.4.
 >
-> **G4, overwrite under skew.** $K_{\text{skew}}(W, r) = T_{\text{head\_skew}}(W, r) / T_{\text{head\_uniform}}(W, r)$
+> **G4, overwrite under skew.** $`K_{\text{skew}}(W, r) = T_{\text{head\_skew}}(W, r) / T_{\text{head\_uniform}}(W, r)`$
 > under Zipfian key skew ($\theta = 0.99$) versus uniform key choice over the prefill.
 > A cell passes iff the BCa 95% lower bound is at least **ρ = 0.50** (matching §21.4).
 >
@@ -3744,7 +3747,10 @@ applied to round series of 8 rounds:
 
 Given typical per-round coefficient of variation $\sigma / \mu \le 0.015$ on quiet runs on
 the reference host, the relative MDE for $N = 8$ rounds at $\alpha = 0.05, \beta = 0.20$ is:
-$$\text{MDE}_{\text{rel}} = (z_{\alpha/2} + z_{\beta}) \cdot \frac{\sigma}{\mu} \cdot \sqrt{\frac{2}{N}} \approx (1.960 + 0.842) \cdot 0.015 \cdot \sqrt{\frac{2}{8}} \approx 2.802 \cdot 0.015 \cdot 0.5 \approx 0.021 \ (2.1\%)$$
+
+```math
+\text{MDE}_{\text{rel}} = (z_{\alpha/2} + z_{\beta}) \cdot \frac{\sigma}{\mu} \cdot \sqrt{\frac{2}{N}} \approx (1.960 + 0.842) \cdot 0.015 \cdot \sqrt{\frac{2}{8}} \approx 2.802 \cdot 0.015 \cdot 0.5 \approx 0.021 \ (2.1\%)
+```
 
 A floor of $F = 0.90$ is resolvable against an expected level $P \approx 0.94-0.96$ (gap $0.04-0.06 > 0.021$).
 Level ratios $L(W) \ge 1.4$ for $W \ge 2$ sit far outside the detectable margin.

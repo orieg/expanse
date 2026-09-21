@@ -64,14 +64,17 @@ Leaf Cache Line (64 B):  [ Ptr A | Ptr B | Ptr C | Ptr D | Ptr E | Ptr F | Ptr G
 ### 2.2 The Columnar Filter Bottleneck
 
 In production databases, search engines, and real-time caches, range queries frequently apply metadata predicates:
-$$\text{Scan}(K_{\text{start}} \le k \le K_{\text{end}}) \quad \text{WHERE} \quad \text{expiry} \gt T_{\text{now}} \ \land \ (\text{flags} \mathbin{\&} \text{FLAG\_DELETED}) = 0$$
 
-Under the conventional architecture, even if $95\%$ of keys are expired or deleted, the CPU **must load the payload cache line** from main memory for every single candidate key solely to inspect the header metadata.
+```math
+\text{Scan}(K_{\text{start}} \le k \le K_{\text{end}}) \quad \text{WHERE} \quad \text{expiry} \gt T_{\text{now}} \ \land \ (\text{flags} \mathbin{\&} \text{FLAG\_DELETED}) = 0
+```
+
+Under the conventional architecture, even if $`95\%`$ of keys are expired or deleted, the CPU **must load the payload cache line** from main memory for every single candidate key solely to inspect the header metadata.
 
 | Metric | Pointer-per-Blob Model | Hot/Cold Polymorphic Slot Model |
 |---|---|---|
 | **DRAM Access per Evaluated Key** | 1 Cache Line (64 B) cold fetch | 0 Cold Fetches (hits contiguous leaf line) |
-| **DRAM Bus Traffic ($10^6$ keys, $\sigma=5\%$)** | $64.0\text{ MB}$ | $11.2\text{ MB}$ ($82.5\%$ reduction) |
+| **DRAM Bus Traffic ($10^6$ keys, $`\sigma=5\%`$)** | $64.0\text{ MB}$ | $11.2\text{ MB}$ ($`82.5\%`$ reduction) |
 | **SIMD Vectorization of Predicates** | Impossible (pointer chasing) | 8–16 predicates evaluated per vector instruction |
 | **Hardware Prefetcher Efficiency** | Broken (random heap pointers) | Maximum (streaming L1/L2 spatial locality) |
 
@@ -401,7 +404,10 @@ During a range scan `scan_filtered(from..=to, predicate, callback)`:
 ### 5.3 SIMD/SWAR Vectorization Kernels
 
 When evaluating range bounds on 32-bit timestamps:
-$$\text{Predicate}(V) = (V_{\text{meta}} \ge T_{\text{min}}) \land (V_{\text{meta}} \le T_{\text{max}})$$
+
+```math
+\text{Predicate}(V) = (V_{\text{meta}} \ge T_{\text{min}}) \land (V_{\text{meta}} \le T_{\text{max}})
+```
 
 Using AVX2 / NEON vector intrinsics, 4–8 slots are unpacked and filtered in parallel:
 
@@ -459,26 +465,42 @@ Let:
 
 #### DRAM Traffic Model
 Under the naive pointer-per-payload approach:
-$$\text{DRAM}_{\text{naive}}(N, \sigma) = N \cdot \left( \frac{8}{B_{\text{line}}} \cdot B_{\text{line}} \right) + N \cdot \lceil S_{\text{payload}} / B_{\text{line}} \rceil \cdot B_{\text{line}}$$
+
+```math
+\text{DRAM}_{\text{naive}}(N, \sigma) = N \cdot \left( \frac{8}{B_{\text{line}}} \cdot B_{\text{line}} \right) + N \cdot \lceil S_{\text{payload}} / B_{\text{line}} \rceil \cdot B_{\text{line}}
+```
+
 Since each pointer points to an independent heap allocation, every key forces at least one cold 64-byte line fill:
-$$\text{DRAM}_{\text{naive}} = N \cdot 8\text{ B (leaf)} + N \cdot 64\text{ B (payload)} = 72N\text{ bytes}$$
+
+```math
+\text{DRAM}_{\text{naive}} = N \cdot 8\text{ B (leaf)} + N \cdot 64\text{ B (payload)} = 72N\text{ bytes}
+```
 
 Under the Expanse Columnar Filter model:
-$$\text{DRAM}_{\text{expanse}}(N, \sigma) = N \cdot 8\text{ B (leaf streaming)} + \sigma \cdot N \cdot 64\text{ B (matching payloads)}$$
-$$\text{DRAM}_{\text{expanse}}(N, \sigma) = N \cdot (8 + 64\sigma)\text{ bytes}$$
+
+```math
+\text{DRAM}_{\text{expanse}}(N, \sigma) = N \cdot 8\text{ B (leaf streaming)} + \sigma \cdot N \cdot 64\text{ B (matching payloads)}
+```
+
+```math
+\text{DRAM}_{\text{expanse}}(N, \sigma) = N \cdot (8 + 64\sigma)\text{ bytes}
+```
 
 #### Bandwidth Reduction Ratio ($\mathcal{R}_{\text{BW}}$)
-$$\mathcal{R}_{\text{BW}}(\sigma) = \frac{\text{DRAM}_{\text{expanse}}}{\text{DRAM}_{\text{naive}}} = \frac{8 + 64\sigma}{72} = \frac{1 + 8\sigma}{9}$$
+
+```math
+\mathcal{R}_{\text{BW}}(\sigma) = \frac{\text{DRAM}_{\text{expanse}}}{\text{DRAM}_{\text{naive}}} = \frac{8 + 64\sigma}{72} = \frac{1 + 8\sigma}{9}
+```
 
 | Selectivity ($\sigma$) | Naive DRAM Traffic ($10^6$ keys) | Expanse DRAM Traffic ($10^6$ keys) | Traffic Reduction | Speedup Factor ($\frac{T_{\text{naive}}}{T_{\text{expanse}}}$) |
 |---|---|---|---|---|
-| **$0.1\%$** ($1,000$ matches) | $72.0\text{ MB}$ | $8.06\text{ MB}$ | **$88.8\%$** | **$46.2\times$** |
-| **$1.0\%$** ($10,000$ matches) | $72.0\text{ MB}$ | $8.64\text{ MB}$ | **$88.0\%$** | **$31.8\times$** |
-| **$5.0\%$** ($50,000$ matches) | $72.0\text{ MB}$ | $11.20\text{ MB}$ | **$84.4\%$** | **$13.4\times$** |
-| **$10.0\%$** ($100,000$ matches) | $72.0\text{ MB}$ | $14.40\text{ MB}$ | **$80.0\%$** | **$7.8\times$** |
-| **$50.0\%$** ($500,000$ matches) | $72.0\text{ MB}$ | $40.00\text{ MB}$ | **$44.4\%$** | **$1.8\times$** |
+| **$`0.1\%`$** ($1,000$ matches) | $72.0\text{ MB}$ | $8.06\text{ MB}$ | **$`88.8\%`$** | **$46.2\times$** |
+| **$`1.0\%`$** ($10,000$ matches) | $72.0\text{ MB}$ | $8.64\text{ MB}$ | **$`88.0\%`$** | **$31.8\times$** |
+| **$`5.0\%`$** ($50,000$ matches) | $72.0\text{ MB}$ | $11.20\text{ MB}$ | **$`84.4\%`$** | **$13.4\times$** |
+| **$`10.0\%`$** ($100,000$ matches) | $72.0\text{ MB}$ | $14.40\text{ MB}$ | **$`80.0\%`$** | **$7.8\times$** |
+| **$`50.0\%`$** ($500,000$ matches) | $72.0\text{ MB}$ | $40.00\text{ MB}$ | **$`44.4\%`$** | **$1.8\times$** |
 
-> **Model scope.** The table above is a *pure DRAM-traffic* model: it assumes the only per-entry cost is bytes moved, so its speedups (up to $46\times$ at $\sigma=0.1\%$) are an **upper bound that ignores index traversal**. Measured reality (§10.3): against an honest post-#355 control a correct in-slot filter that walks the trie per entry lands at **~10.7× at σ=0.001 / ~6.37× at σ=0.05** cold — below the idealized $46\times$ (the trie walk is not free) and *clearing the RFC ≥10× target only at very low σ (~σ=0.001), not at σ=0.05*. (The pre-#355 ~22× / ~10.3× figures — which appeared to clear ≥10× at σ≤0.05 — were measured against a naive baseline that itself carried the #355 redundant re-descent; §10.3. An earlier draft predicted ~4–5×; that under-counted the payload/traversal ratio in the cold regime.)
+> **Model scope.** The table above is a *pure DRAM-traffic* model: it assumes the only per-entry cost is bytes moved, so its speedups (up to $46\times$ at $`\sigma=0.1\%`$) are an **upper bound that ignores index traversal**. Measured reality (§10.3): against an honest post-#355 control a correct in-slot filter that walks the trie per entry lands at **~10.7× at σ=0.001 / ~6.37× at σ=0.05** cold — below the idealized $46\times$ (the trie walk is not free) and *clearing the RFC ≥10× target only at very low σ (~σ=0.001), not at σ=0.05*. (The pre-#355 ~22× / ~10.3× figures — which appeared to clear ≥10× at σ≤0.05 — were measured against a naive baseline that itself carried the #355 redundant re-descent; §10.3. An earlier draft predicted ~4–5×; that under-counted the payload/traversal ratio in the cold regime.)
 
 ### 5.5 Configurable Metadata Layout — `CompactInSlot` (default) & `BlobLeafVector` — *proposed (#282)*
 
@@ -1108,7 +1130,8 @@ A fatal limitation of absolute 64-bit pointers is that a memory region mapped vi
 Expanse solves this through **Base-Relative Addressing**:
 - All pointers between trie nodes, leaves, and arena chunks are stored as **relative offsets** ($u32$ or $u48$) from the base address of the mapped region ($P_{\text{base}}$).
 - Physical address resolution:
-  $$P_{\text{target}} = P_{\text{base}} + \text{offset}$$
+
+  $`P_{\text{target}} = P_{\text{base}} + \text{offset}`$
 
 ```
 ========================================================================================
@@ -1338,7 +1361,7 @@ Per Expanse development rules, development proceeds in strict sequential phases 
 
 ### 10.2 Benchmark Suite Additions (`benches/large_values.rs`)
 - `bench_inline_vs_heap_small_blobs`: Measure throughput (ops/sec) and allocations for 1–7 byte keys. Target: $0$ heap allocations, $\gt 3\times$ insert throughput vs `BTreeMap<u64, Vec<u8>>`.
-- `bench_predicate_scan_selectivity_sweep`: Measure scan latency across $\sigma \in \{0.001, 0.01, 0.05, 0.20, 1.0\}$. Target: $\gt 10\times$ speedup at $\sigma \le 0.05$.
+- `bench_predicate_scan_selectivity_sweep`: Measure scan latency across $`\sigma \in \{0.001, 0.01, 0.05, 0.20, 1.0\}`$. Target: $\gt 10\times$ speedup at $\sigma \le 0.05$.
 - `bench_predicate_scan_cold_dram_sweep`: the falsifiable variant of the above with a payload-*touching* baseline (both arms share the `scan_filtered` traversal, so the only difference is payload cache-line loads). Measures the speedup the columnar pushdown actually yields; see §10.3 for why the arena ceiling keeps it warm.
 - `bench_arena_compaction_churn`: Measure pause times and memory reclamation under heavy overwrite workloads.
 

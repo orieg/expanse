@@ -694,6 +694,61 @@ def check_json_datasets(root: Path, registry: list[dict[str, Any]]) -> list[tupl
     return violations
 
 
+# GitHub runs Markdown backslash-escape processing over `$...$` and `$$...$$`
+# before the math renderer sees them, so `\_` reaches it as `_` (a red
+# "'_' allowed only in math mode" box inside `\text{}`), `\{ \}` as bare
+# grouping braces, `\%` as a TeX comment and `\,` as a comma -- the last three
+# render without an error and are simply wrong. The backtick-delimited inline
+# form and the ```math fence are passed through verbatim. Checked against the
+# GitHub Markdown API, which returns the string handed to the renderer.
+MATH_INLINE = re.compile(r"(?<![\\`$])\$(?!`)(?!\$)([^$\n]+?)(?<!`)\$(?!\$)")
+MATH_EATEN_ESCAPE = re.compile(r"\\[!-/:-@\[-`{-~]")
+MATH_HTML_ENTITY = re.compile(r"&(?:gt|lt|amp);")
+LIST_ITEM = re.compile(r"^\s{0,3}(?:[-*+]|\d+[.)])\s")
+INLINE_CODE = re.compile(r"`[^`\n]*`")
+MATH_BACKTICK = re.compile(r"\$`[^`\n]*`\$")
+
+
+def check_math_escapes(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
+    """Dollar-delimited math whose backslash escapes GitHub's Markdown pass eats.
+
+    `lines` is fence-stripped. Indented code blocks are skipped too: four or
+    more leading spaces after a blank line, outside a list (where the same
+    indent is an item's continuation and is rendered).
+    """
+    hits: list[tuple[int, str]] = []
+    in_list = in_code = False
+    prev_blank = True
+    for n, line in lines:
+        if not line.strip():
+            prev_blank = True
+            continue
+        indented = line.startswith("    ") or line.startswith("\t")
+        if not indented:
+            in_list = bool(LIST_ITEM.match(line))
+            in_code = False
+        elif not in_list and (prev_blank or in_code):
+            in_code = True
+        prev_blank = False
+        if in_code or ALLOW_MARKER in line:
+            continue
+        # Drop verbatim math first, then every remaining inline-code span.
+        text = INLINE_CODE.sub("", MATH_BACKTICK.sub("", line))
+        if "$$" in text:
+            # Dollar-delimited display math is recognised only as a paragraph
+            # of its own: next to a text line, or as a list item's continuation,
+            # it is left as literal text and its underscores become emphasis.
+            hits.append((n, "$$"))
+            continue
+        spans = [m.group(1) for m in MATH_INLINE.finditer(text)]
+        for span in spans:
+            bad = MATH_EATEN_ESCAPE.search(span) or MATH_HTML_ENTITY.search(span)
+            if bad:
+                hits.append((n, bad.group(0)))
+                break
+    return hits
+
+
 def scan_text(
     path_label: str,
     text: str,
@@ -712,6 +767,19 @@ def scan_text(
         print(f"::error file={path_label},line={n}::{what} — AGENTS.md §7 forbids PII / local-infrastructure identifiers")
         fatal += 1
     if not is_html:
+        for n, line in enumerate(lines, 1):
+            # GitHub's file view renders a math fence only at the top level:
+            # inside a list item it stays a code block (its Markdown API
+            # renders it, so the API cannot be the check for this one).
+            if line.startswith((" ", "\t")) and line.strip() == "```math":
+                print(f"::error file={path_label},line={n}::indented ```math fence — inside a list item GitHub's file view shows it as a code block; write the formula as $`...`$ on a line of its own")
+                fatal += 1
+        for n, what in check_math_escapes(kept):
+            if what == "$$":
+                print(f"::error file={path_label},line={n}::dollar-delimited display math — GitHub recognises it only as a paragraph of its own and still strips its backslash escapes; use a ```math fence")
+            else:
+                print(f"::error file={path_label},line={n}::{what!r} inside dollar-delimited math — GitHub's Markdown pass strips the backslash before the renderer sees it; write the span as $`...`$")
+            fatal += 1
         for n, what in check_mechanism_claims(kept):
             print(f"::error file={path_label},line={n}::mechanism claim ({what!r}) with no counter evidence in its paragraph — AGENTS.md §8.9 wants a counter, a `results/baseline_*` reference, or an explicit 'unmeasured' / 'hypothesis' / 'cause unknown' qualifier")
             fatal += 1
@@ -759,6 +827,32 @@ def self_test() -> int:
     fatal, _ = scan_text("t.md", "ssh examplehost 'cargo bench'\n", deny, False, reg); assert fatal == 1, "denylisted host"
     fatal, _ = scan_text("t.md", "connect to 192.168.1.20\n", deny, False, reg); assert fatal == 1, "lan ip"
     fatal, _ = scan_text("t.md", "planned for 2 weeks docs-lint: allow\n", deny, False, reg); assert fatal == 0, "allow marker"
+
+    # Math escapes GitHub's Markdown pass eats. The first line is the motivating
+    # defect, verbatim from docs/DATABASE.md section 3 before the fix: it
+    # rendered as a red "'_' allowed only in math mode" box.
+    broken = "1. Is `xmin` committed and $\\le T_{\\text{read}}.\\text{snapshot\\_max}$?\n"
+    fixed = "1. Is `xmin` committed and $`\\le T_{\\text{read}}.\\text{snapshot\\_max}`$?\n"
+    fatal, _ = scan_text("t.md", broken, deny, False, reg); assert fatal == 1, "motivating math defect"
+    fatal, _ = scan_text("t.md", fixed, deny, False, reg); assert fatal == 0, "backtick math passes"
+    for text, want, why in (
+        ("$N \\in \\{1, 2\\}$\n", 1, "braces vanish"),
+        ("floor of $0.1\\%$ here\n", 1, "percent becomes a comment"),
+        ("$$a \\, b$$\n", 1, "single-line display"),
+        ("$$\n\\text{cap\\_class}\n$$\n", 2, "multi-line display: both delimiters"),
+        ("text:\n$$T_{a} = T_{b}$$\n", 1, "display next to text is never recognised"),
+        ("$x &gt; y$\n", 1, "html entity"),
+        ("```math\n\\text{cap\\_class}\n```\n", 0, "math fence is verbatim"),
+        ("$T_{\\text{read}} \\le \\lambda$ and $W=1$\n", 0, "letter commands are untouched"),
+        ("set `$HOME\\_x` and `a\\_b$`\n", 0, "inline code is not math"),
+        ("costs $5 and \\_ then $6\n", 1, "a dollar pair is a span to GitHub too"),
+        ("text\n\n    $a\\_b$\n", 0, "indented code block"),
+        ("- item\n\n    continuation $a\\_b$\n", 1, "list continuation is rendered"),
+        ("$a\\_b$ docs-lint: allow\n", 0, "allow marker"),
+        ("- item\n\n  ```math\n  a_{b}\n  ```\n", 1, "math fence inside a list item"),
+    ):
+        fatal, _ = scan_text("t.md", text, deny, False, reg)
+        assert fatal == want, f"math escapes: {why}: got {fatal}"
     _, w = scan_text("t.md", "| arm | ns |\n|---|---|\n| a | 35.8 ns |\n", deny, True, reg); assert w == 1, "provenance warn"
     _, w = scan_text("t.md", "*(measured: host, commit)*\n| arm | ns |\n|---|---|\n| a | 35.8 ns |\n", deny, True, reg); assert w == 0, "provenance tagged"
 

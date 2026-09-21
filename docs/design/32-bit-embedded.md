@@ -57,8 +57,8 @@ In these embedded environments, system memory is severely constrained—often li
 
 This design establishes a unified 32-bit architecture for Expanse, scaling the digital trie from 64-bit servers down to embedded microcontrollers with **zero algorithmic compromises**:
 
-1. **4-Level Digital Tree Hierarchy**: Keys shrink from 64-bit (`Key = u64`, Levels 8 $\rightarrow$ 1) to 32-bit (`Key = u32`, Levels 4 $\rightarrow$ 1), halving maximum descent depth from 8 hops to 4 hops and cutting lookup latency by up to $48\%$.
-2. **Compact 8-Byte `Edge` Descriptor (`Edge32`)**: Replacing 16-byte edges with an 8-byte tagged union (`4B Pointer/Imm` + `3B Level-Split Aux/Pop0/Decode` + `1B Tag`), achieving an immediate **$50\%$ reduction in structural memory**.
+1. **4-Level Digital Tree Hierarchy**: Keys shrink from 64-bit (`Key = u64`, Levels 8 $\rightarrow$ 1) to 32-bit (`Key = u32`, Levels 4 $\rightarrow$ 1), halving maximum descent depth from 8 hops to 4 hops and cutting lookup latency by up to $`48\%`$.
+2. **Compact 8-Byte `Edge` Descriptor (`Edge32`)**: Replacing 16-byte edges with an 8-byte tagged union (`4B Pointer/Imm` + `3B Level-Split Aux/Pop0/Decode` + `1B Tag`), achieving an immediate **$`50\%`$ reduction in structural memory**.
 3. **Immediate In-Edge Packing up to 7 Bytes**: Packing up to 7 1-byte keys, 3 2-byte keys, or 2 3-byte keys directly inside a single 8-byte edge without heap allocation.
 4. **Polymorphic 32-Bit Value Slots (`ValueSlot32`) & Large-Value Integration (#112)**:
    - **Inline Mode ($\le 3$ bytes)**: Direct 24-bit payload packing in the slot with zero heap allocations.
@@ -207,7 +207,7 @@ Offset 7 (1 Byte): Tag Discriminant
 
 ### 4.2 The 3-Byte Level-Split Auxiliary Field
 
-In a 32-bit trie, a child subtree at level $L \in \{1, 2, 3\}$ has maximum key capacity:
+In a 32-bit trie, a child subtree at level $`L \in \{1, 2, 3\}`$ has maximum key capacity:
 - **Level 1 child**: Covers $256^1 = 256$ keys $\implies \text{pop0} \le 255$ fits in **1 byte** (`aux[0]`). Decode budget = $3 - 1 = \mathbf{2\text{ bytes}}$.
 - **Level 2 child**: Covers $256^2 = 65,536$ keys $\implies \text{pop0} \le 65,535$ fits in **2 bytes** (`aux[0..2]`). Decode budget = $3 - 2 = \mathbf{1\text{ byte}}$.
 - **Level 3 child**: Covers $256^3 = 16,777,216$ keys $\implies \text{pop0} \le 16,777,215$ fits in **3 bytes** (`aux[0..3]`). Decode budget = $\mathbf{0\text{ bytes}}$.
@@ -219,7 +219,9 @@ The 3-byte auxiliary field perfectly accommodates both $\text{pop0}$ and narrow-
 
 An 8-byte `Edge32` offers 7 contiguous payload bytes (`Word0` [4B] + `Aux` [3B]) for immediate keys:
 
-$$\text{IMMED\_PAYLOAD\_BYTES}_{32} = 7\text{ bytes}$$
+```math
+\text{IMMED\_PAYLOAD\_BYTES}_{32} = 7\text{ bytes}
+```
 
 | Undecoded Key Width ($K_B$) | Max Keys in `Edge32` ($\lfloor 7 / K_B \rfloor$) | Set Immediate Capacity | Map Immediate Capacity (Aux 3B) |
 |---|---|---|---|
@@ -366,14 +368,17 @@ const _: () = {
 
 ## 6. Variable-Length Linear Leaves for 32-Bit Targets
 
-In a 32-bit trie, linear leaf key remainders are at most **3 bytes** ($K_B \in \{1, 2, 3\}$).
+In a 32-bit trie, linear leaf key remainders are at most **3 bytes** ($`K_B \in \{1, 2, 3\}`$).
 
 ### 6.1 Sizing Formulas
 
 - **Set Leaf**: `[keys: KB * pop]`
-  $$\text{Size}_{\text{Set32}}(K_B, \text{pop}) = K_B \times \text{cap\_class}(\text{pop})$$
+
+  $`\text{Size}_{\text{Set32}}(K_B, \text{pop}) = K_B \times \text{cap\_class}(\text{pop})`$
+
 - **Map Leaf**: `[values: u32 * pop][keys: KB * pop]`
-  $$\text{Size}_{\text{Map32}}(K_B, \text{pop}) = 4 \times \text{cap\_class}(\text{pop}) + K_B \times \text{cap\_class}(\text{pop})$$
+
+  $`\text{Size}_{\text{Map32}}(K_B, \text{pop}) = 4 \times \text{cap\_class}(\text{pop}) + K_B \times \text{cap\_class}(\text{pop})`$
 
 ```rust
 // crates/expanse/src/leaf32.rs
