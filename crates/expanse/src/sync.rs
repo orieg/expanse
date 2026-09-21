@@ -1740,7 +1740,19 @@ impl Drop for QuiesceGuard<'_> {
 }
 
 impl<T: SharedTree> Shared<T> {
+    /// Admits the calling thread as an optimistic writer, spinning while a
+    /// serialised section holds the gate closed.
+    ///
+    /// Always inlined. It is generic over the tree, so each wrapper gets its
+    /// own copy, and once a wrapper calls it from more than one mutation (the
+    /// bytes map's insert and its optimistic removal, #1047) the compiler
+    /// stopped inlining it into either. Inlining it back measured 6 fewer
+    /// instructions per operation on `sync_bytesmap_overwrite/routes` and
+    /// moved no arm up (Callgrind). Only the `Sync*` wrappers' optimistic
+    /// paths call it, so no plain-tree path grows (AGENTS.md §2.1,
+    /// invariant 5).
     #[cfg(feature = "std")]
+    #[inline(always)]
     pub(crate) fn enter_writer_blocking(&self) -> crate::occ::WriterGuard<'_> {
         #[cfg(not(feature = "occ-stats"))]
         loop {
