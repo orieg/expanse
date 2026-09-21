@@ -137,6 +137,7 @@ cp REPO_ROOT_PLACEHOLDER/man/man3/*.3 %{buildroot}/usr/share/man/man3/
 
 %files
 /usr/lib64/libexpanse.so*
+HWCAPS_MAIN_PLACEHOLDER
 
 %files devel
 /usr/include/*
@@ -150,16 +151,32 @@ cp REPO_ROOT_PLACEHOLDER/man/man3/*.3 %{buildroot}/usr/share/man/man3/
 
 %files -n libjudy-compat
 /usr/lib64/libJudy.so.1
+HWCAPS_COMPAT_PLACEHOLDER
 /usr/share/man/man3/Judy*.3*
 
 SPECEOF
 
 REPO_ROOT="$(pwd)"
 
+# glibc-hwcaps variants are staged by %install only when the dist carries them
+# (x86_64). rpmbuild fails on installed-but-unpackaged files, and equally on a
+# %files glob that matches nothing, so the entries exist exactly when the
+# directory does. The split mirrors the baseline: libexpanse.so* in the main
+# package, libJudy.so.1 in libjudy-compat.
+if [ -d "${DIST_DIR}/lib/glibc-hwcaps" ]; then
+    HWCAPS_MAIN='/usr/lib64/glibc-hwcaps/*/libexpanse.so*'
+    HWCAPS_COMPAT='/usr/lib64/glibc-hwcaps/*/libJudy.so.1'
+else
+    HWCAPS_MAIN='# (no glibc-hwcaps variants in this dist)'
+    HWCAPS_COMPAT='# (no glibc-hwcaps variants in this dist)'
+fi
+
 sed -i.bak \
     -e "s|VERSION_PLACEHOLDER|${VERSION}|g" \
     -e "s|DIST_DIR_PLACEHOLDER|${DIST_DIR}|g" \
     -e "s|REPO_ROOT_PLACEHOLDER|${REPO_ROOT}|g" \
+    -e "s|HWCAPS_MAIN_PLACEHOLDER|${HWCAPS_MAIN}|" \
+    -e "s|HWCAPS_COMPAT_PLACEHOLDER|${HWCAPS_COMPAT}|" \
     "${SPEC_FILE}"
 rm -f "${SPEC_FILE}.bak"
 
