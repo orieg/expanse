@@ -1284,6 +1284,86 @@
       "replacement": "64-op window-mean latencies from runs 35419627251 and 35419631571: p95 is 64.5 ns on A, 72.4 ns on F (Refs #1005)",
       "provenance": "#1005",
       "rationale": "Per-op Instant bracket latency report at 43b46f38 suffered from calibrated bracket overhead and unmasked write rejections; the 38 us tail is refuted under window-mean sampling and valid writes."
+    },
+    {
+      "id": "rocksdb_memtable_single_threaded_6cb64b45_ratios",
+      "patterns": [
+        "(?<![\\w.])3\\.331\\s*[x×](?!\\w)",
+        "(?<![\\w.])2\\.524\\s*[x×](?!\\w)",
+        "(?<![\\w.])1\\.457\\s*[x×](?!\\w)",
+        "(?<![\\w.])1\\.512\\s*[x×](?!\\w)",
+        "(?<![\\w.])1\\.406\\s*[x×](?!\\w)",
+        "(?<![\\w.])2\\.072\\s*[x×](?!\\w)"
+      ],
+      "context": [
+        "rocksdb",
+        "memtable",
+        "skiplist",
+        "skiplistrep",
+        "prefixscan",
+        "scanbatch",
+        "readrandom",
+        "seekrandom",
+        "fillrandom",
+        "point lookup",
+        "range seek",
+        "sequential scan",
+        "batch scan"
+      ],
+      "replacement": "two runs at 7cd5140e: sequential scan 3.1426 [3.1061, 3.2269] / 3.0744 [3.0480, 3.1095], batch scan 2.1376 [2.0452, 2.3111] / 2.1301 [2.0820, 2.1930], point lookup 1.4915 [1.4901, 1.4939] / 1.4985 [1.4913, 1.5073], range seek 1.5318 [1.5225, 1.5377] / 1.5348 [1.5268, 1.5414], insert 1.4734 [1.4414, 1.4856] / 1.4757 [1.4609, 1.4859], point lookup against VectorRep 2.1191 [2.1113, 2.1269] / 2.1244 [2.1077, 2.1336] (docs/benchmarks/rocksdb_memtable/results/baseline_rocksdb.json and _run2.json)",
+      "provenance": "#372, #382, #868",
+      "rationale": "The 6cb64b45 single-threaded ratios came from a shell loop whose artifact carried no load snapshot and no per-cell rounds, and were computed as two-sample ratios of the two arms' means. Re-measured at 7cd5140e through the provenance-bearing driver, one process per phase per round, with a paired per-round quotient estimator. Batch scan against SkipList is a confirmed loss against 2.524x in both runs; point lookup a confirmed gain. Suite METHODOLOGY.md section 6."
+    },
+    {
+      "id": "rocksdb_memtable_single_threaded_6cb64b45_arms",
+      "patterns": [
+        "(?<![\\w.])154\\.18\\s*(?:Mops/s|Mops|M\\s*ops/s|M\\s*ops|M/s)(?!\\w)",
+        "(?<![\\w.])116\\.82\\s*(?:Mops/s|Mops|M\\s*ops/s|M\\s*ops|M/s)(?!\\w)",
+        "(?<![\\w.])46\\.29\\s*(?:Mops/s|Mops|M\\s*ops/s|M\\s*ops|M/s)(?!\\w)",
+        "(?<![\\w.])614\\.20?\\s*(?:Mops/s|Mops|M\\s*ops/s|M\\s*ops|M/s)(?!\\w)",
+        "(?<![\\w.])111\\.8\\s*(?:Mops/s|Mops|M\\s*ops/s|M\\s*ops|M/s)(?!\\w)",
+        "(?<![\\w.])264\\s*ns(?!\\w)",
+        "(?<![\\w.])385\\s*ns(?!\\w)"
+      ],
+      "context": [
+        "rocksdb",
+        "memtable",
+        "skiplist",
+        "skiplistrep",
+        "vectorrep",
+        "prefixscan",
+        "scanbatch",
+        "readrandom",
+        "sequential scan",
+        "batch scan",
+        "point lookup"
+      ],
+      "replacement": "two runs at 7cd5140e: Iterator 176.62 [159.08, 182.81] / 182.45 [181.21, 184.70] Mops/s, ScanBatch 119.69 [115.64, 123.42] / 126.37 [125.21, 127.97] Mops/s, SkipListRep scan 56.29 [49.27, 58.67] / 59.35 [58.33, 60.17] Mops/s, VectorRep scan 630.21 / 628.49 Mops/s, readrandom 261 ns against SkipListRep 390 ns (docs/benchmarks/rocksdb_memtable/results/baseline_rocksdb.json and _run2.json)",
+      "provenance": "#372, #382, #868",
+      "rationale": "The per-arm Mops/s and the derived readrandom nanoseconds published from the 6cb64b45 run, plus the standalone 111.8 Mops/s ScanBatch figure from 7d87dff7 that carried no skiplist comparison at all. All superseded by the two 7cd5140e runs, in which both the SkipListRep scan arm and the Iterator arm rose clear of their old intervals. Suite METHODOLOGY.md section 6.2."
+    },
+    {
+      "id": "rocksdb_memtable_partial_scan_reruns_2b4c15a8_314deb39",
+      "patterns": [
+        "(?<![\\w.])2\\.942\\s*[x×](?!\\w)",
+        "(?<![\\w.])3\\.066\\s*[x×](?!\\w)",
+        "(?<![\\w.])2\\.249\\s*[x×](?!\\w)",
+        "(?<![\\w.])2\\.266\\s*[x×](?!\\w)"
+      ],
+      "context": [
+        "rocksdb",
+        "memtable",
+        "skiplist",
+        "prefixscan",
+        "scanbatch",
+        "sequential scan",
+        "batch scan",
+        "2b4c15a8",
+        "314deb39"
+      ],
+      "replacement": "two runs at 7cd5140e: sequential scan 3.1426 / 3.0744, batch scan 2.1376 / 2.1301 (docs/benchmarks/rocksdb_memtable/results/baseline_rocksdb.json and _run2.json)",
+      "provenance": "#868, #873, #877",
+      "rationale": "Two partial re-runs of the scan rows only, at 2b4c15a8 and 314deb39, committed no artifact and were published in the suite README as interim movement. Superseded by the committed 7cd5140e pair, which measures every row through the provenance-bearing driver."
     }
   ]
 }

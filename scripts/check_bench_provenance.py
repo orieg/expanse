@@ -164,12 +164,6 @@ CI_METHOD_EXEMPT = {
         "reaches `_bca_from_distribution` directly, which returns its label as a "
         "third value; `_ci_bounds` forwards it and `test_ci_bounds_reaches_the_"
         "shared_bca_construction` pins that",
-    "scripts/rocksdb_bench_harvest.py":
-        "superseded by docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py "
-        "(#902); no workflow or runner invokes it. Kept only as the recorded "
-        "`generated_by` of the committed `baseline_rocksdb.json`, and removed in the PR "
-        "that refreshes that artifact (#868). Its two call sites take the bare entry "
-        "point, so the artifact it produced stays unlabelled until then",
 }
 
 # A bare three-value call, module-qualified or not. `_with_method` spellings do
@@ -248,13 +242,6 @@ GRANDFATHERED = {
     "masstree_comparison/results/counters_strmap_hugepage_on_1m.json": ('b18688138a81005327925dd407d1056b6fe9753d',),
     "masstree_comparison/results/counters_strmap_vs_map_lookup_1m.json": ('43c68caa3dc66fc99b61613ec8d23caa9a5e33db',),
     "hot_comparison/results/baseline_instrument_bridge.json": ("86daaddf",),
-    # rocksdb_memtable — a `expanse.baseline.v1` artifact from
-    # `scripts/bench_baseline.py`, whose provenance block names the host and
-    # the run but carries no load snapshot and no per-cell rounds. It publishes
-    # wall-clock throughput ratios against RocksDB's SkipMap
-    # (`docs/BENCHMARKING.md` §12), so it is named here rather than left out of
-    # the gate's scope: the entry is what makes its next re-run land the fields.
-    "rocksdb_memtable/results/baseline_rocksdb.json": ("6cb64b459e753c73b305cddd56fedef1fe31a0e1",),
     # hashbrown_comparison, redis_zset_engine, search_inverted_index — these
     # runners took no load snapshot at all before this change, and several of
     # their artifacts are bare JSON arrays.

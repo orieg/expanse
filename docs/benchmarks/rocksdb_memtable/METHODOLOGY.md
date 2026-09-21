@@ -1,6 +1,6 @@
 # RocksDB MemTable suite: pre-registration and measurement discipline
 
-*(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8, run [33398474866](https://github.com/orieg/expanse/actions/runs/33398474866), commit `6cb64b45`; 100,000 keys, 16-byte key, 64-byte value payload; 5 rounds with BCa 95% bootstrap intervals; memory via deterministic seeded byte accounting; artifact [`results/baseline_rocksdb.json`](results/baseline_rocksdb.json).)*
+*(§1–§4 are the `6cb64b45` record: measured on the reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8, run [33398474866](https://github.com/orieg/expanse/actions/runs/33398474866); 100,000 keys, 16-byte key, 64-byte value payload; 5 rounds with BCa 95% bootstrap intervals; memory via deterministic seeded byte accounting. Every wall-clock figure in them is superseded by §6, the `7cd5140e` re-measurement, whose artifacts are [`results/baseline_rocksdb.json`](results/baseline_rocksdb.json) and [`results/baseline_rocksdb_run2.json`](results/baseline_rocksdb_run2.json).)*
 
 Point-in-time gate record for the RocksDB pluggable MemTable comparative suite (#372, #382). Frozen: the pre-registration and baseline corrections below quote the issues and discussions before the reference-host runs, with empirical outcomes appended alongside them, never reconciled in place (AGENTS.md §8.7). Results and their reading live in [`README.md`](README.md); the C++ implementation and build flow in [`integrations/rocksdb/`](../../../integrations/rocksdb/README.md).
 
@@ -13,6 +13,8 @@ Point-in-time gate record for the RocksDB pluggable MemTable comparative suite (
 
 ## 2. Pre-registered hypotheses and their outcomes
 
+> The outcome column below is the `6cb64b45` record and is not rewritten (§8.7). Those cells were re-measured at `7cd5140e` through the provenance-bearing driver, and **every wall-clock figure in this table is superseded by [§6](#6-re-measurement-of-the-2-single-threaded-cells-at-7cd5140e-868)**, which is what [`README.md`](README.md) publishes. The density row is reproduced there byte-for-byte.
+
 | # | pre-registered (source, before the run) | outcome | verdict |
 |---|---|---|---|
 | H1 | Memory density / fair baseline: earlier ~11× (146.7 B/entry) strawman retracted (#372); fair variable-height node costs 8 B key ptr + height×8 B tower ($E[\text{height}]=4/3 \to 18.7$ B/entry). Expanse predicted 13.2 B/entry (1.42× higher key density vs ordered skiplist; VectorRep 10.5 B/entry is denser than both) | 13.2 B/entry (Expanse) vs 18.7 B/entry (fair SkipList) vs 10.5 B/entry (VectorRep); 1.42× higher key density over the ordered baseline | confirmed |
@@ -21,14 +23,16 @@ Point-in-time gate record for the RocksDB pluggable MemTable comparative suite (
 | H4 | Random ingestion: synchronized leaf insertion with automatic block split maintains competitive insertion throughput against skiplist (#382 item 5) | `fillrandom` 4.42 Mops/s [4.36, 4.53] vs 3.15 Mops/s [3.12, 3.16] -> 1.406× [1.385, 1.442] | confirmed |
 | H5 | Unordered ceiling: `VectorRep` append vector will win insert and scan by design due to contiguous unindexed layout, but cannot serve ordered seeks | `VectorRep` achieves 202.65 Mops/s insert, 614.20 Mops/s scan, and 10.5 B/entry density; seekrandom scan is 3.94 Mops/s vs Expanse 3.67 Mops/s | confirmed |
 
+> Every wall-clock figure in the outcome column above is **superseded** by §6; the density row is reproduced there byte-for-byte. The figures are registered in [`.github/superseded-figures.json`](../../../.github/superseded-figures.json).
+
 ## 3. Measurement discipline
 
 - **Instrument & Runner**: `benches/bench_memtable.cc` built `-O3` against release `libexpanse.so` on the dedicated reference host (Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8.0; commit `6cb64b45`, run [33398474866](https://github.com/orieg/expanse/actions/runs/33398474866)). 100,000 keys, 16-byte key, 64-byte value payload.
-- **Statistical Processing**: 5 rounds harvested by `scripts/rocksdb_bench_harvest.py` into [`results/baseline_rocksdb.json`](results/baseline_rocksdb.json). Throughput metrics evaluated as mean with BCa 95% bootstrap intervals (2,000 resamples, seed 42); speedup ratios computed via two-sample BCa ratio intervals (`bca_bootstrap_ratio_ci`).
+- **Statistical Processing**: 5 rounds harvested by `scripts/rocksdb_bench_harvest.py` — since removed from the tree, superseded by [`scripts/single_threaded_bench.py`](scripts/single_threaded_bench.py) (§6) — into the `6cb64b45` artifact. Throughput metrics evaluated as mean with BCa 95% bootstrap intervals (2,000 resamples, seed 42); speedup ratios computed via two-sample BCa ratio intervals (`bca_bootstrap_ratio_ci`). §6 replaces that ratio estimator with a paired one over the per-round quotient, so the two are not a cell-for-cell swap.
 - **Deterministic Byte Accounting**: Memory footprint per key is evaluated via deterministic allocator instrumentation (M1 8-core, Apple clang 21, `-O3`, reproduced across runs).
 - **Symmetric Baselines**: `ReferenceSkipListRep` models a realistic `InlineSkipList` variable-height tower allocation (`Node* next[1]` over-allocated by `height`), with identical `BenchBytewiseComparator` key comparator and memory allocator. `VectorRep` models an unindexed append vector.
 - **Retractions and Corrections Handled**: #372 retracted the 146.7 B/entry fat-node skiplist strawman and the resulting 11.1× headline. #382 item 5 re-measured wall-clock throughput on the quiet reference host with BCa intervals.
-- **Provenance**: Artifact [`results/baseline_rocksdb.json`](results/baseline_rocksdb.json) contains all raw round samples, bootstrap intervals, and provenance metadata.
+- **Provenance**: the `6cb64b45` artifact contained all raw round samples, bootstrap intervals and provenance metadata, but no load snapshot and no per-cell rounds; [`results/baseline_rocksdb.json`](results/baseline_rocksdb.json) now holds run 1 of the §6 re-measurement and [`results/baseline_rocksdb_run2.json`](results/baseline_rocksdb_run2.json) run 2, both carrying host facts, estimator labels, per-cell load snapshots with a busy-CPU delta and per-cell `rounds_raw`.
 
 ## 4. Not covered
 
@@ -1187,3 +1191,54 @@ The three statistics per gate, each a per-round ratio with a BCa 95% interval ov
 - **Correctness of `kOptimistic`:** what G-O1–G-O7 and the §2.3 mutations establish, and no more. These cells time `Get` only; `Contains`, `IteratorImpl::Seek` and `SeekForPrev` are covered for correctness by the soundness gates and are not timed here.
 - **`ApproximateMemoryUsage` under `kOptimistic` on a production write path,** the free and multi-writer regimes, memory under any scope, and 32-bit targets: all outside this arm, as §5.16 states.
 - **Reader counts above 7, and any comparison with §5.15's head.**
+
+## 6. Re-measurement of the §2 single-threaded cells at `7cd5140e` (#868)
+
+*(measured: reference host — Intel i9-12900F, 8P+8E / 24 threads, 30 MiB L3, `Linux-6.8.0-136-generic-x86_64-with-glibc2.35`, commit `7cd5140e`; pin `0-15`; two independent runs, [35547165132](https://github.com/orieg/expanse/actions/runs/35547165132) and [35547235205](https://github.com/orieg/expanse/actions/runs/35547235205), 5 rounds and 13 cells each; artifacts [`results/baseline_rocksdb.json`](results/baseline_rocksdb.json) and [`results/baseline_rocksdb_run2.json`](results/baseline_rocksdb_run2.json); driver [`scripts/single_threaded_bench.py`](scripts/single_threaded_bench.py).)*
+
+§2's outcome column is the `6cb64b45` record and stays as it was written (§8.7: a pre-registration and its outcomes are never reconciled in place). This section is the appended re-measurement, and it is what the suite [`README.md`](README.md) publishes.
+
+### 6.1 Why the cells were re-measured, and what changed with them
+
+[#868](https://github.com/orieg/expanse/issues/868) was a provenance gap, not a suspected result: the `6cb64b45` artifact came from a shell loop over `make -C integrations/rocksdb bench`, which times every phase in one process and so has no cell boundary for a load snapshot to attach to. `scripts/check_bench_provenance.py` carried that artifact as a `GRANDFATHERED` entry for exactly this run. Three things differ between the two measurements and **none of them is separated by any instrument this suite has**:
+
+1. **The engine.** [#769](https://github.com/orieg/expanse/pull/769) and [#877](https://github.com/orieg/expanse/pull/877) rewrote `IteratorImpl` and `ScanBatch`; until #877 the batch-scan loop did not terminate, so the superseded `2.524×` was timing a loop that never completed a scan. `Insert` and `Get` also changed.
+2. **The process boundary.** One `bench_memtable --arm <phase> --round N` process per cell, phases interleaved within each round, in place of one process per round running every phase in sequence.
+3. **The ratio estimator.** A paired one-sample BCa interval over the per-round quotient subject/baseline, in place of a two-sample BCa interval over the two arms' rounds. The per-arm column estimator is unchanged (mean of per-round Mops/s).
+
+Any difference against §2 therefore has three candidate causes, and this section attributes none of them. Two earlier partial re-runs of the scan rows at `2b4c15a8` (run [34715487558](https://github.com/orieg/expanse/actions/runs/34715487558)) and `314deb39` (run [34718103662](https://github.com/orieg/expanse/actions/runs/34718103662)) committed no artifact and are superseded here.
+
+### 6.2 Outcomes, read against §2's hypotheses
+
+Each row's decision rule is `docs/BENCHMARKING.md` rule 18: a movement is named only where **both** runs move the same way with intervals clear of §2's. Everything else is reported and explicitly not claimed as a change.
+
+| §2 hypothesis | §2 figure (`6cb64b45`, superseded) | run 1 | run 2 | rule-18 reading |
+|---|---|---|---|---|
+| H1 density, Expanse against fair SkipList | superseded: 13.2 against 18.7 B/entry, 1.42× | 13.20696 against 18.74416 B/entry, 1.42× | identical byte totals | **reproduced** — deterministic accounting, identical in all ten rounds; no interval by §8.4 |
+| H2 sequential scan, `prefixscan` Iterator against SkipList | superseded: 3.331× [3.198, 3.486] | 3.1426× [3.1061, 3.2269] | 3.0744× [3.0480, 3.1095] | **not confirmed** — run 1's interval overlaps §2's; run 2's clears it downward. Both points are lower; the change is not claimed |
+| H2 batch scan, `ScanBatch` against SkipList | superseded: 2.524× [2.421, 2.644] | 2.1376× [2.0452, 2.3111] | 2.1301× [2.0820, 2.1930] | **DOWN, confirmed — a loss.** Both intervals lie entirely below §2's |
+| H3 point lookup, `readrandom` against SkipList | superseded: 1.457× [1.444, 1.470] | 1.4915× [1.4901, 1.4939] | 1.4985× [1.4913, 1.5073] | **UP, confirmed** |
+| H3 range seek, `seekrandom` against SkipList | superseded: 1.512× [1.492, 1.546] | 1.5318× [1.5225, 1.5377] | 1.5348× [1.5268, 1.5414] | **not confirmed** — both intervals overlap §2's |
+| H4 insert, `fillrandom` against SkipList | superseded: 1.406× [1.385, 1.442] | 1.4734× [1.4414, 1.4856] | 1.4757× [1.4609, 1.4859] | **not confirmed** — run 1's lower bound 1.4414 sits below §2's upper bound 1.4419; run 2 clears it upward |
+| H5 unordered ceiling, `VectorRep` | superseded: 202.65 Mops/s insert, 614.20 Mops/s scan, 10.5 B/entry; seek 3.94 against Expanse 3.67 | 198.45 [193.74, 203.07] insert, 630.21 [625.30, 633.72] scan, 10.48632 B/entry; seek 3.9880 against Expanse 3.7037 | 200.53 [196.98, 204.16] insert, 628.49 [616.81, 633.15] scan, identical B/entry; seek 3.9710 against Expanse 3.6982 | **direction reproduced, no cell confirmed as moved** — `VectorRep` still wins insert and unordered scan and still loses none of its ordered-seek disability. Its insert and scan cells overlap §2's in both runs |
+
+The two vs-`VectorRep` ratios that rule 18 does confirm are `readrandom`, from the superseded **2.072×** to **2.1191 / 2.1244** (up), and `fillrandom`, from **0.0218×** to **0.0235 / 0.0234** (up, Expanse still far behind an unindexed append). The remaining two overlap in at least one run.
+
+### 6.3 The batch-scan loss, and what is not said about it
+
+`ScanBatch` against SkipList is the one cell both runs move, and it moves down, from the superseded **2.524×** to **2.1376 / 2.1301**. The ratio fell while the arms it divides both got faster, and only one half of that is confirmed by both runs:
+
+- The `SkipListRep` scan arm rose and clear of its §2 interval in both runs: **46.29 → 56.29 [49.27, 58.67] / 59.35 [58.33, 60.17] Mops/s**.
+- The `ScanBatch` arm rose to **119.69 [115.64, 123.42]** in run 1, an interval that still overlaps §2's 116.82 [114.88, 118.43], and to **126.37 [125.21, 127.97]** in run 2, which clears it. By rule 18 the subject's own rise is therefore **not confirmed**.
+
+So the statement the data carries is: the baseline rose, the ratio fell, and the subject's own figure is not established to have moved. **No mechanism is attributed** — no hardware counter and no Callgrind arm was collected on these runs, and the three changes listed in §6.1 are not separated (§8.9.1). The direction is unsurprising given that #877 made the batch loop terminate, but that is an expectation, not a measurement of cause.
+
+### 6.4 What this re-measurement does not cover
+
+Unchanged from §4: no end-to-end LSM flush or compaction accounting, and nothing concurrent. `ScanBatch`'s standalone `111.8 Mops/s` figure at `7d87dff7`, published with no skiplist comparison, is superseded by the batch-scan arm here; the earlier single-round `3.82×` / `188.2 Mops/s` `prefixscan` figure at `7644c2b6` remains superseded and is not reconciled with these runs either. The `readrandom` and `seekrandom` cells still carry the fixture's ~9% hit rate rather than a hit-heavy point lookup (`benches/bench_memtable.cc`, workload-shape declaration); that is a property of the seq/snapshot arithmetic and is unchanged by this re-measurement.
+
+### 6.5 What this does to §5's derived inputs, and what it deliberately leaves alone
+
+`scripts/rocksdb_locate_bound.py` reads `insert_ns` and `read_ns` from [`results/baseline_rocksdb.json`](results/baseline_rocksdb.json) rather than carrying copies, so replacing that artifact re-derives every §5 projection. Re-run at the pre-registered writer rate (`--writer-ops 250000`), the inputs move from 226.14 ns/insert and 263.99 ns/read to **214.53 ns/insert and 261.36 ns/read**, the paced writer's lock duty from 5.654% to **5.363%**, and the saturating-writer rate §5.3 rounds to ~4.4 M inserts/s to **4.66 M inserts/s**.
+
+The projections §5.3 quotes move as follows: the scaling ceiling for a read half-covered by the lock is **1.89, unchanged**, and for one a tenth covered **9.43 → 9.46**. **§5.3's `PASS`/`REFUTED` thresholds of 2.0 and 3.5 are not touched** — a threshold changed after seeing results relabels the outcome `INTERMEDIATE` and requires fresh rounds (§8.19), and neither of these two would move on a 0.03 shift in a projection they were chosen to sit far from anyway. §5.3, §5.8, §5.9, §5.10 and §5.15–§5.17 keep the figures they were written with; they are the record of what was derived and decided at the time (§8.7), and nothing in them is rewritten from this re-measurement.
