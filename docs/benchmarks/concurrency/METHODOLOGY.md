@@ -1324,7 +1324,7 @@ void run does not change the sample size.
   meeting the gate. Whether the R = 1 level now published bears on the question
   is an analysis this section does not perform.
 - **No comparison with Masstree or HOT.** Those readers-only competitor cells
-  are pending re-measurement (#730, #1061), no competitor arm is dispatched by this
+  are pending re-measurement (#730, #1061), no competitor arm is dispatched by this <!-- docs-lint: allow -->
   suite, and no ratio against one is formed *(workloads differ:
   `concurrency_readers_str` vs `masstree_conc_str`)*.
 - **Nothing read from the retracted figure.** The floors are derived only from
@@ -1362,6 +1362,14 @@ names an open issue.
   `.github/superseded-figures.json`, and the same `masstree_conc_str` cell reads
   1.034 [1.015, 1.046] at `929574b5`, Expanse ahead. The readers-only questions
   that remain are carried by #1061.
+
+### 16.13 Dated note, 2026-09-21: the pending citation in §16.11
+
+#1061 is closed. The pending citation in §16.11 names two closed issues, so its
+line carries a `docs-lint: allow` marker, the only byte changed there. The cell's
+state is recorded in `README.md` §13: two committed level families, one per
+measurement procedure, disclosed rather than resolved, with no re-measurement
+planned.
 
 ## 17. Pre-registration for #929 — the `SyncExpanseStrMap` multi-writer design (appended 2026-09-15, locked before any engine code on the string wrapper's write path)
 

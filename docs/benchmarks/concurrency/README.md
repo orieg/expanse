@@ -2617,7 +2617,10 @@ build.
 
 ## 13. The readers-only string cell — a reduction of the committed rounds (Refs #730)
 
-The W = 0, R = 8 `masstree_conc_str` reader cell is pending re-measurement (#730, #1061).
+The W = 0, R = 8 `masstree_conc_str` reader cell has two committed level families, one
+per measurement procedure (the tables below). Which of them is current is not
+resolved and no re-measurement is planned: #1061 closed with the difference
+disclosed rather than attributed.
 The native readers-only sweep's committed levels at `170a4bc3`, both pins and
 two runs each, are in §15. They come from another harness and probe mix, so
 they do not re-measure this cell and no ratio against Masstree is formed from
@@ -3102,7 +3105,7 @@ both runs (`docs/BENCHMARKING.md` rule 18).
 **Not in this section.**
 
 - **No comparison with Masstree or HOT.** The retraction leaves the
-  readers-only FFI cell pending re-measurement (#730, #1061), and these runs
+  readers-only FFI cell's level depending on the measurement procedure, unresolved (§13), and these runs
   re-measure no competitor. The readers-only workload also differs from `masstree_conc_str`
   (all probes hit here), so no ratio is formed (AGENTS.md §8.12).
 - **No comparison with the `sizing958_*` or §11.8 artifacts,** which were
