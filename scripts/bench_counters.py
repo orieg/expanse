@@ -174,6 +174,48 @@ OPTIMISTIC_UNAVAILABLE = {
                              "C++ harness cannot read the engine's ReadFallbacks or ReadOps",
 }
 
+# #1061: the readers-only string cell's read-path profile. The fixed-counter and
+# software events every per-thread cell needs, then two general-purpose sets,
+# each small enough to be counted without multiplexing and kept apart where
+# the reference host cannot count two events in one attach. The sets replace
+# THREAD_EVENTS on their own cells; the base cells keep the standard set.
+FIXED_THREAD_EVENTS = ["cycles", "ref-cycles", "instructions", "task-clock", "context-switches"]
+# Demand L1D misses outstanding per cycle and the cycles with any outstanding
+# (their ratio is the demand-miss parallelism), cycles with a page walk active
+# for a demand load, and loads blocked from store forwarding.
+READER_PROFILE_A = [
+    "l1d_pend_miss.pending",
+    "l1d_pend_miss.pending_cycles",
+    "dtlb_load_misses.walk_active",
+    "ld_blocks.store_forward",
+]
+# Stall cycles while an L3-missing demand load is outstanding, and the L3 hit
+# and miss counts of retired loads.
+READER_PROFILE_B = [
+    "cycle_activity.stalls_l3_miss",
+    "mem_load_retired.l3_hit",
+    "mem_load_retired.l3_miss",
+]
+# Never requested. Intel's 12th-generation Core specification update, erratum
+# ADL038: OFFCORE_REQUESTS_OUTSTANDING.*DATA_RD "may be inaccurate" when
+# Hyper-Threading and the hardware prefetchers are both enabled, as they are on
+# the reference host, and no workaround is identified.
+ERRATUM_EVENTS = {
+    "offcore_requests_outstanding.data_rd": "ADL038",
+    "offcore_requests_outstanding.cycles_with_data_rd": "ADL038",
+    "offcore_requests_outstanding.all_data_rd": "ADL038",
+}
+# Pairs the reference host cannot count in one attach. With both requested,
+# `cycle_activity.stalls_l3_miss` read 0 at 100 % enabled over a process that,
+# counted without `l1d_pend_miss.pending`, recorded 2.99e8 of them: a silent
+# zero, with no `<not counted>` marker for the parser to catch.
+CONFLICTING_EVENTS = [("cycle_activity.stalls_l3_miss", "l1d_pend_miss.pending")]
+# General-purpose (non-fixed, non-software) events one attach may request. On
+# the reference host with SMT on, five were counted at 100 % enabled and six
+# or seven were multiplexed.
+MAX_GP_EVENTS = 5
+FIXED_COUNTER_EVENTS = {"cycles", "instructions", "ref-cycles"}
+
 # Events served by the kernel's software PMU rather than a core PMU: they are
 # never PMU-qualified, and on a hybrid host perf returns them unqualified.
 SOFTWARE_EVENTS = {"task-clock", "context-switches", "page-faults", "cpu-clock",
@@ -208,7 +250,8 @@ class Cell:
                  blocked: str = "", arm: str = "", c2c: bool = False,
                  layout: bool = False, builder: str = "cargo", exe: str = "",
                  cwd: str = "", extra_events: list[str] | None = None,
-                 unavailable: dict | None = None):
+                 unavailable: dict | None = None,
+                 thread_events: list[str] | None = None):
         self.name = name
         self.issue = issue
         self.suite = suite
@@ -231,6 +274,9 @@ class Cell:
         # names as unavailable, with the reason.
         self.extra_events = list(extra_events or [])
         self.unavailable = dict(unavailable or {})
+        # A per-thread cell may replace THREAD_EVENTS with its own set (#1061's
+        # reader-profile cells); every other cell keeps the standard set.
+        self.thread_events = list(thread_events) if thread_events else None
 
     @property
     def mode(self) -> str:
@@ -238,7 +284,7 @@ class Cell:
 
     def events(self) -> list[str]:
         if self.concurrent:
-            return list(THREAD_EVENTS) + self.extra_events
+            return list(self.thread_events or THREAD_EVENTS) + self.extra_events
         return list(BASE_EVENTS) + self.extra_events
 
 
@@ -290,6 +336,23 @@ CELLS = [
     _conc("masstree_conc_str_w0_r8", 730, "masstree_comparison",
           "masstree_concurrent", ["str", "0", "8"], ["masstree"],
           "eight readers, no writer — reader-reader line traffic if it grows with R"),
+    # --- #1061: the same two cells under the read-path profile sets ---
+    _conc("masstree_conc_str_w0_r1_profile_a", 1061, "masstree_comparison",
+          "masstree_concurrent", ["str", "0", "1"], ["masstree"],
+          "one reader, no writer — demand-miss parallelism, page walks, store forwarding",
+          thread_events=FIXED_THREAD_EVENTS + READER_PROFILE_A),
+    _conc("masstree_conc_str_w0_r8_profile_a", 1061, "masstree_comparison",
+          "masstree_concurrent", ["str", "0", "8"], ["masstree"],
+          "eight readers, no writer — demand-miss parallelism, page walks, store forwarding",
+          thread_events=FIXED_THREAD_EVENTS + READER_PROFILE_A),
+    _conc("masstree_conc_str_w0_r1_profile_b", 1061, "masstree_comparison",
+          "masstree_concurrent", ["str", "0", "1"], ["masstree"],
+          "one reader, no writer — L3-miss stalls, L3 hits and misses",
+          thread_events=FIXED_THREAD_EVENTS + READER_PROFILE_B),
+    _conc("masstree_conc_str_w0_r8_profile_b", 1061, "masstree_comparison",
+          "masstree_concurrent", ["str", "0", "8"], ["masstree"],
+          "eight readers, no writer — L3-miss stalls, L3 hits and misses",
+          thread_events=FIXED_THREAD_EVENTS + READER_PROFILE_B),
     # The #725 order pair. A per-process count cannot separate the two arms,
     # but both arms are present in *both* cells, so the difference between them
     # isolates what changing the build order costs — which is the question #725
@@ -869,6 +932,51 @@ def one_attached_round(cell: Cell, child: subprocess.Popen, round_idx: int,
     }
 
 
+def event_order() -> list[str]:
+    """Every event any cell may request, once each, in the order perf is asked.
+
+    `main` sorts a run's events by this list, so an event a cell requests but
+    the list omits fails there; the self-test checks every cell against it.
+    """
+    return list(dict.fromkeys(BASE_EVENTS + THREAD_EVENTS + OPTIMISTIC_EXTRA_EVENTS
+                              + FIXED_THREAD_EVENTS + READER_PROFILE_A + READER_PROFILE_B))
+
+
+def counting_problems(rounds_raw: list[dict], events: list[str], pmu: str | None) -> list[dict]:
+    """Hardware events whose counts cannot be read as measured, across all rounds.
+
+    Two failures report themselves as a normal row. An event multiplexed with
+    others shows a `pct_running` below 100 and perf scales its count, so the
+    figure is an estimate. An event the host cannot schedule beside another
+    (`CONFLICTING_EVENTS`) can read 0 at 100 % enabled, which a parser takes
+    for "measured, and there were none". Neither is an error from perf, so
+    both are named here instead of left in the rows.
+    """
+    problems: list[dict] = []
+    for ev in events:
+        if ev in SOFTWARE_EVENTS:
+            continue
+        min_pct, total, seen = None, 0.0, False
+        for rnd in rounds_raw:
+            for t in rnd["threads"].values():
+                row = row_for(t["rows"], ev, pmu)
+                if row is None or row["value"] is None:
+                    continue
+                seen = True
+                total += row["value"]
+                pct = row.get("pct_running")
+                if pct is not None:
+                    min_pct = pct if min_pct is None else min(min_pct, pct)
+        if not seen:
+            continue
+        if min_pct is not None and min_pct < 100.0:
+            problems.append({"event": ev, "problem": "multiplexed",
+                             "min_pct_running": min_pct})
+        if total == 0.0:
+            problems.append({"event": ev, "problem": "zero in every round"})
+    return problems
+
+
 def collect_per_thread(cell: Cell, rounds: int, requested: list[str], events: list[str],
                        pin: list[str], pmu: str | None, env: dict) -> dict:
     """R rounds of one arm, each with its own `perf stat --per-thread` attach."""
@@ -899,6 +1007,12 @@ def collect_per_thread(cell: Cell, rounds: int, requested: list[str], events: li
     flat = {f"{role}/{ev}": v for role, r in roles.items() if r["threads"]
             for ev, v in r["events"].items()}
     primary = "reader" if out[0]["role_threads"].get("reader") else "writer"
+    problems = counting_problems(out, events, pmu)
+    for pr in problems:
+        detail = (f"counted {pr['min_pct_running']:.2f} % of the time; its figure is a scaled estimate"
+                  if pr["problem"] == "multiplexed" else
+                  "read 0 in every round; check it can share the attach with the other events")
+        print(f"::warning::{cell.name}: {pr['event']} {detail}")
     return {
         "cell": cell.name, "issue": cell.issue, "suite": cell.suite,
         "binary": cell.binary, "args": cell.args, "arm": cell.arm, "note": cell.note,
@@ -909,6 +1023,7 @@ def collect_per_thread(cell: Cell, rounds: int, requested: list[str], events: li
         "roles": roles,
         "events": flat,
         "unavailable_counters": cell.unavailable,
+        "counting_problems": problems,
         "rounds_raw": out,
     }
 
@@ -1172,20 +1287,67 @@ def _self_test() -> int:
     # readers-alone controls, and three PR 5 multi-writer mechanism cells).
     # #802 adds six: idle and paced writers at R = 1, 2 and 7, and METHODOLOGY
     # section 5.16 six more: paced R = 1 and R = 7 under each seek lock scope.
-    for issue, want in ((724, 2), (725, 3), (730, 2), (737, 1), (568, 16), (802, 12)):
+    for issue, want in ((724, 2), (725, 3), (730, 2), (737, 1), (568, 16), (802, 12), (1061, 4)):
         got = sum(1 for c in CELLS if c.issue == issue)
         if got != want:
             failures.append(f"expected {want} cell(s) for #{issue}, found {got}")
     conc = [c for c in CELLS if c.concurrent]
-    if not conc or any(CONCURRENT_EVENT not in c.events() for c in conc):
+    # A cell that replaces THREAD_EVENTS (#1061's profile cells) is a supplement
+    # to a base cell that carries the snoop-hit counter, so it is exempt here.
+    if not conc or any(CONCURRENT_EVENT not in c.events() for c in conc if not c.thread_events):
         failures.append("a concurrent cell does not request the snoop-hit counter")
     for c in conc:
         if c.blocked:
             failures.append(f"{c.name} is still marked blocked; `read_ops` exists now")
         if c.mode != "per-thread" or not c.arm:
             failures.append(f"{c.name} is concurrent but has no per-thread arm")
-        if c.events() != THREAD_EVENTS + c.extra_events:
+        if c.events() != (c.thread_events or THREAD_EVENTS) + c.extra_events:
             failures.append(f"{c.name} does not request the per-thread event set")
+    # The reference host's counting limits (#1061), checked for every cell:
+    # a general-purpose budget, no erratum event, no pair that cannot share an
+    # attach.
+    for c in CELLS:
+        evs = c.events()
+        gp = [e for e in evs if e not in SOFTWARE_EVENTS and e not in FIXED_COUNTER_EVENTS]
+        if len(gp) > MAX_GP_EVENTS:
+            failures.append(f"{c.name} requests {len(gp)} general-purpose events, over the "
+                            f"{MAX_GP_EVENTS} the reference host counts without multiplexing")
+        bad = sorted(e for e in evs if e in ERRATUM_EVENTS)
+        if bad:
+            failures.append(f"{c.name} requests {bad}, which erratum ADL038 makes unreliable")
+        for x, y in CONFLICTING_EVENTS:
+            if x in evs and y in evs:
+                failures.append(f"{c.name} requests both {x} and {y}, which cannot share an attach")
+    # #1061's four cells mirror #730's two, one per (R, set), and change nothing else.
+    for r in (1, 8):
+        base = BY_NAME[f"masstree_conc_str_w0_r{r}"]
+        for tag, events in (("a", READER_PROFILE_A), ("b", READER_PROFILE_B)):
+            c = BY_NAME.get(f"masstree_conc_str_w0_r{r}_profile_{tag}")
+            if c is None:
+                failures.append(f"#1061 cell masstree_conc_str_w0_r{r}_profile_{tag} is missing")
+                continue
+            if (c.args, c.binary, c.features, c.arm) != (base.args, base.binary, base.features, base.arm):
+                failures.append(f"{c.name} does not run the same cell as {base.name}")
+            if c.events() != FIXED_THREAD_EVENTS + events:
+                failures.append(f"{c.name} requests {c.events()}")
+            if c.extra_events or c.c2c:
+                failures.append(f"{c.name} must add no extra events and no c2c round")
+    missing = sorted({e for c in CELLS for e in c.events()} - set(event_order()))
+    if missing:
+        failures.append(f"events requested by a cell but absent from event_order(): {missing}")
+    # The guard names both self-reporting failures and passes a clean count.
+    def _round(value, pct):
+        return {"threads": {"reader-0-1": {"rows": {"cpu_core/cycles/": {
+            "event": "cpu_core/cycles/", "pmu": "cpu_core", "base_event": "cycles",
+            "value": value, "pct_running": pct, "status": "counted"}}}}}
+    got = counting_problems([_round(10.0, 60.0), _round(10.0, 100.0)], ["cycles"], "cpu_core")
+    if got != [{"event": "cycles", "problem": "multiplexed", "min_pct_running": 60.0}]:
+        failures.append(f"counting_problems missed a multiplexed event: {got}")
+    got = counting_problems([_round(0.0, 100.0), _round(0.0, 100.0)], ["cycles"], "cpu_core")
+    if got != [{"event": "cycles", "problem": "zero in every round"}]:
+        failures.append(f"counting_problems missed a silent zero: {got}")
+    if counting_problems([_round(5.0, 100.0), _round(0.0, 100.0)], ["cycles"], "cpu_core"):
+        failures.append("counting_problems flagged a clean count")
     # Section 5.16's cells: one per (scope, R), each naming its scope, requesting
     # store_forward on top of the per-thread set, and naming the unavailable
     # read-fallback rate; no other cell's event set changes.
@@ -1375,8 +1537,7 @@ def main() -> int:
     env = dict(os.environ)
     env["RUSTFLAGS"] = env.get("RUSTFLAGS", "") + " -C target-cpu=haswell"
 
-    order = (BASE_EVENTS + [e for e in THREAD_EVENTS if e not in BASE_EVENTS]
-             + [e for e in OPTIMISTIC_EXTRA_EVENTS if e not in BASE_EVENTS + THREAD_EVENTS])
+    order = event_order()
     events = sorted({e for c in cells for e in c.events()}, key=order.index)
     try:
         pmu, why, pin, available, unavailable = preflight(events)
