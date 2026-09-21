@@ -2363,22 +2363,22 @@ int main() {
     <text x="0" y="13" class="t-chart-sub">100,000 keys prefixscan (higher is better)</text>
     <text x="0" y="29" class="t-unit-header">&#9650; Throughput (M ops / sec)</text>
     <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
-    <text x="22" y="48" class="t-axis-label" text-anchor="end">700M</text>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">800M</text>
     <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
-    <text x="22" y="123" class="t-axis-label" text-anchor="end">350M</text>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">400M</text>
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-    <rect x="45" y="162.0" width="50" height="33.0" class="b-expanse" rx="2"/>
-    <text x="70" y="153.5" class="t-val-accent">154.2 M/s</text>
+    <rect x="45" y="161.9" width="50" height="33.1" class="b-expanse" rx="2"/>
+    <text x="70" y="153.4" class="t-val-accent">176.6 M/s</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="70" y="228" class="t-chart-sub t-win" text-anchor="middle">3.3&#215; speedup</text>
-    <rect x="115" y="185.1" width="50" height="9.9" class="b-rocksdb" rx="2"/>
-    <text x="140" y="176.6" class="t-val-blue">46.3 M/s</text>
+    <text x="70" y="228" class="t-chart-sub t-win" text-anchor="middle">3.1&#215; speedup</text>
+    <rect x="115" y="184.4" width="50" height="10.6" class="b-rocksdb" rx="2"/>
+    <text x="140" y="175.9" class="t-val-blue">56.3 M/s</text>
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">SkipList</text>
     <text x="140" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
-    <rect x="185" y="63.4" width="50" height="131.6" class="b-skipmap" rx="2"/>
-    <text x="210" y="54.9" class="t-val-muted">614.2 M/s</text>
+    <rect x="185" y="76.8" width="50" height="118.2" class="b-skipmap" rx="2"/>
+    <text x="210" y="68.3" class="t-val-muted">630.2 M/s</text>
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">Vector</text>
     <text x="210" y="228" class="t-chart-sub" text-anchor="middle">read-only</text>
   </g>
@@ -2425,16 +2425,16 @@ int main() {
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-    <rect x="45" y="138.4" width="50" height="56.6" class="b-expanse" rx="2"/>
-    <text x="70" y="129.9" class="t-val-accent">264 ns</text>
+    <rect x="45" y="139.1" width="50" height="55.9" class="b-expanse" rx="2"/>
+    <text x="70" y="130.6" class="t-val-accent">261 ns</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="70" y="228" class="t-chart-sub t-win" text-anchor="middle">1.46&#215; faster</text>
-    <rect x="115" y="112.5" width="50" height="82.5" class="b-rocksdb" rx="2"/>
-    <text x="140" y="104.0" class="t-val-blue">385 ns</text>
+    <text x="70" y="228" class="t-chart-sub t-win" text-anchor="middle">1.49&#215; faster</text>
+    <rect x="115" y="111.4" width="50" height="83.6" class="b-rocksdb" rx="2"/>
+    <text x="140" y="102.9" class="t-val-blue">390 ns</text>
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">SkipList</text>
     <text x="140" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
-    <rect x="185" y="78.0" width="50" height="117.0" class="b-skipmap" rx="2"/>
-    <text x="210" y="69.5" class="t-val-muted">546 ns</text>
+    <rect x="185" y="76.3" width="50" height="118.7" class="b-skipmap" rx="2"/>
+    <text x="210" y="67.8" class="t-val-muted">554 ns</text>
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">Vector</text>
     <text x="210" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215;</text>
   </g>
@@ -2628,7 +2628,7 @@ void app_main(void) {
   <footer>
     <div class="container">
       <p style="margin-bottom: 0.75rem;">
-        <span class="badge" style="font-size: 0.78rem;">Release v0.7.0</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/40fc839"><code>40fc839</code></a> &bull; Built on 2026-09-20
+        <span class="badge" style="font-size: 0.78rem;">Release v0.7.0</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/bdc32d9"><code>bdc32d9</code></a> &bull; Built on 2026-09-20
       </p>
       <p style="margin-bottom: 0.75rem; color: var(--text-muted); font-size: 0.85rem;">
         Judy &amp; Systems Ecosystem:
