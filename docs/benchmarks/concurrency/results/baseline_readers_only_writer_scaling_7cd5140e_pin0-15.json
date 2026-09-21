@@ -1,0 +1,4673 @@
+{
+  "provenance": {
+    "suite": "concurrency",
+    "issue": 730,
+    "commit": "7cd5140e",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "powersave",
+      "scaling_governor_by_cpu": {
+        "0": "powersave",
+        "1": "powersave",
+        "2": "powersave",
+        "3": "powersave",
+        "4": "powersave",
+        "5": "powersave",
+        "6": "powersave",
+        "7": "powersave",
+        "8": "powersave",
+        "9": "powersave",
+        "10": "powersave",
+        "11": "powersave",
+        "12": "powersave",
+        "13": "powersave",
+        "14": "powersave",
+        "15": "powersave"
+      },
+      "scaling_governor_pin_set": "0-15",
+      "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+      "transparent_hugepage": "always [madvise] never",
+      "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35"
+    },
+    "estimators": {
+      "ratio": "S(R): mean over rounds of reader_mops(R) / reader_mops(1), paired within each round, BCa 95% interval",
+      "columns": "per-cell reader_mops_mean is the mean over rounds with a BCa 95% interval; reader_mops_median is auxiliary; reader_ns_per_probe_thread_mean divides each reader's own loop time by its probes, reader_ns_per_probe_to_last_join divides the barrier-to-last-join time by one reader's probes; counters are summed over rounds",
+      "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+    },
+    "core_pin": "0-15",
+    "loads": [
+      {
+        "label": "start",
+        "since": null,
+        "load1": 2.62,
+        "load5": 0.75,
+        "load15": 0.26,
+        "at": "2026-09-21T00:35:19Z",
+        "stat_busy_jiffies": 80658023,
+        "stat_total_jiffies": 8940374181,
+        "child_cpu_s": 181.616,
+        "monotonic_s": 3726515.557,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "readers_only:throughput",
+        "since": "start",
+        "load1": 2.62,
+        "load5": 0.75,
+        "load15": 0.26,
+        "at": "2026-09-21T00:35:19Z",
+        "stat_busy_jiffies": 80658023,
+        "stat_total_jiffies": 8940374181,
+        "child_cpu_s": 181.616,
+        "monotonic_s": 3726515.557,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      }
+    ],
+    "cell_isolation": "process"
+  },
+  "throughput": [
+    {
+      "workload_id": "concurrency_ordered_readers_map_64bit",
+      "arm": "map",
+      "writers": 0,
+      "readers": 1,
+      "read_op": "get",
+      "probe": "uniform",
+      "prefill": 1048576,
+      "rounds": 8,
+      "cpu_pin": "0-15",
+      "reader_mops_mean": 20.249021,
+      "reader_ci_lower": 20.116238,
+      "reader_ci_upper": 20.413259,
+      "reader_ci_method": "bca",
+      "reader_mops_median": 20.244722,
+      "scaling_s_r": 1.0,
+      "scaling_s_r_ci_lower": 1.0,
+      "scaling_s_r_ci_upper": 1.0,
+      "scaling_s_r_ci_method": null,
+      "reader_ns_per_probe_thread_mean": 49.2822,
+      "reader_ns_per_probe_to_last_join": 49.3902,
+      "slowest_over_mean_thread_by_round": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "read_counters_total": {
+        "read_ops": 8388608,
+        "read_attempts": 8388608,
+        "read_fallbacks": 0,
+        "locked_reads": 0,
+        "reader_ops": 8388608
+      },
+      "attempts_per_op": 1.0,
+      "fallback_rate": 0.0,
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "block": 0,
+          "position": 0,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.052345,
+          "reader_thread_elapsed_s": [
+            0.052232
+          ],
+          "reader_mops": 20.032051,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419141871
+        },
+        {
+          "round": 1,
+          "block": 2,
+          "position": 2,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.052412,
+          "reader_thread_elapsed_s": [
+            0.052265
+          ],
+          "reader_mops": 20.006281,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419147161
+        },
+        {
+          "round": 2,
+          "block": 1,
+          "position": 3,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.051795,
+          "reader_thread_elapsed_s": [
+            0.051691
+          ],
+          "reader_mops": 20.244722,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146141
+        },
+        {
+          "round": 3,
+          "block": 0,
+          "position": 1,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.052099,
+          "reader_thread_elapsed_s": [
+            0.051995
+          ],
+          "reader_mops": 20.126658,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145081
+        },
+        {
+          "round": 4,
+          "block": 2,
+          "position": 0,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.052174,
+          "reader_thread_elapsed_s": [
+            0.052062
+          ],
+          "reader_mops": 20.097524,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419147403
+        },
+        {
+          "round": 5,
+          "block": 1,
+          "position": 2,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.051443,
+          "reader_thread_elapsed_s": [
+            0.051331
+          ],
+          "reader_mops": 20.383281,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145224
+        },
+        {
+          "round": 6,
+          "block": 0,
+          "position": 3,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.051016,
+          "reader_thread_elapsed_s": [
+            0.050908
+          ],
+          "reader_mops": 20.553843,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419143828
+        },
+        {
+          "round": 7,
+          "block": 2,
+          "position": 1,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.051031,
+          "reader_thread_elapsed_s": [
+            0.050925
+          ],
+          "reader_mops": 20.547806,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146337
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "block": 0,
+          "position": 0,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 1,
+          "block": 2,
+          "position": 2,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 2,
+          "block": 1,
+          "position": 3,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 3,
+          "block": 0,
+          "position": 1,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 4,
+          "block": 2,
+          "position": 0,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 5,
+          "block": 1,
+          "position": 2,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 6,
+          "block": 0,
+          "position": 3,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 7,
+          "block": 2,
+          "position": 1,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        }
+      ],
+      "load": {
+        "since": "readers_only:throughput",
+        "wall_s": 76.872,
+        "busy_cpus_since_prev": 1.21,
+        "own_busy_cpus": 1.2,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "workload_id": "concurrency_ordered_readers_map_64bit",
+      "arm": "map",
+      "writers": 0,
+      "readers": 2,
+      "read_op": "get",
+      "probe": "uniform",
+      "prefill": 1048576,
+      "rounds": 8,
+      "cpu_pin": "0-15",
+      "reader_mops_mean": 40.260497,
+      "reader_ci_lower": 40.104774,
+      "reader_ci_upper": 40.406954,
+      "reader_ci_method": "bca",
+      "reader_mops_median": 40.360123,
+      "scaling_s_r": 1.988479,
+      "scaling_s_r_ci_lower": 1.971362,
+      "scaling_s_r_ci_upper": 2.003917,
+      "scaling_s_r_ci_method": "bca",
+      "reader_ns_per_probe_thread_mean": 49.579,
+      "reader_ns_per_probe_to_last_join": 49.6781,
+      "slowest_over_mean_thread_by_round": [
+        0.001579,
+        0.003298,
+        0.001061,
+        0.000821,
+        0.001099,
+        0.003086,
+        0.000279,
+        0.001808
+      ],
+      "read_counters_total": {
+        "read_ops": 16777216,
+        "read_attempts": 16777216,
+        "read_fallbacks": 0,
+        "locked_reads": 0,
+        "reader_ops": 16777216
+      },
+      "attempts_per_op": 1.0,
+      "fallback_rate": 0.0,
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "block": 0,
+          "position": 1,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.051714,
+          "reader_thread_elapsed_s": [
+            0.051698,
+            0.051535
+          ],
+          "reader_mops": 40.553225,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145359
+        },
+        {
+          "round": 1,
+          "block": 2,
+          "position": 0,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.052491,
+          "reader_thread_elapsed_s": [
+            0.052484,
+            0.052139
+          ],
+          "reader_mops": 39.952556,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146502
+        },
+        {
+          "round": 2,
+          "block": 1,
+          "position": 2,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.05192,
+          "reader_thread_elapsed_s": [
+            0.051795,
+            0.051905
+          ],
+          "reader_mops": 40.392341,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145583
+        },
+        {
+          "round": 3,
+          "block": 0,
+          "position": 3,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.051809,
+          "reader_thread_elapsed_s": [
+            0.051793,
+            0.051708
+          ],
+          "reader_mops": 40.47835,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145545
+        },
+        {
+          "round": 4,
+          "block": 2,
+          "position": 1,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.052419,
+          "reader_thread_elapsed_s": [
+            0.052282,
+            0.052397
+          ],
+          "reader_mops": 40.007753,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419136655
+        },
+        {
+          "round": 5,
+          "block": 1,
+          "position": 0,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.052045,
+          "reader_thread_elapsed_s": [
+            0.052008,
+            0.051688
+          ],
+          "reader_mops": 40.295233,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419147544
+        },
+        {
+          "round": 6,
+          "block": 0,
+          "position": 2,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.051961,
+          "reader_thread_elapsed_s": [
+            0.05194,
+            0.051911
+          ],
+          "reader_mops": 40.360123,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146447
+        },
+        {
+          "round": 7,
+          "block": 2,
+          "position": 3,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.052371,
+          "reader_thread_elapsed_s": [
+            0.052352,
+            0.052163
+          ],
+          "reader_mops": 40.044395,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145429
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "block": 0,
+          "position": 1,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 1,
+          "block": 2,
+          "position": 0,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 2,
+          "block": 1,
+          "position": 2,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 3,
+          "block": 0,
+          "position": 3,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 4,
+          "block": 2,
+          "position": 1,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 5,
+          "block": 1,
+          "position": 0,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 6,
+          "block": 0,
+          "position": 2,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 7,
+          "block": 2,
+          "position": 3,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        }
+      ],
+      "load": {
+        "since": "readers_only:throughput",
+        "wall_s": 76.872,
+        "busy_cpus_since_prev": 1.21,
+        "own_busy_cpus": 1.2,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "workload_id": "concurrency_ordered_readers_map_64bit",
+      "arm": "map",
+      "writers": 0,
+      "readers": 4,
+      "read_op": "get",
+      "probe": "uniform",
+      "prefill": 1048576,
+      "rounds": 8,
+      "cpu_pin": "0-15",
+      "reader_mops_mean": 79.248497,
+      "reader_ci_lower": 78.949315,
+      "reader_ci_upper": 79.617401,
+      "reader_ci_method": "bca",
+      "reader_mops_median": 79.28222,
+      "scaling_s_r": 3.914009,
+      "scaling_s_r_ci_lower": 3.881188,
+      "scaling_s_r_ci_upper": 3.934968,
+      "scaling_s_r_ci_method": "bca",
+      "reader_ns_per_probe_thread_mean": 50.1553,
+      "reader_ns_per_probe_to_last_join": 50.476,
+      "slowest_over_mean_thread_by_round": [
+        0.01083,
+        0.002931,
+        0.006628,
+        0.002924,
+        0.004276,
+        0.003662,
+        0.00441,
+        0.011861
+      ],
+      "read_counters_total": {
+        "read_ops": 33554432,
+        "read_attempts": 33554432,
+        "read_fallbacks": 0,
+        "locked_reads": 0,
+        "reader_ops": 33554432
+      },
+      "attempts_per_op": 1.0,
+      "fallback_rate": 0.0,
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "block": 0,
+          "position": 3,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.053187,
+          "reader_thread_elapsed_s": [
+            0.052329,
+            0.052409,
+            0.053106,
+            0.052304
+          ],
+          "reader_mops": 78.859174,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146472
+        },
+        {
+          "round": 1,
+          "block": 2,
+          "position": 1,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.05331,
+          "reader_thread_elapsed_s": [
+            0.053211,
+            0.053296,
+            0.053062,
+            0.052992
+          ],
+          "reader_mops": 78.677329,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145869
+        },
+        {
+          "round": 2,
+          "block": 1,
+          "position": 0,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.05253,
+          "reader_thread_elapsed_s": [
+            0.051987,
+            0.052241,
+            0.052548,
+            0.052032
+          ],
+          "reader_mops": 79.845152,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146405
+        },
+        {
+          "round": 3,
+          "block": 0,
+          "position": 2,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.053294,
+          "reader_thread_elapsed_s": [
+            0.052947,
+            0.053129,
+            0.053242,
+            0.053029
+          ],
+          "reader_mops": 78.701374,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146139
+        },
+        {
+          "round": 4,
+          "block": 2,
+          "position": 3,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.052752,
+          "reader_thread_elapsed_s": [
+            0.052375,
+            0.052586,
+            0.052732,
+            0.052337
+          ],
+          "reader_mops": 79.509992,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419144681
+        },
+        {
+          "round": 5,
+          "block": 1,
+          "position": 1,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.052391,
+          "reader_thread_elapsed_s": [
+            0.052072,
+            0.052288,
+            0.05242,
+            0.052135
+          ],
+          "reader_mops": 80.058362,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419144370
+        },
+        {
+          "round": 6,
+          "block": 0,
+          "position": 0,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.052903,
+          "reader_thread_elapsed_s": [
+            0.052543,
+            0.052779,
+            0.052845,
+            0.052285
+          ],
+          "reader_mops": 79.28222,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146212
+        },
+        {
+          "round": 7,
+          "block": 2,
+          "position": 2,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.053056,
+          "reader_thread_elapsed_s": [
+            0.05224,
+            0.052354,
+            0.05304,
+            0.052039
+          ],
+          "reader_mops": 79.054373,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419148117
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "block": 0,
+          "position": 3,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 1,
+          "block": 2,
+          "position": 1,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 2,
+          "block": 1,
+          "position": 0,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 3,
+          "block": 0,
+          "position": 2,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 4,
+          "block": 2,
+          "position": 3,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 5,
+          "block": 1,
+          "position": 1,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 6,
+          "block": 0,
+          "position": 0,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 7,
+          "block": 2,
+          "position": 2,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        }
+      ],
+      "load": {
+        "since": "readers_only:throughput",
+        "wall_s": 76.872,
+        "busy_cpus_since_prev": 1.21,
+        "own_busy_cpus": 1.2,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "workload_id": "concurrency_ordered_readers_map_64bit",
+      "arm": "map",
+      "writers": 0,
+      "readers": 8,
+      "read_op": "get",
+      "probe": "uniform",
+      "prefill": 1048576,
+      "rounds": 8,
+      "cpu_pin": "0-15",
+      "reader_mops_mean": 148.286379,
+      "reader_ci_lower": 138.239632,
+      "reader_ci_upper": 151.762533,
+      "reader_ci_method": "bca",
+      "reader_mops_median": 151.651571,
+      "scaling_s_r": 7.322251,
+      "scaling_s_r_ci_lower": 6.820992,
+      "scaling_s_r_ci_upper": 7.496697,
+      "scaling_s_r_ci_method": "bca",
+      "reader_ns_per_probe_thread_mean": 52.3921,
+      "reader_ns_per_probe_to_last_join": 54.1551,
+      "slowest_over_mean_thread_by_round": [
+        0.163366,
+        0.016405,
+        0.014475,
+        0.012928,
+        0.013204,
+        0.010358,
+        0.012004,
+        0.011559
+      ],
+      "read_counters_total": {
+        "read_ops": 67108864,
+        "read_attempts": 67108864,
+        "read_fallbacks": 0,
+        "locked_reads": 0,
+        "reader_ops": 67108864
+      },
+      "attempts_per_op": 1.0,
+      "fallback_rate": 0.0,
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "block": 0,
+          "position": 2,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.066639,
+          "reader_thread_elapsed_s": [
+            0.066538,
+            0.053788,
+            0.053959,
+            0.054694,
+            0.054339,
+            0.053838,
+            0.05397,
+            0.066429
+          ],
+          "reader_mops": 125.881516,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419143543
+        },
+        {
+          "round": 1,
+          "block": 2,
+          "position": 3,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.055603,
+          "reader_thread_elapsed_s": [
+            0.054375,
+            0.054472,
+            0.054782,
+            0.055576,
+            0.055123,
+            0.054505,
+            0.054309,
+            0.05429
+          ],
+          "reader_mops": 150.867361,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145873
+        },
+        {
+          "round": 2,
+          "block": 1,
+          "position": 1,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.054856,
+          "reader_thread_elapsed_s": [
+            0.053741,
+            0.053929,
+            0.054032,
+            0.054834,
+            0.054421,
+            0.053941,
+            0.053771,
+            0.053744
+          ],
+          "reader_mops": 152.921155,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145209
+        },
+        {
+          "round": 3,
+          "block": 0,
+          "position": 0,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.055133,
+          "reader_thread_elapsed_s": [
+            0.054,
+            0.054266,
+            0.054459,
+            0.055051,
+            0.054663,
+            0.054377,
+            0.054046,
+            0.053925
+          ],
+          "reader_mops": 152.151562,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146589
+        },
+        {
+          "round": 4,
+          "block": 2,
+          "position": 2,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.055315,
+          "reader_thread_elapsed_s": [
+            0.054379,
+            0.054492,
+            0.055229,
+            0.054873,
+            0.054439,
+            0.054262,
+            0.054201,
+            0.054199
+          ],
+          "reader_mops": 151.651571,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419147007
+        },
+        {
+          "round": 5,
+          "block": 1,
+          "position": 3,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.056084,
+          "reader_thread_elapsed_s": [
+            0.055503,
+            0.055632,
+            0.056061,
+            0.055917,
+            0.055373,
+            0.055265,
+            0.055132,
+            0.055007
+          ],
+          "reader_mops": 149.573128,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145461
+        },
+        {
+          "round": 6,
+          "block": 0,
+          "position": 1,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.055693,
+          "reader_thread_elapsed_s": [
+            0.054687,
+            0.05487,
+            0.055577,
+            0.055311,
+            0.054952,
+            0.054447,
+            0.054726,
+            0.054772
+          ],
+          "reader_mops": 150.622012,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419148077
+        },
+        {
+          "round": 7,
+          "block": 2,
+          "position": 0,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.054963,
+          "reader_thread_elapsed_s": [
+            0.054051,
+            0.054084,
+            0.054355,
+            0.054938,
+            0.054593,
+            0.054272,
+            0.054096,
+            0.054093
+          ],
+          "reader_mops": 152.622725,
+          "population_after": 1048832,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419148213
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "block": 0,
+          "position": 2,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 1,
+          "block": 2,
+          "position": 3,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 2,
+          "block": 1,
+          "position": 1,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 3,
+          "block": 0,
+          "position": 0,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 4,
+          "block": 2,
+          "position": 2,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 5,
+          "block": 1,
+          "position": 3,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 6,
+          "block": 0,
+          "position": 1,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 7,
+          "block": 2,
+          "position": 0,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048832,
+          "cpu_pin": "0-15"
+        }
+      ],
+      "load": {
+        "since": "readers_only:throughput",
+        "wall_s": 76.872,
+        "busy_cpus_since_prev": 1.21,
+        "own_busy_cpus": 1.2,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "workload_id": "concurrency_readers_set_63bit",
+      "arm": "set",
+      "writers": 0,
+      "readers": 1,
+      "read_op": "get",
+      "probe": "uniform",
+      "prefill": 1048576,
+      "rounds": 8,
+      "cpu_pin": "0-15",
+      "reader_mops_mean": 15.687762,
+      "reader_ci_lower": 15.544232,
+      "reader_ci_upper": 15.757998,
+      "reader_ci_method": "bca",
+      "reader_mops_median": 15.709668,
+      "scaling_s_r": 1.0,
+      "scaling_s_r_ci_lower": 1.0,
+      "scaling_s_r_ci_upper": 1.0,
+      "scaling_s_r_ci_method": null,
+      "reader_ns_per_probe_thread_mean": 63.653,
+      "reader_ns_per_probe_to_last_join": 63.7491,
+      "slowest_over_mean_thread_by_round": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "read_counters_total": {
+        "read_ops": 8388608,
+        "read_attempts": 8388608,
+        "read_fallbacks": 0,
+        "locked_reads": 0,
+        "reader_ops": 8388608
+      },
+      "attempts_per_op": 1.0,
+      "fallback_rate": 0.0,
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "block": 1,
+          "position": 0,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.068267,
+          "reader_thread_elapsed_s": [
+            0.068233
+          ],
+          "reader_mops": 15.359887,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419144538
+        },
+        {
+          "round": 1,
+          "block": 0,
+          "position": 2,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.066983,
+          "reader_thread_elapsed_s": [
+            0.066872
+          ],
+          "reader_mops": 15.654465,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145892
+        },
+        {
+          "round": 2,
+          "block": 2,
+          "position": 3,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.066405,
+          "reader_thread_elapsed_s": [
+            0.066292
+          ],
+          "reader_mops": 15.79067,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146938
+        },
+        {
+          "round": 3,
+          "block": 1,
+          "position": 1,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.066747,
+          "reader_thread_elapsed_s": [
+            0.066643
+          ],
+          "reader_mops": 15.709668,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146430
+        },
+        {
+          "round": 4,
+          "block": 0,
+          "position": 0,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.066097,
+          "reader_thread_elapsed_s": [
+            0.06599
+          ],
+          "reader_mops": 15.864289,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419142603
+        },
+        {
+          "round": 5,
+          "block": 2,
+          "position": 2,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.066533,
+          "reader_thread_elapsed_s": [
+            0.06642
+          ],
+          "reader_mops": 15.76015,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419144718
+        },
+        {
+          "round": 6,
+          "block": 1,
+          "position": 3,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.066854,
+          "reader_thread_elapsed_s": [
+            0.066744
+          ],
+          "reader_mops": 15.68447,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419147036
+        },
+        {
+          "round": 7,
+          "block": 0,
+          "position": 1,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.06688,
+          "reader_thread_elapsed_s": [
+            0.066766
+          ],
+          "reader_mops": 15.6785,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146807
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "block": 1,
+          "position": 0,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 1,
+          "block": 0,
+          "position": 2,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 2,
+          "block": 2,
+          "position": 3,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 3,
+          "block": 1,
+          "position": 1,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 4,
+          "block": 0,
+          "position": 0,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 5,
+          "block": 2,
+          "position": 2,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 6,
+          "block": 1,
+          "position": 3,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 7,
+          "block": 0,
+          "position": 1,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        }
+      ],
+      "load": {
+        "since": "readers_only:throughput",
+        "wall_s": 76.872,
+        "busy_cpus_since_prev": 1.21,
+        "own_busy_cpus": 1.2,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "workload_id": "concurrency_readers_set_63bit",
+      "arm": "set",
+      "writers": 0,
+      "readers": 2,
+      "read_op": "get",
+      "probe": "uniform",
+      "prefill": 1048576,
+      "rounds": 8,
+      "cpu_pin": "0-15",
+      "reader_mops_mean": 31.007242,
+      "reader_ci_lower": 30.791491,
+      "reader_ci_upper": 31.183711,
+      "reader_ci_method": "bca",
+      "reader_mops_median": 31.126529,
+      "scaling_s_r": 1.976682,
+      "scaling_s_r_ci_lower": 1.952424,
+      "scaling_s_r_ci_upper": 1.989957,
+      "scaling_s_r_ci_method": "bca",
+      "reader_ns_per_probe_thread_mean": 64.3777,
+      "reader_ns_per_probe_to_last_join": 64.5065,
+      "slowest_over_mean_thread_by_round": [
+        0.002175,
+        0.000574,
+        0.003193,
+        0.000669,
+        0.003661,
+        0.000895,
+        0.00111,
+        0.000309
+      ],
+      "read_counters_total": {
+        "read_ops": 16777216,
+        "read_attempts": 16777216,
+        "read_fallbacks": 0,
+        "locked_reads": 0,
+        "reader_ops": 16777216
+      },
+      "attempts_per_op": 1.0,
+      "fallback_rate": 0.0,
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "block": 1,
+          "position": 1,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.068182,
+          "reader_thread_elapsed_s": [
+            0.068203,
+            0.067907
+          ],
+          "reader_mops": 30.758188,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419143919
+        },
+        {
+          "round": 1,
+          "block": 0,
+          "position": 0,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.067181,
+          "reader_thread_elapsed_s": [
+            0.06716,
+            0.067083
+          ],
+          "reader_mops": 31.216419,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146324
+        },
+        {
+          "round": 2,
+          "block": 2,
+          "position": 2,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.06776,
+          "reader_thread_elapsed_s": [
+            0.067709,
+            0.067278
+          ],
+          "reader_mops": 30.949588,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145645
+        },
+        {
+          "round": 3,
+          "block": 1,
+          "position": 3,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.067375,
+          "reader_thread_elapsed_s": [
+            0.067357,
+            0.067267
+          ],
+          "reader_mops": 31.126529,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145732
+        },
+        {
+          "round": 4,
+          "block": 0,
+          "position": 1,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.068784,
+          "reader_thread_elapsed_s": [
+            0.068682,
+            0.068181
+          ],
+          "reader_mops": 30.488784,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145940
+        },
+        {
+          "round": 5,
+          "block": 2,
+          "position": 0,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.067085,
+          "reader_thread_elapsed_s": [
+            0.067067,
+            0.066947
+          ],
+          "reader_mops": 31.260968,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419143350
+        },
+        {
+          "round": 6,
+          "block": 1,
+          "position": 2,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.066743,
+          "reader_thread_elapsed_s": [
+            0.066723,
+            0.066575
+          ],
+          "reader_mops": 31.421469,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419141688
+        },
+        {
+          "round": 7,
+          "block": 0,
+          "position": 3,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.06801,
+          "reader_thread_elapsed_s": [
+            0.067991,
+            0.067949
+          ],
+          "reader_mops": 30.835989,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419147522
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "block": 1,
+          "position": 1,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 1,
+          "block": 0,
+          "position": 0,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 2,
+          "block": 2,
+          "position": 2,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 3,
+          "block": 1,
+          "position": 3,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 4,
+          "block": 0,
+          "position": 1,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 5,
+          "block": 2,
+          "position": 0,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 6,
+          "block": 1,
+          "position": 2,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 7,
+          "block": 0,
+          "position": 3,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        }
+      ],
+      "load": {
+        "since": "readers_only:throughput",
+        "wall_s": 76.872,
+        "busy_cpus_since_prev": 1.21,
+        "own_busy_cpus": 1.2,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "workload_id": "concurrency_readers_set_63bit",
+      "arm": "set",
+      "writers": 0,
+      "readers": 4,
+      "read_op": "get",
+      "probe": "uniform",
+      "prefill": 1048576,
+      "rounds": 8,
+      "cpu_pin": "0-15",
+      "reader_mops_mean": 61.370805,
+      "reader_ci_lower": 61.141499,
+      "reader_ci_upper": 61.706698,
+      "reader_ci_method": "bca",
+      "reader_mops_median": 61.370682,
+      "scaling_s_r": 3.912296,
+      "scaling_s_r_ci_lower": 3.883482,
+      "scaling_s_r_ci_upper": 3.938762,
+      "scaling_s_r_ci_method": "bca",
+      "reader_ns_per_probe_thread_mean": 64.3478,
+      "reader_ns_per_probe_to_last_join": 65.1802,
+      "slowest_over_mean_thread_by_round": [
+        0.010945,
+        0.016967,
+        0.005969,
+        0.005815,
+        0.018684,
+        0.017485,
+        0.016695,
+        0.004108
+      ],
+      "read_counters_total": {
+        "read_ops": 33554432,
+        "read_attempts": 33554432,
+        "read_fallbacks": 0,
+        "locked_reads": 0,
+        "reader_ops": 33554432
+      },
+      "attempts_per_op": 1.0,
+      "fallback_rate": 0.0,
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "block": 1,
+          "position": 3,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.068902,
+          "reader_thread_elapsed_s": [
+            0.067461,
+            0.06783,
+            0.068162,
+            0.068811
+          ],
+          "reader_mops": 60.873238,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146100
+        },
+        {
+          "round": 1,
+          "block": 0,
+          "position": 1,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.068005,
+          "reader_thread_elapsed_s": [
+            0.066411,
+            0.066629,
+            0.067968,
+            0.066328
+          ],
+          "reader_mops": 61.676393,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145818
+        },
+        {
+          "round": 2,
+          "block": 2,
+          "position": 0,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.068318,
+          "reader_thread_elapsed_s": [
+            0.067515,
+            0.067963,
+            0.068256,
+            0.06767
+          ],
+          "reader_mops": 61.393906,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419147878
+        },
+        {
+          "round": 3,
+          "block": 1,
+          "position": 2,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.068428,
+          "reader_thread_elapsed_s": [
+            0.067776,
+            0.067998,
+            0.068367,
+            0.067746
+          ],
+          "reader_mops": 61.295364,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419144755
+        },
+        {
+          "round": 4,
+          "block": 0,
+          "position": 3,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.068747,
+          "reader_thread_elapsed_s": [
+            0.066787,
+            0.06739,
+            0.068631,
+            0.066681
+          ],
+          "reader_mops": 61.011043,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146315
+        },
+        {
+          "round": 5,
+          "block": 2,
+          "position": 1,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.068595,
+          "reader_thread_elapsed_s": [
+            0.066866,
+            0.067133,
+            0.068563,
+            0.066977
+          ],
+          "reader_mops": 61.14565,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145272
+        },
+        {
+          "round": 6,
+          "block": 1,
+          "position": 0,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.068344,
+          "reader_thread_elapsed_s": [
+            0.066658,
+            0.067122,
+            0.068237,
+            0.066449
+          ],
+          "reader_mops": 61.370682,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145701
+        },
+        {
+          "round": 7,
+          "block": 0,
+          "position": 2,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.067432,
+          "reader_thread_elapsed_s": [
+            0.067198,
+            0.067288,
+            0.066814,
+            0.067468
+          ],
+          "reader_mops": 62.200163,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146941
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "block": 1,
+          "position": 3,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 1,
+          "block": 0,
+          "position": 1,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 2,
+          "block": 2,
+          "position": 0,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 3,
+          "block": 1,
+          "position": 2,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 4,
+          "block": 0,
+          "position": 3,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 5,
+          "block": 2,
+          "position": 1,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 6,
+          "block": 1,
+          "position": 0,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 7,
+          "block": 0,
+          "position": 2,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        }
+      ],
+      "load": {
+        "since": "readers_only:throughput",
+        "wall_s": 76.872,
+        "busy_cpus_since_prev": 1.21,
+        "own_busy_cpus": 1.2,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "workload_id": "concurrency_readers_set_63bit",
+      "arm": "set",
+      "writers": 0,
+      "readers": 8,
+      "read_op": "get",
+      "probe": "uniform",
+      "prefill": 1048576,
+      "rounds": 8,
+      "cpu_pin": "0-15",
+      "reader_mops_mean": 116.323299,
+      "reader_ci_lower": 112.365128,
+      "reader_ci_upper": 117.749361,
+      "reader_ci_method": "bca",
+      "reader_mops_median": 117.795369,
+      "scaling_s_r": 7.415606,
+      "scaling_s_r_ci_lower": 7.158235,
+      "scaling_s_r_ci_upper": 7.512859,
+      "scaling_s_r_ci_method": "bca",
+      "reader_ns_per_probe_thread_mean": 67.0986,
+      "reader_ns_per_probe_to_last_join": 68.83,
+      "slowest_over_mean_thread_by_round": [
+        0.015582,
+        0.017737,
+        0.020595,
+        0.01648,
+        0.019468,
+        0.074217,
+        0.017399,
+        0.01688
+      ],
+      "read_counters_total": {
+        "read_ops": 67108864,
+        "read_attempts": 67108864,
+        "read_fallbacks": 0,
+        "locked_reads": 0,
+        "reader_ops": 67108864
+      },
+      "attempts_per_op": 1.0,
+      "fallback_rate": 0.0,
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "block": 1,
+          "position": 2,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.072309,
+          "reader_thread_elapsed_s": [
+            0.071023,
+            0.0712,
+            0.072226,
+            0.071782,
+            0.070881,
+            0.070735,
+            0.0707,
+            0.070396
+          ],
+          "reader_mops": 116.01088,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146302
+        },
+        {
+          "round": 1,
+          "block": 0,
+          "position": 3,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.070759,
+          "reader_thread_elapsed_s": [
+            0.06923,
+            0.06957,
+            0.070742,
+            0.070035,
+            0.069019,
+            0.069015,
+            0.069291,
+            0.069171
+          ],
+          "reader_mops": 118.552283,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146246
+        },
+        {
+          "round": 2,
+          "block": 2,
+          "position": 1,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.071096,
+          "reader_thread_elapsed_s": [
+            0.06905,
+            0.069231,
+            0.06967,
+            0.070994,
+            0.070066,
+            0.069313,
+            0.069068,
+            0.069099
+          ],
+          "reader_mops": 117.989816,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419144925
+        },
+        {
+          "round": 3,
+          "block": 1,
+          "position": 0,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.072168,
+          "reader_thread_elapsed_s": [
+            0.070497,
+            0.07061,
+            0.070985,
+            0.072073,
+            0.071579,
+            0.070671,
+            0.070506,
+            0.070315
+          ],
+          "reader_mops": 116.23682,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146687
+        },
+        {
+          "round": 4,
+          "block": 0,
+          "position": 2,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.071363,
+          "reader_thread_elapsed_s": [
+            0.069403,
+            0.069715,
+            0.070031,
+            0.071298,
+            0.070436,
+            0.069447,
+            0.069699,
+            0.069463
+          ],
+          "reader_mops": 117.548244,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145112
+        },
+        {
+          "round": 5,
+          "block": 2,
+          "position": 3,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.077612,
+          "reader_thread_elapsed_s": [
+            0.077575,
+            0.070435,
+            0.071534,
+            0.070795,
+            0.070214,
+            0.069912,
+            0.069882,
+            0.077376
+          ],
+          "reader_mops": 108.084026,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145559
+        },
+        {
+          "round": 6,
+          "block": 1,
+          "position": 1,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.071213,
+          "reader_thread_elapsed_s": [
+            0.069513,
+            0.069977,
+            0.071169,
+            0.070513,
+            0.070389,
+            0.069407,
+            0.069254,
+            0.069393
+          ],
+          "reader_mops": 117.795369,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146760
+        },
+        {
+          "round": 7,
+          "block": 0,
+          "position": 0,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.070868,
+          "reader_thread_elapsed_s": [
+            0.069168,
+            0.069504,
+            0.069896,
+            0.070144,
+            0.069438,
+            0.069289,
+            0.070843,
+            0.069054
+          ],
+          "reader_mops": 118.368958,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145605
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "block": 1,
+          "position": 2,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 1,
+          "block": 0,
+          "position": 3,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 2,
+          "block": 2,
+          "position": 1,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 3,
+          "block": 1,
+          "position": 0,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 4,
+          "block": 0,
+          "position": 2,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 5,
+          "block": 2,
+          "position": 3,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 6,
+          "block": 1,
+          "position": 1,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 7,
+          "block": 0,
+          "position": 0,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        }
+      ],
+      "load": {
+        "since": "readers_only:throughput",
+        "wall_s": 76.872,
+        "busy_cpus_since_prev": 1.21,
+        "own_busy_cpus": 1.2,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "workload_id": "concurrency_readers_str",
+      "arm": "str",
+      "writers": 0,
+      "readers": 1,
+      "read_op": "get",
+      "probe": "uniform",
+      "prefill": 1048576,
+      "rounds": 8,
+      "cpu_pin": "0-15",
+      "reader_mops_mean": 4.673708,
+      "reader_ci_lower": 4.606617,
+      "reader_ci_upper": 4.696892,
+      "reader_ci_method": "bca",
+      "reader_mops_median": 4.696455,
+      "scaling_s_r": 1.0,
+      "scaling_s_r_ci_lower": 1.0,
+      "scaling_s_r_ci_upper": 1.0,
+      "scaling_s_r_ci_method": null,
+      "reader_ns_per_probe_thread_mean": 213.9006,
+      "reader_ns_per_probe_to_last_join": 213.9939,
+      "slowest_over_mean_thread_by_round": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "read_counters_total": {
+        "read_ops": 8388608,
+        "read_attempts": 8388608,
+        "read_fallbacks": 0,
+        "locked_reads": 0,
+        "reader_ops": 8388608
+      },
+      "attempts_per_op": 1.0,
+      "fallback_rate": 0.0,
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "block": 2,
+          "position": 0,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.223334,
+          "reader_thread_elapsed_s": [
+            0.223207
+          ],
+          "reader_mops": 4.695102,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419144921
+        },
+        {
+          "round": 1,
+          "block": 1,
+          "position": 2,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.223243,
+          "reader_thread_elapsed_s": [
+            0.223128
+          ],
+          "reader_mops": 4.697014,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419147905
+        },
+        {
+          "round": 2,
+          "block": 0,
+          "position": 3,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.22427,
+          "reader_thread_elapsed_s": [
+            0.224145
+          ],
+          "reader_mops": 4.675506,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146174
+        },
+        {
+          "round": 3,
+          "block": 2,
+          "position": 1,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.231548,
+          "reader_thread_elapsed_s": [
+            0.231432
+          ],
+          "reader_mops": 4.528545,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419144443
+        },
+        {
+          "round": 4,
+          "block": 1,
+          "position": 0,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.223219,
+          "reader_thread_elapsed_s": [
+            0.223136
+          ],
+          "reader_mops": 4.697523,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145546
+        },
+        {
+          "round": 5,
+          "block": 0,
+          "position": 2,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.22327,
+          "reader_thread_elapsed_s": [
+            0.223248
+          ],
+          "reader_mops": 4.696455,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419147462
+        },
+        {
+          "round": 6,
+          "block": 2,
+          "position": 3,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.223516,
+          "reader_thread_elapsed_s": [
+            0.223403
+          ],
+          "reader_mops": 4.691287,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419147413
+        },
+        {
+          "round": 7,
+          "block": 1,
+          "position": 1,
+          "reader_ops": 1048576,
+          "reader_elapsed_s": 0.222711,
+          "reader_thread_elapsed_s": [
+            0.222629
+          ],
+          "reader_mops": 4.708234,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419142939
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "block": 2,
+          "position": 0,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 1,
+          "block": 1,
+          "position": 2,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 2,
+          "block": 0,
+          "position": 3,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 3,
+          "block": 2,
+          "position": 1,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 4,
+          "block": 1,
+          "position": 0,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 5,
+          "block": 0,
+          "position": 2,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 6,
+          "block": 2,
+          "position": 3,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 7,
+          "block": 1,
+          "position": 1,
+          "reader_ops": 1048576,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 1048576,
+          "read_attempts": 1048576,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        }
+      ],
+      "load": {
+        "since": "readers_only:throughput",
+        "wall_s": 76.872,
+        "busy_cpus_since_prev": 1.21,
+        "own_busy_cpus": 1.2,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "workload_id": "concurrency_readers_str",
+      "arm": "str",
+      "writers": 0,
+      "readers": 2,
+      "read_op": "get",
+      "probe": "uniform",
+      "prefill": 1048576,
+      "rounds": 8,
+      "cpu_pin": "0-15",
+      "reader_mops_mean": 8.973725,
+      "reader_ci_lower": 8.919213,
+      "reader_ci_upper": 8.99844,
+      "reader_ci_method": "bca",
+      "reader_mops_median": 8.984958,
+      "scaling_s_r": 1.920195,
+      "scaling_s_r_ci_lower": 1.914679,
+      "scaling_s_r_ci_upper": 1.938566,
+      "scaling_s_r_ci_method": "bca",
+      "reader_ns_per_probe_thread_mean": 222.6151,
+      "reader_ns_per_probe_to_last_join": 222.8801,
+      "slowest_over_mean_thread_by_round": [
+        2.1e-05,
+        0.001738,
+        0.00082,
+        0.001097,
+        0.000798,
+        0.001243,
+        0.001003,
+        0.000903
+      ],
+      "read_counters_total": {
+        "read_ops": 16777216,
+        "read_attempts": 16777216,
+        "read_fallbacks": 0,
+        "locked_reads": 0,
+        "reader_ops": 16777216
+      },
+      "attempts_per_op": 1.0,
+      "fallback_rate": 0.0,
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "block": 2,
+          "position": 1,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.233021,
+          "reader_thread_elapsed_s": [
+            0.233007,
+            0.233017
+          ],
+          "reader_mops": 8.999844,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145917
+        },
+        {
+          "round": 1,
+          "block": 1,
+          "position": 0,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.233495,
+          "reader_thread_elapsed_s": [
+            0.232597,
+            0.233407
+          ],
+          "reader_mops": 8.981572,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419144680
+        },
+        {
+          "round": 2,
+          "block": 0,
+          "position": 2,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.233731,
+          "reader_thread_elapsed_s": [
+            0.233666,
+            0.233283
+          ],
+          "reader_mops": 8.972499,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419147235
+        },
+        {
+          "round": 3,
+          "block": 2,
+          "position": 3,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.237005,
+          "reader_thread_elapsed_s": [
+            0.236377,
+            0.236896
+          ],
+          "reader_mops": 8.848574,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419139014
+        },
+        {
+          "round": 4,
+          "block": 1,
+          "position": 1,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.233407,
+          "reader_thread_elapsed_s": [
+            0.233021,
+            0.233393
+          ],
+          "reader_mops": 8.984958,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419147483
+        },
+        {
+          "round": 5,
+          "block": 0,
+          "position": 0,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.23333,
+          "reader_thread_elapsed_s": [
+            0.233282,
+            0.232703
+          ],
+          "reader_mops": 8.987936,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419147905
+        },
+        {
+          "round": 6,
+          "block": 2,
+          "position": 2,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.233512,
+          "reader_thread_elapsed_s": [
+            0.233456,
+            0.232988
+          ],
+          "reader_mops": 8.980909,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146365
+        },
+        {
+          "round": 7,
+          "block": 1,
+          "position": 3,
+          "reader_ops": 2097152,
+          "reader_elapsed_s": 0.232153,
+          "reader_thread_elapsed_s": [
+            0.232094,
+            0.231675
+          ],
+          "reader_mops": 9.033505,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419140870
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "block": 2,
+          "position": 1,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 1,
+          "block": 1,
+          "position": 0,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 2,
+          "block": 0,
+          "position": 2,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 3,
+          "block": 2,
+          "position": 3,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 4,
+          "block": 1,
+          "position": 1,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 5,
+          "block": 0,
+          "position": 0,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 6,
+          "block": 2,
+          "position": 2,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 7,
+          "block": 1,
+          "position": 3,
+          "reader_ops": 2097152,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 2097152,
+          "read_attempts": 2097152,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        }
+      ],
+      "load": {
+        "since": "readers_only:throughput",
+        "wall_s": 76.872,
+        "busy_cpus_since_prev": 1.21,
+        "own_busy_cpus": 1.2,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "workload_id": "concurrency_readers_str",
+      "arm": "str",
+      "writers": 0,
+      "readers": 4,
+      "read_op": "get",
+      "probe": "uniform",
+      "prefill": 1048576,
+      "rounds": 8,
+      "cpu_pin": "0-15",
+      "reader_mops_mean": 16.756303,
+      "reader_ci_lower": 16.651754,
+      "reader_ci_upper": 16.826174,
+      "reader_ci_method": "bca",
+      "reader_mops_median": 16.785346,
+      "scaling_s_r": 3.585465,
+      "scaling_s_r_ci_lower": 3.571517,
+      "scaling_s_r_ci_upper": 3.610483,
+      "scaling_s_r_ci_method": "bca",
+      "reader_ns_per_probe_thread_mean": 237.2618,
+      "reader_ns_per_probe_to_last_join": 238.7303,
+      "slowest_over_mean_thread_by_round": [
+        0.00586,
+        0.006053,
+        0.005998,
+        0.006843,
+        0.005388,
+        0.005363,
+        0.006025,
+        0.005852
+      ],
+      "read_counters_total": {
+        "read_ops": 33554432,
+        "read_attempts": 33554432,
+        "read_fallbacks": 0,
+        "locked_reads": 0,
+        "reader_ops": 33554432
+      },
+      "attempts_per_op": 1.0,
+      "fallback_rate": 0.0,
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "block": 2,
+          "position": 3,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.249765,
+          "reader_thread_elapsed_s": [
+            0.248804,
+            0.249669,
+            0.24685,
+            0.247535
+          ],
+          "reader_mops": 16.792987,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419140623
+        },
+        {
+          "round": 1,
+          "block": 1,
+          "position": 1,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.250381,
+          "reader_thread_elapsed_s": [
+            0.249437,
+            0.250331,
+            0.247654,
+            0.247877
+          ],
+          "reader_mops": 16.751692,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419147516
+        },
+        {
+          "round": 2,
+          "block": 0,
+          "position": 0,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.250583,
+          "reader_thread_elapsed_s": [
+            0.249596,
+            0.250527,
+            0.248094,
+            0.247916
+          ],
+          "reader_mops": 16.738207,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145585
+        },
+        {
+          "round": 3,
+          "block": 2,
+          "position": 2,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.254546,
+          "reader_thread_elapsed_s": [
+            0.251646,
+            0.253483,
+            0.25446,
+            0.251333
+          ],
+          "reader_mops": 16.477606,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145088
+        },
+        {
+          "round": 4,
+          "block": 1,
+          "position": 3,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.246988,
+          "reader_thread_elapsed_s": [
+            0.24694,
+            0.244716,
+            0.245209,
+            0.245601
+          ],
+          "reader_mops": 16.981791,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419139628
+        },
+        {
+          "round": 5,
+          "block": 0,
+          "position": 1,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.249879,
+          "reader_thread_elapsed_s": [
+            0.247695,
+            0.249132,
+            0.249788,
+            0.247207
+          ],
+          "reader_mops": 16.785346,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146737
+        },
+        {
+          "round": 6,
+          "block": 2,
+          "position": 0,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.250673,
+          "reader_thread_elapsed_s": [
+            0.248498,
+            0.24963,
+            0.250621,
+            0.247731
+          ],
+          "reader_mops": 16.732171,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419144652
+        },
+        {
+          "round": 7,
+          "block": 1,
+          "position": 2,
+          "reader_ops": 4194304,
+          "reader_elapsed_s": 0.2498,
+          "reader_thread_elapsed_s": [
+            0.248886,
+            0.249754,
+            0.246932,
+            0.247632
+          ],
+          "reader_mops": 16.790626,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419148927
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "block": 2,
+          "position": 3,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 1,
+          "block": 1,
+          "position": 1,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 2,
+          "block": 0,
+          "position": 0,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 3,
+          "block": 2,
+          "position": 2,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 4,
+          "block": 1,
+          "position": 3,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 5,
+          "block": 0,
+          "position": 1,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 6,
+          "block": 2,
+          "position": 0,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 7,
+          "block": 1,
+          "position": 2,
+          "reader_ops": 4194304,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 4194304,
+          "read_attempts": 4194304,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        }
+      ],
+      "load": {
+        "since": "readers_only:throughput",
+        "wall_s": 76.872,
+        "busy_cpus_since_prev": 1.21,
+        "own_busy_cpus": 1.2,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "workload_id": "concurrency_readers_str",
+      "arm": "str",
+      "writers": 0,
+      "readers": 8,
+      "read_op": "get",
+      "probe": "uniform",
+      "prefill": 1048576,
+      "rounds": 8,
+      "cpu_pin": "0-15",
+      "reader_mops_mean": 29.2667,
+      "reader_ci_lower": 29.006145,
+      "reader_ci_upper": 29.359915,
+      "reader_ci_method": "bca",
+      "reader_mops_median": 29.355508,
+      "scaling_s_r": 6.262993,
+      "scaling_s_r_ci_lower": 6.214838,
+      "scaling_s_r_ci_upper": 6.353936,
+      "scaling_s_r_ci_method": "bca",
+      "reader_ns_per_probe_thread_mean": 270.6353,
+      "reader_ns_per_probe_to_last_join": 273.3632,
+      "slowest_over_mean_thread_by_round": [
+        0.007124,
+        0.006821,
+        0.00786,
+        0.008465,
+        0.007075,
+        0.02632,
+        0.008196,
+        0.007435
+      ],
+      "read_counters_total": {
+        "read_ops": 67108864,
+        "read_attempts": 67108864,
+        "read_fallbacks": 0,
+        "locked_reads": 0,
+        "reader_ops": 67108864
+      },
+      "attempts_per_op": 1.0,
+      "fallback_rate": 0.0,
+      "build_provenance": {
+        "throughput": "target/throughput/release/examples/writer_scaling",
+        "counters": "target/occ-stats/release/examples/writer_scaling (--features occ-stats)"
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "block": 2,
+          "position": 2,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.286358,
+          "reader_thread_elapsed_s": [
+            0.28431,
+            0.285513,
+            0.286274,
+            0.284338,
+            0.283042,
+            0.283264,
+            0.284014,
+            0.283237
+          ],
+          "reader_mops": 29.294133,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419145012
+        },
+        {
+          "round": 1,
+          "block": 1,
+          "position": 3,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.286066,
+          "reader_thread_elapsed_s": [
+            0.285297,
+            0.285985,
+            0.284341,
+            0.282946,
+            0.282557,
+            0.283232,
+            0.283895,
+            0.284127
+          ],
+          "reader_mops": 29.324068,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419147149
+        },
+        {
+          "round": 2,
+          "block": 0,
+          "position": 1,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.286793,
+          "reader_thread_elapsed_s": [
+            0.284541,
+            0.283545,
+            0.283224,
+            0.283735,
+            0.284043,
+            0.286783,
+            0.285801,
+            0.2847
+          ],
+          "reader_mops": 29.249687,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146958
+        },
+        {
+          "round": 3,
+          "block": 2,
+          "position": 0,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.285554,
+          "reader_thread_elapsed_s": [
+            0.283089,
+            0.284403,
+            0.285504,
+            0.283007,
+            0.282005,
+            0.281828,
+            0.282017,
+            0.283007
+          ],
+          "reader_mops": 29.376641,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419147494
+        },
+        {
+          "round": 4,
+          "block": 1,
+          "position": 2,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.285759,
+          "reader_thread_elapsed_s": [
+            0.285743,
+            0.283856,
+            0.282484,
+            0.282442,
+            0.283006,
+            0.284981,
+            0.283128,
+            0.284244
+          ],
+          "reader_mops": 29.355508,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419146705
+        },
+        {
+          "round": 5,
+          "block": 0,
+          "position": 3,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.29214,
+          "reader_thread_elapsed_s": [
+            0.282563,
+            0.292056,
+            0.284725,
+            0.282607,
+            0.281215,
+            0.281087,
+            0.289831,
+            0.282445
+          ],
+          "reader_mops": 28.714301,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419142225
+        },
+        {
+          "round": 6,
+          "block": 2,
+          "position": 1,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.285443,
+          "reader_thread_elapsed_s": [
+            0.284194,
+            0.285427,
+            0.283361,
+            0.282224,
+            0.281713,
+            0.282046,
+            0.282531,
+            0.283358
+          ],
+          "reader_mops": 29.388064,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419148759
+        },
+        {
+          "round": 7,
+          "block": 1,
+          "position": 0,
+          "reader_ops": 8388608,
+          "reader_elapsed_s": 0.285024,
+          "reader_thread_elapsed_s": [
+            0.284329,
+            0.284998,
+            0.282978,
+            0.281946,
+            0.281579,
+            0.282561,
+            0.281649,
+            0.283117
+          ],
+          "reader_mops": 29.4312,
+          "population_after": 1048576,
+          "cpu_pin": "0-15",
+          "tsc_hz": 2419136736
+        }
+      ],
+      "counters_raw": [
+        {
+          "round": 0,
+          "block": 2,
+          "position": 2,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 1,
+          "block": 1,
+          "position": 3,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 2,
+          "block": 0,
+          "position": 1,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 3,
+          "block": 2,
+          "position": 0,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 4,
+          "block": 1,
+          "position": 2,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 5,
+          "block": 0,
+          "position": 3,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 6,
+          "block": 2,
+          "position": 1,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        },
+        {
+          "round": 7,
+          "block": 1,
+          "position": 0,
+          "reader_ops": 8388608,
+          "write_ops": 0,
+          "inserts": 0,
+          "read_ops": 8388608,
+          "read_attempts": 8388608,
+          "read_fallbacks": 0,
+          "locked_reads": 0,
+          "lock_fallbacks": 0,
+          "quiesce_calls": 0,
+          "fallback_causes": {
+            "cap_expansion": 0,
+            "immediate_conversion": 0,
+            "branch_split": 0,
+            "root_growth": 0,
+            "contention": 0,
+            "unknown_tag": 0
+          },
+          "population_after": 1048576,
+          "cpu_pin": "0-15"
+        }
+      ],
+      "load": {
+        "since": "readers_only:throughput",
+        "wall_s": 76.872,
+        "busy_cpus_since_prev": 1.21,
+        "own_busy_cpus": 1.2,
+        "foreign_busy_cpus": 0.01
+      }
+    }
+  ],
+  "readers_only": {
+    "issue": 730,
+    "preregistration": null,
+    "preregistration_note": "none yet: the #730 pre-registration will name the docs/benchmarks/concurrency/METHODOLOGY.md section this artifact is read against; until it exists the artifact carries no verdict",
+    "rounds": 8,
+    "pin_applied": "0-15",
+    "quick": false,
+    "schedule": "each round runs one block per arm, the arm order rotating by round; within a block the four R cells follow that round's row of a Williams design over R; one harness process per cell; the throughput pass runs every round before the counters pass",
+    "void": []
+  }
+}
