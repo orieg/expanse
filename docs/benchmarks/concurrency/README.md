@@ -4825,7 +4825,7 @@ The two control arms METHODOLOGY §16.4 publishes without a threshold.
 | `map` | per-core | 2 | 8 | 52.093 [51.701, 53.027] | 54.728 [52.686, 57.981] | yes | not the same in both runs |
 | `set` | `0-15` | 1 | 1 | 63.622 [63.366, 63.777] | 63.653 [63.356, 64.272] | yes | not the same in both runs |
 | `set` | `0-15` | 1 | 8 | 67.788 [67.128, 69.104] | 67.099 [66.624, 67.891] | yes | not the same in both runs |
-| `set` | `0-15` | 2 | 1 | 63.526 [63.128, 63.828] | 63.697 [63.264, 63.931] | yes | not the same in both runs |
+| `set` | `0-15` | 2 | 1 | 63.526 [63.128, 63.828] | 63.697 [63.264, 63.930] | yes | not the same in both runs |
 | `set` | `0-15` | 2 | 8 | 67.258 [66.708, 68.407] | 67.155 [66.706, 67.585] | yes | not the same in both runs |
 | `set` | per-core | 1 | 1 | 63.447 [63.266, 63.620] | 63.234 [62.911, 63.483] | yes | not the same in both runs |
 | `set` | per-core | 1 | 8 | 67.485 [66.679, 69.618] | 67.800 [66.675, 70.435] | yes | not the same in both runs |
