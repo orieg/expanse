@@ -1,18 +1,19 @@
 {
   "meta": {
-    "commit": "6cb64b45",
-    "host": "reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8",
+    "commit": "7cd5140e",
+    "host": "reference host \u2014 Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8",
     "keys": 100000,
     "key_bytes": 16,
     "value_bytes": 64,
-    "method": "benches/bench_memtable.cc built -O3 against release libexpanse.so; 5 rounds, mean with BCa 95% bootstrap intervals (2,000 resamples, seed 42) harvested by scripts/rocksdb_bench_harvest.py into docs/benchmarks/rocksdb_memtable/results/baseline_rocksdb.json",
-    "run_id": "https://github.com/orieg/expanse/actions/runs/33398474866",
-    "retraction_372_discharged": "The commit-7d87dff7 run measured its skiplist arm against a strawman Node embedding all 16 tower pointers statically (~146.7 B/entry); that density figure and the derived 11.1x headline were retracted (#372). Density was re-measured first with the fair variable-height node (8 B key ptr + height*8 B tower, E[height]=4/3). The wall-clock cells are now re-measured against that same fair baseline too (run 33398474866, #382 item 5), and every ratio fell: sequential scan from a published ~10x to 3.331x [3.198, 3.486], point lookup to 1.457x [1.444, 1.470]. Nothing here is pending."
+    "method": "benches/bench_memtable.cc built -O3 against release libexpanse.so; one `bench_memtable --arm <phase> --round N` process per cell, phases interleaved within each round; 5 rounds, mean with BCa 95% bootstrap intervals (2,000 resamples, seed 42) and paired per-round ratio intervals, driven by docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py into docs/benchmarks/rocksdb_memtable/results/baseline_rocksdb.json. This chart renders run 1; run 2 is docs/benchmarks/rocksdb_memtable/results/baseline_rocksdb_run2.json",
+    "run_id": "https://github.com/orieg/expanse/actions/runs/35547165132",
+    "retraction_372_discharged": "The commit-7d87dff7 run measured its skiplist arm against a strawman Node embedding all 16 tower pointers statically (~146.7 B/entry); that density figure and the derived 11.1x headline were retracted (#372). Density was re-measured first with the fair variable-height node (8 B key ptr + height*8 B tower, E[height]=4/3), and is unchanged by the re-run below (deterministic byte accounting). The wall-clock cells were then re-measured against that same fair baseline (run 33398474866, #382 item 5) at commit 6cb64b45, and every wall-clock figure from that run is superseded in turn: the cells here are run 1 of the two 7cd5140e runs taken through the provenance-bearing driver (#868), which also changed the process boundary to one phase per invocation and the ratio estimator to a paired per-round quotient. Nothing here is pending.",
+    "run_id_run2": "https://github.com/orieg/expanse/actions/runs/35547235205"
   },
   "sequential_scan_mops": {
-    "expanse": 154.18,
-    "skiplist": 46.29,
-    "vector": 614.2
+    "expanse": 176.62,
+    "skiplist": 56.29,
+    "vector": 630.21
   },
   "ram_bytes_per_key": {
     "expanse": 13.2,
@@ -20,8 +21,8 @@
     "vector": 10.5
   },
   "readrandom_ns": {
-    "expanse": 264,
-    "skiplist": 385,
-    "vector": 546
+    "expanse": 261,
+    "skiplist": 390,
+    "vector": 554
   }
 }

@@ -33,10 +33,13 @@ does not:
     ratio `A_round / B_round` -- paired because both arms of every ratio come
     from the same invocation, so the interval carries the round-to-round
     covariance instead of treating the two series as independent. This is a
-    change of estimator from the superseded `scripts/rocksdb_bench_harvest.py`,
-    which took a two-sample ratio interval over the same rounds; it is recorded
-    in `provenance.estimators` and in `statistics`, and it is one reason the
-    published section 12 figures cannot be swapped for these cell-for-cell.
+    change of estimator from `scripts/rocksdb_bench_harvest.py`, the shell-loop
+    harvester this driver superseded and which was removed from the tree with the
+    re-measurement (#868); it took a two-sample ratio interval over the same
+    rounds. The construction is recorded in `provenance.estimators` and in
+    `statistics`, and it is one reason the `6cb64b45` section 12 figures were not
+    swapped for these cell-for-cell but republished beside a statement of what
+    changed with them (suite METHODOLOGY.md section 6.1).
 
   * **The symmetry checks.** Every implementation of a timed arm must report the
     same `consumed` count -- the same number of callback hits, the same number
