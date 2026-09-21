@@ -3893,6 +3893,13 @@ impl SyncExpanseSet {
                     let alloc = self.shared.inner_ref().alloc();
                     // SAFETY: edge is an EBR-live linear leaf descriptor with pop elements and kb key bytes.
                     let mut keys = unsafe { crate::mutate::leaf_keys(&edge, kb as u8, pop) };
+                    // The copy was read after the version check above, so a
+                    // writer that locked the parent in between can have torn
+                    // it; nothing built from it may be trusted, not even by a
+                    // debug assertion, until the version still matches.
+                    if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                        return OlcOutcome::Retry;
+                    }
                     keys.insert(at, k);
 
                     if kb == 1 {
@@ -6194,6 +6201,10 @@ macro_rules! olc_insert_map_body {
                 let alloc = $host.alloc();
                 // SAFETY: edge is an EBR-live linear leaf descriptor with pop elements and kb key bytes.
                 let mut entries = unsafe { crate::mutate_map::read_map_leaf(&edge, kb as u8, pop) };
+                // Validate the copy before building from it; see the set's split.
+                if !crate::occ::node_validate(p_cell, parent.version_snap) {
+                    return OlcOutcome::Retry;
+                }
                 entries.insert(at, (k, $val));
 
                 if kb == 1 {
