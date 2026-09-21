@@ -1675,8 +1675,20 @@ impl<T: SharedTree> Shared<T> {
             .enter_writer(&self.writers.slots[slot_id], slot_id)
     }
 
+    /// Closes the writer gate and drains every allocated writer slot,
+    /// returning the guard that reopens it.
+    ///
+    /// The guard is what makes the reopen unwind-safe. Reopening used to be a
+    /// plain statement at the tail of each serialised section, which a panic
+    /// out of the caller's closure skipped — `with_locked` takes a caller
+    /// closure, and `validate` panics by design, so the corruption checker
+    /// reached through the escape hatch left the gate closed for the life of
+    /// the tree. Readers never consult the gate, so the process went on
+    /// serving reads at full rate while every later writer spun in
+    /// [`Self::enter_writer_blocking`] with no yield, no bound and no
+    /// diagnostic. Pinned by `tests/test_serialised_section_unwind.rs`.
     #[cfg(feature = "std")]
-    pub(crate) fn quiesce_writers(&self) {
+    pub(crate) fn quiesce_writers(&self) -> QuiesceGuard<'_> {
         crate::occ_stats::bump(crate::occ_stats::Stat::QuiesceCalls);
         #[cfg(feature = "occ-stats")]
         let start = crate::occ_stats::cycles_now();
@@ -1695,14 +1707,39 @@ impl<T: SharedTree> Shared<T> {
             crate::occ_stats::Stat::QuiesceDrainCycles,
             crate::occ_stats::cycles_now().wrapping_sub(start),
         );
+        QuiesceGuard { gate: &self.gate }
     }
 
-    #[cfg(feature = "std")]
+    /// Reopens the gate without a [`QuiesceGuard`] — only for the
+    /// `__test_close_gate` / `__test_reopen_gate` pair, whose whole purpose is
+    /// to leave the gate closed across a test's statements. Every serialised
+    /// section reopens through the guard instead, so that an unwind cannot
+    /// skip it.
+    #[cfg(all(feature = "occ-stats", feature = "std"))]
     #[inline(always)]
     pub(crate) fn reopen_gate(&self) {
         self.gate.open();
     }
+}
 
+/// Holds the writer gate closed for a serialised section, and reopens it on
+/// drop — including when the section unwinds.
+///
+/// See [`Shared::quiesce_writers`] for what a missed reopen cost.
+#[cfg(feature = "std")]
+#[must_use = "the writer gate stays closed until this guard is dropped"]
+pub(crate) struct QuiesceGuard<'a> {
+    gate: &'a Line<crate::occ::WriterGate>,
+}
+
+#[cfg(feature = "std")]
+impl Drop for QuiesceGuard<'_> {
+    fn drop(&mut self) {
+        self.gate.open();
+    }
+}
+
+impl<T: SharedTree> Shared<T> {
     #[cfg(feature = "std")]
     pub(crate) fn enter_writer_blocking(&self) -> crate::occ::WriterGuard<'_> {
         #[cfg(not(feature = "occ-stats"))]
@@ -1906,7 +1943,7 @@ impl<T: SharedTree> Shared<T> {
         #[cfg(feature = "std")]
         let _fallback = self.fallback_mutex.lock().expect("fallback mutex poisoned");
         #[cfg(feature = "std")]
-        self.quiesce_writers();
+        let _gate = self.quiesce_writers();
         let _g = self.write.lock().expect("writer lock poisoned");
         #[cfg(feature = "occ-stats")]
         {
@@ -1969,8 +2006,6 @@ impl<T: SharedTree> Shared<T> {
             }
         }
         drop(_g);
-        #[cfg(feature = "std")]
-        self.reopen_gate();
         r
     }
 
@@ -1990,7 +2025,7 @@ impl<T: SharedTree> Shared<T> {
         #[cfg(feature = "std")]
         let _fallback = self.fallback_mutex.lock().expect("fallback mutex poisoned");
         #[cfg(feature = "std")]
-        self.quiesce_writers();
+        let _gate = self.quiesce_writers();
         let _g: MutexGuard<'_, ()> = self.write.lock().expect("writer lock poisoned");
         // SAFETY: the writer mutex and WriterGate quiescence exclude all concurrent
         // readers and writers, so creating a temporary unique reference to flush
@@ -2000,8 +2035,6 @@ impl<T: SharedTree> Shared<T> {
         let res = f(inner);
         inner.clear_path();
         drop(_g);
-        #[cfg(feature = "std")]
-        self.reopen_gate();
         res
     }
 
@@ -2015,7 +2048,7 @@ impl<T: SharedTree> Shared<T> {
         #[cfg(feature = "std")]
         let _fallback = self.fallback_mutex.lock().expect("fallback mutex poisoned");
         #[cfg(feature = "std")]
-        self.quiesce_writers();
+        let _gate = self.quiesce_writers();
         let _g: MutexGuard<'_, ()> = self.write.lock().expect("writer lock poisoned");
         // SAFETY: the writer mutex and WriterGate quiescence exclude all concurrent
         // readers and writers, so creating a temporary unique reference to flush
@@ -2040,8 +2073,6 @@ impl<T: SharedTree> Shared<T> {
         let res = f(inner);
         inner.clear_path();
         drop(_g);
-        #[cfg(feature = "std")]
-        self.reopen_gate();
         res
     }
 
@@ -2054,7 +2085,7 @@ impl<T: SharedTree> Shared<T> {
     fn with_locked_pre<R>(&self, pre: impl FnOnce(&mut T), f: impl FnOnce(&T) -> R) -> R {
         crate::occ_stats::bump(crate::occ_stats::Stat::LockedReads);
         let _fallback = self.fallback_mutex.lock().expect("fallback mutex poisoned");
-        self.quiesce_writers();
+        let _gate = self.quiesce_writers();
         let _g: MutexGuard<'_, ()> = self.write.lock().expect("writer lock poisoned");
         // SAFETY: the writer mutex and WriterGate quiescence exclude all concurrent
         // readers of the engine's plain fields and all writers, so this is the
@@ -2080,7 +2111,6 @@ impl<T: SharedTree> Shared<T> {
         let res = f(inner);
         inner.clear_path();
         drop(_g);
-        self.reopen_gate();
         res
     }
 
@@ -13555,7 +13585,7 @@ mod tests {
         // must finish once Y exits.
         let (s, f) = (Arc::clone(&set), Arc::clone(&flags));
         let q = std::thread::spawn(move || {
-            s.shared.quiesce_writers();
+            let _gate = s.shared.quiesce_writers();
             f.drained.store(true, Ordering::Release);
         });
         std::thread::sleep(Duration::from_millis(50));
@@ -13571,7 +13601,6 @@ mod tests {
             std::thread::yield_now();
         }
         q.join().unwrap();
-        set.shared.reopen_gate();
     }
 }
 
@@ -15387,7 +15416,7 @@ mod loom_tests {
             // The exclusive section: close, drain every allocated slot, read.
             // The gate stays closed until every writer has run, so a writer
             // that has not been scheduled yet cannot write behind the read.
-            set.shared.quiesce_writers();
+            let _gate = set.shared.quiesce_writers();
             let mask = set.shared.writers.allocated.load(Ordering::Relaxed);
             for c in cells.iter() {
                 // SAFETY: as above.
@@ -15412,7 +15441,6 @@ mod loom_tests {
                  slot cache shared between model threads, or carried across model \
                  iterations, shows up here"
             );
-            set.shared.reopen_gate();
         });
     }
 }
