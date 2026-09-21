@@ -161,9 +161,9 @@ In Multi-Version Concurrency Control (MVCC) engines (PostgreSQL, CockroachDB, In
 - `xmax`: Deletion / Replacement Transaction ID.
 
 To determine whether a tuple is visible to a reading transaction $T_{\text{read}}$, the database checks:
-1. Is `xmin` committed and $\le T_{\text{read}}.\text{snapshot\_max}$?
-2. Is `xmin` absent from $T_{\text{read}}.\text{active\_xids}$ (in-flight transactions at snapshot creation)?
-3. Is `xmax` absent, aborted, or $> T_{\text{read}}.\text{snapshot\_max}$, or present in $T_{\text{read}}.\text{active\_xids}$?
+1. Is `xmin` committed and $`\le T_{\text{read}}.\text{snapshot\_max}`$?
+2. Is `xmin` absent from $`T_{\text{read}}.\text{active\_xids}`$ (in-flight transactions at snapshot creation)?
+3. Is `xmax` absent, aborted, or $`> T_{\text{read}}.\text{snapshot\_max}`$, or present in $`T_{\text{read}}.\text{active\_xids}`$?
 
 ```
  Writer Threads (Txn Begin / Commit / Abort / Vacuum)

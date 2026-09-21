@@ -41,5 +41,5 @@ Per `AGENTS.md` §8.8 commit 2 (pre-registration locked before any main data) an
 ## 4. Automated CI Regression Gating
 
 - **Baseline Artifact**: `results/baseline_wasm_fuel.json`.
-- **Thresholds**: Gated by `scripts/wasm_fuel.py --check-baseline`. A single arm $> 5\%$ above baseline fails CI; two or more arms $> 0.5\%$ fail CI.
+- **Thresholds**: Gated by `scripts/wasm_fuel.py --check-baseline`. A single arm $`> 5\%`$ above baseline fails CI; two or more arms $`> 0.5\%`$ fail CI.
 - **Coverage**: Missing baseline arms are treated as coverage regressions and fail closed.

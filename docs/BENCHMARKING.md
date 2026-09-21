@@ -795,7 +795,7 @@ Bench targets deliberately **not** reachable from a slash command:
 | JudySL/JudyHS instruction cells | landed (`benches/instructions.rs`, `benches/smoke_instructions.rs`) | Route-shaped string keys through `ExpanseStrMap`/`ExpanseBytesMap` insert/get/churn; the smoke cells gate every PR automatically |
 | Comparative benchmarks vs 3rd-party | landed (`benches/comparative.rs`) | `RoaringBitmap`, `hashbrown::HashMap` across lookups, insertions, ranges, and sparse/clustered/dense distributions |
 | Automated Comparative Report Tool | landed (`scripts/bench_report.py`, `examples/bench_lookup_compare.rs`) | Standalone fast head-to-head comparison generator vs `hashbrown`, `BTreeMap`, and `libjudy` with GFM output |
-| Standardized YCSB Suite (Workloads A-F) | landed (`benches/ycsb.rs` on uniform-random keys, `benches/ycsb_dense.rs` on dense clustered keys, driven by `scripts/ycsb_bench.py`) | vs `BTreeMap`, `crossbeam_skiplist::SkipMap` (RocksDB MemTable); Zipfian $\theta=0.99$, $N \in \{100\text{k}, 1\text{M}, 10\text{M}\}$, both insertion orders, 128B blobs |
+| Standardized YCSB Suite (Workloads A-F) | landed (`benches/ycsb.rs` on uniform-random keys, `benches/ycsb_dense.rs` on dense clustered keys, driven by `scripts/ycsb_bench.py`) | vs `BTreeMap`, `crossbeam_skiplist::SkipMap` (RocksDB MemTable); Zipfian $\theta=0.99$, $`N \in \{100\text{k}, 1\text{M}, 10\text{M}\}`$, both insertion orders, 128B blobs |
 | Adaptive Radix Tree (ART) comparison | landed (`docs/benchmarks/art_comparison/`) | Pure-Rust ART (`blart` 0.5.0) comparison across point lookups, dynamic growth, range scans, and memory census |
 | Domain comparative suites (search, sorted-set, hash-map) | landed (`docs/benchmarks/*`) | self-contained reproducible suites with pre-registered hypotheses — see "Comparative benchmark suites" below |
 
@@ -2173,7 +2173,7 @@ All 22 deterministic Callgrind instruction benchmarks (`benches/instructions.rs`
 The Yahoo! Cloud Serving Benchmark (YCSB) standardizes real-world database engine access patterns across analytical caches, session stores, time-series appends, and read-modify-write transactional workloads.
 
 ### 1. Workload Specifications & Key Parameters
-- **Population Size**: $N \in \{100\text{k}, 1\text{M}, 10\text{M}\}$ 64-bit keys, recorded in every row and bench id (`benches/ycsb.rs` and `benches/ycsb_dense.rs`).
+- **Population Size**: $`N \in \{100\text{k}, 1\text{M}, 10\text{M}\}`$ 64-bit keys, recorded in every row and bench id (`benches/ycsb.rs` and `benches/ycsb_dense.rs`).
 - **Key Shape**: uniform-random `u64` keys (`benches/ycsb.rs`, workload `workload_ycsb`) and dense clustered keys — runs of 256 consecutive keys at random bases (`benches/ycsb_dense.rs`, workload `workload_ycsb_dense`). Both share identical generators, runners and report code via `benches/ycsb_common/mod.rs`.
 - **Insertion Order**: both. Every cell is built once sorted ascending and once Fisher–Yates shuffled, the order recorded in every bench id and result row; the operation stream is identical across the two.
 - **Request Distribution**: Zipfian distribution with skew parameter $\theta = 0.99$ (Gray et al. model), yielding highly skewed access to hot keys.
@@ -2200,7 +2200,7 @@ The Yahoo! Cloud Serving Benchmark (YCSB) standardizes real-world database engin
 > 2. Teardown was inside the criterion timed region; setup and teardown are now strictly outside the timer.
 > 3. Workload D reads were not read-latest; reads now target recently inserted keys under Zipfian recency.
 > 4. Latency was measured with per-op `Instant` brackets (~26 ns overhead); latencies are now measured as 64-op window means with residual overhead <0.37 ns/op.
-> 5. Both insertion orders (`shuffled` and `sorted`) and key geometries (`uniform_random` and `dense_clustered`) are evaluated across populations $N \in \{100\text{k}, 1\text{M}, 10\text{M}\}$.
+> 5. Both insertion orders (`shuffled` and `sorted`) and key geometries (`uniform_random` and `dense_clustered`) are evaluated across populations $`N \in \{100\text{k}, 1\text{M}, 10\text{M}\}`$.
 > The earlier criterion medians from runs 33037221608 / 33219093994 and the per-op latency tail from commit `43b46f38` are superseded and retracted.
 
 Throughput (Mops/s) per workload × engine at $N = 100,000$ (uniform-random keys):

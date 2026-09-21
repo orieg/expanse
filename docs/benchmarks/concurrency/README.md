@@ -4589,10 +4589,10 @@ The single-writer tripwire (`lock_restarts == 0` at T = 1) held strictly across 
 Evaluation of the optimistic CAS bucket-replacement multi-writer architecture for `SyncExpanseBytesMap` (Task C of #929), pre-registered in `METHODOLOGY.md` §22.
 
 The gate pre-registers four gates over forty cells across two pins (`0-15` and `0,2,4,6,8,10,12,14`) and two independent runs each (8 rounds per cell, process isolation, Williams Latin square ordering):
-- **G1 (Scaling)**: $S(W) \ge 1.0$ at $W \in \{2, 4, 8\}$ (ratio of scaling factors over `ablation-bytes-serial-writers`).
-- **G2 (Level)**: $L(W) \ge 1.0$ at $W \in \{2, 4, 8\}$ (head throughput over the serialised build's best cell at any writer count).
+- **G1 (Scaling)**: $S(W) \ge 1.0$ at $`W \in \{2, 4, 8\}`$ (ratio of scaling factors over `ablation-bytes-serial-writers`).
+- **G2 (Level)**: $L(W) \ge 1.0$ at $`W \in \{2, 4, 8\}`$ (head throughput over the serialised build's best cell at any writer count).
 - **G3 (Price)**: $P \ge 0.90$ at $W = 1$ (single-writer head throughput over single-writer serialised build).
-- **G4 (Skewed overwrite)**: $K(W) \ge 0.50$ at $W \in \{2, 4, 8\}$ (overwrite throughput under Zipfian skew $\theta = 0.99$ over uniform overwrite throughput).
+- **G4 (Skewed overwrite)**: $K(W) \ge 0.50$ at $`W \in \{2, 4, 8\}`$ (overwrite throughput under Zipfian skew $\theta = 0.99$ over uniform overwrite throughput).
 - **Tripwire (Deterministic)**: Zero single-writer ($W = 1$) `lock_restarts`.
 
 Evaluation commit: `5d017fea` on the reference host (Intel Core i9-12900F, 8P+8E / 24 threads).
@@ -4655,10 +4655,10 @@ The single-writer tripwire (`lock_restarts == 0` at W = 1) held strictly across 
 - **Throughput scales strongly without saturation (Peak ratio X(8)/X(4) PASS).**
   The peak ratio $X(8)/X(4)$ is 1.79–1.83 on `0-15` and 1.81–1.93 on per-core pin, with every confidence interval well above 1.0. Unlike BlobMap where shared arena allocations caused retrograde scaling past two writers prior to private arena sharding, `SyncExpanseBytesMap`'s CAS bucket publication exhibits consistent positive scaling across all evaluated thread counts.
 - **Skewed overwrites do not degrade performance (G4 PASS).**
-  Under extreme Zipfian key skew ($\theta = 0.99$), overwrite throughput ratio over uniform overwrite throughput is 1.15–1.25× at $W \in \{2, 4\}$ and 0.94–0.98× at $W = 8$, far exceeding the floor $\rho = 0.50$.
+  Under extreme Zipfian key skew ($\theta = 0.99$), overwrite throughput ratio over uniform overwrite throughput is 1.15–1.25× at $`W \in \{2, 4\}`$ and 0.94–0.98× at $W = 8$, far exceeding the floor $\rho = 0.50$.
 - **Single-writer price floor $F = 0.90$ is REFUTED.**
   The single-writer price ratio $P = X_{\text{head}}(1) / X_{\text{serial}}(1)$ is 0.857–0.859 across all 4 runs (BCa 95% intervals within [0.845, 0.863]), falling below the pre-registered floor $F = 0.90$.
-  **Mechanism**: Multi-writer OLC allocates an immutable replacement `Bucket` on the heap for every insert/overwrite, publishing it via atomic CAS (`olc_cas_publish_map`) and retiring the superseded bucket under epoch protection. In contrast, the serial build (`ablation-bytes-serial-writers`) mutates existing bucket entries in place under the writer mutex without heap allocation or epoch retirement when matching keys are updated. At $W=1$, where mutex contention is zero, the allocator and epoch-tracking overhead imposes a $\approx 14.1\%-14.3\%$ throughput price vs in-place mutation.
+  **Mechanism**: Multi-writer OLC allocates an immutable replacement `Bucket` on the heap for every insert/overwrite, publishing it via atomic CAS (`olc_cas_publish_map`) and retiring the superseded bucket under epoch protection. In contrast, the serial build (`ablation-bytes-serial-writers`) mutates existing bucket entries in place under the writer mutex without heap allocation or epoch retirement when matching keys are updated. At $W=1$, where mutex contention is zero, the allocator and epoch-tracking overhead imposes a $`\approx 14.1\%-14.3\%`$ throughput price vs in-place mutation.
   **Superseded in place (2026-09-20, §21.3): this paragraph describes the overwrite path, not G3's cell.** G3's cell inserts keys absent from the prefill, where a fresh hash allocates a bucket and retires nothing in either build. Profiled, the allocator delta is +801 Ir and the epoch-advance delta +12,486 Ir, together 0.12% of the gap; the price is the validated walk (58.6%) and the descent difference (35.0%). The verdict, the ratio and the intervals above are unchanged — only the stated cause is corrected.
   Per GEMINI.md §1.6 and METHODOLOGY.md §22.7, the locked floor $F = 0.90$ does NOT move post-hoc; the outcome is recorded honestly as `REFUTED` on G3.
 - **Scope limitations**: Evaluated on the reference host (Intel Core i9-12900F). Nothing is claimed regarding concurrent removals, key churn outside the registered distributions, alternate hash algorithms, 32-bit targets, or alternate hosts.
