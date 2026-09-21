@@ -1173,7 +1173,14 @@ def _ro_iv(art: dict, arm: str, readers: int) -> dict:
 
 
 def _ro_cell_iv(iv: dict) -> str:
-    return _pc_iv(iv["mean"], iv["lo"], iv["hi"], 3, iv["method"])
+    # Two decimals, not three: the BCa bounds are recomputed by
+    # `scripts/check_readme_tables.py` on the CI runner and compared with the
+    # committed text, and the third decimal is not reproducible across hosts —
+    # one bound of this section rendered 63.931 on an arm64 developer machine
+    # and 63.930 on the x86 runner, one unit in the last place out of the
+    # resampling arithmetic. 0.01 ns resolves every cell here, whose means span
+    # 213-275 ns and whose intervals are 0.2-4 ns wide.
+    return _pc_iv(iv["mean"], iv["lo"], iv["hi"], 2, iv["method"])
 
 
 def _ro_direction(new: list[dict], old: list[dict]) -> str:
