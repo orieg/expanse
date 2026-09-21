@@ -221,7 +221,14 @@ struct Plan {
 
 /// One window's raw counts over its own elapsed time. `busy`, `ok` and
 /// `refused` are the `sync32` arm's protocol telemetry and stay zero elsewhere.
-#[derive(Clone, Copy, Default)]
+///
+/// Under `occ-stats` each window also carries the protocol counters it
+/// accumulated, zeroed at the window's barrier and read after its workers
+/// join ([`run_rounds`]). The field does not exist in the default build, so
+/// the timed windows this instrument publishes are unaffected; the census is
+/// a diagnostic for attributing a cell's loss to restarts, fallbacks or
+/// quiesce waits (Refs #1047).
+#[derive(Clone, Copy)]
 struct Sample {
     threads: usize,
     round: usize,
@@ -232,6 +239,26 @@ struct Sample {
     busy: u64,
     ok: u64,
     refused: u64,
+    #[cfg(feature = "occ-stats")]
+    stats: [u64; expanse_trie::occ_stats::NUM_STATS],
+}
+
+impl Default for Sample {
+    fn default() -> Self {
+        Self {
+            threads: 0,
+            round: 0,
+            position: 0,
+            elapsed_s: 0.0,
+            read_ops: 0,
+            write_ops: 0,
+            busy: 0,
+            ok: 0,
+            refused: 0,
+            #[cfg(feature = "occ-stats")]
+            stats: [0; expanse_trie::occ_stats::NUM_STATS],
+        }
+    }
 }
 
 /// The order of `n` thread counts in `round`: row `round` of a Williams
@@ -282,6 +309,11 @@ where
                     std::thread::spawn(move || work(i, &window))
                 })
                 .collect();
+            // Zeroed inside the barrier: every worker is parked in
+            // `Window::begin` and the prefill is long done, so the census
+            // below covers this window and nothing else.
+            #[cfg(feature = "occ-stats")]
+            expanse_trie::occ_stats::reset();
             window.begin();
             let t0 = Instant::now();
             std::thread::sleep(WINDOW);
@@ -300,6 +332,8 @@ where
                 elapsed_s,
                 read_ops,
                 write_ops,
+                #[cfg(feature = "occ-stats")]
+                stats: expanse_trie::occ_stats::snapshot(),
                 ..Sample::default()
             });
         }
@@ -823,6 +857,8 @@ fn bench_sync32_map(plan: &Plan, write_rate: Option<u64>) -> Vec<Sample> {
                 busy: busy_total.load(Ordering::Relaxed),
                 ok,
                 refused: refused_total.load(Ordering::Relaxed),
+                #[cfg(feature = "occ-stats")]
+                stats: expanse_trie::occ_stats::snapshot(),
             });
         }
     }
@@ -964,6 +1000,104 @@ fn write_samples(
     out.flush().expect("flush EXPANSE_BENCH_SAMPLES");
 }
 
+/// The counters this census prints, as (label, `Stat`) pairs. Restarts,
+/// fallbacks and the two waits are three different diseases (Refs #1047):
+/// a restart storm is optimistic writers colliding, a fallback storm is
+/// optimistic writers giving up, and gate/quiesce waits are the serialised
+/// sections excluding each other and the optimistic writers alike.
+#[cfg(feature = "occ-stats")]
+const CENSUS: &[(&str, expanse_trie::occ_stats::Stat)] = {
+    use expanse_trie::occ_stats::Stat;
+    &[
+        ("inserts", Stat::Inserts),
+        ("write_ops", Stat::WriteOps),
+        ("lock_restarts", Stat::LockRestarts),
+        ("lock_fallbacks", Stat::LockFallbacks),
+        ("fb_contention", Stat::FallbackContention),
+        ("fb_root_growth", Stat::FallbackRootGrowth),
+        ("fb_cap_expansion", Stat::FallbackCapExpansion),
+        ("fb_branch_split", Stat::FallbackBranchSplit),
+        ("fb_immediate", Stat::FallbackImmediateConversion),
+        ("fb_unknown_tag", Stat::FallbackUnknownTag),
+        ("gate_closed", Stat::ContentionGateClosed),
+        ("retry_exhausted", Stat::ContentionRetryExhausted),
+        ("gate_blocked", Stat::GateBlockedEntries),
+        ("quiesce_calls", Stat::QuiesceCalls),
+        ("read_ops", Stat::ReadOps),
+        ("read_attempts", Stat::ReadAttempts),
+        ("read_fallbacks", Stat::ReadFallbacks),
+        ("locked_reads", Stat::LockedReads),
+        ("retired", Stat::Retired),
+        ("freed_raw", Stat::FreedRaw),
+        ("sample_spins", Stat::SampleSpins),
+    ]
+};
+
+/// The cycle-counter totals, printed as seconds per op: a spin count says
+/// how often, only the ticks say how long (AGENTS.md §8.20.1 — these are
+/// constant-rate ticks, divided by `cycles_hz`, never by a core clock).
+#[cfg(feature = "occ-stats")]
+const CENSUS_CYCLES: &[(&str, expanse_trie::occ_stats::Stat)] = {
+    use expanse_trie::occ_stats::Stat;
+    &[
+        ("gate_wait_s/op", Stat::GateWaitCycles),
+        ("quiesce_drain_s/op", Stat::QuiesceDrainCycles),
+        ("lock_hold_s/op", Stat::LockHoldCycles),
+        ("sample_spin_s/op", Stat::SampleSpinCycles),
+    ]
+};
+
+#[cfg(feature = "occ-stats")]
+fn read_ops_sum(windows: &[&Sample]) -> u64 {
+    windows.iter().map(|s| s.read_ops).sum()
+}
+
+#[cfg(feature = "occ-stats")]
+fn write_ops_sum(windows: &[&Sample]) -> u64 {
+    windows.iter().map(|s| s.write_ops).sum()
+}
+
+/// Prints the per-op protocol census of one thread count's windows. Rates
+/// divide by the cell's own op count, so a row is comparable across thread
+/// counts; the raw totals are printed beside them because a rate of 0.000
+/// and a count of 0 are different findings.
+#[cfg(feature = "occ-stats")]
+fn print_counter_census(windows: &[&Sample], ops: u64) {
+    assert!(
+        expanse_trie::occ_stats::enabled(),
+        "occ-stats census reached with the counters compiled out"
+    );
+    if ops == 0 {
+        println!("         census: 0 ops in this cell — nothing to divide by");
+        return;
+    }
+    let total = |st: expanse_trie::occ_stats::Stat| -> u64 {
+        windows
+            .iter()
+            .map(|s| s.stats[st as usize])
+            .fold(0u64, u64::wrapping_add)
+    };
+    let d = ops as f64;
+    let mut line = String::new();
+    for (label, st) in CENSUS {
+        let v = total(*st);
+        line.push_str(&format!(" {label}={:.4}({v})", v as f64 / d));
+    }
+    println!("        census/op:{line}");
+    let hz = expanse_trie::occ_stats::cycles_hz(Duration::from_millis(50)) as f64;
+    let mut cyc = String::new();
+    for (label, st) in CENSUS_CYCLES {
+        let v = total(*st);
+        let secs = if hz > 0.0 {
+            v as f64 / hz / d
+        } else {
+            f64::NAN
+        };
+        cyc.push_str(&format!(" {label}={secs:.3e}"));
+    }
+    println!("        census/op:{cyc}  (cycles_hz={hz:.0})");
+}
+
 /// Prints one table in the four-column shape `scripts/bench_concurrency_check.py`
 /// parses: per thread count, the mean over its windows of read and write
 /// ops/sec, and total ops/sec relative to the first thread count. The `sync32`
@@ -1000,6 +1134,8 @@ fn print_table(cell: &Cell<'_>, plan: &Plan, samples: &[Sample]) {
             wops,
             total / base
         );
+        #[cfg(feature = "occ-stats")]
+        print_counter_census(&windows, read_ops_sum(&windows) + write_ops_sum(&windows));
         if cell.engine_key == SYNC32_KEY {
             let busy: u64 = windows.iter().map(|s| s.busy).sum();
             let ok: u64 = windows.iter().map(|s| s.ok).sum();
