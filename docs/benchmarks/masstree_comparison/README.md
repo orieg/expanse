@@ -843,6 +843,47 @@ and probe mix (all probes hit, sorted prefill), so they do not re-measure this
 row, and no Masstree figure is compared with them *(workloads differ:
 `concurrency_readers_str` vs `masstree_conc_str`)*.
 
+**Where the Expanse reader's per-probe cost goes in this row's W = 0 cell
+(#1061).** Per read per reader, from R = 1 to R = 8 (BCa 95 % over 7 rounds per
+cell, one attach per round, no counter multiplexed):
+
+| event | R = 1 | R = 8 |
+|---|--:|--:|
+| `cycles` | 907.4 [901.8, 912.6] | 1039.5 [1030.5, 1050.6] |
+| `instructions` | 487.17 [487.16, 487.19] | 486.59 [486.54, 486.66] |
+| `cycle_activity.stalls_l3_miss` | 467.9 [465.5, 470.1] | 581.3 [578.9, 583.4] |
+| `mem_load_retired.l3_miss` | 1.480 [1.464, 1.494] | 1.366 [1.359, 1.372] |
+| `l1d_pend_miss.pending_cycles` | 752.1 [747.4, 756.7] | 876.0 [867.9, 887.3] |
+| `l1d_pend_miss.pending` | 1238.5 [1230.5, 1246.9] | 1442.8 [1427.4, 1464.7] |
+| `dtlb_load_misses.walk_active` | 182.8 [181.1, 184.4] | 186.2 [185.2, 187.4] |
+| `ld_blocks.store_forward` | 0.041 [0.041, 0.041] | 0.041 [0.041, 0.041] |
+
+*(measured: reference host — Intel Core i9-12900F, commit `912bffdb`, pin
+`0-15`; `results/counters_masstree_conc_str_w0_r{1,8}_profile_{a,b}.json`;
+workload: `masstree_conc_str`)*. The event sets are split across the `_a` and
+`_b` cells because `cycle_activity.stalls_l3_miss` reads 0 when it shares an
+attach with `l1d_pend_miss.pending` on this host, so `cycles` comes from each
+cell's own rounds.
+
+- **Stalls on L3-missing loads are the largest share at both reader counts:**
+  51.0 % of cycles at R = 1 and 55.5 % at R = 8 (derived: `stalls_l3_miss ÷
+  cycles` in the `_b` cells). A demand L1D miss is outstanding in 82.9 % and
+  84.3 % of cycles, with 1.65 in flight on average at both (derived: `pending ÷
+  pending_cycles`).
+- **The R-growth is longer L3-miss stalls, not more misses or more work.**
+  `stalls_l3_miss` grows by 113.5 cycles of the `_b` cells' 130.3-cycle growth,
+  while L3 misses per read fall and instructions stay flat. The stall cycles per
+  L3 miss therefore rise from 316 to 426 (derived). Loaded memory latency under
+  eight concurrent readers is the hypothesis that would produce that; it is
+  unmeasured here.
+- **Page walks for demand loads take 183–186 cycles per read, 17.9–20.1 % of
+  cycles,** at both reader counts. This is the first measurement bearing on the
+  page-size asymmetry above, and it is a level, not a growth.
+- **Store-forward blocks are 0.041 per read** and are not a cost at this size.
+- `offcore_requests_outstanding.*data_rd` is not used. Intel's erratum ADL038
+  makes it unreliable with Hyper-Threading and the hardware prefetchers both on,
+  as they are on this host.
+
 #### H — protocol health, Expanse side only (occ-stats build; event ratios, never a timing)
 
 | Arm | W | R | run | restart share, median [min, max] | fallback share, median | `sample_spins` ÷ `read_ops` (medians) | `locked_reads` ÷ `read_ops` | unconditional lock share | handoffs ÷ write | branch replacements ÷ write | deep-cascade share | root-rewrite share | spin time ÷ reader wall | §6.3 |
