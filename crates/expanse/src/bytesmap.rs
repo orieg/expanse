@@ -242,6 +242,124 @@ pub(crate) unsafe fn publish_entry_value(word: u64, at: usize, val: u64) -> u64 
     prev
 }
 
+/// Reads entry `at`'s value word from the bucket at `word`.
+///
+/// The read half of [`publish_entry_value`], for a caller that has just
+/// **unlinked** this bucket: once the trie word no longer points at it,
+/// no writer can reach it, so the word this returns is the last value
+/// the key held (Refs #1047). Pinned readers may still be loading it,
+/// which is why the load goes through the atomic view.
+///
+/// # Safety
+///
+/// `word` must be a bucket the caller unlinked under the terminal's
+/// parent version lock, with more than `at` entries.
+#[cfg(all(
+    target_pointer_width = "64",
+    feature = "std",
+    not(feature = "ablation-bytes-serial-writers")
+))]
+#[inline]
+pub(crate) unsafe fn read_entry_value(word: u64, at: usize) -> u64 {
+    let bucket = word as *const Bucket;
+    // SAFETY: forwarded contract — an EBR-live bucket with more than
+    // `at` entries.
+    let entries = unsafe { (*bucket).as_ptr() };
+    // SAFETY: forwarded contract. `Relaxed` is enough: the unlinking
+    // caller has already excluded every writer, and a validating reader
+    // acquires the version word.
+    unsafe { entry_value_atomic(entries, at) }.load(core::sync::atomic::Ordering::Relaxed)
+}
+
+/// Builds the replacement bucket a colliding **remove** publishes: a
+/// copy of the `len` entries of the published bucket at `word` with
+/// entry `at` left out (Refs #1047).
+///
+/// The mirror of [`clone_bucket_with`], with the same ownership split:
+/// keys are cloned, so the old bucket keeps its own and is disposed of
+/// with them. Value words are read atomically here and re-read under the
+/// terminal's version lock by [`refresh_replacement_values_removing`]
+/// before the replacement is published.
+///
+/// # Safety
+///
+/// As [`bucket_find`], with `len` the length it returned, and `at < len`.
+#[cfg(all(
+    target_pointer_width = "64",
+    feature = "std",
+    not(feature = "ablation-bytes-serial-writers")
+))]
+pub(crate) unsafe fn clone_bucket_without(word: u64, len: usize, at: usize) -> *mut Bucket {
+    debug_assert!(at < len, "entry index inside the bucket");
+    let bucket = word as *const Bucket;
+    // SAFETY: EBR-live published bucket of `len` entries.
+    let entries = unsafe { (*bucket).as_ptr() };
+    let mut fresh: Bucket = Vec::with_capacity(len - 1);
+    for i in 0..len {
+        if i == at {
+            continue;
+        }
+        // SAFETY: `i < len`; the key field is write-once and the value
+        // word is loaded through its atomic view.
+        let (k, v) = unsafe {
+            let k: &[u8] = &(*entries.add(i)).0;
+            (
+                Box::<[u8]>::from(k),
+                entry_value_atomic(entries, i).load(core::sync::atomic::Ordering::Relaxed),
+            )
+        };
+        fresh.push((k, v));
+    }
+    Box::into_raw(Box::new(fresh))
+}
+
+/// [`refresh_replacement_values`] for a replacement built by
+/// [`clone_bucket_without`]: the entries of `repl` are those of the
+/// published bucket at `word` with index `at` left out, so entry `i` of
+/// `repl` is entry `i` of the published bucket while `i < at`, and entry
+/// `i + 1` after it (Refs #1047).
+///
+/// Refreshing under the terminal's version lock is what makes this
+/// mutually exclusive with an in-place value publish, exactly as in
+/// [`refresh_replacement_values`]: without it, removing one colliding key
+/// would silently drop an acknowledged overwrite of another.
+///
+/// # Safety
+///
+/// As [`refresh_replacement_values`], with `len` the published bucket's
+/// length, `at < len`, and `repl` holding `len - 1` entries in the order
+/// above.
+#[cfg(all(
+    target_pointer_width = "64",
+    feature = "std",
+    not(feature = "ablation-bytes-serial-writers")
+))]
+#[inline]
+pub(crate) unsafe fn refresh_replacement_values_removing(
+    word: u64,
+    repl: *mut Bucket,
+    len: usize,
+    at: usize,
+) {
+    debug_assert!(at < len, "entry index inside the bucket");
+    let entries = word as *const Bucket;
+    // SAFETY: `word` is the published bucket for this hash under the
+    // caller's lock; `repl` is the caller's own unpublished bucket.
+    let (base, dst) = unsafe { ((*entries).as_ptr(), (*repl).as_mut_ptr()) };
+    for i in 0..len {
+        if i == at {
+            continue;
+        }
+        let j = if i < at { i } else { i - 1 };
+        // SAFETY: `i < len` indexes the published bucket and `j < len - 1`
+        // the caller's own, by the contract above.
+        let v = unsafe { entry_value_atomic(base, i) }.load(core::sync::atomic::Ordering::Relaxed);
+        // SAFETY: `dst.add(j)` is an entry of the caller's own bucket,
+        // which no other thread can reach until it is published.
+        unsafe { (*dst.add(j)).1 = v };
+    }
+}
+
 /// Re-reads the first `n` value words of the published bucket at `word`
 /// into the still-unpublished replacement `repl`, whose first `n`
 /// entries are a positional copy of it.
