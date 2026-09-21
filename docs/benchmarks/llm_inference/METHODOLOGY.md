@@ -31,9 +31,7 @@ Because $T_{\text{propose}} \ll T_{\text{verify}}$ (e.g. 35 µs << 20,000 µs, r
 - A claim PASSES iff the **BCa 95% bootstrap CI lower bound of the paired per-task ceiling gain $`\ge 5.0\%`$ floor**, NOT iff the point estimate $`\ge 5.0\%`$.
 - Paired per-task ceiling gain for task $i$:
 
-  ```math
-  \text{gain}_i = \frac{\alpha_{i, \text{expanse}} - \alpha_{i, \text{adaptive}}}{1 + \alpha_{i, \text{adaptive}}}
-  ```
+  $`\text{gain}_i = \frac{\alpha_{i, \text{expanse}} - \alpha_{i, \text{adaptive}}}{1 + \alpha_{i, \text{adaptive}}}`$
 
 - If the 95% CI lower bound is $`< 5.0\%`$ or spans zero, the outcome is recorded as `BOUNDARY_RESULT` or `INTERMEDIATE_floor_within_ci`, and Pillar C is skipped with the boundary result published.
 

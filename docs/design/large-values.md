@@ -1131,9 +1131,7 @@ Expanse solves this through **Base-Relative Addressing**:
 - All pointers between trie nodes, leaves, and arena chunks are stored as **relative offsets** ($u32$ or $u48$) from the base address of the mapped region ($P_{\text{base}}$).
 - Physical address resolution:
 
-  ```math
-  P_{\text{target}} = P_{\text{base}} + \text{offset}
-  ```
+  $`P_{\text{target}} = P_{\text{base}} + \text{offset}`$
 
 ```
 ========================================================================================

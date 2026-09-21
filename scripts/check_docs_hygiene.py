@@ -767,6 +767,13 @@ def scan_text(
         print(f"::error file={path_label},line={n}::{what} — AGENTS.md §7 forbids PII / local-infrastructure identifiers")
         fatal += 1
     if not is_html:
+        for n, line in enumerate(lines, 1):
+            # GitHub's file view renders a math fence only at the top level:
+            # inside a list item it stays a code block (its Markdown API
+            # renders it, so the API cannot be the check for this one).
+            if line.startswith((" ", "\t")) and line.strip() == "```math":
+                print(f"::error file={path_label},line={n}::indented ```math fence — inside a list item GitHub's file view shows it as a code block; write the formula as $`...`$ on a line of its own")
+                fatal += 1
         for n, what in check_math_escapes(kept):
             if what == "$$":
                 print(f"::error file={path_label},line={n}::dollar-delimited display math — GitHub recognises it only as a paragraph of its own and still strips its backslash escapes; use a ```math fence")
@@ -842,6 +849,7 @@ def self_test() -> int:
         ("text\n\n    $a\\_b$\n", 0, "indented code block"),
         ("- item\n\n    continuation $a\\_b$\n", 1, "list continuation is rendered"),
         ("$a\\_b$ docs-lint: allow\n", 0, "allow marker"),
+        ("- item\n\n  ```math\n  a_{b}\n  ```\n", 1, "math fence inside a list item"),
     ):
         fatal, _ = scan_text("t.md", text, deny, False, reg)
         assert fatal == want, f"math escapes: {why}: got {fatal}"

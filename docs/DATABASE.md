@@ -109,17 +109,11 @@ Search engines evaluate boolean queries (`AND`, `OR`, `AND NOT`, `XOR`) by inter
 #### Node-Level Algebra Rules:
 1. **FullExpanse Fast-Paths**:
 
-   ```math
-   \text{FullExpanse} \cap \text{Node} = \text{Node}
-   ```
+   $`\text{FullExpanse} \cap \text{Node} = \text{Node}`$
 
-   ```math
-   \text{FullExpanse} \cup \text{Node} = \text{FullExpanse}
-   ```
+   $`\text{FullExpanse} \cup \text{Node} = \text{FullExpanse}`$
 
-   ```math
-   \text{FullExpanse} \setminus \text{Node} = \neg \text{Node}
-   ```
+   $`\text{FullExpanse} \setminus \text{Node} = \neg \text{Node}`$
 
 2. **Disjoint Subexpanse Pruning**: If two edges at level $L$ have non-overlapping digit masks or diverging decode prefixes, the intersection yields `Null` in a single scalar check without descending into child subtrees.
 3. **SIMD Bitmap Leaf Algebra**: Level-1 `BitmapLeaf` nodes (32 bytes = 4 $\times$ `u64`) are intersected using 256-bit AVX2/NEON instructions (`_mm256_and_si256`), followed by `POPCNT` to test if the resulting population triggers downward hysteresis to a linear leaf.

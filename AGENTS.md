@@ -644,9 +644,7 @@ When diagnosing multi-writer scaling deficits ($C(W) < 1.0$) or attributing late
    - An optimization is not a concurrency improvement if it merely improves single-threaded baseline speed.
    - Concurrency hypotheses MUST be evaluated via the paired scaling factor ratio:
 
-     ```math
-     \text{BCa}_{\text{lower}}\left( \frac{C_{\text{variant}}(W)}{C_{\text{default}}(W)} \right) > 1.0 \quad \left(\text{or } \frac{T_{\text{variant}}(W)}{T_{\text{default}}(W)} > \frac{T_{\text{variant}}(1)}{T_{\text{default}}(1)}\right)
-     ```
+     $`\text{BCa}_{\text{lower}}\left( \frac{C_{\text{variant}}(W)}{C_{\text{default}}(W)} \right) > 1.0 \quad \left(\text{or } \frac{T_{\text{variant}}(W)}{T_{\text{default}}(W)} > \frac{T_{\text{variant}}(1)}{T_{\text{default}}(1)}\right)`$
 
      with $W \ge 2$ as the primary cell and $W=1$ as the control cell, across $\ge 2$ independent runs.
    - **Interleaved Rounds**: Benchmark drivers MUST interleave builds within each round (`(build × W)` execution order) to eliminate thermal drift and enable paired BCa bootstrapping.
@@ -796,9 +794,7 @@ The handoff states the audit's outcome ("claims: N verified, M derived, K labell
 4. **A factorial decomposition is only an attribution if the mechanisms are independent, and there is a cheap test for when they are not.**
    Write throughput as $X(W) = W \cdot X(1)/D(W)$, so a paired ratio is $D_{\text{default}}/D_{\text{variant}}$. If the interventions remove $a$ and $b$ from $D$ additively and independently, the combined ratio exceeds the product of the single ratios by $1 + ab/(D_d \cdot D_{12})$ — so **some** super-additivity is expected and is never by itself evidence that two interventions act on different terms. Because $a+b$ is fixed by the measured combined ratio $\rho$ and $ab \le ((a+b)/2)^2$, that excess is bounded:
 
-   ```math
-   E_{\max} = 1 + (\rho - 1)^2 / (4\rho)
-   ```
+   $`E_{\max} = 1 + (\rho - 1)^2 / (4\rho)`$
 
    where $\rho$ is the **measured combined ratio** and $E$ is the **excess**, $\rho$ divided by the product of the single-intervention ratios.
 

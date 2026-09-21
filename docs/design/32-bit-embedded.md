@@ -374,15 +374,11 @@ In a 32-bit trie, linear leaf key remainders are at most **3 bytes** ($`K_B \in 
 
 - **Set Leaf**: `[keys: KB * pop]`
 
-  ```math
-  \text{Size}_{\text{Set32}}(K_B, \text{pop}) = K_B \times \text{cap\_class}(\text{pop})
-  ```
+  $`\text{Size}_{\text{Set32}}(K_B, \text{pop}) = K_B \times \text{cap\_class}(\text{pop})`$
 
 - **Map Leaf**: `[values: u32 * pop][keys: KB * pop]`
 
-  ```math
-  \text{Size}_{\text{Map32}}(K_B, \text{pop}) = 4 \times \text{cap\_class}(\text{pop}) + K_B \times \text{cap\_class}(\text{pop})
-  ```
+  $`\text{Size}_{\text{Map32}}(K_B, \text{pop}) = 4 \times \text{cap\_class}(\text{pop}) + K_B \times \text{cap\_class}(\text{pop})`$
 
 ```rust
 // crates/expanse/src/leaf32.rs
