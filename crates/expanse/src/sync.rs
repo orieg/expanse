@@ -13473,6 +13473,48 @@ mod tests {
         assert!(m.is_empty());
     }
 
+    /// Draining a tree-rooted map to empty through the optimistic removal,
+    /// and refilling it (Refs #1047). The model test above interleaves
+    /// removals with inserts over 512 keys and `clear`s periodically, so it
+    /// never walks the population down to zero; this does, which is the
+    /// boundary the optimistic path hands back to `remove_serialised` — the
+    /// terminal directly below the root, the condense back to a root leaf,
+    /// and the empty root itself.
+    #[test]
+    fn sync_bytes_optimistic_removal_drains_a_tree_and_refills_it() {
+        let m = SyncExpanseBytesMap::new();
+        // Distinct by construction: `str_key_of` cycles four prefixes and is
+        // not injective.
+        let keys: Vec<Vec<u8>> = (0..2_000u64)
+            .map(|i| format!("drain/{i:06}/key").into_bytes())
+            .collect();
+        for k in &keys {
+            assert_eq!(m.insert(k, str_val_of(k)), None, "fill {k:?}");
+        }
+        assert_eq!(m.len(), keys.len() as u64, "census after the fill");
+        for (i, k) in keys.iter().enumerate() {
+            assert_eq!(m.remove(k), Some(str_val_of(k)), "drain {k:?}");
+            assert_eq!(
+                m.len(),
+                (keys.len() - i - 1) as u64,
+                "census while draining at {i}"
+            );
+            assert_eq!(m.get(k), None, "gone {k:?}");
+        }
+        assert!(m.is_empty(), "empty after the drain");
+        m.with_locked(|inner| assert_eq!(inner.len(), 0, "engine census after the drain"));
+        // Refill: the root grows from empty again, over memory the drain
+        // retired.
+        for k in &keys {
+            assert_eq!(m.insert(k, str_val_of(k) ^ 3), None, "refill {k:?}");
+        }
+        assert_eq!(m.len(), keys.len() as u64, "census after the refill");
+        let rd = m.reader();
+        for k in &keys {
+            assert_eq!(rd.get(k), Some(str_val_of(k) ^ 3), "refilled {k:?}");
+        }
+    }
+
     /// The optimistic **colliding** removal (Refs #1047): `FewBuckets`
     /// puts every key in one of 96 hash slots, and more than
     /// `ROOT_LEAF_CAP` of them are populated, so the hash trie is a real
