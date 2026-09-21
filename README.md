@@ -16,6 +16,46 @@ A **clean-room, pure-Rust implementation of Judy arrays**, modernized for modern
 
 Judy arrays (invented by Doug Baskins at Hewlett-Packard, ~2002) are sparse, dynamic associative structures built as 256-ary digital tries partitioned by **expanse** (decoding keys byte by byte over fixed digit ranges) rather than by population like comparison-based trees. Their speed comes from adaptive node compression — linear, bitmap, and uncompressed branches; linear and bitmap leaves; keys stored immediately inside pointers — tuned to keep every node traversal within a few cache-line fills.
 
+**Jump to:** [Install](#install) · [Key features](#key-features) · [Benchmarks](#comparative-performance-vs-industry-primitives) · [Quick starts by language](#distribution--quick-start) · [Platforms](#platform-support) · [Packaging guide](docs/PACKAGING.md)
+
+---
+
+## Install
+
+The C library (`libexpanse`, headers, man pages, and the `libJudy` drop-in links):
+
+```bash
+# macOS, or Homebrew on Linux (formula ships from v0.7.0)
+brew install orieg/tap/expanse
+
+# Debian / Ubuntu
+echo "deb [trusted=yes] https://orieg.github.io/expanse/apt/ stable main" | sudo tee /etc/apt/sources.list.d/expanse.list
+sudo apt-get update && sudo apt-get install -y libexpanse1 libexpanse-dev libjudy-compat
+
+# Fedora / RHEL / Rocky / Amazon Linux
+sudo dnf config-manager --add-repo https://orieg.github.io/expanse/rpm/expanse.repo
+sudo dnf install -y libexpanse libexpanse-devel libjudy-compat
+```
+
+Prebuilt archives for Linux (glibc, musl), macOS and Windows, with `SHA256SUMS`, are on the [Releases page](https://github.com/orieg/expanse/releases/latest); vcpkg, NuGet and MacPorts are covered in the [packaging guide](docs/PACKAGING.md).
+
+Language packages:
+
+| Language | Install | Quick start |
+|---|---|---|
+| Rust | `cargo add expanse-trie` | [Rust](#1-rust--cargo-64-bit--32-bit) |
+| Python | `pip install expanse-trie` | [Python](#8-python-quickstart-pip-install-expanse-trie) |
+| Node.js / Bun / Deno | `npm i @orieg/expanse` | [Node.js](#12-nodejs-bun--deno-quickstart-npm-i-oriegexpanse) |
+| .NET | `dotnet add package Orieg.Expanse` | [.NET](#10-net--c-quickstart-oriegexpanse) |
+| Java / Scala | Maven `io.github.orieg:expanse-java` | [Java](#9-java--scala-quickstart-iogithuboriegexpanse-java) |
+| PHP | `composer require orieg/expanse` | [PHP](#11-php-quickstart-oriegexpanse) |
+| Ruby | `gem install expanse` | [docs/bindings/ruby.md](docs/bindings/ruby.md) |
+| Go | `go get github.com/orieg/expanse/bindings/go` | [bindings/go](bindings/go/README.md) |
+| WebAssembly | `npm i @orieg/expanse-wasm` | [crates/expanse-wasm](crates/expanse-wasm) |
+| ESP-IDF | component `components/expanse` | [ESP-IDF](#13-espressif-esp-idf-component-esp32-c2c3c6h2p4) |
+
+Then link with `-lexpanse` (or keep `-lJudy`), or see the [C](#4-modern-c-api-expanseh), [C++](#5-modern-c20-header-only-api-expansehpp) and [legacy `Judy.h`](#6-drop-in-legacy-c-api-judyh) examples.
+
 ---
 
 ## Why "Expanse"?
