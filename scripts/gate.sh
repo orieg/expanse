@@ -131,6 +131,7 @@ python3 scripts/bench_counters.py --self-test
 python3 scripts/pin_exposure.py --self-test
 python3 scripts/warmup_ramp.py --self-test
 python3 scripts/bench_report.py --self-test
+python3 scripts/update_homebrew_formula.py --self-test
 python3 scripts/check_docs_hygiene.py --self-test
 python3 scripts/check_ecosystem_theme.py --self-test
 python3 scripts/check_bench_suites.py --self-test

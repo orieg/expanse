@@ -1,0 +1,82 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=tcl:et:sw=4:ts=4:sts=4
+
+# Rendered by scripts/update_homebrew_formula.py at release time; the template
+# lives in github.com/orieg/expanse at extra/macports/Portfile.in.
+#
+# Installs the release archive the project's CI built and tested rather than
+# compiling from source: a source build needs a Rust 1.88+ toolchain and a
+# `cargo.crates` vendoring list regenerated for every release.
+
+PortSystem          1.0
+
+name                expanse
+version             @VERSION@
+categories          devel databases
+platforms           darwin
+supported_archs     arm64 x86_64
+license             {MIT Apache-2}
+maintainers         {@orieg} openmaintainer
+
+description         Judy-array digital tries in Rust, with a drop-in libjudy C ABI
+long_description    Expanse is a clean-room, pure-Rust implementation of Judy arrays. \
+                    This port installs libexpanse, the C ABI library that exports both \
+                    the modern expanse.h surface and the legacy Judy1/JudyL/JudySL/JudyHS \
+                    symbols, with its headers, manual pages and a libJudy compatibility link.
+
+homepage            https://github.com/orieg/expanse
+master_sites        https://github.com/orieg/expanse/releases/download/v${version}/
+
+if {${configure.build_arch} eq "arm64"} {
+    set expanse_target  aarch64-apple-darwin
+    checksums           sha256  @SHA256_AARCH64_APPLE_DARWIN@ \
+                        size    @SIZE_AARCH64_APPLE_DARWIN@
+} else {
+    set expanse_target  x86_64-apple-darwin
+    checksums           sha256  @SHA256_X86_64_APPLE_DARWIN@ \
+                        size    @SIZE_X86_64_APPLE_DARWIN@
+}
+distname            expanse-${version}-${expanse_target}
+
+conflicts           judy
+
+# The archive has no top-level directory.
+extract.mkdir       yes
+use_configure       no
+build               {}
+
+destroot {
+    xinstall -d ${destroot}${prefix}/include ${destroot}${prefix}/lib/pkgconfig \
+        ${destroot}${prefix}/share/man/man3
+    xinstall -m 0644 {*}[glob ${worksrcpath}/include/*] ${destroot}${prefix}/include/
+    xinstall -m 0644 ${worksrcpath}/lib/libexpanse.a ${destroot}${prefix}/lib/
+    xinstall -m 0755 ${worksrcpath}/lib/libexpanse.dylib ${destroot}${prefix}/lib/
+    xinstall -m 0644 {*}[glob ${worksrcpath}/share/man/man3/*.3] ${destroot}${prefix}/share/man/man3/
+
+    # cargo records the build directory as the dylib's install name.
+    system "install_name_tool -id ${prefix}/lib/libexpanse.dylib ${destroot}${prefix}/lib/libexpanse.dylib"
+    # Re-sign: changing the install name invalidates the ad-hoc signature arm64 requires.
+    system "codesign --force --sign - ${destroot}${prefix}/lib/libexpanse.dylib"
+
+    # libjudy-compat: `-lJudy` resolves to libexpanse.
+    ln -s libexpanse.dylib ${destroot}${prefix}/lib/libJudy.dylib
+    ln -s libexpanse.a ${destroot}${prefix}/lib/libJudy.a
+
+    foreach {pc desc} {expanse "Expanse trie engine C-API" judy "Expanse libjudy compat C-API"} {
+        set fd [open ${destroot}${prefix}/lib/pkgconfig/${pc}.pc w]
+        puts ${fd} "prefix=${prefix}"
+        puts ${fd} "exec_prefix=\${prefix}"
+        puts ${fd} "libdir=\${exec_prefix}/lib"
+        puts ${fd} "includedir=\${prefix}/include"
+        puts ${fd} ""
+        puts ${fd} "Name: ${pc}"
+        puts ${fd} "Description: ${desc}"
+        puts ${fd} "Version: ${version}"
+        puts ${fd} "Libs: -L\${libdir} -lexpanse"
+        puts ${fd} "Cflags: -I\${includedir}"
+        close ${fd}
+    }
+}
+
+livecheck.type      regex
+livecheck.url       https://github.com/orieg/expanse/releases
+livecheck.regex     {expanse-(\d+(?:\.\d+)+)-aarch64-apple-darwin}

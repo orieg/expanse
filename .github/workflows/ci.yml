@@ -391,6 +391,10 @@ jobs:
           python3 tests/test_perf_report.py
           python3 scripts/bench_report.py --self-test
           python3 scripts/bench_baseline.py --self-test
+          # Renders the Homebrew formula and MacPorts Portfile templates against
+          # synthetic archives, and proves the missing-archive and unknown-
+          # placeholder cases fail rather than emit a placeholder checksum.
+          python3 scripts/update_homebrew_formula.py --self-test
           # perf_counters.py needs a PMU to collect anything, but its CSV
           # parser, its "unsupported counter is None, never 0" rule and its
           # derived rendering are all checkable without one.

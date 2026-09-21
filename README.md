@@ -258,8 +258,8 @@ Instructions retired and wall-clock latency through the identical C ABI on ident
 | **Linux ARM64** | `aarch64-unknown-linux-gnu` | `libexpanse` APT/RPM package (Graviton, Raspberry Pi 4/5), `.tar.gz` |
 | **Linux RISC-V 64-bit** | `riscv64gc-unknown-linux-gnu` | `libexpanse` APT/RPM package (RV64GC edge/server), `.tar.gz` |
 | **Linux x86-64 Static** | `x86_64-unknown-linux-musl` | Static musl archives, Alpine Linux compatible `.tar.gz` |
-| **macOS Apple Silicon** | `aarch64-apple-darwin` | Universal / Native AArch64 `.tar.gz` |
-| **macOS Intel** | `x86_64-apple-darwin` | x86-64 `.tar.gz` |
+| **macOS Apple Silicon** | `aarch64-apple-darwin` | Universal / Native AArch64 `.tar.gz`, Homebrew tap (`orieg/tap/expanse`), MacPorts Portfile |
+| **macOS Intel** | `x86_64-apple-darwin` | x86-64 `.tar.gz`, Homebrew tap (`orieg/tap/expanse`), MacPorts Portfile |
 | **Windows x86-64** | `x86_64-pc-windows-msvc` | Precompiled `expanse.dll` / `expanse.lib` `.zip`, vcpkg, NuGet |
 | **RISC-V 32-Bit (RV32)** | `riscv32imac-unknown-none-elf` | `#![no_std]` staticlib / embedded crate ([design #109](docs/design/32-bit-embedded.md)) |
 | **ARM Cortex-M (M4/M7)** | `thumbv7em-none-eabihf` | `#![no_std]` staticlib / embedded crate ([design #109](docs/design/32-bit-embedded.md)); C ABI measured on-target on an STM32H747I-DISCO Cortex-M7 and Cortex-M4 ([harness](integrations/stm32h747/README.md), [results](docs/benchmarks/stm32h747/README.md)); executed on every PR on an emulated Cortex-M3 (`thumbv7m-none-eabi`, QEMU `mps2-an385`, [smoke](integrations/qemu-cortex-m3/README.md)) |
@@ -326,6 +326,12 @@ sudo dnf config-manager --add-repo https://orieg.github.io/expanse/rpm/expanse.r
 # 2. Update & install runtime, dev headers, and legacy Judy compatibility symlinks
 sudo dnf install -y libexpanse libexpanse-devel libjudy-compat
 ```
+
+### 3b. macOS: Homebrew & MacPorts
+```bash
+brew install orieg/tap/expanse
+```
+Installs `libexpanse` (dylib and static), `expanse.h` / `expanse.hpp` / `Judy.h`, the manual pages, pkg-config files and the `libJudy` compatibility links; it also works under Homebrew on Linux. A MacPorts `Portfile` ships with every release — see [docs/PACKAGING.md §2.15](docs/PACKAGING.md).
 
 ### 4. Modern C API (`expanse.h`)
 ```c
