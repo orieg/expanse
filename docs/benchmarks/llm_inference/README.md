@@ -53,7 +53,9 @@ All benchmark timings below were measured on an **Apple M1 laptop (8-core, arm64
 
 In speculative decoding with verification, the per-step draft overhead (propose + acceptance + incremental re-indexing, measured at ~2–61 µs in the Python harness — an upper bound on pure lookup cost) is dwarfed by the target model forward pass (15–50 ms). Hence, the theoretical throughput speedup is bounded by the acceptance length ratio:
 
-$$\text{tok/s Gain Ceiling} \le \frac{1 + \alpha_{\text{expanse}}}{1 + \alpha_{\text{baseline}}}$$
+```math
+\text{tok/s Gain Ceiling} \le \frac{1 + \alpha_{\text{expanse}}}{1 + \alpha_{\text{baseline}}}
+```
 
 Per Research Discipline Rule 1 (CI Lower Bound $\ge$ Floor), gating is evaluated on the BCa 95% bootstrap confidence interval of the paired per-task ceiling gain:
 

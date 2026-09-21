@@ -1632,7 +1632,9 @@ is expected, and is not itself evidence that the two changes act on different
 terms. But $a + b$ is fixed by the measured combined ratio $\rho$, and
 $ab \le ((a+b)/2)^2$, which bounds the excess at
 
-$$E_{\max} = 1 + (\rho - 1)^2 / (4\rho)$$
+```math
+E_{\max} = 1 + (\rho - 1)^2 / (4\rho)
+```
 
 | cell | $\rho$ (both together) | product | excess observed | $E_{\max}$ | over the ceiling |
 |---|--:|--:|--:|--:|--:|
@@ -4315,8 +4317,8 @@ void lists empty (`void: []`), and `evaluation: EVALUATED`.
   0.946–0.980 on `pinpercore` (`REFUTED`) and 0.977–1.020 on `0-15` (`INCONCLUSIVE`), matching the
   pre-registered expectation in METHODOLOGY §20.9 (append path contention at T = 8).
 
-- **Family F (50% read, 50% RMW via striped lock ($S = 1,024$, D1), Zipfian $\theta = 0.99$): PASS across all gates.**
-  *(Correction: previously described in PR #1033 as "RMW via conditional publish"; family F actually executed `get` + `insert` under the external striped lock ($S = 1,024$, D1), `crates/expanse/benches/ycsb_concurrent_common/mod.rs:113-115, 641-736`, and `rmw_provider` reads `striped_lock` in every row of all four committed artifacts. Per D1, multi-writer scaling of a `compare_exchange` loop remains unmeasured pending a dedicated registration.)*
+- **Family F (50% read, 50% RMW via striped lock ($`S = 1,024`$, D1), Zipfian $`\theta = 0.99`$): PASS across all gates.**
+  *(Correction: previously described in PR #1033 as "RMW via conditional publish"; family F actually executed `get` + `insert` under the external striped lock ($`S = 1,024`$, D1), `crates/expanse/benches/ycsb_concurrent_common/mod.rs:113-115, 641-736`, and `rmw_provider` reads `striped_lock` in every row of all four committed artifacts. Per D1, multi-writer scaling of a `compare_exchange` loop remains unmeasured pending a dedicated registration.)*
   Scaling (G1) reaches 2.103–2.177× at T = 2, 5.636–6.524× at T = 4, and 10.451–11.840× at T = 8.
   Level (G2) is 1.459–1.500× at T = 2, 2.588–2.686× at T = 4, and 3.469–3.663× at T = 8.
   Skew retention (G3) is 1.102–1.126× at T = 2, 1.063–1.093× at T = 4, and 0.983–1.031× at T = 8.

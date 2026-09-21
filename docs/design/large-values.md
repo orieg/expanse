@@ -404,7 +404,10 @@ During a range scan `scan_filtered(from..=to, predicate, callback)`:
 ### 5.3 SIMD/SWAR Vectorization Kernels
 
 When evaluating range bounds on 32-bit timestamps:
-$$\text{Predicate}(V) = (V_{\text{meta}} \ge T_{\text{min}}) \land (V_{\text{meta}} \le T_{\text{max}})$$
+
+```math
+\text{Predicate}(V) = (V_{\text{meta}} \ge T_{\text{min}}) \land (V_{\text{meta}} \le T_{\text{max}})
+```
 
 Using AVX2 / NEON vector intrinsics, 4–8 slots are unpacked and filtered in parallel:
 
@@ -462,16 +465,32 @@ Let:
 
 #### DRAM Traffic Model
 Under the naive pointer-per-payload approach:
-$$\text{DRAM}_{\text{naive}}(N, \sigma) = N \cdot \left( \frac{8}{B_{\text{line}}} \cdot B_{\text{line}} \right) + N \cdot \lceil S_{\text{payload}} / B_{\text{line}} \rceil \cdot B_{\text{line}}$$
+
+```math
+\text{DRAM}_{\text{naive}}(N, \sigma) = N \cdot \left( \frac{8}{B_{\text{line}}} \cdot B_{\text{line}} \right) + N \cdot \lceil S_{\text{payload}} / B_{\text{line}} \rceil \cdot B_{\text{line}}
+```
+
 Since each pointer points to an independent heap allocation, every key forces at least one cold 64-byte line fill:
-$$\text{DRAM}_{\text{naive}} = N \cdot 8\text{ B (leaf)} + N \cdot 64\text{ B (payload)} = 72N\text{ bytes}$$
+
+```math
+\text{DRAM}_{\text{naive}} = N \cdot 8\text{ B (leaf)} + N \cdot 64\text{ B (payload)} = 72N\text{ bytes}
+```
 
 Under the Expanse Columnar Filter model:
-$$\text{DRAM}_{\text{expanse}}(N, \sigma) = N \cdot 8\text{ B (leaf streaming)} + \sigma \cdot N \cdot 64\text{ B (matching payloads)}$$
-$$\text{DRAM}_{\text{expanse}}(N, \sigma) = N \cdot (8 + 64\sigma)\text{ bytes}$$
+
+```math
+\text{DRAM}_{\text{expanse}}(N, \sigma) = N \cdot 8\text{ B (leaf streaming)} + \sigma \cdot N \cdot 64\text{ B (matching payloads)}
+```
+
+```math
+\text{DRAM}_{\text{expanse}}(N, \sigma) = N \cdot (8 + 64\sigma)\text{ bytes}
+```
 
 #### Bandwidth Reduction Ratio ($\mathcal{R}_{\text{BW}}$)
-$$\mathcal{R}_{\text{BW}}(\sigma) = \frac{\text{DRAM}_{\text{expanse}}}{\text{DRAM}_{\text{naive}}} = \frac{8 + 64\sigma}{72} = \frac{1 + 8\sigma}{9}$$
+
+```math
+\mathcal{R}_{\text{BW}}(\sigma) = \frac{\text{DRAM}_{\text{expanse}}}{\text{DRAM}_{\text{naive}}} = \frac{8 + 64\sigma}{72} = \frac{1 + 8\sigma}{9}
+```
 
 | Selectivity ($\sigma$) | Naive DRAM Traffic ($10^6$ keys) | Expanse DRAM Traffic ($10^6$ keys) | Traffic Reduction | Speedup Factor ($\frac{T_{\text{naive}}}{T_{\text{expanse}}}$) |
 |---|---|---|---|---|
@@ -1111,7 +1130,10 @@ A fatal limitation of absolute 64-bit pointers is that a memory region mapped vi
 Expanse solves this through **Base-Relative Addressing**:
 - All pointers between trie nodes, leaves, and arena chunks are stored as **relative offsets** ($u32$ or $u48$) from the base address of the mapped region ($P_{\text{base}}$).
 - Physical address resolution:
-  $$P_{\text{target}} = P_{\text{base}} + \text{offset}$$
+
+  ```math
+  P_{\text{target}} = P_{\text{base}} + \text{offset}
+  ```
 
 ```
 ========================================================================================

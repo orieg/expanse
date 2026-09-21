@@ -702,7 +702,6 @@ def check_json_datasets(root: Path, registry: list[dict[str, Any]]) -> list[tupl
 # form and the ```math fence are passed through verbatim. Checked against the
 # GitHub Markdown API, which returns the string handed to the renderer.
 MATH_INLINE = re.compile(r"(?<![\\`$])\$(?!`)(?!\$)([^$\n]+?)(?<!`)\$(?!\$)")
-MATH_DISPLAY_LINE = re.compile(r"\$\$(.+?)\$\$")
 MATH_EATEN_ESCAPE = re.compile(r"\\[!-/:-@\[-`{-~]")
 MATH_HTML_ENTITY = re.compile(r"&(?:gt|lt|amp);")
 LIST_ITEM = re.compile(r"^\s{0,3}(?:[-*+]|\d+[.)])\s")
@@ -718,7 +717,7 @@ def check_math_escapes(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
     indent is an item's continuation and is rendered).
     """
     hits: list[tuple[int, str]] = []
-    in_list = in_code = in_display = False
+    in_list = in_code = False
     prev_blank = True
     for n, line in lines:
         if not line.strip():
@@ -733,16 +732,15 @@ def check_math_escapes(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
         prev_blank = False
         if in_code or ALLOW_MARKER in line:
             continue
-        if line.strip() == "$$":
-            in_display = not in_display
+        # Drop verbatim math first, then every remaining inline-code span.
+        text = INLINE_CODE.sub("", MATH_BACKTICK.sub("", line))
+        if "$$" in text:
+            # Dollar-delimited display math is recognised only as a paragraph
+            # of its own: next to a text line, or as a list item's continuation,
+            # it is left as literal text and its underscores become emphasis.
+            hits.append((n, "$$"))
             continue
-        if in_display:
-            spans = [line]
-        else:
-            # Drop verbatim math first, then every remaining inline-code span.
-            text = INLINE_CODE.sub("", MATH_BACKTICK.sub("", line))
-            spans = [m.group(1) for m in MATH_DISPLAY_LINE.finditer(text)]
-            spans += [m.group(1) for m in MATH_INLINE.finditer(MATH_DISPLAY_LINE.sub("", text))]
+        spans = [m.group(1) for m in MATH_INLINE.finditer(text)]
         for span in spans:
             bad = MATH_EATEN_ESCAPE.search(span) or MATH_HTML_ENTITY.search(span)
             if bad:
@@ -770,7 +768,10 @@ def scan_text(
         fatal += 1
     if not is_html:
         for n, what in check_math_escapes(kept):
-            print(f"::error file={path_label},line={n}::{what!r} inside dollar-delimited math — GitHub's Markdown pass strips the backslash before the renderer sees it; write the span as $`...`$ (inline) or a ```math fence (display)")
+            if what == "$$":
+                print(f"::error file={path_label},line={n}::dollar-delimited display math — GitHub recognises it only as a paragraph of its own and still strips its backslash escapes; use a ```math fence")
+            else:
+                print(f"::error file={path_label},line={n}::{what!r} inside dollar-delimited math — GitHub's Markdown pass strips the backslash before the renderer sees it; write the span as $`...`$")
             fatal += 1
         for n, what in check_mechanism_claims(kept):
             print(f"::error file={path_label},line={n}::mechanism claim ({what!r}) with no counter evidence in its paragraph — AGENTS.md §8.9 wants a counter, a `results/baseline_*` reference, or an explicit 'unmeasured' / 'hypothesis' / 'cause unknown' qualifier")
@@ -831,7 +832,8 @@ def self_test() -> int:
         ("$N \\in \\{1, 2\\}$\n", 1, "braces vanish"),
         ("floor of $0.1\\%$ here\n", 1, "percent becomes a comment"),
         ("$$a \\, b$$\n", 1, "single-line display"),
-        ("$$\n\\text{cap\\_class}\n$$\n", 1, "multi-line display"),
+        ("$$\n\\text{cap\\_class}\n$$\n", 2, "multi-line display: both delimiters"),
+        ("text:\n$$T_{a} = T_{b}$$\n", 1, "display next to text is never recognised"),
         ("$x &gt; y$\n", 1, "html entity"),
         ("```math\n\\text{cap\\_class}\n```\n", 0, "math fence is verbatim"),
         ("$T_{\\text{read}} \\le \\lambda$ and $W=1$\n", 0, "letter commands are untouched"),

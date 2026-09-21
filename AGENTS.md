@@ -643,7 +643,11 @@ When diagnosing multi-writer scaling deficits ($C(W) < 1.0$) or attributing late
 2. **Concurrency-Specific Decision Statistics & Interleaved Execution**:
    - An optimization is not a concurrency improvement if it merely improves single-threaded baseline speed.
    - Concurrency hypotheses MUST be evaluated via the paired scaling factor ratio:
-     $$\text{BCa}_{\text{lower}}\left( \frac{C_{\text{variant}}(W)}{C_{\text{default}}(W)} \right) > 1.0 \quad \left(\text{or } \frac{T_{\text{variant}}(W)}{T_{\text{default}}(W)} > \frac{T_{\text{variant}}(1)}{T_{\text{default}}(1)}\right)$$
+
+     ```math
+     \text{BCa}_{\text{lower}}\left( \frac{C_{\text{variant}}(W)}{C_{\text{default}}(W)} \right) > 1.0 \quad \left(\text{or } \frac{T_{\text{variant}}(W)}{T_{\text{default}}(W)} > \frac{T_{\text{variant}}(1)}{T_{\text{default}}(1)}\right)
+     ```
+
      with $W \ge 2$ as the primary cell and $W=1$ as the control cell, across $\ge 2$ independent runs.
    - **Interleaved Rounds**: Benchmark drivers MUST interleave builds within each round (`(build × W)` execution order) to eliminate thermal drift and enable paired BCa bootstrapping.
    - **Frequency Droop Bootstrapping**: Measure PMU `cycles / ref-cycles` across $\ge 8$ rounds (one sample per round) so that frequency droop can be evaluated with a rigorous BCa 95% confidence interval lower bound.
@@ -792,7 +796,9 @@ The handoff states the audit's outcome ("claims: N verified, M derived, K labell
 4. **A factorial decomposition is only an attribution if the mechanisms are independent, and there is a cheap test for when they are not.**
    Write throughput as $X(W) = W \cdot X(1)/D(W)$, so a paired ratio is $D_{\text{default}}/D_{\text{variant}}$. If the interventions remove $a$ and $b$ from $D$ additively and independently, the combined ratio exceeds the product of the single ratios by $1 + ab/(D_d \cdot D_{12})$ — so **some** super-additivity is expected and is never by itself evidence that two interventions act on different terms. Because $a+b$ is fixed by the measured combined ratio $\rho$ and $ab \le ((a+b)/2)^2$, that excess is bounded:
 
-   $$E_{\max} = 1 + (\rho - 1)^2 / (4\rho)$$
+   ```math
+   E_{\max} = 1 + (\rho - 1)^2 / (4\rho)
+   ```
 
    where $\rho$ is the **measured combined ratio** and $E$ is the **excess**, $\rho$ divided by the product of the single-intervention ratios.
 
@@ -800,7 +806,7 @@ The handoff states the audit's outcome ("claims: N verified, M derived, K labell
    - **What the data still supports** is each intervention's marginal value *given* the other. Publish those and the combined ratio; do not publish "intervention A is worth X" as a property of A.
    - **To attribute, invert the design**: take the combined build as the baseline and ablate back to single-intervention variants, measuring the loss from removing each. Discriminating masking needs §8.20.4's time-budget decomposition, a USL refit per cell, or PMU snoop counts.
 
-   *Evidence: #930. Padding alone ≈ 1.04×, sharding alone ≈ 1.25×, both ≈ 2.09×. The excess of 1.602 exceeded $E_{\max} = 1.142$ by 4.25×, and no fixed contention/coherency pair reproduced the shape across W ∈ {2, 4, 8}.*
+   *Evidence: #930. Padding alone ≈ 1.04×, sharding alone ≈ 1.25×, both ≈ 2.09×. The excess of 1.602 exceeded $`E_{\max} = 1.142`$ by 4.25×, and no fixed contention/coherency pair reproduced the shape across W ∈ {2, 4, 8}.*
 
 5. **A verdict's stated reason expires separately from the verdict, and a correct verdict with a wrong reason is the more dangerous of the two.**
    §8.20.6 re-runs an arm when a dominant cost is removed, because the *verdict* may have expired. That check is triggered by the verdict looking stale. Nothing triggers it when the verdict is still right and only its **cause** was wrong — so the wrong cause survives, gets cited, and directs the next investigation.

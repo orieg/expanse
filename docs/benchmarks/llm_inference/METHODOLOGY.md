@@ -16,15 +16,25 @@ This benchmark suite addresses the exact decision a serving engine architect mus
 ## 2. Step 0 — Math-First Theoretical Speedup Ceiling Model & Gating
 
 In speculative decoding with verification:
-$$\text{Throughput} = \frac{1 + \alpha}{T_{\text{verify}} + T_{\text{propose}}}$$
+
+```math
+\text{Throughput} = \frac{1 + \alpha}{T_{\text{verify}} + T_{\text{propose}}}
+```
 
 Because $T_{\text{propose}} \ll T_{\text{verify}}$ (e.g. 35 µs << 20,000 µs, representing < 0.2% of step time), the theoretical throughput speedup ceiling is strictly bounded by:
-$$\text{tok/s Gain Ceiling} \le \frac{1 + \alpha_{\text{expanse}}}{1 + \alpha_{\text{baseline}}}$$
+
+```math
+\text{tok/s Gain Ceiling} \le \frac{1 + \alpha_{\text{expanse}}}{1 + \alpha_{\text{baseline}}}
+```
 
 **Gating Rule (Research Discipline Rule 1 / B-9)**:
 - A claim PASSES iff the **BCa 95% bootstrap CI lower bound of the paired per-task ceiling gain $`\ge 5.0\%`$ floor**, NOT iff the point estimate $`\ge 5.0\%`$.
 - Paired per-task ceiling gain for task $i$:
-  $$\text{gain}_i = \frac{\alpha_{i, \text{expanse}} - \alpha_{i, \text{adaptive}}}{1 + \alpha_{i, \text{adaptive}}}$$
+
+  ```math
+  \text{gain}_i = \frac{\alpha_{i, \text{expanse}} - \alpha_{i, \text{adaptive}}}{1 + \alpha_{i, \text{adaptive}}}
+  ```
+
 - If the 95% CI lower bound is $`< 5.0\%`$ or spans zero, the outcome is recorded as `BOUNDARY_RESULT` or `INTERMEDIATE_floor_within_ci`, and Pillar C is skipped with the boundary result published.
 
 ---

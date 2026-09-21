@@ -134,9 +134,11 @@ would leave the window, so the ends never cross or double-yield. The 32-bit
 
 `ExpanseSet` exposes native set algebra — `intersection` / `union` / `difference` / `symmetric_difference` (materializing a new set), their `*_len` cardinality variants, and the `BitAnd` / `BitOr` / `Sub` / `BitXor` operators — computed over the trie structure rather than by composing navigation primitives element by element (the composed path lost every Boolean cell to a word-parallel container; see `docs/benchmarks/search_inverted_index/`).
 
-**One structural walk.** Only the **intersection cardinality** is computed structurally; the other three derive from it and the two populations (both $O(1)$):
+**One structural walk.** Only the **intersection cardinality** is computed structurally; the other three derive from it and the two populations (both $`O(1)`$):
 
-$$|A \cap B| \text{ (structural)}, \quad |A \cup B| = |A| + |B| - |A \cap B|, \quad |A \setminus B| = |A| - |A \cap B|, \quad |A \bigtriangleup B| = |A| + |B| - 2|A \cap B|.$$
+```math
+|A \cap B| \text{ (structural)}, \quad |A \cup B| = |A| + |B| - |A \cap B|, \quad |A \setminus B| = |A| - |A \cap B|, \quad |A \bigtriangleup B| = |A| + |B| - 2|A \cap B|.
+```
 
 **`intersection_len` descent** (`algebra::intersection_len(ea, eb, level)`), over two non-null edges covering the same expanse:
 
@@ -426,7 +428,9 @@ If you add a new node type, adjust promotion thresholds, or add benchmark arms:
 For strings sharing a common prefix of $p$ 8-byte chunks, an insertion traverses $p$
 intermediate nodes and then takes one divergence step:
 
-$$\text{Cost} = p \cdot C_{\text{read}} + C_{\text{diverge}}$$
+```math
+\text{Cost} = p \cdot C_{\text{read}} + C_{\text{diverge}}
+```
 
 - $C_{\text{read}}$ is `MapCore::get(chunk)` (`crates/expanse/src/map.rs`): for a sub-map
   whose root is a leaf (≤ `ROOT_LEAF_CAP` = 31 entries) a bounded search of one
