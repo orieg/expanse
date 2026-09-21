@@ -1324,7 +1324,7 @@ void run does not change the sample size.
   meeting the gate. Whether the R = 1 level now published bears on the question
   is an analysis this section does not perform.
 - **No comparison with Masstree or HOT.** Those readers-only competitor cells
-  are pending re-measurement (#730), no competitor arm is dispatched by this
+  are pending re-measurement (#730, #1061), no competitor arm is dispatched by this
   suite, and no ratio against one is formed *(workloads differ:
   `concurrency_readers_str` vs `masstree_conc_str`)*.
 - **Nothing read from the retracted figure.** The floors are derived only from
@@ -1340,6 +1340,28 @@ void run does not change the sample size.
   prices (§16.4).
 - **No statement about the cause of the non-exchangeable rounds** (§16.6), which
   is unmeasured.
+
+### 16.12 Dated note, 2026-09-21: what this gate measures, and one pointer
+
+Appended as #730 is closed as superseded. §16.1–§16.11 above are unchanged,
+except that the pending citation in §16.11 now reads `(#730, #1061)`, so that it
+names an open issue.
+
+- **This gate measures single-reader latency, not reader scaling.** Its
+  statistic is the R = 8 per-reader cost's upper bound against an absolute
+  floor. In each of the four (pin, run) pairs `README.md` §22 publishes at
+  `7cd5140e`, the R = 1 cell is 78.07–79.03 % of the R = 8 cell (derived from
+  that table's point estimates, e.g. 213.90 ÷ 270.64 ns at `0-15` run 1), so
+  most of what the statistic reads is present with one reader. A change that meets §16 is credited with
+  meeting §16. It does not thereby show that the string reader scales with the
+  reader count, and §16.11 already declines to attribute a mechanism.
+- **The floors are absolute, so unrelated work spends the margin.** Neither the
+  floors nor the statistic move (AGENTS.md §8.19). A later evaluation reports
+  how much of any improvement was already present at its immediate parent.
+- **#730's founding figure is retracted and inverted.** The 0.856 ratio is in
+  `.github/superseded-figures.json`, and the same `masstree_conc_str` cell reads
+  1.034 [1.015, 1.046] at `929574b5`, Expanse ahead. The readers-only questions
+  that remain are carried by #1061.
 
 ## 17. Pre-registration for #929 — the `SyncExpanseStrMap` multi-writer design (appended 2026-09-15, locked before any engine code on the string wrapper's write path)
 
@@ -2293,6 +2315,21 @@ A void cell is discarded whole and the discard is disclosed beside the result
   re-derived or replaced by anything in this section.
 - **Not predicted:** writer-count cells, the bytes and blob wrappers, any other
   host, and any level, direction or magnitude for a future head.
+
+### 18.9 Withdrawn, 2026-09-21
+
+This registration is withdrawn before any cell of its sweep ran. §18.1–§18.8
+above are unchanged and stand as the record of what was registered.
+
+- **It cannot run as registered.** By §18.3 and §18.4's own labels, P18.1 and
+  P18.2 are contingent on instruments that do not exist and P18.4 is partly
+  contingent. The R ∈ {2, 4} cells
+  cannot be dispatched without a driver change (§18.3).
+- **The question behind it has changed.** #730 was opened on a competitive loss
+  that is retracted and has since inverted (§16.12), and #730 is closed as
+  superseded.
+- A reader-count measurement of the FFI string cell, if one is wanted later, is
+  registered afresh against #1061 rather than resumed from this section.
 
 ## 19. Pre-registration for #929, second gate — the `SyncExpanseStrMap` multi-writer path as a priced trade (appended and locked 2026-09-17, before any admissible run of it)
 

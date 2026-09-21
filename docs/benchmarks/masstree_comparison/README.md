@@ -825,7 +825,7 @@ cell in this suite was measured on.
 | 4 | 21.00 | 26.75 | 1.299 [1.259, 1.346] | Expanse — **`REFUTED`** | 9.32 | 6.74 | 0.746 [0.685, 0.814] |
 | 8 | 17.68 | 21.12 | 1.189 [1.158, 1.220] | Expanse — **`REFUTED`** | 14.82 | 12.74 | 0.846 [0.803, 0.892] |
 
-The W = 0 row is the readers-only string cell, which is pending re-measurement (#730).
+The W = 0 row is the readers-only string cell, which is pending re-measurement (#730, #1061).
 Its committed Expanse reader levels come from two procedures: one harness
 process running every round of the cell (this table's pair at `929574b5`, the
 `6f8d6ba5` pair kept at `results/at_6f8d6ba5/` and the `a1982ff2` pair kept at
