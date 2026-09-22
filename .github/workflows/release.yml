@@ -831,8 +831,8 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     # The shared budget below waits 30+60+120+240+240 s; Maven Central's four
-    # extra attempts (EXTRA_ATTEMPTS in the script) add 4 x 240 s, about 28
-    # minutes of waiting in all before the probes' own time.
+    # extra attempts (EXTRA_ATTEMPTS in the script) add 4 x 240 s, 1,650 s of
+    # waiting in all before the probes' own time, so the timeout holds it.
     timeout-minutes: 45
     permissions:
       contents: read
