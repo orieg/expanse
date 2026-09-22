@@ -3,8 +3,8 @@
 # `lint` and `test` CI jobs actually run — so "did you run the gates?" has a
 # checkable answer. CI (the `ci-gate` rollup) remains the authority.
 #
-#   scripts/gate.sh                 # fmt, clippy, workspace tests (PROPTEST_CASES=500), repo scripts, docs hygiene
-#   scripts/gate.sh --quick         # fmt, clippy, repo scripts, docs hygiene only (no cargo test)
+#   scripts/gate.sh                 # fmt, clippy, workspace tests (PROPTEST_CASES=500), repo scripts, docs hygiene, discipline (when installed)
+#   scripts/gate.sh --quick         # fmt, clippy, repo scripts, docs hygiene, discipline only (no cargo test)
 #   scripts/gate.sh --miri          # additionally run the Tier-1 Miri filter CI runs (never the full suite)
 #   scripts/gate.sh --with-bindings # also test expanse-php / expanse-py (see below)
 #
@@ -187,8 +187,27 @@ else
   echo "  (skipping man-page example run: build with 'cargo build --release -p expanse-capi' to enable)"
 fi
 
-step "5/6 docs hygiene (time estimates, PII, provenance advisory)"
+step "5/6 docs hygiene (time estimates, PII, provenance advisory) and discipline diff gates"
 python3 scripts/check_docs_hygiene.py
+
+# The diff gates `docs-lint` runs through the orieg/discipline action, over
+# this branch against its merge base with origin/main. Directives such as
+# `allow-agent-instructions:` live in the PR body, so write the body to a file
+# and point DISCIPLINE_PR_BODY_FILE at it; without one, a change that needs a
+# directive fails here exactly as it would in CI without the line. CI is the
+# authority: locally the step is skipped by name when the binary is absent,
+# the same way ruff is above.
+# (No empty-array expansion: macOS's /bin/bash 3.2 reports one as unbound
+# under `set -u`.)
+if command -v discipline >/dev/null 2>&1; then
+  if [ -n "${DISCIPLINE_PR_BODY_FILE:-}" ]; then
+    discipline check --base origin/main --pr-body-file "$DISCIPLINE_PR_BODY_FILE"
+  else
+    discipline check --base origin/main
+  fi
+else
+  echo "  (skipping discipline: not installed -- see https://github.com/orieg/discipline#installation; CI docs-lint runs it pinned)"
+fi
 
 if [ "$MIRI" -eq 1 ]; then
   step "6/6 Tier-1 Miri filter (the per-PR CI scope; the full suite runs nightly in CI only)"

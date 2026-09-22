@@ -671,6 +671,16 @@ jobs:
         if: github.event_name == 'pull_request'
         run: python3 scripts/check_deletion_rationale.py --base "origin/${{ github.base_ref }}"
 
+      # Diff gates no repo script covers: dropped or weakened assertions,
+      # tests that cannot fail, newly ignored tests, placeholder or deleted
+      # `// SAFETY:` comments, lowered proptest/fuzz budgets, added
+      # dependencies, and weakening of discipline.toml itself. Gates that
+      # duplicate a script here stay off in discipline.toml. Waivers are
+      # PR-body lines (`allow-assertion-drop:`, `allow-ignore:`, ...), read
+      # from the event payload like every other body gate in this job.
+      - name: Diff Gates (orieg/discipline)
+        uses: orieg/discipline@v0.9.0
+
       - name: Unrun Gate Self-Tests (bounds, ablations, suite drivers)
         # These ship `--self-test` suites and were invoked by no workflow and
         # by no line of `gate.sh` -- committed, self-testing, and never run.
