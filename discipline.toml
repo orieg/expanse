@@ -18,6 +18,13 @@ version = 1
 name = "expanse"
 description = "Judy digital tree engine and libexpanse C ABI"
 
+# Every script under scripts/ and docs/benchmarks/**/scripts/ carries a
+# `self_test()` that CI runs as `python3 <script> --self-test`; it is the
+# repository's test entry point, and neither pytest nor unittest would collect
+# it. Read by every gate that separates test code from production code.
+[tests]
+functions = ["self_test"]
+
 # --- agent diff sentinel -----------------------------------------------------
 
 [gates.agents-md]
@@ -27,14 +34,14 @@ severity = "error"
 [gates.assertion-reduction]
 enabled = true
 severity = "error"
-# The `self_test()` convention under scripts/: an inner `check(name, got, want)`
-# or `raises(...)` collecting into a failure list, in place of `assert`.
-assert_helper_fns = ["check", "raises"]
+# The helpers a `self_test()` records its failures through, in place of
+# `assert`: `check(name, got, want)`, `check_eq(...)`, `raises(...)`.
+assert_helper_fns = ["check", "check_eq", "raises"]
 
 [gates.vacuous-tests]
 enabled = true
 severity = "error"
-assert_helper_fns = ["check", "raises"]
+assert_helper_fns = ["check", "check_eq", "raises"]
 
 [gates.ignored-tests]
 enabled = true
@@ -70,11 +77,11 @@ severity = "error"
 enabled = true
 severity = "error"
 
-# Held at `warning`. In the replays every finding read was a false positive:
-# the expect-this-to-raise idiom inside the `self_test()` functions under
-# scripts/ (`try: … except X: pass` followed by `else: raise`), a
-# `let _ = (a, b);` that silences two unused bindings, and `let _ =` on a
-# deliberately provoked panic in an integration test under crates/*/tests/.
+# Still `warning`: at v0.10.0 the expect-this-to-raise idiom and the
+# `let _ = (a, b);` binding are fixed, but `let _ = <call>` is reported for a
+# call that returns no fallible type — `let _ = self.shards.get_or_init(…)` in
+# crates/expanse/src/alloc.rs discards a reference, and blocked #997 in the
+# replay.
 [gates.error-swallowing]
 enabled = true
 severity = "warning"
@@ -179,12 +186,12 @@ severity = "error"
 
 # --- off: a repo script is the enforcing check -------------------------------
 
-# scripts/check_docs_hygiene.py. A whole-tree baseline now records the
-# pre-existing population, but checking the 15 pull requests merged after a
-# baseline taken at `e55a0a5e` still blocked 3 of them (#1056, #1058, #1063),
-# each on a README ratio carrying a `(measured: …)` tag and no interval. The
-# script passed all three. Whether those lines owe an interval under §8.4 is a
-# decision about the rule, not a migration.
+# scripts/check_docs_hygiene.py. v0.10.0 adds the knobs this repository's rule
+# needs (`ratio_satisfied_by`, `deterministic_units`, `superseded_registry`,
+# `diff_only`), and configured with them the replay still blocks 25 of the last
+# 100 pull requests the script passed, and exits 2 on 31 more when the forge
+# rate-limits the `require_open_pending_issues` lookups. Whether those lines
+# owe an interval under §8.4 is a decision about the rule, not a migration.
 [gates.provenance-tags]
 enabled = false
 
