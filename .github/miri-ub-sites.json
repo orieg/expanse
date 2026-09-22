@@ -1,0 +1,294 @@
+{
+  "issue": 1086,
+  "about": "Each Sync* UB site the workloads in sync::miri_ub_sites reach, per Miri check. `ub` pins the error phrase and the innermost frame of the lowest failing seed; `clean` means every seed in the range passed. Checked nightly by scripts/miri_ub_sites.py --check; a fix flips an entry to `clean` by an explicit edit.",
+  "seeds": "0..8",
+  "sites": [
+    {
+      "test": "map_leaf_two_writers",
+      "check": "race",
+      "expect": "ub",
+      "error": "Data race detected",
+      "frame": "map::MapCore::insert_inner"
+    },
+    {
+      "test": "map_leaf_two_writers",
+      "check": "alias-sb",
+      "expect": "ub",
+      "error": "does not exist in the borrow stack",
+      "frame": "sync::Shared::<map::ExpanseMap>::write_root_covered_with"
+    },
+    {
+      "test": "map_leaf_two_writers",
+      "check": "alias-tb",
+      "expect": "ub",
+      "error": "is forbidden",
+      "frame": "map::MapCore::insert_inner"
+    },
+    {
+      "test": "map_leaf_reader_writer",
+      "check": "race",
+      "expect": "ub",
+      "error": "Data race detected",
+      "frame": "map::MapCore::insert_inner"
+    },
+    {
+      "test": "map_leaf_reader_writer",
+      "check": "alias-sb",
+      "expect": "ub",
+      "error": "does not exist in the borrow stack",
+      "frame": "sync::Shared::<map::ExpanseMap>::write_root_covered_with"
+    },
+    {
+      "test": "map_leaf_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "map_tree_two_writers",
+      "check": "race",
+      "expect": "ub",
+      "error": "Data race detected",
+      "frame": "bits::Bitmap256::set"
+    },
+    {
+      "test": "map_tree_two_writers",
+      "check": "alias-sb",
+      "expect": "ub",
+      "error": "strongly protected",
+      "frame": "bits::Bitmap256::set"
+    },
+    {
+      "test": "map_tree_two_writers",
+      "check": "alias-tb",
+      "expect": "ub",
+      "error": "is forbidden",
+      "frame": "bits::Bitmap256::set"
+    },
+    {
+      "test": "map_tree_reader_writer",
+      "check": "race",
+      "expect": "ub",
+      "error": "Data race detected",
+      "frame": "bits::Bitmap256::set"
+    },
+    {
+      "test": "map_tree_reader_writer",
+      "check": "alias-sb",
+      "expect": "ub",
+      "error": "strongly protected",
+      "frame": "bits::Bitmap256::set"
+    },
+    {
+      "test": "map_tree_reader_writer",
+      "check": "alias-tb",
+      "expect": "ub",
+      "error": "is forbidden",
+      "frame": "bits::Bitmap256::set"
+    },
+    {
+      "test": "set_leaf_two_writers",
+      "check": "race",
+      "expect": "ub",
+      "error": "Data race detected",
+      "frame": "set::ExpanseSet::insert_inner"
+    },
+    {
+      "test": "set_leaf_two_writers",
+      "check": "alias-sb",
+      "expect": "ub",
+      "error": "does not exist in the borrow stack",
+      "frame": "sync::Shared::<set::ExpanseSet>::write_root_covered_with"
+    },
+    {
+      "test": "set_leaf_two_writers",
+      "check": "alias-tb",
+      "expect": "ub",
+      "error": "is forbidden",
+      "frame": "set::ExpanseSet::insert_inner"
+    },
+    {
+      "test": "set_leaf_reader_writer",
+      "check": "race",
+      "expect": "ub",
+      "error": "Data race detected",
+      "frame": "set::ExpanseSet::insert_inner"
+    },
+    {
+      "test": "set_leaf_reader_writer",
+      "check": "alias-sb",
+      "expect": "ub",
+      "error": "does not exist in the borrow stack",
+      "frame": "sync::Shared::<set::ExpanseSet>::write_root_covered_with"
+    },
+    {
+      "test": "set_leaf_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "set_tree_two_writers",
+      "check": "race",
+      "expect": "ub",
+      "error": "Data race detected",
+      "frame": "bits::Bitmap256::set"
+    },
+    {
+      "test": "set_tree_two_writers",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "set_tree_two_writers",
+      "check": "alias-tb",
+      "expect": "ub",
+      "error": "is forbidden",
+      "frame": "bits::Bitmap256::set"
+    },
+    {
+      "test": "set_tree_reader_writer",
+      "check": "race",
+      "expect": "ub",
+      "error": "Data race detected",
+      "frame": "bits::Bitmap256::test"
+    },
+    {
+      "test": "set_tree_reader_writer",
+      "check": "alias-sb",
+      "expect": "ub",
+      "error": "strongly protected",
+      "frame": "bits::Bitmap256::set"
+    },
+    {
+      "test": "set_tree_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "str_two_writers",
+      "check": "race",
+      "expect": "ub",
+      "error": "Data race detected",
+      "frame": "map::MapCore::insert_inner_dispatch"
+    },
+    {
+      "test": "str_two_writers",
+      "check": "alias-sb",
+      "expect": "ub",
+      "error": "strongly protected",
+      "frame": "occ::version_try_lock_expect"
+    },
+    {
+      "test": "str_two_writers",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "str_reader_writer",
+      "check": "race",
+      "expect": "ub",
+      "error": "Data race detected",
+      "frame": "strmap::ExpanseStrMap::insert_impl"
+    },
+    {
+      "test": "str_reader_writer",
+      "check": "alias-sb",
+      "expect": "ub",
+      "error": "does not exist in the borrow stack",
+      "frame": "sync::Shared::<strmap::ExpanseStrMap>::write_root_covered_with"
+    },
+    {
+      "test": "str_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "bytes_two_writers",
+      "check": "race",
+      "expect": "ub",
+      "error": "Data race detected",
+      "frame": "map::MapCore::ins_slot"
+    },
+    {
+      "test": "bytes_two_writers",
+      "check": "alias-sb",
+      "expect": "ub",
+      "error": "strongly protected",
+      "frame": "sync::Shared::<bytesmap::ExpanseBytesMap>::inner_ref"
+    },
+    {
+      "test": "bytes_two_writers",
+      "check": "alias-tb",
+      "expect": "ub",
+      "error": "is forbidden",
+      "frame": "bytesmap::ExpanseBytesMap::set_len"
+    },
+    {
+      "test": "bytes_reader_writer",
+      "check": "race",
+      "expect": "ub",
+      "error": "Data race detected",
+      "frame": "map::MapCore::ins_slot"
+    },
+    {
+      "test": "bytes_reader_writer",
+      "check": "alias-sb",
+      "expect": "ub",
+      "error": "does not exist in the borrow stack",
+      "frame": "sync::Shared::<bytesmap::ExpanseBytesMap>::write_root_covered_with"
+    },
+    {
+      "test": "bytes_reader_writer",
+      "check": "alias-tb",
+      "expect": "ub",
+      "error": "is forbidden",
+      "frame": "map::ExpanseMap::set_tree_pop"
+    },
+    {
+      "test": "blob_two_writers",
+      "check": "race",
+      "expect": "ub",
+      "error": "Data race detected",
+      "frame": "map::MapCore::insert_inner"
+    },
+    {
+      "test": "blob_two_writers",
+      "check": "alias-sb",
+      "expect": "ub",
+      "error": "strongly protected",
+      "frame": "sync::Shared::<blobmap::ExpanseBlobMap>::inner_ref"
+    },
+    {
+      "test": "blob_two_writers",
+      "check": "alias-tb",
+      "expect": "ub",
+      "error": "is forbidden",
+      "frame": "map::MapCore::insert_inner"
+    },
+    {
+      "test": "blob_reader_writer",
+      "check": "race",
+      "expect": "ub",
+      "error": "Data race detected",
+      "frame": "map::MapCore::insert_inner"
+    },
+    {
+      "test": "blob_reader_writer",
+      "check": "alias-sb",
+      "expect": "ub",
+      "error": "does not exist in the borrow stack",
+      "frame": "sync::Shared::<blobmap::ExpanseBlobMap>::write_root_covered_with"
+    },
+    {
+      "test": "blob_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    }
+  ]
+}
