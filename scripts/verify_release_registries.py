@@ -18,6 +18,10 @@ Two rules this encodes, both learned from that release:
    repo.packagist.org/p2/, which Composer and PIE resolve against -- not
    packagist.org/packages/<name>.json, a cached web view that lagged for
    BOTH packages and produced a wrong conclusion when checked by hand.
+   For Maven Central it is the repository's maven-metadata.xml, which
+   Maven and Gradle read -- not the search.maven.org index, which after
+   v0.7.0 returned no versions at all for an artifact the repository
+   served.
 
 Usage:
   python3 scripts/verify_release_registries.py --version 0.5.0
@@ -33,6 +37,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import xml.etree.ElementTree as ET
 
 UA = "expanse-release-verifier (+https://github.com/orieg/expanse)"
 TIMEOUT = 20
@@ -50,6 +55,18 @@ def fetch(url: str, token: str | None = None) -> tuple[int, object]:
                 return resp.status, json.loads(body)
             except json.JSONDecodeError:
                 return resp.status, None
+    except urllib.error.HTTPError as exc:
+        return exc.code, None
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return 0, None
+
+
+def fetch_text(url: str) -> tuple[int, str | None]:
+    """Returns (status, body-or-None) for a non-JSON endpoint. Never raises on HTTP status."""
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            return resp.status, resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as exc:
         return exc.code, None
     except (urllib.error.URLError, TimeoutError, OSError):
@@ -103,15 +120,24 @@ def _packagist(pkg: str):
     return probe
 
 
-def _maven(_v: str) -> list[str]:
-    """Maven Central search API for io.github.orieg:expanse-java."""
-    _, d = fetch(
-        "https://search.maven.org/solrsearch/select?q=g:io.github.orieg+AND+a:expanse-java&core=gav&rows=20&wt=json"
-    )
-    if not isinstance(d, dict):
+MAVEN_METADATA = "https://repo1.maven.org/maven2/io/github/orieg/expanse-java/maven-metadata.xml"
+
+
+def parse_maven_metadata(body: str | None) -> list[str]:
+    """The <versioning><versions><version> list of a maven-metadata.xml."""
+    if not body:
         return []
-    docs = d.get("response", {}).get("docs", [])
-    return [doc["v"] for doc in docs if isinstance(doc, dict) and "v" in doc]
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError:
+        return []
+    return [v.text.strip() for v in root.findall("./versioning/versions/version") if v.text]
+
+
+def _maven(_v: str) -> list[str]:
+    """Maven Central repository metadata for io.github.orieg:expanse-java."""
+    _, body = fetch_text(MAVEN_METADATA)
+    return parse_maven_metadata(body)
 
 
 def _go_tag(version: str) -> list[str]:
@@ -141,6 +167,27 @@ def run_self_test() -> int:
     assert norm("v0.5.0") == "0.5.0"
     assert norm("0.5.0") == "0.5.0"
     assert norm(" V1.2.3 ") == "1.2.3"
+    # The Maven probe reads the repository metadata Maven and Gradle resolve
+    # against; pinned on the shape repo1 served for v0.7.0.
+    sample = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n<metadata><groupId>io.github.orieg</groupId>'
+        "<artifactId>expanse-java</artifactId><versioning><latest>0.7.0</latest>"
+        "<release>0.7.0</release><versions><version>0.6.0</version>"
+        "<version>0.7.0</version></versions></versioning></metadata>"
+    )
+    assert parse_maven_metadata(sample) == ["0.6.0", "0.7.0"], parse_maven_metadata(sample)
+    assert parse_maven_metadata("<metadata/>") == []
+    assert parse_maven_metadata("not xml") == []
+    assert parse_maven_metadata(None) == []
+    # The probe itself must read that endpoint through that parser; a parser
+    # test alone stays green if the probe goes back to the search index.
+    import inspect
+
+    maven_src = inspect.getsource(_maven)
+    assert "fetch_text(MAVEN_METADATA)" in maven_src, "_maven must read MAVEN_METADATA"
+    assert "parse_maven_metadata(" in maven_src, "_maven must parse the metadata"
+    assert MAVEN_METADATA.startswith("https://repo1.maven.org/maven2/"), MAVEN_METADATA
+    assert MAVEN_METADATA.endswith("/io/github/orieg/expanse-java/maven-metadata.xml")
     assert len(PROBES) == 10
     names = [p[0] for p in PROBES]
     assert "Maven Central" in names
