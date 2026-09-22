@@ -671,14 +671,20 @@ jobs:
         if: github.event_name == 'pull_request'
         run: python3 scripts/check_deletion_rationale.py --base "origin/${{ github.base_ref }}"
 
-      # Diff gates no repo script covers: dropped or weakened assertions,
-      # tests that cannot fail, newly ignored tests, placeholder or deleted
-      # `// SAFETY:` comments, lowered proptest/fuzz budgets, added
-      # dependencies, and weakening of discipline.toml itself. Gates that
-      # duplicate a script here stay off in discipline.toml. Waivers are
-      # PR-body lines (`allow-assertion-drop:`, `allow-ignore:`, ...), read
-      # from the event payload like every other body gate in this job.
+      # The diff gates discipline.toml enables: dropped or weakened
+      # assertions, tests that cannot fail, newly ignored tests, placeholder
+      # or deleted `// SAFETY:` comments, stub bodies, lowered proptest/fuzz
+      # budgets, dependency and lockfile deltas, build-hook and toolchain
+      # configuration edits, AGENTS.md edits, and weakening of
+      # discipline.toml itself. Waivers are PR-body lines
+      # (`allow-assertion-drop:`, `allow-agent-instructions:`, ...), read from
+      # the event payload. Pull requests only, like the deletion-rationale
+      # step above: a squash merge's commit message is built from the
+      # branch's commits, not the PR body, so on the push to main the waivers
+      # that let the pull request pass are absent and the same diff would
+      # fail again.
       - name: Diff Gates (orieg/discipline)
+        if: github.event_name == 'pull_request'
         uses: orieg/discipline@v0.9.0
 
       - name: Unrun Gate Self-Tests (bounds, ablations, suite drivers)
