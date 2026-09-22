@@ -23,6 +23,17 @@ std = []
 # writer-lock fallbacks, epoch advances). Off by default and compiled
 # out entirely — never enable it for a published benchmark.
 occ-stats = []
+# Diagnostic-only: two entry points on `SyncExpanseMap` and `SyncExpanseSet`
+# for calibrating the write path's two service classes from outside the crate
+# — `insert_serialized` / `remove_serialized`, which force a mutation down the
+# serialised fallback route (counted as `FallbackCause::Forced`), and
+# `optimistic_probe`, which runs the optimistic protocol's fixed steps (gate
+# entry, writer pin, per-node version lock) around a caller closure on a
+# private version word with no tree mutation. Off by default and compiled out
+# entirely, the same policy as `occ-stats`: no plain-tree or default `sync`
+# path changes, which the `instruction-counts` job's `sync_*` arms verify at
+# 0.00%. Not a stability surface (docs/ARCHITECTURE.md §4.2). Needs `std`.
+diag-entry = []
 # Retired name, promoted to the default (Refs #568, #930): the writer mutex,
 # writer gate, tree population counter and version word are on their own cache
 # lines in every build. Kept declared so Cargo does not reject an old

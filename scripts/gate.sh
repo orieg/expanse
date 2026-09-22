@@ -93,6 +93,10 @@ if [ "$QUICK" -eq 0 ]; then
   # `test` job's extra step.
   echo "  + occ-stats tests (feature is off in the default build)"
   bash scripts/test_occ_stats.sh
+  # Same as the CI `test` job's diag-entry step: the entry points need both
+  # features, and the occ-stats script builds with one.
+  echo "  + diag-entry tests (feature is off in the default build)"
+  bash scripts/test_diag_entry.sh
   # Same as the CI `test` job's ablation step. The Hypothesis D mechanisms are
   # the default now, so these are the inverse features (AGENTS.md §2.7): they
   # restore the state each mechanism replaced, and their tests are absent from

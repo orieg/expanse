@@ -749,6 +749,13 @@ jobs:
         shell: bash
         run: bash scripts/test_occ_stats.sh
 
+      # The `diag-entry` entry points are compiled out by default too, and
+      # their tests read the counters, so they need both features; the script
+      # above builds with `occ-stats` alone and would run them as zero tests.
+      - name: Test with the diag-entry entry points armed
+        shell: bash
+        run: bash scripts/test_diag_entry.sh
+
       # The Hypothesis D inverse features (METHODOLOGY.md §11, AGENTS.md §2.7):
       # every arm is a production default now, so these features restore the
       # state each replaced and keep the default ablatable. The stripe unit
@@ -1991,6 +1998,17 @@ jobs:
 
       - name: Loom model checks with the unstriped-freelist ablation
         run: cargo test -p expanse-trie --release --features ablation-unstriped-freelist loom_
+        env:
+          RUSTFLAGS: --cfg loom
+
+      # The `diag-entry` probe's model exists only with its feature; the grep
+      # fails a filter that matched none (AGENTS.md §8.11.8).
+      - name: Loom model check of the diag-entry probe
+        run: |
+          set -o pipefail
+          cargo test -p expanse-trie --release --features diag-entry loom_diag_entry 2>&1 | tee loom-diag-entry.log
+          grep -Eq 'test result: ok\. [1-9][0-9]* passed' loom-diag-entry.log \
+            || { echo "::error::the loom_diag_entry filter ran zero tests"; exit 1; }
         env:
           RUSTFLAGS: --cfg loom
 
