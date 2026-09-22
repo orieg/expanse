@@ -1549,10 +1549,63 @@ impl<T> Drop for Shared<T> {
     }
 }
 
+/// The wrapper's owning handle to its heap block: a raw pointer, on purpose,
+/// where a `Box<Shared<T>>` used to be (#1076).
+///
+/// `Shared::with_collector` binds the address of `Shared::version` into the
+/// engine's allocator (`NodeAlloc::bind_tree_word`), and the engine reads the
+/// word through that pointer for the life of the tree. A `Box` is a unique
+/// owner in the aliasing model: every move of it — returning it, storing it in
+/// the wrapper, moving the wrapper — is a `Unique` retag of the whole block,
+/// which invalidates every pointer derived from the block before the move.
+/// Miri (Stacked and Tree Borrows) reported the first engine read of the word
+/// on the 363rd insert of a `SyncExpanseMap` — the root-leaf-to-tree
+/// promotion, the first root-state write the engine covers itself — as
+/// undefined behaviour. A raw pointer is never retagged on a move, so the
+/// bound pointer stays valid; the block, its field order and every offset
+/// `layout_report` pins are unchanged, and so is the wrapper's size (one
+/// pointer). Dropping the handle drops the block through `Box::from_raw`,
+/// which runs `Shared`'s `Drop` as before.
+struct SharedBox<T>(core::ptr::NonNull<Shared<T>>);
+
+impl<T> SharedBox<T> {
+    /// Moves `shared` to the heap and takes ownership of the block.
+    fn new(shared: Shared<T>) -> Self {
+        // SAFETY: `Box::into_raw` never returns null.
+        Self(unsafe { core::ptr::NonNull::new_unchecked(Box::into_raw(Box::new(shared))) })
+    }
+}
+
+impl<T> core::ops::Deref for SharedBox<T> {
+    type Target = Shared<T>;
+    #[inline(always)]
+    fn deref(&self) -> &Shared<T> {
+        // SAFETY: the pointer came from `Box::into_raw` in `new`, is freed
+        // only in `drop`, and is never handed out for unique access, so a
+        // shared borrow for the handle's lifetime is sound.
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl<T> Drop for SharedBox<T> {
+    fn drop(&mut self) {
+        // SAFETY: as in `deref` — this is the one owner, and the pointer is
+        // the one `Box::into_raw` returned, so reconstituting the `Box` here
+        // frees the block exactly once and runs `Shared`'s `Drop`.
+        drop(unsafe { Box::from_raw(self.0.as_ptr()) });
+    }
+}
+
+// SAFETY: the handle is the block's one owner and exposes it only by shared
+// reference, so it is `Send` and `Sync` exactly when `Shared<T>` is.
+unsafe impl<T> Send for SharedBox<T> where Shared<T>: Send {}
+// SAFETY: as above.
+unsafe impl<T> Sync for SharedBox<T> where Shared<T>: Sync {}
+
 impl<T: SharedTree> Shared<T> {
     /// Wraps `inner`, handing every allocation source `attach` names over to
     /// a fresh epoch collector (deferred reclamation).
-    fn new(inner: T, attach: impl FnOnce(&T, &Arc<Collector>)) -> Box<Self> {
+    fn build(inner: T, attach: impl FnOnce(&T, &Arc<Collector>)) -> SharedBox<T> {
         let collector = Arc::new(Collector::new());
         attach(&inner, &collector);
         Self::with_collector(inner, collector)
@@ -1563,9 +1616,9 @@ impl<T: SharedTree> Shared<T> {
     /// structure is shared by rebuilding it through pre-deferred
     /// allocators; see `NodeAlloc::defer_to`). Boxed, then the tree word is
     /// bound to `inner`'s allocators at its final address.
-    fn with_collector(inner: T, collector: Arc<Collector>) -> Box<Self> {
+    fn with_collector(inner: T, collector: Arc<Collector>) -> SharedBox<T> {
         let initial_pop = inner.tree_pop();
-        let shared = Box::new(Self {
+        let shared = SharedBox::new(Self {
             version: line(SeqVersion::new()),
             inner: UnsafeCell::new(inner),
             tree_pop: line(ShardedTreePop::new(initial_pop)),
@@ -1583,9 +1636,10 @@ impl<T: SharedTree> Shared<T> {
             advance_tick: UnsafeCell::new(0),
         });
         // SAFETY: the word and the tree live in this one heap block, which
-        // the wrapper owns and never opens; `inner` drops before `version`
-        // (field order) and nothing hands the tree out.
-        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+        // the wrapper owns through `SharedBox` and never opens; `inner` drops
+        // before `version` (field order) and nothing hands the tree out. The
+        // pointer is derived from the raw block pointer, and the handle is
+        // never a `Box` again, so no later move retags it away (#1076).
         unsafe {
             shared
                 .inner_ref()
@@ -3160,7 +3214,7 @@ impl ProbeCell {
 /// serialized), validated optimistic readers. See the module docs for the
 /// protocol and its trade-offs.
 pub struct SyncExpanseSet {
-    shared: Box<Shared<ExpanseSet>>,
+    shared: SharedBox<ExpanseSet>,
 }
 
 impl Default for SyncExpanseSet {
@@ -3173,7 +3227,7 @@ impl SyncExpanseSet {
     /// Creates an empty concurrent set.
     #[must_use]
     pub fn new() -> Self {
-        let shared = Shared::new(ExpanseSet::new(), |s, c| {
+        let shared = Shared::build(ExpanseSet::new(), |s, c| {
             s.clear_path();
             s.occ_root().1.defer_to(Arc::clone(c));
         });
@@ -5189,7 +5243,7 @@ impl SetReader<'_> {
 /// A map shareable across threads: one writer at a time (internally
 /// serialized), validated optimistic readers. See the module docs.
 pub struct SyncExpanseMap {
-    shared: Box<Shared<ExpanseMap>>,
+    shared: SharedBox<ExpanseMap>,
 }
 
 impl Default for SyncExpanseMap {
@@ -5202,7 +5256,7 @@ impl SyncExpanseMap {
     /// Creates an empty concurrent map.
     #[must_use]
     pub fn new() -> Self {
-        let shared = Shared::new(ExpanseMap::new(), |m, c| {
+        let shared = Shared::build(ExpanseMap::new(), |m, c| {
             m.clear_path();
             m.occ_root().1.defer_to(Arc::clone(c));
         });
@@ -8864,7 +8918,7 @@ struct BlobWriterArenas {
 /// - Structural reads that need multi-field consistency (`mem_used`,
 ///   `scan_filtered`, iteration) go through [`Self::with_locked`].
 pub struct SyncExpanseBlobMap {
-    shared: Box<Shared<ExpanseBlobMap>>,
+    shared: SharedBox<ExpanseBlobMap>,
     #[cfg(feature = "std")]
     #[allow(dead_code)]
     arena_write: Box<Line<Mutex<()>>>,
@@ -9875,7 +9929,7 @@ impl<'g> PartialEq<SyncBlobView<'g>> for [u8] {
 /// deployment option, since a cargo feature applies to every string map in
 /// the binary.
 pub struct SyncExpanseStrMap {
-    shared: Box<Shared<ExpanseStrMap>>,
+    shared: SharedBox<ExpanseStrMap>,
 }
 
 impl Default for SyncExpanseStrMap {
@@ -10232,7 +10286,7 @@ impl StrReader<'_> {
 /// The hasher is shared untouched between the writer and every reader
 /// (hashing goes through `&self` concurrently), hence the `Sync` bound.
 pub struct SyncExpanseBytesMap<S: BuildHasher + Send + Sync = RandomState> {
-    shared: Box<Shared<ExpanseBytesMap<S>>>,
+    shared: SharedBox<ExpanseBytesMap<S>>,
     #[cfg(all(
         feature = "std",
         target_pointer_width = "64",
@@ -10944,6 +10998,72 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
     #[must_use]
     pub fn contains(&self, key: &[u8]) -> bool {
         self.get(key).is_some()
+    }
+}
+
+/// Miri-visible: the concurrent wrappers on one thread, through the
+/// root-leaf-to-tree promotion, so the aliasing model sees the wrapper's
+/// block, the tree word bound into the allocator and the engine's first read
+/// of that word (#1076). The rest of the module's tests are `not(miri)` for
+/// the seqlock reason the module docs give; this one makes no racy load, so
+/// Miri can run it, and it is in the Tier-1 lane (`docs/CI.md` §5).
+#[cfg(test)]
+mod miri_tests {
+    use super::*;
+
+    fn splitmix64(i: u64) -> u64 {
+        let mut z = i.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    /// Past the root-leaf capacity: the 363rd insert of this key sequence
+    /// promoted the root and was the first engine read of the tree word,
+    /// which Miri reported against the `Box`-owned block (#1076). Sized so
+    /// the promotion and a few tree-state writes are inside the run.
+    const KEYS: u64 = 400;
+
+    /// The wrapper is moved by value after construction, as a caller does:
+    /// the move is what retagged the `Box` and is part of what is tested.
+    /// `validate` runs before the removals: removing a third of these keys
+    /// leaves the root `BranchU` below `BRANCHB_UP`, which the validator
+    /// rejects and the optimistic remove path does not demote (#1079) — a
+    /// separate finding, not the aliasing one this test pins.
+    #[test]
+    fn map_wrapper_survives_the_root_promotion_under_miri() {
+        let map = SyncExpanseMap::new();
+        let map = std::hint::black_box(map);
+        for i in 0..KEYS {
+            assert_eq!(map.insert(splitmix64(i), i), None);
+        }
+        for i in 0..KEYS {
+            assert_eq!(map.get(splitmix64(i)), Some(i));
+        }
+        assert_eq!(map.len(), KEYS);
+        map.with_locked(ExpanseMap::validate);
+        for i in (0..KEYS).step_by(3) {
+            assert_eq!(map.remove(splitmix64(i)), Some(i));
+        }
+        assert_eq!(map.len(), KEYS - KEYS.div_ceil(3));
+    }
+
+    #[test]
+    fn set_wrapper_survives_the_root_promotion_under_miri() {
+        let set = SyncExpanseSet::new();
+        let set = std::hint::black_box(set);
+        for i in 0..KEYS {
+            assert!(set.insert(splitmix64(i)));
+        }
+        for i in 0..KEYS {
+            assert!(set.contains(splitmix64(i)));
+        }
+        assert_eq!(set.len(), KEYS);
+        set.with_locked(ExpanseSet::validate);
+        for i in (0..KEYS).step_by(3) {
+            assert!(set.remove(splitmix64(i)));
+        }
+        assert_eq!(set.len(), KEYS - KEYS.div_ceil(3));
     }
 }
 
