@@ -1,0 +1,232 @@
+# discipline.toml — diff gates run by the `docs-lint` job through orieg/discipline.
+#
+# A gate is on at `error` once it reaches parity with the repo script it would
+# replace, measured by replaying this configuration over the merged pull
+# requests of this repository: a gate that reports a finding on a pull request
+# the repo script passed is not yet at `error`. A gate that is off names the
+# script that enforces the rule meanwhile. docs/CI.md (`docs-lint`) carries the
+# same map.
+#
+# Severities are stated rather than defaulted, so a gate this repository blocks
+# on does not change meaning with the action's version.
+#
+# `discipline gates` prints the effective state of every gate.
+
+[meta]
+version = 1
+name = "expanse"
+description = "Judy digital tree engine and libexpanse C ABI"
+
+# --- agent diff sentinel -----------------------------------------------------
+
+[gates.agents-md]
+enabled = true
+severity = "error"
+
+[gates.assertion-reduction]
+enabled = true
+severity = "error"
+# The `self_test()` convention under scripts/: an inner `check(name, got, want)`
+# or `raises(...)` collecting into a failure list, in place of `assert`.
+assert_helper_fns = ["check", "raises"]
+
+[gates.vacuous-tests]
+enabled = true
+severity = "error"
+assert_helper_fns = ["check", "raises"]
+
+[gates.ignored-tests]
+enabled = true
+severity = "error"
+# `#[cfg_attr(miri, ignore)]` is how a test declares it does not run under
+# Miri; which tests Miri runs is scripts/check_miri_shards.py's subject.
+approved_predicates = ["miri"]
+
+# Complements clippy's `undocumented_unsafe_blocks`: rejects placeholder
+# justifications and a deleted `// SAFETY:` above an unchanged block.
+[gates.unsafe-safety-comment]
+enabled = true
+severity = "error"
+
+# Replaces scripts/check_deletion_rationale.py, which accepts an unscoped
+# `removes: <reason>` and the HTML-comment form. Both are configured here, so
+# the directive a contributor writes is unchanged.
+[gates.deletion-rationale]
+enabled = true
+severity = "error"
+require_scope = false
+allow_hidden = true
+
+[gates.stub-bodies]
+enabled = true
+severity = "error"
+
+# An edit to AGENTS.md (and the files that point at it) is a change to what
+# every agent working here is told to do, so it is recorded in the pull request
+# body: `allow-agent-instructions: AGENTS.md <reason>`. Invisible and
+# bidirectional Unicode in any added line is reported by the same gate.
+[gates.instruction-smuggling]
+enabled = true
+severity = "error"
+
+# Held at `warning`. In the replays every finding read was a false positive:
+# the expect-this-to-raise idiom inside the `self_test()` functions under
+# scripts/ (`try: … except X: pass` followed by `else: raise`), a
+# `let _ = (a, b);` that silences two unused bindings, and `let _ =` on a
+# deliberately provoked panic in an integration test under crates/*/tests/.
+[gates.error-swallowing]
+enabled = true
+severity = "warning"
+
+# Held at `warning` while the standing rate is measured: `#[allow(…)]` is the
+# reviewed escape hatch from `clippy -D warnings` (§5), not a defect by itself.
+[gates.suppression-delta]
+enabled = true
+severity = "warning"
+
+# --- hygiene -----------------------------------------------------------------
+
+# Diff-scoped: the whole-tree sweep is scripts/check_docs_hygiene.py's, and
+# running both over the same text would report one finding twice.
+[gates.time-estimates]
+enabled = true
+severity = "error"
+diff_only = true
+allow_patterns = [
+    # Metric names, not estimates: `loadavg` is a one-minute mean, and
+    # AGENTS.md §8.17 requires stating which mean a load snapshot reports.
+    "(?i)one-minute (load average|mean)",
+    "(?i)1-min(ute)? average",
+]
+
+[gates.pii]
+enabled = true
+severity = "error"
+diff_only = true
+
+[gates.shell-secrets]
+enabled = true
+severity = "error"
+diff_only = true
+
+[gates.agent-scratch]
+enabled = true
+severity = "error"
+
+# The §7 checklist-truthfulness rule, which had no mechanical check before this
+# gate: a ticked box must match the diff.
+[gates.pr-checklist]
+enabled = true
+severity = "warning"
+
+# --- integrity ---------------------------------------------------------------
+
+[gates.config-integrity]
+enabled = true
+severity = "error"
+
+# A change cannot loosen the lint and compiler configuration it is judged by
+# (Cargo `[lints]`, rustflags, ruff, ...).
+[gates.toolchain-config]
+enabled = true
+severity = "error"
+
+[gates.golden-output]
+enabled = true
+severity = "error"
+
+# Complements the `supply-chain` job (cargo-deny over the whole graph) with a
+# check of the dependencies and lockfile entries this diff adds or changes.
+[gates.dependency-delta]
+enabled = true
+severity = "error"
+
+# Ratchets PROPTEST_CASES, proptest/fuzz configuration and fuzz targets.
+[gates.test-budget]
+enabled = true
+severity = "error"
+
+# A `build.rs` gaining process, network or shell access, a changed
+# `package.json` lifecycle script, or any edit to `.cargo/config.toml` is
+# recorded in the pull request body: `allow-build-hook: <path> <reason>`.
+[gates.build-hooks]
+enabled = true
+severity = "error"
+
+# The rollup-closure half of scripts/check_ci_gate.py: every job is a
+# dependency of `ci-gate`, which the branch ruleset requires as its single
+# context. Diff-scoped, so the masking rules apply to lines this pull request
+# touches; a deliberate `|| true` (a merge-base build that is allowed to fail,
+# and renders as `NO BASELINE`) takes `# discipline:allow(ci-integrity)` on
+# its line. `pin_actions` stays off because this repository pins third-party
+# actions by release tag, not by commit SHA.
+[gates.ci-integrity]
+enabled = true
+severity = "error"
+diff_only = true
+rollup_job = "ci-gate"
+workflows = [".github/workflows/ci.yml"]
+pin_actions = false
+
+# The replacement for scripts/check_gate_floor.py. It evaluates only inside the
+# rollup job, given `needs` and the filter outputs as DISCIPLINE_CI_CONTEXT;
+# here it reports "not evaluated". Wiring it into `ci-gate` changes the one
+# required check, so it is its own change.
+[gates.ci-skip-set]
+enabled = true
+severity = "error"
+
+# --- off: a repo script is the enforcing check -------------------------------
+
+# scripts/check_docs_hygiene.py. A whole-tree baseline now records the
+# pre-existing population, but checking the 15 pull requests merged after a
+# baseline taken at `e55a0a5e` still blocked 3 of them (#1056, #1058, #1063),
+# each on a README ratio carrying a `(measured: …)` tag and no interval. The
+# script passed all three. Whether those lines owe an interval under §8.4 is a
+# decision about the rule, not a migration.
+[gates.provenance-tags]
+enabled = false
+
+# scripts/check_test_floors.py. The gate counts runnable test functions
+# statically, a different basis from the script's workspace count and its
+# floor of 300, so adopting it means choosing a floor on that basis.
+[gates.test-floor]
+enabled = false
+
+# scripts/perf_report.py and scripts/wasm_fuel.py. Dual-file mode reads the
+# base and head files from the workspace, and citation freshness is in the
+# gate; it belongs in the jobs that measure (`instruction-counts`,
+# `callgrind-smoke`, `wasm-fuel`), not in `docs-lint`, which measures nothing.
+[gates.bench-regression]
+enabled = false
+
+# The jobs that would use presets (`public-api`, `loom`, `supply-chain`) run
+# their own tools, and `msrv` / `miri` / `sanitizers` / `unsafe-budget` each
+# duplicate a job this repository already has.
+[gates.command]
+enabled = false
+
+# Pull request titles here carry `Refs #N` by convention, not by rule.
+[gates.issue-link]
+enabled = false
+
+# Which commit trailers a repository requires is its own policy; this one
+# forbids agent/session trailers (§7) rather than requiring any.
+[gates.commit-provenance]
+enabled = false
+
+# `version-lockstep` overlaps scripts/bump_version.py --check, and
+# `manifest-sync` / `archive-contents` overlap the release workflow's
+# packaging checks. Each needs its declaration groups written out first.
+[gates.version-lockstep]
+enabled = false
+
+[gates.manifest-sync]
+enabled = false
+
+[gates.archive-contents]
+enabled = false
+
+# Every path in this repository is in scope for the agents working in it.
+[gates.scope-confinement]
+enabled = false

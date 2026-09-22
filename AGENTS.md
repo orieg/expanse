@@ -173,9 +173,9 @@ An ablation feature exists to decide a mechanism (§8.20.3). Promoting its winne
 
 **Run them as one command — mirrors CI's `lint` + `test` jobs:**
 ```bash
-scripts/gate.sh            # fmt · clippy · workspace tests (PROPTEST_CASES=500) · repo scripts · docs hygiene
+scripts/gate.sh            # fmt · clippy · workspace tests (PROPTEST_CASES=500) · repo scripts · docs hygiene · discipline (when installed)
 scripts/gate.sh --miri     # additionally the Tier-1 Miri filter (the per-PR CI scope)
-scripts/gate.sh --quick    # fmt · clippy · repo scripts · docs hygiene — runs no cargo test
+scripts/gate.sh --quick    # fmt · clippy · repo scripts · docs hygiene · discipline — runs no cargo test
 ```
 A handoff that ran only `--quick` does not report the tests as run (§8.11.6).
 The local test step excludes `expanse-php` (PHP headers, as CI does) and
@@ -349,7 +349,11 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | Memory density ceilings | **CI** | `memory-budget` |
 | C ABI symbol parity · version lockstep · gate completeness · report-script self-tests | **CI** | `lint` job scripts |
 | Public **Rust** API surface: every addition, removal or signature change is a diff against a committed snapshot | **CI** | `public-api` job → `scripts/check_public_api.py` (snapshot in `.github/public-api/`; regenerate a deliberate change with `--write`). A snapshot diff, not a semver classifier — it makes the change visible and a reviewer decides major/minor, against the Cargo 0.x rule that `^0.6` spans every 0.6.x, so a removal or signature change needs 0.7.0 and never a patch |
-| File deletions require `removes:` / `deletes:` rationale in PR body | **CI** | `lint` job → `scripts/check_deletion_rationale.py` |
+| File deletions require `removes:` / `deletes:` rationale in PR body | **CI** | `docs-lint` job → `scripts/check_deletion_rationale.py`, and `orieg/discipline`'s `deletion-rationale`, configured to accept the same unscoped and HTML-comment forms. Both run until the gate has been observed on live pull requests; the script is also what `scripts/gate.sh` runs locally |
+| An existing test keeps its assertions (count and strength, compile-time `const _: () = assert!` included); a new test can fail; a test is not newly ignored outside an approved predicate; an `unsafe` block's `// SAFETY:` is neither a placeholder nor deleted; proptest/fuzz budgets and fuzz targets do not shrink; an added dependency is pinned and passes `deny.toml`; `discipline.toml` is not weakened. Waived only by a PR-body line naming the item: `allow-assertion-drop:`, `allow-ignore:`, `allow-test-shrink:`, `allow-dependency:`, `allow-gate-weakening:` | **CI** | `docs-lint` job → `orieg/discipline` action, configured by `discipline.toml` |
+| Every job is a `ci-gate` dependency; a changed workflow line does not mask failure (`continue-on-error`, `\|\| true`, `set +e`) — a deliberate one carries `# discipline:allow(ci-integrity)`; a deleted verification step needs `allow-gate-weakening: ci-integrity <reason>` (a renamed one is paired by its body and is not reported) | **CI** | `docs-lint` job → `orieg/discipline` (`ci-integrity`, diff-scoped); `scripts/check_ci_gate.py` in `lint` still asserts the closure on every run, and `check_gate_floor.py` / `check_ci_filters.py` remain the only check of the skip set and the path filters |
+| A new `#[allow(…)]` / `# noqa` suppression; a ticked PR checklist box the diff does not support (§7 claim truthfulness); a new empty error handler or discarded fallible result outside tests (§8.1) | **CI (advisory warning)** + review | `docs-lint` job → `orieg/discipline` (`suppression-delta`, `pr-checklist`, `error-swallowing`). Held at `warning`; a reviewer still decides. `error-swallowing` reads the expect-this-to-raise idiom in the `self_test()` functions under `scripts/` as a swallowed error, which is why it is not at `error` |
+| An edit to `AGENTS.md` (or a file that points at it) is recorded in the PR body with `allow-agent-instructions: AGENTS.md <reason>`; no invisible or bidirectional Unicode in an added line; no added function whose whole body is a stub; no loosening of the lint and compiler configuration (Cargo `[lints]`, rustflags) | **CI** | `docs-lint` job → `orieg/discipline` (`instruction-smuggling`, `stub-bodies`, `toolchain-config`) |
 | Exported C symbol floor (≥100) · workspace test count floor (≥300) | **CI** | `lint` job → `scripts/check_abi_parity.py`, `scripts/check_test_floors.py` |
 | Nightly Miri shard census: every `expanse-trie` lib test in exactly one shard, every integration target in the matrix or `#![cfg(not(miri))]` | **CI** | `lint` job → `scripts/check_miri_shards.py` (module→shard map lives in the script; shards select by `--exact` name, never substring) |
 | Black-box parity vs stock `libjudy` | **CI** | `differential-oracle`, `php-judy-*` |
