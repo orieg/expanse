@@ -1,3 +1,13 @@
+Package: libexpanse-dev
+Version: 0.7.0
+Architecture: amd64
+Maintainer: Nicolas Brousse <nicolas@brousse.info>
+Description: Expanse trie engine development files (headers, static library, man pages).
+Filename: pool/main/libexpanse-dev_0.7.0_amd64.deb
+Size: 7392922
+SHA256: be0e56da8203cae0417eca45a1430128f963a6d3422852000acd1b6848007cba
+Depends: libexpanse1 (= 0.7.0)
+
 Package: libexpanse1
 Version: 0.7.0
 Architecture: amd64
@@ -18,14 +28,4 @@ SHA256: 2444e5759edb100b4f0f8650ebfe7aaf6af165b7d99887343ec1acd5ba84971f
 Depends: libexpanse1 (= 0.7.0)
 Provides: libjudy
 Conflicts: libjudy
-
-Package: libexpanse-dev
-Version: 0.7.0
-Architecture: amd64
-Maintainer: Nicolas Brousse <nicolas@brousse.info>
-Description: Expanse trie engine development files (headers, static library, man pages).
-Filename: pool/main/libexpanse-dev_0.7.0_amd64.deb
-Size: 7392922
-SHA256: be0e56da8203cae0417eca45a1430128f963a6d3422852000acd1b6848007cba
-Depends: libexpanse1 (= 0.7.0)
 
