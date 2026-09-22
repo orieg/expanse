@@ -12,7 +12,7 @@ lands.
 
 - Pre-registration, envelope and claims ceiling: [METHODOLOGY.md](METHODOLOGY.md)
 - Envelope: `scripts/patricia_envelope.py` (exact node census, pinned against the allocator hook)
-- Run: `docs/benchmarks/patricia_comparison/run.sh` on the reference host
+- Run: `/benchmark patricia_comparison` on a pull request (uploads the artifacts), or `run.sh` on the host
 
 | Pillar | Harness | Artifact |
 |---|---|---|

@@ -132,12 +132,18 @@ allocation on one arm only. Scan stays out until a symmetric formulation exists.
 
 ## 5. Reproduction
 
+On a pull request, comment `/benchmark patricia_comparison`. The bare-metal
+workflow takes the host-wide benchmark lock and the P-core pin, runs
+`scripts/run_all.py` with the anonymized host description and the run URL,
+posts the summary table, and uploads `results/baseline_*.json` as a run
+artifact. Commit those files into `results/` in the PR that publishes figures.
+
+On the host directly:
+
 ```bash
-docs/benchmarks/patricia_comparison/run.sh           # full run, reference host
+docs/benchmarks/patricia_comparison/run.sh           # full run
 docs/benchmarks/patricia_comparison/run.sh --quick   # smoke, writes results/quick/ (gitignored)
 ```
 
-`run.sh` takes the host-wide benchmark lock and applies the P-core pin
-(`scripts/bench_pin.sh`). `scripts/run_all.py` attaches host facts, the pin and a
-load snapshot before each harness (§8.17). One harness can also be run with
-`/benchmark patricia_<pillar>` on a pull request.
+`run.sh` takes the same lock and pin. `run_all.py` records host facts, the pin and
+a load snapshot before each harness (§8.17).

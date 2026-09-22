@@ -196,11 +196,7 @@ The suites below are declared once, in [`.github/bench-suites.json`](../.github/
 | `art_scan` | wall-clock | Adaptive Radix Tree (ART) vs Expanse ordered range scan and full container iteration. |
 | `art_memory` | wall-clock | Adaptive Radix Tree (ART) vs Expanse live heap memory allocation census across population scales. |
 | `art_small_payload` | wall-clock | Adaptive Radix Tree (ART) vs Expanse small-payload regime (<= 7 keys) lookups, inserts, and memory census. |
-| `patricia_lookup_hit` | wall-clock | Patricia trie (patricia_tree) vs Expanse point lookup at 100% hit across five u64 key distributions. |
-| `patricia_lookup_miss` | wall-clock | Patricia trie (patricia_tree) vs Expanse point lookup at 50% hit / 50% same-distribution miss. |
-| `patricia_insert` | wall-clock | Patricia trie (patricia_tree) vs Expanse cold-build insertion, generator and shuffled orders. |
-| `patricia_memory` | wall-clock | Patricia trie (patricia_tree) vs Expanse live-heap census, u64 and shared-prefix string keys. |
-| `patricia_string` | wall-clock | Patricia trie (patricia_tree) vs ExpanseStrMap point lookup on shared-prefix string keys, 50% hit. |
+| `patricia_comparison` | wall-clock | Patricia trie (`patricia_tree`) vs Expanse through `docs/benchmarks/patricia_comparison/scripts/run_all.py`: live-heap census, point lookup at 100% and 50% hit, cold-build insert in both orders, and shared-prefix string lookup; paired per-round ratios with BCa intervals; writes `results/baseline_*.json`. |
 
 Bench targets deliberately **not** reachable from a slash command:
 

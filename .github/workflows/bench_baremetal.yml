@@ -112,11 +112,7 @@ on:
           - art_scan
           - art_memory
           - art_small_payload
-          - patricia_lookup_hit
-          - patricia_lookup_miss
-          - patricia_insert
-          - patricia_memory
-          - patricia_string
+          - patricia_comparison
           # END GENERATED: bench-suites
   issue_comment:
     types: [created]
@@ -1003,6 +999,19 @@ jobs:
                   --run-id "$RUN_URL" \
                   | tee hashbrown-ycsb.txt
                 ;;
+              "patricia_comparison")
+                # Five harness=false benches driven by the suite runner, which
+                # writes one `results/baseline_*.json` per pillar with host
+                # facts, the applied pin and a load snapshot before each
+                # harness. This step already holds the bench lock and the pin.
+                # The console summary goes to bench-output.txt, the wall-clock
+                # file the report step already posts. Fatal on failure: the
+                # runner IS the measurement (AGENTS.md section 8.1).
+                python3 docs/benchmarks/patricia_comparison/scripts/run_all.py \
+                  --host-desc "$HOST_DESC" \
+                  --run-id "$RUN_URL" \
+                  | tee bench-output.txt
+                ;;
               "concurrency")
                 # Mixed read/write Sync* instrument: benches/concurrency.rs run
                 # through mixed_concurrency.py, which pins, interleaves the
@@ -1728,6 +1737,7 @@ jobs:
             docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json
             ycsb.txt
             hashbrown-ycsb.txt
+            docs/benchmarks/patricia_comparison/results/baseline_*.json
             comparative.txt
             bytes-per-key.txt
             bench-output.txt
