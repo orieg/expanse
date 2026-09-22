@@ -701,6 +701,7 @@ jobs:
           python3 docs/benchmarks/hot_comparison/scripts/run_all.py --self-test
           python3 docs/benchmarks/masstree_comparison/scripts/run_all.py --self-test
           python3 docs/benchmarks/set_algebra/scripts/harvest_domain.py --self-test
+          python3 scripts/discipline_replay.py --self-test
 
       - name: Shared Runner Provenance Unit Tests
         working-directory: scripts

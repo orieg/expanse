@@ -2,10 +2,11 @@
 #
 # A gate is on at `error` once it reaches parity with the repo script it would
 # replace, measured by replaying this configuration over the merged pull
-# requests of this repository: a gate that reports a finding on a pull request
-# the repo script passed is not yet at `error`. A gate that is off names the
-# script that enforces the rule meanwhile. docs/CI.md (`docs-lint`) carries the
-# same map.
+# requests of this repository (`scripts/discipline_replay.py --last 100`): a
+# gate that reports a finding on a pull request the repo script passed is not
+# yet at `error`. Re-run the replay before changing this file or the pinned
+# release. A gate that is off names the script that enforces the rule
+# meanwhile. docs/CI.md (`docs-lint`) carries the same map.
 #
 # Severities are stated rather than defaulted, so a gate this repository blocks
 # on does not change meaning with the action's version.
