@@ -27,6 +27,8 @@ The C library (`libexpanse`, headers, man pages, and the `libJudy` drop-in links
 ```bash
 # macOS, or Homebrew on Linux (formula ships from v0.7.0)
 brew install orieg/tap/expanse
+# The formula conflicts with Homebrew's stock `judy` (both install Judy.h and libJudy);
+# if judy is installed, `brew unlink judy` first. The judy keg stays at `$(brew --prefix judy)`.
 
 # Debian / Ubuntu
 echo "deb [trusted=yes] https://orieg.github.io/expanse/apt/ stable main" | sudo tee /etc/apt/sources.list.d/expanse.list
@@ -369,9 +371,10 @@ sudo dnf install -y libexpanse libexpanse-devel libjudy-compat
 
 ### 3b. macOS: Homebrew & MacPorts
 ```bash
-brew install orieg/tap/expanse
+brew install orieg/tap/expanse   # macOS, or Homebrew on Linux
+brew test orieg/tap/expanse      # compiles and runs one program against expanse.h and one against Judy.h
 ```
-Installs `libexpanse` (dylib and static), `expanse.h` / `expanse.hpp` / `Judy.h`, the manual pages, pkg-config files and the `libJudy` compatibility links; it also works under Homebrew on Linux. A MacPorts `Portfile` ships with every release — see [docs/PACKAGING.md §2.15](docs/PACKAGING.md).
+Installs `libexpanse` (dylib and static), `expanse.h` / `expanse.hpp` / `Judy.h`, the manual pages, pkg-config files and the `libJudy` compatibility links; it also works under Homebrew on Linux. The formula declares `conflicts_with "judy"`, since both install `Judy.h` and a `libJudy` library: if Homebrew's stock `judy` is installed, run `brew unlink judy` first. The `judy` keg stays in the Cellar and remains reachable at `$(brew --prefix judy)`, which is where the `oracle` tests and `bench_vs_libjudy` look for stock libjudy on macOS. Upgrade with `brew update && brew upgrade expanse`. A MacPorts `Portfile` ships with every release — see [docs/PACKAGING.md §2.15](docs/PACKAGING.md).
 
 ### 4. Modern C API (`expanse.h`)
 ```c
