@@ -1822,6 +1822,92 @@ impl<T: SharedTree> Shared<T> {
         })
     }
 
+    /// Diagnostic (`diag-entry`): the optimistic write protocol's fixed steps
+    /// around `f`, with no tree mutation.
+    ///
+    /// In order, what a mutation on the optimistic path does before and after
+    /// its own store: [`Self::enter_writer_blocking`] (the gate check, the
+    /// slot's in-flight increment, the `SeqCst` fence and the re-check), the
+    /// thread's writer pin ([`Self::with_writer_pin`]), the gate re-check the
+    /// mutation loops make at the top of every retry, a per-node version lock
+    /// by CAS on `cell` ([`crate::occ::version_try_lock`], with the release
+    /// fence a real lock carries), `f` inside the locked section, the unlock
+    /// with the version advanced by two as a mutation's unlock does, and the
+    /// slot exit when the guard drops. A failed CAS counts one `LockSpins`
+    /// and one `LockRestarts`, backs off as the mutation loops do and retries;
+    /// a gate closed under the probe releases the slot so the quiescer can
+    /// drain it and re-enters through `enter_writer_blocking`, which counts
+    /// `GateBlockedEntries` while the gate stays closed. Unlike a mutation the
+    /// probe has no serialised fallback: it retries until the lock is taken,
+    /// which is what lets a caller measure the protocol's cost as a function
+    /// of the hold time `f` chooses and the number of threads on `cell`.
+    /// Nothing here bumps `WriteOps`, `Inserts` or any fallback counter.
+    ///
+    /// Under `--cfg loom` the writer pin is skipped: the pin is the EBR
+    /// protocol, modelled on its own primitives (S4), and its thread-local
+    /// reader cache is `std`'s, which loom does not reset between model
+    /// iterations. The model covers the gate, slot and lock steps.
+    #[cfg(all(feature = "std", feature = "diag-entry"))]
+    pub(crate) fn optimistic_probe(&self, cell: &crate::occ::VersionCell, f: impl FnOnce()) {
+        let mut f = Some(f);
+        // The mutation loops' budget. Under `--cfg loom` every retry is a
+        // branch of the model, and two probes spinning on one word through 64
+        // of them per slot entry exhaust its exploration; the small budget
+        // keeps the same shape (retry, back off, re-enter the gate).
+        #[cfg(not(loom))]
+        const RETRIES: usize = MAX_RETRIES;
+        #[cfg(loom)]
+        const RETRIES: usize = 2;
+        loop {
+            let guard = self.enter_writer_blocking();
+            let locked_section = || {
+                let mut backoff = 1;
+                for _ in 0..RETRIES {
+                    // The mutation loops' per-retry gate check. Spelled apart
+                    // from theirs on purpose: `tests/test_gate_waits.rs`
+                    // counts the real sites by their exact text.
+                    let gate_closed = self.gate.is_closed();
+                    if gate_closed {
+                        return false;
+                    }
+                    match version_try_lock_timed(cell) {
+                        Ok((old_v, t0)) => {
+                            if let Some(f) = f.take() {
+                                f();
+                            }
+                            version_unlock_timed(cell, old_v, true, t0);
+                            return true;
+                        }
+                        Err(_) => {
+                            crate::occ_stats::bump(crate::occ_stats::Stat::LockSpins);
+                            crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                            for _ in 0..backoff {
+                                core::hint::spin_loop();
+                            }
+                            if backoff < 64 {
+                                backoff <<= 1;
+                            }
+                            #[cfg(loom)]
+                            loom::thread::yield_now();
+                        }
+                    }
+                }
+                false
+            };
+            #[cfg(not(loom))]
+            let done = self.with_writer_pin(locked_section);
+            #[cfg(loom)]
+            let done = {
+                let mut run = locked_section;
+                run()
+            };
+            drop(guard);
+            if done {
+                return;
+            }
+        }
+    }
+
     /// Runs one mutation under the writer lock and version bracket, and
     /// attempts an epoch advance once every [`ADVANCE_EVERY`] mutations.
     ///
@@ -2395,6 +2481,12 @@ pub(crate) enum FallbackCause {
     /// The descent met an edge tag the OLC path does not decode. Expected
     /// ~0; a non-zero share means the walk has a hole.
     UnknownTag,
+    /// Not a fallback the engine chose: a `diag-entry` caller routed the
+    /// mutation through the serialised path on purpose
+    /// (`insert_serialized` / `remove_serialized`). Absent from the default
+    /// build, so the engine's own partition of causes is unchanged.
+    #[cfg(feature = "diag-entry")]
+    Forced,
 }
 
 #[cfg(feature = "std")]
@@ -2410,6 +2502,8 @@ impl FallbackCause {
             Self::RootGrowth => Stat::FallbackRootGrowth,
             Self::Contention => Stat::FallbackContention,
             Self::UnknownTag => Stat::FallbackUnknownTag,
+            #[cfg(feature = "diag-entry")]
+            Self::Forced => Stat::FallbackForced,
         }
     }
 }
@@ -3026,6 +3120,42 @@ unsafe fn bump_ancestor_chain(
     }
 }
 
+/// Diagnostic (`diag-entry`): a caller-owned version word for
+/// [`SyncExpanseMap::optimistic_probe_on`] and
+/// [`SyncExpanseSet::optimistic_probe_on`].
+///
+/// The same 32-bit word a branch node header carries (`docs/ARCHITECTURE.md`
+/// §4.2): even is unlocked, odd is locked, and every probe that takes it
+/// advances it by two. Sharing one cell between threads is how a caller
+/// makes the probes contend; a private cell per thread is the uncontended
+/// control. Not a stability surface.
+#[cfg(all(feature = "std", feature = "diag-entry"))]
+#[derive(Debug)]
+pub struct ProbeCell(crate::occ::VersionCell);
+
+#[cfg(all(feature = "std", feature = "diag-entry"))]
+impl Default for ProbeCell {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(all(feature = "std", feature = "diag-entry"))]
+impl ProbeCell {
+    /// An unlocked cell at version 0.
+    #[must_use]
+    pub fn new() -> Self {
+        Self(crate::occ::VersionCell::new(0))
+    }
+
+    /// The word's current value: two per probe that has taken it, plus one
+    /// while a probe holds it.
+    #[must_use]
+    pub fn version(&self) -> u32 {
+        self.0.load(core::sync::atomic::Ordering::Acquire)
+    }
+}
+
 /// A set shareable across threads: one writer at a time (internally
 /// serialized), validated optimistic readers. See the module docs for the
 /// protocol and its trade-offs.
@@ -3215,6 +3345,61 @@ impl SyncExpanseSet {
     #[doc(hidden)]
     pub fn __test_reopen_gate(&self) {
         self.shared.reopen_gate();
+    }
+
+    /// Diagnostic (`diag-entry`): [`Self::insert`] forced down the serialised
+    /// route a structural fallback takes — the fallback mutex, writer
+    /// quiescence, the writer mutex, and the tree word where the root state
+    /// decides (`write_root_covered`) — with no optimistic attempt first.
+    /// Same result as `insert`; only the route differs. Counted as one
+    /// `Inserts`, one `LockFallbacks` with the cause `FallbackForced`, and
+    /// whatever the serialised section counts itself (`WriteOps`,
+    /// `QuiesceCalls`, `Handoffs`); never `LockSpins` or `LockRestarts`.
+    /// No optimistic attempt is made, so none is counted: on this route
+    /// `write_ops` equals `inserts`, as it does for a root-leaf tree's
+    /// pre-check fallback. Not a stability surface.
+    #[cfg(all(feature = "std", feature = "diag-entry"))]
+    pub fn insert_serialized(&self, key: Key) -> bool {
+        crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
+        crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+        crate::occ_stats::bump(FallbackCause::Forced.stat());
+        self.shared.write_root_covered(|s| s.insert(key))
+    }
+
+    /// Diagnostic (`diag-entry`): [`Self::remove`] forced down the serialised
+    /// route (`remove_root_covered`, which first re-syncs the engine's
+    /// population from the sharded counter as every serialised removal
+    /// does). Counted as [`Self::insert_serialized`] is, without `Inserts`.
+    /// Not a stability surface.
+    #[cfg(all(feature = "std", feature = "diag-entry"))]
+    pub fn remove_serialized(&self, key: Key) -> bool {
+        crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+        crate::occ_stats::bump(FallbackCause::Forced.stat());
+        self.shared.remove_root_covered(|s| s.remove(key))
+    }
+
+    /// Diagnostic (`diag-entry`): the optimistic write protocol's fixed steps
+    /// around `f` on a private version word, with no tree mutation — gate
+    /// entry and slot in-flight count, the writer pin, a per-node version
+    /// lock by CAS, `f` inside it, the unlock, the slot exit. The cell is
+    /// private to the call, so the lock never fails and `LockRestarts` stays
+    /// at zero; this is the uncontended control for
+    /// [`Self::optimistic_probe_on`]. Not a stability surface.
+    #[cfg(all(feature = "std", feature = "diag-entry"))]
+    pub fn optimistic_probe(&self, f: impl FnOnce()) {
+        let cell = ProbeCell::new();
+        self.shared.optimistic_probe(&cell.0, f);
+    }
+
+    /// Diagnostic (`diag-entry`): [`Self::optimistic_probe`] on a caller's
+    /// [`ProbeCell`], so threads sharing one cell contend for its lock as
+    /// writers to one node do. A failed CAS counts one `LockSpins` and one
+    /// `LockRestarts` and retries after the mutation loops' backoff; a gate
+    /// closed under the probe releases the slot and re-enters, counting
+    /// `GateBlockedEntries` while it waits. Not a stability surface.
+    #[cfg(all(feature = "std", feature = "diag-entry"))]
+    pub fn optimistic_probe_on(&self, cell: &ProbeCell, f: impl FnOnce()) {
+        self.shared.optimistic_probe(&cell.0, f);
     }
 
     #[cfg(feature = "std")]
@@ -5337,6 +5522,61 @@ impl SyncExpanseMap {
     #[doc(hidden)]
     pub fn __test_reopen_gate(&self) {
         self.shared.reopen_gate();
+    }
+
+    /// Diagnostic (`diag-entry`): [`Self::insert`] forced down the serialised
+    /// route a structural fallback takes — the fallback mutex, writer
+    /// quiescence, the writer mutex, and the tree word where the root state
+    /// decides (`write_root_covered`) — with no optimistic attempt first.
+    /// Same result as `insert`; only the route differs. Counted as one
+    /// `Inserts`, one `LockFallbacks` with the cause `FallbackForced`, and
+    /// whatever the serialised section counts itself (`WriteOps`,
+    /// `QuiesceCalls`, `Handoffs`); never `LockSpins` or `LockRestarts`.
+    /// No optimistic attempt is made, so none is counted: on this route
+    /// `write_ops` equals `inserts`, as it does for a root-leaf tree's
+    /// pre-check fallback. Not a stability surface.
+    #[cfg(all(feature = "std", feature = "diag-entry"))]
+    pub fn insert_serialized(&self, key: Key, val: u64) -> Option<u64> {
+        crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
+        crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+        crate::occ_stats::bump(FallbackCause::Forced.stat());
+        self.shared.write_root_covered(|m| m.insert(key, val))
+    }
+
+    /// Diagnostic (`diag-entry`): [`Self::remove`] forced down the serialised
+    /// route (`remove_root_covered`, which first re-syncs the engine's
+    /// population from the sharded counter as every serialised removal
+    /// does). Counted as [`Self::insert_serialized`] is, without `Inserts`.
+    /// Not a stability surface.
+    #[cfg(all(feature = "std", feature = "diag-entry"))]
+    pub fn remove_serialized(&self, key: Key) -> Option<u64> {
+        crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+        crate::occ_stats::bump(FallbackCause::Forced.stat());
+        self.shared.remove_root_covered(|m| m.remove(key))
+    }
+
+    /// Diagnostic (`diag-entry`): the optimistic write protocol's fixed steps
+    /// around `f` on a private version word, with no tree mutation — gate
+    /// entry and slot in-flight count, the writer pin, a per-node version
+    /// lock by CAS, `f` inside it, the unlock, the slot exit. The cell is
+    /// private to the call, so the lock never fails and `LockRestarts` stays
+    /// at zero; this is the uncontended control for
+    /// [`Self::optimistic_probe_on`]. Not a stability surface.
+    #[cfg(all(feature = "std", feature = "diag-entry"))]
+    pub fn optimistic_probe(&self, f: impl FnOnce()) {
+        let cell = ProbeCell::new();
+        self.shared.optimistic_probe(&cell.0, f);
+    }
+
+    /// Diagnostic (`diag-entry`): [`Self::optimistic_probe`] on a caller's
+    /// [`ProbeCell`], so threads sharing one cell contend for its lock as
+    /// writers to one node do. A failed CAS counts one `LockSpins` and one
+    /// `LockRestarts` and retries after the mutation loops' backoff; a gate
+    /// closed under the probe releases the slot and re-enters, counting
+    /// `GateBlockedEntries` while it waits. Not a stability surface.
+    #[cfg(all(feature = "std", feature = "diag-entry"))]
+    pub fn optimistic_probe_on(&self, cell: &ProbeCell, f: impl FnOnce()) {
+        self.shared.optimistic_probe(&cell.0, f);
     }
 
     /// Removes every key-value pair from the map.
@@ -15750,6 +15990,205 @@ mod obsolete_tests {
     }
 }
 
+/// The `diag-entry` entry points against the counters they claim to move
+/// and the ones they claim not to. The counters are process-global, so
+/// `scripts/test_diag_entry.sh` runs this module alone and single-threaded;
+/// every assertion below is an exact delta on that assumption.
+#[cfg(all(
+    test,
+    not(miri),
+    feature = "std",
+    feature = "occ-stats",
+    feature = "diag-entry"
+))]
+mod diag_entry_tests {
+    use super::*;
+    use crate::occ_stats::{Stat, snapshot};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    /// Past the root leaf, so a later mutation on the ordinary route would
+    /// take the optimistic path and the serialised route is a choice.
+    const PREFILL: u64 = 20_000;
+
+    fn lcg(k: &mut u64) -> u64 {
+        *k = k
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        *k
+    }
+
+    /// The counters a serialised mutation must leave alone: the optimistic
+    /// protocol's, and every cause the engine attributes on its own.
+    const UNTOUCHED: [Stat; 11] = [
+        Stat::LockRestarts,
+        Stat::LockSpins,
+        Stat::GateBlockedEntries,
+        Stat::ContentionGateClosed,
+        Stat::ContentionRetryExhausted,
+        Stat::FallbackCapExpansion,
+        Stat::FallbackImmediateConversion,
+        Stat::FallbackBranchSplit,
+        Stat::FallbackRootGrowth,
+        Stat::FallbackContention,
+        Stat::FallbackUnknownTag,
+    ];
+
+    #[test]
+    fn diag_entry_serialized_route_counts_as_forced_fallbacks_only() {
+        let map = SyncExpanseMap::new();
+        let set = SyncExpanseSet::new();
+        let mut k = 0x9E37_79B9_7F4A_7C15u64;
+        for i in 0..PREFILL {
+            let key = lcg(&mut k);
+            map.insert(key, i);
+            set.insert(key);
+        }
+        let fresh: Vec<u64> = (0..1_000).map(|_| lcg(&mut k)).collect();
+
+        let before = snapshot();
+        for (i, &key) in fresh.iter().enumerate() {
+            assert_eq!(map.insert_serialized(key, i as u64), None);
+            assert!(set.insert_serialized(key));
+        }
+        for (i, &key) in fresh.iter().take(500).enumerate() {
+            assert_eq!(map.remove_serialized(key), Some(i as u64));
+            assert!(set.remove_serialized(key));
+        }
+        assert_eq!(map.remove_serialized(fresh[999] ^ 1), None);
+        assert!(!set.remove_serialized(fresh[999] ^ 1));
+        let after = snapshot();
+        let d = |s: Stat| after[s as usize] - before[s as usize];
+
+        // Semantics: the same tree `insert` and `remove` would have left.
+        assert_eq!(map.len(), PREFILL + 500);
+        assert_eq!(set.len(), PREFILL + 500);
+        for &key in &fresh[500..] {
+            assert!(map.get(key).is_some());
+            assert!(set.contains(key));
+        }
+        map.with_locked(ExpanseMap::validate);
+        set.with_locked(ExpanseSet::validate);
+
+        // Route: 2 000 inserts + 1 000 removals + 2 misses, each one
+        // serialised section, quiescing exactly once, counted once as a
+        // fallback with the forced cause and nowhere else.
+        let ops = 2_000 + 1_000 + 2;
+        assert_eq!(d(Stat::Inserts), 2_000);
+        assert_eq!(d(Stat::LockFallbacks), ops);
+        assert_eq!(d(Stat::FallbackForced), ops);
+        assert_eq!(d(Stat::QuiesceCalls), ops);
+        assert_eq!(d(Stat::WriteOps), ops, "no optimistic attempt is counted");
+        assert_eq!(d(Stat::Handoffs), 0, "one thread never hands the lock over");
+        for stat in UNTOUCHED {
+            assert_eq!(d(stat), 0, "{stat:?} moved under the serialised route");
+        }
+    }
+
+    #[test]
+    fn diag_entry_probe_on_one_thread_restarts_nothing() {
+        let map = SyncExpanseMap::new();
+        let set = SyncExpanseSet::new();
+        let mut k = 0x9E37_79B9_7F4A_7C15u64;
+        for i in 0..PREFILL {
+            let key = lcg(&mut k);
+            map.insert(key, i);
+            set.insert(key);
+        }
+        let map_cell = ProbeCell::new();
+        let set_cell = ProbeCell::new();
+        let mut ran = 0u64;
+
+        let before = snapshot();
+        for _ in 0..1_000 {
+            map.optimistic_probe(|| ran += 1);
+            set.optimistic_probe(|| ran += 1);
+            map.optimistic_probe_on(&map_cell, || ran += 1);
+            set.optimistic_probe_on(&set_cell, || ran += 1);
+        }
+        let after = snapshot();
+        let d = |s: Stat| after[s as usize] - before[s as usize];
+
+        assert_eq!(ran, 4_000, "every probe ran its closure exactly once");
+        assert_eq!(map_cell.version(), 2_000, "two per probe on a shared cell");
+        assert_eq!(set_cell.version(), 2_000);
+        assert_eq!(d(Stat::LockRestarts), 0);
+        assert_eq!(d(Stat::LockSpins), 0);
+        assert_eq!(d(Stat::GateBlockedEntries), 0);
+        assert_eq!(d(Stat::LockFallbacks), 0);
+        assert_eq!(d(Stat::FallbackForced), 0);
+        assert_eq!(d(Stat::WriteOps), 0, "a probe is not a mutation");
+        assert_eq!(d(Stat::Inserts), 0);
+        assert_eq!(d(Stat::QuiesceCalls), 0);
+        assert_eq!(map.len(), PREFILL, "a probe changes no key");
+        assert_eq!(set.len(), PREFILL);
+    }
+
+    /// Two threads on one cell, arranged so the second's first CAS cannot
+    /// succeed: the first holds the lock inside its closure until this
+    /// thread has seen the restart counter move.
+    #[test]
+    fn diag_entry_probe_on_a_shared_cell_restarts() {
+        const DEADLINE: Duration = Duration::from_secs(20);
+        let map = Arc::new(SyncExpanseMap::new());
+        let mut k = 0x9E37_79B9_7F4A_7C15u64;
+        for i in 0..PREFILL {
+            map.insert(lcg(&mut k), i);
+        }
+        let cell = Arc::new(ProbeCell::new());
+        let (locked_tx, locked_rx) = mpsc::channel::<()>();
+        let (go_tx, go_rx) = mpsc::channel::<()>();
+
+        let holder = {
+            let (m, c) = (Arc::clone(&map), Arc::clone(&cell));
+            std::thread::spawn(move || {
+                m.optimistic_probe_on(&c, || {
+                    locked_tx.send(()).unwrap();
+                    go_rx.recv().unwrap();
+                });
+            })
+        };
+        locked_rx.recv().unwrap();
+        assert_eq!(cell.version(), 1, "the holder is inside the locked section");
+
+        let before = snapshot();
+        let contender = {
+            let (m, c) = (Arc::clone(&map), Arc::clone(&cell));
+            std::thread::spawn(move || m.optimistic_probe_on(&c, || {}))
+        };
+        let start = Instant::now();
+        loop {
+            let restarts =
+                snapshot()[Stat::LockRestarts as usize] - before[Stat::LockRestarts as usize];
+            if restarts >= 1 {
+                break;
+            }
+            assert!(
+                start.elapsed() < DEADLINE,
+                "the contender never restarted against a held lock"
+            );
+            std::thread::yield_now();
+        }
+        go_tx.send(()).unwrap();
+        holder.join().unwrap();
+        contender.join().unwrap();
+        let after = snapshot();
+        let d = |s: Stat| after[s as usize] - before[s as usize];
+
+        assert_eq!(cell.version(), 4, "both probes took the lock, once each");
+        assert!(d(Stat::LockRestarts) >= 1);
+        assert!(d(Stat::LockSpins) >= 1);
+        assert_eq!(
+            d(Stat::LockSpins),
+            d(Stat::LockRestarts),
+            "one spin per restart on a probe"
+        );
+        assert_eq!(d(Stat::LockFallbacks), 0, "a probe never falls back");
+        assert_eq!(d(Stat::WriteOps), 0);
+        assert_eq!(d(Stat::GateBlockedEntries), 0, "nothing closed the gate");
+    }
+}
+
 #[cfg(all(test, loom))]
 mod loom_tests {
     use super::*;
@@ -15858,6 +16297,87 @@ mod loom_tests {
                  slot cache shared between model threads, or carried across model \
                  iterations, shows up here"
             );
+        });
+    }
+
+    /// The `diag-entry` probe on the production entry points. Two probe
+    /// threads, each on its own [`ProbeCell`], enter their locked sections
+    /// through `optimistic_probe_on`, publish that they entered, store their
+    /// number, and leave. The coordinator waits until both have published
+    /// their entry — so both hold a slot or have just left one, and neither
+    /// can meet a closed gate — then closes and drains through
+    /// [`Shared::quiesce_writers`] and, with the gate still closed, requires
+    /// both stores to be visible (S9, S10): the drain returned, so each probe
+    /// has left its slot, and the exit's `Release` paired with the drain's
+    /// `Acquire` is what carries its store across.
+    ///
+    /// Everything the coordinator reads is a loom atomic read `Relaxed`, so
+    /// the assertion rests on that pairing alone: red when the drain load is
+    /// `Relaxed` (loom then offers the coordinator the stale zero) and when
+    /// the probe takes the lock without entering through the gate (the drain
+    /// has nothing to wait for and reads a half-finished section).
+    ///
+    /// What the model does not do, and why. A plain cell would not do: a
+    /// probe admitted after the gate reopens stores with no happens-before
+    /// edge to the coordinator's earlier read, which is the seqlock caveat
+    /// the module docs state and loom's `UnsafeCell` tracker reports. A probe
+    /// that meets a closed gate spins in `enter_writer_blocking` until the
+    /// reopen, and a probe contending for one word spins on its CAS; both
+    /// are loops loom cannot bound (a `Relaxed` load may keep returning the
+    /// stale word), and each exhausted a 20 000-branch budget. The lock's
+    /// mutual exclusion on one word is `loom_multi_writer_mutual_exclusion`'s
+    /// on the same primitive (S5); the two-thread restart is
+    /// `diag_entry_probe_on_a_shared_cell_restarts`.
+    #[cfg(feature = "diag-entry")]
+    #[test]
+    fn loom_diag_entry_probe_excludes_and_drains() {
+        let mut model = loom::model::Builder::new();
+        model.preemption_bound = Some(3);
+        model.check(|| {
+            let set = Arc::new(SyncExpanseSet::new());
+            let cells = Arc::new([ProbeCell::new(), ProbeCell::new()]);
+            let entered = Arc::new([AtomicUsize::new(0), AtomicUsize::new(0)]);
+            let stored = Arc::new([AtomicUsize::new(0), AtomicUsize::new(0)]);
+            let probes: Vec<_> = (0..2)
+                .map(|i| {
+                    let (s, c, en, st) = (
+                        Arc::clone(&set),
+                        Arc::clone(&cells),
+                        Arc::clone(&entered),
+                        Arc::clone(&stored),
+                    );
+                    loom::thread::spawn(move || {
+                        s.optimistic_probe_on(&c[i], || {
+                            en[i].store(1, Ordering::Relaxed);
+                            st[i].store(i + 1, Ordering::Relaxed);
+                        });
+                    })
+                })
+                .collect();
+
+            for en in entered.iter() {
+                while en.load(Ordering::Relaxed) == 0 {
+                    loom::thread::yield_now();
+                }
+            }
+            let gate = set.shared.quiesce_writers();
+            for (i, st) in stored.iter().enumerate() {
+                assert_eq!(
+                    st.load(Ordering::Relaxed),
+                    i + 1,
+                    "probe {i} entered its section, the drain returned, and its \
+                     store is not visible: the slot exit and the drain no \
+                     longer pair, or the probe never held a slot"
+                );
+            }
+            drop(gate);
+
+            for p in probes {
+                p.join().unwrap();
+            }
+            for c in cells.iter() {
+                assert_eq!(c.version(), 2, "each probe advances its word by two, once");
+            }
         });
     }
 }

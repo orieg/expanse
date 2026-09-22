@@ -191,10 +191,18 @@ pub enum Stat {
     CapExpansionMapBitmapSub = 44,
     /// Remove-side capacity adjustments (shrink/demote, #568).
     CapExpansionRemove = 45,
+    /// Fallbacks a caller forced through the serialised route with the
+    /// `diag-entry` feature's `insert_serialized` / `remove_serialized`
+    /// (`FallbackCause::Forced`). The engine never bumps it: the six causes
+    /// above still partition every fallback the optimistic path takes, and
+    /// this one holds the fallbacks a diagnostic caller asked for, so a
+    /// harness that sums all seven still reaches [`Stat::LockFallbacks`]
+    /// and one that sums the six is short by exactly this counter.
+    FallbackForced = 46,
 }
 
 /// Number of distinct counters.
-pub const NUM_STATS: usize = 46;
+pub const NUM_STATS: usize = 47;
 
 /// Human-readable counter names, indexed by [`Stat`].
 pub const NAMES: [&str; NUM_STATS] = [
@@ -244,6 +252,7 @@ pub const NAMES: [&str; NUM_STATS] = [
     "cap_expansion_bitmap_near_full",
     "cap_expansion_map_bitmap_sub",
     "cap_expansion_remove",
+    "fallback_forced",
 ];
 
 /// Counters that are gauges (add / subtract / high-water), kept global.
@@ -518,7 +527,7 @@ mod tests {
     #[test]
     fn names_cover_every_stat() {
         assert_eq!(NAMES.len(), NUM_STATS);
-        assert_eq!(Stat::CapExpansionRemove as usize + 1, NUM_STATS);
+        assert_eq!(Stat::FallbackForced as usize + 1, NUM_STATS);
         assert_eq!(NAMES[Stat::SampleSpinCycles as usize], "sample_spin_cycles");
         assert_eq!(NAMES[Stat::DeepCascades as usize], "deep_cascades");
         assert_eq!(NAMES[Stat::LockRestarts as usize], "lock_restarts");
@@ -592,6 +601,7 @@ mod tests {
             NAMES[Stat::CapExpansionRemove as usize],
             "cap_expansion_remove"
         );
+        assert_eq!(NAMES[Stat::FallbackForced as usize], "fallback_forced");
     }
 
     /// The discriminants are an unwritten contract: `snapshot()` is indexed
@@ -627,6 +637,8 @@ mod tests {
         assert_eq!(Stat::BranchSplitRemove as usize, 39);
         // Appended for #568 Phase 4D.
         assert_eq!(Stat::BranchSplitUpgrade as usize, 40);
+        // Appended for the `diag-entry` serialised route.
+        assert_eq!(Stat::FallbackForced as usize, 46);
     }
 
     #[test]
