@@ -688,7 +688,7 @@ jobs:
       # option discipline's own guide prefers.
       - name: Diff Gates (orieg/discipline)
         if: github.event_name == 'pull_request'
-        uses: orieg/discipline@v0.10.0
+        uses: orieg/discipline@v0.10.1
 
       - name: Unrun Gate Self-Tests (bounds, ablations, suite drivers)
         # These ship `--self-test` suites and were invoked by no workflow and
@@ -3136,6 +3136,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
+        with:
+          # discipline diffs against the merge base in the step below.
+          fetch-depth: 0
 
       - name: Gate Self-Check (every job is a required dependency)
         shell: bash
@@ -3170,6 +3173,21 @@ jobs:
             --statuses "$STATUSES" \
             --outputs "$FILTERS" \
             --event-name "${{ github.event_name }}"
+
+      # The same question as the step above, asked of discipline's
+      # `ci-skip-set` from the same data: the rollup's own `needs` context,
+      # results and filter outputs together. Advisory while the two are
+      # compared on live runs -- it reports, and only check_gate_floor.py can
+      # fail this job. `ci-integrity` reports the `advisory: true` input, so
+      # the pull request that adds it carries `allow-gate-weakening:
+      # ci-integrity`. When the two have agreed on runs that exercised a skip,
+      # the advisory input goes and the script is retired.
+      - name: Gate Floor Shadow (orieg/discipline ci-skip-set, advisory)
+        uses: orieg/discipline@v0.10.1
+        with:
+          suite: integrity
+          advisory: true
+          ci_context: ${{ toJson(needs) }}
 
       - name: Evaluate Dependency Statuses
         shell: bash
