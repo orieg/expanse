@@ -110,6 +110,13 @@ def apply(who: str = "benchmark") -> str:
     harness can copy it straight into its artifact's provenance block (§8.7),
     which is what makes an unpinned run visible in the committed JSON instead of
     only in whoever remembers how it was launched.
+
+    Every status line goes to stderr: stdout belongs to the harness that called
+    this, and `bindings/python/bench.py --json` hands its stdout whole to
+    `json.loads` in `scripts/bench_bindings.py`. With the line on stdout the
+    nightly `bench-report` job's python runtime failed to parse from the day the
+    pin reached that harness (#780) on every GitHub runner, which exposes one
+    core class and so took exactly this branch.
     """
     p_cpus = read_pmu_cpus("cpu_core")
     e_cpus = read_pmu_cpus("cpu_atom")
@@ -121,7 +128,7 @@ def apply(who: str = "benchmark") -> str:
         # actually reached this process rather than trusting the variable.
         if inherited not in ("none", "off"):
             _verify(expand(inherited), e_cpus, "the inherited pin")
-        print(f"core pin: inherited {inherited} from the runner ({who})")
+        print(f"core pin: inherited {inherited} from the runner ({who})", file=sys.stderr)
         return inherited
 
     if requested.lower() == "off":
@@ -136,7 +143,7 @@ def apply(who: str = "benchmark") -> str:
         if not e_cpus:
             # Uniform host: nothing to pin away from, so a pin would only
             # shrink the machine. Same rule the shell helper applies.
-            print(f"core pin: not needed — this host exposes one core class ({who})")
+            print(f"core pin: not needed — this host exposes one core class ({who})", file=sys.stderr)
             return _publish("none")
         if not p_cpus:
             raise PinRefused(
@@ -161,5 +168,5 @@ def apply(who: str = "benchmark") -> str:
             "deliberately."
         ) from exc
     _verify(cpus, e_cpus, who)
-    print(f"core pin: {who} confined to CPUs {mask} (AGENTS.md section 8.4, #639)")
+    print(f"core pin: {who} confined to CPUs {mask} (AGENTS.md section 8.4, #639)", file=sys.stderr)
     return _publish(mask)
