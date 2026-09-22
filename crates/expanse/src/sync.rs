@@ -1602,6 +1602,12 @@ unsafe impl<T> Send for SharedBox<T> where Shared<T>: Send {}
 // SAFETY: as above.
 unsafe impl<T> Sync for SharedBox<T> where Shared<T>: Sync {}
 
+/// `Box<Shared<T>>` was `UnwindSafe` whenever `Shared<T>` was; a `NonNull`
+/// asks for `RefUnwindSafe` instead, which the block's interior mutability
+/// denies, so the wrappers would have lost the trait. This keeps the `Box`
+/// rule, so a `catch_unwind` closure that owns a wrapper still compiles.
+impl<T> core::panic::UnwindSafe for SharedBox<T> where Shared<T>: core::panic::UnwindSafe {}
+
 impl<T: SharedTree> Shared<T> {
     /// Wraps `inner`, handing every allocation source `attach` names over to
     /// a fresh epoch collector (deferred reclamation).

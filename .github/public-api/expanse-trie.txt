@@ -1932,13 +1932,13 @@ impl core::default::Default for expanse_trie::sync::SyncExpanseBytesMap<std::has
 pub fn expanse_trie::sync::SyncExpanseBytesMap<std::hash::random::RandomState>::default() -> Self
 impl<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync + core::default::Default> core::convert::From<expanse_trie::bytesmap::ExpanseBytesMap<S>> for expanse_trie::sync::SyncExpanseBytesMap<S>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::from(expanse_trie::bytesmap::ExpanseBytesMap<S>) -> Self
-impl<S> core::marker::Freeze for expanse_trie::sync::SyncExpanseBytesMap<S> where alloc::boxed::Box<Shared<expanse_trie::bytesmap::ExpanseBytesMap<S>>>: core::marker::Freeze
-impl<S> core::marker::Send for expanse_trie::sync::SyncExpanseBytesMap<S> where alloc::boxed::Box<Shared<expanse_trie::bytesmap::ExpanseBytesMap<S>>>: core::marker::Send
-impl<S> core::marker::Sync for expanse_trie::sync::SyncExpanseBytesMap<S> where alloc::boxed::Box<Shared<expanse_trie::bytesmap::ExpanseBytesMap<S>>>: core::marker::Sync
-impl<S> core::marker::Unpin for expanse_trie::sync::SyncExpanseBytesMap<S> where alloc::boxed::Box<Shared<expanse_trie::bytesmap::ExpanseBytesMap<S>>>: core::marker::Unpin
-impl<S> core::marker::UnsafeUnpin for expanse_trie::sync::SyncExpanseBytesMap<S> where alloc::boxed::Box<Shared<expanse_trie::bytesmap::ExpanseBytesMap<S>>>: core::marker::UnsafeUnpin
+impl<S> core::marker::Freeze for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::Freeze
+impl<S> core::marker::Send for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::Send
+impl<S> core::marker::Sync for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::Sync
+impl<S> core::marker::Unpin for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::Unpin
+impl<S> core::marker::UnsafeUnpin for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::UnsafeUnpin
 impl<S> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::SyncExpanseBytesMap<S>
-impl<S> core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::SyncExpanseBytesMap<S> where alloc::boxed::Box<Shared<expanse_trie::bytesmap::ExpanseBytesMap<S>>>: core::panic::unwind_safe::UnwindSafe
+impl<S> core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::panic::unwind_safe::UnwindSafe
 pub struct expanse_trie::sync::SyncExpanseMap
 impl expanse_trie::sync::SyncExpanseMap
 pub fn expanse_trie::sync::SyncExpanseMap::clear(&self)
