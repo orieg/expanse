@@ -146,11 +146,19 @@ used synthetic personas and is not peer review.
 | P2 | `patricia_lookup_miss`, every `u64` distribution | Expanse faster than `patricia_tree` |
 | P3 | `patricia_insert`, every `u64` distribution, both orders | Expanse faster than `patricia_tree` |
 | P4 | `patricia_scan` full traversal, every `u64` distribution | Expanse faster than `patricia_tree` |
-| P5 | every harness, `u64` `sequential` / `clustered` / `uniform_random` / `sparse_stride` | `fast_radix_trie` `INVALID` (max fanout 256) |
+| P5 | `patricia_lookup_hit`, `patricia_insert`, `patricia_memory`, `patricia_scan`, `u64` `sequential` / `clustered` / `uniform_random` / `sparse_stride` | `fast_radix_trie` `INVALID` (max fanout 256) |
 | P6 | every harness, every path cell | `fast_radix_trie` valid |
 | P7 | `patricia_memory`, `sequential` / `clustered` / `uniform_random` / `sparse_stride` at 100k and 1M, and every path cell at 100k | `patricia_tree` requested bytes equal the census exactly, in both orders |
 | P8 | `patricia_memory`, `sequential` and `clustered` | Expanse fewer requested bytes than `patricia_tree`, both orders |
 | T1 | `patricia_string`, generator order, per valid twin | the ratio rises with prefix length. `PASS` iff the 240-byte interval lies wholly above the 8-byte interval; `INTERMEDIATE` if the four point estimates rise monotonically but the intervals overlap; `REFUTED` otherwise |
+
+**Amendment A1 (2026-09-22, after the first local `--quick` smoke run at
+`75ebe0b3`; no reference-host data).** P5 originally read "every harness". But
+`patricia_lookup_miss` builds a random half of a 2n draw, not the key sets the
+envelope derived max fanout for. In the smoke run, `fast_radix_trie` was valid
+on that harness's half-split `clustered` set. P5 is narrowed to the harnesses
+whose key sets the envelope covers. The half-split cells carry no validity
+prediction; their status is reported as measured. No other prediction changed.
 
 **No directional prediction:**
 - Any `fast_radix_trie` or `qp-trie` timing. The envelope gives them 3–8
