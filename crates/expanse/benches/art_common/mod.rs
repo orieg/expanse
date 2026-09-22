@@ -187,6 +187,16 @@ fn norm_ppf(p: f64) -> f64 {
 
 /// Computes (point_estimate, ci_lower, ci_upper) at 95% confidence using BCa bootstrap.
 pub fn bca_ci(data: &[f64]) -> (f64, f64, f64) {
+    let (t, lo, hi, _) = bca_ci_labeled(data);
+    (t, lo, hi)
+}
+
+/// [`bca_ci`] plus the construction that produced the interval, in the
+/// `scripts/bca_bootstrap.py` vocabulary: `"bca"`; `"clamped"` when the
+/// bias-correction proportion hit its clamp; `"bc"` when the jackknife
+/// acceleration was degenerate and forced to zero; `"degenerate"` below three
+/// samples, where the interval is the plain mean with zero width.
+pub fn bca_ci_labeled(data: &[f64]) -> (f64, f64, f64, &'static str) {
     let n = data.len();
     if n < 3 {
         let avg = if n > 0 {
@@ -194,7 +204,7 @@ pub fn bca_ci(data: &[f64]) -> (f64, f64, f64) {
         } else {
             0.0
         };
-        return (avg, avg, avg);
+        return (avg, avg, avg, "degenerate");
     }
     let theta_hat = data.iter().sum::<f64>() / n as f64;
 
@@ -208,7 +218,9 @@ pub fn bca_ci(data: &[f64]) -> (f64, f64, f64) {
     boot.sort_by(f64::total_cmp);
 
     let less = boot.iter().filter(|b| **b < theta_hat).count();
-    let prop_less = (less as f64 / RESAMPLES as f64).clamp(1e-6, 1.0 - 1e-6);
+    let raw_prop = less as f64 / RESAMPLES as f64;
+    let prop_less = raw_prop.clamp(1e-6, 1.0 - 1e-6);
+    let clamped = prop_less != raw_prop;
     let z0 = norm_ppf(prop_less);
 
     let total: f64 = data.iter().sum();
@@ -219,7 +231,8 @@ pub fn bca_ci(data: &[f64]) -> (f64, f64, f64) {
     let jack_mean = jack.iter().sum::<f64>() / n as f64;
     let num: f64 = jack.iter().map(|j| (jack_mean - j).powi(3)).sum();
     let denom: f64 = jack.iter().map(|j| (jack_mean - j).powi(2)).sum();
-    let a = if denom.abs() < 1e-12 {
+    let degenerate_a = denom.abs() < 1e-12;
+    let a = if degenerate_a {
         0.0
     } else {
         num / (6.0 * denom.powf(1.5))
@@ -234,7 +247,14 @@ pub fn bca_ci(data: &[f64]) -> (f64, f64, f64) {
     let idx_lo = ((a1 * RESAMPLES as f64).round() as usize).clamp(0, RESAMPLES - 1);
     let idx_hi = ((a2 * RESAMPLES as f64).round() as usize).clamp(0, RESAMPLES - 1);
 
-    (theta_hat, boot[idx_lo], boot[idx_hi])
+    let label = if clamped {
+        "clamped"
+    } else if degenerate_a {
+        "bc"
+    } else {
+        "bca"
+    };
+    (theta_hat, boot[idx_lo], boot[idx_hi], label)
 }
 
 // ---------------------------------------------------------------------------

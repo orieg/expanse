@@ -1,11 +1,12 @@
-//! Patricia trie vs Expanse: cold-build insertion, both insertion orders.
+//! Patricia / radix tries vs Expanse: `u64` cold-build insertion, both orders.
 //!
-//! Each round builds both structures from empty over the same unique keys.
-//! Insertion is order-sensitive for a sorted-sibling-list Patricia tree — an
-//! ascending run appends at the tail of the deepest list, walking every
-//! sibling before it — so every distribution is measured in generator order
-//! and in a Fisher–Yates permutation (AGENTS.md §8.12.4), and the order is
-//! recorded in each row.
+//! Each repetition inserts every unique key into a fresh, empty structure. All
+//! four structures are timed in both orders — generator order (ascending on
+//! `sequential` and `sparse_stride`) and a Fisher–Yates permutation — within
+//! the same rounds, so both the Expanse/twin ratio per order and each arm's
+//! generator/shuffled ratio are paired per round and carry BCa intervals
+//! (§8.12.4, §8.4). Each structure is built once per order and validated before
+//! timing; an invalid structure is recorded, not timed.
 //!
 //! # Workload shape
 //!
@@ -14,14 +15,14 @@
 //! | `workload_id` | `patricia_insert` |
 //! | `group` | 4 |
 //! | `population` | 10k to 1M |
-//! | `insertion_order` | both — generator draw order (ascending on `sequential` and `sparse_stride`) and a Fisher–Yates permutation under `PROBE_SHUFFLE_SEED`; `order` recorded per row |
-//! | `probes_and_reuse` | Every unique key inserted once per round into a fresh structure |
+//! | `insertion_order` | both — generator draw order and a Fisher–Yates permutation under `PROBE_SHUFFLE_SEED`, timed as separate arms in the same rounds |
+//! | `probes_and_reuse` | Every unique key inserted once per repetition into a fresh structure; repetitions calibrated to `MIN_WINDOW` |
 //! | `hit_rate` | N/A (all inserts are new keys) |
 //! | `miss_gen_method` | None |
 //! | `value_dereference` | `black_box` of each insert's previous-value result |
-//! | `measured_region` | Insert loop only; construction of the empty map precedes the window and drop follows it |
-//! | `arm_symmetry` | Identical keys, values and order; arm order alternates per round |
-//! | `statistics` | Median per arm + BCa 95% CI on the paired per-round ratio |
+//! | `measured_region` | Insert loops only; each empty map is constructed before its window and dropped after it; one discarded warm-up pass per arm |
+//! | `arm_symmetry` | Identical keys, values and orders; arm order rotates per round |
+//! | `statistics` | Median per arm + geometric-mean paired ratios (Expanse/twin per order, generator/shuffled per arm) with BCa 95% CI on per-round log ratios |
 //! | `verdict` | **PENDING** `[unmeasured]`: no committed run yet. |
 
 #[path = "art_common/mod.rs"]
@@ -29,129 +30,101 @@ mod art_common;
 #[path = "patricia_common/mod.rs"]
 mod patricia_common;
 
-use art_common::{
-    ExpanseMap, PROBE_SHUFFLE_SEED, SHARED_SEED, XorShift64, bca_ci, dedupe_preserve_order,
-    gen_clustered, gen_sequential, gen_sparse_stride, gen_uniform_random, gen_zipfian, median,
-    rounds_raw, shuffle,
+use patricia_common::{
+    Arm, DISTS, Invalid, PatriciaMap, QpTrie, RadixMap, Twin, build_expanse, build_twin, cli, emit,
+    paired_ratio, pass_expanse_insert, pass_twin_insert, pkey, run_cell, series, shuffled,
+    u64_dist, val,
 };
-use patricia_common::{PatriciaMap, ci_method, cli, pkey, print_rows};
-use serde_json::json;
-use std::hint::black_box;
-use std::time::Instant;
+use serde_json::{Value, json};
 
-#[inline(never)]
-fn time_expanse(keys: &[u64]) -> f64 {
-    let mut m = ExpanseMap::new();
-    let start = Instant::now();
-    for &k in keys {
-        black_box(m.insert(k, k.wrapping_mul(3)));
-    }
-    let ns = start.elapsed().as_nanos() as f64;
-    black_box(&m);
-    drop(m);
-    ns / keys.len() as f64
+const ORDERS: [&str; 2] = ["generator", "shuffled"];
+
+/// Encoded keys and values for one order.
+struct Order {
+    keys: Vec<u64>,
+    bytes: Vec<[u8; 8]>,
+    vals: Vec<u64>,
 }
 
-#[inline(never)]
-fn time_patricia(keys: &[[u8; 8]]) -> f64 {
-    let mut m = PatriciaMap::new();
-    let start = Instant::now();
-    for k in keys {
-        black_box(m.insert(k, u64::from_be_bytes(*k).wrapping_mul(3)));
-    }
-    let ns = start.elapsed().as_nanos() as f64;
-    black_box(&m);
-    drop(m);
-    ns / keys.len() as f64
-}
-
-fn row(
-    dist: &str,
-    order: &str,
-    keys: &[u64],
-    raw_draws: usize,
-    rounds: usize,
-) -> serde_json::Value {
-    let pkeys: Vec<[u8; 8]> = keys.iter().map(|&k| pkey(k)).collect();
-    let (mut et, mut pt, mut ratios) = (Vec::new(), Vec::new(), Vec::new());
-    for round in 0..rounds {
-        let (a, b) = if round % 2 == 0 {
-            let a = time_expanse(keys);
-            (a, time_patricia(&pkeys))
-        } else {
-            let b = time_patricia(&pkeys);
-            (time_expanse(keys), b)
-        };
-        et.push(a);
-        pt.push(b);
-        if b > 0.0 {
-            ratios.push(a / b);
+fn push_twin<'a, T: Twin<[u8; 8]>>(
+    arms: &mut Vec<Arm<'a>>,
+    invalid: &mut Vec<Invalid>,
+    orders: &'a [Order; 2],
+    valid_twins: &mut Vec<&'static str>,
+) {
+    // Validate in both orders before timing either.
+    for (o, name) in orders.iter().zip(ORDERS) {
+        if let Err(e) = build_twin::<[u8; 8], T>(&o.bytes, &o.vals) {
+            invalid.push(Invalid {
+                name: T::NAME.into(),
+                reason: format!("{name} order: {e}"),
+            });
+            return;
         }
     }
-    let (r, lo, hi) = bca_ci(&ratios);
-    json!({
-        "distribution": dist,
-        "order": order,
-        "population": keys.len(),
-        "raw_draws": raw_draws,
-        "expanse_ns_op": median(et.clone()),
-        "patricia_ns_op": median(pt.clone()),
-        "ratio_expanse_over_patricia": r,
-        "ratio_ci": [lo, hi],
-        "ratio_ci_method": ci_method(ratios.len()),
-        "rounds_raw": rounds_raw(&[
-            ("expanse_ns", &et),
-            ("patricia_ns", &pt),
-            ("ratio_expanse_over_patricia", &ratios),
-        ]),
-    })
-}
-
-fn both(dist: &str, raw: &[u64], rounds: usize, out: &mut Vec<serde_json::Value>) {
-    let keys = dedupe_preserve_order(raw);
-    out.push(row(dist, "generator", &keys, raw.len(), rounds));
-    let mut shuffled = keys;
-    shuffle(&mut shuffled, &mut XorShift64::new(PROBE_SHUFFLE_SEED));
-    out.push(row(dist, "shuffled", &shuffled, raw.len(), rounds));
+    valid_twins.push(T::NAME);
+    for (o, name) in orders.iter().zip(ORDERS) {
+        arms.push(Arm {
+            name: format!("{}_{name}", T::NAME),
+            ops: o.keys.len(),
+            pass: Box::new(move |r| pass_twin_insert::<[u8; 8], T>(&o.bytes, &o.vals, r)),
+        });
+    }
 }
 
 fn main() {
-    let (pops, rounds, quick, json_mode) = cli();
-    let mut rows = Vec::new();
-    let mut rng = XorShift64::new(SHARED_SEED);
-    for &n in pops {
-        both("sequential", &gen_sequential(n), rounds, &mut rows);
-        both("clustered", &gen_clustered(n, &mut rng), rounds, &mut rows);
-        both(
-            "uniform_random",
-            &gen_uniform_random(n, &mut rng),
-            rounds,
-            &mut rows,
-        );
-        both("sparse_stride", &gen_sparse_stride(n), rounds, &mut rows);
-        both(
-            "zipfian",
-            &gen_zipfian(n, 0.99, &mut rng),
-            rounds,
-            &mut rows,
-        );
-    }
-    if json_mode {
-        let out = json!({"benchmark": "patricia_insert", "workload_id": "patricia_insert",
-            "competitor": "patricia_tree 0.10.2", "quick": quick, "rounds": rounds, "results": rows});
-        println!("{}", serde_json::to_string_pretty(&out).unwrap());
-    } else {
-        for r in rows.iter_mut() {
-            let label = format!(
-                "{}/{}",
-                r["distribution"].as_str().unwrap(),
-                r["order"].as_str().unwrap()
-            );
-            r["distribution"] = json!(label);
+    let cli = cli(&[10_000, 100_000, 1_000_000]);
+    let mut rows: Vec<Value> = Vec::new();
+    for &n in &cli.pops {
+        for dist in DISTS {
+            let keys = u64_dist(dist, n);
+            let make = |ks: Vec<u64>| Order {
+                bytes: ks.iter().map(|&k| pkey(k)).collect(),
+                vals: ks.iter().map(|&k| val(k)).collect(),
+                keys: ks,
+            };
+            let orders = [make(keys.clone()), make(shuffled(&keys))];
+            for o in &orders {
+                drop(build_expanse(&o.keys));
+            }
+            let mut arms: Vec<Arm<'_>> = orders
+                .iter()
+                .zip(ORDERS)
+                .map(|(o, name)| Arm {
+                    name: format!("expanse_{name}"),
+                    ops: o.keys.len(),
+                    pass: Box::new(move |r| pass_expanse_insert(&o.keys, r)),
+                })
+                .collect();
+            let mut invalid = Vec::new();
+            let mut twins = Vec::new();
+            push_twin::<PatriciaMap<u64>>(&mut arms, &mut invalid, &orders, &mut twins);
+            push_twin::<RadixMap<u64>>(&mut arms, &mut invalid, &orders, &mut twins);
+            push_twin::<QpTrie<[u8; 8], u64>>(&mut arms, &mut invalid, &orders, &mut twins);
+
+            let mut row = run_cell(arms, &invalid, cli.rounds, false);
+            for arm in std::iter::once("expanse").chain(twins.iter().copied()) {
+                let g = series(&row, &format!("{arm}_generator"));
+                let s = series(&row, &format!("{arm}_shuffled"));
+                paired_ratio(
+                    &mut row,
+                    &format!("ratio_{arm}_generator_over_shuffled"),
+                    &g,
+                    &s,
+                );
+            }
+            for t in &twins {
+                for o in ORDERS {
+                    let e = series(&row, &format!("expanse_{o}"));
+                    let tw = series(&row, &format!("{t}_{o}"));
+                    paired_ratio(&mut row, &format!("ratio_expanse_over_{t}_{o}"), &e, &tw);
+                }
+            }
+            row.insert("distribution".into(), json!(dist));
+            row.insert("population".into(), json!(keys.len()));
+            row.insert("raw_draws".into(), json!(n));
+            rows.push(Value::Object(row));
         }
-        print_rows(
-            &format!("patricia_insert (quick={quick}, rounds={rounds})"),
-            &rows,
-        );
     }
+    emit("patricia_insert", "patricia_insert", &cli, rows);
 }

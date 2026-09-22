@@ -136,8 +136,11 @@ rand_distr = "0.4"
 hdrhistogram = "7.5"
 serde_json = "1.0"
 blart = "0.5.0"
-# Patricia trie twin for docs/benchmarks/patricia_comparison/
+# Twins for docs/benchmarks/patricia_comparison/ (pinned: the suite's node
+# census and validation findings are version-specific).
 patricia_tree = "=0.10.2"
+fast_radix_trie = "=1.2.0"
+qp-trie = "=0.8.2"
 
 [target.'cfg(loom)'.dependencies]
 loom = "0.7"
@@ -312,6 +315,11 @@ test = false
 
 [[bench]]
 name = "patricia_string"
+harness = false
+test = false
+
+[[bench]]
+name = "patricia_scan"
 harness = false
 test = false
 

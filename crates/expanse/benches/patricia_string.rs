@@ -1,12 +1,15 @@
-//! Patricia trie vs Expanse on shared-prefix string keys: point lookup, 50% hit.
+//! Patricia / radix tries vs Expanse on shared-prefix string keys: point
+//! lookup, 50% hit, across four prefix lengths.
 //!
-//! Keys are `https://example.com/api/v2/objects/<12 hex>` — a 34-byte prefix
-//! shared by every key, then 48 random bits. A Patricia tree stores the prefix
-//! once as a single label; `ExpanseStrMap` (the JudySL counterpart) descends it
-//! eight bytes per level. This is the regime pre-registered as the twin's
-//! plausible win (AGENTS.md §8.3). Misses come from the same generator and are
-//! rejected on membership (§8.6). Every key is validated as NUL-free once,
-//! outside the timed region, so neither arm scans for NUL per probe.
+//! Keys are `prefix ++ <12 hex digits of 48 random bits>` with the prefix
+//! shared by every key, swept over 8, 35, 128 and 240 bytes. A radix tree
+//! stores the prefix once, as one label; `ExpanseStrMap` descends it eight
+//! bytes per level. This is the regime pre-registered as the one where a twin
+//! could win (§8.3), and the sweep is how a crossover would show up. Misses
+//! come from the same generator on an independent stream, rejected on
+//! membership (§8.6). Each arm is built on its own, in generator order (random
+//! ids) and in sorted order, validated, and every key is checked NUL-free once
+//! before any timing, so no arm scans for NUL per probe.
 //!
 //! # Workload shape
 //!
@@ -14,15 +17,15 @@
 //! |---|---|
 //! | `workload_id` | `patricia_string_lookup` |
 //! | `group` | 4 |
-//! | `population` | 10k to 1M |
-//! | `insertion_order` | generator draw order (random ids); a Patricia tree's node set is fixed by its key set, so build order does not change the structure probed |
-//! | `probes_and_reuse` | N/2 present + N/2 absent keys, shuffled under `PROBE_SHUFFLE_SEED`; same stream every round |
+//! | `population` | 10k to 1M, at each of four prefix lengths |
+//! | `insertion_order` | both — generator order (random ids) and sorted byte order; one row per order |
+//! | `probes_and_reuse` | Half the population (random) + as many absent keys, shuffled; repetitions calibrated to `MIN_WINDOW` |
 //! | `hit_rate` | 50% hit / 50% miss |
-//! | `miss_gen_method` | Same generator, independent seed, rejected on membership (`gen_prefixed_path_misses`) |
+//! | `miss_gen_method` | Same generator, independent seed, rejected on membership (`gen_path_misses`) |
 //! | `value_dereference` | `black_box` of the returned value or 0 |
-//! | `measured_region` | Probe loop only; build, key validation and probe assembly outside the window |
-//! | `arm_symmetry` | Identical keys, values and probe order; arm order alternates per round |
-//! | `statistics` | Median per arm + BCa 95% CI on the paired per-round ratio |
+//! | `measured_region` | Probe passes only; builds, validation, NUL checks and probe assembly outside the window; one discarded warm-up pass per arm |
+//! | `arm_symmetry` | Identical keys, values, probe order and build order; arms built separately; arm order rotates per round |
+//! | `statistics` | Median per arm + geometric-mean Expanse/twin ratio with BCa 95% CI on per-round log ratios |
 //! | `verdict` | **PENDING** `[unmeasured]`: no committed run yet. |
 
 #[path = "art_common/mod.rs"]
@@ -30,101 +33,61 @@ mod art_common;
 #[path = "patricia_common/mod.rs"]
 mod patricia_common;
 
-use art_common::{MISS_SEED, PROBE_SHUFFLE_SEED, XorShift64, bca_ci, median, rounds_raw};
-use expanse_trie::strmap::{ExpanseStrMap, NulFreeStr};
 use patricia_common::{
-    PatriciaMap, STRING_SEED, as_nulfree, ci_method, cli, gen_prefixed_path_misses,
-    gen_prefixed_paths, print_rows,
+    Arm, Invalid, PREFIX_LENS, PatriciaMap, QpTrie, RadixMap, STRING_SEED, as_nulfree,
+    build_expanse_str, build_twin, cli, emit, gen_path_misses, gen_paths, pass_expanse_str_get,
+    path_val, push_lookup_twin, run_cell, shuffled,
 };
-use serde_json::json;
-use std::hint::black_box;
-use std::time::Instant;
+use serde_json::{Value, json};
 
-#[inline(never)]
-fn time_expanse(map: &ExpanseStrMap, probes: &[&NulFreeStr]) -> f64 {
-    let start = Instant::now();
-    for k in probes {
-        black_box(map.get(k).unwrap_or(0));
-    }
-    start.elapsed().as_nanos() as f64 / probes.len() as f64
-}
+fn cell(build: &[Vec<u8>], probes: &[Vec<u8>], rounds: usize) -> serde_json::Map<String, Value> {
+    let vals: Vec<u64> = build.iter().map(|k| path_val(k)).collect();
+    let nf = as_nulfree(build);
+    let e = build_expanse_str(&nf, &vals);
+    let pt: Result<PatriciaMap<u64>, String> = build_twin(build, &vals);
+    let rx: Result<RadixMap<u64>, String> = build_twin(build, &vals);
+    let qp: Result<QpTrie<Vec<u8>, u64>, String> = build_twin(build, &vals);
 
-#[inline(never)]
-fn time_patricia(map: &PatriciaMap<u64>, probes: &[&[u8]]) -> f64 {
-    let start = Instant::now();
-    for k in probes {
-        black_box(map.get(k).copied().unwrap_or(0));
-    }
-    start.elapsed().as_nanos() as f64 / probes.len() as f64
-}
-
-fn row(n: usize, rounds: usize) -> serde_json::Value {
-    let keys = gen_prefixed_paths(n, &mut XorShift64::new(STRING_SEED));
-    let half = n / 2;
-    let misses = gen_prefixed_path_misses(&keys, half, MISS_SEED);
-    let mut probes: Vec<Vec<u8>> = keys[..half].to_vec();
-    probes.extend(misses);
-    // Shuffle probe order through an index permutation (art_common's shuffle is u64-only).
-    let mut idx: Vec<u64> = (0..probes.len() as u64).collect();
-    art_common::shuffle(&mut idx, &mut XorShift64::new(PROBE_SHUFFLE_SEED));
-    let probes: Vec<Vec<u8>> = idx.iter().map(|&i| probes[i as usize].clone()).collect();
-
-    let mut e = ExpanseStrMap::new();
-    let mut p = PatriciaMap::new();
-    for (i, k) in as_nulfree(&keys).into_iter().enumerate() {
-        e.insert(k, i as u64);
-    }
-    for (i, k) in keys.iter().enumerate() {
-        p.insert(k, i as u64);
-    }
-    let eprobes = as_nulfree(&probes);
-    let pprobes: Vec<&[u8]> = probes.iter().map(Vec::as_slice).collect();
-
-    let (mut et, mut pt, mut ratios) = (Vec::new(), Vec::new(), Vec::new());
-    for round in 0..rounds {
-        let (a, b) = if round % 2 == 0 {
-            let a = time_expanse(&e, &eprobes);
-            (a, time_patricia(&p, &pprobes))
-        } else {
-            let b = time_patricia(&p, &pprobes);
-            (time_expanse(&e, &eprobes), b)
-        };
-        et.push(a);
-        pt.push(b);
-        if b > 0.0 {
-            ratios.push(a / b);
-        }
-    }
-    let (r, lo, hi) = bca_ci(&ratios);
-    json!({
-        "distribution": "prefixed_path",
-        "population": n,
-        "probes": pprobes.len(),
-        "hit_rate_pct": 50,
-        "expanse_ns_op": median(et.clone()),
-        "patricia_ns_op": median(pt.clone()),
-        "ratio_expanse_over_patricia": r,
-        "ratio_ci": [lo, hi],
-        "ratio_ci_method": ci_method(ratios.len()),
-        "rounds_raw": rounds_raw(&[
-            ("expanse_ns", &et),
-            ("patricia_ns", &pt),
-            ("ratio_expanse_over_patricia", &ratios),
-        ]),
-    })
+    let eprobes = as_nulfree(probes);
+    let expected = eprobes.iter().filter(|k| e.get(k).is_some()).count();
+    let mut arms = vec![Arm {
+        name: "expanse".into(),
+        ops: probes.len(),
+        pass: Box::new(|r| pass_expanse_str_get(&e, &eprobes, r)),
+    }];
+    let mut invalid: Vec<Invalid> = Vec::new();
+    push_lookup_twin(&mut arms, &mut invalid, &pt, probes, expected);
+    push_lookup_twin(&mut arms, &mut invalid, &rx, probes, expected);
+    push_lookup_twin(&mut arms, &mut invalid, &qp, probes, expected);
+    let mut row = run_cell(arms, &invalid, rounds, true);
+    row.insert("expected_hits".into(), json!(expected));
+    row.insert("probes".into(), json!(probes.len()));
+    row
 }
 
 fn main() {
-    let (pops, rounds, quick, json_mode) = cli();
-    let rows: Vec<_> = pops.iter().map(|&n| row(n, rounds)).collect();
-    if json_mode {
-        let out = json!({"benchmark": "patricia_string", "workload_id": "patricia_string_lookup",
-            "competitor": "patricia_tree 0.10.2", "quick": quick, "rounds": rounds, "results": rows});
-        println!("{}", serde_json::to_string_pretty(&out).unwrap());
-    } else {
-        print_rows(
-            &format!("patricia_string (quick={quick}, rounds={rounds})"),
-            &rows,
-        );
+    let cli = cli(&[10_000, 100_000, 1_000_000]);
+    let mut rows: Vec<Value> = Vec::new();
+    for &n in &cli.pops {
+        for pl in PREFIX_LENS {
+            let keys = gen_paths(n, pl, STRING_SEED);
+            let half = n / 2;
+            let mut probes: Vec<Vec<u8>> = shuffled(&keys)[..half].to_vec();
+            probes.extend(gen_path_misses(&keys, half, pl));
+            let probes = shuffled(&probes);
+            let mut sorted = keys.clone();
+            sorted.sort();
+            for (order, build) in [("generator", &keys), ("sorted", &sorted)] {
+                let mut row = cell(build, &probes, cli.rounds);
+                row.insert("distribution".into(), json!("prefixed_path"));
+                row.insert("prefix_len".into(), json!(pl));
+                row.insert("key_len".into(), json!(pl + 12));
+                row.insert("order".into(), json!(order));
+                row.insert("population".into(), json!(n));
+                row.insert("hit_rate_pct".into(), json!(50));
+                rows.push(Value::Object(row));
+            }
+        }
     }
+    emit("patricia_string", "patricia_string_lookup", &cli, rows);
 }

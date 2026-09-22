@@ -1,14 +1,17 @@
-//! Patricia trie vs Expanse: live-heap census.
+//! Patricia / radix tries vs Expanse: live-heap census.
 //!
-//! Counts the bytes each structure holds on the heap after a cold build, with
-//! one GlobalAlloc hook for both arms (requested `Layout::size`; allocator
-//! overhead excluded on both). `u64` keys over the five `art_common`
-//! distributions, plus shared-prefix path keys (`ExpanseStrMap` vs
-//! `PatriciaMap`). The Patricia arm is built in generator order and again in a
-//! Fisher–Yates permutation, and both counts are recorded: a Patricia tree's
-//! node set is fixed by its key set, so the two should agree, and the harness
-//! records whether they do rather than assuming it. The expected Patricia
-//! count is computed independently by `scripts/patricia_envelope.py`.
+//! Two instruments on one GlobalAlloc hook, for every arm:
+//! - **requested** bytes (`Layout::size`), what each structure asks for;
+//! - **usable** bytes (`malloc_usable_size` on Linux, `malloc_size` on macOS),
+//!   what the allocator actually hands out. Small nodes are rounded up far more
+//!   than large ones, so the two can rank arms differently; both are recorded.
+//!
+//! Every arm is built in both orders and the counts recorded per order: the
+//! allocator census is order-sensitive for Expanse (§8.12.4), and a Patricia
+//! tree's node set is fixed by its key set only for keys of at most 255 bytes.
+//! `u64` keys over the five distributions; shared-prefix string keys at four
+//! prefix lengths (`ExpanseStrMap` vs the twins), in generator and sorted
+//! order. A twin that panics or loses keys is recorded as invalid.
 //!
 //! # Workload shape
 //!
@@ -17,14 +20,14 @@
 //! | `workload_id` | `patricia_memory` |
 //! | `group` | 4 |
 //! | `population` | 1k to 1M |
-//! | `insertion_order` | both — generator draw order (ascending on `sequential` and `sparse_stride`) and a Fisher–Yates permutation under `PROBE_SHUFFLE_SEED`; both recorded per row |
+//! | `insertion_order` | both — `u64`: generator order and a Fisher–Yates permutation under `PROBE_SHUFFLE_SEED`; strings: generator (random ids) and sorted; per-order counts on every row |
 //! | `probes_and_reuse` | N/A (memory) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | None |
-//! | `value_dereference` | None; live bytes read from the TrackingAlloc counter |
+//! | `value_dereference` | None; counters read from the allocator hook |
 //! | `measured_region` | Build loop only; each structure dropped before the next is built |
-//! | `arm_symmetry` | Identical key sets and values, one allocator hook for all arms |
-//! | `statistics` | Exact deterministic byte count |
+//! | `arm_symmetry` | Identical key sets and values, one allocator hook for all arms; every arm owns its key bytes |
+//! | `statistics` | Exact deterministic byte counts (requested and usable) |
 //! | `verdict` | **PENDING** `[unmeasured]`: no committed run yet. |
 
 #[path = "art_common/mod.rs"]
@@ -32,20 +35,52 @@ mod art_common;
 #[path = "patricia_common/mod.rs"]
 mod patricia_common;
 
-use art_common::{
-    ExpanseMap, PROBE_SHUFFLE_SEED, SHARED_SEED, XorShift64, dedupe_preserve_order, gen_clustered,
-    gen_sequential, gen_sparse_stride, gen_uniform_random, gen_zipfian, shuffle,
-};
+use art_common::ExpanseMap;
 use expanse_trie::strmap::ExpanseStrMap;
-use patricia_common::{PatriciaMap, STRING_SEED, as_nulfree, gen_prefixed_paths, pkey};
-use serde_json::json;
+use patricia_common::{
+    DISTS, PREFIX_LENS, PatriciaMap, QpTrie, RadixMap, STRING_SEED, Twin, as_nulfree, build_twin,
+    cli, emit, gen_paths, path_val, pkey, shuffled, u64_dist, val,
+};
+use serde_json::{Map, Value, json};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::hint::black_box;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct TrackingAlloc;
-static LIVE_BYTES: AtomicUsize = AtomicUsize::new(0);
-static LIVE_ALLOCS: AtomicUsize = AtomicUsize::new(0);
+static REQUESTED: AtomicUsize = AtomicUsize::new(0);
+static USABLE: AtomicUsize = AtomicUsize::new(0);
+static ALLOCS: AtomicUsize = AtomicUsize::new(0);
+
+/// Name of the usable-size instrument on this target, recorded per artifact.
+#[cfg(target_os = "linux")]
+const USABLE_INSTRUMENT: &str = "malloc_usable_size";
+#[cfg(target_os = "macos")]
+const USABLE_INSTRUMENT: &str = "malloc_size";
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+const USABLE_INSTRUMENT: &str = "unavailable: requested size recorded";
+
+/// Bytes the system allocator reserved for a live block from `System`.
+fn usable(ptr: *mut u8, layout: Layout) -> usize {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = layout;
+        // SAFETY: `ptr` is a live block returned by `System` (glibc malloc
+        // family on Linux), which is what malloc_usable_size accepts.
+        unsafe { libc::malloc_usable_size(ptr.cast()) }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = layout;
+        // SAFETY: `ptr` is a live block returned by `System` (libmalloc on
+        // macOS), which is what malloc_size accepts.
+        unsafe { libc::malloc_size(ptr.cast_const().cast()) }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = ptr;
+        layout.size()
+    }
+}
 
 // SAFETY: forwards every call to the System allocator unchanged; the counters
 // are bookkeeping only and never affect the returned pointer or layout.
@@ -54,23 +89,30 @@ unsafe impl GlobalAlloc for TrackingAlloc {
         // SAFETY: caller upholds GlobalAlloc::alloc's contract; delegated as is.
         let ptr = unsafe { System.alloc(layout) };
         if !ptr.is_null() {
-            LIVE_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
-            LIVE_ALLOCS.fetch_add(1, Ordering::Relaxed);
+            REQUESTED.fetch_add(layout.size(), Ordering::Relaxed);
+            USABLE.fetch_add(usable(ptr, layout), Ordering::Relaxed);
+            ALLOCS.fetch_add(1, Ordering::Relaxed);
         }
         ptr
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        LIVE_BYTES.fetch_sub(layout.size(), Ordering::Relaxed);
-        LIVE_ALLOCS.fetch_sub(1, Ordering::Relaxed);
+        REQUESTED.fetch_sub(layout.size(), Ordering::Relaxed);
+        USABLE.fetch_sub(usable(ptr, layout), Ordering::Relaxed);
+        ALLOCS.fetch_sub(1, Ordering::Relaxed);
         // SAFETY: `ptr` came from `alloc` above with this `layout`.
         unsafe { System.dealloc(ptr, layout) };
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        let old_usable = usable(ptr, layout);
         // SAFETY: caller upholds GlobalAlloc::realloc's contract; delegated as is.
         let new = unsafe { System.realloc(ptr, layout, new_size) };
         if !new.is_null() {
-            LIVE_BYTES.fetch_sub(layout.size(), Ordering::Relaxed);
-            LIVE_BYTES.fetch_add(new_size, Ordering::Relaxed);
+            // SAFETY: `new` has `layout.align()` and `new_size`, per realloc.
+            let new_layout = unsafe { Layout::from_size_align_unchecked(new_size, layout.align()) };
+            REQUESTED.fetch_sub(layout.size(), Ordering::Relaxed);
+            REQUESTED.fetch_add(new_size, Ordering::Relaxed);
+            USABLE.fetch_sub(old_usable, Ordering::Relaxed);
+            USABLE.fetch_add(usable(new, new_layout), Ordering::Relaxed);
         }
         new
     }
@@ -79,151 +121,153 @@ unsafe impl GlobalAlloc for TrackingAlloc {
 #[global_allocator]
 static GLOBAL: TrackingAlloc = TrackingAlloc;
 
-fn snapshot() -> (usize, usize) {
-    (
-        LIVE_BYTES.load(Ordering::SeqCst),
-        LIVE_ALLOCS.load(Ordering::SeqCst),
-    )
+fn snap() -> [usize; 3] {
+    [
+        REQUESTED.load(Ordering::SeqCst),
+        USABLE.load(Ordering::SeqCst),
+        ALLOCS.load(Ordering::SeqCst),
+    ]
 }
 
-fn delta(base: (usize, usize)) -> (usize, usize) {
-    let now = snapshot();
-    (now.0.saturating_sub(base.0), now.1.saturating_sub(base.1))
-}
-
-fn patricia_u64(keys: &[u64]) -> (usize, usize) {
-    let base = snapshot();
-    let mut p = PatriciaMap::new();
-    for &k in keys {
-        p.insert(pkey(k), k.wrapping_mul(3));
+/// Builds with `f`, records the three counters' growth under `<arm>_<order>_*`,
+/// then drops the structure. `Err` is recorded as invalid.
+fn census<T>(
+    row: &mut Map<String, Value>,
+    arm: &str,
+    order: &str,
+    n: usize,
+    f: impl FnOnce() -> Result<T, String>,
+) -> Option<usize> {
+    let base = snap();
+    let built = f();
+    let now = snap();
+    let p = format!("{arm}_{order}");
+    match built {
+        Ok(t) => {
+            let d: Vec<usize> = (0..3).map(|i| now[i].saturating_sub(base[i])).collect();
+            row.insert(format!("{p}_requested_bytes"), json!(d[0]));
+            row.insert(format!("{p}_usable_bytes"), json!(d[1]));
+            row.insert(format!("{p}_allocs"), json!(d[2]));
+            row.insert(
+                format!("{p}_requested_bytes_per_key"),
+                json!(d[0] as f64 / n as f64),
+            );
+            row.insert(
+                format!("{p}_usable_bytes_per_key"),
+                json!(d[1] as f64 / n as f64),
+            );
+            black_box(&t);
+            drop(t);
+            Some(d[0])
+        }
+        Err(e) => {
+            row.insert(format!("{p}_status"), json!("invalid"));
+            row.insert(format!("{p}_invalid_reason"), json!(e));
+            None
+        }
     }
-    let d = delta(base);
-    black_box(&p);
-    d
 }
 
-fn measure_u64(dist: &str, raw: &[u64]) -> serde_json::Value {
-    let keys = dedupe_preserve_order(raw);
+fn twins<K: AsRef<[u8]>>(
+    row: &mut Map<String, Value>,
+    order: &str,
+    keys: &[K],
+    vals: &[u64],
+) -> Option<usize>
+where
+    PatriciaMap<u64>: Twin<K>,
+    RadixMap<u64>: Twin<K>,
+    QpTrie<K, u64>: Twin<K>,
+{
     let n = keys.len();
-    let mut shuffled = keys.clone();
-    shuffle(&mut shuffled, &mut XorShift64::new(PROBE_SHUFFLE_SEED));
-
-    let base = snapshot();
-    let mut e = ExpanseMap::new();
-    for &k in &keys {
-        e.insert(k, k.wrapping_mul(3));
-    }
-    let (e_bytes, e_allocs) = delta(base);
-    let e_mem_used = e.mem_used();
-    black_box(&e);
-    drop(e);
-
-    let (p_bytes, p_allocs) = patricia_u64(&keys);
-    let (p_bytes_shuf, p_allocs_shuf) = patricia_u64(&shuffled);
-
-    json!({
-        "key_type": "u64",
-        "distribution": dist,
-        "population": n,
-        "raw_draws": raw.len(),
-        "expanse_live_bytes": e_bytes,
-        "expanse_live_allocs": e_allocs,
-        "expanse_mem_used": e_mem_used,
-        "expanse_bytes_per_key": e_bytes as f64 / n as f64,
-        "patricia_live_bytes": p_bytes,
-        "patricia_live_allocs": p_allocs,
-        "patricia_bytes_per_key": p_bytes as f64 / n as f64,
-        "patricia_live_bytes_shuffled": p_bytes_shuf,
-        "patricia_live_allocs_shuffled": p_allocs_shuf,
-        "patricia_order_invariant": p_bytes == p_bytes_shuf && p_allocs == p_allocs_shuf,
-    })
+    let pt = census(row, "patricia_tree", order, n, || {
+        build_twin::<K, PatriciaMap<u64>>(keys, vals)
+    });
+    census(row, "fast_radix_trie", order, n, || {
+        build_twin::<K, RadixMap<u64>>(keys, vals)
+    });
+    census(row, "qp_trie", order, n, || {
+        build_twin::<K, QpTrie<K, u64>>(keys, vals)
+    });
+    pt
 }
 
-fn measure_paths(n: usize) -> serde_json::Value {
-    let mut rng = XorShift64::new(STRING_SEED);
-    let keys = gen_prefixed_paths(n, &mut rng);
-    let nf = as_nulfree(&keys);
-
-    let base = snapshot();
-    let mut e = ExpanseStrMap::new();
-    for (i, k) in nf.iter().enumerate() {
-        e.insert(k, i as u64);
+fn u64_row(dist: &str, n: usize) -> Value {
+    let keys = u64_dist(dist, n);
+    let mut row = Map::new();
+    let mut pt = Vec::new();
+    for (order, ks) in [("generator", keys.clone()), ("shuffled", shuffled(&keys))] {
+        let mut mem_used = 0;
+        census(&mut row, "expanse", order, ks.len(), || {
+            let mut m = ExpanseMap::new();
+            for &k in &ks {
+                m.insert(k, val(k));
+            }
+            mem_used = m.mem_used();
+            Ok::<_, String>(m)
+        });
+        row.insert(format!("expanse_{order}_mem_used"), json!(mem_used));
+        let bytes: Vec<[u8; 8]> = ks.iter().map(|&k| pkey(k)).collect();
+        let vals: Vec<u64> = ks.iter().map(|&k| val(k)).collect();
+        pt.push(twins(&mut row, order, &bytes, &vals));
     }
-    let (e_bytes, e_allocs) = delta(base);
-    let e_mem_used = e.mem_used();
-    black_box(&e);
-    drop(e);
+    row.insert(
+        "patricia_tree_order_invariant".into(),
+        json!(pt[0].is_some() && pt[0] == pt[1]),
+    );
+    row.insert("key_type".into(), json!("u64"));
+    row.insert("distribution".into(), json!(dist));
+    row.insert("population".into(), json!(keys.len()));
+    row.insert("raw_draws".into(), json!(n));
+    Value::Object(row)
+}
 
-    let base = snapshot();
-    let mut p = PatriciaMap::new();
-    for (i, k) in keys.iter().enumerate() {
-        p.insert(k, i as u64);
+fn path_row(n: usize, prefix_len: usize) -> Value {
+    let keys = gen_paths(n, prefix_len, STRING_SEED);
+    let mut sorted = keys.clone();
+    sorted.sort();
+    let mut row = Map::new();
+    let mut pt = Vec::new();
+    for (order, ks) in [("generator", &keys), ("sorted", &sorted)] {
+        let nf = as_nulfree(ks);
+        let vals: Vec<u64> = ks.iter().map(|k| path_val(k)).collect();
+        let mut mem_used = 0;
+        census(&mut row, "expanse", order, ks.len(), || {
+            let mut m = ExpanseStrMap::new();
+            for (k, &v) in nf.iter().zip(&vals) {
+                m.insert(k, v);
+            }
+            mem_used = m.mem_used();
+            Ok::<_, String>(m)
+        });
+        row.insert(format!("expanse_{order}_mem_used"), json!(mem_used));
+        pt.push(twins(&mut row, order, ks, &vals));
     }
-    let (p_bytes, p_allocs) = delta(base);
-    black_box(&p);
-    drop(p);
-
-    let key_bytes: usize = keys.iter().map(Vec::len).sum();
-    json!({
-        "key_type": "prefixed_path",
-        "distribution": "prefixed_path",
-        "population": n,
-        "mean_key_len": key_bytes as f64 / n as f64,
-        "expanse_live_bytes": e_bytes,
-        "expanse_live_allocs": e_allocs,
-        "expanse_mem_used": e_mem_used,
-        "expanse_bytes_per_key": e_bytes as f64 / n as f64,
-        "patricia_live_bytes": p_bytes,
-        "patricia_live_allocs": p_allocs,
-        "patricia_bytes_per_key": p_bytes as f64 / n as f64,
-    })
+    row.insert(
+        "patricia_tree_order_invariant".into(),
+        json!(pt[0].is_some() && pt[0] == pt[1]),
+    );
+    row.insert("key_type".into(), json!("prefixed_path"));
+    row.insert("distribution".into(), json!("prefixed_path"));
+    row.insert("prefix_len".into(), json!(prefix_len));
+    row.insert("key_len".into(), json!(prefix_len + 12));
+    row.insert("population".into(), json!(n));
+    Value::Object(row)
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let quick = args.iter().any(|a| a == "--quick");
-    let json_mode = args.iter().any(|a| a == "--json");
-    let populations: &[usize] = if quick {
-        &[1_000, 10_000]
-    } else {
-        &[1_000, 10_000, 100_000, 1_000_000]
-    };
-
-    let mut results = Vec::new();
-    let mut rng = XorShift64::new(SHARED_SEED);
-    for &n in populations {
-        results.push(measure_u64("sequential", &gen_sequential(n)));
-        results.push(measure_u64("clustered", &gen_clustered(n, &mut rng)));
-        results.push(measure_u64(
-            "uniform_random",
-            &gen_uniform_random(n, &mut rng),
-        ));
-        results.push(measure_u64("sparse_stride", &gen_sparse_stride(n)));
-        results.push(measure_u64("zipfian", &gen_zipfian(n, 0.99, &mut rng)));
-        results.push(measure_paths(n));
-    }
-
-    let output = json!({
-        "benchmark": "patricia_memory",
-        "workload_id": "patricia_memory",
-        "competitor": "patricia_tree 0.10.2",
-        "quick": quick,
-        "results": results,
-    });
-    if json_mode {
-        println!("{}", serde_json::to_string_pretty(&output).unwrap());
-    } else {
-        println!("=== patricia_memory (quick={quick}) ===");
-        for r in &results {
-            println!(
-                "  pop={:8} | {:15} | Expanse {:7.2} B/key | Patricia {:7.2} B/key | order-invariant {}",
-                r["population"],
-                r["distribution"].as_str().unwrap(),
-                r["expanse_bytes_per_key"].as_f64().unwrap(),
-                r["patricia_bytes_per_key"].as_f64().unwrap(),
-                r.get("patricia_order_invariant")
-                    .map_or("n/a".to_string(), |v| v.to_string()),
-            );
+    let cli = cli(&[1_000, 10_000, 100_000, 1_000_000]);
+    let mut rows = Vec::new();
+    for &n in &cli.pops {
+        for dist in DISTS {
+            rows.push(u64_row(dist, n));
+        }
+        for pl in PREFIX_LENS {
+            rows.push(path_row(n, pl));
         }
     }
+    for r in rows.iter_mut() {
+        r["usable_instrument"] = json!(USABLE_INSTRUMENT);
+    }
+    emit("patricia_memory", "patricia_memory", &cli, rows);
 }
