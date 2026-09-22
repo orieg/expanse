@@ -77,14 +77,16 @@ severity = "error"
 enabled = true
 severity = "error"
 
-# Still `warning`: at v0.10.0 the expect-this-to-raise idiom and the
-# `let _ = (a, b);` binding are fixed, but `let _ = <call>` is reported for a
-# call that returns no fallible type — `let _ = self.shards.get_or_init(…)` in
-# crates/expanse/src/alloc.rs discards a reference, and blocked #997 in the
-# replay.
+# At `error` since v0.10.2, which sorts a Rust `let _ = <call>` by the callee's
+# name: a known-fallible callee still blocks, a known accessor is silent, and
+# any other callee is `Value Discarded`, capped at `warning`. That is what made
+# `let _ = self.shards.get_or_init(…)` in crates/expanse/src/alloc.rs stop being
+# reported. Replayed over the last 100 merged pull requests at v0.10.2, this
+# gate reports nothing, and moving it to `error` leaves the blocking set
+# unchanged at 14.
 [gates.error-swallowing]
 enabled = true
-severity = "warning"
+severity = "error"
 
 # Held at `warning` while the standing rate is measured: `#[allow(…)]` is the
 # reviewed escape hatch from `clippy -D warnings` (§5), not a defect by itself.
