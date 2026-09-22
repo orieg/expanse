@@ -169,7 +169,7 @@ Expanse is distributed on Maven Central as `io.github.orieg:expanse-java` with b
 - **Package Configuration**: `bindings/java/pom.xml` and `bindings/java/build.gradle`.
 - **JDK Baseline**: Java 22+ baseline (finalized Project Panama FFM - JEP 454). Java 21 LTS supported for source builds with `--enable-preview`.
 - **Native Loader**: `io.github.orieg.expanse.internal.NativeLoader` extracts and loads precompiled native libraries across Linux (`x86_64`, `aarch64`), macOS (`aarch64`, `x86_64`), and Windows (`x86_64`).
-- **Registry Verification**: Verified by `scripts/verify_release_registries.py` via Maven Central Search API.
+- **Registry Verification**: the `verify-registries` release job runs `scripts/verify_release_registries.py`, which fetches the version's POM from repo1.maven.org (the URL a pinned build resolves) with the group's `maven-metadata.xml` as fallback, both past the CDN cache, and gives Central extra retry attempts beyond the shared budget because its sync is the slowest of the registries.
 - **Full Guide**: See [docs/bindings/java.md](bindings/java.md).
 
 ---

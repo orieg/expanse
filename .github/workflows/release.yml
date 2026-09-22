@@ -830,7 +830,10 @@ jobs:
       - github-release
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The shared budget below waits 30+60+120+240+240 s; Maven Central's four
+    # extra attempts (EXTRA_ATTEMPTS in the script) add 4 x 240 s, about 28
+    # minutes of waiting in all before the probes' own time.
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -844,6 +847,8 @@ jobs:
       # Retries with backoff: registries ingest asynchronously, and the PHP
       # library was absent from Packagist minutes after the v0.5.0 tag and
       # present later. Absence only counts once the budget is exhausted.
+      # Maven Central outlived this budget three times on v0.7.0 and gets
+      # extra attempts of its own; the probes bypass repo1's CDN cache.
       - name: Assert every registry serves ${{ github.ref_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
