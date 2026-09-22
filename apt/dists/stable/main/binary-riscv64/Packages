@@ -1,31 +1,31 @@
-Package: libjudy-compat
-Version: 0.7.0
-Architecture: riscv64
-Maintainer: Nicolas Brousse <nicolas@brousse.info>
-Description: Drop-in compatibility for libjudy applications (symlinks, man pages).
-Filename: pool/main/libjudy-compat_0.7.0_riscv64.deb
-Size: 7798
-SHA256: a01a72b54abc1371721d5251418c7a0822b70665092f78f39331e4d175c69fb6
-Depends: libexpanse1 (= 0.7.0)
-Provides: libjudy
-Conflicts: libjudy
-
-Package: libexpanse1
-Version: 0.7.0
-Architecture: riscv64
-Maintainer: Nicolas Brousse <nicolas@brousse.info>
-Description: Expanse trie engine shared library with glibc-hwcaps support.
-Filename: pool/main/libexpanse1_0.7.0_riscv64.deb
-Size: 599544
-SHA256: e081735199517af5f8222044503ca1677d8c63df9fd896b08132017b369a880d
-
 Package: libexpanse-dev
-Version: 0.7.0
+Version: 0.7.1
 Architecture: riscv64
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Expanse trie engine development files (headers, static library, man pages).
-Filename: pool/main/libexpanse-dev_0.7.0_riscv64.deb
-Size: 8000228
-SHA256: 5d32438dff276b632def132f31f429f5d17e73d54c5effab061b586648b53b07
-Depends: libexpanse1 (= 0.7.0)
+Filename: pool/main/libexpanse-dev_0.7.1_riscv64.deb
+Size: 7998072
+SHA256: 713abacfc417b9cbce254ecd2cfaa7e6ad0362f8b4319b71ccd0de3702e5de57
+Depends: libexpanse1 (= 0.7.1)
+
+Package: libexpanse1
+Version: 0.7.1
+Architecture: riscv64
+Maintainer: Nicolas Brousse <nicolas@brousse.info>
+Description: Expanse trie engine shared library with glibc-hwcaps support.
+Filename: pool/main/libexpanse1_0.7.1_riscv64.deb
+Size: 599536
+SHA256: 4338795180a632dec8517ca835ba105bb2c3d5b54507f900bd02956290b0212d
+
+Package: libjudy-compat
+Version: 0.7.1
+Architecture: riscv64
+Maintainer: Nicolas Brousse <nicolas@brousse.info>
+Description: Drop-in compatibility for libjudy applications (symlinks, man pages).
+Filename: pool/main/libjudy-compat_0.7.1_riscv64.deb
+Size: 7800
+SHA256: 908736403ae3fd24b2f9d1dc60562cc78dca542e79b6c268d75b69a2c54282fa
+Depends: libexpanse1 (= 0.7.1)
+Provides: libjudy
+Conflicts: libjudy
 
