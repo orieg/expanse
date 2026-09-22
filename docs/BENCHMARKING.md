@@ -196,6 +196,7 @@ The suites below are declared once, in [`.github/bench-suites.json`](../.github/
 | `art_scan` | wall-clock | Adaptive Radix Tree (ART) vs Expanse ordered range scan and full container iteration. |
 | `art_memory` | wall-clock | Adaptive Radix Tree (ART) vs Expanse live heap memory allocation census across population scales. |
 | `art_small_payload` | wall-clock | Adaptive Radix Tree (ART) vs Expanse small-payload regime (<= 7 keys) lookups, inserts, and memory census. |
+| `patricia_comparison` | wall-clock | Expanse vs three radix tries (`patricia_tree`, `fast_radix_trie`, `qp-trie`) through `docs/benchmarks/patricia_comparison/scripts/run_all.py`: live-heap census (requested and usable bytes), point lookup at 100% and 50% hit, cold-build insert in both orders, shared-prefix string lookup across four prefix lengths, full traversal and prefix scan; paired per-round ratios with BCa intervals; writes `results/baseline_*.json`. |
 
 Bench targets deliberately **not** reachable from a slash command:
 
