@@ -682,10 +682,13 @@ jobs:
       # step above: a squash merge's commit message is built from the
       # branch's commits, not the PR body, so on the push to main the waivers
       # that let the pull request pass are absent and the same diff would
-      # fail again.
+      # fail again. Since v0.10.0 the `merged-pr-body` directive source can
+      # resolve those waivers on a push through the forge API instead; gating
+      # on the event that carries the review record needs no token and is the
+      # option discipline's own guide prefers.
       - name: Diff Gates (orieg/discipline)
         if: github.event_name == 'pull_request'
-        uses: orieg/discipline@v0.9.0
+        uses: orieg/discipline@v0.10.0
 
       - name: Unrun Gate Self-Tests (bounds, ablations, suite drivers)
         # These ship `--self-test` suites and were invoked by no workflow and
