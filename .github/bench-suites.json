@@ -716,6 +716,56 @@
       "suite": "art_comparison"
     },
     {
+      "name": "patricia_lookup_hit",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "patricia_lookup_hit",
+      "summary": "Patricia trie (patricia_tree) vs Expanse point lookup at 100% hit across five u64 key distributions.",
+      "suite": "patricia_comparison"
+    },
+    {
+      "name": "patricia_lookup_miss",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "patricia_lookup_miss",
+      "summary": "Patricia trie (patricia_tree) vs Expanse point lookup at 50% hit / 50% same-distribution miss.",
+      "suite": "patricia_comparison"
+    },
+    {
+      "name": "patricia_insert",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "patricia_insert",
+      "summary": "Patricia trie (patricia_tree) vs Expanse cold-build insertion, generator and shuffled orders.",
+      "suite": "patricia_comparison"
+    },
+    {
+      "name": "patricia_memory",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "patricia_memory",
+      "summary": "Patricia trie (patricia_tree) vs Expanse live-heap census, u64 and shared-prefix string keys.",
+      "suite": "patricia_comparison"
+    },
+    {
+      "name": "patricia_string",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "patricia_string",
+      "summary": "Patricia trie (patricia_tree) vs ExpanseStrMap point lookup on shared-prefix string keys, 50% hit.",
+      "suite": "patricia_comparison"
+    },
+    {
       "name": "wasm_fuel",
       "available": false,
       "kind": "fuel",

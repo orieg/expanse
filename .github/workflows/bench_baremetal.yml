@@ -112,6 +112,11 @@ on:
           - art_scan
           - art_memory
           - art_small_payload
+          - patricia_lookup_hit
+          - patricia_lookup_miss
+          - patricia_insert
+          - patricia_memory
+          - patricia_string
           # END GENERATED: bench-suites
   issue_comment:
     types: [created]
