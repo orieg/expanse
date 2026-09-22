@@ -105,7 +105,7 @@ Not derived: time per operation on any arm; memory for `fast_radix_trie`,
 
 ## 3. Pre-registration (AGENTS.md §8.8 commit 2)
 
-**This revision supersedes the pre-registration committed at `103ba836`**,
+**This revision supersedes the first pre-registration** (commit `docs(patricia): pre-registration, runner and suite README`),
 before any reference-host run. That version had one twin and a miss generator
 that put sequential and sparse misses above every present key. Its text stays
 in git history.
@@ -153,7 +153,7 @@ used synthetic personas and is not peer review.
 | T1 | `patricia_string`, generator order, per valid twin | the ratio rises with prefix length. `PASS` iff the 240-byte interval lies wholly above the 8-byte interval; `INTERMEDIATE` if the four point estimates rise monotonically but the intervals overlap; `REFUTED` otherwise |
 
 **Amendment A1 (2026-09-22, after the first local `--quick` smoke run at
-`75ebe0b3`; no reference-host data).** P5 originally read "every harness". But
+the commit `docs(patricia): re-register predictions for three twins before any run`; no reference-host data).** P5 originally read "every harness". But
 `patricia_lookup_miss` builds a random half of a 2n draw, not the key sets the
 envelope derived max fanout for. In the smoke run, `fast_radix_trie` was valid
 on that harness's half-split `clustered` set. P5 is narrowed to the harnesses
