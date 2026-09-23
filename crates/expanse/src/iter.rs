@@ -186,6 +186,61 @@ impl<const MAP: bool> RawIter<MAP> {
         iter
     }
 
+    /// Re-seeds this iterator in place to an empty range: the state
+    /// [`new`](Self::new) returns, without constructing and moving a new
+    /// iterator (#1096).
+    #[inline]
+    pub(crate) fn reset_empty(&mut self) {
+        self.depth = 0;
+        self.leaf = LeafCursor::Empty;
+    }
+
+    /// Re-seeds this iterator in place at `start_key` over a root leaf: the
+    /// state [`from_root_leaf_range`](Self::from_root_leaf_range) returns,
+    /// without constructing and moving a new iterator (#1096).
+    ///
+    /// # Safety
+    /// As for [`from_root_leaf_range`](Self::from_root_leaf_range).
+    #[inline]
+    pub(crate) unsafe fn reset_root_leaf_range(
+        &mut self,
+        keys: *const u64,
+        values: *const u64,
+        pop: usize,
+        start_key: u64,
+    ) {
+        // SAFETY: root leaf contains `pop` sorted u64 keys per contract.
+        let slice = unsafe { core::slice::from_raw_parts(keys, pop) };
+        let idx = slice.partition_point(|&k| k < start_key);
+        self.depth = 0;
+        self.leaf = LeafCursor::RootLeaf {
+            keys,
+            values,
+            pop: pop as u32,
+            idx: idx as u32,
+        };
+    }
+
+    /// Re-seeds this iterator in place at `start_key` under `top`: the state
+    /// [`from_tree_range`](Self::from_tree_range) returns, without
+    /// constructing and moving a new iterator (#1096). Stack frames above the
+    /// reset depth are stale and never read, exactly as in a fresh iterator.
+    ///
+    /// # Safety
+    /// As for [`from_tree_range`](Self::from_tree_range).
+    #[inline]
+    pub(crate) unsafe fn reset_tree_range(&mut self, top: &Edge, start_key: u64) {
+        self.depth = 0;
+        self.leaf = LeafCursor::Empty;
+        // SAFETY: top points to a live trie per contract.
+        unsafe {
+            self.descend_seek(top, 8, 0, start_key);
+            if matches!(self.leaf, LeafCursor::Empty) {
+                self.advance_leaf();
+            }
+        }
+    }
+
     /// Initializes iteration from a root edge starting at `start_key`.
     ///
     /// # Safety
@@ -2703,6 +2758,63 @@ mod tests {
 
         let mut empty_map_iter = RawIter::<true>::new();
         assert_eq!(empty_map_iter.next(), None);
+    }
+
+    #[test]
+    fn reset_tree_range_matches_a_fresh_iterator() {
+        // An in-place re-seed (#1096) must leave the iterator exactly where
+        // `from_tree_range` would, including when the old walk stopped deep in
+        // the tree: stack frames the old walk pushed must not survive it.
+        use crate::map::ExpanseMap;
+        use crate::sync::RootSnapshot;
+
+        let n = if cfg!(miri) { 300 } else { 3_000 };
+        let mut map = ExpanseMap::new();
+        for i in 0..n {
+            map.insert(i * 0x0001_0203_0405_0607, i);
+        }
+        let (snap, _) = map.occ_root();
+        let RootSnapshot::Tree { top } = snap else {
+            panic!("expected a tree root");
+        };
+        let rest = |it: &mut RawIter<true>| {
+            let mut out = Vec::new();
+            while let Some(e) = it.next() {
+                out.push(e);
+            }
+            out
+        };
+        // SAFETY: `top` is the live tree root of `map`, held immutable for the
+        // whole test; the same holds for every block below.
+        let mut it = unsafe { RawIter::<true>::from_tree_range(&top, 0) };
+        for _ in 0..(n / 2) {
+            it.next().expect("element");
+        }
+        assert!(
+            it.depth > 0,
+            "the walk must stop below the root to test stale frames"
+        );
+        for target in [
+            (n / 5) * 0x0001_0203_0405_0607,
+            (n * 4 / 5) * 0x0001_0203_0405_0607 + 1,
+        ] {
+            // SAFETY: as above, `top` is live and the map is not mutated.
+            unsafe { it.reset_tree_range(&top, target) };
+            // SAFETY: as above.
+            let mut fresh = unsafe { RawIter::<true>::from_tree_range(&top, target) };
+            assert_eq!(
+                rest(&mut it),
+                rest(&mut fresh),
+                "re-seed at {target:#x} diverges"
+            );
+            // SAFETY: as above.
+            unsafe { it.reset_tree_range(&top, 0) };
+            for _ in 0..(n / 3) {
+                it.next().expect("element");
+            }
+        }
+        it.reset_empty();
+        assert_eq!(it.next(), None, "reset_empty must yield nothing");
     }
 
     #[test]
