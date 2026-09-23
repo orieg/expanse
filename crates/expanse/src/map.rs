@@ -2895,6 +2895,24 @@ impl ExpanseMap {
         self.alloc.bytes_in_use()
     }
 
+    /// Heap bytes the map holds from the system allocator: [`Self::mem_used`]
+    /// plus the freed blocks its allocator keeps on per-tree freelists for
+    /// reuse and the unused part of the slab pages small nodes are carved
+    /// from. Those blocks go back to the system only when the map is
+    /// dropped, so `malloc_trim` cannot recover them; this is the figure to
+    /// compare with resident memory. The system allocator's own
+    /// per-allocation overhead (chunk headers, size-class rounding) is
+    /// allocator-specific and not included; the `allocator_overhead`
+    /// example measures it.
+    ///
+    /// Computed on demand by walking the allocator's slab pages and
+    /// freelists (O(pages + free blocks)); no counter is kept on the
+    /// allocation path.
+    #[must_use]
+    pub fn mem_held(&self) -> usize {
+        self.alloc.bytes_held()
+    }
+
     /// Cumulative node/leaf allocations made by this container since it
     /// was created (diagnostics; see `tests/no_heap_churn.rs`, which
     /// subtracts these from the process-wide count to isolate

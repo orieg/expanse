@@ -13,6 +13,7 @@ impl expanse_trie::alloc::NodeAlloc
 pub fn expanse_trie::alloc::NodeAlloc::alloc_bytes(&self, usize) -> core::ptr::non_null::NonNull<u8>
 pub fn expanse_trie::alloc::NodeAlloc::alloc_node<T>(&self, T) -> core::ptr::non_null::NonNull<T>
 pub fn expanse_trie::alloc::NodeAlloc::alloc_node_zeroed<T>(&self) -> core::ptr::non_null::NonNull<T>
+pub fn expanse_trie::alloc::NodeAlloc::bytes_held(&self) -> usize
 pub fn expanse_trie::alloc::NodeAlloc::bytes_in_use(&self) -> usize
 pub fn expanse_trie::alloc::NodeAlloc::defer_to(&self, alloc::sync::Arc<expanse_trie::occ::Collector>)
 pub unsafe fn expanse_trie::alloc::NodeAlloc::free_bytes(&self, core::ptr::non_null::NonNull<u8>, usize)
@@ -682,6 +683,7 @@ pub fn expanse_trie::map::ExpanseMap::iter(&self) -> expanse_trie::map::MapIter<
 pub fn expanse_trie::map::ExpanseMap::iter_rev(&self) -> expanse_trie::map::MapIterRev<'_>
 pub fn expanse_trie::map::ExpanseMap::last(&self) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::map::ExpanseMap::len(&self) -> u64
+pub fn expanse_trie::map::ExpanseMap::mem_held(&self) -> usize
 pub fn expanse_trie::map::ExpanseMap::mem_used(&self) -> usize
 pub fn expanse_trie::map::ExpanseMap::new() -> Self
 pub fn expanse_trie::map::ExpanseMap::next_after(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
@@ -1322,6 +1324,7 @@ pub fn expanse_trie::set::ExpanseSet::insert(&mut self, expanse_trie::types::Key
 pub fn expanse_trie::set::ExpanseSet::insert_c_int(&mut self, expanse_trie::types::Key) -> core::ffi::primitives::c_int
 pub fn expanse_trie::set::ExpanseSet::is_empty(&self) -> bool
 pub fn expanse_trie::set::ExpanseSet::len(&self) -> u64
+pub fn expanse_trie::set::ExpanseSet::mem_held(&self) -> usize
 pub fn expanse_trie::set::ExpanseSet::mem_used(&self) -> usize
 pub fn expanse_trie::set::ExpanseSet::new() -> Self
 pub fn expanse_trie::set::ExpanseSet::remove(&mut self, expanse_trie::types::Key) -> bool
@@ -1686,6 +1689,7 @@ pub fn expanse_trie::strmap::ExpanseStrMap::insert(&mut self, &expanse_trie::str
 pub fn expanse_trie::strmap::ExpanseStrMap::is_empty(&self) -> bool
 pub fn expanse_trie::strmap::ExpanseStrMap::last(&mut self) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
 pub fn expanse_trie::strmap::ExpanseStrMap::len(&self) -> u64
+pub fn expanse_trie::strmap::ExpanseStrMap::mem_held(&self) -> usize
 pub fn expanse_trie::strmap::ExpanseStrMap::mem_used(&self) -> usize
 pub fn expanse_trie::strmap::ExpanseStrMap::new() -> Self
 pub fn expanse_trie::strmap::ExpanseStrMap::next_after(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
@@ -2855,6 +2859,7 @@ pub fn expanse_trie::map::ExpanseMap::iter(&self) -> expanse_trie::map::MapIter<
 pub fn expanse_trie::map::ExpanseMap::iter_rev(&self) -> expanse_trie::map::MapIterRev<'_>
 pub fn expanse_trie::map::ExpanseMap::last(&self) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::map::ExpanseMap::len(&self) -> u64
+pub fn expanse_trie::map::ExpanseMap::mem_held(&self) -> usize
 pub fn expanse_trie::map::ExpanseMap::mem_used(&self) -> usize
 pub fn expanse_trie::map::ExpanseMap::new() -> Self
 pub fn expanse_trie::map::ExpanseMap::next_after(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
@@ -2962,6 +2967,7 @@ pub fn expanse_trie::set::ExpanseSet::insert(&mut self, expanse_trie::types::Key
 pub fn expanse_trie::set::ExpanseSet::insert_c_int(&mut self, expanse_trie::types::Key) -> core::ffi::primitives::c_int
 pub fn expanse_trie::set::ExpanseSet::is_empty(&self) -> bool
 pub fn expanse_trie::set::ExpanseSet::len(&self) -> u64
+pub fn expanse_trie::set::ExpanseSet::mem_held(&self) -> usize
 pub fn expanse_trie::set::ExpanseSet::mem_used(&self) -> usize
 pub fn expanse_trie::set::ExpanseSet::new() -> Self
 pub fn expanse_trie::set::ExpanseSet::remove(&mut self, expanse_trie::types::Key) -> bool

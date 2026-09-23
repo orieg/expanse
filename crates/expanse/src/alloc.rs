@@ -61,7 +61,33 @@ pub(crate) struct FreeBlock {
 #[repr(C)]
 pub(crate) struct SlabPage {
     pub(crate) next: *mut SlabPage,
-    pub(crate) layout: Layout,
+    /// The size class this page was carved into. It fixes the page's layout
+    /// ([`slab_page_layout`]) and lets [`NodeAlloc::bytes_held`] count the
+    /// blocks the page holds.
+    pub(crate) class: usize,
+}
+
+/// Bytes of a slab page's header: blocks start one cache line in.
+const SLAB_HEADER: usize = CACHE_LINE;
+/// Bytes of one slab page.
+const SLAB_PAGE_SIZE: usize = 4096;
+
+/// The layout a slab page of `class` is allocated and freed with.
+fn slab_page_layout(class: usize) -> Layout {
+    Layout::from_size_align(SLAB_PAGE_SIZE, CLASS_SPECS[class].1.max(CACHE_LINE))
+        .expect("valid slab page layout")
+}
+
+/// Blocks a slab page of `class` is carved into.
+const fn slab_blocks(class: usize) -> usize {
+    let (bytes, align) = CLASS_SPECS[class];
+    (SLAB_PAGE_SIZE - SLAB_HEADER) / accounted_size(bytes, align)
+}
+
+/// Whether a class is served from slab pages (every block of it came from
+/// one) rather than straight from the system allocator.
+const fn is_slab_class(class: usize) -> bool {
+    CLASS_SPECS[class].0 <= 256
 }
 
 pub(crate) const NUM_CLASSES: usize = 62;
@@ -433,7 +459,7 @@ impl Drop for NodeAlloc {
             // SAFETY: cur_page is the raw base pointer of an allocated 4096-byte slab page.
             unsafe {
                 let next = (*cur_page).next;
-                let layout = (*cur_page).layout;
+                let layout = slab_page_layout((*cur_page).class);
                 dealloc(cur_page.cast::<u8>(), layout);
                 cur_page = next;
             }
@@ -476,6 +502,63 @@ impl NodeAlloc {
             return if total < 0 { 0 } else { total as usize };
         }
         inline
+    }
+
+    /// Bytes this handle holds from the system allocator: the live bytes
+    /// [`Self::bytes_in_use`] counts, plus freed blocks kept on the
+    /// per-tree size-class freelists for reuse, plus the unused blocks and
+    /// headers of the 4 KiB slab pages small classes are carved from.
+    ///
+    /// Freed blocks are recycled within the tree and returned to the system
+    /// only when the tree is dropped, so this, not `bytes_in_use`, is what
+    /// the tree costs the process before the system allocator's own
+    /// per-allocation overhead (chunk headers and size-class rounding),
+    /// which depends on the allocator and is not included.
+    ///
+    /// Computed on demand by walking the slab pages and freelists: no
+    /// counter is updated on the allocation path. O(slab pages + free
+    /// blocks).
+    ///
+    /// A tree shared through a concurrent wrapper allocates from its
+    /// collector's pools, which other trees may share and which are not
+    /// attributed here; for such a tree this is the per-tree share, which
+    /// is `bytes_in_use` plus any slab pages carved before it was shared.
+    #[must_use]
+    pub fn bytes_held(&self) -> usize {
+        let mut pages = [0usize; NUM_CLASSES];
+        let mut page = self.slab_pages.load(Ordering::Relaxed);
+        while !page.is_null() {
+            // SAFETY: every entry of the slab list is a live page this handle
+            // carved, and its header was written before it was linked. The
+            // list is single-writer and `&self` excludes a plain tree's writer.
+            unsafe {
+                pages[(*page).class] += 1;
+                page = (*page).next;
+            }
+        }
+        let mut slab_total = 0;
+        let mut slab_carved_live = 0;
+        let mut free_system = 0;
+        for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
+            let step = accounted_size(bytes, align);
+            let mut free = 0usize;
+            let mut cur = self.freelists[class].load(Ordering::Relaxed);
+            while !cur.is_null() {
+                free += 1;
+                // SAFETY: freelist entries are free blocks of this class owned
+                // by this handle; `next` was written when each was pushed.
+                cur = unsafe { (*cur).next };
+            }
+            if is_slab_class(class) {
+                slab_total += pages[class] * SLAB_PAGE_SIZE;
+                slab_carved_live += (pages[class] * slab_blocks(class)).saturating_sub(free) * step;
+            } else {
+                free_system += free * step;
+            }
+        }
+        // Live bytes not on a slab page came from the system allocator.
+        let live_system = self.bytes_in_use().saturating_sub(slab_carved_live);
+        slab_total + live_system + free_system
     }
 
     /// Number of live allocations (diagnostics / leak assertions in tests).
@@ -614,7 +697,6 @@ impl NodeAlloc {
                 #[cfg(debug_assertions)]
                 let _bookkeeping = self.enter_bookkeeping();
                 // Pre-populate freelist from an intrusive 4KB slab page
-                const SLAB_PAGE_SIZE: usize = 4096;
                 let page_align = align.max(CACHE_LINE);
                 let page_layout = Layout::from_size_align(SLAB_PAGE_SIZE, page_align)
                     .expect("valid slab page layout");
@@ -629,11 +711,11 @@ impl NodeAlloc {
                 // SAFETY: page_raw is a fresh 4KB zeroed allocation.
                 unsafe {
                     (*slab_page).next = self.slab_pages.load(Ordering::Relaxed);
-                    (*slab_page).layout = page_layout;
+                    (*slab_page).class = class;
                 }
                 self.slab_pages.store(slab_page, Ordering::Relaxed);
 
-                let header_offset = CACHE_LINE;
+                let header_offset = SLAB_HEADER;
                 let step = accounted_size;
                 let available_bytes = SLAB_PAGE_SIZE - header_offset;
                 let num_blocks = available_bytes / step;
