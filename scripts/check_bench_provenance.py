@@ -271,6 +271,9 @@ NO_ROUNDS = {
     "hot_comparison/results/baseline_string_memory.json",
     "masstree_comparison/results/baseline_memory.json",
     "masstree_comparison/results/baseline_string_memory.json",
+    # Requested and usable live bytes per arm and build order, one exact count
+    # per cell (patricia_memory); nothing is sampled, so there are no rounds.
+    "patricia_comparison/results/baseline_memory.json",
     # Run 2 of the same censuses, committed so the between-run statements in the
     # suite READMEs resolve to an artifact; same deterministic schema.
     "hot_comparison/results/baseline_memory_curve_run2.json",
@@ -293,6 +296,9 @@ SUITES = (
     # by this gate from its first commit (#1005). `scripts/ycsb_bench.py`'s
     # self-test fails if this entry is removed.
     "ycsb",
+    # Expanse vs patricia_tree / fast_radix_trie / qp-trie; its first artifacts
+    # land with the suite, so they are judged from the first commit.
+    "patricia_comparison",
 )
 
 # The artifact filename families this gate governs, in a suite's `results/`

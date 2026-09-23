@@ -1,0 +1,5099 @@
+{
+  "benchmark": "patricia_lookup_hit",
+  "min_window_ns": 20000000,
+  "quick": false,
+  "results": [
+    {
+      "distribution": "sequential",
+      "expanse_ns_op": 4.8074070351758795,
+      "expanse_reps": 398,
+      "expanse_status": "valid",
+      "expected_hits": 10000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "generator",
+      "patricia_tree_ns_op": 707.5966,
+      "patricia_tree_reps": 3,
+      "patricia_tree_status": "valid",
+      "population": 10000,
+      "probes": 10000,
+      "qp_trie_ns_op": 13.285332539682539,
+      "qp_trie_reps": 126,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.006645016870805187,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.006383702366238444,
+        0.006777118117658172
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.36016526701583373,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.35754248474539413,
+        0.3627697655674559
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 10000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 4.84170904522613,
+          "log_ratio_expanse_over_patricia_tree": -5.119037284908461,
+          "log_ratio_expanse_over_qp_trie": -1.0317311912471547,
+          "patricia_tree_ns": 809.4095666666667,
+          "qp_trie_ns": 13.585444444444445,
+          "round": 0
+        },
+        {
+          "expanse_ns": 4.677420351758794,
+          "log_ratio_expanse_over_patricia_tree": -5.161688477859206,
+          "log_ratio_expanse_over_qp_trie": -1.0458023918007409,
+          "patricia_tree_ns": 816.0170333333333,
+          "qp_trie_ns": 13.310446031746032,
+          "round": 1
+        },
+        {
+          "expanse_ns": 4.8487145728643215,
+          "log_ratio_expanse_over_patricia_tree": -4.981690386508896,
+          "log_ratio_expanse_over_qp_trie": -1.008452478848237,
+          "patricia_tree_ns": 706.5571,
+          "qp_trie_ns": 13.29205,
+          "round": 2
+        },
+        {
+          "expanse_ns": 4.752398492462311,
+          "log_ratio_expanse_over_patricia_tree": -5.002188660286803,
+          "log_ratio_expanse_over_qp_trie": -1.0292440211860643,
+          "patricia_tree_ns": 706.8638666666667,
+          "qp_trie_ns": 13.301721428571428,
+          "round": 3
+        },
+        {
+          "expanse_ns": 4.911161306532663,
+          "log_ratio_expanse_over_patricia_tree": -4.971364265286575,
+          "log_ratio_expanse_over_qp_trie": -0.9948042894821117,
+          "patricia_tree_ns": 708.3049333333333,
+          "qp_trie_ns": 13.280738095238096,
+          "round": 4
+        },
+        {
+          "expanse_ns": 4.823805527638191,
+          "log_ratio_expanse_over_patricia_tree": -4.990568929926521,
+          "log_ratio_expanse_over_qp_trie": -1.0233997088665656,
+          "patricia_tree_ns": 709.1961,
+          "qp_trie_ns": 13.42290873015873,
+          "round": 5
+        },
+        {
+          "expanse_ns": 4.789529396984925,
+          "log_ratio_expanse_over_patricia_tree": -4.995408362130041,
+          "log_ratio_expanse_over_qp_trie": -1.0161122260658217,
+          "patricia_tree_ns": 707.5728,
+          "qp_trie_ns": 13.230759523809525,
+          "round": 6
+        },
+        {
+          "expanse_ns": 4.83426432160804,
+          "log_ratio_expanse_over_patricia_tree": -4.9861451968258885,
+          "log_ratio_expanse_over_qp_trie": -1.0112078440428784,
+          "patricia_tree_ns": 707.5966,
+          "qp_trie_ns": 13.28900238095238,
+          "round": 7
+        },
+        {
+          "expanse_ns": 4.792136432160804,
+          "log_ratio_expanse_over_patricia_tree": -4.99400454559513,
+          "log_ratio_expanse_over_qp_trie": -1.0196842788867837,
+          "patricia_tree_ns": 706.9648,
+          "qp_trie_ns": 13.285332539682539,
+          "round": 8
+        },
+        {
+          "expanse_ns": 4.784291457286432,
+          "log_ratio_expanse_over_patricia_tree": -4.998005092256911,
+          "log_ratio_expanse_over_qp_trie": -1.0179195981115248,
+          "patricia_tree_ns": 708.6367333333334,
+          "qp_trie_ns": 13.240198412698414,
+          "round": 9
+        },
+        {
+          "expanse_ns": 4.8074070351758795,
+          "log_ratio_expanse_over_patricia_tree": -4.9913372422179565,
+          "log_ratio_expanse_over_qp_trie": -1.0145473177786095,
+          "patricia_tree_ns": 707.3284333333334,
+          "qp_trie_ns": 13.259379365079365,
+          "round": 10
+        },
+        {
+          "expanse_ns": 4.853738442211055,
+          "log_ratio_expanse_over_patricia_tree": -4.980494147936588,
+          "log_ratio_expanse_over_qp_trie": -1.0037952789815963,
+          "patricia_tree_ns": 706.4436,
+          "qp_trie_ns": 13.243998412698412,
+          "round": 11
+        },
+        {
+          "expanse_ns": 4.640104271356784,
+          "log_ratio_expanse_over_patricia_tree": -5.027389879274023,
+          "log_ratio_expanse_over_qp_trie": -1.0459895416233673,
+          "patricia_tree_ns": 707.7753333333334,
+          "qp_trie_ns": 13.206727777777777,
+          "round": 12
+        },
+        {
+          "expanse_ns": 4.812184924623115,
+          "log_ratio_expanse_over_patricia_tree": -4.991379868296214,
+          "log_ratio_expanse_over_qp_trie": -1.0162355438276345,
+          "patricia_tree_ns": 708.0616,
+          "qp_trie_ns": 13.294983333333333,
+          "round": 13
+        },
+        {
+          "expanse_ns": 4.684169346733668,
+          "log_ratio_expanse_over_patricia_tree": -5.017618379911363,
+          "log_ratio_expanse_over_qp_trie": -1.038958456711529,
+          "patricia_tree_ns": 707.5490666666667,
+          "qp_trie_ns": 13.238735714285715,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "sequential",
+      "expanse_ns_op": 4.826103712871287,
+      "expanse_reps": 404,
+      "expanse_status": "valid",
+      "expected_hits": 10000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "shuffled",
+      "patricia_tree_ns_op": 1005.3543,
+      "patricia_tree_reps": 2,
+      "patricia_tree_status": "valid",
+      "population": 10000,
+      "probes": 10000,
+      "qp_trie_ns_op": 13.319199173553718,
+      "qp_trie_reps": 121,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.004790912723267483,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.004768869902766228,
+        0.004813153867225725
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.36149051775380947,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.35976339064279067,
+        0.36308273735380064
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 10000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 4.800963366336633,
+          "log_ratio_expanse_over_patricia_tree": -5.3457785843150045,
+          "log_ratio_expanse_over_qp_trie": -1.0203899421030984,
+          "patricia_tree_ns": 1006.86335,
+          "qp_trie_ns": 13.319199173553718,
+          "round": 0
+        },
+        {
+          "expanse_ns": 4.803316831683168,
+          "log_ratio_expanse_over_patricia_tree": -5.344514110602789,
+          "log_ratio_expanse_over_qp_trie": -1.0206973044430536,
+          "patricia_tree_ns": 1006.08395,
+          "qp_trie_ns": 13.329824793388429,
+          "round": 1
+        },
+        {
+          "expanse_ns": 4.871045049504951,
+          "log_ratio_expanse_over_patricia_tree": -5.3287872422194145,
+          "log_ratio_expanse_over_qp_trie": -1.005096350613021,
+          "patricia_tree_ns": 1004.3499,
+          "qp_trie_ns": 13.308525619834711,
+          "round": 2
+        },
+        {
+          "expanse_ns": 4.841357425742574,
+          "log_ratio_expanse_over_patricia_tree": -5.335867628032903,
+          "log_ratio_expanse_over_qp_trie": -1.0139990943122867,
+          "patricia_tree_ns": 1005.3216,
+          "qp_trie_ns": 13.3457,
+          "round": 3
+        },
+        {
+          "expanse_ns": 4.884746534653465,
+          "log_ratio_expanse_over_patricia_tree": -5.328121318317988,
+          "log_ratio_expanse_over_qp_trie": -1.0044661226682514,
+          "patricia_tree_ns": 1006.5045,
+          "qp_trie_ns": 13.337552066115702,
+          "round": 4
+        },
+        {
+          "expanse_ns": 4.747619554455445,
+          "log_ratio_expanse_over_patricia_tree": -5.353634421727497,
+          "log_ratio_expanse_over_qp_trie": -1.0291576954050121,
+          "patricia_tree_ns": 1003.5287,
+          "qp_trie_ns": 13.287198347107438,
+          "round": 5
+        },
+        {
+          "expanse_ns": 4.769759405940594,
+          "log_ratio_expanse_over_patricia_tree": -5.350344512813124,
+          "log_ratio_expanse_over_qp_trie": -1.0268555132751058,
+          "patricia_tree_ns": 1004.89705,
+          "qp_trie_ns": 13.318464462809917,
+          "round": 6
+        },
+        {
+          "expanse_ns": 4.809912871287128,
+          "log_ratio_expanse_over_patricia_tree": -5.342842552325324,
+          "log_ratio_expanse_over_qp_trie": -1.0182897082717794,
+          "patricia_tree_ns": 1005.7829,
+          "qp_trie_ns": 13.316031404958677,
+          "round": 7
+        },
+        {
+          "expanse_ns": 4.855507920792079,
+          "log_ratio_expanse_over_patricia_tree": -5.3316526594209375,
+          "log_ratio_expanse_over_qp_trie": -1.0078100670149837,
+          "patricia_tree_ns": 1004.01915,
+          "qp_trie_ns": 13.30212479338843,
+          "round": 8
+        },
+        {
+          "expanse_ns": 4.826103712871287,
+          "log_ratio_expanse_over_patricia_tree": -5.337919075507013,
+          "log_ratio_expanse_over_qp_trie": -1.0166277106651838,
+          "patricia_tree_ns": 1004.2121,
+          "qp_trie_ns": 13.338667768595041,
+          "round": 9
+        },
+        {
+          "expanse_ns": 4.840084653465347,
+          "log_ratio_expanse_over_patricia_tree": -5.33671055272052,
+          "log_ratio_expanse_over_qp_trie": -1.0121437080423723,
+          "patricia_tree_ns": 1005.90485,
+          "qp_trie_ns": 13.31745950413223,
+          "round": 10
+        },
+        {
+          "expanse_ns": 4.832555693069307,
+          "log_ratio_expanse_over_patricia_tree": -5.341782428879395,
+          "log_ratio_expanse_over_qp_trie": -1.0140744120149763,
+          "patricia_tree_ns": 1009.44695,
+          "qp_trie_ns": 13.322440495867768,
+          "round": 11
+        },
+        {
+          "expanse_ns": 4.863530198019802,
+          "log_ratio_expanse_over_patricia_tree": -5.330204934300991,
+          "log_ratio_expanse_over_qp_trie": -1.0103863541989326,
+          "patricia_tree_ns": 1004.2231,
+          "qp_trie_ns": 13.358473553719008,
+          "round": 12
+        },
+        {
+          "expanse_ns": 4.760124504950495,
+          "log_ratio_expanse_over_patricia_tree": -5.353718463935781,
+          "log_ratio_expanse_over_qp_trie": -1.034071872020164,
+          "patricia_tree_ns": 1006.2565,
+          "qp_trie_ns": 13.387824793388429,
+          "round": 13
+        },
+        {
+          "expanse_ns": 4.75624603960396,
+          "log_ratio_expanse_over_patricia_tree": -5.353636585724385,
+          "log_ratio_expanse_over_qp_trie": -1.0287261650606176,
+          "patricia_tree_ns": 1005.3543,
+          "qp_trie_ns": 13.305598347107438,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "clustered",
+      "expanse_ns_op": 7.404460080645161,
+      "expanse_reps": 248,
+      "expanse_status": "valid",
+      "expected_hits": 10000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "generator",
+      "patricia_tree_ns_op": 659.957,
+      "patricia_tree_reps": 4,
+      "patricia_tree_status": "valid",
+      "population": 10000,
+      "probes": 10000,
+      "qp_trie_ns_op": 13.35421056910569,
+      "qp_trie_reps": 123,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.011209401468538495,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.011176608740110621,
+        0.011229473659388896
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.5541780906440138,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.5528744984080352,
+        0.5550347659299548
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 10000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 7.397926209677419,
+          "log_ratio_expanse_over_patricia_tree": -4.490974962383336,
+          "log_ratio_expanse_over_qp_trie": -0.5920055649701111,
+          "patricia_tree_ns": 659.957,
+          "qp_trie_ns": 13.372565853658537,
+          "round": 0
+        },
+        {
+          "expanse_ns": 7.3207834677419354,
+          "log_ratio_expanse_over_patricia_tree": -4.504565762847701,
+          "log_ratio_expanse_over_qp_trie": -0.6012788043237249,
+          "patricia_tree_ns": 662.011625,
+          "qp_trie_ns": 13.35640650406504,
+          "round": 1
+        },
+        {
+          "expanse_ns": 7.383368951612903,
+          "log_ratio_expanse_over_patricia_tree": -4.49335179003319,
+          "log_ratio_expanse_over_qp_trie": -0.591730003154674,
+          "patricia_tree_ns": 660.22575,
+          "qp_trie_ns": 13.342574796747968,
+          "round": 2
+        },
+        {
+          "expanse_ns": 7.406185483870968,
+          "log_ratio_expanse_over_patricia_tree": -4.48767393666571,
+          "log_ratio_expanse_over_qp_trie": -0.5905266127753519,
+          "patricia_tree_ns": 658.516425,
+          "qp_trie_ns": 13.367710569105691,
+          "round": 3
+        },
+        {
+          "expanse_ns": 7.427435080645162,
+          "log_ratio_expanse_over_patricia_tree": -4.489080838678317,
+          "log_ratio_expanse_over_qp_trie": -0.5862145387074744,
+          "patricia_tree_ns": 661.3356,
+          "qp_trie_ns": 13.348381300813008,
+          "round": 4
+        },
+        {
+          "expanse_ns": 7.401313709677419,
+          "log_ratio_expanse_over_patricia_tree": -4.490871825776201,
+          "log_ratio_expanse_over_qp_trie": -0.589432667546058,
+          "patricia_tree_ns": 660.1911,
+          "qp_trie_ns": 13.34431138211382,
+          "round": 5
+        },
+        {
+          "expanse_ns": 7.4107540322580645,
+          "log_ratio_expanse_over_patricia_tree": -4.4886268801813785,
+          "log_ratio_expanse_over_qp_trie": -0.5895320693849262,
+          "patricia_tree_ns": 659.55085,
+          "qp_trie_ns": 13.362660162601626,
+          "round": 6
+        },
+        {
+          "expanse_ns": 7.373324596774194,
+          "log_ratio_expanse_over_patricia_tree": -4.494062788933749,
+          "log_ratio_expanse_over_qp_trie": -0.5914835927613654,
+          "patricia_tree_ns": 659.796525,
+          "qp_trie_ns": 13.321140650406504,
+          "round": 7
+        },
+        {
+          "expanse_ns": 7.389316935483871,
+          "log_ratio_expanse_over_patricia_tree": -4.49130560861392,
+          "log_ratio_expanse_over_qp_trie": -0.5913153638497177,
+          "patricia_tree_ns": 659.406975,
+          "qp_trie_ns": 13.347787804878049,
+          "round": 8
+        },
+        {
+          "expanse_ns": 7.4261907258064515,
+          "log_ratio_expanse_over_patricia_tree": -4.48590948941566,
+          "log_ratio_expanse_over_qp_trie": -0.5868186946101984,
+          "patricia_tree_ns": 659.13115,
+          "qp_trie_ns": 13.35421056910569,
+          "round": 9
+        },
+        {
+          "expanse_ns": 7.421146774193549,
+          "log_ratio_expanse_over_patricia_tree": -4.491417868038882,
+          "log_ratio_expanse_over_qp_trie": -0.5901795415151172,
+          "patricia_tree_ns": 662.32175,
+          "qp_trie_ns": 13.390066666666666,
+          "round": 10
+        },
+        {
+          "expanse_ns": 7.421229838709677,
+          "log_ratio_expanse_over_patricia_tree": -4.488693854773255,
+          "log_ratio_expanse_over_qp_trie": -0.586229584448207,
+          "patricia_tree_ns": 660.527425,
+          "qp_trie_ns": 13.337430081300813,
+          "round": 11
+        },
+        {
+          "expanse_ns": 7.439905241935484,
+          "log_ratio_expanse_over_patricia_tree": -4.484324004277857,
+          "log_ratio_expanse_over_qp_trie": -0.584707660644398,
+          "patricia_tree_ns": 659.302275,
+          "qp_trie_ns": 13.350659349593496,
+          "round": 12
+        },
+        {
+          "expanse_ns": 7.396675806451613,
+          "log_ratio_expanse_over_patricia_tree": -4.494562235327907,
+          "log_ratio_expanse_over_qp_trie": -0.5923442692797491,
+          "patricia_tree_ns": 662.21675,
+          "qp_trie_ns": 13.374834959349593,
+          "round": 13
+        },
+        {
+          "expanse_ns": 7.404460080645161,
+          "log_ratio_expanse_over_patricia_tree": -4.489614693461524,
+          "log_ratio_expanse_over_qp_trie": -0.5902387415802165,
+          "patricia_tree_ns": 659.641975,
+          "qp_trie_ns": 13.360749593495935,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "clustered",
+      "expanse_ns_op": 7.418028787878788,
+      "expanse_reps": 264,
+      "expanse_status": "valid",
+      "expected_hits": 10000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "shuffled",
+      "patricia_tree_ns_op": 948.0438333333333,
+      "patricia_tree_reps": 3,
+      "patricia_tree_status": "valid",
+      "population": 10000,
+      "probes": 10000,
+      "qp_trie_ns_op": 13.300559349593495,
+      "qp_trie_reps": 123,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.007831203657762017,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.007809527853410555,
+        0.007857700790046957
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.5583642252787882,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.5574779097731021,
+        0.5603292659316992
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 10000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 7.427192424242424,
+          "log_ratio_expanse_over_patricia_tree": -4.849367648137418,
+          "log_ratio_expanse_over_qp_trie": -0.5849303890539849,
+          "patricia_tree_ns": 948.1527,
+          "qp_trie_ns": 13.330815447154471,
+          "round": 0
+        },
+        {
+          "expanse_ns": 7.4081363636363635,
+          "log_ratio_expanse_over_patricia_tree": -4.853640032724419,
+          "log_ratio_expanse_over_qp_trie": -0.5849095866384779,
+          "patricia_tree_ns": 949.7691333333333,
+          "qp_trie_ns": 13.296335772357724,
+          "round": 1
+        },
+        {
+          "expanse_ns": 7.433584090909091,
+          "log_ratio_expanse_over_patricia_tree": -4.848151809966058,
+          "log_ratio_expanse_over_qp_trie": -0.5815992884911294,
+          "patricia_tree_ns": 947.8155666666667,
+          "qp_trie_ns": 13.297917073170732,
+          "round": 2
+        },
+        {
+          "expanse_ns": 7.456906060606061,
+          "log_ratio_expanse_over_patricia_tree": -4.843616926481917,
+          "log_ratio_expanse_over_qp_trie": -0.5789297729953519,
+          "patricia_tree_ns": 946.4872666666666,
+          "qp_trie_ns": 13.304074796747967,
+          "round": 3
+        },
+        {
+          "expanse_ns": 7.440782196969697,
+          "log_ratio_expanse_over_patricia_tree": -4.8473534542971555,
+          "log_ratio_expanse_over_qp_trie": -0.5790924467105522,
+          "patricia_tree_ns": 947.9762333333333,
+          "qp_trie_ns": 13.277467479674797,
+          "round": 4
+        },
+        {
+          "expanse_ns": 7.41244696969697,
+          "log_ratio_expanse_over_patricia_tree": -4.86262288163324,
+          "log_ratio_expanse_over_qp_trie": -0.5846454805779403,
+          "patricia_tree_ns": 958.8968333333333,
+          "qp_trie_ns": 13.300559349593495,
+          "round": 5
+        },
+        {
+          "expanse_ns": 7.557730681818182,
+          "log_ratio_expanse_over_patricia_tree": -4.833336930526795,
+          "log_ratio_expanse_over_qp_trie": -0.568442501488036,
+          "patricia_tree_ns": 949.4737666666666,
+          "qp_trie_ns": 13.343287804878049,
+          "round": 6
+        },
+        {
+          "expanse_ns": 7.399457196969697,
+          "log_ratio_expanse_over_patricia_tree": -4.852992827355522,
+          "log_ratio_expanse_over_qp_trie": -0.5862087752109005,
+          "patricia_tree_ns": 948.0426333333334,
+          "qp_trie_ns": 13.298023577235773,
+          "round": 7
+        },
+        {
+          "expanse_ns": 7.418028787878788,
+          "log_ratio_expanse_over_patricia_tree": -4.849682556556005,
+          "log_ratio_expanse_over_qp_trie": -0.5844126544638641,
+          "patricia_tree_ns": 947.2811333333333,
+          "qp_trie_ns": 13.307476422764228,
+          "round": 8
+        },
+        {
+          "expanse_ns": 7.408220833333333,
+          "log_ratio_expanse_over_patricia_tree": -4.850508836580482,
+          "log_ratio_expanse_over_qp_trie": -0.5867021762656233,
+          "patricia_tree_ns": 946.8106666666666,
+          "qp_trie_ns": 13.320343902439024,
+          "round": 9
+        },
+        {
+          "expanse_ns": 7.41789696969697,
+          "log_ratio_expanse_over_patricia_tree": -4.851078938260507,
+          "log_ratio_expanse_over_qp_trie": -0.5871983070383814,
+          "patricia_tree_ns": 948.5879666666667,
+          "qp_trie_ns": 13.344360975609757,
+          "round": 10
+        },
+        {
+          "expanse_ns": 7.38539053030303,
+          "log_ratio_expanse_over_patricia_tree": -4.853776219071801,
+          "log_ratio_expanse_over_qp_trie": -0.5865664648512576,
+          "patricia_tree_ns": 946.9819333333334,
+          "qp_trie_ns": 13.277491869918698,
+          "round": 11
+        },
+        {
+          "expanse_ns": 7.443497348484849,
+          "log_ratio_expanse_over_patricia_tree": -4.84705992676344,
+          "log_ratio_expanse_over_qp_trie": -0.5826601593667292,
+          "patricia_tree_ns": 948.0438333333333,
+          "qp_trie_ns": 13.329784552845528,
+          "round": 12
+        },
+        {
+          "expanse_ns": 7.423954166666666,
+          "log_ratio_expanse_over_patricia_tree": -4.8505758244124255,
+          "log_ratio_expanse_over_qp_trie": -0.5819541108926952,
+          "patricia_tree_ns": 948.8850333333334,
+          "qp_trie_ns": 13.28540325203252,
+          "round": 13
+        },
+        {
+          "expanse_ns": 7.416367045454545,
+          "log_ratio_expanse_over_patricia_tree": -4.85082104135707,
+          "log_ratio_expanse_over_qp_trie": -0.5829048269170803,
+          "patricia_tree_ns": 948.1477666666667,
+          "qp_trie_ns": 13.284449593495935,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "uniform_random",
+      "expanse_ns_op": 8.827833513513513,
+      "expanse_reps": 185,
+      "expanse_status": "valid",
+      "expected_hits": 10000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "generator",
+      "patricia_tree_ns_op": 770.6928666666666,
+      "patricia_tree_reps": 3,
+      "patricia_tree_status": "valid",
+      "population": 10000,
+      "probes": 10000,
+      "qp_trie_ns_op": 17.641056470588236,
+      "qp_trie_reps": 85,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.011457871549742224,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.011433246125921665,
+        0.011478204294986312
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.50209277749468,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.5010706259943659,
+        0.5034371240400783
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 10000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 8.89338972972973,
+          "log_ratio_expanse_over_patricia_tree": -4.462403272879662,
+          "log_ratio_expanse_over_qp_trie": -0.6887381373964403,
+          "patricia_tree_ns": 771.0178666666667,
+          "qp_trie_ns": 17.708529411764705,
+          "round": 0
+        },
+        {
+          "expanse_ns": 8.842504864864864,
+          "log_ratio_expanse_over_patricia_tree": -4.4672121072961,
+          "log_ratio_expanse_over_qp_trie": -0.6918178695850639,
+          "patricia_tree_ns": 770.3017333333333,
+          "qp_trie_ns": 17.661516470588236,
+          "round": 1
+        },
+        {
+          "expanse_ns": 8.843898918918919,
+          "log_ratio_expanse_over_patricia_tree": -4.467139450701899,
+          "log_ratio_expanse_over_qp_trie": -0.6810245365691286,
+          "patricia_tree_ns": 770.3672,
+          "qp_trie_ns": 17.474669411764705,
+          "round": 2
+        },
+        {
+          "expanse_ns": 8.824607567567568,
+          "log_ratio_expanse_over_patricia_tree": -4.470048731761362,
+          "log_ratio_expanse_over_qp_trie": -0.6922121334161996,
+          "patricia_tree_ns": 770.9263666666667,
+          "qp_trie_ns": 17.63272,
+          "round": 3
+        },
+        {
+          "expanse_ns": 8.827833513513513,
+          "log_ratio_expanse_over_patricia_tree": -4.468826280434128,
+          "log_ratio_expanse_over_qp_trie": -0.6898070368854518,
+          "patricia_tree_ns": 770.266,
+          "qp_trie_ns": 17.59679294117647,
+          "round": 4
+        },
+        {
+          "expanse_ns": 8.80622054054054,
+          "log_ratio_expanse_over_patricia_tree": -4.472497085535035,
+          "log_ratio_expanse_over_qp_trie": -0.6839910502312576,
+          "patricia_tree_ns": 771.2059333333333,
+          "qp_trie_ns": 17.451915294117647,
+          "round": 5
+        },
+        {
+          "expanse_ns": 8.841658378378378,
+          "log_ratio_expanse_over_patricia_tree": -4.467407407557401,
+          "log_ratio_expanse_over_qp_trie": -0.69091165543438,
+          "patricia_tree_ns": 770.3784333333333,
+          "qp_trie_ns": 17.643829411764706,
+          "round": 6
+        },
+        {
+          "expanse_ns": 8.820952972972973,
+          "log_ratio_expanse_over_patricia_tree": -4.469320342318697,
+          "log_ratio_expanse_over_qp_trie": -0.6930990284037944,
+          "patricia_tree_ns": 770.046,
+          "qp_trie_ns": 17.641056470588236,
+          "round": 7
+        },
+        {
+          "expanse_ns": 8.786461621621621,
+          "log_ratio_expanse_over_patricia_tree": -4.474077852322943,
+          "log_ratio_expanse_over_qp_trie": -0.6851198086723652,
+          "patricia_tree_ns": 770.6928666666666,
+          "qp_trie_ns": 17.432423529411764,
+          "round": 8
+        },
+        {
+          "expanse_ns": 8.798797297297297,
+          "log_ratio_expanse_over_patricia_tree": -4.474267862716883,
+          "log_ratio_expanse_over_qp_trie": -0.6957736062650596,
+          "patricia_tree_ns": 771.9215333333333,
+          "qp_trie_ns": 17.64387411764706,
+          "round": 9
+        },
+        {
+          "expanse_ns": 8.863937837837838,
+          "log_ratio_expanse_over_patricia_tree": -4.465052604274274,
+          "log_ratio_expanse_over_qp_trie": -0.6937224249606473,
+          "patricia_tree_ns": 770.5031333333334,
+          "qp_trie_ns": 17.738076470588236,
+          "round": 10
+        },
+        {
+          "expanse_ns": 8.7772,
+          "log_ratio_expanse_over_patricia_tree": -4.4757327188452845,
+          "log_ratio_expanse_over_qp_trie": -0.6880330752041985,
+          "patricia_tree_ns": 771.1556,
+          "qp_trie_ns": 17.464854117647057,
+          "round": 11
+        },
+        {
+          "expanse_ns": 8.880924864864864,
+          "log_ratio_expanse_over_patricia_tree": -4.465038172593015,
+          "log_ratio_expanse_over_qp_trie": -0.6882259395459966,
+          "patricia_tree_ns": 771.9686,
+          "qp_trie_ns": 17.67465411764706,
+          "round": 12
+        },
+        {
+          "expanse_ns": 8.840327567567568,
+          "log_ratio_expanse_over_patricia_tree": -4.465660530765594,
+          "log_ratio_expanse_over_qp_trie": -0.6921472591707182,
+          "patricia_tree_ns": 768.9181,
+          "qp_trie_ns": 17.66298470588235,
+          "round": 13
+        },
+        {
+          "expanse_ns": 8.815484324324323,
+          "log_ratio_expanse_over_patricia_tree": -4.4714902838331545,
+          "log_ratio_expanse_over_qp_trie": -0.6799318478634415,
+          "patricia_tree_ns": 771.2403333333333,
+          "qp_trie_ns": 17.399502352941177,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "uniform_random",
+      "expanse_ns_op": 8.856250282485876,
+      "expanse_reps": 177,
+      "expanse_status": "valid",
+      "expected_hits": 10000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "shuffled",
+      "patricia_tree_ns_op": 785.8500666666666,
+      "patricia_tree_reps": 3,
+      "patricia_tree_status": "valid",
+      "population": 10000,
+      "probes": 10000,
+      "qp_trie_ns_op": 17.69565,
+      "qp_trie_reps": 90,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.01129059251974584,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.011270649112532003,
+        0.011320150358958125
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.5023876197407333,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.5006556729816323,
+        0.5036792074048339
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 10000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 8.952304519774012,
+          "log_ratio_expanse_over_patricia_tree": -4.474719967401436,
+          "log_ratio_expanse_over_qp_trie": -0.6849079244344473,
+          "patricia_tree_ns": 785.7439333333333,
+          "qp_trie_ns": 17.757694444444443,
+          "round": 0
+        },
+        {
+          "expanse_ns": 8.838327118644068,
+          "log_ratio_expanse_over_patricia_tree": -4.486553487016656,
+          "log_ratio_expanse_over_qp_trie": -0.693722990165183,
+          "patricia_tree_ns": 784.9744,
+          "qp_trie_ns": 17.686835555555554,
+          "round": 1
+        },
+        {
+          "expanse_ns": 8.856250282485876,
+          "log_ratio_expanse_over_patricia_tree": -4.486757633124079,
+          "log_ratio_expanse_over_qp_trie": -0.6871217241130155,
+          "patricia_tree_ns": 786.7268333333334,
+          "qp_trie_ns": 17.606095555555555,
+          "round": 2
+        },
+        {
+          "expanse_ns": 8.86158813559322,
+          "log_ratio_expanse_over_patricia_tree": -4.484692440830638,
+          "log_ratio_expanse_over_qp_trie": -0.6946326021376125,
+          "patricia_tree_ns": 785.5769666666666,
+          "qp_trie_ns": 17.74952222222222,
+          "round": 3
+        },
+        {
+          "expanse_ns": 8.87714350282486,
+          "log_ratio_expanse_over_patricia_tree": -4.483978492942028,
+          "log_ratio_expanse_over_qp_trie": -0.6898390190183896,
+          "patricia_tree_ns": 786.3943,
+          "qp_trie_ns": 17.69565,
+          "round": 4
+        },
+        {
+          "expanse_ns": 8.841431073446328,
+          "log_ratio_expanse_over_patricia_tree": -4.487962053322578,
+          "log_ratio_expanse_over_qp_trie": -0.6839559777600908,
+          "patricia_tree_ns": 786.3569333333334,
+          "qp_trie_ns": 17.52108,
+          "round": 5
+        },
+        {
+          "expanse_ns": 8.93598418079096,
+          "log_ratio_expanse_over_patricia_tree": -4.476802729349958,
+          "log_ratio_expanse_over_qp_trie": -0.6850287463575326,
+          "patricia_tree_ns": 785.9467333333333,
+          "qp_trie_ns": 17.727463333333333,
+          "round": 6
+        },
+        {
+          "expanse_ns": 8.929089265536723,
+          "log_ratio_expanse_over_patricia_tree": -4.477410979383222,
+          "log_ratio_expanse_over_qp_trie": -0.6871337080259888,
+          "patricia_tree_ns": 785.8181333333333,
+          "qp_trie_ns": 17.75111111111111,
+          "round": 7
+        },
+        {
+          "expanse_ns": 8.823459887005649,
+          "log_ratio_expanse_over_patricia_tree": -4.489351948819863,
+          "log_ratio_expanse_over_qp_trie": -0.6838759194674853,
+          "patricia_tree_ns": 785.8500666666666,
+          "qp_trie_ns": 17.484066666666667,
+          "round": 8
+        },
+        {
+          "expanse_ns": 8.843181355932204,
+          "log_ratio_expanse_over_patricia_tree": -4.486319828999536,
+          "log_ratio_expanse_over_qp_trie": -0.7027879695193288,
+          "patricia_tree_ns": 785.2220333333333,
+          "qp_trie_ns": 17.857697777777776,
+          "round": 9
+        },
+        {
+          "expanse_ns": 8.854347457627119,
+          "log_ratio_expanse_over_patricia_tree": -4.483978220801424,
+          "log_ratio_expanse_over_qp_trie": -0.6955154362811565,
+          "patricia_tree_ns": 784.3746666666667,
+          "qp_trie_ns": 17.750683333333335,
+          "round": 10
+        },
+        {
+          "expanse_ns": 8.8435197740113,
+          "log_ratio_expanse_over_patricia_tree": -4.487011915514894,
+          "log_ratio_expanse_over_qp_trie": -0.6804898679894167,
+          "patricia_tree_ns": 785.7957333333334,
+          "qp_trie_ns": 17.46458,
+          "round": 11
+        },
+        {
+          "expanse_ns": 8.91939661016949,
+          "log_ratio_expanse_over_patricia_tree": -4.479360650801542,
+          "log_ratio_expanse_over_qp_trie": -0.6863333317285499,
+          "patricia_tree_ns": 786.4970333333333,
+          "qp_trie_ns": 17.717655555555556,
+          "round": 12
+        },
+        {
+          "expanse_ns": 8.864154237288135,
+          "log_ratio_expanse_over_patricia_tree": -4.485233501048212,
+          "log_ratio_expanse_over_qp_trie": -0.6898758960822461,
+          "patricia_tree_ns": 786.2297333333333,
+          "qp_trie_ns": 17.67040888888889,
+          "round": 13
+        },
+        {
+          "expanse_ns": 8.854159322033897,
+          "log_ratio_expanse_over_patricia_tree": -4.486647456311871,
+          "log_ratio_expanse_over_qp_trie": -0.680528482433173,
+          "patricia_tree_ns": 786.4544333333333,
+          "qp_trie_ns": 17.486266666666666,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "sparse_stride",
+      "expanse_ns_op": 5.352526086956522,
+      "expanse_reps": 322,
+      "expanse_status": "valid",
+      "expected_hits": 10000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "generator",
+      "patricia_tree_ns_op": 720.5195,
+      "patricia_tree_reps": 3,
+      "patricia_tree_status": "valid",
+      "population": 10000,
+      "probes": 10000,
+      "qp_trie_ns_op": 13.522867424242424,
+      "qp_trie_reps": 132,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.0074294727433944635,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.007408127038386105,
+        0.00745009243917906
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.3959683557702372,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.39488375177054835,
+        0.3970224678987809
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 10000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 5.390534161490684,
+          "log_ratio_expanse_over_patricia_tree": -4.8949970238778056,
+          "log_ratio_expanse_over_qp_trie": -0.919737653391343,
+          "patricia_tree_ns": 720.2810666666667,
+          "qp_trie_ns": 13.522867424242424,
+          "round": 0
+        },
+        {
+          "expanse_ns": 5.31380248447205,
+          "log_ratio_expanse_over_patricia_tree": -4.910363682780974,
+          "log_ratio_expanse_over_qp_trie": -0.9303459857923775,
+          "patricia_tree_ns": 721.0232333333333,
+          "qp_trie_ns": 13.472541666666666,
+          "round": 1
+        },
+        {
+          "expanse_ns": 5.367101242236025,
+          "log_ratio_expanse_over_patricia_tree": -4.8994054258986965,
+          "log_ratio_expanse_over_qp_trie": -0.9252575794195261,
+          "patricia_tree_ns": 720.3184333333334,
+          "qp_trie_ns": 13.538609090909091,
+          "round": 2
+        },
+        {
+          "expanse_ns": 5.385769254658385,
+          "log_ratio_expanse_over_patricia_tree": -4.896244156209941,
+          "log_ratio_expanse_over_qp_trie": -0.9181335940910736,
+          "patricia_tree_ns": 720.5424333333333,
+          "qp_trie_ns": 13.48925909090909,
+          "round": 3
+        },
+        {
+          "expanse_ns": 5.341073913043478,
+          "log_ratio_expanse_over_patricia_tree": -4.904215367758348,
+          "log_ratio_expanse_over_qp_trie": -0.9300554512335001,
+          "patricia_tree_ns": 720.2815,
+          "qp_trie_ns": 13.537751515151514,
+          "round": 4
+        },
+        {
+          "expanse_ns": 5.428469254658385,
+          "log_ratio_expanse_over_patricia_tree": -4.894319458352549,
+          "log_ratio_expanse_over_qp_trie": -0.9203439482955492,
+          "patricia_tree_ns": 724.8586333333334,
+          "qp_trie_ns": 13.626291666666667,
+          "round": 5
+        },
+        {
+          "expanse_ns": 5.386575155279503,
+          "log_ratio_expanse_over_patricia_tree": -4.895254997308739,
+          "log_ratio_expanse_over_qp_trie": -0.9210617039412574,
+          "patricia_tree_ns": 719.9377666666667,
+          "qp_trie_ns": 13.530839393939393,
+          "round": 6
+        },
+        {
+          "expanse_ns": 5.352526086956522,
+          "log_ratio_expanse_over_patricia_tree": -4.902762152709714,
+          "log_ratio_expanse_over_qp_trie": -0.9266937946463046,
+          "patricia_tree_ns": 720.7777,
+          "qp_trie_ns": 13.521248484848485,
+          "round": 7
+        },
+        {
+          "expanse_ns": 5.306455590062112,
+          "log_ratio_expanse_over_patricia_tree": -4.909701623449659,
+          "log_ratio_expanse_over_qp_trie": -0.9345206161990982,
+          "patricia_tree_ns": 719.5498,
+          "qp_trie_ns": 13.51019696969697,
+          "round": 8
+        },
+        {
+          "expanse_ns": 5.339476086956521,
+          "log_ratio_expanse_over_patricia_tree": -4.903400960108892,
+          "log_ratio_expanse_over_qp_trie": -0.9289782047447576,
+          "patricia_tree_ns": 719.4798333333333,
+          "qp_trie_ns": 13.519130303030304,
+          "round": 9
+        },
+        {
+          "expanse_ns": 5.30732950310559,
+          "log_ratio_expanse_over_patricia_tree": -4.912225246315282,
+          "log_ratio_expanse_over_qp_trie": -0.9365646805961212,
+          "patricia_tree_ns": 721.4867666666667,
+          "qp_trie_ns": 13.540070454545454,
+          "round": 10
+        },
+        {
+          "expanse_ns": 5.350148757763975,
+          "log_ratio_expanse_over_patricia_tree": -4.902848113900967,
+          "log_ratio_expanse_over_qp_trie": -0.9268198075065103,
+          "patricia_tree_ns": 720.5195,
+          "qp_trie_ns": 13.516946212121212,
+          "round": 11
+        },
+        {
+          "expanse_ns": 5.366320186335404,
+          "log_ratio_expanse_over_patricia_tree": -4.902717642952765,
+          "log_ratio_expanse_over_qp_trie": -0.9205678107354384,
+          "patricia_tree_ns": 722.6030666666667,
+          "qp_trie_ns": 13.473303787878788,
+          "round": 12
+        },
+        {
+          "expanse_ns": 5.355499689440994,
+          "log_ratio_expanse_over_patricia_tree": -4.901125671997408,
+          "log_ratio_expanse_over_qp_trie": -0.9277150297647153,
+          "patricia_tree_ns": 719.9989,
+          "qp_trie_ns": 13.542583333333333,
+          "round": 13
+        },
+        {
+          "expanse_ns": 5.342319875776398,
+          "log_ratio_expanse_over_patricia_tree": -4.904924265995038,
+          "log_ratio_expanse_over_qp_trie": -0.9295188485182677,
+          "patricia_tree_ns": 720.9604333333333,
+          "qp_trie_ns": 13.533645454545455,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "sparse_stride",
+      "expanse_ns_op": 5.337524175824176,
+      "expanse_reps": 364,
+      "expanse_status": "valid",
+      "expected_hits": 10000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "shuffled",
+      "patricia_tree_ns_op": 1066.10965,
+      "patricia_tree_reps": 2,
+      "patricia_tree_status": "valid",
+      "population": 10000,
+      "probes": 10000,
+      "qp_trie_ns_op": 13.464020161290323,
+      "qp_trie_reps": 124,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.005011705439084546,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.005004013566377033,
+        0.005024880968970715
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.39667973039811294,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.395996896445094,
+        0.3981242249255485
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 10000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 5.367801648351648,
+          "log_ratio_expanse_over_patricia_tree": -5.290898499922627,
+          "log_ratio_expanse_over_qp_trie": -0.9215510257115372,
+          "patricia_tree_ns": 1065.6252,
+          "qp_trie_ns": 13.49028064516129,
+          "round": 0
+        },
+        {
+          "expanse_ns": 5.3393744505494505,
+          "log_ratio_expanse_over_patricia_tree": -5.297881555657816,
+          "log_ratio_expanse_over_qp_trie": -0.9240827172795985,
+          "patricia_tree_ns": 1067.4096,
+          "qp_trie_ns": 13.452853225806452,
+          "round": 1
+        },
+        {
+          "expanse_ns": 5.338679945054945,
+          "log_ratio_expanse_over_patricia_tree": -5.297932657202064,
+          "log_ratio_expanse_over_qp_trie": -0.9248855912878157,
+          "patricia_tree_ns": 1067.3253,
+          "qp_trie_ns": 13.461907258064516,
+          "round": 2
+        },
+        {
+          "expanse_ns": 5.322290384615385,
+          "log_ratio_expanse_over_patricia_tree": -5.301073910241041,
+          "log_ratio_expanse_over_qp_trie": -0.9273518656493229,
+          "patricia_tree_ns": 1067.39635,
+          "qp_trie_ns": 13.453719354838709,
+          "round": 3
+        },
+        {
+          "expanse_ns": 5.330382417582418,
+          "log_ratio_expanse_over_patricia_tree": -5.298643290494389,
+          "log_ratio_expanse_over_qp_trie": -0.9291294760375977,
+          "patricia_tree_ns": 1066.424,
+          "qp_trie_ns": 13.498147580645162,
+          "round": 4
+        },
+        {
+          "expanse_ns": 5.341093956043956,
+          "log_ratio_expanse_over_patricia_tree": -5.296169019609269,
+          "log_ratio_expanse_over_qp_trie": -0.924590461636014,
+          "patricia_tree_ns": 1065.92635,
+          "qp_trie_ns": 13.464020161290323,
+          "round": 5
+        },
+        {
+          "expanse_ns": 5.323248626373626,
+          "log_ratio_expanse_over_patricia_tree": -5.299524522915656,
+          "log_ratio_expanse_over_qp_trie": -0.9291478727146061,
+          "patricia_tree_ns": 1065.9357,
+          "qp_trie_ns": 13.48033064516129,
+          "round": 6
+        },
+        {
+          "expanse_ns": 5.336309065934066,
+          "log_ratio_expanse_over_patricia_tree": -5.297928620492097,
+          "log_ratio_expanse_over_qp_trie": -0.9270840355709483,
+          "patricia_tree_ns": 1066.847,
+          "qp_trie_ns": 13.485543548387097,
+          "round": 7
+        },
+        {
+          "expanse_ns": 5.4062802197802196,
+          "log_ratio_expanse_over_patricia_tree": -5.284616949473482,
+          "log_ratio_expanse_over_qp_trie": -0.9092859819257405,
+          "patricia_tree_ns": 1066.5434,
+          "qp_trie_ns": 13.421357258064516,
+          "round": 8
+        },
+        {
+          "expanse_ns": 5.336785164835165,
+          "log_ratio_expanse_over_patricia_tree": -5.295975171480687,
+          "log_ratio_expanse_over_qp_trie": -0.9278218282475276,
+          "patricia_tree_ns": 1064.86,
+          "qp_trie_ns": 13.496700806451614,
+          "round": 9
+        },
+        {
+          "expanse_ns": 5.347782142857143,
+          "log_ratio_expanse_over_patricia_tree": -5.294246258365477,
+          "log_ratio_expanse_over_qp_trie": -0.9230508270966283,
+          "patricia_tree_ns": 1065.211,
+          "qp_trie_ns": 13.460140322580646,
+          "round": 10
+        },
+        {
+          "expanse_ns": 5.361181318681319,
+          "log_ratio_expanse_over_patricia_tree": -5.293827493067371,
+          "log_ratio_expanse_over_qp_trie": -0.9209877164222068,
+          "patricia_tree_ns": 1067.43285,
+          "qp_trie_ns": 13.466054838709677,
+          "round": 11
+        },
+        {
+          "expanse_ns": 5.335211263736264,
+          "log_ratio_expanse_over_patricia_tree": -5.295626317622802,
+          "log_ratio_expanse_over_qp_trie": -0.9284852682765502,
+          "patricia_tree_ns": 1064.17465,
+          "qp_trie_ns": 13.501675,
+          "round": 12
+        },
+        {
+          "expanse_ns": 5.337524175824176,
+          "log_ratio_expanse_over_patricia_tree": -5.297009552626268,
+          "log_ratio_expanse_over_qp_trie": -0.9250109230446887,
+          "patricia_tree_ns": 1066.10965,
+          "qp_trie_ns": 13.460679838709677,
+          "round": 13
+        },
+        {
+          "expanse_ns": 5.326185989010989,
+          "log_ratio_expanse_over_patricia_tree": -5.298331402945654,
+          "log_ratio_expanse_over_qp_trie": -0.9269251337525366,
+          "patricia_tree_ns": 1065.25215,
+          "qp_trie_ns": 13.45782258064516,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "zipfian",
+      "expanse_ns_op": 4.866948275130918,
+      "expanse_reps": 1319,
+      "expanse_status": "valid",
+      "expected_hits": 2932,
+      "fast_radix_trie_ns_op": 52.174526240620736,
+      "fast_radix_trie_reps": 128,
+      "fast_radix_trie_status": "valid",
+      "hit_rate_pct": 100,
+      "order": "generator",
+      "patricia_tree_ns_op": 442.393758526603,
+      "patricia_tree_reps": 16,
+      "patricia_tree_status": "valid",
+      "population": 2932,
+      "probes": 2932,
+      "qp_trie_ns_op": 13.377992922075292,
+      "qp_trie_reps": 505,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_fast_radix_trie": 0.09341107076944703,
+      "ratio_expanse_over_fast_radix_trie_ci": [
+        0.09252135750437643,
+        0.09437740571695168
+      ],
+      "ratio_expanse_over_fast_radix_trie_ci_method": "bca",
+      "ratio_expanse_over_patricia_tree": 0.011012900496531395,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.010896855295413602,
+        0.011128886452749044
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.36417486377566005,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.36033812274581606,
+        0.36802559638083177
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 10000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 4.866948275130918,
+          "fast_radix_trie_ns": 52.34255361101637,
+          "log_ratio_expanse_over_fast_radix_trie": -2.375342581686667,
+          "log_ratio_expanse_over_patricia_tree": -4.509932509870796,
+          "log_ratio_expanse_over_qp_trie": -1.0109528343287877,
+          "patricia_tree_ns": 442.4819236016371,
+          "qp_trie_ns": 13.37543662961112,
+          "round": 0
+        },
+        {
+          "expanse_ns": 4.892703658462166,
+          "fast_radix_trie_ns": 52.174526240620736,
+          "log_ratio_expanse_over_fast_radix_trie": -2.366849326635632,
+          "log_ratio_expanse_over_patricia_tree": -4.504455295808206,
+          "log_ratio_expanse_over_qp_trie": -1.0065041074992749,
+          "patricia_tree_ns": 442.393758526603,
+          "qp_trie_ns": 13.386532357192063,
+          "round": 1
+        },
+        {
+          "expanse_ns": 4.904372498906216,
+          "fast_radix_trie_ns": 52.29841778223056,
+          "log_ratio_expanse_over_fast_radix_trie": -2.366838963955937,
+          "log_ratio_expanse_over_patricia_tree": -4.500522711429712,
+          "log_ratio_expanse_over_qp_trie": -1.0040734134069254,
+          "patricia_tree_ns": 441.70836886084584,
+          "qp_trie_ns": 13.385881971553227,
+          "round": 2
+        },
+        {
+          "expanse_ns": 4.802414237500607,
+          "fast_radix_trie_ns": 52.2521849420191,
+          "log_ratio_expanse_over_fast_radix_trie": -2.386962949428017,
+          "log_ratio_expanse_over_patricia_tree": -4.524420937898737,
+          "log_ratio_expanse_over_qp_trie": -1.0246101531846983,
+          "patricia_tree_ns": 442.98667718281035,
+          "qp_trie_ns": 13.379569921521483,
+          "round": 3
+        },
+        {
+          "expanse_ns": 4.89186224629639,
+          "fast_radix_trie_ns": 52.18690846691678,
+          "log_ratio_expanse_over_fast_radix_trie": -2.367258609327287,
+          "log_ratio_expanse_over_patricia_tree": -4.502896638953785,
+          "log_ratio_expanse_over_qp_trie": -1.0062639199943844,
+          "patricia_tree_ns": 441.6287943383356,
+          "qp_trie_ns": 13.381015898315615,
+          "round": 4
+        },
+        {
+          "expanse_ns": 4.965882210571281,
+          "fast_radix_trie_ns": 52.018188310027284,
+          "log_ratio_expanse_over_fast_radix_trie": -2.349002464988648,
+          "log_ratio_expanse_over_patricia_tree": -4.488744378188227,
+          "log_ratio_expanse_over_qp_trie": -0.9910200699955851,
+          "patricia_tree_ns": 442.0112551159618,
+          "qp_trie_ns": 13.377992922075292,
+          "round": 5
+        },
+        {
+          "expanse_ns": 4.854820459089372,
+          "fast_radix_trie_ns": 52.19767863233288,
+          "log_ratio_expanse_over_fast_radix_trie": -2.3750659028154013,
+          "log_ratio_expanse_over_patricia_tree": -4.512302808229711,
+          "log_ratio_expanse_over_qp_trie": -1.0136298805092359,
+          "patricia_tree_ns": 442.4267564802183,
+          "qp_trie_ns": 13.377872030040658,
+          "round": 6
+        },
+        {
+          "expanse_ns": 4.86304245744068,
+          "fast_radix_trie_ns": 52.0964412090723,
+          "log_ratio_expanse_over_fast_radix_trie": -2.371432377405587,
+          "log_ratio_expanse_over_patricia_tree": -4.510741758139381,
+          "log_ratio_expanse_over_qp_trie": -1.0112044358584196,
+          "patricia_tree_ns": 442.4847586971351,
+          "qp_trie_ns": 13.36806559237097,
+          "round": 7
+        },
+        {
+          "expanse_ns": 5.042458992146475,
+          "fast_radix_trie_ns": 52.22541940228513,
+          "log_ratio_expanse_over_fast_radix_trie": -2.337675479722569,
+          "log_ratio_expanse_over_patricia_tree": -4.47409975079584,
+          "log_ratio_expanse_over_qp_trie": -0.9737272925688485,
+          "patricia_tree_ns": 442.30231070941335,
+          "qp_trie_ns": 13.351398700579471,
+          "round": 8
+        },
+        {
+          "expanse_ns": 4.764139551336485,
+          "fast_radix_trie_ns": 51.96497964273534,
+          "log_ratio_expanse_over_fast_radix_trie": -2.389453079334957,
+          "log_ratio_expanse_over_patricia_tree": -4.528897483257063,
+          "log_ratio_expanse_over_qp_trie": -1.0322710305124294,
+          "patricia_tree_ns": 441.4277796725784,
+          "qp_trie_ns": 13.375009117555685,
+          "round": 9
+        },
+        {
+          "expanse_ns": 5.079339168227615,
+          "fast_radix_trie_ns": 52.27734108543656,
+          "log_ratio_expanse_over_fast_radix_trie": -2.3313818602130154,
+          "log_ratio_expanse_over_patricia_tree": -4.468442156397686,
+          "log_ratio_expanse_over_qp_trie": -0.9688754428938275,
+          "patricia_tree_ns": 443.0237252728513,
+          "qp_trie_ns": 13.383955128118542,
+          "round": 10
+        },
+        {
+          "expanse_ns": 4.858046217161912,
+          "fast_radix_trie_ns": 52.137291631139156,
+          "log_ratio_expanse_over_fast_radix_trie": -2.373244118835443,
+          "log_ratio_expanse_over_patricia_tree": -4.509860865595111,
+          "log_ratio_expanse_over_qp_trie": -1.0109061953026897,
+          "patricia_tree_ns": 441.64094474761254,
+          "qp_trie_ns": 13.350349168613997,
+          "round": 11
+        },
+        {
+          "expanse_ns": 4.869935624470562,
+          "fast_radix_trie_ns": 52.005803419167805,
+          "log_ratio_expanse_over_fast_radix_trie": -2.3682745983563223,
+          "log_ratio_expanse_over_patricia_tree": -4.50775237066942,
+          "log_ratio_expanse_over_qp_trie": -1.0100640415335878,
+          "patricia_tree_ns": 441.7893076398363,
+          "qp_trie_ns": 13.371756513987005,
+          "round": 12
+        },
+        {
+          "expanse_ns": 4.709787790369942,
+          "fast_radix_trie_ns": 52.09116803802865,
+          "log_ratio_expanse_over_fast_radix_trie": -2.4033525630754857,
+          "log_ratio_expanse_over_patricia_tree": -4.544313523897086,
+          "log_ratio_expanse_over_qp_trie": -1.045066467467788,
+          "patricia_tree_ns": 443.1712994542974,
+          "qp_trie_ns": 13.392693798711386,
+          "round": 13
+        },
+        {
+          "expanse_ns": 4.716085194145385,
+          "fast_radix_trie_ns": 51.936681979024556,
+          "log_ratio_expanse_over_fast_radix_trie": -2.3990462749603356,
+          "log_ratio_expanse_over_patricia_tree": -4.5429356248519905,
+          "log_ratio_expanse_over_qp_trie": -1.0426476905942685,
+          "patricia_tree_ns": 443.1528180422919,
+          "qp_trie_ns": 13.378202963543284,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "zipfian",
+      "expanse_ns_op": 4.844879995261301,
+      "expanse_reps": 1451,
+      "expanse_status": "valid",
+      "expected_hits": 2932,
+      "fast_radix_trie_ns_op": 51.044400820636724,
+      "fast_radix_trie_reps": 131,
+      "fast_radix_trie_status": "valid",
+      "hit_rate_pct": 100,
+      "order": "shuffled",
+      "patricia_tree_ns_op": 457.79322419281493,
+      "patricia_tree_reps": 15,
+      "patricia_tree_status": "valid",
+      "population": 2932,
+      "probes": 2932,
+      "qp_trie_ns_op": 13.499673972775017,
+      "qp_trie_reps": 499,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_fast_radix_trie": 0.09441070165080095,
+      "ratio_expanse_over_fast_radix_trie_ci": [
+        0.09343340048727995,
+        0.09521100802567295
+      ],
+      "ratio_expanse_over_fast_radix_trie_ci_method": "bca",
+      "ratio_expanse_over_patricia_tree": 0.010517987625436213,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.010412751954669374,
+        0.010604418699733345
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.356805428011379,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.3532187105370941,
+        0.35970833798710994
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 10000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 4.877850153678651,
+          "fast_radix_trie_ns": 50.990057069660395,
+          "log_ratio_expanse_over_fast_radix_trie": -2.3469260737800126,
+          "log_ratio_expanse_over_patricia_tree": -4.541696883904505,
+          "log_ratio_expanse_over_qp_trie": -1.015572953281694,
+          "patricia_tree_ns": 457.78583447021373,
+          "qp_trie_ns": 13.467475195958082,
+          "round": 0
+        },
+        {
+          "expanse_ns": 4.7432924839904365,
+          "fast_radix_trie_ns": 50.97692479926684,
+          "log_ratio_expanse_over_fast_radix_trie": -2.374641563971418,
+          "log_ratio_expanse_over_patricia_tree": -4.569806333809681,
+          "log_ratio_expanse_over_qp_trie": -1.0458857208773191,
+          "patricia_tree_ns": 457.8482719417917,
+          "qp_trie_ns": 13.499021918325054,
+          "round": 1
+        },
+        {
+          "expanse_ns": 4.639188713997873,
+          "fast_radix_trie_ns": 51.044400820636724,
+          "log_ratio_expanse_over_fast_radix_trie": -2.398156353464754,
+          "log_ratio_expanse_over_patricia_tree": -4.591478692460525,
+          "log_ratio_expanse_over_qp_trie": -1.0668374135044432,
+          "patricia_tree_ns": 457.61041382446564,
+          "qp_trie_ns": 13.482289271585463,
+          "round": 2
+        },
+        {
+          "expanse_ns": 4.847878115765295,
+          "fast_radix_trie_ns": 50.94826760255356,
+          "log_ratio_expanse_over_fast_radix_trie": -2.3522696498646183,
+          "log_ratio_expanse_over_patricia_tree": -4.54633804666626,
+          "log_ratio_expanse_over_qp_trie": -1.0241244276745023,
+          "patricia_tree_ns": 457.08947248749433,
+          "qp_trie_ns": 13.499673972775017,
+          "round": 3
+        },
+        {
+          "expanse_ns": 4.824257956360716,
+          "fast_radix_trie_ns": 51.016894389885756,
+          "log_ratio_expanse_over_fast_radix_trie": -2.358499908879778,
+          "log_ratio_expanse_over_patricia_tree": -4.55301231043512,
+          "log_ratio_expanse_over_qp_trie": -1.0301142683838893,
+          "patricia_tree_ns": 457.9084356525693,
+          "qp_trie_ns": 13.514608343562978,
+          "round": 4
+        },
+        {
+          "expanse_ns": 4.844879995261301,
+          "fast_radix_trie_ns": 51.044640346583634,
+          "log_ratio_expanse_over_fast_radix_trie": -2.354778074529216,
+          "log_ratio_expanse_over_patricia_tree": -4.549235701802332,
+          "log_ratio_expanse_over_qp_trie": -1.0215423473362577,
+          "patricia_tree_ns": 458.1323783537972,
+          "qp_trie_ns": 13.456534487802344,
+          "round": 5
+        },
+        {
+          "expanse_ns": 4.695006172531904,
+          "fast_radix_trie_ns": 51.146295679160204,
+          "log_ratio_expanse_over_fast_radix_trie": -2.3881906416727032,
+          "log_ratio_expanse_over_patricia_tree": -4.580369409233455,
+          "log_ratio_expanse_over_qp_trie": -1.0562245335144127,
+          "patricia_tree_ns": 457.999840836744,
+          "qp_trie_ns": 13.500462726271095,
+          "round": 6
+        },
+        {
+          "expanse_ns": 4.807456023648366,
+          "fast_radix_trie_ns": 50.76604042781417,
+          "log_ratio_expanse_over_fast_radix_trie": -2.3570595845342877,
+          "log_ratio_expanse_over_patricia_tree": -4.557834888307462,
+          "log_ratio_expanse_over_qp_trie": -1.0357822051093766,
+          "patricia_tree_ns": 458.5195543428831,
+          "qp_trie_ns": 13.544089543343167,
+          "round": 7
+        },
+        {
+          "expanse_ns": 4.887650282112444,
+          "fast_radix_trie_ns": 50.984113181217,
+          "log_ratio_expanse_over_fast_radix_trie": -2.3448024048484615,
+          "log_ratio_expanse_over_patricia_tree": -4.54521192590032,
+          "log_ratio_expanse_over_qp_trie": -1.014443477287225,
+          "patricia_tree_ns": 460.3207821737153,
+          "qp_trie_ns": 13.479299663446948,
+          "round": 8
+        },
+        {
+          "expanse_ns": 4.87025037068099,
+          "fast_radix_trie_ns": 51.07981421117857,
+          "log_ratio_expanse_over_fast_radix_trie": -2.3502440473546287,
+          "log_ratio_expanse_over_patricia_tree": -4.543865763742732,
+          "log_ratio_expanse_over_qp_trie": -1.0191211911064577,
+          "patricia_tree_ns": 458.0650068212824,
+          "qp_trie_ns": 13.494288713853354,
+          "round": 9
+        },
+        {
+          "expanse_ns": 4.9494360101656385,
+          "fast_radix_trie_ns": 50.84031950678483,
+          "log_ratio_expanse_over_fast_radix_trie": -2.3294160981077034,
+          "log_ratio_expanse_over_patricia_tree": -4.526896647019387,
+          "log_ratio_expanse_over_qp_trie": -1.0037773791836375,
+          "patricia_tree_ns": 457.6800136425648,
+          "qp_trie_ns": 13.50487878895581,
+          "round": 10
+        },
+        {
+          "expanse_ns": 4.870274111188314,
+          "fast_radix_trie_ns": 51.1107651291878,
+          "log_ratio_expanse_over_fast_radix_trie": -2.3508449217369956,
+          "log_ratio_expanse_over_patricia_tree": -4.541173034704769,
+          "log_ratio_expanse_over_qp_trie": -1.020258546425575,
+          "patricia_tree_ns": 456.83544793087765,
+          "qp_trie_ns": 13.509711100235943,
+          "round": 11
+        },
+        {
+          "expanse_ns": 4.930233230504813,
+          "fast_radix_trie_ns": 51.105339345781736,
+          "log_ratio_expanse_over_fast_radix_trie": -2.3385026845725005,
+          "log_ratio_expanse_over_patricia_tree": -4.530672545646684,
+          "log_ratio_expanse_over_qp_trie": -1.0090960838073801,
+          "patricia_tree_ns": 457.62901318781263,
+          "qp_trie_ns": 13.524223070971411,
+          "round": 12
+        },
+        {
+          "expanse_ns": 4.752822769826144,
+          "fast_radix_trie_ns": 51.0743675994293,
+          "log_ratio_expanse_over_fast_radix_trie": -2.37454404995291,
+          "log_ratio_expanse_over_patricia_tree": -4.566863863841141,
+          "log_ratio_expanse_over_qp_trie": -1.0451084511369524,
+          "patricia_tree_ns": 457.42025920873124,
+          "qp_trie_ns": 13.515634953399296,
+          "round": 13
+        },
+        {
+          "expanse_ns": 4.715466964026315,
+          "fast_radix_trie_ns": 51.08467762931797,
+          "log_ratio_expanse_over_fast_radix_trie": -2.3826366523961604,
+          "log_ratio_expanse_over_patricia_tree": -4.575569657455858,
+          "log_ratio_expanse_over_qp_trie": -1.0505809817052365,
+          "patricia_tree_ns": 457.79322419281493,
+          "qp_trie_ns": 13.482990537692029,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "sequential",
+      "expanse_ns_op": 8.85107909090909,
+      "expanse_reps": 22,
+      "expanse_status": "valid",
+      "expected_hits": 100000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "generator",
+      "patricia_tree_ns_op": 1173.97918,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 100000,
+      "probes": 100000,
+      "qp_trie_ns_op": 21.646326,
+      "qp_trie_reps": 10,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.00753801023711371,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.007516210252786705,
+        0.007559269860645269
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.408719846017124,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.40742226796488645,
+        0.4098772396770285
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 100000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 8.879112272727273,
+          "log_ratio_expanse_over_patricia_tree": -4.884546692442835,
+          "log_ratio_expanse_over_qp_trie": -0.8996562833219756,
+          "patricia_tree_ns": 1174.08955,
+          "qp_trie_ns": 21.831587,
+          "round": 0
+        },
+        {
+          "expanse_ns": 8.872068181818182,
+          "log_ratio_expanse_over_patricia_tree": -4.886568095445931,
+          "log_ratio_expanse_over_qp_trie": -0.8919278052041225,
+          "patricia_tree_ns": 1175.53193,
+          "qp_trie_ns": 21.646326,
+          "round": 1
+        },
+        {
+          "expanse_ns": 8.85107909090909,
+          "log_ratio_expanse_over_patricia_tree": -4.887985647295914,
+          "log_ratio_expanse_over_qp_trie": -0.8929288168114464,
+          "patricia_tree_ns": 1174.41453,
+          "qp_trie_ns": 21.616744,
+          "round": 2
+        },
+        {
+          "expanse_ns": 8.888085454545454,
+          "log_ratio_expanse_over_patricia_tree": -4.883431764096119,
+          "log_ratio_expanse_over_qp_trie": -0.8880619223568765,
+          "patricia_tree_ns": 1173.96646,
+          "qp_trie_ns": 21.601734,
+          "round": 3
+        },
+        {
+          "expanse_ns": 8.83706,
+          "log_ratio_expanse_over_patricia_tree": -4.889826091056363,
+          "log_ratio_expanse_over_qp_trie": -0.8952552836247432,
+          "patricia_tree_ns": 1174.7144,
+          "qp_trie_ns": 21.632775,
+          "round": 4
+        },
+        {
+          "expanse_ns": 8.78989,
+          "log_ratio_expanse_over_patricia_tree": -4.894249487639966,
+          "log_ratio_expanse_over_qp_trie": -0.9008169882307467,
+          "patricia_tree_ns": 1173.62401,
+          "qp_trie_ns": 21.637311,
+          "round": 5
+        },
+        {
+          "expanse_ns": 8.955225,
+          "log_ratio_expanse_over_patricia_tree": -4.875246425488204,
+          "log_ratio_expanse_over_qp_trie": -0.8829553892838138,
+          "patricia_tree_ns": 1173.19208,
+          "qp_trie_ns": 21.654051,
+          "round": 6
+        },
+        {
+          "expanse_ns": 8.904046363636363,
+          "log_ratio_expanse_over_patricia_tree": -4.881740520730531,
+          "log_ratio_expanse_over_qp_trie": -0.8896214981324505,
+          "patricia_tree_ns": 1174.08728,
+          "qp_trie_ns": 21.674302,
+          "round": 7
+        },
+        {
+          "expanse_ns": 8.74285090909091,
+          "log_ratio_expanse_over_patricia_tree": -4.899874333748249,
+          "log_ratio_expanse_over_qp_trie": -0.9071409747134543,
+          "patricia_tree_ns": 1173.92799,
+          "qp_trie_ns": 21.658052,
+          "round": 8
+        },
+        {
+          "expanse_ns": 8.88221090909091,
+          "log_ratio_expanse_over_patricia_tree": -4.884379573848985,
+          "log_ratio_expanse_over_qp_trie": -0.8918176284715188,
+          "patricia_tree_ns": 1174.30302,
+          "qp_trie_ns": 21.668685,
+          "round": 9
+        },
+        {
+          "expanse_ns": 8.864642727272727,
+          "log_ratio_expanse_over_patricia_tree": -4.885915391871079,
+          "log_ratio_expanse_over_qp_trie": -0.8923187383434076,
+          "patricia_tree_ns": 1173.78169,
+          "qp_trie_ns": 21.636666,
+          "round": 10
+        },
+        {
+          "expanse_ns": 8.820603181818182,
+          "log_ratio_expanse_over_patricia_tree": -4.890570728339494,
+          "log_ratio_expanse_over_qp_trie": -0.89870943297301,
+          "patricia_tree_ns": 1173.40022,
+          "qp_trie_ns": 21.667202,
+          "round": 11
+        },
+        {
+          "expanse_ns": 8.847193636363636,
+          "log_ratio_expanse_over_patricia_tree": -4.888956524779441,
+          "log_ratio_expanse_over_qp_trie": -0.8928008579622092,
+          "patricia_tree_ns": 1175.03925,
+          "qp_trie_ns": 21.60449,
+          "round": 12
+        },
+        {
+          "expanse_ns": 8.779197727272727,
+          "log_ratio_expanse_over_patricia_tree": -4.895769237542693,
+          "log_ratio_expanse_over_qp_trie": -0.9039774263387983,
+          "patricia_tree_ns": 1173.97918,
+          "qp_trie_ns": 21.679399,
+          "round": 13
+        },
+        {
+          "expanse_ns": 8.845303636363637,
+          "log_ratio_expanse_over_patricia_tree": -4.887894876731638,
+          "log_ratio_expanse_over_qp_trie": -0.8928909147889166,
+          "patricia_tree_ns": 1173.54168,
+          "qp_trie_ns": 21.60182,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "sequential",
+      "expanse_ns_op": 8.840941739130434,
+      "expanse_reps": 23,
+      "expanse_status": "valid",
+      "expected_hits": 100000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "shuffled",
+      "patricia_tree_ns_op": 2208.62954,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 100000,
+      "probes": 100000,
+      "qp_trie_ns_op": 21.294052,
+      "qp_trie_reps": 10,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.004001131704686641,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.003992178842519966,
+        0.004008409862225014
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.41483891841111287,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.4139418087648786,
+        0.415626114557753
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 100000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 8.840941739130434,
+          "log_ratio_expanse_over_patricia_tree": -5.5209501609488765,
+          "log_ratio_expanse_over_qp_trie": -0.8800740382879422,
+          "patricia_tree_ns": 2209.10683,
+          "qp_trie_ns": 21.316202,
+          "round": 0
+        },
+        {
+          "expanse_ns": 8.762574782608695,
+          "log_ratio_expanse_over_patricia_tree": -5.530810773544541,
+          "log_ratio_expanse_over_qp_trie": -0.8878504111971581,
+          "patricia_tree_ns": 2211.22195,
+          "qp_trie_ns": 21.292187,
+          "round": 1
+        },
+        {
+          "expanse_ns": 8.85934347826087,
+          "log_ratio_expanse_over_patricia_tree": -5.518527572263133,
+          "log_ratio_expanse_over_qp_trie": -0.8762825020429227,
+          "patricia_tree_ns": 2208.34851,
+          "qp_trie_ns": 21.279734,
+          "round": 2
+        },
+        {
+          "expanse_ns": 8.870014347826087,
+          "log_ratio_expanse_over_patricia_tree": -5.517763260761613,
+          "log_ratio_expanse_over_qp_trie": -0.8734420530606825,
+          "patricia_tree_ns": 2209.31916,
+          "qp_trie_ns": 21.244934,
+          "round": 3
+        },
+        {
+          "expanse_ns": 8.856673043478262,
+          "log_ratio_expanse_over_patricia_tree": -5.518524883122379,
+          "log_ratio_expanse_over_qp_trie": -0.8786107497423277,
+          "patricia_tree_ns": 2207.67692,
+          "qp_trie_ns": 21.322907,
+          "round": 4
+        },
+        {
+          "expanse_ns": 8.84758,
+          "log_ratio_expanse_over_patricia_tree": -5.519983509213376,
+          "log_ratio_expanse_over_qp_trie": -0.8767961852334525,
+          "patricia_tree_ns": 2208.62954,
+          "qp_trie_ns": 21.262398,
+          "round": 5
+        },
+        {
+          "expanse_ns": 8.821460869565218,
+          "log_ratio_expanse_over_patricia_tree": -5.522443230552467,
+          "log_ratio_expanse_over_qp_trie": -0.8832880203380382,
+          "patricia_tree_ns": 2207.53264,
+          "qp_trie_ns": 21.337701,
+          "round": 6
+        },
+        {
+          "expanse_ns": 8.887934782608696,
+          "log_ratio_expanse_over_patricia_tree": -5.516049794818413,
+          "log_ratio_expanse_over_qp_trie": -0.880070589614434,
+          "patricia_tree_ns": 2209.99274,
+          "qp_trie_ns": 21.429432,
+          "round": 7
+        },
+        {
+          "expanse_ns": 8.810800434782609,
+          "log_ratio_expanse_over_patricia_tree": -5.523933076807059,
+          "log_ratio_expanse_over_qp_trie": -0.8822625696946746,
+          "patricia_tree_ns": 2208.15227,
+          "qp_trie_ns": 21.290072,
+          "round": 8
+        },
+        {
+          "expanse_ns": 8.840061739130435,
+          "log_ratio_expanse_over_patricia_tree": -5.520752484243953,
+          "log_ratio_expanse_over_qp_trie": -0.8778764919699159,
+          "patricia_tree_ns": 2208.45034,
+          "qp_trie_ns": 21.267293,
+          "round": 9
+        },
+        {
+          "expanse_ns": 8.875137391304348,
+          "log_ratio_expanse_over_patricia_tree": -5.517065551956594,
+          "log_ratio_expanse_over_qp_trie": -0.8751739689398712,
+          "patricia_tree_ns": 2209.05338,
+          "qp_trie_ns": 21.294052,
+          "round": 10
+        },
+        {
+          "expanse_ns": 8.80826347826087,
+          "log_ratio_expanse_over_patricia_tree": -5.524323298547573,
+          "log_ratio_expanse_over_qp_trie": -0.8868780750870585,
+          "patricia_tree_ns": 2208.37805,
+          "qp_trie_ns": 21.382405,
+          "round": 11
+        },
+        {
+          "expanse_ns": 8.874319565217391,
+          "log_ratio_expanse_over_patricia_tree": -5.516360828384725,
+          "log_ratio_expanse_over_qp_trie": -0.875872444720862,
+          "patricia_tree_ns": 2207.29374,
+          "qp_trie_ns": 21.306967,
+          "round": 12
+        },
+        {
+          "expanse_ns": 8.81449347826087,
+          "log_ratio_expanse_over_patricia_tree": -5.526247559541386,
+          "log_ratio_expanse_over_qp_trie": -0.8830771717718824,
+          "patricia_tree_ns": 2214.19661,
+          "qp_trie_ns": 21.316353,
+          "round": 13
+        },
+        {
+          "expanse_ns": 8.812897391304348,
+          "log_ratio_expanse_over_patricia_tree": -5.523934490893626,
+          "log_ratio_expanse_over_qp_trie": -0.8804194659110848,
+          "patricia_tree_ns": 2208.68093,
+          "qp_trie_ns": 21.255926,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "clustered",
+      "expanse_ns_op": 13.780818666666667,
+      "expanse_reps": 15,
+      "expanse_status": "valid",
+      "expected_hits": 100000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "generator",
+      "patricia_tree_ns_op": 881.27252,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 100000,
+      "probes": 100000,
+      "qp_trie_ns_op": 27.3588375,
+      "qp_trie_reps": 8,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.01563333156084983,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.015610704264635651,
+        0.015653033210267755
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.503139209438946,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.5024014100544085,
+        0.5037900428355501
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 100000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 13.809363333333334,
+          "log_ratio_expanse_over_patricia_tree": -4.155499274829367,
+          "log_ratio_expanse_over_qp_trie": -0.6857216038841408,
+          "patricia_tree_ns": 880.8137,
+          "qp_trie_ns": 27.41440125,
+          "round": 0
+        },
+        {
+          "expanse_ns": 13.802860666666666,
+          "log_ratio_expanse_over_patricia_tree": -4.155509423364361,
+          "log_ratio_expanse_over_qp_trie": -0.6835468817777502,
+          "patricia_tree_ns": 880.40787,
+          "qp_trie_ns": 27.34196625,
+          "round": 1
+        },
+        {
+          "expanse_ns": 13.809532666666666,
+          "log_ratio_expanse_over_patricia_tree": -4.155129892724974,
+          "log_ratio_expanse_over_qp_trie": -0.6833597331248676,
+          "patricia_tree_ns": 880.4992,
+          "qp_trie_ns": 27.35006375,
+          "round": 2
+        },
+        {
+          "expanse_ns": 13.787294,
+          "log_ratio_expanse_over_patricia_tree": -4.157987127025645,
+          "log_ratio_expanse_over_qp_trie": -0.6850111321178181,
+          "patricia_tree_ns": 881.59659,
+          "qp_trie_ns": 27.35115,
+          "round": 3
+        },
+        {
+          "expanse_ns": 13.812234666666667,
+          "log_ratio_expanse_over_patricia_tree": -4.155812138969522,
+          "log_ratio_expanse_over_qp_trie": -0.6861549444806935,
+          "patricia_tree_ns": 881.27252,
+          "qp_trie_ns": 27.43198625,
+          "round": 4
+        },
+        {
+          "expanse_ns": 13.746042,
+          "log_ratio_expanse_over_patricia_tree": -4.159531255345096,
+          "log_ratio_expanse_over_qp_trie": -0.6885812247319304,
+          "patricia_tree_ns": 880.3171,
+          "qp_trie_ns": 27.3668425,
+          "round": 5
+        },
+        {
+          "expanse_ns": 13.777064,
+          "log_ratio_expanse_over_patricia_tree": -4.157925683738058,
+          "log_ratio_expanse_over_qp_trie": -0.6860344223413735,
+          "patricia_tree_ns": 880.88833,
+          "qp_trie_ns": 27.3588375,
+          "round": 6
+        },
+        {
+          "expanse_ns": 13.780258,
+          "log_ratio_expanse_over_patricia_tree": -4.159740700163054,
+          "log_ratio_expanse_over_qp_trie": -0.6889476514436726,
+          "patricia_tree_ns": 882.6932,
+          "qp_trie_ns": 27.4450175,
+          "round": 7
+        },
+        {
+          "expanse_ns": 13.814074,
+          "log_ratio_expanse_over_patricia_tree": -4.15596562749534,
+          "log_ratio_expanse_over_qp_trie": -0.6820192712880504,
+          "patricia_tree_ns": 881.52517,
+          "qp_trie_ns": 27.32240875,
+          "round": 8
+        },
+        {
+          "expanse_ns": 13.770634666666666,
+          "log_ratio_expanse_over_patricia_tree": -4.158882494848739,
+          "log_ratio_expanse_over_qp_trie": -0.6863627531201235,
+          "patricia_tree_ns": 881.3201,
+          "qp_trie_ns": 27.35505,
+          "round": 9
+        },
+        {
+          "expanse_ns": 13.780818666666667,
+          "log_ratio_expanse_over_patricia_tree": -4.158619905952839,
+          "log_ratio_expanse_over_qp_trie": -0.6867465464914815,
+          "patricia_tree_ns": 881.74031,
+          "qp_trie_ns": 27.38578875,
+          "round": 10
+        },
+        {
+          "expanse_ns": 13.730257333333334,
+          "log_ratio_expanse_over_patricia_tree": -4.162868297917425,
+          "log_ratio_expanse_over_qp_trie": -0.6885311700166539,
+          "patricia_tree_ns": 882.24541,
+          "qp_trie_ns": 27.33404875,
+          "round": 11
+        },
+        {
+          "expanse_ns": 13.790502,
+          "log_ratio_expanse_over_patricia_tree": -4.156621741026449,
+          "log_ratio_expanse_over_qp_trie": -0.6911235346477288,
+          "patricia_tree_ns": 880.59854,
+          "qp_trie_ns": 27.52524625,
+          "round": 12
+        },
+        {
+          "expanse_ns": 13.770382,
+          "log_ratio_expanse_over_patricia_tree": -4.163762208639687,
+          "log_ratio_expanse_over_qp_trie": -0.6924535042845216,
+          "patricia_tree_ns": 885.61495,
+          "qp_trie_ns": 27.52166625,
+          "round": 13
+        },
+        {
+          "expanse_ns": 13.734655333333333,
+          "log_ratio_expanse_over_patricia_tree": -4.1613943116068635,
+          "log_ratio_expanse_over_qp_trie": -0.6887314589241154,
+          "patricia_tree_ns": 881.22813,
+          "qp_trie_ns": 27.34828125,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "clustered",
+      "expanse_ns_op": 13.704188666666667,
+      "expanse_reps": 15,
+      "expanse_status": "valid",
+      "expected_hits": 100000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "shuffled",
+      "patricia_tree_ns_op": 2010.45066,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 100000,
+      "probes": 100000,
+      "qp_trie_ns_op": 25.97682625,
+      "qp_trie_reps": 8,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.006816915620821126,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.006802824030943323,
+        0.0068491061481302865
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.5272054284105446,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.526319435586162,
+        0.5280560220257908
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 100000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 13.746178,
+          "log_ratio_expanse_over_patricia_tree": -4.984475960940221,
+          "log_ratio_expanse_over_qp_trie": -0.6379014695772197,
+          "patricia_tree_ns": 2008.68746,
+          "qp_trie_ns": 26.01471375,
+          "round": 0
+        },
+        {
+          "expanse_ns": 13.661185333333334,
+          "log_ratio_expanse_over_patricia_tree": -4.991344192477286,
+          "log_ratio_expanse_over_qp_trie": -0.6430699194998261,
+          "patricia_tree_ns": 2010.02576,
+          "qp_trie_ns": 25.987835,
+          "round": 1
+        },
+        {
+          "expanse_ns": 13.641467333333333,
+          "log_ratio_expanse_over_patricia_tree": -4.992403147058497,
+          "log_ratio_expanse_over_qp_trie": -0.6433337941076656,
+          "patricia_tree_ns": 2009.25115,
+          "qp_trie_ns": 25.95717375,
+          "round": 2
+        },
+        {
+          "expanse_ns": 13.713076,
+          "log_ratio_expanse_over_patricia_tree": -4.987591955593316,
+          "log_ratio_expanse_over_qp_trie": -0.6385053607572267,
+          "patricia_tree_ns": 2010.10409,
+          "qp_trie_ns": 25.967745,
+          "round": 3
+        },
+        {
+          "expanse_ns": 13.733614666666666,
+          "log_ratio_expanse_over_patricia_tree": -4.98786892589866,
+          "log_ratio_expanse_over_qp_trie": -0.6362804543495745,
+          "patricia_tree_ns": 2013.67236,
+          "qp_trie_ns": 25.94884,
+          "round": 4
+        },
+        {
+          "expanse_ns": 13.730918666666666,
+          "log_ratio_expanse_over_patricia_tree": -4.9862516202672085,
+          "log_ratio_expanse_over_qp_trie": -0.636305948803267,
+          "patricia_tree_ns": 2010.02361,
+          "qp_trie_ns": 25.9444075,
+          "round": 5
+        },
+        {
+          "expanse_ns": 13.677623333333333,
+          "log_ratio_expanse_over_patricia_tree": -4.990119603022025,
+          "log_ratio_expanse_over_qp_trie": -0.6406115331346036,
+          "patricia_tree_ns": 2009.98144,
+          "qp_trie_ns": 25.95521875,
+          "round": 6
+        },
+        {
+          "expanse_ns": 13.658854,
+          "log_ratio_expanse_over_patricia_tree": -4.993466656188148,
+          "log_ratio_expanse_over_qp_trie": -0.645147402151777,
+          "patricia_tree_ns": 2013.95275,
+          "qp_trie_ns": 26.03743625,
+          "round": 7
+        },
+        {
+          "expanse_ns": 13.719741333333333,
+          "log_ratio_expanse_over_patricia_tree": -4.9868805156083065,
+          "log_ratio_expanse_over_qp_trie": -0.6383690736378242,
+          "patricia_tree_ns": 2009.65086,
+          "qp_trie_ns": 25.97682625,
+          "round": 8
+        },
+        {
+          "expanse_ns": 13.659277333333334,
+          "log_ratio_expanse_over_patricia_tree": -4.9926050010421665,
+          "log_ratio_expanse_over_qp_trie": -0.6421282645500976,
+          "patricia_tree_ns": 2012.28053,
+          "qp_trie_ns": 25.95974875,
+          "round": 9
+        },
+        {
+          "expanse_ns": 13.718513333333334,
+          "log_ratio_expanse_over_patricia_tree": -4.987513634035865,
+          "log_ratio_expanse_over_qp_trie": -0.6373307895031793,
+          "patricia_tree_ns": 2010.74362,
+          "qp_trie_ns": 25.94754625,
+          "round": 10
+        },
+        {
+          "expanse_ns": 13.644328,
+          "log_ratio_expanse_over_patricia_tree": -4.994380117251104,
+          "log_ratio_expanse_over_qp_trie": -0.6454640294294202,
+          "patricia_tree_ns": 2013.64949,
+          "qp_trie_ns": 26.0179825,
+          "round": 11
+        },
+        {
+          "expanse_ns": 13.704188666666667,
+          "log_ratio_expanse_over_patricia_tree": -4.988412656680326,
+          "log_ratio_expanse_over_qp_trie": -0.6398011796961655,
+          "patricia_tree_ns": 2010.45066,
+          "qp_trie_ns": 25.984565,
+          "round": 12
+        },
+        {
+          "expanse_ns": 13.659444,
+          "log_ratio_expanse_over_patricia_tree": -4.992871737497792,
+          "log_ratio_expanse_over_qp_trie": -0.6436921179010335,
+          "patricia_tree_ns": 2012.84191,
+          "qp_trie_ns": 26.000695,
+          "round": 13
+        },
+        {
+          "expanse_ns": 13.984502,
+          "log_ratio_expanse_over_patricia_tree": -4.969036742986184,
+          "log_ratio_expanse_over_qp_trie": -0.6345336503797219,
+          "patricia_tree_ns": 2012.20509,
+          "qp_trie_ns": 26.37676125,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "uniform_random",
+      "expanse_ns_op": 21.282102,
+      "expanse_reps": 10,
+      "expanse_status": "valid",
+      "expected_hits": 100000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "generator",
+      "patricia_tree_ns_op": 2278.07802,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 100000,
+      "probes": 100000,
+      "qp_trie_ns_op": 32.1296,
+      "qp_trie_reps": 7,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.00933484491928987,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.009316431113950998,
+        0.00935130483149285
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.6599482313624094,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.6546675953366894,
+        0.6618656782512299
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 100000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 21.28846,
+          "log_ratio_expanse_over_patricia_tree": -4.673254045768522,
+          "log_ratio_expanse_over_qp_trie": -0.4144526069805224,
+          "patricia_tree_ns": 2278.834,
+          "qp_trie_ns": 32.220978571428574,
+          "round": 0
+        },
+        {
+          "expanse_ns": 21.293671,
+          "log_ratio_expanse_over_patricia_tree": -4.672704553491918,
+          "log_ratio_expanse_over_qp_trie": -0.4107049827259329,
+          "patricia_tree_ns": 2278.13965,
+          "qp_trie_ns": 32.10831,
+          "round": 1
+        },
+        {
+          "expanse_ns": 21.254219,
+          "log_ratio_expanse_over_patricia_tree": -4.674743140422004,
+          "log_ratio_expanse_over_qp_trie": -0.4117551597120899,
+          "patricia_tree_ns": 2278.55912,
+          "qp_trie_ns": 32.08249571428571,
+          "round": 2
+        },
+        {
+          "expanse_ns": 21.373603,
+          "log_ratio_expanse_over_patricia_tree": -4.668012660359009,
+          "log_ratio_expanse_over_qp_trie": -0.4120651041756899,
+          "patricia_tree_ns": 2275.98753,
+          "qp_trie_ns": 32.27270285714286,
+          "round": 3
+        },
+        {
+          "expanse_ns": 21.22177,
+          "log_ratio_expanse_over_patricia_tree": -4.676269598115839,
+          "log_ratio_expanse_over_qp_trie": -0.4188650494473507,
+          "patricia_tree_ns": 2278.55589,
+          "qp_trie_ns": 32.26208142857143,
+          "round": 4
+        },
+        {
+          "expanse_ns": 21.175552,
+          "log_ratio_expanse_over_patricia_tree": -4.679394750767532,
+          "log_ratio_expanse_over_qp_trie": -0.4165597044880831,
+          "patricia_tree_ns": 2280.70996,
+          "qp_trie_ns": 32.117691428571426,
+          "round": 5
+        },
+        {
+          "expanse_ns": 21.200755,
+          "log_ratio_expanse_over_patricia_tree": -4.675727200459138,
+          "log_ratio_expanse_over_qp_trie": -0.41991982389871174,
+          "patricia_tree_ns": 2275.06521,
+          "qp_trie_ns": 32.26414714285714,
+          "round": 6
+        },
+        {
+          "expanse_ns": 21.331387,
+          "log_ratio_expanse_over_patricia_tree": -4.670907836607706,
+          "log_ratio_expanse_over_qp_trie": -0.4081021212666061,
+          "patricia_tree_ns": 2278.07802,
+          "qp_trie_ns": 32.08156857142857,
+          "round": 7
+        },
+        {
+          "expanse_ns": 21.224459,
+          "log_ratio_expanse_over_patricia_tree": -4.6756066194288755,
+          "log_ratio_expanse_over_qp_trie": -0.412750288703838,
+          "patricia_tree_ns": 2277.33428,
+          "qp_trie_ns": 32.069471428571426,
+          "round": 8
+        },
+        {
+          "expanse_ns": 21.282102,
+          "log_ratio_expanse_over_patricia_tree": -4.672079513170745,
+          "log_ratio_expanse_over_qp_trie": -0.4154687758927201,
+          "patricia_tree_ns": 2275.47921,
+          "qp_trie_ns": 32.244104285714286,
+          "round": 9
+        },
+        {
+          "expanse_ns": 21.291325,
+          "log_ratio_expanse_over_patricia_tree": -4.672676145556266,
+          "log_ratio_expanse_over_qp_trie": -0.4114780108657854,
+          "patricia_tree_ns": 2277.82395,
+          "qp_trie_ns": 32.1296,
+          "round": 10
+        },
+        {
+          "expanse_ns": 21.32717,
+          "log_ratio_expanse_over_patricia_tree": -4.6700988492155675,
+          "log_ratio_expanse_over_qp_trie": -0.4095609524514389,
+          "patricia_tree_ns": 2275.78584,
+          "qp_trie_ns": 32.122052857142855,
+          "round": 11
+        },
+        {
+          "expanse_ns": 21.279236,
+          "log_ratio_expanse_over_patricia_tree": -4.6820376094885106,
+          "log_ratio_expanse_over_qp_trie": -0.44749349102716557,
+          "patricia_tree_ns": 2297.94235,
+          "qp_trie_ns": 33.28894142857143,
+          "round": 12
+        },
+        {
+          "expanse_ns": 21.406858,
+          "log_ratio_expanse_over_patricia_tree": -4.669571618411208,
+          "log_ratio_expanse_over_qp_trie": -0.41140768215145207,
+          "patricia_tree_ns": 2283.08518,
+          "qp_trie_ns": 32.301672857142854,
+          "round": 13
+        },
+        {
+          "expanse_ns": 21.194293,
+          "log_ratio_expanse_over_patricia_tree": -4.676932582990768,
+          "log_ratio_expanse_over_qp_trie": -0.41332451172836365,
+          "patricia_tree_ns": 2277.11491,
+          "qp_trie_ns": 32.04228571428571,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "uniform_random",
+      "expanse_ns_op": 20.831925,
+      "expanse_reps": 10,
+      "expanse_status": "valid",
+      "expected_hits": 100000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "shuffled",
+      "patricia_tree_ns_op": 2279.20339,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 100000,
+      "probes": 100000,
+      "qp_trie_ns_op": 31.76215857142857,
+      "qp_trie_reps": 7,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.009139105328982246,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.009126906664951414,
+        0.009150654422971614
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.6557279923595348,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.6549935284096944,
+        0.6567687788650589
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 100000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 20.838834,
+          "log_ratio_expanse_over_patricia_tree": -4.6946586256886516,
+          "log_ratio_expanse_over_qp_trie": -0.4239915959593127,
+          "patricia_tree_ns": 2278.9655,
+          "qp_trie_ns": 31.842754285714285,
+          "round": 0
+        },
+        {
+          "expanse_ns": 20.843519,
+          "log_ratio_expanse_over_patricia_tree": -4.693791047133234,
+          "log_ratio_expanse_over_qp_trie": -0.4231964701445908,
+          "patricia_tree_ns": 2277.50109,
+          "qp_trie_ns": 31.82459857142857,
+          "round": 1
+        },
+        {
+          "expanse_ns": 20.782481,
+          "log_ratio_expanse_over_patricia_tree": -4.700763951702723,
+          "log_ratio_expanse_over_qp_trie": -0.4224173724905473,
+          "patricia_tree_ns": 2286.7213,
+          "qp_trie_ns": 31.70669142857143,
+          "round": 2
+        },
+        {
+          "expanse_ns": 20.834322,
+          "log_ratio_expanse_over_patricia_tree": -4.694979547598334,
+          "log_ratio_expanse_over_qp_trie": -0.42588247019794945,
+          "patricia_tree_ns": 2279.20339,
+          "qp_trie_ns": 31.896114285714287,
+          "round": 3
+        },
+        {
+          "expanse_ns": 20.939756,
+          "log_ratio_expanse_over_patricia_tree": -4.690232768619921,
+          "log_ratio_expanse_over_qp_trie": -0.41479798904720583,
+          "patricia_tree_ns": 2279.88965,
+          "qp_trie_ns": 31.704148571428572,
+          "round": 4
+        },
+        {
+          "expanse_ns": 20.791844,
+          "log_ratio_expanse_over_patricia_tree": -4.696871373441172,
+          "log_ratio_expanse_over_qp_trie": -0.42371480473945355,
+          "patricia_tree_ns": 2278.86358,
+          "qp_trie_ns": 31.76215857142857,
+          "round": 5
+        },
+        {
+          "expanse_ns": 20.879838,
+          "log_ratio_expanse_over_patricia_tree": -4.691344585948707,
+          "log_ratio_expanse_over_qp_trie": -0.42350027880184055,
+          "patricia_tree_ns": 2275.89484,
+          "qp_trie_ns": 31.88973857142857,
+          "round": 6
+        },
+        {
+          "expanse_ns": 20.829235,
+          "log_ratio_expanse_over_patricia_tree": -4.695296773446783,
+          "log_ratio_expanse_over_qp_trie": -0.4193192448951916,
+          "patricia_tree_ns": 2279.36985,
+          "qp_trie_ns": 31.67972142857143,
+          "round": 7
+        },
+        {
+          "expanse_ns": 20.774798,
+          "log_ratio_expanse_over_patricia_tree": -4.698704669436439,
+          "log_ratio_expanse_over_qp_trie": -0.42206286279913535,
+          "patricia_tree_ns": 2281.17351,
+          "qp_trie_ns": 31.683735714285714,
+          "round": 8
+        },
+        {
+          "expanse_ns": 20.836109,
+          "log_ratio_expanse_over_patricia_tree": -4.69357204122956,
+          "log_ratio_expanse_over_qp_trie": -0.42332887188656704,
+          "patricia_tree_ns": 2276.19287,
+          "qp_trie_ns": 31.817497142857142,
+          "round": 9
+        },
+        {
+          "expanse_ns": 20.825994,
+          "log_ratio_expanse_over_patricia_tree": -4.695587794000801,
+          "log_ratio_expanse_over_qp_trie": -0.4193939082611631,
+          "patricia_tree_ns": 2279.67852,
+          "qp_trie_ns": 31.677157142857144,
+          "round": 10
+        },
+        {
+          "expanse_ns": 20.796803,
+          "log_ratio_expanse_over_patricia_tree": -4.697504695102114,
+          "log_ratio_expanse_over_qp_trie": -0.42298037510872233,
+          "patricia_tree_ns": 2280.85116,
+          "qp_trie_ns": 31.74641,
+          "round": 11
+        },
+        {
+          "expanse_ns": 20.871193,
+          "log_ratio_expanse_over_patricia_tree": -4.692723519348103,
+          "log_ratio_expanse_over_qp_trie": -0.4242718182003966,
+          "patricia_tree_ns": 2278.09171,
+          "qp_trie_ns": 31.90113857142857,
+          "round": 12
+        },
+        {
+          "expanse_ns": 20.8099,
+          "log_ratio_expanse_over_patricia_tree": -4.695850516946401,
+          "log_ratio_expanse_over_qp_trie": -0.4229129683287528,
+          "patricia_tree_ns": 2278.51536,
+          "qp_trie_ns": 31.76426142857143,
+          "round": 13
+        },
+        {
+          "expanse_ns": 20.831925,
+          "log_ratio_expanse_over_patricia_tree": -4.69600984343983,
+          "log_ratio_expanse_over_qp_trie": -0.4183672964508412,
+          "patricia_tree_ns": 2281.29036,
+          "qp_trie_ns": 31.653665714285715,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "sparse_stride",
+      "expanse_ns_op": 9.523997,
+      "expanse_reps": 20,
+      "expanse_status": "valid",
+      "expected_hits": 100000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "generator",
+      "patricia_tree_ns_op": 1326.82932,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 100000,
+      "probes": 100000,
+      "qp_trie_ns_op": 21.687992,
+      "qp_trie_reps": 10,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.0071727536172926255,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.007151124426586126,
+        0.007200084131918399
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.43876938624586936,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.4374981432259091,
+        0.44056517376721094
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 100000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 9.6688125,
+          "log_ratio_expanse_over_patricia_tree": -4.92155452814072,
+          "log_ratio_expanse_over_qp_trie": -0.8062085403344591,
+          "patricia_tree_ns": 1326.71339,
+          "qp_trie_ns": 21.652351,
+          "round": 0
+        },
+        {
+          "expanse_ns": 9.5655985,
+          "log_ratio_expanse_over_patricia_tree": -4.9327679130532776,
+          "log_ratio_expanse_over_qp_trie": -0.8182519201247204,
+          "patricia_tree_ns": 1327.35177,
+          "qp_trie_ns": 21.680757,
+          "round": 1
+        },
+        {
+          "expanse_ns": 9.4851825,
+          "log_ratio_expanse_over_patricia_tree": -4.942261023457034,
+          "log_ratio_expanse_over_qp_trie": -0.822167988397477,
+          "patricia_tree_ns": 1328.74726,
+          "qp_trie_ns": 21.582846,
+          "round": 2
+        },
+        {
+          "expanse_ns": 9.485978,
+          "log_ratio_expanse_over_patricia_tree": -4.94033085383625,
+          "log_ratio_expanse_over_qp_trie": -0.8312900291801316,
+          "patricia_tree_ns": 1326.29625,
+          "qp_trie_ns": 21.782453,
+          "round": 3
+        },
+        {
+          "expanse_ns": 9.562787,
+          "log_ratio_expanse_over_patricia_tree": -4.933059274926764,
+          "log_ratio_expanse_over_qp_trie": -0.8168715220140704,
+          "patricia_tree_ns": 1327.34832,
+          "qp_trie_ns": 21.644486,
+          "round": 4
+        },
+        {
+          "expanse_ns": 9.4467645,
+          "log_ratio_expanse_over_patricia_tree": -4.944875103182784,
+          "log_ratio_expanse_over_qp_trie": -0.8317554818997295,
+          "patricia_tree_ns": 1326.82932,
+          "qp_trie_ns": 21.702507,
+          "round": 5
+        },
+        {
+          "expanse_ns": 9.5445845,
+          "log_ratio_expanse_over_patricia_tree": -4.93427507711405,
+          "log_ratio_expanse_over_qp_trie": -0.8217681964738561,
+          "patricia_tree_ns": 1326.43345,
+          "qp_trie_ns": 21.70933,
+          "round": 6
+        },
+        {
+          "expanse_ns": 9.5647355,
+          "log_ratio_expanse_over_patricia_tree": -4.93230902026651,
+          "log_ratio_expanse_over_qp_trie": -0.8209518817599188,
+          "patricia_tree_ns": 1326.6231,
+          "qp_trie_ns": 21.737412,
+          "round": 7
+        },
+        {
+          "expanse_ns": 9.4455135,
+          "log_ratio_expanse_over_patricia_tree": -4.9448957391687305,
+          "log_ratio_expanse_over_qp_trie": -0.8304286802420547,
+          "patricia_tree_ns": 1326.68099,
+          "qp_trie_ns": 21.670861,
+          "round": 8
+        },
+        {
+          "expanse_ns": 9.523997,
+          "log_ratio_expanse_over_patricia_tree": -4.936600331609246,
+          "log_ratio_expanse_over_qp_trie": -0.8227221389136633,
+          "patricia_tree_ns": 1326.65358,
+          "qp_trie_ns": 21.683178,
+          "round": 9
+        },
+        {
+          "expanse_ns": 9.4823675,
+          "log_ratio_expanse_over_patricia_tree": -4.941324541578822,
+          "log_ratio_expanse_over_qp_trie": -0.8267626862981086,
+          "patricia_tree_ns": 1327.10952,
+          "qp_trie_ns": 21.675806,
+          "round": 10
+        },
+        {
+          "expanse_ns": 9.4132475,
+          "log_ratio_expanse_over_patricia_tree": -4.9487758497267,
+          "log_ratio_expanse_over_qp_trie": -0.8346407376853147,
+          "patricia_tree_ns": 1327.28908,
+          "qp_trie_ns": 21.687992,
+          "round": 11
+        },
+        {
+          "expanse_ns": 9.531001,
+          "log_ratio_expanse_over_patricia_tree": -4.93557689568431,
+          "log_ratio_expanse_over_qp_trie": -0.8233563445330947,
+          "patricia_tree_ns": 1326.27116,
+          "qp_trie_ns": 21.71289,
+          "round": 12
+        },
+        {
+          "expanse_ns": 9.5570455,
+          "log_ratio_expanse_over_patricia_tree": -4.934148718431787,
+          "log_ratio_expanse_over_qp_trie": -0.8224678531773382,
+          "patricia_tree_ns": 1327.99737,
+          "qp_trie_ns": 21.752887,
+          "round": 13
+        },
+        {
+          "expanse_ns": 9.5078155,
+          "log_ratio_expanse_over_patricia_tree": -4.9392298956568785,
+          "log_ratio_expanse_over_qp_trie": -0.8270757990024707,
+          "patricia_tree_ns": 1327.88674,
+          "qp_trie_ns": 21.740784,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "sparse_stride",
+      "expanse_ns_op": 9.459407619047619,
+      "expanse_reps": 21,
+      "expanse_status": "valid",
+      "expected_hits": 100000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "shuffled",
+      "patricia_tree_ns_op": 2533.61409,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 100000,
+      "probes": 100000,
+      "qp_trie_ns_op": 21.389434,
+      "qp_trie_reps": 10,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.0037317496146434368,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.003722840928583655,
+        0.0037431170080484788
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.44219663551500166,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.4410696421619773,
+        0.443328969444536
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 100000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 9.468701904761904,
+          "log_ratio_expanse_over_patricia_tree": -5.589427094281105,
+          "log_ratio_expanse_over_qp_trie": -0.8118968514863985,
+          "patricia_tree_ns": 2533.65681,
+          "qp_trie_ns": 21.325183,
+          "round": 0
+        },
+        {
+          "expanse_ns": 9.577804761904762,
+          "log_ratio_expanse_over_patricia_tree": -5.577944489740054,
+          "log_ratio_expanse_over_qp_trie": -0.8057679400118705,
+          "patricia_tree_ns": 2533.59091,
+          "qp_trie_ns": 21.4391,
+          "round": 1
+        },
+        {
+          "expanse_ns": 9.450089523809524,
+          "log_ratio_expanse_over_patricia_tree": -5.591903371529472,
+          "log_ratio_expanse_over_qp_trie": -0.8178181939975485,
+          "patricia_tree_ns": 2534.94593,
+          "qp_trie_ns": 21.409664,
+          "round": 2
+        },
+        {
+          "expanse_ns": 9.462366666666666,
+          "log_ratio_expanse_over_patricia_tree": -5.589719132456531,
+          "log_ratio_expanse_over_qp_trie": -0.8141316600001106,
+          "patricia_tree_ns": 2532.70115,
+          "qp_trie_ns": 21.358594,
+          "round": 3
+        },
+        {
+          "expanse_ns": 9.467339523809525,
+          "log_ratio_expanse_over_patricia_tree": -5.589267135077981,
+          "log_ratio_expanse_over_qp_trie": -0.8130449207423127,
+          "patricia_tree_ns": 2532.88707,
+          "qp_trie_ns": 21.346608,
+          "round": 4
+        },
+        {
+          "expanse_ns": 9.421893809523809,
+          "log_ratio_expanse_over_patricia_tree": -5.594486762886067,
+          "log_ratio_expanse_over_qp_trie": -0.8190191543456957,
+          "patricia_tree_ns": 2533.92021,
+          "qp_trie_ns": 21.371436,
+          "round": 5
+        },
+        {
+          "expanse_ns": 9.439337142857143,
+          "log_ratio_expanse_over_patricia_tree": -5.5952656992854255,
+          "log_ratio_expanse_over_qp_trie": -0.818341784422053,
+          "patricia_tree_ns": 2540.5896,
+          "qp_trie_ns": 21.396504,
+          "round": 6
+        },
+        {
+          "expanse_ns": 9.366890476190477,
+          "log_ratio_expanse_over_patricia_tree": -5.5998815785502085,
+          "log_ratio_expanse_over_qp_trie": -0.8258442062973022,
+          "patricia_tree_ns": 2532.75459,
+          "qp_trie_ns": 21.392179,
+          "round": 7
+        },
+        {
+          "expanse_ns": 9.51598761904762,
+          "log_ratio_expanse_over_patricia_tree": -5.584308644874276,
+          "log_ratio_expanse_over_qp_trie": -0.8107105783956415,
+          "patricia_tree_ns": 2533.30977,
+          "qp_trie_ns": 21.40627,
+          "round": 8
+        },
+        {
+          "expanse_ns": 9.496438095238096,
+          "log_ratio_expanse_over_patricia_tree": -5.586869516187869,
+          "log_ratio_expanse_over_qp_trie": -0.8115682535983993,
+          "patricia_tree_ns": 2534.58782,
+          "qp_trie_ns": 21.380623,
+          "round": 9
+        },
+        {
+          "expanse_ns": 9.459407619047619,
+          "log_ratio_expanse_over_patricia_tree": -5.590268428600664,
+          "log_ratio_expanse_over_qp_trie": -0.8137122282106461,
+          "patricia_tree_ns": 2533.30028,
+          "qp_trie_ns": 21.342961,
+          "round": 10
+        },
+        {
+          "expanse_ns": 9.412522857142857,
+          "log_ratio_expanse_over_patricia_tree": -5.595361034960901,
+          "log_ratio_expanse_over_qp_trie": -0.8201271439149798,
+          "patricia_tree_ns": 2533.61409,
+          "qp_trie_ns": 21.373849,
+          "round": 11
+        },
+        {
+          "expanse_ns": 9.481750476190475,
+          "log_ratio_expanse_over_patricia_tree": -5.588576819482824,
+          "log_ratio_expanse_over_qp_trie": -0.8147062252469172,
+          "patricia_tree_ns": 2534.99202,
+          "qp_trie_ns": 21.414648,
+          "round": 12
+        },
+        {
+          "expanse_ns": 9.453106666666667,
+          "log_ratio_expanse_over_patricia_tree": -5.59167861811478,
+          "log_ratio_expanse_over_qp_trie": -0.8195425024516708,
+          "patricia_tree_ns": 2535.18541,
+          "qp_trie_ns": 21.45346,
+          "round": 13
+        },
+        {
+          "expanse_ns": 9.385063333333333,
+          "log_ratio_expanse_over_patricia_tree": -5.598213019700341,
+          "log_ratio_expanse_over_qp_trie": -0.8237776434081402,
+          "patricia_tree_ns": 2533.43771,
+          "qp_trie_ns": 21.389434,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "zipfian",
+      "expanse_ns_op": 8.566997656591333,
+      "expanse_reps": 90,
+      "expanse_status": "valid",
+      "expected_hits": 25177,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "generator",
+      "patricia_tree_ns_op": 978.1653096079756,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 25177,
+      "probes": 25177,
+      "qp_trie_ns_op": 20.69981105203729,
+      "qp_trie_reps": 35,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.008765684347131047,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.008731653066381108,
+        0.008799253308415021
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.41435435543972193,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.4127056343141421,
+        0.4159115464405602
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 100000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 8.571219764070381,
+          "log_ratio_expanse_over_patricia_tree": -4.738616472098447,
+          "log_ratio_expanse_over_qp_trie": -0.8825727873289613,
+          "patricia_tree_ns": 979.484608968503,
+          "qp_trie_ns": 20.717584643580594,
+          "round": 0
+        },
+        {
+          "expanse_ns": 8.672469582025924,
+          "log_ratio_expanse_over_patricia_tree": -4.7269608417231135,
+          "log_ratio_expanse_over_qp_trie": -0.8721842490029311,
+          "patricia_tree_ns": 979.5707193073043,
+          "qp_trie_ns": 20.745676042192706,
+          "round": 1
+        },
+        {
+          "expanse_ns": 8.60904749926079,
+          "log_ratio_expanse_over_patricia_tree": -4.732592662049541,
+          "log_ratio_expanse_over_qp_trie": -0.8713292389167194,
+          "patricia_tree_ns": 977.8989553957978,
+          "qp_trie_ns": 20.576361645265806,
+          "round": 2
+        },
+        {
+          "expanse_ns": 8.680381565185156,
+          "log_ratio_expanse_over_patricia_tree": -4.7242930535644625,
+          "log_ratio_expanse_over_qp_trie": -0.8730071339269411,
+          "patricia_tree_ns": 977.8522063788379,
+          "qp_trie_ns": 20.78169644630303,
+          "round": 3
+        },
+        {
+          "expanse_ns": 8.637087200398954,
+          "log_ratio_expanse_over_patricia_tree": -4.730075270278731,
+          "log_ratio_expanse_over_qp_trie": -0.8767494937019774,
+          "patricia_tree_ns": 978.6173094491004,
+          "qp_trie_ns": 20.755575099722535,
+          "round": 4
+        },
+        {
+          "expanse_ns": 8.547240206008128,
+          "log_ratio_expanse_over_patricia_tree": -4.739755332232966,
+          "log_ratio_expanse_over_qp_trie": -0.8836676550789414,
+          "patricia_tree_ns": 977.8573301028716,
+          "qp_trie_ns": 20.682255346432967,
+          "round": 5
+        },
+        {
+          "expanse_ns": 8.510013989840816,
+          "log_ratio_expanse_over_patricia_tree": -4.742351129401894,
+          "log_ratio_expanse_over_qp_trie": -0.892860050441577,
+          "patricia_tree_ns": 976.1289669142471,
+          "qp_trie_ns": 20.782341025539182,
+          "round": 6
+        },
+        {
+          "expanse_ns": 8.548795858654062,
+          "log_ratio_expanse_over_patricia_tree": -4.739888246194854,
+          "log_ratio_expanse_over_qp_trie": -0.8849287307960472,
+          "patricia_tree_ns": 978.1653096079756,
+          "qp_trie_ns": 20.71212274241229,
+          "round": 7
+        },
+        {
+          "expanse_ns": 8.463876200941776,
+          "log_ratio_expanse_over_patricia_tree": -4.750573783997931,
+          "log_ratio_expanse_over_qp_trie": -0.8936550638821189,
+          "patricia_tree_ns": 978.8525638479565,
+          "qp_trie_ns": 20.68610693433349,
+          "round": 8
+        },
+        {
+          "expanse_ns": 8.610509592088016,
+          "log_ratio_expanse_over_patricia_tree": -4.734390683198767,
+          "log_ratio_expanse_over_qp_trie": -0.8759127222211713,
+          "patricia_tree_ns": 979.825197600985,
+          "qp_trie_ns": 20.67440010440368,
+          "round": 9
+        },
+        {
+          "expanse_ns": 8.66431001840304,
+          "log_ratio_expanse_over_patricia_tree": -4.726435856832566,
+          "log_ratio_expanse_over_qp_trie": -0.8690610648359997,
+          "patricia_tree_ns": 978.1354410771736,
+          "qp_trie_ns": 20.661526676842243,
+          "round": 10
+        },
+        {
+          "expanse_ns": 8.528016752503387,
+          "log_ratio_expanse_over_patricia_tree": -4.74050453148209,
+          "log_ratio_expanse_over_qp_trie": -0.8810499585048955,
+          "patricia_tree_ns": 976.3892838701989,
+          "qp_trie_ns": 20.581791771401335,
+          "round": 11
+        },
+        {
+          "expanse_ns": 8.566997656591333,
+          "log_ratio_expanse_over_patricia_tree": -4.736227436772573,
+          "log_ratio_expanse_over_qp_trie": -0.8825834113090375,
+          "patricia_tree_ns": 976.6660444056083,
+          "qp_trie_ns": 20.707599339533246,
+          "round": 12
+        },
+        {
+          "expanse_ns": 8.498466413349044,
+          "log_ratio_expanse_over_patricia_tree": -4.747277607569023,
+          "log_ratio_expanse_over_qp_trie": -0.8902388470494247,
+          "patricia_tree_ns": 979.618620169202,
+          "qp_trie_ns": 20.69981105203729,
+          "round": 13
+        },
+        {
+          "expanse_ns": 8.523755367553278,
+          "log_ratio_expanse_over_patricia_tree": -4.743717388645637,
+          "log_ratio_expanse_over_qp_trie": -0.8857056966491936,
+          "patricia_tree_ns": 979.0418636056719,
+          "qp_trie_ns": 20.66750605711562,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "zipfian",
+      "expanse_ns_op": 8.583258960296044,
+      "expanse_reps": 83,
+      "expanse_status": "valid",
+      "expected_hits": 25177,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "shuffled",
+      "patricia_tree_ns_op": 980.4883028160623,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 25177,
+      "probes": 25177,
+      "qp_trie_ns_op": 20.611113317710608,
+      "qp_trie_reps": 36,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.008740426113268703,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.008696053855951062,
+        0.008790312355055585
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.41539470959629304,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.4132657740719437,
+        0.41789581299650413
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 100000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 8.653238684571068,
+          "log_ratio_expanse_over_patricia_tree": -4.730117050480417,
+          "log_ratio_expanse_over_qp_trie": -0.8672442784118233,
+          "patricia_tree_ns": 980.4883028160623,
+          "qp_trie_ns": 20.597669610270398,
+          "round": 0
+        },
+        {
+          "expanse_ns": 8.7730798476904,
+          "log_ratio_expanse_over_patricia_tree": -4.716786265574177,
+          "log_ratio_expanse_over_qp_trie": -0.8572607908064418,
+          "patricia_tree_ns": 980.90360249434,
+          "qp_trie_ns": 20.675485341559536,
+          "round": 1
+        },
+        {
+          "expanse_ns": 8.643377418001034,
+          "log_ratio_expanse_over_patricia_tree": -4.730896707621499,
+          "log_ratio_expanse_over_qp_trie": -0.8655536196496411,
+          "patricia_tree_ns": 980.1348055765183,
+          "qp_trie_ns": 20.53944186272303,
+          "round": 2
+        },
+        {
+          "expanse_ns": 8.50331795466411,
+          "log_ratio_expanse_over_patricia_tree": -4.746786119989387,
+          "log_ratio_expanse_over_qp_trie": -0.886470192398344,
+          "patricia_tree_ns": 979.6962306867379,
+          "qp_trie_ns": 20.633719929565345,
+          "round": 3
+        },
+        {
+          "expanse_ns": 8.462670318243223,
+          "log_ratio_expanse_over_patricia_tree": -4.7537744524249375,
+          "log_ratio_expanse_over_qp_trie": -0.8912219196463925,
+          "patricia_tree_ns": 981.8506573459904,
+          "qp_trie_ns": 20.632895764652925,
+          "round": 4
+        },
+        {
+          "expanse_ns": 8.459972311695845,
+          "log_ratio_expanse_over_patricia_tree": -4.753443996553184,
+          "log_ratio_expanse_over_qp_trie": -0.8886697187121884,
+          "patricia_tree_ns": 981.2133296262461,
+          "qp_trie_ns": 20.573742348616243,
+          "round": 5
+        },
+        {
+          "expanse_ns": 8.506794545222236,
+          "log_ratio_expanse_over_patricia_tree": -4.745439420823639,
+          "log_ratio_expanse_over_qp_trie": -0.8857414584262114,
+          "patricia_tree_ns": 978.7777733645788,
+          "qp_trie_ns": 20.62711888716774,
+          "round": 6
+        },
+        {
+          "expanse_ns": 8.486428376252757,
+          "log_ratio_expanse_over_patricia_tree": -4.750150308064604,
+          "log_ratio_expanse_over_qp_trie": -0.8873551735426173,
+          "patricia_tree_ns": 981.0451999841125,
+          "qp_trie_ns": 20.610968785443504,
+          "round": 7
+        },
+        {
+          "expanse_ns": 8.604064428664334,
+          "log_ratio_expanse_over_patricia_tree": -4.734938120750431,
+          "log_ratio_expanse_over_qp_trie": -0.8716549967029784,
+          "patricia_tree_ns": 979.6279143662867,
+          "qp_trie_ns": 20.57115180080585,
+          "round": 8
+        },
+        {
+          "expanse_ns": 8.52170440510104,
+          "log_ratio_expanse_over_patricia_tree": -4.743654654088112,
+          "log_ratio_expanse_over_qp_trie": -0.8860299482725648,
+          "patricia_tree_ns": 978.7448862056639,
+          "qp_trie_ns": 20.669234045182332,
+          "round": 9
+        },
+        {
+          "expanse_ns": 8.658493049929392,
+          "log_ratio_expanse_over_patricia_tree": -4.734079090795173,
+          "log_ratio_expanse_over_qp_trie": -0.8894778132511372,
+          "patricia_tree_ns": 984.9784724152997,
+          "qp_trie_ns": 21.07354596126094,
+          "round": 10
+        },
+        {
+          "expanse_ns": 8.593457597319412,
+          "log_ratio_expanse_over_patricia_tree": -4.737226637016222,
+          "log_ratio_expanse_over_qp_trie": -0.8693420693810928,
+          "patricia_tree_ns": 980.6619533701394,
+          "qp_trie_ns": 20.498326294280936,
+          "round": 11
+        },
+        {
+          "expanse_ns": 8.433307603851478,
+          "log_ratio_expanse_over_patricia_tree": -4.754544243396236,
+          "log_ratio_expanse_over_qp_trie": -0.8936413556359919,
+          "patricia_tree_ns": 979.1974421098622,
+          "qp_trie_ns": 20.611113317710608,
+          "round": 12
+        },
+        {
+          "expanse_ns": 8.680624551668165,
+          "log_ratio_expanse_over_patricia_tree": -4.727705161758099,
+          "log_ratio_expanse_over_qp_trie": -0.8653567176949851,
+          "patricia_tree_ns": 981.2219088850935,
+          "qp_trie_ns": 20.623891735402243,
+          "round": 13
+        },
+        {
+          "expanse_ns": 8.583258960296044,
+          "log_ratio_expanse_over_patricia_tree": -4.737402812532581,
+          "log_ratio_expanse_over_qp_trie": -0.8728714970666639,
+          "patricia_tree_ns": 979.6706915041506,
+          "qp_trie_ns": 20.546388237942036,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "sequential",
+      "expanse_ns_op": 13.072775,
+      "expanse_reps": 2,
+      "expanse_status": "valid",
+      "expected_hits": 1000000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "generator",
+      "patricia_tree_ns_op": 1540.534389,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 1000000,
+      "probes": 1000000,
+      "qp_trie_ns_op": 55.976678,
+      "qp_trie_reps": 1,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.008486644287223897,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.008468054519621137,
+        0.008506744788322656
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.2343335988651058,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.23326958123641572,
+        0.23542222068024293
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 1000000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 13.0587385,
+          "log_ratio_expanse_over_patricia_tree": -4.770019217665935,
+          "log_ratio_expanse_over_qp_trie": -1.453009238946427,
+          "patricia_tree_ns": 1539.906138,
+          "qp_trie_ns": 55.838677,
+          "round": 0
+        },
+        {
+          "expanse_ns": 13.0145935,
+          "log_ratio_expanse_over_patricia_tree": -4.77434472751786,
+          "log_ratio_expanse_over_qp_trie": -1.4588638349378071,
+          "patricia_tree_ns": 1541.353233,
+          "qp_trie_ns": 55.976678,
+          "round": 1
+        },
+        {
+          "expanse_ns": 13.118425,
+          "log_ratio_expanse_over_patricia_tree": -4.765764281085754,
+          "log_ratio_expanse_over_qp_trie": -1.439422333291012,
+          "patricia_tree_ns": 1540.376293,
+          "qp_trie_ns": 55.336906,
+          "round": 2
+        },
+        {
+          "expanse_ns": 13.056616,
+          "log_ratio_expanse_over_patricia_tree": -4.7719711087599315,
+          "log_ratio_expanse_over_qp_trie": -1.4562719926507959,
+          "patricia_tree_ns": 1542.664025,
+          "qp_trie_ns": 56.012057,
+          "round": 3
+        },
+        {
+          "expanse_ns": 13.1205775,
+          "log_ratio_expanse_over_patricia_tree": -4.765626573092188,
+          "log_ratio_expanse_over_qp_trie": -1.454941591038227,
+          "patricia_tree_ns": 1540.416899,
+          "qp_trie_ns": 56.211614,
+          "round": 4
+        },
+        {
+          "expanse_ns": 13.072775,
+          "log_ratio_expanse_over_patricia_tree": -4.769679415919325,
+          "log_ratio_expanse_over_qp_trie": -1.4376640623406935,
+          "patricia_tree_ns": 1541.037607,
+          "qp_trie_ns": 55.047469,
+          "round": 5
+        },
+        {
+          "expanse_ns": 13.024879,
+          "log_ratio_expanse_over_patricia_tree": -4.77236576043487,
+          "log_ratio_expanse_over_qp_trie": -1.459459387624838,
+          "patricia_tree_ns": 1539.521693,
+          "qp_trie_ns": 56.05429,
+          "round": 6
+        },
+        {
+          "expanse_ns": 13.2105115,
+          "log_ratio_expanse_over_patricia_tree": -4.758620757553101,
+          "log_ratio_expanse_over_qp_trie": -1.4390035914867094,
+          "patricia_tree_ns": 1540.147694,
+          "qp_trie_ns": 55.702021,
+          "round": 7
+        },
+        {
+          "expanse_ns": 13.0790205,
+          "log_ratio_expanse_over_patricia_tree": -4.768999194767803,
+          "log_ratio_expanse_over_qp_trie": -1.4402718867162276,
+          "patricia_tree_ns": 1540.725445,
+          "qp_trie_ns": 55.217578,
+          "round": 8
+        },
+        {
+          "expanse_ns": 13.00369,
+          "log_ratio_expanse_over_patricia_tree": -4.775832270974901,
+          "log_ratio_expanse_over_qp_trie": -1.4636136978798802,
+          "patricia_tree_ns": 1542.354516,
+          "qp_trie_ns": 56.196072,
+          "round": 9
+        },
+        {
+          "expanse_ns": 13.052469,
+          "log_ratio_expanse_over_patricia_tree": -4.770742165011319,
+          "log_ratio_expanse_over_qp_trie": -1.4490692079782985,
+          "patricia_tree_ns": 1540.279968,
+          "qp_trie_ns": 55.592401,
+          "round": 10
+        },
+        {
+          "expanse_ns": 13.074679,
+          "log_ratio_expanse_over_patricia_tree": -4.768840268695456,
+          "log_ratio_expanse_over_qp_trie": -1.4418135653376407,
+          "patricia_tree_ns": 1539.96925,
+          "qp_trie_ns": 55.284414,
+          "round": 11
+        },
+        {
+          "expanse_ns": 12.9835045,
+          "log_ratio_expanse_over_patricia_tree": -4.776272818863118,
+          "log_ratio_expanse_over_qp_trie": -1.466396115348403,
+          "patricia_tree_ns": 1540.63891,
+          "qp_trie_ns": 56.265175,
+          "round": 12
+        },
+        {
+          "expanse_ns": 13.114865,
+          "log_ratio_expanse_over_patricia_tree": -4.766595179185593,
+          "log_ratio_expanse_over_qp_trie": -1.4560410545347764,
+          "patricia_tree_ns": 1541.238355,
+          "qp_trie_ns": 56.24895,
+          "round": 13
+        },
+        {
+          "expanse_ns": 13.152794,
+          "log_ratio_expanse_over_patricia_tree": -4.763250433521432,
+          "log_ratio_expanse_over_qp_trie": -1.4493015804364875,
+          "patricia_tree_ns": 1540.534389,
+          "qp_trie_ns": 56.032719,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "sequential",
+      "expanse_ns_op": 13.014124,
+      "expanse_reps": 2,
+      "expanse_status": "valid",
+      "expected_hits": 1000000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "shuffled",
+      "patricia_tree_ns_op": 4730.106036,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 1000000,
+      "probes": 1000000,
+      "qp_trie_ns_op": 54.909765,
+      "qp_trie_reps": 1,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.00274896903075792,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.00274489994180359,
+        0.00275355990117048
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.2379211602256756,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.2367621043415733,
+        0.2391657404722062
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 1000000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 13.0264165,
+          "log_ratio_expanse_over_patricia_tree": -5.896270511458645,
+          "log_ratio_expanse_over_qp_trie": -1.4390376034146892,
+          "patricia_tree_ns": 4737.42892,
+          "qp_trie_ns": 54.927654,
+          "round": 0
+        },
+        {
+          "expanse_ns": 13.014124,
+          "log_ratio_expanse_over_patricia_tree": -5.896263294211872,
+          "log_ratio_expanse_over_qp_trie": -1.4473159388393217,
+          "patricia_tree_ns": 4732.924242,
+          "qp_trie_ns": 55.331987,
+          "round": 1
+        },
+        {
+          "expanse_ns": 13.0229655,
+          "log_ratio_expanse_over_patricia_tree": -5.896650577475447,
+          "log_ratio_expanse_over_qp_trie": -1.4216512017510952,
+          "patricia_tree_ns": 4737.974266,
+          "qp_trie_ns": 53.966613,
+          "round": 2
+        },
+        {
+          "expanse_ns": 13.0138235,
+          "log_ratio_expanse_over_patricia_tree": -5.8952134850565105,
+          "log_ratio_expanse_over_qp_trie": -1.439679062887836,
+          "patricia_tree_ns": 4727.849012,
+          "qp_trie_ns": 54.909765,
+          "round": 3
+        },
+        {
+          "expanse_ns": 12.9685095,
+          "log_ratio_expanse_over_patricia_tree": -5.901492186362683,
+          "log_ratio_expanse_over_qp_trie": -1.453064019587127,
+          "patricia_tree_ns": 4741.061141,
+          "qp_trie_ns": 55.455899,
+          "round": 4
+        },
+        {
+          "expanse_ns": 12.991602,
+          "log_ratio_expanse_over_patricia_tree": -5.895646417844067,
+          "log_ratio_expanse_over_qp_trie": -1.4271727905056206,
+          "patricia_tree_ns": 4721.819854,
+          "qp_trie_ns": 54.13473,
+          "round": 5
+        },
+        {
+          "expanse_ns": 13.005206,
+          "log_ratio_expanse_over_patricia_tree": -5.897328694846446,
+          "log_ratio_expanse_over_qp_trie": -1.4443562472577742,
+          "patricia_tree_ns": 4734.72267,
+          "qp_trie_ns": 55.130659,
+          "round": 6
+        },
+        {
+          "expanse_ns": 12.96669,
+          "log_ratio_expanse_over_patricia_tree": -5.898291216175736,
+          "log_ratio_expanse_over_qp_trie": -1.4394393255901121,
+          "patricia_tree_ns": 4725.246357,
+          "qp_trie_ns": 54.697778,
+          "round": 7
+        },
+        {
+          "expanse_ns": 12.959963,
+          "log_ratio_expanse_over_patricia_tree": -5.899832159321331,
+          "log_ratio_expanse_over_qp_trie": -1.4261938381129822,
+          "patricia_tree_ns": 4730.078111,
+          "qp_trie_ns": 53.950053,
+          "round": 8
+        },
+        {
+          "expanse_ns": 13.072308,
+          "log_ratio_expanse_over_patricia_tree": -5.889592411939836,
+          "log_ratio_expanse_over_qp_trie": -1.4410607895354592,
+          "patricia_tree_ns": 4722.475973,
+          "qp_trie_ns": 55.232795,
+          "round": 9
+        },
+        {
+          "expanse_ns": 13.0270575,
+          "log_ratio_expanse_over_patricia_tree": -5.893375470080209,
+          "log_ratio_expanse_over_qp_trie": -1.4409413146271157,
+          "patricia_tree_ns": 4723.966145,
+          "qp_trie_ns": 55.035028,
+          "round": 10
+        },
+        {
+          "expanse_ns": 13.0226425,
+          "log_ratio_expanse_over_patricia_tree": -5.897832154823711,
+          "log_ratio_expanse_over_qp_trie": -1.4171685806397905,
+          "patricia_tree_ns": 4743.458206,
+          "qp_trie_ns": 53.72391,
+          "round": 11
+        },
+        {
+          "expanse_ns": 13.0446765,
+          "log_ratio_expanse_over_patricia_tree": -5.893236528228454,
+          "log_ratio_expanse_over_qp_trie": -1.434806170135532,
+          "patricia_tree_ns": 4729.698076,
+          "qp_trie_ns": 54.772393,
+          "round": 12
+        },
+        {
+          "expanse_ns": 13.0231135,
+          "log_ratio_expanse_over_patricia_tree": -5.894977158696336,
+          "log_ratio_expanse_over_qp_trie": -1.441086820925176,
+          "patricia_tree_ns": 4730.106036,
+          "qp_trie_ns": 55.026372,
+          "round": 13
+        },
+        {
+          "expanse_ns": 12.979127,
+          "log_ratio_expanse_over_patricia_tree": -5.901937766003567,
+          "log_ratio_expanse_over_qp_trie": -1.4242650923685756,
+          "patricia_tree_ns": 4747.057435,
+          "qp_trie_ns": 53.92572,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "clustered",
+      "expanse_ns_op": 21.455838,
+      "expanse_reps": 1,
+      "expanse_status": "valid",
+      "expected_hits": 1000000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "generator",
+      "patricia_tree_ns_op": 1553.521346,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 1000000,
+      "probes": 1000000,
+      "qp_trie_ns_op": 68.673208,
+      "qp_trie_reps": 1,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.013816824708452944,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.013778879632282125,
+        0.013891470475038378
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.3138762801650438,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.3117879511367002,
+        0.31634999356253857
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 1000000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 21.429541,
+          "log_ratio_expanse_over_patricia_tree": -4.283509078640465,
+          "log_ratio_expanse_over_qp_trie": -1.1610791916225196,
+          "patricia_tree_ns": 1553.521346,
+          "qp_trie_ns": 68.432618,
+          "round": 0
+        },
+        {
+          "expanse_ns": 21.993373,
+          "log_ratio_expanse_over_patricia_tree": -4.258360276052604,
+          "log_ratio_expanse_over_qp_trie": -1.1822722196915434,
+          "patricia_tree_ns": 1554.798846,
+          "qp_trie_ns": 71.737484,
+          "round": 1
+        },
+        {
+          "expanse_ns": 21.549436,
+          "log_ratio_expanse_over_patricia_tree": -4.277379351311574,
+          "log_ratio_expanse_over_qp_trie": -1.1351062954144668,
+          "patricia_tree_ns": 1552.666409,
+          "qp_trie_ns": 67.051162,
+          "round": 2
+        },
+        {
+          "expanse_ns": 21.414963,
+          "log_ratio_expanse_over_patricia_tree": -4.284470482517533,
+          "log_ratio_expanse_over_qp_trie": -1.1664444224937038,
+          "patricia_tree_ns": 1553.957786,
+          "qp_trie_ns": 68.753958,
+          "round": 3
+        },
+        {
+          "expanse_ns": 21.455838,
+          "log_ratio_expanse_over_patricia_tree": -4.282225261326833,
+          "log_ratio_expanse_over_qp_trie": -1.167472757483147,
+          "patricia_tree_ns": 1553.432127,
+          "qp_trie_ns": 68.956063,
+          "round": 4
+        },
+        {
+          "expanse_ns": 21.36721,
+          "log_ratio_expanse_over_patricia_tree": -4.28635205980174,
+          "log_ratio_expanse_over_qp_trie": -1.1434910942672885,
+          "patricia_tree_ns": 1553.41275,
+          "qp_trie_ns": 67.043965,
+          "round": 5
+        },
+        {
+          "expanse_ns": 21.263044,
+          "log_ratio_expanse_over_patricia_tree": -4.290690254277953,
+          "log_ratio_expanse_over_qp_trie": -1.1749874384360386,
+          "patricia_tree_ns": 1552.560522,
+          "qp_trie_ns": 68.851911,
+          "round": 6
+        },
+        {
+          "expanse_ns": 21.524029,
+          "log_ratio_expanse_over_patricia_tree": -4.2801259639220754,
+          "log_ratio_expanse_over_qp_trie": -1.1601891987607698,
+          "patricia_tree_ns": 1555.1012,
+          "qp_trie_ns": 68.673208,
+          "round": 7
+        },
+        {
+          "expanse_ns": 21.467353,
+          "log_ratio_expanse_over_patricia_tree": -4.282644013954139,
+          "log_ratio_expanse_over_qp_trie": -1.139891652772437,
+          "patricia_tree_ns": 1554.916818,
+          "qp_trie_ns": 67.116168,
+          "round": 8
+        },
+        {
+          "expanse_ns": 21.410488,
+          "log_ratio_expanse_over_patricia_tree": -4.284304301677266,
+          "log_ratio_expanse_over_qp_trie": -1.168396168645841,
+          "patricia_tree_ns": 1553.374899,
+          "qp_trie_ns": 68.873884,
+          "round": 9
+        },
+        {
+          "expanse_ns": 21.541035,
+          "log_ratio_expanse_over_patricia_tree": -4.279040503037325,
+          "log_ratio_expanse_over_qp_trie": -1.16542263630483,
+          "patricia_tree_ns": 1554.641457,
+          "qp_trie_ns": 69.08809,
+          "round": 10
+        },
+        {
+          "expanse_ns": 21.504965,
+          "log_ratio_expanse_over_patricia_tree": -4.279979250921923,
+          "log_ratio_expanse_over_qp_trie": -1.134598202278272,
+          "patricia_tree_ns": 1553.4959,
+          "qp_trie_ns": 66.878801,
+          "round": 11
+        },
+        {
+          "expanse_ns": 21.477366,
+          "log_ratio_expanse_over_patricia_tree": -4.281127404968982,
+          "log_ratio_expanse_over_qp_trie": -1.1618060173694034,
+          "patricia_tree_ns": 1553.284564,
+          "qp_trie_ns": 68.635209,
+          "round": 12
+        },
+        {
+          "expanse_ns": 21.377966,
+          "log_ratio_expanse_over_patricia_tree": -4.286109238642632,
+          "log_ratio_expanse_over_qp_trie": -1.172898625063055,
+          "patricia_tree_ns": 1553.817374,
+          "qp_trie_ns": 69.079595,
+          "round": 13
+        },
+        {
+          "expanse_ns": 21.266457,
+          "log_ratio_expanse_over_patricia_tree": -4.291706273631072,
+          "log_ratio_expanse_over_qp_trie": -1.1472898233515958,
+          "patricia_tree_ns": 1554.388215,
+          "qp_trie_ns": 66.981795,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "clustered",
+      "expanse_ns_op": 21.859364,
+      "expanse_reps": 1,
+      "expanse_status": "valid",
+      "expected_hits": 1000000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "shuffled",
+      "patricia_tree_ns_op": 4373.041687,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 1000000,
+      "probes": 1000000,
+      "qp_trie_ns_op": 65.817419,
+      "qp_trie_reps": 1,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.005002707387574417,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.004995612666170436,
+        0.005010367817745118
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.33411248509590974,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.3324306348709303,
+        0.3362280889425698
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 1000000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 21.896201,
+          "log_ratio_expanse_over_patricia_tree": -5.297107969918981,
+          "log_ratio_expanse_over_qp_trie": -1.1056236211214365,
+          "patricia_tree_ns": 4373.947163,
+          "qp_trie_ns": 66.150786,
+          "round": 0
+        },
+        {
+          "expanse_ns": 21.855829,
+          "log_ratio_expanse_over_patricia_tree": -5.299526912797231,
+          "log_ratio_expanse_over_qp_trie": -1.1018844683086833,
+          "patricia_tree_ns": 4376.456126,
+          "qp_trie_ns": 65.782387,
+          "round": 1
+        },
+        {
+          "expanse_ns": 21.860674,
+          "log_ratio_expanse_over_patricia_tree": -5.299573691072219,
+          "log_ratio_expanse_over_qp_trie": -1.082033349168487,
+          "patricia_tree_ns": 4377.631072,
+          "qp_trie_ns": 64.503705,
+          "round": 2
+        },
+        {
+          "expanse_ns": 21.925649,
+          "log_ratio_expanse_over_patricia_tree": -5.293874698672695,
+          "log_ratio_expanse_over_qp_trie": -1.1033232091387721,
+          "patricia_tree_ns": 4365.691336,
+          "qp_trie_ns": 66.087548,
+          "round": 3
+        },
+        {
+          "expanse_ns": 21.962706,
+          "log_ratio_expanse_over_patricia_tree": -5.295533369275874,
+          "log_ratio_expanse_over_qp_trie": -1.1018921700647217,
+          "patricia_tree_ns": 4380.329384,
+          "qp_trie_ns": 66.104578,
+          "round": 4
+        },
+        {
+          "expanse_ns": 21.835495,
+          "log_ratio_expanse_over_patricia_tree": -5.2996772274767325,
+          "log_ratio_expanse_over_qp_trie": -1.0781098262672524,
+          "patricia_tree_ns": 4373.041687,
+          "qp_trie_ns": 64.177115,
+          "round": 5
+        },
+        {
+          "expanse_ns": 21.867744,
+          "log_ratio_expanse_over_patricia_tree": -5.295612754751012,
+          "log_ratio_expanse_over_qp_trie": -1.1024692390852544,
+          "patricia_tree_ns": 4361.73603,
+          "qp_trie_ns": 65.856749,
+          "round": 6
+        },
+        {
+          "expanse_ns": 21.799019,
+          "log_ratio_expanse_over_patricia_tree": -5.301856250643761,
+          "log_ratio_expanse_over_qp_trie": -1.1050195609586653,
+          "patricia_tree_ns": 4375.259973,
+          "qp_trie_ns": 65.817419,
+          "round": 7
+        },
+        {
+          "expanse_ns": 21.859364,
+          "log_ratio_expanse_over_patricia_tree": -5.297815570996241,
+          "log_ratio_expanse_over_qp_trie": -1.0823879597561907,
+          "patricia_tree_ns": 4369.679564,
+          "qp_trie_ns": 64.522716,
+          "round": 8
+        },
+        {
+          "expanse_ns": 21.962362,
+          "log_ratio_expanse_over_patricia_tree": -5.2910023742848376,
+          "log_ratio_expanse_over_qp_trie": -1.103016626954976,
+          "patricia_tree_ns": 4360.458731,
+          "qp_trie_ns": 66.177915,
+          "round": 9
+        },
+        {
+          "expanse_ns": 21.818135,
+          "log_ratio_expanse_over_patricia_tree": -5.299244529631604,
+          "log_ratio_expanse_over_qp_trie": -1.1081264707500065,
+          "patricia_tree_ns": 4367.67467,
+          "qp_trie_ns": 66.080122,
+          "round": 10
+        },
+        {
+          "expanse_ns": 21.818833,
+          "log_ratio_expanse_over_patricia_tree": -5.302958794483676,
+          "log_ratio_expanse_over_qp_trie": -1.0839120067343004,
+          "patricia_tree_ns": 4384.067785,
+          "qp_trie_ns": 64.501308,
+          "round": 11
+        },
+        {
+          "expanse_ns": 21.843361,
+          "log_ratio_expanse_over_patricia_tree": -5.2960241211101975,
+          "log_ratio_expanse_over_qp_trie": -1.1010162608453993,
+          "patricia_tree_ns": 4358.665241,
+          "qp_trie_ns": 65.687805,
+          "round": 12
+        },
+        {
+          "expanse_ns": 21.802336,
+          "log_ratio_expanse_over_patricia_tree": -5.299897120225683,
+          "log_ratio_expanse_over_qp_trie": -1.1056927471167097,
+          "patricia_tree_ns": 4367.361108,
+          "qp_trie_ns": 65.871763,
+          "round": 13
+        },
+        {
+          "expanse_ns": 21.899368,
+          "log_ratio_expanse_over_patricia_tree": -5.296935148347337,
+          "log_ratio_expanse_over_qp_trie": -1.079655898420016,
+          "patricia_tree_ns": 4373.823841,
+          "qp_trie_ns": 64.464435,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "uniform_random",
+      "expanse_ns_op": 41.974782,
+      "expanse_reps": 1,
+      "expanse_status": "valid",
+      "expected_hits": 1000000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "generator",
+      "patricia_tree_ns_op": 3430.064495,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 1000000,
+      "probes": 1000000,
+      "qp_trie_ns_op": 93.361003,
+      "qp_trie_reps": 1,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.012245182165922668,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.012235602975365419,
+        0.012260922788045081
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.4499435082570868,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.44896185409192707,
+        0.4510654393103976
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 1000000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 42.023033,
+          "log_ratio_expanse_over_patricia_tree": -4.401596095020004,
+          "log_ratio_expanse_over_qp_trie": -0.7994022539919193,
+          "patricia_tree_ns": 3428.280038,
+          "qp_trie_ns": 93.468093,
+          "round": 0
+        },
+        {
+          "expanse_ns": 42.040818,
+          "log_ratio_expanse_over_patricia_tree": -4.401706242300982,
+          "log_ratio_expanse_over_qp_trie": -0.7997574282285024,
+          "patricia_tree_ns": 3430.108752,
+          "qp_trie_ns": 93.540868,
+          "round": 1
+        },
+        {
+          "expanse_ns": 41.974782,
+          "log_ratio_expanse_over_patricia_tree": -4.404775935277513,
+          "log_ratio_expanse_over_qp_trie": -0.7958272246850342,
+          "patricia_tree_ns": 3435.249871,
+          "qp_trie_ns": 93.027601,
+          "round": 2
+        },
+        {
+          "expanse_ns": 42.030784,
+          "log_ratio_expanse_over_patricia_tree": -4.4018310136024965,
+          "log_ratio_expanse_over_qp_trie": -0.8005583780137239,
+          "patricia_tree_ns": 3429.717982,
+          "qp_trie_ns": 93.593476,
+          "round": 3
+        },
+        {
+          "expanse_ns": 42.043186,
+          "log_ratio_expanse_over_patricia_tree": -4.401613582016199,
+          "log_ratio_expanse_over_qp_trie": -0.8009371250295714,
+          "patricia_tree_ns": 3429.984119,
+          "qp_trie_ns": 93.656558,
+          "round": 4
+        },
+        {
+          "expanse_ns": 41.967931,
+          "log_ratio_expanse_over_patricia_tree": -4.402961289752872,
+          "log_ratio_expanse_over_qp_trie": -0.7995464869708623,
+          "patricia_tree_ns": 3428.462088,
+          "qp_trie_ns": 93.358999,
+          "round": 5
+        },
+        {
+          "expanse_ns": 41.974364,
+          "log_ratio_expanse_over_patricia_tree": -4.403937274892815,
+          "log_ratio_expanse_over_qp_trie": -0.7976622004114315,
+          "patricia_tree_ns": 3432.33589,
+          "qp_trie_ns": 93.197533,
+          "round": 6
+        },
+        {
+          "expanse_ns": 41.96919,
+          "log_ratio_expanse_over_patricia_tree": -4.403982111372554,
+          "log_ratio_expanse_over_qp_trie": -0.8019306287052007,
+          "patricia_tree_ns": 3432.066679,
+          "qp_trie_ns": 93.584653,
+          "round": 7
+        },
+        {
+          "expanse_ns": 41.962713,
+          "log_ratio_expanse_over_patricia_tree": -4.405474506732078,
+          "log_ratio_expanse_over_qp_trie": -0.7963290533496146,
+          "patricia_tree_ns": 3436.66205,
+          "qp_trie_ns": 93.047535,
+          "round": 8
+        },
+        {
+          "expanse_ns": 41.964611,
+          "log_ratio_expanse_over_patricia_tree": -4.402759011845162,
+          "log_ratio_expanse_over_qp_trie": -0.7996470634172569,
+          "patricia_tree_ns": 3427.497492,
+          "qp_trie_ns": 93.361003,
+          "round": 9
+        },
+        {
+          "expanse_ns": 41.954196,
+          "log_ratio_expanse_over_patricia_tree": -4.404237512157659,
+          "log_ratio_expanse_over_qp_trie": -0.8089619986091637,
+          "patricia_tree_ns": 3431.716883,
+          "qp_trie_ns": 94.21133,
+          "round": 10
+        },
+        {
+          "expanse_ns": 42.069144,
+          "log_ratio_expanse_over_patricia_tree": -4.400835556879952,
+          "log_ratio_expanse_over_qp_trie": -0.7910507068155551,
+          "patricia_tree_ns": 3429.432612,
+          "qp_trie_ns": 92.792448,
+          "round": 11
+        },
+        {
+          "expanse_ns": 41.949543,
+          "log_ratio_expanse_over_patricia_tree": -4.403725480019404,
+          "log_ratio_expanse_over_qp_trie": -0.798579912513665,
+          "patricia_tree_ns": 3429.579778,
+          "qp_trie_ns": 93.227939,
+          "round": 12
+        },
+        {
+          "expanse_ns": 42.043526,
+          "log_ratio_expanse_over_patricia_tree": -4.4023971894021035,
+          "log_ratio_expanse_over_qp_trie": -0.8003188253082565,
+          "patricia_tree_ns": 3432.700693,
+          "qp_trie_ns": 93.599425,
+          "round": 13
+        },
+        {
+          "expanse_ns": 42.217147,
+          "log_ratio_expanse_over_patricia_tree": -4.397507877662487,
+          "log_ratio_expanse_over_qp_trie": -0.7889893335207443,
+          "patricia_tree_ns": 3430.064495,
+          "qp_trie_ns": 92.927145,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "uniform_random",
+      "expanse_ns_op": 41.884047,
+      "expanse_reps": 1,
+      "expanse_status": "valid",
+      "expected_hits": 1000000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "shuffled",
+      "patricia_tree_ns_op": 3403.719671,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 1000000,
+      "probes": 1000000,
+      "qp_trie_ns_op": 91.548512,
+      "qp_trie_reps": 1,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.012333043008744559,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.012306638013414946,
+        0.012384219738081967
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.4580885060197282,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.4571476270699645,
+        0.4593733066943528
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 1000000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 41.786399,
+          "log_ratio_expanse_over_patricia_tree": -4.4004569246743275,
+          "log_ratio_expanse_over_qp_trie": -0.7834775126058751,
+          "patricia_tree_ns": 3405.094013,
+          "qp_trie_ns": 91.473418,
+          "round": 0
+        },
+        {
+          "expanse_ns": 41.813251,
+          "log_ratio_expanse_over_patricia_tree": -4.399529132898623,
+          "log_ratio_expanse_over_qp_trie": -0.7819924523307911,
+          "patricia_tree_ns": 3404.122349,
+          "qp_trie_ns": 91.396369,
+          "round": 1
+        },
+        {
+          "expanse_ns": 41.907774,
+          "log_ratio_expanse_over_patricia_tree": -4.3964006212465,
+          "log_ratio_expanse_over_qp_trie": -0.7776531422458873,
+          "patricia_tree_ns": 3401.160473,
+          "qp_trie_ns": 91.206347,
+          "round": 2
+        },
+        {
+          "expanse_ns": 41.875104,
+          "log_ratio_expanse_over_patricia_tree": -4.397535709286793,
+          "log_ratio_expanse_over_qp_trie": -0.7823244060157055,
+          "patricia_tree_ns": 3402.368831,
+          "qp_trie_ns": 91.561958,
+          "round": 3
+        },
+        {
+          "expanse_ns": 41.931847,
+          "log_ratio_expanse_over_patricia_tree": -4.39590972944127,
+          "log_ratio_expanse_over_qp_trie": -0.7832446751826275,
+          "patricia_tree_ns": 3401.444044,
+          "qp_trie_ns": 91.770444,
+          "round": 4
+        },
+        {
+          "expanse_ns": 41.861849,
+          "log_ratio_expanse_over_patricia_tree": -4.400878572244373,
+          "log_ratio_expanse_over_qp_trie": -0.7798635856053544,
+          "patricia_tree_ns": 3412.680935,
+          "qp_trie_ns": 91.308006,
+          "round": 5
+        },
+        {
+          "expanse_ns": 41.938571,
+          "log_ratio_expanse_over_patricia_tree": -4.39562718304869,
+          "log_ratio_expanse_over_qp_trie": -0.786028709912026,
+          "patricia_tree_ns": 3401.0284,
+          "qp_trie_ns": 92.041049,
+          "round": 6
+        },
+        {
+          "expanse_ns": 41.867785,
+          "log_ratio_expanse_over_patricia_tree": -4.398107456689199,
+          "log_ratio_expanse_over_qp_trie": -0.7872060176513718,
+          "patricia_tree_ns": 3403.719671,
+          "qp_trie_ns": 91.993939,
+          "round": 7
+        },
+        {
+          "expanse_ns": 41.87519,
+          "log_ratio_expanse_over_patricia_tree": -4.397328643251936,
+          "log_ratio_expanse_over_qp_trie": -0.7812178998968811,
+          "patricia_tree_ns": 3401.671375,
+          "qp_trie_ns": 91.460888,
+          "round": 8
+        },
+        {
+          "expanse_ns": 41.821866,
+          "log_ratio_expanse_over_patricia_tree": -4.399523565809524,
+          "log_ratio_expanse_over_qp_trie": -0.7854412208370221,
+          "patricia_tree_ns": 3404.804763,
+          "qp_trie_ns": 91.731014,
+          "round": 9
+        },
+        {
+          "expanse_ns": 42.349484,
+          "log_ratio_expanse_over_patricia_tree": -4.387475147804622,
+          "log_ratio_expanse_over_qp_trie": -0.7723817851853774,
+          "patricia_tree_ns": 3406.468437,
+          "qp_trie_ns": 91.683096,
+          "round": 10
+        },
+        {
+          "expanse_ns": 41.884047,
+          "log_ratio_expanse_over_patricia_tree": -4.3990840429966775,
+          "log_ratio_expanse_over_qp_trie": -0.7763774134904676,
+          "patricia_tree_ns": 3408.368662,
+          "qp_trie_ns": 91.038494,
+          "round": 11
+        },
+        {
+          "expanse_ns": 42.022237,
+          "log_ratio_expanse_over_patricia_tree": -4.394070942390823,
+          "log_ratio_expanse_over_qp_trie": -0.7786700870211352,
+          "patricia_tree_ns": 3402.514081,
+          "qp_trie_ns": 91.548512,
+          "round": 12
+        },
+        {
+          "expanse_ns": 42.203001,
+          "log_ratio_expanse_over_patricia_tree": -4.391125050349323,
+          "log_ratio_expanse_over_qp_trie": -0.770847767854251,
+          "patricia_tree_ns": 3407.098685,
+          "qp_trie_ns": 91.225923,
+          "round": 13
+        },
+        {
+          "expanse_ns": 42.66174,
+          "log_ratio_expanse_over_patricia_tree": -4.379045204586479,
+          "log_ratio_expanse_over_qp_trie": -0.7836663584560614,
+          "patricia_tree_ns": 3402.778914,
+          "qp_trie_ns": 93.40724,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "sparse_stride",
+      "expanse_ns_op": 11.5396375,
+      "expanse_reps": 2,
+      "expanse_status": "valid",
+      "expected_hits": 1000000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "generator",
+      "patricia_tree_ns_op": 1625.509956,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 1000000,
+      "probes": 1000000,
+      "qp_trie_ns_op": 56.251619,
+      "qp_trie_reps": 1,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.007106071426518012,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.0070927661602802105,
+        0.007130971862021289
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.20550288245945944,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.2049537358086068,
+        0.20629386042356004
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 1000000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 11.543662,
+          "log_ratio_expanse_over_patricia_tree": -4.947622752949558,
+          "log_ratio_expanse_over_qp_trie": -1.5840526259185168,
+          "patricia_tree_ns": 1625.806525,
+          "qp_trie_ns": 56.271555,
+          "round": 0
+        },
+        {
+          "expanse_ns": 11.639908,
+          "log_ratio_expanse_over_patricia_tree": -4.939669197385825,
+          "log_ratio_expanse_over_qp_trie": -1.5728000654415923,
+          "patricia_tree_ns": 1626.374748,
+          "qp_trie_ns": 56.105823,
+          "round": 1
+        },
+        {
+          "expanse_ns": 11.531116,
+          "log_ratio_expanse_over_patricia_tree": -4.947749369659408,
+          "log_ratio_expanse_over_qp_trie": -1.5865823467360916,
+          "patricia_tree_ns": 1624.245193,
+          "qp_trie_ns": 56.352774,
+          "round": 2
+        },
+        {
+          "expanse_ns": 11.487867,
+          "log_ratio_expanse_over_patricia_tree": -4.951930806065457,
+          "log_ratio_expanse_over_qp_trie": -1.5901046125244733,
+          "patricia_tree_ns": 1624.933614,
+          "qp_trie_ns": 56.339509,
+          "round": 3
+        },
+        {
+          "expanse_ns": 11.5302455,
+          "log_ratio_expanse_over_patricia_tree": -4.948404610107176,
+          "log_ratio_expanse_over_qp_trie": -1.5842353832280442,
+          "patricia_tree_ns": 1625.187116,
+          "qp_trie_ns": 56.216427,
+          "round": 4
+        },
+        {
+          "expanse_ns": 11.707115,
+          "log_ratio_expanse_over_patricia_tree": -4.932831857417304,
+          "log_ratio_expanse_over_qp_trie": -1.5670558739906013,
+          "patricia_tree_ns": 1624.619046,
+          "qp_trie_ns": 56.106555,
+          "round": 5
+        },
+        {
+          "expanse_ns": 11.5748865,
+          "log_ratio_expanse_over_patricia_tree": -4.94481937418253,
+          "log_ratio_expanse_over_qp_trie": -1.5832481879558225,
+          "patricia_tree_ns": 1625.640496,
+          "qp_trie_ns": 56.378393,
+          "round": 6
+        },
+        {
+          "expanse_ns": 11.540114,
+          "log_ratio_expanse_over_patricia_tree": -4.947048290536991,
+          "log_ratio_expanse_over_qp_trie": -1.5877983724619733,
+          "patricia_tree_ns": 1624.373416,
+          "qp_trie_ns": 56.465369,
+          "round": 7
+        },
+        {
+          "expanse_ns": 11.5486305,
+          "log_ratio_expanse_over_patricia_tree": -4.946924055225119,
+          "log_ratio_expanse_over_qp_trie": -1.5799746598146847,
+          "patricia_tree_ns": 1625.370248,
+          "qp_trie_ns": 56.06667,
+          "round": 8
+        },
+        {
+          "expanse_ns": 11.5044965,
+          "log_ratio_expanse_over_patricia_tree": -4.951359819369955,
+          "log_ratio_expanse_over_qp_trie": -1.5870968639439273,
+          "patricia_tree_ns": 1626.356927,
+          "qp_trie_ns": 56.251619,
+          "round": 9
+        },
+        {
+          "expanse_ns": 11.5396375,
+          "log_ratio_expanse_over_patricia_tree": -4.949314680014139,
+          "log_ratio_expanse_over_qp_trie": -1.587335971944661,
+          "patricia_tree_ns": 1627.99183,
+          "qp_trie_ns": 56.436935,
+          "round": 10
+        },
+        {
+          "expanse_ns": 11.521808,
+          "log_ratio_expanse_over_patricia_tree": -4.9501563167647795,
+          "log_ratio_expanse_over_qp_trie": -1.5859306977224068,
+          "patricia_tree_ns": 1626.845112,
+          "qp_trie_ns": 56.270605,
+          "round": 11
+        },
+        {
+          "expanse_ns": 11.507149,
+          "log_ratio_expanse_over_patricia_tree": -4.950608370212407,
+          "log_ratio_expanse_over_qp_trie": -1.582037118602568,
+          "patricia_tree_ns": 1625.509956,
+          "qp_trie_ns": 55.980623,
+          "round": 12
+        },
+        {
+          "expanse_ns": 11.519673,
+          "log_ratio_expanse_over_patricia_tree": -4.949071392144975,
+          "log_ratio_expanse_over_qp_trie": -1.582036325321181,
+          "patricia_tree_ns": 1624.779936,
+          "qp_trie_ns": 56.041506,
+          "round": 13
+        },
+        {
+          "expanse_ns": 11.577013,
+          "log_ratio_expanse_over_patricia_tree": -4.944575055791627,
+          "log_ratio_expanse_over_qp_trie": -1.5741391730560574,
+          "patricia_tree_ns": 1625.541955,
+          "qp_trie_ns": 55.877437,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "sparse_stride",
+      "expanse_ns_op": 11.704746,
+      "expanse_reps": 2,
+      "expanse_status": "valid",
+      "expected_hits": 1000000,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "shuffled",
+      "patricia_tree_ns_op": 5160.971144,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 1000000,
+      "probes": 1000000,
+      "qp_trie_ns_op": 55.092098,
+      "qp_trie_reps": 1,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.0022769730963061747,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.002267391923139566,
+        0.0023107724965860717
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.21263860063054932,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.21206054155616894,
+        0.2134289428442301
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 1000000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 11.7297865,
+          "log_ratio_expanse_over_patricia_tree": -6.088753442817709,
+          "log_ratio_expanse_over_qp_trie": -1.5466372748479664,
+          "patricia_tree_ns": 5171.328533,
+          "qp_trie_ns": 55.079012,
+          "round": 0
+        },
+        {
+          "expanse_ns": 11.6912605,
+          "log_ratio_expanse_over_patricia_tree": -6.08989172392055,
+          "log_ratio_expanse_over_qp_trie": -1.5473360664548756,
+          "patricia_tree_ns": 5160.21395,
+          "qp_trie_ns": 54.936483,
+          "round": 1
+        },
+        {
+          "expanse_ns": 11.704434,
+          "log_ratio_expanse_over_patricia_tree": -6.090441345795625,
+          "log_ratio_expanse_over_qp_trie": -1.5473043480872144,
+          "patricia_tree_ns": 5168.868528,
+          "qp_trie_ns": 54.99664,
+          "round": 2
+        },
+        {
+          "expanse_ns": 11.649911,
+          "log_ratio_expanse_over_patricia_tree": -6.092672883915346,
+          "log_ratio_expanse_over_qp_trie": -1.5505970118357804,
+          "patricia_tree_ns": 5156.283899,
+          "qp_trie_ns": 54.920987,
+          "round": 3
+        },
+        {
+          "expanse_ns": 11.805278,
+          "log_ratio_expanse_over_patricia_tree": -6.080086259619186,
+          "log_ratio_expanse_over_qp_trie": -1.5445471500692842,
+          "patricia_tree_ns": 5159.696192,
+          "qp_trie_ns": 55.317752,
+          "round": 4
+        },
+        {
+          "expanse_ns": 11.6614995,
+          "log_ratio_expanse_over_patricia_tree": -6.0925872722564645,
+          "log_ratio_expanse_over_qp_trie": -1.5486665952489553,
+          "patricia_tree_ns": 5160.971144,
+          "qp_trie_ns": 54.869595,
+          "round": 5
+        },
+        {
+          "expanse_ns": 11.669463,
+          "log_ratio_expanse_over_patricia_tree": -6.093353678913159,
+          "log_ratio_expanse_over_qp_trie": -1.5590778248582622,
+          "patricia_tree_ns": 5168.455131,
+          "qp_trie_ns": 55.481701,
+          "round": 6
+        },
+        {
+          "expanse_ns": 11.7034355,
+          "log_ratio_expanse_over_patricia_tree": -6.08817083933242,
+          "log_ratio_expanse_over_qp_trie": -1.5488589439049871,
+          "patricia_tree_ns": 5156.705938,
+          "qp_trie_ns": 55.077505,
+          "round": 7
+        },
+        {
+          "expanse_ns": 11.738216,
+          "log_ratio_expanse_over_patricia_tree": -6.085284069385509,
+          "log_ratio_expanse_over_qp_trie": -1.5469943317717536,
+          "patricia_tree_ns": 5157.121805,
+          "qp_trie_ns": 55.138278,
+          "round": 8
+        },
+        {
+          "expanse_ns": 11.7973725,
+          "log_ratio_expanse_over_patricia_tree": -6.083694093517705,
+          "log_ratio_expanse_over_qp_trie": -1.5411294567106046,
+          "patricia_tree_ns": 5174.877419,
+          "qp_trie_ns": 55.092098,
+          "round": 9
+        },
+        {
+          "expanse_ns": 11.712445,
+          "log_ratio_expanse_over_patricia_tree": -6.088413284138887,
+          "log_ratio_expanse_over_qp_trie": -1.5466862698676898,
+          "patricia_tree_ns": 5161.926987,
+          "qp_trie_ns": 55.000277,
+          "round": 10
+        },
+        {
+          "expanse_ns": 11.704746,
+          "log_ratio_expanse_over_patricia_tree": -6.089079360156182,
+          "log_ratio_expanse_over_qp_trie": -1.5494680797309401,
+          "patricia_tree_ns": 5161.970992,
+          "qp_trie_ns": 55.117236,
+          "round": 11
+        },
+        {
+          "expanse_ns": 11.678876,
+          "log_ratio_expanse_over_patricia_tree": -6.091947295645067,
+          "log_ratio_expanse_over_qp_trie": -1.5578982229615945,
+          "patricia_tree_ns": 5165.35461,
+          "qp_trie_ns": 55.460994,
+          "round": 12
+        },
+        {
+          "expanse_ns": 11.760925,
+          "log_ratio_expanse_over_patricia_tree": -6.08315629298498,
+          "log_ratio_expanse_over_qp_trie": -1.554290676811534,
+          "patricia_tree_ns": 5156.116139,
+          "qp_trie_ns": 55.64951,
+          "round": 13
+        },
+        {
+          "expanse_ns": 12.3347125,
+          "log_ratio_expanse_over_patricia_tree": -6.036092768340881,
+          "log_ratio_expanse_over_qp_trie": -1.5329267214063589,
+          "patricia_tree_ns": 5159.062781,
+          "qp_trie_ns": 57.130845,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "zipfian",
+      "expanse_ns_op": 12.971403214299906,
+      "expanse_reps": 7,
+      "expanse_status": "valid",
+      "expected_hits": 226479,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "generator",
+      "patricia_tree_ns_op": 1938.030130828907,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 226479,
+      "probes": 226479,
+      "qp_trie_ns_op": 31.103888955120194,
+      "qp_trie_reps": 3,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.006720445434951479,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.0066985540659877255,
+        0.0067462715963882425
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.4152600946125744,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.40738679397148186,
+        0.4220644003816272
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 1000000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 13.08369303240351,
+          "log_ratio_expanse_over_patricia_tree": -4.9981729600918055,
+          "log_ratio_expanse_over_qp_trie": -0.8887667030276336,
+          "patricia_tree_ns": 1938.2477227469215,
+          "qp_trie_ns": 31.821219627426824,
+          "round": 0
+        },
+        {
+          "expanse_ns": 13.084562870225117,
+          "log_ratio_expanse_over_patricia_tree": -4.99668703281631,
+          "log_ratio_expanse_over_qp_trie": -0.8582376020165207,
+          "patricia_tree_ns": 1935.4984347334632,
+          "qp_trie_ns": 30.866477686672937,
+          "round": 1
+        },
+        {
+          "expanse_ns": 12.940019036769728,
+          "log_ratio_expanse_over_patricia_tree": -5.010072986927357,
+          "log_ratio_expanse_over_qp_trie": -0.8456622158492838,
+          "patricia_tree_ns": 1939.9117224996578,
+          "qp_trie_ns": 30.144032485719794,
+          "round": 2
+        },
+        {
+          "expanse_ns": 12.971403214299906,
+          "log_ratio_expanse_over_patricia_tree": -5.003157513569147,
+          "log_ratio_expanse_over_qp_trie": -0.9423789182508311,
+          "patricia_tree_ns": 1931.2151501905255,
+          "qp_trie_ns": 33.285640905632164,
+          "round": 3
+        },
+        {
+          "expanse_ns": 13.07686679244307,
+          "log_ratio_expanse_over_patricia_tree": -4.998834200793702,
+          "log_ratio_expanse_over_qp_trie": -0.888302312714086,
+          "patricia_tree_ns": 1938.5178714141266,
+          "qp_trie_ns": 31.789851008997154,
+          "round": 4
+        },
+        {
+          "expanse_ns": 12.978867797897378,
+          "log_ratio_expanse_over_patricia_tree": -5.006870412887548,
+          "log_ratio_expanse_over_qp_trie": -0.8460267919631324,
+          "patricia_tree_ns": 1939.5143655703178,
+          "qp_trie_ns": 30.245556247304755,
+          "round": 5
+        },
+        {
+          "expanse_ns": 12.963804275766975,
+          "log_ratio_expanse_over_patricia_tree": -5.004814353307798,
+          "log_ratio_expanse_over_qp_trie": -0.9342182738232204,
+          "patricia_tree_ns": 1933.284291258792,
+          "qp_trie_ns": 32.995772970856756,
+          "round": 6
+        },
+        {
+          "expanse_ns": 13.111276163731358,
+          "log_ratio_expanse_over_patricia_tree": -4.99595470390381,
+          "log_ratio_expanse_over_qp_trie": -0.8638602223465423,
+          "patricia_tree_ns": 1938.030130828907,
+          "qp_trie_ns": 31.103888955120194,
+          "round": 7
+        },
+        {
+          "expanse_ns": 12.919156175312375,
+          "log_ratio_expanse_over_patricia_tree": -5.01192588096527,
+          "log_ratio_expanse_over_qp_trie": -0.8451193219406078,
+          "patricia_tree_ns": 1940.3760348641597,
+          "qp_trie_ns": 30.07909784130096,
+          "round": 8
+        },
+        {
+          "expanse_ns": 12.89427780437543,
+          "log_ratio_expanse_over_patricia_tree": -5.009119799025643,
+          "log_ratio_expanse_over_qp_trie": -0.932207825671256,
+          "patricia_tree_ns": 1931.2127084630363,
+          "qp_trie_ns": 32.75289835555026,
+          "round": 9
+        },
+        {
+          "expanse_ns": 13.146896621761842,
+          "log_ratio_expanse_over_patricia_tree": -4.9929929246252795,
+          "log_ratio_expanse_over_qp_trie": -0.8641112423363795,
+          "patricia_tree_ns": 1937.5482362603154,
+          "qp_trie_ns": 31.196221283209482,
+          "round": 10
+        },
+        {
+          "expanse_ns": 12.943388002545806,
+          "log_ratio_expanse_over_patricia_tree": -5.009763082428428,
+          "log_ratio_expanse_over_qp_trie": -0.8473602370988006,
+          "patricia_tree_ns": 1939.8155325659332,
+          "qp_trie_ns": 30.20312258531696,
+          "round": 11
+        },
+        {
+          "expanse_ns": 12.966071909536867,
+          "log_ratio_expanse_over_patricia_tree": -5.0038563499897615,
+          "log_ratio_expanse_over_qp_trie": -0.9229382221459099,
+          "patricia_tree_ns": 1931.770932404329,
+          "qp_trie_ns": 32.63137715490914,
+          "round": 12
+        },
+        {
+          "expanse_ns": 13.202086853842646,
+          "log_ratio_expanse_over_patricia_tree": -4.988451786779191,
+          "log_ratio_expanse_over_qp_trie": -0.8502154869051798,
+          "patricia_tree_ns": 1936.8664202862076,
+          "qp_trie_ns": 30.894877670777422,
+          "round": 13
+        },
+        {
+          "expanse_ns": 12.962517496103391,
+          "log_ratio_expanse_over_patricia_tree": -5.00833863710112,
+          "log_ratio_expanse_over_qp_trie": -0.8533479398251921,
+          "patricia_tree_ns": 1939.9171799592898,
+          "qp_trie_ns": 30.429418768774735,
+          "round": 14
+        }
+      ]
+    },
+    {
+      "distribution": "zipfian",
+      "expanse_ns_op": 12.983503989332345,
+      "expanse_reps": 7,
+      "expanse_status": "valid",
+      "expected_hits": 226479,
+      "fast_radix_trie_invalid_reason": "not built: the key set needs a node with 256 children and the crate holds at most 255 (u8 child count)",
+      "fast_radix_trie_status": "invalid",
+      "hit_rate_pct": 100,
+      "order": "shuffled",
+      "patricia_tree_ns_op": 1940.3994719157186,
+      "patricia_tree_reps": 1,
+      "patricia_tree_status": "valid",
+      "population": 226479,
+      "probes": 226479,
+      "qp_trie_ns_op": 30.83131916572103,
+      "qp_trie_reps": 3,
+      "qp_trie_status": "valid",
+      "ratio_estimator": "geometric mean of per-round subject/twin ratios; BCa 95% on the log ratios",
+      "ratio_expanse_over_patricia_tree": 0.006704108095442269,
+      "ratio_expanse_over_patricia_tree_ci": [
+        0.00668044318834198,
+        0.006728331621384994
+      ],
+      "ratio_expanse_over_patricia_tree_ci_method": "bca",
+      "ratio_expanse_over_qp_trie": 0.4174371892219003,
+      "ratio_expanse_over_qp_trie_ci": [
+        0.4088274126804268,
+        0.42443461565312096
+      ],
+      "ratio_expanse_over_qp_trie_ci_method": "bca",
+      "raw_draws": 1000000,
+      "rounds_raw": [
+        {
+          "expanse_ns": 13.01498467533729,
+          "log_ratio_expanse_over_patricia_tree": -5.004290186073802,
+          "log_ratio_expanse_over_qp_trie": -0.8863159403513826,
+          "patricia_tree_ns": 1939.8996948944493,
+          "qp_trie_ns": 31.576630357192794,
+          "round": 0
+        },
+        {
+          "expanse_ns": 13.101717409308842,
+          "log_ratio_expanse_over_patricia_tree": -4.996563454465835,
+          "log_ratio_expanse_over_qp_trie": -0.8521718975450492,
+          "patricia_tree_ns": 1937.7964888576867,
+          "qp_trie_ns": 30.72004026863418,
+          "round": 1
+        },
+        {
+          "expanse_ns": 12.881673040641422,
+          "log_ratio_expanse_over_patricia_tree": -5.016682984945234,
+          "log_ratio_expanse_over_qp_trie": -0.8442283710941014,
+          "patricia_tree_ns": 1943.972019480835,
+          "qp_trie_ns": 29.965118178727387,
+          "round": 2
+        },
+        {
+          "expanse_ns": 12.912714076927978,
+          "log_ratio_expanse_over_patricia_tree": -5.009305914892466,
+          "log_ratio_expanse_over_qp_trie": -0.9153324072855709,
+          "patricia_tree_ns": 1934.33393824593,
+          "qp_trie_ns": 32.25086358264269,
+          "round": 3
+        },
+        {
+          "expanse_ns": 13.111486842362552,
+          "log_ratio_expanse_over_patricia_tree": -4.997160440031587,
+          "log_ratio_expanse_over_qp_trie": -0.8613950932693953,
+          "patricia_tree_ns": 1940.3994719157186,
+          "qp_trie_ns": 31.02780684596217,
+          "round": 4
+        },
+        {
+          "expanse_ns": 12.869317432773647,
+          "log_ratio_expanse_over_patricia_tree": -5.016552503711543,
+          "log_ratio_expanse_over_qp_trie": -0.8411100727442338,
+          "patricia_tree_ns": 1941.8540438627863,
+          "qp_trie_ns": 29.843171625919695,
+          "round": 5
+        },
+        {
+          "expanse_ns": 12.938497609049845,
+          "log_ratio_expanse_over_patricia_tree": -5.01103253541252,
+          "log_ratio_expanse_over_qp_trie": -0.9552336102377381,
+          "patricia_tree_ns": 1941.5457503786222,
+          "qp_trie_ns": 33.63074869340351,
+          "round": 6
+        },
+        {
+          "expanse_ns": 13.205199725234696,
+          "log_ratio_expanse_over_patricia_tree": -4.9957035339436,
+          "log_ratio_expanse_over_qp_trie": -0.9013386459788572,
+          "patricia_tree_ns": 1951.4231473999796,
+          "qp_trie_ns": 32.52305806130664,
+          "round": 7
+        },
+        {
+          "expanse_ns": 12.983503989332345,
+          "log_ratio_expanse_over_patricia_tree": -5.008725365974463,
+          "log_ratio_expanse_over_qp_trie": -0.8334672442250124,
+          "patricia_tree_ns": 1943.8095143479086,
+          "qp_trie_ns": 29.878730478322492,
+          "round": 8
+        },
+        {
+          "expanse_ns": 12.95310255823151,
+          "log_ratio_expanse_over_patricia_tree": -5.007143357281848,
+          "log_ratio_expanse_over_qp_trie": -0.9285941809642376,
+          "patricia_tree_ns": 1936.1925034992207,
+          "qp_trie_ns": 32.78363704066749,
+          "round": 9
+        },
+        {
+          "expanse_ns": 13.140435600147097,
+          "log_ratio_expanse_over_patricia_tree": -4.994764271867644,
+          "log_ratio_expanse_over_qp_trie": -0.8528368661584292,
+          "patricia_tree_ns": 1940.0294552695834,
+          "qp_trie_ns": 30.83131916572103,
+          "round": 10
+        },
+        {
+          "expanse_ns": 12.973041335273596,
+          "log_ratio_expanse_over_patricia_tree": -5.008304581722313,
+          "log_ratio_expanse_over_qp_trie": -0.8338404263043497,
+          "patricia_tree_ns": 1941.426017423249,
+          "qp_trie_ns": 29.865796240122336,
+          "round": 11
+        },
+        {
+          "expanse_ns": 13.01552587972521,
+          "log_ratio_expanse_over_patricia_tree": -5.001115023189144,
+          "log_ratio_expanse_over_qp_trie": -0.9066062132245872,
+          "patricia_tree_ns": 1933.830377209366,
+          "qp_trie_ns": 32.22521293364948,
+          "round": 12
+        },
+        {
+          "expanse_ns": 13.111542350504903,
+          "log_ratio_expanse_over_patricia_tree": -4.996807565433642,
+          "log_ratio_expanse_over_qp_trie": -0.8545360069202522,
+          "patricia_tree_ns": 1939.72308690872,
+          "qp_trie_ns": 30.815843117169067,
+          "round": 13
+        },
+        {
+          "expanse_ns": 12.938491932080742,
+          "log_ratio_expanse_over_patricia_tree": -5.0113701597122775,
+          "log_ratio_expanse_over_qp_trie": -0.837310888497185,
+          "patricia_tree_ns": 1942.200521902693,
+          "qp_trie_ns": 29.889810239948662,
+          "round": 14
+        }
+      ]
+    }
+  ],
+  "rounds": 15,
+  "twins": [
+    "patricia_tree 0.10.2",
+    "fast_radix_trie 1.2.0",
+    "qp-trie 0.8.2"
+  ],
+  "workload_id": "patricia_lookup_hit",
+  "provenance": {
+    "suite": "patricia_comparison",
+    "commit": "c9f1600d",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "powersave",
+      "scaling_governor_by_cpu": {
+        "0": "powersave",
+        "1": "powersave",
+        "2": "powersave",
+        "3": "powersave",
+        "4": "powersave",
+        "5": "powersave",
+        "6": "powersave",
+        "7": "powersave",
+        "8": "powersave",
+        "9": "powersave",
+        "10": "powersave",
+        "11": "powersave",
+        "12": "powersave",
+        "13": "powersave",
+        "14": "powersave",
+        "15": "powersave"
+      },
+      "scaling_governor_pin_set": "0-15",
+      "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+      "transparent_hugepage": "always [madvise] never",
+      "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35"
+    },
+    "estimators": {
+      "ratio": "geometric mean of per-round paired ratios (Expanse ns / twin ns, and each arm's generator / shuffled insert), BCa 95% interval on the per-round log ratios from art_common::bca_ci_labeled (2000 resamples; construction label in <ratio>_ci_method); per-arm columns are medians of the same rounds; memory rows are exact requested and usable byte counts with no interval",
+      "columns": "per-arm columns are medians of the same rounds; the ratio column is not the quotient of the two median columns beside it",
+      "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+    },
+    "core_pin": "0-15",
+    "host_description": "12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic)",
+    "run_id": "https://github.com/orieg/expanse/actions/runs/35820097441",
+    "quick": false,
+    "loads": [
+      {
+        "label": "start",
+        "since": null,
+        "load1": 1.99,
+        "load5": 0.83,
+        "load15": 1.25,
+        "at": "2026-09-23T04:54:02Z",
+        "stat_busy_jiffies": 98906104,
+        "stat_total_jiffies": 9391797689,
+        "child_cpu_s": 133.978,
+        "monotonic_s": 3914838.594,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "before patricia_memory n=1000",
+        "since": "start",
+        "load1": 1.99,
+        "load5": 0.83,
+        "load15": 1.25,
+        "at": "2026-09-23T04:54:02Z",
+        "stat_busy_jiffies": 98906104,
+        "stat_total_jiffies": 9391797689,
+        "child_cpu_s": 133.978,
+        "monotonic_s": 3914838.594,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "before patricia_memory n=10000",
+        "since": "before patricia_memory n=1000",
+        "load1": 1.99,
+        "load5": 0.83,
+        "load15": 1.25,
+        "at": "2026-09-23T04:54:02Z",
+        "stat_busy_jiffies": 98906113,
+        "stat_total_jiffies": 9391797916,
+        "child_cpu_s": 134.074,
+        "monotonic_s": 3914838.689,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "before patricia_memory n=100000",
+        "since": "before patricia_memory n=10000",
+        "load1": 1.99,
+        "load5": 0.83,
+        "load15": 1.25,
+        "at": "2026-09-23T04:54:03Z",
+        "stat_busy_jiffies": 98906155,
+        "stat_total_jiffies": 9391798887,
+        "child_cpu_s": 134.479,
+        "monotonic_s": 3914839.094,
+        "busy_cpus_since_prev": 1.04,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.04
+      },
+      {
+        "label": "before patricia_memory n=1000000",
+        "since": "before patricia_memory n=100000",
+        "load1": 1.91,
+        "load5": 0.83,
+        "load15": 1.24,
+        "at": "2026-09-23T04:54:08Z",
+        "stat_busy_jiffies": 98906710,
+        "stat_total_jiffies": 9391812098,
+        "child_cpu_s": 139.986,
+        "monotonic_s": 3914844.6,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "before patricia_lookup_hit n=10000",
+        "since": "before patricia_memory n=1000000",
+        "load1": 1.22,
+        "load5": 0.88,
+        "load15": 1.22,
+        "at": "2026-09-23T04:55:34Z",
+        "stat_busy_jiffies": 98915327,
+        "stat_total_jiffies": 9392018054,
+        "child_cpu_s": 225.812,
+        "monotonic_s": 3914930.43,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "before patricia_lookup_hit n=100000",
+        "since": "before patricia_lookup_hit n=10000",
+        "load1": 1.19,
+        "load5": 0.88,
+        "load15": 1.22,
+        "at": "2026-09-23T04:55:44Z",
+        "stat_busy_jiffies": 98916305,
+        "stat_total_jiffies": 9392041411,
+        "child_cpu_s": 235.547,
+        "monotonic_s": 3914940.163,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "before patricia_lookup_hit n=1000000",
+        "since": "before patricia_lookup_hit n=100000",
+        "load1": 1.1,
+        "load5": 0.9,
+        "load15": 1.21,
+        "at": "2026-09-23T04:56:20Z",
+        "stat_busy_jiffies": 98919901,
+        "stat_total_jiffies": 9392127426,
+        "child_cpu_s": 271.391,
+        "monotonic_s": 3914976.008,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "before patricia_lookup_miss n=10000",
+        "since": "before patricia_lookup_hit n=1000000",
+        "load1": 1.0,
+        "load5": 1.0,
+        "load15": 1.1,
+        "at": "2026-09-23T05:05:07Z",
+        "stat_busy_jiffies": 98972869,
+        "stat_total_jiffies": 9393393357,
+        "child_cpu_s": 798.915,
+        "monotonic_s": 3915503.548,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "before patricia_lookup_miss n=100000",
+        "since": "before patricia_lookup_miss n=10000",
+        "load1": 1.0,
+        "load5": 1.0,
+        "load15": 1.1,
+        "at": "2026-09-23T05:05:18Z",
+        "stat_busy_jiffies": 98973983,
+        "stat_total_jiffies": 9393420032,
+        "child_cpu_s": 810.029,
+        "monotonic_s": 3915514.664,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "before patricia_lookup_miss n=1000000",
+        "since": "before patricia_lookup_miss n=100000",
+        "load1": 1.0,
+        "load5": 1.0,
+        "load15": 1.09,
+        "at": "2026-09-23T05:05:51Z",
+        "stat_busy_jiffies": 98977303,
+        "stat_total_jiffies": 9393499365,
+        "child_cpu_s": 843.088,
+        "monotonic_s": 3915547.724,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "before patricia_insert n=10000",
+        "since": "before patricia_lookup_miss n=1000000",
+        "load1": 1.0,
+        "load5": 1.0,
+        "load15": 1.05,
+        "at": "2026-09-23T05:13:22Z",
+        "stat_busy_jiffies": 99022567,
+        "stat_total_jiffies": 9394581420,
+        "child_cpu_s": 1293.988,
+        "monotonic_s": 3915998.638,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "before patricia_insert n=100000",
+        "since": "before patricia_insert n=10000",
+        "load1": 1.0,
+        "load5": 1.0,
+        "load15": 1.05,
+        "at": "2026-09-23T05:13:33Z",
+        "stat_busy_jiffies": 99023653,
+        "stat_total_jiffies": 9394607415,
+        "child_cpu_s": 1304.818,
+        "monotonic_s": 3916009.471,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "before patricia_insert n=1000000",
+        "since": "before patricia_insert n=100000",
+        "load1": 1.0,
+        "load5": 1.0,
+        "load15": 1.04,
+        "at": "2026-09-23T05:14:15Z",
+        "stat_busy_jiffies": 99027866,
+        "stat_total_jiffies": 9394708124,
+        "child_cpu_s": 1346.785,
+        "monotonic_s": 3916051.437,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "before patricia_string n=10000",
+        "since": "before patricia_insert n=1000000",
+        "load1": 1.0,
+        "load5": 1.0,
+        "load15": 1.0,
+        "at": "2026-09-23T05:23:34Z",
+        "stat_busy_jiffies": 99084214,
+        "stat_total_jiffies": 9396049628,
+        "child_cpu_s": 1905.843,
+        "monotonic_s": 3916610.511,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "before patricia_string n=100000",
+        "since": "before patricia_string n=10000",
+        "load1": 1.0,
+        "load5": 1.0,
+        "load15": 1.0,
+        "at": "2026-09-23T05:23:44Z",
+        "stat_busy_jiffies": 99085186,
+        "stat_total_jiffies": 9396072857,
+        "child_cpu_s": 1915.52,
+        "monotonic_s": 3916620.19,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "before patricia_string n=1000000",
+        "since": "before patricia_string n=100000",
+        "load1": 1.0,
+        "load5": 1.0,
+        "load15": 1.0,
+        "at": "2026-09-23T05:23:59Z",
+        "stat_busy_jiffies": 99086765,
+        "stat_total_jiffies": 9396110605,
+        "child_cpu_s": 1931.251,
+        "monotonic_s": 3916635.921,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "before patricia_scan n=10000",
+        "since": "before patricia_string n=1000000",
+        "load1": 1.05,
+        "load5": 1.01,
+        "load15": 1.0,
+        "at": "2026-09-23T05:27:27Z",
+        "stat_busy_jiffies": 99107628,
+        "stat_total_jiffies": 9396608919,
+        "child_cpu_s": 2138.896,
+        "monotonic_s": 3916843.576,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "before patricia_scan n=100000",
+        "since": "before patricia_scan n=10000",
+        "load1": 1.04,
+        "load5": 1.01,
+        "load15": 1.0,
+        "at": "2026-09-23T05:27:37Z",
+        "stat_busy_jiffies": 99108658,
+        "stat_total_jiffies": 9396633547,
+        "child_cpu_s": 2149.16,
+        "monotonic_s": 3916853.84,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "before patricia_scan n=1000000",
+        "since": "before patricia_scan n=100000",
+        "load1": 1.03,
+        "load5": 1.01,
+        "load15": 1.0,
+        "at": "2026-09-23T05:27:52Z",
+        "stat_busy_jiffies": 99110157,
+        "stat_total_jiffies": 9396669375,
+        "child_cpu_s": 2164.09,
+        "monotonic_s": 3916868.769,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "end",
+        "since": "before patricia_scan n=1000000",
+        "load1": 1.01,
+        "load5": 1.0,
+        "load15": 1.0,
+        "at": "2026-09-23T05:29:12Z",
+        "stat_busy_jiffies": 99118195,
+        "stat_total_jiffies": 9396861576,
+        "child_cpu_s": 2244.177,
+        "monotonic_s": 3916948.863,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      }
+    ]
+  }
+}
