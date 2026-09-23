@@ -26,7 +26,7 @@
 //!   NUL-free key bytes and the user value in a single allocation.
 
 use crate::alloc::NodeAlloc;
-use crate::cursor::MapCursor;
+use crate::cursor::RawCursor;
 use crate::map::MapCore;
 #[cfg(feature = "std")]
 use crate::occ::Collector;
@@ -1116,7 +1116,7 @@ pub struct StrCursor<'a> {
     /// depth once it has been advanced twice, `None` before that. Reused in
     /// place across levels, so after it first grows to the deepest path it
     /// costs no allocation per element or per level (#722, #1096).
-    subs: Vec<Option<MapCursor<'a>>>,
+    subs: Vec<Option<RawCursor<true>>>,
     /// The key last emitted, reused across elements.
     key: Vec<u8>,
     /// Set once the walk has run out, so a caller looping to `None` does not
@@ -1174,14 +1174,14 @@ impl<'a> StrCursor<'a> {
         }
         // SAFETY: `node` was recorded on the walk and stays live for the
         // cursor's borrow of the map. The reference is transient: a
-        // `MapCursor` holds raw pointers and a marker, never this borrow, and
+        // `RawCursor` holds raw pointers only, never this borrow, and
         // it reads only entries after those already emitted, which are the
         // only slots a caller can have written through.
-        let node: &'a StrNode = unsafe { &*frame.node };
+        let node: &StrNode = unsafe { &*frame.node };
         if !frame.advanced {
             return node.map.next_after(frame.chunk);
         }
-        let mut c = node.map.cursor_from(frame.chunk.checked_add(1)?);
+        let mut c = node.map.raw_cursor_from(frame.chunk.checked_add(1)?);
         let entry = c.next();
         self.subs[depth] = Some(c);
         entry
