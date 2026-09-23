@@ -1401,6 +1401,21 @@ impl ExpanseStrMap {
         self.alloc.bytes_held() + self.root.as_deref().map_or(0, |r| r.shell_bytes() as usize)
     }
 
+    /// Returns memory the map holds but does not use to the system
+    /// allocator: freed blocks of the larger size classes, and slab pages
+    /// with no live node on them. Returns the bytes released; afterwards
+    /// [`Self::mem_held`] is lower by exactly that much and
+    /// [`Self::mem_used`] is unchanged. Nothing moves, so no key, value or
+    /// value pointer is affected.
+    ///
+    /// The map keeps freed blocks for reuse, so this pays off after a
+    /// build or a burst of removals that leaves many blocks idle; it costs a
+    /// walk of the allocator's pages and freelists. A no-op on a map
+    /// shared through a concurrent wrapper.
+    pub fn shrink_to_fit(&mut self) -> usize {
+        self.alloc.release_free()
+    }
+
     /// Builds, privately, the child node that replaces a suffix entry when
     /// a key diverges from it: the existing suffix's continuation, as a
     /// terminal entry or a shorter suffix. Not yet reachable by anyone.

@@ -240,3 +240,80 @@ fn mem_held_brackets_what_the_tree_holds() {
         rounded,
     );
 }
+
+/// `shrink_to_fit()` lowers `mem_held()` by exactly what it reports, leaves
+/// `mem_held()` equal to what the tree still holds from the global
+/// allocator, moves nothing, and leaves a tree that keeps working. Before it
+/// existed an emptied tree held its slab pages and freelists until dropped
+/// and `malloc_trim` could not reach them; the emptied case asserts they
+/// are all returned.
+#[test]
+fn shrink_to_fit_returns_retained_memory() {
+    const N: u64 = 50_000;
+    let keys: Vec<u64> = {
+        let mut rng = SplitMix(5);
+        (0..N).map(|_| rng.next()).collect()
+    };
+
+    let ((map, before, released), bytes, rounded) = tracked(|| {
+        let mut m = ExpanseMap::new();
+        for (i, &k) in keys.iter().enumerate() {
+            m.insert(k, i as u64);
+        }
+        let before = m.mem_held();
+        let released = m.shrink_to_fit();
+        (m, before, released)
+    });
+    assert!(
+        released > 0,
+        "a random build leaves outgrown blocks to release"
+    );
+    assert_eq!(map.mem_held(), before - released);
+    check_exact("shrunk map", map.mem_held(), map.mem_used(), bytes, rounded);
+    map.validate();
+    for (i, &k) in keys.iter().enumerate() {
+        assert_eq!(map.get(k), Some(i as u64), "key {k:#x} after shrink_to_fit");
+    }
+    drop(map);
+
+    // The tree keeps working after a shrink: reuse, growth and removal.
+    let mut m = ExpanseMap::new();
+    for &k in &keys {
+        m.insert(k, k);
+    }
+    m.shrink_to_fit();
+    for &k in &keys[..N as usize / 2] {
+        assert_eq!(m.remove(k), Some(k));
+    }
+    m.shrink_to_fit();
+    for &k in &keys[..N as usize / 2] {
+        m.insert(k, !k);
+    }
+    m.validate();
+    for (i, &k) in keys.iter().enumerate() {
+        let want = if i < N as usize / 2 { !k } else { k };
+        assert_eq!(m.get(k), Some(want));
+    }
+
+    // Emptied: nothing live, so nothing held after a shrink.
+    for &k in &keys {
+        m.remove(k);
+    }
+    assert_eq!(m.mem_used(), 0);
+    assert!(
+        m.mem_held() > 0,
+        "an emptied tree still holds its pages until shrunk"
+    );
+    m.shrink_to_fit();
+    assert_eq!(m.mem_held(), 0, "every page and free block returned");
+
+    let mut s = ExpanseSet::new();
+    for &k in &keys {
+        s.insert(k);
+    }
+    let before = s.mem_held();
+    let released = s.shrink_to_fit();
+    assert_eq!(s.mem_held(), before - released);
+    s.validate();
+    assert!(keys.iter().all(|&k| s.contains(k)));
+}

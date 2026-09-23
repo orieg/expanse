@@ -199,6 +199,13 @@ impl Tree {
             Tree::Str(m) => m.mem_held(),
         }
     }
+
+    fn shrink_to_fit(&mut self) -> usize {
+        match self {
+            Tree::U64(m) => m.shrink_to_fit(),
+            Tree::Str(m) => m.shrink_to_fit(),
+        }
+    }
 }
 
 fn insert_str(m: &mut ExpanseStrMap, buf: &str, v: u64) {
@@ -281,7 +288,7 @@ fn main() {
     let Some(shape) = args.get(2) else {
         println!("allocator census, N = {n} keys per shape, 8-byte values (bytes/key)");
         println!(
-            "{:<11} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>10}",
+            "{:<11} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>10} {:>9} {:>9}",
             "shape",
             "mem_used",
             "mem_held",
@@ -290,7 +297,9 @@ fn main() {
             "+headers",
             "RSS",
             "trimmed",
-            "allocs/key"
+            "allocs/key",
+            "held/shr",
+            "RSS/shr"
         );
         let mut detail = String::new();
         for shape in SHAPES {
@@ -312,7 +321,8 @@ fn main() {
             "\nmem_held: mem_used plus freed blocks and slab slack the tree keeps; request: sum of \
              live Layout sizes; usable: allocator usable size; +headers: usable + \
              {HEADER} B per live chunk (glibc 64-bit, derived); RSS / trimmed: resident delta \
-             after the build, and after malloc_trim(0), one process per shape (Linux only)."
+             after the build, and after malloc_trim(0), one process per shape (Linux only); \
+             held/shr, RSS/shr: mem_held and trimmed RSS after shrink_to_fit()."
         );
         return;
     };
@@ -329,7 +339,7 @@ fn run_shape(shape: &str, n: u64) {
         HIST.lock().expect("histogram lock").clear();
         let rss0 = rss();
         TRACKING.store(true, Ordering::SeqCst);
-        let tree = build(shape, n);
+        let mut tree = build(shape, n);
         TRACKING.store(false, Ordering::SeqCst);
         let rss1 = rss();
         trim();
@@ -338,21 +348,28 @@ fn run_shape(shape: &str, n: u64) {
         let live = LIVE.load(Ordering::SeqCst);
         let req = REQUESTED.load(Ordering::SeqCst);
         let usable = USABLE.load(Ordering::SeqCst);
+        let held = tree.mem_held();
+        tree.shrink_to_fit();
+        trim();
+        let rss3 = rss();
+        let held_after = tree.mem_held();
         let rss_col = |r: Option<usize>| match (rss0, r) {
             (Some(a), Some(b)) => format!("{:.2}", per(b.saturating_sub(a))),
             _ => "n/a".to_string(),
         };
         println!(
-            "{:<11} {:>9.2} {:>9.2} {:>9.2} {:>9.2} {:>9.2} {:>9} {:>9} {:>10.4}",
+            "{:<11} {:>9.2} {:>9.2} {:>9.2} {:>9.2} {:>9.2} {:>9} {:>9} {:>10.4} {:>9.2} {:>9}",
             shape,
             per(tree.mem_used()),
-            per(tree.mem_held()),
+            per(held),
             per(req),
             per(usable),
             per(usable + live * HEADER),
             rss_col(rss1),
             rss_col(rss2),
-            live as f64 / n as f64
+            live as f64 / n as f64,
+            per(held_after),
+            rss_col(rss3)
         );
         // The request sizes carrying the most allocator overhead.
         let hist = HIST.lock().expect("histogram lock");
