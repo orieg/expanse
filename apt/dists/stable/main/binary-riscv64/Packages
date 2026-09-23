@@ -8,15 +8,6 @@ Size: 7998072
 SHA256: 713abacfc417b9cbce254ecd2cfaa7e6ad0362f8b4319b71ccd0de3702e5de57
 Depends: libexpanse1 (= 0.7.1)
 
-Package: libexpanse1
-Version: 0.7.1
-Architecture: riscv64
-Maintainer: Nicolas Brousse <nicolas@brousse.info>
-Description: Expanse trie engine shared library with glibc-hwcaps support.
-Filename: pool/main/libexpanse1_0.7.1_riscv64.deb
-Size: 599536
-SHA256: 4338795180a632dec8517ca835ba105bb2c3d5b54507f900bd02956290b0212d
-
 Package: libjudy-compat
 Version: 0.7.1
 Architecture: riscv64
@@ -28,4 +19,13 @@ SHA256: 908736403ae3fd24b2f9d1dc60562cc78dca542e79b6c268d75b69a2c54282fa
 Depends: libexpanse1 (= 0.7.1)
 Provides: libjudy
 Conflicts: libjudy
+
+Package: libexpanse1
+Version: 0.7.1
+Architecture: riscv64
+Maintainer: Nicolas Brousse <nicolas@brousse.info>
+Description: Expanse trie engine shared library with glibc-hwcaps support.
+Filename: pool/main/libexpanse1_0.7.1_riscv64.deb
+Size: 599536
+SHA256: 4338795180a632dec8517ca835ba105bb2c3d5b54507f900bd02956290b0212d
 
