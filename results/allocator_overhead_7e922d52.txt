@@ -3,6 +3,7 @@
 # command: cargo run --release -p expanse-trie --example allocator_overhead -- N   (N = 1e6, then 1e7)
 # deterministic byte accounting except the RSS columns (one reading per shape, one process per shape)
 # load average: 4.63, 5.30, 5.68 before / load average: 5.42, 5.37, 5.65 after (72 threads)
+# the branch was later rebased onto 4a705d26 (a slab page header stores its class in place of its layout) and onto eaa18aa7 (#1091, Sync* bitmap accessors); neither changes a byte count this census reports
 rustc 1.100.0-nightly (2e2b193f8 2026-09-02)
 ldd (Debian GLIBC 2.41-12+deb13u3) 2.41
 ### features: default
