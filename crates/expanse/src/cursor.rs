@@ -37,6 +37,27 @@ impl<const MAP: bool> RawCursor<MAP> {
         Self { raw, top, front }
     }
 
+    /// An empty cursor, for storage that is re-seeded in place later.
+    #[inline]
+    pub(crate) fn empty() -> Self {
+        Self {
+            raw: RawIter::new(),
+            top: Edge::NULL,
+            front: None,
+        }
+    }
+
+    /// Re-seeds the cursor in place: `seed` re-initialises the iterator
+    /// (one of `RawIter`'s `reset_*`), `top` is the new trie root edge, and
+    /// the cursor peeks its first entry — the state `new` builds, without
+    /// constructing and moving a cursor (#1096).
+    #[inline]
+    pub(crate) fn reset(&mut self, top: Edge, seed: impl FnOnce(&mut RawIter<MAP>)) {
+        seed(&mut self.raw);
+        self.top = top;
+        self.front = self.raw.next();
+    }
+
     #[inline]
     pub(crate) fn current(&self) -> Option<(Key, u64)> {
         self.front

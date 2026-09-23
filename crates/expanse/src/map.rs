@@ -2378,15 +2378,30 @@ impl MapCore {
         crate::cursor::MapCursor::new(self.range_fwd_raw(start), self.cursor_top())
     }
 
-    /// The engine behind [`cursor_from`](Self::cursor_from), without the
-    /// `MapCursor` wrapper's `PhantomData<&ExpanseMap>`. For a crate-internal
-    /// owner that keeps the cursor across calls and must not inherit the
-    /// public map's auto-trait bounds (`StrCursor`, #1096): the marker would
-    /// make it `!RefUnwindSafe`, a change to its public API.
+    /// Re-seeds `cursor` in place at the smallest key `>= start` — the state
+    /// [`cursor_from`](Self::cursor_from) builds, without constructing and
+    /// moving a cursor (#1096). It works on the engine cursor rather than
+    /// `MapCursor`, whose `PhantomData<&ExpanseMap>` would make a long-lived
+    /// owner such as `StrCursor` `!RefUnwindSafe`, a change to its public API.
     #[inline(always)]
-    #[must_use]
-    pub(crate) fn raw_cursor_from(&self, start: Key) -> crate::cursor::RawCursor<true> {
-        crate::cursor::RawCursor::new(self.range_fwd_raw(start), self.cursor_top())
+    pub(crate) fn reset_raw_cursor(&self, cursor: &mut crate::cursor::RawCursor<true>, start: Key) {
+        let top = self.cursor_top();
+        match &self.root {
+            Root::Empty => cursor.reset(top, |raw| raw.reset_empty()),
+            Root::Leaf { ptr, pop } => {
+                let (keys, values) = Self::leaf_parts(*ptr, *pop);
+                // SAFETY: root leaf contains valid keys and values arrays of
+                // length pop, as for `range_fwd_raw`.
+                cursor.reset(top, |raw| unsafe {
+                    raw.reset_root_leaf_range(keys.as_ptr(), values, *pop, start);
+                });
+            }
+            // SAFETY: tree maintained by map engine per invariants, as for
+            // `range_fwd_raw`.
+            Root::Tree { top: edge, .. } => cursor.reset(top, |raw| unsafe {
+                raw.reset_tree_range(edge, start);
+            }),
+        }
     }
 
     /// Ascending iterator over `(key, value)` entries.

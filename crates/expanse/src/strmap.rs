@@ -1113,10 +1113,11 @@ pub struct StrCursor<'a> {
     /// first `next` and after the walk is exhausted.
     stack: Vec<StrFrame>,
     /// One slot per frame depth: the sub-map cursor of the level at that
-    /// depth once it has been advanced twice, `None` before that. Reused in
-    /// place across levels, so after it first grows to the deepest path it
-    /// costs no allocation per element or per level (#722, #1096).
-    subs: Vec<Option<RawCursor<true>>>,
+    /// depth, live (`true`) once the level has been advanced twice. The
+    /// cursors are resident and re-seeded in place, so after the vector first
+    /// grows to the deepest path a scan costs no allocation per element or
+    /// per level (#722), and a level's cursor is never moved (#1096).
+    subs: Vec<(bool, RawCursor<true>)>,
     /// The key last emitted, reused across elements.
     key: Vec<u8>,
     /// Set once the walk has run out, so a caller looping to `None` does not
@@ -1148,12 +1149,14 @@ impl<'a> StrCursor<'a> {
     /// Pushes a frame at depth `stack.len()`. A fresh level (`!advanced`)
     /// clears its cursor slot; a level that replaces its own previous frame
     /// keeps it, so its sub-map cursor survives the step.
+    #[inline(always)]
     fn push_frame(&mut self, node: *mut StrNode, chunk: u64, key_len: usize, advanced: bool) {
         let depth = self.stack.len();
         if self.subs.len() <= depth {
-            self.subs.resize_with(depth + 1, || None);
+            self.subs
+                .resize_with(depth + 1, || (false, RawCursor::empty()));
         } else if !advanced {
-            self.subs[depth] = None;
+            self.subs[depth].0 = false;
         }
         self.stack.push(StrFrame {
             node,
@@ -1169,8 +1172,9 @@ impl<'a> StrCursor<'a> {
     /// level's first advance, and a newly built cursor on its second.
     fn sibling(&mut self, frame: &StrFrame) -> Option<(u64, u64)> {
         let depth = self.stack.len();
-        if let Some(c) = self.subs[depth].as_mut() {
-            return c.next();
+        let (live, cur) = &mut self.subs[depth];
+        if *live {
+            return cur.next();
         }
         // SAFETY: `node` was recorded on the walk and stays live for the
         // cursor's borrow of the map. The reference is transient: a
@@ -1181,10 +1185,9 @@ impl<'a> StrCursor<'a> {
         if !frame.advanced {
             return node.map.next_after(frame.chunk);
         }
-        let mut c = node.map.raw_cursor_from(frame.chunk.checked_add(1)?);
-        let entry = c.next();
-        self.subs[depth] = Some(c);
-        entry
+        node.map.reset_raw_cursor(cur, frame.chunk.checked_add(1)?);
+        *live = true;
+        cur.next()
     }
 
     /// Descends from `node` taking the smallest entry at every level until an
