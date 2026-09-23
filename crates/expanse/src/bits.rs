@@ -1172,10 +1172,12 @@ pub(crate) mod shared_bitmap {
         }
     }
 
-    /// [`Bitmap256::test_and_subexpanse_rank_with_sub`].
+    /// [`Bitmap256::test_and_subexpanse_rank_with_sub`]. Only the concurrent
+    /// wrappers' readers call it, so it exists with them.
     ///
     /// # Safety
     /// As [`word`].
+    #[cfg(feature = "std")]
     #[inline(always)]
     pub(crate) unsafe fn test_and_subexpanse_rank_with_sub<const OCC: bool>(
         p: *const Bitmap256,
