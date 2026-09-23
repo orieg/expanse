@@ -29,7 +29,7 @@ Expanse provides modern, clean-room 64-bit digital trie primitives designed for 
 
 | Subsystem Requirement | Traditional DB Primitives | Expanse Structural Primitives | Expanse Advantage |
 |---|---|---|---|
-| **Posting Lists / Doc-ID Sets** | Roaring Bitmaps, Elias-Fano, PFOR-DELTA | `ExpanseSet` (Judy1) | **0.07–0.36 B/docID** on clustered keys; bitwise operations directly over trie nodes without 8 KiB buffer inflation. |
+| **Posting Lists / Doc-ID Sets** | Roaring Bitmaps, Elias-Fano, PFOR-DELTA | `ExpanseSet` (Judy1) | **0.07–0.36 B/docID** on clustered keys (set: presence only); bitwise operations directly over trie nodes without 8 KiB buffer inflation. |
 | **MVCC Read Visibility** | RWLock-guarded Arrays, HashSets, Snapshot Bitmaps | `SyncExpanseSet` / `SyncExpanseMap` | **Zero reader locks (OCC + EBR)**; single-digit nanosecond point lookups under heavy concurrent vacuum/commit churn. |
 | **String & Symbol Dictionaries** | Hash Tables (`std::unordered_map`), Radix Trees | `ExpanseStrMap` (JudySL) / `ExpanseBytesMap` | **Cross-chunk prefix compression**; string byte-lexicographical order matches integer order; zero copy. |
 | **MemTables & Secondary Indexes** | SkipLists (RocksDB), B-Trees, ART (Adaptive Radix Tree) | `ExpanseMap` (JudyL) | **Deterministic $O(\text{depth})$ bounds** ($\le 8$ levels); zero tree rebalancing; contiguous 64-byte SIMD leaf scans. |
@@ -72,7 +72,7 @@ Roaring Bitmaps partition 32-bit integers into chunks of $2^{16}$ (64K) and choo
 - **Immediate Tagged Edges**: Doc-IDs are stored directly inside the parent edge descriptor for ultra-sparse terms (0 bytes heap overhead).
 - **Narrow Pointers & Level Skips**: Common 56-bit or 48-bit prefix chains are folded into parent edge decode bytes, collapsing single-child trie branches into single edges.
 - **Class-Sized Linear Leaves**: Doc-ID remainders are packed into contiguous byte-aligned arrays (1, 2, 3, or 4 bytes per key remainder) sized to exact power-of-two slab size classes.
-- **256-Bit Bitmap Leaves**: At Level 1, dense runs of 256 keys are represented as 32-byte 256-bit words (`Bitmap256`), yielding **0.07–0.36 bytes per docID** on realistic database cluster distributions.
+- **256-Bit Bitmap Leaves**: At Level 1, dense runs of 256 keys are represented as 32-byte 256-bit words (`Bitmap256`), yielding **0.07–0.36 bytes per docID** on realistic database cluster distributions. These are set (presence) figures; a map carrying an 8-byte value per key measures 8.56–8.61 B/key on the same dense and clustered keys at 1M *(measured: deterministic `mem_used()` accounting, host-independent; `bytes_per_key` example, workload `example_bytes_per_key`; gated copy `docs/visualizer_data.json` → `memory_budget`)*.
 
 ```
 Doc-ID Distribution       Roaring Bitmap        ExpanseSet (Judy1)     Memory Reduction
@@ -822,7 +822,7 @@ The intended design: by utilizing base-relative offset pointers (a planned `RelO
 
 | Engine Primitive | Memory Overhead (Clustered) | Point Lookup Latency | Ordered Range Scan | Concurrency Protocol |
 |---|---:|---:|---|---|
-| **`ExpanseSet` (Judy1)** | **0.07–0.36 B/key** | **3.6–35.8 ns** | $O(\text{depth})$ Skip-Scan | Optimistic OCC (`SyncExpanseSet`) |
+| **`ExpanseSet` (Judy1)** | **0.07–0.36 B/key** (set, presence only) | **3.6–35.8 ns** | $O(\text{depth})$ Skip-Scan | Optimistic OCC (`SyncExpanseSet`) |
 | **Roaring Bitmap** | 0.125–0.65 B/key | ~16.4–24.2 ns | Container Iteration | External RWLock / Mutex |
 | **`ExpanseMap` (JudyL)** | **8.56–16.7 B/key** | **7.1–50.8 ns** | $O(\text{depth})$ skip-scan† | Optimistic OCC (`SyncExpanseMap`) |
 | **`ExpanseBlobMap`** | **171.4–192.4 B/key** (128B blob) | **~41–125 ns** | **Predicate Filter Scan** | Thread-Isolated / Partitioned |
@@ -897,7 +897,7 @@ Under sorted ascending insertion order, throughputs remain consistent: Workload 
 ## 8. Summary
 
 Expanse provides modern database engines with a unified, high-performance family of digital trie data structures:
-- **Search & Inverted Indexes**: Sub-15ns boolean queries with 0.07–0.36 B/docID memory packing.
+- **Search & Inverted Indexes**: Sub-15ns boolean queries with 0.07–0.36 B/docID memory packing (set: presence only).
 - **MVCC Engine Visibility**: Reader validation without a lock on the common path, scaling on bounded-keyspace read workloads at 16 threads — `SyncExpanseMap` 361 M ops/s (C(16) = 9.44 [9.43, 9.46]), `SyncExpanseBytesMap` 126 M ops/s (11.03–11.08×), `SyncExpanseStrMap` 73.3–75.6 M ops/s (10.63–10.99×) (workload: `core_concurrency`) — while the `Mutex<Expanse*>` baselines of the blob and string key types fall to 0.13×–0.30× *(measured: reference host — Intel i9-12900F, runs [34881026495](https://github.com/orieg/expanse/actions/runs/34881026495) and [34882381735](https://github.com/orieg/expanse/actions/runs/34882381735), commit `76432c5c`, `docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json`)*. Write-mixed workloads are the weak regime (0.27×–2.23× at 50/50 across the `Sync*` arms) — see §3.2.
 - **Columnar Symbol Dictionaries**: Deduplicated string storage on shared-prefix strings via 8-byte big-endian chunk decomposition and tail collapse.
 - **MemTables & Secondary Indexes**: Rebalance-free $O(\text{depth})$ ordered key indexing with fast point/prefix lookups (full ordered iteration is faster than a B-tree for dense keys, still slower on sparse keys — see §7.1†).
