@@ -198,7 +198,7 @@
       "check": "race",
       "expect": "ub",
       "error": "Data race detected",
-      "frame": "sync::olc_cas_publish_bucket_map"
+      "frame": "sync::walk_validated"
     },
     {
       "test": "bytes_two_writers",
