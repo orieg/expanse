@@ -174,6 +174,50 @@ const fn build_raw_class_table() -> [u8; 376] {
 
 pub(crate) const RAW_CLASS_TABLE: [u8; 376] = build_raw_class_table();
 
+/// For each request size, the smallest raw size class that holds it at the
+/// same accounted size; a size with no such class, or above the table, maps
+/// to itself.
+const fn build_raw_fit_table() -> [u16; 376] {
+    let mut table = [0u16; 376];
+    let mut bytes = 0;
+    while bytes < 376 {
+        let mut fit = bytes;
+        let mut i = 6;
+        while i < NUM_CLASSES {
+            let (b, align) = CLASS_SPECS[i];
+            if align == RAW_ALIGN && b >= bytes {
+                if accounted_size(b, RAW_ALIGN) == accounted_size(bytes, RAW_ALIGN) {
+                    fit = b;
+                }
+                break;
+            }
+            i += 1;
+        }
+        table[bytes] = fit as u16;
+        bytes += 1;
+    }
+    table
+}
+
+const RAW_FIT_TABLE: [u16; 376] = build_raw_fit_table();
+
+/// The request size [`NodeAlloc::alloc_bytes`] should be given for a block of
+/// at least `bytes`: the smallest raw size class holding it, so the block
+/// comes from a class (slab-carved up to 256 bytes) rather than straight from
+/// the system allocator — when that class has the same accounted size, which
+/// holds for every size except the few just above a class gap (251..=256
+/// lies between the 250- and 275-byte classes). Otherwise `bytes`. For callers whose sizes
+/// vary freely, such as string suffix leaves; the engine's own node sizes are
+/// class sizes already.
+#[inline]
+pub(crate) fn raw_class_fit(bytes: usize) -> usize {
+    if bytes < RAW_FIT_TABLE.len() {
+        RAW_FIT_TABLE[bytes] as usize
+    } else {
+        bytes
+    }
+}
+
 #[inline(always)]
 pub(crate) fn class_for_raw(bytes: usize) -> Option<usize> {
     if bytes < RAW_CLASS_TABLE.len() {
@@ -1883,6 +1927,41 @@ mod tests {
         }
         assert_eq!(class_for_raw(376), None);
         assert_eq!(class_for_raw(1000), None);
+    }
+
+    /// `raw_class_fit` returns the smallest raw class holding each size, and
+    /// never a size whose accounted bytes exceed the request's own; every
+    /// suffix-sized request up to 250 bytes lands in a class.
+    #[test]
+    fn raw_class_fit_is_the_smallest_holding_class() {
+        for bytes in 1..RAW_FIT_TABLE.len() + 8 {
+            let fit = raw_class_fit(bytes);
+            assert!(fit >= bytes, "{bytes} -> {fit}");
+            assert_eq!(
+                accounted_size(fit, RAW_ALIGN),
+                accounted_size(bytes, RAW_ALIGN),
+                "{bytes} -> {fit} changes the accounted size"
+            );
+            if fit != bytes {
+                assert!(
+                    class_for_raw(fit).is_some(),
+                    "{bytes} -> {fit} has no class"
+                );
+                assert!(
+                    (bytes..fit).all(|b| class_for_raw(b).is_none()),
+                    "{bytes} -> {fit} skips a smaller class"
+                );
+            }
+            if bytes > 375 {
+                assert_eq!(fit, bytes);
+            }
+            if (16..=250).contains(&bytes) {
+                assert!(
+                    class_for_raw(fit).is_some(),
+                    "{bytes} is not fitted to a class"
+                );
+            }
+        }
     }
 
     /// `release_free` frees exactly the slab pages with no live block and

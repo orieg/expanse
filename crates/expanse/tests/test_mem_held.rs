@@ -232,13 +232,24 @@ fn mem_held_brackets_what_the_tree_holds() {
         drop(buf);
         m
     });
-    check(
-        "string map",
-        strs.mem_held(),
-        strs.mem_used(),
-        bytes,
-        rounded,
-    );
+    if cfg!(feature = "packed-suffix") {
+        // Suffix leaves come from `NodeAlloc` too, so the bracket closes.
+        check_exact(
+            "string map",
+            strs.mem_held(),
+            strs.mem_used(),
+            bytes,
+            rounded,
+        );
+    } else {
+        check(
+            "string map",
+            strs.mem_held(),
+            strs.mem_used(),
+            bytes,
+            rounded,
+        );
+    }
 }
 
 /// `shrink_to_fit()` lowers `mem_held()` by exactly what it reports, leaves

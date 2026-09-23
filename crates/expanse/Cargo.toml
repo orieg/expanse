@@ -117,6 +117,13 @@ ablation-blob-shared-arena = []
 # `--features ablation-blob-writer-arenas` invocation; `lib.rs` turns it into a
 # compiler error naming the inverse (AGENTS.md §2.7).
 ablation-blob-writer-arenas = []
+# Allocates `ExpanseStrMap` / `SyncExpanseStrMap` suffix leaves from the tree's
+# `NodeAlloc` size classes instead of one global allocation each (Refs #1095).
+# A suffix then costs its size rounded to 16 bytes with no system-allocator
+# chunk header, and `mem_used()` counts it through the allocator. Off by
+# default: the default build's allocation path, accounting and codegen are
+# unchanged. `results/allocator_overhead_*.txt` carries the census.
+packed-suffix = []
 
 
 [dependencies]
