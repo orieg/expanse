@@ -698,25 +698,24 @@ impl NodeAlloc {
                 continue;
             }
             let mut kept: *mut FreeBlock = core::ptr::null_mut();
-            let mut tail: *mut FreeBlock = core::ptr::null_mut();
+            let mut tail: Option<NonNull<FreeBlock>> = None;
             let mut cur = *self.freelists[class].get_mut();
-            while !cur.is_null() {
+            while let Some(block) = NonNull::new(cur) {
                 // SAFETY: freelist entries are free blocks with `next` written.
-                let next = unsafe { (*cur).next };
+                let next = unsafe { (*block.as_ptr()).next };
                 if !is_free(&pages[page_of(&pages, cur as usize)]) {
-                    if tail.is_null() {
-                        kept = cur;
-                    } else {
-                        // SAFETY: `tail` is a kept free block of this class.
-                        unsafe { (*tail).next = cur };
+                    match tail {
+                        None => kept = cur,
+                        // SAFETY: `t` is a kept free block of this class.
+                        Some(t) => unsafe { (*t.as_ptr()).next = cur },
                     }
-                    tail = cur;
+                    tail = Some(block);
                 }
                 cur = next;
             }
-            if !tail.is_null() {
-                // SAFETY: `tail` is a kept free block of this class.
-                unsafe { (*tail).next = core::ptr::null_mut() };
+            if let Some(t) = tail {
+                // SAFETY: `t` is a kept free block of this class.
+                unsafe { (*t.as_ptr()).next = core::ptr::null_mut() };
             }
             *self.freelists[class].get_mut() = kept;
         }
