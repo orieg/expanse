@@ -1616,7 +1616,12 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                 let node = edge.node_ptr().cast::<LeafBitmapL>();
                 let sub = (d >> 5) as usize;
                 // SAFETY: live LeafBitmapL per contract.
-                if let Some(rank) = unsafe { (*node).bitmap.test_and_subexpanse_rank(d) } {
+                if let Some(rank) = unsafe {
+                    crate::bits::shared_bitmap::test_and_subexpanse_rank::<OCC>(
+                        &raw const (*node).bitmap,
+                        d,
+                    )
+                } {
                     // SAFETY: value subarray holds subexpanse_count values.
                     unsafe {
                         let slot = (*node).values[sub].add(rank);
@@ -1633,8 +1638,14 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                 // SAFETY: live LeafBitmapL per contract.
                 let (rank, old_n) = unsafe {
                     (
-                        (*node).bitmap.subexpanse_rank(d) as usize,
-                        (*node).bitmap.subexpanse_count(sub) as usize,
+                        crate::bits::shared_bitmap::subexpanse_rank::<OCC>(
+                            &raw const (*node).bitmap,
+                            d,
+                        ) as usize,
+                        crate::bits::shared_bitmap::subexpanse_count::<OCC>(
+                            &raw const (*node).bitmap,
+                            sub,
+                        ) as usize,
                     )
                 };
                 cover.begin_if::<OCC, NESTED>(a);
@@ -1671,7 +1682,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                 }
                 // SAFETY: live LeafBitmapL per contract.
                 unsafe {
-                    (*node).bitmap.set(d);
+                    crate::bits::shared_bitmap::set::<OCC>(&raw mut (*node).bitmap, d);
                 }
                 let pop0 = edge.pop0(1);
                 edge.set_pop0(1, pop0 + 1);
@@ -1853,7 +1864,12 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                 // SAFETY: the node is live for the frame.
                 let inner = Cover::Node(unsafe { &raw mut (*b).version });
                 // SAFETY: live BranchB per contract.
-                if let Some(slot) = unsafe { (*b).bitmap.test_and_subexpanse_rank(d) } {
+                if let Some(slot) = unsafe {
+                    crate::bits::shared_bitmap::test_and_subexpanse_rank::<OCC>(
+                        &raw const (*b).bitmap,
+                        d,
+                    )
+                } {
                     inner.nest_begin::<OCC, NESTED>(a);
                     // SAFETY: bitmap/subarray consistency invariant. The
                     // descent is not bracketed in the brief mode; the child
@@ -1880,7 +1896,11 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                     return res;
                 }
                 // SAFETY: live BranchB per contract.
-                if unsafe { (*b).bitmap.count() } as usize + 1 > BRANCHB_UP {
+                if unsafe { crate::bits::shared_bitmap::count::<OCC>(&raw const (*b).bitmap) }
+                    as usize
+                    + 1
+                    > BRANCHB_UP
+                {
                     if bl < slot_level {
                         // BranchU cannot skip: materialize one chain level.
                         let pop = edge.pop0(bl) + 1;
@@ -1904,7 +1924,10 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                 let (old_n, rank) = unsafe {
                     (
                         (*b).pop_counts[sub] as usize,
-                        (*b).bitmap.subexpanse_rank(d) as usize,
+                        crate::bits::shared_bitmap::subexpanse_rank::<OCC>(
+                            &raw const (*b).bitmap,
+                            d,
+                        ) as usize,
                     )
                 };
                 // Open the new subarray slot under this node's own word,
@@ -1944,7 +1967,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool, const NEST
                 // SAFETY: live BranchB per contract.
                 unsafe {
                     (*b).pop_counts[sub] = (old_n + 1) as u16;
-                    (*b).bitmap.set(d);
+                    crate::bits::shared_bitmap::set::<OCC>(&raw mut (*b).bitmap, d);
                 }
                 inner.end_if::<OCC, NESTED>(a);
                 inner.nest_end::<OCC, NESTED>(a);
@@ -2255,11 +2278,19 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
             let node = edge.node_ptr().cast::<LeafBitmapL>();
             let sub = (d >> 5) as usize;
             // SAFETY: live LeafBitmapL per contract.
-            let rank = unsafe { (*node).bitmap.test_and_subexpanse_rank(d) }?;
+            let rank = unsafe {
+                crate::bits::shared_bitmap::test_and_subexpanse_rank::<OCC>(
+                    &raw const (*node).bitmap,
+                    d,
+                )
+            }?;
             // SAFETY: live LeafBitmapL per contract; value subarray holds
             // old_n values.
             let (old_n, old) = unsafe {
-                let old_n = (*node).bitmap.subexpanse_count(sub) as usize;
+                let old_n = crate::bits::shared_bitmap::subexpanse_count::<OCC>(
+                    &raw const (*node).bitmap,
+                    sub,
+                ) as usize;
                 (old_n, *(*node).values[sub].add(rank))
             };
             // A bitmap leaf carries no version of its own — readers
@@ -2293,7 +2324,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                         sub_vals_size(old_n),
                     );
                 }
-                (*node).bitmap.clear(d);
+                crate::bits::shared_bitmap::clear::<OCC>(&raw mut (*node).bitmap, d);
             }
             let pop = edge.pop0(1) as usize; // old pop - 1
             // Hysteresis: back to a linear map leaf when pop drops below the floor.
@@ -2307,16 +2338,17 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                 // SAFETY: live node; entries re-read for the rebuild.
                 let entries = unsafe {
                     let mut out = StackEntries32::new();
-                    let bitmap = &(*node).bitmap;
-                    let mut dig = bitmap.next_set(0);
+                    let bitmap = &raw const (*node).bitmap;
+                    let mut dig = crate::bits::shared_bitmap::next_set::<OCC>(bitmap, 0);
                     while let Some(g) = dig {
                         let s = (g >> 5) as usize;
-                        let r = bitmap.subexpanse_rank(g) as usize;
+                        let r =
+                            crate::bits::shared_bitmap::subexpanse_rank::<OCC>(bitmap, g) as usize;
                         out.push((u64::from(g), *(*node).values[s].add(r)));
                         dig = if g == 255 {
                             None
                         } else {
-                            bitmap.next_set(g + 1)
+                            crate::bits::shared_bitmap::next_set::<OCC>(bitmap, g + 1)
                         };
                     }
                     out
@@ -2324,7 +2356,10 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                 // SAFETY: free subarrays + node after extraction.
                 unsafe {
                     for sub in 0..8 {
-                        let n = (*node).bitmap.subexpanse_count(sub) as usize;
+                        let n = crate::bits::shared_bitmap::subexpanse_count::<OCC>(
+                            &raw const (*node).bitmap,
+                            sub,
+                        ) as usize;
                         if n > 0 {
                             a.free_bytes_dispatch::<OCC>(
                                 core::ptr::NonNull::new((*node).values[sub].cast())
@@ -2462,7 +2497,12 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
             let d = digit(key, bl);
             let b = edge.node_ptr().cast::<BranchB>();
             // SAFETY: live BranchB per contract.
-            let rank = unsafe { (*b).bitmap.test_and_subexpanse_rank(d) }?;
+            let rank = unsafe {
+                crate::bits::shared_bitmap::test_and_subexpanse_rank::<OCC>(
+                    &raw const (*b).bitmap,
+                    d,
+                )
+            }?;
             let sub = (d >> 5) as usize;
             // SAFETY: the node is live for the frame.
             let inner = Cover::Node(unsafe { &raw mut (*b).version });
@@ -2520,10 +2560,10 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                         );
                     }
                     (*b).pop_counts[sub] = (old_n - 1) as u16;
-                    (*b).bitmap.clear(d);
+                    crate::bits::shared_bitmap::clear::<OCC>(&raw mut (*b).bitmap, d);
                     inner.end_if::<OCC, NESTED>(a);
                     inner.nest_end::<OCC, NESTED>(a);
-                    (*b).bitmap.count() as usize
+                    crate::bits::shared_bitmap::count::<OCC>(&raw const (*b).bitmap) as usize
                 };
                 cover.begin_if::<OCC, NESTED>(a);
                 if digits == 0 {
