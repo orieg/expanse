@@ -36,8 +36,8 @@
 //!    a reader, or an optimistic writer descending to its lock point, makes
 //!    plain loads that race with a covered writer's plain stores: a root
 //!    leaf's keys and values, a node's edges, header fields and value
-//!    arrays, and — on the string, bytes and blob wrappers — the root state
-//!    (the map and set publish theirs as atomics in `TreeHead`; node bitmaps
+//!    arrays, and — on the string and blob wrappers — the root state (the
+//!    map, set and bytes map publish theirs as atomics in `TreeHead`; node bitmaps
 //!    are atomic on every shared path, `bits::shared_bitmap`). Every such
 //!    value is discarded unless validation proves no writer overlapped. That
 //!    is the seqlock pattern (Linux kernel seqlocks; Judy's own published OCC
@@ -47,11 +47,12 @@
 //!    Word-sized fields can be loaded atomically on stable Rust; packed
 //!    1–7-byte leaf keys, read with unaligned SWAR loads, have no atomic
 //!    spelling.
-//! 2. **References over shared state.** The string, bytes and blob wrappers
-//!    form `&T` to the whole engine on optimistic paths (`Shared::inner_ref`,
+//! 2. **References over shared state.** The string and blob wrappers form
+//!    `&T` to the whole engine on optimistic paths (`Shared::inner_ref`,
 //!    `optimistic_read`, `validated_len`) while a covered writer holds
-//!    `&mut T` for its whole operation. The map and set no longer do: their
-//!    readers load the published root and never touch the engine, and their
+//!    `&mut T` for its whole operation. The map, set and bytes map no longer
+//!    do: their readers load the published root and never touch the engine
+//!    (the bytes map's hash with the wrapper's clone of the hasher), their
 //!    covered writers hold the tree word for the whole operation, and the
 //!    shared paths reach node bitmaps through raw pointers
 //!    (`bits::shared_bitmap`) rather than `&Bitmap256` / `&mut Bitmap256`
@@ -813,6 +814,20 @@ impl<S: BuildHasher> SharedTree for ExpanseBytesMap<S> {
     unsafe fn root_top_ptr(&self) -> *mut Edge {
         // SAFETY: forwarded contract.
         unsafe { self.root_top_ptr() }
+    }
+
+    /// The hash trie's root, published as the map's and set's are: readers
+    /// and optimistic writers load it from the wrapper and hash with the
+    /// wrapper's copy of the hasher, so neither forms a reference to the
+    /// map (#1086).
+    const PUBLISHES_ROOT: bool = true;
+
+    fn publish_snapshot(&self) -> RootSnapshot {
+        self.occ_root().0
+    }
+
+    fn hold_tree_word(&self, held: bool) {
+        self.alloc().hold_tree_word(held);
     }
 }
 
@@ -2261,13 +2276,14 @@ impl<T: SharedTree> Shared<T> {
 
     /// One mutation under the writer lock and the writer gate.
     ///
-    /// A wrapper that publishes its root (`T::PUBLISHES_ROOT`: the map and
-    /// set) holds the tree-level word for the whole operation, in either
+    /// A wrapper that publishes its root (`T::PUBLISHES_ROOT`: the map, set
+    /// and bytes map) holds the tree-level word for the whole operation, in either
     /// root state, and republishes the root before closing it (#1086). Its
     /// readers then never touch the engine, so the `&mut` this takes to it
     /// overlaps no other thread's access; the engine's own tree bracket is a
     /// no-op meanwhile (`NodeAlloc::hold_tree_word`). Ordinary writes to a
-    /// tree-state map or set take the optimistic path and never come here;
+    /// tree-state map, set or bytes map take the optimistic path and never
+    /// come here;
     /// what does is a fallback, a root-state change or a serialised
     /// operation, and readers retry across it.
     ///
@@ -2775,14 +2791,15 @@ impl<S: BuildHasher> OlcHost for Shared<ExpanseBytesMap<S>> {
 
     #[inline(always)]
     unsafe fn top_ptr(&self) -> *mut Edge {
-        // SAFETY: top_ptr obtained without taking &mut on inner.
-        unsafe { (*self.inner.get()).root_top_ptr() }
+        // The published top edge, never the engine's (#1086).
+        self.published().top_edge_ptr()
     }
 
     #[inline(always)]
     fn alloc(&self) -> &NodeAlloc {
-        // SAFETY: inner_ref is valid and alloc is constant.
-        self.inner_ref().alloc()
+        // SAFETY: the block outlives `&self`; an admitted optimistic writer
+        // runs only while no covered writer holds `&mut` to the engine.
+        unsafe { ExpanseBytesMap::alloc_of(self.inner.get()) }
     }
 
     #[inline(always)]
@@ -10647,8 +10664,13 @@ impl StrReader<'_> {
 /// the epoch [`Collector`]; only value words mutate in place, covered
 /// by the reader's final tree-version validation.
 ///
-/// The hasher is shared untouched between the writer and every reader
-/// (hashing goes through `&self` concurrently), hence the `Sync` bound.
+/// The wrapper keeps its own clone of the hasher, taken at construction,
+/// and its readers and optimistic writers hash with that clone rather than
+/// reach into the map a covered writer may hold `&mut` to (#1086); hence
+/// the `Clone` bound on the constructors. The clone must hash every key as
+/// the original does, which every `BuildHasher` in `std` guarantees
+/// (`RandomState` clones its keys). Hashing goes through `&self`
+/// concurrently, hence the `Sync` bound.
 ///
 /// # Undefined behaviour under concurrent use
 ///
@@ -10657,6 +10679,8 @@ impl StrReader<'_> {
 /// incorrect result has been observed.
 pub struct SyncExpanseBytesMap<S: BuildHasher + Send + Sync = RandomState> {
     shared: SharedBox<ExpanseBytesMap<S>>,
+    /// The readers' and optimistic writers' hasher: a clone of the map's.
+    hasher: S,
     #[cfg(all(
         feature = "std",
         target_pointer_width = "64",
@@ -10679,17 +10703,21 @@ impl SyncExpanseBytesMap<RandomState> {
     }
 }
 
-impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
+impl<S: BuildHasher + Clone + Send + Sync> SyncExpanseBytesMap<S> {
     /// Creates an empty concurrent map using `hasher`.
+    ///
+    /// The map hashes with `hasher` and the wrapper's lock-free paths with a
+    /// clone of it, so the clone must hash identically (see the type docs).
     #[must_use]
     pub fn with_hasher(hasher: S) -> Self {
         let collector = Arc::new(Collector::new());
-        let map = ExpanseBytesMap::with_hasher(hasher);
+        let map = ExpanseBytesMap::with_hasher(hasher.clone());
         // Fresh map: deferral precedes every allocation.
         map.defer_to(Arc::clone(&collector));
         let shared = Shared::with_collector(map, collector);
         Self {
             shared,
+            hasher,
             #[cfg(all(
                 feature = "std",
                 target_pointer_width = "64",
@@ -10698,7 +10726,9 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             entry_pop: Box::new(ShardedTreePop::new(0)),
         }
     }
+}
 
+impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
     /// Inserts `key → val`; returns the replaced value, if any.
     ///
     /// Optimistic multi-writer lock coupling (OLC) with immutable bucket
@@ -10712,7 +10742,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             not(feature = "ablation-bytes-serial-writers")
         ))]
         {
-            if !self.shared.inner_ref().root_is_tree() {
+            if !self.shared.published().is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
                 return self.shared.remove_root_covered(|m| {
@@ -10729,7 +10759,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
 
             let guard = self.shared.enter_writer_blocking();
             let slot_id = guard.slot_id();
-            let h = self.shared.inner_ref().hash_key(key);
+            let h = self.hasher.hash_one(key);
 
             let res = self.shared.with_writer_pin(|| {
                 crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
@@ -10764,7 +10794,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                     }
 
                     let snap = self.shared.version().sample();
-                    let root = self.shared.inner_ref().occ_root().0;
+                    let root = self.shared.published().load();
                     // SAFETY: pinned + freshly sampled even version; loads are validated.
                     let found = match unsafe {
                         walk_validated::<true>(root, h, self.shared.version(), snap)
@@ -10971,7 +11001,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             not(feature = "ablation-bytes-serial-writers")
         ))]
         {
-            if !self.shared.inner_ref().root_is_tree() {
+            if !self.shared.published().is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
                 return self.remove_serialised(key);
@@ -10979,7 +11009,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
 
             let guard = self.shared.enter_writer_blocking();
             let slot_id = guard.slot_id();
-            let h = self.shared.inner_ref().hash_key(key);
+            let h = self.hasher.hash_one(key);
 
             let res = self.shared.with_writer_pin(|| {
                 crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
@@ -11013,7 +11043,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                     }
 
                     let snap = self.shared.version().sample();
-                    let root = self.shared.inner_ref().occ_root().0;
+                    let root = self.shared.published().load();
                     // SAFETY: pinned + freshly sampled even version; loads are validated.
                     let found = match unsafe {
                         walk_validated::<true>(root, h, self.shared.version(), snap)
@@ -11300,10 +11330,13 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
 /// is invisible): a populated map's hash trie holds slab-carved node
 /// memory that must never be retired to the collector (see
 /// `NodeAlloc::defer_to`).
-impl<S: BuildHasher + Send + Sync + Default> From<ExpanseBytesMap<S>> for SyncExpanseBytesMap<S> {
+impl<S: BuildHasher + Clone + Send + Sync + Default> From<ExpanseBytesMap<S>>
+    for SyncExpanseBytesMap<S>
+{
     fn from(src: ExpanseBytesMap<S>) -> Self {
         let collector = Arc::new(Collector::new());
-        let mut map = ExpanseBytesMap::with_hasher(S::default());
+        let hasher = S::default();
+        let mut map = ExpanseBytesMap::with_hasher(hasher.clone());
         map.defer_to(Arc::clone(&collector));
         // Entry-by-entry sweep: O(n) with one rehash per entry — a
         // wrap-once construction cost (see `SyncExpanseStrMap`).
@@ -11314,6 +11347,7 @@ impl<S: BuildHasher + Send + Sync + Default> From<ExpanseBytesMap<S>> for SyncEx
         let shared = Shared::with_collector(map, collector);
         Self {
             shared,
+            hasher,
             #[cfg(all(
                 feature = "std",
                 target_pointer_width = "64",
@@ -11347,15 +11381,18 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
     pub fn get(&self, key: &[u8]) -> Option<u64> {
         let shared = &self.map.shared;
         crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
+        let h = self.map.hasher.hash_one(key);
         for _ in 0..MAX_RETRIES {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = self.reader.pin();
             let snap = shared.version().sample();
-            // SAFETY: pinned + freshly sampled version; every load is
-            // validated (see `ExpanseBytesMap::get_validated`).
+            // The published root and the wrapper's hasher: the lookup forms
+            // no reference to the map (#1086).
+            let root = shared.published().load();
+            // SAFETY: pinned + freshly sampled version, the root loaded after
+            // it; every load is validated (see `bytesmap::get_validated`).
             let attempt =
-                // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-                unsafe { (*shared.inner.get()).get_validated(key, shared.version(), snap) };
+                unsafe { crate::bytesmap::get_validated(root, h, key, shared.version(), snap) };
             if let Ok(r) = attempt {
                 return r;
             }
@@ -14028,7 +14065,7 @@ mod tests {
     /// Every key hashes identically, so the whole map is one collision
     /// bucket: the concurrent bucket-replacement paths (append, remove,
     /// removed-key retirement) all run on it.
-    #[derive(Default)]
+    #[derive(Default, Clone)]
     struct Degenerate;
     impl std::hash::Hasher for Degenerate {
         fn finish(&self) -> u64 {
@@ -14237,7 +14274,7 @@ mod tests {
     /// hash trie is a real tree and the optimistic write path runs — which
     /// [`Degenerate`] cannot do, since one hash is one root leaf — while
     /// every slot still holds a real collision bucket.
-    #[derive(Default)]
+    #[derive(Default, Clone)]
     struct FewBuckets(u64);
     impl std::hash::Hasher for FewBuckets {
         fn finish(&self) -> u64 {

@@ -199,21 +199,19 @@
       "check": "race",
       "expect": "ub",
       "error": "Data race detected",
-      "frame": "map::MapCore::ins_slot"
+      "frame": "sync::olc_cas_publish_bucket_map"
     },
     {
       "test": "bytes_two_writers",
       "check": "alias-sb",
-      "expect": "ub",
-      "error": "strongly protected",
-      "frame": "sync::Shared::<bytesmap::ExpanseBytesMap>::inner_ref"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "bytes_two_writers",
       "check": "alias-tb",
-      "expect": "ub",
-      "error": "is forbidden",
-      "frame": "bytesmap::ExpanseBytesMap::set_len"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "bytes_reader_writer",
@@ -225,16 +223,14 @@
     {
       "test": "bytes_reader_writer",
       "check": "alias-sb",
-      "expect": "ub",
-      "error": "strongly protected",
-      "frame": "sync::Shared::<bytesmap::ExpanseBytesMap>::write_root_covered_with"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "bytes_reader_writer",
       "check": "alias-tb",
-      "expect": "ub",
-      "error": "is forbidden",
-      "frame": "map::ExpanseMap::set_tree_pop"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "blob_two_writers",

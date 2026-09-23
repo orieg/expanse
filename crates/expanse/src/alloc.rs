@@ -409,7 +409,9 @@ pub struct NodeAlloc {
     /// shared monomorph that brackets root state itself. `ROOT_COVER_HELD`
     /// while a map or set wrapper holds the word around a whole covered
     /// write (#1086): the monomorph is unchanged, and its own tree bracket
-    /// is a no-op for that operation.
+    /// is a no-op for that operation. The bytes wrapper also holds the word
+    /// around its covered writes, but its engine is in `ROOT_COVER_WRAPPER`
+    /// and the hand-over is a no-op there.
     #[cfg(feature = "std")]
     root_cover: core::sync::atomic::AtomicU8,
     /// #568 PR 3: the tree-level version word this tree's root state is

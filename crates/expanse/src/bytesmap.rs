@@ -530,6 +530,110 @@ pub struct ExpanseBytesMap<S: BuildHasher = DefaultBuildHasher> {
     deferred: OnceLock<Arc<Collector>>,
 }
 
+/// Phase 7 (issue #219): one bounded, validated optimistic lookup —
+/// the concurrent analogue of [`ExpanseBytesMap::get`]. One
+/// validated `sync::walk_validated` over the hash trie, then a
+/// byte-exact comparison against the collision bucket.
+///
+/// The bucket word yielded by the walk is validated at `snap`, and a
+/// published bucket is write-once except its value words (structural
+/// changes publish a replacement and retire the old bucket — see
+/// [`Bucket`]), so the shell, entry array, and key bytes read here
+/// are exactly the published state.
+///
+/// # What a reader can observe (#929)
+///
+/// The value word is the one field a concurrent writer may store
+/// into, so it is loaded through [`entry_value_atomic`] and never as
+/// a plain `u64`. Three races are possible and each yields a value
+/// the key actually held:
+///
+/// - **An in-place value publish on the bucket this reader is
+///   scanning.** The load returns the value before or after that
+///   store; both are values the key held, and the read linearizes
+///   at the load. That publish leaves every version alone — it
+///   unlocks the terminal's parent clean — deliberately: forcing the
+///   reader to retry would only trade a correct answer for an
+///   equally correct fresher one.
+/// - **A bucket replacement of the bucket this reader is
+///   scanning.** The replacement stores the trie word under the
+///   terminal's parent version lock and unlocks it dirty. A reader
+///   still inside the walk fails that node's validation and
+///   retries; a reader that had already taken the bucket word keeps
+///   reading the retired bucket under its pin, whose value words
+///   are **frozen** — a writer stores only after its locked compare
+///   has seen its own bucket word still published, and no writer
+///   can see it again once the trie entry has moved on. So it
+///   returns the value the key held when it took the word, and
+///   linearizes there. (The OLC write path moves node versions, not
+///   the tree word, so `ver.validate` below is not what covers
+///   this; it covers the serialised paths — root growth, `remove`,
+///   `clear` — which bracket the tree word.)
+/// - **Both at once.** The replacement re-reads the value words
+///   under the same version lock the in-place publish takes
+///   ([`refresh_replacement_values`]), so the two cannot interleave
+///   and no acknowledged overwrite is dropped.
+///
+/// `root` is the hash trie's root state and `h` the key's hash under the
+/// map's hasher. Neither is read from the map here: the concurrent wrapper
+/// passes its published root and its own copy of the hasher, so a reader
+/// forms no reference to a map a covered writer may hold `&mut` to (#1086).
+///
+/// # Safety
+///
+/// Same contract as `sync::walk_validated`: `snap` must be an even
+/// version sampled from `ver` after the map switched to deferred
+/// reclamation ([`ExpanseBytesMap::defer_to`]), `root` must have been
+/// loaded after `snap` was sampled, and the caller must hold an epoch pin
+/// for the whole call — every pointer read under a still-valid cover then
+/// references EBR-live memory.
+#[cfg(all(target_pointer_width = "64", feature = "std"))]
+pub(crate) unsafe fn get_validated(
+    root: crate::sync::RootSnapshot,
+    h: u64,
+    key: &[u8],
+    ver: &crate::occ::SeqVersion,
+    snap: u64,
+) -> Result<Option<u64>, crate::sync::Retry> {
+    use crate::sync::Retry;
+    // SAFETY: the caller's pin + snapshot contract carries through.
+    let found = unsafe { crate::sync::walk_validated::<true>(root, h, ver, snap) }?;
+    let Some(word) = found else { return Ok(None) };
+    let Some(bucket) = NonNull::new(word as *mut Bucket) else {
+        // A zero word is observable only mid-publication
+        // (`ins_slot` inserts the trie entry before storing the
+        // bucket pointer); the writer bracket is open, so retry.
+        return Err(Retry);
+    };
+    let bucket: *const Bucket = bucket.as_ptr();
+    // SAFETY: `word` was validated at `snap`, so `bucket` was the
+    // published bucket then, and EBR keeps its shell, entry buffer,
+    // and key buffers mapped under the caller's pin. Everything but
+    // the value words is write-once after publication.
+    let (len, entries) = unsafe { ((*bucket).len(), (*bucket).as_ptr()) };
+    let mut result = None;
+    for i in 0..len {
+        // SAFETY: `i < len` of the write-once entry array; the
+        // projection names the key field only, never the value word.
+        let k: &[u8] = unsafe { &(*entries.add(i)).0 };
+        if k == key {
+            // SAFETY: `i < len` of an EBR-live entry array under the
+            // caller's pin. The atomic load is what makes a
+            // concurrent in-place publish well-defined rather than a
+            // data race; see this function's docs for what it returns.
+            result = Some(
+                unsafe { entry_value_atomic(entries, i) }
+                    .load(core::sync::atomic::Ordering::Relaxed),
+            );
+            break;
+        }
+    }
+    if !ver.validate(snap) {
+        return Err(Retry);
+    }
+    Ok(result)
+}
+
 impl ExpanseBytesMap<DefaultBuildHasher> {
     /// Creates an empty map with the default hasher.
     #[must_use]
@@ -656,13 +760,6 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     }
 
     #[inline(always)]
-    #[allow(dead_code)]
-    #[cfg(feature = "std")]
-    pub(crate) fn hash_key(&self, key: &[u8]) -> u64 {
-        self.hasher.hash_one(key)
-    }
-
-    #[inline(always)]
     #[cfg(feature = "std")]
     pub(crate) fn root_is_tree(&self) -> bool {
         self.map.root_is_tree()
@@ -695,6 +792,25 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         self.map.occ_root()
     }
 
+    /// The hash trie's allocator, reached through a raw pointer to the map
+    /// without a reference to the whole map (#1086): the concurrent
+    /// wrapper's optimistic writers use it while its covered writer may
+    /// later take `&mut` to the map, and a shared reference to the map
+    /// would cover the hasher and the counters that writer stores to.
+    ///
+    /// # Safety
+    ///
+    /// As [`ExpanseMap::alloc_of`]: `this` points to a live map for `'a`,
+    /// and no `&mut` to it exists meanwhile.
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    #[cfg_attr(feature = "ablation-bytes-serial-writers", allow(dead_code))]
+    #[inline(always)]
+    pub(crate) unsafe fn alloc_of<'a>(this: *const Self) -> &'a crate::alloc::NodeAlloc {
+        // SAFETY: caller contract; the field is projected through the raw
+        // pointer, so no reference to the whole map is formed.
+        unsafe { ExpanseMap::alloc_of(core::ptr::addr_of!((*this).map)) }
+    }
+
     fn bucket_of(&self, key: &[u8]) -> Option<NonNull<Bucket>> {
         let h = self.hasher.hash_one(key);
         self.map
@@ -718,106 +834,6 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     #[must_use]
     pub fn contains_key(&self, key: &[u8]) -> bool {
         self.get(key).is_some()
-    }
-
-    /// Phase 7 (issue #219): one bounded, validated optimistic lookup —
-    /// the concurrent analogue of [`Self::get`]. One 64-bit hash, one
-    /// validated `sync::walk_validated` over the hash trie, then a
-    /// byte-exact comparison against the collision bucket.
-    ///
-    /// The bucket word yielded by the walk is validated at `snap`, and a
-    /// published bucket is write-once except its value words (structural
-    /// changes publish a replacement and retire the old bucket — see
-    /// [`Bucket`]), so the shell, entry array, and key bytes read here
-    /// are exactly the published state.
-    ///
-    /// # What a reader can observe (#929)
-    ///
-    /// The value word is the one field a concurrent writer may store
-    /// into, so it is loaded through [`entry_value_atomic`] and never as
-    /// a plain `u64`. Three races are possible and each yields a value
-    /// the key actually held:
-    ///
-    /// - **An in-place value publish on the bucket this reader is
-    ///   scanning.** The load returns the value before or after that
-    ///   store; both are values the key held, and the read linearizes
-    ///   at the load. That publish leaves every version alone — it
-    ///   unlocks the terminal's parent clean — deliberately: forcing the
-    ///   reader to retry would only trade a correct answer for an
-    ///   equally correct fresher one.
-    /// - **A bucket replacement of the bucket this reader is
-    ///   scanning.** The replacement stores the trie word under the
-    ///   terminal's parent version lock and unlocks it dirty. A reader
-    ///   still inside the walk fails that node's validation and
-    ///   retries; a reader that had already taken the bucket word keeps
-    ///   reading the retired bucket under its pin, whose value words
-    ///   are **frozen** — a writer stores only after its locked compare
-    ///   has seen its own bucket word still published, and no writer
-    ///   can see it again once the trie entry has moved on. So it
-    ///   returns the value the key held when it took the word, and
-    ///   linearizes there. (The OLC write path moves node versions, not
-    ///   the tree word, so `ver.validate` below is not what covers
-    ///   this; it covers the serialised paths — root growth, `remove`,
-    ///   `clear` — which bracket the tree word.)
-    /// - **Both at once.** The replacement re-reads the value words
-    ///   under the same version lock the in-place publish takes
-    ///   ([`refresh_replacement_values`]), so the two cannot interleave
-    ///   and no acknowledged overwrite is dropped.
-    ///
-    /// # Safety
-    ///
-    /// Same contract as `sync::walk_validated`: `snap` must be an even
-    /// version sampled from `ver` after this map switched to deferred
-    /// reclamation ([`Self::defer_to`]), and the caller must hold an
-    /// epoch pin for the whole call — every pointer read under a
-    /// still-valid cover then references EBR-live memory.
-    #[cfg(all(target_pointer_width = "64", feature = "std"))]
-    pub(crate) unsafe fn get_validated(
-        &self,
-        key: &[u8],
-        ver: &crate::occ::SeqVersion,
-        snap: u64,
-    ) -> Result<Option<u64>, crate::sync::Retry> {
-        use crate::sync::Retry;
-        let h = self.hasher.hash_one(key);
-        // Racy by-value root snapshot; the walk validates before use.
-        let root = self.map.occ_root().0;
-        // SAFETY: the caller's pin + snapshot contract carries through.
-        let found = unsafe { crate::sync::walk_validated::<true>(root, h, ver, snap) }?;
-        let Some(word) = found else { return Ok(None) };
-        let Some(bucket) = NonNull::new(word as *mut Bucket) else {
-            // A zero word is observable only mid-publication
-            // (`ins_slot` inserts the trie entry before storing the
-            // bucket pointer); the writer bracket is open, so retry.
-            return Err(Retry);
-        };
-        let bucket: *const Bucket = bucket.as_ptr();
-        // SAFETY: `word` was validated at `snap`, so `bucket` was the
-        // published bucket then, and EBR keeps its shell, entry buffer,
-        // and key buffers mapped under the caller's pin. Everything but
-        // the value words is write-once after publication.
-        let (len, entries) = unsafe { ((*bucket).len(), (*bucket).as_ptr()) };
-        let mut result = None;
-        for i in 0..len {
-            // SAFETY: `i < len` of the write-once entry array; the
-            // projection names the key field only, never the value word.
-            let k: &[u8] = unsafe { &(*entries.add(i)).0 };
-            if k == key {
-                // SAFETY: `i < len` of an EBR-live entry array under the
-                // caller's pin. The atomic load is what makes a
-                // concurrent in-place publish well-defined rather than a
-                // data race; see this method's docs for what it returns.
-                result = Some(
-                    unsafe { entry_value_atomic(entries, i) }
-                        .load(core::sync::atomic::Ordering::Relaxed),
-                );
-                break;
-            }
-        }
-        if !ver.validate(snap) {
-            return Err(Retry);
-        }
-        Ok(result)
     }
 
     /// Returns a **writable pointer to `key`'s value slot**, or `None`
